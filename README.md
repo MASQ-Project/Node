@@ -9,12 +9,12 @@ We use `rustup` to install what we need (e.g. rustc, cargo, etc). Follow instruc
 
 The `node` sub-project also uses `Docker` for a few things:
 - **Running** SubstratumNode needs to be able to listen on port `53`, but Ubuntu 16.04 Desktop uses that port for
-something else. So, we created the `Dockerfile` and helper scripts in `docker/linux_node/` to allow SubstratumNode 
-to run on that platform. It isn't needed for running on Mac or Windows, or on Ubuntu 16.04 Server.
+something else. So, we created the `Dockerfile` and helper scripts in `substratum_node_plex/node/docker/linux_node/` to
+allow SubstratumNode to run on that platform. It isn't needed for running on Mac or Windows, or on Ubuntu 16.04 Server.
 - **Testing** `Docker` also offered a convenient way for us to run our end-to-end integration tests for Mac and Linux on CI.
 SubstratumNode needs to be started with `root` privileges in order to connect to certain ports (e.g. `53`, `80`).
 The Jenkins agent that runs on Windows has the needed privileges by default, but the agents that run on Mac and Linux
-do not. We created the `Dockerfile` in `docker/integration_tests` to work around this limitation.
+do not. We created the `Dockerfile` in `substratum_node_plex/node/docker/integration_tests` to work around this limitation.
 
 You'll need an Internet connection when you build so that `cargo` can pull down dependencies.
 
