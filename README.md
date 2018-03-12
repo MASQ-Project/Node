@@ -3,9 +3,12 @@
 ## Purpose
 FIXME add marketing language about the overall product "SubstratumNode"
 
+
+
 ## Tools / Environment Setup
 SubstratumNode software is written in Rust.
 We use `rustup` to install what we need (e.g. rustc, cargo, etc). Follow instructions [here](https://www.rustup.rs/).
+_Wondering where our tests are? The convention in Rust is to write tests in the corresponding source file._
 
 The `node` sub-project also uses `Docker` for a few things:
 - **Running** SubstratumNode needs to be able to listen on port `53`, but Ubuntu 16.04 Desktop uses that port for
