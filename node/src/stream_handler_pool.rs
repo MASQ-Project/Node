@@ -521,7 +521,7 @@ mod tests {
         let subject_subs = sub_rx.recv ().unwrap ();
         subject_subs.add_sub.send(AddStreamMsg { stream: Box::new(stream) }).ok ();
         wait_until (|| {
-            read_stream_log.lock ().unwrap ().dump ().len () > 0
+            read_stream_log.lock ().unwrap ().dump ().len () == 3
         });
 
         subject_subs.transmit_sub.send(TransmitDataMsg { socket_addr, data: vec!(0x12, 0x34) }).ok ();
