@@ -2,10 +2,10 @@
 # Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
-NODE_BASE_DIR="$1"
+REPO_BASE_DIR="$1"
 
-if [[ "$NODE_BASE_DIR" == "" ]]; then
-    NODE_BASE_DIR="$CI_DIR/.."
+if [[ "$REPO_BASE_DIR" == "" ]]; then
+    REPO_BASE_DIR="$CI_DIR/../.."
 fi
 
 if [[ "$OSTYPE" == "msys" ]]; then
@@ -19,5 +19,5 @@ else
     docker build -t node_integration_test .
 
     echo $(ls "$CI_DIR/..")
-    docker run -v "$NODE_BASE_DIR":/node -t node_integration_test
+    docker run -v "$REPO_BASE_DIR":/node_root -t node_integration_test
 fi
