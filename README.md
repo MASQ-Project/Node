@@ -1,9 +1,23 @@
 # substratum_node_plex
 
 ## Purpose
-FIXME add marketing language about the overall product "SubstratumNode"
+SubstratumNetwork is an open-source network that allows anyone to allocate spare computing resources to make the internet
+a free and fair place for the entire world. It is a worldwide collection of nodes that securely delivers content without
+the need of a VPN or Tor.
 
+Because there's no single authority delivering or monitoring content, censorship and geo-restricted sites won't be an
+issue on SubstratumNetwork. It doesn't matter where you live or what content you're accessing, everyone in the world
+sees the exact same content.
 
+**SubstratumNode** is the foundation of SubstratumNetwork.
+
+It is what the average user runs to earn SUB and dedicate some of their computers' resources towards the network.
+Everyone who runs a SubstratumNode gets paid via cryptocurrency each time they serve content.
+
+SubstratumNodes work like forwarding points on the network. When a user requests a site, nodes use artificial
+intelligence to find the fastest way to get the information to that user.
+Multiple nodes can work to fulfill a single request, splitting the data into unique parts for added security and
+more efficient delivery.
 
 ## Tools / Environment Setup
 SubstratumNode software is written in Rust.
