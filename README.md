@@ -8,7 +8,6 @@ FIXME add marketing language about the overall product "SubstratumNode"
 ## Tools / Environment Setup
 SubstratumNode software is written in Rust.
 We use `rustup` to install what we need (e.g. rustc, cargo, etc). Follow instructions [here](https://www.rustup.rs/).
-_Wondering where all our tests are? The convention in Rust is to write unit tests in same file as the source._
 
 The `node` sub-project also uses `Docker` for a few things:
 - **Running** SubstratumNode needs to be able to listen on port `53`, but Ubuntu 16.04 Desktop uses that port for
@@ -26,6 +25,8 @@ We build and run tests for SubstratumNode using bash scripts located in the `ci`
 Use `ci/all.sh` at the top level to clean, build, and run tests for all sub-projects in one step.
 It will run the `node` integration tests as well, so if you're running on Mac or Linux make sure the `Docker` daemon is running.
 _On Windows, we run this script in a git bash terminal._
+
+_Wondering where all our tests are? The convention in Rust is to write unit tests in same file as the source._
 
 ### Run SubstratumNode locally
 
