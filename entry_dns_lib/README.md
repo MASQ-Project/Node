@@ -7,7 +7,7 @@ enables TCP traffic to be directed into the SubstratumNode software.
 
 It is built as a library, and is not intended as a standalone program.
 It probably isn't the most interesting place to begin digging into our code;
-[node](https://github.com/SubstratumNetwork/substratum_node_plex/tree/master/node)
+[node](https://github.com/SubstratumNetwork/substratum_node/tree/master/node)
 is a better place to start.
 
 

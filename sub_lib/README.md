@@ -6,7 +6,7 @@ The purpose of `sub_lib` is to hold all the shared components we use in the proj
 
 It is built as a library, and is not intended as a standalone program.
 It probably isn't the most interesting place to begin digging into our code;
-[node](https://github.com/SubstratumNetwork/substratum_node_plex/tree/master/node)
+[node](https://github.com/SubstratumNetwork/substratum_node/tree/master/node)
 is a better place to start.
 
 

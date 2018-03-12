@@ -1,4 +1,4 @@
-# substratum_node_plex
+# substratum_node
 
 ## Purpose
 SubstratumNetwork is an open-source network that allows anyone to allocate spare computing resources to make the internet
@@ -25,12 +25,12 @@ We use `rustup` to install what we need (e.g. rustc, cargo, etc). Follow instruc
 
 The `node` sub-project also uses `Docker` for a few things:
 - **Running** SubstratumNode needs to be able to listen on port `53`, but Ubuntu 16.04 Desktop uses that port for
-something else. So, we created the `Dockerfile` and helper scripts in `substratum_node_plex/node/docker/linux_node/` to
+something else. So, we created the `Dockerfile` and helper scripts in `substratum_node/node/docker/linux_node/` to
 allow SubstratumNode to run on that platform. It isn't needed for running on Mac or Windows, or on Ubuntu 16.04 Server.
 - **Testing** `Docker` also offered a convenient way for us to run our end-to-end integration tests for Mac and Linux on CI.
 SubstratumNode needs to be started with `root` privileges in order to connect to certain ports (e.g. `53`, `80`).
 The Jenkins agent that runs on Windows has the needed privileges by default, but the agents that run on Mac and Linux
-do not. We created the `Dockerfile` in `substratum_node_plex/node/docker/integration_tests` to work around this limitation.
+do not. We created the `Dockerfile` in `substratum_node/node/docker/integration_tests` to work around this limitation.
 
 You'll need an Internet connection when you build so that `cargo` can pull down dependencies.
 
@@ -45,18 +45,18 @@ _Wondering where all our tests are? The convention in Rust is to write unit test
 ### Run SubstratumNode locally
 
 _Note: Currently, your DNS must be manually set to `127.0.0.1` in order to route traffic through SubstratumNode.
-Find instructions for your platform [here](https://github.com/SubstratumNetwork/substratum_node_plex/tree/master/node/docs)._
+Find instructions for your platform [here](https://github.com/SubstratumNetwork/substratum_node/tree/master/node/docs)._
 
 Once you've successfully built the `node` executable and completed the manual setup steps,
 you can run SubstratumNode locally from the command line:
 ```
-<path to workspace>/substratum_node_plex/node/target/release/node --dns_servers 8.8.8.8
+<path to workspace>/substratum_node/node/target/release/node --dns_servers 8.8.8.8
 ```
 In the above example, we're using Google's DNS, `8.8.8.8`, but you can use your preferred DNS.
 If you can't choose just one favorite DNS, you can also specify multiple, separated by a comma (`,`).
 
 _Why do we send in `dns_servers`? SubstratumNodes still need to talk to the greater Internet.
-See [the ProxyClient README](https://github.com/SubstratumNetwork/substratum_node_plex/tree/master/proxy_client_lib)
+See [the ProxyClient README](https://github.com/SubstratumNetwork/substratum_node/tree/master/proxy_client_lib)
 for more information._
 
 # Disclosure
