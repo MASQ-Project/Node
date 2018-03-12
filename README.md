@@ -16,17 +16,6 @@ SubstratumNode needs to be started with `root` privileges in order to connect to
 The Jenkins agent that runs on Windows has the needed privileges by default, but the agents that run on Mac and Linux
 do not. We created the `Dockerfile` in `docker/integration_tests` to work around this limitation.
 
-This project is made up of several sub-projects:
-
-- substratum_node_plex/
-    - [sub_lib](https://github.com/SubstratumNetwork/substratum_node_plex/tree/master/sub_lib)/
-    - [entry_dns_lib](https://github.com/SubstratumNetwork/substratum_node_plex/tree/master/entry_dns_lib)/
-    - [hopper_lib](https://github.com/SubstratumNetwork/substratum_node_plex/tree/master/hopper_lib)/
-    - [neighborhood_lib](https://github.com/SubstratumNetwork/substratum_node_plex/tree/master/neighborhood)/
-    - [proxy_client_lib](https://github.com/SubstratumNetwork/substratum_node_plex/tree/master/proxy_client_lib)/
-    - [proxy_server_lib](https://github.com/SubstratumNetwork/substratum_node_plex/tree/master/proxy_server_lib)/
-    - [node](https://github.com/SubstratumNetwork/substratum_node_plex/tree/master/node)/
-
 You'll need an Internet connection when you build so that `cargo` can pull down dependencies.
 
 ## How To
