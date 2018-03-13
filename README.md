@@ -12,12 +12,11 @@ sees the exact same content.
 **SubstratumNode** is the foundation of SubstratumNetwork.
 
 It is what the average user runs to earn SUB and dedicate some of their computers' resources towards the network.
-Everyone who runs a SubstratumNode gets paid via cryptocurrency each time they serve content.
+People who run a SubstratumNode can be rewarded with cryptocurrency for each time they serve content.
 
-SubstratumNodes work like forwarding points on the network. When a user requests a site, nodes use artificial
-intelligence to find the fastest way to get the information to that user.
-Multiple nodes can work to fulfill a single request, splitting the data into unique parts for added security and
-more efficient delivery.
+SubstratumNodes work together to relay CORES packages and content on the network.
+When a user requests a site, nodes use artificial intelligence to find the most expedient and secure way to get the
+information to that user. Multiple nodes work to fulfill a single request in order to maintain a necessary level of anonymity.
 
 ## Tools / Environment Setup
 SubstratumNode software is written in Rust.
