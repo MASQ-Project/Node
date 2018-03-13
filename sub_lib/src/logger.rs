@@ -7,6 +7,7 @@ use chrono::format::strftime::StrftimeItems;
 use log::Level;
 use log::Record;
 use log::logger;
+use std::thread;
 
 pub trait LoggerInitializerWrapper: Send {
     fn init (&mut self) -> bool;
@@ -61,8 +62,8 @@ impl Logger {
     fn generic_log (&self, level: Level, string: String) {
         let logger = logger ();
         logger.log (&Record::builder ()
-            .args (format_args! ("{} {}: {}: {}", Logger::timestamp_as_string (&SystemTime::now ()),
-                                 level, self.name, string))
+            .args (format_args! ("{} {:?}: {}: {}: {}", Logger::timestamp_as_string (&SystemTime::now ()),
+                 thread::current().id(), level, self.name, string))
             .build ()
         );
     }
@@ -88,8 +89,9 @@ mod tests {
 
         let tlh = test_utils::TestLogHandler::new ();
         let prefix_len = "0000-00-00 00:00:00.000".len ();
-        let one_log = tlh.get_log_at (tlh.exists_log_containing(" ERROR: logger_format_is_correct_one: one log"));
-        let another_log = tlh.get_log_at (tlh.exists_log_containing(" ERROR: logger_format_is_correct_another: another log"));
+        let thread_id = thread::current().id();
+        let one_log = tlh.get_log_at (tlh.exists_log_containing(&format!(" {:?}: ERROR: logger_format_is_correct_one: one log", thread_id)));
+        let another_log = tlh.get_log_at (tlh.exists_log_containing(&format!(" {:?}: ERROR: logger_format_is_correct_another: another log", thread_id)));
         let before_str = Logger::timestamp_as_string (&before);
         let after_str = Logger::timestamp_as_string (&after);
         assert_between (&one_log[..prefix_len], &before_str, &after_str);

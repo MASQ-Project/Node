@@ -102,14 +102,13 @@ impl ProxyClientReal {
                            resolver_arc: Arc<Mutex<Box<ResolverWrapper>>>, mut stream: Box<TcpStreamWrapper>) {
         thread::spawn (move || {
             let logger = Logger::new ("Proxy Client");
-            let thread_id = thread::current ().id ();
-            logger.debug (format! ("{:?}: Started thread", thread_id));
+            logger.debug (format! ("Started thread"));
             let client_request_payload: ClientRequestPayload = match expired_cores_package.payload () {
                 Ok(p) => p,
                 Err(e) => {
-                    logger.error (format! ("{:?}: Unparseable request discarded ({}): {:?}", thread_id, e,
+                    logger.error (format! ("Unparseable request discarded ({}): {:?}", e,
                     expired_cores_package.payload_data ().data));
-                    logger.debug (format! ("{:?}: Stopping thread abnormally", thread_id));
+                    logger.debug (format! ("Stopping thread abnormally"));
                     return
                 }
             };
@@ -121,7 +120,7 @@ impl ProxyClientReal {
                     None => {
                         ProxyClientReal::send_cores_response(expired_cores_package.remaining_route,
                             &client_request_payload, PlainData::new (SERVER_PROBLEM_RESPONSE), hopper);
-                        logger.debug (format! ("{:?}: Stopping thread after 503", thread_id));
+                        logger.debug (format! ("Stopping thread after 503"));
                         return
                     }
                 }
@@ -137,7 +136,7 @@ impl ProxyClientReal {
                 Err (_) => ProxyClientReal::send_cores_response(expired_cores_package.remaining_route,
                     &client_request_payload, PlainData::new (SERVER_PROBLEM_RESPONSE), hopper)
             };
-            logger.debug (format! ("{:?}: Stopping thread", thread_id));
+            logger.debug (format! ("Stopping thread"));
         });
     }
 
@@ -153,12 +152,11 @@ impl ProxyClientReal {
 
     fn connect_stream (addr: SocketAddr, tcp_stream_wrapper: &mut Box<TcpStreamWrapper>,
                        logger: &Logger) -> io::Result<()> {
-        let thread_id = thread::current().id ();
-        logger.debug (format! ("{:?}: Connecting stream to {}", thread_id, addr));
+        logger.debug (format! ("Connecting stream to {}", addr));
         match tcp_stream_wrapper.connect(addr) {
             Ok (s) => Ok (s),
             Err (e) => {
-                logger.error (format! ("{:?}: Could not connect to server at {}: {}", thread_id, addr, e));
+                logger.error (format! ("Could not connect to server at {}: {}", addr, e));
                 return Err (e)
             }
         }
@@ -166,12 +164,11 @@ impl ProxyClientReal {
 
     fn write_to_stream (addr: SocketAddr, tcp_stream_wrapper: &mut Box<TcpStreamWrapper>,
                         payload: &PlainData, logger: &Logger) -> io::Result<usize> {
-        let thread_id = thread::current().id ();
-        logger.debug (format! ("{:?}: Writing to stream", thread_id));
+        logger.debug (format! ("Writing to stream"));
         match tcp_stream_wrapper.write (&payload.data[..]) {
             Ok (len) => Ok (len), // TODO: Maybe check return value against payload length
             Err (e) => {
-                logger.error (format! ("{:?}: Could not write to server at {}: {}", thread_id, addr, e));
+                logger.error (format! ("Could not write to server at {}: {}", addr, e));
                 return ProxyClientReal::error_shutdown (tcp_stream_wrapper, e);
             }
         }
@@ -179,29 +176,27 @@ impl ProxyClientReal {
 
     fn set_read_timeout (addr: SocketAddr, tcp_stream_wrapper: &mut Box<TcpStreamWrapper>,
                          logger: &Logger) -> io::Result<()> {
-        let thread_id = thread::current().id ();
-        logger.debug (format! ("{:?}: Setting stream timeout to {}ms", thread_id, RESPONSE_FINISHED_TIMEOUT_MS));
+        logger.debug (format! ("Setting stream timeout to {}ms", RESPONSE_FINISHED_TIMEOUT_MS));
         match tcp_stream_wrapper.set_read_timeout(Some(Duration::from_millis(RESPONSE_FINISHED_TIMEOUT_MS))) {
             Ok (s) => Ok (s),
             Err (e) => {
-                logger.error (format! ("{:?}: Could not set read timeout on stream from {}: {}", thread_id, addr, e));
+                logger.error (format! ("Could not set read timeout on stream from {}: {}", addr, e));
                 return ProxyClientReal::error_shutdown (tcp_stream_wrapper, e);
             }
         }
     }
 
     fn find_socket_addr (hostname: &String, port: u16, resolver: &ResolverWrapper, logger: &Logger) -> Option<SocketAddr> {
-        let thread_id = thread::current ().id ();
         let mut fqdn = hostname.clone ();
         fqdn.push ('.');
         match resolver.lookup_ip (&fqdn[..]) {
             Ok (ref ip_addrs) if !ip_addrs.is_empty () => Some (SocketAddr::new (ip_addrs[0], port)),
             Ok (_) => {
-                logger.log (format! ("{:?}: DNS search for hostname '{}' produced no results", thread_id, fqdn));
+                logger.log (format! ("DNS search for hostname '{}' produced no results", fqdn));
                 None
             },
             Err (_) => {
-                logger.log (format! ("{:?}: DNS search for hostname '{}' encountered error: invalid input", thread_id, fqdn));
+                logger.log (format! ("DNS search for hostname '{}' encountered error: invalid input", fqdn));
                 None
             },
         }
@@ -209,28 +204,27 @@ impl ProxyClientReal {
 
     fn read_from_stream (addr: SocketAddr, tcp_stream_wrapper: &mut Box<TcpStreamWrapper>,
                          logger: &Logger) -> io::Result<PlainData> {
-        let thread_id = thread::current ().id ();
         let mut buf: [u8; 16384] = [0; 16384];
-        logger.debug (format! ("{:?}: Preparing to read from stream", thread_id));
+        logger.debug (format! ("Preparing to read from stream"));
         let mut framer = HttpPacketFramer::new (Box::new (HttpResponseStartFinder {}));
         loop {
             match tcp_stream_wrapper.read (&mut buf) {
                 Ok (len) => {
-                    logger.debug (format! ("{:?}: Read {}-byte chunk from stream", thread_id, len));
+                    logger.debug (format! ("Read {}-byte chunk from stream", len));
                     framer.add_data (&buf[0..len]);
                 },
                 Err (e) => {
-                    logger.error (format! ("{:?}: Could not read from server at {}: {}", thread_id, addr, e));
+                    logger.error (format! ("Could not read from server at {}: {}", addr, e));
                     return ProxyClientReal::error_shutdown (tcp_stream_wrapper, e);
                 }
             };
             match framer.take_frame () {
                 Some (response) => {
-                    logger.debug (format! ("{:?}: Framed complete {}-byte response", thread_id, response.len ()));
+                    logger.debug (format! ("Framed complete {}-byte response", response.len ()));
                     return Ok (PlainData::new (&response[..]))
                 },
                 None => {
-                    logger.debug (format! ("{:?}: Framer hasn't seen complete response yet", thread_id));
+                    logger.debug (format! ("Framer hasn't seen complete response yet"));
                     ()
                 }
             }
@@ -239,11 +233,10 @@ impl ProxyClientReal {
 
     fn shut_down_stream (tcp_stream_wrapper: &mut Box<TcpStreamWrapper>,
                          logger: &Logger) -> io::Result<()> {
-        let thread_id = thread::current ().id ();
-        logger.debug (format! ("{:?}: Shutting down stream", thread_id));
+        logger.debug (format! ("Shutting down stream"));
         match tcp_stream_wrapper.shutdown (Shutdown::Both) {
             Ok (s) => Ok (s),
-            Err (e) => { logger.warning (format! ("{:?}: Stream shutdown failure: {}", thread_id, e)); Err (e)}
+            Err (e) => { logger.warning (format! ("Stream shutdown failure: {}", e)); Err (e)}
         }
     }
 
@@ -547,7 +540,7 @@ mod tests {
                                                        &resolver_wrapper, &logger);
 
         assert_eq! (result, None);
-        TestLogHandler::new ().exists_log_matching ("ERROR: Proxy Client: ThreadId\\(\\d+\\): DNS search for hostname 'my.hostname.com.' produced no results");
+        TestLogHandler::new ().exists_log_matching ("ThreadId\\(\\d+\\): ERROR: Proxy Client: DNS search for hostname 'my.hostname.com.' produced no results");
     }
 
     #[test]
@@ -564,7 +557,7 @@ mod tests {
                                                        &resolver_wrapper, &logger);
 
         assert_eq! (result, None);
-        TestLogHandler::new ().exists_log_matching ("ERROR: Proxy Client: ThreadId\\(\\d+\\): DNS search for hostname 'my.hostname.com.' encountered error: invalid input");
+        TestLogHandler::new ().exists_log_matching ("ThreadId\\(\\d+\\): ERROR: Proxy Client: DNS search for hostname 'my.hostname.com.' encountered error: invalid input");
     }
 
     #[test]
@@ -659,7 +652,7 @@ mod tests {
         subject.receive_cores_package(package);
 
         assert_eq! (wait_for_arc_mutex_option(&actual_package_arc, 100).is_none (), true);
-        TestLogHandler::new ().exists_log_matching ("ERROR: Proxy Client: ThreadId\\(\\d+\\): Unparseable request discarded \\(invalid type: string \"not parseable as ClientRequestPayload\", expected struct ClientRequestPayload\\):");
+        TestLogHandler::new ().exists_log_matching ("ThreadId\\(\\d+\\): ERROR: Proxy Client: Unparseable request discarded \\(invalid type: string \"not parseable as ClientRequestPayload\", expected struct ClientRequestPayload\\):");
     }
 
     #[test]
@@ -691,7 +684,7 @@ mod tests {
 
         subject.receive_cores_package(package);
 
-        TestLogHandler::new ().await_log_matching ("ERROR: Proxy Client: ThreadId\\(\\d+\\): DNS search for hostname 'target.hostname.com.' produced no results", 1000);
+        TestLogHandler::new ().await_log_matching ("ThreadId\\(\\d+\\): ERROR: Proxy Client: DNS search for hostname 'target.hostname.com.' produced no results", 1000);
         let incipient_cores_package = actual_package_arc.lock ().unwrap ().take ().unwrap ();
         let expected_client_response_payload = ClientResponsePayload {stream_key: request.stream_key, data: PlainData::new (SERVER_PROBLEM_RESPONSE)};
         let serialized_client_response_payload = serde_cbor::ser::to_vec (&expected_client_response_payload).unwrap ();
@@ -705,7 +698,7 @@ mod tests {
         verify_error_results (
             TcpStreamWrapperMock::new ()
                 .connect_result (Err (Error::from (ErrorKind::ConnectionRefused))),
-            format! ("ERROR: Proxy Client: ThreadId\\(\\d+\\): Could not connect to server at {}: connection refused",
+            format! ("ThreadId\\(\\d+\\): ERROR: Proxy Client: Could not connect to server at {}: connection refused",
                      SocketAddr::new (target_ip (), 1234)),
             false
         );
@@ -717,7 +710,7 @@ mod tests {
             TcpStreamWrapperMock::new ()
                 .connect_result (Ok (()))
                 .write_result (Err (Error::from (ErrorKind::ConnectionAborted))),
-            format! ("ERROR: Proxy Client: ThreadId\\(\\d+\\): Could not write to server at {}: connection aborted",
+            format! ("ThreadId\\(\\d+\\): ERROR: Proxy Client: Could not write to server at {}: connection aborted",
                      SocketAddr::new (target_ip (), 1234)),
             true
         );
@@ -737,7 +730,7 @@ mod tests {
                 .connect_result (Ok (()))
                 .write_result (Ok (request.data.data.len ()))
                 .set_read_timeout_result (Err (Error::from (ErrorKind::InvalidInput))),
-            format! ("ERROR: Proxy Client: ThreadId\\(\\d+\\): Could not set read timeout on stream from {}: invalid input",
+            format! ("ThreadId\\(\\d+\\): ERROR: Proxy Client: Could not set read timeout on stream from {}: invalid input",
                      SocketAddr::new (target_ip (), 1234)),
             true
         );
@@ -758,7 +751,7 @@ mod tests {
                 .write_result (Ok (request.data.data.len ()))
                 .set_read_timeout_result (Ok (()))
                 .read_results (vec! (Err (Error::from (ErrorKind::AddrInUse)))),
-            format! ("ERROR: Proxy Client: ThreadId\\(\\d+\\): Could not read from server at {}: address in use",
+            format! ("ThreadId\\(\\d+\\): ERROR: Proxy Client: Could not read from server at {}: address in use",
                      SocketAddr::new (target_ip (), 1234)),
             true
         );
@@ -779,7 +772,7 @@ mod tests {
                 .write_result (Ok (request.data.data.len ()))
                 .set_read_timeout_result (Ok (()))
                 .read_results (vec! (Err (Error::from (timeout_error_kind())))),
-            format! ("ERROR: Proxy Client: ThreadId\\(\\d+\\): Could not read from server at {}: {}",
+            format! ("ThreadId\\(\\d+\\): ERROR: Proxy Client: Could not read from server at {}: {}",
                      SocketAddr::new (target_ip (), 1234), Error::from (timeout_error_kind ())),
             true
         );
@@ -828,7 +821,7 @@ mod tests {
 
         subject.receive_cores_package(package);
 
-        TestLogHandler::new ().await_log_matching ("WARN: Proxy Client: ThreadId\\(\\d+\\): Stream shutdown failure: broken pipe", 1000);
+        TestLogHandler::new ().await_log_matching ("ThreadId\\(\\d+\\): WARN: Proxy Client: Stream shutdown failure: broken pipe", 1000);
         let incipient_cores_package = actual_package_arc.lock ().unwrap ().take ().unwrap ();
         let expected_client_response_payload = ClientResponsePayload {stream_key: request.stream_key, data: PlainData::new (response_data)};
         let serialized_client_response_payload = serde_cbor::ser::to_vec (&expected_client_response_payload).unwrap ();

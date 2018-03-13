@@ -362,7 +362,7 @@ mod tests {
         let facade = PacketFacade::new (&mut buf, 12);
         assert_eq! (facade.get_transaction_id (), Some (0x1234));
         assert_eq! (facade.get_rcode (), Some (0x4));
-        TestLogHandler::new ().exists_log_matching (r"\d\d\d\d-\d\d-\d\d \d\d:\d\d:\d\d\.\d\d\d INFO: EntryDnsServer: \d+ns: 0\.0\.0\.0:0 RQF \(\) -> RS4 \(\)");
+        TestLogHandler::new ().exists_log_matching (r"\d\d\d\d-\d\d-\d\d \d\d:\d\d:\d\d\.\d\d\d ThreadId\(\d+\): INFO: EntryDnsServer: \d+ns: 0\.0\.0\.0:0 RQF \(\) -> RS4 \(\)");
     }
 
     fn make_instrumented_subject () -> DnsSocketServer<UdpSocketWrapperMock> {

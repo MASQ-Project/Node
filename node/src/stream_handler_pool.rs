@@ -44,9 +44,8 @@ struct StreamReaderReal {
 
 impl StreamReader for StreamReaderReal {
     fn handle_traffic(&mut self) {
-        let thread_id = thread::current().id ();
         let port = self.stream.local_addr().expect ("Internal error").port ();
-        self.logger.debug (format! ("{:?}: StreamReader for port {} starting with no read timeout", thread_id, port));
+        self.logger.debug (format! ("StreamReader for port {} starting with no read timeout", port));
         self.stream.set_read_timeout (None).expect ("Internal error");
         let mut buf: [u8; 0x10000] = [0; 0x10000];
         loop {
@@ -55,23 +54,23 @@ impl StreamReader for StreamReaderReal {
                     if length == 0 {
                         thread::sleep (Duration::from_millis (100));
                     } else {
-                        self.logger.debug (format! ("{:?}: Read {}-byte chunk from port {}", thread_id, length, port));
+                        self.logger.debug (format! ("Read {}-byte chunk from port {}", length, port));
                         self.wrangle_discriminators(&buf, length)
                     }
                 },
                 Err(e) => if indicates_dead_stream (e.kind ()) {
-                    self.logger.debug (format! ("{:?}: Stream on port {} is dead: {}", thread_id, port, e));
+                    self.logger.debug (format! ("Stream on port {} is dead: {}", port, e));
                     let socket_addr = self.stream.peer_addr ().expect ("Internal error");
                     self.remove_sub.send (RemoveStreamMsg {socket_addr}).expect ("Internal error");
                     self.stream.shutdown (Shutdown::Both).ok (); // can't do anything about failure
                     break;
                 }
                 else {
-                    self.logger.warning (format! ("{:?}: Continuing after read error on port {}: {}", thread_id, port, e.to_string ()))
+                    self.logger.warning (format! ("Continuing after read error on port {}: {}", port, e.to_string ()))
                 }
             }
         }
-        self.logger.debug (format! ("{:?}: StreamReader for port {} shutting down", thread_id, port));
+        self.logger.debug (format! ("StreamReader for port {} shutting down", port));
     }
 }
 
@@ -93,9 +92,8 @@ impl StreamReaderReal {
 
     fn wrangle_discriminators (&mut self, buf: &[u8], length: usize) {
         // Skinny implementation
-        let thread_id = thread::current().id();
         let discriminator = self.discriminators[0].as_mut ();
-        self.logger.debug (format! ("{:?}: Adding {} bytes to discriminator", thread_id, length));
+        self.logger.debug (format! ("Adding {} bytes to discriminator", length));
         discriminator.add_data (&buf[..length]);
         loop {
             match discriminator.take_chunk() {
@@ -105,12 +103,12 @@ impl StreamReaderReal {
                         component,
                         data: data.clone ()
                     };
-                    self.logger.debug (format! ("{:?}: Discriminator framed and unmasked {} bytes for {}; transmitting to {:?} via Hopper",
-                                                thread_id, data.len (), msg.socket_addr, component));
+                    self.logger.debug (format! ("Discriminator framed and unmasked {} bytes for {}; transmitting to {:?} via Hopper",
+                                                 data.len (), msg.socket_addr, component));
                     self.ibcd_sub.send(msg).expect("Internal error");
                 }
                 None => {
-                    self.logger.debug (format! ("{:?}: Discriminator has no more data framed", thread_id));
+                    self.logger.debug (format!("Discriminator has no more data framed"));
                     break
                 }
             }
@@ -404,7 +402,7 @@ mod tests {
         });
 
         awaiter.await_message_count (1);
-        TestLogHandler::new ().exists_log_matching("WARN: StreamReader for V4\\(1\\.2\\.3\\.4:5678\\): ThreadId\\(\\d+\\): Continuing after read error on port 6789: other os error");
+        TestLogHandler::new ().exists_log_matching("ThreadId\\(\\d+\\): WARN: StreamReader for V4\\(1\\.2\\.3\\.4:5678\\): Continuing after read error on port 6789: other os error");
         let recording = dispatcher_recording.lock ().unwrap ();
         assert_eq! (recording.get_record::<dispatcher::InboundClientData> (0), &dispatcher::InboundClientData {
             socket_addr,
