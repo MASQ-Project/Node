@@ -1,4 +1,3 @@
-// Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use sub_lib::utils::index_of;
 use sub_lib::dispatcher::Component;
 use sub_lib::http_packet_framer::State;

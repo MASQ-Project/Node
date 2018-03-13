@@ -1,4 +1,3 @@
-// Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 extern crate entry_dns_lib;
 extern crate sub_lib;
 
