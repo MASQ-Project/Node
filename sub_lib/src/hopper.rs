@@ -14,7 +14,7 @@ use actix::Subscriber;
 pub trait Hopper: DispatcherClient {
     fn transmit_cores_package (&self, package: IncipientCoresPackage);
     // TODO remove once Hopper is actorized
-    fn temporary_bind_proxy_server (&mut self, to_proxy_server: Box<Subscriber<ExpiredCoresPackageMessage> + Send>);
+    fn temporary_bind (&mut self, to_proxy_server: Box<Subscriber<ExpiredCoresPackageMessage> + Send>, to_proxy_client: Box<Subscriber<ExpiredCoresPackageMessage> + Send>);
 }
 
 pub trait HopperClient {

@@ -40,7 +40,6 @@ use hopper::Hopper;
 use hopper::HopperClient;
 use hopper::IncipientCoresPackage;
 use hopper::ExpiredCoresPackage;
-use proxy_client::ProxyClient;
 use cryptde::Key;
 use cryptde::PlainData;
 use utils;
@@ -52,6 +51,7 @@ use actix::Handler;
 use proxy_server::ProxyServerSubs;
 use hopper::HopperSubs;
 use dispatcher::DispatcherFacadeSubs;
+use proxy_client::ProxyClientSubs;
 use dispatcher::InboundClientData;
 use stream_handler_pool::StreamHandlerPoolSubs;
 use stream_handler_pool::AddStreamMsg;
@@ -494,7 +494,7 @@ impl Hopper for HopperMock {
         *parameter_ref = Some (package);
     }
 
-    fn temporary_bind_proxy_server(&mut self, _to_proxy_server: Box<Subscriber<ExpiredCoresPackageMessage> + Send>) {
+    fn temporary_bind(&mut self, _to_proxy_server: Box<Subscriber<ExpiredCoresPackageMessage> + Send>, _to_proxy_client: Box<Subscriber<ExpiredCoresPackageMessage> + Send>) {
         unimplemented!()
     }
 }
@@ -565,45 +565,10 @@ impl HopperClient for NeighborhoodMock {
 unsafe impl Send for NeighborhoodMock {}
 unsafe impl Sync for NeighborhoodMock {}
 
-pub struct ProxyClientMock {
-    pub hopper_client_delegate: HopperClientMock
-}
-
-impl ProxyClientMock {
-    pub fn new () -> ProxyClientMock {
-        ProxyClientMock {
-            hopper_client_delegate: HopperClientMock::new ()
-        }
-    }
-}
-
-impl ProxyClient for ProxyClientMock {
-}
-
-impl DispatcherClient for ProxyClientMock {
-    fn bind(&mut self, _transmitter_handle: Box<TransmitterHandle>, _clients: &PeerClients) {
-        unimplemented!()
-    }
-
-    fn receive(&mut self, _source: Endpoint, _data: PlainData) {
-        unimplemented!()
-    }
-}
-
-impl HopperClient for ProxyClientMock {
-    fn receive_cores_package(&mut self, package: ExpiredCoresPackage) {
-        self.hopper_client_delegate.receive_cores_package (package)
-    }
-}
-
-unsafe impl Send for ProxyClientMock {}
-unsafe impl Sync for ProxyClientMock {}
-
 pub fn make_peer_clients_with_mocks () -> PeerClients {
     PeerClients {
         hopper: Arc::new (Mutex::new (HopperMock::new ())),
         neighborhood: Arc::new (Mutex::new (NeighborhoodMock::new ())),
-        proxy_client: Arc::new (Mutex::new (ProxyClientMock::new ())),
     }
 }
 
@@ -674,6 +639,13 @@ pub fn make_stream_handler_pool_subs_from(addr: &SyncAddress<Recorder>) -> Strea
     }
 }
 
+pub fn make_proxy_client_subs_from(addr: &SyncAddress<Recorder>) -> ProxyClientSubs {
+    ProxyClientSubs {
+        bind: addr.subscriber::<BindMessage>(),
+        from_hopper: addr.subscriber::<ExpiredCoresPackageMessage>(),
+    }
+}
+
 // This must be called after System.new and before System.run
 pub fn make_peer_actors_from(proxy_server: Option<Recorder>, dispatcher: Option<Recorder>, hopper: Option<Recorder>, stream_handler_pool: Option<Recorder>) -> PeerActors {
     let proxy_server = match proxy_server {
@@ -696,24 +668,28 @@ pub fn make_peer_actors_from(proxy_server: Option<Recorder>, dispatcher: Option<
         None => Recorder::new()
     };
 
-    make_peer_actors_from_recorders(proxy_server, dispatcher, hopper, stream_handler_pool)
+    let proxy_client = Recorder::new();
+
+    make_peer_actors_from_recorders(proxy_server, dispatcher, hopper, stream_handler_pool, proxy_client)
 }
 
 // This must be called after System.new and before System.run
 pub fn make_peer_actors() -> PeerActors {
-    make_peer_actors_from_recorders(Recorder::new(), Recorder::new(), Recorder::new(), Recorder::new())
+    make_peer_actors_from_recorders(Recorder::new(), Recorder::new(), Recorder::new(), Recorder::new(), Recorder::new())
 }
 
-fn make_peer_actors_from_recorders(proxy_server: Recorder, dispatcher: Recorder, hopper: Recorder, stream_handler_pool: Recorder) -> PeerActors {
+fn make_peer_actors_from_recorders(proxy_server: Recorder, dispatcher: Recorder, hopper: Recorder, stream_handler_pool: Recorder, proxy_client: Recorder) -> PeerActors {
     let proxy_server_addr = proxy_server.start();
     let dispatcher_addr = dispatcher.start();
     let hopper_addr = hopper.start();
     let stream_handler_pool_addr = stream_handler_pool.start();
+    let proxy_client_addr = proxy_client.start();
 
     PeerActors {
         proxy_server: make_proxy_server_subs_from(&proxy_server_addr),
         dispatcher: make_dispatcher_subs_from(&dispatcher_addr),
         hopper: make_hopper_subs_from(&hopper_addr),
+        proxy_client: make_proxy_client_subs_from(&proxy_client_addr),
         stream_handler_pool: make_stream_handler_pool_subs_from(&stream_handler_pool_addr),
     }
 }

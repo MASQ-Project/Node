@@ -20,7 +20,6 @@ use std::str::FromStr;
 use sub_lib;
 use sub_lib::tcp_wrappers::TcpStreamWrapper;
 use sub_lib::test_utils::TestLog;
-use sub_lib::proxy_server::ClientRequestPayload;
 use sub_lib::dispatcher::Component;
 use sub_lib::dispatcher::DispatcherClient;
 use sub_lib::dispatcher::Endpoint;
@@ -30,12 +29,9 @@ use sub_lib::logger::Logger;
 use sub_lib::neighborhood::Neighborhood;
 use sub_lib::neighborhood::NeighborhoodError;
 use sub_lib::node_addr::NodeAddr;
-use sub_lib::proxy_client::ProxyClient;
 use sub_lib::route::Route;
 use sub_lib::hopper::Hopper;
-use sub_lib::hopper::HopperClient;
 use sub_lib::hopper::IncipientCoresPackage;
-use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::cryptde::Key;
 use sub_lib::cryptde::PlainData;
 use sub_lib::actor_messages::ExpiredCoresPackageMessage;
@@ -294,44 +290,6 @@ impl TestLogOwner for NeighborhoodNull {
     fn get_test_log(&self) -> Arc<Mutex<TestLog>> {self.delegate.log.clone ()}
 }
 
-pub struct ProxyClientNull {
-    pub delegate: DispatcherClientNull,
-    pub bound: bool
-}
-
-impl ProxyClientNull {
-    pub fn new () -> ProxyClientNull {
-        ProxyClientNull {
-            delegate: DispatcherClientNull::new("proxy_client"),
-            bound: false
-        }
-    }
-}
-
-impl HopperClient for ProxyClientNull {
-    fn receive_cores_package(&mut self, package: ExpiredCoresPackage) {
-        let payload = package.payload::<ClientRequestPayload> ().unwrap();
-        self.delegate.log.lock ().unwrap ().log (format! ("handle_request ({:?}, '{}')", payload.stream_key, String::from_utf8 (payload.data.data).unwrap ()));
-    }
-}
-
-impl ProxyClient for ProxyClientNull {}
-
-impl DispatcherClient for ProxyClientNull {
-    fn bind(&mut self, transmitter_handle: Box<TransmitterHandle>, clients: &PeerClients) {
-        self.bound = true;
-        self.delegate.bind (transmitter_handle, clients);
-    }
-
-    fn receive(&mut self, source: Endpoint, data: PlainData) {
-        self.delegate.receive (source, data);
-    }
-}
-
-impl TestLogOwner for ProxyClientNull {
-    fn get_test_log(&self) -> Arc<Mutex<TestLog>> {self.delegate.log.clone ()}
-}
-
 pub struct HopperNull {
     pub delegate: DispatcherClientNull,
     pub bound: bool
@@ -351,7 +309,7 @@ impl Hopper for HopperNull {
         unimplemented!()
     }
 
-    fn temporary_bind_proxy_server(&mut self, _to_proxy_server: Box<Subscriber<ExpiredCoresPackageMessage> + Send>) {
+    fn temporary_bind(&mut self, _to_proxy_server: Box<Subscriber<ExpiredCoresPackageMessage> + Send>, _to_proxy_client: Box<Subscriber<ExpiredCoresPackageMessage> + Send>) {
     }
 }
 

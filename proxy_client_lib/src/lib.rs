@@ -2,6 +2,7 @@
 extern crate sub_lib;
 extern crate serde_cbor;
 extern crate trust_dns_resolver;
+extern crate actix;
 
 pub mod proxy_client;
 pub mod resolver_wrapper;

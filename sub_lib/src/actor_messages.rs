@@ -7,6 +7,7 @@ use dispatcher::OutboundClientData;
 use proxy_server::ProxyServerSubs;
 use dispatcher::DispatcherFacadeSubs;
 use hopper::HopperSubs;
+use proxy_client::ProxyClientSubs;
 use dispatcher::TransmitterHandle;
 use stream_handler_pool::StreamHandlerPoolSubs;
 
@@ -18,7 +19,7 @@ pub struct PeerActors {
     pub proxy_server: ProxyServerSubs,
     pub dispatcher: DispatcherFacadeSubs,
     pub hopper: HopperSubs,
-//    pub proxy_client: ProxyClientSubs,
+    pub proxy_client: ProxyClientSubs,
 //    pub neighborhood: NeighborhoodSubs,
     pub stream_handler_pool: StreamHandlerPoolSubs,
 }

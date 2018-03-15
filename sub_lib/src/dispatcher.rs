@@ -15,7 +15,6 @@ use serde::de::Visitor;
 use serde_cbor;
 use hopper::Hopper;
 use neighborhood::Neighborhood;
-use proxy_client::ProxyClient;
 use cryptde::Key;
 use cryptde::PlainData;
 use utils::to_string;
@@ -89,7 +88,6 @@ impl<'a> Visitor<'a> for ComponentVisitor {
 pub struct PeerClients {
     pub hopper: Arc<Mutex<Hopper>>,
     pub neighborhood: Arc<Mutex<Neighborhood>>,
-    pub proxy_client: Arc<Mutex<ProxyClient>>,
 }
 
 #[derive (Clone, PartialEq, Eq)]

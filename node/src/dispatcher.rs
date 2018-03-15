@@ -9,8 +9,6 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::thread;
 use actix::Subscriber;
-use actix::System;
-use actix::SyncAddress;
 use sub_lib::dispatcher::DispatcherClient;
 use sub_lib::dispatcher::Component;
 use sub_lib::dispatcher::Endpoint;
@@ -24,9 +22,7 @@ use sub_lib::logger::Logger;
 use sub_lib::main_tools::StdStreams;
 use sub_lib::hopper::Hopper;
 use sub_lib::neighborhood::Neighborhood;
-use sub_lib::proxy_client::ProxyClient;
 use sub_lib::cryptde::PlainData;
-use sub_lib::actor_messages::RequestMessage;
 use sub_lib::actor_messages::TemporaryBindMessage;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
 use sub_lib::stream_handler_pool::StreamHandlerPoolSubs;
@@ -53,11 +49,11 @@ pub struct DispatcherReal {
     stream_handler_pool_subs: Option<StreamHandlerPoolSubs>,
     neighborhood: Option<Arc<Mutex<Neighborhood>>>,
     hopper: Option<Arc<Mutex<Hopper>>>,
-    proxy_client: Option<Arc<Mutex<ProxyClient>>>,
     client_factory: Box<ClientFactory>,
     transmitter_factory: Box<TransmitterFactory>,
     incoming_limiter: Limiter,
     logger: Logger,
+    config: Option<DispatcherConfig>,
 }
 
 impl SocketServer for DispatcherReal {
@@ -78,8 +74,8 @@ impl SocketServer for DispatcherReal {
             }
             listener_handler
         }).collect ();
-        let config = DispatcherReal::parse_args (args);
-        self.make_clients (config.dns_servers.clone ());
+        self.config = Some(DispatcherReal::parse_args (args));
+        self.make_clients ();
     }
 
     fn serve_without_root (&mut self) {
@@ -88,7 +84,8 @@ impl SocketServer for DispatcherReal {
         let (dispatcher_facade_subs, stream_handler_pool_subs) =
             self.actor_system_factory.make_and_start_actors(
                 ibcd_transmitter,
-                self.hopper.as_ref().expect("Hopper has not been created").clone()
+                self.hopper.as_ref().expect("Hopper has not been created").clone(),
+                self.config.as_ref().unwrap().dns_servers.clone(),
             );
 
         self.start_transmitter_thread (stream_handler_pool_subs.transmit_sub.clone (), dispatcher_facade_subs);
@@ -113,11 +110,11 @@ impl DispatcherReal {
             stream_handler_pool_subs: None,
             neighborhood: None,
             hopper: None,
-            proxy_client: None,
             client_factory: Box::new (ClientFactoryReal::new ()),
             transmitter_factory: Box::new (TransmitterFactoryReal::new ()),
             incoming_limiter: Limiter::new (),
             logger: Logger::new ("Dispatcher"),
+            config: None,
         }
     }
 
@@ -127,10 +124,9 @@ impl DispatcherReal {
         });
     }
 
-    fn make_clients (&mut self, dns_servers: Vec<SocketAddr>) {
+    fn make_clients (&mut self) {
         self.neighborhood = Some (self.client_factory.make_neighborhood ());
         self.hopper = Some (self.client_factory.make_hopper ());
-        self.proxy_client = Some (self.client_factory.make_proxy_client (dns_servers));
     }
 
     fn start_transmitter_thread (&mut self, transmit_sub: Box<Subscriber<TransmitDataMsg> + Send>, dispatcher_facade_subs: DispatcherFacadeSubs) {
@@ -142,14 +138,11 @@ impl DispatcherReal {
         let peer_clients = PeerClients {
             hopper: self.hopper.as_ref().expect("Must make_clients before start_transmitter_thread").clone (),
             neighborhood: self.neighborhood.as_ref().expect("Must make_clients before start_transmitter_thread").clone (),
-            proxy_client: self.proxy_client.as_ref().expect("Must make_clients before start_transmitter_thread").clone (),
         };
 
         DispatcherReal::bind_client (&self.neighborhood, Component::Neighborhood,
                                      &mut transmitter_box, &obcd_transmitter, &peer_clients);
         DispatcherReal::bind_client (&self.hopper, Component::Hopper,
-                                     &mut transmitter_box, &obcd_transmitter, &peer_clients);
-        DispatcherReal::bind_client (&self.proxy_client, Component::ProxyClient,
                                      &mut transmitter_box, &obcd_transmitter, &peer_clients);
 
         // TODO this should go away once everything is actorized
@@ -181,7 +174,7 @@ impl DispatcherReal {
                 Component::Neighborhood => DispatcherReal::receive_client (&mut self.neighborhood, source, data),
                 Component::Hopper => DispatcherReal::receive_client (&mut self.hopper, source, data),
                 Component::ProxyServer => panic! ("This should have been replaced with actorized ProxyServer"),
-                Component::ProxyClient => DispatcherReal::receive_client (&mut self.proxy_client, source, data)
+                Component::ProxyClient => panic! ("ProxyClient should never receive a message from the Dispatcher")
             }
         }
     }
@@ -250,6 +243,8 @@ mod tests {
     use std::ops::Deref;
     use std::ops::DerefMut;
     use actix::Actor;
+    use actix::SyncAddress;
+    use actix::System;
     use sub_lib::test_utils::FakeStreamHolder;
     use sub_lib::test_utils::TestLog;
     use transmitter::TransmitterHandleReal;
@@ -259,7 +254,6 @@ mod tests {
     use test_utils::TcpStreamWrapperMock;
     use test_utils::HopperNull;
     use test_utils::NeighborhoodNull;
-    use test_utils::ProxyClientNull;
     use test_utils::TestLogOwner;
     use test_utils::extract_log;
     use sub_lib::test_utils::Recorder;
@@ -267,18 +261,20 @@ mod tests {
     use sub_lib::test_utils::RecordAwaiter;
     use sub_lib::proxy_server::ProxyServerSubs;
     use sub_lib::hopper::HopperSubs;
+    use sub_lib::proxy_client::ProxyClientSubs;
     use sub_lib::actor_messages::BindMessage;
     use sub_lib::actor_messages::PeerActors;
+    use sub_lib::actor_messages::RequestMessage;
     use sub_lib::test_utils::make_dispatcher_subs_from;
     use sub_lib::test_utils::make_proxy_server_subs_from;
     use sub_lib::test_utils::make_hopper_subs_from;
     use sub_lib::test_utils::make_stream_handler_pool_subs_from;
+    use sub_lib::test_utils::make_proxy_client_subs_from;
+    use sub_lib::cryptde::CryptDE;
 
     struct ClientFactoryMock {
         neighborhood_mock: RefCell<Option<NeighborhoodNull>>,
         hopper_mock: RefCell<Option<HopperNull>>,
-        proxy_client_mock: RefCell<Option<ProxyClientNull>>,
-        proxy_client_dns_servers: Arc<Mutex<Vec<SocketAddr>>>
     }
 
     impl ClientFactory for ClientFactoryMock {
@@ -289,20 +285,13 @@ mod tests {
         fn make_hopper(&self) -> Arc<Mutex<Hopper>> {
             Arc::new (Mutex::new (self.hopper_mock.borrow_mut ().take ().unwrap ()))
         }
-
-        fn make_proxy_client(&self, dns_servers: Vec<SocketAddr>) -> Arc<Mutex<ProxyClient>> {
-            self.proxy_client_dns_servers.lock ().unwrap ().extend (dns_servers);
-            Arc::new (Mutex::new (self.proxy_client_mock.borrow_mut ().take ().unwrap ()))
-        }
     }
 
     impl ClientFactoryMock {
-        fn from (neighborhood: NeighborhoodNull, hopper: HopperNull, proxy_client: ProxyClientNull) -> ClientFactoryMock {
+        fn from (neighborhood: NeighborhoodNull, hopper: HopperNull) -> ClientFactoryMock {
             ClientFactoryMock {
                 neighborhood_mock: RefCell::new (Some (neighborhood)),
                 hopper_mock: RefCell::new (Some (hopper)),
-                proxy_client_mock: RefCell::new (Some (proxy_client)),
-                proxy_client_dns_servers: Arc::new (Mutex::new (vec! ()))
             }
         }
     }
@@ -461,7 +450,6 @@ mod tests {
 
         assert_eq! (subject.neighborhood.is_some (), true);
         assert_eq! (subject.hopper.is_some (), true);
-        assert_eq! (subject.proxy_client.is_some (), true);
     }
 
     #[test]
@@ -484,22 +472,27 @@ mod tests {
     }
 
     #[test]
-    fn initialize_as_root_passes_dns_servers_parameter_to_proxy_client () {
+    fn initialize_as_root_stores_dns_servers_and_passes_them_to_actor_system_factory_for_proxy_client_in_serve_without_root () {
         let neighborhood = NeighborhoodNull::new (vec! ());
         let hopper = HopperNull::new ();
-        let proxy_client = ProxyClientNull::new ();
-        let client_factory = ClientFactoryMock::from (neighborhood, hopper, proxy_client);
-        let dns_servers_arc = client_factory.proxy_client_dns_servers.clone ();
+        let client_factory = ClientFactoryMock::from (neighborhood, hopper);
+        let actor_system_factory = ActorSystemFactoryMock::with_two_recorders();
+        let dns_servers_arc = actor_system_factory.dnss.clone();
         let mut subject = DispatcherBuilder::new ()
+            .actor_system_factory (Box::new (actor_system_factory))
             .add_listener_handler (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())))
             .client_factory(client_factory)
+            .incoming_limit(1)
             .build ();
 
         subject.initialize_as_root(&vec! (String::from ("--dns_servers"), String::from ("1.2.3.4,2.3.4.5")),
                                    &mut FakeStreamHolder::new ().streams ());
 
+        subject.serve_without_root();
+
+
         let dns_servers_guard = dns_servers_arc.lock ().unwrap ();
-        assert_eq! (dns_servers_guard.deref (),
+        assert_eq! (dns_servers_guard.as_ref().unwrap(),
                     &vec! (SocketAddr::from_str ("1.2.3.4:53").unwrap (), SocketAddr::from_str ("2.3.4.5:53").unwrap ()))
     }
 
@@ -508,8 +501,7 @@ mod tests {
     fn initialize_as_root_complains_about_dns_servers_syntax_errors () {
         let neighborhood = NeighborhoodNull::new (vec! ());
         let hopper = HopperNull::new ();
-        let proxy_client = ProxyClientNull::new ();
-        let client_factory = ClientFactoryMock::from (neighborhood, hopper, proxy_client);
+        let client_factory = ClientFactoryMock::from (neighborhood, hopper);
         let mut subject = DispatcherBuilder::new ()
             .add_listener_handler (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())))
             .client_factory(client_factory)
@@ -579,21 +571,18 @@ mod tests {
         let ibcd_sub = actor_system_factory.dispatcher_facade_cluster.subs.ibcd_sub.clone ();
         let socket_addr_n = SocketAddr::from_str ("1.2.3.4:5678").unwrap ();
         let socket_addr_h = SocketAddr::from_str ("2.3.4.5:6789").unwrap ();
-        let socket_addr_pc = SocketAddr::from_str ("4.5.6.7:8901").unwrap ();
         let neighborhood = NeighborhoodNull::new (vec! (
             ("1.2.3.4", &[5678], "NBHD key"), ("2.3.4.5", &[6789], "HOPR key"), ("4.5.6.7", &[8901], "PXCL key")
         ));
         let neighborhood_log = neighborhood.get_test_log();
         let hopper = HopperNull::new ();
         let hopper_log = hopper.get_test_log();
-        let proxy_client = ProxyClientNull::new ();
-        let proxy_client_log = proxy_client.get_test_log();
-        let client_factory = ClientFactoryMock::from (neighborhood, hopper, proxy_client);
+        let client_factory = ClientFactoryMock::from (neighborhood, hopper);
         let mut subject = DispatcherBuilder::new ()
             .actor_system_factory (Box::new (actor_system_factory))
             .add_listener_handler (one_listener_handler)
             .add_listener_handler (another_listener_handler)
-            .incoming_limit (3)
+            .incoming_limit (2)
             .client_factory (client_factory)
             .transmitter_factory (TransmitterFactoryNull::new (mpsc::channel ().0, 0))
             .build ();
@@ -604,13 +593,11 @@ mod tests {
         let expected_data = vec! (
             InboundClientData {socket_addr: socket_addr_n, component: Component::Neighborhood, data: Vec::from ("nbhd".as_bytes ())},
             InboundClientData {socket_addr: socket_addr_h, component: Component::Hopper, data: Vec::from ("hopr".as_bytes ())},
-            InboundClientData {socket_addr: socket_addr_pc, component: Component::ProxyClient, data: Vec::from ("pxcl".as_bytes ())}
         );
         expected_data.iter ().for_each (|ibcd| {ibcd_sub.send (ibcd.clone ()).unwrap ();});
         join_handle.join ().unwrap ();
         assert_eq! (neighborhood_log.lock ().unwrap ().dump ()[2], "receive ('Key(NBHD key)', 'nbhd'");
         assert_eq! (hopper_log.lock ().unwrap ().dump ()[1], "receive ('Key(HOPR key)', 'hopr'");
-        assert_eq! (proxy_client_log.lock ().unwrap ().dump ()[1], "receive ('Key(PXCL key)', 'pxcl'");
     }
 
     #[test]
@@ -620,15 +607,14 @@ mod tests {
         let mut actor_system_factory = ActorSystemFactoryMock::with_real_dispatcher_facade ();
         let ibcd_sub = actor_system_factory.dispatcher_facade_cluster.subs.ibcd_sub.clone ();
         let socket_addr_ps = SocketAddr::from_str ("3.4.5.6:7890").unwrap ();
-        let socket_addr_pc = SocketAddr::from_str ("4.5.6.7:8901").unwrap ();
+        let socket_addr_n = SocketAddr::from_str ("4.5.6.7:8901").unwrap ();
         let neighborhood = NeighborhoodNull::new (vec! (
             ("1.2.3.4", &[5678], "NBHD key"), ("2.3.4.5", &[6789], "HOPR key"), ("4.5.6.7", &[8901], "PXCL key")
         ));
         let hopper = HopperNull::new ();
         let recording_arc = actor_system_factory.proxy_server_cluster.recording.take ().unwrap ();;
         let awaiter = actor_system_factory.proxy_server_cluster.awaiter.take ().unwrap ();
-        let proxy_client = ProxyClientNull::new ();
-        let client_factory = ClientFactoryMock::from (neighborhood, hopper,  proxy_client);
+        let client_factory = ClientFactoryMock::from (neighborhood, hopper);
         let mut subject = DispatcherBuilder::new ()
             .actor_system_factory (Box::new (actor_system_factory))
             .add_listener_handler (one_listener_handler)
@@ -643,7 +629,7 @@ mod tests {
 
         let expected_data = vec! (
             InboundClientData {socket_addr: socket_addr_ps, component: Component::ProxyServer, data: Vec::from ("pxsv".as_bytes ())},
-            InboundClientData {socket_addr: socket_addr_pc, component: Component::ProxyClient, data: Vec::from ("pxcl".as_bytes ())},
+            InboundClientData {socket_addr: socket_addr_n, component: Component::Neighborhood, data: Vec::from ("nbhd".as_bytes ())},
         );
         expected_data.iter ().for_each (|ibcd| {ibcd_sub.send (ibcd.clone ()).unwrap ();});
         join_handle.join ().unwrap ();
@@ -689,16 +675,28 @@ mod tests {
         subs: HopperSubs,
     }
 
+    struct ProxyClientCluster {
+        _recording: Option<Arc<Mutex<Recording>>>,
+        _awaiter: Option<RecordAwaiter>,
+        subs: ProxyClientSubs,
+    }
+
     struct ActorSystemFactoryMock {
         stream_handler_pool_cluster: StreamHandlerPoolCluster,
         dispatcher_facade_cluster: DispatcherFacadeCluster,
         proxy_server_cluster: ProxyServerCluster,
+        _proxy_client_cluster: ProxyClientCluster,
         _hopper_facade_cluster: HopperFacadeCluster,
-        ibcd_receiver_cell: RefCell<Option<Receiver<InboundClientData>>>
+        ibcd_receiver_cell: RefCell<Option<Receiver<InboundClientData>>>,
+        dnss: Arc<Mutex<Option<Vec<SocketAddr>>>>,
     }
 
     impl ActorSystemFactory for ActorSystemFactoryMock {
-        fn make_and_start_actors(&self, ibcd_transmitter: Sender<InboundClientData>, _hopper: Arc<Mutex<Hopper>>) -> (DispatcherFacadeSubs, StreamHandlerPoolSubs) {
+        fn make_and_start_actors(&self, ibcd_transmitter: Sender<InboundClientData>, _hopper: Arc<Mutex<Hopper>>, dns_servers: Vec<SocketAddr>) -> (DispatcherFacadeSubs, StreamHandlerPoolSubs) {
+            let mut parameter_guard = self.dnss.lock ().unwrap ();
+            let parameter_ref = parameter_guard.deref_mut ();
+            *parameter_ref = Some (dns_servers);
+
             let mut ibcd_receiver_opt_ref = self.ibcd_receiver_cell.borrow_mut ();
             let ibcd_receiver_opt = ibcd_receiver_opt_ref.deref_mut ();
             if ibcd_receiver_opt.is_some () {
@@ -772,16 +770,30 @@ mod tests {
                     }
                 };
 
-                tx.send ((dispatcher_facade_cluster, stream_handler_pool_cluster, proxy_server_cluster, hopper_facade_cluster)).unwrap ();
+                let proxy_client_cluster = {
+                    let proxy_client = Recorder::new();
+                    let recording = proxy_client.get_recording();
+                    let awaiter = proxy_client.get_awaiter();
+                    let addr: SyncAddress<_> = proxy_client.start();
+                    ProxyClientCluster {
+                        _recording: Some(recording),
+                        _awaiter: Some(awaiter),
+                        subs: make_proxy_client_subs_from(&addr),
+                    }
+                };
+
+                tx.send ((dispatcher_facade_cluster, stream_handler_pool_cluster, proxy_server_cluster, hopper_facade_cluster, proxy_client_cluster)).unwrap ();
                 system.run ();
             });
-            let (dispatcher_facade_cluster, stream_handler_pool_cluster, proxy_server_cluster, hopper_facade_cluster) = rx.recv ().unwrap ();
+            let (dispatcher_facade_cluster, stream_handler_pool_cluster, proxy_server_cluster, hopper_facade_cluster, proxy_client_cluster) = rx.recv ().unwrap ();
             ActorSystemFactoryMock {
                 dispatcher_facade_cluster,
                 stream_handler_pool_cluster,
                 proxy_server_cluster,
+                _proxy_client_cluster: proxy_client_cluster,
                 _hopper_facade_cluster: hopper_facade_cluster,
-                ibcd_receiver_cell: RefCell::new (None)
+                ibcd_receiver_cell: RefCell::new (None),
+                dnss: Arc::new(Mutex::new(None)),
             }
         }
 
@@ -837,23 +849,38 @@ mod tests {
                     }
                 };
 
+                let proxy_client_cluster = {
+                    let proxy_client = Recorder::new();
+                    let recording = proxy_client.get_recording();
+                    let awaiter = proxy_client.get_awaiter();
+                    let addr: SyncAddress<_> = proxy_client.start();
+                    ProxyClientCluster {
+                        _recording: Some(recording),
+                        _awaiter: Some(awaiter),
+                        subs: make_proxy_client_subs_from(&addr),
+                    }
+                };
+
                 dispatcher_facade_cluster.subs.bind.send(BindMessage { peer_actors: PeerActors {
                     proxy_server: proxy_server_cluster.subs.clone(),
                     dispatcher: dispatcher_facade_cluster.subs.clone(),
                     hopper: hopper_facade_cluster.subs.clone(),
                     stream_handler_pool: stream_handler_pool_cluster.subs.clone(),
+                    proxy_client: proxy_client_cluster.subs.clone(),
                 } });
 
-                tx.send ((dispatcher_facade_cluster, stream_handler_pool_cluster, proxy_server_cluster, hopper_facade_cluster)).unwrap ();
+                tx.send ((dispatcher_facade_cluster, stream_handler_pool_cluster, proxy_server_cluster, hopper_facade_cluster, proxy_client_cluster)).unwrap ();
                 system.run ();
             });
-            let (dispatcher_facade_cluster, stream_handler_pool_cluster, proxy_server_cluster, hopper_facade_cluster) = rx.recv ().unwrap ();
+            let (dispatcher_facade_cluster, stream_handler_pool_cluster, proxy_server_cluster, hopper_facade_cluster, proxy_client_cluster) = rx.recv ().unwrap ();
             ActorSystemFactoryMock {
                 dispatcher_facade_cluster,
                 stream_handler_pool_cluster,
                 proxy_server_cluster,
+                _proxy_client_cluster: proxy_client_cluster,
                 _hopper_facade_cluster: hopper_facade_cluster,
-                ibcd_receiver_cell: RefCell::new (Some (ibcd_receiver))
+                ibcd_receiver_cell: RefCell::new (Some (ibcd_receiver)),
+                dnss: Arc::new(Mutex::new(None)),
             }
         }
     }
@@ -869,7 +896,6 @@ mod tests {
         transmitter_factory: TransmitterFactoryNull,
         neighborhood: NeighborhoodNull,
         hopper: HopperNull,
-        proxy_client: ProxyClientNull,
         incoming_limit: Option<i32>
     }
 
@@ -888,7 +914,6 @@ mod tests {
                 transmitter_factory: TransmitterFactoryNull::new (mpsc::channel ().0, 100),
                 neighborhood,
                 hopper: HopperNull::new (),
-                proxy_client: ProxyClientNull::new (),
                 incoming_limit: None
             }
         }
@@ -936,12 +961,6 @@ mod tests {
         }
 
         #[allow (dead_code)]
-        fn proxy_client (mut self, client: ProxyClientNull) -> DispatcherBuilder {
-            self.proxy_client = client;
-            self
-        }
-
-        #[allow (dead_code)]
         fn incoming_limit (mut self, limit: i32) -> DispatcherBuilder {
             self.incoming_limit = Some (limit);
             self
@@ -963,12 +982,11 @@ mod tests {
                     Box::new (ClientFactoryMock::from (
                         self.neighborhood,
                         self.hopper,
-                        self.proxy_client
                     ))
                 },
                 listener_handler_factory: Box::new (self.listener_handler_factory),
                 transmitter_factory: Box::new (self.transmitter_factory),
-                neighborhood: None, hopper: None, proxy_client: None,
+                neighborhood: None, hopper: None,
                 listener_handlers: vec! (),
                 incoming_limiter: if self.incoming_limit.is_some () {
                     Limiter::with_only (self.incoming_limit.unwrap ())
@@ -977,6 +995,7 @@ mod tests {
                     Limiter::new ()
                 },
                 logger: Logger::new ("Dispatcher"),
+                config: None,
             }
         }
     }
