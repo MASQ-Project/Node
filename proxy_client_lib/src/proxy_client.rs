@@ -582,8 +582,8 @@ mod tests {
             system.run();
         });
 
-        thread::sleep (Duration::from_millis (100));
-        TestLogHandler::new ().exists_log_matching ("ThreadId\\(\\d+\\): ERROR: Proxy Client: Unparseable request discarded \\(invalid type: string \"not parseable as ClientRequestPayload\", expected struct ClientRequestPayload\\):");
+        TestLogHandler::new ().await_log_matching ("ThreadId\\(\\d+\\): ERROR: Proxy Client: Unparseable request discarded \\(invalid type: string \"not parseable as ClientRequestPayload\", expected struct ClientRequestPayload\\):",
+                                                   1000);
     }
 
     #[test]
