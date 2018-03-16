@@ -30,7 +30,6 @@ use sub_lib::neighborhood::Neighborhood;
 use sub_lib::neighborhood::NeighborhoodError;
 use sub_lib::node_addr::NodeAddr;
 use sub_lib::route::Route;
-use sub_lib::hopper::Hopper;
 use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::cryptde::Key;
 use sub_lib::cryptde::PlainData;
@@ -288,44 +287,6 @@ impl DispatcherClient for NeighborhoodNull {
 }
 
 impl TestLogOwner for NeighborhoodNull {
-    fn get_test_log(&self) -> Arc<Mutex<TestLog>> {self.delegate.log.clone ()}
-}
-
-pub struct HopperNull {
-    pub delegate: DispatcherClientNull,
-    pub bound: bool
-}
-
-impl HopperNull {
-    pub fn new () -> HopperNull {
-        HopperNull {
-            delegate: DispatcherClientNull::new("hopper"),
-            bound: false,
-        }
-    }
-}
-
-impl Hopper for HopperNull {
-    fn transmit_cores_package(&self, _package: IncipientCoresPackage) {
-        unimplemented!()
-    }
-
-    fn temporary_bind(&mut self, _to_proxy_server: Box<Subscriber<ExpiredCoresPackageMessage> + Send>, _to_proxy_client: Box<Subscriber<ExpiredCoresPackageMessage> + Send>) {
-    }
-}
-
-impl sub_lib::dispatcher::DispatcherClient for HopperNull {
-    fn bind(&mut self, transmitter_handle: Box<TransmitterHandle>, clients: &PeerClients) {
-        self.bound = true;
-        self.delegate.bind (transmitter_handle, clients);
-    }
-
-    fn receive(&mut self, source: Endpoint, data: PlainData) {
-        self.delegate.receive (source, data);
-    }
-}
-
-impl TestLogOwner for HopperNull {
     fn get_test_log(&self) -> Arc<Mutex<TestLog>> {self.delegate.log.clone ()}
 }
 

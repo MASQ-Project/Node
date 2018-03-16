@@ -7,7 +7,6 @@ use sub_lib::dispatcher::PeerClients;
 use sub_lib::dispatcher::TransmitterHandle;
 use sub_lib::neighborhood::Neighborhood;
 use sub_lib::neighborhood::NeighborhoodError;
-use sub_lib::hopper::HopperClient;
 use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::node_addr::NodeAddr;
 use sub_lib::route::Route;
@@ -43,14 +42,6 @@ impl DispatcherClient for TemporaryDispatcherClientReal {
         }
     }
 }
-
-impl HopperClient for TemporaryDispatcherClientReal {
-    fn receive_cores_package(&mut self, _package: ExpiredCoresPackage) {
-        unimplemented!()
-    }
-}
-
-impl<T: DispatcherClient + TemporaryDispatcherClient + Send + Sync> TemporaryDispatcherClient for T {}
 
 impl TemporaryDispatcherClientReal {
     pub fn new (component: Component) -> TemporaryDispatcherClientReal {

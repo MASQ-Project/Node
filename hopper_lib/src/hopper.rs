@@ -3,40 +3,54 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::borrow::Borrow;
 use serde_cbor;
-use sub_lib::dispatcher::Endpoint;
-use sub_lib::dispatcher::DispatcherClient;
-use sub_lib::dispatcher::TransmitterHandle;
-use sub_lib::dispatcher::PeerClients;
-use sub_lib::dispatcher::Component;
-use sub_lib::hopper::Hopper;
 use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::hopper::ExpiredCoresPackage;
-use sub_lib::neighborhood::Neighborhood;
 use sub_lib::hop::Hop;
 use sub_lib::route::Route;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::Key;
 use sub_lib::cryptde::CryptData;
 use sub_lib::cryptde::PlainData;
+use sub_lib::hopper::HopperSubs;
 use sub_lib::actor_messages::ExpiredCoresPackageMessage;
+use sub_lib::actor_messages::IncipientCoresPackageMessage;
+use sub_lib::actor_messages::BindMessage;
 use actix::Subscriber;
+use actix::Actor;
+use actix::Context;
+use actix::Handler;
+use actix::SyncAddress;
 
-
-pub struct HopperReal {
-    neighborhood: Option<Arc<Mutex<Neighborhood>>>,
+pub struct Hopper {
     cryptde: Box<CryptDE>,
     to_proxy_server: Option<Box<Subscriber<ExpiredCoresPackageMessage> + Send>>,
     to_proxy_client: Option<Box<Subscriber<ExpiredCoresPackageMessage> + Send>>,
 }
 
-impl Hopper for HopperReal {
-    fn transmit_cores_package (&self, package: IncipientCoresPackage) {
+impl Actor for Hopper {
+    type Context = Context<Self>;
+}
+
+impl Handler<BindMessage> for Hopper {
+    type Result = ();
+
+    fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
+        self.to_proxy_server = Some(msg.peer_actors.proxy_server.from_hopper);
+        self.to_proxy_client = Some(msg.peer_actors.proxy_client.from_hopper);
+        ()
+    }
+}
+
+impl Handler<IncipientCoresPackageMessage> for Hopper {
+    type Result = ();
+
+    fn handle(&mut self, msg: IncipientCoresPackageMessage, ctx: &mut Self::Context) -> Self::Result {
         // Skinny Release-2-only implementation
-        if package.route.next_hop ().public_key.is_some () {
+        if msg.pkg.route.next_hop ().public_key.is_some () {
             // from Proxy Server
             let expired_package = ExpiredCoresPackage::new (
                 Route::rel2_to_proxy_client (&self.cryptde.public_key (), self.cryptde.borrow ()).unwrap (),
-                package.payload
+                msg.pkg.payload
             );
             self.to_proxy_client.as_ref ().unwrap ().send (ExpiredCoresPackageMessage { pkg: expired_package });
             ()
@@ -45,52 +59,28 @@ impl Hopper for HopperReal {
             // from Proxy Client
             let expired_package = ExpiredCoresPackage::new (
                 Route::rel2_to_proxy_server (&self.cryptde.public_key (), self.cryptde.borrow ()).unwrap (),
-                package.payload
+                msg.pkg.payload
             );
             self.to_proxy_server.as_ref().expect("ProxyServer unbound").send( ExpiredCoresPackageMessage { pkg: expired_package });
             ()
         };
-    }
-
-    fn temporary_bind(&mut self, to_proxy_server: Box<Subscriber<ExpiredCoresPackageMessage> + Send>, to_proxy_client: Box<Subscriber<ExpiredCoresPackageMessage> + Send>) {
-        self.to_proxy_server = Some(to_proxy_server);
-        self.to_proxy_client = Some(to_proxy_client);
+        ()
     }
 }
 
-impl DispatcherClient for HopperReal {
-    fn bind(&mut self, _transmitter_handle: Box<TransmitterHandle>, clients: &PeerClients) {
-        self.neighborhood = Some (clients.neighborhood.clone ());
-    }
-
-    fn receive(&mut self, _source: Endpoint, data: PlainData) {
-        let live_package = match serde_cbor::de::from_slice::<LiveCoresPackage> (&data.data[..]) {
-            Ok (live_package) => live_package,
-            Err (_) => unimplemented! ()
-        };
-        let next_hop = live_package.next_hop (self.cryptde.borrow ());
-        // TODO Post-Release 2, look at next_hop to decide whether to route or dispatch
-        let expired_package = live_package.to_expired (self.cryptde.borrow ());
-        self.dispatch (next_hop.component.expect ("Internal error"), expired_package);
-    }
-}
-
-impl HopperReal {
-    pub fn new (cryptde: Box<CryptDE>) -> HopperReal {
-        HopperReal {
-            neighborhood: None,
+impl Hopper {
+    pub fn new (cryptde: Box<CryptDE>) -> Hopper {
+        Hopper {
             cryptde,
             to_proxy_server: None,
             to_proxy_client: None,
         }
     }
 
-    fn dispatch (&mut self, recipient: Component, package: ExpiredCoresPackage) {
-        match recipient {
-            Component::Neighborhood => unimplemented! (),
-            Component::ProxyServer => { self.to_proxy_server.as_ref ().expect ("Unbound").send(ExpiredCoresPackageMessage { pkg: package }); () },
-            Component::ProxyClient => { self.to_proxy_client.as_ref ().expect ("Unbound").send( ExpiredCoresPackageMessage { pkg: package }); () },
-            Component::Hopper => unimplemented! ()
+    pub fn make_subs_from(addr: &SyncAddress<Hopper>) -> HopperSubs {
+        HopperSubs {
+            bind: addr.subscriber::<BindMessage>(),
+            from_hopper_client: addr.subscriber::<IncipientCoresPackageMessage>(),
         }
     }
 }
@@ -160,67 +150,10 @@ mod tests {
     use actix::System;
     use actix::msgs;
     use sub_lib::test_utils::Recorder;
-
-    #[test]
-    fn temporary_white_box_bind_test () {
-        // TODO: Replace this test with a black-box receive() test when possible
-        let cryptde = CryptDENull::new ();
-        let transmitter_handle = Box::new (TransmitterHandleMock::new());
-        let peer_clients = test_utils::make_peer_clients_with_mocks();
-        let mut subject = HopperReal::new (Box::new (cryptde));
-
-        subject.bind(transmitter_handle, &peer_clients);
-
-        let actual_neighborhood_ptr = arc_to_ptr (&subject.neighborhood.as_ref ().unwrap ());
-        let expected_neighborhood_ptr = arc_to_ptr (&peer_clients.neighborhood);
-        assert_eq! (actual_neighborhood_ptr, expected_neighborhood_ptr);
-    }
-
-    #[test]
-    fn temporary_white_box_bind_facade_test() {
-        let system = System::new("temporary_white_box_bind_test");
-        let cryptde = CryptDENull::new ();
-
-        let proxy_client = Recorder::new();
-        let proxy_client_log_arc = proxy_client.get_recording();
-        let proxy_client_awaiter = proxy_client.get_awaiter();
-        let proxy_client_addr: SyncAddress<_> = proxy_client.start();
-        let other_expected_sub = proxy_client_addr.subscriber::<ExpiredCoresPackageMessage>();
-
-        let proxy_server = Recorder::new();
-        let proxy_server_log_arc = proxy_server.get_recording();
-        let proxy_server_awaiter = proxy_server.get_awaiter();
-        let proxy_server_addr: SyncAddress<_> = proxy_server.start();
-        let expected_sub = proxy_server_addr.subscriber::<ExpiredCoresPackageMessage>();
-
-        let expected_package = ExpiredCoresPackage {
-            remaining_route: Route::rel2_from_proxy_client(&cryptde.public_key(), &cryptde).unwrap(),
-            payload: PlainData::new(b"some data")
-        };
-        let mut subject = HopperReal::new (Box::new (cryptde));
-
-        subject.temporary_bind(expected_sub, other_expected_sub);
-        subject.to_proxy_server.as_ref().unwrap().send(ExpiredCoresPackageMessage { pkg: expected_package.clone() });
-        subject.to_proxy_client.as_ref().unwrap().send(ExpiredCoresPackageMessage { pkg: expected_package.clone() });
-
-        Arbiter::system().send(msgs::SystemExit(0));
-        system.run();
-
-        assert_eq!(true, subject.to_proxy_server.is_some());
-        proxy_server_awaiter.await_message_count(1);
-        let recording = proxy_server_log_arc.lock().unwrap();
-        let record = recording.get_record::<ExpiredCoresPackageMessage>(0);
-        assert_eq!(record.pkg, expected_package);
-        assert_eq!(true, subject.to_proxy_client.is_some());
-        proxy_client_awaiter.await_message_count(1);
-        let recording = proxy_client_log_arc.lock().unwrap();
-        let record = recording.get_record::<ExpiredCoresPackageMessage>(0);
-        assert_eq!(record.pkg, expected_package);
-    }
-
-    fn arc_to_ptr<T> (arc: &Arc<Mutex<T>>) -> *const T where T: ?Sized {
-        arc.lock ().unwrap ().deref () as *const T
-    }
+    use sub_lib::test_utils::RecordAwaiter;
+    use sub_lib::test_utils::Recording;
+    use sub_lib::test_utils::make_peer_actors_from;
+    use std::thread;
 
     #[test]
     fn live_cores_package_can_be_constructed_from_scratch () {
@@ -260,8 +193,8 @@ mod tests {
 
     #[test]
     fn release_2_transmit_cores_package_from_proxy_server_calls_proxy_client_directly () {
-        let system = System::new("release_2_transmit_cores_package_from_proxy_server_calls_proxy_client_directly");
         let cryptde = CryptDENull::new ();
+        let thread_cryptde = cryptde.clone();
         let incipient_package = IncipientCoresPackage::new (
             Route::rel2_from_proxy_server(&cryptde.public_key (), &cryptde).unwrap(),
             PayloadMock::new (), &cryptde.public_key ()
@@ -269,18 +202,18 @@ mod tests {
         let proxy_client = Recorder::new ();
         let proxy_client_recording = proxy_client.get_recording();
         let proxy_client_awaiter = proxy_client.get_awaiter();
-        let proxy_client_addr: SyncAddress<_> = proxy_client.start();
-        let proxy_server = Recorder::new();
-        let proxy_server_addr: SyncAddress<_> = proxy_server.start();
 
-        let mut subject = HopperReal::new (Box::new (cryptde.clone ()));
-        subject.bind (Box::new (TransmitterHandleMock::new ()), &test_utils::make_peer_clients_with_mocks());
-        subject.temporary_bind(proxy_server_addr.subscriber::<ExpiredCoresPackageMessage>(), proxy_client_addr.subscriber::<ExpiredCoresPackageMessage>());
+        thread::spawn(move || {
+            let system = System::new("release_2_transmit_cores_package_from_proxy_server_calls_proxy_client_directly");
+            let peer_actors = make_peer_actors_from(None, None, None, None, Some(proxy_client));
+            let subject = Hopper::new (Box::new (thread_cryptde));
+            let subject_addr: SyncAddress<_> = subject.start();
+            subject_addr.send(BindMessage { peer_actors });
 
-        subject.transmit_cores_package (incipient_package);
+            subject_addr.send(IncipientCoresPackageMessage { pkg: incipient_package });
 
-        Arbiter::system().send(msgs::SystemExit(0));
-        system.run();
+            system.run();
+        });
 
         let expected_expired_package = ExpiredCoresPackage::new (
             Route::rel2_to_proxy_client (&cryptde.public_key (), &cryptde).unwrap (),
@@ -296,25 +229,26 @@ mod tests {
     #[test]
     fn release_2_transmit_cores_package_from_proxy_client_calls_proxy_server_via_subscriber () {
         let cryptde = CryptDENull::new ();
-        let system = System::new("release_2_transmit_cores_package_from_proxy_client_calls_proxy_server_directly");
-        let proxy_client = Recorder::new();
-        let proxy_client_addr: SyncAddress<_> = proxy_client.start();
+        let thread_cryptde = cryptde.clone();
         let proxy_server = Recorder::new();
         let proxy_server_log_arc = proxy_server.get_recording();
         let proxy_server_awaiter = proxy_server.get_awaiter();
-        let proxy_server_addr: SyncAddress<_> = proxy_server.start();
         let incipient_package = IncipientCoresPackage::new (
             Route::rel2_from_proxy_client(&cryptde.public_key (), &cryptde).unwrap(),
             PayloadMock::new (), &cryptde.public_key ()
         );
-        let mut subject = HopperReal::new (Box::new (cryptde.clone ()));
-        subject.bind (Box::new (TransmitterHandleMock::new ()), &test_utils::make_peer_clients_with_mocks());
-        subject.temporary_bind(proxy_server_addr.subscriber::<ExpiredCoresPackageMessage>(), proxy_client_addr.subscriber::<ExpiredCoresPackageMessage>());
+        let thread_package = incipient_package.clone();
+        thread::spawn(move || {
+            let system = System::new("release_2_transmit_cores_package_from_proxy_client_calls_proxy_server_directly");
+            let peer_actors = make_peer_actors_from(Some(proxy_server), None, None, None, None);
+            let subject = Hopper::new (Box::new (thread_cryptde));
+            let subject_addr: SyncAddress<_> = subject.start();
+            subject_addr.send(BindMessage { peer_actors });
 
-        subject.transmit_cores_package (incipient_package.clone());
+            subject_addr.send(IncipientCoresPackageMessage { pkg: thread_package });
 
-        Arbiter::system().send(msgs::SystemExit(0));
-        system.run();
+            system.run();
+        });
 
         let expected_package = ExpiredCoresPackage::new (
             Route::rel2_to_proxy_server (&cryptde.public_key (), &cryptde).unwrap (),

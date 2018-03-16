@@ -36,10 +36,6 @@ use node_addr::NodeAddr;
 use route::Route;
 use neighborhood::Neighborhood;
 use neighborhood::NeighborhoodError;
-use hopper::Hopper;
-use hopper::HopperClient;
-use hopper::IncipientCoresPackage;
-use hopper::ExpiredCoresPackage;
 use cryptde::Key;
 use cryptde::PlainData;
 use utils;
@@ -451,76 +447,12 @@ impl DispatcherClient for DispatcherClientMock {
     }
 }
 
-pub struct HopperClientMock {
-    pub receive_cores_package_parameter: Arc<Mutex<Option<ExpiredCoresPackage>>>
-}
-
-impl HopperClient for HopperClientMock {
-    fn receive_cores_package(&mut self, package: ExpiredCoresPackage) {
-        let mut parameter_guard = self.receive_cores_package_parameter.lock ().expect ("Poisoned");
-        parameter_guard.get_or_insert (package);
-    }
-}
-
-impl HopperClientMock {
-    fn new () -> HopperClientMock {
-        HopperClientMock {
-            receive_cores_package_parameter: Arc::new (Mutex::new (None))
-        }
-    }
-}
-
-pub struct HopperMock {
-    pub transmit_cores_package_parameters: Arc<Mutex<Vec<IncipientCoresPackage>>>
-}
-
-impl HopperMock {
-    pub fn new () -> HopperMock {
-        HopperMock {
-            transmit_cores_package_parameters: Arc::new (Mutex::new (vec! ()))
-        }
-    }
-
-    pub fn transmit_cores_package_parameter (mut self, transmit_cores_package_parameters: Arc<Mutex<Vec<IncipientCoresPackage>>>) -> HopperMock {
-        self.transmit_cores_package_parameters = transmit_cores_package_parameters;
-        self
-    }
-}
-
-impl Hopper for HopperMock {
-    fn transmit_cores_package(&self, package: IncipientCoresPackage) {
-        let mut parameter_guard = self.transmit_cores_package_parameters.lock ().unwrap ();
-        let parameter_ref = parameter_guard.deref_mut ();
-        parameter_ref.push (package);
-    }
-
-    fn temporary_bind(&mut self, _to_proxy_server: Box<Subscriber<ExpiredCoresPackageMessage> + Send>, _to_proxy_client: Box<Subscriber<ExpiredCoresPackageMessage> + Send>) {
-        unimplemented!()
-    }
-}
-
-impl DispatcherClient for HopperMock {
-    fn bind(&mut self, _transmitter_handle: Box<TransmitterHandle>, _clients: &PeerClients) {
-        unimplemented!()
-    }
-
-    fn receive(&mut self, _source: Endpoint, _data: PlainData) {
-        unimplemented!()
-    }
-}
-
-unsafe impl Send for HopperMock {}
-unsafe impl Sync for HopperMock {}
-
 pub struct NeighborhoodMock {
-    pub hopper_client_delegate: HopperClientMock
 }
 
 impl NeighborhoodMock {
     pub fn new () -> NeighborhoodMock {
-        NeighborhoodMock {
-            hopper_client_delegate: HopperClientMock::new ()
-        }
+        NeighborhoodMock {}
     }
 }
 
@@ -556,18 +488,11 @@ impl DispatcherClient for NeighborhoodMock {
     }
 }
 
-impl HopperClient for NeighborhoodMock {
-    fn receive_cores_package(&mut self, package: ExpiredCoresPackage) {
-        self.hopper_client_delegate.receive_cores_package (package)
-    }
-}
-
 unsafe impl Send for NeighborhoodMock {}
 unsafe impl Sync for NeighborhoodMock {}
 
 pub fn make_peer_clients_with_mocks () -> PeerClients {
     PeerClients {
-        hopper: Arc::new (Mutex::new (HopperMock::new ())),
         neighborhood: Arc::new (Mutex::new (NeighborhoodMock::new ())),
     }
 }
@@ -647,7 +572,7 @@ pub fn make_proxy_client_subs_from(addr: &SyncAddress<Recorder>) -> ProxyClientS
 }
 
 // This must be called after System.new and before System.run
-pub fn make_peer_actors_from(proxy_server: Option<Recorder>, dispatcher: Option<Recorder>, hopper: Option<Recorder>, stream_handler_pool: Option<Recorder>) -> PeerActors {
+pub fn make_peer_actors_from(proxy_server: Option<Recorder>, dispatcher: Option<Recorder>, hopper: Option<Recorder>, stream_handler_pool: Option<Recorder>, proxy_client: Option<Recorder>) -> PeerActors {
     let proxy_server = match proxy_server {
         Some(proxy_server) => proxy_server,
         None => Recorder::new()
@@ -668,7 +593,10 @@ pub fn make_peer_actors_from(proxy_server: Option<Recorder>, dispatcher: Option<
         None => Recorder::new()
     };
 
-    let proxy_client = Recorder::new();
+    let proxy_client = match proxy_client {
+        Some(proxy_client) => proxy_client,
+        None => Recorder::new()
+    };
 
     make_peer_actors_from_recorders(proxy_server, dispatcher, hopper, stream_handler_pool, proxy_client)
 }

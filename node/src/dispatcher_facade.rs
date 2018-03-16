@@ -61,6 +61,7 @@ impl Handler<InboundClientData> for DispatcherFacade {
                     panic!("Dispatcher Facade has not been bound");
                 }
             },
+            // TODO add other components after Release 0.2.0
             _ => {
                 self.ibcd_transmitter.send (msg).is_ok ()
             }
@@ -152,7 +153,7 @@ mod tests {
         let component = Component::ProxyServer;
         let data: Vec<u8> = vec! (9, 10, 11);
         let ibcd_in = InboundClientData {socket_addr, component, data: data.clone ()};
-        let mut peer_actors = make_peer_actors_from(Some(proxy_server), None, None, None);
+        let mut peer_actors = make_peer_actors_from(Some(proxy_server), None, None, None, None);
         peer_actors.dispatcher = DispatcherFacade::make_subs_from(&subject_addr);
         subject_addr.send( BindMessage { peer_actors });
 

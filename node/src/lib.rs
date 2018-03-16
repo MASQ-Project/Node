@@ -35,7 +35,6 @@ mod json_masquerader;
 mod null_masquerader;
 mod temporary;
 mod actor_system_factory;
-mod hopper_facade;
 
 #[cfg (test)]
 mod test_utils;

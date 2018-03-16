@@ -20,7 +20,6 @@ use sub_lib::socket_server::SocketServer;
 use sub_lib::limiter::Limiter;
 use sub_lib::logger::Logger;
 use sub_lib::main_tools::StdStreams;
-use sub_lib::hopper::Hopper;
 use sub_lib::neighborhood::Neighborhood;
 use sub_lib::cryptde::PlainData;
 use sub_lib::actor_messages::TemporaryBindMessage;
@@ -48,7 +47,6 @@ pub struct DispatcherReal {
     #[allow (dead_code)]
     stream_handler_pool_subs: Option<StreamHandlerPoolSubs>,
     neighborhood: Option<Arc<Mutex<Neighborhood>>>,
-    hopper: Option<Arc<Mutex<Hopper>>>,
     client_factory: Box<ClientFactory>,
     transmitter_factory: Box<TransmitterFactory>,
     incoming_limiter: Limiter,
@@ -84,7 +82,6 @@ impl SocketServer for DispatcherReal {
         let (dispatcher_facade_subs, stream_handler_pool_subs) =
             self.actor_system_factory.make_and_start_actors(
                 ibcd_transmitter,
-                self.hopper.as_ref().expect("Hopper has not been created").clone(),
                 self.config.as_ref().unwrap().dns_servers.clone(),
             );
 
@@ -109,7 +106,6 @@ impl DispatcherReal {
             actor_system_factory: Box::new (ActorSystemFactoryReal {}),
             stream_handler_pool_subs: None,
             neighborhood: None,
-            hopper: None,
             client_factory: Box::new (ClientFactoryReal::new ()),
             transmitter_factory: Box::new (TransmitterFactoryReal::new ()),
             incoming_limiter: Limiter::new (),
@@ -126,7 +122,6 @@ impl DispatcherReal {
 
     fn make_clients (&mut self) {
         self.neighborhood = Some (self.client_factory.make_neighborhood ());
-        self.hopper = Some (self.client_factory.make_hopper ());
     }
 
     fn start_transmitter_thread (&mut self, transmit_sub: Box<Subscriber<TransmitDataMsg> + Send>, dispatcher_facade_subs: DispatcherFacadeSubs) {
@@ -136,13 +131,10 @@ impl DispatcherReal {
         let mut transmitter_box = self.transmitter_factory.make(obcd_receiver, transmit_sub, neighborhood_arc);
 
         let peer_clients = PeerClients {
-            hopper: self.hopper.as_ref().expect("Must make_clients before start_transmitter_thread").clone (),
             neighborhood: self.neighborhood.as_ref().expect("Must make_clients before start_transmitter_thread").clone (),
         };
 
         DispatcherReal::bind_client (&self.neighborhood, Component::Neighborhood,
-                                     &mut transmitter_box, &obcd_transmitter, &peer_clients);
-        DispatcherReal::bind_client (&self.hopper, Component::Hopper,
                                      &mut transmitter_box, &obcd_transmitter, &peer_clients);
 
         // TODO this should go away once everything is actorized
@@ -172,7 +164,7 @@ impl DispatcherReal {
             self.logger.debug (format! ("Relaying {} bytes to {:?}", data.data.len (), ibcd.component));
             match ibcd.component {
                 Component::Neighborhood => DispatcherReal::receive_client (&mut self.neighborhood, source, data),
-                Component::Hopper => DispatcherReal::receive_client (&mut self.hopper, source, data),
+                Component::Hopper => panic! ("This should have been replaced with actorized Hopper"),
                 Component::ProxyServer => panic! ("This should have been replaced with actorized ProxyServer"),
                 Component::ProxyClient => panic! ("ProxyClient should never receive a message from the Dispatcher")
             }
@@ -252,7 +244,6 @@ mod tests {
     use discriminator::DiscriminatorFactory;
     use sub_lib::dispatcher::InboundClientData;
     use test_utils::TcpStreamWrapperMock;
-    use test_utils::HopperNull;
     use test_utils::NeighborhoodNull;
     use test_utils::TestLogOwner;
     use test_utils::extract_log;
@@ -274,24 +265,18 @@ mod tests {
 
     struct ClientFactoryMock {
         neighborhood_mock: RefCell<Option<NeighborhoodNull>>,
-        hopper_mock: RefCell<Option<HopperNull>>,
     }
 
     impl ClientFactory for ClientFactoryMock {
         fn make_neighborhood(&self) -> Arc<Mutex<Neighborhood>> {
             Arc::new (Mutex::new (self.neighborhood_mock.borrow_mut ().take ().unwrap ()))
         }
-
-        fn make_hopper(&self) -> Arc<Mutex<Hopper>> {
-            Arc::new (Mutex::new (self.hopper_mock.borrow_mut ().take ().unwrap ()))
-        }
     }
 
     impl ClientFactoryMock {
-        fn from (neighborhood: NeighborhoodNull, hopper: HopperNull) -> ClientFactoryMock {
+        fn from (neighborhood: NeighborhoodNull) -> ClientFactoryMock {
             ClientFactoryMock {
                 neighborhood_mock: RefCell::new (Some (neighborhood)),
-                hopper_mock: RefCell::new (Some (hopper)),
             }
         }
     }
@@ -449,7 +434,6 @@ mod tests {
         subject.initialize_as_root (&vec! (), &mut FakeStreamHolder::new ().streams ());
 
         assert_eq! (subject.neighborhood.is_some (), true);
-        assert_eq! (subject.hopper.is_some (), true);
     }
 
     #[test]
@@ -474,8 +458,7 @@ mod tests {
     #[test]
     fn initialize_as_root_stores_dns_servers_and_passes_them_to_actor_system_factory_for_proxy_client_in_serve_without_root () {
         let neighborhood = NeighborhoodNull::new (vec! ());
-        let hopper = HopperNull::new ();
-        let client_factory = ClientFactoryMock::from (neighborhood, hopper);
+        let client_factory = ClientFactoryMock::from (neighborhood);
         let actor_system_factory = ActorSystemFactoryMock::with_two_recorders();
         let dns_servers_arc = actor_system_factory.dnss.clone();
         let mut subject = DispatcherBuilder::new ()
@@ -500,8 +483,7 @@ mod tests {
     #[should_panic (expected = "Cannot use 'booga' as a DNS server IP address")]
     fn initialize_as_root_complains_about_dns_servers_syntax_errors () {
         let neighborhood = NeighborhoodNull::new (vec! ());
-        let hopper = HopperNull::new ();
-        let client_factory = ClientFactoryMock::from (neighborhood, hopper);
+        let client_factory = ClientFactoryMock::from (neighborhood);
         let mut subject = DispatcherBuilder::new ()
             .add_listener_handler (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())))
             .client_factory(client_factory)
@@ -570,19 +552,16 @@ mod tests {
         let actor_system_factory = ActorSystemFactoryMock::with_real_dispatcher_facade ();
         let ibcd_sub = actor_system_factory.dispatcher_facade_cluster.subs.ibcd_sub.clone ();
         let socket_addr_n = SocketAddr::from_str ("1.2.3.4:5678").unwrap ();
-        let socket_addr_h = SocketAddr::from_str ("2.3.4.5:6789").unwrap ();
         let neighborhood = NeighborhoodNull::new (vec! (
             ("1.2.3.4", &[5678], "NBHD key"), ("2.3.4.5", &[6789], "HOPR key"), ("4.5.6.7", &[8901], "PXCL key")
         ));
         let neighborhood_log = neighborhood.get_test_log();
-        let hopper = HopperNull::new ();
-        let hopper_log = hopper.get_test_log();
-        let client_factory = ClientFactoryMock::from (neighborhood, hopper);
+        let client_factory = ClientFactoryMock::from (neighborhood);
         let mut subject = DispatcherBuilder::new ()
             .actor_system_factory (Box::new (actor_system_factory))
             .add_listener_handler (one_listener_handler)
             .add_listener_handler (another_listener_handler)
-            .incoming_limit (2)
+            .incoming_limit (1)
             .client_factory (client_factory)
             .transmitter_factory (TransmitterFactoryNull::new (mpsc::channel ().0, 0))
             .build ();
@@ -592,12 +571,10 @@ mod tests {
 
         let expected_data = vec! (
             InboundClientData {socket_addr: socket_addr_n, component: Component::Neighborhood, data: Vec::from ("nbhd".as_bytes ())},
-            InboundClientData {socket_addr: socket_addr_h, component: Component::Hopper, data: Vec::from ("hopr".as_bytes ())},
         );
         expected_data.iter ().for_each (|ibcd| {ibcd_sub.send (ibcd.clone ()).unwrap ();});
         join_handle.join ().unwrap ();
         assert_eq! (neighborhood_log.lock ().unwrap ().dump ()[2], "receive ('Key(NBHD key)', 'nbhd'");
-        assert_eq! (hopper_log.lock ().unwrap ().dump ()[1], "receive ('Key(HOPR key)', 'hopr'");
     }
 
     #[test]
@@ -611,10 +588,9 @@ mod tests {
         let neighborhood = NeighborhoodNull::new (vec! (
             ("1.2.3.4", &[5678], "NBHD key"), ("2.3.4.5", &[6789], "HOPR key"), ("4.5.6.7", &[8901], "PXCL key")
         ));
-        let hopper = HopperNull::new ();
         let recording_arc = actor_system_factory.proxy_server_cluster.recording.take ().unwrap ();;
         let awaiter = actor_system_factory.proxy_server_cluster.awaiter.take ().unwrap ();
-        let client_factory = ClientFactoryMock::from (neighborhood, hopper);
+        let client_factory = ClientFactoryMock::from (neighborhood);
         let mut subject = DispatcherBuilder::new ()
             .actor_system_factory (Box::new (actor_system_factory))
             .add_listener_handler (one_listener_handler)
@@ -669,7 +645,7 @@ mod tests {
         subs: ProxyServerSubs,
     }
 
-    struct HopperFacadeCluster {
+    struct HopperCluster {
         _recording: Option<Arc<Mutex<Recording>>>,
         _awaiter: Option<RecordAwaiter>,
         subs: HopperSubs,
@@ -686,13 +662,13 @@ mod tests {
         dispatcher_facade_cluster: DispatcherFacadeCluster,
         proxy_server_cluster: ProxyServerCluster,
         _proxy_client_cluster: ProxyClientCluster,
-        _hopper_facade_cluster: HopperFacadeCluster,
+        _hopper_cluster: HopperCluster,
         ibcd_receiver_cell: RefCell<Option<Receiver<InboundClientData>>>,
         dnss: Arc<Mutex<Option<Vec<SocketAddr>>>>,
     }
 
     impl ActorSystemFactory for ActorSystemFactoryMock {
-        fn make_and_start_actors(&self, ibcd_transmitter: Sender<InboundClientData>, _hopper: Arc<Mutex<Hopper>>, dns_servers: Vec<SocketAddr>) -> (DispatcherFacadeSubs, StreamHandlerPoolSubs) {
+        fn make_and_start_actors(&self, ibcd_transmitter: Sender<InboundClientData>, dns_servers: Vec<SocketAddr>) -> (DispatcherFacadeSubs, StreamHandlerPoolSubs) {
             let mut parameter_guard = self.dnss.lock ().unwrap ();
             let parameter_ref = parameter_guard.deref_mut ();
             *parameter_ref = Some (dns_servers);
@@ -758,12 +734,12 @@ mod tests {
                     }
                 };
 
-                let hopper_facade_cluster = {
+                let hopper_cluster = {
                     let hopper = Recorder::new();
                     let recording = hopper.get_recording();
                     let awaiter = hopper.get_awaiter();
                     let addr: SyncAddress<_> = hopper.start();
-                    HopperFacadeCluster {
+                    HopperCluster {
                         _recording: Some(recording),
                         _awaiter: Some(awaiter),
                         subs: make_hopper_subs_from(&addr)
@@ -782,16 +758,16 @@ mod tests {
                     }
                 };
 
-                tx.send ((dispatcher_facade_cluster, stream_handler_pool_cluster, proxy_server_cluster, hopper_facade_cluster, proxy_client_cluster)).unwrap ();
+                tx.send ((dispatcher_facade_cluster, stream_handler_pool_cluster, proxy_server_cluster, hopper_cluster, proxy_client_cluster)).unwrap ();
                 system.run ();
             });
-            let (dispatcher_facade_cluster, stream_handler_pool_cluster, proxy_server_cluster, hopper_facade_cluster, proxy_client_cluster) = rx.recv ().unwrap ();
+            let (dispatcher_facade_cluster, stream_handler_pool_cluster, proxy_server_cluster, hopper_cluster, proxy_client_cluster) = rx.recv ().unwrap ();
             ActorSystemFactoryMock {
                 dispatcher_facade_cluster,
                 stream_handler_pool_cluster,
                 proxy_server_cluster,
                 _proxy_client_cluster: proxy_client_cluster,
-                _hopper_facade_cluster: hopper_facade_cluster,
+                _hopper_cluster: hopper_cluster,
                 ibcd_receiver_cell: RefCell::new (None),
                 dnss: Arc::new(Mutex::new(None)),
             }
@@ -837,12 +813,12 @@ mod tests {
                     }
                 };
 
-                let hopper_facade_cluster = {
+                let hopper_cluster = {
                     let hopper = Recorder::new();
                     let recording = hopper.get_recording();
                     let awaiter = hopper.get_awaiter();
                     let addr: SyncAddress<_> = hopper.start();
-                    HopperFacadeCluster {
+                    HopperCluster {
                         _recording: Some(recording),
                         _awaiter: Some(awaiter),
                         subs: make_hopper_subs_from(&addr)
@@ -864,21 +840,21 @@ mod tests {
                 dispatcher_facade_cluster.subs.bind.send(BindMessage { peer_actors: PeerActors {
                     proxy_server: proxy_server_cluster.subs.clone(),
                     dispatcher: dispatcher_facade_cluster.subs.clone(),
-                    hopper: hopper_facade_cluster.subs.clone(),
+                    hopper: hopper_cluster.subs.clone(),
                     stream_handler_pool: stream_handler_pool_cluster.subs.clone(),
                     proxy_client: proxy_client_cluster.subs.clone(),
                 } });
 
-                tx.send ((dispatcher_facade_cluster, stream_handler_pool_cluster, proxy_server_cluster, hopper_facade_cluster, proxy_client_cluster)).unwrap ();
+                tx.send ((dispatcher_facade_cluster, stream_handler_pool_cluster, proxy_server_cluster, hopper_cluster, proxy_client_cluster)).unwrap ();
                 system.run ();
             });
-            let (dispatcher_facade_cluster, stream_handler_pool_cluster, proxy_server_cluster, hopper_facade_cluster, proxy_client_cluster) = rx.recv ().unwrap ();
+            let (dispatcher_facade_cluster, stream_handler_pool_cluster, proxy_server_cluster, hopper_cluster, proxy_client_cluster) = rx.recv ().unwrap ();
             ActorSystemFactoryMock {
                 dispatcher_facade_cluster,
                 stream_handler_pool_cluster,
                 proxy_server_cluster,
                 _proxy_client_cluster: proxy_client_cluster,
-                _hopper_facade_cluster: hopper_facade_cluster,
+                _hopper_cluster: hopper_cluster,
                 ibcd_receiver_cell: RefCell::new (Some (ibcd_receiver)),
                 dnss: Arc::new(Mutex::new(None)),
             }
@@ -895,7 +871,6 @@ mod tests {
         listener_handler_factory: ListenerHandlerFactoryMock,
         transmitter_factory: TransmitterFactoryNull,
         neighborhood: NeighborhoodNull,
-        hopper: HopperNull,
         incoming_limit: Option<i32>
     }
 
@@ -913,7 +888,6 @@ mod tests {
                 listener_handler_factory: ListenerHandlerFactoryMock::new (),
                 transmitter_factory: TransmitterFactoryNull::new (mpsc::channel ().0, 100),
                 neighborhood,
-                hopper: HopperNull::new (),
                 incoming_limit: None
             }
         }
@@ -955,12 +929,6 @@ mod tests {
         }
 
         #[allow (dead_code)]
-        fn hopper (mut self, client: HopperNull) -> DispatcherBuilder {
-            self.hopper = client;
-            self
-        }
-
-        #[allow (dead_code)]
         fn incoming_limit (mut self, limit: i32) -> DispatcherBuilder {
             self.incoming_limit = Some (limit);
             self
@@ -981,12 +949,11 @@ mod tests {
                 else {
                     Box::new (ClientFactoryMock::from (
                         self.neighborhood,
-                        self.hopper,
                     ))
                 },
                 listener_handler_factory: Box::new (self.listener_handler_factory),
                 transmitter_factory: Box::new (self.transmitter_factory),
-                neighborhood: None, hopper: None,
+                neighborhood: None,
                 listener_handlers: vec! (),
                 incoming_limiter: if self.incoming_limit.is_some () {
                     Limiter::with_only (self.incoming_limit.unwrap ())

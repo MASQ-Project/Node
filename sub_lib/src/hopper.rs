@@ -11,20 +11,6 @@ use actor_messages::ExpiredCoresPackageMessage;
 use actor_messages::IncipientCoresPackageMessage;
 use actix::Subscriber;
 
-pub trait Hopper: DispatcherClient {
-    fn transmit_cores_package (&self, package: IncipientCoresPackage);
-    // TODO remove once Hopper is actorized
-    fn temporary_bind (&mut self, to_proxy_server: Box<Subscriber<ExpiredCoresPackageMessage> + Send>, to_proxy_client: Box<Subscriber<ExpiredCoresPackageMessage> + Send>);
-}
-
-pub trait HopperClient {
-    fn receive_cores_package (&mut self, package: ExpiredCoresPackage);
-}
-
-pub trait HopperDispatcherClient: Hopper + DispatcherClient + Send + Sync {}
-
-impl<T: Hopper + DispatcherClient + Send + Sync> HopperDispatcherClient for T {}
-
 /// New CORES package about to be sent to the Hopper and thence put on the Substratum Network
 #[derive (Clone, Debug, PartialEq)]
 pub struct IncipientCoresPackage {

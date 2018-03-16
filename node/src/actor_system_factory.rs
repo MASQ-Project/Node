@@ -8,7 +8,6 @@ use actix::Actor;
 use actix::System;
 use actix::SyncAddress;
 use sub_lib::dispatcher::InboundClientData;
-use sub_lib::hopper::Hopper;
 use stream_handler_pool::StreamHandlerPool;
 use sub_lib::stream_handler_pool::StreamHandlerPoolSubs;
 use dispatcher_facade::DispatcherFacade;
@@ -19,20 +18,20 @@ use sub_lib::proxy_client::ProxyClientSubs;
 use sub_lib::dispatcher::DispatcherFacadeSubs;
 use sub_lib::actor_messages::PeerActors;
 use sub_lib::hopper::HopperSubs;
-use hopper_facade::HopperFacade;
+use hopper_lib::hopper::Hopper;
 use proxy_client_lib::proxy_client::ProxyClient;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde_null::CryptDENull;
 use std::net::SocketAddr;
 
 pub trait ActorSystemFactory: Send {
-    fn make_and_start_actors(&self, ibcd_transmitter: Sender<InboundClientData>, hopper: Arc<Mutex<Hopper>>, dns_servers: Vec<SocketAddr>) -> (DispatcherFacadeSubs, StreamHandlerPoolSubs);
+    fn make_and_start_actors(&self, ibcd_transmitter: Sender<InboundClientData>, dns_servers: Vec<SocketAddr>) -> (DispatcherFacadeSubs, StreamHandlerPoolSubs);
 }
 
 pub struct ActorSystemFactoryReal {}
 
 impl ActorSystemFactory for ActorSystemFactoryReal {
-    fn make_and_start_actors(&self, ibcd_transmitter: Sender<InboundClientData>, hopper: Arc<Mutex<Hopper>>, dns_servers: Vec<SocketAddr>) -> (DispatcherFacadeSubs, StreamHandlerPoolSubs) {
+    fn make_and_start_actors(&self, ibcd_transmitter: Sender<InboundClientData>, dns_servers: Vec<SocketAddr>) -> (DispatcherFacadeSubs, StreamHandlerPoolSubs) {
         let (tx, rx) = mpsc::channel();
 
         thread::spawn(move || {
@@ -43,9 +42,7 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
             let dispatcher_facade_subs = ActorSystemFactoryReal::make_and_start_dispatcher_facade(ibcd_transmitter);
             let proxy_server_subs = ActorSystemFactoryReal::make_and_start_proxy_server_actor();
             let proxy_client_subs = ActorSystemFactoryReal::make_and_start_proxy_client_actor(Box::new(CryptDENull::new()), dns_servers);
-            // TODO remove the next line once Hopper is actorized
-            hopper.lock().expect("Hopper is Poisoned").temporary_bind(proxy_server_subs.from_hopper.clone(), proxy_client_subs.from_hopper.clone());
-            let hopper_subs = ActorSystemFactoryReal::make_and_start_hopper_facade(hopper);
+            let hopper_subs = ActorSystemFactoryReal::make_and_start_hopper_facade(Box::new(CryptDENull::new()));
 
             // collect all the subs
             let peer_actors = PeerActors {
@@ -84,10 +81,10 @@ impl ActorSystemFactoryReal {
         ProxyServer::make_subs_from(&addr)
     }
 
-    fn make_and_start_hopper_facade(hopper: Arc<Mutex<Hopper>>) -> HopperSubs {
-        let hopper_facade = HopperFacade::new(hopper);
-        let addr: SyncAddress<_> = hopper_facade.start();
-        HopperFacade::make_subs_from(&addr)
+    fn make_and_start_hopper_facade(cryptde: Box<CryptDE>) -> HopperSubs {
+        let hopper = Hopper::new(cryptde);
+        let addr: SyncAddress<_> = hopper.start();
+        Hopper::make_subs_from(&addr)
     }
 
     fn make_and_start_stream_handler_pool() -> StreamHandlerPoolSubs {

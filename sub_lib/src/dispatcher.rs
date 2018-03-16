@@ -12,7 +12,6 @@ use serde::Deserialize;
 use serde::Serializer;
 use serde::Deserializer;
 use serde::de::Visitor;
-use hopper::Hopper;
 use neighborhood::Neighborhood;
 use cryptde::Key;
 use cryptde::PlainData;
@@ -85,7 +84,6 @@ impl<'a> Visitor<'a> for ComponentVisitor {
 }
 
 pub struct PeerClients {
-    pub hopper: Arc<Mutex<Hopper>>,
     pub neighborhood: Arc<Mutex<Neighborhood>>,
 }
 

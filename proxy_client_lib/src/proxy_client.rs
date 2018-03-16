@@ -422,7 +422,7 @@ mod tests {
         let awaiter = hopper.get_awaiter();
         thread::spawn(move || {
             let system = System::new("successful_round_trip");
-            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None);
+            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
             let mut subject = ProxyClient::new(Box::new (thread_cryptde), dnss ());
             subject.tcp_stream_wrapper_factory = Box::new(tcp_stream_wrapper_factory);
             subject.resolver_wrapper_factory = Box::new (resolver_wrapper_factory);
@@ -503,7 +503,7 @@ mod tests {
         let awaiter = hopper.get_awaiter();
         thread::spawn(move || {
             let system = System::new("successful_round_trip");
-            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None);
+            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
             let mut subject = ProxyClient::new(Box::new (thread_cryptde), dnss ());
             subject.tcp_stream_wrapper_factory = Box::new(tcp_stream_wrapper_factory);
             subject.resolver_wrapper_factory = Box::new (resolver_wrapper_factory);
@@ -572,7 +572,7 @@ mod tests {
         let hopper = Recorder::new();
         thread::spawn(move || {
             let system = System::new("unparseable_request_results_in_log_and_no_response");
-            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None);
+            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
             let subject = ProxyClient::new(Box::new(cryptde.clone()), dnss());
             let subject_addr: SyncAddress<_> = subject.start();
             subject_addr.send(BindMessage{peer_actors});
@@ -611,7 +611,7 @@ mod tests {
         let awaiter = hopper.get_awaiter();
         thread::spawn(move || {
             let system = System::new("dns_error_results_in_503");
-            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None);
+            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
             let mut subject = ProxyClient::new(Box::new (thread_cryptde), dnss ());
             subject.resolver_wrapper_factory = Box::new (resolver_wrapper_factory);
             let subject_addr: SyncAddress<_> = subject.start();
@@ -758,7 +758,7 @@ mod tests {
         let awaiter = hopper.get_awaiter();
         thread::spawn(move || {
             let system = System::new("dns_error_results_in_503");
-            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None);
+            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
             let mut subject = ProxyClient::new(Box::new (thread_cryptde), vec! (SocketAddr::from_str ("2.3.4.5:6789").unwrap ()));
             subject.tcp_stream_wrapper_factory = Box::new(tcp_stream_wrapper_factory);
             subject.resolver_wrapper_factory = Box::new (resolver_wrapper_factory);
@@ -816,7 +816,7 @@ mod tests {
         let awaiter = hopper.get_awaiter();
         thread::spawn(move || {
             let system = System::new("dns_error_results_in_503");
-            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None);
+            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
             let mut subject = ProxyClient::new(Box::new (thread_cryptde), dnss ());
             subject.tcp_stream_wrapper_factory = Box::new(tcp_stream_wrapper_factory);
             subject.resolver_wrapper_factory = Box::new (resolver_wrapper_factory);
@@ -827,7 +827,6 @@ mod tests {
 
             system.run();
         });
-
 
         TestLogHandler::new ().await_log_matching (&expected_log_regex[..], 1000);
         if expect_shutdown {

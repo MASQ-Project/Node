@@ -154,7 +154,7 @@ mod tests {
         };
         let expected_pkg = IncipientCoresPackage::new(route.clone(), payload, &key);
         let subject_addr: SyncAddress<_> = subject.start();
-        let mut peer_actors = make_peer_actors_from(None, None, Some(hopper_mock), None);
+        let mut peer_actors = make_peer_actors_from(None, None, Some(hopper_mock), None, None);
         peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
         subject_addr.send(BindMessage { peer_actors });
 
@@ -188,7 +188,7 @@ mod tests {
         };
         let incipient_cores_package = IncipientCoresPackage::new(remaining_route.clone(), client_response_payload, &key);
         let expired_cores_package_message = ExpiredCoresPackageMessage { pkg: ExpiredCoresPackage::new(remaining_route, incipient_cores_package.payload) };
-        let mut peer_actors = make_peer_actors_from(None, Some(dispatcher_mock), None, None);
+        let mut peer_actors = make_peer_actors_from(None, Some(dispatcher_mock), None, None, None);
         peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
         subject_addr.send(BindMessage { peer_actors });
 
