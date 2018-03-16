@@ -37,7 +37,7 @@ impl Discriminator {
             None => return None
         };
         for masquerader in &self.masqueraders {
-            match masquerader.try_unmask(&frame[..]) {
+            match masquerader.try_unmask(&frame.chunk[..]) {
                 Some (chunk) => return Some (chunk),
                 None => ()
             }
@@ -53,6 +53,7 @@ mod tests {
     use std::sync::Mutex;
     use std::cell::RefCell;
     use std::ops::DerefMut;
+    use sub_lib::framer::FramedChunk;
     use masquerader::MasqueradeError;
 
     pub struct FramerMock {
@@ -64,13 +65,13 @@ mod tests {
             self.data.push (Vec::from (data))
         }
 
-        fn take_frame(&mut self) -> Option<Vec<u8>> {
+        fn take_frame(&mut self) -> Option<FramedChunk> {
             if self.data.is_empty () {
                 None
             }
-                else {
-                    Some (self.data.remove (0))
-                }
+            else {
+                Some (FramedChunk {chunk: self.data.remove (0), last_chunk: true})
+            }
         }
     }
 

@@ -12,7 +12,6 @@ use serde::Deserialize;
 use serde::Serializer;
 use serde::Deserializer;
 use serde::de::Visitor;
-use serde_cbor;
 use hopper::Hopper;
 use neighborhood::Neighborhood;
 use cryptde::Key;
@@ -194,6 +193,7 @@ impl Clone for DispatcherFacadeSubs {
 mod tests {
     use super::*;
     use std::str::FromStr;
+    use serde_cbor;
 
     #[test]
     fn component_can_convert_to_string() {

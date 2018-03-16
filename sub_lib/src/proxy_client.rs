@@ -9,6 +9,7 @@ use actor_messages::ExpiredCoresPackageMessage;
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct ClientResponsePayload {
     pub stream_key: SocketAddr,
+    pub last_response: bool,
     pub data: PlainData
 }
 

@@ -68,7 +68,7 @@ mod tests {
         let system = System::new ("forwards_incipient_cores_message_to_hopper");
         let hopper = HopperMock::new();
         let cryptde = CryptDENull::new ();
-        let actual_package_arc = hopper.transmit_cores_package_parameter.clone ();
+        let actual_packages_arc = hopper.transmit_cores_package_parameters.clone ();
         let subject = HopperFacade::new(Arc::new(Mutex::new(hopper)));
         let subject_addr: SyncAddress<_> = subject.start();
         let expected_pkg = IncipientCoresPackage {
@@ -82,9 +82,9 @@ mod tests {
         Arbiter::system().send(msgs::SystemExit(0));
         system.run ();
 
-        let actual_pkg_mutex = actual_package_arc.lock().unwrap();
-        let actual_pkg = actual_pkg_mutex.as_ref().unwrap();
+        let actual_pkgs_mutex = actual_packages_arc.lock().unwrap();
+        let actual_pkgs: &Vec<IncipientCoresPackage> = actual_pkgs_mutex.as_ref();
 
-        assert_eq!(actual_pkg, &expected_pkg);
+        assert_eq!(actual_pkgs[0], expected_pkg);
     }
 }

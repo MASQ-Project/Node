@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use sub_lib::logger::Logger;
 use sub_lib::framer::Framer;
+use sub_lib::framer::FramedChunk;
 
 pub struct JsonFramer {
     possible_start: Option<usize>,
@@ -18,7 +19,7 @@ impl Framer for JsonFramer {
         self.data_so_far.extend (data.iter ());
     }
 
-    fn take_frame(&mut self) -> Option<Vec<u8>> {
+    fn take_frame(&mut self) -> Option<FramedChunk> {
         self.reset ();
         for i in 0..self.data_so_far.len() {
             let byte = self.data_so_far[i];
@@ -26,7 +27,7 @@ impl Framer for JsonFramer {
             match self.check_data_chunk() {
                 Some (chunk) => {
                     self.data_so_far = Vec::from (&self.data_so_far[(i + 1)..]);
-                    return Some (chunk)
+                    return Some (FramedChunk {chunk, last_chunk: true})
                 },
                 None => ()
             }
@@ -146,7 +147,7 @@ mod tests {
         subject.add_data ("}garbage}{\"component\": \"NBHD\", \"bodyText\": \"\\\\}\\\"{'\"} more garbage".as_ref ());
         let chunk = subject.take_frame ().unwrap ();
 
-        assert_eq! (String::from_utf8 (chunk).unwrap (), "{\"component\": \"NBHD\", \"bodyText\": \"\\\\}\\\"{'\"}");
+        assert_eq! (String::from_utf8 (chunk.chunk).unwrap (), "{\"component\": \"NBHD\", \"bodyText\": \"\\\\}\\\"{'\"}");
     }
 
     #[test]
@@ -162,11 +163,11 @@ mod tests {
         subject.add_data ("\", \"bodyText\": \"stuff and nonsense".as_bytes ());
         assert_eq! (subject.take_frame (), None);
         subject.add_data ("\"}{\"component\": \"NBHD\", \"bodyText\": \"glabber\"}{\"component\": \"HOPR\"".as_bytes ());
-        assert_eq! (subject.take_frame ().unwrap (), Vec::from ("{\"component\": \"PXSV\", \"bodyText\": \"stuff and nonsense\"}".as_bytes ()));
-        assert_eq! (subject.take_frame ().unwrap (), Vec::from ("{\"component\": \"NBHD\", \"bodyText\": \"glabber\"}".as_bytes ()));
+        assert_eq! (subject.take_frame ().unwrap ().chunk, Vec::from ("{\"component\": \"PXSV\", \"bodyText\": \"stuff and nonsense\"}".as_bytes ()));
+        assert_eq! (subject.take_frame ().unwrap ().chunk, Vec::from ("{\"component\": \"NBHD\", \"bodyText\": \"glabber\"}".as_bytes ()));
         assert_eq! (subject.take_frame (), None);
         subject.add_data (", \"bodyText\": \"boing\"}".as_bytes ());
-        assert_eq! (subject.take_frame ().unwrap (), Vec::from ("{\"component\": \"HOPR\", \"bodyText\": \"boing\"}".as_bytes ()));
+        assert_eq! (subject.take_frame ().unwrap ().chunk, Vec::from ("{\"component\": \"HOPR\", \"bodyText\": \"boing\"}".as_bytes ()));
         assert_eq! (subject.take_frame (), None);
     }
 
@@ -175,7 +176,7 @@ mod tests {
         let mut subject = JsonFramer::new ();
 
         subject.add_data ("{\"component\": \"NBHD\", \"bodyText\": \"blah\"}{\"compo".as_ref ());
-        let chunk = subject.take_frame ().unwrap ();
+        let chunk = subject.take_frame ().unwrap ().chunk;
 
         assert_eq! (String::from_utf8 (chunk).unwrap (), "{\"component\": \"NBHD\", \"bodyText\": \"blah\"}");
         assert_eq! (subject.data_so_far.len (), "{\"compo".len ());
@@ -187,9 +188,9 @@ mod tests {
 
         subject.add_data ("}}#$%^&*({\"component\": \"NBHD\", \"bodyText\": \"blah\"}upi3r\"'jhbgva;oue\\{\"component\": \"HOPR\", \"bodyText\": \"halb\"};owhe".as_ref ());
 
-        let chunk = subject.take_frame().unwrap ();
+        let chunk = subject.take_frame().unwrap ().chunk;
         assert_eq! (String::from_utf8 (chunk).unwrap (), "{\"component\": \"NBHD\", \"bodyText\": \"blah\"}");
-        let chunk = subject.take_frame ().unwrap ();
+        let chunk = subject.take_frame ().unwrap ().chunk;
         assert_eq! (String::from_utf8 (chunk).unwrap (), "{\"component\": \"HOPR\", \"bodyText\": \"halb\"}");
         assert_eq! (subject.take_frame (), None);
     }

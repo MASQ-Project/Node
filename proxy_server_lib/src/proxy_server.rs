@@ -183,6 +183,7 @@ mod tests {
         let remaining_route = Route::rel2_to_proxy_server(&key, &cryptde).unwrap();
         let client_response_payload = ClientResponsePayload {
             stream_key: socket_addr.clone(),
+            last_response: true,
             data: PlainData::new(b"data")
         };
         let incipient_cores_package = IncipientCoresPackage::new(remaining_route.clone(), client_response_payload, &key);

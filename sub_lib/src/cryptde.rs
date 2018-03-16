@@ -6,7 +6,6 @@ use serde::Deserialize;
 use serde::Serializer;
 use serde::Deserializer;
 use serde::de::Visitor;
-use serde_cbor;
 
 // TODO: Consider generating each of these three with a single macro
 
@@ -145,6 +144,7 @@ pub trait CryptDE: Send {
 #[cfg (test)]
 mod tests {
     use super::*;
+    use serde_cbor;
 
     #[test]
     fn key_constructor_works_as_expected () {

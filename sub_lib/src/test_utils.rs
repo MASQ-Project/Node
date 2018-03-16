@@ -471,27 +471,27 @@ impl HopperClientMock {
 }
 
 pub struct HopperMock {
-    pub transmit_cores_package_parameter: Arc<Mutex<Option<IncipientCoresPackage>>>
+    pub transmit_cores_package_parameters: Arc<Mutex<Vec<IncipientCoresPackage>>>
 }
 
 impl HopperMock {
     pub fn new () -> HopperMock {
         HopperMock {
-            transmit_cores_package_parameter: Arc::new (Mutex::new (None))
+            transmit_cores_package_parameters: Arc::new (Mutex::new (vec! ()))
         }
     }
 
-    pub fn transmit_cores_package_parameter (mut self, transmit_cores_package_parameter: Arc<Mutex<Option<IncipientCoresPackage>>>) -> HopperMock {
-        self.transmit_cores_package_parameter = transmit_cores_package_parameter;
+    pub fn transmit_cores_package_parameter (mut self, transmit_cores_package_parameters: Arc<Mutex<Vec<IncipientCoresPackage>>>) -> HopperMock {
+        self.transmit_cores_package_parameters = transmit_cores_package_parameters;
         self
     }
 }
 
 impl Hopper for HopperMock {
     fn transmit_cores_package(&self, package: IncipientCoresPackage) {
-        let mut parameter_guard = self.transmit_cores_package_parameter.lock ().unwrap ();
+        let mut parameter_guard = self.transmit_cores_package_parameters.lock ().unwrap ();
         let parameter_ref = parameter_guard.deref_mut ();
-        *parameter_ref = Some (package);
+        parameter_ref.push (package);
     }
 
     fn temporary_bind(&mut self, _to_proxy_server: Box<Subscriber<ExpiredCoresPackageMessage> + Send>, _to_proxy_client: Box<Subscriber<ExpiredCoresPackageMessage> + Send>) {

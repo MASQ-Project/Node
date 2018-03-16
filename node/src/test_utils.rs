@@ -36,6 +36,7 @@ use sub_lib::cryptde::Key;
 use sub_lib::cryptde::PlainData;
 use sub_lib::actor_messages::ExpiredCoresPackageMessage;
 use sub_lib::framer::Framer;
+use sub_lib::framer::FramedChunk;
 use masquerader::Masquerader;
 use masquerader::MasqueradeError;
 use null_masquerader::NullMasquerader;
@@ -399,8 +400,8 @@ impl Framer for NullFramer {
         self.data.push (Vec::from (data));
     }
 
-    fn take_frame(&mut self) -> Option<Vec<u8>> {
-        if self.data.is_empty () {None} else {Some (self.data.remove (0))}
+    fn take_frame(&mut self) -> Option<FramedChunk> {
+        if self.data.is_empty () {None} else {Some (FramedChunk {chunk: self.data.remove (0), last_chunk: true})}
     }
 }
 

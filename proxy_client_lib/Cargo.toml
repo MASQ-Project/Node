@@ -7,9 +7,9 @@ copyright = "Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) an
 
 [dependencies]
 trust-dns-resolver = "0.8.1"
-sub_lib = { path = "../sub_lib" }
 serde_cbor = "0.8.1"
 actix = "0.4.4"
+sub_lib = { path = "../sub_lib" }
 
 [lib]
 name = "proxy_client_lib"

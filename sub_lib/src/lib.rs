@@ -13,12 +13,14 @@ extern crate daemonize;
 
 #[macro_use]
 pub mod utils;
+
 pub mod actor_messages;
 pub mod cores_package;
 pub mod cryptde;
 pub mod cryptde_null;
 pub mod dispatcher;
 pub mod framer;
+pub mod framer_utils;
 pub mod hop;
 pub mod hopper;
 pub mod http_packet_framer;

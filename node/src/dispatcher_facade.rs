@@ -6,21 +6,23 @@ use actix::Context;
 use actix::SyncAddress;
 use actix::Handler;
 use actix::Subscriber;
-use sub_lib::dispatcher::Component;
-use sub_lib::dispatcher::InboundClientData;
-use sub_lib::dispatcher::DispatcherFacadeSubs;
 use sub_lib::actor_messages::ResponseMessage;
 use sub_lib::actor_messages::BindMessage;
 use sub_lib::actor_messages::RequestMessage;
 use sub_lib::actor_messages::TemporaryBindMessage;
+use sub_lib::dispatcher::Component;
+use sub_lib::dispatcher::InboundClientData;
+use sub_lib::dispatcher::DispatcherFacadeSubs;
 use sub_lib::dispatcher::Endpoint;
 use sub_lib::dispatcher::TransmitterHandle;
 use sub_lib::cryptde::PlainData;
+use sub_lib::logger::Logger;
 
 pub struct DispatcherFacade {
     ibcd_transmitter: Sender<InboundClientData>,
     to_proxy_server: Option<Box<Subscriber<RequestMessage> + Send>>,
     ps_transmitter_handle: Option<Box<TransmitterHandle>>,
+    logger: Logger,
 }
 
 impl Actor for DispatcherFacade {
@@ -33,6 +35,7 @@ impl DispatcherFacade {
             ibcd_transmitter,
             to_proxy_server: None,
             ps_transmitter_handle: None,
+            logger: Logger::new ("Dispatcher"),
         }
     }
 
@@ -79,6 +82,7 @@ impl Handler<ResponseMessage> for DispatcherFacade {
     type Result = ();
 
     fn handle(&mut self, msg: ResponseMessage, _ctx: &mut Self::Context) -> Self::Result {
+        self.logger.debug (format! ("Relaying {} bytes from Proxy Server to Dispatcher", msg.data.len ()));
         self.ps_transmitter_handle.as_ref().expect("Proxy Server transmitter unbound").transmit_to_socket_addr(
             msg.socket_addr,
             PlainData::new(msg.data.as_slice())

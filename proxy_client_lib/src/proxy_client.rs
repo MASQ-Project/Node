@@ -2,42 +2,34 @@
 use std::io;
 use std::thread;
 use std::net::SocketAddr;
-use std::net::Shutdown;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::time::Duration;
-use trust_dns_resolver::config::ResolverConfig;
-use trust_dns_resolver::config::ResolverOpts;
-use trust_dns_resolver::config::NameServerConfig;
-use trust_dns_resolver::config::Protocol;
-use resolver_wrapper::ResolverWrapperFactory;
-use resolver_wrapper::ResolverWrapperFactoryReal;
-use resolver_wrapper::ResolverWrapper;
-use sub_lib::hopper::IncipientCoresPackage;
-use sub_lib::hopper::ExpiredCoresPackage;
-use sub_lib::route::Route;
-use sub_lib::cryptde::PlainData;
-use sub_lib::logger::Logger;
-use sub_lib::tcp_wrappers::TcpStreamWrapper;
-use sub_lib::tcp_wrappers::TcpStreamWrapperReal;
-use sub_lib::proxy_server::ClientRequestPayload;
-use sub_lib::proxy_client::ClientResponsePayload;
-use sub_lib::proxy_client::ProxyClientSubs;
-use sub_lib::cryptde::CryptDE;
-use sub_lib::framer::Framer;
-use sub_lib::http_packet_framer::HttpPacketFramer;
-use sub_lib::http_response_start_finder::HttpResponseStartFinder;
 use actix::Actor;
 use actix::Context;
 use actix::Handler;
 use actix::Subscriber;
 use actix::SyncAddress;
+use resolver_wrapper::ResolverWrapperFactory;
+use resolver_wrapper::ResolverWrapperFactoryReal;
+use resolver_wrapper::ResolverWrapper;
+use trust_dns_resolver::config::ResolverConfig;
+use trust_dns_resolver::config::ResolverOpts;
+use trust_dns_resolver::config::NameServerConfig;
+use trust_dns_resolver::config::Protocol;
 use sub_lib::actor_messages::BindMessage;
 use sub_lib::actor_messages::ExpiredCoresPackageMessage;
 use sub_lib::actor_messages::IncipientCoresPackageMessage;
-
-const RESPONSE_FINISHED_TIMEOUT_MS: u64 = 120000;
-const SERVER_PROBLEM_RESPONSE: &[u8] = b"HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\nContent-Length: 26\r\n\r\nSubstratum Network problem";
+use sub_lib::cryptde::CryptDE;
+use sub_lib::cryptde::PlainData;
+use sub_lib::hopper::IncipientCoresPackage;
+use sub_lib::hopper::ExpiredCoresPackage;
+use sub_lib::logger::Logger;
+use sub_lib::proxy_server::ClientRequestPayload;
+use sub_lib::proxy_client::ClientResponsePayload;
+use sub_lib::proxy_client::ProxyClientSubs;
+use sub_lib::tcp_wrappers::TcpStreamWrapper;
+use sub_lib::tcp_wrappers::TcpStreamWrapperReal;
+use stream_handler::StreamHandler;
 
 pub struct ProxyClient {
     dns_servers: Vec<SocketAddr>,
@@ -101,160 +93,16 @@ impl ProxyClient {
     }
 
     fn spawn_stream_thread(expired_cores_package: ExpiredCoresPackage, hopper: Box<Subscriber<IncipientCoresPackageMessage> + Send>,
-                           resolver_arc: Arc<Mutex<Box<ResolverWrapper>>>, mut stream: Box<TcpStreamWrapper>) {
+                           resolver_arc: Arc<Mutex<Box<ResolverWrapper>>>, stream: Box<TcpStreamWrapper>) {
         thread::spawn (move || {
             let logger = Logger::new ("Proxy Client");
             logger.debug (format! ("Started thread"));
-            let client_request_payload: ClientRequestPayload = match expired_cores_package.payload () {
-                Ok(p) => p,
-                Err(e) => {
-                    logger.error (format! ("Unparseable request discarded ({}): {:?}", e,
-                    expired_cores_package.payload_data ().data));
-                    logger.debug (format! ("Stopping thread abnormally"));
-                    return
-                }
-            };
-            let socket_addr = {
-                let resolver_guard = resolver_arc.lock ().expect ("Poisoned");
-                match ProxyClient::find_socket_addr (&client_request_payload.target_hostname, client_request_payload.target_port,
-                                                     resolver_guard.as_ref (), &logger) {
-                    Some (addr) => addr,
-                    None => {
-                        ProxyClient::send_cores_response(expired_cores_package.remaining_route,
-                                                         &client_request_payload, PlainData::new (SERVER_PROBLEM_RESPONSE), hopper);
-                        logger.debug (format! ("Stopping thread after 503"));
-                        return
-                    }
-                }
-            };
-            match ProxyClient::perform_stream_communications (
-                socket_addr,
-                &mut stream,
-                &client_request_payload.data,
-                &logger
-            ){
-                Ok (response_data) => ProxyClient::send_cores_response(expired_cores_package.remaining_route,
-                                                                       &client_request_payload, response_data, hopper),
-                Err (_) => ProxyClient::send_cores_response(expired_cores_package.remaining_route,
-                                                            &client_request_payload, PlainData::new (SERVER_PROBLEM_RESPONSE), hopper)
+            match StreamHandler::new (expired_cores_package, hopper.clone (), resolver_arc.clone (), stream) {
+                Some (mut handler) => handler.go (),
+                None => ()
             };
             logger.debug (format! ("Stopping thread"));
         });
-    }
-
-    fn perform_stream_communications (addr: SocketAddr, tcp_stream_wrapper: &mut Box<TcpStreamWrapper>,
-                                      payload: &PlainData, logger: &Logger) -> io::Result<PlainData> {
-        ProxyClient::connect_stream (addr, tcp_stream_wrapper, logger)?;
-        ProxyClient::write_to_stream (addr, tcp_stream_wrapper, payload, logger)?;
-        ProxyClient::set_read_timeout(addr, tcp_stream_wrapper, logger)?;
-        let result = ProxyClient::read_from_stream(addr, tcp_stream_wrapper, logger)?;
-        ProxyClient::shut_down_stream(tcp_stream_wrapper, logger).is_ok ();
-        Ok(result)
-    }
-
-    fn connect_stream (addr: SocketAddr, tcp_stream_wrapper: &mut Box<TcpStreamWrapper>,
-                       logger: &Logger) -> io::Result<()> {
-        logger.debug (format! ("Connecting stream to {}", addr));
-        match tcp_stream_wrapper.connect(addr) {
-            Ok (s) => Ok (s),
-            Err (e) => {
-                logger.error (format! ("Could not connect to server at {}: {}", addr, e));
-                return Err (e)
-            }
-        }
-    }
-
-    fn write_to_stream (addr: SocketAddr, tcp_stream_wrapper: &mut Box<TcpStreamWrapper>,
-                        payload: &PlainData, logger: &Logger) -> io::Result<usize> {
-        logger.debug (format! ("Writing to stream"));
-        match tcp_stream_wrapper.write (&payload.data[..]) {
-            Ok (len) => Ok (len), // TODO: Maybe check return value against payload length
-            Err (e) => {
-                logger.error (format! ("Could not write to server at {}: {}", addr, e));
-                return ProxyClient::error_shutdown (tcp_stream_wrapper, e);
-            }
-        }
-    }
-
-    fn set_read_timeout (addr: SocketAddr, tcp_stream_wrapper: &mut Box<TcpStreamWrapper>,
-                         logger: &Logger) -> io::Result<()> {
-        logger.debug (format! ("Setting stream timeout to {}ms", RESPONSE_FINISHED_TIMEOUT_MS));
-        match tcp_stream_wrapper.set_read_timeout(Some(Duration::from_millis(RESPONSE_FINISHED_TIMEOUT_MS))) {
-            Ok (s) => Ok (s),
-            Err (e) => {
-                logger.error (format! ("Could not set read timeout on stream from {}: {}", addr, e));
-                return ProxyClient::error_shutdown (tcp_stream_wrapper, e);
-            }
-        }
-    }
-
-    fn find_socket_addr (hostname: &String, port: u16, resolver: &ResolverWrapper, logger: &Logger) -> Option<SocketAddr> {
-        let mut fqdn = hostname.clone ();
-        fqdn.push ('.');
-        match resolver.lookup_ip (&fqdn[..]) {
-            Ok (ref ip_addrs) if !ip_addrs.is_empty () => Some (SocketAddr::new (ip_addrs[0], port)),
-            Ok (_) => {
-                logger.log (format! ("DNS search for hostname '{}' produced no results", fqdn));
-                None
-            },
-            Err (_) => {
-                logger.log (format! ("DNS search for hostname '{}' encountered error: invalid input", fqdn));
-                None
-            },
-        }
-    }
-
-    fn read_from_stream (addr: SocketAddr, tcp_stream_wrapper: &mut Box<TcpStreamWrapper>,
-                         logger: &Logger) -> io::Result<PlainData> {
-        let mut buf: [u8; 16384] = [0; 16384];
-        logger.debug (format! ("Preparing to read from stream"));
-        let mut framer = HttpPacketFramer::new (Box::new (HttpResponseStartFinder {}));
-        loop {
-            match tcp_stream_wrapper.read (&mut buf) {
-                Ok (len) => {
-                    logger.debug (format! ("Read {}-byte chunk from stream", len));
-                    framer.add_data (&buf[0..len]);
-                },
-                Err (e) => {
-                    logger.error (format! ("Could not read from server at {}: {}", addr, e));
-                    return ProxyClient::error_shutdown (tcp_stream_wrapper, e);
-                }
-            };
-            match framer.take_frame () {
-                Some (response) => {
-                    logger.debug (format! ("Framed complete {}-byte response", response.len ()));
-                    return Ok (PlainData::new (&response[..]))
-                },
-                None => {
-                    logger.debug (format! ("Framer hasn't seen complete response yet"));
-                    ()
-                }
-            }
-        }
-    }
-
-    fn shut_down_stream (tcp_stream_wrapper: &mut Box<TcpStreamWrapper>,
-                         logger: &Logger) -> io::Result<()> {
-        logger.debug (format! ("Shutting down stream"));
-        match tcp_stream_wrapper.shutdown (Shutdown::Both) {
-            Ok (s) => Ok (s),
-            Err (e) => { logger.warning (format! ("Stream shutdown failure: {}", e)); Err (e)}
-        }
-    }
-
-    fn send_cores_response(remaining_route: Route, client_request_payload: &ClientRequestPayload, response_payload: PlainData, hopper: Box<Subscriber<IncipientCoresPackageMessage> + Send>) {
-        let response_payload = ClientResponsePayload {
-            stream_key: client_request_payload.stream_key,
-            data: response_payload
-        };
-        let incipient_cores_package =
-            IncipientCoresPackage::new (remaining_route, response_payload, &client_request_payload.originator_public_key);
-        hopper.send(IncipientCoresPackageMessage { pkg: incipient_cores_package });
-    }
-
-    fn error_shutdown<S> (tcp_stream_wrapper: &mut Box<TcpStreamWrapper>, error: io::Error) -> io::Result<S> {
-        tcp_stream_wrapper.shutdown (Shutdown::Both).is_ok ();
-        Err (error)
     }
 
     pub fn make_subs_from(addr: &SyncAddress<ProxyClient>) -> ProxyClientSubs {
@@ -294,22 +142,23 @@ mod tests {
     use std::ops::DerefMut;
     use std::cell::RefCell;
     use std::fmt::Debug;
+    use actix::System;
+    use actix::Arbiter;
+    use actix::msgs;
     use serde_cbor;
-    use trust_dns_resolver::error;
     use sub_lib::route::Route;
     use sub_lib::cryptde::Key;
     use sub_lib::cryptde_null::CryptDENull;
     use sub_lib::logger::LoggerInitializerWrapper;
-    use resolver_wrapper::tests::ResolverWrapperFactoryMock;
-    use resolver_wrapper::tests::ResolverWrapperMock;
-    use actix::System;
-    use actix::Arbiter;
-    use actix::msgs;
     use sub_lib::test_utils::LoggerInitializerWrapperMock;
     use sub_lib::test_utils::TestLogHandler;
     use sub_lib::test_utils::make_peer_actors;
     use sub_lib::test_utils::make_peer_actors_from;
     use sub_lib::test_utils::Recorder;
+    use resolver_wrapper::tests::ResolverWrapperFactoryMock;
+    use resolver_wrapper::tests::ResolverWrapperMock;
+    use stream_handler::RESPONSE_FINISHED_TIMEOUT_MS;
+    use stream_handler::SERVER_PROBLEM_RESPONSE;
 
     fn dnss () -> Vec<SocketAddr> {
         vec! (SocketAddr::from_str ("8.8.8.8:53").unwrap ())
@@ -524,62 +373,7 @@ mod tests {
     }
 
     #[test]
-    fn find_socket_addr_uses_dns_client () {
-        LoggerInitializerWrapperMock::new ().init ();
-        let logger = Logger::new ("Proxy Client");
-        let hostname = String::from ("my.hostname.com");
-        let mut lookup_ip_parameters_arc: Arc<Mutex<Vec<String>>> = Arc::new (Mutex::new (vec! ()));
-        let resolver_wrapper = ResolverWrapperMock::new ()
-            .lookup_ip_parameters (&mut lookup_ip_parameters_arc)
-            .lookup_ip_result (Ok (vec! (IpAddr::from_str ("5.5.5.5").unwrap (),
-                                         IpAddr::from_str ("6.6.6.6").unwrap ())));
-
-        let result = ProxyClient::find_socket_addr(&hostname, 12345,
-                                                   &resolver_wrapper, &logger);
-
-        assert_eq! (result.unwrap (), SocketAddr::from_str ("5.5.5.5:12345").unwrap ());
-        let mut lookup_ip_parameters_guard = lookup_ip_parameters_arc.lock ().unwrap ();
-        let lookup_ip_parameter = lookup_ip_parameters_guard.remove (0);
-        assert_eq! (lookup_ip_parameter, String::from ("my.hostname.com."));
-        assert_eq! (lookup_ip_parameters_guard.len (), 0);
-    }
-
-    #[test]
-    fn find_socket_addr_returns_none_if_resolver_finds_no_addresses () {
-        LoggerInitializerWrapperMock::new ().init ();
-        let logger = Logger::new ("Proxy Client");
-        let hostname = String::from ("my.hostname.com");
-        let mut lookup_ip_parameters_arc: Arc<Mutex<Vec<String>>> = Arc::new (Mutex::new (vec! ()));
-        let resolver_wrapper = ResolverWrapperMock::new ()
-            .lookup_ip_parameters (&mut lookup_ip_parameters_arc)
-            .lookup_ip_result (Ok (vec! ()));
-
-        let result = ProxyClient::find_socket_addr(&hostname, 12345,
-                                                   &resolver_wrapper, &logger);
-
-        assert_eq! (result, None);
-        TestLogHandler::new ().exists_log_matching ("ThreadId\\(\\d+\\): ERROR: Proxy Client: DNS search for hostname 'my.hostname.com.' produced no results");
-    }
-
-    #[test]
-    fn find_socket_addr_returns_none_if_resolver_throws_error () {
-        LoggerInitializerWrapperMock::new ().init ();
-        let logger = Logger::new ("Proxy Client");
-        let hostname = String::from ("my.hostname.com");
-        let mut lookup_ip_parameters_arc: Arc<Mutex<Vec<String>>> = Arc::new (Mutex::new (vec! ()));
-        let resolver_wrapper = ResolverWrapperMock::new ()
-            .lookup_ip_parameters (&mut lookup_ip_parameters_arc)
-            .lookup_ip_result (Err (error::ResolveError::from (error::ResolveErrorKind::Message ("booga"))));
-
-        let result = ProxyClient::find_socket_addr(&hostname, 12345,
-                                                   &resolver_wrapper, &logger);
-
-        assert_eq! (result, None);
-        TestLogHandler::new ().exists_log_matching ("ThreadId\\(\\d+\\): ERROR: Proxy Client: DNS search for hostname 'my.hostname.com.' encountered error: invalid input");
-    }
-
-    #[test]
-    fn successful_round_trip () {
+    fn successful_round_trip_without_chunks () {
         let mut response_data = Vec::from (&b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 29\r\n\r\nUser-agent: *\nDisallow: /deny"[..]);
         let framed_response_data = response_data.clone ();
         for c in b"garbage" {response_data.insert (0, *c)}
@@ -654,11 +448,116 @@ mod tests {
         awaiter.await_message_count(1);
         let recording = hopper_recording.lock().unwrap();
         let record = recording.get_record::<IncipientCoresPackageMessage>(0);
-        let expected_client_response_payload = ClientResponsePayload {stream_key: request.stream_key, data: PlainData::new (&framed_response_data[..])};
+        let expected_client_response_payload = ClientResponsePayload {stream_key: request.stream_key,
+            last_response: true, data: PlainData::new (&framed_response_data[..])};
         let serialized_client_response_payload = serde_cbor::ser::to_vec (&expected_client_response_payload).unwrap ();
         assert_eq! (record.pkg.route, Route::rel2_from_proxy_client(&cryptde.public_key (), &cryptde).unwrap ());
         assert_eq! (record.pkg.payload, PlainData::new (&serialized_client_response_payload[..]));
         assert_eq! (record.pkg.payload_destination_key, request.originator_public_key);
+    }
+
+    #[test]
+    fn successful_round_trip_with_chunks () {
+        let response_data = Vec::from (&b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\n\r\nE\r\nUser-agent: *\n\r\nF\r\nDisallow: /deny\r\n0\r\n\r\n"[..]);
+        let request = ClientRequestPayload {
+            stream_key: SocketAddr::from_str ("1.2.3.4:56789").unwrap (),
+            data: PlainData::new (b"HEAD http://www.nyan.cat/ HTTP/1.1\r\n\r\n"),
+            target_hostname: String::from("target.hostname.com"),
+            target_port: 1234,
+            originator_public_key: Key::new (&b"originator_public_key"[..]),
+        };
+        let cryptde = CryptDENull::new ();
+        let thread_cryptde = cryptde.clone();
+        let package = ExpiredCoresPackage::new(
+            Route::rel2_to_proxy_client(&cryptde.public_key(), &cryptde).unwrap(),
+            PlainData::new(&serde_cbor::ser::to_vec (&request.clone()).unwrap ()[..])
+        );
+        let mut connect_parameter: Arc<Mutex<Option<SocketAddr>>> = Arc::new (Mutex::new (None));
+        let mut write_parameter: Arc<Mutex<Option<Vec<u8>>>> = Arc::new (Mutex::new (None));
+        let mut set_read_timeout_parameter: Arc<Mutex<Option<Option<Duration>>>> = Arc::new (Mutex::new (None));
+        let mut shutdown_parameter: Arc<Mutex<Option<Shutdown>>> = Arc::new (Mutex::new (None));
+        let stream_box = Box::new (TcpStreamWrapperMock::new ()
+            .connect_result (Ok (()))
+            .connect_parameter (&mut connect_parameter)
+            .write_result (Ok (request.data.data.len ()))
+            .write_parameter (&mut write_parameter)
+            .set_read_timeout_result (Ok (()))
+            .set_read_timeout_parameter (&mut set_read_timeout_parameter)
+            .read_buffers (vec! (
+                Vec::from (&response_data[0..80]),
+                Vec::from (&response_data[80..])
+            ))
+            .read_results (vec! (Ok (80), Ok (response_data.len () - 80)))
+            .shutdown_parameter (&mut shutdown_parameter)
+            .shutdown_result (Ok (())));
+        let tcp_stream_wrapper_factory = TcpStreamWrapperFactoryMock::new ()
+            .tcp_stream_wrapper (stream_box);
+        let mut lookup_ip_parameter_arc: Arc<Mutex<Vec<String>>> = Arc::new (Mutex::new (vec! ()));
+        let resolver_wrapper = ResolverWrapperMock::new ()
+            .lookup_ip_result (Ok (vec! (target_ip ())))
+            .lookup_ip_parameters (&mut lookup_ip_parameter_arc);
+        let resolver_wrapper_factory = ResolverWrapperFactoryMock::new ()
+            .new_result(Ok (Box::new (resolver_wrapper)));
+        let hopper = Recorder::new ();
+        let hopper_recording = hopper.get_recording();
+        let awaiter = hopper.get_awaiter();
+        thread::spawn(move || {
+            let system = System::new("successful_round_trip");
+            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None);
+            let mut subject = ProxyClient::new(Box::new (thread_cryptde), dnss ());
+            subject.tcp_stream_wrapper_factory = Box::new(tcp_stream_wrapper_factory);
+            subject.resolver_wrapper_factory = Box::new (resolver_wrapper_factory);
+            let subject_addr:SyncAddress<_> = subject.start();
+            subject_addr.send(BindMessage{peer_actors});
+
+            subject_addr.send(ExpiredCoresPackageMessage{pkg: package});
+
+            system.run();
+        });
+
+        let shutdown_parameter_guard = verify_arc_mutex_option(&shutdown_parameter, 1000);
+        assert_eq! (*shutdown_parameter_guard.as_ref ().unwrap (), Shutdown::Both);
+        let expected_client_response_payloads = vec!(
+            ClientResponsePayload {
+                stream_key: request.stream_key,
+                last_response: false,
+                data: PlainData::new(&b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\n\r\n"[..]),
+            },
+            ClientResponsePayload {
+                stream_key: request.stream_key,
+                last_response: false,
+                data: PlainData::new(&b"E\r\nUser-agent: *\n\r\n"[..]),
+            },
+            ClientResponsePayload {
+                stream_key: request.stream_key,
+                last_response: false,
+                data: PlainData::new(&b"F\r\nDisallow: /deny\r\n"[..]),
+            },
+            ClientResponsePayload {
+                stream_key: request.stream_key,
+                last_response: true,
+                data: PlainData::new(&b"0\r\n\r\n"[..]),
+            },
+        );
+        let expected_packages: Vec<IncipientCoresPackage> = expected_client_response_payloads.iter ().map (|p| {
+            IncipientCoresPackage::new (
+                Route::rel2_from_proxy_client(&cryptde.public_key (), &cryptde).unwrap (),
+                p.clone (),
+                &request.originator_public_key,
+            )
+        }).collect ();
+
+        awaiter.await_message_count(4); // probably unnecessary
+        let recording = hopper_recording.lock().unwrap();
+        let actual_packages: Vec<&IncipientCoresPackage> = vec! (0, 1, 2, 3).iter ().map (|index| {
+            let record = recording.get_record::<IncipientCoresPackageMessage> (*index);
+            &record.pkg
+        }).collect ();
+
+        assert_eq! (*actual_packages[0], expected_packages[0]);
+        assert_eq! (*actual_packages[1], expected_packages[1]);
+        assert_eq! (*actual_packages[2], expected_packages[2]);
+        assert_eq! (*actual_packages[3], expected_packages[3]);
     }
 
     #[test]
@@ -727,7 +626,8 @@ mod tests {
         awaiter.await_message_count(1);
         let recording = hopper_recording.lock().unwrap();
         let record = recording.get_record::<IncipientCoresPackageMessage>(0);
-        let expected_client_response_payload = ClientResponsePayload {stream_key: request.stream_key, data: PlainData::new (SERVER_PROBLEM_RESPONSE)};
+        let expected_client_response_payload = ClientResponsePayload {stream_key: request.stream_key,
+            last_response: true, data: PlainData::new (SERVER_PROBLEM_RESPONSE)};
         let serialized_client_response_payload = serde_cbor::ser::to_vec (&expected_client_response_payload).unwrap ();
         assert_eq! (record.pkg.route, Route::rel2_from_proxy_client(&cryptde.public_key (), &cryptde).unwrap ());
         assert_eq! (record.pkg.payload, PlainData::new (&serialized_client_response_payload[..]));
@@ -792,7 +692,7 @@ mod tests {
                 .write_result (Ok (request.data.data.len ()))
                 .set_read_timeout_result (Ok (()))
                 .read_results (vec! (Err (Error::from (ErrorKind::AddrInUse)))),
-            format! ("ThreadId\\(\\d+\\): ERROR: Proxy Client: Could not read from server at {}: address in use",
+            format! ("ERROR: Proxy Client: Could not read from server at {}: address in use",
                      SocketAddr::new (target_ip (), 1234)),
             true
         );
@@ -813,7 +713,7 @@ mod tests {
                 .write_result (Ok (request.data.data.len ()))
                 .set_read_timeout_result (Ok (()))
                 .read_results (vec! (Err (Error::from (timeout_error_kind())))),
-            format! ("ThreadId\\(\\d+\\): ERROR: Proxy Client: Could not read from server at {}: {}",
+            format! ("ERROR: Proxy Client: Could not read from server at {}: {}",
                      SocketAddr::new (target_ip (), 1234), Error::from (timeout_error_kind ())),
             true
         );
@@ -874,7 +774,8 @@ mod tests {
         awaiter.await_message_count(1);
         let recording = hopper_recording.lock().unwrap();
         let record = recording.get_record::<IncipientCoresPackageMessage>(0);
-        let expected_client_response_payload = ClientResponsePayload {stream_key: request.stream_key, data: PlainData::new (response_data)};
+        let expected_client_response_payload = ClientResponsePayload {stream_key: request.stream_key,
+            last_response: true, data: PlainData::new (response_data)};
         let serialized_client_response_payload = serde_cbor::ser::to_vec (&expected_client_response_payload).unwrap ();
         assert_eq! (record.pkg.route, Route::rel2_from_proxy_client(&cryptde.public_key (), &cryptde).unwrap ());
         assert_eq! (record.pkg.payload, PlainData::new (&serialized_client_response_payload[..]));
@@ -936,7 +837,8 @@ mod tests {
         awaiter.await_message_count(1);
         let recording = hopper_recording.lock().unwrap();
         let record = recording.get_record::<IncipientCoresPackageMessage>(0);
-        let expected_client_response_payload = ClientResponsePayload {stream_key: request.stream_key, data: PlainData::new (SERVER_PROBLEM_RESPONSE)};
+        let expected_client_response_payload = ClientResponsePayload {stream_key: request.stream_key,
+            last_response: true, data: PlainData::new (SERVER_PROBLEM_RESPONSE)};
         let serialized_client_response_payload = serde_cbor::ser::to_vec (&expected_client_response_payload).unwrap ();
         assert_eq! (record.pkg.route, Route::rel2_from_proxy_client(&cryptde.public_key (), &cryptde).unwrap ());
         assert_eq! (record.pkg.payload, PlainData::new (&serialized_client_response_payload[..]));
