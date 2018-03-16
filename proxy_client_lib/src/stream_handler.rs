@@ -12,6 +12,7 @@ use sub_lib::cryptde::PlainData;
 use sub_lib::framer::Framer;
 use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::hopper::IncipientCoresPackage;
+use sub_lib::http_packet_framer;
 use sub_lib::http_packet_framer::HttpPacketFramer;
 use sub_lib::http_response_start_finder::HttpResponseStartFinder;
 use sub_lib::logger::Logger;
@@ -65,7 +66,7 @@ impl StreamHandler {
                 Some (ip_addr) => SocketAddr::new (ip_addr, self.client_request_payload.target_port),
                 None => {
                     self.send_cores_response(PlainData::new (SERVER_PROBLEM_RESPONSE), true);
-                    self.logger.debug (format! ("Stopping thread after 503"));
+                    self.logger.debug (format! ("Stopping thread after 503 for {}", self.summarize_request()));
                     return
                 }
             }
@@ -87,33 +88,37 @@ impl StreamHandler {
     }
 
     fn connect_stream (&mut self, addr: SocketAddr) -> io::Result<()> {
-        self.logger.debug (format! ("Connecting stream to {}", addr));
+        self.logger.debug (format! ("Connecting stream to {} for {}", addr, self.summarize_request()));
         match self.stream.connect(addr) {
             Ok (s) => Ok (s),
             Err (e) => {
-                self.logger.error (format! ("Could not connect to server at {}: {}", addr, e));
+                self.logger.error (format! ("Could not connect to server at {} for {}: {}", addr,
+                                            self.summarize_request(), e));
                 Err (e)
             }
         }
     }
 
     fn write_to_stream (&mut self, addr: SocketAddr, payload: &PlainData) -> io::Result<usize> {
-        self.logger.debug (format! ("Writing to stream"));
+        self.logger.debug (format! ("Writing to stream for {}", self.summarize_request()));
         match self.stream.write (&payload.data[..]) {
             Ok (len) => Ok (len), // TODO: Maybe check return value against payload length
             Err (e) => {
-                self.logger.error (format! ("Could not write to server at {}: {}", addr, e));
+                self.logger.error (format! ("Could not write to server at {} for {}: {}", addr,
+                                            self.summarize_request (), e));
                 self.error_shutdown (e)
             }
         }
     }
 
     fn set_read_timeout (&mut self, addr: SocketAddr) -> io::Result<()> {
-        self.logger.debug (format! ("Setting stream timeout to {}ms", RESPONSE_FINISHED_TIMEOUT_MS));
+        self.logger.debug (format! ("Setting stream timeout to {}ms for {}", RESPONSE_FINISHED_TIMEOUT_MS,
+            self.summarize_request()));
         match self.stream.set_read_timeout(Some(Duration::from_millis(RESPONSE_FINISHED_TIMEOUT_MS))) {
             Ok (s) => Ok (s),
             Err (e) => {
-                self.logger.error (format! ("Could not set read timeout on stream from {}: {}", addr, e));
+                self.logger.error (format! ("Could not set read timeout on stream from {} for {}: {}", addr,
+                                            self.summarize_request(), e));
                 self.error_shutdown (e)
             }
         }
@@ -125,11 +130,11 @@ impl StreamHandler {
         match resolver_arc.lock ().expect ("Resolver is dead").lookup_ip (&fqdn[..]) {
             Ok (ref ip_addrs) if !ip_addrs.is_empty () => Some (ip_addrs[0]),
             Ok (_) => {
-                logger.log (format! ("DNS search for hostname '{}' produced no results", fqdn));
+                logger.error (format! ("DNS search for hostname '{}' produced no results", fqdn));
                 None
             },
             Err (_) => {
-                logger.log (format! ("DNS search for hostname '{}' encountered error: invalid input", fqdn));
+                logger.error (format! ("DNS search for hostname '{}' encountered error: invalid input", fqdn));
                 None
             },
         }
@@ -140,24 +145,28 @@ impl StreamHandler {
         loop {
             match self.stream.read (&mut buf) {
                 Ok (len) => {
-                    self.logger.debug (format! ("Read {}-byte chunk from stream: '{}", len, to_string (&Vec::from (&buf[0..len]))));
+                    self.logger.debug (format! ("Read {}-byte chunk from stream for {}: {}", len,
+                                                self.summarize_request(), to_string (&Vec::from (&buf[0..len]))));
                     framer.add_data (&buf[0..len]);
                 },
                 Err (e) => {
-                    self.logger.error (format! ("Could not read from server at {}: {}", addr, e));
+                    self.logger.error (format! ("Could not read from server at {} for {}: {}", addr,
+                                                self.summarize_request(), e));
                     return self.error_shutdown (e);
                 }
             };
             loop {
                 match framer.take_frame () {
                     Some (response_chunk) => {
-                        self.logger.debug (format! ("Framed {}-byte {} response chunk, '{}'", response_chunk.chunk.len (),
-                                               if response_chunk.last_chunk {"final"} else {"non-final"}, to_string (&response_chunk.chunk)));
+                        self.logger.debug (format! ("Framed {}-byte {} response chunk for {}, '{}'", response_chunk.chunk.len (),
+                                               if response_chunk.last_chunk {"final"} else {"non-final"},
+                                                    self.summarize_request(), to_string (&response_chunk.chunk)));
                         self.send_cores_response(PlainData::new (&response_chunk.chunk[..]), response_chunk.last_chunk);
                         if response_chunk.last_chunk {return Ok (())}
                     },
                     None => {
-                        self.logger.debug (format! ("Framer has no complete response chunk"));
+                        self.logger.debug (format! ("Framer has no complete response chunk for {}",
+                            self.summarize_request()));
                         break;
                     }
                 }
@@ -166,10 +175,11 @@ impl StreamHandler {
     }
 
     fn shut_down_stream (&self) -> io::Result<()> {
-        self.logger.debug (format! ("Shutting down stream"));
+        self.logger.debug (format! ("Shutting down stream for {}", self.summarize_request()));
         match self.stream.shutdown (Shutdown::Both) {
             Ok (s) => Ok (s),
-            Err (e) => { self.logger.warning (format! ("Stream shutdown failure: {}", e)); Err (e)}
+            Err (e) => { self.logger.warning (format! ("Stream shutdown failure for {}: {}",
+                                                       self.summarize_request (), e)); Err (e)}
         }
     }
 
@@ -188,6 +198,10 @@ impl StreamHandler {
     fn error_shutdown<S> (&self, error: io::Error) -> io::Result<S> {
         self.stream.shutdown (Shutdown::Both).is_ok ();
         Err (error)
+    }
+
+    fn summarize_request (&self) -> String {
+        http_packet_framer::summarize_http_packet (&self.client_request_payload.data.data)
     }
 }
 

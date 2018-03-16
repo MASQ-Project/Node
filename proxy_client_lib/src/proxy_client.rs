@@ -639,7 +639,7 @@ mod tests {
         verify_error_results (
             TcpStreamWrapperMock::new ()
                 .connect_result (Err (Error::from (ErrorKind::ConnectionRefused))),
-            format! ("ThreadId\\(\\d+\\): ERROR: Proxy Client: Could not connect to server at {}: connection refused",
+            format! ("ThreadId\\(\\d+\\): ERROR: Proxy Client: Could not connect to server at {} for HEAD http://www.nyan.cat/: connection refused",
                      SocketAddr::new (target_ip (), 1234)),
             false
         );
@@ -651,7 +651,7 @@ mod tests {
             TcpStreamWrapperMock::new ()
                 .connect_result (Ok (()))
                 .write_result (Err (Error::from (ErrorKind::ConnectionAborted))),
-            format! ("ThreadId\\(\\d+\\): ERROR: Proxy Client: Could not write to server at {}: connection aborted",
+            format! ("ThreadId\\(\\d+\\): ERROR: Proxy Client: Could not write to server at {} for HEAD http://www.nyan.cat/: connection aborted",
                      SocketAddr::new (target_ip (), 1234)),
             true
         );
@@ -671,7 +671,7 @@ mod tests {
                 .connect_result (Ok (()))
                 .write_result (Ok (request.data.data.len ()))
                 .set_read_timeout_result (Err (Error::from (ErrorKind::InvalidInput))),
-            format! ("ThreadId\\(\\d+\\): ERROR: Proxy Client: Could not set read timeout on stream from {}: invalid input",
+            format! ("ThreadId\\(\\d+\\): ERROR: Proxy Client: Could not set read timeout on stream from {} for HEAD http://www.nyan.cat/: invalid input",
                      SocketAddr::new (target_ip (), 1234)),
             true
         );
@@ -692,7 +692,7 @@ mod tests {
                 .write_result (Ok (request.data.data.len ()))
                 .set_read_timeout_result (Ok (()))
                 .read_results (vec! (Err (Error::from (ErrorKind::AddrInUse)))),
-            format! ("ERROR: Proxy Client: Could not read from server at {}: address in use",
+            format! ("ERROR: Proxy Client: Could not read from server at {} for HEAD http://www.nyan.cat/: address in use",
                      SocketAddr::new (target_ip (), 1234)),
             true
         );
@@ -713,7 +713,7 @@ mod tests {
                 .write_result (Ok (request.data.data.len ()))
                 .set_read_timeout_result (Ok (()))
                 .read_results (vec! (Err (Error::from (timeout_error_kind())))),
-            format! ("ERROR: Proxy Client: Could not read from server at {}: {}",
+            format! ("ERROR: Proxy Client: Could not read from server at {} for HEAD http://www.nyan.cat/: {}",
                      SocketAddr::new (target_ip (), 1234), Error::from (timeout_error_kind ())),
             true
         );
@@ -770,7 +770,7 @@ mod tests {
             system.run();
         });
 
-        TestLogHandler::new ().await_log_matching ("ThreadId\\(\\d+\\): WARN: Proxy Client: Stream shutdown failure: broken pipe", 1000);
+        TestLogHandler::new ().await_log_matching ("ThreadId\\(\\d+\\): WARN: Proxy Client: Stream shutdown failure for HEAD http://www.nyan.cat/: broken pipe", 1000);
         awaiter.await_message_count(1);
         let recording = hopper_recording.lock().unwrap();
         let record = recording.get_record::<IncipientCoresPackageMessage>(0);

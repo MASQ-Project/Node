@@ -168,7 +168,7 @@ impl HttpPacketFramer {
             while self.framer_state.lines.len() > 0 {
                 request.extend(self.framer_state.lines.remove(0))
             }
-            self.logger.info (HttpPacketFramer::summarize_request (&request));
+            self.logger.info (summarize_http_packet(&request));
             Some (request)
         }
         else {
@@ -223,21 +223,6 @@ impl HttpPacketFramer {
         self.framer_state.packet_progress_state = PacketProgressState::SeekingPacketStart;
         self.framer_state.content_length = 0;
         self.framer_state.lines.clear ();
-    }
-
-    fn summarize_request (request: &Vec<u8>) -> String {
-        let first_space_index = match index_of_from (request, &(' ' as u8), 0) {
-            None => return String::from("<bad HTTP syntax: no spaces>"),
-            Some(index) => index
-        };
-        let second_space_index = match index_of_from (request, &(' ' as u8), first_space_index + 1) {
-            None => return String::from("<bad HTTP syntax: one space>"),
-            Some(index) => index
-        };
-        match String::from_utf8 (Vec::from (&request[0..second_space_index])) {
-            Err (_) => String::from ("<bad HTTP syntax: UTF-8 encoding error>"),
-            Ok (summary) => summary
-        }
     }
 
     fn take_chunk_frame(&mut self) -> Option<FramedChunk> {
@@ -312,6 +297,21 @@ impl HttpPacketFramer {
 const BYTES_TO_PRESERVE: usize = 9;
 const CRLF: &[u8; 2] = b"\r\n";
 const DOUBLE_CRLF: &[u8; 4] = b"\r\n\r\n";
+
+pub fn summarize_http_packet(request: &Vec<u8>) -> String {
+    let first_space_index = match index_of_from (request, &(' ' as u8), 0) {
+        None => return String::from("<bad HTTP syntax: no spaces>"),
+        Some(index) => index
+    };
+    let second_space_index = match index_of_from (request, &(' ' as u8), first_space_index + 1) {
+        None => return String::from("<bad HTTP syntax: one space>"),
+        Some(index) => index
+    };
+    match String::from_utf8 (Vec::from (&request[0..second_space_index])) {
+        Err (_) => String::from ("<bad HTTP syntax: UTF-8 encoding error>"),
+        Ok (summary) => summary
+    }
+}
 
 #[cfg (test)]
 mod framer_tests {
@@ -683,39 +683,48 @@ GOOD_FIRST_LINE\r\nContent-Length: 5\r\n\r\ngooba".as_bytes();
     }
 
     #[test]
-    fn summarize_request_handles_no_spaces () {
+    fn summarize_http_packethandles_no_spaces () {
         let request = Vec::from ("therearenospacesinthisbuffer\r\n".as_bytes ());
 
-        let result = HttpPacketFramer::summarize_request (&request);
+        let result = summarize_http_packet(&request);
 
         assert_eq! (result, String::from ("<bad HTTP syntax: no spaces>"))
     }
 
     #[test]
-    fn summarize_request_handles_single_space () {
+    fn summarize_http_packethandles_single_space () {
         let request = Vec::from("thereisone spaceinthisbuffer\r\n".as_bytes());
 
-        let result = HttpPacketFramer::summarize_request(&request);
+        let result = summarize_http_packet(&request);
 
         assert_eq!(result, String::from("<bad HTTP syntax: one space>"))
     }
 
     #[test]
-    fn summarize_request_handles_non_utf8 () {
+    fn summarize_http_packethandles_non_utf8 () {
         let request = vec! (1, 2, 3, 32, 192, 193, 32, 4, 5);
 
-        let result = HttpPacketFramer::summarize_request(&request);
+        let result = summarize_http_packet(&request);
 
         assert_eq!(result, String::from("<bad HTTP syntax: UTF-8 encoding error>"))
     }
 
     #[test]
-    fn summarize_request_handles_good_data () {
+    fn summarize_http_packethandles_good_request () {
         let request = Vec::from ("OPTION http://somewhere.com HTTP/1.1\r\n".as_bytes ());
 
-        let result = HttpPacketFramer::summarize_request(&request);
+        let result = summarize_http_packet(&request);
 
         assert_eq!(result, String::from("OPTION http://somewhere.com"))
+    }
+
+    #[test]
+    fn summarize_http_packethandles_good_response () {
+        let request = Vec::from ("HTTP/1.1 200 OK\r\n".as_bytes ());
+
+        let result = summarize_http_packet(&request);
+
+        assert_eq!(result, String::from("HTTP/1.1 200"))
     }
 
     #[test]
