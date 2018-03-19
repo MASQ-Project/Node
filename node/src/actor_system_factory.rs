@@ -1,64 +1,68 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use std::net::SocketAddr;
 use std::sync::mpsc;
-use std::sync::mpsc::Sender;
 use std::thread;
 use actix::Actor;
 use actix::System;
 use actix::SyncAddress;
-use sub_lib::dispatcher::InboundClientData;
-use stream_handler_pool::StreamHandlerPool;
-use sub_lib::stream_handler_pool::StreamHandlerPoolSubs;
-use dispatcher_facade::DispatcherFacade;
-use proxy_server_lib::proxy_server::ProxyServer;
-use sub_lib::actor_messages::BindMessage;
-use sub_lib::proxy_server::ProxyServerSubs;
-use sub_lib::proxy_client::ProxyClientSubs;
-use sub_lib::dispatcher::DispatcherFacadeSubs;
-use sub_lib::actor_messages::PeerActors;
-use sub_lib::hopper::HopperSubs;
 use hopper_lib::hopper::Hopper;
 use proxy_client_lib::proxy_client::ProxyClient;
+use proxy_server_lib::proxy_server::ProxyServer;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde_null::CryptDENull;
-use std::net::SocketAddr;
+use sub_lib::hopper::HopperSubs;
+use sub_lib::dispatcher::DispatcherSubs;
+use sub_lib::peer_actors::BindMessage;
+use sub_lib::peer_actors::PeerActors;
+use sub_lib::proxy_client::ProxyClientSubs;
+use sub_lib::proxy_server::ProxyServerSubs;
+use sub_lib::stream_handler_pool::StreamHandlerPoolSubs;
+use dispatcher::Dispatcher;
+use stream_handler_pool::StreamHandlerPool;
 
 pub trait ActorSystemFactory: Send {
-    fn make_and_start_actors(&self, ibcd_transmitter: Sender<InboundClientData>, dns_servers: Vec<SocketAddr>) -> (DispatcherFacadeSubs, StreamHandlerPoolSubs);
+    fn make_and_start_actors(&self, dns_servers: Vec<SocketAddr>) -> StreamHandlerPoolSubs;
 }
 
 pub struct ActorSystemFactoryReal {}
 
 impl ActorSystemFactory for ActorSystemFactoryReal {
-    fn make_and_start_actors(&self, ibcd_transmitter: Sender<InboundClientData>, dns_servers: Vec<SocketAddr>) -> (DispatcherFacadeSubs, StreamHandlerPoolSubs) {
+    fn make_and_start_actors(&self, dns_servers: Vec<SocketAddr>) -> StreamHandlerPoolSubs {
         let (tx, rx) = mpsc::channel();
 
         thread::spawn(move || {
             let system = System::new("SubstratumNode");
 
             // make all the actors
+            let dispatcher_subs = ActorSystemFactoryReal::make_and_start_dispatcher();
+            let proxy_server_subs = ActorSystemFactoryReal::make_and_start_proxy_server();
+            let proxy_client_subs = ActorSystemFactoryReal::make_and_start_proxy_client(Box::new(CryptDENull::new()), dns_servers);
+            let hopper_subs = ActorSystemFactoryReal::make_and_start_hopper(Box::new(CryptDENull::new()));
+            //let neighborhood_subs = ActorSystemFactoryReal::make_and_start_neighborhood();
             let pool_subs = ActorSystemFactoryReal::make_and_start_stream_handler_pool();
-            let dispatcher_facade_subs = ActorSystemFactoryReal::make_and_start_dispatcher_facade(ibcd_transmitter);
-            let proxy_server_subs = ActorSystemFactoryReal::make_and_start_proxy_server_actor();
-            let proxy_client_subs = ActorSystemFactoryReal::make_and_start_proxy_client_actor(Box::new(CryptDENull::new()), dns_servers);
-            let hopper_subs = ActorSystemFactoryReal::make_and_start_hopper_facade(Box::new(CryptDENull::new()));
 
             // collect all the subs
             let peer_actors = PeerActors {
-                proxy_server: proxy_server_subs.clone(),
-                dispatcher: dispatcher_facade_subs.clone(),
-                proxy_client: proxy_client_subs.clone(),
-                hopper: hopper_subs.clone(),
+                dispatcher: dispatcher_subs,
+                proxy_server: proxy_server_subs,
+                proxy_client: proxy_client_subs,
+                hopper: hopper_subs,
+                // neighborhood: neighborhood_subs,
                 stream_handler_pool: pool_subs.clone(),
             };
 
             //bind all the actors
-            dispatcher_facade_subs.bind.send(BindMessage { peer_actors: peer_actors.clone() }).expect ("Dispatcher is dead");
-            proxy_server_subs.bind.send(BindMessage { peer_actors: peer_actors.clone() }).expect ("Proxy Server is dead");
-            hopper_subs.bind.send(BindMessage { peer_actors: peer_actors.clone() }).expect ("Hopper is dead");
-            pool_subs.bind.send(BindMessage { peer_actors: peer_actors.clone() }).expect ("StreamHandlerPool is dead");
-            proxy_client_subs.bind.send(BindMessage { peer_actors: peer_actors.clone() }).expect ("Proxy Client is dead");
+            peer_actors.dispatcher.bind.send(BindMessage { peer_actors: peer_actors.clone() }).expect ("Dispatcher is dead");
+            peer_actors.proxy_server.bind.send(BindMessage { peer_actors: peer_actors.clone() }).expect ("Proxy Server is dead");
+            peer_actors.proxy_client.bind.send(BindMessage { peer_actors: peer_actors.clone() }).expect ("Proxy Client is dead");
+            peer_actors.hopper.bind.send(BindMessage { peer_actors: peer_actors.clone() }).expect ("Hopper is dead");
+            //peer_actors.neighborhood.bind.send(BindMessage { peer_actors: peer_actors.clone() }).expect("Neighborhood is dead");
+            pool_subs.bind.send(BindMessage { peer_actors: peer_actors }).expect ("StreamHandlerPool is dead");
 
-            tx.send((dispatcher_facade_subs.clone(), pool_subs.clone())).ok();
+            //send out the stream handler pool subs (to be bound to listeners)
+            tx.send(pool_subs).ok();
+
+            //run the actor system
             system.run()
         });
 
@@ -67,19 +71,19 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
 }
 
 impl ActorSystemFactoryReal {
-    fn make_and_start_dispatcher_facade(ibcd_transmitter: Sender<InboundClientData>) -> DispatcherFacadeSubs {
-        let dispatcher_facade = DispatcherFacade::new(ibcd_transmitter);
-        let addr: SyncAddress<_> = dispatcher_facade.start();
-        DispatcherFacade::make_subs_from(&addr)
+    fn make_and_start_dispatcher() -> DispatcherSubs {
+        let dispatcher = Dispatcher::new();
+        let addr: SyncAddress<_> = dispatcher.start();
+        Dispatcher::make_subs_from(&addr)
     }
 
-    fn make_and_start_proxy_server_actor() -> ProxyServerSubs {
+    fn make_and_start_proxy_server() -> ProxyServerSubs {
         let proxy_server = ProxyServer::new();
         let addr: SyncAddress<_> = proxy_server.start();
         ProxyServer::make_subs_from(&addr)
     }
 
-    fn make_and_start_hopper_facade(cryptde: Box<CryptDE>) -> HopperSubs {
+    fn make_and_start_hopper(cryptde: Box<CryptDE>) -> HopperSubs {
         let hopper = Hopper::new(cryptde);
         let addr: SyncAddress<_> = hopper.start();
         Hopper::make_subs_from(&addr)
@@ -91,7 +95,7 @@ impl ActorSystemFactoryReal {
         StreamHandlerPool::make_subs_from(&addr)
     }
 
-    fn make_and_start_proxy_client_actor(cryptde: Box<CryptDE>, dns_servers: Vec<SocketAddr>) -> ProxyClientSubs {
+    fn make_and_start_proxy_client(cryptde: Box<CryptDE>, dns_servers: Vec<SocketAddr>) -> ProxyClientSubs {
         let proxy_client = ProxyClient::new(cryptde, dns_servers);
         let addr: SyncAddress<_> = proxy_client.start();
         ProxyClient::make_subs_from(&addr)

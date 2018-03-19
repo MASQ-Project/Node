@@ -15,12 +15,11 @@ use trust_dns_resolver::config::ResolverConfig;
 use trust_dns_resolver::config::ResolverOpts;
 use trust_dns_resolver::config::NameServerConfig;
 use trust_dns_resolver::config::Protocol;
-use sub_lib::actor_messages::BindMessage;
-use sub_lib::actor_messages::ExpiredCoresPackageMessage;
-use sub_lib::actor_messages::IncipientCoresPackageMessage;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::hopper::ExpiredCoresPackage;
+use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::logger::Logger;
+use sub_lib::peer_actors::BindMessage;
 use sub_lib::proxy_client::ProxyClientSubs;
 use sub_lib::tcp_wrappers::TcpStreamWrapper;
 use sub_lib::tcp_wrappers::TcpStreamWrapperReal;
@@ -32,7 +31,7 @@ pub struct ProxyClient {
     resolver_wrapper_factory: Box<ResolverWrapperFactory>,
     resolver_wrapper: Option<Arc<Mutex<Box<ResolverWrapper>>>>,
     cryptde: Box<CryptDE>,
-    to_hopper: Option<Box<Subscriber<IncipientCoresPackageMessage> + Send>>
+    to_hopper: Option<Box<Subscriber<IncipientCoresPackage> + Send>>
 }
 
 impl Actor for ProxyClient {
@@ -60,12 +59,12 @@ impl Handler<BindMessage> for ProxyClient {
     }
 }
 
-impl Handler<ExpiredCoresPackageMessage> for ProxyClient {
+impl Handler<ExpiredCoresPackage> for ProxyClient {
     type Result = ();
 
-    fn handle(&mut self, msg: ExpiredCoresPackageMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: ExpiredCoresPackage, _ctx: &mut Self::Context) -> Self::Result {
         let stream = self.tcp_stream_wrapper_factory.make ();
-        ProxyClient::spawn_stream_thread(msg.pkg,
+        ProxyClient::spawn_stream_thread(msg,
                                          self.to_hopper.as_ref().expect("Hopper Unbound for ProxyClient").clone(),
                                          self.resolver_wrapper.as_ref ().expect ("Unbound").clone (), stream);
         ()
@@ -87,7 +86,7 @@ impl ProxyClient {
         }
     }
 
-    fn spawn_stream_thread(expired_cores_package: ExpiredCoresPackage, hopper: Box<Subscriber<IncipientCoresPackageMessage> + Send>,
+    fn spawn_stream_thread(expired_cores_package: ExpiredCoresPackage, hopper: Box<Subscriber<IncipientCoresPackage> + Send>,
                            resolver_arc: Arc<Mutex<Box<ResolverWrapper>>>, stream: Box<TcpStreamWrapper>) {
         thread::spawn (move || {
             let logger = Logger::new ("Proxy Client");
@@ -103,7 +102,7 @@ impl ProxyClient {
     pub fn make_subs_from(addr: &SyncAddress<ProxyClient>) -> ProxyClientSubs {
         ProxyClientSubs {
             bind: addr.subscriber::<BindMessage>(),
-            from_hopper: addr.subscriber::<ExpiredCoresPackageMessage>(),
+            from_hopper: addr.subscriber::<ExpiredCoresPackage>(),
         }
     }
 }
@@ -158,7 +157,6 @@ mod tests {
     use resolver_wrapper::tests::ResolverWrapperMock;
     use stream_handler::RESPONSE_FINISHED_TIMEOUT_MS;
     use stream_handler::SERVER_PROBLEM_RESPONSE;
-    use sub_lib::hopper::IncipientCoresPackage;
 
     fn dnss () -> Vec<SocketAddr> {
         vec! (SocketAddr::from_str ("8.8.8.8:53").unwrap ())
@@ -373,6 +371,60 @@ mod tests {
     }
 
     #[test]
+    #[should_panic (expected = "Hopper Unbound for ProxyClient")]
+    fn panics_if_hopper_is_unbound() {
+        let response_data = Vec::from (&b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 29\r\n\r\nUser-agent: *\nDisallow: /deny"[..]);
+        let request = ClientRequestPayload {
+            stream_key: SocketAddr::from_str ("1.2.3.4:56789").unwrap (),
+            data: PlainData::new (b"HEAD http://www.nyan.cat/ HTTP/1.1\r\n\r\n"),
+            target_hostname: String::from("target.hostname.com"),
+            target_port: 1234,
+            originator_public_key: Key::new (&b"originator_public_key"[..]),
+        };
+        let cryptde = CryptDENull::new ();
+        let package = ExpiredCoresPackage::new(
+            Route::rel2_to_proxy_client(&cryptde.public_key(), &cryptde).unwrap(),
+            PlainData::new(&serde_cbor::ser::to_vec (&request.clone()).unwrap ()[..])
+        );
+        let mut connect_parameter: Arc<Mutex<Option<SocketAddr>>> = Arc::new (Mutex::new (None));
+        let mut write_parameter: Arc<Mutex<Option<Vec<u8>>>> = Arc::new (Mutex::new (None));
+        let mut set_read_timeout_parameter: Arc<Mutex<Option<Option<Duration>>>> = Arc::new (Mutex::new (None));
+        let mut shutdown_parameter: Arc<Mutex<Option<Shutdown>>> = Arc::new (Mutex::new (None));
+        let stream_box = Box::new (TcpStreamWrapperMock::new ()
+            .connect_result (Ok (()))
+            .connect_parameter (&mut connect_parameter)
+            .write_result (Ok (request.data.data.len ()))
+            .write_parameter (&mut write_parameter)
+            .set_read_timeout_result (Ok (()))
+            .set_read_timeout_parameter (&mut set_read_timeout_parameter)
+            .read_buffers (vec! (
+                Vec::from (&response_data[0..40]),
+                Vec::from (&response_data[40..])
+            ))
+            .read_results (vec! (Ok (40), Ok (response_data.len () - 40)))
+            .shutdown_parameter (&mut shutdown_parameter)
+            .shutdown_result (Ok (())));
+        let tcp_stream_wrapper_factory = TcpStreamWrapperFactoryMock::new ()
+            .tcp_stream_wrapper (stream_box);
+        let mut lookup_ip_parameter_arc: Arc<Mutex<Vec<String>>> = Arc::new (Mutex::new (vec! ()));
+        let resolver_wrapper = ResolverWrapperMock::new ()
+            .lookup_ip_result (Ok (vec! (target_ip ())))
+            .lookup_ip_parameters (&mut lookup_ip_parameter_arc);
+        let resolver_wrapper_factory = ResolverWrapperFactoryMock::new ()
+            .new_result(Ok (Box::new (resolver_wrapper)));
+        let system = System::new("panics_if_hopper_is_unbound");
+        let mut subject = ProxyClient::new(Box::new (cryptde), dnss ());
+        subject.tcp_stream_wrapper_factory = Box::new(tcp_stream_wrapper_factory);
+        subject.resolver_wrapper_factory = Box::new (resolver_wrapper_factory);
+        let subject_addr:SyncAddress<_> = subject.start();
+
+        subject_addr.send(package);
+
+        Arbiter::system().send(msgs::SystemExit(0));
+        system.run();
+    }
+
+    #[test]
     fn successful_round_trip_without_chunks () {
         let mut response_data = Vec::from (&b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 29\r\n\r\nUser-agent: *\nDisallow: /deny"[..]);
         let framed_response_data = response_data.clone ();
@@ -429,7 +481,7 @@ mod tests {
             let subject_addr:SyncAddress<_> = subject.start();
             subject_addr.send(BindMessage{peer_actors});
 
-            subject_addr.send(ExpiredCoresPackageMessage{pkg: package});
+            subject_addr.send(package);
 
             system.run();
         });
@@ -447,13 +499,13 @@ mod tests {
 
         awaiter.await_message_count(1);
         let recording = hopper_recording.lock().unwrap();
-        let record = recording.get_record::<IncipientCoresPackageMessage>(0);
+        let record = recording.get_record::<IncipientCoresPackage>(0);
         let expected_client_response_payload = ClientResponsePayload {stream_key: request.stream_key,
             last_response: true, data: PlainData::new (&framed_response_data[..])};
         let serialized_client_response_payload = serde_cbor::ser::to_vec (&expected_client_response_payload).unwrap ();
-        assert_eq! (record.pkg.route, Route::rel2_from_proxy_client(&cryptde.public_key (), &cryptde).unwrap ());
-        assert_eq! (record.pkg.payload, PlainData::new (&serialized_client_response_payload[..]));
-        assert_eq! (record.pkg.payload_destination_key, request.originator_public_key);
+        assert_eq! (record.route, Route::rel2_from_proxy_client(&cryptde.public_key (), &cryptde).unwrap ());
+        assert_eq! (record.payload, PlainData::new (&serialized_client_response_payload[..]));
+        assert_eq! (record.payload_destination_key, request.originator_public_key);
     }
 
     #[test]
@@ -510,7 +562,7 @@ mod tests {
             let subject_addr:SyncAddress<_> = subject.start();
             subject_addr.send(BindMessage{peer_actors});
 
-            subject_addr.send(ExpiredCoresPackageMessage{pkg: package});
+            subject_addr.send(package);
 
             system.run();
         });
@@ -550,8 +602,8 @@ mod tests {
         awaiter.await_message_count(4); // probably unnecessary
         let recording = hopper_recording.lock().unwrap();
         let actual_packages: Vec<&IncipientCoresPackage> = vec! (0, 1, 2, 3).iter ().map (|index| {
-            let record = recording.get_record::<IncipientCoresPackageMessage> (*index);
-            &record.pkg
+            let record = recording.get_record::<IncipientCoresPackage> (*index);
+            record
         }).collect ();
 
         assert_eq! (*actual_packages[0], expected_packages[0]);
@@ -577,7 +629,7 @@ mod tests {
             let subject_addr: SyncAddress<_> = subject.start();
             subject_addr.send(BindMessage{peer_actors});
 
-            subject_addr.send(ExpiredCoresPackageMessage{pkg:package});
+            subject_addr.send(package);
 
             system.run();
         });
@@ -617,7 +669,7 @@ mod tests {
             let subject_addr: SyncAddress<_> = subject.start();
             subject_addr.send(BindMessage{peer_actors});
 
-            subject_addr.send(ExpiredCoresPackageMessage{pkg:package});
+            subject_addr.send(package);
 
             system.run();
         });
@@ -625,13 +677,13 @@ mod tests {
         TestLogHandler::new ().await_log_matching ("ThreadId\\(\\d+\\): ERROR: Proxy Client: DNS search for hostname 'target.hostname.com.' produced no results", 1000);
         awaiter.await_message_count(1);
         let recording = hopper_recording.lock().unwrap();
-        let record = recording.get_record::<IncipientCoresPackageMessage>(0);
+        let record = recording.get_record::<IncipientCoresPackage>(0);
         let expected_client_response_payload = ClientResponsePayload {stream_key: request.stream_key,
             last_response: true, data: PlainData::new (SERVER_PROBLEM_RESPONSE)};
         let serialized_client_response_payload = serde_cbor::ser::to_vec (&expected_client_response_payload).unwrap ();
-        assert_eq! (record.pkg.route, Route::rel2_from_proxy_client(&cryptde.public_key (), &cryptde).unwrap ());
-        assert_eq! (record.pkg.payload, PlainData::new (&serialized_client_response_payload[..]));
-        assert_eq! (record.pkg.payload_destination_key, request.originator_public_key);
+        assert_eq! (record.route, Route::rel2_from_proxy_client(&cryptde.public_key (), &cryptde).unwrap ());
+        assert_eq! (record.payload, PlainData::new (&serialized_client_response_payload[..]));
+        assert_eq! (record.payload_destination_key, request.originator_public_key);
     }
 
     #[test]
@@ -765,7 +817,7 @@ mod tests {
             let subject_addr: SyncAddress<_> = subject.start();
             subject_addr.send(BindMessage{peer_actors});
 
-            subject_addr.send(ExpiredCoresPackageMessage{pkg:package});
+            subject_addr.send(package);
 
             system.run();
         });
@@ -773,13 +825,13 @@ mod tests {
         TestLogHandler::new ().await_log_matching ("ThreadId\\(\\d+\\): WARN: Proxy Client: Stream shutdown failure for HEAD http://www.nyan.cat/: broken pipe", 1000);
         awaiter.await_message_count(1);
         let recording = hopper_recording.lock().unwrap();
-        let record = recording.get_record::<IncipientCoresPackageMessage>(0);
+        let record = recording.get_record::<IncipientCoresPackage>(0);
         let expected_client_response_payload = ClientResponsePayload {stream_key: request.stream_key,
             last_response: true, data: PlainData::new (response_data)};
         let serialized_client_response_payload = serde_cbor::ser::to_vec (&expected_client_response_payload).unwrap ();
-        assert_eq! (record.pkg.route, Route::rel2_from_proxy_client(&cryptde.public_key (), &cryptde).unwrap ());
-        assert_eq! (record.pkg.payload, PlainData::new (&serialized_client_response_payload[..]));
-        assert_eq! (record.pkg.payload_destination_key, Key::new (&b"originator_public_key"[..]));
+        assert_eq! (record.route, Route::rel2_from_proxy_client(&cryptde.public_key (), &cryptde).unwrap ());
+        assert_eq! (record.payload, PlainData::new (&serialized_client_response_payload[..]));
+        assert_eq! (record.payload_destination_key, Key::new (&b"originator_public_key"[..]));
     }
 
     fn verify_error_results (stream: TcpStreamWrapperMock, expected_log_regex: String, expect_shutdown: bool) {
@@ -823,7 +875,7 @@ mod tests {
             let subject_addr: SyncAddress<_> = subject.start();
             subject_addr.send(BindMessage{peer_actors});
 
-            subject_addr.send(ExpiredCoresPackageMessage{pkg:package});
+            subject_addr.send(package);
 
             system.run();
         });
@@ -835,13 +887,13 @@ mod tests {
         }
         awaiter.await_message_count(1);
         let recording = hopper_recording.lock().unwrap();
-        let record = recording.get_record::<IncipientCoresPackageMessage>(0);
+        let record = recording.get_record::<IncipientCoresPackage>(0);
         let expected_client_response_payload = ClientResponsePayload {stream_key: request.stream_key,
             last_response: true, data: PlainData::new (SERVER_PROBLEM_RESPONSE)};
         let serialized_client_response_payload = serde_cbor::ser::to_vec (&expected_client_response_payload).unwrap ();
-        assert_eq! (record.pkg.route, Route::rel2_from_proxy_client(&cryptde.public_key (), &cryptde).unwrap ());
-        assert_eq! (record.pkg.payload, PlainData::new (&serialized_client_response_payload[..]));
-        assert_eq! (record.pkg.payload_destination_key, request.originator_public_key);
+        assert_eq! (record.route, Route::rel2_from_proxy_client(&cryptde.public_key (), &cryptde).unwrap ());
+        assert_eq! (record.payload, PlainData::new (&serialized_client_response_payload[..]));
+        assert_eq! (record.payload_destination_key, request.originator_public_key);
     }
 
     fn verify_arc_mutex_option<'a, T> (arc_mutex_option: &'a Arc<Mutex<Option<T>>>, millis: u64) -> MutexGuard<'a, Option<T>> {

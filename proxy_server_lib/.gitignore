@@ -81,6 +81,3 @@ fabric.properties
 # .nfs files are created when an open file is removed but is still being accessed
 .nfs*
 /.idea/vcs.xml
-/proxy_server_lib.iml
-.idea/
-proxy_server_lib.iml

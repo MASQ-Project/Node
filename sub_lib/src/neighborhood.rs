@@ -1,6 +1,5 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use std::net::IpAddr;
-use dispatcher::DispatcherClient;
 use dispatcher::Component;
 use node_addr::NodeAddr;
 use route::Route;
@@ -12,14 +11,10 @@ pub enum NeighborhoodError {
     NoRouteAvailable,
 }
 
-pub trait Neighborhood: DispatcherClient {
-    fn route_one_way (&mut self, destination: &Key, remote_recipient: Component) -> Result<Route, NeighborhoodError>;
-    fn route_round_trip (&mut self, destination: &Key, remote_recipient: Component, local_recipient: Component) -> Result<Route, NeighborhoodError>;
+pub trait Neighborhood: Send{
+    fn route_one_way (&self, destination: &Key, remote_recipient: Component) -> Result<Route, NeighborhoodError>;
+    fn route_round_trip (&self, destination: &Key, remote_recipient: Component, local_recipient: Component) -> Result<Route, NeighborhoodError>;
     fn public_key_from_ip_address(&self, ip_addr: &IpAddr) -> Option<Key>;
     fn node_addr_from_public_key(&self, public_key: &[u8]) -> Option<NodeAddr>;
     fn node_addr_from_ip_address(&self, ip_addr: &IpAddr) -> Option<NodeAddr>;
 }
-
-pub trait NeighborhoodDispatcherClient: Neighborhood {}
-
-impl<T: Neighborhood + DispatcherClient + Send> NeighborhoodDispatcherClient for T {}

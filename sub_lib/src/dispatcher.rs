@@ -4,38 +4,20 @@ use std::marker::Send;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::fmt;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::fmt::Debug;
+use std::fmt::Formatter;
+use actix::Subscriber;
+use actix::ResponseType;
 use serde;
 use serde::Serialize;
 use serde::Deserialize;
 use serde::Serializer;
 use serde::Deserializer;
 use serde::de::Visitor;
-use neighborhood::Neighborhood;
 use cryptde::Key;
-use cryptde::PlainData;
+use peer_actors::BindMessage;
+use stream_handler_pool::TransmitDataMsg;
 use utils::to_string;
-use actor_messages::BindMessage;
-use actor_messages::ResponseMessage;
-use actor_messages::TemporaryBindMessage;
-use actix::Subscriber;
-use actix::ResponseType;
-use std::fmt::Formatter;
-use std::fmt::Debug;
-
-pub trait TransmitterHandle: Send {
-    fn transmit (&self, to_public_key: &Key, data: PlainData) -> Result<(), DispatcherError>;
-    fn transmit_to_ip (&self, to_ip_addr: IpAddr, data: PlainData) -> Result<(), DispatcherError>;
-    fn transmit_to_socket_addr (&self, to_socket_addr: SocketAddr, data: PlainData) -> Result<(), DispatcherError>;
-}
-
-// TODO: Turns out the responsibility of communicating with the Dispatcher and the responsibility of getting
-// references to PeerClients are separate.  Take another look at this after these are all actorized.
-pub trait DispatcherClient: Send {
-    fn bind(&mut self, transmitter_handle: Box<TransmitterHandle>, clients: &PeerClients);
-    fn receive(&mut self, source: Endpoint, data: PlainData);
-}
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum Component {
@@ -83,10 +65,6 @@ impl<'a> Visitor<'a> for ComponentVisitor {
     }
 }
 
-pub struct PeerClients {
-    pub neighborhood: Arc<Mutex<Neighborhood>>,
-}
-
 #[derive (Clone, PartialEq, Eq)]
 pub enum Endpoint {
     Key (Key),
@@ -103,9 +81,6 @@ impl fmt::Debug for Endpoint {
         }
     }
 }
-
-pub type OutboundClientData = (Endpoint, Component, Vec<u8>);
-
 
 impl Component {
     pub fn as_str(&self) -> &str {
@@ -143,7 +118,6 @@ pub enum DispatcherError {
     StreamWriteError (String),
     StreamShutdownError (String),
     NeighborhoodPanicked,
-    TransmitterPanicked
 }
 
 #[derive (PartialEq, Clone)]
@@ -169,20 +143,18 @@ impl Debug for InboundClientData {
     }
 }
 
-pub struct DispatcherFacadeSubs {
+pub struct DispatcherSubs {
     pub ibcd_sub: Box<Subscriber<InboundClientData> + Send>,
     pub bind: Box<Subscriber<BindMessage> + Send>,
-    pub from_proxy_server: Box<Subscriber<ResponseMessage> +Send>,
-    pub transmitter_bind: Box<Subscriber<TemporaryBindMessage> + Send>, // TODO this goes away when everything is actorized
+    pub from_proxy_server: Box<Subscriber<TransmitDataMsg> +Send>,
 }
 
-impl Clone for DispatcherFacadeSubs {
+impl Clone for DispatcherSubs {
     fn clone(&self) -> Self {
-        DispatcherFacadeSubs {
+        DispatcherSubs {
             ibcd_sub: self.ibcd_sub.clone (),
             bind: self.bind.clone(),
             from_proxy_server: self.from_proxy_server.clone(),
-            transmitter_bind: self.transmitter_bind.clone(),
         }
     }
 }

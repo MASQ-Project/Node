@@ -10,7 +10,7 @@ use sub_lib::main_tools::StdStreams;
 use sub_lib::main_tools::Command;
 use sub_lib::socket_server::SocketServer;
 use entry_dns_lib::dns_socket_server::new_dns_socket_server;
-use dispatcher::DispatcherReal;
+use bootstrapper::Bootstrapper;
 use privilege_drop::PrivilegeDropper;
 use privilege_drop::PrivilegeDropperReal;
 //#[cfg(unix)]
@@ -18,7 +18,7 @@ use privilege_drop::PrivilegeDropperReal;
 
 pub struct ServerInitializer<P, D> where P: PrivilegeDropper, D: Daemonizer {
     dns_socket_server: Option<Box<SocketServer>>,
-    dispatcher: Option<Box<SocketServer>>,
+    bootstrapper: Option<Box<SocketServer>>,
     privilege_dropper: P,
     daemonizer: D,
     logger_initializer_wrapper: Box<LoggerInitializerWrapper>,
@@ -47,15 +47,15 @@ impl<P, D> Command for ServerInitializer<P, D> where P: PrivilegeDropper, D: Dae
         self.logger_initializer_wrapper.init ();
         let mut dns_socket_server_box = self.dns_socket_server.take ().unwrap ();
         dns_socket_server_box.as_mut ().initialize_as_root (args, streams);
-        let mut dispatcher_box = self.dispatcher.take ().unwrap ();
-        dispatcher_box.as_mut ().initialize_as_root (args, streams);
+        let mut bootstrapper_box = self.bootstrapper.take ().unwrap ();
+        bootstrapper_box.as_mut ().initialize_as_root (args, streams);
         self.privilege_dropper.drop_privileges();
         self.daemonizer.daemonize();
         thread::spawn (move || {
             dns_socket_server_box.as_mut ().serve_without_root();
         });
         thread::spawn (move || {
-            dispatcher_box.as_mut ().serve_without_root();
+            bootstrapper_box.as_mut ().serve_without_root();
         });
 
         // Don't kill my child threads
@@ -70,7 +70,7 @@ impl ServerInitializer<PrivilegeDropperReal, DaemonizerReal> {
             -> ServerInitializer<PrivilegeDropperReal, DaemonizerReal> {
         ServerInitializer {
             dns_socket_server: Some (Box::new (new_dns_socket_server())),
-            dispatcher: Some (Box::new (DispatcherReal::new ())),
+            bootstrapper: Some (Box::new (Bootstrapper::new ())),
             privilege_dropper: PrivilegeDropperReal::new (),
             daemonizer: DaemonizerReal::new (),
             logger_initializer_wrapper: Box::new (LoggerInitializerWrapperReal {}),
@@ -210,13 +210,13 @@ mod tests {
     fn exits_after_all_socket_servers_exit () {
         let (tx, _rx) = mpsc::channel ();
         let (dns_socket_server, dns_tx) = SocketServerMock::make("EntryDnsServerMock1", 1);
-        let (dispatcher, dispatcher_tx) = SocketServerMock::make("DispatcherMock1", 1);
+        let (bootstrapper, bootstrapper_tx) = SocketServerMock::make("BootstrapperMock1", 1);
         let privilege_dropper = PrivilegeDropperMock {tx: tx.clone ()};
         let daemonizer = DaemonizerMock {tx: tx.clone ()};
         let args = vec! ();
         let mut subject = ServerInitializer {
             dns_socket_server: Some (Box::new (dns_socket_server)),
-            dispatcher: Some (Box::new (dispatcher)),
+            bootstrapper: Some (Box::new (bootstrapper)),
             privilege_dropper,
             daemonizer,
             logger_initializer_wrapper: Box::new (LoggerInitializerWrapperMock::new ()),
@@ -232,7 +232,7 @@ mod tests {
             subject.go(&mut holder.streams(), &args);
         });
         dns_tx.send (String::from ("request")).unwrap ();
-        dispatcher_tx.send (String::from ("request")).unwrap ();
+        bootstrapper_tx.send (String::from ("request")).unwrap ();
         handle.join ().unwrap ();
 
         // Join succeeded; thread ended, test passed
@@ -242,14 +242,14 @@ mod tests {
     fn runs_socket_servers_and_returns_zero () {
         let (tx, rx) = mpsc::channel ();
         let (dns_socket_server, dns_tx) = SocketServerMock::make("EntryDnsServerMock2", 2);
-        let (dispatcher, dispatcher_tx) = SocketServerMock::make("DispatcherMock2", 2);
+        let (bootstrapper, bootstrapper_tx) = SocketServerMock::make("BootstrapperMock2", 2);
         let privilege_dropper = PrivilegeDropperMock {tx: tx.clone ()};
         let daemonizer = DaemonizerMock {tx: tx.clone ()};
         let logger_initializer_wrapper = LoggerInitializerWrapperMock::new ();
         let args = vec! (String::from("glorp"));
         let mut subject = ServerInitializer {
             dns_socket_server: Some (Box::new (dns_socket_server)),
-            dispatcher: Some (Box::new (dispatcher)),
+            bootstrapper: Some (Box::new (bootstrapper)),
             privilege_dropper,
             daemonizer,
             logger_initializer_wrapper: Box::new (logger_initializer_wrapper.clone ()),
@@ -271,8 +271,8 @@ mod tests {
         });
         dns_tx.send (String::from ("one - first request")).unwrap ();
         dns_tx.send (String::from ("one - second request")).unwrap ();
-        dispatcher_tx.send (String::from ("two - first request")).unwrap ();
-        dispatcher_tx.send (String::from ("two - second request")).unwrap ();
+        bootstrapper_tx.send (String::from ("two - first request")).unwrap ();
+        bootstrapper_tx.send (String::from ("two - second request")).unwrap ();
         handle.join ().unwrap ();
 
         assert_eq! (rx.recv_timeout(Duration::from_millis(50)).unwrap (), String::from ("privileges dropped"));
@@ -292,17 +292,17 @@ mod tests {
             "EntryDnsServerMock2: one - second request"
         ));
         tlh.assert_logs_match_in_order(vec! (
-            "DispatcherMock2: initialize_as_root: \\[\"glorp\"\\]",
-            "DispatcherMock2: serve_without_root",
-            "DispatcherMock2: two - first request",
-            "DispatcherMock2: two - second request"
+            "BootstrapperMock2: initialize_as_root: \\[\"glorp\"\\]",
+            "BootstrapperMock2: serve_without_root",
+            "BootstrapperMock2: two - first request",
+            "BootstrapperMock2: two - second request"
         ));
         tlh.assert_logs_contain_in_order(vec! (
             "EntryDnsServerMock2: initialize_as_root: [\"glorp\"]",
-            "DispatcherMock2: two - first request",
+            "BootstrapperMock2: two - first request",
         ));
         tlh.assert_logs_contain_in_order(vec! (
-            "DispatcherMock2: initialize_as_root: [\"glorp\"]",
+            "BootstrapperMock2: initialize_as_root: [\"glorp\"]",
             "EntryDnsServerMock2: one - first request",
         ));
     }

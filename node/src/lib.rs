@@ -21,12 +21,10 @@ extern crate daemonize;
 
 pub mod server_initializer;
 mod configuration;
+mod bootstrapper;
 mod dispatcher;
-mod dispatcher_facade;
 mod listener_handler;
 mod privilege_drop;
-mod transmitter;
-mod client_factory;
 mod stream_handler_pool;
 mod discriminator;
 mod json_framer;
@@ -34,7 +32,6 @@ mod http_request_start_finder;
 mod masquerader;
 mod json_masquerader;
 mod null_masquerader;
-mod temporary;
 mod actor_system_factory;
 
 #[cfg (test)]

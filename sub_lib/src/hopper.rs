@@ -1,13 +1,13 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use actix::ResponseType;
+use actix::Subscriber;
 use serde::ser::Serialize;
 use serde::de::Deserialize;
 use serde_cbor;
-use route::Route;
 use cryptde::Key;
 use cryptde::PlainData;
-use actor_messages::BindMessage;
-use actor_messages::IncipientCoresPackageMessage;
-use actix::Subscriber;
+use peer_actors::BindMessage;
+use route::Route;
 
 /// New CORES package about to be sent to the Hopper and thence put on the Substratum Network
 #[derive (Clone, Debug, PartialEq)]
@@ -15,6 +15,11 @@ pub struct IncipientCoresPackage {
     pub route: Route,
     pub payload: PlainData,
     pub payload_destination_key: Key
+}
+
+impl ResponseType for IncipientCoresPackage {
+    type Item = ();
+    type Error = ();
 }
 
 impl IncipientCoresPackage {
@@ -34,6 +39,11 @@ impl IncipientCoresPackage {
 pub struct ExpiredCoresPackage {
     pub remaining_route: Route,
     pub payload: PlainData
+}
+
+impl ResponseType for ExpiredCoresPackage {
+    type Item = ();
+    type Error = ();
 }
 
 impl ExpiredCoresPackage {
@@ -56,7 +66,7 @@ impl ExpiredCoresPackage {
 #[derive(Clone)]
 pub struct HopperSubs {
     pub bind: Box<Subscriber<BindMessage> + Send>,
-    pub from_hopper_client: Box<Subscriber<IncipientCoresPackageMessage> + Send>,
+    pub from_hopper_client: Box<Subscriber<IncipientCoresPackage> + Send>,
 }
 
 #[cfg (test)]

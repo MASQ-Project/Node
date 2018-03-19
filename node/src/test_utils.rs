@@ -10,27 +10,14 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::mpsc;
 use std::thread;
-use std::marker::Sync;
 use std::net::Shutdown;
 use std::net::SocketAddr;
-use std::net::IpAddr;
 use std::ops::DerefMut;
 use std::borrow::BorrowMut;
 use std::str::FromStr;
 use sub_lib::tcp_wrappers::TcpStreamWrapper;
 use sub_lib::test_utils::TestLog;
 use sub_lib::dispatcher::Component;
-use sub_lib::dispatcher::DispatcherClient;
-use sub_lib::dispatcher::Endpoint;
-use sub_lib::dispatcher::PeerClients;
-use sub_lib::dispatcher::TransmitterHandle;
-use sub_lib::logger::Logger;
-use sub_lib::neighborhood::Neighborhood;
-use sub_lib::neighborhood::NeighborhoodError;
-use sub_lib::node_addr::NodeAddr;
-use sub_lib::route::Route;
-use sub_lib::cryptde::Key;
-use sub_lib::cryptde::PlainData;
 use sub_lib::framer::Framer;
 use sub_lib::framer::FramedChunk;
 use masquerader::Masquerader;
@@ -177,115 +164,6 @@ impl TcpStreamWrapperMock {
     }
 }
 
-pub struct DispatcherClientNull {
-    pub name: String,
-    log: Arc<Mutex<TestLog>>,
-    transmitter_handle: Option<Box<TransmitterHandle>>,
-    logger: Option<Logger>
-}
-
-impl DispatcherClient for DispatcherClientNull {
-    fn bind(&mut self, transmitter_handle: Box<TransmitterHandle>, _clients: &PeerClients) {
-        self.log.lock ().unwrap ().log (format! ("bind (...)"));
-        self.transmitter_handle = Some (transmitter_handle);
-        self.logger = Some (Logger::new (&self.name[..]));
-    }
-
-    fn receive(&mut self, source: Endpoint, data: PlainData) {
-        self.log.lock ().unwrap ().log (format! ("receive ('{:?}', '{}'", source, to_string (&data.data)));
-        self.logger.as_ref ().unwrap ().log (format! ("receive (...)"));
-    }
-}
-
-unsafe impl Sync for DispatcherClientNull {}
-
-impl TestLogOwner for DispatcherClientNull {
-    fn get_test_log(&self) -> Arc<Mutex<TestLog>> {self.log.clone ()}
-}
-
-impl DispatcherClientNull {
-    pub fn new (name: &str) -> DispatcherClientNull {
-        DispatcherClientNull {
-            name: String::from (name),
-            log: Arc::new (Mutex::new (TestLog::new ())),
-            transmitter_handle: None,
-            logger: None
-        }
-    }
-}
-
-pub struct NeighborhoodNull {
-    pub delegate: DispatcherClientNull,
-    pub bound: bool,
-    pub translation_triples: Vec<(IpAddr, Vec<u16>, Vec<u8>)>
-}
-
-impl NeighborhoodNull {
-    pub fn new (translation_triples: Vec<(&str, &[u16], &str)>) -> NeighborhoodNull {
-        let real_translation_triples = translation_triples.iter ().map (|triple| {
-            let (str_ip, ports, str_key) = *triple;
-            (IpAddr::from_str (str_ip).unwrap (), Vec::from (ports), Vec::from (str_key.as_bytes ()))
-        }).collect ();
-        NeighborhoodNull {
-            delegate: DispatcherClientNull::new ("neighborhood"),
-            bound: false,
-            translation_triples: real_translation_triples
-        }
-    }
-}
-
-impl Neighborhood for NeighborhoodNull {
-    fn route_one_way(&mut self, _destination: &Key, _remote_recipient: Component) -> Result<Route, NeighborhoodError> {
-        unimplemented!()
-    }
-
-    fn route_round_trip(&mut self, _destination: &Key, _remote_recipient: Component, _local_recipient: Component) -> Result<Route, NeighborhoodError> {
-        unimplemented!()
-    }
-
-    fn public_key_from_ip_address(&self, ip_addr: &IpAddr) -> Option<Key> {
-        assert_eq! (self.bound, true);
-        self.delegate.log.lock ().unwrap ().log (format! ("public_key_from_ip_address ({:?})", ip_addr));
-        match &self.translation_triples.iter ().find (|triple| {triple.0 == *ip_addr}) {
-            &Some (ref triple) => Some (Key::new (&triple.2.clone ()[..])),
-            &None => None
-        }
-    }
-
-    fn node_addr_from_public_key(&self, public_key: &[u8]) -> Option<NodeAddr> {
-        assert_eq! (self.bound, true);
-        self.delegate.log.lock ().unwrap ().log (format! ("socket_addrs_from_public_key ({:?})", public_key));
-        match &self.translation_triples.iter ().find (|triple| {triple.2 == public_key}) {
-            &Some (ref triple) => Some (NodeAddr::new (&triple.0, &triple.1)),
-            &None => None
-        }
-    }
-
-    fn node_addr_from_ip_address(&self, ip_addr: &IpAddr) -> Option<NodeAddr> {
-        assert_eq! (self.bound, true);
-        self.delegate.log.lock ().unwrap ().log (format! ("socket_addrs_from_ip_address ({:?})", ip_addr));
-        match &self.translation_triples.iter ().find (|triple| {triple.0 == *ip_addr}) {
-            &Some (ref triple) => Some(NodeAddr::new(&triple.0, &triple.1)),
-            &None => None
-        }
-    }
-}
-
-impl DispatcherClient for NeighborhoodNull {
-    fn bind(&mut self, transmitter_handle: Box<TransmitterHandle>, clients: &PeerClients) {
-        self.bound = true;
-        self.delegate.bind (transmitter_handle, clients);
-    }
-
-    fn receive(&mut self, source: Endpoint, data: PlainData) {
-        self.delegate.receive (source, data);
-    }
-}
-
-impl TestLogOwner for NeighborhoodNull {
-    fn get_test_log(&self) -> Arc<Mutex<TestLog>> {self.delegate.log.clone ()}
-}
-
 pub struct MasqueraderMock {
     log: Arc<Mutex<TestLog>>,
     try_unmask_results: RefCell<Vec<Option<(Component, Vec<u8>)>>>,
@@ -341,6 +219,7 @@ pub fn wait_until<F> (check: F) where F: Fn() -> bool {
     }
 }
 
+#[allow (dead_code)]
 pub fn to_string (data: &Vec<u8>) -> String {
     match String::from_utf8 (data.clone ()) {
         Ok (data_string) => format! ("{}", data_string),

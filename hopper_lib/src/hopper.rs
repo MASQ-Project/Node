@@ -8,9 +8,7 @@ use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::Key;
 use sub_lib::cryptde::CryptData;
 use sub_lib::hopper::HopperSubs;
-use sub_lib::actor_messages::ExpiredCoresPackageMessage;
-use sub_lib::actor_messages::IncipientCoresPackageMessage;
-use sub_lib::actor_messages::BindMessage;
+use sub_lib::peer_actors::BindMessage;
 use actix::Subscriber;
 use actix::Actor;
 use actix::Context;
@@ -19,8 +17,8 @@ use actix::SyncAddress;
 
 pub struct Hopper {
     cryptde: Box<CryptDE>,
-    to_proxy_server: Option<Box<Subscriber<ExpiredCoresPackageMessage> + Send>>,
-    to_proxy_client: Option<Box<Subscriber<ExpiredCoresPackageMessage> + Send>>,
+    to_proxy_server: Option<Box<Subscriber<ExpiredCoresPackage> + Send>>,
+    to_proxy_client: Option<Box<Subscriber<ExpiredCoresPackage> + Send>>,
 }
 
 impl Actor for Hopper {
@@ -37,27 +35,27 @@ impl Handler<BindMessage> for Hopper {
     }
 }
 
-impl Handler<IncipientCoresPackageMessage> for Hopper {
+impl Handler<IncipientCoresPackage> for Hopper {
     type Result = ();
 
-    fn handle(&mut self, msg: IncipientCoresPackageMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: IncipientCoresPackage, _ctx: &mut Self::Context) -> Self::Result {
         // Skinny Release-2-only implementation
-        if msg.pkg.route.next_hop ().public_key.is_some () {
+        if msg.route.next_hop ().public_key.is_some () {
             // from Proxy Server
             let expired_package = ExpiredCoresPackage::new (
                 Route::rel2_to_proxy_client (&self.cryptde.public_key (), self.cryptde.borrow ()).unwrap (),
-                msg.pkg.payload
+                msg.payload
             );
-            self.to_proxy_client.as_ref ().unwrap ().send (ExpiredCoresPackageMessage { pkg: expired_package }).expect ("Proxy Client is dead");
+            self.to_proxy_client.as_ref ().expect ("ProxyClient unbound in Hopper").send (expired_package ).expect ("Proxy Client is dead");
             ()
         }
         else {
             // from Proxy Client
             let expired_package = ExpiredCoresPackage::new (
                 Route::rel2_to_proxy_server (&self.cryptde.public_key (), self.cryptde.borrow ()).unwrap (),
-                msg.pkg.payload
+                msg.payload
             );
-            self.to_proxy_server.as_ref().expect("ProxyServer unbound").send( ExpiredCoresPackageMessage { pkg: expired_package }).expect ("Proxy Server is dead");
+            self.to_proxy_server.as_ref().expect("ProxyServer unbound in Hopper").send( expired_package ).expect ("Proxy Server is dead");
             ()
         };
         ()
@@ -76,7 +74,7 @@ impl Hopper {
     pub fn make_subs_from(addr: &SyncAddress<Hopper>) -> HopperSubs {
         HopperSubs {
             bind: addr.subscriber::<BindMessage>(),
-            from_hopper_client: addr.subscriber::<IncipientCoresPackageMessage>(),
+            from_hopper_client: addr.subscriber::<IncipientCoresPackage>(),
         }
     }
 }
@@ -129,29 +127,24 @@ impl LiveCoresPackage {
 #[cfg (test)]
 mod tests {
     use super::*;
-    use std::ops::Deref;
+    use std::thread;
+    use actix::msgs;
     use actix::Actor;
     use actix::Arbiter;
     use actix::SyncAddress;
     use actix::System;
-    use actix::msgs;
     use serde_cbor;
     use sub_lib::cryptde::PlainData;
+    use sub_lib::cryptde_null::CryptDENull;
     use sub_lib::dispatcher::Component;
+    use sub_lib::hop::Hop;
     use sub_lib::hopper::IncipientCoresPackage;
     use sub_lib::hopper::ExpiredCoresPackage;
-    use sub_lib::hop::Hop;
     use sub_lib::route::Route;
     use sub_lib::route::RouteSegment;
-    use sub_lib::cryptde_null::CryptDENull;
-    use sub_lib::test_utils;
-    use sub_lib::test_utils::TransmitterHandleMock;
+    use sub_lib::test_utils::make_peer_actors_from;
     use sub_lib::test_utils::PayloadMock;
     use sub_lib::test_utils::Recorder;
-    use sub_lib::test_utils::RecordAwaiter;
-    use sub_lib::test_utils::Recording;
-    use sub_lib::test_utils::make_peer_actors_from;
-    use std::thread;
 
     #[test]
     fn live_cores_package_can_be_constructed_from_scratch () {
@@ -208,7 +201,7 @@ mod tests {
             let subject_addr: SyncAddress<_> = subject.start();
             subject_addr.send(BindMessage { peer_actors });
 
-            subject_addr.send(IncipientCoresPackageMessage { pkg: incipient_package });
+            subject_addr.send(incipient_package );
 
             system.run();
         });
@@ -220,8 +213,48 @@ mod tests {
 
         proxy_client_awaiter.await_message_count(1);
         let recording = proxy_client_recording.lock().unwrap();
-        let record = recording.get_record::<ExpiredCoresPackageMessage>(0);
-        assert_eq!(record.pkg, expected_expired_package);
+        let record = recording.get_record::<ExpiredCoresPackage>(0);
+        assert_eq!(record, &expected_expired_package);
+    }
+    
+    #[test]
+    #[should_panic (expected = "ProxyServer unbound in Hopper")]
+    fn panics_if_proxy_server_is_unbound() {
+        let cryptde = CryptDENull::new ();
+        let thread_cryptde = cryptde.clone();
+        let incipient_package = IncipientCoresPackage::new (
+            Route::rel2_from_proxy_client(&cryptde.public_key (), &cryptde).unwrap(),
+            PayloadMock::new (), &cryptde.public_key ()
+        );
+        let thread_package = incipient_package.clone();
+        let system = System::new("panics_if_proxy_server_is_unbound");
+        let subject = Hopper::new (Box::new (thread_cryptde));
+        let subject_addr: SyncAddress<_> = subject.start();
+
+        subject_addr.send(thread_package );
+
+        Arbiter::system().send(msgs::SystemExit(0));
+        system.run();
+    }
+
+    #[test]
+    #[should_panic (expected = "ProxyClient unbound in Hopper")]
+    fn panics_if_proxy_client_is_unbound() {
+        let cryptde = CryptDENull::new ();
+        let thread_cryptde = cryptde.clone();
+        let incipient_package = IncipientCoresPackage::new (
+            Route::rel2_from_proxy_server(&cryptde.public_key (), &cryptde).unwrap(),
+            PayloadMock::new (), &cryptde.public_key ()
+        );
+        let thread_package = incipient_package.clone();
+        let system = System::new("panics_if_proxy_client_is_unbound");
+        let subject = Hopper::new (Box::new (thread_cryptde));
+        let subject_addr: SyncAddress<_> = subject.start();
+
+        subject_addr.send(thread_package );
+
+        Arbiter::system().send(msgs::SystemExit(0));
+        system.run();
     }
 
     #[test]
@@ -243,7 +276,7 @@ mod tests {
             let subject_addr: SyncAddress<_> = subject.start();
             subject_addr.send(BindMessage { peer_actors });
 
-            subject_addr.send(IncipientCoresPackageMessage { pkg: thread_package });
+            subject_addr.send(thread_package );
 
             system.run();
         });
@@ -255,7 +288,7 @@ mod tests {
 
         proxy_server_awaiter.await_message_count(1);
         let recording = proxy_server_log_arc.lock().unwrap();
-        let record = recording.get_record::<ExpiredCoresPackageMessage>(0);
-        assert_eq!(record.pkg, expected_package);
+        let record = recording.get_record::<ExpiredCoresPackage>(0);
+        assert_eq!(record, &expected_package);
     }
 }

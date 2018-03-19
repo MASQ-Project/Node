@@ -3,8 +3,8 @@ use std::net::SocketAddr;
 use cryptde::PlainData;
 use std::marker::Send;
 use actix::Subscriber;
-use actor_messages::BindMessage;
-use actor_messages::ExpiredCoresPackageMessage;
+use hopper::ExpiredCoresPackage;
+use peer_actors::BindMessage;
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct ClientResponsePayload {
@@ -16,5 +16,5 @@ pub struct ClientResponsePayload {
 #[derive(Clone)]
 pub struct ProxyClientSubs {
     pub bind: Box<Subscriber<BindMessage> + Send>,
-    pub from_hopper: Box<Subscriber<ExpiredCoresPackageMessage> + Send>,
+    pub from_hopper: Box<Subscriber<ExpiredCoresPackage> + Send>,
 }

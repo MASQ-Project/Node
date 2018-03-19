@@ -1,10 +1,11 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use std::io;
+use std::net::SocketAddr;
 use actix::ResponseType;
 use actix::Subscriber;
-use std::net::SocketAddr;
-use std::io;
+use dispatcher::Endpoint;
+use peer_actors::BindMessage;
 use tcp_wrappers::TcpStreamWrapper;
-use actor_messages::BindMessage;
 
 pub struct AddStreamMsg {
     pub stream: Box<TcpStreamWrapper>
@@ -27,8 +28,7 @@ impl ResponseType for RemoveStreamMsg {
 
 #[derive (PartialEq, Debug)]
 pub struct TransmitDataMsg {
-    // TODO: When the Transmitter is eliminated, this next field should change to be of type Endpoint.
-    pub socket_addr: SocketAddr,
+    pub endpoint: Endpoint,
     pub data: Vec<u8>
 }
 

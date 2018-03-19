@@ -14,7 +14,6 @@ extern crate daemonize;
 #[macro_use]
 pub mod utils;
 
-pub mod actor_messages;
 pub mod cores_package;
 pub mod cryptde;
 pub mod cryptde_null;
@@ -31,6 +30,7 @@ pub mod main_tools;
 pub mod neighborhood;
 pub mod node_addr;
 pub mod packet_facade;
+pub mod peer_actors;
 pub mod proxy_client;
 pub mod proxy_server;
 pub mod route;

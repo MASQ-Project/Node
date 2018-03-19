@@ -1,63 +1,52 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use std::any::Any;
-use std::io::Read;
-use std::io::Write;
+use std::cell::RefCell;
 use std::io;
 use std::io::Error;
-use std::cell::RefCell;
+use std::io::Read;
+use std::io::Write;
 use std::cmp::min;
 use std::net::IpAddr;
-use std::net::SocketAddr;
 use std::str::from_utf8;
 use std::sync::mpsc;
-use std::sync::mpsc::Sender;
 use std::sync::mpsc::Receiver;
+use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
-use std::time::Instant;
-use std::time::Duration;
 use std::thread;
+use std::time::Duration;
+use std::time::Instant;
+use actix::Actor;
+use actix::Context;
+use actix::Handler;
+use actix::SyncAddress;
 use log::set_logger;
 use log::Log;
 use log::Record;
 use log::Metadata;
-use regex::Regex;
 use main_tools::StdStreams;
-use logger::LoggerInitializerWrapper;
-use dispatcher::DispatcherClient;
-use dispatcher::DispatcherError;
-use dispatcher::TransmitterHandle;
-use dispatcher::PeerClients;
-use dispatcher::Endpoint;
+use regex::Regex;
 use dispatcher::Component;
-use node_addr::NodeAddr;
-use route::Route;
+use cryptde::Key;
+use dispatcher::DispatcherSubs;
+use dispatcher::InboundClientData;
+use hopper::ExpiredCoresPackage;
+use hopper::HopperSubs;
+use hopper::IncipientCoresPackage;
+use logger::LoggerInitializerWrapper;
 use neighborhood::Neighborhood;
 use neighborhood::NeighborhoodError;
-use cryptde::Key;
-use cryptde::PlainData;
-use utils;
-use actix::SyncAddress;
-use actix::Actor;
-use actix::Context;
-use actix::Handler;
-use proxy_server::ProxyServerSubs;
-use hopper::HopperSubs;
-use dispatcher::DispatcherFacadeSubs;
+use node_addr::NodeAddr;
+use peer_actors::PeerActors;
+use peer_actors::BindMessage;
 use proxy_client::ProxyClientSubs;
-use dispatcher::InboundClientData;
+use proxy_server::ProxyServerSubs;
+use route::Route;
 use stream_handler_pool::StreamHandlerPoolSubs;
 use stream_handler_pool::AddStreamMsg;
 use stream_handler_pool::RemoveStreamMsg;
 use stream_handler_pool::TransmitDataMsg;
-use actor_messages::PeerActors;
-use actor_messages::ExpiredCoresPackageMessage;
-use actor_messages::IncipientCoresPackageMessage;
-use actor_messages::ResponseMessage;
-use actor_messages::BindMessage;
-use actor_messages::RequestMessage;
-use actor_messages::TemporaryBindMessage;
 
 #[allow(dead_code)]
 pub struct ByteArrayWriter {
@@ -430,21 +419,6 @@ impl PayloadMock {
     }
 }
 
-#[allow (dead_code)]
-pub struct DispatcherClientMock {
-
-}
-
-impl DispatcherClient for DispatcherClientMock {
-    fn bind(&mut self, _transmitter_handle: Box<TransmitterHandle>, _clients: &PeerClients) {
-        unimplemented!()
-    }
-
-    fn receive(&mut self, _source: Endpoint, _data: PlainData) {
-        unimplemented!()
-    }
-}
-
 pub struct NeighborhoodMock {
 }
 
@@ -455,11 +429,11 @@ impl NeighborhoodMock {
 }
 
 impl Neighborhood for NeighborhoodMock {
-    fn route_one_way(&mut self, _destination: &Key, _remote_recipient: Component) -> Result<Route, NeighborhoodError> {
+    fn route_one_way(&self, _destination: &Key, _remote_recipient: Component) -> Result<Route, NeighborhoodError> {
         unimplemented!()
     }
 
-    fn route_round_trip(&mut self, _destination: &Key, _remote_recipient: Component, _local_recipient: Component) -> Result<Route, NeighborhoodError> {
+    fn route_round_trip(&self, _destination: &Key, _remote_recipient: Component, _local_recipient: Component) -> Result<Route, NeighborhoodError> {
         unimplemented!()
     }
 
@@ -476,80 +450,29 @@ impl Neighborhood for NeighborhoodMock {
     }
 }
 
-impl DispatcherClient for NeighborhoodMock {
-    fn bind(&mut self, _transmitter_handle: Box<TransmitterHandle>, _clients: &PeerClients) {
-        unimplemented!()
-    }
-
-    fn receive(&mut self, _source: Endpoint, _data: PlainData) {
-        unimplemented!()
-    }
-}
-
 unsafe impl Send for NeighborhoodMock {}
 unsafe impl Sync for NeighborhoodMock {}
-
-pub fn make_peer_clients_with_mocks () -> PeerClients {
-    PeerClients {
-        neighborhood: Arc::new (Mutex::new (NeighborhoodMock::new ())),
-    }
-}
-
-
-pub struct TransmitterHandleMock {
-    pub log: Arc<TestLog>,
-    pub transmit_to_ip_result: Result<(), DispatcherError>,
-    pub transmit_to_socket_addr_result: Result<(), DispatcherError>
-}
-
-impl TransmitterHandle for TransmitterHandleMock {
-    fn transmit(&self, _to_public_key: &Key, _data: PlainData) -> Result<(), DispatcherError> {
-        unimplemented!()
-    }
-
-    fn transmit_to_ip(&self, to_ip_addr: IpAddr, data: PlainData) -> Result<(), DispatcherError> {
-        self.log.log(format!("transmit_to_ip ({}, {:?})", to_ip_addr, data));
-        self.transmit_to_ip_result.clone ()
-    }
-
-    fn transmit_to_socket_addr(&self, to_socket_addr: SocketAddr, data: PlainData) -> Result<(), DispatcherError> {
-        self.log.log(format!("transmit_to_socket_addr: to_socket_addr: {:?}, data: {:?}",
-                                  to_socket_addr, utils::to_string(&data.data)));
-        self.transmit_to_socket_addr_result.clone()
-    }
-}
-
-impl TransmitterHandleMock {
-    pub fn new() -> Self {
-        TransmitterHandleMock {
-            log: Arc::new(TestLog::new()),
-            transmit_to_ip_result: Ok (()),
-            transmit_to_socket_addr_result: Ok(())
-        }
-    }
-}
 
 pub fn make_proxy_server_subs_from(addr: &SyncAddress<Recorder>) -> ProxyServerSubs {
     ProxyServerSubs {
         bind: addr.subscriber::<BindMessage>(),
-        from_dispatcher: addr.subscriber::<RequestMessage>(),
-        from_hopper: addr.subscriber::<ExpiredCoresPackageMessage>(),
+        from_dispatcher: addr.subscriber::<InboundClientData>(),
+        from_hopper: addr.subscriber::<ExpiredCoresPackage>(),
     }
 }
 
-pub fn make_dispatcher_subs_from(addr: &SyncAddress<Recorder>) -> DispatcherFacadeSubs {
-    DispatcherFacadeSubs{
+pub fn make_dispatcher_subs_from(addr: &SyncAddress<Recorder>) -> DispatcherSubs {
+    DispatcherSubs {
         ibcd_sub: addr.subscriber::<InboundClientData>(),
         bind: addr.subscriber::<BindMessage>(),
-        from_proxy_server: addr.subscriber::<ResponseMessage>(),
-        transmitter_bind: addr.subscriber::<TemporaryBindMessage>(),
+        from_proxy_server: addr.subscriber::<TransmitDataMsg>(),
     }
 }
 
 pub fn make_hopper_subs_from(addr: &SyncAddress<Recorder>) -> HopperSubs {
     HopperSubs {
         bind: addr.subscriber::<BindMessage>(),
-        from_hopper_client: addr.subscriber::<IncipientCoresPackageMessage>(),
+        from_hopper_client: addr.subscriber::<IncipientCoresPackage>(),
     }
 }
 
@@ -565,7 +488,7 @@ pub fn make_stream_handler_pool_subs_from(addr: &SyncAddress<Recorder>) -> Strea
 pub fn make_proxy_client_subs_from(addr: &SyncAddress<Recorder>) -> ProxyClientSubs {
     ProxyClientSubs {
         bind: addr.subscriber::<BindMessage>(),
-        from_hopper: addr.subscriber::<ExpiredCoresPackageMessage>(),
+        from_hopper: addr.subscriber::<ExpiredCoresPackage>(),
     }
 }
 
@@ -663,46 +586,19 @@ impl Handler<BindMessage> for Recorder {
     }
 }
 
-impl Handler<ResponseMessage> for Recorder {
+impl Handler<IncipientCoresPackage> for Recorder {
     type Result = ();
 
-    fn handle(&mut self, msg: ResponseMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: IncipientCoresPackage, _ctx: &mut Self::Context) -> Self::Result {
         self.record (msg);
         ()
     }
 }
 
-impl Handler<RequestMessage> for Recorder {
+impl Handler<ExpiredCoresPackage> for Recorder {
     type Result = ();
 
-    fn handle(&mut self, msg: RequestMessage, _ctx: &mut Self::Context) -> Self::Result {
-        self.record (msg);
-        ()
-    }
-}
-
-impl Handler<IncipientCoresPackageMessage> for Recorder {
-    type Result = ();
-
-    fn handle(&mut self, msg: IncipientCoresPackageMessage, _ctx: &mut Self::Context) -> Self::Result {
-        self.record (msg);
-        ()
-    }
-}
-
-impl Handler<TemporaryBindMessage> for Recorder {
-    type Result = ();
-
-    fn handle(&mut self, msg: TemporaryBindMessage, _ctx: &mut Self::Context) -> Self::Result {
-        self.record(msg);
-        ()
-    }
-}
-
-impl Handler<ExpiredCoresPackageMessage> for Recorder {
-    type Result = ();
-
-    fn handle(&mut self, msg: ExpiredCoresPackageMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: ExpiredCoresPackage, _ctx: &mut Self::Context) -> Self::Result {
         self.record(msg);
         ()
     }

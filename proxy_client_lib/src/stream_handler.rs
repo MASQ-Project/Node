@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 use actix::Subscriber;
-use sub_lib::actor_messages::IncipientCoresPackageMessage;
 use sub_lib::cryptde::PlainData;
 use sub_lib::framer::Framer;
 use sub_lib::hopper::ExpiredCoresPackage;
@@ -28,7 +27,7 @@ pub const SERVER_PROBLEM_RESPONSE: &[u8] = b"HTTP/1.1 503 Service Unavailable\r\
 pub struct StreamHandler {
     expired_cores_package: ExpiredCoresPackage,
     client_request_payload: ClientRequestPayload,
-    hopper: Box<Subscriber<IncipientCoresPackageMessage> + Send>,
+    hopper: Box<Subscriber<IncipientCoresPackage> + Send>,
     resolver_arc: Arc<Mutex<Box<ResolverWrapper>>>,
     stream: Box<TcpStreamWrapper>,
     logger: Logger
@@ -36,7 +35,7 @@ pub struct StreamHandler {
 
 impl StreamHandler {
 
-    pub fn new (expired_cores_package: ExpiredCoresPackage, hopper: Box<Subscriber<IncipientCoresPackageMessage> + Send>,
+    pub fn new (expired_cores_package: ExpiredCoresPackage, hopper: Box<Subscriber<IncipientCoresPackage> + Send>,
             resolver_arc: Arc<Mutex<Box<ResolverWrapper>>>, stream: Box<TcpStreamWrapper>) -> Option<StreamHandler> {
         let logger = Logger::new ("Proxy Client");
         let client_request_payload: ClientRequestPayload = match expired_cores_package.payload () {
@@ -192,7 +191,7 @@ impl StreamHandler {
         let incipient_cores_package =
             IncipientCoresPackage::new (self.expired_cores_package.remaining_route.clone (),
                 response_payload, &self.client_request_payload.originator_public_key);
-        self.hopper.send(IncipientCoresPackageMessage { pkg: incipient_cores_package }).expect ("Hopper is dead");
+        self.hopper.send(incipient_cores_package).expect ("Hopper is dead");
     }
 
     fn error_shutdown<S> (&self, error: io::Error) -> io::Result<S> {

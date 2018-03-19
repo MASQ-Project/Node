@@ -49,7 +49,6 @@ impl IdWrapper for IdWrapperReal {
     fn setgid (&self, gid: i32) -> i32  { !unimplemented!() }
 }
 
-// TODO: Privilege dropping should really, really not be in sub_lib. Move it back to node.
 pub trait PrivilegeDropper {
     fn drop_privileges (&self);
 }
