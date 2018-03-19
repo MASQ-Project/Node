@@ -1,18 +1,18 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use std::env::temp_dir;
 use std::thread;
 use std::time::Duration;
-use std::env::temp_dir;
-use sub_lib::main_tools::StdStreams;
-use sub_lib::main_tools::Command;
-use sub_lib::socket_server::SocketServer;
-use sub_lib::privilege_drop::PrivilegeDropper;
-use sub_lib::privilege_drop::PrivilegeDropperReal;
-use sub_lib::logger::LoggerInitializerWrapper;
-use entry_dns_lib::dns_socket_server::new_dns_socket_server;
-use dispatcher::DispatcherReal;
 use flexi_logger::LevelFilter;
 use flexi_logger::Logger;
 use flexi_logger::LogSpecification;
+use sub_lib::logger::LoggerInitializerWrapper;
+use sub_lib::main_tools::StdStreams;
+use sub_lib::main_tools::Command;
+use sub_lib::socket_server::SocketServer;
+use entry_dns_lib::dns_socket_server::new_dns_socket_server;
+use dispatcher::DispatcherReal;
+use privilege_drop::PrivilegeDropper;
+use privilege_drop::PrivilegeDropperReal;
 //#[cfg(unix)]
 //use daemonize::Daemonize;
 
@@ -136,7 +136,6 @@ mod tests {
     use std::sync::mpsc::Receiver;
     use sub_lib::limiter::Limiter;
     use sub_lib::logger;
-    use sub_lib::privilege_drop::PrivilegeDropper;
     use sub_lib::test_utils::FakeStreamHolder;
     use sub_lib::test_utils::LoggerInitializerWrapperMock;
     use sub_lib::test_utils::TestLogHandler;

@@ -31,7 +31,6 @@ pub mod main_tools;
 pub mod neighborhood;
 pub mod node_addr;
 pub mod packet_facade;
-pub mod privilege_drop;
 pub mod proxy_client;
 pub mod proxy_server;
 pub mod route;

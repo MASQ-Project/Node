@@ -24,6 +24,7 @@ mod configuration;
 mod dispatcher;
 mod dispatcher_facade;
 mod listener_handler;
+mod privilege_drop;
 mod transmitter;
 mod client_factory;
 mod stream_handler_pool;
