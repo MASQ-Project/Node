@@ -1,8 +1,5 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use std::sync::Arc;
-use std::sync::Mutex;
 use std::borrow::Borrow;
-use serde_cbor;
 use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::hop::Hop;
@@ -10,7 +7,6 @@ use sub_lib::route::Route;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::Key;
 use sub_lib::cryptde::CryptData;
-use sub_lib::cryptde::PlainData;
 use sub_lib::hopper::HopperSubs;
 use sub_lib::actor_messages::ExpiredCoresPackageMessage;
 use sub_lib::actor_messages::IncipientCoresPackageMessage;
@@ -34,7 +30,7 @@ impl Actor for Hopper {
 impl Handler<BindMessage> for Hopper {
     type Result = ();
 
-    fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.to_proxy_server = Some(msg.peer_actors.proxy_server.from_hopper);
         self.to_proxy_client = Some(msg.peer_actors.proxy_client.from_hopper);
         ()
@@ -44,7 +40,7 @@ impl Handler<BindMessage> for Hopper {
 impl Handler<IncipientCoresPackageMessage> for Hopper {
     type Result = ();
 
-    fn handle(&mut self, msg: IncipientCoresPackageMessage, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: IncipientCoresPackageMessage, _ctx: &mut Self::Context) -> Self::Result {
         // Skinny Release-2-only implementation
         if msg.pkg.route.next_hop ().public_key.is_some () {
             // from Proxy Server
@@ -52,7 +48,7 @@ impl Handler<IncipientCoresPackageMessage> for Hopper {
                 Route::rel2_to_proxy_client (&self.cryptde.public_key (), self.cryptde.borrow ()).unwrap (),
                 msg.pkg.payload
             );
-            self.to_proxy_client.as_ref ().unwrap ().send (ExpiredCoresPackageMessage { pkg: expired_package });
+            self.to_proxy_client.as_ref ().unwrap ().send (ExpiredCoresPackageMessage { pkg: expired_package }).expect ("Proxy Client is dead");
             ()
         }
         else {
@@ -61,7 +57,7 @@ impl Handler<IncipientCoresPackageMessage> for Hopper {
                 Route::rel2_to_proxy_server (&self.cryptde.public_key (), self.cryptde.borrow ()).unwrap (),
                 msg.pkg.payload
             );
-            self.to_proxy_server.as_ref().expect("ProxyServer unbound").send( ExpiredCoresPackageMessage { pkg: expired_package });
+            self.to_proxy_server.as_ref().expect("ProxyServer unbound").send( ExpiredCoresPackageMessage { pkg: expired_package }).expect ("Proxy Server is dead");
             ()
         };
         ()

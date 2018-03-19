@@ -1,8 +1,6 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
-use std::sync::Arc;
-use std::sync::Mutex;
 use std::thread;
 use actix::Actor;
 use actix::System;
@@ -54,11 +52,11 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
             };
 
             //bind all the actors
-            dispatcher_facade_subs.bind.send(BindMessage { peer_actors: peer_actors.clone() });
-            proxy_server_subs.bind.send(BindMessage { peer_actors: peer_actors.clone() });
-            hopper_subs.bind.send(BindMessage { peer_actors: peer_actors.clone() });
-            pool_subs.bind.send(BindMessage { peer_actors: peer_actors.clone() });
-            proxy_client_subs.bind.send(BindMessage { peer_actors: peer_actors.clone() });
+            dispatcher_facade_subs.bind.send(BindMessage { peer_actors: peer_actors.clone() }).expect ("Dispatcher is dead");
+            proxy_server_subs.bind.send(BindMessage { peer_actors: peer_actors.clone() }).expect ("Proxy Server is dead");
+            hopper_subs.bind.send(BindMessage { peer_actors: peer_actors.clone() }).expect ("Hopper is dead");
+            pool_subs.bind.send(BindMessage { peer_actors: peer_actors.clone() }).expect ("StreamHandlerPool is dead");
+            proxy_client_subs.bind.send(BindMessage { peer_actors: peer_actors.clone() }).expect ("Proxy Client is dead");
 
             tx.send((dispatcher_facade_subs.clone(), pool_subs.clone())).ok();
             system.run()

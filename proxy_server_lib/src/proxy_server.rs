@@ -1,7 +1,5 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use std::marker::Send;
-use std::net::SocketAddr;
-use sub_lib::dispatcher::Component;
 use sub_lib::dispatcher::Endpoint;
 use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::hopper::ExpiredCoresPackage;
@@ -22,7 +20,6 @@ use sub_lib::proxy_server::ProxyServerSubs;
 use actix::Actor;
 use actix::Context;
 use actix::SyncAddress;
-use actix::System;
 use actix::Handler;
 use actix::Subscriber;
 

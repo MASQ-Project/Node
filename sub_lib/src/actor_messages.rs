@@ -1,4 +1,7 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use std::fmt;
+use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::net::SocketAddr;
 use actix::ResponseType;
 use hopper::IncipientCoresPackage;
@@ -24,6 +27,13 @@ pub struct PeerActors {
     pub stream_handler_pool: StreamHandlerPoolSubs,
 }
 
+impl Debug for PeerActors {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write! (f, "PeerActors")
+    }
+}
+
+#[derive (Debug)]
 pub struct BindMessage {
     pub peer_actors: PeerActors
 }
@@ -69,6 +79,7 @@ impl ResponseType for IncipientCoresPackageMessage {
 
 
 // ----- ExpiredCoresPackageMessage ----- (Hopper -> HopperClient)
+#[derive (Debug)]
 pub struct ExpiredCoresPackageMessage {
     pub pkg: ExpiredCoresPackage
 }
@@ -86,4 +97,39 @@ pub struct TemporaryBindMessage {
 impl ResponseType for TemporaryBindMessage {
     type Item = ();
     type Error = ();
+}
+
+impl Debug for TemporaryBindMessage {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write! (f, "TemporaryBindMessage")
+    }
+}
+
+#[cfg (test)]
+mod tests {
+    use super::*;
+    use actix::System;
+    use test_utils::make_peer_actors;
+    use test_utils::TransmitterHandleMock;
+
+    #[test]
+    fn peer_actors_debug () {
+        let _ = System::new ("test");
+        let subject = make_peer_actors ();
+
+        let result = format! ("{:?}", subject);
+
+        assert_eq! (result, String::from ("PeerActors"))
+    }
+
+    #[test]
+    fn temporary_bind_message_debug () {
+        let subject = TemporaryBindMessage {
+            transmitter_handle: Box::new (TransmitterHandleMock::new ())
+        };
+
+        let result = format! ("{:?}", subject);
+
+        assert_eq! (result, String::from ("TemporaryBindMessage"));
+    }
 }

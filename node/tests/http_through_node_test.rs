@@ -34,7 +34,7 @@ fn chunked_http_through_node_integration() {
     let mut buf: [u8; 16384] = [0; 16384];
     let mut begin_opt: Option<Instant> = None;
     let mut offset: usize = 0;
-    stream.set_read_timeout (Some (Duration::from_millis (100)));
+    stream.set_read_timeout (Some (Duration::from_millis (100))).unwrap ();
     loop {
         match stream.read (&mut buf[offset..]) {
             Err (e) => {

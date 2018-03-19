@@ -7,7 +7,6 @@ use sub_lib::dispatcher::PeerClients;
 use sub_lib::dispatcher::TransmitterHandle;
 use sub_lib::neighborhood::Neighborhood;
 use sub_lib::neighborhood::NeighborhoodError;
-use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::node_addr::NodeAddr;
 use sub_lib::route::Route;
 use sub_lib::cryptde::Key;

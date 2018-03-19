@@ -1,5 +1,4 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use std::net::SocketAddr;
 use std::sync::mpsc::Sender;
 use actix::Actor;
 use actix::Context;
@@ -84,11 +83,13 @@ impl Handler<ResponseMessage> for DispatcherFacade {
 
     fn handle(&mut self, msg: ResponseMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.logger.debug (format! ("Relaying {} bytes from Proxy Server to Dispatcher", msg.data.len ()));
-        self.ps_transmitter_handle.as_ref().expect("Proxy Server transmitter unbound").transmit_to_socket_addr(
+        match self.ps_transmitter_handle.as_ref().expect("Proxy Server transmitter unbound").transmit_to_socket_addr(
             msg.socket_addr,
             PlainData::new(msg.data.as_slice())
-        );
-        ()
+        ) {
+            Ok (_) => (),
+            Err (e) => self.logger.error (format! ("Dispatcher error: {:?}", e))
+        }
     }
 }
 
@@ -104,6 +105,7 @@ impl Handler<TemporaryBindMessage> for DispatcherFacade {
 #[cfg (test)]
 mod tests {
     use super::*;
+    use std::net::SocketAddr;
     use std::sync::mpsc;
     use std::str::FromStr;
     use actix::msgs;

@@ -1,5 +1,4 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use std::io;
 use std::thread;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -20,12 +19,8 @@ use sub_lib::actor_messages::BindMessage;
 use sub_lib::actor_messages::ExpiredCoresPackageMessage;
 use sub_lib::actor_messages::IncipientCoresPackageMessage;
 use sub_lib::cryptde::CryptDE;
-use sub_lib::cryptde::PlainData;
-use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::logger::Logger;
-use sub_lib::proxy_server::ClientRequestPayload;
-use sub_lib::proxy_client::ClientResponsePayload;
 use sub_lib::proxy_client::ProxyClientSubs;
 use sub_lib::tcp_wrappers::TcpStreamWrapper;
 use sub_lib::tcp_wrappers::TcpStreamWrapperReal;
@@ -128,6 +123,7 @@ impl TcpStreamWrapperFactory for TcpStreamWrapperFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io;
     use std::io::Read;
     use std::io::Write;
     use std::io::Error;
@@ -148,8 +144,11 @@ mod tests {
     use serde_cbor;
     use sub_lib::route::Route;
     use sub_lib::cryptde::Key;
+    use sub_lib::cryptde::PlainData;
     use sub_lib::cryptde_null::CryptDENull;
     use sub_lib::logger::LoggerInitializerWrapper;
+    use sub_lib::proxy_server::ClientRequestPayload;
+    use sub_lib::proxy_client::ClientResponsePayload;
     use sub_lib::test_utils::LoggerInitializerWrapperMock;
     use sub_lib::test_utils::TestLogHandler;
     use sub_lib::test_utils::make_peer_actors;
@@ -159,6 +158,7 @@ mod tests {
     use resolver_wrapper::tests::ResolverWrapperMock;
     use stream_handler::RESPONSE_FINISHED_TIMEOUT_MS;
     use stream_handler::SERVER_PROBLEM_RESPONSE;
+    use sub_lib::hopper::IncipientCoresPackage;
 
     fn dnss () -> Vec<SocketAddr> {
         vec! (SocketAddr::from_str ("8.8.8.8:53").unwrap ())

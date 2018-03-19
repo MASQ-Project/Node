@@ -33,7 +33,6 @@ use transmitter::TransmitterFactoryReal;
 use listener_handler::ListenerHandler;
 use listener_handler::ListenerHandlerFactory;
 use listener_handler::ListenerHandlerFactoryReal;
-use dispatcher_facade::DispatcherFacade;
 use configuration::Configuration;
 use actor_system_factory::ActorSystemFactory;
 use actor_system_factory::ActorSystemFactoryReal;
@@ -139,7 +138,7 @@ impl DispatcherReal {
 
         // TODO this should go away once everything is actorized
         let ps_transmitter_handle = transmitter_box.make_handle(Component::ProxyServer, &obcd_transmitter);
-        dispatcher_facade_subs.transmitter_bind.send(TemporaryBindMessage { transmitter_handle: Box::new(ps_transmitter_handle)});
+        dispatcher_facade_subs.transmitter_bind.send(TemporaryBindMessage { transmitter_handle: Box::new(ps_transmitter_handle)}).expect ("Dispatcher Facade is dead");
 
         thread::spawn (move || {
             transmitter_box.handle_traffic()
@@ -232,36 +231,35 @@ mod tests {
     use std::net::SocketAddr;
     use std::marker::Sync;
     use std::str::FromStr;
-    use std::ops::Deref;
     use std::ops::DerefMut;
     use actix::Actor;
     use actix::SyncAddress;
     use actix::System;
-    use sub_lib::test_utils::FakeStreamHolder;
-    use sub_lib::test_utils::TestLog;
-    use transmitter::TransmitterHandleReal;
-    use sub_lib::stream_handler_pool::AddStreamMsg;
-    use discriminator::DiscriminatorFactory;
-    use sub_lib::dispatcher::InboundClientData;
-    use test_utils::TcpStreamWrapperMock;
-    use test_utils::NeighborhoodNull;
-    use test_utils::TestLogOwner;
-    use test_utils::extract_log;
-    use sub_lib::test_utils::Recorder;
-    use sub_lib::test_utils::Recording;
-    use sub_lib::test_utils::RecordAwaiter;
     use sub_lib::proxy_server::ProxyServerSubs;
     use sub_lib::hopper::HopperSubs;
     use sub_lib::proxy_client::ProxyClientSubs;
     use sub_lib::actor_messages::BindMessage;
     use sub_lib::actor_messages::PeerActors;
     use sub_lib::actor_messages::RequestMessage;
+    use sub_lib::stream_handler_pool::AddStreamMsg;
     use sub_lib::test_utils::make_dispatcher_subs_from;
     use sub_lib::test_utils::make_proxy_server_subs_from;
     use sub_lib::test_utils::make_hopper_subs_from;
     use sub_lib::test_utils::make_stream_handler_pool_subs_from;
     use sub_lib::test_utils::make_proxy_client_subs_from;
-    use sub_lib::cryptde::CryptDE;
+    use sub_lib::test_utils::FakeStreamHolder;
+    use sub_lib::test_utils::Recorder;
+    use sub_lib::test_utils::Recording;
+    use sub_lib::test_utils::RecordAwaiter;
+    use sub_lib::test_utils::TestLog;
+    use sub_lib::dispatcher::InboundClientData;
+    use discriminator::DiscriminatorFactory;
+    use dispatcher_facade::DispatcherFacade;
+    use test_utils::TcpStreamWrapperMock;
+    use test_utils::NeighborhoodNull;
+    use test_utils::TestLogOwner;
+    use test_utils::extract_log;
+    use transmitter::TransmitterHandleReal;
 
     struct ClientFactoryMock {
         neighborhood_mock: RefCell<Option<NeighborhoodNull>>,
@@ -843,7 +841,7 @@ mod tests {
                     hopper: hopper_cluster.subs.clone(),
                     stream_handler_pool: stream_handler_pool_cluster.subs.clone(),
                     proxy_client: proxy_client_cluster.subs.clone(),
-                } });
+                }}).unwrap ();
 
                 tx.send ((dispatcher_facade_cluster, stream_handler_pool_cluster, proxy_server_cluster, hopper_cluster, proxy_client_cluster)).unwrap ();
                 system.run ();

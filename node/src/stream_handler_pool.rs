@@ -14,7 +14,6 @@ use actix::Handler;
 use actix::Subscriber;
 use sub_lib::tcp_wrappers::TcpStreamWrapper;
 use sub_lib::logger::Logger;
-use sub_lib::dispatcher::Component;
 use sub_lib::dispatcher::DispatcherFacadeSubs;
 use sub_lib::dispatcher;
 use sub_lib::stream_handler_pool::AddStreamMsg;
@@ -284,19 +283,19 @@ mod tests {
     use std::cell::RefCell;
     use std::ops::Deref;
     use std::sync::mpsc;
+    use actix::msgs;
     use actix::Arbiter;
     use actix::System;
-    use actix::msgs;
-    use sub_lib::logger::LoggerInitializerWrapper;
-    use sub_lib::test_utils::TestLogHandler;
-    use sub_lib::test_utils::LoggerInitializerWrapperMock;
-    use test_utils::TcpStreamWrapperMock;
-    use sub_lib::test_utils::Recorder;
-    use test_utils::wait_until;
     use sub_lib::actor_messages::BindMessage;
-
+    use sub_lib::dispatcher::Component;
+    use sub_lib::logger::LoggerInitializerWrapper;
     use sub_lib::test_utils::make_peer_actors;
     use sub_lib::test_utils::make_peer_actors_from;
+    use sub_lib::test_utils::LoggerInitializerWrapperMock;
+    use sub_lib::test_utils::Recorder;
+    use sub_lib::test_utils::TestLogHandler;
+    use test_utils::wait_until;
+    use test_utils::TcpStreamWrapperMock;
 
     #[test]
     fn a_newly_added_stream_produces_stream_handler_that_sends_received_data_to_dispatcher () {
@@ -337,7 +336,7 @@ mod tests {
             let mut peer_actors = make_peer_actors_from(None, Some(dispatcher), None, None, None);
             peer_actors.stream_handler_pool = subject_subs.clone();
 
-            subject_subs.bind.send(BindMessage { peer_actors });
+            subject_subs.bind.send(BindMessage { peer_actors }).unwrap ();
             subject_subs.add_sub.send(AddStreamMsg { stream: Box::new(stream) }).ok ();
 
             system.run ();
@@ -394,7 +393,7 @@ mod tests {
             let mut peer_actors = make_peer_actors_from(None, Some(dispatcher), None, None, None);
             peer_actors.stream_handler_pool = subject_subs.clone();
 
-            subject_subs.bind.send(BindMessage { peer_actors });
+            subject_subs.bind.send(BindMessage { peer_actors }).unwrap ();
 
             subject_subs.add_sub.send(AddStreamMsg { stream: Box::new(stream) }).ok ();
 
@@ -429,7 +428,7 @@ mod tests {
         let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
         let mut peer_actors = make_peer_actors();
         peer_actors.stream_handler_pool = subject_subs.clone();
-        subject_subs.bind.send(BindMessage { peer_actors });
+        subject_subs.bind.send(BindMessage { peer_actors }).unwrap ();
 
         subject_subs.add_sub.send(AddStreamMsg { stream: Box::new(stream) }).ok ();
 
@@ -467,7 +466,7 @@ mod tests {
             let mut peer_actors = make_peer_actors();
             peer_actors.stream_handler_pool = subject_subs.clone();
 
-            subject_subs.bind.send(BindMessage { peer_actors });
+            subject_subs.bind.send(BindMessage { peer_actors }).unwrap ();
             sub_tx.send (subject_subs).ok ();
             system.run();
         });
@@ -510,7 +509,7 @@ mod tests {
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
             let mut peer_actors = make_peer_actors();
             peer_actors.stream_handler_pool = subject_subs.clone();
-            subject_subs.bind.send(BindMessage { peer_actors });
+            subject_subs.bind.send(BindMessage { peer_actors }).unwrap ();
 
             sub_tx.send (subject_subs).ok ();
             system.run();
@@ -543,7 +542,7 @@ mod tests {
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
             let mut peer_actors = make_peer_actors();
             peer_actors.stream_handler_pool = subject_subs.clone();
-            subject_subs.bind.send(BindMessage { peer_actors });
+            subject_subs.bind.send(BindMessage { peer_actors }).unwrap ();
 
             subject_subs.transmit_sub.send(TransmitDataMsg {socket_addr, data: vec!(0x12, 0x34)}).ok ();
 

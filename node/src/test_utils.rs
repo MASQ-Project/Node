@@ -17,7 +17,6 @@ use std::net::IpAddr;
 use std::ops::DerefMut;
 use std::borrow::BorrowMut;
 use std::str::FromStr;
-use sub_lib;
 use sub_lib::tcp_wrappers::TcpStreamWrapper;
 use sub_lib::test_utils::TestLog;
 use sub_lib::dispatcher::Component;
@@ -30,10 +29,8 @@ use sub_lib::neighborhood::Neighborhood;
 use sub_lib::neighborhood::NeighborhoodError;
 use sub_lib::node_addr::NodeAddr;
 use sub_lib::route::Route;
-use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::cryptde::Key;
 use sub_lib::cryptde::PlainData;
-use sub_lib::actor_messages::ExpiredCoresPackageMessage;
 use sub_lib::framer::Framer;
 use sub_lib::framer::FramedChunk;
 use masquerader::Masquerader;
@@ -41,7 +38,6 @@ use masquerader::MasqueradeError;
 use null_masquerader::NullMasquerader;
 use discriminator::Discriminator;
 use discriminator::DiscriminatorFactory;
-use actix::Subscriber;
 
 pub trait TestLogOwner {
     fn get_test_log (&self) -> Arc<Mutex<TestLog>>;

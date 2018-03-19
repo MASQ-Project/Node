@@ -9,12 +9,10 @@ use sub_lib::dispatcher::Endpoint;
 use sub_lib::dispatcher::PeerClients;
 use sub_lib::dispatcher::TransmitterHandle;
 use sub_lib::dispatcher::Component;
-use sub_lib::hop::Hop;
 use sub_lib::neighborhood::Neighborhood;
 use sub_lib::neighborhood::NeighborhoodError;
 use sub_lib::node_addr::NodeAddr;
 use sub_lib::route::Route;
-use sub_lib::route::RouteSegment;
 use sub_lib::cryptde::Key;
 use sub_lib::cryptde::PlainData;
 use sub_lib::cryptde::CryptDE;
@@ -44,11 +42,11 @@ impl NeighborhoodReal {
 }
 
 impl Neighborhood for NeighborhoodReal {
-    fn route_one_way(&mut self, destination: &Key, remote_recipient: Component) -> Result<Route, NeighborhoodError> {
+    fn route_one_way(&mut self, _destination: &Key, _remote_recipient: Component) -> Result<Route, NeighborhoodError> {
         unimplemented!()
     }
 
-    fn route_round_trip(&mut self, destination: &Key, remote_recipient: Component, local_recipient: Component) -> Result<Route, NeighborhoodError> {
+    fn route_round_trip(&mut self, destination: &Key, _remote_recipient: Component, _local_recipient: Component) -> Result<Route, NeighborhoodError> {
         let cryptde = CryptDENull::new ();
         if self.valid(destination) {
             Ok (Route::rel2_from_proxy_server (&cryptde.public_key (), &cryptde).expect ("Internal error"))
