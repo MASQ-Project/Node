@@ -511,7 +511,7 @@ mod tests {
             peer_actors.stream_handler_pool = subject_subs.clone();
             subject_subs.bind.send(BindMessage { peer_actors }).unwrap ();
 
-            sub_tx.send (subject_subs).ok ();
+            sub_tx.send (subject_subs).unwrap ();
             system.run();
         });
 
@@ -522,7 +522,7 @@ mod tests {
         });
 
         subject_subs.transmit_sub.send(TransmitDataMsg { socket_addr, data: vec!(0x12, 0x34) }).ok ();
-        TestLogHandler::new ().exists_no_log_matching("ERROR.*1\\.2\\.3\\.4:5676");
+        TestLogHandler::new ().exists_no_log_matching("WARN.*1\\.2\\.3\\.4:5676.*Continuing after read error");
 
         assert_eq! (read_stream_log.lock ().unwrap ().dump (), vec! (
             "set_read_timeout (None)",
