@@ -130,6 +130,13 @@ impl LiveCoresPackage {
 mod tests {
     use super::*;
     use std::ops::Deref;
+    use actix::Actor;
+    use actix::Arbiter;
+    use actix::SyncAddress;
+    use actix::System;
+    use actix::msgs;
+    use serde_cbor;
+    use sub_lib::cryptde::PlainData;
     use sub_lib::dispatcher::Component;
     use sub_lib::hopper::IncipientCoresPackage;
     use sub_lib::hopper::ExpiredCoresPackage;
@@ -140,11 +147,6 @@ mod tests {
     use sub_lib::test_utils;
     use sub_lib::test_utils::TransmitterHandleMock;
     use sub_lib::test_utils::PayloadMock;
-    use actix::Actor;
-    use actix::Arbiter;
-    use actix::SyncAddress;
-    use actix::System;
-    use actix::msgs;
     use sub_lib::test_utils::Recorder;
     use sub_lib::test_utils::RecordAwaiter;
     use sub_lib::test_utils::Recording;

@@ -106,6 +106,7 @@ impl DispatcherClient for NeighborhoodReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sub_lib::hop::Hop;
     use sub_lib::test_utils;
     use sub_lib::test_utils::TransmitterHandleMock;
 

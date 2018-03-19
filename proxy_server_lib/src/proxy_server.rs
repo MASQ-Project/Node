@@ -117,9 +117,12 @@ impl ProxyServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::SocketAddr;
+    use std::str::FromStr;
     use actix::msgs;
     use actix::Arbiter;
-    use std::str::FromStr;
+    use actix::System;
+    use sub_lib::dispatcher::Component;
     use sub_lib::hopper::IncipientCoresPackage;
     use sub_lib::hopper::ExpiredCoresPackage;
     use sub_lib::proxy_client::ClientResponsePayload;
