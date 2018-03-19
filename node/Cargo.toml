@@ -6,6 +6,9 @@ authors = ["Substratum Services"]
 copyright = "Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved."
 description = ""
 
+[workspace]
+members = ["../sub_lib", "../entry_dns_lib", "../hopper_lib", "../neighborhood_lib", "../proxy_client_lib", "../proxy_server_lib"]
+
 [dependencies]
 chrono = "0.4.0"
 base64 = "0.8.0"
