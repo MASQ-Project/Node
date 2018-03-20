@@ -239,16 +239,6 @@ mod tests {
             component: Component::ProxyServer,
             data: expected_data.clone()
         };
-        let cryptde = CryptDENull::new();
-        let key = cryptde.public_key();
-        let route = Route::rel2_from_proxy_server(&key, &cryptde).unwrap();
-        let payload = ClientRequestPayload {
-            stream_key: socket_addr,
-            data: PlainData::new(http_request),
-            target_hostname: String::from("nowhere.com"),
-            target_port: 80,
-            originator_public_key: key.clone()
-        };
         let subject_addr: SyncAddress<_> = subject.start();
 
         subject_addr.send(msg_from_dispatcher);
