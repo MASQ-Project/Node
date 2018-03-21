@@ -3,5 +3,5 @@
 CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 
 "$CI_DIR/clean.sh"
-"$CI_DIR/build.sh"
+#"$CI_DIR/build.sh"
 "$CI_DIR/test.sh"
