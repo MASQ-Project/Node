@@ -16,15 +16,25 @@ use std::ops::DerefMut;
 use std::borrow::BorrowMut;
 use std::str::FromStr;
 use sub_lib::tcp_wrappers::TcpStreamWrapper;
-use sub_lib::test_utils::TestLog;
 use sub_lib::dispatcher::Component;
 use sub_lib::framer::Framer;
 use sub_lib::framer::FramedChunk;
+use sub_lib::stream_handler_pool::TransmitDataMsg;
+use sub_lib::test_utils::Recorder;
+use sub_lib::test_utils::TestLog;
+use actix::Actor;
+use actix::Handler;
+use actix::SyncAddress;
+use discriminator::Discriminator;
+use discriminator::DiscriminatorFactory;
+use discriminator::UnmaskedChunk;
 use masquerader::Masquerader;
 use masquerader::MasqueradeError;
 use null_masquerader::NullMasquerader;
-use discriminator::Discriminator;
-use discriminator::DiscriminatorFactory;
+use stream_handler_pool::AddStreamMsg;
+use stream_handler_pool::RemoveStreamMsg;
+use stream_handler_pool::StreamHandlerPoolSubs;
+use stream_handler_pool::PoolBindMessage;
 
 pub trait TestLogOwner {
     fn get_test_log (&self) -> Arc<Mutex<TestLog>>;
@@ -166,12 +176,12 @@ impl TcpStreamWrapperMock {
 
 pub struct MasqueraderMock {
     log: Arc<Mutex<TestLog>>,
-    try_unmask_results: RefCell<Vec<Option<(Component, Vec<u8>)>>>,
+    try_unmask_results: RefCell<Vec<Option<UnmaskedChunk>>>,
     mask_results: RefCell<Vec<Result<Vec<u8>, MasqueradeError>>>
 }
 
 impl Masquerader for MasqueraderMock {
-    fn try_unmask(&self, item: &[u8]) -> Option<(Component, Vec<u8>)> {
+    fn try_unmask(&self, item: &[u8]) -> Option<UnmaskedChunk> {
         self.log.lock ().unwrap ().log (format! ("try_unmask (\"{}\")", String::from_utf8 (Vec::from (item)).unwrap ()));
         self.try_unmask_results.borrow_mut ().remove (0)
     }
@@ -199,7 +209,7 @@ impl MasqueraderMock {
     }
 
     #[allow (dead_code)]
-    pub fn add_try_unmask_result (&mut self, result: Option<(Component, Vec<u8>)>) {
+    pub fn add_try_unmask_result (&mut self, result: Option<UnmaskedChunk>) {
         self.try_unmask_results.borrow_mut ().push (result);
     }
 
@@ -247,6 +257,7 @@ pub fn make_null_discriminator (component: Component, data: Vec<Vec<u8>>) -> Dis
     Discriminator::new (Box::new (framer), vec! (Box::new (masquerader)))
 }
 
+#[derive (Debug, Clone)]
 pub struct NullDiscriminatorFactory {
     discriminator_natures: RefCell<Vec<(Component, Vec<Vec<u8>>)>>
 }
@@ -257,8 +268,10 @@ impl DiscriminatorFactory for NullDiscriminatorFactory {
         Box::new (make_null_discriminator(component, data))
     }
 
-    fn clone(&self) -> Box<DiscriminatorFactory> {
-        unimplemented!()
+    fn duplicate(&self) -> Box<DiscriminatorFactory> {
+        Box::new (NullDiscriminatorFactory {
+            discriminator_natures: self.discriminator_natures.clone ()
+        })
     }
 }
 
@@ -272,5 +285,48 @@ impl NullDiscriminatorFactory {
     pub fn discriminator_nature (self, component: Component, data: Vec<Vec<u8>>) -> NullDiscriminatorFactory {
         self.discriminator_natures.borrow_mut ().push ((component, data));
         self
+    }
+}
+
+impl Handler<AddStreamMsg> for Recorder {
+    type Result = io::Result<()>;
+
+    fn handle(&mut self, msg: AddStreamMsg, _ctx: &mut Self::Context) -> Self::Result {
+        self.record (msg);
+        Ok (())
+    }
+}
+
+impl Handler<RemoveStreamMsg> for Recorder {
+    type Result = io::Result<()>;
+
+    fn handle(&mut self, msg: RemoveStreamMsg, _ctx: &mut Self::Context) -> Self::Result {
+        self.record (msg);
+        Ok (())
+    }
+}
+
+impl Handler<PoolBindMessage> for Recorder {
+    type Result = io::Result<()>;
+
+    fn handle(&mut self, msg: PoolBindMessage, _ctx: &mut Self::Context) -> Self::Result {
+        self.record (msg);
+        Ok (())
+    }
+}
+
+pub fn make_stream_handler_pool_subs_from(stream_handler_pool_opt: Option<Recorder>) -> StreamHandlerPoolSubs {
+    let stream_handler_pool = match stream_handler_pool_opt {
+        Some(stream_handler_pool) => stream_handler_pool,
+        None => Recorder::new()
+    };
+
+    let addr: SyncAddress<_> = stream_handler_pool.start();
+
+    StreamHandlerPoolSubs {
+        add_sub: addr.subscriber::<AddStreamMsg>(),
+        transmit_sub: addr.subscriber::<TransmitDataMsg>(),
+        remove_sub: addr.subscriber::<RemoveStreamMsg>(),
+        bind: addr.subscriber::<PoolBindMessage>(),
     }
 }

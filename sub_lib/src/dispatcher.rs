@@ -123,6 +123,7 @@ pub enum DispatcherError {
 #[derive (PartialEq, Clone)]
 pub struct InboundClientData {
     pub socket_addr: SocketAddr,
+    pub origin_port: Option<u16>,
     pub component: Component,
     pub data: Vec<u8>
 }
@@ -138,8 +139,8 @@ impl Debug for InboundClientData {
             Ok (string) => string,
             Err (_) => format! ("{:?}", &self.data[..])
         };
-        write! (f, "InboundClientData {{ socket_addr: {:?}, component: {:?}, data: {} }}",
-                self.socket_addr, self.component, data_string)
+        write! (f, "InboundClientData {{ socket_addr: {:?}, origin_port: {:?}, component: {:?}, data: {} }}",
+                self.socket_addr, self.origin_port, self.component, data_string)
     }
 }
 

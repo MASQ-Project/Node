@@ -32,6 +32,7 @@ mod http_request_start_finder;
 mod masquerader;
 mod json_masquerader;
 mod null_masquerader;
+mod tls_discriminator;
 mod actor_system_factory;
 
 #[cfg (test)]

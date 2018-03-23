@@ -148,6 +148,7 @@ mod tests {
     use sub_lib::logger::LoggerInitializerWrapper;
     use sub_lib::proxy_server::ClientRequestPayload;
     use sub_lib::proxy_client::ClientResponsePayload;
+    use sub_lib::proxy_server::ProxyProtocol;
     use sub_lib::test_utils::LoggerInitializerWrapperMock;
     use sub_lib::test_utils::TestLogHandler;
     use sub_lib::test_utils::make_peer_actors;
@@ -379,6 +380,7 @@ mod tests {
             data: PlainData::new (b"HEAD http://www.nyan.cat/ HTTP/1.1\r\n\r\n"),
             target_hostname: String::from("target.hostname.com"),
             target_port: 1234,
+            protocol: ProxyProtocol::HTTP,
             originator_public_key: Key::new (&b"originator_public_key"[..]),
         };
         let cryptde = CryptDENull::new ();
@@ -435,6 +437,7 @@ mod tests {
             data: PlainData::new (b"HEAD http://www.nyan.cat/ HTTP/1.1\r\n\r\n"),
             target_hostname: String::from("target.hostname.com"),
             target_port: 1234,
+            protocol: ProxyProtocol::HTTP,
             originator_public_key: Key::new (&b"originator_public_key"[..]),
         };
         let cryptde = CryptDENull::new ();
@@ -474,7 +477,7 @@ mod tests {
         let awaiter = hopper.get_awaiter();
         thread::spawn(move || {
             let system = System::new("successful_round_trip");
-            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
+            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None);
             let mut subject = ProxyClient::new(Box::new (thread_cryptde), dnss ());
             subject.tcp_stream_wrapper_factory = Box::new(tcp_stream_wrapper_factory);
             subject.resolver_wrapper_factory = Box::new (resolver_wrapper_factory);
@@ -516,6 +519,7 @@ mod tests {
             data: PlainData::new (b"HEAD http://www.nyan.cat/ HTTP/1.1\r\n\r\n"),
             target_hostname: String::from("target.hostname.com"),
             target_port: 1234,
+            protocol: ProxyProtocol::HTTP,
             originator_public_key: Key::new (&b"originator_public_key"[..]),
         };
         let cryptde = CryptDENull::new ();
@@ -555,7 +559,7 @@ mod tests {
         let awaiter = hopper.get_awaiter();
         thread::spawn(move || {
             let system = System::new("successful_round_trip");
-            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
+            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None);
             let mut subject = ProxyClient::new(Box::new (thread_cryptde), dnss ());
             subject.tcp_stream_wrapper_factory = Box::new(tcp_stream_wrapper_factory);
             subject.resolver_wrapper_factory = Box::new (resolver_wrapper_factory);
@@ -624,7 +628,7 @@ mod tests {
         let hopper = Recorder::new();
         thread::spawn(move || {
             let system = System::new("unparseable_request_results_in_log_and_no_response");
-            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
+            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None);
             let subject = ProxyClient::new(Box::new(cryptde.clone()), dnss());
             let subject_addr: SyncAddress<_> = subject.start();
             subject_addr.send(BindMessage{peer_actors});
@@ -646,6 +650,7 @@ mod tests {
             data: PlainData::new (b"HEAD http://www.nyan.cat/ HTTP/1.1\r\n\r\n"),
             target_hostname: String::from("target.hostname.com"),
             target_port: 1234,
+            protocol: ProxyProtocol::HTTP,
             originator_public_key: Key::new (&b"originator_public_key"[..]),
         };
         let cryptde = CryptDENull::new ();
@@ -663,7 +668,7 @@ mod tests {
         let awaiter = hopper.get_awaiter();
         thread::spawn(move || {
             let system = System::new("dns_error_results_in_503");
-            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
+            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None);
             let mut subject = ProxyClient::new(Box::new (thread_cryptde), dnss ());
             subject.resolver_wrapper_factory = Box::new (resolver_wrapper_factory);
             let subject_addr: SyncAddress<_> = subject.start();
@@ -716,6 +721,7 @@ mod tests {
             data: PlainData::new (b"HEAD http://www.nyan.cat/ HTTP/1.1\r\n\r\n"),
             target_hostname: String::from("target.hostname.com"),
             target_port: 1234,
+            protocol: ProxyProtocol::HTTP,
             originator_public_key: Key::new (&b"originator_public_key"[..]),
         };
         verify_error_results (
@@ -736,6 +742,7 @@ mod tests {
             data: PlainData::new (b"HEAD http://www.nyan.cat/ HTTP/1.1\r\n\r\n"),
             target_hostname: String::from("target.hostname.com"),
             target_port: 1234,
+            protocol: ProxyProtocol::HTTP,
             originator_public_key: Key::new (&b"originator_public_key"[..]),
         };
         verify_error_results (
@@ -757,6 +764,7 @@ mod tests {
             data: PlainData::new (b"HEAD http://www.nyan.cat/ HTTP/1.1\r\n\r\n"),
             target_hostname: String::from("target.hostname.com"),
             target_port: 1234,
+            protocol: ProxyProtocol::HTTP,
             originator_public_key: Key::new (&b"originator_public_key"[..]),
         };
         verify_error_results (
@@ -779,6 +787,7 @@ mod tests {
             data: PlainData::new (b"HEAD http://www.nyan.cat/ HTTP/1.1\r\n\r\n"),
             target_hostname: String::from("target.hostname.com"),
             target_port: 1234,
+            protocol: ProxyProtocol::HTTP,
             originator_public_key: Key::new (&b"originator_public_key"[..]),
         };
         let response_data = b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 29\r\n\r\nUser-agent: *\nDisallow: /deny";
@@ -810,7 +819,7 @@ mod tests {
         let awaiter = hopper.get_awaiter();
         thread::spawn(move || {
             let system = System::new("dns_error_results_in_503");
-            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
+            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None);
             let mut subject = ProxyClient::new(Box::new (thread_cryptde), vec! (SocketAddr::from_str ("2.3.4.5:6789").unwrap ()));
             subject.tcp_stream_wrapper_factory = Box::new(tcp_stream_wrapper_factory);
             subject.resolver_wrapper_factory = Box::new (resolver_wrapper_factory);
@@ -841,6 +850,7 @@ mod tests {
             data: PlainData::new (b"HEAD http://www.nyan.cat/ HTTP/1.1\r\n\r\n"),
             target_hostname: String::new(),
             target_port: 1234,
+            protocol: ProxyProtocol::HTTP,
             originator_public_key: Key::new (&[]),
         };
         let cryptde = CryptDENull::new ();
@@ -868,7 +878,7 @@ mod tests {
         let awaiter = hopper.get_awaiter();
         thread::spawn(move || {
             let system = System::new("dns_error_results_in_503");
-            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
+            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None);
             let mut subject = ProxyClient::new(Box::new (thread_cryptde), dnss ());
             subject.tcp_stream_wrapper_factory = Box::new(tcp_stream_wrapper_factory);
             subject.resolver_wrapper_factory = Box::new (resolver_wrapper_factory);

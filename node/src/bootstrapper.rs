@@ -5,13 +5,13 @@ use std::str::FromStr;
 use std::thread;
 use sub_lib::socket_server::SocketServer;
 use sub_lib::main_tools::StdStreams;
-use sub_lib::stream_handler_pool::StreamHandlerPoolSubs;
 use actor_system_factory::ActorSystemFactory;
 use actor_system_factory::ActorSystemFactoryReal;
 use configuration::Configuration;
 use listener_handler::ListenerHandler;
 use listener_handler::ListenerHandlerFactory;
 use listener_handler::ListenerHandlerFactoryReal;
+use stream_handler_pool::StreamHandlerPoolSubs;
 
 struct BootstrapperConfig {
     dns_servers: Vec<SocketAddr>
@@ -124,21 +124,19 @@ mod tests {
     use std::ops::DerefMut;
     use std::str::FromStr;
     use std::sync::mpsc;
-    use actix::Actor;
     use actix::Subscriber;
-    use actix::SyncAddress;
     use actix::System;
-    use discriminator::DiscriminatorFactory;
-    use sub_lib::stream_handler_pool::AddStreamMsg;
-    use sub_lib::test_utils::make_stream_handler_pool_subs_from;
     use sub_lib::test_utils::FakeStreamHolder;
     use sub_lib::test_utils::Recorder;
     use sub_lib::test_utils::Recording;
     use sub_lib::test_utils::RecordAwaiter;
     use sub_lib::test_utils::TestLog;
+    use discriminator::DiscriminatorFactory;
+    use stream_handler_pool::AddStreamMsg;
     use test_utils::TcpStreamWrapperMock;
     use test_utils::TestLogOwner;
     use test_utils::extract_log;
+    use test_utils::make_stream_handler_pool_subs_from;
 
     struct ListenerHandlerFactoryMock {
         log: TestLog,
@@ -229,7 +227,6 @@ mod tests {
     }
 
     #[test]
-    // TODO: Add 443 to this test
     fn initialize_as_root_with_no_args_binds_port_80 () {
         let (first_handler, first_handler_log) = extract_log (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())));
         let (second_handler, second_handler_log) = extract_log (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())));
@@ -242,9 +239,13 @@ mod tests {
 
         subject.initialize_as_root(&vec! (), &mut FakeStreamHolder::new ().streams ());
 
-        assert_eq! (first_handler_log.lock ().unwrap ().dump (), vec! ("bind_port_and_discriminator_factories (80, ...)"));
-        assert_eq! (second_handler_log.lock ().unwrap ().dump ().len (), 0);
-        assert_eq! (third_handler_log.lock ().unwrap ().dump ().len (), 0);
+        let mut all_calls = vec! ();
+        all_calls.extend (first_handler_log.lock ().unwrap ().dump ());
+        all_calls.extend (second_handler_log.lock ().unwrap ().dump ());
+        all_calls.extend (third_handler_log.lock ().unwrap ().dump ());
+        assert_eq! (all_calls.contains (&String::from ("bind_port_and_discriminator_factories (80, ...)")), true, "{:?}", all_calls);
+        assert_eq! (all_calls.contains (&String::from ("bind_port_and_discriminator_factories (443, ...)")), true, "{:?}", all_calls);
+        assert_eq! (all_calls.len (), 2, "{:?}", all_calls);
     }
 
     #[test]
@@ -253,6 +254,7 @@ mod tests {
         let dns_servers_arc = actor_system_factory.dnss.clone();
         let mut subject = DispatcherBuilder::new ()
             .actor_system_factory (Box::new (actor_system_factory))
+            .add_listener_handler (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())))
             .add_listener_handler (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())))
             .build ();
 
@@ -272,6 +274,7 @@ mod tests {
     fn initialize_as_root_complains_about_dns_servers_syntax_errors () {
         let mut subject = DispatcherBuilder::new ()
             .add_listener_handler (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())))
+            .add_listener_handler (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())))
             .build ();
 
         subject.initialize_as_root(&vec! (String::from ("--dns_servers"), String::from ("booga,booga")),
@@ -279,20 +282,33 @@ mod tests {
     }
 
     #[test]
-    #[should_panic (expected = "Could not listen on port 80: address in use")]
+    #[should_panic (expected = "Could not listen on port")]
     fn initialize_as_root_panics_if_tcp_listener_doesnt_bind () {
         let mut subject = DispatcherBuilder::new ()
             .add_listener_handler (ListenerHandlerNull::new (vec! ()).bind_port_result(Err (Error::from (ErrorKind::AddrInUse))))
+            .add_listener_handler (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())))
             .build ();
 
-        subject.initialize_as_root(&vec! (), &mut FakeStreamHolder::new ().streams ());
+        subject.initialize_as_root(&vec! (String::from ("--dns_servers"), String::from ("1.1.1.1")), &mut FakeStreamHolder::new ().streams ());
     }
 
     #[test]
     fn serve_without_root_moves_streams_from_listener_handlers_to_stream_handler_pool () {
-        let first_message = AddStreamMsg {stream: Box::new (TcpStreamWrapperMock::new ().name ("first"))};
-        let second_message = AddStreamMsg {stream: Box::new (TcpStreamWrapperMock::new ().name ("second"))};
-        let third_message = AddStreamMsg {stream: Box::new (TcpStreamWrapperMock::new ().name ("third"))};
+        let first_message = AddStreamMsg {
+            stream: Box::new (TcpStreamWrapperMock::new ().name ("first")),
+            origin_port: Some (80),
+            discriminator_factories: vec! ()
+        };
+        let second_message = AddStreamMsg {
+            stream: Box::new (TcpStreamWrapperMock::new ().name ("second")),
+            origin_port: None,
+            discriminator_factories: vec! ()
+        };
+        let third_message = AddStreamMsg {
+            stream: Box::new (TcpStreamWrapperMock::new ().name ("third")),
+            origin_port: Some (443),
+            discriminator_factories: vec! ()
+        };
         let one_listener_handler = ListenerHandlerNull::new (vec! (
             first_message, second_message
         )).bind_port_result (Ok (()));
@@ -311,21 +327,24 @@ mod tests {
 
         subject.serve_without_root();
 
-        let number_of_expected_messages_that_will_be_3_when_443_is_implemented = 2;
-        awaiter.await_message_count (number_of_expected_messages_that_will_be_3_when_443_is_implemented);
+        let number_of_expected_messages = 3;
+        awaiter.await_message_count (number_of_expected_messages);
         let recording = recording_arc.lock ().unwrap ();
-        assert_eq! (recording.len (), number_of_expected_messages_that_will_be_3_when_443_is_implemented);
-        let actual_names: Vec<String> = (0..number_of_expected_messages_that_will_be_3_when_443_is_implemented).into_iter().map (|i| {
-            let pptr = &recording.get_record::<AddStreamMsg> (i).stream as *const _;
-            unsafe {
+        assert_eq! (recording.len (), number_of_expected_messages);
+        let actual_names: Vec<String> = (0..number_of_expected_messages).into_iter().map (|i| {
+            let record = recording.get_record::<AddStreamMsg> (i);
+            let pptr = &record.stream as *const _;
+            let stream_name = unsafe {
                 let tptr = pptr as *const Box<TcpStreamWrapperMock>;
                 let stream = &*tptr;
                 stream.name.clone ()
-            }
+            };
+            format! ("{}/{:?}", stream_name, record.origin_port)
+
         }).collect ();
-        assert_eq! (actual_names.contains (&String::from ("first")), true, "{:?} does not contain 'first'", actual_names);
-        assert_eq! (actual_names.contains (&String::from ("second")), true, "{:?} does not contain 'second'", actual_names);
-        //assert_eq! (actual_names.contains (&String::from ("third")), true, "{:?} does not contain 'third'", actual_names);
+        assert_eq! (actual_names.contains (&String::from ("first/Some(80)")), true, "{:?} does not contain 'first'", actual_names);
+        assert_eq! (actual_names.contains (&String::from ("second/None")), true, "{:?} does not contain 'second'", actual_names);
+        assert_eq! (actual_names.contains (&String::from ("third/Some(443)")), true, "{:?} does not contain 'third'", actual_names);
     }
 
     struct StreamHandlerPoolCluster {
@@ -359,11 +378,10 @@ mod tests {
                     let stream_handler_pool = Recorder::new();
                     let recording = stream_handler_pool.get_recording();
                     let awaiter = stream_handler_pool.get_awaiter();
-                    let addr: SyncAddress<_> = stream_handler_pool.start();
                     StreamHandlerPoolCluster {
                         recording: Some (recording),
                         awaiter: Some (awaiter),
-                        subs: make_stream_handler_pool_subs_from(&addr)
+                        subs: make_stream_handler_pool_subs_from(Some (stream_handler_pool))
                     }
                 };
 

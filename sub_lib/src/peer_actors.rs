@@ -7,7 +7,6 @@ use proxy_server::ProxyServerSubs;
 use dispatcher::DispatcherSubs;
 use hopper::HopperSubs;
 use proxy_client::ProxyClientSubs;
-use stream_handler_pool::StreamHandlerPoolSubs;
 
 #[derive(Clone)]
 pub struct PeerActors {
@@ -16,7 +15,6 @@ pub struct PeerActors {
     pub hopper: HopperSubs,
     pub proxy_client: ProxyClientSubs,
 //    pub neighborhood: NeighborhoodSubs,
-    pub stream_handler_pool: StreamHandlerPoolSubs,
 }
 
 impl Debug for PeerActors {

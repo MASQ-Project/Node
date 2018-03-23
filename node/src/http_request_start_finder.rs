@@ -50,16 +50,14 @@ impl DiscriminatorFactory for HttpRequestDiscriminatorFactory {
                                       vec! (Box::new (NullMasquerader::new (Component::ProxyServer)))))
     }
 
-    fn clone(&self) -> Box<DiscriminatorFactory> {
-        unimplemented!()
+    fn duplicate(&self) -> Box<DiscriminatorFactory> {
+        Box::new (HttpRequestDiscriminatorFactory{})
     }
 }
 
 impl HttpRequestDiscriminatorFactory {
     pub fn new () -> HttpRequestDiscriminatorFactory {
-        HttpRequestDiscriminatorFactory {
-
-        }
+        HttpRequestDiscriminatorFactory {}
     }
 }
 
@@ -69,6 +67,16 @@ mod tests {
     use sub_lib::http_packet_framer::PacketProgressState;
     use sub_lib::http_packet_framer::ChunkExistenceState;
     use sub_lib::http_packet_framer::ChunkProgressState;
+    use discriminator::UnmaskedChunk;
+
+    #[test]
+    fn discriminator_factory_duplicate_works () {
+        let subject = HttpRequestDiscriminatorFactory::new ();
+
+        subject.duplicate ();
+
+        // no panic; test passes
+    }
 
     #[test]
     fn refuses_to_operate_in_state_other_than_seeking_request_start () {
@@ -199,6 +207,6 @@ Another-Header: val".as_bytes()),
 
         http_discriminator.add_data ("GET http://url.com HTTP/1.1\r\n\r\n".as_bytes ());
         let http_chunk = http_discriminator.take_chunk ().unwrap ();
-        assert_eq! (http_chunk, (Component::ProxyServer, Vec::from ("GET http://url.com HTTP/1.1\r\n\r\n".as_bytes ())));
+        assert_eq! (http_chunk, UnmaskedChunk::new (Vec::from ("GET http://url.com HTTP/1.1\r\n\r\n".as_bytes ()), Component::ProxyServer, true));
     }
 }

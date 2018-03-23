@@ -48,7 +48,7 @@ impl JsonMasquerader {
         let structure = JsonMasquerader::structure_from_string (json_string)?;
         let component = JsonMasquerader::component_from_structure (&structure)?;
         let data_vector = JsonMasquerader::data_vector_from_structure (&structure)?;
-        Ok ((component, data_vector))
+        Ok (UnmaskedChunk::new (data_vector, component, true))
     }
 
     fn make_text_structure(component: Component, string: String) -> Result<String, serde_json::Error> {
@@ -139,10 +139,10 @@ mod tests {
         let data = subject.mask (Component::Hopper,
                                  String::from ("Fourscore and seven years ago").as_bytes ()).unwrap ();
 
-        let (component, result) = subject.try_unmask (&data[..]).unwrap ();
+        let unmasked_chunk = subject.try_unmask (&data[..]).unwrap ();
 
-        assert_eq! (component, Component::Hopper);
-        assert_eq! (String::from_utf8 (result).unwrap (), "Fourscore and seven years ago");
+        assert_eq! (unmasked_chunk.component, Component::Hopper);
+        assert_eq! (String::from_utf8 (unmasked_chunk.chunk).unwrap (), "Fourscore and seven years ago");
     }
 
     #[test]
@@ -152,7 +152,7 @@ mod tests {
 
         let result = subject.try_unmask (data);
 
-        assert_eq! (result, Some ((Component::Neighborhood, Vec::from ("\\}\"{'".as_bytes ()))))
+        assert_eq! (result, Some (UnmaskedChunk::new (Vec::from ("\\}\"{'".as_bytes ()), Component::Neighborhood, true)))
     }
 
     #[test]
@@ -161,10 +161,10 @@ mod tests {
         let data = subject.mask (Component::Hopper,
                                  &[0x7B, 0xC0, 0x7D, 0xC1]).unwrap ();
 
-        let (component, result) = subject.try_unmask (&data[..]).unwrap ();
+        let unmasked_chunk = subject.try_unmask (&data[..]).unwrap ();
 
-        assert_eq! (component, Component::Hopper);
-        assert_eq! (result, vec!(0x7B, 0xC0, 0x7D, 0xC1));
+        assert_eq! (unmasked_chunk.component, Component::Hopper);
+        assert_eq! (unmasked_chunk.chunk, vec!(0x7B, 0xC0, 0x7D, 0xC1));
     }
 
     #[test]

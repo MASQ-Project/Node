@@ -196,7 +196,7 @@ mod tests {
 
         thread::spawn(move || {
             let system = System::new("release_2_transmit_cores_package_from_proxy_server_calls_proxy_client_directly");
-            let peer_actors = make_peer_actors_from(None, None, None, None, Some(proxy_client));
+            let peer_actors = make_peer_actors_from(None, None, None, Some(proxy_client));
             let subject = Hopper::new (Box::new (thread_cryptde));
             let subject_addr: SyncAddress<_> = subject.start();
             subject_addr.send(BindMessage { peer_actors });
@@ -271,7 +271,7 @@ mod tests {
         let thread_package = incipient_package.clone();
         thread::spawn(move || {
             let system = System::new("release_2_transmit_cores_package_from_proxy_client_calls_proxy_server_directly");
-            let peer_actors = make_peer_actors_from(Some(proxy_server), None, None, None, None);
+            let peer_actors = make_peer_actors_from(Some(proxy_server), None, None, None);
             let subject = Hopper::new (Box::new (thread_cryptde));
             let subject_addr: SyncAddress<_> = subject.start();
             subject_addr.send(BindMessage { peer_actors });

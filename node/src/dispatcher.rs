@@ -11,6 +11,7 @@ use sub_lib::dispatcher::DispatcherSubs;
 use sub_lib::logger::Logger;
 use sub_lib::peer_actors::BindMessage;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
+use stream_handler_pool::PoolBindMessage;
 
 pub struct Dispatcher {
     to_proxy_server: Option<Box<Subscriber<InboundClientData> + Send>>,
@@ -27,8 +28,16 @@ impl Handler<BindMessage> for Dispatcher {
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.to_proxy_server = Some(msg.peer_actors.proxy_server.from_dispatcher);
-        self.to_stream = Some(msg.peer_actors.stream_handler_pool.transmit_sub);
         ()
+    }
+}
+
+impl Handler<PoolBindMessage> for Dispatcher {
+    type Result = io::Result<()>;
+
+    fn handle(&mut self, msg: PoolBindMessage, _ctx: &mut Self::Context) -> Self::Result {
+        self.to_stream = Some(msg.stream_handler_pool_subs.transmit_sub);
+        Ok (())
     }
 }
 
@@ -39,7 +48,7 @@ impl Handler<InboundClientData> for Dispatcher {
         match msg.component {
             Component::ProxyServer => self.to_proxy_server.as_ref().expect("ProxyServer unbound in Dispatcher").send(msg).expect("ProxyServer is dead"),
             _ => {
-                panic! ("Component should not be receiving traffic from Dispatcher")
+                panic! ("{:?} should not be receiving traffic from Dispatcher", msg.component)
             }
         };
         ()
@@ -86,6 +95,7 @@ mod tests {
     use sub_lib::test_utils::Recorder;
     use sub_lib::test_utils::make_peer_actors;
     use sub_lib::test_utils::make_peer_actors_from;
+    use test_utils::make_stream_handler_pool_subs_from;
 
     #[test]
     fn sends_inbound_data_for_proxy_server_to_proxy_server() {
@@ -97,10 +107,11 @@ mod tests {
         let recording_arc = proxy_server.get_recording();
         let awaiter = proxy_server.get_awaiter();
         let socket_addr = SocketAddr::from_str ("1.2.3.4:5678").unwrap ();
+        let origin_port = Some (8080);
         let component = Component::ProxyServer;
         let data: Vec<u8> = vec! (9, 10, 11);
-        let ibcd_in = InboundClientData {socket_addr, component, data: data.clone ()};
-        let mut peer_actors = make_peer_actors_from(Some(proxy_server), None, None, None, None);
+        let ibcd_in = InboundClientData {socket_addr, origin_port, component, data: data.clone ()};
+        let mut peer_actors = make_peer_actors_from(Some(proxy_server), None, None, None);
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         subject_addr.send( BindMessage { peer_actors });
 
@@ -126,16 +137,17 @@ mod tests {
     }
 
     #[test]
-    #[should_panic (expected = "Component should not be receiving traffic from Dispatcher")]
+    #[should_panic (expected = "Neighborhood should not be receiving traffic from Dispatcher")]
     fn panics_if_it_encounters_inbound_traffic_for_neighborhood() {
         let system = System::new ("test");
         let subject = Dispatcher::new ();
         let subject_addr: SyncAddress<_> = subject.start ();
         let subject_ibcd = subject_addr.subscriber::<InboundClientData> ();
         let socket_addr = SocketAddr::from_str ("1.2.3.4:8765").unwrap ();
+        let origin_port = Some (80);
         let component = Component::Neighborhood;
         let data: Vec<u8> = vec! (9, 10, 11);
-        let ibcd_in = InboundClientData {socket_addr, component, data: data.clone ()};
+        let ibcd_in = InboundClientData {socket_addr, origin_port, component, data: data.clone ()};
         let mut peer_actors = make_peer_actors();
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         subject_addr.send( BindMessage { peer_actors });
@@ -147,16 +159,17 @@ mod tests {
     }
 
     #[test]
-    #[should_panic (expected = "Component should not be receiving traffic from Dispatcher")]
+    #[should_panic (expected = "ProxyClient should not be receiving traffic from Dispatcher")]
     fn panics_if_it_encounters_inbound_traffic_for_proxy_client() {
         let system = System::new ("test");
         let subject = Dispatcher::new ();
         let subject_addr: SyncAddress<_> = subject.start ();
         let subject_ibcd = subject_addr.subscriber::<InboundClientData> ();
         let socket_addr = SocketAddr::from_str ("1.2.3.4:8765").unwrap ();
+        let origin_port = Some (22);
         let component = Component::ProxyClient;
         let data: Vec<u8> = vec! (9, 10, 11);
-        let ibcd_in = InboundClientData {socket_addr, component, data: data.clone ()};
+        let ibcd_in = InboundClientData {socket_addr, origin_port, component, data: data.clone ()};
         let mut peer_actors = make_peer_actors();
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         subject_addr.send( BindMessage { peer_actors });
@@ -169,16 +182,17 @@ mod tests {
 
     //temporary
     #[test]
-    #[should_panic (expected = "Component should not be receiving traffic from Dispatcher")]
+    #[should_panic (expected = "Hopper should not be receiving traffic from Dispatcher")]
     fn panics_when_processing_inbound_traffic_for_hopper() {
         let system = System::new ("test");
         let subject = Dispatcher::new ();
         let subject_addr: SyncAddress<_> = subject.start ();
         let subject_ibcd = subject_addr.subscriber::<InboundClientData> ();
         let socket_addr = SocketAddr::from_str ("1.2.3.4:8765").unwrap ();
+        let origin_port = Some (80);
         let component = Component::Hopper;
         let data: Vec<u8> = vec! (9, 10, 11);
-        let ibcd_in = InboundClientData {socket_addr, component, data: data.clone ()};
+        let ibcd_in = InboundClientData {socket_addr, origin_port, component, data: data.clone ()};
         let mut peer_actors = make_peer_actors();
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         subject_addr.send( BindMessage { peer_actors });
@@ -197,9 +211,10 @@ mod tests {
         let subject_addr: SyncAddress<_> = subject.start ();
         let subject_ibcd = subject_addr.subscriber::<InboundClientData> ();
         let socket_addr = SocketAddr::from_str ("1.2.3.4:8765").unwrap ();
+        let origin_port = Some (1234);
         let component = Component::ProxyServer;
         let data: Vec<u8> = vec! (9, 10, 11);
-        let ibcd_in = InboundClientData {socket_addr, component, data: data.clone ()};
+        let ibcd_in = InboundClientData {socket_addr, origin_port, component, data: data.clone ()};
 
         subject_ibcd.send (ibcd_in).unwrap ();
 
@@ -236,8 +251,10 @@ mod tests {
         let socket_addr = SocketAddr::from_str ("1.2.3.4:5678").unwrap ();
         let data: Vec<u8> = vec! (9, 10, 11);
         let obcd = TransmitDataMsg { endpoint: Endpoint::Socket(socket_addr), data: data.clone ()};
-        let mut peer_actors = make_peer_actors_from(None, None, None, Some(stream_handler_pool), None);
+        let mut peer_actors = make_peer_actors_from(None, None, None, None);
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
+        let stream_handler_pool_subs = make_stream_handler_pool_subs_from (Some (stream_handler_pool));
+        subject_addr.send( PoolBindMessage { dispatcher_subs: peer_actors.dispatcher.clone (), stream_handler_pool_subs});
         subject_addr.send( BindMessage { peer_actors });
 
         subject_obcd.send (obcd).unwrap ();

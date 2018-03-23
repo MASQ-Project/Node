@@ -8,14 +8,19 @@ use dispatcher::InboundClientData;
 use hopper::ExpiredCoresPackage;
 use peer_actors::BindMessage;
 
-// TODO: Put a field in here that identifies the protocol of this request so that the Proxy Client
-// TODO: can create the correct response Framer for it...unless we want to deduce it from the target_port.
+#[derive (Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub enum ProxyProtocol {
+    HTTP,
+    TLS
+}
+
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct ClientRequestPayload {
     pub stream_key: SocketAddr,
     pub data: PlainData,
     pub target_hostname: String,
     pub target_port: u16,
+    pub protocol: ProxyProtocol,
     pub originator_public_key: Key
 }
 

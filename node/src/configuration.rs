@@ -2,6 +2,7 @@
 use std::collections::HashMap;
 use discriminator::DiscriminatorFactory;
 use http_request_start_finder::HttpRequestDiscriminatorFactory;
+use tls_discriminator::TlsDiscriminatorFactory;
 
 pub struct Configuration {
     port_discriminator_factories: HashMap<u16, Vec<Box<DiscriminatorFactory>>>
@@ -17,6 +18,8 @@ impl Configuration {
     pub fn establish (&mut self, _args: &Vec<String>) {
         self.port_discriminator_factories.insert (80,
             vec! (Box::new (HttpRequestDiscriminatorFactory::new ())));
+        self.port_discriminator_factories.insert (443,
+            vec! (Box::new (TlsDiscriminatorFactory::new ())));
     }
 
     pub fn ports (&self) -> Vec<u16> {
@@ -35,10 +38,11 @@ impl Configuration {
 mod tests {
     use super::*;
     use sub_lib::dispatcher::Component;
+    use discriminator::UnmaskedChunk;
     use test_utils::NullDiscriminatorFactory;
 
     #[test]
-    fn no_parameters_produces_configuration_for_80_and_443 () {
+    fn no_parameters_produces_configuration_for_80 () {
         let args = vec! (String::from ("command"));
         let mut subject = Configuration::new ();
 
@@ -50,8 +54,25 @@ mod tests {
         let mut http_discriminator = http_factory.make ();
         http_discriminator.add_data ("GET http://url.com HTTP/1.1\r\n\r\n".as_bytes ());
         let http_chunk = http_discriminator.take_chunk ().unwrap ();
-        assert_eq! (http_chunk, (Component::ProxyServer, Vec::from ("GET http://url.com HTTP/1.1\r\n\r\n".as_bytes ())));
-        // TODO: Add 443 here
+        assert_eq! (http_chunk, UnmaskedChunk::new (Vec::from ("GET http://url.com HTTP/1.1\r\n\r\n".as_bytes ()),
+                                                    Component::ProxyServer, true));
+    }
+
+    #[test]
+    fn no_parameters_produces_configuration_for_443 () {
+        let args = vec! (String::from ("command"));
+        let mut subject = Configuration::new ();
+
+        subject.establish (&args);
+
+        let mut port_443_factories = subject.port_discriminator_factories.remove (&443).unwrap ();
+        assert_eq! (port_443_factories.len (), 1);
+        let tls_factory = port_443_factories.remove (0);
+        let mut tls_discriminator = tls_factory.make ();
+        tls_discriminator.add_data (&vec! (0x16, 0x03, 0x01, 0x00, 0x03, 0x01, 0x02, 0x03)[..]);
+        let tls_chunk = tls_discriminator.take_chunk ().unwrap ();
+        assert_eq! (tls_chunk, UnmaskedChunk::new (vec! (0x16, 0x03, 0x01, 0x00, 0x03, 0x01, 0x02, 0x03),
+                                                   Component::ProxyServer, true));
     }
 
     #[test]

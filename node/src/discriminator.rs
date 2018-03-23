@@ -4,11 +4,26 @@ use sub_lib::logger::Logger;
 use sub_lib::framer::Framer;
 use masquerader::Masquerader;
 
-pub type UnmaskedChunk = (Component, Vec<u8>);
+#[derive (Debug, PartialEq, Clone)]
+pub struct UnmaskedChunk {
+    pub chunk: Vec<u8>,
+    pub component: Component,
+    pub last_chunk: bool,
+}
+
+impl UnmaskedChunk {
+    pub fn new (chunk: Vec<u8>, component: Component, last_chunk: bool) -> UnmaskedChunk {
+        UnmaskedChunk {
+            chunk,
+            component,
+            last_chunk
+        }
+    }
+}
 
 pub trait DiscriminatorFactory: Send {
     fn make (&self) -> Box<Discriminator>;
-    fn clone (&self) -> Box<DiscriminatorFactory>;
+    fn duplicate (&self) -> Box<DiscriminatorFactory>;
 }
 
 pub struct Discriminator {
@@ -84,12 +99,12 @@ mod tests {
     }
 
     pub struct MasqueraderMock {
-        try_unmask_results: RefCell<Vec<Option<(Component, Vec<u8>)>>>,
+        try_unmask_results: RefCell<Vec<Option<UnmaskedChunk>>>,
         try_unmask_parameters: RefCell<Arc<Mutex<Vec<Vec<u8>>>>>
     }
 
     impl Masquerader for MasqueraderMock {
-        fn try_unmask(&self, item: &[u8]) -> Option<(Component, Vec<u8>)> {
+        fn try_unmask(&self, item: &[u8]) -> Option<UnmaskedChunk> {
             let mut try_unmask_parameters_ref = self.try_unmask_parameters.borrow_mut ();
             try_unmask_parameters_ref.deref_mut ().lock ().unwrap ().push (Vec::from (item));
             self.try_unmask_results.borrow_mut ().remove (0)
@@ -108,7 +123,7 @@ mod tests {
             }
         }
 
-        pub fn try_unmask_result (self, result: Option<(Component, Vec<u8>)>) -> MasqueraderMock {
+        pub fn try_unmask_result (self, result: Option<UnmaskedChunk>) -> MasqueraderMock {
             self.try_unmask_results.borrow_mut ().push (result);
             self
         }
@@ -168,11 +183,11 @@ mod tests {
         let mut first_try_unmask_parameters: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new (Mutex::new (vec! ()));
         let mut second_try_unmask_parameters: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new (Mutex::new (vec! ()));
         let first_masquerader = MasqueraderMock::new ()
-            .try_unmask_result (Some ((Component::ProxyClient, Vec::from (&b"choose me"[..]))))
+            .try_unmask_result (Some (UnmaskedChunk::new (Vec::from (&b"choose me"[..]), Component::ProxyClient, true)))
             .try_unmask_result (None)
             .try_unmask_parameters (&mut first_try_unmask_parameters);
         let second_masquerader = MasqueraderMock::new ()
-            .try_unmask_result (Some ((Component::ProxyServer, Vec::from (&b"don't choose me"[..]))))
+            .try_unmask_result (Some (UnmaskedChunk::new (Vec::from (&b"don't choose me"[..]), Component::ProxyServer, true)))
             .try_unmask_result (None)
             .try_unmask_parameters (&mut second_try_unmask_parameters);
         let mut subject = Discriminator::new (Box::new (framer),
@@ -180,7 +195,7 @@ mod tests {
 
         let result = subject.take_chunk ();
 
-        assert_eq! (result, Some ((Component::ProxyClient, Vec::from (&b"choose me"[..]))));
+        assert_eq! (result, Some (UnmaskedChunk::new (Vec::from (&b"choose me"[..]), Component::ProxyClient, true)));
         let first_try_unmask_parameters_guard = first_try_unmask_parameters.lock ().unwrap ();
         assert_eq! (first_try_unmask_parameters_guard[0], &b"booga"[..]);
         assert_eq! (first_try_unmask_parameters_guard.len (), 1);
@@ -198,7 +213,7 @@ mod tests {
             .try_unmask_result (None)
             .try_unmask_parameters (&mut first_try_unmask_parameters);
         let second_masquerader = MasqueraderMock::new ()
-            .try_unmask_result (Some ((Component::ProxyServer, Vec::from (&b"choose me"[..]))))
+            .try_unmask_result (Some (UnmaskedChunk::new (Vec::from (&b"choose me"[..]), Component::ProxyServer, true)))
             .try_unmask_result (None)
             .try_unmask_parameters (&mut second_try_unmask_parameters);
         let mut subject = Discriminator::new (Box::new (framer),
@@ -206,6 +221,6 @@ mod tests {
 
         let result = subject.take_chunk ();
 
-        assert_eq! (result, Some ((Component::ProxyServer, Vec::from (&b"choose me"[..]))));
+        assert_eq! (result, Some (UnmaskedChunk::new (Vec::from (&b"choose me"[..]), Component::ProxyServer, true)));
     }
 }

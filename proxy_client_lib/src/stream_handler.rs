@@ -77,6 +77,13 @@ impl StreamHandler {
     }
 
     fn perform_stream_communications (&mut self, addr: SocketAddr, framer: Box<Framer>) -> io::Result<()> {
+        // TODO TEMPORARY UNTESTED CODE FOR SC-50 ONLY
+        if addr.port () == 443 {
+            self.logger.info (format! ("TEMPORARY: About to send {}-byte TLS packet to {}: {:?}",
+                self.client_request_payload.data.data.len (), addr, &self.client_request_payload.data.data));
+            return Ok(());
+        }
+        // TODO TEMPORARY UNTESTED CODE FOR SC-50 ONLY
         self.connect_stream (addr)?;
         let payload = self.client_request_payload.data.clone ();
         self.write_to_stream (addr, &payload)?;

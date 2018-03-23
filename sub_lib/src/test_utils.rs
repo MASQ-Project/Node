@@ -43,9 +43,6 @@ use peer_actors::BindMessage;
 use proxy_client::ProxyClientSubs;
 use proxy_server::ProxyServerSubs;
 use route::Route;
-use stream_handler_pool::StreamHandlerPoolSubs;
-use stream_handler_pool::AddStreamMsg;
-use stream_handler_pool::RemoveStreamMsg;
 use stream_handler_pool::TransmitDataMsg;
 
 #[allow(dead_code)]
@@ -476,15 +473,6 @@ pub fn make_hopper_subs_from(addr: &SyncAddress<Recorder>) -> HopperSubs {
     }
 }
 
-pub fn make_stream_handler_pool_subs_from(addr: &SyncAddress<Recorder>) -> StreamHandlerPoolSubs {
-    StreamHandlerPoolSubs {
-        add_sub: addr.subscriber::<AddStreamMsg>(),
-        transmit_sub: addr.subscriber::<TransmitDataMsg>(),
-        remove_sub: addr.subscriber::<RemoveStreamMsg>(),
-        bind: addr.subscriber::<BindMessage>(),
-    }
-}
-
 pub fn make_proxy_client_subs_from(addr: &SyncAddress<Recorder>) -> ProxyClientSubs {
     ProxyClientSubs {
         bind: addr.subscriber::<BindMessage>(),
@@ -493,7 +481,7 @@ pub fn make_proxy_client_subs_from(addr: &SyncAddress<Recorder>) -> ProxyClientS
 }
 
 // This must be called after System.new and before System.run
-pub fn make_peer_actors_from(proxy_server: Option<Recorder>, dispatcher: Option<Recorder>, hopper: Option<Recorder>, stream_handler_pool: Option<Recorder>, proxy_client: Option<Recorder>) -> PeerActors {
+pub fn make_peer_actors_from(proxy_server: Option<Recorder>, dispatcher: Option<Recorder>, hopper: Option<Recorder>, proxy_client: Option<Recorder>) -> PeerActors {
     let proxy_server = match proxy_server {
         Some(proxy_server) => proxy_server,
         None => Recorder::new()
@@ -509,37 +497,30 @@ pub fn make_peer_actors_from(proxy_server: Option<Recorder>, dispatcher: Option<
         None => Recorder::new()
     };
 
-    let stream_handler_pool = match stream_handler_pool {
-        Some(stream_handler_pool) => stream_handler_pool,
-        None => Recorder::new()
-    };
-
     let proxy_client = match proxy_client {
         Some(proxy_client) => proxy_client,
         None => Recorder::new()
     };
 
-    make_peer_actors_from_recorders(proxy_server, dispatcher, hopper, stream_handler_pool, proxy_client)
+    make_peer_actors_from_recorders(proxy_server, dispatcher, hopper, proxy_client)
 }
 
 // This must be called after System.new and before System.run
 pub fn make_peer_actors() -> PeerActors {
-    make_peer_actors_from_recorders(Recorder::new(), Recorder::new(), Recorder::new(), Recorder::new(), Recorder::new())
+    make_peer_actors_from_recorders(Recorder::new(), Recorder::new(), Recorder::new(), Recorder::new())
 }
 
-fn make_peer_actors_from_recorders(proxy_server: Recorder, dispatcher: Recorder, hopper: Recorder, stream_handler_pool: Recorder, proxy_client: Recorder) -> PeerActors {
+fn make_peer_actors_from_recorders(proxy_server: Recorder, dispatcher: Recorder, hopper: Recorder, proxy_client: Recorder) -> PeerActors {
     let proxy_server_addr = proxy_server.start();
     let dispatcher_addr = dispatcher.start();
     let hopper_addr = hopper.start();
-    let stream_handler_pool_addr = stream_handler_pool.start();
     let proxy_client_addr = proxy_client.start();
 
     PeerActors {
         proxy_server: make_proxy_server_subs_from(&proxy_server_addr),
         dispatcher: make_dispatcher_subs_from(&dispatcher_addr),
         hopper: make_hopper_subs_from(&hopper_addr),
-        proxy_client: make_proxy_client_subs_from(&proxy_client_addr),
-        stream_handler_pool: make_stream_handler_pool_subs_from(&stream_handler_pool_addr),
+        proxy_client: make_proxy_client_subs_from(&proxy_client_addr)
     }
 }
 
@@ -557,15 +538,6 @@ pub struct RecordAwaiter {
 
 impl Actor for Recorder {
     type Context = Context<Self>;
-}
-
-impl Handler<RemoveStreamMsg> for Recorder {
-    type Result = io::Result<()>;
-
-    fn handle(&mut self, msg: RemoveStreamMsg, _ctx: &mut Self::Context) -> Self::Result {
-        self.record (msg);
-        Ok (())
-    }
 }
 
 impl Handler<TransmitDataMsg> for Recorder {
@@ -601,15 +573,6 @@ impl Handler<ExpiredCoresPackage> for Recorder {
     fn handle(&mut self, msg: ExpiredCoresPackage, _ctx: &mut Self::Context) -> Self::Result {
         self.record(msg);
         ()
-    }
-}
-
-impl Handler<AddStreamMsg> for Recorder {
-    type Result = io::Result<()>;
-
-    fn handle(&mut self, msg: AddStreamMsg, _ctx: &mut Self::Context) -> Self::Result {
-        self.record (msg);
-        Ok (())
     }
 }
 

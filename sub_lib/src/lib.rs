@@ -38,4 +38,5 @@ pub mod socket_server;
 pub mod stream_handler_pool;
 pub mod tcp_wrappers;
 pub mod test_utils;
+pub mod tls_framer;
 pub mod udp_socket_wrapper;

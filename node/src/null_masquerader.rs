@@ -10,7 +10,7 @@ pub struct NullMasquerader {
 
 impl Masquerader for NullMasquerader {
     fn try_unmask(&self, item: &[u8]) -> Option<UnmaskedChunk> {
-        Some ((self.component, Vec::from (item)))
+        Some (UnmaskedChunk::new (Vec::from (item), self.component, true))
     }
 
     fn mask(&self, _component: Component, _data: &[u8]) -> Result<Vec<u8>, MasqueradeError> {
@@ -37,6 +37,6 @@ mod tests {
 
         let result = subject.try_unmask (data).unwrap ();
 
-        assert_eq! (result, (Component::Hopper, Vec::from (data)));
+        assert_eq! (result, UnmaskedChunk::new (Vec::from (data), Component::Hopper, true));
     }
 }

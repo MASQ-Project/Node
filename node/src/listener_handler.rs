@@ -9,8 +9,8 @@ use sub_lib::tcp_wrappers::TcpListenerWrapper;
 use sub_lib::tcp_wrappers::TcpListenerWrapperReal;
 use sub_lib::limiter::Limiter;
 use sub_lib::logger::Logger;
-use sub_lib::stream_handler_pool::AddStreamMsg;
 use discriminator::DiscriminatorFactory;
+use stream_handler_pool::AddStreamMsg;
 
 pub trait ListenerHandler: Send {
     fn bind_port_and_discriminator_factories (&mut self, port: u16, discriminator_factories: Vec<Box<DiscriminatorFactory>>) -> io::Result<()>;
@@ -52,8 +52,13 @@ impl ListenerHandler for ListenerHandlerReal {
                     continue;
                 }
             };
+            let discriminator_factories = self.discriminator_factories.iter ().map (|df| {df.duplicate ()}).collect ();
             self.add_stream_sub.as_ref ().expect ("Internal error")
-                .send (AddStreamMsg {stream}).ok ();
+                .send (AddStreamMsg {
+                    stream,
+                    origin_port: self.port,
+                    discriminator_factories,
+                }).ok ();
         }
     }
 }
@@ -184,7 +189,7 @@ mod tests {
         let factory = subject.discriminator_factories.remove (0);
         let mut discriminator = factory.make ();
         let chunk = discriminator.take_chunk ().unwrap ();
-        assert_eq! (chunk.0, Component::Hopper);
+        assert_eq! (chunk.component, Component::Hopper);
         assert_eq! (subject.discriminator_factories.len (), 0);
     }
 
@@ -227,7 +232,8 @@ mod tests {
             Ok ((second_stream, second_socket_addr))
         ));
         listener.bind_result = Some (Ok (()));
-        let discriminator_factory = NullDiscriminatorFactory::new ();
+        let discriminator_factory = NullDiscriminatorFactory::new ()
+            .discriminator_nature(Component::Hopper, vec! ());
         let (recorder, recording_arc, awaiter) = make_recorder ();
         thread::spawn (move || {
             let system = System::new("test");
@@ -249,7 +255,11 @@ mod tests {
         let first_msg = recording.get_record::<AddStreamMsg> (0);
         let second_msg = recording.get_record::<AddStreamMsg> (1);
         assert_eq! (first_msg.stream.as_ref () as *const TcpStreamWrapper, first_stream_addr);
+        assert_eq! (first_msg.origin_port, Some (1234));
+        assert_eq! (first_msg.discriminator_factories.len (), 1);
         assert_eq! (second_msg.stream.as_ref () as *const TcpStreamWrapper, second_stream_addr);
+        assert_eq! (second_msg.origin_port, Some (1234));
+        assert_eq! (second_msg.discriminator_factories.len (), 1);
         let tlh = TestLogHandler::new ();
         tlh.exists_no_log_containing("2.3.4.5:2349");
         tlh.exists_no_log_containing("3.4.5.6:3459");

@@ -16,9 +16,11 @@ use sub_lib::peer_actors::BindMessage;
 use sub_lib::peer_actors::PeerActors;
 use sub_lib::proxy_client::ProxyClientSubs;
 use sub_lib::proxy_server::ProxyServerSubs;
-use sub_lib::stream_handler_pool::StreamHandlerPoolSubs;
 use dispatcher::Dispatcher;
 use stream_handler_pool::StreamHandlerPool;
+use stream_handler_pool::StreamHandlerPoolSubs;
+use stream_handler_pool::PoolBindMessage;
+use actix::Subscriber;
 
 pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(&self, dns_servers: Vec<SocketAddr>) -> StreamHandlerPoolSubs;
@@ -27,6 +29,7 @@ pub trait ActorSystemFactory: Send {
 pub struct ActorSystemFactoryReal {}
 
 impl ActorSystemFactory for ActorSystemFactoryReal {
+    // THIS CODE HAS NO UNIT TESTS
     fn make_and_start_actors(&self, dns_servers: Vec<SocketAddr>) -> StreamHandlerPoolSubs {
         let (tx, rx) = mpsc::channel();
 
@@ -34,21 +37,20 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
             let system = System::new("SubstratumNode");
 
             // make all the actors
-            let dispatcher_subs = ActorSystemFactoryReal::make_and_start_dispatcher();
+            let (dispatcher_subs, pool_bind_sub) = ActorSystemFactoryReal::make_and_start_dispatcher();
             let proxy_server_subs = ActorSystemFactoryReal::make_and_start_proxy_server();
             let proxy_client_subs = ActorSystemFactoryReal::make_and_start_proxy_client(Box::new(CryptDENull::new()), dns_servers);
             let hopper_subs = ActorSystemFactoryReal::make_and_start_hopper(Box::new(CryptDENull::new()));
             //let neighborhood_subs = ActorSystemFactoryReal::make_and_start_neighborhood();
-            let pool_subs = ActorSystemFactoryReal::make_and_start_stream_handler_pool();
+            let stream_handler_pool_subs = ActorSystemFactoryReal::make_and_start_stream_handler_pool();
 
             // collect all the subs
             let peer_actors = PeerActors {
-                dispatcher: dispatcher_subs,
+                dispatcher: dispatcher_subs.clone (),
                 proxy_server: proxy_server_subs,
                 proxy_client: proxy_client_subs,
                 hopper: hopper_subs,
-                // neighborhood: neighborhood_subs,
-                stream_handler_pool: pool_subs.clone(),
+                // neighborhood: neighborhood_subs
             };
 
             //bind all the actors
@@ -57,10 +59,11 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
             peer_actors.proxy_client.bind.send(BindMessage { peer_actors: peer_actors.clone() }).expect ("Proxy Client is dead");
             peer_actors.hopper.bind.send(BindMessage { peer_actors: peer_actors.clone() }).expect ("Hopper is dead");
             //peer_actors.neighborhood.bind.send(BindMessage { peer_actors: peer_actors.clone() }).expect("Neighborhood is dead");
-            pool_subs.bind.send(BindMessage { peer_actors: peer_actors }).expect ("StreamHandlerPool is dead");
+            stream_handler_pool_subs.bind.send(PoolBindMessage {dispatcher_subs: dispatcher_subs.clone (), stream_handler_pool_subs: stream_handler_pool_subs.clone ()}).expect ("Stream Handler Pool is dead");
+            pool_bind_sub.send (PoolBindMessage {dispatcher_subs, stream_handler_pool_subs: stream_handler_pool_subs.clone ()}).expect ("Dispatcher is dead");
 
             //send out the stream handler pool subs (to be bound to listeners)
-            tx.send(pool_subs).ok();
+            tx.send(stream_handler_pool_subs).ok();
 
             //run the actor system
             system.run()
@@ -71,10 +74,10 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
 }
 
 impl ActorSystemFactoryReal {
-    fn make_and_start_dispatcher() -> DispatcherSubs {
+    fn make_and_start_dispatcher() -> (DispatcherSubs, Box<Subscriber<PoolBindMessage>>) {
         let dispatcher = Dispatcher::new();
         let addr: SyncAddress<_> = dispatcher.start();
-        Dispatcher::make_subs_from(&addr)
+        (Dispatcher::make_subs_from(&addr), addr.subscriber::<PoolBindMessage> ())
     }
 
     fn make_and_start_proxy_server() -> ProxyServerSubs {
