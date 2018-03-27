@@ -216,9 +216,9 @@ mod tests {
     use super::*;
     use std::str::FromStr;
     use trust_dns_resolver::error;
-    use sub_lib::logger::LoggerInitializerWrapper;
-    use sub_lib::test_utils::LoggerInitializerWrapperMock;
-    use sub_lib::test_utils::TestLogHandler;
+    use logger_trait_lib::logger::LoggerInitializerWrapper;
+    use test_utils::test_utils::LoggerInitializerWrapperMock;
+    use test_utils::test_utils::TestLogHandler;
     use resolver_wrapper::tests::ResolverWrapperMock;
 
     // Most of the tests for this code are in proxy_client.rs.  If a factory were written for this

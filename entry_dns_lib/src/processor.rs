@@ -137,10 +137,10 @@ mod tests {
     use sub_lib::packet_facade::PacketFacade;
     use sub_lib::packet_facade::Query;
     use sub_lib::packet_facade::ResourceRecord;
-    use sub_lib::test_utils::LoggerInitializerWrapperMock;
-    use sub_lib::test_utils::TestLogHandler;
+    use test_utils::test_utils::LoggerInitializerWrapperMock;
+    use test_utils::test_utils::TestLogHandler;
     use sub_lib::logger::Logger;
-    use sub_lib::logger::LoggerInitializerWrapper;
+    use logger_trait_lib::logger::LoggerInitializerWrapper;
     use processor::ProcessorTrait;
     use processor::ProcessorReal;
     use processor::RequestRecord;

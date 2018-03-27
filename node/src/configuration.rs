@@ -39,7 +39,7 @@ mod tests {
     use super::*;
     use sub_lib::dispatcher::Component;
     use discriminator::UnmaskedChunk;
-    use test_utils::NullDiscriminatorFactory;
+    use node_test_utils::NullDiscriminatorFactory;
 
     #[test]
     fn no_parameters_produces_configuration_for_80 () {

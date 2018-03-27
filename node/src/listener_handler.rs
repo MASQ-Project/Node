@@ -105,16 +105,16 @@ mod tests {
     use actix::System;
     use sub_lib::limiter::Limiter;
     use sub_lib::tcp_wrappers::TcpStreamWrapper;
-    use sub_lib::logger::LoggerInitializerWrapper;
+    use logger_trait_lib::logger::LoggerInitializerWrapper;
     use sub_lib::dispatcher::Component;
-    use sub_lib::test_utils::TestLog;
-    use sub_lib::test_utils::LoggerInitializerWrapperMock;
-    use sub_lib::test_utils::TestLogHandler;
-    use test_utils::TcpStreamWrapperMock;
-    use sub_lib::test_utils::Recorder;
-    use sub_lib::test_utils::Recording;
-    use sub_lib::test_utils::RecordAwaiter;
-    use test_utils::NullDiscriminatorFactory;
+    use test_utils::test_utils::TestLog;
+    use test_utils::test_utils::LoggerInitializerWrapperMock;
+    use test_utils::test_utils::TestLogHandler;
+    use node_test_utils::TcpStreamWrapperMock;
+    use test_utils::test_utils::Recorder;
+    use test_utils::test_utils::Recording;
+    use test_utils::test_utils::RecordAwaiter;
+    use node_test_utils::NullDiscriminatorFactory;
 
     struct TcpListenerWrapperMock {
         log: Arc<TestLog>,

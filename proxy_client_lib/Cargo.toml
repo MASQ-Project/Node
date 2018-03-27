@@ -12,6 +12,10 @@ serde_cbor = "0.8.1"
 actix = "0.4.4"
 sub_lib = { path = "../sub_lib" }
 
+[dev-dependencies]
+test_utils = { path = "../test_utils" }
+logger_trait_lib = { path = "../logger_trait_lib" }
+
 [lib]
 name = "proxy_client_lib"
 path = "src/lib.rs"

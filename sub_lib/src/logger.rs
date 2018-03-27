@@ -1,5 +1,4 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use std::marker::Send;
 use std::time::UNIX_EPOCH;
 use std::time::SystemTime;
 use chrono::NaiveDateTime;
@@ -8,10 +7,6 @@ use log::Level;
 use log::Record;
 use log::logger;
 use std::thread;
-
-pub trait LoggerInitializerWrapper: Send {
-    fn init (&mut self) -> bool;
-}
 
 pub struct Logger {
     name: String
@@ -72,9 +67,9 @@ impl Logger {
 #[cfg (test)]
 mod tests {
     use super::*;
-    use test_utils;
-    use logger::LoggerInitializerWrapper;
-    use test_utils::LoggerInitializerWrapperMock;
+    use logger_trait_lib::logger::LoggerInitializerWrapper;
+    use test_utils::test_utils::TestLogHandler;
+    use test_utils::test_utils::LoggerInitializerWrapperMock;
 
     #[test]
     fn logger_format_is_correct () {
@@ -87,7 +82,7 @@ mod tests {
         another_logger.log (String::from ("another log"));
         let after = SystemTime::now ();
 
-        let tlh = test_utils::TestLogHandler::new ();
+        let tlh = TestLogHandler::new ();
         let prefix_len = "0000-00-00 00:00:00.000".len ();
         let thread_id = thread::current().id();
         let one_log = tlh.get_log_at (tlh.exists_log_containing(&format!(" {:?}: ERROR: logger_format_is_correct_one: one log", thread_id)));

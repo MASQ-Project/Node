@@ -113,11 +113,11 @@ mod tests {
     use std::cell::RefCell;
     use std::ops::DerefMut;
     use std::cmp::min;
-    use sub_lib::test_utils::FakeStreamHolder;
+    use test_utils::test_utils::FakeStreamHolder;
     use sub_lib::packet_facade::PacketFacade;
-    use sub_lib::logger::LoggerInitializerWrapper;
-    use sub_lib::test_utils::LoggerInitializerWrapperMock;
-    use sub_lib::test_utils::TestLogHandler;
+    use logger_trait_lib::logger::LoggerInitializerWrapper;
+    use test_utils::test_utils::LoggerInitializerWrapperMock;
+    use test_utils::test_utils::TestLogHandler;
 
     // TODO: This is horrifying.  See if you can get rid of it.
     struct UdpSocketWrapperMockGuts {

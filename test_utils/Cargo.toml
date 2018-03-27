@@ -1,20 +1,18 @@
 [package]
-name = "proxy_server_lib"
+name = "test_utils"
 version = "0.1.0"
 license = "GPL-3.0-only"
 authors = ["Substratum Services"]
 copyright = "Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved."
-workspace = "../node"
+description = ""
 
 [dependencies]
-sub_lib = { path = "../sub_lib" }
+log = "0.4.1"
+chrono = "0.4.0"
+regex = "0.2.5"
+serde = "1.0.24"
+serde_derive = "1.0.24"
 serde_cbor = "0.8.1"
 actix = "0.4.4"
-
-[dev-dependencies]
-test_utils = { path = "../test_utils" }
+sub_lib = { path = "../sub_lib" }
 logger_trait_lib = { path = "../logger_trait_lib" }
-
-[lib]
-name = "proxy_server_lib"
-path = "src/lib.rs"

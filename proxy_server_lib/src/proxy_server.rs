@@ -111,8 +111,8 @@ mod tests {
     use sub_lib::proxy_client::ClientResponsePayload;
     use sub_lib::proxy_server::ClientRequestPayload;
     use sub_lib::proxy_server::ProxyProtocol;
-    use sub_lib::test_utils::make_peer_actors_from;
-    use sub_lib::test_utils::Recorder;
+    use test_utils::test_utils::make_peer_actors_from;
+    use test_utils::test_utils::Recorder;
 
     #[test]
     fn proxy_server_receives_http_request_from_dispatcher_then_sends_cores_package_to_hopper() {

@@ -5,7 +5,7 @@ use std::time::Duration;
 use flexi_logger::LevelFilter;
 use flexi_logger::Logger;
 use flexi_logger::LogSpecification;
-use sub_lib::logger::LoggerInitializerWrapper;
+use logger_trait_lib::logger::LoggerInitializerWrapper;
 use sub_lib::main_tools::StdStreams;
 use sub_lib::main_tools::Command;
 use sub_lib::socket_server::SocketServer;
@@ -136,11 +136,11 @@ mod tests {
     use std::sync::mpsc::Receiver;
     use sub_lib::limiter::Limiter;
     use sub_lib::logger;
-    use sub_lib::test_utils::FakeStreamHolder;
-    use sub_lib::test_utils::LoggerInitializerWrapperMock;
-    use sub_lib::test_utils::TestLogHandler;
-    use sub_lib::test_utils::ByteArrayWriter;
-    use sub_lib::test_utils::ByteArrayReader;
+    use test_utils::test_utils::FakeStreamHolder;
+    use test_utils::test_utils::LoggerInitializerWrapperMock;
+    use test_utils::test_utils::TestLogHandler;
+    use test_utils::test_utils::ByteArrayWriter;
+    use test_utils::test_utils::ByteArrayReader;
 
     struct SocketServerMock {
         name: String,

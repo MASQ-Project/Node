@@ -126,17 +126,17 @@ mod tests {
     use std::sync::mpsc;
     use actix::Subscriber;
     use actix::System;
-    use sub_lib::test_utils::FakeStreamHolder;
-    use sub_lib::test_utils::Recorder;
-    use sub_lib::test_utils::Recording;
-    use sub_lib::test_utils::RecordAwaiter;
-    use sub_lib::test_utils::TestLog;
+    use test_utils::test_utils::FakeStreamHolder;
+    use test_utils::test_utils::Recorder;
+    use test_utils::test_utils::Recording;
+    use test_utils::test_utils::RecordAwaiter;
+    use test_utils::test_utils::TestLog;
     use discriminator::DiscriminatorFactory;
     use stream_handler_pool::AddStreamMsg;
-    use test_utils::TcpStreamWrapperMock;
-    use test_utils::TestLogOwner;
-    use test_utils::extract_log;
-    use test_utils::make_stream_handler_pool_subs_from;
+    use node_test_utils::TcpStreamWrapperMock;
+    use node_test_utils::TestLogOwner;
+    use node_test_utils::extract_log;
+    use node_test_utils::make_stream_handler_pool_subs_from;
 
     struct ListenerHandlerFactoryMock {
         log: TestLog,

@@ -355,16 +355,16 @@ mod tests {
     use actix::Arbiter;
     use actix::System;
     use sub_lib::dispatcher::Component;
-    use sub_lib::logger::LoggerInitializerWrapper;
-    use sub_lib::test_utils::make_peer_actors;
-    use sub_lib::test_utils::make_peer_actors_from;
-    use sub_lib::test_utils::LoggerInitializerWrapperMock;
-    use sub_lib::test_utils::Recorder;
-    use sub_lib::test_utils::TestLogHandler;
-    use test_utils::NullDiscriminatorFactory;
-    use test_utils::TcpStreamWrapperMock;
-    use test_utils::make_stream_handler_pool_subs_from;
-    use test_utils::wait_until;
+    use logger_trait_lib::logger::LoggerInitializerWrapper;
+    use test_utils::test_utils::make_peer_actors;
+    use test_utils::test_utils::make_peer_actors_from;
+    use test_utils::test_utils::LoggerInitializerWrapperMock;
+    use test_utils::test_utils::Recorder;
+    use test_utils::test_utils::TestLogHandler;
+    use node_test_utils::NullDiscriminatorFactory;
+    use node_test_utils::TcpStreamWrapperMock;
+    use node_test_utils::make_stream_handler_pool_subs_from;
+    use node_test_utils::wait_until;
 
     #[test]
     fn a_newly_added_stream_produces_stream_handler_that_sends_received_data_to_dispatcher () {

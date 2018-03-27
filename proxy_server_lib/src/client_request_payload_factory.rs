@@ -1,3 +1,4 @@
+// Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use std::collections::HashMap;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::PlainData;
@@ -54,10 +55,10 @@ mod tests {
     use std::str::FromStr;
     use sub_lib::cryptde_null::CryptDENull;
     use sub_lib::dispatcher::Component;
-    use sub_lib::logger::LoggerInitializerWrapper;
+    use logger_trait_lib::logger::LoggerInitializerWrapper;
     use sub_lib::proxy_server::ProxyProtocol;
-    use sub_lib::test_utils::LoggerInitializerWrapperMock;
-    use sub_lib::test_utils::TestLogHandler;
+    use test_utils::test_utils::LoggerInitializerWrapperMock;
+    use test_utils::test_utils::TestLogHandler;
 
     #[test]
     fn handles_http () {

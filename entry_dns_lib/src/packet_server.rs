@@ -40,9 +40,9 @@ mod tests {
     use std::net::IpAddr;
     use std::cell::RefCell;
     use std::time::Duration;
-    use sub_lib::logger::LoggerInitializerWrapper;
-    use sub_lib::test_utils::LoggerInitializerWrapperMock;
-    use sub_lib::test_utils::TestLogHandler;
+    use logger_trait_lib::logger::LoggerInitializerWrapper;
+    use test_utils::test_utils::LoggerInitializerWrapperMock;
+    use test_utils::test_utils::TestLogHandler;
     use processor::ProcessorTrait;
 
     struct UdpSocketWrapperMock {

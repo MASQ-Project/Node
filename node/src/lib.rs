@@ -15,6 +15,10 @@ extern crate neighborhood_lib;
 extern crate proxy_server_lib;
 extern crate proxy_client_lib;
 extern crate hopper_lib;
+extern crate logger_trait_lib;
+
+#[cfg (test)]
+extern crate test_utils;
 
 #[cfg(unix)]
 extern crate daemonize;
@@ -36,4 +40,4 @@ mod tls_discriminator;
 mod actor_system_factory;
 
 #[cfg (test)]
-mod test_utils;
+mod node_test_utils;

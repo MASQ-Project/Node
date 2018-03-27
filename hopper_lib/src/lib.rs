@@ -6,4 +6,7 @@ extern crate serde_cbor;
 extern crate sub_lib;
 extern crate actix;
 
+#[cfg (test)]
+extern crate test_utils;
+
 pub mod hopper;

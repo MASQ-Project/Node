@@ -74,7 +74,7 @@ mod tests {
     use super::*;
     use cryptde::PlainData;
     use cryptde_null::CryptDENull;
-    use test_utils::PayloadMock;
+    use test_utils::test_utils::PayloadMock;
 
     #[test]
     fn incipient_cores_package_is_created_correctly () {

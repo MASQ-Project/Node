@@ -15,6 +15,10 @@ serde_derive = "1.0.24"
 serde_cbor = "0.8.1"
 actix = "0.4.4"
 
+[dev-dependencies]
+test_utils = { path = "../test_utils" }
+logger_trait_lib = { path = "../logger_trait_lib" }
+
 [target.'cfg(unix)'.dependencies]
 daemonize = "0.2.3"
 

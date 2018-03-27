@@ -8,6 +8,11 @@ extern crate serde_cbor;
 #[macro_use]
 extern crate serde_derive;
 
+#[cfg (test)]
+extern crate test_utils;
+#[cfg (test)]
+extern crate logger_trait_lib;
+
 #[cfg(unix)]
 extern crate daemonize;
 
@@ -37,6 +42,5 @@ pub mod route;
 pub mod socket_server;
 pub mod stream_handler_pool;
 pub mod tcp_wrappers;
-pub mod test_utils;
 pub mod tls_framer;
 pub mod udp_socket_wrapper;

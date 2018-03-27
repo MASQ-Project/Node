@@ -26,6 +26,10 @@ neighborhood_lib = { path = "../neighborhood_lib" }
 proxy_server_lib = { path = "../proxy_server_lib" }
 proxy_client_lib = { path = "../proxy_client_lib" }
 hopper_lib = { path = "../hopper_lib" }
+logger_trait_lib = { path = "../logger_trait_lib" }
+
+[dev-dependencies]
+test_utils = { path = "../test_utils" }
 
 [target.'cfg(unix)'.dependencies]
 daemonize = "0.2.3"

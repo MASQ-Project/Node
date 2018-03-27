@@ -142,9 +142,9 @@ mod tests {
     use sub_lib::hopper::ExpiredCoresPackage;
     use sub_lib::route::Route;
     use sub_lib::route::RouteSegment;
-    use sub_lib::test_utils::make_peer_actors_from;
-    use sub_lib::test_utils::PayloadMock;
-    use sub_lib::test_utils::Recorder;
+    use test_utils::test_utils::make_peer_actors_from;
+    use test_utils::test_utils::PayloadMock;
+    use test_utils::test_utils::Recorder;
 
     #[test]
     fn live_cores_package_can_be_constructed_from_scratch () {

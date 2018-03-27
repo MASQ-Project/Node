@@ -129,9 +129,9 @@ struct JsonMasqueraderUnmaskStructure {
 #[cfg (test)]
 mod tests {
     use super::*;
-    use sub_lib::logger::LoggerInitializerWrapper;
-    use sub_lib::test_utils::TestLogHandler;
-    use sub_lib::test_utils::LoggerInitializerWrapperMock;
+    use logger_trait_lib::logger::LoggerInitializerWrapper;
+    use test_utils::test_utils::TestLogHandler;
+    use test_utils::test_utils::LoggerInitializerWrapperMock;
 
     #[test]
     fn json_masquerader_can_mask_and_unmask_bodytext () {

@@ -3,6 +3,11 @@ extern crate sub_lib;
 extern crate serde_cbor;
 extern crate actix;
 
+#[cfg (test)]
+extern crate test_utils;
+#[cfg (test)]
+extern crate logger_trait_lib;
+
 pub mod client_request_payload_factory;
 pub mod proxy_server;
 pub mod http_protocol_pack;

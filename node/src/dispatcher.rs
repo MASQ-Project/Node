@@ -92,10 +92,10 @@ mod tests {
     use actix::msgs;
     use actix::System;
     use sub_lib::dispatcher::Endpoint;
-    use sub_lib::test_utils::Recorder;
-    use sub_lib::test_utils::make_peer_actors;
-    use sub_lib::test_utils::make_peer_actors_from;
-    use test_utils::make_stream_handler_pool_subs_from;
+    use test_utils::test_utils::Recorder;
+    use test_utils::test_utils::make_peer_actors;
+    use test_utils::test_utils::make_peer_actors_from;
+    use node_test_utils::make_stream_handler_pool_subs_from;
 
     #[test]
     fn sends_inbound_data_for_proxy_server_to_proxy_server() {
