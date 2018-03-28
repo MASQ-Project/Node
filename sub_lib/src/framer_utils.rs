@@ -11,20 +11,36 @@ pub const CRLF: &[u8; 2] = b"\r\n";
 
 pub fn find_chunk_offset_length (data_so_far: &[u8]) -> Option<ChunkOffsetLength> {
     // TODO: Optimization: Only look at new-data length + 17 characters maximum
-    let crlf_offset = match utils::index_of (data_so_far, CRLF) {
-        None => return None,
-        Some (offset) => offset
-    };
-    if (crlf_offset == 0) || (evaluate_hex_digit (data_so_far[crlf_offset - 1]) == None) {
-        let begin_next_search = crlf_offset + CRLF.len ();
-        return match find_chunk_offset_length (&data_so_far[begin_next_search..]) {
-            None => None,
-            Some (next_result) => Some (ChunkOffsetLength {offset: next_result.offset + crlf_offset + CRLF.len (), length: next_result.length})
+    let mut accumulated_offset = 0;
+    loop {
+        match find_next_chunk_offset_length(&data_so_far[accumulated_offset..]) {
+            Err (0) => return None,
+            Err (next_offset) => {
+                accumulated_offset += next_offset
+            },
+            Ok (result) => {
+                return Some(ChunkOffsetLength {offset: result.offset + accumulated_offset,
+                    length: result.length})
+            }
         }
     }
-    let reversed_digits = find_reversed_digits (data_so_far, crlf_offset);
-    Some (ChunkOffsetLength {offset: crlf_offset - reversed_digits.len (),
-        length: value_of_reversed_digits (&reversed_digits) + CRLF.len () + reversed_digits.len ()})
+}
+
+fn find_next_chunk_offset_length(data_so_far: &[u8]) -> Result<ChunkOffsetLength, usize> {
+    match utils::index_of (data_so_far, CRLF) {
+        None => Err(0),
+        Some (0) => Err(CRLF.len ()),
+        Some (crlf_offset) => {
+            match evaluate_hex_digit(data_so_far[crlf_offset - 1]) {
+                None => Err (crlf_offset + CRLF.len ()),
+                Some(_digit) => {
+                    let reversed_digits = find_reversed_digits (data_so_far, crlf_offset);
+                    Ok (ChunkOffsetLength {offset: crlf_offset - reversed_digits.len (),
+                        length: value_of_reversed_digits (&reversed_digits) + CRLF.len () + reversed_digits.len ()})
+                }
+            }
+        }
+    }
 }
 
 fn find_reversed_digits (data_so_far: &[u8], backward_from: usize) -> Vec<u8> {
@@ -134,5 +150,15 @@ mod tests {
         let result = find_chunk_offset_length(data_so_far);
 
         assert_eq! (result, Some (ChunkOffsetLength {offset: 11, length: 0x64 + 4}));
+    }
+
+
+    #[test]
+    pub fn returns_data_for_hexadecimal_number_hiding_behind_multiple_crlfs () {
+        let data_so_far = b"\r\n\r\n\r\n\r\n89abcdef\r\n";
+
+        let result = find_chunk_offset_length(data_so_far);
+
+        assert_eq! (result, Some (ChunkOffsetLength {offset: 8, length: 0x89ABCDEF + 10}));
     }
 }

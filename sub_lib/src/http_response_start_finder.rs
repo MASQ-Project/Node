@@ -43,20 +43,32 @@ impl HttpPacketStartFinder for HttpResponseStartFinder {
 
 impl HttpResponseStartFinder {
     fn find_response_offset (data_so_far: &[u8]) -> Option<usize> {
-        let http_offset = match index_of (data_so_far, b"HTTP/") {
-            Some (http_offset) => http_offset,
-            None => return None
-        };
-        let possibility_u8 = &data_so_far[http_offset..(http_offset + LONGEST_PREFIX_LEN)];
-        let possibility_cow = String::from_utf8_lossy (possibility_u8);
-        let regex = Regex::new ("HTTP/1\\.[01] \\d\\d\\d ").expect ("Internal error");
-        match regex.find (&possibility_cow) {
-            Some (re_match) => Some (re_match.start () + http_offset),
-            None => match HttpResponseStartFinder::find_response_offset (&data_so_far[(http_offset + 1)..]) {
-                Some (next_match) => Some (next_match + http_offset + 1),
-                None => None
+        let mut accumulated_offset = 0;
+        loop {
+            match HttpResponseStartFinder::find_next_response_offset(&data_so_far[accumulated_offset..]) {
+                Err (0) => return None,
+                Err (next_offset) => {
+                    accumulated_offset += next_offset
+                }
+                Ok (offset) => return Some(offset + accumulated_offset),
             }
         }
+    }
+
+    fn find_next_response_offset (data_so_far: &[u8]) -> Result<usize, usize> {
+        match index_of (data_so_far, b"HTTP/") {
+            None => Err(0),
+            Some (http_offset) => {
+                let possibility_u8 = &data_so_far[http_offset..(http_offset + LONGEST_PREFIX_LEN)];
+                let possibility_cow = String::from_utf8_lossy (possibility_u8);
+                let regex = Regex::new ("HTTP/1\\.[01] \\d\\d\\d ").expect ("Internal error");
+                match regex.find (&possibility_cow) {
+                    Some (re_match) => Ok (re_match.start () + http_offset),
+                    None => Err(http_offset + 1)
+                }
+            }
+        }
+
     }
 }
 
@@ -99,6 +111,15 @@ mod tests {
         let result = HttpResponseStartFinder::find_response_offset(&data[..]);
 
         assert_eq! (result, Some ("Here's a fake HTTP/1.1 20 followed by a real ".len ()));
+    }
+
+    #[test]
+    fn returns_offset_hiding_behind_multiple_initial_incompletes () {
+        let data = b"Here's a fake HTTP/1.1 20 followed by another fake HTTP/1.1 21 followed by a real HTTP/1.0 200 OK\r\n\r\n";
+
+        let result = HttpResponseStartFinder::find_response_offset(&data[..]);
+
+        assert_eq! (result, Some ("Here's a fake HTTP/1.1 20 followed by another fake HTTP/1.1 21 followed by a real ".len ()));
     }
 
     #[test]
