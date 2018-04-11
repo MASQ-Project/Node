@@ -13,33 +13,6 @@ pub struct Route {
 
 impl Route {
 
-    // Temporary: incipient route to local Proxy Client; Release 2 only
-    pub fn rel2_from_proxy_server(key: &Key, cryptde: &CryptDE) -> Result<Route, RouteError> {
-        Route::hops_to_route (vec! (
-            Hop::with_key_and_component(key, Component::ProxyClient),
-            Hop::with_component(Component::ProxyServer),
-        ), cryptde)
-    }
-
-    // Temporary: expired route to local Proxy Server for Proxy Client; Release 2 only
-    pub fn rel2_to_proxy_client (_key: &Key, cryptde: &CryptDE) -> Result<Route, RouteError> {
-        Route::hops_to_route (vec! (
-            Hop::with_component(Component::ProxyServer),
-        ), cryptde)
-    }
-
-    // Temporary: incipient route to local Proxy Server; Release 2 only
-    pub fn rel2_from_proxy_client (key: &Key, cryptde: &CryptDE) -> Result<Route, RouteError> {
-        // Happens to be the same thing
-        Route::rel2_to_proxy_client (key, cryptde)
-    }
-
-    // Temporary: expired null route for local Proxy Server; Release 2 only
-    pub fn rel2_to_proxy_server (key: &Key, cryptde: &CryptDE) -> Result<Route, RouteError> {
-        // Unimportant. Should actually be empty, but that would cause problems, so...[shrug]
-        Route::rel2_to_proxy_client (key, cryptde)
-    }
-
     // TODO: Drive out panic!s.
     pub fn new(route_segments: Vec<RouteSegment>, cryptde: &CryptDE) -> Result<Route, RouteError> {
         if route_segments.is_empty () {panic! ("A route must have at least one segment")}
@@ -47,7 +20,7 @@ impl Route {
         let mut pending_recipient: Option<Component> = None;
         for segment_index in 0..route_segments.len () {
             let route_segment = &route_segments[segment_index];
-            if route_segment.keys.len () < 2 {panic! ("Degenerate {}-element route segments went out with Release 2", route_segment.keys.len ())}
+            if route_segment.keys.len () < 1 {panic! ("Degenerate {}-element route segment", route_segment.keys.len ())}
             for hop_index in 0..route_segment.keys.len () {
                 let key = &route_segment.keys[hop_index];
                 if (segment_index > 0) && (hop_index == 0) {

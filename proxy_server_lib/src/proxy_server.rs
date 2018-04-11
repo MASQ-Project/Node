@@ -7,6 +7,7 @@ use actix::Handler;
 use actix::Subscriber;
 use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::cryptde::CryptDE;
+use sub_lib::dispatcher::Component;
 use sub_lib::dispatcher::Endpoint;
 use sub_lib::dispatcher::InboundClientData;
 use sub_lib::hopper::IncipientCoresPackage;
@@ -16,6 +17,7 @@ use sub_lib::peer_actors::BindMessage;
 use sub_lib::proxy_client::ClientResponsePayload;
 use sub_lib::proxy_server::ProxyServerSubs;
 use sub_lib::route::Route;
+use sub_lib::route::RouteSegment;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
 use client_request_payload_factory::ClientRequestPayloadFactory;
 
@@ -50,7 +52,11 @@ impl Handler<InboundClientData> for ProxyServer {
             None => unimplemented!(),
             Some (payload) => payload
         };
-        let route = Route::rel2_from_proxy_server(&cryptde.public_key(), &cryptde).expect("Couldn't create route");
+        // TODO this should come from the Neighborhood
+        let route = Route::new(vec! (
+                RouteSegment::new(vec! (&cryptde.public_key()), Component::ProxyClient),
+                RouteSegment::new(vec!(&cryptde.public_key(), &cryptde.public_key()), Component::ProxyServer)
+            ), &cryptde).expect("Couldn't create route");
         let pkg = IncipientCoresPackage::new(route, payload, &cryptde.public_key());
         hopper.send(pkg ).expect ("Hopper is dead")
     }
@@ -91,7 +97,6 @@ impl ProxyServer {
             bind: addr.subscriber::<BindMessage>(),
             from_dispatcher: addr.subscriber::<InboundClientData>(),
             from_hopper: addr.subscriber::<ExpiredCoresPackage>(),
-            // from_neighborhood: addr.subscriber::<RouteResponseMessage>(),
         }
     }
 }
@@ -113,6 +118,8 @@ mod tests {
     use sub_lib::proxy_server::ProxyProtocol;
     use test_utils::test_utils::make_peer_actors_from;
     use test_utils::test_utils::Recorder;
+    use test_utils::test_utils::route_from_proxy_server;
+    use test_utils::test_utils::route_to_proxy_server;
 
     #[test]
     fn proxy_server_receives_http_request_from_dispatcher_then_sends_cores_package_to_hopper() {
@@ -133,7 +140,7 @@ mod tests {
         let expected_http_request = PlainData::new(http_request);
         let cryptde = CryptDENull::new();
         let key = cryptde.public_key();
-        let route = Route::rel2_from_proxy_server(&key, &cryptde).unwrap();
+        let route = route_from_proxy_server(&key, &cryptde);
         let expected_payload = ClientRequestPayload {
             stream_key: socket_addr.clone(),
             data: expected_http_request.clone(),
@@ -195,7 +202,7 @@ mod tests {
         let expected_tls_request = PlainData::new(tls_request);
         let cryptde = CryptDENull::new();
         let key = cryptde.public_key();
-        let route = Route::rel2_from_proxy_server(&key, &cryptde).unwrap();
+        let route = route_from_proxy_server(&key, &cryptde);
         let expected_payload = ClientRequestPayload {
             stream_key: socket_addr.clone(),
             data: expected_tls_request.clone(),
@@ -232,7 +239,7 @@ mod tests {
         let cryptde = CryptDENull::new();
         let key = cryptde.public_key();
         let subject_addr: SyncAddress<_> = subject.start();
-        let remaining_route = Route::rel2_to_proxy_server(&key, &cryptde).unwrap();
+        let remaining_route = route_to_proxy_server(&key, &cryptde);
         let client_response_payload = ClientResponsePayload {
             stream_key: socket_addr.clone(),
             last_response: true,
@@ -266,7 +273,7 @@ mod tests {
         let cryptde = CryptDENull::new();
         let key = cryptde.public_key();
         let subject_addr: SyncAddress<_> = subject.start();
-        let remaining_route = Route::rel2_to_proxy_server(&key, &cryptde).unwrap();
+        let remaining_route = route_to_proxy_server(&key, &cryptde);
         let client_response_payload = ClientResponsePayload {
             stream_key: socket_addr,
             last_response: true,

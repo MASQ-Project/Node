@@ -29,5 +29,4 @@ pub struct ProxyServerSubs { // ProxyServer will handle these messages:
     pub bind: Box<Subscriber<BindMessage> + Send>,
     pub from_dispatcher: Box<Subscriber<InboundClientData> + Send>,
     pub from_hopper: Box<Subscriber<ExpiredCoresPackage> + Send>,
-    // pub from_neighborhood: Box<Subscriber<RouteResponseMessage> + Send>,
 }

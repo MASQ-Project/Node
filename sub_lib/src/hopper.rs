@@ -75,11 +75,16 @@ mod tests {
     use cryptde::PlainData;
     use cryptde_null::CryptDENull;
     use test_utils::test_utils::PayloadMock;
+    use route::RouteSegment;
+    use dispatcher::Component;
 
     #[test]
     fn incipient_cores_package_is_created_correctly () {
         let route_key = Key::new (&[1]);
-        let route = Route::rel2_from_proxy_server (&route_key, &CryptDENull::new ()).unwrap ();
+        let route = Route::new(vec! (
+                RouteSegment::new(vec! (&route_key), Component::ProxyClient),
+                RouteSegment::new(vec!(&route_key, &route_key), Component::ProxyServer)
+            ), &CryptDENull::new ()).unwrap();
         let payload = PayloadMock::new ();
         let key = Key::new (&[5, 6]);
 
@@ -94,8 +99,12 @@ mod tests {
 
     #[test]
     fn expired_cores_package_is_created_correctly () {
-        let route_key = Key::new (&[1]);
-        let route = Route::rel2_to_proxy_client (&route_key, &CryptDENull::new ()).unwrap ();
+        let a_key = Key::new (&[65, 65, 65]);
+        let b_key = Key::new (&[66, 66, 66]);
+        let cryptde = CryptDENull::new ();
+        let route = Route::new(vec! (
+            RouteSegment::new (vec! (&a_key, &b_key), Component::Neighborhood)
+        ), &cryptde).unwrap ();
         let deserialized_payload = PayloadMock::new ();
         let payload = serde_cbor::ser::to_vec (&deserialized_payload).unwrap ();
 

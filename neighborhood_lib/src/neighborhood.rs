@@ -8,6 +8,7 @@ use sub_lib::neighborhood::Neighborhood;
 use sub_lib::neighborhood::NeighborhoodError;
 use sub_lib::node_addr::NodeAddr;
 use sub_lib::route::Route;
+use sub_lib::route::RouteSegment;
 use sub_lib::cryptde::Key;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde_null::CryptDENull;
@@ -38,7 +39,10 @@ impl Neighborhood for NeighborhoodReal {
     fn route_round_trip(&self, destination: &Key, _remote_recipient: Component, _local_recipient: Component) -> Result<Route, NeighborhoodError> {
         let cryptde = CryptDENull::new ();
         if self.valid(destination) {
-            Ok (Route::rel2_from_proxy_server (&cryptde.public_key (), &cryptde).expect ("Internal error"))
+            Ok (Route::new(vec! (
+                    RouteSegment::new(vec! (&cryptde.public_key()), Component::ProxyClient),
+                    RouteSegment::new(vec!(&cryptde.public_key(), &cryptde.public_key()), Component::ProxyServer)
+                ), &cryptde).expect ("Internal error"))
         }
         else {
             Err(NeighborhoodError::InvalidPublicKey)
@@ -91,7 +95,13 @@ mod tests {
         let route = neighborhood.route_round_trip(&cryptde.public_key (),
             Component::Hopper, Component::Hopper).unwrap();
 
-        assert_eq! (route.next_hop (), Hop::with_key_and_component (&cryptde.public_key (), Component::ProxyClient));
+        let (next_hop, tail) = route.deconstruct ();
+
+        assert_eq! (next_hop, Hop::with_key (&cryptde.public_key ()));
+        assert_eq! (tail, vec! (
+            Hop::with_key_and_component (&cryptde.public_key (), Component::ProxyClient).encode (&cryptde.public_key (), &cryptde).unwrap (),
+            Hop::with_component (Component::ProxyServer).encode (&cryptde.public_key (), &cryptde).unwrap ()
+        ));
     }
 
     #[test]

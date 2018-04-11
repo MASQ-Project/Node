@@ -141,7 +141,6 @@ mod tests {
     use actix::Arbiter;
     use actix::msgs;
     use serde_cbor;
-    use sub_lib::route::Route;
     use sub_lib::cryptde::Key;
     use sub_lib::cryptde::PlainData;
     use sub_lib::cryptde_null::CryptDENull;
@@ -154,6 +153,8 @@ mod tests {
     use test_utils::test_utils::make_peer_actors;
     use test_utils::test_utils::make_peer_actors_from;
     use test_utils::test_utils::Recorder;
+    use test_utils::test_utils::route_to_proxy_client;
+    use test_utils::test_utils::route_from_proxy_client;
     use resolver_wrapper::tests::ResolverWrapperFactoryMock;
     use resolver_wrapper::tests::ResolverWrapperMock;
     use stream_handler::RESPONSE_FINISHED_TIMEOUT_MS;
@@ -385,7 +386,7 @@ mod tests {
         };
         let cryptde = CryptDENull::new ();
         let package = ExpiredCoresPackage::new(
-            Route::rel2_to_proxy_client(&cryptde.public_key(), &cryptde).unwrap(),
+            route_to_proxy_client(&cryptde.public_key(), &cryptde),
             PlainData::new(&serde_cbor::ser::to_vec (&request.clone()).unwrap ()[..])
         );
         let mut connect_parameter: Arc<Mutex<Option<SocketAddr>>> = Arc::new (Mutex::new (None));
@@ -443,7 +444,7 @@ mod tests {
         let cryptde = CryptDENull::new ();
         let thread_cryptde = cryptde.clone();
         let package = ExpiredCoresPackage::new(
-            Route::rel2_to_proxy_client(&cryptde.public_key(), &cryptde).unwrap(),
+            route_to_proxy_client(&cryptde.public_key(), &cryptde),
             PlainData::new(&serde_cbor::ser::to_vec (&request.clone()).unwrap ()[..])
         );
         let mut connect_parameter: Arc<Mutex<Option<SocketAddr>>> = Arc::new (Mutex::new (None));
@@ -506,7 +507,7 @@ mod tests {
         let expected_client_response_payload = ClientResponsePayload {stream_key: request.stream_key,
             last_response: true, data: PlainData::new (&framed_response_data[..])};
         let serialized_client_response_payload = serde_cbor::ser::to_vec (&expected_client_response_payload).unwrap ();
-        assert_eq! (record.route, Route::rel2_from_proxy_client(&cryptde.public_key (), &cryptde).unwrap ());
+        assert_eq! (record.route, route_from_proxy_client(&cryptde.public_key (), &cryptde));
         assert_eq! (record.payload, PlainData::new (&serialized_client_response_payload[..]));
         assert_eq! (record.payload_destination_key, request.originator_public_key);
     }
@@ -525,7 +526,7 @@ mod tests {
         let cryptde = CryptDENull::new ();
         let thread_cryptde = cryptde.clone();
         let package = ExpiredCoresPackage::new(
-            Route::rel2_to_proxy_client(&cryptde.public_key(), &cryptde).unwrap(),
+            route_to_proxy_client(&cryptde.public_key(), &cryptde),
             PlainData::new(&serde_cbor::ser::to_vec (&request.clone()).unwrap ()[..])
         );
         let mut connect_parameter: Arc<Mutex<Option<SocketAddr>>> = Arc::new (Mutex::new (None));
@@ -597,7 +598,7 @@ mod tests {
         );
         let expected_packages: Vec<IncipientCoresPackage> = expected_client_response_payloads.iter ().map (|p| {
             IncipientCoresPackage::new (
-                Route::rel2_from_proxy_client(&cryptde.public_key (), &cryptde).unwrap (),
+                route_from_proxy_client(&cryptde.public_key (), &cryptde),
                 p.clone (),
                 &request.originator_public_key,
             )
@@ -622,7 +623,7 @@ mod tests {
         let request = String::from("not parseable as ClientRequestPayload");
         let cryptde = CryptDENull::new();
         let package = ExpiredCoresPackage::new(
-            Route::rel2_to_proxy_client(&cryptde.public_key(), &cryptde).unwrap(),
+            route_to_proxy_client(&cryptde.public_key(), &cryptde),
             PlainData::new(&serde_cbor::ser::to_vec(&request.clone()).unwrap()[..])
         );
         let hopper = Recorder::new();
@@ -656,7 +657,7 @@ mod tests {
         let cryptde = CryptDENull::new ();
         let thread_cryptde = cryptde.clone();
         let package = ExpiredCoresPackage::new(
-            Route::rel2_to_proxy_client(&cryptde.public_key(), &cryptde).unwrap(),
+            route_to_proxy_client(&cryptde.public_key(), &cryptde),
             PlainData::new(&serde_cbor::ser::to_vec (&request.clone()).unwrap ()[..])
         );
         let resolver_wrapper = ResolverWrapperMock::new ()
@@ -686,7 +687,7 @@ mod tests {
         let expected_client_response_payload = ClientResponsePayload {stream_key: request.stream_key,
             last_response: true, data: PlainData::new (SERVER_PROBLEM_RESPONSE)};
         let serialized_client_response_payload = serde_cbor::ser::to_vec (&expected_client_response_payload).unwrap ();
-        assert_eq! (record.route, Route::rel2_from_proxy_client(&cryptde.public_key (), &cryptde).unwrap ());
+        assert_eq! (record.route, route_from_proxy_client(&cryptde.public_key (), &cryptde));
         assert_eq! (record.payload, PlainData::new (&serialized_client_response_payload[..]));
         assert_eq! (record.payload_destination_key, request.originator_public_key);
     }
@@ -794,7 +795,7 @@ mod tests {
         let cryptde = CryptDENull::new ();
         let thread_cryptde = cryptde.clone();
         let package = ExpiredCoresPackage::new(
-            Route::rel2_to_proxy_client(&cryptde.public_key(), &cryptde).unwrap(),
+            route_to_proxy_client(&cryptde.public_key(), &cryptde),
             PlainData::new(&serde_cbor::ser::to_vec (&request.clone()).unwrap ()[..])
         );
         let stream = Box::new (TcpStreamWrapperMock::new ()
@@ -838,7 +839,7 @@ mod tests {
         let expected_client_response_payload = ClientResponsePayload {stream_key: request.stream_key,
             last_response: true, data: PlainData::new (response_data)};
         let serialized_client_response_payload = serde_cbor::ser::to_vec (&expected_client_response_payload).unwrap ();
-        assert_eq! (record.route, Route::rel2_from_proxy_client(&cryptde.public_key (), &cryptde).unwrap ());
+        assert_eq! (record.route, route_from_proxy_client(&cryptde.public_key (), &cryptde));
         assert_eq! (record.payload, PlainData::new (&serialized_client_response_payload[..]));
         assert_eq! (record.payload_destination_key, Key::new (&b"originator_public_key"[..]));
     }
@@ -856,7 +857,7 @@ mod tests {
         let cryptde = CryptDENull::new ();
         let thread_cryptde = cryptde.clone();
         let package = ExpiredCoresPackage::new(
-            Route::rel2_to_proxy_client(&cryptde.public_key(), &cryptde).unwrap(),
+            route_to_proxy_client(&cryptde.public_key(), &cryptde),
             PlainData::new(&serde_cbor::ser::to_vec (&request.clone()).unwrap ()[..])
         );
         let mut shutdown_parameter: Arc<Mutex<Option<Shutdown>>> = Arc::new (Mutex::new (None));
@@ -901,7 +902,7 @@ mod tests {
         let expected_client_response_payload = ClientResponsePayload {stream_key: request.stream_key,
             last_response: true, data: PlainData::new (SERVER_PROBLEM_RESPONSE)};
         let serialized_client_response_payload = serde_cbor::ser::to_vec (&expected_client_response_payload).unwrap ();
-        assert_eq! (record.route, Route::rel2_from_proxy_client(&cryptde.public_key (), &cryptde).unwrap ());
+        assert_eq! (record.route, route_from_proxy_client(&cryptde.public_key (), &cryptde));
         assert_eq! (record.payload, PlainData::new (&serialized_client_response_payload[..]));
         assert_eq! (record.payload_destination_key, request.originator_public_key);
     }

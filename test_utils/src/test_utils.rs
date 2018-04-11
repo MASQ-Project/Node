@@ -29,12 +29,14 @@ use sub_lib::main_tools::StdStreams;
 use regex::Regex;
 use sub_lib::dispatcher::Component;
 use sub_lib::cryptde::Key;
+use sub_lib::cryptde::CryptDE;
 use sub_lib::dispatcher::DispatcherSubs;
 use sub_lib::dispatcher::InboundClientData;
 use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::hopper::HopperSubs;
 use sub_lib::hopper::IncipientCoresPackage;
 use logger_trait_lib::logger::LoggerInitializerWrapper;
+use sub_lib::hop::Hop;
 use sub_lib::neighborhood::Neighborhood;
 use sub_lib::neighborhood::NeighborhoodError;
 use sub_lib::node_addr::NodeAddr;
@@ -43,6 +45,7 @@ use sub_lib::peer_actors::BindMessage;
 use sub_lib::proxy_client::ProxyClientSubs;
 use sub_lib::proxy_server::ProxyServerSubs;
 use sub_lib::route::Route;
+use sub_lib::route::RouteSegment;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
 
 #[allow(dead_code)]
@@ -649,6 +652,32 @@ impl RecordAwaiter {
     }
 }
 
+pub fn route_to_proxy_client (key: &Key, cryptde: &CryptDE) -> Route {
+    shift_one_hop(route_from_proxy_server(key, cryptde), cryptde)
+}
+
+pub fn route_from_proxy_client (key: &Key, cryptde: &CryptDE) -> Route {
+    // Happens to be the same thing
+    route_to_proxy_client (key, cryptde)
+}
+
+pub fn route_to_proxy_server (key: &Key, cryptde: &CryptDE) -> Route {
+    shift_one_hop(route_from_proxy_client(key, cryptde), cryptde)
+}
+
+pub fn route_from_proxy_server(key: &Key, cryptde: &CryptDE) -> Route {
+    Route::new(vec! (
+        RouteSegment::new(vec! (key), Component::ProxyClient),
+        RouteSegment::new(vec!(key, key), Component::ProxyServer)
+    ), cryptde).unwrap()
+}
+
+fn shift_one_hop(route: Route, cryptde: &CryptDE) -> Route {
+    let (_, mut tail) = route.deconstruct();
+    let next_hop = Hop::decode (&cryptde.private_key (), cryptde, &tail.remove(0)).unwrap();
+    Route::construct(next_hop, tail)
+}
+
 #[cfg (test)]
 mod tests {
     use super::*;
@@ -663,6 +692,55 @@ mod tests {
     use actix::Arbiter;
     use actix::msgs;
     use actix::ResponseType;
+    use sub_lib::cryptde_null::CryptDENull;
+
+    #[test]
+    fn characterize_route_from_proxy_server() {
+        let cryptde = CryptDENull::new();
+        let key = cryptde.public_key();
+        let subject = route_from_proxy_server(&key, &cryptde);
+        let (next_hop, tail) = subject.deconstruct();
+        assert_eq! (next_hop, Hop::with_key (&key));
+        assert_eq! (tail, vec! (
+            Hop::with_key_and_component (&key,Component::ProxyClient).encode (&key, &cryptde).unwrap (),
+            Hop::with_component (Component::ProxyServer).encode (&key, &cryptde).unwrap ()
+        ));
+    }
+
+    #[test]
+    fn characterize_route_to_proxy_client() {
+        let cryptde = CryptDENull::new();
+        let key = cryptde.public_key();
+        let subject = route_to_proxy_client(&key, &cryptde);
+        let (next_hop, tail) = subject.deconstruct();
+        assert_eq! (next_hop, Hop::with_key_and_component (&key, Component::ProxyClient));
+        assert_eq! (tail, vec! (
+            Hop::with_component (Component::ProxyServer).encode (&key, &cryptde).unwrap ()
+        ));
+    }
+
+    #[test]
+    fn characterize_route_from_proxy_client() {
+        let cryptde = CryptDENull::new();
+        let key = cryptde.public_key();
+        let subject = route_from_proxy_client(&key, &cryptde);
+        let (next_hop, tail) = subject.deconstruct();
+        assert_eq! (next_hop, Hop::with_key_and_component (&key, Component::ProxyClient));
+        assert_eq! (tail, vec! (
+            Hop::with_component (Component::ProxyServer).encode (&key, &cryptde).unwrap ()
+        ));
+
+    }
+
+    #[test]
+    fn characterize_route_to_proxy_server() {
+        let cryptde = CryptDENull::new();
+        let key = cryptde.public_key();
+        let subject = route_to_proxy_server(&key, &cryptde);
+        let (next_hop, tail) = subject.deconstruct();
+        assert_eq! (next_hop, Hop::with_component (Component::ProxyServer));
+        assert_eq! (tail, vec! ());
+    }
 
     #[test]
     fn signal_imposes_order () {
