@@ -6,8 +6,23 @@ use serde::de::Deserialize;
 use serde_cbor;
 use cryptde::Key;
 use cryptde::PlainData;
+use dispatcher::Endpoint;
+use dispatcher::InboundClientData;
 use peer_actors::BindMessage;
 use route::Route;
+use std::io;
+
+// TODO when we are decentralized, remove this and replace usages with TransmitDataMsg
+#[derive (PartialEq, Debug)]
+pub struct HopperTemporaryTransmitDataMsg {
+    pub endpoint: Endpoint,
+    pub data: Vec<u8>
+}
+
+impl ResponseType for HopperTemporaryTransmitDataMsg {
+    type Item = ();
+    type Error = io::Error;
+}
 
 /// New CORES package about to be sent to the Hopper and thence put on the Substratum Network
 #[derive (Clone, Debug, PartialEq)]
@@ -67,6 +82,7 @@ impl ExpiredCoresPackage {
 pub struct HopperSubs {
     pub bind: Box<Subscriber<BindMessage> + Send>,
     pub from_hopper_client: Box<Subscriber<IncipientCoresPackage> + Send>,
+    pub from_dispatcher: Box<Subscriber<InboundClientData> + Send>,
 }
 
 #[cfg (test)]

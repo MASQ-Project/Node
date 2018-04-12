@@ -35,6 +35,7 @@ use sub_lib::dispatcher::InboundClientData;
 use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::hopper::HopperSubs;
 use sub_lib::hopper::IncipientCoresPackage;
+use sub_lib::hopper::HopperTemporaryTransmitDataMsg;
 use logger_trait_lib::logger::LoggerInitializerWrapper;
 use sub_lib::hop::Hop;
 use sub_lib::neighborhood::Neighborhood;
@@ -466,6 +467,7 @@ pub fn make_dispatcher_subs_from(addr: &SyncAddress<Recorder>) -> DispatcherSubs
         ibcd_sub: addr.subscriber::<InboundClientData>(),
         bind: addr.subscriber::<BindMessage>(),
         from_proxy_server: addr.subscriber::<TransmitDataMsg>(),
+        from_hopper: addr.subscriber::<HopperTemporaryTransmitDataMsg>(),
     }
 }
 
@@ -473,6 +475,7 @@ pub fn make_hopper_subs_from(addr: &SyncAddress<Recorder>) -> HopperSubs {
     HopperSubs {
         bind: addr.subscriber::<BindMessage>(),
         from_hopper_client: addr.subscriber::<IncipientCoresPackage>(),
+        from_dispatcher: addr.subscriber::<InboundClientData>(),
     }
 }
 
@@ -584,6 +587,15 @@ impl Handler<InboundClientData> for Recorder {
 
     fn handle(&mut self, msg: InboundClientData, _ctx: &mut Self::Context) -> Self::Result {
         self.record (msg)
+    }
+}
+
+impl Handler<HopperTemporaryTransmitDataMsg> for Recorder {
+    type Result = io::Result<()>;
+
+    fn handle(&mut self, msg: HopperTemporaryTransmitDataMsg, _ctx: &mut Self::Context) -> Self::Result {
+        self.record(msg);
+        Ok (())
     }
 }
 

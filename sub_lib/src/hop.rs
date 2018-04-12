@@ -39,6 +39,7 @@ impl Hop {
         let plain_data = cryptde.decode (key, crypt_data)?;
         match serde_cbor::de::from_slice::<Hop> (&plain_data.data[..]) {
             Ok (hop) => Ok (hop),
+            // TODO FIXME don't blow up!
             Err (_) => unimplemented!()
         }
     }
@@ -46,6 +47,7 @@ impl Hop {
     pub fn encode (&self, key: &Key, cryptde: &CryptDE) -> Result<CryptData, CryptdecError> {
         let plain_data = match serde_cbor::ser::to_vec (&self) {
             Ok (data) => PlainData::new (&data[..]),
+            // TODO FIXME don't blow up!
             Err (_) => unimplemented!()
         };
         cryptde.encode (key, &plain_data)

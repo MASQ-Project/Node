@@ -78,6 +78,7 @@ impl Route {
             let data_hop = &hops[hop_index];
             tail.push (match data_hop.encode (key_hop.public_key.as_ref ().expect ("Hop without source key"), cryptde) {
                 Ok (crypt_data) => crypt_data,
+                // TODO FIXME don't panic!
                 Err (_) => panic! ("Couldn't encode hop")
             });
         }

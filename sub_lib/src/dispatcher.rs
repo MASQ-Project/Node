@@ -15,6 +15,7 @@ use serde::Serializer;
 use serde::Deserializer;
 use serde::de::Visitor;
 use cryptde::Key;
+use hopper::HopperTemporaryTransmitDataMsg;
 use peer_actors::BindMessage;
 use stream_handler_pool::TransmitDataMsg;
 use utils::to_string;
@@ -147,7 +148,10 @@ impl Debug for InboundClientData {
 pub struct DispatcherSubs {
     pub ibcd_sub: Box<Subscriber<InboundClientData> + Send>,
     pub bind: Box<Subscriber<BindMessage> + Send>,
+    // TODO when we are decentralized, rename this to "from_dispatcher_client"
     pub from_proxy_server: Box<Subscriber<TransmitDataMsg> +Send>,
+    // TODO when we are decentralized, remove this
+    pub from_hopper: Box<Subscriber<HopperTemporaryTransmitDataMsg> + Send>,
 }
 
 impl Clone for DispatcherSubs {
@@ -156,6 +160,7 @@ impl Clone for DispatcherSubs {
             ibcd_sub: self.ibcd_sub.clone (),
             bind: self.bind.clone(),
             from_proxy_server: self.from_proxy_server.clone(),
+            from_hopper: self.from_hopper.clone(),
         }
     }
 }

@@ -1,5 +1,7 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use std::io;
+use std::net::SocketAddr;
+use std::str::FromStr;
 use actix::Actor;
 use actix::Context;
 use actix::SyncAddress;
@@ -8,6 +10,7 @@ use actix::Subscriber;
 use sub_lib::dispatcher::Component;
 use sub_lib::dispatcher::InboundClientData;
 use sub_lib::dispatcher::DispatcherSubs;
+use sub_lib::hopper::HopperTemporaryTransmitDataMsg;
 use sub_lib::logger::Logger;
 use sub_lib::peer_actors::BindMessage;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
@@ -15,6 +18,7 @@ use stream_handler_pool::PoolBindMessage;
 
 pub struct Dispatcher {
     to_proxy_server: Option<Box<Subscriber<InboundClientData> + Send>>,
+    to_hopper: Option<Box<Subscriber<InboundClientData> + Send>>,
     to_stream: Option<Box<Subscriber<TransmitDataMsg> + Send>>,
     logger: Logger,
 }
@@ -28,6 +32,7 @@ impl Handler<BindMessage> for Dispatcher {
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.to_proxy_server = Some(msg.peer_actors.proxy_server.from_dispatcher);
+        self.to_hopper = Some(msg.peer_actors.hopper.from_dispatcher);
         ()
     }
 }
@@ -55,6 +60,23 @@ impl Handler<InboundClientData> for Dispatcher {
     }
 }
 
+// TODO when we are decentralized, remove this handler
+impl Handler<HopperTemporaryTransmitDataMsg> for Dispatcher {
+    type Result = io::Result<()>;
+
+    fn handle(&mut self, msg: HopperTemporaryTransmitDataMsg, _ctx: &mut Self::Context) -> Self::Result {
+        self.logger.debug (format! ("Echoing {} bytes from Hopper to Hopper", msg.data.len ()));
+        let ibcd = InboundClientData {
+            data: msg.data,
+            socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            component: Component::Hopper,
+            origin_port: None,
+        };
+        self.to_hopper.as_ref().expect("Hopper unbound in Dispatcher").send(ibcd).expect("Hopper is dead");
+        Ok(())
+    }
+}
+
 impl Handler<TransmitDataMsg> for Dispatcher {
     type Result = io::Result<()>;
 
@@ -70,6 +92,7 @@ impl Dispatcher {
         Dispatcher {
             to_proxy_server: None,
             to_stream: None,
+            to_hopper: None,
             logger: Logger::new ("Dispatcher"),
         }
     }
@@ -79,6 +102,7 @@ impl Dispatcher {
             ibcd_sub: addr.subscriber::<InboundClientData>(),
             bind: addr.subscriber::<BindMessage>(),
             from_proxy_server: addr.subscriber::<TransmitDataMsg>(),
+            from_hopper: addr.subscriber::<HopperTemporaryTransmitDataMsg>(),
         }
     }
 }
@@ -240,6 +264,22 @@ mod tests {
     }
 
     #[test]
+    #[should_panic (expected = "Hopper unbound in Dispatcher")]
+    fn panics_when_hopper_is_unbound() {
+        let system = System::new ("test");
+        let subject = Dispatcher::new ();
+        let subject_addr: SyncAddress<_> = subject.start ();
+        let socket_addr = SocketAddr::from_str ("1.2.3.4:5678").unwrap ();
+        let data: Vec<u8> = vec! (9, 10, 11);
+        let transmit_msg = HopperTemporaryTransmitDataMsg { endpoint: Endpoint::Socket(socket_addr), data: data.clone ()};
+
+        subject_addr.send (transmit_msg);
+
+        Arbiter::system().send(msgs::SystemExit(0));
+        system.run ();
+    }
+
+    #[test]
     fn forwards_outbound_data_to_stream_handler_pool() {
         let system = System::new ("test");
         let subject = Dispatcher::new ();
@@ -273,6 +313,44 @@ mod tests {
         };
 
         assert_eq!(actual_endpoint, Endpoint::Socket(socket_addr));
+        assert_eq!(actual_data, data);
+        assert_eq! (recording.len (), 1);
+    }
+
+    #[test]
+    fn converts_hopper_temporary_transmit_data_msg_to_inbound_client_data_for_hopper() {
+        let system = System::new ("test");
+        let subject = Dispatcher::new ();
+        let subject_addr: SyncAddress<_> = subject.start ();
+        let stream_handler_pool = Recorder::new();
+        let hopper = Recorder::new();
+        let recording_arc = hopper.get_recording();
+        let awaiter = hopper.get_awaiter();
+        let socket_addr = SocketAddr::from_str ("1.2.3.4:5678").unwrap ();
+        let data: Vec<u8> = vec! (9, 10, 11);
+        let transmit_msg = HopperTemporaryTransmitDataMsg { endpoint: Endpoint::Socket(socket_addr), data: data.clone ()};
+        let mut peer_actors = make_peer_actors_from(None, None, Some(hopper), None);
+        peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
+        let stream_handler_pool_subs = make_stream_handler_pool_subs_from (Some (stream_handler_pool));
+        subject_addr.send( PoolBindMessage { dispatcher_subs: peer_actors.dispatcher.clone (), stream_handler_pool_subs});
+        subject_addr.send( BindMessage { peer_actors });
+
+        subject_addr.send (transmit_msg);
+
+        Arbiter::system().send(msgs::SystemExit(0));
+        system.run ();
+
+        awaiter.await_message_count (1);
+        let recording = recording_arc.lock ().unwrap ();
+
+        let message = &recording.get_record::<InboundClientData>(0) as *const _;
+        let (actual_component, actual_data) = unsafe {
+            let tptr = message as *const Box<InboundClientData>;
+            let message = &*tptr;
+            (message.component.clone(), message.data.clone ())
+        };
+
+        assert_eq!(actual_component, Component::Hopper);
         assert_eq!(actual_data, data);
         assert_eq! (recording.len (), 1);
     }
