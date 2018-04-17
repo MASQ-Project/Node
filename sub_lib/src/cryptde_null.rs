@@ -40,6 +40,12 @@ impl CryptDE for CryptDENull {
         }
     }
 
+    fn random (&self, dest: &mut [u8]) {
+        for i in 0..dest.len () {
+            dest[i] = '4' as u8
+        }
+    }
+
     fn private_key (&self) -> Key {
         self.private_key.clone ()
     }
@@ -140,6 +146,16 @@ mod tests {
         let result = subject.decode(&Key::new (b"invalidkey"), &CryptData::new (b"keydata"));
 
         assert_eq!(result.err().unwrap(), CryptdecError::InvalidKey);
+    }
+
+    #[test]
+    fn random_is_pretty_predictable () {
+        let subject = CryptDENull::new ();
+        let mut dest: [u8; 11] = [0; 11];
+
+        subject.random (&mut dest[..]);
+
+        assert_eq! (dest, &b"44444444444"[..]);
     }
 
     #[test]

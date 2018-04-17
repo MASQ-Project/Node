@@ -38,13 +38,13 @@ impl ResponseType for IncipientCoresPackage {
 }
 
 impl IncipientCoresPackage {
-    pub fn new<T> (route: Route, payload: T, key: &Key) -> IncipientCoresPackage where T: Serialize {
+    pub fn new<T> (route: Route, payload: T, payload_destination_key: &Key) -> IncipientCoresPackage where T: Serialize {
         // TODO: Figure out how to log this serialization failure rather than letting data crash the Node.
         let serialized_payload = serde_cbor::ser::to_vec(&payload).expect ("Serialization failure");
         IncipientCoresPackage {
             route,
             payload: PlainData::new (&serialized_payload[..]),
-            payload_destination_key: key.clone ()
+            payload_destination_key: payload_destination_key.clone ()
         }
     }
 }

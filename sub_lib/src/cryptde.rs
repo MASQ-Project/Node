@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use std::fmt;
+use std::net::SocketAddr;
 use serde;
 use serde::Serialize;
 use serde::Deserialize;
@@ -136,10 +137,13 @@ pub enum CryptdecError {
 pub trait CryptDE: Send {
     fn encode(&self, key: &Key, data: &PlainData) -> Result<CryptData, CryptdecError>;
     fn decode(&self, key: &Key, data: &CryptData) -> Result<PlainData, CryptdecError>;
+    fn random(&self, dest: &mut [u8]);
     // TODO: Would be really nice if these could return &Key instead of Key
     fn private_key(&self) -> Key;
     fn public_key(&self) -> Key;
 }
+
+pub type StreamKey = SocketAddr;
 
 #[cfg (test)]
 mod tests {

@@ -1,14 +1,14 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use std::net::SocketAddr;
-use cryptde::PlainData;
 use std::marker::Send;
 use actix::Subscriber;
+use cryptde::PlainData;
+use cryptde::StreamKey;
 use hopper::ExpiredCoresPackage;
 use peer_actors::BindMessage;
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct ClientResponsePayload {
-    pub stream_key: SocketAddr,
+    pub stream_key: StreamKey,
     pub last_response: bool,
     pub data: PlainData
 }

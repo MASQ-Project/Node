@@ -86,21 +86,25 @@ impl Neighborhood for NeighborhoodReal {
 mod tests {
     use super::*;
     use sub_lib::hop::Hop;
+    use sub_lib::cryptde::CryptData;
+    use std::iter;
 
     #[test]
     fn call_neighborhood_and_ask_for_a_rel_2_route() {
         let cryptde = CryptDENull::new ();
         let neighborhood = NeighborhoodReal::new();
 
-        let route = neighborhood.route_round_trip(&cryptde.public_key (),
+        let mut route = neighborhood.route_round_trip(&cryptde.public_key (),
             Component::Hopper, Component::Hopper).unwrap();
 
-        let (next_hop, tail) = route.deconstruct ();
+        let next_hop = route.shift(&cryptde.private_key(), &cryptde).unwrap();
 
-        assert_eq! (next_hop, Hop::with_key (&cryptde.public_key ()));
-        assert_eq! (tail, vec! (
-            Hop::with_key_and_component (&cryptde.public_key (), Component::ProxyClient).encode (&cryptde.public_key (), &cryptde).unwrap (),
-            Hop::with_component (Component::ProxyServer).encode (&cryptde.public_key (), &cryptde).unwrap ()
+        let mut garbage_can: Vec<u8> = iter::repeat (0u8).take (41).collect ();
+        cryptde.random (&mut garbage_can[..]);
+        assert_eq! (next_hop, Hop::with_key_and_component(&cryptde.public_key(), Component::ProxyClient));
+        assert_eq! (route.hops, vec! (
+            Hop::with_component (Component::ProxyServer).encode (&cryptde.public_key (), &cryptde).unwrap (),
+            CryptData::new (&garbage_can[..])
         ));
     }
 

@@ -33,10 +33,7 @@ impl ClientRequestPayloadFactory {
             None => {logger.error (format! ("No protocol associated with origin port {} for {}-byte packet: {:?}", origin_port, plain_data.data.len (), &plain_data.data)); return None},
             Some (protocol_pack) => protocol_pack
         };
-        let host_name = match protocol_pack.find_host_name (&plain_data) {
-            None => {logger.error (format! ("No hostname found in {}-byte packet from port {}: {:?}", plain_data.data.len (), origin_port, &plain_data.data)); return None},
-            Some (host_name) => host_name
-        };
+        let host_name = protocol_pack.find_host_name (&plain_data);
         Some (ClientRequestPayload {
             stream_key: ibcd.socket_addr,
             data: plain_data,
@@ -78,7 +75,7 @@ mod tests {
         assert_eq! (result, Some (ClientRequestPayload {
             stream_key: SocketAddr::from_str ("1.2.3.4:5678").unwrap(),
             data,
-            target_hostname: String::from ("borko.com"),
+            target_hostname: Some (String::from ("borko.com")),
             target_port: 80,
             protocol: ProxyProtocol::HTTP,
             originator_public_key: cryptde.public_key (),
@@ -86,7 +83,7 @@ mod tests {
     }
 
     #[test]
-    fn handles_tls () {
+    fn handles_tls_with_hostname () {
         let data = PlainData::new (&[
             0x16, // content_type: Handshake
             0x00, 0x00, 0x00, 0x00, // version, length: don't care
@@ -120,7 +117,43 @@ mod tests {
         assert_eq! (result, Some (ClientRequestPayload {
             stream_key: SocketAddr::from_str ("1.2.3.4:5678").unwrap(),
             data,
-            target_hostname: String::from ("server.com"),
+            target_hostname: Some (String::from ("server.com")),
+            target_port: 443,
+            protocol: ProxyProtocol::TLS,
+            originator_public_key: cryptde.public_key (),
+        }));
+    }
+
+    #[test]
+    fn handles_tls_without_hostname () {
+        let data = PlainData::new (&[
+            0x16, // content_type: Handshake
+            0x00, 0x00, 0x00, 0x00, // version, length: don't care
+            0x01, // handshake_type: ClientHello
+            0x00, 0x00, 0x00, 0x00, 0x00, // length, version: don't care
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // random: don't care
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // random: don't care
+            0x00, // session_id_length
+            0x00, 0x00, // cipher_suites_length
+            0x00, // compression_methods_length
+            0x00, 0x00, // extensions_length
+        ]);
+        let ibcd = InboundClientData {
+            socket_addr: SocketAddr::from_str ("1.2.3.4:5678").unwrap (),
+            origin_port: Some (443),
+            component: Component::ProxyServer,
+            data: data.data.clone (),
+        };
+        let cryptde = CryptDENull::new ();
+        let logger = Logger::new ("test");
+        let subject = ClientRequestPayloadFactory::new ();
+
+        let result = subject.make (&ibcd, &cryptde, &logger);
+
+        assert_eq! (result, Some (ClientRequestPayload {
+            stream_key: SocketAddr::from_str ("1.2.3.4:5678").unwrap(),
+            data,
+            target_hostname: None,
             target_port: 443,
             protocol: ProxyProtocol::TLS,
             originator_public_key: cryptde.public_key (),
@@ -163,24 +196,5 @@ mod tests {
 
         assert_eq! (result, None);
         TestLogHandler::new ().exists_log_containing ("ERROR: test: No protocol associated with origin port 1234 for 3-byte packet: [16, 17, 18]");
-    }
-
-    #[test]
-    fn makes_no_payload_if_host_name_is_not_available () {
-        LoggerInitializerWrapperMock::new ().init ();
-        let ibcd = InboundClientData {
-            socket_addr: SocketAddr::from_str ("1.2.3.4:5678").unwrap (),
-            origin_port: Some (80),
-            component: Component::ProxyServer,
-            data: vec!(0x10, 0x11, 0x12),
-        };
-        let cryptde = CryptDENull::new ();
-        let logger = Logger::new ("test");
-        let subject = ClientRequestPayloadFactory::new ();
-
-        let result = subject.make (&ibcd, &cryptde, &logger);
-
-        assert_eq! (result, None);
-        TestLogHandler::new ().exists_log_containing ("ERROR: test: No hostname found in 3-byte packet from port 80: [16, 17, 18]");
     }
 }

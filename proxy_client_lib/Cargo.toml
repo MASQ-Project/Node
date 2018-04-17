@@ -7,9 +7,12 @@ copyright = "Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) an
 workspace = "../node"
 
 [dependencies]
-trust-dns-resolver = "0.8.1"
-serde_cbor = "0.8.1"
 actix = "0.4.4"
+futures = "0.1.21"
+serde_cbor = "0.8.1"
+trust-dns-proto = "0.3.2"
+trust-dns-resolver = "0.8.1"
+tokio-core = "0.1.12"
 sub_lib = { path = "../sub_lib" }
 
 [dev-dependencies]

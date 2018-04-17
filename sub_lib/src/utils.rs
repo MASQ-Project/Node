@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use std::io::ErrorKind;
 
 macro_rules! try_opt {
     ($e:expr) => {
@@ -16,6 +17,15 @@ macro_rules! try_flg {
             None => return false
         }
     }
+}
+
+static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
+    ErrorKind::BrokenPipe, ErrorKind::ConnectionAborted, ErrorKind::ConnectionReset,
+    ErrorKind::ConnectionRefused, ErrorKind::TimedOut
+];
+
+pub fn indicates_dead_stream (kind: ErrorKind) -> bool {
+    DEAD_STREAM_ERRORS.contains (&kind)
 }
 
 pub fn index_of<T> (haystack: &[T], needle: &[T]) -> Option<usize> where T: PartialEq {
@@ -59,16 +69,27 @@ pub fn make_hex_string(bytes: &[u8]) -> String {
     strs.join("")
 }
 
+pub fn make_printable_string(bytes: &[u8]) -> String {
+    let strs: Vec<String> = bytes.iter()
+        .map(|b| match b {
+            nonprintable if b"\n\r\t".contains (nonprintable) => format!("{}", *nonprintable as char),
+            nonprintable if *nonprintable < ' ' as u8 => format!("{:02X}", nonprintable),
+            _ => format!("{}", *b as char)
+        })
+        .collect();
+    strs.join("")
+}
+
 pub fn to_string (data: &Vec<u8>) -> String {
     match String::from_utf8 (data.clone ()) {
-        Ok (string) => string,
+        Ok (string) => make_printable_string(string.as_bytes()),
         Err (_) => format! ("{:?}", data)
     }
 }
 
 pub fn to_string_s(data: &[u8]) -> String {
     match String::from_utf8 (Vec::from (data)) {
-        Ok (string) => string,
+        Ok (string) => make_printable_string(string.as_bytes()),
         Err (_) => format! ("{:?}", data)
     }
 }

@@ -117,8 +117,7 @@ impl HttpPacketFramer {
         if self.framer_state.packet_progress_state == PacketProgressState::SeekingBodyEnd {
             match self.seek_body_end() {
                 Some(request) => {
-                    let last_chunk = self.framer_state.transfer_encoding_chunked == ChunkExistenceState::Standard;
-                    Some(FramedChunk {chunk: request, last_chunk})
+                    Some(FramedChunk {chunk: request, last_chunk: false})
                 },
                 None => None
             }
@@ -287,7 +286,7 @@ impl HttpPacketFramer {
                 self.framer_state.transfer_encoding_chunked = ChunkExistenceState::Standard;
                 self.framer_state.chunk_progress_state = ChunkProgressState::None;
                 self.framer_state.chunk_size = None;
-                Some (FramedChunk {chunk: result_data, last_chunk: true})
+                Some (FramedChunk {chunk: result_data, last_chunk: false})
             },
             None => None
         }
@@ -481,7 +480,7 @@ name=Billy&value=obnoxious".as_bytes();
         let result = subject.take_frame().unwrap();
 
         assert_eq!(to_string(&result.chunk), to_string_s(request));
-        assert_eq!(result.last_chunk, true)
+        assert_eq!(result.last_chunk, false)
     }
 
     #[test]
@@ -495,7 +494,7 @@ name=Billy&value=obnoxious".as_bytes();
         let result = subject.take_frame().unwrap();
 
         assert_eq!(to_string(&result.chunk), String::from("GOOD_FIRST_LINE\r\nContent-Length: 10\r\n\r\nooga-booga"));
-        assert_eq!(result.last_chunk, true)
+        assert_eq!(result.last_chunk, false)
     }
 
     #[test]
@@ -510,7 +509,7 @@ name=Billy&value=obnoxious".as_bytes();
         let should_be_none = subject.take_frame();
 
         assert_eq!(to_string(&result.chunk), String::from("GOOD_FIRST_LINE\r\nContent-Length: 10\r\n\r\nooga-booga"));
-        assert_eq!(result.last_chunk, true);
+        assert_eq!(result.last_chunk, false);
         assert_eq!(should_be_none, None);
     }
 
@@ -526,9 +525,9 @@ GOOD_FIRST_LINE\r\nContent-Length: 5\r\n\r\ngooba".as_bytes();
         let second_result = subject.take_frame().unwrap();
 
         assert_eq!(to_string(&first_result.chunk), String::from("GOOD_FIRST_LINE\r\nContent-Length: 5\r\n\r\nbooga"));
-        assert_eq!(first_result.last_chunk, true);
+        assert_eq!(first_result.last_chunk, false);
         assert_eq!(to_string(&second_result.chunk), String::from("GOOD_FIRST_LINE\r\nContent-Length: 5\r\n\r\ngooba"));
-        assert_eq!(second_result.last_chunk, true)
+        assert_eq!(second_result.last_chunk, false)
     }
 
     #[test]
@@ -677,8 +676,8 @@ GOOD_FIRST_LINE\r\nContent-Length: 5\r\n\r\ngooba".as_bytes();
         assert_eq! (first_response, FramedChunk {chunk: Vec::from ("GOOD_FIRST_LINE\r\nTransfer-Encoding: chunked\r\n\r\n".as_bytes ()), last_chunk: false});
         assert_eq! (first_chunk, FramedChunk {chunk: Vec::from ("B\r\nFirst chunk\r\n".as_bytes ()), last_chunk: false});
         assert_eq! (second_chunk, FramedChunk {chunk: Vec::from ("C\r\nSecond chunk\r\n".as_bytes ()), last_chunk: false});
-        assert_eq! (final_chunk, FramedChunk {chunk: Vec::from ("0\r\n\r\n".as_bytes ()), last_chunk: true});
-        assert_eq! (second_response, FramedChunk {chunk: Vec::from ("GOOD_FIRST_LINE\r\n\r\n".as_bytes ()), last_chunk: true});
+        assert_eq! (final_chunk, FramedChunk {chunk: Vec::from ("0\r\n\r\n".as_bytes ()), last_chunk: false});
+        assert_eq! (second_response, FramedChunk {chunk: Vec::from ("GOOD_FIRST_LINE\r\n\r\n".as_bytes ()), last_chunk: false});
         assert_eq! (none, None);
     }
 
@@ -826,7 +825,7 @@ GOOD_FIRST_LINE\r\nContent-Length: 5\r\n\r\ngooba".as_bytes();
 
         let result = subject.take_frame ();
 
-        assert_eq! (result, Some (FramedChunk {chunk: Vec::from (&b"0\r\n\r\n"[..]), last_chunk: true}));
+        assert_eq! (result, Some (FramedChunk {chunk: Vec::from (&b"0\r\n\r\n"[..]), last_chunk: false}));
         assert_eq! (subject.framer_state.data_so_far, Vec::from (&b"garbage"[..]));
         assert_eq! (subject.framer_state.chunk_progress_state, ChunkProgressState::None);
         assert_eq! (subject.framer_state.chunk_size, None);
@@ -846,7 +845,7 @@ GOOD_FIRST_LINE\r\nContent-Length: 5\r\n\r\ngooba".as_bytes();
 
         let result = subject.take_frame ();
 
-        assert_eq! (result, Some (FramedChunk {chunk: Vec::from (&b"0\r\nHeader: value\r\n\r\n"[..]), last_chunk: true}));
+        assert_eq! (result, Some (FramedChunk {chunk: Vec::from (&b"0\r\nHeader: value\r\n\r\n"[..]), last_chunk: false}));
         assert_eq! (subject.framer_state.data_so_far, Vec::from (&b""[..]));
         assert_eq! (subject.framer_state.chunk_progress_state, ChunkProgressState::None);
         assert_eq! (subject.framer_state.chunk_size, None);
@@ -864,6 +863,6 @@ GOOD_FIRST_LINE\r\nContent-Length: 5\r\n\r\ngooba".as_bytes();
 
         let actual_chunk = result.unwrap ();
         assert_eq! (to_string (&actual_chunk.chunk), to_string_s (&data[..]));
-        assert_eq! (actual_chunk.last_chunk, true);
+        assert_eq! (actual_chunk.last_chunk, false);
     }
 }

@@ -54,7 +54,7 @@ impl Handler<InboundClientData> for ProxyServer {
         };
         // TODO this should come from the Neighborhood
         let route = Route::new(vec! (
-                RouteSegment::new(vec! (&cryptde.public_key()), Component::ProxyClient),
+                RouteSegment::new(vec! (&cryptde.public_key(), &cryptde.public_key ()), Component::ProxyClient),
                 RouteSegment::new(vec!(&cryptde.public_key(), &cryptde.public_key()), Component::ProxyServer)
             ), &cryptde).expect("Couldn't create route");
         let pkg = IncipientCoresPackage::new(route, payload, &cryptde.public_key());
@@ -144,7 +144,7 @@ mod tests {
         let expected_payload = ClientRequestPayload {
             stream_key: socket_addr.clone(),
             data: expected_http_request.clone(),
-            target_hostname: String::from("nowhere.com"),
+            target_hostname: Some (String::from("nowhere.com")),
             target_port: 80,
             protocol: ProxyProtocol::HTTP,
             originator_public_key: key.clone()
@@ -206,7 +206,105 @@ mod tests {
         let expected_payload = ClientRequestPayload {
             stream_key: socket_addr.clone(),
             data: expected_tls_request.clone(),
-            target_hostname: String::from("server.com"),
+            target_hostname: Some (String::from("server.com")),
+            target_port: 443,
+            protocol: ProxyProtocol::TLS,
+            originator_public_key: key.clone()
+        };
+        let expected_pkg = IncipientCoresPackage::new(route.clone(), expected_payload, &key);
+        let subject_addr: SyncAddress<_> = subject.start();
+        let mut peer_actors = make_peer_actors_from(None, None, Some(hopper_mock), None);
+        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+        subject_addr.send(BindMessage { peer_actors });
+
+        subject_addr.send(msg_from_dispatcher);
+
+        Arbiter::system().send(msgs::SystemExit(0));
+        system.run();
+
+        hopper_awaiter.await_message_count(1);
+        let recording = hopper_log_arc.lock().unwrap();
+        let record = recording.get_record::<IncipientCoresPackage>(0);
+        assert_eq!(record, &expected_pkg);
+    }
+
+    #[test]
+    fn proxy_server_receives_tls_handshake_packet_other_than_client_hello_from_dispatcher_then_sends_cores_package_to_hopper() {
+        let system = System::new("proxy_server_receives_tls_client_hello_from_dispatcher_then_sends_cores_package_to_hopper");
+        let tls_request = &[
+            0x16, // content_type: Handshake
+            0x00, 0x00, 0x00, 0x00, // version, length: don't care
+            0x10, // handshake_type: ClientKeyExchange (not important--just not ClientHello)
+            0x00, 0x00, 0x00, // length: 0
+        ];
+        let hopper_mock = Recorder::new();
+        let hopper_log_arc = hopper_mock.get_recording();
+        let hopper_awaiter = hopper_mock.get_awaiter();
+        let subject = ProxyServer::new();
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let expected_data = tls_request.to_vec();
+        let msg_from_dispatcher = InboundClientData {
+            socket_addr: socket_addr.clone(),
+            origin_port: Some (443),
+            component: Component::ProxyServer,
+            data: expected_data.clone()
+        };
+        let expected_tls_request = PlainData::new(tls_request);
+        let cryptde = CryptDENull::new();
+        let key = cryptde.public_key();
+        let route = route_from_proxy_server(&key, &cryptde);
+        let expected_payload = ClientRequestPayload {
+            stream_key: socket_addr.clone(),
+            data: expected_tls_request.clone(),
+            target_hostname: None,
+            target_port: 443,
+            protocol: ProxyProtocol::TLS,
+            originator_public_key: key.clone()
+        };
+        let expected_pkg = IncipientCoresPackage::new(route.clone(), expected_payload, &key);
+        let subject_addr: SyncAddress<_> = subject.start();
+        let mut peer_actors = make_peer_actors_from(None, None, Some(hopper_mock), None);
+        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+        subject_addr.send(BindMessage { peer_actors });
+
+        subject_addr.send(msg_from_dispatcher);
+
+        Arbiter::system().send(msgs::SystemExit(0));
+        system.run();
+
+        hopper_awaiter.await_message_count(1);
+        let recording = hopper_log_arc.lock().unwrap();
+        let record = recording.get_record::<IncipientCoresPackage>(0);
+        assert_eq!(record, &expected_pkg);
+    }
+
+    #[test]
+    fn proxy_server_receives_tls_packet_other_than_handshake_from_dispatcher_then_sends_cores_package_to_hopper() {
+        let system = System::new("proxy_server_receives_tls_client_hello_from_dispatcher_then_sends_cores_package_to_hopper");
+        let tls_request = &[
+            0xFF, // content_type: don't care, just not Handshake
+            0x00, 0x00, 0x00, 0x00, // version, length: don't care
+        ];
+        let hopper_mock = Recorder::new();
+        let hopper_log_arc = hopper_mock.get_recording();
+        let hopper_awaiter = hopper_mock.get_awaiter();
+        let subject = ProxyServer::new();
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let expected_data = tls_request.to_vec();
+        let msg_from_dispatcher = InboundClientData {
+            socket_addr: socket_addr.clone(),
+            origin_port: Some (443),
+            component: Component::ProxyServer,
+            data: expected_data.clone()
+        };
+        let expected_tls_request = PlainData::new(tls_request);
+        let cryptde = CryptDENull::new();
+        let key = cryptde.public_key();
+        let route = route_from_proxy_server(&key, &cryptde);
+        let expected_payload = ClientRequestPayload {
+            stream_key: socket_addr.clone(),
+            data: expected_tls_request.clone(),
+            target_hostname: None,
             target_port: 443,
             protocol: ProxyProtocol::TLS,
             originator_public_key: key.clone()

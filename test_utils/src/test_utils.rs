@@ -37,7 +37,6 @@ use sub_lib::hopper::HopperSubs;
 use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::hopper::HopperTemporaryTransmitDataMsg;
 use logger_trait_lib::logger::LoggerInitializerWrapper;
-use sub_lib::hop::Hop;
 use sub_lib::neighborhood::Neighborhood;
 use sub_lib::neighborhood::NeighborhoodError;
 use sub_lib::node_addr::NodeAddr;
@@ -48,6 +47,7 @@ use sub_lib::proxy_server::ProxyServerSubs;
 use sub_lib::route::Route;
 use sub_lib::route::RouteSegment;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
+use sub_lib::cryptde_null::CryptDENull;
 
 #[allow(dead_code)]
 pub struct ByteArrayWriter {
@@ -530,6 +530,14 @@ fn make_peer_actors_from_recorders(proxy_server: Recorder, dispatcher: Recorder,
     }
 }
 
+pub fn make_meaningless_route () -> Route {
+    Route::new (
+        vec! (RouteSegment::new (vec! (&Key::new (&b"ooga"[..]), &Key::new (&b"booga"[..])),
+                                 Component::ProxyClient)),
+        &CryptDENull::new ()
+    ).unwrap ()
+}
+
 pub struct Recorder {
     recording: Arc<Mutex<Recording>>,
 }
@@ -669,7 +677,7 @@ pub fn route_to_proxy_client (key: &Key, cryptde: &CryptDE) -> Route {
 }
 
 pub fn route_from_proxy_client (key: &Key, cryptde: &CryptDE) -> Route {
-    // Happens to be the same thing
+    // Happens to be the same
     route_to_proxy_client (key, cryptde)
 }
 
@@ -679,20 +687,20 @@ pub fn route_to_proxy_server (key: &Key, cryptde: &CryptDE) -> Route {
 
 pub fn route_from_proxy_server(key: &Key, cryptde: &CryptDE) -> Route {
     Route::new(vec! (
-        RouteSegment::new(vec! (key), Component::ProxyClient),
-        RouteSegment::new(vec!(key, key), Component::ProxyServer)
+        RouteSegment::new(vec! (key, key), Component::ProxyClient),
+        RouteSegment::new(vec! (key, key), Component::ProxyServer)
     ), cryptde).unwrap()
 }
 
-fn shift_one_hop(route: Route, cryptde: &CryptDE) -> Route {
-    let (_, mut tail) = route.deconstruct();
-    let next_hop = Hop::decode (&cryptde.private_key (), cryptde, &tail.remove(0)).unwrap();
-    Route::construct(next_hop, tail)
+fn shift_one_hop(mut route: Route, cryptde: &CryptDE) -> Route {
+    route.shift(&cryptde.private_key (), cryptde);
+    route
 }
 
 #[cfg (test)]
 mod tests {
     use super::*;
+    use std::iter;
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::time::Duration;
@@ -705,17 +713,20 @@ mod tests {
     use actix::msgs;
     use actix::ResponseType;
     use sub_lib::cryptde_null::CryptDENull;
+    use sub_lib::cryptde::CryptData;
+    use sub_lib::hop::Hop;
 
     #[test]
     fn characterize_route_from_proxy_server() {
         let cryptde = CryptDENull::new();
         let key = cryptde.public_key();
+
         let subject = route_from_proxy_server(&key, &cryptde);
-        let (next_hop, tail) = subject.deconstruct();
-        assert_eq! (next_hop, Hop::with_key (&key));
-        assert_eq! (tail, vec! (
-            Hop::with_key_and_component (&key,Component::ProxyClient).encode (&key, &cryptde).unwrap (),
-            Hop::with_component (Component::ProxyServer).encode (&key, &cryptde).unwrap ()
+
+        assert_eq! (subject.hops, vec! (
+            Hop::with_key (&key).encode (&key, &cryptde).unwrap (),
+            Hop::with_key_and_component (&key, Component::ProxyClient).encode (&key, &cryptde).unwrap (),
+            Hop::with_component (Component::ProxyServer).encode (&key, &cryptde).unwrap (),
         ));
     }
 
@@ -723,11 +734,15 @@ mod tests {
     fn characterize_route_to_proxy_client() {
         let cryptde = CryptDENull::new();
         let key = cryptde.public_key();
+
         let subject = route_to_proxy_client(&key, &cryptde);
-        let (next_hop, tail) = subject.deconstruct();
-        assert_eq! (next_hop, Hop::with_key_and_component (&key, Component::ProxyClient));
-        assert_eq! (tail, vec! (
-            Hop::with_component (Component::ProxyServer).encode (&key, &cryptde).unwrap ()
+
+        let mut garbage_can: Vec<u8> = iter::repeat (0u8).take (49).collect ();
+        cryptde.random (&mut garbage_can[..]);
+        assert_eq! (subject.hops, vec! (
+            Hop::with_key_and_component (&key, Component::ProxyClient).encode (&key, &cryptde).unwrap (),
+            Hop::with_component (Component::ProxyServer).encode (&key, &cryptde).unwrap (),
+            CryptData::new(&garbage_can[..])
         ));
     }
 
@@ -735,23 +750,32 @@ mod tests {
     fn characterize_route_from_proxy_client() {
         let cryptde = CryptDENull::new();
         let key = cryptde.public_key();
-        let subject = route_from_proxy_client(&key, &cryptde);
-        let (next_hop, tail) = subject.deconstruct();
-        assert_eq! (next_hop, Hop::with_key_and_component (&key, Component::ProxyClient));
-        assert_eq! (tail, vec! (
-            Hop::with_component (Component::ProxyServer).encode (&key, &cryptde).unwrap ()
-        ));
 
+        let subject = route_from_proxy_client(&key, &cryptde);
+
+        let mut garbage_can: Vec<u8> = iter::repeat (0u8).take (49).collect ();
+        cryptde.random (&mut garbage_can[..]);
+        assert_eq! (subject.hops, vec! (
+            Hop::with_key_and_component (&key, Component::ProxyClient).encode (&key, &cryptde).unwrap (),
+            Hop::with_component (Component::ProxyServer).encode (&key, &cryptde).unwrap (),
+            CryptData::new(&garbage_can[..])
+        ));
     }
 
     #[test]
     fn characterize_route_to_proxy_server() {
         let cryptde = CryptDENull::new();
         let key = cryptde.public_key();
+
         let subject = route_to_proxy_server(&key, &cryptde);
-        let (next_hop, tail) = subject.deconstruct();
-        assert_eq! (next_hop, Hop::with_component (Component::ProxyServer));
-        assert_eq! (tail, vec! ());
+
+        let mut garbage_can: Vec<u8> = iter::repeat (0u8).take (49).collect ();
+        cryptde.random (&mut garbage_can[..]);
+        assert_eq! (subject.hops, vec! (
+            Hop::with_component(Component::ProxyServer).encode(&key, &cryptde).unwrap(),
+            CryptData::new (&garbage_can[..]),
+            CryptData::new (&garbage_can[4..]),
+        ));
     }
 
     #[test]

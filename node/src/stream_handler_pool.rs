@@ -4,7 +4,6 @@ use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::io;
-use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::net::Shutdown;
 use std::string::ToString;
@@ -23,6 +22,7 @@ use sub_lib::dispatcher::DispatcherSubs;
 use sub_lib::dispatcher::Endpoint;
 use sub_lib::node_addr::NodeAddr;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
+use sub_lib::utils::indicates_dead_stream;
 use discriminator::Discriminator;
 use discriminator::DiscriminatorFactory;
 
@@ -118,7 +118,7 @@ impl StreamReaderReal {
     fn new (stream: Box<TcpStreamWrapper>, origin_port: Option<u16>, ibcd_sub: Box<Subscriber<dispatcher::InboundClientData> + Send>,
             remove_sub: Box<Subscriber<RemoveStreamMsg> + Send>, discriminator_factories: Vec<Box<DiscriminatorFactory>>) -> StreamReaderReal {
         let socket_addr = stream.peer_addr ().expect ("Internal error");
-        let name = format! ("StreamReader for {:?}", socket_addr);
+        let name = format! ("Dispatcher for {:?}", socket_addr);
         StreamReaderReal {
             stream,
             origin_port,
@@ -183,7 +183,7 @@ impl StreamWriter for StreamWriterReal {
 impl StreamWriterReal {
     fn new (stream: Box<TcpStreamWrapper>, remove_sub: Box<Subscriber<RemoveStreamMsg> + Send>) -> StreamWriterReal {
         let socket_addr = stream.peer_addr ().expect ("Internal error");
-        let name = format! ("StreamWriter for {:?}", socket_addr);
+        let name = format! ("Dispatcher for {:?}", socket_addr);
         let logger = Logger::new (&name[..]);
         StreamWriterReal {
             stream,
@@ -211,7 +211,7 @@ impl StreamHandlerPool {
             stream_writers: HashMap::new (),
             dispatcher_subs: None,
             self_subs: None,
-            logger: Logger::new ("StreamHandlerPool"),
+            logger: Logger::new ("Dispatcher"),
         }
     }
 
@@ -335,18 +335,11 @@ impl Handler<PoolBindMessage> for StreamHandlerPool {
     }
 }
 
-static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
-    ErrorKind::BrokenPipe, ErrorKind::ConnectionAborted, ErrorKind::ConnectionReset,
-    ErrorKind::ConnectionRefused, ErrorKind::TimedOut
-];
-fn indicates_dead_stream (kind: ErrorKind) -> bool {
-    DEAD_STREAM_ERRORS.contains (&kind)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Error;
+    use std::io::ErrorKind;
     use std::str::FromStr;
     use std::cell::RefCell;
     use std::ops::Deref;
@@ -488,7 +481,7 @@ mod tests {
         });
 
         awaiter.await_message_count (1);
-        TestLogHandler::new ().exists_log_matching("ThreadId\\(\\d+\\): WARN: StreamReader for V4\\(1\\.2\\.3\\.4:5678\\): Continuing after read error on port 6789: other os error");
+        TestLogHandler::new ().exists_log_matching("ThreadId\\(\\d+\\): WARN: Dispatcher for V4\\(1\\.2\\.3\\.4:5678\\): Continuing after read error on port 6789: other os error");
         let recording = dispatcher_recording.lock ().unwrap ();
         assert_eq! (recording.get_record::<dispatcher::InboundClientData> (0), &dispatcher::InboundClientData {
             socket_addr,
@@ -619,10 +612,10 @@ mod tests {
         }).ok ();
 
         subject_subs.transmit_sub.send(TransmitDataMsg { endpoint: Endpoint::Socket(socket_addr), data: vec!(0x12, 0x34) }).ok ();
-        tlh.await_log_containing ("ERROR: StreamWriter for V4(1.2.3.4:5679): Cannot transmit 2 bytes: broken pipe", 5000);
+        tlh.await_log_containing ("ERROR: Dispatcher for V4(1.2.3.4:5679): Cannot transmit 2 bytes: broken pipe", 5000);
 
         subject_subs.transmit_sub.send(TransmitDataMsg { endpoint: Endpoint::Socket(socket_addr), data: vec!(0x12, 0x34) }).ok ();
-        tlh.await_log_containing ("ERROR: StreamHandlerPool: Cannot transmit 2 bytes to V4(1.2.3.4:5679): nonexistent stream", 5000);
+        tlh.await_log_containing ("ERROR: Dispatcher: Cannot transmit 2 bytes to V4(1.2.3.4:5679): nonexistent stream", 5000);
 
         assert_eq! (write_stream_log.lock ().unwrap ().dump (), vec! (
             "shutdown (Both)"
@@ -649,7 +642,7 @@ mod tests {
             system.run();
         });
 
-        TestLogHandler::new ().await_log_containing("ERROR: StreamHandlerPool: Cannot transmit 2 bytes to V4(1.2.3.4:5677): nonexistent stream", 5000);
+        TestLogHandler::new ().await_log_containing("ERROR: Dispatcher: Cannot transmit 2 bytes to V4(1.2.3.4:5677): nonexistent stream", 5000);
     }
 
     #[test]

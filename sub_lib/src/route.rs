@@ -4,11 +4,11 @@ use hop::Hop;
 use cryptde::Key;
 use cryptde::CryptDE;
 use cryptde::CryptData;
+use std::iter;
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct Route {
-    next_hop: Hop,
-    tail: Vec<CryptData>
+    pub hops: Vec<CryptData>
 }
 
 impl Route {
@@ -40,49 +40,57 @@ impl Route {
             }
         }
         hops.push (Hop::with_component (pending_recipient.expect ("Route segment without recipient")));
-        Route::hops_to_route (hops, cryptde)
+        Route::hops_to_route (hops[1..].to_vec (), &route_segments[0].keys[0], cryptde)
     }
 
-    pub fn next_hop (&self) -> Hop {
-        self.next_hop.clone ()
+    // TODO: We should probably either have access to a Logger here, or return a Result instead of an Option.
+    pub fn next_hop (&self, next_hop_private_key: &Key, cryptde: &CryptDE) -> Option<Hop> {
+        if self.hops.is_empty () {return None}
+        Route::decode_hop (next_hop_private_key, cryptde, &self.hops[0].clone ())
     }
 
-    pub fn construct (next_hop: Hop, tail: Vec<CryptData>) -> Route {
-        Route {next_hop, tail}
-    }
-
-    pub fn deconstruct (self) -> (Hop, Vec<CryptData>) {
-        (self.next_hop, self.tail)
-    }
-
-    pub fn shift (mut self, new_bottom: Hop, new_bottom_key: &Key, cryptde: &CryptDE) -> (Key, Vec<CryptData>) {
-        self.tail.push (match new_bottom.encode (new_bottom_key, cryptde) {
-            Ok (crypt_data) => crypt_data,
-            Err (_) => unimplemented! ()
-        });
-        let key = match self.next_hop.public_key {
-            Some (key) => key,
-            None => unimplemented! ()
+    // TODO: We should probably either have access to a Logger here, or return a Result instead of an Option.
+    pub fn shift (&mut self, next_hop_private_key: &Key, cryptde: &CryptDE) -> Option<Hop> {
+        if self.hops.is_empty () {return None}
+        let next_hop = match Route::decode_hop (next_hop_private_key, cryptde, &self.hops.remove (0)) {
+            None => unimplemented!(),
+            Some (h) => h
         };
-        match self.next_hop.component {
-            Some (_) => unimplemented! (),
-            None => (key, self.tail)
+
+        let mut garbage_can: Vec<u8> = iter::repeat (0u8).take (self.average_hop_length ()).collect ();
+        cryptde.random (&mut garbage_can[..]);
+        self.hops.push (CryptData::new (&garbage_can[..]));
+
+        return Some (next_hop);
+    }
+
+    // TODO: We should probably either have access to a Logger here, or return a Result instead of an Option.
+    fn decode_hop (hop_key: &Key, cryptde: &CryptDE, hop_enc: &CryptData) -> Option<Hop> {
+        match Hop::decode (hop_key, cryptde, hop_enc) {
+            Err (e) => /* Log something? Somehow? */ {println! ("Decryption error: {:?}", e); unimplemented!()},
+            Ok (h) => Some (h)
         }
     }
 
-    fn hops_to_route (hops: Vec<Hop>, cryptde: &CryptDE) -> Result<Route, RouteError> {
-        let mut tail: Vec<CryptData> = Vec::new ();
-        for hop_index in 1..hops.len () {
-            let key_hop_index = hop_index - 1;
-            let key_hop = &hops[key_hop_index];
+    fn hops_to_route (hops: Vec<Hop>, top_hop_key: &Key, cryptde: &CryptDE) -> Result<Route, RouteError> {
+        let mut hops_enc: Vec<CryptData> = Vec::new ();
+        let mut hop_key_opt = Some (top_hop_key);
+        for hop_index in 0..hops.len () {
             let data_hop = &hops[hop_index];
-            tail.push (match data_hop.encode (key_hop.public_key.as_ref ().expect ("Hop without source key"), cryptde) {
+            let hop_key_ref = hop_key_opt.expect (&format! ("Hop without source key: {:?}", data_hop));
+            hops_enc.push (match data_hop.encode (hop_key_ref, cryptde) {
                 Ok (crypt_data) => crypt_data,
                 // TODO FIXME don't panic!
                 Err (_) => panic! ("Couldn't encode hop")
             });
+            hop_key_opt = data_hop.public_key.as_ref ();
         }
-        Ok (Route {next_hop: hops[0].clone (), tail})
+        Ok (Route {hops: hops_enc})
+    }
+
+    fn average_hop_length (&self) -> usize {
+        if self.hops.len () == 0 {unimplemented!()}
+        self.hops.iter ().fold (0, |sofar, elem| {sofar + elem.data.len ()}) / self.hops.len ()
     }
 }
 
@@ -109,18 +117,6 @@ mod tests {
     use cryptde_null::CryptDENull;
 
     #[test]
-    fn construct_and_deconstruct_communicate () {
-        let next_hop = Hop::with_key_and_component(&Key::new (&[1, 2]), Component::Hopper);
-        let tail = vec! (CryptData::new (&[3, 4]), CryptData::new (&[5, 6]));
-        let subject = Route::construct (next_hop.clone (), tail.clone ());
-
-        let (actual_next_hop, actual_tail) = subject.deconstruct ();
-
-        assert_eq! (actual_next_hop, next_hop);
-        assert_eq! (actual_tail, tail);
-    }
-
-    #[test]
     fn new_can_make_long_multistop_route () {
         let a_key = Key::new (&[65, 65, 65]);
         let b_key = Key::new (&[66, 66, 66]);
@@ -129,15 +125,14 @@ mod tests {
         let e_key = Key::new (&[69, 69, 69]);
         let f_key = Key::new (&[70, 70, 70]);
         let cryptde = CryptDENull::new ();
+
         let subject = Route::new(vec! (
-            RouteSegment::new (vec! (&b_key, &c_key, &d_key), Component::ProxyClient),
+            RouteSegment::new (vec! (&a_key, &b_key, &c_key, &d_key), Component::ProxyClient),
             RouteSegment::new (vec! (&d_key, &e_key, &f_key, &a_key), Component::ProxyServer)
         ), &cryptde).unwrap ();
 
-        let (next_hop, tail) = subject.deconstruct ();
-
-        assert_eq! (next_hop, Hop::with_key (&b_key));
-        assert_eq! (tail, vec! (
+        assert_eq! (subject.hops, vec! (
+            Hop::with_key (&b_key).encode (&a_key, &cryptde).unwrap (),
             Hop::with_key (&c_key).encode (&b_key, &cryptde).unwrap (),
             Hop::with_key (&d_key).encode (&c_key, &cryptde).unwrap (),
             Hop::with_key_and_component (&e_key, Component::ProxyClient).encode (&d_key, &cryptde).unwrap (),
@@ -152,37 +147,85 @@ mod tests {
         let a_key = Key::new (&[65, 65, 65]);
         let b_key = Key::new (&[66, 66, 66]);
         let cryptde = CryptDENull::new ();
+
         let subject = Route::new(vec! (
             RouteSegment::new (vec! (&a_key, &b_key), Component::Neighborhood)
         ), &cryptde).unwrap ();
 
-        let (next_hop, tail) = subject.deconstruct ();
-
-        assert_eq! (next_hop, Hop::with_key (&a_key));
-        assert_eq! (tail, vec! (
+        assert_eq! (subject.hops, vec! (
             Hop::with_key (&b_key).encode (&a_key, &cryptde).unwrap (),
             Hop::with_component (Component::Neighborhood).encode (&b_key, &cryptde).unwrap ()
         ));
     }
 
     #[test]
-    fn shift_returns_next_hop_and_tail_of_route_integrated_with_new_bottom () {
+    fn next_hop_decodes_top_hop () {
         let cryptde = CryptDENull::new ();
         let key12 = Key::new (&[1, 2]);
         let key34 = Key::new (&[3, 4]);
         let key56 = Key::new (&[5, 6]);
-        let new_bottom = Hop::with_key_and_component (&key56, Component::Hopper);
         let subject = Route::new (vec! (
-            RouteSegment::new (vec! (&key12, &key34), Component::Neighborhood)
+            RouteSegment::new (vec! (&key12, &key34, &key56), Component::Neighborhood)
         ), &cryptde).unwrap ();
-
-        let (next_stop_key, crypt_hops) = subject.shift (new_bottom.clone (), &key34, &cryptde);
-
-        assert_eq! (next_stop_key, key12);
-        assert_eq! (crypt_hops, vec! (
+        assert_eq! (subject.hops, vec! (
             Hop::with_key (&key34).encode (&key12, &cryptde).unwrap (),
-            Hop::with_component (Component::Neighborhood).encode (&key34, &cryptde).unwrap (),
-            new_bottom.encode (&key34, &cryptde).unwrap ()
+            Hop::with_key (&key56).encode (&key34, &cryptde).unwrap (),
+            Hop::with_component (Component::Neighborhood).encode (&key56, &cryptde).unwrap ()
+        ));
+
+        let next_hop = subject.next_hop ( &CryptDENull::other_key (&key12), &cryptde).unwrap ();
+
+        assert_eq! (next_hop, Hop::with_key(&key34));
+        assert_eq! (subject.hops, vec! (
+            Hop::with_key (&key34).encode (&key12, &cryptde).unwrap (),
+            Hop::with_key (&key56).encode (&key34, &cryptde).unwrap (),
+            Hop::with_component (Component::Neighborhood).encode (&key56, &cryptde).unwrap ()
+        ));
+    }
+
+    #[test]
+    fn shift_returns_next_hop_and_adds_garbage_at_the_bottom () {
+        let cryptde = CryptDENull::new ();
+        let key12 = Key::new (&[1, 2]);
+        let key34 = Key::new (&[3, 4]);
+        let key56 = Key::new (&[5, 6]);
+        let mut subject = Route::new (vec! (
+            RouteSegment::new (vec! (&key12, &key34, &key56), Component::Neighborhood)
+        ), &cryptde).unwrap ();
+        assert_eq! (subject.hops, vec! (
+            Hop::with_key (&key34).encode (&key12, &cryptde).unwrap (),
+            Hop::with_key (&key56).encode (&key34, &cryptde).unwrap (),
+            Hop::with_component (Component::Neighborhood).encode (&key56, &cryptde).unwrap ()
+        ));
+        let garbage_can_length = subject.average_hop_length ();
+
+        let next_hop = subject.shift ( &CryptDENull::other_key (&key12), &cryptde).unwrap ();
+
+        assert_eq! (next_hop, Hop::with_key(&key34));
+        let mut garbage_can: Vec<u8> = iter::repeat (0u8).take (garbage_can_length).collect ();
+        cryptde.random (&mut garbage_can[..]);
+        assert_eq! (subject.hops, vec! (
+            Hop::with_key (&key56).encode (&key34, &cryptde).unwrap (),
+            Hop::with_component (Component::Neighborhood).encode (&key56, &cryptde).unwrap (),
+            CryptData::new (&garbage_can[..])
         ))
+    }
+
+    #[test]
+    fn empty_route_says_none_when_asked_for_next_hop () {
+        let subject = Route { hops: Vec::new() };
+
+        let result = subject.next_hop(&Key::new (&[]), &CryptDENull::new ());
+
+        assert_eq! (result, None);
+    }
+
+    #[test]
+    fn shift_says_none_when_asked_for_next_hop () {
+        let mut subject = Route { hops: Vec::new() };
+
+        let result = subject.shift(&Key::new (&[]), &CryptDENull::new ());
+
+        assert_eq! (result, None);
     }
 }

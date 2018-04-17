@@ -30,7 +30,7 @@ impl Framer for TlsFramer {
                     let leftovers = from_offset.split_off (5 + length);
                     let chunk = from_offset;
                     self.data_so_far = leftovers;
-                    Some (FramedChunk { chunk, last_chunk: true })
+                    Some (FramedChunk { chunk, last_chunk: false })
                 }
                 else {
                     self.data_so_far = from_offset;
@@ -82,6 +82,7 @@ impl TlsFramer {
         (candidate >= 0x14) && (candidate <= 0x17)
     }
 
+    // TODO: This should accept 0x0300, 0x0301, 0x0302, and 0x0303
     fn is_valid_protocol_version(byte1: u8, byte2: u8) -> bool {
         (byte1 == 0x03) && ((byte2 == 0x01) || (byte2 == 0x03))
     }
@@ -165,7 +166,7 @@ mod tests {
             subject.add_data(&vec!(*content_type, 0x03, 0x03, 0x00, 0x03, 0x01, 0x02, 0x03)[..]);
             let result = subject.take_frame();
 
-            assert_eq!(result, Some(FramedChunk { chunk: vec!(*content_type, 0x03, 0x03, 0x00, 0x03, 0x01, 0x02, 0x03), last_chunk: true }));
+            assert_eq!(result, Some(FramedChunk { chunk: vec!(*content_type, 0x03, 0x03, 0x00, 0x03, 0x01, 0x02, 0x03), last_chunk: false }));
             assert_eq!(subject.data_so_far, vec!());
         });
     }
@@ -180,7 +181,7 @@ mod tests {
             subject.add_data (&vec! (0x17, byte1, byte2, 0x00, 0x03, 0x01, 0x02, 0x03)[..]);
             let result = subject.take_frame ();
 
-            assert_eq! (result, Some (FramedChunk {chunk: vec! (0x17, byte1, byte2, 0x00, 0x03, 0x01, 0x02, 0x03), last_chunk: true}));
+            assert_eq! (result, Some (FramedChunk {chunk: vec! (0x17, byte1, byte2, 0x00, 0x03, 0x01, 0x02, 0x03), last_chunk: false}));
             assert_eq! (subject.data_so_far, vec! ());
         });
     }
@@ -212,7 +213,7 @@ mod tests {
         )[..]);
         let result = subject.take_frame ();
 
-        assert_eq! (result, Some (FramedChunk {chunk: vec! (0x15, 0x03, 0x03, 0x00, 0x03, 0x05, 0x06, 0x07), last_chunk: true}));
+        assert_eq! (result, Some (FramedChunk {chunk: vec! (0x15, 0x03, 0x03, 0x00, 0x03, 0x05, 0x06, 0x07), last_chunk: false}));
         assert_eq! (subject.data_so_far, vec! (0x01, 0x02));
     }
 
@@ -234,9 +235,9 @@ mod tests {
         let result3 = subject.take_frame ();
         let result4 = subject.take_frame ();
 
-        assert_eq! (result1, Some (FramedChunk {chunk: vec! (0x14, 0x03, 0x03, 0x00, 0x03, 0x05, 0x06, 0x07), last_chunk: true}));
-        assert_eq! (result2, Some (FramedChunk {chunk: vec! (0x17, 0x03, 0x01, 0x00, 0x02, 0x08, 0x09), last_chunk: true}));
-        assert_eq! (result3, Some (FramedChunk {chunk: vec! (0x16, 0x03, 0x03, 0x00, 0x01, 0x0A), last_chunk: true}));
+        assert_eq! (result1, Some (FramedChunk {chunk: vec! (0x14, 0x03, 0x03, 0x00, 0x03, 0x05, 0x06, 0x07), last_chunk: false}));
+        assert_eq! (result2, Some (FramedChunk {chunk: vec! (0x17, 0x03, 0x01, 0x00, 0x02, 0x08, 0x09), last_chunk: false}));
+        assert_eq! (result3, Some (FramedChunk {chunk: vec! (0x16, 0x03, 0x03, 0x00, 0x01, 0x0A), last_chunk: false}));
         assert_eq! (result4, None);
     }
 }

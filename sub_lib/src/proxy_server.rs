@@ -1,14 +1,14 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use std::marker::Send;
-use std::net::SocketAddr;
 use actix::Subscriber;
 use cryptde::Key;
 use cryptde::PlainData;
 use dispatcher::InboundClientData;
 use hopper::ExpiredCoresPackage;
 use peer_actors::BindMessage;
+use cryptde::StreamKey;
 
-#[derive (Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[derive (Copy, Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum ProxyProtocol {
     HTTP,
     TLS
@@ -16,9 +16,9 @@ pub enum ProxyProtocol {
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct ClientRequestPayload {
-    pub stream_key: SocketAddr,
+    pub stream_key: StreamKey,
     pub data: PlainData,
-    pub target_hostname: String,
+    pub target_hostname: Option<String>,
     pub target_port: u16,
     pub protocol: ProxyProtocol,
     pub originator_public_key: Key

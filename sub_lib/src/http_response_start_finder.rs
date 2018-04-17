@@ -56,8 +56,10 @@ impl HttpResponseStartFinder {
     }
 
     fn find_next_response_offset (data_so_far: &[u8]) -> Result<usize, usize> {
-        match index_of (data_so_far, b"HTTP/") {
+        let needle = b"HTTP/";
+        match index_of (data_so_far, needle) {
             None => Err(0),
+            Some (http_offset) if http_offset + LONGEST_PREFIX_LEN > data_so_far.len () => Err (http_offset + needle.len ()),
             Some (http_offset) => {
                 let possibility_u8 = &data_so_far[http_offset..(http_offset + LONGEST_PREFIX_LEN)];
                 let possibility_cow = String::from_utf8_lossy (possibility_u8);
@@ -68,7 +70,6 @@ impl HttpResponseStartFinder {
                 }
             }
         }
-
     }
 }
 
@@ -205,5 +206,14 @@ Another-Header: val".as_bytes()),
             chunk_size: None,
             lines: vec! (),
         });
+    }
+
+    #[test]
+    fn find_next_response_offset_handles_deceptively_short_buffer () {
+        let data_so_far = b"HTTP/short";
+
+        let result = HttpResponseStartFinder::find_next_response_offset (&data_so_far[..]);
+
+        assert_eq! (result, Err (5));
     }
 }

@@ -44,13 +44,13 @@ pub trait TcpListenerWrapperFactory {
     fn make (&self) -> Box<TcpListenerWrapper>;
 }
 
-pub trait TcpStreamWrapperFactory {
-    fn make (&self, delegate: TcpStream) -> Box<TcpStreamWrapper>;
+pub trait TcpStreamWrapperFactory: Send {
+    fn make (&self) -> Box<TcpStreamWrapper>;
+    fn dup (&self) -> Box<TcpStreamWrapperFactory>;
 }
 
 pub struct TcpListenerWrapperReal {
     delegate: Option<TcpListener>,
-    factory: TcpStreamWrapperFactoryReal
 }
 
 pub struct TcpStreamWrapperReal {
@@ -59,6 +59,7 @@ pub struct TcpStreamWrapperReal {
 
 pub struct TcpListenerWrapperFactoryReal {}
 
+#[derive (Clone)]
 pub struct TcpStreamWrapperFactoryReal {}
 
 impl TcpListenerWrapper for TcpListenerWrapperReal {
@@ -75,7 +76,11 @@ impl TcpListenerWrapper for TcpListenerWrapperReal {
 
     fn accept (&self) -> io::Result<(Box<TcpStreamWrapper>, SocketAddr)> {
         match self.delegate ().accept () {
-            Ok ((tcp_stream, socket_addr)) => Ok ((self.factory.make (tcp_stream), socket_addr)),
+            Ok ((tcp_stream, socket_addr)) => {
+                let mut stream_wrapper = TcpStreamWrapperReal::new ();
+                stream_wrapper.delegate = Some (tcp_stream);
+                Ok ((Box::new (stream_wrapper), socket_addr))
+            },
             Err (e) => Err (e)
         }
     }
@@ -192,21 +197,21 @@ impl Write for TcpStreamWrapperReal {
 impl TcpListenerWrapperFactory for TcpListenerWrapperFactoryReal {
     fn make(&self) -> Box<TcpListenerWrapper> {
         Box::new (TcpListenerWrapperReal {
-            delegate: None,
-            factory: TcpStreamWrapperFactoryReal {}
+            delegate: None
         })
     }
 }
 
 impl TcpStreamWrapperFactory for TcpStreamWrapperFactoryReal {
-    fn make(&self, delegate: TcpStream) -> Box<TcpStreamWrapper> {
-        Box::new (TcpStreamWrapperReal {delegate: Some (delegate)})
+    fn make(&self) -> Box<TcpStreamWrapper> {
+        Box::new (TcpStreamWrapperReal {delegate: None})
     }
+    fn dup(&self) -> Box<TcpStreamWrapperFactory> {Box::new (self.clone ())}
 }
 
 impl TcpListenerWrapperReal {
     pub fn new () -> TcpListenerWrapperReal {
-        TcpListenerWrapperReal {delegate: None, factory: TcpStreamWrapperFactoryReal {}}
+        TcpListenerWrapperReal {delegate: None}
     }
 
     fn delegate (&self) -> &TcpListener {
