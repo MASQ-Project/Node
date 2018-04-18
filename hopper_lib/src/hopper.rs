@@ -75,6 +75,7 @@ impl Handler<IncipientCoresPackage> for Hopper {
         // TODO when we are decentralized, change this to a TransmitDataMsg
         let transmit_msg = HopperTemporaryTransmitDataMsg {
             endpoint: Endpoint::Key(key),
+            last_data: false, // Hopper-to-Hopper streams are never remotely killed
             data: encrypted_package.data,
         };
 
@@ -122,7 +123,7 @@ impl Handler<InboundClientData> for Hopper {
             },
             Some(_) => unimplemented!(),
             None => {
-                let transmit_msg = match self.to_transmit_msg (live_package) {
+                let transmit_msg = match self.to_transmit_msg (live_package, msg.last_data) {
                     Err (_) => unimplemented! (),
                     Ok (m) => m
                 };
@@ -154,7 +155,7 @@ impl Hopper {
     }
 
     // TODO when we are decentralized, change this to a TransmitDataMsg
-    pub fn to_transmit_msg (&self, live_package: LiveCoresPackage) -> Result<HopperTemporaryTransmitDataMsg, CryptdecError> {
+    pub fn to_transmit_msg (&self, live_package: LiveCoresPackage, last_data: bool) -> Result<HopperTemporaryTransmitDataMsg, CryptdecError> {
         let (next_key, next_live_package) = match live_package.to_next_live (self.cryptde.borrow ()) {
             Err (_) => unimplemented! (),
             Ok (p) => p
@@ -170,6 +171,7 @@ impl Hopper {
         // TODO when we are decentralized, change this to a TransmitDataMsg
         Ok (HopperTemporaryTransmitDataMsg {
             endpoint: Endpoint::Key(next_key),
+            last_data,
             data: next_live_package_enc.data
         })
     }
@@ -325,6 +327,7 @@ mod tests {
         let expected_lcp_enc = cryptde.encode (&destination_key, &expected_lcp_ser).unwrap ();
         assert_eq! (*record, HopperTemporaryTransmitDataMsg {
             endpoint: Endpoint::Key (destination_key.clone ()),
+            last_data: false,
             data: expected_lcp_enc.data
         });
     }
@@ -347,6 +350,7 @@ mod tests {
             socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             origin_port: None,
             component: Component::Hopper,
+            last_data: false,
             data: data_enc.data
         };
         thread::spawn(move || {
@@ -385,6 +389,7 @@ mod tests {
             socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             origin_port: None,
             component: Component::Hopper,
+            last_data: false,
             data: data_enc.data
         };
         thread::spawn(move || {
@@ -425,6 +430,7 @@ mod tests {
             socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             origin_port: None,
             component: Component::Hopper,
+            last_data: true,
             data: data_enc.data
         };
         thread::spawn(move || {
@@ -446,6 +452,7 @@ mod tests {
         let expected_lcp_enc = cryptde.encode (&next_key, &expected_lcp_ser).unwrap ();
         assert_eq! (*record, HopperTemporaryTransmitDataMsg {
             endpoint: Endpoint::Key (next_key.clone ()),
+            last_data: true,
             data: expected_lcp_enc.data
         });
     }
@@ -466,6 +473,7 @@ mod tests {
             socket_addr,
             origin_port: None,
             component: Component::Hopper,
+            last_data: false,
             data: encrypted_package,
         };
         let system = System::new("panics_if_proxy_server_is_unbound");
@@ -494,6 +502,7 @@ mod tests {
             socket_addr,
             origin_port: None,
             component: Component::Hopper,
+            last_data: false,
             data: encrypted_package,
         };
         let system = System::new("panics_if_proxy_client_is_unbound");

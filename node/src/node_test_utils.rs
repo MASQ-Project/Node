@@ -66,9 +66,7 @@ pub struct TcpStreamWrapperMockHandle {
 impl io::Read for TcpStreamWrapperMock {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.log.lock ().unwrap ().log (format! ("read ({}-byte buf)", buf.len ()));
-        let pair = self.read_results.remove (0);
-        let data = pair.0;
-        let result = pair.1;
+        let (data, result) = self.read_results.remove (0);
         let utf8 = String::from_utf8 (data.clone ());
         if utf8.is_ok () && (utf8.expect ("Internal error") == String::from ("block")) {
             let (_tx, rx) = mpsc::channel::<usize> ();

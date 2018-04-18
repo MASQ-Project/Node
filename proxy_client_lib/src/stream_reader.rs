@@ -1,3 +1,4 @@
+// Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use sub_lib::cryptde::StreamKey;
 use actix::Subscriber;
 use sub_lib::tcp_wrappers::TcpStreamWrapper;
@@ -10,11 +11,11 @@ use sub_lib::utils::to_string;
 use std::thread;
 use std::time::Duration;
 use sub_lib::utils::indicates_dead_stream;
+use sub_lib::utils::indicates_timeout;
 use sub_lib::cryptde::PlainData;
 use std::net::Shutdown;
 use sub_lib::proxy_client::ClientResponsePayload;
 use sub_lib::hopper::IncipientCoresPackage;
-use std::io::ErrorKind;
 
 pub struct StreamReader {
     stream_key: StreamKey,
@@ -72,7 +73,7 @@ impl StreamReader {
             },
             Err (e) => {
                 // TODO: Take this out when SC-152 is played
-                if StreamReader::indicates_timeout (e.kind ()) {
+                if indicates_timeout (e.kind ()) {
                     thread::sleep (Duration::from_millis (10));
                     return true
                 }
@@ -125,11 +126,6 @@ impl StreamReader {
                                         response_payload, &self.originator_public_key);
         self.hopper_sub.send(incipient_cores_package).expect ("Hopper is dead");
     }
-
-    // TODO: Take this out when SC-152 is played
-    fn indicates_timeout (kind: ErrorKind) -> bool {
-        (kind == ErrorKind::WouldBlock) || (kind == ErrorKind::TimedOut)
-    }
 }
 
 #[cfg (test)]
@@ -149,6 +145,7 @@ mod tests {
     use test_utils::test_utils;
     use test_utils::test_utils::Recorder;
     use local_test_utils::TcpStreamWrapperMock;
+    use std::io::ErrorKind;
 
     struct StreamEndingFramer {}
 

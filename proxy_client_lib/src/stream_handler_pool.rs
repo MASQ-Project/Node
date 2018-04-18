@@ -34,6 +34,7 @@ use sub_lib::tls_framer::TlsFramer;
 use resolver_wrapper::ResolverWrapper;
 use stream_writer::StreamWriter;
 use stream_handler_establisher::StreamHandlerEstablisher;
+use std::net::Shutdown;
 
 pub trait StreamHandlerPool {
     fn process_package (&mut self, package: ExpiredCoresPackage);
@@ -183,7 +184,14 @@ impl StreamHandlerPoolReal {
                 logger.debug (format! ("Wrote {} bytes to {}", &payload_ref.data.data.len (), writer_ref.peer_addr ()));
                 Ok (())
             }
-        }
+        }.and_then (|_count| {
+            if payload_ref.last_data {
+                writer_ref.shutdown (Shutdown::Both)
+            }
+            else {
+                Ok (())
+            }
+        })
     }
 
     pub fn connect_stream (stream: &mut Box<TcpStreamWrapper>, ip_addrs: Vec<IpAddr>, target_hostname: &String, target_port: u16, logger: &Logger) -> io::Result<()> {
@@ -267,6 +275,7 @@ mod tests {
     use local_test_utils::ResolverWrapperMock;
     use local_test_utils::TcpStreamWrapperFactoryMock;
     use local_test_utils::TcpStreamWrapperMock;
+    use std::net::Shutdown;
 
     #[test]
     fn invalid_package_is_logged_and_discarded () {
@@ -292,9 +301,10 @@ mod tests {
     }
 
     #[test]
-    fn payload_can_be_sent_over_existing_connection () {
+    fn non_terminal_payload_can_be_sent_over_existing_connection () {
         let client_request_payload = ClientRequestPayload {
             stream_key: SocketAddr::from_str ("1.2.3.4:5678").unwrap (),
+            last_data: false,
             data: PlainData::new (&b"These are the times"[..]),
             target_hostname: None,
             target_port: 80,
@@ -302,24 +312,63 @@ mod tests {
             originator_public_key: Key::new (&b"men's souls"[..])
         };
         let package = ExpiredCoresPackage::new (test_utils::make_meaningless_route (),
-            PlainData::new (&(serde_cbor::ser::to_vec (&client_request_payload).unwrap ())[..]));
+                                                PlainData::new (&(serde_cbor::ser::to_vec (&client_request_payload).unwrap ())[..]));
         let _system = System::new("test");
         let hopper = Recorder::new ();
         let hopper_sub =
             test_utils::make_peer_actors_from(None, None, Some (hopper), None).hopper.from_hopper_client;
         let mut write_parameters = Arc::new (Mutex::new (vec! ()));
+        let mut shutdown_parameters = Arc::new (Mutex::new (vec! ()));
         let write_stream = TcpStreamWrapperMock::new ()
             .peer_addr_result (Err (Error::from (ErrorKind::AddrInUse)))
             .write_parameters (&mut write_parameters)
-            .write_result (Ok (123));
+            .write_result (Ok (123))
+            .shutdown_parameters (&mut shutdown_parameters);
         let mut subject = StreamHandlerPoolReal::new (Box::new (ResolverWrapperMock::new ()),
                                                       Box::new (CryptDENull::new ()), hopper_sub);
         subject.stream_writers.insert (client_request_payload.stream_key,
-            StreamWriter::new (Box::new (write_stream)));
+                                       StreamWriter::new (Box::new (write_stream)));
 
         subject.process_package(package);
 
         assert_eq! (write_parameters.lock ().unwrap ().remove (0), client_request_payload.data.data);
+        assert_eq! (shutdown_parameters.lock ().unwrap ().len (), 0);
+    }
+
+    #[test]
+    fn terminal_payload_will_close_existing_connection () {
+        let client_request_payload = ClientRequestPayload {
+            stream_key: SocketAddr::from_str ("1.2.3.4:5678").unwrap (),
+            last_data: true,
+            data: PlainData::new (&b"These are the times"[..]),
+            target_hostname: None,
+            target_port: 80,
+            protocol: ProxyProtocol::HTTP,
+            originator_public_key: Key::new (&b"men's souls"[..])
+        };
+        let package = ExpiredCoresPackage::new (test_utils::make_meaningless_route (),
+           PlainData::new (&(serde_cbor::ser::to_vec (&client_request_payload).unwrap ())[..]));
+        let _system = System::new("test");
+        let hopper = Recorder::new ();
+        let hopper_sub =
+            test_utils::make_peer_actors_from(None, None, Some (hopper), None).hopper.from_hopper_client;
+        let mut write_parameters = Arc::new (Mutex::new (vec! ()));
+        let mut shutdown_parameters = Arc::new (Mutex::new (vec! ()));
+        let write_stream = TcpStreamWrapperMock::new ()
+            .peer_addr_result (Err (Error::from (ErrorKind::AddrInUse)))
+            .write_parameters (&mut write_parameters)
+            .write_result (Ok (123))
+            .shutdown_parameters (&mut shutdown_parameters)
+            .shutdown_result (Ok (()));
+        let mut subject = StreamHandlerPoolReal::new (Box::new (ResolverWrapperMock::new ()),
+                                                      Box::new (CryptDENull::new ()), hopper_sub);
+        subject.stream_writers.insert (client_request_payload.stream_key,
+           StreamWriter::new (Box::new (write_stream)));
+
+        subject.process_package(package);
+
+        assert_eq! (write_parameters.lock ().unwrap ().remove (0), client_request_payload.data.data);
+        assert_eq! (shutdown_parameters.lock ().unwrap ().remove (0), Shutdown::Both);
     }
 
     #[test]
@@ -331,6 +380,7 @@ mod tests {
         thread::spawn (move || {
             let client_request_payload = ClientRequestPayload {
                 stream_key: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+                last_data: false,
                 data: PlainData::new(&b"These are the times"[..]),
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
@@ -371,6 +421,7 @@ mod tests {
         thread::spawn (move || {
             let client_request_payload = ClientRequestPayload {
                 stream_key: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+                last_data: false,
                 data: PlainData::new(&b"These are the times"[..]),
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
@@ -422,6 +473,7 @@ mod tests {
         thread::spawn (move || {
             let client_request_payload = ClientRequestPayload {
                 stream_key: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+                last_data: false,
                 data: PlainData::new(&b"These are the times"[..]),
                 target_hostname: None,
                 target_port: 80,
@@ -472,6 +524,7 @@ mod tests {
         thread::spawn (move || {
             let client_request_payload = ClientRequestPayload {
                 stream_key: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+                last_data: false,
                 data: PlainData::new(&b"These are the times"[..]),
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
@@ -540,6 +593,7 @@ mod tests {
         thread::spawn (move || {
             let client_request_payload = ClientRequestPayload {
                 stream_key: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+                last_data: false,
                 data: PlainData::new(&b"These are the times"[..]),
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
@@ -584,6 +638,7 @@ mod tests {
         thread::spawn (move || {
             let client_request_payload = ClientRequestPayload {
                 stream_key: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+                last_data: true,
                 data: PlainData::new(&b"These are the times"[..]),
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
@@ -629,6 +684,7 @@ mod tests {
         thread::spawn (move || {
             let client_request_payload = ClientRequestPayload {
                 stream_key: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+                last_data: false,
                 data: PlainData::new(&b"These are the times"[..]),
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
@@ -675,6 +731,7 @@ mod tests {
         thread::spawn (move || {
             let client_request_payload = ClientRequestPayload {
                 stream_key: stream_key,
+                last_data: true,
                 data: PlainData::new(&b"These are the times"[..]),
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
@@ -720,6 +777,7 @@ mod tests {
         thread::spawn (move || {
             let client_request_payload = ClientRequestPayload {
                 stream_key: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+                last_data: false,
                 data: PlainData::new(&b"These are the times"[..]),
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,

@@ -1,3 +1,4 @@
+// Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use std::io;
 use std::io::Error;
 use std::net::IpAddr;
@@ -141,6 +142,7 @@ mod tests {
                 &ExpiredCoresPackage::new(test_utils::make_meaningless_route(), PlainData::new(&[])),
                 &ClientRequestPayload {
                     stream_key: SocketAddr::from_str("255.255.255.255:65535").unwrap(),
+                    last_data: false,
                     data: PlainData::new(&[]),
                     target_hostname: Some("blah".to_string()),
                     target_port: 0,
@@ -183,6 +185,7 @@ mod tests {
                 &ExpiredCoresPackage::new(test_utils::make_meaningless_route(), PlainData::new(&[])),
                 &ClientRequestPayload {
                     stream_key: SocketAddr::from_str("255.255.255.255:65535").unwrap(),
+                    last_data: false,
                     data: PlainData::new(&[]),
                     target_hostname: None,
                     target_port: 0,

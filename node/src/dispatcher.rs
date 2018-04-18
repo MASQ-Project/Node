@@ -67,6 +67,7 @@ impl Handler<HopperTemporaryTransmitDataMsg> for Dispatcher {
     fn handle(&mut self, msg: HopperTemporaryTransmitDataMsg, _ctx: &mut Self::Context) -> Self::Result {
         self.logger.debug (format! ("Echoing {} bytes from Hopper to Hopper", msg.data.len ()));
         let ibcd = InboundClientData {
+            last_data: msg.last_data,
             data: msg.data,
             socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             component: Component::Hopper,
@@ -134,7 +135,13 @@ mod tests {
         let origin_port = Some (8080);
         let component = Component::ProxyServer;
         let data: Vec<u8> = vec! (9, 10, 11);
-        let ibcd_in = InboundClientData {socket_addr, origin_port, component, data: data.clone ()};
+        let ibcd_in = InboundClientData {
+            socket_addr,
+            origin_port,
+            component,
+            last_data: false,
+            data: data.clone ()
+        };
         let mut peer_actors = make_peer_actors_from(Some(proxy_server), None, None, None);
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         subject_addr.send( BindMessage { peer_actors });
@@ -171,7 +178,13 @@ mod tests {
         let origin_port = Some (80);
         let component = Component::Neighborhood;
         let data: Vec<u8> = vec! (9, 10, 11);
-        let ibcd_in = InboundClientData {socket_addr, origin_port, component, data: data.clone ()};
+        let ibcd_in = InboundClientData {
+            socket_addr,
+            origin_port,
+            component,
+            last_data: false,
+            data: data.clone ()
+        };
         let mut peer_actors = make_peer_actors();
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         subject_addr.send( BindMessage { peer_actors });
@@ -193,7 +206,13 @@ mod tests {
         let origin_port = Some (22);
         let component = Component::ProxyClient;
         let data: Vec<u8> = vec! (9, 10, 11);
-        let ibcd_in = InboundClientData {socket_addr, origin_port, component, data: data.clone ()};
+        let ibcd_in = InboundClientData {
+            socket_addr,
+            origin_port,
+            component,
+            last_data: false,
+            data: data.clone ()
+        };
         let mut peer_actors = make_peer_actors();
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         subject_addr.send( BindMessage { peer_actors });
@@ -216,7 +235,13 @@ mod tests {
         let origin_port = Some (80);
         let component = Component::Hopper;
         let data: Vec<u8> = vec! (9, 10, 11);
-        let ibcd_in = InboundClientData {socket_addr, origin_port, component, data: data.clone ()};
+        let ibcd_in = InboundClientData {
+            socket_addr,
+            origin_port,
+            component,
+            last_data: false,
+            data: data.clone ()
+        };
         let mut peer_actors = make_peer_actors();
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         subject_addr.send( BindMessage { peer_actors });
@@ -238,7 +263,13 @@ mod tests {
         let origin_port = Some (1234);
         let component = Component::ProxyServer;
         let data: Vec<u8> = vec! (9, 10, 11);
-        let ibcd_in = InboundClientData {socket_addr, origin_port, component, data: data.clone ()};
+        let ibcd_in = InboundClientData {
+            socket_addr,
+            origin_port,
+            component,
+            last_data: false,
+            data: data.clone ()
+        };
 
         subject_ibcd.send (ibcd_in).unwrap ();
 
@@ -255,7 +286,11 @@ mod tests {
         let subject_obcd = subject_addr.subscriber::<TransmitDataMsg> ();
         let socket_addr = SocketAddr::from_str ("1.2.3.4:5678").unwrap ();
         let data: Vec<u8> = vec! (9, 10, 11);
-        let obcd = TransmitDataMsg { endpoint: Endpoint::Socket(socket_addr), data: data.clone ()};
+        let obcd = TransmitDataMsg {
+            endpoint: Endpoint::Socket(socket_addr),
+            last_data: false,
+            data: data.clone ()
+        };
 
         subject_obcd.send (obcd).unwrap ();
 
@@ -271,7 +306,11 @@ mod tests {
         let subject_addr: SyncAddress<_> = subject.start ();
         let socket_addr = SocketAddr::from_str ("1.2.3.4:5678").unwrap ();
         let data: Vec<u8> = vec! (9, 10, 11);
-        let transmit_msg = HopperTemporaryTransmitDataMsg { endpoint: Endpoint::Socket(socket_addr), data: data.clone ()};
+        let transmit_msg = HopperTemporaryTransmitDataMsg {
+            endpoint: Endpoint::Socket(socket_addr),
+            last_data: false,
+            data: data.clone ()
+        };
 
         subject_addr.send (transmit_msg);
 
@@ -290,7 +329,11 @@ mod tests {
         let awaiter = stream_handler_pool.get_awaiter();
         let socket_addr = SocketAddr::from_str ("1.2.3.4:5678").unwrap ();
         let data: Vec<u8> = vec! (9, 10, 11);
-        let obcd = TransmitDataMsg { endpoint: Endpoint::Socket(socket_addr), data: data.clone ()};
+        let obcd = TransmitDataMsg {
+            endpoint: Endpoint::Socket(socket_addr),
+            last_data: false,
+            data: data.clone ()
+        };
         let mut peer_actors = make_peer_actors_from(None, None, None, None);
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         let stream_handler_pool_subs = make_stream_handler_pool_subs_from (Some (stream_handler_pool));
@@ -318,7 +361,7 @@ mod tests {
     }
 
     #[test]
-    fn converts_hopper_temporary_transmit_data_msg_to_inbound_client_data_for_hopper() {
+    fn converts_nonterminal_hopper_temporary_transmit_data_msg_to_inbound_client_data_for_hopper() {
         let system = System::new ("test");
         let subject = Dispatcher::new ();
         let subject_addr: SyncAddress<_> = subject.start ();
@@ -328,7 +371,11 @@ mod tests {
         let awaiter = hopper.get_awaiter();
         let socket_addr = SocketAddr::from_str ("1.2.3.4:5678").unwrap ();
         let data: Vec<u8> = vec! (9, 10, 11);
-        let transmit_msg = HopperTemporaryTransmitDataMsg { endpoint: Endpoint::Socket(socket_addr), data: data.clone ()};
+        let transmit_msg = HopperTemporaryTransmitDataMsg {
+            endpoint: Endpoint::Socket(socket_addr),
+            last_data: false,
+            data: data.clone ()
+        };
         let mut peer_actors = make_peer_actors_from(None, None, Some(hopper), None);
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         let stream_handler_pool_subs = make_stream_handler_pool_subs_from (Some (stream_handler_pool));
@@ -344,14 +391,57 @@ mod tests {
         let recording = recording_arc.lock ().unwrap ();
 
         let message = &recording.get_record::<InboundClientData>(0) as *const _;
-        let (actual_component, actual_data) = unsafe {
+        let (actual_component, actual_last_data, actual_data) = unsafe {
             let tptr = message as *const Box<InboundClientData>;
             let message = &*tptr;
-            (message.component.clone(), message.data.clone ())
+            (message.component.clone(), message.last_data, message.data.clone ())
         };
 
         assert_eq!(actual_component, Component::Hopper);
+        assert_eq!(false, actual_last_data);
         assert_eq!(actual_data, data);
-        assert_eq! (recording.len (), 1);
+        assert_eq!(recording.len (), 1);
+    }
+    #[test]
+    fn converts_terminal_hopper_temporary_transmit_data_msg_to_inbound_client_data_for_hopper() {
+        let system = System::new ("test");
+        let subject = Dispatcher::new ();
+        let subject_addr: SyncAddress<_> = subject.start ();
+        let stream_handler_pool = Recorder::new();
+        let hopper = Recorder::new();
+        let recording_arc = hopper.get_recording();
+        let awaiter = hopper.get_awaiter();
+        let socket_addr = SocketAddr::from_str ("1.2.3.4:5678").unwrap ();
+        let data: Vec<u8> = vec! (9, 10, 11);
+        let transmit_msg = HopperTemporaryTransmitDataMsg {
+            endpoint: Endpoint::Socket(socket_addr),
+            last_data: true,
+            data: data.clone ()
+        };
+        let mut peer_actors = make_peer_actors_from(None, None, Some(hopper), None);
+        peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
+        let stream_handler_pool_subs = make_stream_handler_pool_subs_from (Some (stream_handler_pool));
+        subject_addr.send( PoolBindMessage { dispatcher_subs: peer_actors.dispatcher.clone (), stream_handler_pool_subs});
+        subject_addr.send( BindMessage { peer_actors });
+
+        subject_addr.send (transmit_msg);
+
+        Arbiter::system().send(msgs::SystemExit(0));
+        system.run ();
+
+        awaiter.await_message_count (1);
+        let recording = recording_arc.lock ().unwrap ();
+
+        let message = &recording.get_record::<InboundClientData>(0) as *const _;
+        let (actual_component, actual_last_data, actual_data) = unsafe {
+            let tptr = message as *const Box<InboundClientData>;
+            let message = &*tptr;
+            (message.component.clone(), message.last_data, message.data.clone ())
+        };
+
+        assert_eq!(actual_component, Component::Hopper);
+        assert_eq!(true, actual_last_data);
+        assert_eq!(actual_data, data);
+        assert_eq!(recording.len (), 1);
     }
 }

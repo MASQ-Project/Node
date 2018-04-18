@@ -23,8 +23,11 @@ use sub_lib::dispatcher::Endpoint;
 use sub_lib::node_addr::NodeAddr;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
 use sub_lib::utils::indicates_dead_stream;
+use sub_lib::utils::indicates_timeout;
 use discriminator::Discriminator;
 use discriminator::DiscriminatorFactory;
+use sub_lib::dispatcher::InboundClientData;
+use sub_lib::dispatcher::Component;
 
 trait StreamReader {
     fn handle_traffic (&mut self);
@@ -32,6 +35,7 @@ trait StreamReader {
 
 trait StreamWriter {
     fn transmit (&mut self, data: &[u8]) -> io::Result<usize>;
+    fn shutdown (&mut self, how: Shutdown) -> io::Result<()>;
 }
 
 pub struct AddStreamMsg {
@@ -98,15 +102,28 @@ impl StreamReader for StreamReaderReal {
                         self.wrangle_discriminators(&buf, length)
                     }
                 },
-                Err(e) => if indicates_dead_stream (e.kind ()) {
-                    self.logger.debug (format! ("Stream on port {} is dead: {}", port, e));
-                    let socket_addr = self.stream.peer_addr ().expect ("Internal error");
-                    self.remove_sub.send (RemoveStreamMsg {socket_addr}).expect ("Internal error");
-                    self.stream.shutdown (Shutdown::Both).ok (); // can't do anything about failure
-                    break;
-                }
-                else {
-                    self.logger.warning (format! ("Continuing after read error on port {}: {}", port, e.to_string ()))
+                Err(e) => {
+                    if indicates_timeout (e.kind ()) {
+                        thread::sleep (Duration::from_millis (100));
+                    }
+                    else if indicates_dead_stream (e.kind ()) {
+                        self.logger.debug (format! ("Stream on port {} is dead: {}", port, e));
+                        let socket_addr = self.stream.peer_addr ().expect ("Internal error");
+                        self.remove_sub.send (RemoveStreamMsg {socket_addr}).expect ("Internal error");
+                        self.stream.shutdown (Shutdown::Both).ok (); // can't do anything about failure
+                        // TODO: Skinny implementation: wrong for decentralization. StreamReaders for clandestine and non-clandestine data should probably behave differently here.
+                        self.ibcd_sub.send(InboundClientData {
+                            socket_addr: self.stream.peer_addr().expect ("Internal error"),
+                            origin_port: self.origin_port,
+                            component: Component::ProxyServer,
+                            last_data: true,
+                            data: Vec::new(),
+                        }).expect("Internal error");
+                        break;
+                    }
+                    else {
+                        self.logger.warning (format! ("Continuing after read error on port {}: {}", port, e.to_string ()))
+                    }
                 }
             }
         }
@@ -142,6 +159,7 @@ impl StreamReaderReal {
                         socket_addr: self.stream.peer_addr().expect ("Internal error"),
                         origin_port: self.origin_port,
                         component: unmasked_chunk.component,
+                        last_data: false,
                         data: unmasked_chunk.chunk.clone ()
                     };
                     self.logger.debug (format! ("Discriminator framed and unmasked {} bytes for {}; transmitting to {:?} via Hopper",
@@ -177,6 +195,10 @@ impl StreamWriter for StreamWriterReal {
                 Err(e)
             }
         }
+    }
+
+    fn shutdown(&mut self, how: Shutdown) -> io::Result<()> {
+        self.stream.shutdown (how)
     }
 }
 
@@ -298,7 +320,14 @@ impl Handler<TransmitDataMsg> for StreamHandlerPool {
                 match stream_writer_box.transmit (&msg.data[..]) {
                     Ok (_) => Ok (()),
                     Err (_) => Ok (())
-                }
+                }.and_then (|_| {
+                    if msg.last_data {
+                        stream_writer_box.shutdown (Shutdown::Both)
+                    }
+                    else {
+                        Ok (())
+                    }
+                })
             },
             None => {
                 self.logger.log (format! ("Cannot transmit {} bytes to {:?}: nonexistent stream",
@@ -354,15 +383,16 @@ mod tests {
     use test_utils::test_utils::LoggerInitializerWrapperMock;
     use test_utils::test_utils::Recorder;
     use test_utils::test_utils::TestLogHandler;
-    use node_test_utils::NullDiscriminatorFactory;
     use node_test_utils::TcpStreamWrapperMock;
+    use node_test_utils::TestLogOwner;
     use node_test_utils::make_stream_handler_pool_subs_from;
     use node_test_utils::wait_until;
+    use http_request_start_finder::HttpRequestDiscriminatorFactory;
 
     #[test]
     fn a_newly_added_stream_produces_stream_handler_that_sends_received_data_to_dispatcher () {
         let dispatcher = Recorder::new ();
-        let dispatcher_recording = dispatcher.get_recording();
+        let dispatcher_recording_arc = dispatcher.get_recording();
         let socket_addr = SocketAddr::from_str("1.2.3.4:80").unwrap();
         let origin_port = Some (8081);
         let one_http_req = Vec::from("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes());
@@ -378,12 +408,6 @@ mod tests {
         let awaiter = dispatcher.get_awaiter ();
         let mut read_stream = TcpStreamWrapperMock::new();
         let read_stream_log = read_stream.log.clone ();
-        let discriminator_factory = NullDiscriminatorFactory::new ()
-            .discriminator_nature(Component::ProxyServer, vec! (
-                one_http_req.clone (),
-                another_http_req.clone (),
-                athird_http_req.clone ()
-            ));
         thread::spawn (move || {
             let system = System::new("test");
             read_stream.peer_addr_result = Ok(socket_addr);
@@ -408,32 +432,43 @@ mod tests {
             subject_subs.add_sub.send(AddStreamMsg {
                 stream: Box::new(stream),
                 origin_port,
-                discriminator_factories: vec! (Box::new (discriminator_factory))
+                discriminator_factories: vec! (Box::new (HttpRequestDiscriminatorFactory::new ()))
             }).ok ();
 
             system.run ();
         });
 
-        awaiter.await_message_count (3);
-        let recording = dispatcher_recording.lock ().unwrap ();
-        assert_eq! (recording.get_record::<dispatcher::InboundClientData> (0), &dispatcher::InboundClientData {
+        awaiter.await_message_count (4);
+        let dispatcher_recording = dispatcher_recording_arc.lock ().unwrap ();
+        assert_eq! (dispatcher_recording.get_record::<dispatcher::InboundClientData> (0), &dispatcher::InboundClientData {
             socket_addr,
             origin_port,
             component: Component::ProxyServer,
+            last_data: false,
             data: one_http_req_a
         });
-        assert_eq! (recording.get_record::<dispatcher::InboundClientData> (1), &dispatcher::InboundClientData {
+        assert_eq! (dispatcher_recording.get_record::<dispatcher::InboundClientData> (1), &dispatcher::InboundClientData {
             socket_addr,
             origin_port,
             component: Component::ProxyServer,
+            last_data: false,
             data: another_http_req_a
         });
-        assert_eq! (recording.get_record::<dispatcher::InboundClientData> (2), &dispatcher::InboundClientData {
+        assert_eq! (dispatcher_recording.get_record::<dispatcher::InboundClientData> (2), &dispatcher::InboundClientData {
             socket_addr,
             origin_port,
             component: Component::ProxyServer,
+            last_data: false,
             data: a_third_http_req_a
         });
+        assert_eq! (dispatcher_recording.get_record::<dispatcher::InboundClientData> (3), &dispatcher::InboundClientData {
+            socket_addr,
+            origin_port,
+            component: Component::ProxyServer,
+            last_data: true,
+            data: Vec::new ()
+        });
+        assert_eq! (dispatcher_recording.len (), 4);
         assert_eq! (read_stream_log.lock ().unwrap ().dump ()[0], "set_read_timeout (None)");
     }
 
@@ -460,8 +495,6 @@ mod tests {
         write_stream.peer_addr_result = Ok (socket_addr);
         let mut stream = TcpStreamWrapperMock::new();
         stream.try_clone_results = RefCell::new(vec!(Ok(Box::new(read_stream)), Ok(Box::new(write_stream))));
-        let discriminator_factory = NullDiscriminatorFactory::new ()
-            .discriminator_nature(Component::ProxyServer, vec! (http_req.clone ()));
         thread::spawn (move || {
             let system = System::new("test");
             let subject = StreamHandlerPool::new();
@@ -474,7 +507,7 @@ mod tests {
             subject_subs.add_sub.send(AddStreamMsg {
                 stream: Box::new(stream),
                 origin_port,
-                discriminator_factories: vec! (Box::new (discriminator_factory))
+                discriminator_factories: vec! (Box::new (HttpRequestDiscriminatorFactory::new ()))
             }).ok ();
 
             system.run ();
@@ -487,6 +520,7 @@ mod tests {
             socket_addr,
             origin_port,
             component: Component::ProxyServer,
+            last_data: false,
             data: http_req_a
         });
     }
@@ -505,8 +539,6 @@ mod tests {
         write_stream.peer_addr_result = Ok(socket_addr);
         let mut stream = TcpStreamWrapperMock::new();
         stream.try_clone_results = RefCell::new(vec!(Ok(Box::new(read_stream)), Ok(Box::new(write_stream))));
-        let discriminator_factory = NullDiscriminatorFactory::new ()
-            .discriminator_nature(Component::ProxyServer, vec! (Vec::from (&b"booga"[..])));
         let (sub_tx, sub_rx) = mpsc::channel ();
         thread::spawn (move || {
             let system = System::new("test");
@@ -524,13 +556,17 @@ mod tests {
         subject_subs.add_sub.send(AddStreamMsg {
             stream: Box::new(stream),
             origin_port: None,
-            discriminator_factories: vec! (Box::new (discriminator_factory))
+            discriminator_factories: vec! (Box::new (HttpRequestDiscriminatorFactory::new ()))
         }).ok ();
         wait_until (|| {
             read_stream_log.lock ().unwrap ().dump ().len () == 3
         });
 
-        subject_subs.transmit_sub.send(TransmitDataMsg { endpoint: Endpoint::Socket(socket_addr), data: vec!(0x12, 0x34) }).ok ();
+        subject_subs.transmit_sub.send(TransmitDataMsg {
+            endpoint: Endpoint::Socket(socket_addr),
+            last_data: false,
+            data: vec!(0x12, 0x34)
+        }).ok ();
         TestLogHandler::new ().exists_no_log_matching("WARN.*1\\.2\\.3\\.4:5676.*Continuing after read error");
 
         assert_eq! (read_stream_log.lock ().unwrap ().dump (), vec! (
@@ -565,13 +601,59 @@ mod tests {
             discriminator_factories: vec! ()
         }).ok ();
 
-        subject_subs.transmit_sub.send(TransmitDataMsg {endpoint: Endpoint::Socket(socket_addr), data: vec!(0x12, 0x34)}).ok ();
+        subject_subs.transmit_sub.send(TransmitDataMsg {
+            endpoint: Endpoint::Socket(socket_addr),
+            last_data: false,
+            data: vec!(0x12, 0x34)
+        }).ok ();
 
         Arbiter::system().send(msgs::SystemExit(0));
         system.run ();
         let write_stream_params = write_stream_params_arc.lock ().unwrap ();
         TestLogHandler::new ().exists_no_log_matching("ERROR:.*1\\.2\\.3\\.4:5673");
         assert_eq! (write_stream_params.deref (), &vec! (vec! (0x12, 0x34)));
+    }
+
+    #[test]
+    fn terminal_packet_is_transmitted_and_then_stream_is_shut_down () {
+        LoggerInitializerWrapperMock::new ().init ();
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5673").unwrap();
+        let mut write_stream = TcpStreamWrapperMock::new();
+        write_stream.peer_addr_result = Ok (socket_addr);
+        write_stream.write_results = vec! (Ok (2));
+        write_stream.shutdown_results = RefCell::new (vec! (Ok (())));
+        let write_stream_params_arc = write_stream.write_params.clone ();
+        let write_stream_log_arc = write_stream.get_test_log ();
+        let system = System::new("test");
+        let mut read_stream = TcpStreamWrapperMock::new();
+        read_stream.peer_addr_result = Ok(socket_addr);
+        let mut stream = TcpStreamWrapperMock::new();
+        stream.try_clone_results = RefCell::new(vec!(Ok(Box::new(read_stream)), Ok(Box::new(write_stream))));
+        let subject = StreamHandlerPool::new();
+        let subject_addr: SyncAddress<_> = subject.start();
+        let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
+        let peer_actors = make_peer_actors();
+        subject_subs.bind.send(PoolBindMessage { dispatcher_subs: peer_actors.dispatcher, stream_handler_pool_subs: subject_subs.clone ()}).unwrap ();
+
+        subject_subs.add_sub.send(AddStreamMsg {
+            stream: Box::new(stream),
+            origin_port: None,
+            discriminator_factories: vec! ()
+        }).ok ();
+
+        subject_subs.transmit_sub.send(TransmitDataMsg {
+            endpoint: Endpoint::Socket(socket_addr),
+            last_data: true,
+            data: vec!(0x12, 0x34)
+        }).ok ();
+
+        Arbiter::system().send(msgs::SystemExit(0));
+        system.run ();
+        let write_stream_params = write_stream_params_arc.lock ().unwrap ();
+        TestLogHandler::new ().exists_no_log_matching("ERROR:.*1\\.2\\.3\\.4:5673");
+        assert_eq! (write_stream_params.deref (), &vec! (vec! (0x12, 0x34)));
+        let write_stream_log = write_stream_log_arc.lock ().unwrap ();
+        assert_eq! (write_stream_log.dump ().contains (&String::from ("shutdown (Both)")), true, "{:?}", write_stream_log.dump ());
     }
 
     #[test]
@@ -611,10 +693,18 @@ mod tests {
             discriminator_factories: vec! ()
         }).ok ();
 
-        subject_subs.transmit_sub.send(TransmitDataMsg { endpoint: Endpoint::Socket(socket_addr), data: vec!(0x12, 0x34) }).ok ();
+        subject_subs.transmit_sub.send(TransmitDataMsg {
+            endpoint: Endpoint::Socket(socket_addr),
+            last_data: false,
+            data: vec!(0x12, 0x34)
+        }).ok ();
         tlh.await_log_containing ("ERROR: Dispatcher for V4(1.2.3.4:5679): Cannot transmit 2 bytes: broken pipe", 5000);
 
-        subject_subs.transmit_sub.send(TransmitDataMsg { endpoint: Endpoint::Socket(socket_addr), data: vec!(0x12, 0x34) }).ok ();
+        subject_subs.transmit_sub.send(TransmitDataMsg {
+            endpoint: Endpoint::Socket(socket_addr),
+            last_data: false,
+            data: vec!(0x12, 0x34)
+        }).ok ();
         tlh.await_log_containing ("ERROR: Dispatcher: Cannot transmit 2 bytes to V4(1.2.3.4:5679): nonexistent stream", 5000);
 
         assert_eq! (write_stream_log.lock ().unwrap ().dump (), vec! (
@@ -637,7 +727,11 @@ mod tests {
                 stream_handler_pool_subs: subject_subs.clone ()
             }).unwrap ();
 
-            subject_subs.transmit_sub.send(TransmitDataMsg {endpoint: Endpoint::Socket(socket_addr), data: vec!(0x12, 0x34)}).ok ();
+            subject_subs.transmit_sub.send(TransmitDataMsg {
+                endpoint: Endpoint::Socket(socket_addr),
+                last_data: false,
+                data: vec!(0x12, 0x34)
+            }).ok ();
 
             system.run();
         });

@@ -28,6 +28,11 @@ pub fn indicates_dead_stream (kind: ErrorKind) -> bool {
     DEAD_STREAM_ERRORS.contains (&kind)
 }
 
+// TODO: Take this out when SC-152 is played
+pub fn indicates_timeout (kind: ErrorKind) -> bool {
+    (kind == ErrorKind::WouldBlock) || (kind == ErrorKind::TimedOut)
+}
+
 pub fn index_of<T> (haystack: &[T], needle: &[T]) -> Option<usize> where T: PartialEq {
     if needle.len () == 0 {panic! ("Can't find index of empty subsequence")}
     for h in 0..haystack.len () {

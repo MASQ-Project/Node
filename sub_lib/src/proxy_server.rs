@@ -17,6 +17,7 @@ pub enum ProxyProtocol {
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct ClientRequestPayload {
     pub stream_key: StreamKey,
+    pub last_data: bool,
     pub data: PlainData,
     pub target_hostname: Option<String>,
     pub target_port: u16,

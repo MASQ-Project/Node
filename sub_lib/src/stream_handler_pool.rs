@@ -6,6 +6,7 @@ use dispatcher::Endpoint;
 #[derive (PartialEq, Debug)]
 pub struct TransmitDataMsg {
     pub endpoint: Endpoint,
+    pub last_data: bool,
     pub data: Vec<u8>
 }
 

@@ -36,6 +36,7 @@ impl ClientRequestPayloadFactory {
         let host_name = protocol_pack.find_host_name (&plain_data);
         Some (ClientRequestPayload {
             stream_key: ibcd.socket_addr,
+            last_data: ibcd.last_data,
             data: plain_data,
             target_hostname: host_name,
             target_port: origin_port,
@@ -64,6 +65,7 @@ mod tests {
             socket_addr: SocketAddr::from_str ("1.2.3.4:5678").unwrap (),
             origin_port: Some (80),
             component: Component::ProxyServer,
+            last_data: false,
             data: data.data.clone (),
         };
         let cryptde = CryptDENull::new ();
@@ -74,6 +76,7 @@ mod tests {
 
         assert_eq! (result, Some (ClientRequestPayload {
             stream_key: SocketAddr::from_str ("1.2.3.4:5678").unwrap(),
+            last_data: false,
             data,
             target_hostname: Some (String::from ("borko.com")),
             target_port: 80,
@@ -106,6 +109,7 @@ mod tests {
             socket_addr: SocketAddr::from_str ("1.2.3.4:5678").unwrap (),
             origin_port: Some (443),
             component: Component::ProxyServer,
+            last_data: false,
             data: data.data.clone (),
         };
         let cryptde = CryptDENull::new ();
@@ -116,6 +120,7 @@ mod tests {
 
         assert_eq! (result, Some (ClientRequestPayload {
             stream_key: SocketAddr::from_str ("1.2.3.4:5678").unwrap(),
+            last_data: false,
             data,
             target_hostname: Some (String::from ("server.com")),
             target_port: 443,
@@ -142,6 +147,7 @@ mod tests {
             socket_addr: SocketAddr::from_str ("1.2.3.4:5678").unwrap (),
             origin_port: Some (443),
             component: Component::ProxyServer,
+            last_data: true,
             data: data.data.clone (),
         };
         let cryptde = CryptDENull::new ();
@@ -152,6 +158,7 @@ mod tests {
 
         assert_eq! (result, Some (ClientRequestPayload {
             stream_key: SocketAddr::from_str ("1.2.3.4:5678").unwrap(),
+            last_data: true,
             data,
             target_hostname: None,
             target_port: 443,
@@ -167,6 +174,7 @@ mod tests {
             socket_addr: SocketAddr::from_str ("1.2.3.4:5678").unwrap (),
             origin_port: None,
             component: Component::ProxyServer,
+            last_data: false,
             data: vec!(0x10, 0x11, 0x12),
         };
         let cryptde = CryptDENull::new ();
@@ -186,6 +194,7 @@ mod tests {
             socket_addr: SocketAddr::from_str ("1.2.3.4:5678").unwrap (),
             origin_port: Some (1234),
             component: Component::ProxyServer,
+            last_data: false,
             data: vec!(0x10, 0x11, 0x12),
         };
         let cryptde = CryptDENull::new ();

@@ -1,9 +1,11 @@
+// Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use sub_lib::tcp_wrappers::TcpStreamWrapper;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::fmt;
 use std::io::Write;
 use std::io;
+use std::net::Shutdown;
 
 pub struct StreamWriter {
     stream: Box<TcpStreamWrapper>,
@@ -42,15 +44,18 @@ impl Write for StreamWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.stream.write (buf)
     }
-
     fn flush(&mut self) -> io::Result<()> {
-        unimplemented!()
+        self.stream.flush ()
     }
 }
 
 impl StreamWriter {
     pub fn peer_addr (&self) -> String {
         self.peer_addr.clone ()
+    }
+
+    pub fn shutdown (&mut self, shutdown: Shutdown) -> io::Result<()> {
+        self.stream.shutdown (shutdown)
     }
 }
 

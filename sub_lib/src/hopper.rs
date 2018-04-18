@@ -16,6 +16,7 @@ use std::io;
 #[derive (PartialEq, Debug)]
 pub struct HopperTemporaryTransmitDataMsg {
     pub endpoint: Endpoint,
+    pub last_data: bool,
     pub data: Vec<u8>
 }
 

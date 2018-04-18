@@ -68,10 +68,11 @@ impl Handler<ExpiredCoresPackage> for ProxyServer {
     fn handle(&mut self, msg: ExpiredCoresPackage, _ctx: &mut Self::Context) -> Self::Result {
         match msg.payload::<ClientResponsePayload>() {
             Ok(payload) => {
-                self.logger.debug (format! ("Relaying {}-byte payload from Hopper to Dispatcher", payload.data.data.len ()));
+                self.logger.debug (format! ("Relaying {}-byte ExpiredCoresPackage payload from Hopper to Dispatcher", payload.data.data.len ()));
                 self.dispatcher.as_ref().expect("Dispatcher unbound in ProxyServer")
                     .send(TransmitDataMsg {
                         endpoint: Endpoint::Socket(payload.stream_key),
+                        last_data: payload.last_response,
                         data: payload.data.data.clone()
                     }).expect ("Dispatcher is dead");
                 ()
@@ -135,6 +136,7 @@ mod tests {
             socket_addr: socket_addr.clone(),
             origin_port: Some (80),
             component: Component::ProxyServer,
+            last_data: true,
             data: expected_data.clone()
         };
         let expected_http_request = PlainData::new(http_request);
@@ -143,6 +145,7 @@ mod tests {
         let route = route_from_proxy_server(&key, &cryptde);
         let expected_payload = ClientRequestPayload {
             stream_key: socket_addr.clone(),
+            last_data: true,
             data: expected_http_request.clone(),
             target_hostname: Some (String::from("nowhere.com")),
             target_port: 80,
@@ -197,6 +200,7 @@ mod tests {
             socket_addr: socket_addr.clone(),
             origin_port: Some (443),
             component: Component::ProxyServer,
+            last_data: false,
             data: expected_data.clone()
         };
         let expected_tls_request = PlainData::new(tls_request);
@@ -205,6 +209,7 @@ mod tests {
         let route = route_from_proxy_server(&key, &cryptde);
         let expected_payload = ClientRequestPayload {
             stream_key: socket_addr.clone(),
+            last_data: false,
             data: expected_tls_request.clone(),
             target_hostname: Some (String::from("server.com")),
             target_port: 443,
@@ -247,6 +252,7 @@ mod tests {
             socket_addr: socket_addr.clone(),
             origin_port: Some (443),
             component: Component::ProxyServer,
+            last_data: false,
             data: expected_data.clone()
         };
         let expected_tls_request = PlainData::new(tls_request);
@@ -255,6 +261,7 @@ mod tests {
         let route = route_from_proxy_server(&key, &cryptde);
         let expected_payload = ClientRequestPayload {
             stream_key: socket_addr.clone(),
+            last_data: false,
             data: expected_tls_request.clone(),
             target_hostname: None,
             target_port: 443,
@@ -295,6 +302,7 @@ mod tests {
             socket_addr: socket_addr.clone(),
             origin_port: Some (443),
             component: Component::ProxyServer,
+            last_data: true,
             data: expected_data.clone()
         };
         let expected_tls_request = PlainData::new(tls_request);
@@ -303,6 +311,7 @@ mod tests {
         let route = route_from_proxy_server(&key, &cryptde);
         let expected_payload = ClientRequestPayload {
             stream_key: socket_addr.clone(),
+            last_data: true,
             data: expected_tls_request.clone(),
             target_hostname: None,
             target_port: 443,
@@ -327,7 +336,7 @@ mod tests {
     }
 
     #[test]
-    fn proxy_server_receives_response_from_hopper() {
+    fn proxy_server_receives_terminal_response_from_hopper() {
         let system = System::new("proxy_server_receives_response_from_hopper");
         let dispatcher_mock = Recorder::new();
         let dispatcher_log_arc = dispatcher_mock.get_recording();
@@ -359,6 +368,44 @@ mod tests {
         let recording = dispatcher_log_arc.lock().unwrap();
         let record = recording.get_record::<TransmitDataMsg>(0);
         assert_eq!(record.endpoint, Endpoint::Socket(socket_addr));
+        assert_eq!(record.last_data, true);
+        assert_eq!(record.data, b"data".to_vec());
+    }
+
+    #[test]
+    fn proxy_server_receives_nonterminal_response_from_hopper() {
+        let system = System::new("proxy_server_receives_response_from_hopper");
+        let dispatcher_mock = Recorder::new();
+        let dispatcher_log_arc = dispatcher_mock.get_recording();
+        let dispatcher_awaiter = dispatcher_mock.get_awaiter();
+        let subject = ProxyServer::new();
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let cryptde = CryptDENull::new();
+        let key = cryptde.public_key();
+        let subject_addr: SyncAddress<_> = subject.start();
+        let remaining_route = route_to_proxy_server(&key, &cryptde);
+        let client_response_payload = ClientResponsePayload {
+            stream_key: socket_addr.clone(),
+            last_response: false,
+            data: PlainData::new(b"data")
+        };
+        let incipient_cores_package = IncipientCoresPackage::new(remaining_route.clone(), client_response_payload, &key);
+        let expired_cores_package = ExpiredCoresPackage::new(remaining_route, incipient_cores_package.payload);
+        let mut peer_actors = make_peer_actors_from(None, Some(dispatcher_mock), None, None);
+        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+        subject_addr.send(BindMessage { peer_actors });
+
+        subject_addr.send(expired_cores_package);
+
+        Arbiter::system().send(msgs::SystemExit(0));
+        system.run();
+
+        dispatcher_awaiter.await_message_count(1);
+
+        let recording = dispatcher_log_arc.lock().unwrap();
+        let record = recording.get_record::<TransmitDataMsg>(0);
+        assert_eq!(record.endpoint, Endpoint::Socket(socket_addr));
+        assert_eq!(record.last_data, false);
         assert_eq!(record.data, b"data".to_vec());
     }
 
@@ -398,6 +445,7 @@ mod tests {
             socket_addr: socket_addr.clone(),
             origin_port: Some (53),
             component: Component::ProxyServer,
+            last_data: false,
             data: expected_data.clone()
         };
         let subject_addr: SyncAddress<_> = subject.start();
