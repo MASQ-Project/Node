@@ -413,7 +413,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn write_failure_for_nonexistent_stream_generates_log_and_termination_message () {
         LoggerInitializerWrapperMock::new ().init ();
         let hopper = Recorder::new();
