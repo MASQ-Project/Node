@@ -73,7 +73,7 @@ pub struct TcpStreamWrapperMock {
     write_parameters: Arc<Mutex<Vec<Vec<u8>>>>,
     shutdown_parameters: Arc<Mutex<Vec<Shutdown>>>,
     set_read_timeout_parameters: Arc<Mutex<Vec<Option<Duration>>>>,
-    results: Arc<Mutex<TcpStreamWrapperMockResults>>
+    results: Arc<Mutex<TcpStreamWrapperMockResults>>,
 }
 
 impl Clone for TcpStreamWrapperMock {
@@ -84,7 +84,7 @@ impl Clone for TcpStreamWrapperMock {
             write_parameters: self.write_parameters.clone (),
             shutdown_parameters: self.shutdown_parameters.clone (),
             set_read_timeout_parameters: self.set_read_timeout_parameters.clone (),
-            results: self.results.clone ()
+            results: self.results.clone (),
         }
     }
 }
@@ -152,6 +152,7 @@ impl Read for TcpStreamWrapperMock {
         }
     }
 }
+
 impl Write for TcpStreamWrapperMock {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.write_parameters.lock ().unwrap ().push (Vec::from (buf));
