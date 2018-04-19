@@ -29,8 +29,8 @@ hopper_lib = { path = "../hopper_lib" }
 logger_trait_lib = { path = "../logger_trait_lib" }
 
 [dev-dependencies]
-#tls-api = "0.1.19"
-#tls-api-native-tls = "0.1.19"
+tls-api = "0.1.19"
+tls-api-native-tls = "0.1.19"
 test_utils = { path = "../test_utils" }
 
 [target.'cfg(unix)'.dependencies]
