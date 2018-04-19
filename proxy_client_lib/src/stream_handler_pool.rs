@@ -437,17 +437,19 @@ mod tests {
                     .hopper.from_hopper_client;
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_success(vec!(IpAddr::from_str("2.3.4.5").unwrap()));
-            let stream = TcpStreamWrapperMock::new()
-                // preparations for reading
+            let read_stream =  TcpStreamWrapperMock::new()
                 .peer_addr_result(Ok(SocketAddr::from_str("3.4.5.6:80").unwrap()))
-                .read_delay (0xFFFFFFFF)
-                // preparations for writing
+                .read_delay (0xFFFFFFFF);
+            let second_write_stream = TcpStreamWrapperMock::new ()
+                .write_result(Err (Error::from (ErrorKind::AlreadyExists)));
+            let write_stream = TcpStreamWrapperMock::new ()
+                .peer_addr_result(Ok(SocketAddr::from_str("3.4.5.6:80").unwrap()))
                 .connect_result(Ok(()))
                 .set_read_timeout_result(Ok(()))
-                .write_result(Err (Error::from (ErrorKind::AlreadyExists)))
-                .mocked_try_clone(false);
+                .try_clone_result (Ok (Box::new (read_stream)))
+                .try_clone_result (Ok (Box::new (second_write_stream)));
             let stream_factory = TcpStreamWrapperFactoryMock::new()
-                .tcp_stream_wrapper(stream);
+                .tcp_stream_wrapper(write_stream);
             let mut subject = StreamHandlerPoolReal::new(Box::new(resolver),
                                                          Box::new(CryptDENull::new()), hopper_sub);
             subject.tcp_stream_wrapper_factory = Box::new(stream_factory);
