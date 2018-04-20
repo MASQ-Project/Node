@@ -7,7 +7,7 @@ copyright = "Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) an
 description = ""
 
 [workspace]
-members = ["../sub_lib", "../test_utils", "../entry_dns_lib", "../hopper_lib", "../neighborhood_lib", "../proxy_client_lib", "../proxy_server_lib"]
+members = ["../sub_lib", "../test_utils", "../entry_dns_lib", "../hopper_lib", "../neighborhood_lib", "../proxy_client_lib", "../proxy_server_lib", "../logger_trait_lib"]
 
 [dependencies]
 chrono = "0.4.0"
