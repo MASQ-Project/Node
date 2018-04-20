@@ -47,19 +47,20 @@ pub struct HttpFramerState {
 
 impl Debug for HttpFramerState {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        writeln! (f, "HttpFramerState {{").expect ("Internal error");
-        writeln! (f, "  data_so_far: {}", to_string (&self.data_so_far)).expect ("Internal error");
-        writeln! (f, "  state: {:?}", self.packet_progress_state).expect ("Internal error");
-        writeln! (f, "  content_length: {}", self.content_length).expect ("Internal error");
-        writeln! (f, "  transfer_encoding_chunked: {:?}", self.transfer_encoding_chunked).expect ("Internal error");
-        writeln! (f, "  chunk_progress_state: {:?}", self.chunk_progress_state).expect ("Internal error");
-        writeln! (f, "  chunk_size: {:?}", self.chunk_size).expect ("Internal error");
-        writeln! (f, "  lines: [").expect ("Internal error");
+        // TODO: Convert all these expects into and_thens
+        writeln! (f, "HttpFramerState {{").expect ("Internal error in writeln");
+        writeln! (f, "  data_so_far: {}", to_string (&self.data_so_far)).expect ("Internal error in writeln");
+        writeln! (f, "  state: {:?}", self.packet_progress_state).expect ("Internal error in writeln");
+        writeln! (f, "  content_length: {}", self.content_length).expect ("Internal error in writeln");
+        writeln! (f, "  transfer_encoding_chunked: {:?}", self.transfer_encoding_chunked).expect ("Internal error in writeln");
+        writeln! (f, "  chunk_progress_state: {:?}", self.chunk_progress_state).expect ("Internal error in writeln");
+        writeln! (f, "  chunk_size: {:?}", self.chunk_size).expect ("Internal error in writeln");
+        writeln! (f, "  lines: [").expect ("Internal error in writeln");
         for line in &self.lines {
-            writeln! (f, "    {}", to_string (line)).expect ("Internal error");
+            writeln! (f, "    {}", to_string (line)).expect ("Internal error in writeln");
         }
-        writeln! (f, "  ]").expect ("Internal error");
-        writeln! (f, "}}").expect ("Internal error");
+        writeln! (f, "  ]").expect ("Internal error in writeln");
+        writeln! (f, "}}").expect ("Internal error in writeln");
         Ok (())
     }
 }
@@ -186,7 +187,7 @@ impl HttpPacketFramer {
             None => {self.discard_current_request (); return},
             Some (captures) => captures
         };
-        let length_str = captures.get (1).expect ("Internal error").as_str ();
+        let length_str = captures.get (1).expect ("Internal error: invalid HTTP Content-Length syntax").as_str ();
         self.framer_state.content_length = match length_str.parse::<usize> () {
             Ok (length) => length,
             Err (_) => {self.discard_current_request(); 0}
@@ -204,7 +205,7 @@ impl HttpPacketFramer {
             None => {self.discard_current_request (); return},
             Some (captures) => captures
         };
-        let encodings = captures.get (1).expect ("Internal error").as_str ();
+        let encodings = captures.get (1).expect ("Internal error: invalid HTTP Transfer-Encoding syntax").as_str ();
         if encodings.contains ("chunked") {
             self.framer_state.transfer_encoding_chunked = ChunkExistenceState::ChunkedResponse;
             self.framer_state.chunk_progress_state = ChunkProgressState::SeekingLengthHeader;

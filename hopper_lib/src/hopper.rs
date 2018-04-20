@@ -195,8 +195,10 @@ impl LiveCoresPackage {
             None => unimplemented!(),
             Some (h) => h
         };
-        if next_hop.public_key.is_none () {unimplemented! ()} // can't send over Substratum Network if no destination
-        (LiveCoresPackage::new (route, encrypted_payload), next_hop.public_key.expect ("Internal error"))
+        match next_hop.public_key {
+            None => unimplemented! (), // can't send over Substratum Network if no destination
+            Some (key) => (LiveCoresPackage::new (route, encrypted_payload), key)
+        }
     }
 
     pub fn to_expired (self, cryptde: &CryptDE) -> ExpiredCoresPackage {

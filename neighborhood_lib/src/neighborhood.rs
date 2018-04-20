@@ -42,7 +42,7 @@ impl Neighborhood for NeighborhoodReal {
             Ok (Route::new(vec! (
                     RouteSegment::new(vec! (&cryptde.public_key()), Component::ProxyClient),
                     RouteSegment::new(vec!(&cryptde.public_key(), &cryptde.public_key()), Component::ProxyServer)
-                ), &cryptde).expect ("Internal error"))
+                ), &cryptde).expect ("Internal error: couldn't construct Route"))
         }
         else {
             Err(NeighborhoodError::InvalidPublicKey)

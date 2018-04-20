@@ -69,7 +69,7 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
             system.run()
         });
 
-        rx.recv().expect("Internal error")
+        rx.recv().expect("Internal error: actor-system init thread died before initializing StreamHandlerPool subscribers")
     }
 }
 

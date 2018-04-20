@@ -88,9 +88,9 @@ struct StreamReaderReal {
 
 impl StreamReader for StreamReaderReal {
     fn handle_traffic(&mut self) {
-        let port = self.stream.local_addr().expect ("Internal error").port ();
+        let port = self.stream.local_addr().expect ("Internal error: no local address").port ();
         self.logger.debug (format! ("StreamReader for port {} starting with no read timeout", port));
-        self.stream.set_read_timeout (None).expect ("Internal error");
+        self.stream.set_read_timeout (None).expect ("Internal error: can't set read timeout");
         let mut buf: [u8; 0x10000] = [0; 0x10000];
         loop {
             match self.stream.read(&mut buf) {
@@ -108,17 +108,17 @@ impl StreamReader for StreamReaderReal {
                     }
                     else if indicates_dead_stream (e.kind ()) {
                         self.logger.debug (format! ("Stream on port {} is dead: {}", port, e));
-                        let socket_addr = self.stream.peer_addr ().expect ("Internal error");
-                        self.remove_sub.send (RemoveStreamMsg {socket_addr}).expect ("Internal error");
+                        let socket_addr = self.stream.peer_addr ().expect ("Internal error: no peer address");
+                        self.remove_sub.send (RemoveStreamMsg {socket_addr}).expect ("StreamHandlerPool is dead");
                         self.stream.shutdown (Shutdown::Both).ok (); // can't do anything about failure
                         // TODO: Skinny implementation: wrong for decentralization. StreamReaders for clandestine and non-clandestine data should probably behave differently here.
                         self.ibcd_sub.send(InboundClientData {
-                            socket_addr: self.stream.peer_addr().expect ("Internal error"),
+                            socket_addr: self.stream.peer_addr().expect ("Internal error: no peer address"),
                             origin_port: self.origin_port,
                             component: Component::ProxyServer,
                             last_data: true,
                             data: Vec::new(),
-                        }).expect("Internal error");
+                        }).expect("Dispatcher is dead");
                         break;
                     }
                     else {
@@ -134,7 +134,7 @@ impl StreamReader for StreamReaderReal {
 impl StreamReaderReal {
     fn new (stream: Box<TcpStreamWrapper>, origin_port: Option<u16>, ibcd_sub: Box<Subscriber<dispatcher::InboundClientData> + Send>,
             remove_sub: Box<Subscriber<RemoveStreamMsg> + Send>, discriminator_factories: Vec<Box<DiscriminatorFactory>>) -> StreamReaderReal {
-        let socket_addr = stream.peer_addr ().expect ("Internal error");
+        let socket_addr = stream.peer_addr ().expect ("Internal error: no peer address");
         let name = format! ("Dispatcher for {:?}", socket_addr);
         StreamReaderReal {
             stream,
@@ -156,7 +156,7 @@ impl StreamReaderReal {
             match discriminator.take_chunk() {
                 Some(unmasked_chunk) => {
                     let msg = dispatcher::InboundClientData {
-                        socket_addr: self.stream.peer_addr().expect ("Internal error"),
+                        socket_addr: self.stream.peer_addr().expect ("Internal error: no peer address while wrangling discriminators"),
                         origin_port: self.origin_port,
                         component: unmasked_chunk.component,
                         last_data: false,
@@ -164,7 +164,7 @@ impl StreamReaderReal {
                     };
                     self.logger.debug (format! ("Discriminator framed and unmasked {} bytes for {}; transmitting to {:?} via Hopper",
                                                  unmasked_chunk.chunk.len (), msg.socket_addr, unmasked_chunk.component));
-                    self.ibcd_sub.send(msg).expect("Internal error");
+                    self.ibcd_sub.send(msg).expect("Dispatcher is dead");
                 }
                 None => {
                     self.logger.debug (format!("Discriminator has no more data framed"));
@@ -187,9 +187,9 @@ impl StreamWriter for StreamWriterReal {
             Ok (size) => Ok (size),
             Err (e) => {
                 if indicates_dead_stream (e.kind ()) {
-                    let socket_addr = self.stream.peer_addr ().expect ("Internal error");
+                    let socket_addr = self.stream.peer_addr ().expect ("Internal error: no peer address transmitting for StreamWriter");
                     self.stream.shutdown (Shutdown::Both).ok (); // can't do anything about failure
-                    self.remove_sub.send (RemoveStreamMsg {socket_addr}).expect ("Internal error");
+                    self.remove_sub.send (RemoveStreamMsg {socket_addr}).expect ("Internal error: StreamHandlerPool is dead");
                 }
                 self.logger.log (format! ("Cannot transmit {} bytes: {}", data.len (), e.to_string ()));
                 Err(e)
@@ -204,7 +204,7 @@ impl StreamWriter for StreamWriterReal {
 
 impl StreamWriterReal {
     fn new (stream: Box<TcpStreamWrapper>, remove_sub: Box<Subscriber<RemoveStreamMsg> + Send>) -> StreamWriterReal {
-        let socket_addr = stream.peer_addr ().expect ("Internal error");
+        let socket_addr = stream.peer_addr ().expect ("Internal error: no peer address creating StreamWriterReal");
         let name = format! ("Dispatcher for {:?}", socket_addr);
         let logger = Logger::new (&name[..]);
         StreamWriterReal {
@@ -262,7 +262,7 @@ impl StreamHandlerPool {
     }
 
     fn set_up_stream_writer (&mut self, write_stream: Box<TcpStreamWrapper>) {
-        let socket_addr = write_stream.peer_addr ().expect ("Internal error");
+        let socket_addr = write_stream.peer_addr ().expect ("Internal error: no peer address preparing StreamWriter");
         let stream_writer = StreamWriterReal::new (
             write_stream,
             self.self_subs.as_ref().expect("StreamHandlerPool is unbound").remove_sub.clone (),

@@ -426,7 +426,7 @@ impl<'a> PacketFacade<'a> {
             if result.len () > 0 {result = result.add (".");}
             let end = local_offset + 1 + length;
             if end > buflen {return None;}
-            result = result.add (from_utf8 (&buf[(local_offset + 1)..end]).expect ("Internal error"));
+            result = result.add (from_utf8 (&buf[(local_offset + 1)..end]).expect ("Internal error: non-UTF-8 string"));
             local_offset = end;
         }
     }

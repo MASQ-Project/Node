@@ -53,7 +53,7 @@ impl ListenerHandler for ListenerHandlerReal {
                 }
             };
             let discriminator_factories = self.discriminator_factories.iter ().map (|df| {df.duplicate ()}).collect ();
-            self.add_stream_sub.as_ref ().expect ("Internal error")
+            self.add_stream_sub.as_ref ().expect ("Internal error: StreamHandlerPool unbound")
                 .send (AddStreamMsg {
                     stream,
                     origin_port: self.port,

@@ -41,7 +41,7 @@ impl Framer for JsonFramer {
                 self.possible_start = Some(0);
                 None
             }
-            _ => panic!("Internal error")
+            _ => panic!("Internal error framing JSON")
         }
     }
 }
