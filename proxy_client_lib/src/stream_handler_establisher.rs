@@ -47,14 +47,14 @@ impl StreamHandlerEstablisher {
             Ok (lookup_ip) => lookup_ip.iter ().map (|x| x).collect ()
         };
         self.logger.debug (format! ("Found IP addresses for {}: {:?}", target_hostname, &ip_addrs));
-        let mut write_stream = self.tcp_stream_wrapper_factory.make ();
-        match StreamHandlerPoolReal::connect_stream (&mut write_stream, ip_addrs, &target_hostname, payload.target_port, &self.logger) {
+        let mut stored_write_stream = self.tcp_stream_wrapper_factory.make ();
+        match StreamHandlerPoolReal::connect_stream (&mut stored_write_stream, ip_addrs, &target_hostname, payload.target_port, &self.logger) {
             Err (e) => return Err (e),
             Ok (()) => ()
         }
-        match write_stream.set_read_timeout (None) {
+        match stored_write_stream.set_read_timeout (None) {
             Err (e) => {
-                let target = match write_stream.peer_addr () {
+                let target = match stored_write_stream.peer_addr () {
                     Ok (s) => format! ("{}", s),
                     Err (_) => target_hostname.clone ()
                 };
@@ -64,14 +64,14 @@ impl StreamHandlerEstablisher {
             Ok (()) => ()
         }
         self.logger.debug (format! ("New stream set to block for reads"));
-        match self.spawn_stream_reader (package, payload, &write_stream) {
+        match self.spawn_stream_reader (package, payload, &stored_write_stream) {
             Err (e) => return Err (e),
             Ok (_) => ()
         }
-        let stream_writer = StreamWriter::new (write_stream);
-        let result_stream_writer = stream_writer.clone ();
+        let stream_writer = StreamWriter::new (stored_write_stream);
+        let returned_write_stream = stream_writer.clone ();
         self.stream_adder_tx.send ((payload.stream_key, stream_writer)).expect("StreamHandlerPool died");
-        Ok (result_stream_writer)
+        Ok (returned_write_stream)
     }
 
     fn spawn_stream_reader (&self, package: &ExpiredCoresPackage, payload: &ClientRequestPayload, write_stream: &Box<TcpStreamWrapper>) -> io::Result<()> {
@@ -86,12 +86,12 @@ impl StreamHandlerEstablisher {
             self.hopper_sub.clone (),
             read_stream,
             self.stream_killer_tx.clone (),
-            peer_addr,
+            peer_addr.clone (),
             package.remaining_route.clone (),
             framer,
             payload.originator_public_key.clone (),
         );
-        self.logger.debug (format! ("Spawning StreamReader for {}", stream_reader.peer_addr ()));
+        self.logger.debug (format! ("Spawning StreamReader for {}", peer_addr));
         thread::spawn(move || {
             stream_reader.run();
         });
@@ -127,13 +127,15 @@ mod tests {
         thread::spawn(move || {
             let system = System::new ("test");
             let hopper_sub = test_utils::make_peer_actors_from (None, None, Some (hopper), None).hopper.from_hopper_client;
-            let stream: Box<TcpStreamWrapper> = Box::new(TcpStreamWrapperMock::new ()
+            let read_stream = Box::new (TcpStreamWrapperMock::new ()
+                .peer_addr_result (Ok (SocketAddr::from_str ("1.2.3.4:5678").unwrap ()))
                 .read_buffer (vec! (0x16, 0x03, 0x03, 0x00, 0x00))
                 .read_result (Ok (5))
                 .read_buffer (b"HTTP/1.1 200 OK\r\n\r\n".to_vec ())
                 .read_result (Ok (19))
-                .read_result (Err (Error::from (ErrorKind::BrokenPipe)))
-                .mocked_try_clone (false));
+                .read_result (Err (Error::from (ErrorKind::BrokenPipe))));
+            let stored_write_stream: Box<TcpStreamWrapper> = Box::new(TcpStreamWrapperMock::new ()
+                .try_clone_result (Ok (read_stream)));
             let pool = StreamHandlerPoolReal::new(Box::new(ResolverWrapperMock::new()),
                                                   Box::new(CryptDENull::new()), hopper_sub);
             let subject = StreamHandlerEstablisher::new(&pool);
@@ -149,7 +151,7 @@ mod tests {
                     protocol: ProxyProtocol::HTTP,
                     originator_public_key: Key::new(&[]),
                 },
-                &stream
+                &stored_write_stream
             ).unwrap();
             system.run ();
         });
@@ -170,13 +172,15 @@ mod tests {
         thread::spawn(move || {
             let system = System::new ("test");
             let hopper_sub = test_utils::make_peer_actors_from (None, None, Some (hopper), None).hopper.from_hopper_client;
-            let stream: Box<TcpStreamWrapper> = Box::new(TcpStreamWrapperMock::new ()
+            let read_stream = Box::new (TcpStreamWrapperMock::new ()
+                .peer_addr_result (Ok (SocketAddr::from_str ("1.2.3.4:5678").unwrap ()))
                 .read_buffer (b"HTTP/1.1 200 OK\r\n\r\n".to_vec ())
                 .read_result (Ok (19))
                 .read_buffer (vec! (0x16, 0x03, 0x03, 0x00, 0x00))
                 .read_result (Ok (5))
-                .read_result (Err (Error::from (ErrorKind::BrokenPipe)))
-                .mocked_try_clone (false));
+                .read_result (Err (Error::from (ErrorKind::BrokenPipe))));
+            let stored_write_stream: Box<TcpStreamWrapper> = Box::new(TcpStreamWrapperMock::new ()
+                .try_clone_result (Ok (read_stream)));
             let pool = StreamHandlerPoolReal::new(Box::new(ResolverWrapperMock::new()),
                                                   Box::new(CryptDENull::new()), hopper_sub);
             let subject = StreamHandlerEstablisher::new(&pool);
@@ -192,7 +196,7 @@ mod tests {
                     protocol: ProxyProtocol::TLS,
                     originator_public_key: Key::new(&[]),
                 },
-                &stream
+                &stored_write_stream
             ).unwrap();
             system.run ();
         });
