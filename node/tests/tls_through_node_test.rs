@@ -24,12 +24,12 @@ use tls_api::TlsConnectorBuilder as TlsConnectorBuilderBase;
                             // SubstratumNode will be immediately reclaimed.
 fn tls_through_node_integration() {
     let node = utils::SubstratumNode::start();
-    let stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:443").unwrap()).unwrap();
-    stream.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
-    let connector = TlsConnector::builder().unwrap().build().unwrap();
-    let mut tls_stream = connector.connect("httpbin.org", stream).unwrap();
+    let stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:443").unwrap()).expect("Could not connect to 127.0.0.1:443");
+    stream.set_read_timeout(Some(Duration::from_millis(100))).expect ("Could not set read timeout to 100ms");
+    let connector = TlsConnector::builder().expect ("Could not construct TlsConnectorBuilder").build().expect ("Could not build TlsConnector");
+    let mut tls_stream = connector.connect("httpbin.org", stream).expect ("Could not wrap TcpStream in TlsConnector");
     let request = "GET /html HTTP/1.1\r\nHost: httpbin.org\r\n\r\n".as_bytes();
-    tls_stream.write(request.clone()).unwrap();
+    tls_stream.write(request.clone()).expect ("Could not write request to TLS stream");
 
     let mut buf: [u8; 16384] = [0; 16384];
     let mut begin_opt: Option<Instant> = None;
@@ -55,9 +55,9 @@ fn tls_through_node_integration() {
             }
         }
     }
-    tls_stream.shutdown().unwrap ();
+    tls_stream.shutdown().is_ok (); // Can't do anything about an error here
 
-    let response = String::from_utf8(Vec::from(&buf[..])).unwrap();
+    let response = String::from_utf8(Vec::from(&buf[..])).expect ("Response is not UTF-8");
     assert_eq!(response.contains("200 OK"), true, "{}", response);
     assert_eq!(response.contains("It was the Bottle Conjuror!"), true, "{}", response);
     assert_eq!(response.contains("Oh, woe on woe! Oh, Death, why canst thou not sometimes be timely?"), true, "{}", response);
