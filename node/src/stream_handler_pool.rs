@@ -28,6 +28,7 @@ use discriminator::Discriminator;
 use discriminator::DiscriminatorFactory;
 use sub_lib::dispatcher::InboundClientData;
 use sub_lib::dispatcher::Component;
+use sub_lib::cryptde::StreamKey;
 
 trait StreamReader {
     fn handle_traffic (&mut self);
@@ -79,6 +80,7 @@ impl Clone for StreamHandlerPoolSubs {
 
 struct StreamReaderReal {
     stream: Box<TcpStreamWrapper>,
+    stream_key: StreamKey,
     origin_port: Option<u16>,
     ibcd_sub: Box<Subscriber<dispatcher::InboundClientData> + Send>,
     remove_sub: Box<Subscriber<RemoveStreamMsg> + Send>,
@@ -108,12 +110,11 @@ impl StreamReader for StreamReaderReal {
                     }
                     else if indicates_dead_stream (e.kind ()) {
                         self.logger.debug (format! ("Stream on port {} is dead: {}", port, e));
-                        let socket_addr = self.stream.peer_addr ().expect ("Internal error: no peer address");
-                        self.remove_sub.send (RemoveStreamMsg {socket_addr}).expect ("StreamHandlerPool is dead");
+                        self.remove_sub.send (RemoveStreamMsg {socket_addr: self.stream_key}).expect ("StreamHandlerPool is dead");
                         self.stream.shutdown (Shutdown::Both).ok (); // can't do anything about failure
                         // TODO: Skinny implementation: wrong for decentralization. StreamReaders for clandestine and non-clandestine data should probably behave differently here.
                         self.ibcd_sub.send(InboundClientData {
-                            socket_addr: self.stream.peer_addr().expect ("Internal error: no peer address"),
+                            socket_addr: self.stream_key,
                             origin_port: self.origin_port,
                             component: Component::ProxyServer,
                             last_data: true,
@@ -134,10 +135,11 @@ impl StreamReader for StreamReaderReal {
 impl StreamReaderReal {
     fn new (stream: Box<TcpStreamWrapper>, origin_port: Option<u16>, ibcd_sub: Box<Subscriber<dispatcher::InboundClientData> + Send>,
             remove_sub: Box<Subscriber<RemoveStreamMsg> + Send>, discriminator_factories: Vec<Box<DiscriminatorFactory>>) -> StreamReaderReal {
-        let socket_addr = stream.peer_addr ().expect ("Internal error: no peer address");
+        let socket_addr = stream.peer_addr ().expect ("Internal error: no peer address creating StreamReaderReal");
         let name = format! ("Dispatcher for {:?}", socket_addr);
         StreamReaderReal {
             stream,
+            stream_key: socket_addr,
             origin_port,
             ibcd_sub,
             remove_sub,
@@ -156,7 +158,7 @@ impl StreamReaderReal {
             match discriminator.take_chunk() {
                 Some(unmasked_chunk) => {
                     let msg = dispatcher::InboundClientData {
-                        socket_addr: self.stream.peer_addr().expect ("Internal error: no peer address while wrangling discriminators"),
+                        socket_addr: self.stream_key,
                         origin_port: self.origin_port,
                         component: unmasked_chunk.component,
                         last_data: false,
@@ -177,6 +179,7 @@ impl StreamReaderReal {
 
 struct StreamWriterReal {
     stream: Box<TcpStreamWrapper>,
+    stream_key: StreamKey,
     remove_sub: Box<Subscriber<RemoveStreamMsg> + Send>,
     logger: Logger
 }
@@ -187,9 +190,8 @@ impl StreamWriter for StreamWriterReal {
             Ok (size) => Ok (size),
             Err (e) => {
                 if indicates_dead_stream (e.kind ()) {
-                    let socket_addr = self.stream.peer_addr ().expect ("Internal error: no peer address transmitting for StreamWriter");
                     self.stream.shutdown (Shutdown::Both).ok (); // can't do anything about failure
-                    self.remove_sub.send (RemoveStreamMsg {socket_addr}).expect ("Internal error: StreamHandlerPool is dead");
+                    self.remove_sub.send (RemoveStreamMsg {socket_addr: self.stream_key}).expect ("Internal error: StreamHandlerPool is dead");
                 }
                 self.logger.log (format! ("Cannot transmit {} bytes: {}", data.len (), e.to_string ()));
                 Err(e)
@@ -209,6 +211,7 @@ impl StreamWriterReal {
         let logger = Logger::new (&name[..]);
         StreamWriterReal {
             stream,
+            stream_key: socket_addr,
             remove_sub,
             logger
         }
@@ -388,6 +391,40 @@ mod tests {
     use node_test_utils::make_stream_handler_pool_subs_from;
     use node_test_utils::wait_until;
     use http_request_start_finder::HttpRequestDiscriminatorFactory;
+    use sub_lib::dispatcher::InboundClientData;
+
+    #[test]
+    fn stream_reader_constructor_assigns_peer_addr () {
+        let stream = TcpStreamWrapperMock::new ()
+            .peer_addr_result (Ok (SocketAddr::from_str ("12.34.56.78:9101").unwrap ()));
+        let _system = System::new ("test");
+        let ibcd = Recorder::new ();
+        let ibcd_addr: SyncAddress<Recorder> = ibcd.start ();
+        let ibcd_sub: Box<Subscriber<InboundClientData> + Send> = ibcd_addr.subscriber ();
+        let remove = Recorder::new ();
+        let remove_addr: SyncAddress<Recorder> = remove.start ();
+        let remove_sub: Box<Subscriber<RemoveStreamMsg> + Send> = remove_addr.subscriber ();
+        let discriminator_factory = HttpRequestDiscriminatorFactory {};
+
+        let subject = StreamReaderReal::new (Box::new (stream),
+                                             None, ibcd_sub, remove_sub, vec! (Box::new (discriminator_factory)));
+
+        assert_eq! (subject.stream_key, SocketAddr::from_str ("12.34.56.78:9101").unwrap ());
+    }
+
+    #[test]
+    fn stream_writer_constructor_assigns_peer_addr () {
+        let stream = TcpStreamWrapperMock::new ()
+            .peer_addr_result (Ok (SocketAddr::from_str ("12.34.56.78:9101").unwrap ()));
+        let _system = System::new ("test");
+        let remove = Recorder::new ();
+        let remove_addr: SyncAddress<Recorder> = remove.start ();
+        let remove_sub: Box<Subscriber<RemoveStreamMsg> + Send> = remove_addr.subscriber ();
+
+        let subject = StreamWriterReal::new (Box::new (stream), remove_sub);
+
+        assert_eq! (subject.stream_key, SocketAddr::from_str ("12.34.56.78:9101").unwrap ());
+    }
 
     #[test]
     fn a_newly_added_stream_produces_stream_handler_that_sends_received_data_to_dispatcher () {
@@ -410,7 +447,7 @@ mod tests {
         let read_stream_log = read_stream.log.clone ();
         thread::spawn (move || {
             let system = System::new("test");
-            read_stream.peer_addr_result = Ok(socket_addr);
+            read_stream = read_stream.peer_addr_result (Ok(socket_addr));
             read_stream.set_read_timeout_results = RefCell::new (vec! (Ok (())));
             read_stream.read_results = vec!(
                 (one_http_req.clone(), Ok(one_http_req.len())),
@@ -419,8 +456,8 @@ mod tests {
                 (one_http_req.clone(), Ok(one_http_req.len ()))
             );
             read_stream.shutdown_results = RefCell::new (vec! (Ok (())));
-            let mut write_stream = TcpStreamWrapperMock::new();
-            write_stream.peer_addr_result = Ok (socket_addr);
+            let write_stream = TcpStreamWrapperMock::new()
+                .peer_addr_result (Ok (socket_addr));
             let mut stream = TcpStreamWrapperMock::new();
             stream.try_clone_results = RefCell::new(vec!(Ok(Box::new(read_stream)), Ok(Box::new(write_stream))));
             let subject = StreamHandlerPool::new();
@@ -482,8 +519,8 @@ mod tests {
         let http_req = Vec::from("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes());
         let http_req_a = http_req.clone ();
         let awaiter = dispatcher.get_awaiter ();
-        let mut read_stream = TcpStreamWrapperMock::new();
-        read_stream.peer_addr_result = Ok(socket_addr);
+        let mut read_stream = TcpStreamWrapperMock::new()
+            .peer_addr_result (Ok(socket_addr));
         read_stream.set_read_timeout_results = RefCell::new (vec! (Ok (())));
         read_stream.read_results = vec!(
             (Vec::new (), Err(Error::from(ErrorKind::Other))), // no shutdown
@@ -491,8 +528,8 @@ mod tests {
             (Vec::new (), Err(Error::from(ErrorKind::BrokenPipe))) // shutdown
         );
         read_stream.shutdown_results = RefCell::new (vec! (Ok (())));
-        let mut write_stream = TcpStreamWrapperMock::new();
-        write_stream.peer_addr_result = Ok (socket_addr);
+        let write_stream = TcpStreamWrapperMock::new()
+            .peer_addr_result (Ok (socket_addr));
         let mut stream = TcpStreamWrapperMock::new();
         stream.try_clone_results = RefCell::new(vec!(Ok(Box::new(read_stream)), Ok(Box::new(write_stream))));
         thread::spawn (move || {
@@ -529,14 +566,15 @@ mod tests {
     fn receiving_from_a_dead_existing_stream_removes_writer_but_writes_no_error_log () {
         LoggerInitializerWrapperMock::new ().init ();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5676").unwrap();
-        let mut read_stream = TcpStreamWrapperMock::new();
-        read_stream.peer_addr_result = Ok(socket_addr);
+        let mut read_stream = TcpStreamWrapperMock::new()
+            .peer_addr_result (Ok(socket_addr))
+            .peer_addr_result (Err (Error::from (ErrorKind::NotConnected)));
         read_stream.set_read_timeout_results = RefCell::new (vec! (Ok(())));
         read_stream.read_results = vec! ((Vec::new (), Err (Error::from (ErrorKind::ConnectionRefused))));
         read_stream.shutdown_results = RefCell::new (vec! (Ok (())));
         let read_stream_log = read_stream.log.clone ();
-        let mut write_stream = TcpStreamWrapperMock::new();
-        write_stream.peer_addr_result = Ok(socket_addr);
+        let write_stream = TcpStreamWrapperMock::new()
+            .peer_addr_result (Ok(socket_addr));
         let mut stream = TcpStreamWrapperMock::new();
         stream.try_clone_results = RefCell::new(vec!(Ok(Box::new(read_stream)), Ok(Box::new(write_stream))));
         let (sub_tx, sub_rx) = mpsc::channel ();
@@ -580,13 +618,13 @@ mod tests {
     fn transmitting_down_a_smoothly_operating_existing_stream_works_fine () {
         LoggerInitializerWrapperMock::new ().init ();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5673").unwrap();
-        let mut write_stream = TcpStreamWrapperMock::new();
-        write_stream.peer_addr_result = Ok (socket_addr);
+        let mut write_stream = TcpStreamWrapperMock::new()
+            .peer_addr_result (Ok (socket_addr));
         write_stream.write_results = vec! (Ok (2));
         let write_stream_params_arc = write_stream.write_params.clone ();
         let system = System::new("test");
-        let mut read_stream = TcpStreamWrapperMock::new();
-        read_stream.peer_addr_result = Ok(socket_addr);
+        let read_stream = TcpStreamWrapperMock::new()
+            .peer_addr_result (Ok(socket_addr));
         let mut stream = TcpStreamWrapperMock::new();
         stream.try_clone_results = RefCell::new(vec!(Ok(Box::new(read_stream)), Ok(Box::new(write_stream))));
         let subject = StreamHandlerPool::new();
@@ -618,15 +656,15 @@ mod tests {
     fn terminal_packet_is_transmitted_and_then_stream_is_shut_down () {
         LoggerInitializerWrapperMock::new ().init ();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5673").unwrap();
-        let mut write_stream = TcpStreamWrapperMock::new();
-        write_stream.peer_addr_result = Ok (socket_addr);
+        let mut write_stream = TcpStreamWrapperMock::new()
+            .peer_addr_result (Ok (socket_addr));
         write_stream.write_results = vec! (Ok (2));
         write_stream.shutdown_results = RefCell::new (vec! (Ok (())));
         let write_stream_params_arc = write_stream.write_params.clone ();
         let write_stream_log_arc = write_stream.get_test_log ();
         let system = System::new("test");
-        let mut read_stream = TcpStreamWrapperMock::new();
-        read_stream.peer_addr_result = Ok(socket_addr);
+        let read_stream = TcpStreamWrapperMock::new()
+            .peer_addr_result (Ok(socket_addr));
         let mut stream = TcpStreamWrapperMock::new();
         stream.try_clone_results = RefCell::new(vec!(Ok(Box::new(read_stream)), Ok(Box::new(write_stream))));
         let subject = StreamHandlerPool::new();
@@ -660,11 +698,12 @@ mod tests {
     fn transmitting_down_a_recalcitrant_existing_stream_produces_an_error_log_and_removes_writer () {
         LoggerInitializerWrapperMock::new ().init ();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5679").unwrap();
-        let mut read_stream = TcpStreamWrapperMock::new();
-        read_stream.peer_addr_result = Ok(socket_addr);
+        let mut read_stream = TcpStreamWrapperMock::new()
+            .peer_addr_result (Ok(socket_addr))
+            .peer_addr_result (Err (Error::from (ErrorKind::NotConnected)));
         read_stream.read_results = vec! ((Vec::from ("block".as_bytes ()), Ok(5)));
-        let mut write_stream = TcpStreamWrapperMock::new();
-        write_stream.peer_addr_result = Ok(socket_addr);
+        let mut write_stream = TcpStreamWrapperMock::new()
+            .peer_addr_result (Ok(socket_addr));
         write_stream.write_results = vec!(Err(Error::from(ErrorKind::BrokenPipe)));
         write_stream.shutdown_results = RefCell::new (vec! (Ok (())));
         let write_stream_log = write_stream.log.clone ();

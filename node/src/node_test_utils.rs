@@ -2,7 +2,6 @@
 #![cfg (test)]
 use std::io;
 use std::io::Error;
-use std::io::ErrorKind;
 use std::time::SystemTime;
 use std::time::Duration;
 use std::cell::RefCell;
@@ -47,7 +46,7 @@ pub fn extract_log<T> (owner: T) -> (T, Arc<Mutex<TestLog>>) where T: TestLogOwn
 
 pub struct TcpStreamWrapperMock {
     pub log: Arc<Mutex<TestLog>>,
-    pub peer_addr_result: io::Result<SocketAddr>,
+    pub peer_addr_results: RefCell<Vec<io::Result<SocketAddr>>>,
     pub set_read_timeout_results: RefCell<Vec<io::Result<()>>>,
     pub read_results: Vec<(Vec<u8>, io::Result<usize>)>,
     pub connect_results: Vec<io::Result<()>>,
@@ -100,9 +99,18 @@ impl TcpStreamWrapper for TcpStreamWrapperMock {
     }
 
     fn peer_addr(&self) -> io::Result<SocketAddr> {
-        match self.peer_addr_result {
-            Ok (socket_addr) => Ok (socket_addr.clone ()),
-            Err (ref e) => Err (Error::from (e.kind ()))
+        let mut peer_addr_results_ref = self.peer_addr_results.borrow_mut ();
+        if peer_addr_results_ref.len () > 1 {
+            peer_addr_results_ref.remove (0)
+        }
+        else {
+            match peer_addr_results_ref.first () {
+                Some (x) => match x {
+                    &Ok (ref x) => Ok (x.clone ()),
+                    &Err (ref x) => Err (Error::from (x.kind ()))
+                },
+                None => panic! ("peer_addr_result was not prepared")
+            }
         }
     }
 
@@ -145,7 +153,7 @@ impl TcpStreamWrapperMock {
     pub fn new () -> TcpStreamWrapperMock {
         TcpStreamWrapperMock {
             log: Arc::new (Mutex::new (TestLog::new ())),
-            peer_addr_result: Err (Error::from (ErrorKind::Other)),
+            peer_addr_results: RefCell::new (vec! ()),
             set_read_timeout_results: RefCell::new (vec! ()),
             read_results: vec! (),
             connect_results: vec! (),
@@ -155,6 +163,11 @@ impl TcpStreamWrapperMock {
             try_clone_results: RefCell::new (vec! ()),
             name: String::from ("unknown")
         }
+    }
+
+    pub fn peer_addr_result (self, result: io::Result<SocketAddr>) -> TcpStreamWrapperMock {
+        self.peer_addr_results.borrow_mut ().push (result);
+        self
     }
 
     #[allow (dead_code)]

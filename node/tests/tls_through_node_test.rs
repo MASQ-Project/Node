@@ -18,15 +18,13 @@ use std::time::Instant;
 use tls_api_native_tls::TlsConnector;
 use tls_api::TlsConnector as TlsConnectorBase;
 use tls_api::TlsConnectorBuilder as TlsConnectorBuilderBase;
-use sub_lib::utils::index_of;
-use sub_lib::utils::to_string_s;
 
 #[test]
 #[allow (unused_variables)] // 'node' below must not become '_' or disappear, or the
                             // SubstratumNode will be immediately reclaimed.
 fn tls_through_node_integration() {
     let node = utils::SubstratumNode::start();
-    let mut stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:443").unwrap()).unwrap();
+    let stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:443").unwrap()).unwrap();
     stream.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
     let connector = TlsConnector::builder().unwrap().build().unwrap();
     let mut tls_stream = connector.connect("httpbin.org", stream).unwrap();
@@ -57,7 +55,7 @@ fn tls_through_node_integration() {
             }
         }
     }
-    tls_stream.shutdown();
+    tls_stream.shutdown().unwrap ();
 
     let response = String::from_utf8(Vec::from(&buf[..])).unwrap();
     assert_eq!(response.contains("200 OK"), true, "{}", response);
