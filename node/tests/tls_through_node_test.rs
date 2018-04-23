@@ -18,6 +18,9 @@ use std::time::Instant;
 use tls_api_native_tls::TlsConnector;
 use tls_api::TlsConnector as TlsConnectorBase;
 use tls_api::TlsConnectorBuilder as TlsConnectorBuilderBase;
+use tls_api::TlsStream;
+use tls_api::HandshakeError;
+use std::thread;
 
 #[test]
 #[allow (unused_variables)] // 'node' below must not become '_' or disappear, or the
@@ -27,7 +30,18 @@ fn tls_through_node_integration() {
     let stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:443").unwrap()).expect("Could not connect to 127.0.0.1:443");
     stream.set_read_timeout(Some(Duration::from_millis(100))).expect ("Could not set read timeout to 100ms");
     let connector = TlsConnector::builder().expect ("Could not construct TlsConnectorBuilder").build().expect ("Could not build TlsConnector");
-    let mut tls_stream = connector.connect("httpbin.org", stream).expect ("Could not wrap TcpStream in TlsConnector");
+    let mut tls_stream = {
+        let mut retries_remaining = 10;
+        let mut tls_stream: Option<TlsStream<TcpStream>> = None;
+        while retries_remaining > 0 {
+            match connector.connect ("httpbin.org", stream.try_clone ().expect ("Couldn't clone TcpStream")) {
+                Ok (s) => {tls_stream = Some (s); break},
+                Err (HandshakeError::Failure (e)) => panic! ("Could not wrap TcpStream in TlsConnector: {:?}", e),
+                Err (HandshakeError::Interrupted (e)) => {println! ("Warning: {:?}", e); retries_remaining -= 1; thread::sleep (Duration::from_millis (100))}
+            }
+        }
+        tls_stream.expect ("Couldn't handshake: retries expended")
+    };
     let request = "GET /html HTTP/1.1\r\nHost: httpbin.org\r\n\r\n".as_bytes();
     tls_stream.write(request.clone()).expect ("Could not write request to TLS stream");
 
