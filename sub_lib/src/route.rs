@@ -45,8 +45,10 @@ impl Route {
 
     // TODO: We should probably either have access to a Logger here, or return a Result instead of an Option.
     pub fn next_hop (&self, next_hop_private_key: &Key, cryptde: &CryptDE) -> Option<Hop> {
-        if self.hops.is_empty () {return None}
-        Route::decode_hop (next_hop_private_key, cryptde, &self.hops[0].clone ())
+        match self.hops.first () {
+            None => None,
+            Some (first) => Route::decode_hop (next_hop_private_key, cryptde, &first.clone ())
+        }
     }
 
     // TODO: We should probably either have access to a Logger here, or return a Result instead of an Option.

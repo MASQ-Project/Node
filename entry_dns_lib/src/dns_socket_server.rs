@@ -92,6 +92,7 @@ impl<'a> ParameterFinder<'a> {
                 if index == self.args.len () - 1 {
                     panic! ("{} {}", parameter_tag, msg);
                 }
+                // TODO: What if index + 1 is off the end of self.args?
                 let value: &str = &self.args[index+1];
                 if value.starts_with ("-") {
                     panic! ("{} {}", parameter_tag, msg);
@@ -99,6 +100,7 @@ impl<'a> ParameterFinder<'a> {
                     return Some (String::from (value))
                 }
             }
+            // TODO: Should probably skip 2 if this item had a parameter
             index += 1;
         }
         return None
@@ -119,7 +121,6 @@ mod tests {
     use test_utils::test_utils::LoggerInitializerWrapperMock;
     use test_utils::test_utils::TestLogHandler;
 
-    // TODO: This is horrifying.  See if you can get rid of it.
     struct UdpSocketWrapperMockGuts {
         log: Vec<String>,
         buf: [u8; 12]

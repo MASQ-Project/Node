@@ -137,6 +137,7 @@ impl StreamReaderReal {
             remove_sub: Box<Subscriber<RemoveStreamMsg> + Send>, discriminator_factories: Vec<Box<DiscriminatorFactory>>) -> StreamReaderReal {
         let socket_addr = stream.peer_addr ().expect ("Internal error: no peer address creating StreamReaderReal");
         let name = format! ("Dispatcher for {:?}", socket_addr);
+        if discriminator_factories.is_empty () {panic! ("Internal error: no Discriminator factories!")}
         StreamReaderReal {
             stream,
             stream_key: socket_addr,
@@ -151,6 +152,7 @@ impl StreamReaderReal {
 
     fn wrangle_discriminators (&mut self, buf: &[u8], length: usize) {
         // Skinny implementation
+        if self.discriminators.is_empty () {panic! ("Internal error: no Discriminator factories!")}
         let discriminator = self.discriminators[0].as_mut ();
         self.logger.debug (format! ("Adding {} bytes to discriminator", length));
         discriminator.add_data (&buf[..length]);

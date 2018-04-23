@@ -107,6 +107,7 @@ impl ProcessorReal {
         for answer in to.answers.as_slice () {
             if !answer_list.is_empty () {answer_list += ", "}
             let rdata = answer.get_rdata ();
+            // TODO: What if there aren't four elements in this array?
             answer_list += &format! ("{}.{}.{}.{}", rdata[0], rdata[1], rdata[2], rdata[3])
         }
         logger.info(format! ("{}ns: {} RQ{:X} ({}) -> RS{:X} ({})",

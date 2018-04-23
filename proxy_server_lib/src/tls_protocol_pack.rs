@@ -1,3 +1,4 @@
+// Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use protocol_pack::ProtocolPack;
 use sub_lib::proxy_server::ProxyProtocol;
 use sub_lib::cryptde::PlainData;
@@ -17,7 +18,7 @@ impl ProtocolPack for TlsProtocolPack {
 impl TlsProtocolPack {
 
     fn is_handshake (data: &PlainData) -> bool {
-        data.data[0] == 0x16
+        data.data.first () == Some (&0x16)
     }
 
     fn is_client_hello (data: &PlainData) -> bool {
@@ -87,7 +88,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_packet_that_is_not_handshake () {
+    fn rejects_non_empty_packet_that_is_not_handshake () {
         vec! (0x14u8, 0x015u8, 0x17u8).iter ().for_each (|content_type| {
             let data = PlainData::new (&[*content_type]);
 
@@ -95,6 +96,15 @@ mod tests {
 
             assert_eq! (result, None, "content_type: {}", *content_type);
         });
+    }
+
+    #[test]
+    fn rejects_empty_packet_as_non_handshake () {
+        let data = PlainData::new (&[]);
+
+        let result = TlsProtocolPack{}.find_host_name (&data);
+
+        assert_eq! (result, None);
     }
 
     #[test]
