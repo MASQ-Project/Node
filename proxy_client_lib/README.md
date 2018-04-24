@@ -11,7 +11,7 @@ CORES package. That CORES package goes back onto the SubstratumNetwork to contin
 
 It is built as a library, and is not intended as a standalone program.
 It probably isn't the most interesting place to begin digging into our code;
-[node](https://github.com/SubstratumNetwork/substratum_node/tree/master/node)
+[node](https://github.com/SubstratumNetwork/SubstratumNode/tree/master/node)
 is a better place to start.
 
 
