@@ -24,10 +24,10 @@ fn chunked_http_through_node_integration() {
     let mut stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:80").unwrap()).unwrap();
     let request = "GET /stream-bytes/30?seed=0&chunk_size=10 HTTP/1.1\r\nHost: httpbin.org\r\n\r\n".as_bytes ();
     let expected_response_chunks = vec! ( // these values are what seed=0 happens to give you
-        vec! (97, 13, 10, 216, 194, 107, 66, 130, 103, 200, 77, 122, 149, 13, 10),
-        vec! (97, 13, 10, 232, 129, 72, 193, 158, 64, 232, 251, 207, 230, 13, 10),
-        vec! (97, 13, 10, 79, 186, 230, 175, 120, 25, 111, 156, 233, 247, 13, 10),
-        vec! (48, 13, 10, 13, 10),
+        vec! ('A' as u8, 13, 10, 0xc5, 0xd7, 0x14, 0x84, 0xf8, 0xcf, 0x9b, 0xf4, 0xb7, 0x6f, 13, 10),
+        vec! ('A' as u8, 13, 10, 0x47, 0x90, 0x47, 0x30, 0x80, 0x4b, 0x9e, 0x32, 0x25, 0xa9, 13, 10),
+        vec! ('A' as u8, 13, 10, 0xf1, 0x33, 0xb5, 0xde, 0xa1, 0x68, 0xf4, 0xe2, 0x85, 0x1f, 13, 10),
+        vec! ('0' as u8, 13, 10, 13, 10),
     );
 
     stream.write(request.clone ()).unwrap ();
