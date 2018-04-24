@@ -23,12 +23,6 @@ fn chunked_http_through_node_integration() {
     let node = utils::SubstratumNode::start ();
     let mut stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:80").unwrap()).unwrap();
     let request = "GET /stream-bytes/30?seed=0&chunk_size=10 HTTP/1.1\r\nHost: httpbin.org\r\n\r\n".as_bytes ();
-    let expected_response_chunks = vec! ( // these values are what seed=0 happens to give you
-        vec! ('A' as u8, 13, 10, 0xc5, 0xd7, 0x14, 0x84, 0xf8, 0xcf, 0x9b, 0xf4, 0xb7, 0x6f, 13, 10),
-        vec! ('A' as u8, 13, 10, 0x47, 0x90, 0x47, 0x30, 0x80, 0x4b, 0x9e, 0x32, 0x25, 0xa9, 13, 10),
-        vec! ('A' as u8, 13, 10, 0xf1, 0x33, 0xb5, 0xde, 0xa1, 0x68, 0xf4, 0xe2, 0x85, 0x1f, 13, 10),
-        vec! ('0' as u8, 13, 10, 13, 10),
-    );
 
     stream.write(request.clone ()).unwrap ();
     let mut buf: [u8; 16384] = [0; 16384];
@@ -63,11 +57,22 @@ fn chunked_http_through_node_integration() {
     assert_eq! (index_of (response, b"HTTP/1.1 200 OK\r\n"), Some (0), "{}", to_string_s (response));
     assert_eq! (index_of (response, b"Transfer-Encoding: chunked\r\n").is_some (), true, "{}", to_string_s (response));
     assert_eq! (index_of (response, b"Content-Length:").is_none (), true, "{}", to_string_s (response));
-    let mut begin = chunks_offset;
-    for index in 0..3 {
-        let expected_response_chunk = &expected_response_chunks[index];
-        let end = begin + expected_response_chunk.len ();
-        assert_eq! (&buf[begin..end], &expected_response_chunk[..]);
-        begin = end;
+    for index in 0..2 {
+        let begin = chunks_offset + (index * 15);
+        validate_chunk (&Vec::from (&buf[begin..(begin + 15)]));
     }
+    let final_offset = chunks_offset + (3 * 15);
+    assert_eq! (Vec::from (&buf[final_offset..(final_offset + 5)]), vec! ('0' as u8, 13, 10, 13, 10));
+}
+
+fn validate_chunk (chunk: &Vec<u8>) {
+    assert_eq! (chunk.len (), 15, "Chunk should be 15 bytes long, not {}: {:?}", chunk.len (), chunk);
+    assert_eq! (vec! ('A' as u8, 'a' as u8).contains (&chunk[0]), true, "First byte of chunk should be {} or {}, not {}: {:?}", 'A' as u8, 'a' as u8, chunk[0], chunk);
+    check_crlf (chunk, 1);
+    check_crlf (chunk, 13);
+}
+
+fn check_crlf (chunk: &Vec<u8>, offset: usize) {
+    assert_eq! (chunk[offset], 13, "Byte at offset {} should be CR (13), not {}: {:?}", offset, chunk[offset], chunk);
+    assert_eq! (chunk[offset + 1], 10, "Byte at offset {} should be LF (10), not {}: {:?}", offset + 1, chunk[offset + 1], chunk);
 }
