@@ -667,7 +667,7 @@ impl RecordAwaiter {
             }
             prev_len = cur_len;
             if cur_len >= count {return}
-            thread::sleep (Duration::from_millis (10))
+            thread::sleep (Duration::from_millis (50))
         }
     }
 }

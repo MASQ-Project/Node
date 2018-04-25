@@ -7,4 +7,4 @@ if [ "$OS" != "Windows_NT" ]; then
 fi
 
 export RUST_BACKTRACE=full
-cargo test -- --nocapture
+cargo test -- --nocapture --test-threads=1

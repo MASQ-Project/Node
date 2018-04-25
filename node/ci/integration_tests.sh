@@ -2,10 +2,10 @@
 # Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
-REPO_BASE_DIR="$1"
+NODE_PARENT_DIR="$1"
 
-if [[ "$REPO_BASE_DIR" == "" ]]; then
-    REPO_BASE_DIR="$CI_DIR/../.."
+if [[ "$NODE_PARENT_DIR" == "" ]]; then
+    NODE_PARENT_DIR="$CI_DIR/../.."
 fi
 
 if [[ "$OSTYPE" == "msys" ]]; then
@@ -18,6 +18,8 @@ else
     echo "Path: $PATH"
     docker build -t node_integration_test .
 
-    echo $(ls "$CI_DIR/..")
-    docker run -v "$REPO_BASE_DIR":/node_root -t node_integration_test
+    echo "NODE_BASE_DIR: $NODE_PARENT_DIR"
+    echo "Contents:"
+    echo $(ls "$NODE_PARENT_DIR")
+    docker run -v "$NODE_PARENT_DIR":/node_root -t node_integration_test
 fi

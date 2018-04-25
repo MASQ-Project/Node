@@ -754,7 +754,7 @@ mod tests {
 
             subject.process_package(package);
 
-            system.run ();
+            system.run();
         });
         TestLogHandler::new ().await_log_containing ("ERROR: Proxy Client: Could not find IP address for host that.try: io error", 1000);
         hopper_awaiter.await_message_count (1);

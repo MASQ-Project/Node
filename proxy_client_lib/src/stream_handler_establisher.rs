@@ -106,6 +106,7 @@ mod tests {
     use std::io::ErrorKind;
     use std::net::SocketAddr;
     use std::str::FromStr;
+    use std::sync::mpsc;
     use actix::System;
     use serde_cbor;
     use sub_lib::cryptde_null::CryptDENull;
@@ -124,6 +125,7 @@ mod tests {
         let hopper = Recorder::new ();
         let awaiter = hopper.get_awaiter ();
         let hopper_recording_arc = hopper.get_recording ();
+        let (tx, rx) = mpsc::channel::<io::Result<()>> ();
         thread::spawn(move || {
             let system = System::new ("test");
             let hopper_sub = test_utils::make_peer_actors_from (None, None, Some (hopper), None).hopper.from_hopper_client;
@@ -140,7 +142,7 @@ mod tests {
                                                   Box::new(CryptDENull::new()), hopper_sub);
             let subject = StreamHandlerEstablisher::new(&pool);
 
-            subject.spawn_stream_reader(
+            let result = subject.spawn_stream_reader(
                 &ExpiredCoresPackage::new(test_utils::make_meaningless_route(), PlainData::new(&[])),
                 &ClientRequestPayload {
                     stream_key: SocketAddr::from_str("255.255.255.255:65535").unwrap(),
@@ -152,10 +154,11 @@ mod tests {
                     originator_public_key: Key::new(&[]),
                 },
                 &stored_write_stream
-            ).unwrap();
+            );
+            tx.send (result).is_ok ();
             system.run ();
         });
-
+        rx.recv ().unwrap ().expect ("spawn_stream_reader () failed");
         awaiter.await_message_count (1);
         let hopper_recording = hopper_recording_arc.lock ().unwrap ();
         let record = hopper_recording.get_record::<IncipientCoresPackage> (0);
@@ -169,6 +172,7 @@ mod tests {
         let hopper = Recorder::new ();
         let awaiter = hopper.get_awaiter ();
         let hopper_recording_arc = hopper.get_recording ();
+        let (tx, rx) = mpsc::channel::<io::Result<()>> ();
         thread::spawn(move || {
             let system = System::new ("test");
             let hopper_sub = test_utils::make_peer_actors_from (None, None, Some (hopper), None).hopper.from_hopper_client;
@@ -185,7 +189,7 @@ mod tests {
                                                   Box::new(CryptDENull::new()), hopper_sub);
             let subject = StreamHandlerEstablisher::new(&pool);
 
-            subject.spawn_stream_reader(
+            let result = subject.spawn_stream_reader(
                 &ExpiredCoresPackage::new(test_utils::make_meaningless_route(), PlainData::new(&[])),
                 &ClientRequestPayload {
                     stream_key: SocketAddr::from_str("255.255.255.255:65535").unwrap(),
@@ -197,10 +201,11 @@ mod tests {
                     originator_public_key: Key::new(&[]),
                 },
                 &stored_write_stream
-            ).unwrap();
+            );
+            tx.send (result).is_ok ();
             system.run ();
         });
-
+        rx.recv ().unwrap ().expect ("spawn_stream_reader () failed");
         awaiter.await_message_count (1);
         let hopper_recording = hopper_recording_arc.lock ().unwrap ();
         let record = hopper_recording.get_record::<IncipientCoresPackage> (0);
