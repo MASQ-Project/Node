@@ -15,11 +15,11 @@ language. Explore setting up the Substratum development environment and building
 
 #### Table Of Contents
 
-[Substratum Code of Conduct](#code-of-conduct)
+[Substratum Code of Conduct](https://github.com/SubstratumNetwork/SubstratumNode/blob/master/CODE-OF-CONDUCT.md)
 
 
 ## Code of Conduct
 
-This project and everyone participating in it is governed by the [Code of Conduct](CODE_OF_CONDUCT.md). 
+This project and everyone participating in it is governed by the [Substratum Code of Conduct](https://github.com/SubstratumNetwork/SubstratumNode/blob/master/CODE-OF-CONDUCT.md). 
 By participating, you are expected to uphold this code. 
 Please report unacceptable behavior to [code-of-conduct@substratum.net](mailto:code-of-conduct@substratum.net).
