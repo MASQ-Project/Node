@@ -4,7 +4,7 @@ use framer::Framer;
 use utils::index_of;
 
 const PRESERVE_HEADER_LEN: usize = 4;
-const MAX_ALLOWED_LEN: usize = 16384;
+const MAX_ALLOWED_LEN: usize = 17000;
 
 pub struct TlsFramer {
     data_so_far: Vec<u8>
@@ -99,6 +99,12 @@ impl TlsFramer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn constant_values () {
+        assert_eq! (PRESERVE_HEADER_LEN, 4);
+        assert_eq! (MAX_ALLOWED_LEN, 17000);
+    }
 
     #[test]
     fn tls_framer_discards_all_but_a_few_bytes_of_unrecognized_data() {
