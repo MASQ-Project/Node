@@ -2,7 +2,16 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/substratum_node_plex.iml" filepath="$PROJECT_DIR$/substratum_node_plex.iml" />
+      <module fileurl="file://$PROJECT_DIR$/ci/ci.iml" filepath="$PROJECT_DIR$/ci/ci.iml" />
+      <module fileurl="file://$PROJECT_DIR$/entry_dns_lib/entry_dns_lib.iml" filepath="$PROJECT_DIR$/entry_dns_lib/entry_dns_lib.iml" />
+      <module fileurl="file://$PROJECT_DIR$/hopper_lib/hopper_lib.iml" filepath="$PROJECT_DIR$/hopper_lib/hopper_lib.iml" />
+      <module fileurl="file://$PROJECT_DIR$/logger_trait_lib/logger_trait_lib.iml" filepath="$PROJECT_DIR$/logger_trait_lib/logger_trait_lib.iml" />
+      <module fileurl="file://$PROJECT_DIR$/neighborhood_lib/neighborhood_lib.iml" filepath="$PROJECT_DIR$/neighborhood_lib/neighborhood_lib.iml" />
+      <module fileurl="file://$PROJECT_DIR$/node/node.iml" filepath="$PROJECT_DIR$/node/node.iml" />
+      <module fileurl="file://$PROJECT_DIR$/proxy_client_lib/proxy_client_lib.iml" filepath="$PROJECT_DIR$/proxy_client_lib/proxy_client_lib.iml" />
+      <module fileurl="file://$PROJECT_DIR$/proxy_server_lib/proxy_server_lib.iml" filepath="$PROJECT_DIR$/proxy_server_lib/proxy_server_lib.iml" />
+      <module fileurl="file://$PROJECT_DIR$/sub_lib/sub_lib.iml" filepath="$PROJECT_DIR$/sub_lib/sub_lib.iml" />
+      <module fileurl="file://$PROJECT_DIR$/test_utils/test_utils.iml" filepath="$PROJECT_DIR$/test_utils/test_utils.iml" />
     </modules>
   </component>
 </project>

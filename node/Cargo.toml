@@ -39,7 +39,7 @@ daemonize = "0.2.3"
 [target.'cfg(windows)'.dependencies]
 
 [[bin]]
-name = "node"
+name = "SubstratumNode"
 path = "src/main.rs"
 
 [lib]

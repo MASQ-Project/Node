@@ -105,5 +105,6 @@ fabric.properties
 .nfs*
 
 docker/node
+SubstratumNode.log
 node.log
 lnk*.tmp

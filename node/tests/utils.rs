@@ -26,7 +26,7 @@ impl Drop for SubstratumNode {
 impl SubstratumNode {
     pub fn start () -> SubstratumNode {
         let mut logfile_path_buf = env::temp_dir();
-        logfile_path_buf.push ("node.log");
+        logfile_path_buf.push ("SubstratumNode.log");
         let logfile_path = logfile_path_buf.into_boxed_path ();
         let mut command = SubstratumNode::make_node_command();
         let child = command.spawn ().unwrap ();
@@ -78,7 +78,7 @@ impl SubstratumNode {
     fn make_node_command () -> Command {
         let test_command = env::args ().next ().unwrap ();
         let debug_or_release = test_command.split ("\\").skip_while (|s| s != &"target").skip(1).next().unwrap();
-        let command_to_start = &format! ("target\\{}\\node", debug_or_release);
+        let command_to_start = &format! ("target\\{}\\SubstratumNode", debug_or_release);
         let mut command = Command::new ("cmd");
         command.args (&["/c", "start", command_to_start, "--dns_port", "5454", "--dns_servers", "8.8.8.8"]);
         command
@@ -88,7 +88,7 @@ impl SubstratumNode {
     fn make_node_command () -> Command {
         let test_command = env::args ().next ().unwrap ();
         let debug_or_release = test_command.split ("/").skip_while (|s| s != &"target").skip(1).next().unwrap();
-        let command_to_start = format! ("target/{}/node", debug_or_release);
+        let command_to_start = format! ("target/{}/SubstratumNode", debug_or_release);
         let mut command = Command::new (command_to_start);
         command.args (&["--dns_port", "5454", "--dns_servers", "8.8.8.8"]);
         command

@@ -1,8 +1,8 @@
-# node
+# SubstratumNode
 Probably the most interesting place to start
 
 ## Purpose
-The purpose of `node` is to mask and un-mask CORES packages for clandestine routing.
+The purpose of `SubstratumNode` is to mask and un-mask CORES packages for clandestine routing.
 It is also responsible for initializing all of the components of the SubstratumNode.
 
 This is the project that generates the executable known as SubstratumNode.
