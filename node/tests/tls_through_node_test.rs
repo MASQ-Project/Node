@@ -36,7 +36,16 @@ fn tls_through_node_integration() {
         while retries_remaining > 0 {
             match connector.connect ("httpbin.org", stream.try_clone ().expect ("Couldn't clone TcpStream")) {
                 Ok (s) => {tls_stream = Some (s); break},
-                Err (HandshakeError::Failure (e)) => panic! ("Could not wrap TcpStream in TlsConnector: {:?}", e),
+                Err (HandshakeError::Failure (e)) => {
+                    if format! ("{:?}", e).contains ("reason: \"bad signature\"") {
+                        println! ("Warning: {:?}", e);
+                        retries_remaining -=1;
+                        thread::sleep (Duration::from_millis (10000));
+                    }
+                    else {
+                        panic! ("Could not wrap TcpStream in TlsConnector: {:?}", e)
+                    }
+                },
                 Err (HandshakeError::Interrupted (e)) => {println! ("Warning: {:?}", e); retries_remaining -= 1; thread::sleep (Duration::from_millis (100))}
             }
         }
