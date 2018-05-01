@@ -43,7 +43,7 @@ impl ListenerHandler for ListenerHandlerReal {
 
     fn handle_traffic(&mut self) {
         let logger = Logger::new (&format! ("{:?} Listener",
-            &self.port.expect ("Can't handle traffic without port")));
+            &self.port.expect ("Tried to run without initializing")));
         while self.limiter.should_continue () {
             let (stream, _socket_addr) = match self.listener.accept() {
                 Ok((stream, socket_addr)) => (stream, socket_addr),

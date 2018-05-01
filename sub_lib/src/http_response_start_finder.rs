@@ -63,7 +63,7 @@ impl HttpResponseStartFinder {
             Some (http_offset) => {
                 let possibility_u8 = &data_so_far[http_offset..(http_offset + LONGEST_PREFIX_LEN)];
                 let possibility_cow = String::from_utf8_lossy (possibility_u8);
-                let regex = Regex::new ("HTTP/1\\.[01] \\d\\d\\d ").expect ("Internal error: invalid HTTP version");
+                let regex = Regex::new ("HTTP/1\\.[01] \\d\\d\\d ").expect ("Internal error: invalid regex");
                 match regex.find (&possibility_cow) {
                     Some (re_match) => Ok (re_match.start () + http_offset),
                     None => Err(http_offset + 1)

@@ -215,7 +215,7 @@ impl TcpListenerWrapperReal {
     }
 
     fn delegate (&self) -> &TcpListener {
-        self.delegate.as_ref().expect ("TcpListenerWrapper must be initialized")
+        self.delegate.as_ref().expect ("TcpListener not initialized - bind to a SocketAddr")
     }
 }
 
@@ -225,11 +225,11 @@ impl TcpStreamWrapperReal {
     }
 
     fn delegate (&self) -> &TcpStream {
-        self.delegate.as_ref().expect ("TcpStreamWrapper must be initialized")
+        self.delegate.as_ref().expect ("TcpStream not initialized - connect to a SocketAddr")
     }
 
     fn delegate_mut (&mut self) -> &mut TcpStream {
-        self.delegate.as_mut().expect ("TcpStreamWrapper must be initialized")
+        self.delegate.as_mut().expect ("TcpStream not initialized - connect to a SocketAddr")
     }
 }
 

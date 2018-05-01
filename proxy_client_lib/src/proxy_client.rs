@@ -55,6 +55,7 @@ impl Handler<BindMessage> for ProxyClient {
         }
         let opts = ResolverOpts::default ();
         let resolver = self.resolver_wrapper_factory.make(config, opts, Arbiter::handle ());
+        // crashpoint - is cryptde even needed in the ProxyClient submodule?
         self.pool = Some (self.stream_handler_pool_factory.make (resolver,
             self.cryptde.take ().expect ("CryptDE unbound"), msg.peer_actors.hopper.from_hopper_client));
         ()

@@ -15,38 +15,38 @@ pub trait UdpSocketWrapperTrait: Sized + Send {
 }
 
 pub struct UdpSocketWrapperReal {
-    socket_opt: Option<UdpSocket>
+    delegate: Option<UdpSocket>
 }
 
 impl UdpSocketWrapperReal {
     pub fn new () -> UdpSocketWrapperReal {
-        UdpSocketWrapperReal {socket_opt: None}
+        UdpSocketWrapperReal { delegate: None}
     }
 }
 
 impl UdpSocketWrapperTrait for UdpSocketWrapperReal {
     fn bind (&mut self, addr: SocketAddr) -> io::Result<bool> {
         let socket = UdpSocket::bind (addr)?;
-        self.socket_opt = Some (socket);
+        self.delegate = Some (socket);
         Ok (true)
     }
 
     fn set_read_timeout(&self, dur: Option<Duration>) -> Result<()> {
-        match self.socket_opt {
+        match self.delegate {
             Some (ref socket) => socket.set_read_timeout (dur),
             None => panic! ("call bind before set_read_timeout")
         }
     }
 
     fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
-        match self.socket_opt {
+        match self.delegate {
             Some (ref socket) => socket.recv_from (buf),
             None => panic! ("call bind before recv_from")
         }
     }
 
     fn send_to (&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize> {
-        match self.socket_opt {
+        match self.delegate {
             Some (ref socket) => socket.send_to (buf, addr),
             None => panic! ("call bind before send_to")
         }

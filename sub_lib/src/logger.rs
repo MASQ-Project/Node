@@ -48,7 +48,7 @@ impl Logger {
     }
 
     pub fn timestamp_as_string (timestamp: &SystemTime) -> String {
-        let time_t = timestamp.duration_since (UNIX_EPOCH).unwrap (); // dangerous
+        let time_t = timestamp.duration_since (UNIX_EPOCH).expect ("SystemTime before UNIX EPOCH!");
         let naive_date_time = NaiveDateTime::from_timestamp (time_t.as_secs () as i64, time_t.subsec_nanos());
         let fmt = StrftimeItems::new("%Y-%m-%d %H:%M:%S%.3f");
         naive_date_time.format_with_items(fmt).to_string()

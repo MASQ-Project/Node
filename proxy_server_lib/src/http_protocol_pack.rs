@@ -26,7 +26,10 @@ impl HttpProtocolPack {
         let begin = index_of (&headers, &needle[..])? + needle.len ();
         let end = index_of (&headers[begin..], &b"\r\n"[..])? + begin;
         let hostname_u8s = &headers[begin..end];
-        Some (String::from_utf8 (Vec::from (hostname_u8s)).expect ("Test-drive me"))
+        match String::from_utf8 (Vec::from (hostname_u8s)) {
+            Ok(result) => Some(result),
+            Err(_) => None
+        }
     }
 
     fn find_url_host_name (data: &[u8]) -> Option<String> {
@@ -41,7 +44,10 @@ impl HttpProtocolPack {
         };
         let end = begin + index;
         let hostname_u8s = &first_line[begin..end];
-        Some (String::from_utf8 (Vec::from (hostname_u8s)).expect ("Test-drive me"))
+        match String::from_utf8 (Vec::from (hostname_u8s)) {
+            Ok(result) => Some(result),
+            Err(_) => None
+        }
     }
 
     fn index_of_multi<'a> (haystack: &'a [u8], needles: Vec<&'a [u8]>) -> Option<(usize, &'a [u8])> {

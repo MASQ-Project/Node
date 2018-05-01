@@ -49,7 +49,7 @@ impl Handler<InboundClientData> for ProxyServer {
         let hopper = self.hopper.as_ref ().expect ("Hopper unbound in ProxyServer");
         let cryptde = CryptDENull::new();
         let payload = match self.client_request_payload_factory.make (&msg, &cryptde, &self.logger) {
-            None => unimplemented!(),
+            None => { self.logger.error(format! ("Couldn't create ClientRequestPayload")); return (); },
             Some (payload) => payload
         };
         // TODO this should come from the Neighborhood
@@ -77,7 +77,7 @@ impl Handler<ExpiredCoresPackage> for ProxyServer {
                     }).expect ("Dispatcher is dead");
                 ()
             },
-            Err(_) => panic!("ClientRequestPayload is not ok"),
+            Err(_) => { self.logger.error(format! ("ClientResponsePayload is not OK")); return (); },
         }
         ()
     }

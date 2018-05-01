@@ -12,9 +12,3 @@ pub mod server;
 pub mod packet_server;
 pub mod processor;
 pub mod dns_socket_server;
-
-#[cfg(unix)]
-pub mod unix;
-
-#[cfg(windows)]
-pub mod windows;

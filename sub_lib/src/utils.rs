@@ -34,7 +34,7 @@ pub fn indicates_timeout (kind: ErrorKind) -> bool {
 }
 
 pub fn index_of<T> (haystack: &[T], needle: &[T]) -> Option<usize> where T: PartialEq {
-    if needle.len () == 0 {panic! ("Can't find index of empty subsequence")}
+    if needle.len () == 0 {return None}
     for h in 0..haystack.len () {
         let mut mismatch = false;
         for n in 0..needle.len () {
@@ -133,9 +133,10 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Can't find index of empty subsequence")]
-    fn index_of_panics_with_empty_needle() {
-        index_of("haystack".as_bytes(), "".as_bytes());
+    fn index_of_returns_none_for_empty_needle() {
+        let result = index_of("haystack".as_bytes(), "".as_bytes());
+
+        assert_eq!(result, None);
     }
 
     #[test]

@@ -41,13 +41,14 @@ impl Framer for JsonFramer {
                 self.possible_start = Some(0);
                 None
             }
+            // crashpoint - return none?
             _ => panic!("Internal error framing JSON")
         }
     }
 }
 
 impl JsonFramer {
-    #[allow (dead_code)] // Remove this after Release 2
+    #[allow (dead_code)] // TODO Remove this after Release 2
     pub fn new () -> JsonFramer {
         JsonFramer {
             possible_start: None,

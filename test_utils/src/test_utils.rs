@@ -6,7 +6,6 @@ use std::io::Error;
 use std::io::Read;
 use std::io::Write;
 use std::cmp::min;
-use std::net::IpAddr;
 use std::str::from_utf8;
 use std::sync::mpsc;
 use std::sync::mpsc::Receiver;
@@ -25,21 +24,19 @@ use log::set_logger;
 use log::Log;
 use log::Record;
 use log::Metadata;
-use sub_lib::main_tools::StdStreams;
 use regex::Regex;
-use sub_lib::dispatcher::Component;
+use logger_trait_lib::logger::LoggerInitializerWrapper;
 use sub_lib::cryptde::Key;
 use sub_lib::cryptde::CryptDE;
+use sub_lib::cryptde_null::CryptDENull;
+use sub_lib::dispatcher::Component;
 use sub_lib::dispatcher::DispatcherSubs;
 use sub_lib::dispatcher::InboundClientData;
 use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::hopper::HopperSubs;
 use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::hopper::HopperTemporaryTransmitDataMsg;
-use logger_trait_lib::logger::LoggerInitializerWrapper;
-use sub_lib::neighborhood::Neighborhood;
-use sub_lib::neighborhood::NeighborhoodError;
-use sub_lib::node_addr::NodeAddr;
+use sub_lib::main_tools::StdStreams;
 use sub_lib::peer_actors::PeerActors;
 use sub_lib::peer_actors::BindMessage;
 use sub_lib::proxy_client::ProxyClientSubs;
@@ -47,7 +44,6 @@ use sub_lib::proxy_server::ProxyServerSubs;
 use sub_lib::route::Route;
 use sub_lib::route::RouteSegment;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
-use sub_lib::cryptde_null::CryptDENull;
 
 pub struct ByteArrayWriter {
     pub byte_array: Vec<u8>,
@@ -415,40 +411,6 @@ impl PayloadMock {
         }
     }
 }
-
-pub struct NeighborhoodMock {
-}
-
-impl NeighborhoodMock {
-    pub fn new () -> NeighborhoodMock {
-        NeighborhoodMock {}
-    }
-}
-
-impl Neighborhood for NeighborhoodMock {
-    fn route_one_way(&self, _destination: &Key, _remote_recipient: Component) -> Result<Route, NeighborhoodError> {
-        unimplemented!()
-    }
-
-    fn route_round_trip(&self, _destination: &Key, _remote_recipient: Component, _local_recipient: Component) -> Result<Route, NeighborhoodError> {
-        unimplemented!()
-    }
-
-    fn public_key_from_ip_address(&self, _ip_addr: &IpAddr) -> Option<Key> {
-        unimplemented!()
-    }
-
-    fn node_addr_from_public_key(&self, _public_key: &[u8]) -> Option<NodeAddr> {
-        unimplemented!()
-    }
-
-    fn node_addr_from_ip_address(&self, _ip_addr: &IpAddr) -> Option<NodeAddr> {
-        unimplemented!()
-    }
-}
-
-unsafe impl Send for NeighborhoodMock {}
-unsafe impl Sync for NeighborhoodMock {}
 
 pub fn make_proxy_server_subs_from(addr: &SyncAddress<Recorder>) -> ProxyServerSubs {
     ProxyServerSubs {

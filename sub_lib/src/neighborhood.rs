@@ -12,8 +12,8 @@ pub enum NeighborhoodError {
 }
 
 pub trait Neighborhood: Send{
-    fn route_one_way (&self, destination: &Key, remote_recipient: Component) -> Result<Route, NeighborhoodError>;
-    fn route_round_trip (&self, destination: &Key, remote_recipient: Component, local_recipient: Component) -> Result<Route, NeighborhoodError>;
+    fn route_one_way (&self, remote_recipient: Component) -> Result<(Route, Key), NeighborhoodError>;
+    fn route_round_trip (&self, remote_recipient: Component, local_recipient: Component) -> Result<(Route, Key), NeighborhoodError>;
     fn public_key_from_ip_address(&self, ip_addr: &IpAddr) -> Option<Key>;
     fn node_addr_from_public_key(&self, public_key: &[u8]) -> Option<NodeAddr>;
     fn node_addr_from_ip_address(&self, ip_addr: &IpAddr) -> Option<NodeAddr>;

@@ -45,9 +45,9 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
 impl<P, D> Command for ServerInitializer<P, D> where P: PrivilegeDropper, D: Daemonizer {
     fn go<'b> (&mut self, streams: &'b mut StdStreams<'b>, args: &Vec<String>) -> u8 {
         self.logger_initializer_wrapper.init ();
-        let mut dns_socket_server_box = self.dns_socket_server.take ().unwrap ();
+        let mut dns_socket_server_box = self.dns_socket_server.take ().expect ("DNS Socket Server missing");
         dns_socket_server_box.as_mut ().initialize_as_root (args, streams);
-        let mut bootstrapper_box = self.bootstrapper.take ().unwrap ();
+        let mut bootstrapper_box = self.bootstrapper.take ().expect ("Bootstrapper missing");
         bootstrapper_box.as_mut ().initialize_as_root (args, streams);
         self.privilege_dropper.drop_privileges();
         self.daemonizer.daemonize();

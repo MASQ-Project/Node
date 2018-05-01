@@ -23,6 +23,7 @@ impl Masquerader for JsonMasquerader {
     }
 
     fn mask(&self, component: Component, data: &[u8]) -> Result<Vec<u8>, MasqueradeError> {
+        // crashpoint - return a MasqueradeError?
         let json_string = match String::from_utf8(Vec::from(data)) {
             Ok(string) => {
                 JsonMasquerader::make_text_structure(component, string)
@@ -30,7 +31,7 @@ impl Masquerader for JsonMasquerader {
             Err(_) => {
                 JsonMasquerader::make_binary_structure(component, data)
             }
-        }.unwrap();
+        }.expect("Could not make json string");
         Ok(json_string.into_bytes())
     }
 }

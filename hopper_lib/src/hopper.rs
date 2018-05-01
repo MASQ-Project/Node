@@ -121,9 +121,12 @@ impl Handler<InboundClientData> for Hopper {
                 self.logger.debug (format! ("Forwarding ExpiredCoresPackage to Proxy Client: {:?}", expired_package));
                 self.to_proxy_client.as_ref ().expect ("ProxyClient unbound in Hopper").send (expired_package ).expect ("Proxy Client is dead")
             },
-            Some(_) => unimplemented!(),
+            Some(Component::Neighborhood) => unimplemented!(),
+            // crashpoint - can we remove the Option by using Component::Hopper to indicate a relay node?
+            Some(_) => panic!("Unexpected component"),
             None => {
                 let transmit_msg = match self.to_transmit_msg (live_package, msg.last_data) {
+                    // crashpoint - need to figure out how to bubble up different kinds of errors, or just log and return
                     Err (_) => unimplemented! (),
                     Ok (m) => m
                 };
@@ -154,17 +157,20 @@ impl Hopper {
         }
     }
 
-    // TODO when we are decentralized, change this to a TransmitDataMsg
+    // TODO when we are decentralized, change this type to a TransmitDataMsg
     pub fn to_transmit_msg (&self, live_package: LiveCoresPackage, last_data: bool) -> Result<HopperTemporaryTransmitDataMsg, CryptdecError> {
         let (next_key, next_live_package) = match live_package.to_next_live (self.cryptde.borrow ()) {
+            // crashpoint - log error and return None?
             Err (_) => unimplemented! (),
             Ok (p) => p
         };
         let next_live_package_ser = match serde_cbor::ser::to_vec (&next_live_package) {
+            // crashpoint - log error and return None?
             Err (_) => unimplemented! (),
             Ok (p) => p
         };
         let next_live_package_enc = match self.cryptde.encode (&next_key, &PlainData::new (&next_live_package_ser[..])) {
+            // crashpoint - log error and return None?
             Err (_) => unimplemented! (),
             Ok (p) => p
         };
@@ -189,13 +195,16 @@ impl LiveCoresPackage {
     }
 
     pub fn from_incipient (incipient: IncipientCoresPackage, cryptde: &CryptDE) -> (LiveCoresPackage, Key) {
+        // crashpoint - should discuss as a team
         let encrypted_payload = cryptde.encode (&incipient.payload_destination_key, &incipient.payload).expect ("Encode error");
         let mut route = incipient.route.clone ();
         let next_hop = match route.shift (&cryptde.private_key (), cryptde) {
+            // crashpoint - should discuss as a team
             None => unimplemented!(),
             Some (h) => h
         };
         match next_hop.public_key {
+            // crashpoint - should discuss as a team
             None => unimplemented! (), // can't send over Substratum Network if no destination
             Some (key) => (LiveCoresPackage::new (route, encrypted_payload), key)
         }
@@ -204,7 +213,7 @@ impl LiveCoresPackage {
     pub fn to_expired (self, cryptde: &CryptDE) -> ExpiredCoresPackage {
         let payload = match cryptde.decode (&cryptde.private_key (), &self.payload) {
             Ok (payload) => payload,
-            // TODO FIXME don't panic! (return result)
+            // crashpoint - should discuss as a team
             Err (e) => panic! ("{:?}", e)
         };
         ExpiredCoresPackage::new (self.route, payload)
@@ -212,10 +221,12 @@ impl LiveCoresPackage {
 
     pub fn to_next_live (mut self, cryptde: &CryptDE) -> Result<(Key, LiveCoresPackage), CryptdecError> {
         let next_hop = match self.route.shift (&cryptde.private_key (), cryptde) {
+            // crashpoint - should discuss as a team
             None => unimplemented! (),
             Some (h) => h
         };
         let next_key = match next_hop.public_key {
+            // crashpoint - should discuss as a team
             None => unimplemented! (),
             Some (k) => k
         };
@@ -225,6 +236,7 @@ impl LiveCoresPackage {
 
     pub fn next_hop (&self, cryptde: &CryptDE) -> Hop {
         match self.route.next_hop (&cryptde.private_key (), cryptde) {
+            // crashpoint - should discuss as a team
             None => unimplemented! (),
             Some (h) => h
         }

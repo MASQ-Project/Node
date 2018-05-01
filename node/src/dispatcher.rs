@@ -52,7 +52,9 @@ impl Handler<InboundClientData> for Dispatcher {
     fn handle(&mut self, msg: InboundClientData, _ctx: &mut Self::Context) -> Self::Result {
         match msg.component {
             Component::ProxyServer => self.to_proxy_server.as_ref().expect("ProxyServer unbound in Dispatcher").send(msg).expect("ProxyServer is dead"),
+            Component::Hopper => unimplemented!(),
             _ => {
+                // crashpoint - StreamHandlerPool should never send us anything else, so panic! may make sense
                 panic! ("{:?} should not be receiving traffic from Dispatcher", msg.component)
             }
         };
@@ -69,7 +71,7 @@ impl Handler<HopperTemporaryTransmitDataMsg> for Dispatcher {
         let ibcd = InboundClientData {
             last_data: msg.last_data,
             data: msg.data,
-            socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            socket_addr: SocketAddr::from_str("1.2.3.4:5678").expect("Couldn't create SocketAddr from 1.2.3.4:5678"),
             component: Component::Hopper,
             origin_port: None,
         };
@@ -205,35 +207,6 @@ mod tests {
         let socket_addr = SocketAddr::from_str ("1.2.3.4:8765").unwrap ();
         let origin_port = Some (22);
         let component = Component::ProxyClient;
-        let data: Vec<u8> = vec! (9, 10, 11);
-        let ibcd_in = InboundClientData {
-            socket_addr,
-            origin_port,
-            component,
-            last_data: false,
-            data: data.clone ()
-        };
-        let mut peer_actors = make_peer_actors();
-        peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
-        subject_addr.send( BindMessage { peer_actors });
-
-        subject_ibcd.send (ibcd_in).unwrap ();
-
-        Arbiter::system().send(msgs::SystemExit(0));
-        system.run ();
-    }
-
-    //temporary
-    #[test]
-    #[should_panic (expected = "Hopper should not be receiving traffic from Dispatcher")]
-    fn panics_when_processing_inbound_traffic_for_hopper() {
-        let system = System::new ("test");
-        let subject = Dispatcher::new ();
-        let subject_addr: SyncAddress<_> = subject.start ();
-        let subject_ibcd = subject_addr.subscriber::<InboundClientData> ();
-        let socket_addr = SocketAddr::from_str ("1.2.3.4:8765").unwrap ();
-        let origin_port = Some (80);
-        let component = Component::Hopper;
         let data: Vec<u8> = vec! (9, 10, 11);
         let ibcd_in = InboundClientData {
             socket_addr,

@@ -47,21 +47,19 @@ pub struct HttpFramerState {
 
 impl Debug for HttpFramerState {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        // TODO: Convert all these expects into and_thens
-        writeln! (f, "HttpFramerState {{").expect ("Internal error in writeln");
-        writeln! (f, "  data_so_far: {}", to_string (&self.data_so_far)).expect ("Internal error in writeln");
-        writeln! (f, "  state: {:?}", self.packet_progress_state).expect ("Internal error in writeln");
-        writeln! (f, "  content_length: {}", self.content_length).expect ("Internal error in writeln");
-        writeln! (f, "  transfer_encoding_chunked: {:?}", self.transfer_encoding_chunked).expect ("Internal error in writeln");
-        writeln! (f, "  chunk_progress_state: {:?}", self.chunk_progress_state).expect ("Internal error in writeln");
-        writeln! (f, "  chunk_size: {:?}", self.chunk_size).expect ("Internal error in writeln");
-        writeln! (f, "  lines: [").expect ("Internal error in writeln");
+        writeln! (f, "HttpFramerState {{")?;
+        writeln! (f, "  data_so_far: {}", to_string (&self.data_so_far))?;
+        writeln! (f, "  state: {:?}", self.packet_progress_state)?;
+        writeln! (f, "  content_length: {}", self.content_length)?;
+        writeln! (f, "  transfer_encoding_chunked: {:?}", self.transfer_encoding_chunked)?;
+        writeln! (f, "  chunk_progress_state: {:?}", self.chunk_progress_state)?;
+        writeln! (f, "  chunk_size: {:?}", self.chunk_size)?;
+        writeln! (f, "  lines: [")?;
         for line in &self.lines {
-            writeln! (f, "    {}", to_string (line)).expect ("Internal error in writeln");
+            writeln! (f, "    {}", to_string (line))?;
         }
-        writeln! (f, "  ]").expect ("Internal error in writeln");
-        writeln! (f, "}}").expect ("Internal error in writeln");
-        Ok (())
+        writeln! (f, "  ]")?;
+        writeln! (f, "}}")
     }
 }
 
@@ -182,12 +180,15 @@ impl HttpPacketFramer {
             Err (_) => {self.discard_current_request (); return},
             Ok (string) => string
         };
-        let regex = Regex::new(r"^Content-Length: *(\d+)").unwrap();
+        let regex = Regex::new(r"^Content-Length: *(\d+)").expect("Could not create regex");
         let captures = match regex.captures (&string[..]) {
             None => {self.discard_current_request (); return},
             Some (captures) => captures
         };
-        let length_str = captures.get (1).expect ("Internal error: invalid HTTP Content-Length syntax").as_str ();
+        let length_str = match captures.get (1) {
+            Some(thing) => thing.as_str (),
+            None => return
+        };
         self.framer_state.content_length = match length_str.parse::<usize> () {
             Ok (length) => length,
             Err (_) => {self.discard_current_request(); 0}
@@ -200,12 +201,15 @@ impl HttpPacketFramer {
             Err (_) => {self.discard_current_request (); return},
             Ok (string) => string
         };
-        let regex = Regex::new(r"^Transfer-Encoding: *(.+)").unwrap();
+        let regex = Regex::new(r"^Transfer-Encoding: *(.+)").expect("Could not create regex");
         let captures = match regex.captures (&string[..]) {
             None => {self.discard_current_request (); return},
             Some (captures) => captures
         };
-        let encodings = captures.get (1).expect ("Internal error: invalid HTTP Transfer-Encoding syntax").as_str ();
+        let encodings = match captures.get (1) {
+            Some(thing) => thing.as_str (),
+            None => return
+        };
         if encodings.contains ("chunked") {
             self.framer_state.transfer_encoding_chunked = ChunkExistenceState::ChunkedResponse;
             self.framer_state.chunk_progress_state = ChunkProgressState::SeekingLengthHeader;
@@ -227,7 +231,7 @@ impl HttpPacketFramer {
 
     fn take_chunk_frame(&mut self) -> Option<FramedChunk> {
         match self.framer_state.chunk_progress_state {
-            ChunkProgressState::None => panic! ("HttpPacketFramer is defective"),
+            ChunkProgressState::None => panic! ("This should have been set only if we were done reading chunks"),
             ChunkProgressState::SeekingLengthHeader => self.take_frame_while_seeking_length_header (),
             ChunkProgressState::SeekingEndOfChunk => self.take_frame_while_seeking_end_of_chunk (),
             ChunkProgressState::SeekingEndOfFinalChunk => self.take_frame_while_seeking_end_of_final_chunk (),
@@ -259,7 +263,7 @@ impl HttpPacketFramer {
     }
 
     fn take_frame_while_seeking_end_of_chunk(&mut self) -> Option<FramedChunk> {
-        let chunk_size = self.framer_state.chunk_size.expect ("TransferEncodingChunkFramer is defective");
+        let chunk_size = self.framer_state.chunk_size.expect ("If we are seeking the end of the chunk then we should have the chunk size");
         if self.framer_state.data_so_far.len () < (chunk_size + CRLF.len ()) {
             return None
         }

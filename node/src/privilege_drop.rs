@@ -43,9 +43,13 @@ impl IdWrapper for IdWrapperReal {
 
 #[cfg(windows)]
 impl IdWrapper for IdWrapperReal {
+    // crashpoint - can this be removed?
     fn getuid (&self) -> i32 { !unimplemented!() }
+    // crashpoint
     fn getgid (&self) -> i32  { !unimplemented!() }
+    // crashpoint
     fn setuid (&self, uid: i32) -> i32 { !unimplemented!() }
+    // crashpoint
     fn setgid (&self, gid: i32) -> i32  { !unimplemented!() }
 }
 

@@ -33,8 +33,7 @@ impl<S> SocketServer for DnsSocketServer<S> where S: UdpSocketWrapperTrait {
     }
 
     fn serve_without_root (&mut self) {
-        // The following unwrap() will cause an appropriate panic if initialize_as_root was not called
-        let processor = ProcessorReal::new (self.dns_target.unwrap ());
+        let processor = ProcessorReal::new (self.dns_target.expect("Missing dns_target - was initialize_as_root called?"));
         let mut packet_server = PacketServerReal {logger: Logger::new ("EntryDnsServer"),
             socket: &mut self.socket_wrapper, processor: &processor};
         let mut buf: [u8; 65536] = [0; 65536];
@@ -44,6 +43,7 @@ impl<S> SocketServer for DnsSocketServer<S> where S: UdpSocketWrapperTrait {
     }
 }
 
+// TODO: why not use the `::new` convention?
 pub fn new_dns_socket_server() -> DnsSocketServer<UdpSocketWrapperReal> {
     DnsSocketServer {dns_target: None, socket_wrapper: UdpSocketWrapperReal::new (), limiter: Limiter::new()}
 }
@@ -90,11 +90,12 @@ impl<'a> ParameterFinder<'a> {
         while index < self.args.len() {
             if self.args[index] == parameter_tag {
                 if index == self.args.len () - 1 {
+                    // crashpoint - return none?
                     panic! ("{} {}", parameter_tag, msg);
                 }
-                // TODO: What if index + 1 is off the end of self.args?
                 let value: &str = &self.args[index+1];
                 if value.starts_with ("-") {
+                    // crashpoint - return none?
                     panic! ("{} {}", parameter_tag, msg);
                 } else {
                     return Some (String::from (value))

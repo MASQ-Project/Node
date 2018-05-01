@@ -51,7 +51,7 @@ impl SocketServer for Bootstrapper {
     fn serve_without_root(&mut self) {
         let stream_handler_pool_subs =
             self.actor_system_factory.make_and_start_actors(
-                self.config.as_ref().unwrap().dns_servers.clone(),
+                self.config.as_ref().expect("Missing BootstrapperConfig - call initialize_as_root first").dns_servers.clone(),
             );
 
         while self.listener_handlers.len () > 0 {

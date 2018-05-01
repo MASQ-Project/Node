@@ -107,7 +107,7 @@ impl StreamHandlerPool for StreamHandlerPoolReal {
                     result
                 });
                 self.logger.debug (format! ("Host resolution scheduled"));
-                Arbiter::handle ().execute (future).unwrap ();
+                Arbiter::handle ().execute (future).expect ("Actix executor failed for TRustDNSResolver");
                 self.logger.debug (format! ("Closure spawned"));
             }
         }

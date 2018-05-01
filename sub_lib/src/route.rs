@@ -15,17 +15,21 @@ impl Route {
 
     // TODO: Drive out panic!s.
     pub fn new(route_segments: Vec<RouteSegment>, cryptde: &CryptDE) -> Result<Route, RouteError> {
+        // crashpoint - send back a RouteError
         if route_segments.is_empty () {panic! ("A route must have at least one segment")}
         let mut hops: Vec<Hop> = Vec::new ();
         let mut pending_recipient: Option<Component> = None;
         for segment_index in 0..route_segments.len () {
             let route_segment = &route_segments[segment_index];
+            // crashpoint - send back a RouteError
+            // TODO each route segment must have at least 2 keys
             if route_segment.keys.len () < 1 {panic! ("Degenerate {}-element route segment", route_segment.keys.len ())}
             for hop_index in 0..route_segment.keys.len () {
                 let key = &route_segment.keys[hop_index];
                 if (segment_index > 0) && (hop_index == 0) {
                     let last_segment = &route_segments[segment_index - 1];
                     let last_segment_last_key = &last_segment.keys[last_segment.keys.len () - 1];
+                    // crashpoint - send back a RouteError
                     if key != last_segment_last_key {panic! ("Route segment {} ({:?}) must begin where segment {} ({:?}) left off", segment_index, route_segment, segment_index - 1, last_segment)}
                     continue
                 }
@@ -39,6 +43,7 @@ impl Route {
                 }
             }
         }
+        // crashpoint - should not be possible, can we restructure to remove the Option?
         hops.push (Hop::with_component (pending_recipient.expect ("Route segment without recipient")));
         Route::hops_to_route (hops[1..].to_vec (), &route_segments[0].keys[0], cryptde)
     }
@@ -55,7 +60,7 @@ impl Route {
     pub fn shift (&mut self, next_hop_private_key: &Key, cryptde: &CryptDE) -> Option<Hop> {
         if self.hops.is_empty () {return None}
         let next_hop = match Route::decode_hop (next_hop_private_key, cryptde, &self.hops.remove (0)) {
-            None => unimplemented!(),
+            None => return None,
             Some (h) => h
         };
 
@@ -69,7 +74,7 @@ impl Route {
     // TODO: We should probably either have access to a Logger here, or return a Result instead of an Option.
     fn decode_hop (hop_key: &Key, cryptde: &CryptDE, hop_enc: &CryptData) -> Option<Hop> {
         match Hop::decode (hop_key, cryptde, hop_enc) {
-            Err (e) => /* Log something? Somehow? */ {println! ("Decryption error: {:?}", e); unimplemented!()},
+            Err (_) => None,
             Ok (h) => Some (h)
         }
     }
@@ -79,10 +84,10 @@ impl Route {
         let mut hop_key_opt = Some (top_hop_key);
         for hop_index in 0..hops.len () {
             let data_hop = &hops[hop_index];
+            // crashpoint - should not be possible, can this be restructured to remove Option?
             let hop_key_ref = hop_key_opt.expect (&format! ("Hop without source key: {:?}", data_hop));
             hops_enc.push (match data_hop.encode (hop_key_ref, cryptde) {
                 Ok (crypt_data) => crypt_data,
-                // TODO FIXME don't panic!
                 Err (_) => panic! ("Couldn't encode hop")
             });
             hop_key_opt = data_hop.public_key.as_ref ();
@@ -91,7 +96,8 @@ impl Route {
     }
 
     fn average_hop_length (&self) -> usize {
-        if self.hops.len () == 0 {unimplemented!()}
+        // crashpoint - not possible if Route::new was used to create the route - is this fn needed?
+        if self.hops.len () == 0 {panic!("Invalid route - was it not created with new?")}
         self.hops.iter ().fold (0, |sofar, elem| {sofar + elem.data.len ()}) / self.hops.len ()
     }
 }

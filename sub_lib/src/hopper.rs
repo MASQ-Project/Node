@@ -40,7 +40,7 @@ impl ResponseType for IncipientCoresPackage {
 
 impl IncipientCoresPackage {
     pub fn new<T> (route: Route, payload: T, payload_destination_key: &Key) -> IncipientCoresPackage where T: Serialize {
-        // TODO: Figure out how to log this serialization failure rather than letting data crash the Node.
+        // crashpoint - TODO: Figure out how to log this serialization failure rather than letting data crash the Node.
         let serialized_payload = serde_cbor::ser::to_vec(&payload).expect ("Serialization failure");
         IncipientCoresPackage {
             route,

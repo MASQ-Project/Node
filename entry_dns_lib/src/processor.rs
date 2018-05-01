@@ -31,8 +31,7 @@ impl ProcessorTrait for ProcessorReal {
         };
         let result: usize;
         loop {
-            // This unwrap will be safe unless the 64KB buffer is reduced to less than one byte.
-            if facade.get_opcode().unwrap() != 0x0 {
+            if facade.get_opcode().expect("The provided buffer must have more than 0 bytes") != 0x0 {
                 result = ProcessorReal::make_not_implemented_error(&mut facade);
                 break;
             }
@@ -53,7 +52,8 @@ impl ProcessorTrait for ProcessorReal {
                 if query.get_query_class() != 0x0001 { return ProcessorReal::make_not_implemented_error(&mut facade) }
                 let octets = match self.target_ip {
                     IpAddr::V4 (ipv4) => ipv4.octets (),
-                    IpAddr::V6 (_ipv6) => panic! ("Test-drive me")
+                    // crashpoint - make a card
+                    IpAddr::V6 (_ipv6) => unimplemented!()
                 };
                 facade.add_answer(&query.get_query_name(), 0x0001, 0x0001, 3600, &octets);
             }
