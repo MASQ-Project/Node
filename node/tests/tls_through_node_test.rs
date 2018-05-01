@@ -21,19 +21,20 @@ use tls_api::TlsConnectorBuilder as TlsConnectorBuilderBase;
 use tls_api::TlsStream;
 use tls_api::HandshakeError;
 use std::thread;
+use std::net::Shutdown;
 
 #[test]
 #[allow (unused_variables)] // 'node' below must not become '_' or disappear, or the
                             // SubstratumNode will be immediately reclaimed.
 fn tls_through_node_integration() {
     let node = utils::SubstratumNode::start();
-    let stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:443").unwrap()).expect("Could not connect to 127.0.0.1:443");
-    stream.set_read_timeout(Some(Duration::from_millis(100))).expect ("Could not set read timeout to 100ms");
-    let connector = TlsConnector::builder().expect ("Could not construct TlsConnectorBuilder").build().expect ("Could not build TlsConnector");
     let mut tls_stream = {
-        let mut retries_remaining = 10;
         let mut tls_stream: Option<TlsStream<TcpStream>> = None;
+        let mut retries_remaining = 10;
         while retries_remaining > 0 {
+            let stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:443").unwrap()).expect("Could not connect to 127.0.0.1:443");
+            stream.set_read_timeout(Some(Duration::from_millis(100))).expect ("Could not set read timeout to 100ms");
+            let connector = TlsConnector::builder().expect ("Could not construct TlsConnectorBuilder").build().expect ("Could not build TlsConnector");
             match connector.connect ("httpbin.org", stream.try_clone ().expect ("Couldn't clone TcpStream")) {
                 Ok (s) => {tls_stream = Some (s); break},
                 Err (HandshakeError::Failure (e)) => {
@@ -41,12 +42,17 @@ fn tls_through_node_integration() {
                         println! ("Warning: {:?}", e);
                         retries_remaining -=1;
                         thread::sleep (Duration::from_millis (10000));
+                        stream.shutdown (Shutdown::Both).unwrap ();
                     }
                     else {
                         panic! ("Could not wrap TcpStream in TlsConnector: {:?}", e)
                     }
                 },
-                Err (HandshakeError::Interrupted (e)) => {println! ("Warning: {:?}", e); retries_remaining -= 1; thread::sleep (Duration::from_millis (100))}
+                Err (HandshakeError::Interrupted (e)) => {
+                    println! ("Warning: {:?}", e); retries_remaining -= 1;
+                    thread::sleep (Duration::from_millis (100));
+                    stream.shutdown (Shutdown::Both).unwrap ();
+                }
             }
         }
         tls_stream.expect ("Couldn't handshake: retries expended")

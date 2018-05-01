@@ -49,13 +49,11 @@ use sub_lib::route::RouteSegment;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
 use sub_lib::cryptde_null::CryptDENull;
 
-#[allow(dead_code)]
 pub struct ByteArrayWriter {
     pub byte_array: Vec<u8>,
     pub next_error: Option<Error>
 }
 
-#[allow(dead_code)]
 impl ByteArrayWriter {
     pub fn new () -> ByteArrayWriter {
         let vec = Vec::new ();
@@ -93,13 +91,11 @@ impl Write for ByteArrayWriter {
     }
 }
 
-#[allow(dead_code)]
 pub struct ByteArrayReader {
     byte_array: Vec<u8>,
     position: usize
 }
 
-#[allow(dead_code)]
 impl ByteArrayReader {
     pub fn new (byte_array: &[u8]) -> ByteArrayReader {
         ByteArrayReader {byte_array: byte_array.to_vec (), position: 0}

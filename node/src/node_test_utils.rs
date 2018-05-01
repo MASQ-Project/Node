@@ -170,7 +170,6 @@ impl TcpStreamWrapperMock {
         self
     }
 
-    #[allow (dead_code)]
     pub fn name (mut self, name: &str) -> TcpStreamWrapperMock {
         self.name = String::from (name);
         self
@@ -237,14 +236,6 @@ pub fn wait_until<F> (check: F) where F: Fn() -> bool {
             panic! ("Waited for more than a second")
         }
         thread::sleep (Duration::from_millis (10))
-    }
-}
-
-#[allow (dead_code)]
-pub fn to_string (data: &Vec<u8>) -> String {
-    match String::from_utf8 (data.clone ()) {
-        Ok (data_string) => format! ("{}", data_string),
-        Err (_) => format! ("{:?}", data)
     }
 }
 
