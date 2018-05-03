@@ -1,0 +1,25 @@
+[package]
+name = "dns_utility"
+version = "0.1.0"
+license = "GPL-3.0-only"
+authors = ["Substratum Services"]
+copyright = "Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved."
+description = "Command-line utility to turn DNS subversion on and off"
+workspace = "../node"
+
+[dependencies]
+regex = "0.2.5"
+sub_lib = { path = "../sub_lib" }
+
+[dev-dependencies]
+test_utils = {path = "../test_utils" }
+
+[[bin]]
+name = "dns_utility"
+path = "src/main.rs"
+
+[lib]
+name = "dns_utility_lib"
+path = "src/lib.rs"
+
+cargo-bundle = "0.2.0"
