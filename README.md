@@ -49,9 +49,9 @@ Find instructions for your platform [here](https://github.com/SubstratumNetwork/
 Once you've successfully built the `node` executable and completed the manual setup steps,
 you can run SubstratumNode locally from the command line:
 ```
-<path to workspace>/SubstratumNode/node/target/release/node --dns_servers 8.8.8.8
+<path to workspace>/SubstratumNode/node/target/release/SubstratumNode --dns_servers 1.1.1.1
 ```
-In the above example, we're using Google's DNS, `8.8.8.8`, but you can use your preferred DNS.
+In the above example, we're using Cloudflare's DNS, `1.1.1.1`, but you can use your preferred DNS.
 If you can't choose just one favorite DNS, you can also specify multiple, separated by a comma (`,`).
 
 _Why do we send in `dns_servers`? SubstratumNodes still need to talk to the greater Internet.
