@@ -1,0 +1,30 @@
+{
+  "name": "SubstratumNode",
+  "version": "0.1.0",
+  "description": "Front end for starting and stopping the SubstratumNode",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "lint": "standard --fix",
+    "test": "mocha",
+    "unit": "mocha test/*_test.js",
+    "spec": "mocha test/*_spec.js"
+  },
+  "repository": "https://github.com/SubstratumNetwork/SubstratumNode",
+  "keywords": [],
+  "author": "Substratum Services LLC",
+  "license": "GPL-3.0",
+  "devDependencies": {
+    "devtron": "^1.4.0",
+    "electron": "^1.8.4",
+    "mocha": "^5.1.1",
+    "spectron": "^3.8.0",
+    "standard": "^11.0.1",
+    "testdouble": "^3.8.0"
+  },
+  "dependencies": {
+    "node-cmd": "^3.0.0",
+    "sudo-prompt": "^8.2.0",
+    "tree-kill": "^1.2.0"
+  }
+}
