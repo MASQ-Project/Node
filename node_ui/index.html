@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<!--Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.-->
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>SubstratumNode</title>
+    <link rel="stylesheet" href="assets/styles.css">
+  </head>
+  <body>
+    <div id="logo">
+      <img src="assets/substratum_icon.png" height="40" width="40"/>
+    </div>
+    <div id="control-panel">
+      <div class="slide-container">
+        <label class="switch">
+          <input type="checkbox" id="slider-node-toggle">
+          <span id="slider-mask" class="slider round"></span>
+        </label>
+      </div>
+      <div class="status-container">
+        <label id="node-status">Node Status: Off</label>
+      </div>
+    </div>
+    <script>
+      require('./render-process/renderer')
+    </script>
+  </body>
+</html>
