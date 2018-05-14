@@ -1,7 +1,4 @@
-node_modules
 #static/binaries/**
-yarn-error.log
-yarn.lock
 dist/
 
 ### JetBrains template
