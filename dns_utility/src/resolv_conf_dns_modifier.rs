@@ -1,6 +1,4 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-#![cfg (unix)]
-use std::env;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io;
@@ -184,8 +182,10 @@ impl ResolvConfDnsModifier {
 #[cfg (test)]
 mod tests {
     use super::*;
+    use std::env;
     use std::io::Write;
     use std::fs;
+    #[cfg (unix)]
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
@@ -262,6 +262,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg (unix)]
     fn replace_contents_translates_system_errors () {
         let root = make_root ("replace_contents_translates_system_errors");
         {
@@ -274,8 +275,10 @@ mod tests {
         let subject = ResolvConfDnsModifier::new ();
 
         let result = subject.replace_contents (file, String::from ("modified modified modified"));
+        let result_err = result.err().unwrap();
 
-        assert_eq! (result.err ().unwrap (), String::from ("/etc/resolv.conf could not be modified: Error { repr: Os { code: 22, message: \"Invalid argument\" } }"));
+        assert_eq! (result_err.starts_with("/etc/resolv.conf could not be modified: "), true, "{}", &result_err);
+        assert_eq! (result_err.contains("\"Invalid argument\""), true, "{}", &result_err);
     }
 
     #[test]
@@ -290,6 +293,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg (unix)]
     fn subvert_complains_if_resolv_conf_exists_but_is_a_directory () {
         let root = make_root ("subvert_complains_if_resolv_conf_exists_but_is_a_directory");
         fs::create_dir_all (Path::new (&root).join (Path::new ("etc")).join (Path::new ("resolv.conf"))).unwrap ();
@@ -302,6 +306,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg (unix)]
     fn subvert_complains_if_resolv_conf_exists_but_is_not_readable () {
         let root = make_root ("subvert_complains_if_resolv_conf_exists_but_is_not_readable");
         let file = make_resolv_conf (&root, "");
@@ -317,6 +322,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg (unix)]
     fn subvert_complains_if_resolv_conf_exists_but_is_not_writable () {
         let root = make_root ("subvert_complains_if_resolv_conf_exists_but_is_not_writable");
         let file = make_resolv_conf (&root, "");

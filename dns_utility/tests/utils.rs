@@ -5,11 +5,7 @@ use std::process::Command;
 use std::process::Child;
 use std::io::Read;
 use std::env;
-use std::time::Instant;
-use std::fs::File;
 use std::ops::Drop;
-use std::time::Duration;
-use std::thread;
 
 pub struct TestCommand {
     child: Child
@@ -43,9 +39,9 @@ impl TestCommand {
 
     pub fn output (&mut self) -> String {
         let mut stdout = String::new ();
-        self.child.stdout.as_mut ().unwrap ().read_to_string (&mut stdout);
+        self.child.stdout.as_mut ().unwrap ().read_to_string (&mut stdout).unwrap ();
         let mut stderr = String::new ();
-        self.child.stderr.as_mut ().unwrap ().read_to_string (&mut stderr);
+        self.child.stderr.as_mut ().unwrap ().read_to_string (&mut stderr).unwrap ();
         format! ("STANDARD OUTPUT:\n{}\nSTANDARD ERROR:\n{}\n", stdout, stderr)
     }
 
@@ -54,10 +50,8 @@ impl TestCommand {
         let test_command = env::args ().next ().unwrap ();
         let debug_or_release = test_command.split ("\\").skip_while (|s| s != &"target").skip(1).next().unwrap();
         let command_to_start = &format! ("target\\{}\\{}", debug_or_release, command);
-        let mut command = Command::new ("cmd");
-        let mut args = vec! ("/c", "start");
-        args.extend (parameters);
-        command.args (args);
+        let mut command = Command::new (command_to_start);
+        command.args (parameters);
         command
     }
 

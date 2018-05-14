@@ -2,12 +2,14 @@
 extern crate regex;
 extern crate sub_lib;
 
+#[cfg (windows)]
+extern crate winreg;
+
 #[cfg (test)]
 extern crate test_utils;
 
 pub mod dns_utility;
 pub mod dns_modifier;
 pub mod dns_modifier_factory;
-
-#[cfg (unix)]
+pub mod winreg_dns_modifier;
 pub mod resolv_conf_dns_modifier;

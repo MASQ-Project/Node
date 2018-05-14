@@ -3,7 +3,6 @@ use sub_lib::main_tools::Command;
 use sub_lib::main_tools::StdStreams;
 use dns_modifier_factory::DnsModifierFactory;
 use dns_modifier_factory::DnsModifierFactoryReal;
-use dns_modifier::DnsModifier;
 
 pub struct DnsUtility {
     factory: Box<DnsModifierFactory>
@@ -65,6 +64,7 @@ mod tests {
     use super::*;
     use test_utils::test_utils::FakeStreamHolder;
     use std::cell::RefCell;
+    use dns_modifier::DnsModifier;
 
     pub struct DnsModifierMock {
         subvert_results: RefCell<Vec<Result<(), String>>>,

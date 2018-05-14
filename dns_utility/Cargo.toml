@@ -10,6 +10,9 @@ description = "Command-line utility to turn DNS subversion on and off"
 regex = "0.2.5"
 sub_lib = { path = "../sub_lib" }
 
+[target.'cfg(windows)'.dependencies]
+winreg = "0.5.0"
+
 [dev-dependencies]
 test_utils = {path = "../test_utils" }
 
