@@ -34,7 +34,7 @@ fn tls_through_node_integration() {
         let mut retries_remaining = RETRIES_ALLOWED;
         while retries_remaining > 0 {
             let stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:443").unwrap()).expect("Could not connect to 127.0.0.1:443");
-            stream.set_read_timeout(Some(Duration::from_millis(100))).expect ("Could not set read timeout to 100ms");
+            stream.set_read_timeout(Some(Duration::from_millis(200))).expect ("Could not set read timeout to 200ms");
             let connector = TlsConnector::builder().expect ("Could not construct TlsConnectorBuilder").build().expect ("Could not build TlsConnector");
             match connector.connect ("httpbin.org", stream.try_clone ().expect ("Couldn't clone TcpStream")) {
                 Ok (s) => {tls_stream = Some (s); break},
