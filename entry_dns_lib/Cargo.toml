@@ -12,7 +12,6 @@ sub_lib = { path = "../sub_lib" }
 
 [dev-dependencies]
 test_utils = { path = "../test_utils" }
-logger_trait_lib = { path = "../logger_trait_lib" }
 
 [target.'cfg(unix)'.dependencies]
 daemonize = "0.2.3"

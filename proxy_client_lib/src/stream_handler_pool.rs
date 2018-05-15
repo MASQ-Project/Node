@@ -263,13 +263,12 @@ mod tests {
     use serde_cbor;
     use trust_dns_resolver::error::ResolveError;
     use trust_dns_resolver::error::ResolveErrorKind;
-    use logger_trait_lib::logger::LoggerInitializerWrapper;
     use sub_lib::cryptde::Key;
     use sub_lib::cryptde_null::CryptDENull;
     use sub_lib::hopper::ExpiredCoresPackage;
     use sub_lib::proxy_server::ProxyProtocol;
     use test_utils::test_utils;
-    use test_utils::test_utils::LoggerInitializerWrapperMock;
+    use test_utils::test_utils::init_test_logging;
     use test_utils::test_utils::Recorder;
     use test_utils::test_utils::TestLogHandler;
     use local_test_utils::ResolverWrapperMock;
@@ -279,7 +278,7 @@ mod tests {
 
     #[test]
     fn invalid_package_is_logged_and_discarded () {
-        LoggerInitializerWrapperMock::new ().init ();
+        init_test_logging();
         let hopper = Recorder::new ();
         let recording = hopper.get_recording ();
         thread::spawn (move || {
@@ -373,7 +372,7 @@ mod tests {
 
     #[test]
     fn write_failure_for_existing_stream_generates_log_and_termination_message () {
-        LoggerInitializerWrapperMock::new ().init ();
+        init_test_logging();
         let hopper = Recorder::new();
         let hopper_awaiter = hopper.get_awaiter ();
         let hopper_recording_arc = hopper.get_recording ();
@@ -414,7 +413,7 @@ mod tests {
 
     #[test]
     fn write_failure_for_nonexistent_stream_generates_log_and_termination_message () {
-        LoggerInitializerWrapperMock::new ().init ();
+        init_test_logging();
         let hopper = Recorder::new();
         let hopper_awaiter = hopper.get_awaiter ();
         let hopper_recording_arc = hopper.get_recording ();
@@ -467,7 +466,7 @@ mod tests {
 
     #[test]
     fn missing_hostname_for_nonexistent_stream_generates_log_and_termination_message () {
-        LoggerInitializerWrapperMock::new ().init ();
+        init_test_logging();
         let hopper = Recorder::new();
         let hopper_awaiter = hopper.get_awaiter ();
         let hopper_recording_arc = hopper.get_recording ();
@@ -587,7 +586,7 @@ mod tests {
 
     #[test]
     fn if_none_of_the_resolved_ips_work_we_get_a_log_and_an_error_result () {
-        LoggerInitializerWrapperMock::new ().init ();
+        init_test_logging();
         let hopper = Recorder::new();
         let hopper_awaiter = hopper.get_awaiter ();
         let hopper_recording_arc = hopper.get_recording ();
@@ -632,7 +631,7 @@ mod tests {
 
     #[test]
     fn if_setting_read_timeout_fails_we_get_a_log_and_an_error_result () {
-        LoggerInitializerWrapperMock::new ().init ();
+        init_test_logging();
         let hopper = Recorder::new();
         let hopper_awaiter = hopper.get_awaiter ();
         let hopper_recording_arc = hopper.get_recording ();
@@ -678,7 +677,7 @@ mod tests {
 
     #[test]
     fn if_setting_read_timeout_fails_and_peer_addr_fails_we_get_a_log_and_an_error_result () {
-        LoggerInitializerWrapperMock::new ().init ();
+        init_test_logging();
         let hopper = Recorder::new();
         let hopper_awaiter = hopper.get_awaiter ();
         let hopper_recording_arc = hopper.get_recording ();
@@ -724,7 +723,7 @@ mod tests {
 
     #[test]
     fn bad_dns_lookup_produces_log_and_sends_error_response () {
-        LoggerInitializerWrapperMock::new().init();
+        init_test_logging();
         let stream_key = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let hopper = Recorder::new();
         let hopper_awaiter = hopper.get_awaiter();
@@ -770,7 +769,7 @@ mod tests {
 
     #[test]
     fn try_clone_error_is_logged_and_returned () {
-        LoggerInitializerWrapperMock::new ().init ();
+        init_test_logging();
         let cryptde = CryptDENull::new ();
         let hopper = Recorder::new();
         let hopper_awaiter = hopper.get_awaiter ();

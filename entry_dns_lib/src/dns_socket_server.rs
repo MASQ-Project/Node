@@ -118,8 +118,7 @@ mod tests {
     use std::cmp::min;
     use test_utils::test_utils::FakeStreamHolder;
     use sub_lib::packet_facade::PacketFacade;
-    use logger_trait_lib::logger::LoggerInitializerWrapper;
-    use test_utils::test_utils::LoggerInitializerWrapperMock;
+    use test_utils::test_utils::init_test_logging;
     use test_utils::test_utils::TestLogHandler;
 
     struct UdpSocketWrapperMockGuts {
@@ -345,7 +344,7 @@ mod tests {
     #[test]
     fn serves_a_single_request () {
         let (log, mut buf) = {
-            LoggerInitializerWrapperMock::new ().init ();
+            init_test_logging();
             let mut subject = make_instrumented_subject();
             subject.dns_target = Some(V4(Ipv4Addr::from_str("1.2.3.4").unwrap()));
             subject.limiter = Limiter::with_only (1);

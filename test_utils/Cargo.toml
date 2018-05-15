@@ -16,4 +16,3 @@ serde_derive = "1.0.24"
 serde_cbor = "0.8.1"
 actix = "0.4.4"
 sub_lib = { path = "../sub_lib" }
-logger_trait_lib = { path = "../logger_trait_lib" }

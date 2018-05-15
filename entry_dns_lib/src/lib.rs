@@ -5,8 +5,6 @@ extern crate daemonize;
 
 #[cfg (test)]
 extern crate test_utils;
-#[cfg (test)]
-extern crate logger_trait_lib;
 
 pub mod server;
 pub mod packet_server;

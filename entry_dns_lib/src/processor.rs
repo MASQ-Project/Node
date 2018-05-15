@@ -138,10 +138,9 @@ mod tests {
     use sub_lib::packet_facade::PacketFacade;
     use sub_lib::packet_facade::Query;
     use sub_lib::packet_facade::ResourceRecord;
-    use test_utils::test_utils::LoggerInitializerWrapperMock;
+    use test_utils::test_utils::init_test_logging;
     use test_utils::test_utils::TestLogHandler;
     use sub_lib::logger::Logger;
-    use logger_trait_lib::logger::LoggerInitializerWrapper;
     use processor::ProcessorTrait;
     use processor::ProcessorReal;
     use processor::RequestRecord;
@@ -243,7 +242,7 @@ mod tests {
 
     #[test]
     fn two_queries_are_answered () {
-        LoggerInitializerWrapperMock::new ().init ();
+        init_test_logging();
         let mut buf: [u8; 500] = [0; 500];
         let req_length = {
             let mut request = PacketFacade::new(&mut buf, 500);
@@ -308,7 +307,7 @@ mod tests {
 
     #[test]
     fn write_log_produces_correct_text () {
-        LoggerInitializerWrapperMock::new ().init ();
+        init_test_logging();
         let request_record = RequestRecord {
             timestamp: Instant::now (),
             opcode: 0x2,

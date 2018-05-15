@@ -382,10 +382,9 @@ mod tests {
     use actix::Arbiter;
     use actix::System;
     use sub_lib::dispatcher::Component;
-    use logger_trait_lib::logger::LoggerInitializerWrapper;
     use test_utils::test_utils::make_peer_actors;
     use test_utils::test_utils::make_peer_actors_from;
-    use test_utils::test_utils::LoggerInitializerWrapperMock;
+    use test_utils::test_utils::init_test_logging;
     use test_utils::test_utils::Recorder;
     use test_utils::test_utils::TestLogHandler;
     use node_test_utils::TcpStreamWrapperMock;
@@ -513,7 +512,7 @@ mod tests {
 
     #[test]
     fn non_dead_stream_read_errors_log_but_do_not_terminate_handling () {
-        LoggerInitializerWrapperMock::new ().init ();
+        init_test_logging();
         let dispatcher = Recorder::new ();
         let dispatcher_recording = dispatcher.get_recording();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -566,7 +565,7 @@ mod tests {
 
     #[test]
     fn receiving_from_a_dead_existing_stream_removes_writer_but_writes_no_error_log () {
-        LoggerInitializerWrapperMock::new ().init ();
+        init_test_logging();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5676").unwrap();
         let mut read_stream = TcpStreamWrapperMock::new()
             .peer_addr_result (Ok(socket_addr))
@@ -618,7 +617,7 @@ mod tests {
 
     #[test]
     fn transmitting_down_a_smoothly_operating_existing_stream_works_fine () {
-        LoggerInitializerWrapperMock::new ().init ();
+        init_test_logging();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5673").unwrap();
         let mut write_stream = TcpStreamWrapperMock::new()
             .peer_addr_result (Ok (socket_addr));
@@ -656,7 +655,7 @@ mod tests {
 
     #[test]
     fn terminal_packet_is_transmitted_and_then_stream_is_shut_down () {
-        LoggerInitializerWrapperMock::new ().init ();
+        init_test_logging();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5673").unwrap();
         let mut write_stream = TcpStreamWrapperMock::new()
             .peer_addr_result (Ok (socket_addr));
@@ -698,7 +697,7 @@ mod tests {
 
     #[test]
     fn transmitting_down_a_recalcitrant_existing_stream_produces_an_error_log_and_removes_writer () {
-        LoggerInitializerWrapperMock::new ().init ();
+        init_test_logging();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5679").unwrap();
         let mut read_stream = TcpStreamWrapperMock::new()
             .peer_addr_result (Ok(socket_addr))
@@ -755,7 +754,7 @@ mod tests {
 
     #[test]
     fn transmitting_on_an_unknown_socket_addr_produces_an_error_log () {
-        LoggerInitializerWrapperMock::new ().init ();
+        init_test_logging();
         thread::spawn (move || {
             let system = System::new("test");
             let socket_addr = SocketAddr::from_str("1.2.3.4:5677").unwrap();

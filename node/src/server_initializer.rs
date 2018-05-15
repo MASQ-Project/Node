@@ -1,13 +1,14 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use std::env::temp_dir;
+use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use flexi_logger::LevelFilter;
 use flexi_logger::Logger;
 use flexi_logger::LogSpecification;
-use logger_trait_lib::logger::LoggerInitializerWrapper;
 use sub_lib::main_tools::StdStreams;
 use sub_lib::main_tools::Command;
+use sub_lib::parameter_finder::ParameterFinder;
 use sub_lib::socket_server::SocketServer;
 use entry_dns_lib::dns_socket_server::new_dns_socket_server;
 use bootstrapper::Bootstrapper;
@@ -25,26 +26,9 @@ pub struct ServerInitializer<P, D> where P: PrivilegeDropper, D: Daemonizer {
     lifetime_secs: u64
 }
 
-struct LoggerInitializerWrapperReal {}
-
-impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
-    fn init(&mut self) -> bool {
-        match Logger::with(LogSpecification::default(LevelFilter::Trace).finalize())
-            .log_to_file()
-            .directory(&temp_dir ().to_str ().expect ("Bad temporary filename")[..])
-            .print_message ()
-            .duplicate_info ()
-            .suppress_timestamp ()
-            .start() {
-            Ok (_) => true,
-            Err (_) => false
-        }
-    }
-}
-
 impl<P, D> Command for ServerInitializer<P, D> where P: PrivilegeDropper, D: Daemonizer {
     fn go<'b> (&mut self, streams: &'b mut StdStreams<'b>, args: &Vec<String>) -> u8 {
-        self.logger_initializer_wrapper.init ();
+        self.logger_initializer_wrapper.init (args);
         let mut dns_socket_server_box = self.dns_socket_server.take ().expect ("DNS Socket Server missing");
         dns_socket_server_box.as_mut ().initialize_as_root (args, streams);
         let mut bootstrapper_box = self.bootstrapper.take ().expect ("Bootstrapper missing");
@@ -75,6 +59,44 @@ impl ServerInitializer<PrivilegeDropperReal, DaemonizerReal> {
             daemonizer: DaemonizerReal::new (),
             logger_initializer_wrapper: Box::new (LoggerInitializerWrapperReal {}),
             lifetime_secs: 0xFFFFFFFFFFFFFFFF
+        }
+    }
+}
+
+trait LoggerInitializerWrapper: Send {
+    fn init (&mut self, args: &Vec<String>) -> bool;
+}
+
+struct LoggerInitializerWrapperReal {}
+
+impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
+    fn init(&mut self, args: &Vec<String>) -> bool {
+        match Logger::with(LogSpecification::default(LoggerInitializerWrapperReal::get_log_level(args)).finalize())
+            .log_to_file()
+            .directory(&temp_dir ().to_str ().expect ("Bad temporary filename")[..])
+            .print_message ()
+            .duplicate_info ()
+            .suppress_timestamp ()
+            .start() {
+            Ok (_) => true,
+            Err (_) => false
+        }
+    }
+}
+
+impl LoggerInitializerWrapperReal {
+    fn get_log_level(args: &Vec<String>) -> LevelFilter {
+        let parameter_tag = "--log_level";
+        let usage = "should be one of <trace|debug|info|warn|error|off> (default = warn)";
+
+        match ParameterFinder::new(args).find_value_for(parameter_tag, usage) {
+            Some(value) => {
+                match LevelFilter::from_str(value.as_str()) {
+                    Ok(lf) => lf,
+                    Err(_) => panic!("Bad value '{}' for {}: {}", value, parameter_tag, usage)
+                }
+            },
+            None => LevelFilter::Warn,
         }
     }
 }
@@ -137,10 +159,10 @@ mod tests {
     use sub_lib::limiter::Limiter;
     use sub_lib::logger;
     use test_utils::test_utils::FakeStreamHolder;
-    use test_utils::test_utils::LoggerInitializerWrapperMock;
     use test_utils::test_utils::TestLogHandler;
     use test_utils::test_utils::ByteArrayWriter;
     use test_utils::test_utils::ByteArrayReader;
+    use test_utils::test_utils::init_test_logging;
 
     struct SocketServerMock {
         name: String,
@@ -206,6 +228,27 @@ mod tests {
         }
     }
 
+    struct LoggerInitializerWrapperMock {
+        init_parameters: Arc<Mutex<Vec<Vec<String>>>>
+    }
+
+    impl LoggerInitializerWrapper for LoggerInitializerWrapperMock {
+        fn init(&mut self, args: &Vec<String>) -> bool {
+            self.init_parameters.lock ().unwrap ().push (args.clone());
+            init_test_logging()
+        }
+    }
+
+    impl LoggerInitializerWrapperMock {
+        pub fn new () -> LoggerInitializerWrapperMock {
+            LoggerInitializerWrapperMock { init_parameters: Arc::new(Mutex::new(vec!())) }
+        }
+
+        pub fn init_parameters(&mut self, parameters: &Arc<Mutex<Vec<Vec<String>>>>) {
+            self.init_parameters = parameters.clone ();
+        }
+    }
+
     #[test]
     fn exits_after_all_socket_servers_exit () {
         let (tx, _rx) = mpsc::channel ();
@@ -245,14 +288,17 @@ mod tests {
         let (bootstrapper, bootstrapper_tx) = SocketServerMock::make("BootstrapperMock2", 2);
         let privilege_dropper = PrivilegeDropperMock {tx: tx.clone ()};
         let daemonizer = DaemonizerMock {tx: tx.clone ()};
-        let logger_initializer_wrapper = LoggerInitializerWrapperMock::new ();
+        let mut logger_initializer_wrapper = LoggerInitializerWrapperMock::new ();
+        let logger_init_parameters: Arc<Mutex<Vec<Vec<String>>>> = Arc::new(Mutex::new(vec!()));
+        logger_initializer_wrapper.init_parameters(&logger_init_parameters);
         let args = vec! (String::from("glorp"));
+        let thread_args = args.clone();
         let mut subject = ServerInitializer {
             dns_socket_server: Some (Box::new (dns_socket_server)),
             bootstrapper: Some (Box::new (bootstrapper)),
             privilege_dropper,
             daemonizer,
-            logger_initializer_wrapper: Box::new (logger_initializer_wrapper.clone ()),
+            logger_initializer_wrapper: Box::new (logger_initializer_wrapper),
             lifetime_secs: 0
         };
         let holder = FakeStreamHolder {
@@ -266,7 +312,7 @@ mod tests {
         let handle = thread::spawn (move || {
             let mut locked = holder_t.lock ();
             let holder_ref = locked.as_mut ().unwrap ();
-            let result = subject.go(&mut holder_ref.streams(), &args);
+            let result = subject.go(&mut holder_ref.streams(), &thread_args);
             assert_eq! (result, 0);
         });
         dns_tx.send (String::from ("one - first request")).unwrap ();
@@ -305,9 +351,57 @@ mod tests {
             "BootstrapperMock2: initialize_as_root: [\"glorp\"]",
             "EntryDnsServerMock2: one - first request",
         ));
+        assert_eq!(logger_init_parameters.lock().unwrap().len(), 1);
+        assert_eq!(logger_init_parameters.lock().unwrap().get(0).unwrap(), &args);
     }
 
     fn assert_contains (string: &str, substring: &str) {
         assert_eq! (string.contains (substring), true, "'{}' is not contained in:\n'{}'\n", substring, string);
+    }
+
+    #[test]
+    fn get_log_level_returns_warn_by_default() {
+        let args: Vec<String> = vec!();
+        assert_eq!(LoggerInitializerWrapperReal::get_log_level(&args), LevelFilter::Warn);
+    }
+
+    #[test]
+    fn get_log_level_returns_log_level_from_args() {
+        let args = vec! (String::from("--log_level"), String::from("trace"));
+        assert_eq!(LoggerInitializerWrapperReal::get_log_level(&args), LevelFilter::Trace);
+
+        let args = vec! (String::from("--log_level"), String::from("WaRn"));
+        assert_eq!(LoggerInitializerWrapperReal::get_log_level(&args), LevelFilter::Warn);
+
+        let args = vec! (String::from("--log_level"), String::from("DebuG"));
+        assert_eq!(LoggerInitializerWrapperReal::get_log_level(&args), LevelFilter::Debug);
+
+        let args = vec! (String::from("--log_level"), String::from("INFO"));
+        assert_eq!(LoggerInitializerWrapperReal::get_log_level(&args), LevelFilter::Info);
+
+        let args = vec! (String::from("--log_level"), String::from("Error"));
+        assert_eq!(LoggerInitializerWrapperReal::get_log_level(&args), LevelFilter::Error);
+
+        let args = vec! (String::from("--log_level"), String::from("off"));
+        assert_eq!(LoggerInitializerWrapperReal::get_log_level(&args), LevelFilter::Off);
+    }
+
+    #[test]
+    #[should_panic (expected = "Bad value 'blooga' for --log_level: should be one of <trace|debug|info|warn|error|off> (default = warn)")]
+    fn get_log_level_panics_if_arg_makes_no_sense() {
+        let args = vec! (
+                         String::from("--dns_servers"), String::from("1.2.3.4"),
+                         String::from("--log_level"), String::from("blooga")
+        );
+
+        LoggerInitializerWrapperReal::get_log_level(&args);
+    }
+
+    #[test]
+    #[should_panic (expected = "Missing value for --log_level: should be one of <trace|debug|info|warn|error|off> (default = warn)")]
+    fn get_log_level_panics_if_flag_is_last_with_no_value() {
+        let args = vec! (String::from("--log_level"));
+
+        LoggerInitializerWrapperReal::get_log_level(&args);
     }
 }

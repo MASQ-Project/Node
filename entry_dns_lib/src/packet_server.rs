@@ -40,9 +40,8 @@ mod tests {
     use std::net::IpAddr;
     use std::cell::RefCell;
     use std::time::Duration;
-    use logger_trait_lib::logger::LoggerInitializerWrapper;
-    use test_utils::test_utils::LoggerInitializerWrapperMock;
     use test_utils::test_utils::TestLogHandler;
+    use test_utils::test_utils::init_test_logging;
     use processor::ProcessorTrait;
 
     struct UdpSocketWrapperMock {
@@ -113,7 +112,7 @@ mod tests {
 
     #[test]
     pub fn complains_when_packet_cant_be_received () {
-        LoggerInitializerWrapperMock::new ().init ();
+        init_test_logging();
         let mut socket = UdpSocketWrapperMock::new (
             Ok (true),
             vec![Err (Error::from (ErrorKind::BrokenPipe))],
@@ -131,7 +130,7 @@ mod tests {
 
     #[test]
     pub fn complains_when_packet_cant_be_sent () {
-        LoggerInitializerWrapperMock::new ().init ();
+        init_test_logging();
         let mut socket = UdpSocketWrapperMock::new (
             Ok (true),
             vec![Ok((2, SocketAddr::new (IpAddr::from ([1, 2, 3, 4]), 123)))],
@@ -157,7 +156,7 @@ mod tests {
 
     #[test]
     pub fn succeeds_when_everything_is_copacetic () {
-        LoggerInitializerWrapperMock::new ().init ();
+        init_test_logging();
         let mut socket = UdpSocketWrapperMock::new (
             Ok (true),
             vec![Ok ((2, SocketAddr::new (IpAddr::from ([1, 2, 3, 4]), 123)))],

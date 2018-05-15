@@ -10,8 +10,6 @@ extern crate serde_derive;
 
 #[cfg (test)]
 extern crate test_utils;
-#[cfg (test)]
-extern crate logger_trait_lib;
 
 #[cfg(unix)]
 extern crate daemonize;
@@ -35,6 +33,7 @@ pub mod main_tools;
 pub mod neighborhood;
 pub mod node_addr;
 pub mod packet_facade;
+pub mod parameter_finder;
 pub mod peer_actors;
 pub mod proxy_client;
 pub mod proxy_server;

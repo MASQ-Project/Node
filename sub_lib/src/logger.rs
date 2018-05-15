@@ -67,13 +67,12 @@ impl Logger {
 #[cfg (test)]
 mod tests {
     use super::*;
-    use logger_trait_lib::logger::LoggerInitializerWrapper;
     use test_utils::test_utils::TestLogHandler;
-    use test_utils::test_utils::LoggerInitializerWrapperMock;
+    use test_utils::test_utils::init_test_logging;
 
     #[test]
     fn logger_format_is_correct () {
-        LoggerInitializerWrapperMock::new ().init ();
+        init_test_logging();
         let one_logger = Logger::new ("logger_format_is_correct_one");
         let another_logger = Logger::new ("logger_format_is_correct_another");
 

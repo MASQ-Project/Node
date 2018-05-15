@@ -15,7 +15,6 @@ extern crate neighborhood_lib;
 extern crate proxy_server_lib;
 extern crate proxy_client_lib;
 extern crate hopper_lib;
-extern crate logger_trait_lib;
 
 #[cfg (test)]
 extern crate test_utils;

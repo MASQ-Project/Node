@@ -3,6 +3,7 @@ use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::thread;
+use sub_lib::parameter_finder::ParameterFinder;
 use sub_lib::socket_server::SocketServer;
 use sub_lib::main_tools::StdStreams;
 use actor_system_factory::ActorSystemFactory;
@@ -81,29 +82,20 @@ impl Bootstrapper {
     }
 
     fn parse_args (args: &Vec<String>) -> BootstrapperConfig {
-        let dns_server_addrs = {
-            let mut shifted = args.iter();
-            if shifted.next().is_none() {
-                vec! ()
-            }
-            else {
-                let mut zip = args.iter().zip(shifted);
-                let dns_server_string_opt = match zip.find(|p| { *p.0 == String::from("--dns_servers") }) {
-                    Some(pair) => Some(pair.1),
-                    None => None
-                };
-                let dns_server_strings: Vec<String> = match dns_server_string_opt {
-                    Some(dns_server_string) => dns_server_string.split(",").map(|s| { String::from(s) }).collect(),
-                    None => vec!()
-                };
-                dns_server_strings.iter().map(|string| {
-                    match IpAddr::from_str(string) {
-                        Ok(addr) => SocketAddr::new(addr, 53),
-                        Err(_) => panic!("Cannot use '{}' as a DNS server IP address", string)
-                    }
-                }).collect()
-            }
+        let parameter_tag = "--dns_servers";
+        let usage = "should be one or more comma-separated DNS server IP addresses";
+
+        let dns_server_strings: Vec<String> = match ParameterFinder::new(args).find_value_for(parameter_tag, usage) {
+            Some(dns_server_string) => dns_server_string.split(",").map(|s| { String::from(s) }).collect(),
+            None => vec!() // --dns_servers tag was not specified TODO: panic! here rather than ProxyClient
         };
+        let dns_server_addrs = dns_server_strings.iter().map(|string| {
+            match IpAddr::from_str(string) {
+                Ok(addr) => SocketAddr::new(addr, 53),
+                Err(_) => panic!("Cannot use '{}' as a DNS server IP address", string)
+            }
+        }).collect();
+
         BootstrapperConfig {
             dns_servers: dns_server_addrs
         }

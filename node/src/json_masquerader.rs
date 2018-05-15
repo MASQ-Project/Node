@@ -130,9 +130,8 @@ struct JsonMasqueraderUnmaskStructure {
 #[cfg (test)]
 mod tests {
     use super::*;
-    use logger_trait_lib::logger::LoggerInitializerWrapper;
     use test_utils::test_utils::TestLogHandler;
-    use test_utils::test_utils::LoggerInitializerWrapperMock;
+    use test_utils::test_utils::init_test_logging;
 
     #[test]
     fn json_masquerader_can_mask_and_unmask_bodytext () {
@@ -261,7 +260,7 @@ mod tests {
     }
 
     fn verify_error (data: &[u8], msg_suffix: &str) {
-        LoggerInitializerWrapperMock::new ().init ();
+        init_test_logging();
         let subject = JsonMasquerader::new ();
 
         let result = subject.try_unmask (data);

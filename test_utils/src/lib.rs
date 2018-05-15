@@ -8,7 +8,6 @@ extern crate serde_cbor;
 #[macro_use]
 extern crate serde_derive;
 extern crate sub_lib;
-extern crate logger_trait_lib;
 
 #[macro_use]
 pub mod test_utils;

@@ -25,7 +25,6 @@ use log::Log;
 use log::Record;
 use log::Metadata;
 use regex::Regex;
-use logger_trait_lib::logger::LoggerInitializerWrapper;
 use sub_lib::cryptde::Key;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde_null::CryptDENull;
@@ -348,30 +347,19 @@ impl TestLogHandler {
 
 static TEST_LOGGER: TestLogger = TestLogger {};
 
-#[derive (Clone)]
-pub struct LoggerInitializerWrapperMock {}
-
-impl LoggerInitializerWrapper for LoggerInitializerWrapperMock {
-    fn init(&mut self) -> bool {
-        let tlh = TestLogHandler::new ();
-        let result = if tlh.logs_initialized () {
-            true
-        }
-            else {
-                tlh.initialize_logs();
-                match set_logger (&TEST_LOGGER) {
-                    Ok (_) => true,
-                    Err (_) => false
-                }
-            };
-        result
+pub fn init_test_logging() -> bool {
+    let tlh = TestLogHandler::new ();
+    let result = if tlh.logs_initialized () {
+        true
     }
-}
-
-impl LoggerInitializerWrapperMock {
-    pub fn new () -> LoggerInitializerWrapperMock {
-        LoggerInitializerWrapperMock {}
-    }
+        else {
+            tlh.initialize_logs();
+            match set_logger (&TEST_LOGGER) {
+                Ok (_) => true,
+                Err (_) => false
+            }
+        };
+    result
 }
 
 #[derive (Clone)]

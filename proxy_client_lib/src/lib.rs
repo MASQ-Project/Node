@@ -9,8 +9,6 @@ extern crate sub_lib;
 
 #[cfg (test)]
 extern crate test_utils;
-#[cfg (test)]
-extern crate logger_trait_lib;
 
 pub mod proxy_client;
 pub mod resolver_wrapper;

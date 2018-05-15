@@ -5,8 +5,6 @@ extern crate actix;
 
 #[cfg (test)]
 extern crate test_utils;
-#[cfg (test)]
-extern crate logger_trait_lib;
 
 pub mod client_request_payload_factory;
 pub mod proxy_server;

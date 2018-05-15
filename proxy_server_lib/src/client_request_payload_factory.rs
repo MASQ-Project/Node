@@ -53,9 +53,8 @@ mod tests {
     use std::str::FromStr;
     use sub_lib::cryptde_null::CryptDENull;
     use sub_lib::dispatcher::Component;
-    use logger_trait_lib::logger::LoggerInitializerWrapper;
     use sub_lib::proxy_server::ProxyProtocol;
-    use test_utils::test_utils::LoggerInitializerWrapperMock;
+    use test_utils::test_utils::init_test_logging;
     use test_utils::test_utils::TestLogHandler;
 
     #[test]
@@ -169,7 +168,7 @@ mod tests {
 
     #[test]
     fn makes_no_payload_if_origin_port_is_not_specified () {
-        LoggerInitializerWrapperMock::new ().init ();
+        init_test_logging();
         let ibcd = InboundClientData {
             socket_addr: SocketAddr::from_str ("1.2.3.4:5678").unwrap (),
             origin_port: None,
@@ -189,7 +188,7 @@ mod tests {
 
     #[test]
     fn makes_no_payload_if_origin_port_is_unknown () {
-        LoggerInitializerWrapperMock::new ().init ();
+        init_test_logging();
         let ibcd = InboundClientData {
             socket_addr: SocketAddr::from_str ("1.2.3.4:5678").unwrap (),
             origin_port: Some (1234),

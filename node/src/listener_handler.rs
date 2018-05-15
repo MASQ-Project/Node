@@ -105,10 +105,9 @@ mod tests {
     use actix::System;
     use sub_lib::limiter::Limiter;
     use sub_lib::tcp_wrappers::TcpStreamWrapper;
-    use logger_trait_lib::logger::LoggerInitializerWrapper;
     use sub_lib::dispatcher::Component;
     use test_utils::test_utils::TestLog;
-    use test_utils::test_utils::LoggerInitializerWrapperMock;
+    use test_utils::test_utils::init_test_logging;
     use test_utils::test_utils::TestLogHandler;
     use node_test_utils::TcpStreamWrapperMock;
     use test_utils::test_utils::Recorder;
@@ -195,7 +194,7 @@ mod tests {
 
     #[test]
     fn handles_failed_accepts () {
-        LoggerInitializerWrapperMock::new ().init ();
+        init_test_logging();
         let mut listener = TcpListenerWrapperMock::new ();
         listener.accept_results = RefCell::new (vec! (
             Err (Error::from (ErrorKind::BrokenPipe)),
@@ -215,7 +214,7 @@ mod tests {
 
     #[test]
     fn handles_successful_accepts () {
-        LoggerInitializerWrapperMock::new ().init ();
+        init_test_logging();
         let first_socket_addr = SocketAddr::from_str ("2.3.4.5:2349").unwrap ();
         let first_data = "first data".as_bytes ();
         let mut first_stream = Box::new (TcpStreamWrapperMock::new ());
