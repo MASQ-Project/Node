@@ -1,20 +1,16 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+#![allow (unused_imports)]
+
 use std::fs::File;
 use std::path::Path;
 use dns_modifier::DnsModifier;
 use resolv_conf_dns_modifier::ResolvConfDnsModifier;
-use winreg_dns_modifier::WinRegDnsModifier;
-
-#[allow (dead_code)]
-const WINDOWS: u64 = 1;
-#[allow (dead_code)]
-const NOT_WINDOWS: u64 = 2;
 
 #[cfg (windows)]
-const OS_TYPE: u64 = WINDOWS;
+use winreg_dns_modifier::WinRegDnsModifier;
 
-#[cfg (not (windows))]
-const OS_TYPE: u64 = NOT_WINDOWS;
+#[cfg (target_os = "macos")]
+use dynamic_store_dns_modifier::DynamicStoreDnsModifier;
 
 pub trait DnsModifierFactory {
     fn make (&self) -> Option<Box<DnsModifier>>;
@@ -24,27 +20,87 @@ pub struct DnsModifierFactoryReal {}
 
 impl DnsModifierFactory for DnsModifierFactoryReal {
     fn make (&self) -> Option<Box<DnsModifier>> {
-        if OS_TYPE == WINDOWS {
-            Some(Box::new(WinRegDnsModifier::new()))
-        }
-        else if DnsModifierFactoryReal::supports_resolv_conf_dns_modifier() {
-            Some (Box::new (ResolvConfDnsModifier::new ()))
-        }
-        else {
-            unimplemented ! ()
-        }
+        let qualifier_factory_refref = QUALIFIER_FACTORIES.iter ().find (|qf_refref| {
+            (*qf_refref).system_qualifies()
+        })?;
+        Some ((*qualifier_factory_refref).make ())
     }
 }
 
 impl DnsModifierFactoryReal {
     pub fn new () -> DnsModifierFactoryReal {
-        DnsModifierFactoryReal {
-
-        }
+        DnsModifierFactoryReal {}
     }
+}
 
-    fn supports_resolv_conf_dns_modifier () -> bool {
+const QUALIFIER_FACTORIES: [&QualifierFactory; 3] = [
+    &DynamicStoreQualifierFactory {},
+    &WinRegQualifierFactory {},
+    &ResolvConfQualifierFactory {}
+];
+
+trait QualifierFactory {
+    fn system_qualifies (&self) -> bool;
+    fn make (&self) -> Box<DnsModifier>;
+}
+
+struct ResolvConfQualifierFactory;
+#[cfg (target_os = "linux")]
+impl QualifierFactory for ResolvConfQualifierFactory {
+    fn system_qualifies(&self) -> bool {
         File::open (Path::new ("/etc/resolv.conf")).is_ok ()
+    }
+    fn make(&self) -> Box<DnsModifier> {
+        Box::new (ResolvConfDnsModifier::new ())
+    }
+}
+#[cfg (not (target_os = "linux"))]
+impl QualifierFactory for ResolvConfQualifierFactory {
+    fn system_qualifies(&self) -> bool {
+        false
+    }
+    fn make(&self) -> Box<DnsModifier> {
+        panic!("Should never be called")
+    }
+}
+
+struct WinRegQualifierFactory;
+#[cfg (windows)]
+impl QualifierFactory for WinRegQualifierFactory {
+    fn system_qualifies(&self) -> bool {
+        true
+    }
+    fn make(&self) -> Box<DnsModifier> {
+        Box::new(WinRegDnsModifier::new())
+    }
+}
+#[cfg (not (windows))]
+impl QualifierFactory for WinRegQualifierFactory {
+    fn system_qualifies(&self) -> bool {
+        false
+    }
+    fn make(&self) -> Box<DnsModifier> {
+        panic!("Should never be called")
+    }
+}
+
+struct DynamicStoreQualifierFactory;
+#[cfg (target_os = "macos")]
+impl QualifierFactory for DynamicStoreQualifierFactory {
+    fn system_qualifies(&self) -> bool {
+        true
+    }
+    fn make(&self) -> Box<DnsModifier> {
+        Box::new (DynamicStoreDnsModifier::new ())
+    }
+}
+#[cfg (not (target_os = "macos"))]
+impl QualifierFactory for DynamicStoreQualifierFactory {
+    fn system_qualifies(&self) -> bool {
+        false
+    }
+    fn make(&self) -> Box<DnsModifier> {
+        panic!("Should never be called")
     }
 }
 
@@ -53,28 +109,68 @@ mod tests {
     use super::*;
 
     #[test]
-    fn should_provide_resolv_conf_dns_modifier_if_appropriate () {
-        if !DnsModifierFactoryReal::supports_resolv_conf_dns_modifier () {
-            println! ("should_provide_resolv_conf_dns_modifier_if_appropriate doesn't apply in this environment");
-            return
-        }
-        let subject = DnsModifierFactoryReal::new ();
+    fn resolv_conf_qualifier_factory_works_on_this_os () {
+        let subject = ResolvConfQualifierFactory {};
 
-        let modifier_box = subject.make ().unwrap ();
-        let modifier = modifier_box.as_ref ();
-        assert_eq! (modifier.type_name (), "ResolvConfDnsModifier");
+        let result = subject.system_qualifies();
+
+        #[cfg (target_os = "linux")]
+        {
+            if File::open (Path::new ("/etc/resolv.conf")).is_ok () {
+                assert_eq!(result, true)
+            }
+            else {
+                assert_eq!(result, false)
+            }
+        }
+
+        #[cfg (not (target_os = "linux"))]
+        {
+            assert_eq! (result, false)
+        }
     }
 
     #[test]
-    fn should_provide_winreg_dns_modifier_if_appropriate () {
-        if OS_TYPE != WINDOWS {
-            println! ("should_provide_winreg_dns_modifier_if_appropriate doesn't apply in this environment");
-            return
+    fn win_reg_qualifier_factory_works_on_this_os () {
+        let subject = WinRegQualifierFactory {};
+
+        let result = subject.system_qualifies();
+
+        #[cfg (windows)]
+        {
+            assert_eq!(result, true)
         }
+
+        #[cfg (not (windows))]
+        {
+            assert_eq! (result, false)
+        }
+    }
+
+    #[test]
+    fn dynamic_store_qualifier_factory_works_on_this_os () {
+        let subject = DynamicStoreQualifierFactory {};
+
+        let result = subject.system_qualifies();
+
+        #[cfg (target_os = "macos")]
+        {
+            assert_eq!(result, true)
+        }
+
+        #[cfg (not (target_os = "macos"))]
+        {
+            assert_eq! (result, false)
+        }
+    }
+
+    #[test]
+    #[allow (unused_variables)]
+    fn dns_modifier_factory_makes_something_on_this_os () {
         let subject = DnsModifierFactoryReal::new ();
 
-        let modifier_box = subject.make ().unwrap ();
-        let modifier = modifier_box.as_ref ();
-        assert_eq! (modifier.type_name (), "WinRegDnsModifier");
+        let result = subject.make ();
+
+        // no panic; test passes
     }
 }

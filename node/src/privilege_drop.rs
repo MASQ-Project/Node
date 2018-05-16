@@ -1,4 +1,8 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Because we have conditional compilation going on in this file:
+#![allow (unreachable_code)]
+#![allow (dead_code)]
+
 #[cfg(unix)]
 extern {
     pub fn getuid () -> i32;
@@ -48,9 +52,9 @@ impl IdWrapper for IdWrapperReal {
     // crashpoint
     fn getgid (&self) -> i32  { !unimplemented!() }
     // crashpoint
-    fn setuid (&self, uid: i32) -> i32 { !unimplemented!() }
+    fn setuid (&self, _uid: i32) -> i32 { !unimplemented!() }
     // crashpoint
-    fn setgid (&self, gid: i32) -> i32  { !unimplemented!() }
+    fn setgid (&self, _gid: i32) -> i32  { !unimplemented!() }
 }
 
 pub trait PrivilegeDropper {

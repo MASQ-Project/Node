@@ -189,15 +189,6 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
-    fn instance_knows_its_type_name () {
-        let subject = ResolvConfDnsModifier::new ();
-
-        let result = subject.type_name ();
-
-        assert_eq! (result, "ResolvConfDnsModifier");
-    }
-
-    #[test]
     fn active_nameservers_are_properly_detected_in_trimmed_file () {
         let contents =
             "nameserver beginning\n#nameserver commented\n# nameserver commented2\n nameserver preceded_by_space\nnameserver followed_by_space \nnameserver with more than two words\n ## nameserver double_comment\nnameserver ending";
@@ -279,6 +270,15 @@ mod tests {
 
         assert_eq! (result_err.starts_with("/etc/resolv.conf could not be modified: "), true, "{}", &result_err);
         assert_eq! (result_err.contains("\"Invalid argument\""), true, "{}", &result_err);
+    }
+
+    #[test]
+    fn instance_knows_its_type_name () {
+        let subject = ResolvConfDnsModifier::new ();
+
+        let result = subject.type_name ();
+
+        assert_eq! (result, "ResolvConfDnsModifier");
     }
 
     #[test]

@@ -196,6 +196,7 @@ mod tests {
     use std::cell::RefCell;
     use std::sync::Mutex;
     use std::sync::Arc;
+    use utils::get_parameters_from;
 
     #[derive (Debug)]
     struct RegKeyMock {
@@ -878,11 +879,5 @@ mod tests {
         assert_eq! (get_parameters_from (delete_value_parameters_arc), vec! (
             String::from ("NameServer")
         ));
-    }
-
-    fn get_parameters_from<T> (parameters_arc: Arc<Mutex<Vec<T>>>) -> Vec<T> where T: Clone {
-        let parameters_guard = parameters_arc.lock ().unwrap ();
-        let parameters_ref: &Vec<T> = parameters_guard.as_ref ();
-        parameters_ref.clone ()
     }
 }
