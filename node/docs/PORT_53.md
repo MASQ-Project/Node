@@ -1,6 +1,6 @@
-#Port 53 Problems?
+# Port 53 Problems?
 
-##Identification
+## Identification
 When you try to start your SubstratumNode, do you see a message that looks something like this?
 
 ```
@@ -17,7 +17,7 @@ these instructions can't help you; sorry.
 If you don't care about what the problem is or why it happens, and you just want to know how to fix it, skip down to 
 the __Solutions__ section.
 
-##Background
+## Background
 Some Linux distributions (we know about Ubuntu Desktop >=16.04 and some versions of Mint, but there are probably others)
 come with an installed utility called `dnsmasq`. This utility is intended to let folks with small home LANs give 
 intelligible names to their computers, printers, TVs, DVRs, mobile devices, and other Internet-enabled devices, rather 
@@ -34,7 +34,7 @@ Port 53 for requests if it expects to receive any.
 
 Unfortunately, only one server can listen on Port 53 (or any port) at one time.
 
-##The Problem
+## The Problem
 SubstratumNode also includes a small DNS server that allows applications on your computer to send and receive data on
 the Substratum Network. Since this is a DNS server, it must also listen on Port 53. This means that a DNS-subverting
 SubstratumNode and `dnsmasq` are irredeemably inimical to one another and cannot ever operate simultaneously on the
@@ -44,12 +44,12 @@ Eventually, SubstratumNode will be able to operate in regimes other than DNS sub
 circumstances, and in the presence of certain sacrifices, it will be compatible with `dnsmasq`; but that's in the
 future, not the present.
 
-##Solutions
+## Solutions
 We know of two reasonable solutions to the __Port 53 Problem__: a complicated and annoying one that allows you to keep
 using `dnsmasq`, and a much simpler and easier one that consists of disabling `dnsmasq` but will no longer allow you
 to use intelligible names for the devices on your LAN.
 
-####Complicated And Annoying: Docker
+#### Complicated And Annoying: Docker
 This solution is too complex to detail here, but in broad strokes it involves running a Docker container that contains
 a version of Linux that does _not_ have the __Port 53 Problem__, starting the SubstratumNode and a browser in that
 container, and having the browser display its window on the X11 server running on your host machine.  We at Substratum
@@ -57,7 +57,7 @@ have used this solution in the past, and you can see how we've done it by lookin
 [source code](https://github.com/SubstratumNetwork/SubstratumNode/tree/master/node/docker/linux_node). After installing
 Docker on your machine, you may be able to put together a similar solution.
 
-####Simple But Incompatible: Disable `dnsmasq`
+#### Simple But Incompatible: Disable `dnsmasq`
 If you have this problem, then on your machine there should be a file called `/etc/NetworkManager/NetworkManager.conf`.
 To see if it's there, start a terminal window and type the following command:
 

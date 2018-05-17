@@ -20,43 +20,80 @@ information to that user. Multiple nodes work to fulfill a single request in ord
 
 ## Tools / Environment Setup
 SubstratumNode software is written in Rust.
-We use `rustup` to install what we need (e.g. rustc, cargo, etc). Follow instructions [here](https://www.rustup.rs/).
+We use `rustup` to install what we need (e.g. `rustc`, `cargo`, etc). If you don't already have it, you can get it from
+[the `rustup` installation page](https://www.rustup.rs/).
 
-The `node` sub-project also uses `Docker` for a few things:
-- **Running** SubstratumNode needs to be able to listen on port `53`, but Ubuntu 16.04 Desktop uses that port for
-something else. So, we created the `Dockerfile` and helper scripts in `SubstratumNode/node/docker/linux_node/` to
-allow SubstratumNode to run on that platform. It isn't needed for running on Mac or Windows, or on Ubuntu 16.04 Server.
-- **Testing** `Docker` also offered a convenient way for us to run our end-to-end integration tests for Mac and Linux on CI.
-SubstratumNode needs to be started with `root` privileges in order to connect to certain ports (e.g. `53`, `80`).
-The Jenkins agent that runs on Windows has the needed privileges by default, but the agents that run on Mac and Linux
-do not. We created the `Dockerfile` in `SubstratumNode/node/docker/integration_tests` to work around this limitation.
+Some Linux distributions (notably Ubuntu ≥16.04 Desktop) have an incompatibility with SubstratumNode. If you think
+you might be affected, see 
+[The Port 53 Problem](https://github.com/SubstratumNetwork/SubstratumNode/tree/master/node/docs/PORT_53.md) 
+for more information.
 
-You'll need an Internet connection when you build so that `cargo` can pull down dependencies.
+If you're using Windows, you'll need to run the build scripts using `git-bash`. If you've cloned this repository, you
+probably already have `git-bash`; but if you don't, look at
+[How To Install `git-bash` On Windows](http://www.techoism.com/how-to-install-git-bash-on-windows/).
+
+Also, you will need an Internet connection when you build so that `cargo` can pull down dependencies.
 
 ## How To
-We build and run tests for SubstratumNode using bash scripts located in the `ci` directory of each sub-project.
-Use `ci/all.sh` at the top level to clean, build, and run tests for all sub-projects in one step.
-It will run the `node` integration tests as well, so if you're running on Mac or Linux make sure the `Docker` daemon is running.
-_On Windows, we run this script in a git bash terminal._
+We build and run tests for SubstratumNode using `bash` scripts located in the `ci` directory of each sub-project.
+To clean, build, and run tests for all sub-projects in one step, start at the top level of the project (the directory
+is probably called `SubstratumNode`).
 
-_Wondering where all our tests are? The convention in Rust is to write unit tests in same file as the source._
+#### If you're using Linux or macOS 
+First, please note that at a few points during the process, the build will stop and ask you for your password. This is 
+because some of the integration tests need to run with root privilege, to change DNS settings, open low-numbered ports, 
+etc. (It is possible but not easy to build without giving root privilege or running integration tests; if this turns
+out to be something people want to do, we'll make it easier.)
+
+Open a standard terminal window and type:
+```
+$ ci/all.sh
+```
+
+#### If you're using Windows
+Open a `git-bash` window as administrator and type:
+```
+$ ci/all.sh
+```
+
+_Wondering where all our tests are? The convention in Rust is to write unit tests in same file as the source, in a module
+at the end._
 
 ### Run SubstratumNode locally
 
-_Note: Currently, your DNS must be manually set to `127.0.0.1` in order to route traffic through SubstratumNode.
-Find instructions for your platform [here](https://github.com/SubstratumNetwork/SubstratumNode/tree/master/node/docs)._
+Once you've successfully built the `node` executable, you can run SubstratumNode from the command line.
 
-Once you've successfully built the `node` executable and completed the manual setup steps,
-you can run SubstratumNode locally from the command line:
+Currently, your DNS must be set to `127.0.0.1` in order to route traffic through SubstratumNode; then it must be set back to
+whatever it was before when you're done with SubstratumNode and you want to get back on the normal Internet.
+
+
+The SubstratumNode software includes a 
+[multi-platform DNS utility](https://github.com/SubstratumNetwork/SubstratumNode/tree/master/dns_utility) that you can use
+to subvert your DNS settings to `127.0.0.1`, like this:
 ```
-<path to workspace>/SubstratumNode/node/target/release/SubstratumNode --dns_servers 1.1.1.1
+$ cd <path to workspace>
+$ sudo SubstratumNode/dns_utility/target/release/dns_utility subvert
+```
+If you have trouble with `dns_utility` or you'd rather make your DNS configuration changes manually, look for 
+[instructions for your platform](https://github.com/SubstratumNetwork/SubstratumNode/tree/master/node/docs).
+
+Once your DNS is successfully subverted, you can start the SubstratumNode itself:
+```
+$ sudo SubstratumNode/node/target/release/SubstratumNode --dns_servers 1.1.1.1
 ```
 In the above example, we're using Cloudflare's DNS, `1.1.1.1`, but you can use your preferred DNS.
-If you can't choose just one favorite DNS, you can also specify multiple, separated by a comma (`,`).
+If you can't choose just one favorite DNS, you can also specify multiple ones, separated by a comma (`,`).
 
-_Why do we send in `dns_servers`? SubstratumNodes still need to talk to the greater Internet.
+_Why do we specify `--dns_servers`? SubstratumNodes still need to talk to the greater Internet.
 See [the ProxyClient README](https://github.com/SubstratumNetwork/SubstratumNode/tree/master/proxy_client_lib)
 for more information._
+
+To terminate the SubstratumNode, just press Ctrl-C in the terminal window. Then you'll still need to revert your
+machine's DNS settings:
+```
+$ sudo SubstratumNode/dns_utility/target/release/dns_utility revert
+```
+This should have you using the Internet normally again.
 
 # Disclosure
 

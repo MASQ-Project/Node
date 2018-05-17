@@ -10,10 +10,21 @@ It is built as a utility, and can be run from the command line. There are two ma
 - `subvert` - Subverts a user's DNS settings by changing it to the local machine so that it relies on the Substratum Network for resolution.
 - `revert` - Reverts a user's DNS settings to the previous configuration
 
-The `dns_utility` can be run locally from the command line:
+The `dns_utility` can be run locally from the command line.
+
+Mac/Linux:
 ```
-<path to workspace>/SubstratumNode/dns_utility/target/release/dns_utility subvert
-<path to workspace>/SubstratumNode/dns_utility/target/release/dns_utility revert
+$ cd <path to workspace>/SubstratumNode/dns_utility/target/release
+$ sudo dns_utility subvert
+$ sudo dns_utility revert
+
+```
+
+Windows (running with admin privilege):
+```
+> cd <path to workspace>\SubstratumNode\dns_utility\target\release
+> dns_utility subvert
+> dns_utility revert
 
 ```
 

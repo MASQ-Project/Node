@@ -19,15 +19,7 @@ case "$OSTYPE" in
         ;;
     linux-gnu)
         echo "Linux"
-        cd "$CI_DIR/../docker/integration_tests"
-
-        echo "Path: $PATH"
-        docker build -t node_integration_test .
-
-        echo "NODE_BASE_DIR: $NODE_PARENT_DIR"
-        echo "Contents:"
-        echo $(ls "$NODE_PARENT_DIR")
-        docker run -v "$NODE_PARENT_DIR":/node_root -t node_integration_test
+        sudo "$CI_DIR/run_integration_tests.sh"
         ;;
     *)
         exit 1
