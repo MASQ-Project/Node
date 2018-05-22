@@ -15,3 +15,7 @@ cd "$CI_DIR/../node"
 # sign
 gpg --pinentry-mode loopback --passphrase "$PASSPHRASE" -b target/release/$EXECUTABLE
 gpg --verify target/release/$EXECUTABLE.sig target/release/$EXECUTABLE
+
+# gui
+cd "$CI_DIR/../node_ui"
+"ci/release.sh"
