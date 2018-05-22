@@ -109,7 +109,7 @@ impl ResolvConfDnsModifier {
         }).collect ()
     }
 
-    fn existing_nameservers (&self, contents: &str) -> Vec<(String, usize)> {
+    pub fn existing_nameservers (&self, contents: &str) -> Vec<(String, usize)> {
         let regex = Regex::new (r"(^|\n)\s*(#?\s*nameserver\s+[^\s]*)").expect ("Regex syntax error");
         let capture_matches = regex.captures_iter (contents);
         capture_matches.map (|captures| {
@@ -117,6 +117,13 @@ impl ResolvConfDnsModifier {
             (String::from (capture.as_str ()), capture.start ())
         }).collect ()
 
+    }
+
+    pub fn is_substratum_ip (nameserver_entry: &str) -> bool {
+        let syntax_regex = Regex::new (r"nameserver\s+\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\s*(#|$)").expect ("Regex syntax error");
+        if !syntax_regex.is_match (nameserver_entry) {return false}
+        let substratum_regex = Regex::new (r"nameserver\s+127\.0\.0\.1([#\s]|$)").expect ("Regex syntax error");
+        substratum_regex.is_match (nameserver_entry)
     }
 
     fn find_substratum_nameserver (&self, contents: &str) -> Result<Option<(usize, usize)>, String> {
