@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+#![cfg (unix)]
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io;
@@ -119,6 +120,7 @@ impl ResolvConfDnsModifier {
     }
 
     fn find_substratum_nameserver (&self, contents: &str) -> Result<Option<(usize, usize)>, String> {
+        // TODO: Should probably use active_nameservers()
         let regex = Regex::new (r"(^|\n)\s*(nameserver\s+127\.0\.0\.1\n?)").expect ("Regex syntax error");
         let capture_matches = regex.captures_iter (contents);
         let mut results: Vec<(usize, usize)> = capture_matches.map (|captures| {
@@ -157,18 +159,26 @@ impl ResolvConfDnsModifier {
     }
 
     fn check_already_subverted (&self, active_nameservers: &Vec<(String, usize)>) -> bool {
-        active_nameservers.first ().expect ("Internal error").0.contains ("127.0.0.1")
+        let first_active_nameserver = active_nameservers.first ().expect ("Internal error").0.clone ();
+        ResolvConfDnsModifier::is_substratum_ip(&first_active_nameserver)
     }
 
     fn check_for_nonsense (&self, active_nameservers: &Vec<(String, usize)>) -> Result<(), String> {
         if active_nameservers.iter ().find (|tuple| {
-            tuple.0.contains ("127.0.0.1")
+            ResolvConfDnsModifier::is_substratum_ip(&tuple.0)
         }).is_some () {
             Err (String::from ("This system's DNS settings don't make sense; aborting"))
         }
         else {
             Ok (())
         }
+    }
+
+    fn is_substratum_ip (nameserver_entry: &str) -> bool {
+        let syntax_regex = Regex::new (r"nameserver\s+\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\s*(#|$)").expect ("Regex syntax error");
+        if !syntax_regex.is_match (nameserver_entry) {return false}
+        let substratum_regex = Regex::new (r"nameserver\s+127\.0\.0\.1([#\s]|$)").expect ("Regex syntax error");
+        substratum_regex.is_match (nameserver_entry)
     }
 
     fn remove_span (s: String, begin: usize, length: usize) -> String {
@@ -185,7 +195,6 @@ mod tests {
     use std::env;
     use std::io::Write;
     use std::fs;
-    #[cfg (unix)]
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
@@ -253,7 +262,78 @@ mod tests {
     }
 
     #[test]
-    #[cfg (unix)]
+    fn is_substratum_ip_detects_substratum_dns_with_nothing_following () {
+        let nameserver_entry = "nameserver 127.0.0.1";
+
+        let result = ResolvConfDnsModifier::is_substratum_ip(nameserver_entry);
+
+        assert_eq! (result, true);
+    }
+
+    #[test]
+    fn is_substratum_ip_detects_substratum_dns_with_whitespace_following () {
+        let nameserver_entry = "nameserver 127.0.0.1 #comment";
+
+        let result = ResolvConfDnsModifier::is_substratum_ip(nameserver_entry);
+
+        assert_eq! (result, true);
+    }
+
+    #[test]
+    fn is_substratum_ip_detects_substratum_dns_with_hashmark_following () {
+        let nameserver_entry = "nameserver 127.0.0.1#comment";
+
+        let result = ResolvConfDnsModifier::is_substratum_ip(nameserver_entry);
+
+        assert_eq! (result, true);
+    }
+
+    #[test]
+    fn is_substratum_ip_detects_absence_of_substratum_dns_with_valid_ip () {
+        let nameserver_entry = "nameserver 127.0.0.12";
+
+        let result = ResolvConfDnsModifier::is_substratum_ip(nameserver_entry);
+
+        assert_eq! (result, false);
+    }
+
+    #[test]
+    fn is_substratum_ip_detects_absence_of_substratum_dns_with_valid_ip_and_whitespace () {
+        let nameserver_entry = "nameserver 127.0.0.12 #comment";
+
+        let result = ResolvConfDnsModifier::is_substratum_ip(nameserver_entry);
+
+        assert_eq! (result, false);
+    }
+
+    #[test]
+    fn is_substratum_ip_detects_absence_of_substratum_dns_with_valid_ip_and_hashmark () {
+        let nameserver_entry = "nameserver 127.0.0.12#comment";
+
+        let result = ResolvConfDnsModifier::is_substratum_ip(nameserver_entry);
+
+        assert_eq! (result, false);
+    }
+
+    #[test]
+    fn is_substratum_ip_detects_absence_of_substratum_dns_with_invalid_ip () {
+        let nameserver_entry = "nameserver 127.0.0.1A";
+
+        let result = ResolvConfDnsModifier::is_substratum_ip(nameserver_entry);
+
+        assert_eq! (result, false);
+    }
+
+    #[test]
+    fn is_substratum_ip_detects_absence_of_substratum_dns_with_invalid_comment () {
+        let nameserver_entry = "nameserver 127.0.0.1 A";
+
+        let result = ResolvConfDnsModifier::is_substratum_ip(nameserver_entry);
+
+        assert_eq! (result, false);
+    }
+
+    #[test]
     fn replace_contents_translates_system_errors () {
         let root = make_root ("replace_contents_translates_system_errors");
         {
@@ -293,7 +373,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg (unix)]
     fn subvert_complains_if_resolv_conf_exists_but_is_a_directory () {
         let root = make_root ("subvert_complains_if_resolv_conf_exists_but_is_a_directory");
         fs::create_dir_all (Path::new (&root).join (Path::new ("etc")).join (Path::new ("resolv.conf"))).unwrap ();
@@ -306,7 +385,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg (unix)]
     fn subvert_complains_if_resolv_conf_exists_but_is_not_readable () {
         let root = make_root ("subvert_complains_if_resolv_conf_exists_but_is_not_readable");
         let file = make_resolv_conf (&root, "");
@@ -322,7 +400,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg (unix)]
     fn subvert_complains_if_resolv_conf_exists_but_is_not_writable () {
         let root = make_root ("subvert_complains_if_resolv_conf_exists_but_is_not_writable");
         let file = make_resolv_conf (&root, "");
@@ -394,7 +471,7 @@ mod tests {
     #[test]
     fn subvert_works_if_everything_is_copacetic () {
         let root = make_root ("subvert_works_if_everything_is_copacetic");
-        make_resolv_conf (&root, "#comment\n# nameserver 1.1.1.1\nnameserver 8.8.8.8\nnameserver 9.9.9.9");
+        make_resolv_conf (&root, "#comment\n# nameserver 1.1.1.1\nnameserver 127.0.0.111#comment\nnameserver 8.8.8.8\nunrecognized directive\nnameserver 9.9.9.9");
         let mut subject = ResolvConfDnsModifier::new ();
         subject.root = root.clone ();
 
@@ -402,7 +479,7 @@ mod tests {
 
         let contents = get_resolv_conf (&root);
         assert_eq! (contents, String::from (
-            "#comment\n## nameserver 1.1.1.1\n#nameserver 8.8.8.8\n#nameserver 9.9.9.9\nnameserver 127.0.0.1\n"
+            "#comment\n## nameserver 1.1.1.1\n#nameserver 127.0.0.111#comment\n#nameserver 8.8.8.8\nunrecognized directive\n#nameserver 9.9.9.9\nnameserver 127.0.0.1\n"
         ));
         assert_eq! (result.is_ok (), true);
     }
