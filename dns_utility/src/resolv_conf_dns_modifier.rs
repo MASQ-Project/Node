@@ -181,13 +181,6 @@ impl ResolvConfDnsModifier {
         }
     }
 
-    fn is_substratum_ip (nameserver_entry: &str) -> bool {
-        let syntax_regex = Regex::new (r"nameserver\s+\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\s*(#|$)").expect ("Regex syntax error");
-        if !syntax_regex.is_match (nameserver_entry) {return false}
-        let substratum_regex = Regex::new (r"nameserver\s+127\.0\.0\.1([#\s]|$)").expect ("Regex syntax error");
-        substratum_regex.is_match (nameserver_entry)
-    }
-
     fn remove_span (s: String, begin: usize, length: usize) -> String {
         let prefix = &s[..begin];
         let suffix = &s[(begin + length)..];
