@@ -4,6 +4,8 @@
 use std::fs::File;
 use std::path::Path;
 use dns_modifier::DnsModifier;
+
+#[cfg(unix)]
 use resolv_conf_dns_modifier::ResolvConfDnsModifier;
 
 #[cfg (windows)]
