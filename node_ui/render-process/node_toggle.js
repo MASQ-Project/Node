@@ -2,53 +2,74 @@
 
 module.exports = (function () {
   const childProcess = require('child_process')
-  const {EventEmitter} = require('events')
   const path = require('path')
-  const util = require('util')
   const console = require('../wrappers/console_wrapper')
 
   var substratumNodeProcess
 
-  function NodeToggler () {
-    var self = this
-    EventEmitter.call(self)
+  var toggle
+  var status
 
-    this.bindEventsToProcess = function () {
-      substratumNodeProcess.on('message', function (message) {
-        console.log('substratum_node process received message: ', message)
-        if (message.startsWith('Command returned error: ')) {
-          self.emit('toggle_error')
-        }
-      })
+  function bindEvents (nodeToggle, nodeStatus) {
+    toggle = nodeToggle
+    status = nodeStatus
 
-      substratumNodeProcess.on('error', function (error) {
-        console.log('substratum_node process received error: ', error.message)
-        self.emit('toggle_error')
-      })
-
-      substratumNodeProcess.on('exit', function (code) {
-        console.log('substratum_node process exited with code ', code)
-      })
-    }
-
-    this.startProcess = function () {
-      const worker = path.resolve(__dirname, '.', '../command-process/substratum_node.js')
-      substratumNodeProcess = childProcess.fork(worker, [], {
-        silent: true,
-        stdio: [0, 1, 2, 'ipc'],
-        detached: true
-      })
-      this.bindEventsToProcess()
-      substratumNodeProcess.send('start')
-    }
-
-    this.stopProcess = function () {
-      substratumNodeProcess.send('stop')
+    toggle.onclick = function () {
+      toggleSubstratumNode()
     }
   }
-  util.inherits(NodeToggler, EventEmitter)
+
+  function startProcess () {
+    const worker = path.resolve(__dirname, '.', '../command-process/substratum_node.js')
+    substratumNodeProcess = childProcess.fork(worker, [], {
+      silent: true,
+      stdio: [0, 1, 2, 'ipc'],
+      detached: true
+    })
+    bindEventsToProcess()
+    substratumNodeProcess.send('start')
+  }
+
+  function stopProcess () {
+    if (substratumNodeProcess) substratumNodeProcess.send('stop')
+  }
+
+  function toggleSubstratumNode () {
+    if (toggle.checked) {
+      startProcess()
+      status.innerText = 'Node Status: On'
+    } else {
+      stopProcess()
+      status.innerText = 'Node Status: Off'
+    }
+  }
+
+  function bindEventsToProcess () {
+    substratumNodeProcess.on('message', function (message) {
+      console.log('substratum_node process received message: ', message)
+      if (message.startsWith('Command returned error: ')) {
+        onToggleError()
+      }
+    })
+
+    substratumNodeProcess.on('error', function (error) {
+      console.log('substratum_node process received error: ', error.message)
+      onToggleError()
+    })
+
+    substratumNodeProcess.on('exit', function (code) {
+      console.log('substratum_node process exited with code ', code)
+    })
+  }
+
+  function onToggleError () {
+    toggle.checked = false
+    status.innerText = 'Node Status: Off'
+  }
 
   return {
-    NodeToggler: NodeToggler
+    bindEvents: bindEvents,
+    startProcess: startProcess,
+    stopProcess: stopProcess
   }
 }())

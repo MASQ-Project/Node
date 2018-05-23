@@ -12,8 +12,7 @@ describe('NodeToggler', function () {
   beforeEach(function () {
     childProcess = td.replace('child_process')
     mockConsole = td.replace('../wrappers/console_wrapper')
-    var NodeToggle = require('../render-process/node_toggle')
-    subject = new NodeToggle.NodeToggler()
+    subject = require('../render-process/node_toggle')
   })
 
   afterEach(function () {
@@ -22,6 +21,8 @@ describe('NodeToggler', function () {
 
   describe('starting the node', function () {
     var mockSubstratumNodeProcess
+    var mockNodeToggle
+    var mockNodeStatus
 
     beforeEach(function () {
       mockSubstratumNodeProcess = new EventEmitter()
@@ -31,6 +32,16 @@ describe('NodeToggler', function () {
         stdio: [0, 1, 2, 'ipc'],
         detached: true
       })).thenReturn(mockSubstratumNodeProcess)
+
+      mockNodeToggle = {
+        onclick: function () {},
+        checked: false
+      }
+      mockNodeStatus = {
+        innerText: ''
+      }
+
+      subject.bindEvents(mockNodeToggle, mockNodeStatus)
 
       subject.startProcess()
     })
@@ -50,37 +61,33 @@ describe('NodeToggler', function () {
     })
 
     describe('receiving an error message from child process', function () {
-      var wasEventTriggered
-
       beforeEach(function () {
-        wasEventTriggered = false
-        subject.on('toggle_error', function () {
-          wasEventTriggered = true
-        })
-
         mockSubstratumNodeProcess.emit('message', 'Command returned error: blooga')
       })
 
-      it('triggers toggle_error', function () {
-        assert.strictEqual(wasEventTriggered, true)
+      it('unchecks the toggle', function () {
+        assert.strictEqual(mockNodeToggle.checked, false)
+        td.verify(mockConsole.log('substratum_node process received message: ', 'Command returned error: blooga'))
+      })
+
+      it('updates the status', function () {
+        assert.strictEqual(mockNodeStatus.innerText, 'Node Status: Off')
         td.verify(mockConsole.log('substratum_node process received message: ', 'Command returned error: blooga'))
       })
     })
 
     describe('receiving error from child process', function () {
-      var wasEventTriggered
-
       beforeEach(function () {
-        wasEventTriggered = false
-        subject.on('toggle_error', function () {
-          wasEventTriggered = true
-        })
-
         mockSubstratumNodeProcess.emit('error', new Error('blooga'))
       })
 
-      it('triggers toggle_error', function () {
-        assert.strictEqual(wasEventTriggered, true)
+      it('unchecks the toggle', function () {
+        assert.strictEqual(mockNodeToggle.checked, false)
+        td.verify(mockConsole.log('substratum_node process received error: ', 'blooga'))
+      })
+
+      it('updates the status', function () {
+        assert.strictEqual(mockNodeStatus.innerText, 'Node Status: Off')
         td.verify(mockConsole.log('substratum_node process received error: ', 'blooga'))
       })
     })
@@ -103,6 +110,45 @@ describe('NodeToggler', function () {
       it('stops substratum node', function () {
         td.verify(mockSubstratumNodeProcess.send('stop'))
       })
+    })
+
+    describe('clicking NodeToggle', function () {
+      describe('to start substratum node', function () {
+        beforeEach(function () {
+          mockNodeToggle.checked = true // because the mock doesn't do this automatically like a DOM element would
+          mockNodeToggle.onclick()
+        })
+
+        it('updates status text', function () {
+          assert.strictEqual(mockNodeStatus.innerText, 'Node Status: On')
+        })
+
+        it('starts substratum node', function () {
+          td.verify(mockSubstratumNodeProcess.send('start'))
+        })
+      })
+
+      describe('to stop substratum node', function () {
+        beforeEach(function () {
+          mockNodeToggle.checked = false // because the mock doesn't do this automatically like a DOM element would
+          mockNodeToggle.onclick()
+        })
+
+        it('updates status text', function () {
+          assert.strictEqual(mockNodeStatus.innerText, 'Node Status: Off')
+        })
+
+        it('stops substratum node', function () {
+          td.verify(mockSubstratumNodeProcess.send('stop'))
+        })
+      })
+    })
+  })
+
+  describe('stopping the node when it is not running', function () {
+    it('does not blow up', function () {
+      subject.stopProcess()
+      // passes if it doesn't blow up
     })
   })
 })

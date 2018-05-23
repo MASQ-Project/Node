@@ -51,7 +51,7 @@ function getWindowPosition () {
 function createWindow () {
   mainWindow = new BrowserWindow({
     width: 320,
-    height: 125,
+    height: 250,
     show: true,
     frame: true,
     fullscreenable: false,

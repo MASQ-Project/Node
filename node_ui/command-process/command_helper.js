@@ -9,7 +9,7 @@ module.exports = (function () {
 
   const binaryBasePath = '../static/binaries/'
   const binaryFilename = 'SubstratumNode'
-  const runtimeArgs = ['--dns_servers', '1.1.1.1']
+  const runtimeArgs = ['--dns_servers', '1.0.0.1,1.1.1.1,9.9.9.9,8.8.8.8']
 
   function getBinaryPath (platformFolder) {
     return path.resolve(__dirname, '.', binaryBasePath + platformFolder + binaryFilename)

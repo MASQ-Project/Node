@@ -6,34 +6,23 @@
 
 module.exports = (function () {
   const {ipcRenderer} = require('electron')
-  const NodeToggle = require('./node_toggle')
-  var nodeToggler = new NodeToggle.NodeToggler()
+  const nodeToggler = require('./node_toggle')
+  const dnsToggler = require('./dns_toggle')
+
   var nodeStatus = document.getElementById('node-status')
   var sliderNodeToggle = document.getElementById('slider-node-toggle')
 
-  function bindEvents () {
-    sliderNodeToggle.onclick = function () {
-      toggleSubstratumNode(this.checked)
-    }
+  var dnsStatus = document.getElementById('dns-status')
+  var sliderDnsToggle = document.getElementById('slider-dns-toggle')
 
-    nodeToggler.on(['toggle_error'], function () {
-      sliderNodeToggle.value(false)
-    })
+  function bindEvents () {
+    nodeToggler.bindEvents(sliderNodeToggle, nodeStatus)
+    dnsToggler.bindEvents(sliderDnsToggle, dnsStatus)
 
     ipcRenderer.on('kill-substratum-node', function () {
+      dnsToggler.revertDNS()
       nodeToggler.stopProcess()
     })
-  }
-
-  function toggleSubstratumNode (toggleValue) {
-    if (!toggleValue) {
-      nodeToggler.stopProcess()
-      nodeStatus.innerText = 'Node Status: Off'
-    }
-    if (toggleValue) {
-      nodeToggler.startProcess()
-      nodeStatus.innerText = 'Node Status: On'
-    }
   }
 
   bindEvents()

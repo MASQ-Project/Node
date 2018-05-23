@@ -11,15 +11,29 @@
       <img src="assets/substratum_icon.png" height="40" width="40"/>
     </div>
     <div id="control-panel">
+
+      <!-- Node Toggle -->
       <div class="slide-container">
         <label class="switch">
           <input type="checkbox" id="slider-node-toggle">
-          <span id="slider-mask" class="slider round"></span>
+          <span id="node-slider-mask" class="slider round"></span>
         </label>
       </div>
       <div class="status-container">
         <label id="node-status">Node Status: Off</label>
       </div>
+
+      <!-- DNS Toggle -->
+      <div class="slide-container">
+        <label class="switch">
+          <input type="checkbox" id="slider-dns-toggle">
+          <span id="dns-slider-mask" class="slider round"></span>
+        </label>
+      </div>
+      <div class="status-container">
+        <label id="dns-status">Serving</label>
+      </div>
+
     </div>
     <script>
       require('./render-process/renderer')

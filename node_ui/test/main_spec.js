@@ -50,8 +50,19 @@ describe('Application launch', function () {
       })
       .then(function () {
         return client.getAttribute('#slider-node-toggle', 'checked')
-      }).then(function (result) {
-        assert.strictEqual(result, null)
+      })
+      .then(function (nodeToggleChecked) {
+        assert.strictEqual(nodeToggleChecked, null) // node is toggled off
+      })
+      .then(function () {
+        var dnsToggle = client.element('#slider-dns-toggle')
+        assert.notEqual(dnsToggle, null)
+      })
+      .then(function () {
+        return client.getAttribute('#slider-dns-toggle', 'checked')
+      })
+      .then(function (dnsToggleChecked) {
+        assert.strictEqual(dnsToggleChecked, null) // the dns toggle is unchecked (reverted)
       })
   })
 
@@ -59,34 +70,39 @@ describe('Application launch', function () {
     let client = this.app.client
     return client.waitUntilWindowLoaded()
       .then(function () {
-        var sliderMask = client.element('#slider-mask')
-        return sliderMask.click()
-      }).then(function () {
-        return client.getAttribute('#slider-node-toggle', 'checked')
-      }).then(function (result) {
-        assert.strictEqual(result, 'true')
-        // console.log('is checked', client.getAttribute('#slider-node-toggle', 'checked'));
-        // console.log('result', result);
-        var sliderMask = client.element('#slider-mask')
-        return sliderMask.click()
-      }).then(function () {
-        return client.getAttribute('#slider-node-toggle', 'checked')
-      }).then(function (result) {
-        assert.strictEqual(result, null)
-        // console.log('is checked', client.getAttribute('#slider-node-toggle', 'checked'));
-        // console.log('result', result);
-        return client.getRenderProcessLogs()
-      }).then(function (logs) {
-        // FIXME Failing on Jenkins
-        // if (process.platform !== 'win32') {
-        //   var logMessageExists = false
-        //   logs.forEach(function (log) {
-        //     if (log.message.includes('substratum_node process exited with code ')) {
-        //       logMessageExists = true
-        //     }
-        //   })
-        //   assert.ok(logMessageExists)
-        // }
+        var sliderMask = client.element('#node-slider-mask')
+        sliderMask.click()
       })
+      .then(function () {
+        return client.getAttribute('#slider-node-toggle', 'checked')
+      })
+      .then(function (result) {
+        assert.strictEqual(result, 'true')
+      })
+      .then(function () {
+        var sliderMask = client.element('#node-slider-mask')
+        sliderMask.click()
+      })
+      .then(function () {
+        return client.getAttribute('#slider-node-toggle', 'checked')
+      })
+      .then(function (result) {
+        assert.strictEqual(result, null)
+      })
+      // .then(function () {
+      //   return client.getRenderProcessLogs()
+      // })
+      // .then(function (logs) {
+      //   // FIXME Failing on Jenkins
+      //    if (process.platform !== 'win32') {
+      //      var logMessageExists = false
+      //      logs.forEach(function (log) {
+      //        if (log.message.includes('substratum_node process exited with code ')) {
+      //          logMessageExists = true
+      //        }
+      //      })
+      //      assert.ok(logMessageExists)
+      //    }
+      // })
   })
 })
