@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ScalaCompilerConfiguration">
-    <profile name="sbt 1" modules="multinode_integration_tests_5640,multinode_integration_tests" />
+    <profile name="sbt 1" modules="multinode_integration_tests_5640,multinode_integration_tests,substratum_node_plex_private-multinode_integration_tests" />
   </component>
 </project>

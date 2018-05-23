@@ -7,7 +7,6 @@
       <module fileurl="file://$PROJECT_DIR$/entry_dns_lib/entry_dns_lib.iml" filepath="$PROJECT_DIR$/entry_dns_lib/entry_dns_lib.iml" />
       <module fileurl="file://$PROJECT_DIR$/hopper_lib/hopper_lib.iml" filepath="$PROJECT_DIR$/hopper_lib/hopper_lib.iml" />
       <module fileurl="file://$PROJECT_DIR$/multinode_integration_tests/.idea/modules/multinode_integration_tests.iml" filepath="$PROJECT_DIR$/multinode_integration_tests/.idea/modules/multinode_integration_tests.iml" />
-      <module fileurl="file://$PROJECT_DIR$/multinode_integration_tests/.idea/modules/multinode_integration_tests-build.iml" filepath="$PROJECT_DIR$/multinode_integration_tests/.idea/modules/multinode_integration_tests-build.iml" />
       <module fileurl="file://$PROJECT_DIR$/neighborhood_lib/neighborhood_lib.iml" filepath="$PROJECT_DIR$/neighborhood_lib/neighborhood_lib.iml" />
       <module fileurl="file://$PROJECT_DIR$/node/node.iml" filepath="$PROJECT_DIR$/node/node.iml" />
       <module fileurl="file://$PROJECT_DIR$/node_ui/node_ui.iml" filepath="$PROJECT_DIR$/node_ui/node_ui.iml" />

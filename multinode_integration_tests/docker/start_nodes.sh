@@ -63,7 +63,8 @@ function kill_containers_up_to() {
 }
 
 function create_network() {
-  docker network rm integration_net 2> /dev/null
+  docker network disconnect integration_net subjenkins # just in case we're in Jenkins
+  docker network rm integration_net
   docker network create --subnet=172.18.0.0/16 integration_net
   if [ "$HOST_NODE_PARENT_DIR" != "" ]; then
     # This code should only run in the subjenkins Docker container. It is necessary so that things running in

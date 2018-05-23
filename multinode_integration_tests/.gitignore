@@ -3,3 +3,5 @@
 target/
 project/target/
 .idea/workspace.xml
+.idea/hydra.xml
+.idea/modules/
