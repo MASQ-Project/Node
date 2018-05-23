@@ -7,6 +7,10 @@ extern crate daemonize;
 extern crate test_utils;
 
 pub mod server;
+
+#[macro_use]
+pub mod packet_facade;
+
 pub mod packet_server;
 pub mod processor;
 pub mod dns_socket_server;

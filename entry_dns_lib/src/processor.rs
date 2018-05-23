@@ -2,9 +2,9 @@
 use std::time::Instant;
 use std::net::SocketAddr;
 use std::net::IpAddr;
-use sub_lib::packet_facade::PacketFacade;
-use sub_lib::packet_facade::Query;
-use sub_lib::packet_facade::ResourceRecord;
+use packet_facade::PacketFacade;
+use packet_facade::Query;
+use packet_facade::ResourceRecord;
 use sub_lib::logger::Logger;
 
 pub trait ProcessorTrait {
@@ -135,9 +135,9 @@ mod tests {
     use std::net::Ipv4Addr;
     use std::net::IpAddr;
     use std::str::FromStr;
-    use sub_lib::packet_facade::PacketFacade;
-    use sub_lib::packet_facade::Query;
-    use sub_lib::packet_facade::ResourceRecord;
+    use packet_facade::PacketFacade;
+    use packet_facade::Query;
+    use packet_facade::ResourceRecord;
     use test_utils::test_utils::init_test_logging;
     use test_utils::test_utils::TestLogHandler;
     use sub_lib::logger::Logger;

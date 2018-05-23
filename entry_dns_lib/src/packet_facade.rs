@@ -3,6 +3,24 @@ use std::str::from_utf8;
 use std::ops::Add;
 use std::cmp::max;
 
+macro_rules! try_opt {
+    ($e:expr) => {
+        match $e {
+            Some(x) => x,
+            None => return None
+        }
+    }
+}
+
+macro_rules! try_flg {
+    ($e:expr) => {
+        match $e {
+            Some(x) => x,
+            None => return false
+        }
+    }
+}
+
 #[derive (Debug)]
 pub struct Query {
     name: String,

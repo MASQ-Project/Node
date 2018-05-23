@@ -116,8 +116,8 @@ mod tests {
     use std::cell::RefCell;
     use std::ops::DerefMut;
     use std::cmp::min;
+    use packet_facade::PacketFacade;
     use test_utils::test_utils::FakeStreamHolder;
-    use sub_lib::packet_facade::PacketFacade;
     use test_utils::test_utils::init_test_logging;
     use test_utils::test_utils::TestLogHandler;
 

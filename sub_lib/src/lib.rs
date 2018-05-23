@@ -14,9 +14,6 @@ extern crate test_utils;
 #[cfg(unix)]
 extern crate daemonize;
 
-#[macro_use]
-pub mod utils;
-
 pub mod cores_package;
 pub mod cryptde;
 pub mod cryptde_null;
@@ -32,7 +29,6 @@ pub mod logger;
 pub mod main_tools;
 pub mod neighborhood;
 pub mod node_addr;
-pub mod packet_facade;
 pub mod parameter_finder;
 pub mod peer_actors;
 pub mod proxy_client;
@@ -43,3 +39,4 @@ pub mod stream_handler_pool;
 pub mod tcp_wrappers;
 pub mod tls_framer;
 pub mod udp_socket_wrapper;
+pub mod utils;

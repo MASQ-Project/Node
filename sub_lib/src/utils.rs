@@ -1,24 +1,6 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use std::io::ErrorKind;
 
-macro_rules! try_opt {
-    ($e:expr) => {
-        match $e {
-            Some(x) => x,
-            None => return None
-        }
-    }
-}
-
-macro_rules! try_flg {
-    ($e:expr) => {
-        match $e {
-            Some(x) => x,
-            None => return false
-        }
-    }
-}
-
 static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
     ErrorKind::BrokenPipe, ErrorKind::ConnectionAborted, ErrorKind::ConnectionReset,
     ErrorKind::ConnectionRefused, ErrorKind::TimedOut

@@ -6,7 +6,7 @@ mod utils;
 
 use std::net::UdpSocket;
 use std::time::Duration;
-use sub_lib::packet_facade::PacketFacade;
+use entry_dns_lib::packet_facade::PacketFacade;
 
 #[test]
 fn handles_two_consecutive_dns_requests_integration() {
