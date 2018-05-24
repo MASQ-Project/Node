@@ -3,7 +3,8 @@
 CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 
 "$CI_DIR/setup.sh"
-# TODO: fix packaging up binaries; currently the binary is not being packaged up
+"$CI_DIR/link_binaries.sh"
+
 case "$OSTYPE" in
    linux*)
         yarn dist --x64 --linux deb
