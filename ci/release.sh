@@ -8,6 +8,10 @@ if [[ "$OSTYPE" == "msys" ]]; then
   EXECUTABLE="$EXECUTABLE.exe"
 fi
 
+cd "$CI_DIR/../dns_utility"
+"ci/clean.sh"
+"ci/build.sh"
+
 cd "$CI_DIR/../node"
 "ci/clean.sh"
 "ci/build.sh"
