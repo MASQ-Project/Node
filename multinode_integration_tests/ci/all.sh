@@ -3,6 +3,10 @@
 
 CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 
+export PATH="$PATH:$HOME/.cargo/bin"
+
+export RUST_BACKTRACE=full
+
 # Docker-beside-Docker: Running these tests requires building and starting Docker containers that refer to an
 # existing executable on the host system. If you're not running in a Docker container, the executable you want
 # will be in your own filesystem, and these scripts can find everything they need without assistance.  But if you
@@ -20,4 +24,4 @@ cd docker
 ./build.sh
 cd "${CI_DIR}"/..
 
-sbt test
+cargo test

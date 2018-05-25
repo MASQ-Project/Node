@@ -1,0 +1,19 @@
+[package]
+name = "multinode_integration_tests"
+version = "0.1.0"
+authors = ["Substratum Developer <substratum@substratum.net>"]
+license = "GPL-3.0-only"
+copyright = "Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved."
+description = ""
+workspace = "../node"
+
+[dependencies]
+regex = "0.2.5"
+sub_lib = { path = "../sub_lib" }
+
+[dev-dependencies]
+test_utils = { path = "../test_utils" }
+
+[lib]
+name = "multinode_integration_tests_lib"
+path = "src/lib.rs"

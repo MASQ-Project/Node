@@ -46,9 +46,10 @@ function start_node() {
     local CONTAINER_IP="172.18.1.$INDEX"
     local CONTAINER_NAME="test_node_$INDEX"
     echo "Initiating start of $CONTAINER_NAME on $CONTAINER_IP"
-    docker run --ip "$CONTAINER_IP" --dns 127.0.0.1 --rm --name "$CONTAINER_NAME" --net integration_net -v "$COMMAND_DIR":/node_root/node test_node_image &
+    docker run --detach --ip "$CONTAINER_IP" --dns 127.0.0.1 --rm --name "$CONTAINER_NAME" --net integration_net -v "$COMMAND_DIR":/node_root/node test_node_image
     local RUN_RESULT=$?
     if [ "$RUN_RESULT" != "0" ]; then
+        echo "docker run failed: $RUN_RESULT"
         return 1
     fi
     wait_for_startup "$CONTAINER_IP"
@@ -58,6 +59,7 @@ function kill_containers_up_to() {
     local LIMIT="$1"
     for INDEX in $(seq 1 "$LIMIT"); do
         CONTAINER_NAME="test_node_$INDEX"
+        echo "Attempting to kill container $CONTAINER_NAME"
         docker stop -t 0 "$CONTAINER_NAME"
     done
 }
@@ -80,8 +82,10 @@ for PORT_LIST in $PORT_LISTS; do
     start_node "$CONTAINER_INDEX" "$PORT_LIST"
     START_RESULT=$?
     if [ "$START_RESULT" != "0" ]; then
+        echo "Starting container $CONTAINER_INDEX failed."
         kill_containers_up_to "$CONTAINER_INDEX"
         exit 1
     fi
     ((CONTAINER_INDEX+=1))
 done
+exit 0

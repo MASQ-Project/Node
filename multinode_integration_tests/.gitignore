@@ -1,7 +1,0 @@
-# Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-
-target/
-project/target/
-.idea/workspace.xml
-.idea/hydra.xml
-.idea/modules/
