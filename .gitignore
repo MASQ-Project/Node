@@ -112,3 +112,4 @@ docker/node
 node.log
 lnk*.tmp
 /*/target/
+node_ui/static/binaries/
