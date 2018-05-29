@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 extern crate regex;
+extern crate sub_lib;
 extern crate multinode_integration_tests_lib;
 
 use std::collections::HashSet;
@@ -10,7 +11,9 @@ use std::net::SocketAddr;
 use std::io::ErrorKind;
 use std::time::Duration;
 use regex::Regex;
+use sub_lib::utils::index_of;
 use multinode_integration_tests_lib::substratum_node_cluster::NodeStartupConfig;
+use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeClient;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::command::Command;
 
@@ -40,6 +43,9 @@ fn starts_and_stops_substratum_nodes () {
     check_node(&subject, "test_node_2", 2345, "172.18.1.2");
     check_node(&subject, "test_node_3", 3456, "172.18.1.3");
 
+    let client = subject.get_node ("test_node_3").unwrap ().make_client (80);
+    perform_client_interaction (client);
+
     subject.stop_all ();
 
     let expected_nodes: HashSet<String> = HashSet::new ();
@@ -47,6 +53,14 @@ fn starts_and_stops_substratum_nodes () {
     assert_eq!(node_is_running ("172.18.1.1"), false);
     assert_eq!(node_is_running ("172.18.1.2"), false);
     assert_eq!(node_is_running ("172.18.1.3"), false);
+}
+
+fn perform_client_interaction (mut client: SubstratumNodeClient) {
+    let request = make_http_request();
+    client.send_chunk(request);
+    let response = client.wait_for_chunk();
+    assert_eq!(index_of(&response[..], b"It was the Bottle Conjuror!").is_some(), true,
+               "Did not contain 'It was the Bottle Conjuror!': '{}'", String::from_utf8(response).unwrap())
 }
 
 fn check_node(cluster: &SubstratumNodeCluster, name: &str, port: u16, ip_address: &str) {
@@ -90,4 +104,8 @@ fn find_running_container_names () -> Vec<String> {
     capture_matches.map (|captures| {
         String::from (captures.get (1).unwrap ().as_str ())
     }).collect ()
+}
+
+fn make_http_request () -> Vec<u8> {
+    Vec::from (&b"GET /html HTTP/1.1\r\nHost: httpbin.org\r\n\r\n"[..])
 }
