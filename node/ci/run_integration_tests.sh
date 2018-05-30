@@ -7,11 +7,7 @@ export PATH="$PATH:$HOME/.cargo/bin"
 export RUST_BACKTRACE=full
 umask 000
 
-cargo build --release
+cargo test --release -- --nocapture _integration
 BUILD_RESULT=$?
 chmod -R 777 "$CI_DIR/../target"
-if [[ ! "$BUILD_RESULT" == "0" ]]; then
-    exit "$BUILD_RESULT"
-fi
-
-cargo test --release -- _integration
+exit "$BUILD_RESULT"

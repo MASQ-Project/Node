@@ -9,11 +9,11 @@ if [[ "$OSTYPE" == "msys" ]]; then
 fi
 
 cd "$CI_DIR/../dns_utility"
-"ci/clean.sh"
+cargo clean
 "ci/build.sh"
 
 cd "$CI_DIR/../node"
-"ci/clean.sh"
+cargo clean
 "ci/build.sh"
 
 # sign

@@ -37,6 +37,7 @@ function wait_for_startup() {
         fi
         echo "Still waiting for $IP to start"
         ((RETRIES_REMAINING-=1))
+        sleep 0.5
     done
 }
 

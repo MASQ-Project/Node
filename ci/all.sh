@@ -3,6 +3,10 @@
 CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 PARENT_DIR="$1"
 
+# Remove these two lines to slow down the build
+cargo install sccache || echo "Skipping sccache installation"  # Should do significant work only once
+export RUSTC_WRAPPER=sccache
+
 echo "*********************************************************************************************************"
 echo "*********************************************************************************************************"
 echo "***                                            TEST_UTILS HEAD                                        ***"
