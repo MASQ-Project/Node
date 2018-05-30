@@ -12,9 +12,9 @@ case "$OSTYPE" in
         ;;
     Darwin | darwin*)
         echo "macOS"
-            mkdir -p "$CI_DIR/../static/binaries/mac"
-            ln -fs "$CI_DIR/../../node/target/release/SubstratumNode" "$CI_DIR/../static/binaries/mac/"
-            ln -fs "$CI_DIR/../../dns_utility/target/release/dns_utility" "$CI_DIR/../static/binaries/"
+        mkdir -p "$CI_DIR/../static/binaries/mac"
+        ln -fs "$CI_DIR/../../node/target/release/SubstratumNode" "$CI_DIR/../static/binaries/mac/"
+        ln -fs "$CI_DIR/../../dns_utility/target/release/dns_utility" "$CI_DIR/../static/binaries/"
         ;;
     linux-gnu)
         echo "Linux"

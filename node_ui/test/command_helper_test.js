@@ -37,7 +37,7 @@ describe('CommandHelper', function () {
     })
 
     describe('starting on linux', function () {
-      const command = /[/\\]static[/\\]scripts[/\\]substratum_node\.sh uid gid .*[/\\]static[/\\]binaries[/\\]linux[/\\]SubstratumNode --dns_servers \d.*/
+      const command = /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" uid gid ".*[/\\]static[/\\]binaries[/\\]linux[/\\]SubstratumNode" --dns_servers \d.*/
 
       beforeEach(function () {
         process.platform = 'linux'
@@ -52,7 +52,7 @@ describe('CommandHelper', function () {
     })
 
     describe('starting on mac', function () {
-      const command = /[/\\]static[/\\]scripts[/\\]substratum_node\.sh uid gid .*[/\\]static[/\\]binaries[/\\]mac[/\\]SubstratumNode --dns_servers \d.*/
+      const command = /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" uid gid ".*[/\\]static[/\\]binaries[/\\]mac[/\\]SubstratumNode" --dns_servers \d.*/
 
       beforeEach(function () {
         process.platform = 'darwin'
@@ -120,7 +120,7 @@ describe('CommandHelper', function () {
     })
 
     describe('starting', function () {
-      const command = /[/\\]static[/\\]scripts[/\\]substratum_node\.cmd .*[/\\]static[/\\]binaries[/\\]win[/\\]SubstratumNode --dns_servers \d.*/
+      const command = /[/\\]static[/\\]scripts[/\\]substratum_node\.cmd" ".*[/\\]static[/\\]binaries[/\\]win[/\\]SubstratumNode" --dns_servers \d.*/
 
       beforeEach(function () {
         subject.startSubstratumNode('callback')

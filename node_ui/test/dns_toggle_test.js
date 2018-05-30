@@ -25,7 +25,7 @@ describe('DnsToggler', function () {
 
   describe('subverting DNS', function () {
     beforeEach(function () {
-      command = /[/\\]static[/\\]binaries[/\\]dns_utility subvert/
+      command = /[/\\]static[/\\]binaries[/\\]dns_utility" subvert/
 
       mockDnsToggle.checked = true // simulate the click changing the state (because the mock doesn't do this automatically like a DOM element would)
       mockDnsToggle.onclick()
@@ -100,7 +100,7 @@ describe('DnsToggler', function () {
 
   describe('reverting DNS', function () {
     beforeEach(function () {
-      command = /[/\\]static[/\\]binaries[/\\]dns_utility revert/
+      command = /[/\\]static[/\\]binaries[/\\]dns_utility" revert/
 
       mockDnsToggle.checked = false // simulate the click changing the state (because the mock doesn't do this automatically like a DOM element would)
       mockDnsToggle.onclick()

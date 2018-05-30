@@ -4,7 +4,7 @@ module.exports = (function () {
   const path = require('path')
   const sudoPrompt = require('sudo-prompt')
   const console = require('../wrappers/console_wrapper')
-  const utilityPath = path.resolve(__dirname, '.', '../static/binaries/dns_utility')
+  const utilityPath = '"' + path.resolve(__dirname, '.', '../static/binaries/dns_utility') + '"'
 
   var toggle
   var status
