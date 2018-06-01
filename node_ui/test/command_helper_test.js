@@ -36,26 +36,11 @@ describe('CommandHelper', function () {
       assert.strictEqual(process.env.SUDO_GID, 'gid')
     })
 
-    describe('starting on linux', function () {
-      const command = /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" uid gid ".*[/\\]static[/\\]binaries[/\\]linux[/\\]SubstratumNode" --dns_servers \d.*/
+    describe('starting', function () {
+      const command = /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" uid gid ".*[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns_servers \d.*/
 
       beforeEach(function () {
-        process.platform = 'linux'
-        subject = require('../command-process/command_helper')
-
-        subject.startSubstratumNode('callback')
-      })
-
-      it('executes the command via sudo prompt', function () {
-        td.verify(sudoPrompt.exec(td.matchers.contains(command), { name: 'Substratum Node' }, 'callback'))
-      })
-    })
-
-    describe('starting on mac', function () {
-      const command = /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" uid gid ".*[/\\]static[/\\]binaries[/\\]mac[/\\]SubstratumNode" --dns_servers \d.*/
-
-      beforeEach(function () {
-        process.platform = 'darwin'
+        process.platform = 'notwindows'
         subject = require('../command-process/command_helper')
 
         subject.startSubstratumNode('callback')
@@ -120,7 +105,7 @@ describe('CommandHelper', function () {
     })
 
     describe('starting', function () {
-      const command = /[/\\]static[/\\]scripts[/\\]substratum_node\.cmd" ".*[/\\]static[/\\]binaries[/\\]win[/\\]SubstratumNode" --dns_servers \d.*/
+      const command = /[/\\]static[/\\]scripts[/\\]substratum_node\.cmd" ".*[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns_servers \d.*/
 
       beforeEach(function () {
         subject.startSubstratumNode('callback')

@@ -11,8 +11,8 @@ module.exports = (function () {
   const binaryFilename = 'SubstratumNode'
   const runtimeArgs = ['--dns_servers', '1.0.0.1,1.1.1.1,9.9.9.9,8.8.8.8']
 
-  function getBinaryPath (platformFolder) {
-    return '"' + path.resolve(__dirname, '.', binaryBasePath + platformFolder + binaryFilename) + '"'
+  function getBinaryPath () {
+    return '"' + path.resolve(__dirname, '.', binaryBasePath + binaryFilename) + '"'
   }
 
   function getScriptPath (scriptFilenameExtension) {
@@ -50,31 +50,18 @@ module.exports = (function () {
   }
 
   function init () {
-    switch (process.platform) {
-      case 'win32':
-        this.binaryPath = getBinaryPath('win\\')
-        this.scriptPath = getScriptPath('cmd')
-        this.startSubstratumNode = startNodeWindows
-        this.stopSubstratumNode = stopNodeWindows
-        break
-      case 'darwin':
-        process.env.SUDO_UID = process.getuid()
-        process.env.SUDO_GID = process.getgid()
-        this.binaryPath = getBinaryPath('mac/')
-        this.scriptPath = getScriptPath('sh') + ' ' + process.getuid() + ' ' + process.getgid()
-        this.startSubstratumNode = startNodeUnix
-        this.stopSubstratumNode = stopNodeUnix
-        break
-      case 'linux':
-        process.env.SUDO_UID = process.getuid()
-        process.env.SUDO_GID = process.getgid()
-        this.binaryPath = getBinaryPath('linux/')
-        this.scriptPath = getScriptPath('sh') + ' ' + process.getuid() + ' ' + process.getgid()
-        this.startSubstratumNode = startNodeUnix
-        this.stopSubstratumNode = stopNodeUnix
-        break
-      default:
-        throw new Error('unsupported platform: ' + process.platform)
+    if (process.platform === 'win32') {
+      this.binaryPath = getBinaryPath()
+      this.scriptPath = getScriptPath('cmd')
+      this.startSubstratumNode = startNodeWindows
+      this.stopSubstratumNode = stopNodeWindows
+    } else {
+      process.env.SUDO_UID = process.getuid()
+      process.env.SUDO_GID = process.getgid()
+      this.binaryPath = getBinaryPath()
+      this.scriptPath = getScriptPath('sh') + ' ' + process.getuid() + ' ' + process.getgid()
+      this.startSubstratumNode = startNodeUnix
+      this.stopSubstratumNode = stopNodeUnix
     }
   }
 
