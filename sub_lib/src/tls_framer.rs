@@ -4,7 +4,6 @@ use framer::Framer;
 use utils::index_of;
 
 const PRESERVE_HEADER_LEN: usize = 4;
-const MAX_ALLOWED_LEN: usize = 17000;
 
 pub struct TlsFramer {
     data_so_far: Vec<u8>
@@ -59,6 +58,7 @@ impl TlsFramer {
         }
     }
 
+    // TODO: This is a very weak set of criteria that will result in many real-life false positives.  See SC-227.
     fn search_for_frame_offset (data: &[u8]) -> Result<usize, usize> {
         match index_of (data, &[0x03]) {
             None => Err (0), // Err (0) means don't bother trying again
@@ -66,10 +66,8 @@ impl TlsFramer {
             Some (possible) => {
                 let offset = possible - 1;
                 if offset + 4 >= data.len () {return Err (0)} // Err (0) means don't bother trying again
-                let length = TlsFramer::to_usize(data[offset + 3], data[offset + 4]);
                 if TlsFramer::is_valid_content_type(data[offset + 0]) &&
-                    TlsFramer::is_valid_protocol_version(data[offset + 1], data[offset + 2]) &&
-                    TlsFramer::is_valid_length(length) {
+                    TlsFramer::is_valid_protocol_version(data[offset + 1], data[offset + 2]) {
                     Ok (offset)
                 } else {
                     Err (offset + 1) // Err (x) means try again starting at x
@@ -82,13 +80,9 @@ impl TlsFramer {
         (candidate >= 0x14) && (candidate <= 0x17)
     }
 
-    // TODO: This should accept 0x0300, 0x0301, 0x0302, and 0x0303
+    // TODO: This should accept 0x0300, 0x0301, 0x0302, and 0x0303. See SC-227.
     fn is_valid_protocol_version(byte1: u8, byte2: u8) -> bool {
         (byte1 == 0x03) && ((byte2 == 0x01) || (byte2 == 0x03))
-    }
-
-    fn is_valid_length (length: usize) -> bool {
-        length <= MAX_ALLOWED_LEN
     }
 
     fn to_usize(hi_byte: u8, lo_byte: u8) -> usize {
@@ -103,7 +97,6 @@ mod tests {
     #[test]
     fn constant_values () {
         assert_eq! (PRESERVE_HEADER_LEN, 4);
-        assert_eq! (MAX_ALLOWED_LEN, 17000);
     }
 
     #[test]
@@ -151,17 +144,14 @@ mod tests {
     }
 
     #[test]
-    fn tls_framer_rejects_illegal_data_length () {
+    fn tls_framer_does_not_reject_data_on_basis_of_illegal_length () {
         let mut subject = TlsFramer::new ();
-        let length = MAX_ALLOWED_LEN + 1;
-        let byte1 = (length >> 8) as u8;
-        let byte2 = (length & 0xFF) as u8;
-
-        subject.add_data (&vec! (0x16, 0x03, 0x03, byte1, byte2, 0x05, 0x06, 0x07)[..]);
+        let data = vec! (0x16, 0x03, 0x03, 0xFF, 0xFF, 0x05, 0x06, 0x07);
+        subject.add_data (&data[..]);
         let result = subject.take_frame ();
 
         assert_eq! (result, None);
-        assert_eq! (subject.data_so_far, vec! (byte2, 0x05, 0x06, 0x07));
+        assert_eq! (subject.data_so_far, data);
     }
 
     #[test]
@@ -193,27 +183,11 @@ mod tests {
     }
 
     #[test]
-    fn tls_framer_recognizes_packet_with_maximum_length () {
-        let mut subject = TlsFramer::new ();
-        let length = MAX_ALLOWED_LEN;
-        let byte1 = (length >> 8) as u8;
-        let byte2 = (length & 0xFF) as u8;
-
-        subject.add_data (&vec! (0x16, 0x03, 0x03, byte1, byte2, 0x05, 0x06, 0x07)[..]);
-        let result = subject.take_frame ();
-
-        // We get no result here because we don't have 16K of data yet, but we can see that the
-        // Framer is on the job because it has not discarded all but the last PRESERVE_HEADER_LEN bytes of data.
-        assert_eq! (result, None);
-        assert_eq! (subject.data_so_far, vec! (0x16, 0x03, 0x03, byte1, byte2, 0x05, 0x06, 0x07));
-    }
-
-    #[test]
     fn tls_framer_skips_garbage () {
         let mut subject = TlsFramer::new ();
 
         subject.add_data (&vec! (
-            0x15, 0x03, 0x03, 0x80, // garbage
+            0x15, 0x03, 0x33, 0x80, // garbage
             0x15, 0x03, 0x03, 0x00, 0x03, 0x05, 0x06, 0x07, // packet
             0x01, 0x02 // garbage
         )[..]);
@@ -228,7 +202,7 @@ mod tests {
         let mut subject = TlsFramer::new ();
 
         subject.add_data (&vec! (
-            0x14, 0x03, 0x03, 0x80, // garbage
+            0x14, 0x03, 0x04, 0x80, // garbage
             0x14, 0x03, 0x03, 0x00, 0x03, 0x05, 0x06, 0x07, // packet
             0x03, 0x02, // garbage
             0x17, 0x03, 0x01, 0x00, 0x02, 0x08, 0x09, // packet
