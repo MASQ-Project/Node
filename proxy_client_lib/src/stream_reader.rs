@@ -176,7 +176,7 @@ mod tests {
 
         thread::spawn(move || {
             let system = System::new("test");
-            let hopper_sub = test_utils::make_peer_actors_from(None, None, Some(hopper), None).hopper.from_hopper_client;
+            let hopper_sub = test_utils::make_peer_actors_from(None, None, Some(hopper), None, None).hopper.from_hopper_client;
             let mut subject = StreamReader {
                 stream_key,
                 hopper_sub,
@@ -220,7 +220,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("test");
             let hopper_sub =
-                test_utils::make_peer_actors_from(None, None, Some(hopper), None)
+                test_utils::make_peer_actors_from(None, None, Some(hopper), None, None)
                     .hopper.from_hopper_client;
             let stream = TcpStreamWrapperMock::new()
                 .peer_addr_result(Ok(SocketAddr::from_str("2.3.4.5:80").unwrap()))

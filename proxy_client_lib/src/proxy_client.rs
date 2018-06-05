@@ -303,7 +303,7 @@ mod tests {
         let hopper = Recorder::new();
 
         let system = System::new("unparseable_request_results_in_log_and_no_response");
-        let peer_actors = make_peer_actors_from(None, None, Some(hopper), None);
+        let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
         let mut process_package_parameters = Arc::new (Mutex::new (vec! ()));
         let pool = Box::new (StreamHandlerPoolMock::new ()
                                  .process_package_parameters (&mut process_package_parameters));

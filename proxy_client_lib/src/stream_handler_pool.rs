@@ -284,7 +284,7 @@ mod tests {
         thread::spawn (move || {
             let system = System::new("test");
             let hopper_sub =
-                test_utils::make_peer_actors_from(None, None, Some (hopper), None).hopper.from_hopper_client;
+                test_utils::make_peer_actors_from(None, None, Some (hopper), None, None).hopper.from_hopper_client;
             let package = ExpiredCoresPackage::new (test_utils::make_meaningless_route (),
                 PlainData::new (&b"invalid"[..]));
             let mut subject = StreamHandlerPoolReal::new (Box::new (ResolverWrapperMock::new ()),
@@ -315,7 +315,7 @@ mod tests {
         let _system = System::new("test");
         let hopper = Recorder::new ();
         let hopper_sub =
-            test_utils::make_peer_actors_from(None, None, Some (hopper), None).hopper.from_hopper_client;
+            test_utils::make_peer_actors_from(None, None, Some (hopper), None, None).hopper.from_hopper_client;
         let mut write_parameters = Arc::new (Mutex::new (vec! ()));
         let mut shutdown_parameters = Arc::new (Mutex::new (vec! ()));
         let write_stream = TcpStreamWrapperMock::new ()
@@ -350,7 +350,7 @@ mod tests {
         let _system = System::new("test");
         let hopper = Recorder::new ();
         let hopper_sub =
-            test_utils::make_peer_actors_from(None, None, Some (hopper), None).hopper.from_hopper_client;
+            test_utils::make_peer_actors_from(None, None, Some (hopper), None, None).hopper.from_hopper_client;
         let mut write_parameters = Arc::new (Mutex::new (vec! ()));
         let mut shutdown_parameters = Arc::new (Mutex::new (vec! ()));
         let write_stream = TcpStreamWrapperMock::new ()
@@ -390,7 +390,7 @@ mod tests {
                                                    PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]));
             let system = System::new("test");
             let hopper_sub =
-                test_utils::make_peer_actors_from(None, None, Some(hopper), None).hopper.from_hopper_client;
+                test_utils::make_peer_actors_from(None, None, Some(hopper), None, None).hopper.from_hopper_client;
             let stream = TcpStreamWrapperMock::new()
                 .peer_addr_result(Ok(SocketAddr::from_str("2.3.4.5:80").unwrap()))
                 .write_result(Err(Error::from(ErrorKind::BrokenPipe)));
@@ -431,7 +431,7 @@ mod tests {
                                                    PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]));
             let system = System::new("test");
             let hopper_sub =
-                test_utils::make_peer_actors_from(None, None, Some(hopper), None)
+                test_utils::make_peer_actors_from(None, None, Some(hopper), None, None)
                     .hopper.from_hopper_client;
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_success(vec!(IpAddr::from_str("2.3.4.5").unwrap()));
@@ -484,7 +484,7 @@ mod tests {
                                                    PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]));
             let system = System::new("test");
             let hopper_sub =
-                test_utils::make_peer_actors_from(None, None, Some(hopper), None)
+                test_utils::make_peer_actors_from(None, None, Some(hopper), None, None)
                     .hopper.from_hopper_client;
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_success(vec!(IpAddr::from_str("2.3.4.5").unwrap()));
@@ -535,7 +535,7 @@ mod tests {
                                                    PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]));
             let system = System::new("test");
             let hopper_sub =
-                test_utils::make_peer_actors_from(None, None, Some(hopper), None)
+                test_utils::make_peer_actors_from(None, None, Some(hopper), None, None)
                     .hopper.from_hopper_client;
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_parameters(&lookup_ip_parameters)
@@ -604,7 +604,7 @@ mod tests {
                                                    PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]));
             let system = System::new("test");
             let hopper_sub =
-                test_utils::make_peer_actors_from(None, None, Some(hopper), None)
+                test_utils::make_peer_actors_from(None, None, Some(hopper), None, None)
                     .hopper.from_hopper_client;
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_success(vec!(IpAddr::from_str("2.3.4.5").unwrap(), IpAddr::from_str("3.4.5.6").unwrap()));
@@ -649,7 +649,7 @@ mod tests {
                                                    PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]));
             let system = System::new("test");
             let hopper_sub =
-                test_utils::make_peer_actors_from(None, None, Some(hopper), None)
+                test_utils::make_peer_actors_from(None, None, Some(hopper), None, None)
                     .hopper.from_hopper_client;
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_success(vec!(IpAddr::from_str("2.3.4.5").unwrap()));
@@ -695,7 +695,7 @@ mod tests {
                                                    PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]));
             let system = System::new("test");
             let hopper_sub =
-                test_utils::make_peer_actors_from(None, None, Some(hopper), None)
+                test_utils::make_peer_actors_from(None, None, Some(hopper), None, None)
                     .hopper.from_hopper_client;
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_success(vec!(IpAddr::from_str("2.3.4.5").unwrap()));
@@ -742,7 +742,7 @@ mod tests {
                                                    PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]));
             let system = System::new("test");
             let hopper_sub =
-                test_utils::make_peer_actors_from(None, None, Some(hopper), None)
+                test_utils::make_peer_actors_from(None, None, Some(hopper), None, None)
                     .hopper.from_hopper_client;
             let mut lookup_ip_parameters = Arc::new(Mutex::new(vec!()));
             let resolver = ResolverWrapperMock::new()
@@ -788,7 +788,7 @@ mod tests {
                                                    PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]));
             let system = System::new("test");
             let hopper_sub =
-                test_utils::make_peer_actors_from(None, None, Some(hopper), None)
+                test_utils::make_peer_actors_from(None, None, Some(hopper), None, None)
                     .hopper.from_hopper_client;
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_success(vec!(IpAddr::from_str("2.3.4.5").unwrap()));

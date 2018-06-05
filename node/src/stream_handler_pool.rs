@@ -464,7 +464,7 @@ mod tests {
             let subject = StreamHandlerPool::new();
             let subject_addr: SyncAddress<_> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = make_peer_actors_from(None, Some(dispatcher), None, None);
+            let peer_actors = make_peer_actors_from(None, Some(dispatcher), None, None, None);
 
             subject_subs.bind.send(PoolBindMessage { dispatcher_subs: peer_actors.dispatcher, stream_handler_pool_subs: subject_subs.clone ()}).unwrap ();
             subject_subs.add_sub.send(AddStreamMsg {
@@ -538,7 +538,7 @@ mod tests {
             let subject = StreamHandlerPool::new();
             let subject_addr: SyncAddress<_> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = make_peer_actors_from(None, Some(dispatcher), None, None);
+            let peer_actors = make_peer_actors_from(None, Some(dispatcher), None, None, None);
 
             subject_subs.bind.send(PoolBindMessage { dispatcher_subs: peer_actors.dispatcher, stream_handler_pool_subs: subject_subs.clone ()}).unwrap ();
 

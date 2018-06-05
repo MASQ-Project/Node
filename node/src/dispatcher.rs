@@ -144,7 +144,7 @@ mod tests {
             last_data: false,
             data: data.clone ()
         };
-        let mut peer_actors = make_peer_actors_from(Some(proxy_server), None, None, None);
+        let mut peer_actors = make_peer_actors_from(Some(proxy_server), None, None, None, None);
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         subject_addr.send( BindMessage { peer_actors });
 
@@ -307,7 +307,7 @@ mod tests {
             last_data: false,
             data: data.clone ()
         };
-        let mut peer_actors = make_peer_actors_from(None, None, None, None);
+        let mut peer_actors = make_peer_actors_from(None, None, None, None, None);
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         let stream_handler_pool_subs = make_stream_handler_pool_subs_from (Some (stream_handler_pool));
         subject_addr.send( PoolBindMessage { dispatcher_subs: peer_actors.dispatcher.clone (), stream_handler_pool_subs});
@@ -349,7 +349,7 @@ mod tests {
             last_data: false,
             data: data.clone ()
         };
-        let mut peer_actors = make_peer_actors_from(None, None, Some(hopper), None);
+        let mut peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         let stream_handler_pool_subs = make_stream_handler_pool_subs_from (Some (stream_handler_pool));
         subject_addr.send( PoolBindMessage { dispatcher_subs: peer_actors.dispatcher.clone (), stream_handler_pool_subs});
@@ -391,7 +391,7 @@ mod tests {
             last_data: true,
             data: data.clone ()
         };
-        let mut peer_actors = make_peer_actors_from(None, None, Some(hopper), None);
+        let mut peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         let stream_handler_pool_subs = make_stream_handler_pool_subs_from (Some (stream_handler_pool));
         subject_addr.send( PoolBindMessage { dispatcher_subs: peer_actors.dispatcher.clone (), stream_handler_pool_subs});

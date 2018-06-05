@@ -1,29 +1,51 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use std::net::IpAddr;
+use actix::Actor;
+use actix::Context;
+use actix::SyncAddress;
 use sub_lib::dispatcher::Component;
-use sub_lib::neighborhood::Neighborhood;
-use sub_lib::neighborhood::NeighborhoodError;
 use sub_lib::node_addr::NodeAddr;
 use sub_lib::route::Route;
 use sub_lib::cryptde::Key;
+use sub_lib::neighborhood::NeighborhoodSubs;
+use sub_lib::peer_actors::BindMessage;
+use sub_lib::cryptde::CryptDE;
+use actix::Handler;
 
-pub struct NeighborhoodReal {
+pub struct Neighborhood {
 }
 
-impl NeighborhoodReal {
-    pub fn new() -> Self {
-        NeighborhoodReal {}
+impl Actor for Neighborhood {
+    type Context = Context<Self>;
+}
+
+impl Handler<BindMessage> for Neighborhood {
+    type Result = ();
+
+    fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
+        ()
     }
 }
 
-impl Neighborhood for NeighborhoodReal {
+impl Neighborhood {
+    pub fn new(cryptde: Box<CryptDE>, config: Vec<(Key, NodeAddr)>) -> Self {
+        Neighborhood {}
+    }
+
+    pub fn make_subs_from(addr: &SyncAddress<Neighborhood>) -> NeighborhoodSubs {
+        NeighborhoodSubs {
+            bind: addr.subscriber::<BindMessage>(),
+        }
+    }
+
+    // TODO: Turn these into actor messages
     // crashpoint - unused so far
-    fn route_one_way(&self, _remote_recipient: Component) -> Result<(Route, Key), NeighborhoodError> {
+    fn route_one_way(&self, _remote_recipient: Component) -> Result<(Route, Key), ()> {
         unimplemented!()
     }
 
     // crashpoint - unused so far
-    fn route_round_trip(&self, _remote_recipient: Component, _local_recipient: Component) -> Result<(Route, Key), NeighborhoodError> {
+    fn route_round_trip(&self, _remote_recipient: Component, _local_recipient: Component) -> Result<(Route, Key), ()> {
         unimplemented!()
     }
 
@@ -46,4 +68,9 @@ impl Neighborhood for NeighborhoodReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nothing () {
+
+    }
 }

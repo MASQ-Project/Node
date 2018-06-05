@@ -43,6 +43,7 @@ use sub_lib::proxy_server::ProxyServerSubs;
 use sub_lib::route::Route;
 use sub_lib::route::RouteSegment;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
+use sub_lib::neighborhood::NeighborhoodSubs;
 
 pub struct ByteArrayWriter {
     pub byte_array: Vec<u8>,
@@ -432,8 +433,14 @@ pub fn make_proxy_client_subs_from(addr: &SyncAddress<Recorder>) -> ProxyClientS
     }
 }
 
+pub fn make_neighborhood_subs_from(addr: &SyncAddress<Recorder>) -> NeighborhoodSubs {
+    NeighborhoodSubs {
+        bind: addr.subscriber::<BindMessage>(),
+    }
+}
+
 // This must be called after System.new and before System.run
-pub fn make_peer_actors_from(proxy_server: Option<Recorder>, dispatcher: Option<Recorder>, hopper: Option<Recorder>, proxy_client: Option<Recorder>) -> PeerActors {
+pub fn make_peer_actors_from(proxy_server: Option<Recorder>, dispatcher: Option<Recorder>, hopper: Option<Recorder>, proxy_client: Option<Recorder>, neighborhood: Option<Recorder>) -> PeerActors {
     let proxy_server = match proxy_server {
         Some(proxy_server) => proxy_server,
         None => Recorder::new()
@@ -454,25 +461,32 @@ pub fn make_peer_actors_from(proxy_server: Option<Recorder>, dispatcher: Option<
         None => Recorder::new()
     };
 
-    make_peer_actors_from_recorders(proxy_server, dispatcher, hopper, proxy_client)
+    let neighborhood = match neighborhood {
+        Some(neighborhood) => neighborhood,
+        None => Recorder::new()
+    };
+
+    make_peer_actors_from_recorders(proxy_server, dispatcher, hopper, proxy_client, neighborhood)
 }
 
 // This must be called after System.new and before System.run
 pub fn make_peer_actors() -> PeerActors {
-    make_peer_actors_from_recorders(Recorder::new(), Recorder::new(), Recorder::new(), Recorder::new())
+    make_peer_actors_from_recorders(Recorder::new(), Recorder::new(), Recorder::new(), Recorder::new(), Recorder::new ())
 }
 
-fn make_peer_actors_from_recorders(proxy_server: Recorder, dispatcher: Recorder, hopper: Recorder, proxy_client: Recorder) -> PeerActors {
+fn make_peer_actors_from_recorders(proxy_server: Recorder, dispatcher: Recorder, hopper: Recorder, proxy_client: Recorder, neighborhood: Recorder) -> PeerActors {
     let proxy_server_addr = proxy_server.start();
     let dispatcher_addr = dispatcher.start();
     let hopper_addr = hopper.start();
     let proxy_client_addr = proxy_client.start();
+    let neighborhood_addr = neighborhood.start ();
 
     PeerActors {
         proxy_server: make_proxy_server_subs_from(&proxy_server_addr),
         dispatcher: make_dispatcher_subs_from(&dispatcher_addr),
         hopper: make_hopper_subs_from(&hopper_addr),
-        proxy_client: make_proxy_client_subs_from(&proxy_client_addr)
+        proxy_client: make_proxy_client_subs_from(&proxy_client_addr),
+        neighborhood: make_neighborhood_subs_from(&neighborhood_addr)
     }
 }
 

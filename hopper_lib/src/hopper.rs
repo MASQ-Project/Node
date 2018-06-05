@@ -324,7 +324,7 @@ mod tests {
         let incipient_cores_package_a = incipient_cores_package.clone ();
         thread::spawn (move || {
             let system = System::new ("converts_incipient_message_to_live_and_sends_to_dispatcher");
-            let peer_actors = make_peer_actors_from(None, Some(dispatcher), None, None);
+            let peer_actors = make_peer_actors_from(None, Some(dispatcher), None, None, None);
             let subject = Hopper::new (Box::new (cryptde_t));
             let subject_addr: SyncAddress<_> = subject.start ();
             subject_addr.send (BindMessage {peer_actors});
@@ -369,7 +369,7 @@ mod tests {
         };
         thread::spawn(move || {
             let system = System::new("converts_live_message_to_expired_for_proxy_client");
-            let peer_actors = make_peer_actors_from(None, None, None, Some(component));
+            let peer_actors = make_peer_actors_from(None, None, None, Some(component), None);
             let subject = Hopper::new (Box::new (cryptde_t));
             let subject_addr: SyncAddress<_> = subject.start();
             subject_addr.send(BindMessage { peer_actors });
@@ -408,7 +408,7 @@ mod tests {
         };
         thread::spawn(move || {
             let system = System::new("converts_live_message_to_expired_for_proxy_server");
-            let peer_actors = make_peer_actors_from(Some (component), None, None, None);
+            let peer_actors = make_peer_actors_from(Some (component), None, None, None, None);
             let subject = Hopper::new (Box::new (cryptde_t));
             let subject_addr: SyncAddress<_> = subject.start();
             subject_addr.send(BindMessage { peer_actors });
@@ -449,7 +449,7 @@ mod tests {
         };
         thread::spawn(move || {
             let system = System::new("converts_live_message_to_expired_for_proxy_server");
-            let peer_actors = make_peer_actors_from(None, Some (dispatcher), None, None);
+            let peer_actors = make_peer_actors_from(None, Some (dispatcher), None, None, None);
             let subject = Hopper::new (Box::new (cryptde_t));
             let subject_addr: SyncAddress<_> = subject.start();
             subject_addr.send(BindMessage { peer_actors });

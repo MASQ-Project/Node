@@ -89,7 +89,7 @@ impl LoggerInitializerWrapperReal {
         let parameter_tag = "--log_level";
         let usage = "should be one of <trace|debug|info|warn|error|off> (default = warn)";
 
-        match ParameterFinder::new(args).find_value_for(parameter_tag, usage) {
+        match ParameterFinder::new(args.clone ()).find_value_for(parameter_tag, usage) {
             Some(value) => {
                 match LevelFilter::from_str(value.as_str()) {
                     Ok(lf) => lf,

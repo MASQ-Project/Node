@@ -3,9 +3,12 @@ use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::thread;
+use base64;
+use sub_lib::cryptde::Key;
+use sub_lib::main_tools::StdStreams;
+use sub_lib::node_addr::NodeAddr;
 use sub_lib::parameter_finder::ParameterFinder;
 use sub_lib::socket_server::SocketServer;
-use sub_lib::main_tools::StdStreams;
 use actor_system_factory::ActorSystemFactory;
 use actor_system_factory::ActorSystemFactoryReal;
 use configuration::Configuration;
@@ -14,8 +17,10 @@ use listener_handler::ListenerHandlerFactory;
 use listener_handler::ListenerHandlerFactoryReal;
 use stream_handler_pool::StreamHandlerPoolSubs;
 
-struct BootstrapperConfig {
-    dns_servers: Vec<SocketAddr>
+#[derive (Clone)]
+pub struct BootstrapperConfig {
+    pub dns_servers: Vec<SocketAddr>,
+    pub neighbor_configs: Vec<(Key, NodeAddr)>
 }
 
 // TODO: Consider splitting this into a piece that's meant for being root and a piece that's not.
@@ -52,7 +57,7 @@ impl SocketServer for Bootstrapper {
     fn serve_without_root(&mut self) {
         let stream_handler_pool_subs =
             self.actor_system_factory.make_and_start_actors(
-                self.config.as_ref().expect("Missing BootstrapperConfig - call initialize_as_root first").dns_servers.clone(),
+                self.config.as_ref().expect("Missing BootstrapperConfig - call initialize_as_root first").clone(),
             );
 
         while self.listener_handlers.len () > 0 {
@@ -82,23 +87,47 @@ impl Bootstrapper {
     }
 
     fn parse_args (args: &Vec<String>) -> BootstrapperConfig {
-        let parameter_tag = "--dns_servers";
-        let usage = "should be one or more comma-separated DNS server IP addresses";
+        let finder = ParameterFinder::new(args.clone ());
+        BootstrapperConfig {
+            dns_servers: Bootstrapper::parse_dns_servers (&finder),
+            neighbor_configs: Bootstrapper::parse_neighbor_configs (&finder),
+        }
+    }
 
-        let dns_server_strings: Vec<String> = match ParameterFinder::new(args).find_value_for(parameter_tag, usage) {
+    fn parse_dns_servers (finder: &ParameterFinder) -> Vec<SocketAddr> {
+        let parameter_tag = "--dns_servers";
+        let usage = "--dns_servers <servers> where 'servers' is a comma-separated list of IP addresses";
+
+        let dns_server_strings: Vec<String> = match finder.find_value_for(parameter_tag, usage) {
             Some(dns_server_string) => dns_server_string.split(",").map(|s| { String::from(s) }).collect(),
-            None => vec!() // --dns_servers tag was not specified TODO: panic! here rather than ProxyClient
+            None => panic! (usage)
         };
-        let dns_server_addrs = dns_server_strings.iter().map(|string| {
+        dns_server_strings.iter().map(|string| {
             match IpAddr::from_str(string) {
                 Ok(addr) => SocketAddr::new(addr, 53),
-                Err(_) => panic!("Cannot use '{}' as a DNS server IP address", string)
+                Err(_) => panic!("Invalid IP address for --dns_servers <servers>: '{}'", string)
             }
-        }).collect();
+        }).collect()
+    }
 
-        BootstrapperConfig {
-            dns_servers: dns_server_addrs
-        }
+    fn parse_neighbor_configs (finder: &ParameterFinder) -> Vec<(Key, NodeAddr)> {
+        let parameter_tag = "--neighbor";
+        let usage = "--neighbor <public key>;<IP address>;<port>,<port>,...";
+        finder.find_values_for (parameter_tag, usage).into_iter ()
+            .map (|s|Bootstrapper::parse_neighbor_config (s))
+            .collect ()
+    }
+
+    fn parse_neighbor_config (string: String) -> (Key, NodeAddr) {
+        let pieces: Vec<&str> = string.split (";").collect ();
+        if pieces.len () != 3 {panic! ("--neighbor <public key>;<IP address>;<port>,<port>,...")}
+        let public_key = Key::new (&base64::decode (pieces[0])
+            .expect (format! ("Invalid Base64 for --neighbor <public key>: '{}'", pieces[0]).as_str ())[..]);
+        let ip_addr = IpAddr::from_str (&pieces[1])
+            .expect (format! ("Invalid IP address for --neighbor <IP address>: '{}'", pieces[1]).as_str ());
+        let ports: Vec<u16> = pieces[2].split (",").map (|s| s.parse::<u16>()
+            .expect(format! ("Neighbor port numbers must be 0-65535, not {}", s).as_str ())).collect ();
+        (public_key, NodeAddr::new (&ip_addr, &ports))
     }
 }
 
@@ -209,6 +238,10 @@ mod tests {
         }
     }
 
+    fn meaningless_dns_servers() -> Vec<String> {
+        vec! (String::from ("--dns_servers"), String::from ("222.222.222.222"))
+    }
+
     #[test]
     fn knows_its_name () {
         let subject = DispatcherBuilder::new ().build ();
@@ -216,6 +249,97 @@ mod tests {
         let result = subject.name ();
 
         assert_eq! (result, String::from ("Dispatcher"));
+    }
+
+    #[test]
+    #[should_panic (expected = "--dns_servers <servers> where 'servers' is a comma-separated list of IP addresses")]
+    fn parse_dns_servers_requires_dns_servers () {
+        let finder = ParameterFinder::new (vec! (String::from ("--not_dns_servers"), String::from ("1.2.3.4")));
+
+        Bootstrapper::parse_dns_servers (&finder);
+    }
+
+    #[test]
+    #[should_panic (expected = "Invalid IP address for --dns_servers <servers>: '1.2.3.256'")]
+    fn parse_dns_servers_catches_invalid_ip_addresses () {
+        let finder = ParameterFinder::new (vec! (String::from ("--dns_servers"), String::from ("1.2.3.256")));
+
+        Bootstrapper::parse_dns_servers (&finder);
+    }
+
+    #[test]
+    fn parse_dns_servers_ignores_second_server_list () {
+        let finder = ParameterFinder::new (vec! (
+            "--dns_servers", "1.2.3.4,2.3.4.5",
+            "--dns_servers", "3.4.5.6"
+        ).into_iter ().map (String::from).collect ());
+
+        let socket_addrs = Bootstrapper::parse_dns_servers (&finder);
+
+        assert_eq! (socket_addrs, vec! (
+            SocketAddr::from_str ("1.2.3.4:53").unwrap (),
+            SocketAddr::from_str ("2.3.4.5:53").unwrap ()
+        ))
+    }
+
+    #[test]
+    #[should_panic (expected = "--neighbor <public key>;<IP address>;<port>,<port>,...")]
+    fn parse_neighbor_configs_requires_three_pieces_to_a_configuration () {
+        let finder = ParameterFinder::new (vec! (
+            "--neighbor", "key;1.2.3.4;1234,2345;extra",
+        ).into_iter ().map (String::from).collect ());
+
+        Bootstrapper::parse_neighbor_configs (&finder);
+    }
+
+    #[test]
+    #[should_panic (expected = "Invalid Base64 for --neighbor <public key>: 'bad_key'")]
+    fn parse_neighbor_configs_complains_about_bad_base_64 () {
+        let finder = ParameterFinder::new (vec! (
+            "--neighbor", "bad_key;1.2.3.4;1234,2345",
+        ).into_iter ().map (String::from).collect ());
+
+        Bootstrapper::parse_neighbor_configs (&finder);
+    }
+
+    #[test]
+    #[should_panic (expected = "Invalid IP address for --neighbor <IP address>: '1.2.3.256'")]
+    fn parse_neighbor_configs_complains_about_bad_ip_address () {
+        let finder = ParameterFinder::new (vec! (
+            "--neighbor", "GoodKey;1.2.3.256;1234,2345",
+        ).into_iter ().map (String::from).collect ());
+
+        Bootstrapper::parse_neighbor_configs (&finder);
+    }
+
+    #[test]
+    #[should_panic (expected = "Neighbor port numbers must be 0-65535, not 65536")]
+    fn parse_neighbor_configs_complains_about_bad_port_numbers () {
+        let finder = ParameterFinder::new (vec! (
+            "--neighbor", "GoodKey;1.2.3.4;65536",
+        ).into_iter ().map (String::from).collect ());
+
+        Bootstrapper::parse_neighbor_configs (&finder);
+    }
+
+    #[test]
+    fn parse_args_creates_configurations () {
+        let args: Vec<String> = vec! (
+            "--irrelevant", "irrelevant",
+            "--dns_servers", "12.34.56.78,23.45.67.89",
+            "--irrelevant", "irrelevant",
+            "--neighbor", "QmlsbA;1.2.3.4;1234,2345",
+            "--neighbor", "VGVk;2.3.4.5;3456,4567",
+            "--irrelevant", "irrelevant"
+        ).into_iter ().map (String::from).collect ();
+
+        let config = Bootstrapper::parse_args (&args);
+
+        assert_eq! (config.dns_servers, vec! (SocketAddr::from_str ("12.34.56.78:53").unwrap (), SocketAddr::from_str ("23.45.67.89:53").unwrap ()));
+        assert_eq! (config.neighbor_configs, vec! (
+            (Key::new (b"Bill"), NodeAddr::new (&IpAddr::from_str ("1.2.3.4").unwrap (), &vec! (1234, 2345))),
+            (Key::new (b"Ted"), NodeAddr::new (&IpAddr::from_str ("2.3.4.5").unwrap (), &vec! (3456, 4567))),
+        ));
     }
 
     #[test]
@@ -229,7 +353,7 @@ mod tests {
             .add_listener_handler (third_handler)
             .build ();
 
-        subject.initialize_as_root(&vec! (), &mut FakeStreamHolder::new ().streams ());
+        subject.initialize_as_root(&meaningless_dns_servers(), &mut FakeStreamHolder::new ().streams ());
 
         let mut all_calls = vec! ();
         all_calls.extend (first_handler_log.lock ().unwrap ().dump ());
@@ -262,7 +386,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic (expected = "Cannot use 'booga' as a DNS server IP address")]
+    #[should_panic (expected = "Invalid IP address for --dns_servers <servers>: 'booga'")]
     fn initialize_as_root_complains_about_dns_servers_syntax_errors () {
         let mut subject = DispatcherBuilder::new ()
             .add_listener_handler (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())))
@@ -315,7 +439,7 @@ mod tests {
             .add_listener_handler (one_listener_handler)
             .add_listener_handler (another_listener_handler)
             .build ();
-        subject.initialize_as_root(&vec! (), &mut FakeStreamHolder::new ().streams ());
+        subject.initialize_as_root(&meaningless_dns_servers(), &mut FakeStreamHolder::new ().streams ());
 
         subject.serve_without_root();
 
@@ -351,10 +475,10 @@ mod tests {
     }
 
     impl ActorSystemFactory for ActorSystemFactoryMock {
-        fn make_and_start_actors(&self, dns_servers: Vec<SocketAddr>) -> StreamHandlerPoolSubs {
+        fn make_and_start_actors(&self, config: BootstrapperConfig) -> StreamHandlerPoolSubs {
             let mut parameter_guard = self.dnss.lock ().unwrap ();
             let parameter_ref = parameter_guard.deref_mut ();
-            *parameter_ref = Some (dns_servers);
+            *parameter_ref = Some (config.dns_servers);
 
             self.stream_handler_pool_cluster.subs.clone ()
         }

@@ -128,7 +128,7 @@ mod tests {
         let (tx, rx) = mpsc::channel::<io::Result<()>> ();
         thread::spawn(move || {
             let system = System::new ("test");
-            let hopper_sub = test_utils::make_peer_actors_from (None, None, Some (hopper), None).hopper.from_hopper_client;
+            let hopper_sub = test_utils::make_peer_actors_from (None, None, Some (hopper), None, None).hopper.from_hopper_client;
             let read_stream = Box::new (TcpStreamWrapperMock::new ()
                 .peer_addr_result (Ok (SocketAddr::from_str ("1.2.3.4:5678").unwrap ()))
                 .read_buffer (vec! (0x16, 0x03, 0x03, 0x00, 0x00))
@@ -175,7 +175,7 @@ mod tests {
         let (tx, rx) = mpsc::channel::<io::Result<()>> ();
         thread::spawn(move || {
             let system = System::new ("test");
-            let hopper_sub = test_utils::make_peer_actors_from (None, None, Some (hopper), None).hopper.from_hopper_client;
+            let hopper_sub = test_utils::make_peer_actors_from (None, None, Some (hopper), None, None).hopper.from_hopper_client;
             let read_stream = Box::new (TcpStreamWrapperMock::new ()
                 .peer_addr_result (Ok (SocketAddr::from_str ("1.2.3.4:5678").unwrap ()))
                 .read_buffer (b"HTTP/1.1 200 OK\r\n\r\n".to_vec ())
