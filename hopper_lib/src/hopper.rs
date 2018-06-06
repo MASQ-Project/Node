@@ -112,20 +112,18 @@ impl Handler<InboundClientData> for Hopper {
         let next_hop = live_package.next_hop(self.cryptde.borrow());
 
         match next_hop.component {
-            Some(Component::ProxyServer) => {
+            Component::ProxyServer => {
                 let expired_package = live_package.to_expired(self.cryptde.borrow());
                 self.logger.debug (format! ("Forwarding ExpiredCoresPackage to Proxy Server: {:?}", expired_package));
                 self.to_proxy_server.as_ref().expect("ProxyServer unbound in Hopper").try_send(expired_package).expect("Proxy Server is dead")
             },
-            Some(Component::ProxyClient) => {
+            Component::ProxyClient => {
                 let expired_package = live_package.to_expired(self.cryptde.borrow());
                 self.logger.debug (format! ("Forwarding ExpiredCoresPackage to Proxy Client: {:?}", expired_package));
                 self.to_proxy_client.as_ref ().expect ("ProxyClient unbound in Hopper").try_send (expired_package ).expect ("Proxy Client is dead")
             },
-            Some(Component::Neighborhood) => unimplemented!(),
-            // crashpoint - can we remove the Option by using Component::Hopper to indicate a relay node?
-            Some(_) => panic!("Unexpected component"),
-            None => {
+            Component::Neighborhood => unimplemented!(),
+            Component::Hopper => {
                 let transmit_msg = match self.to_transmit_msg (live_package, msg.last_data) {
                     // crashpoint - need to figure out how to bubble up different kinds of errors, or just log and return
                     Err (_) => unimplemented! (),
@@ -133,7 +131,7 @@ impl Handler<InboundClientData> for Hopper {
                 };
                 self.logger.debug (format! ("Relaying {}-byte LiveCoresPackage Dispatcher inside a TransmitDataMsg", transmit_msg.data.len ()));
                 self.to_dispatcher.as_ref().expect("Dispatcher unbound in Hopper").try_send(transmit_msg).expect("Dispatcher is dead");
-            },
+            }
         };
         ()
     }
@@ -204,11 +202,8 @@ impl LiveCoresPackage {
             None => unimplemented!(),
             Some (h) => h
         };
-        match next_hop.public_key {
-            // crashpoint - should discuss as a team
-            None => unimplemented! (), // can't send over Substratum Network if no destination
-            Some (key) => (LiveCoresPackage::new (route, encrypted_payload), key)
-        }
+
+        (LiveCoresPackage::new (route, encrypted_payload), next_hop.public_key)
     }
 
     pub fn to_expired (self, cryptde: &CryptDE) -> ExpiredCoresPackage {
@@ -226,11 +221,7 @@ impl LiveCoresPackage {
             None => unimplemented! (),
             Some (h) => h
         };
-        let next_key = match next_hop.public_key {
-            // crashpoint - should discuss as a team
-            None => unimplemented! (),
-            Some (k) => k
-        };
+        let next_key = next_hop.public_key;
         let next_live = LiveCoresPackage::new (self.route, self.payload);
         Ok ((next_key, next_live))
     }
@@ -257,7 +248,6 @@ mod tests {
     use sub_lib::cryptde::PlainData;
     use sub_lib::cryptde_null::CryptDENull;
     use sub_lib::dispatcher::Component;
-    use sub_lib::hop::Hop;
     use sub_lib::hopper::ExpiredCoresPackage;
     use sub_lib::hopper::HopperTemporaryTransmitDataMsg;
     use sub_lib::hopper::IncipientCoresPackage;
@@ -353,8 +343,7 @@ mod tests {
         let component = Recorder::new ();
         let component_recording_arc = component.get_recording ();
         let component_awaiter = component.get_awaiter ();
-        let hop = Hop {public_key: None, component: Some (Component::ProxyClient)};
-        let route = Route {hops: vec! (cryptde.encode (&cryptde.public_key (), &PlainData::new (&serde_cbor::ser::to_vec (&hop).unwrap ())).unwrap ())};
+        let route = route_to_proxy_client(&cryptde.public_key (), &cryptde);
         let payload = PlainData::new (&b"abcd"[..]);
         let lcp = LiveCoresPackage::new (route, cryptde.encode (&cryptde.public_key (), &payload).unwrap ());
         let lcp_a = lcp.clone ();
@@ -392,8 +381,7 @@ mod tests {
         let component = Recorder::new ();
         let component_recording_arc = component.get_recording ();
         let component_awaiter = component.get_awaiter ();
-        let hop = Hop {public_key: None, component: Some (Component::ProxyServer)};
-        let route = Route {hops: vec! (cryptde.encode (&cryptde.public_key (), &PlainData::new (&serde_cbor::ser::to_vec (&hop).unwrap ())).unwrap ())};
+        let route = route_to_proxy_server(&cryptde.public_key (), &cryptde);
         let payload = PlainData::new (&b"abcd"[..]);
         let lcp = LiveCoresPackage::new (route, cryptde.encode (&cryptde.public_key (), &payload).unwrap ());
         let lcp_a = lcp.clone ();
