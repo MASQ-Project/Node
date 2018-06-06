@@ -8,11 +8,11 @@ workspace = "../node"
 description = ""
 
 [dependencies]
-log = "0.4.1"
+actix = "0.5.7"
 chrono = "0.4.0"
+log = "0.4.1"
 regex = "0.2.5"
 serde = "1.0.24"
-serde_derive = "1.0.24"
 serde_cbor = "0.8.1"
-actix = "0.4.4"
+serde_derive = "1.0.24"
 sub_lib = { path = "../sub_lib" }

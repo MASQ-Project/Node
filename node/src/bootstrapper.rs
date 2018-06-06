@@ -3,19 +3,19 @@ use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::thread;
-use base64;
-use sub_lib::cryptde::Key;
-use sub_lib::main_tools::StdStreams;
-use sub_lib::node_addr::NodeAddr;
-use sub_lib::parameter_finder::ParameterFinder;
-use sub_lib::socket_server::SocketServer;
 use actor_system_factory::ActorSystemFactory;
 use actor_system_factory::ActorSystemFactoryReal;
+use base64;
 use configuration::Configuration;
 use listener_handler::ListenerHandler;
 use listener_handler::ListenerHandlerFactory;
 use listener_handler::ListenerHandlerFactoryReal;
 use stream_handler_pool::StreamHandlerPoolSubs;
+use sub_lib::cryptde::Key;
+use sub_lib::main_tools::StdStreams;
+use sub_lib::node_addr::NodeAddr;
+use sub_lib::parameter_finder::ParameterFinder;
+use sub_lib::socket_server::SocketServer;
 
 #[derive (Clone)]
 pub struct BootstrapperConfig {
@@ -134,30 +134,31 @@ impl Bootstrapper {
 #[cfg (test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
     use std::io;
     use std::io::Error;
     use std::io::ErrorKind;
-    use std::cell::RefCell;
-    use std::sync::Arc;
-    use std::sync::Mutex;
-    use std::net::SocketAddr;
     use std::marker::Sync;
+    use std::net::SocketAddr;
     use std::ops::DerefMut;
     use std::str::FromStr;
+    use std::sync::Arc;
     use std::sync::mpsc;
-    use actix::Subscriber;
+    use std::sync::Mutex;
+    use actix::Recipient;
+    use actix::Syn;
     use actix::System;
-    use test_utils::test_utils::FakeStreamHolder;
-    use test_utils::test_utils::Recorder;
-    use test_utils::test_utils::Recording;
-    use test_utils::test_utils::RecordAwaiter;
-    use test_utils::test_utils::TestLog;
     use discriminator::DiscriminatorFactory;
-    use stream_handler_pool::AddStreamMsg;
-    use node_test_utils::TcpStreamWrapperMock;
-    use node_test_utils::TestLogOwner;
     use node_test_utils::extract_log;
     use node_test_utils::make_stream_handler_pool_subs_from;
+    use node_test_utils::TcpStreamWrapperMock;
+    use node_test_utils::TestLogOwner;
+    use stream_handler_pool::AddStreamMsg;
+    use test_utils::test_utils::FakeStreamHolder;
+    use test_utils::test_utils::RecordAwaiter;
+    use test_utils::test_utils::Recorder;
+    use test_utils::test_utils::Recording;
+    use test_utils::test_utils::TestLog;
 
     struct ListenerHandlerFactoryMock {
         log: TestLog,
@@ -190,7 +191,7 @@ mod tests {
         log: Arc<Mutex<TestLog>>,
         bind_port_and_discriminator_factories_result: Option<io::Result<()>>,
         discriminator_factories_parameter: Option<Vec<Box<DiscriminatorFactory>>>,
-        add_stream_sub: Option<Box<Subscriber<AddStreamMsg> + Send>>,
+        add_stream_sub: Option<Recipient<Syn, AddStreamMsg>>,
         add_stream_msgs: Arc<Mutex<Vec<AddStreamMsg>>>
     }
 
@@ -201,7 +202,7 @@ mod tests {
             self.bind_port_and_discriminator_factories_result.take ().unwrap ()
         }
 
-        fn bind_subs (&mut self, add_stream_sub: Box<Subscriber<AddStreamMsg> + Send>) {
+        fn bind_subs (&mut self, add_stream_sub: Recipient<Syn, AddStreamMsg>) {
             self.log.lock ().unwrap ().log (format! ("bind_subscribers (add_stream_sub)"));
             self.add_stream_sub = Some (add_stream_sub);
         }
@@ -212,7 +213,7 @@ mod tests {
             let add_stream_sub = self.add_stream_sub.as_ref ().unwrap ();
             while add_stream_msgs.len () > 0 {
                 let add_stream_msg = add_stream_msgs.remove (0);
-                add_stream_sub.send (add_stream_msg).ok ();
+                add_stream_sub.try_send (add_stream_msg).expect ("StreamHandlerPool is dead");
             }
         }
     }

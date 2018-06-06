@@ -1,12 +1,12 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use std::io;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use actix::Actor;
+use actix::Addr;
 use actix::Context;
-use actix::SyncAddress;
 use actix::Handler;
-use actix::Subscriber;
+use actix::Recipient;
+use actix::Syn;
 use sub_lib::dispatcher::Component;
 use sub_lib::dispatcher::InboundClientData;
 use sub_lib::dispatcher::DispatcherSubs;
@@ -17,9 +17,9 @@ use sub_lib::stream_handler_pool::TransmitDataMsg;
 use stream_handler_pool::PoolBindMessage;
 
 pub struct Dispatcher {
-    to_proxy_server: Option<Box<Subscriber<InboundClientData> + Send>>,
-    to_hopper: Option<Box<Subscriber<InboundClientData> + Send>>,
-    to_stream: Option<Box<Subscriber<TransmitDataMsg> + Send>>,
+    to_proxy_server: Option<Recipient<Syn, InboundClientData>>,
+    to_hopper: Option<Recipient<Syn, InboundClientData>>,
+    to_stream: Option<Recipient<Syn, TransmitDataMsg>>,
     logger: Logger,
 }
 
@@ -30,43 +30,40 @@ impl Actor for Dispatcher {
 impl Handler<BindMessage> for Dispatcher {
     type Result = ();
 
-    fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) {
         self.to_proxy_server = Some(msg.peer_actors.proxy_server.from_dispatcher);
         self.to_hopper = Some(msg.peer_actors.hopper.from_dispatcher);
-        ()
     }
 }
 
 impl Handler<PoolBindMessage> for Dispatcher {
-    type Result = io::Result<()>;
+    type Result = ();
 
-    fn handle(&mut self, msg: PoolBindMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: PoolBindMessage, _ctx: &mut Self::Context) {
         self.to_stream = Some(msg.stream_handler_pool_subs.transmit_sub);
-        Ok (())
     }
 }
 
 impl Handler<InboundClientData> for Dispatcher {
     type Result = ();
 
-    fn handle(&mut self, msg: InboundClientData, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: InboundClientData, _ctx: &mut Self::Context) {
         match msg.component {
-            Component::ProxyServer => self.to_proxy_server.as_ref().expect("ProxyServer unbound in Dispatcher").send(msg).expect("ProxyServer is dead"),
+            Component::ProxyServer => self.to_proxy_server.as_ref().expect("ProxyServer unbound in Dispatcher").try_send(msg).expect("ProxyServer is dead"),
             Component::Hopper => unimplemented!(),
             _ => {
                 // crashpoint - StreamHandlerPool should never send us anything else, so panic! may make sense
                 panic! ("{:?} should not be receiving traffic from Dispatcher", msg.component)
             }
         };
-        ()
     }
 }
 
 // TODO when we are decentralized, remove this handler
 impl Handler<HopperTemporaryTransmitDataMsg> for Dispatcher {
-    type Result = io::Result<()>;
+    type Result = ();
 
-    fn handle(&mut self, msg: HopperTemporaryTransmitDataMsg, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: HopperTemporaryTransmitDataMsg, _ctx: &mut Self::Context) {
         self.logger.debug (format! ("Echoing {} bytes from Hopper to Hopper", msg.data.len ()));
         let ibcd = InboundClientData {
             last_data: msg.last_data,
@@ -75,18 +72,16 @@ impl Handler<HopperTemporaryTransmitDataMsg> for Dispatcher {
             component: Component::Hopper,
             origin_port: None,
         };
-        self.to_hopper.as_ref().expect("Hopper unbound in Dispatcher").send(ibcd).expect("Hopper is dead");
-        Ok(())
+        self.to_hopper.as_ref().expect("Hopper unbound in Dispatcher").try_send(ibcd).expect("Hopper is dead");
     }
 }
 
 impl Handler<TransmitDataMsg> for Dispatcher {
-    type Result = io::Result<()>;
+    type Result = ();
 
-    fn handle(&mut self, msg: TransmitDataMsg, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: TransmitDataMsg, _ctx: &mut Self::Context) {
         self.logger.debug (format! ("Relaying {} bytes from ProxyServer to StreamHandlerPool", msg.data.len ()));
-        self.to_stream.as_ref().expect("StreamHandlerPool unbound in Dispatcher").send(msg).expect("StreamHandlerPool is dead");
-        Ok(())
+        self.to_stream.as_ref().expect("StreamHandlerPool unbound in Dispatcher").try_send(msg).expect("StreamHandlerPool is dead");
     }
 }
 
@@ -100,12 +95,12 @@ impl Dispatcher {
         }
     }
 
-    pub fn make_subs_from (addr: &SyncAddress<Dispatcher>) -> DispatcherSubs {
+    pub fn make_subs_from (addr: &Addr<Syn, Dispatcher>) -> DispatcherSubs {
         DispatcherSubs {
-            ibcd_sub: addr.subscriber::<InboundClientData>(),
-            bind: addr.subscriber::<BindMessage>(),
-            from_proxy_server: addr.subscriber::<TransmitDataMsg>(),
-            from_hopper: addr.subscriber::<HopperTemporaryTransmitDataMsg>(),
+            ibcd_sub: addr.clone ().recipient::<InboundClientData>(),
+            bind: addr.clone ().recipient::<BindMessage>(),
+            from_proxy_server: addr.clone ().recipient::<TransmitDataMsg>(),
+            from_hopper: addr.clone ().recipient::<HopperTemporaryTransmitDataMsg>(),
         }
     }
 }
@@ -123,13 +118,14 @@ mod tests {
     use test_utils::test_utils::make_peer_actors;
     use test_utils::test_utils::make_peer_actors_from;
     use node_test_utils::make_stream_handler_pool_subs_from;
+    use actix::Addr;
 
     #[test]
     fn sends_inbound_data_for_proxy_server_to_proxy_server() {
         let system = System::new ("test");
         let subject = Dispatcher::new ();
-        let subject_addr: SyncAddress<_> = subject.start ();
-        let subject_ibcd = subject_addr.subscriber::<InboundClientData> ();
+        let subject_addr: Addr<Syn, Dispatcher> = subject.start ();
+        let subject_ibcd = subject_addr.clone ().recipient::<InboundClientData> ();
         let proxy_server = Recorder::new();
         let recording_arc = proxy_server.get_recording();
         let awaiter = proxy_server.get_awaiter();
@@ -146,11 +142,11 @@ mod tests {
         };
         let mut peer_actors = make_peer_actors_from(Some(proxy_server), None, None, None, None);
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
-        subject_addr.send( BindMessage { peer_actors });
+        subject_addr.try_send( BindMessage { peer_actors }).unwrap ();
 
-        subject_ibcd.send (ibcd_in).unwrap ();
+        subject_ibcd.try_send (ibcd_in).unwrap ();
 
-        Arbiter::system().send(msgs::SystemExit(0));
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run ();
 
         awaiter.await_message_count (1);
@@ -174,8 +170,8 @@ mod tests {
     fn panics_if_it_encounters_inbound_traffic_for_neighborhood() {
         let system = System::new ("test");
         let subject = Dispatcher::new ();
-        let subject_addr: SyncAddress<_> = subject.start ();
-        let subject_ibcd = subject_addr.subscriber::<InboundClientData> ();
+        let subject_addr: Addr<Syn, Dispatcher> = subject.start ();
+        let subject_ibcd = subject_addr.clone ().recipient::<InboundClientData> ();
         let socket_addr = SocketAddr::from_str ("1.2.3.4:8765").unwrap ();
         let origin_port = Some (80);
         let component = Component::Neighborhood;
@@ -189,11 +185,11 @@ mod tests {
         };
         let mut peer_actors = make_peer_actors();
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
-        subject_addr.send( BindMessage { peer_actors });
+        subject_addr.try_send( BindMessage { peer_actors }).unwrap ();
 
-        subject_ibcd.send (ibcd_in).unwrap ();
+        subject_ibcd.try_send (ibcd_in).unwrap ();
 
-        Arbiter::system().send(msgs::SystemExit(0));
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run ();
     }
 
@@ -202,8 +198,8 @@ mod tests {
     fn panics_if_it_encounters_inbound_traffic_for_proxy_client() {
         let system = System::new ("test");
         let subject = Dispatcher::new ();
-        let subject_addr: SyncAddress<_> = subject.start ();
-        let subject_ibcd = subject_addr.subscriber::<InboundClientData> ();
+        let subject_addr: Addr<Syn, Dispatcher> = subject.start ();
+        let subject_ibcd = subject_addr.clone ().recipient::<InboundClientData> ();
         let socket_addr = SocketAddr::from_str ("1.2.3.4:8765").unwrap ();
         let origin_port = Some (22);
         let component = Component::ProxyClient;
@@ -217,11 +213,11 @@ mod tests {
         };
         let mut peer_actors = make_peer_actors();
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
-        subject_addr.send( BindMessage { peer_actors });
+        subject_addr.try_send( BindMessage { peer_actors }).unwrap ();
 
-        subject_ibcd.send (ibcd_in).unwrap ();
+        subject_ibcd.try_send (ibcd_in).unwrap ();
 
-        Arbiter::system().send(msgs::SystemExit(0));
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run ();
     }
 
@@ -230,8 +226,8 @@ mod tests {
     fn panics_when_proxy_server_is_unbound() {
         let system = System::new ("test");
         let subject = Dispatcher::new ();
-        let subject_addr: SyncAddress<_> = subject.start ();
-        let subject_ibcd = subject_addr.subscriber::<InboundClientData> ();
+        let subject_addr: Addr<Syn, Dispatcher> = subject.start ();
+        let subject_ibcd = subject_addr.recipient::<InboundClientData> ();
         let socket_addr = SocketAddr::from_str ("1.2.3.4:8765").unwrap ();
         let origin_port = Some (1234);
         let component = Component::ProxyServer;
@@ -244,9 +240,9 @@ mod tests {
             data: data.clone ()
         };
 
-        subject_ibcd.send (ibcd_in).unwrap ();
+        subject_ibcd.try_send (ibcd_in).unwrap ();
 
-        Arbiter::system().send(msgs::SystemExit(0));
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run ();
     }
 
@@ -255,8 +251,8 @@ mod tests {
     fn panics_when_stream_handler_pool_is_unbound() {
         let system = System::new ("test");
         let subject = Dispatcher::new ();
-        let subject_addr: SyncAddress<_> = subject.start ();
-        let subject_obcd = subject_addr.subscriber::<TransmitDataMsg> ();
+        let subject_addr: Addr<Syn, Dispatcher> = subject.start ();
+        let subject_obcd = subject_addr.recipient::<TransmitDataMsg> ();
         let socket_addr = SocketAddr::from_str ("1.2.3.4:5678").unwrap ();
         let data: Vec<u8> = vec! (9, 10, 11);
         let obcd = TransmitDataMsg {
@@ -265,9 +261,9 @@ mod tests {
             data: data.clone ()
         };
 
-        subject_obcd.send (obcd).unwrap ();
+        subject_obcd.try_send (obcd).unwrap ();
 
-        Arbiter::system().send(msgs::SystemExit(0));
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run ();
     }
 
@@ -276,7 +272,7 @@ mod tests {
     fn panics_when_hopper_is_unbound() {
         let system = System::new ("test");
         let subject = Dispatcher::new ();
-        let subject_addr: SyncAddress<_> = subject.start ();
+        let subject_addr: Addr<Syn, Dispatcher> = subject.start ();
         let socket_addr = SocketAddr::from_str ("1.2.3.4:5678").unwrap ();
         let data: Vec<u8> = vec! (9, 10, 11);
         let transmit_msg = HopperTemporaryTransmitDataMsg {
@@ -285,9 +281,9 @@ mod tests {
             data: data.clone ()
         };
 
-        subject_addr.send (transmit_msg);
+        subject_addr.try_send (transmit_msg).unwrap ();
 
-        Arbiter::system().send(msgs::SystemExit(0));
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run ();
     }
 
@@ -295,8 +291,8 @@ mod tests {
     fn forwards_outbound_data_to_stream_handler_pool() {
         let system = System::new ("test");
         let subject = Dispatcher::new ();
-        let subject_addr: SyncAddress<_> = subject.start ();
-        let subject_obcd = subject_addr.subscriber::<TransmitDataMsg> ();
+        let subject_addr: Addr<Syn, Dispatcher> = subject.start ();
+        let subject_obcd = subject_addr.clone ().recipient::<TransmitDataMsg> ();
         let stream_handler_pool = Recorder::new();
         let recording_arc = stream_handler_pool.get_recording();
         let awaiter = stream_handler_pool.get_awaiter();
@@ -310,12 +306,12 @@ mod tests {
         let mut peer_actors = make_peer_actors_from(None, None, None, None, None);
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         let stream_handler_pool_subs = make_stream_handler_pool_subs_from (Some (stream_handler_pool));
-        subject_addr.send( PoolBindMessage { dispatcher_subs: peer_actors.dispatcher.clone (), stream_handler_pool_subs});
-        subject_addr.send( BindMessage { peer_actors });
+        subject_addr.try_send( PoolBindMessage { dispatcher_subs: peer_actors.dispatcher.clone (), stream_handler_pool_subs}).unwrap ();
+        subject_addr.try_send( BindMessage { peer_actors }).unwrap ();
 
-        subject_obcd.send (obcd).unwrap ();
+        subject_obcd.try_send (obcd).unwrap ();
 
-        Arbiter::system().send(msgs::SystemExit(0));
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run ();
 
         awaiter.await_message_count (1);
@@ -337,7 +333,7 @@ mod tests {
     fn converts_nonterminal_hopper_temporary_transmit_data_msg_to_inbound_client_data_for_hopper() {
         let system = System::new ("test");
         let subject = Dispatcher::new ();
-        let subject_addr: SyncAddress<_> = subject.start ();
+        let subject_addr: Addr<Syn, Dispatcher> = subject.start ();
         let stream_handler_pool = Recorder::new();
         let hopper = Recorder::new();
         let recording_arc = hopper.get_recording();
@@ -352,12 +348,12 @@ mod tests {
         let mut peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         let stream_handler_pool_subs = make_stream_handler_pool_subs_from (Some (stream_handler_pool));
-        subject_addr.send( PoolBindMessage { dispatcher_subs: peer_actors.dispatcher.clone (), stream_handler_pool_subs});
-        subject_addr.send( BindMessage { peer_actors });
+        subject_addr.try_send( PoolBindMessage { dispatcher_subs: peer_actors.dispatcher.clone (), stream_handler_pool_subs}).unwrap ();
+        subject_addr.try_send( BindMessage { peer_actors }).unwrap ();
 
-        subject_addr.send (transmit_msg);
+        subject_addr.try_send (transmit_msg).unwrap ();
 
-        Arbiter::system().send(msgs::SystemExit(0));
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run ();
 
         awaiter.await_message_count (1);
@@ -379,7 +375,7 @@ mod tests {
     fn converts_terminal_hopper_temporary_transmit_data_msg_to_inbound_client_data_for_hopper() {
         let system = System::new ("test");
         let subject = Dispatcher::new ();
-        let subject_addr: SyncAddress<_> = subject.start ();
+        let subject_addr: Addr<Syn, Dispatcher> = subject.start ();
         let stream_handler_pool = Recorder::new();
         let hopper = Recorder::new();
         let recording_arc = hopper.get_recording();
@@ -394,12 +390,12 @@ mod tests {
         let mut peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         let stream_handler_pool_subs = make_stream_handler_pool_subs_from (Some (stream_handler_pool));
-        subject_addr.send( PoolBindMessage { dispatcher_subs: peer_actors.dispatcher.clone (), stream_handler_pool_subs});
-        subject_addr.send( BindMessage { peer_actors });
+        subject_addr.try_send( PoolBindMessage { dispatcher_subs: peer_actors.dispatcher.clone (), stream_handler_pool_subs}).unwrap ();
+        subject_addr.try_send( BindMessage { peer_actors }).unwrap ();
 
-        subject_addr.send (transmit_msg);
+        subject_addr.try_send (transmit_msg).unwrap ();
 
-        Arbiter::system().send(msgs::SystemExit(0));
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run ();
 
         awaiter.await_message_count (1);

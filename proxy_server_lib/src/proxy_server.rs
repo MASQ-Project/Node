@@ -1,10 +1,10 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use std::marker::Send;
 use actix::Actor;
+use actix::Addr;
 use actix::Context;
-use actix::SyncAddress;
 use actix::Handler;
-use actix::Subscriber;
+use actix::Recipient;
+use actix::Syn;
 use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::dispatcher::Component;
@@ -22,8 +22,8 @@ use sub_lib::stream_handler_pool::TransmitDataMsg;
 use client_request_payload_factory::ClientRequestPayloadFactory;
 
 pub struct ProxyServer {
-    dispatcher: Option<Box<Subscriber<TransmitDataMsg> + Send>>,
-    hopper: Option<Box<Subscriber<IncipientCoresPackage> + Send>>,
+    dispatcher: Option<Recipient<Syn, TransmitDataMsg>>,
+    hopper: Option<Recipient<Syn, IncipientCoresPackage>>,
     client_request_payload_factory: ClientRequestPayloadFactory,
     logger: Logger
 }
@@ -58,7 +58,7 @@ impl Handler<InboundClientData> for ProxyServer {
                 RouteSegment::new(vec!(&cryptde.public_key(), &cryptde.public_key()), Component::ProxyServer)
             ), &cryptde).expect("Couldn't create route");
         let pkg = IncipientCoresPackage::new(route, payload, &cryptde.public_key());
-        hopper.send(pkg ).expect ("Hopper is dead")
+        hopper.try_send(pkg ).expect ("Hopper is dead")
     }
 }
 
@@ -70,7 +70,7 @@ impl Handler<ExpiredCoresPackage> for ProxyServer {
             Ok(payload) => {
                 self.logger.debug (format! ("Relaying {}-byte ExpiredCoresPackage payload from Hopper to Dispatcher", payload.data.data.len ()));
                 self.dispatcher.as_ref().expect("Dispatcher unbound in ProxyServer")
-                    .send(TransmitDataMsg {
+                    .try_send(TransmitDataMsg {
                         endpoint: Endpoint::Socket(payload.stream_key),
                         last_data: payload.last_response,
                         data: payload.data.data.clone()
@@ -93,11 +93,11 @@ impl ProxyServer {
         }
     }
 
-    pub fn make_subs_from(addr: &SyncAddress<ProxyServer>) -> ProxyServerSubs {
+    pub fn make_subs_from(addr: &Addr<Syn, ProxyServer>) -> ProxyServerSubs {
         ProxyServerSubs {
-            bind: addr.subscriber::<BindMessage>(),
-            from_dispatcher: addr.subscriber::<InboundClientData>(),
-            from_hopper: addr.subscriber::<ExpiredCoresPackage>(),
+            bind: addr.clone ().recipient::<BindMessage>(),
+            from_dispatcher: addr.clone ().recipient::<InboundClientData>(),
+            from_hopper: addr.clone ().recipient::<ExpiredCoresPackage>(),
         }
     }
 }
@@ -153,14 +153,14 @@ mod tests {
             originator_public_key: key.clone()
         };
         let expected_pkg = IncipientCoresPackage::new(route.clone(), expected_payload, &key);
-        let subject_addr: SyncAddress<_> = subject.start();
+        let subject_addr: Addr<Syn, ProxyServer> = subject.start();
         let mut peer_actors = make_peer_actors_from(None, None, Some(hopper_mock), None, None);
         peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
-        subject_addr.send(BindMessage { peer_actors });
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap ();
 
-        subject_addr.send(msg_from_dispatcher);
+        subject_addr.try_send(msg_from_dispatcher).unwrap ();
 
-        Arbiter::system().send(msgs::SystemExit(0));
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run();
 
         hopper_awaiter.await_message_count(1);
@@ -217,14 +217,14 @@ mod tests {
             originator_public_key: key.clone()
         };
         let expected_pkg = IncipientCoresPackage::new(route.clone(), expected_payload, &key);
-        let subject_addr: SyncAddress<_> = subject.start();
+        let subject_addr: Addr<Syn, ProxyServer> = subject.start();
         let mut peer_actors = make_peer_actors_from(None, None, Some(hopper_mock), None, None);
         peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
-        subject_addr.send(BindMessage { peer_actors });
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap ();
 
-        subject_addr.send(msg_from_dispatcher);
+        subject_addr.try_send(msg_from_dispatcher).unwrap ();
 
-        Arbiter::system().send(msgs::SystemExit(0));
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run();
 
         hopper_awaiter.await_message_count(1);
@@ -269,14 +269,14 @@ mod tests {
             originator_public_key: key.clone()
         };
         let expected_pkg = IncipientCoresPackage::new(route.clone(), expected_payload, &key);
-        let subject_addr: SyncAddress<_> = subject.start();
+        let subject_addr: Addr<Syn, ProxyServer> = subject.start();
         let mut peer_actors = make_peer_actors_from(None, None, Some(hopper_mock), None, None);
         peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
-        subject_addr.send(BindMessage { peer_actors });
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap ();
 
-        subject_addr.send(msg_from_dispatcher);
+        subject_addr.try_send(msg_from_dispatcher).unwrap ();
 
-        Arbiter::system().send(msgs::SystemExit(0));
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run();
 
         hopper_awaiter.await_message_count(1);
@@ -319,14 +319,14 @@ mod tests {
             originator_public_key: key.clone()
         };
         let expected_pkg = IncipientCoresPackage::new(route.clone(), expected_payload, &key);
-        let subject_addr: SyncAddress<_> = subject.start();
+        let subject_addr: Addr<Syn, ProxyServer> = subject.start();
         let mut peer_actors = make_peer_actors_from(None, None, Some(hopper_mock), None, None);
         peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
-        subject_addr.send(BindMessage { peer_actors });
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap ();
 
-        subject_addr.send(msg_from_dispatcher);
+        subject_addr.try_send(msg_from_dispatcher).unwrap ();
 
-        Arbiter::system().send(msgs::SystemExit(0));
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run();
 
         hopper_awaiter.await_message_count(1);
@@ -345,7 +345,7 @@ mod tests {
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let cryptde = CryptDENull::new();
         let key = cryptde.public_key();
-        let subject_addr: SyncAddress<_> = subject.start();
+        let subject_addr: Addr<Syn, ProxyServer> = subject.start();
         let remaining_route = route_to_proxy_server(&key, &cryptde);
         let client_response_payload = ClientResponsePayload {
             stream_key: socket_addr.clone(),
@@ -356,11 +356,11 @@ mod tests {
         let expired_cores_package = ExpiredCoresPackage::new(remaining_route, incipient_cores_package.payload);
         let mut peer_actors = make_peer_actors_from(None, Some(dispatcher_mock), None, None, None);
         peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
-        subject_addr.send(BindMessage { peer_actors });
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap ();
 
-        subject_addr.send(expired_cores_package);
+        subject_addr.try_send(expired_cores_package).unwrap ();
 
-        Arbiter::system().send(msgs::SystemExit(0));
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run();
 
         dispatcher_awaiter.await_message_count(1);
@@ -382,7 +382,7 @@ mod tests {
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let cryptde = CryptDENull::new();
         let key = cryptde.public_key();
-        let subject_addr: SyncAddress<_> = subject.start();
+        let subject_addr: Addr<Syn, ProxyServer> = subject.start();
         let remaining_route = route_to_proxy_server(&key, &cryptde);
         let client_response_payload = ClientResponsePayload {
             stream_key: socket_addr.clone(),
@@ -393,11 +393,11 @@ mod tests {
         let expired_cores_package = ExpiredCoresPackage::new(remaining_route, incipient_cores_package.payload);
         let mut peer_actors = make_peer_actors_from(None, Some(dispatcher_mock), None, None, None);
         peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
-        subject_addr.send(BindMessage { peer_actors });
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap ();
 
-        subject_addr.send(expired_cores_package);
+        subject_addr.try_send(expired_cores_package).unwrap ();
 
-        Arbiter::system().send(msgs::SystemExit(0));
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run();
 
         dispatcher_awaiter.await_message_count(1);
@@ -417,7 +417,7 @@ mod tests {
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let cryptde = CryptDENull::new();
         let key = cryptde.public_key();
-        let subject_addr: SyncAddress<_> = subject.start();
+        let subject_addr: Addr<Syn, ProxyServer> = subject.start();
         let remaining_route = route_to_proxy_server(&key, &cryptde);
         let client_response_payload = ClientResponsePayload {
             stream_key: socket_addr,
@@ -427,9 +427,9 @@ mod tests {
         let incipient_cores_package = IncipientCoresPackage::new(remaining_route.clone(), client_response_payload, &key);
         let expired_cores_package = ExpiredCoresPackage::new(remaining_route, incipient_cores_package.payload);
 
-        subject_addr.send(expired_cores_package);
+        subject_addr.try_send(expired_cores_package).unwrap ();
 
-        Arbiter::system().send(msgs::SystemExit(0));
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run();
     }
 
@@ -448,11 +448,11 @@ mod tests {
             last_data: false,
             data: expected_data.clone()
         };
-        let subject_addr: SyncAddress<_> = subject.start();
+        let subject_addr: Addr<Syn, ProxyServer> = subject.start();
 
-        subject_addr.send(msg_from_dispatcher);
+        subject_addr.try_send(msg_from_dispatcher).unwrap ();
 
-        Arbiter::system().send(msgs::SystemExit(0));
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run();
     }
 }

@@ -2,7 +2,6 @@
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
-use actix::ResponseType;
 use proxy_server::ProxyServerSubs;
 use dispatcher::DispatcherSubs;
 use hopper::HopperSubs;
@@ -24,14 +23,9 @@ impl Debug for PeerActors {
     }
 }
 
-#[derive (Debug)]
+#[derive (Debug, Message)]
 pub struct BindMessage {
     pub peer_actors: PeerActors
-}
-
-impl ResponseType for BindMessage {
-    type Item = ();
-    type Error = ();
 }
 
 #[cfg (test)]

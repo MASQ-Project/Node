@@ -14,6 +14,10 @@ use std::net::SocketAddr;
 use std::ops::DerefMut;
 use std::borrow::BorrowMut;
 use std::str::FromStr;
+use actix::Actor;
+use actix::Addr;
+use actix::Handler;
+use actix::Syn;
 use sub_lib::tcp_wrappers::TcpStreamWrapper;
 use sub_lib::dispatcher::Component;
 use sub_lib::framer::Framer;
@@ -21,9 +25,6 @@ use sub_lib::framer::FramedChunk;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
 use test_utils::test_utils::Recorder;
 use test_utils::test_utils::TestLog;
-use actix::Actor;
-use actix::Handler;
-use actix::SyncAddress;
 use discriminator::Discriminator;
 use discriminator::DiscriminatorFactory;
 use discriminator::UnmaskedChunk;
@@ -291,29 +292,26 @@ impl NullDiscriminatorFactory {
 }
 
 impl Handler<AddStreamMsg> for Recorder {
-    type Result = io::Result<()>;
+    type Result = ();
 
-    fn handle(&mut self, msg: AddStreamMsg, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: AddStreamMsg, _ctx: &mut Self::Context) {
         self.record (msg);
-        Ok (())
     }
 }
 
 impl Handler<RemoveStreamMsg> for Recorder {
-    type Result = io::Result<()>;
+    type Result = ();
 
-    fn handle(&mut self, msg: RemoveStreamMsg, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: RemoveStreamMsg, _ctx: &mut Self::Context) {
         self.record (msg);
-        Ok (())
     }
 }
 
 impl Handler<PoolBindMessage> for Recorder {
-    type Result = io::Result<()>;
+    type Result = ();
 
-    fn handle(&mut self, msg: PoolBindMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: PoolBindMessage, _ctx: &mut Self::Context) {
         self.record (msg);
-        Ok (())
     }
 }
 
@@ -323,12 +321,12 @@ pub fn make_stream_handler_pool_subs_from(stream_handler_pool_opt: Option<Record
         None => Recorder::new()
     };
 
-    let addr: SyncAddress<_> = stream_handler_pool.start();
+    let addr: Addr<Syn, Recorder> = stream_handler_pool.start();
 
     StreamHandlerPoolSubs {
-        add_sub: addr.subscriber::<AddStreamMsg>(),
-        transmit_sub: addr.subscriber::<TransmitDataMsg>(),
-        remove_sub: addr.subscriber::<RemoveStreamMsg>(),
-        bind: addr.subscriber::<PoolBindMessage>(),
+        add_sub: addr.clone ().recipient::<AddStreamMsg>(),
+        transmit_sub: addr.clone ().recipient::<TransmitDataMsg>(),
+        remove_sub: addr.clone ().recipient::<RemoveStreamMsg>(),
+        bind: addr.clone ().recipient::<PoolBindMessage>(),
     }
 }

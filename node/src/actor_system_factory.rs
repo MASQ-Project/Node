@@ -3,29 +3,30 @@ use std::net::SocketAddr;
 use std::sync::mpsc;
 use std::thread;
 use actix::Actor;
+use actix::Addr;
+use actix::Recipient;
+use actix::Syn;
 use actix::System;
-use actix::SyncAddress;
+use bootstrapper::BootstrapperConfig;
+use dispatcher::Dispatcher;
 use hopper_lib::hopper::Hopper;
+use neighborhood_lib::neighborhood::Neighborhood;
 use proxy_client_lib::proxy_client::ProxyClient;
 use proxy_server_lib::proxy_server::ProxyServer;
+use stream_handler_pool::PoolBindMessage;
+use stream_handler_pool::StreamHandlerPool;
+use stream_handler_pool::StreamHandlerPoolSubs;
 use sub_lib::cryptde::CryptDE;
+use sub_lib::cryptde::Key;
 use sub_lib::cryptde_null::CryptDENull;
-use sub_lib::hopper::HopperSubs;
 use sub_lib::dispatcher::DispatcherSubs;
+use sub_lib::hopper::HopperSubs;
+use sub_lib::neighborhood::NeighborhoodSubs;
+use sub_lib::node_addr::NodeAddr;
 use sub_lib::peer_actors::BindMessage;
 use sub_lib::peer_actors::PeerActors;
 use sub_lib::proxy_client::ProxyClientSubs;
 use sub_lib::proxy_server::ProxyServerSubs;
-use dispatcher::Dispatcher;
-use stream_handler_pool::StreamHandlerPool;
-use stream_handler_pool::StreamHandlerPoolSubs;
-use stream_handler_pool::PoolBindMessage;
-use actix::Subscriber;
-use bootstrapper::BootstrapperConfig;
-use sub_lib::cryptde::Key;
-use sub_lib::node_addr::NodeAddr;
-use sub_lib::neighborhood::NeighborhoodSubs;
-use neighborhood_lib::neighborhood::Neighborhood;
 
 pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(&self, config: BootstrapperConfig) -> StreamHandlerPoolSubs;
@@ -59,13 +60,13 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
             };
 
             //bind all the actors
-            peer_actors.dispatcher.bind.send(BindMessage { peer_actors: peer_actors.clone() }).expect ("Dispatcher is dead");
-            peer_actors.proxy_server.bind.send(BindMessage { peer_actors: peer_actors.clone() }).expect ("Proxy Server is dead");
-            peer_actors.proxy_client.bind.send(BindMessage { peer_actors: peer_actors.clone() }).expect ("Proxy Client is dead");
-            peer_actors.hopper.bind.send(BindMessage { peer_actors: peer_actors.clone() }).expect ("Hopper is dead");
-            peer_actors.neighborhood.bind.send(BindMessage { peer_actors: peer_actors.clone() }).expect("Neighborhood is dead");
-            stream_handler_pool_subs.bind.send(PoolBindMessage {dispatcher_subs: dispatcher_subs.clone (), stream_handler_pool_subs: stream_handler_pool_subs.clone ()}).expect ("Stream Handler Pool is dead");
-            pool_bind_sub.send (PoolBindMessage {dispatcher_subs, stream_handler_pool_subs: stream_handler_pool_subs.clone ()}).expect ("Dispatcher is dead");
+            peer_actors.dispatcher.bind.try_send(BindMessage { peer_actors: peer_actors.clone() }).expect ("Dispatcher is dead");
+            peer_actors.proxy_server.bind.try_send(BindMessage { peer_actors: peer_actors.clone() }).expect ("Proxy Server is dead");
+            peer_actors.proxy_client.bind.try_send(BindMessage { peer_actors: peer_actors.clone() }).expect ("Proxy Client is dead");
+            peer_actors.hopper.bind.try_send(BindMessage { peer_actors: peer_actors.clone() }).expect ("Hopper is dead");
+            peer_actors.neighborhood.bind.try_send(BindMessage { peer_actors: peer_actors.clone() }).expect("Neighborhood is dead");
+            stream_handler_pool_subs.bind.try_send(PoolBindMessage {dispatcher_subs: dispatcher_subs.clone (), stream_handler_pool_subs: stream_handler_pool_subs.clone ()}).expect ("Stream Handler Pool is dead");
+            pool_bind_sub.try_send (PoolBindMessage {dispatcher_subs, stream_handler_pool_subs: stream_handler_pool_subs.clone ()}).expect ("Dispatcher is dead");
 
             //send out the stream handler pool subs (to be bound to listeners)
             tx.send(stream_handler_pool_subs).ok();
@@ -79,39 +80,39 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
 }
 
 impl ActorSystemFactoryReal {
-    fn make_and_start_dispatcher() -> (DispatcherSubs, Box<Subscriber<PoolBindMessage>>) {
+    fn make_and_start_dispatcher() -> (DispatcherSubs, Recipient<Syn, PoolBindMessage>) {
         let dispatcher = Dispatcher::new();
-        let addr: SyncAddress<_> = dispatcher.start();
-        (Dispatcher::make_subs_from(&addr), addr.subscriber::<PoolBindMessage> ())
+        let addr: Addr<Syn, Dispatcher> = dispatcher.start();
+        (Dispatcher::make_subs_from(&addr), addr.recipient::<PoolBindMessage> ())
     }
 
     fn make_and_start_proxy_server() -> ProxyServerSubs {
         let proxy_server = ProxyServer::new();
-        let addr: SyncAddress<_> = proxy_server.start();
+        let addr: Addr<Syn, ProxyServer> = proxy_server.start();
         ProxyServer::make_subs_from(&addr)
     }
 
     fn make_and_start_hopper(cryptde: Box<CryptDE>) -> HopperSubs {
         let hopper = Hopper::new(cryptde);
-        let addr: SyncAddress<_> = hopper.start();
+        let addr: Addr<Syn, Hopper> = hopper.start();
         Hopper::make_subs_from(&addr)
     }
 
     fn make_and_start_neighborhood(cryptde: Box<CryptDE>, config: Vec<(Key, NodeAddr)>) -> NeighborhoodSubs {
         let neighborhood = Neighborhood::new (cryptde, config);
-        let addr: SyncAddress<_> = neighborhood.start ();
+        let addr: Addr<Syn, Neighborhood> = neighborhood.start ();
         Neighborhood::make_subs_from (&addr)
     }
 
     fn make_and_start_stream_handler_pool() -> StreamHandlerPoolSubs {
         let pool = StreamHandlerPool::new();
-        let addr: SyncAddress<_> = pool.start();
+        let addr: Addr<Syn, StreamHandlerPool> = pool.start();
         StreamHandlerPool::make_subs_from(&addr)
     }
 
     fn make_and_start_proxy_client(cryptde: Box<CryptDE>, dns_servers: Vec<SocketAddr>) -> ProxyClientSubs {
         let proxy_client = ProxyClient::new(cryptde, dns_servers);
-        let addr: SyncAddress<_> = proxy_client.start();
+        let addr: Addr<Syn, ProxyClient> = proxy_client.start();
         ProxyClient::make_subs_from(&addr)
     }
 }

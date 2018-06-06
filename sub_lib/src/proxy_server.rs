@@ -1,12 +1,12 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use std::marker::Send;
-use actix::Subscriber;
+use actix::Recipient;
+use actix::Syn;
 use cryptde::Key;
 use cryptde::PlainData;
+use cryptde::StreamKey;
 use dispatcher::InboundClientData;
 use hopper::ExpiredCoresPackage;
 use peer_actors::BindMessage;
-use cryptde::StreamKey;
 
 #[derive (Copy, Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum ProxyProtocol {
@@ -27,7 +27,7 @@ pub struct ClientRequestPayload {
 
 #[derive(Clone)]
 pub struct ProxyServerSubs { // ProxyServer will handle these messages:
-    pub bind: Box<Subscriber<BindMessage> + Send>,
-    pub from_dispatcher: Box<Subscriber<InboundClientData> + Send>,
-    pub from_hopper: Box<Subscriber<ExpiredCoresPackage> + Send>,
+    pub bind: Recipient<Syn, BindMessage>,
+    pub from_dispatcher: Recipient<Syn, InboundClientData>,
+    pub from_hopper: Recipient<Syn, ExpiredCoresPackage>,
 }

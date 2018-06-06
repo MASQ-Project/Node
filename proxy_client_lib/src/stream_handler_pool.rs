@@ -11,7 +11,6 @@ use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 use std::sync::mpsc::Receiver;
 use actix::Arbiter;
-use actix::Subscriber;
 use futures::future::Executor;
 use futures::future::Future;
 use sub_lib::cryptde::CryptDE;
@@ -35,13 +34,15 @@ use resolver_wrapper::ResolverWrapper;
 use stream_writer::StreamWriter;
 use stream_handler_establisher::StreamHandlerEstablisher;
 use std::net::Shutdown;
+use actix::Recipient;
+use actix::Syn;
 
 pub trait StreamHandlerPool {
     fn process_package (&mut self, package: ExpiredCoresPackage);
 }
 
 pub struct StreamHandlerPoolReal {
-    pub hopper_sub: Box<Subscriber<IncipientCoresPackage> + Send>,
+    pub hopper_sub: Recipient<Syn, IncipientCoresPackage>,
     pub stream_writers: HashMap<StreamKey, StreamWriter>,
     pub stream_adder_tx: Sender<(StreamKey, StreamWriter)>,
     pub stream_adder_rx: Receiver<(StreamKey, StreamWriter)>,
@@ -115,7 +116,7 @@ impl StreamHandlerPool for StreamHandlerPoolReal {
 }
 
 impl StreamHandlerPoolReal {
-    pub fn new (resolver: Box<ResolverWrapper>, cryptde: Box<CryptDE>, hopper_sub: Box<Subscriber<IncipientCoresPackage> + Send>) -> StreamHandlerPoolReal {
+    pub fn new (resolver: Box<ResolverWrapper>, cryptde: Box<CryptDE>, hopper_sub: Recipient<Syn, IncipientCoresPackage>) -> StreamHandlerPoolReal {
         let (stream_killer_tx, stream_killer_rx) = mpsc::channel ();
         let (stream_adder_tx, stream_adder_rx) = mpsc::channel ();
         StreamHandlerPoolReal {
@@ -222,7 +223,7 @@ impl StreamHandlerPoolReal {
         }
     }
 
-    fn send_terminating_package(route: Route, request: &ClientRequestPayload, hopper_sub: &Box<Subscriber<IncipientCoresPackage> + Send>) {
+    fn send_terminating_package(route: Route, request: &ClientRequestPayload, hopper_sub: &Recipient<Syn, IncipientCoresPackage>) {
         let response = ClientResponsePayload {
             stream_key: request.stream_key,
             last_response: true,
@@ -230,7 +231,7 @@ impl StreamHandlerPoolReal {
         };
         let package = IncipientCoresPackage::new (route, response,
             &request.originator_public_key);
-        hopper_sub.send (package).expect("Hopper died");
+        hopper_sub.try_send (package).expect("Hopper died");
     }
 }
 
@@ -238,14 +239,14 @@ impl StreamHandlerPoolReal {
 
 pub trait StreamHandlerPoolFactory {
     fn make (&self, resolver: Box<ResolverWrapper>, cryptde: Box<CryptDE>,
-        hopper_sub: Box<Subscriber<IncipientCoresPackage> + Send>) -> Box<StreamHandlerPool>;
+        hopper_sub: Recipient<Syn, IncipientCoresPackage>) -> Box<StreamHandlerPool>;
 }
 
 pub struct StreamHandlerPoolFactoryReal {}
 
 impl StreamHandlerPoolFactory for StreamHandlerPoolFactoryReal {
     fn make(&self, resolver: Box<ResolverWrapper>, cryptde: Box<CryptDE>,
-            hopper_sub: Box<Subscriber<IncipientCoresPackage> + Send>) -> Box<StreamHandlerPool> {
+            hopper_sub: Recipient<Syn, IncipientCoresPackage>) -> Box<StreamHandlerPool> {
         Box::new(StreamHandlerPoolReal::new (resolver, cryptde, hopper_sub))
     }
 }

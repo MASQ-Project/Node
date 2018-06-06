@@ -1,13 +1,11 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use std::boxed::Box;
-use std::marker::Send;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
-use actix::Subscriber;
-use actix::ResponseType;
+use actix::Recipient;
+use actix::Syn;
 use serde;
 use serde::Serialize;
 use serde::Deserialize;
@@ -121,18 +119,13 @@ pub enum DispatcherError {
     NeighborhoodPanicked,
 }
 
-#[derive (PartialEq, Clone)]
+#[derive (PartialEq, Clone, Message)]
 pub struct InboundClientData {
     pub socket_addr: SocketAddr,
     pub origin_port: Option<u16>,
     pub component: Component,
     pub last_data: bool,
     pub data: Vec<u8>
-}
-
-impl ResponseType for InboundClientData {
-    type Item = ();
-    type Error = ();
 }
 
 impl Debug for InboundClientData {
@@ -147,12 +140,12 @@ impl Debug for InboundClientData {
 }
 
 pub struct DispatcherSubs {
-    pub ibcd_sub: Box<Subscriber<InboundClientData> + Send>,
-    pub bind: Box<Subscriber<BindMessage> + Send>,
+    pub ibcd_sub: Recipient<Syn, InboundClientData>,
+    pub bind: Recipient<Syn, BindMessage>,
     // TODO when we are decentralized, rename this to "from_dispatcher_client"
-    pub from_proxy_server: Box<Subscriber<TransmitDataMsg> +Send>,
+    pub from_proxy_server: Recipient<Syn, TransmitDataMsg>,
     // TODO when we are decentralized, remove this
-    pub from_hopper: Box<Subscriber<HopperTemporaryTransmitDataMsg> + Send>,
+    pub from_hopper: Recipient<Syn, HopperTemporaryTransmitDataMsg>,
 }
 
 impl Clone for DispatcherSubs {

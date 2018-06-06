@@ -4,31 +4,31 @@ use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::io;
-use std::net::SocketAddr;
 use std::net::Shutdown;
+use std::net::SocketAddr;
 use std::string::ToString;
 use std::thread;
 use std::time::Duration;
 use actix::Actor;
+use actix::Addr;
 use actix::Context;
 use actix::Handler;
-use actix::ResponseType;
-use actix::Subscriber;
-use actix::SyncAddress;
-use sub_lib::tcp_wrappers::TcpStreamWrapper;
-use sub_lib::logger::Logger;
-use sub_lib::dispatcher;
-use sub_lib::dispatcher::DispatcherSubs;
-use sub_lib::dispatcher::Endpoint;
-use sub_lib::node_addr::NodeAddr;
-use sub_lib::stream_handler_pool::TransmitDataMsg;
-use sub_lib::utils::indicates_dead_stream;
-use sub_lib::utils::indicates_timeout;
+use actix::Recipient;
+use actix::Syn;
 use discriminator::Discriminator;
 use discriminator::DiscriminatorFactory;
-use sub_lib::dispatcher::InboundClientData;
-use sub_lib::dispatcher::Component;
 use sub_lib::cryptde::StreamKey;
+use sub_lib::dispatcher;
+use sub_lib::dispatcher::Component;
+use sub_lib::dispatcher::DispatcherSubs;
+use sub_lib::dispatcher::Endpoint;
+use sub_lib::dispatcher::InboundClientData;
+use sub_lib::logger::Logger;
+use sub_lib::node_addr::NodeAddr;
+use sub_lib::stream_handler_pool::TransmitDataMsg;
+use sub_lib::tcp_wrappers::TcpStreamWrapper;
+use sub_lib::utils::indicates_dead_stream;
+use sub_lib::utils::indicates_timeout;
 
 trait StreamReader {
     fn handle_traffic (&mut self);
@@ -39,32 +39,23 @@ trait StreamWriter {
     fn shutdown (&mut self, how: Shutdown) -> io::Result<()>;
 }
 
+#[derive (Message)]
 pub struct AddStreamMsg {
     pub stream: Box<TcpStreamWrapper>,
     pub origin_port: Option<u16>,
     pub discriminator_factories: Vec<Box<DiscriminatorFactory>>
 }
 
-impl ResponseType for AddStreamMsg {
-    type Item = ();
-    type Error = io::Error;
-}
-
-#[derive (Debug)]
+#[derive (Debug, Message)]
 pub struct RemoveStreamMsg {
     pub socket_addr: SocketAddr
 }
 
-impl ResponseType for RemoveStreamMsg {
-    type Item = ();
-    type Error = io::Error;
-}
-
 pub struct StreamHandlerPoolSubs {
-    pub add_sub: Box<Subscriber<AddStreamMsg> + Send>,
-    pub transmit_sub: Box<Subscriber<TransmitDataMsg> + Send>,
-    pub remove_sub: Box<Subscriber<RemoveStreamMsg> + Send>,
-    pub bind: Box<Subscriber<PoolBindMessage> + Send>,
+    pub add_sub: Recipient<Syn, AddStreamMsg>,
+    pub transmit_sub: Recipient<Syn, TransmitDataMsg>,
+    pub remove_sub: Recipient<Syn, RemoveStreamMsg>,
+    pub bind: Recipient<Syn, PoolBindMessage>,
 }
 
 impl Clone for StreamHandlerPoolSubs {
@@ -82,8 +73,8 @@ struct StreamReaderReal {
     stream: Box<TcpStreamWrapper>,
     stream_key: StreamKey,
     origin_port: Option<u16>,
-    ibcd_sub: Box<Subscriber<dispatcher::InboundClientData> + Send>,
-    remove_sub: Box<Subscriber<RemoveStreamMsg> + Send>,
+    ibcd_sub: Recipient<Syn, dispatcher::InboundClientData>,
+    remove_sub: Recipient<Syn, RemoveStreamMsg>,
     discriminators: Vec<Box<Discriminator>>,
     logger: Logger
 }
@@ -110,10 +101,10 @@ impl StreamReader for StreamReaderReal {
                     }
                     else if indicates_dead_stream (e.kind ()) {
                         self.logger.debug (format! ("Stream on port {} is dead: {}", port, e));
-                        self.remove_sub.send (RemoveStreamMsg {socket_addr: self.stream_key}).expect ("StreamHandlerPool is dead");
+                        self.remove_sub.try_send (RemoveStreamMsg {socket_addr: self.stream_key}).expect ("StreamHandlerPool is dead");
                         self.stream.shutdown (Shutdown::Both).ok (); // can't do anything about failure
                         // TODO: Skinny implementation: wrong for decentralization. StreamReaders for clandestine and non-clandestine data should probably behave differently here.
-                        self.ibcd_sub.send(InboundClientData {
+                        self.ibcd_sub.try_send(InboundClientData {
                             socket_addr: self.stream_key,
                             origin_port: self.origin_port,
                             component: Component::ProxyServer,
@@ -133,8 +124,8 @@ impl StreamReader for StreamReaderReal {
 }
 
 impl StreamReaderReal {
-    fn new (stream: Box<TcpStreamWrapper>, origin_port: Option<u16>, ibcd_sub: Box<Subscriber<dispatcher::InboundClientData> + Send>,
-            remove_sub: Box<Subscriber<RemoveStreamMsg> + Send>, discriminator_factories: Vec<Box<DiscriminatorFactory>>) -> StreamReaderReal {
+    fn new (stream: Box<TcpStreamWrapper>, origin_port: Option<u16>, ibcd_sub: Recipient<Syn, dispatcher::InboundClientData>,
+            remove_sub: Recipient<Syn, RemoveStreamMsg>, discriminator_factories: Vec<Box<DiscriminatorFactory>>) -> StreamReaderReal {
         let socket_addr = stream.peer_addr ().expect ("Internal error: no peer address creating StreamReaderReal");
         let name = format! ("Dispatcher for {:?}", socket_addr);
         if discriminator_factories.is_empty () {panic! ("Internal error: no Discriminator factories!")}
@@ -168,7 +159,7 @@ impl StreamReaderReal {
                     };
                     self.logger.debug (format! ("Discriminator framed and unmasked {} bytes for {}; transmitting to {:?} via Hopper",
                                                  unmasked_chunk.chunk.len (), msg.socket_addr, unmasked_chunk.component));
-                    self.ibcd_sub.send(msg).expect("Dispatcher is dead");
+                    self.ibcd_sub.try_send(msg).expect("Dispatcher is dead");
                 }
                 None => {
                     self.logger.debug (format!("Discriminator has no more data framed"));
@@ -182,7 +173,7 @@ impl StreamReaderReal {
 struct StreamWriterReal {
     stream: Box<TcpStreamWrapper>,
     stream_key: StreamKey,
-    remove_sub: Box<Subscriber<RemoveStreamMsg> + Send>,
+    remove_sub: Recipient<Syn, RemoveStreamMsg>,
     logger: Logger
 }
 
@@ -193,7 +184,7 @@ impl StreamWriter for StreamWriterReal {
             Err (e) => {
                 if indicates_dead_stream (e.kind ()) {
                     self.stream.shutdown (Shutdown::Both).ok (); // can't do anything about failure
-                    self.remove_sub.send (RemoveStreamMsg {socket_addr: self.stream_key}).expect ("Internal error: StreamHandlerPool is dead");
+                    self.remove_sub.try_send (RemoveStreamMsg {socket_addr: self.stream_key}).expect ("Internal error: StreamHandlerPool is dead");
                 }
                 self.logger.log (format! ("Cannot transmit {} bytes: {}", data.len (), e.to_string ()));
                 Err(e)
@@ -207,7 +198,7 @@ impl StreamWriter for StreamWriterReal {
 }
 
 impl StreamWriterReal {
-    fn new (stream: Box<TcpStreamWrapper>, remove_sub: Box<Subscriber<RemoveStreamMsg> + Send>) -> StreamWriterReal {
+    fn new (stream: Box<TcpStreamWrapper>, remove_sub: Recipient<Syn, RemoveStreamMsg>) -> StreamWriterReal {
         let socket_addr = stream.peer_addr ().expect ("Internal error: no peer address creating StreamWriterReal");
         let name = format! ("Dispatcher for {:?}", socket_addr);
         let logger = Logger::new (&name[..]);
@@ -242,20 +233,20 @@ impl StreamHandlerPool {
         }
     }
 
-    pub fn make_subs_from(pool_addr: &SyncAddress<StreamHandlerPool>) -> StreamHandlerPoolSubs {
+    pub fn make_subs_from(pool_addr: &Addr<Syn, StreamHandlerPool>) -> StreamHandlerPoolSubs {
         StreamHandlerPoolSubs {
-            add_sub: pool_addr.subscriber::<AddStreamMsg>(),
-            transmit_sub: pool_addr.subscriber::<TransmitDataMsg>(),
-            remove_sub: pool_addr.subscriber::<RemoveStreamMsg>(),
-            bind: pool_addr.subscriber::<PoolBindMessage>(),
+            add_sub: pool_addr.clone ().recipient::<AddStreamMsg>(),
+            transmit_sub: pool_addr.clone ().recipient::<TransmitDataMsg>(),
+            remove_sub: pool_addr.clone ().recipient::<RemoveStreamMsg>(),
+            bind: pool_addr.clone ().recipient::<PoolBindMessage>(),
         }
     }
 
     fn set_up_stream_reader (&mut self, read_stream: Box<TcpStreamWrapper>, origin_port: Option<u16>,
             discriminator_factories: Vec<Box<DiscriminatorFactory>>) {
-        let ibcd_sub: Box<Subscriber<dispatcher::InboundClientData> + Send> =
+        let ibcd_sub: Recipient<Syn, dispatcher::InboundClientData> =
             self.dispatcher_subs.as_ref().expect("StreamHandlerPool is unbound").ibcd_sub.clone ();
-        let remove_sub: Box<Subscriber<RemoveStreamMsg> + Send> =
+        let remove_sub: Recipient<Syn, RemoveStreamMsg> =
             self.self_subs.as_ref().expect("StreamHandlerPool is unbound").remove_sub.clone ();
         thread::spawn(move || {
             let ibcd_sub = ibcd_sub.clone ();
@@ -277,40 +268,42 @@ impl StreamHandlerPool {
 }
 
 impl Handler<AddStreamMsg> for StreamHandlerPool {
-    type Result = io::Result<()>;
+    type Result = ();
 
-    fn handle(&mut self, msg: AddStreamMsg, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: AddStreamMsg, _ctx: &mut Self::Context) {
         let stream_ref = msg.stream.as_ref();
         let read_stream = match stream_ref.try_clone() {
             Ok(stream) => stream,
-            Err(e) => return Err (e)
+            Err(e) => {
+                self.logger.error(format!("Could not clone read stream; giving up: {:?}", e));
+                return
+            }
         };
         let write_stream = match stream_ref.try_clone() {
             Ok(stream) => stream,
-            Err(e) => return Err (e)
+            Err(e) => {
+                self.logger.error (format! ("Could not clone write stream: giving up: {:?}", e));
+                return
+            }
         };
 
         self.set_up_stream_writer(write_stream);
         self.set_up_stream_reader(read_stream, msg.origin_port, msg.discriminator_factories);
-        Ok (())
     }
 }
 
 impl Handler<RemoveStreamMsg> for StreamHandlerPool {
-    type Result = io::Result<()>;
+    type Result = ();
 
-    fn handle(&mut self, msg: RemoveStreamMsg, _ctx: &mut Self::Context) -> Self::Result {
-        match self.stream_writers.remove (&msg.socket_addr) {
-            Some (_) => Ok (()),
-            None => Ok (())
-        }
+    fn handle(&mut self, msg: RemoveStreamMsg, _ctx: &mut Self::Context) {
+        self.stream_writers.remove (&msg.socket_addr).is_some (); // can't do anything if it fails
     }
 }
 
 impl Handler<TransmitDataMsg> for StreamHandlerPool {
-    type Result = io::Result<()>;
+    type Result = ();
 
-    fn handle(&mut self, msg: TransmitDataMsg, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: TransmitDataMsg, _ctx: &mut Self::Context) {
         let node_addr = match msg.endpoint {
             Endpoint::Key (_) => unimplemented!(),
             Endpoint::Ip (_) => unimplemented!(),
@@ -322,27 +315,20 @@ impl Handler<TransmitDataMsg> for StreamHandlerPool {
 
         match self.stream_writers.get_mut (&socket_addr) {
             Some (stream_writer_box) => {
-                match stream_writer_box.transmit (&msg.data[..]) {
-                    Ok (_) => Ok (()),
-                    Err (_) => Ok (())
-                }.and_then (|_| {
-                    if msg.last_data {
-                        stream_writer_box.shutdown (Shutdown::Both)
-                    }
-                    else {
-                        Ok (())
-                    }
-                })
+                stream_writer_box.transmit (&msg.data[..]).is_ok ();
+                if msg.last_data {
+                    stream_writer_box.shutdown (Shutdown::Both).is_ok ();
+                }
             },
             None => {
                 self.logger.log (format! ("Cannot transmit {} bytes to {:?}: nonexistent stream",
                     msg.data.len (), socket_addr));
-                return Ok (())
             }
         }
     }
 }
 
+#[derive (Message)]
 pub struct PoolBindMessage {
     pub dispatcher_subs: DispatcherSubs,
     pub stream_handler_pool_subs: StreamHandlerPoolSubs
@@ -354,45 +340,39 @@ impl Debug for PoolBindMessage {
     }
 }
 
-impl ResponseType for PoolBindMessage {
-    type Item = ();
-    type Error = io::Error;
-}
-
 impl Handler<PoolBindMessage> for StreamHandlerPool {
-    type Result = io::Result<()>;
+    type Result = ();
 
-    fn handle(&mut self, msg: PoolBindMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: PoolBindMessage, _ctx: &mut Self::Context) {
         self.dispatcher_subs = Some(msg.dispatcher_subs);
         self.self_subs = Some(msg.stream_handler_pool_subs);
-        Ok (())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
     use std::io::Error;
     use std::io::ErrorKind;
-    use std::str::FromStr;
-    use std::cell::RefCell;
     use std::ops::Deref;
+    use std::str::FromStr;
     use std::sync::mpsc;
-    use actix::msgs;
     use actix::Arbiter;
+    use actix::msgs;
     use actix::System;
-    use sub_lib::dispatcher::Component;
-    use test_utils::test_utils::make_peer_actors;
-    use test_utils::test_utils::make_peer_actors_from;
-    use test_utils::test_utils::init_test_logging;
-    use test_utils::test_utils::Recorder;
-    use test_utils::test_utils::TestLogHandler;
+    use http_request_start_finder::HttpRequestDiscriminatorFactory;
+    use node_test_utils::make_stream_handler_pool_subs_from;
     use node_test_utils::TcpStreamWrapperMock;
     use node_test_utils::TestLogOwner;
-    use node_test_utils::make_stream_handler_pool_subs_from;
     use node_test_utils::wait_until;
-    use http_request_start_finder::HttpRequestDiscriminatorFactory;
+    use sub_lib::dispatcher::Component;
     use sub_lib::dispatcher::InboundClientData;
+    use test_utils::test_utils::init_test_logging;
+    use test_utils::test_utils::make_peer_actors;
+    use test_utils::test_utils::make_peer_actors_from;
+    use test_utils::test_utils::Recorder;
+    use test_utils::test_utils::TestLogHandler;
 
     #[test]
     fn stream_reader_constructor_assigns_peer_addr () {
@@ -400,11 +380,11 @@ mod tests {
             .peer_addr_result (Ok (SocketAddr::from_str ("12.34.56.78:9101").unwrap ()));
         let _system = System::new ("test");
         let ibcd = Recorder::new ();
-        let ibcd_addr: SyncAddress<Recorder> = ibcd.start ();
-        let ibcd_sub: Box<Subscriber<InboundClientData> + Send> = ibcd_addr.subscriber ();
+        let ibcd_addr: Addr<Syn, Recorder> = ibcd.start ();
+        let ibcd_sub: Recipient<Syn, InboundClientData> = ibcd_addr.recipient ();
         let remove = Recorder::new ();
-        let remove_addr: SyncAddress<Recorder> = remove.start ();
-        let remove_sub: Box<Subscriber<RemoveStreamMsg> + Send> = remove_addr.subscriber ();
+        let remove_addr: Addr<Syn, Recorder> = remove.start ();
+        let remove_sub: Recipient<Syn, RemoveStreamMsg> = remove_addr.recipient ();
         let discriminator_factory = HttpRequestDiscriminatorFactory {};
 
         let subject = StreamReaderReal::new (Box::new (stream),
@@ -419,8 +399,8 @@ mod tests {
             .peer_addr_result (Ok (SocketAddr::from_str ("12.34.56.78:9101").unwrap ()));
         let _system = System::new ("test");
         let remove = Recorder::new ();
-        let remove_addr: SyncAddress<Recorder> = remove.start ();
-        let remove_sub: Box<Subscriber<RemoveStreamMsg> + Send> = remove_addr.subscriber ();
+        let remove_addr: Addr<Syn, Recorder> = remove.start ();
+        let remove_sub: Recipient<Syn, RemoveStreamMsg> = remove_addr.recipient ();
 
         let subject = StreamWriterReal::new (Box::new (stream), remove_sub);
 
@@ -462,16 +442,16 @@ mod tests {
             let mut stream = TcpStreamWrapperMock::new();
             stream.try_clone_results = RefCell::new(vec!(Ok(Box::new(read_stream)), Ok(Box::new(write_stream))));
             let subject = StreamHandlerPool::new();
-            let subject_addr: SyncAddress<_> = subject.start();
+            let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
             let peer_actors = make_peer_actors_from(None, Some(dispatcher), None, None, None);
 
-            subject_subs.bind.send(PoolBindMessage { dispatcher_subs: peer_actors.dispatcher, stream_handler_pool_subs: subject_subs.clone ()}).unwrap ();
-            subject_subs.add_sub.send(AddStreamMsg {
+            subject_subs.bind.try_send(PoolBindMessage { dispatcher_subs: peer_actors.dispatcher, stream_handler_pool_subs: subject_subs.clone ()}).unwrap ();
+            subject_subs.add_sub.try_send(AddStreamMsg {
                 stream: Box::new(stream),
                 origin_port,
                 discriminator_factories: vec! (Box::new (HttpRequestDiscriminatorFactory::new ()))
-            }).ok ();
+            }).unwrap ();
 
             system.run ();
         });
@@ -536,17 +516,17 @@ mod tests {
         thread::spawn (move || {
             let system = System::new("test");
             let subject = StreamHandlerPool::new();
-            let subject_addr: SyncAddress<_> = subject.start();
+            let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
             let peer_actors = make_peer_actors_from(None, Some(dispatcher), None, None, None);
 
-            subject_subs.bind.send(PoolBindMessage { dispatcher_subs: peer_actors.dispatcher, stream_handler_pool_subs: subject_subs.clone ()}).unwrap ();
+            subject_subs.bind.try_send(PoolBindMessage { dispatcher_subs: peer_actors.dispatcher, stream_handler_pool_subs: subject_subs.clone ()}).unwrap ();
 
-            subject_subs.add_sub.send(AddStreamMsg {
+            subject_subs.add_sub.try_send(AddStreamMsg {
                 stream: Box::new(stream),
                 origin_port,
                 discriminator_factories: vec! (Box::new (HttpRequestDiscriminatorFactory::new ()))
-            }).ok ();
+            }).unwrap ();
 
             system.run ();
         });
@@ -582,30 +562,30 @@ mod tests {
         thread::spawn (move || {
             let system = System::new("test");
             let subject = StreamHandlerPool::new();
-            let subject_addr: SyncAddress<_> = subject.start();
+            let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
             let peer_actors = make_peer_actors();
-            subject_subs.bind.send(PoolBindMessage { dispatcher_subs: peer_actors.dispatcher, stream_handler_pool_subs: subject_subs.clone ()}).unwrap ();
+            subject_subs.bind.try_send(PoolBindMessage { dispatcher_subs: peer_actors.dispatcher, stream_handler_pool_subs: subject_subs.clone ()}).unwrap ();
 
             sub_tx.send (subject_subs).unwrap ();
             system.run();
         });
 
         let subject_subs = sub_rx.recv ().unwrap ();
-        subject_subs.add_sub.send(AddStreamMsg {
+        subject_subs.add_sub.try_send(AddStreamMsg {
             stream: Box::new(stream),
             origin_port: None,
             discriminator_factories: vec! (Box::new (HttpRequestDiscriminatorFactory::new ()))
-        }).ok ();
+        }).unwrap ();
         wait_until (|| {
             read_stream_log.lock ().unwrap ().dump ().len () == 3
         });
 
-        subject_subs.transmit_sub.send(TransmitDataMsg {
+        subject_subs.transmit_sub.try_send(TransmitDataMsg {
             endpoint: Endpoint::Socket(socket_addr),
             last_data: false,
             data: vec!(0x12, 0x34)
-        }).ok ();
+        }).unwrap ();
         TestLogHandler::new ().exists_no_log_matching("WARN.*1\\.2\\.3\\.4:5676.*Continuing after read error");
 
         assert_eq! (read_stream_log.lock ().unwrap ().dump (), vec! (
@@ -629,24 +609,24 @@ mod tests {
         let mut stream = TcpStreamWrapperMock::new();
         stream.try_clone_results = RefCell::new(vec!(Ok(Box::new(read_stream)), Ok(Box::new(write_stream))));
         let subject = StreamHandlerPool::new();
-        let subject_addr: SyncAddress<_> = subject.start();
+        let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
         let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
         let peer_actors = make_peer_actors();
-        subject_subs.bind.send(PoolBindMessage { dispatcher_subs: peer_actors.dispatcher, stream_handler_pool_subs: subject_subs.clone ()}).unwrap ();
+        subject_subs.bind.try_send(PoolBindMessage { dispatcher_subs: peer_actors.dispatcher, stream_handler_pool_subs: subject_subs.clone ()}).unwrap ();
 
-        subject_subs.add_sub.send(AddStreamMsg {
+        subject_subs.add_sub.try_send(AddStreamMsg {
             stream: Box::new(stream),
             origin_port: None,
             discriminator_factories: vec! ()
-        }).ok ();
+        }).unwrap ();
 
-        subject_subs.transmit_sub.send(TransmitDataMsg {
+        subject_subs.transmit_sub.try_send(TransmitDataMsg {
             endpoint: Endpoint::Socket(socket_addr),
             last_data: false,
             data: vec!(0x12, 0x34)
-        }).ok ();
+        }).unwrap ();
 
-        Arbiter::system().send(msgs::SystemExit(0));
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run ();
         let write_stream_params = write_stream_params_arc.lock ().unwrap ();
         TestLogHandler::new ().exists_no_log_matching("ERROR:.*1\\.2\\.3\\.4:5673");
@@ -669,24 +649,24 @@ mod tests {
         let mut stream = TcpStreamWrapperMock::new();
         stream.try_clone_results = RefCell::new(vec!(Ok(Box::new(read_stream)), Ok(Box::new(write_stream))));
         let subject = StreamHandlerPool::new();
-        let subject_addr: SyncAddress<_> = subject.start();
+        let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
         let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
         let peer_actors = make_peer_actors();
-        subject_subs.bind.send(PoolBindMessage { dispatcher_subs: peer_actors.dispatcher, stream_handler_pool_subs: subject_subs.clone ()}).unwrap ();
+        subject_subs.bind.try_send(PoolBindMessage { dispatcher_subs: peer_actors.dispatcher, stream_handler_pool_subs: subject_subs.clone ()}).unwrap ();
 
-        subject_subs.add_sub.send(AddStreamMsg {
+        subject_subs.add_sub.try_send(AddStreamMsg {
             stream: Box::new(stream),
             origin_port: None,
             discriminator_factories: vec! ()
-        }).ok ();
+        }).unwrap ();
 
-        subject_subs.transmit_sub.send(TransmitDataMsg {
+        subject_subs.transmit_sub.try_send(TransmitDataMsg {
             endpoint: Endpoint::Socket(socket_addr),
             last_data: true,
             data: vec!(0x12, 0x34)
-        }).ok ();
+        }).unwrap ();
 
-        Arbiter::system().send(msgs::SystemExit(0));
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run ();
         let write_stream_params = write_stream_params_arc.lock ().unwrap ();
         TestLogHandler::new ().exists_no_log_matching("ERROR:.*1\\.2\\.3\\.4:5673");
@@ -716,35 +696,35 @@ mod tests {
         thread::spawn (move || {
             let system = System::new("test");
             let subject = StreamHandlerPool::new();
-            let subject_addr: SyncAddress<_> = subject.start();
+            let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
             let peer_actors = make_peer_actors();
 
-            subject_subs.bind.send(PoolBindMessage { dispatcher_subs: peer_actors.dispatcher, stream_handler_pool_subs: subject_subs.clone ()}).unwrap ();
+            subject_subs.bind.try_send(PoolBindMessage { dispatcher_subs: peer_actors.dispatcher, stream_handler_pool_subs: subject_subs.clone ()}).unwrap ();
             sub_tx.send (subject_subs).ok ();
             system.run();
         });
 
         let tlh = TestLogHandler::new ();
         let subject_subs = sub_rx.recv ().unwrap ();
-        subject_subs.add_sub.send(AddStreamMsg {
+        subject_subs.add_sub.try_send(AddStreamMsg {
             stream: Box::new(stream),
             origin_port: None,
             discriminator_factories: vec! ()
-        }).ok ();
+        }).unwrap ();
 
-        subject_subs.transmit_sub.send(TransmitDataMsg {
+        subject_subs.transmit_sub.try_send(TransmitDataMsg {
             endpoint: Endpoint::Socket(socket_addr),
             last_data: false,
             data: vec!(0x12, 0x34)
-        }).ok ();
+        }).unwrap ();
         tlh.await_log_containing ("ERROR: Dispatcher for V4(1.2.3.4:5679): Cannot transmit 2 bytes: broken pipe", 5000);
 
-        subject_subs.transmit_sub.send(TransmitDataMsg {
+        subject_subs.transmit_sub.try_send(TransmitDataMsg {
             endpoint: Endpoint::Socket(socket_addr),
             last_data: false,
             data: vec!(0x12, 0x34)
-        }).ok ();
+        }).unwrap ();
         tlh.await_log_containing ("ERROR: Dispatcher: Cannot transmit 2 bytes to V4(1.2.3.4:5679): nonexistent stream", 5000);
 
         assert_eq! (write_stream_log.lock ().unwrap ().dump (), vec! (
@@ -759,19 +739,19 @@ mod tests {
             let system = System::new("test");
             let socket_addr = SocketAddr::from_str("1.2.3.4:5677").unwrap();
             let subject = StreamHandlerPool::new();
-            let subject_addr: SyncAddress<_> = subject.start();
+            let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
             let peer_actors = make_peer_actors();
-            subject_subs.bind.send(PoolBindMessage {
+            subject_subs.bind.try_send(PoolBindMessage {
                 dispatcher_subs: peer_actors.dispatcher,
                 stream_handler_pool_subs: subject_subs.clone ()
             }).unwrap ();
 
-            subject_subs.transmit_sub.send(TransmitDataMsg {
+            subject_subs.transmit_sub.try_send(TransmitDataMsg {
                 endpoint: Endpoint::Socket(socket_addr),
                 last_data: false,
                 data: vec!(0x12, 0x34)
-            }).ok ();
+            }).unwrap ();
 
             system.run();
         });

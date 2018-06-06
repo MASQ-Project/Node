@@ -1,25 +1,26 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use sub_lib::cryptde::StreamKey;
-use actix::Subscriber;
-use sub_lib::tcp_wrappers::TcpStreamWrapper;
+use std::net::Shutdown;
 use std::sync::mpsc::Sender;
-use sub_lib::route::Route;
-use sub_lib::framer::Framer;
-use sub_lib::cryptde::Key;
-use sub_lib::logger::Logger;
-use sub_lib::utils::to_string;
 use std::thread;
 use std::time::Duration;
+use actix::Recipient;
+use actix::Syn;
+use sub_lib::cryptde::Key;
+use sub_lib::cryptde::PlainData;
+use sub_lib::cryptde::StreamKey;
+use sub_lib::framer::Framer;
+use sub_lib::hopper::IncipientCoresPackage;
+use sub_lib::logger::Logger;
+use sub_lib::proxy_client::ClientResponsePayload;
+use sub_lib::route::Route;
+use sub_lib::tcp_wrappers::TcpStreamWrapper;
 use sub_lib::utils::indicates_dead_stream;
 use sub_lib::utils::indicates_timeout;
-use sub_lib::cryptde::PlainData;
-use std::net::Shutdown;
-use sub_lib::proxy_client::ClientResponsePayload;
-use sub_lib::hopper::IncipientCoresPackage;
+use sub_lib::utils::to_string;
 
 pub struct StreamReader {
     stream_key: StreamKey,
-    hopper_sub: Box<Subscriber<IncipientCoresPackage> + Send>,
+    hopper_sub: Recipient<Syn, IncipientCoresPackage>,
     stream: Box<TcpStreamWrapper>,
     stream_killer: Sender<StreamKey>,
     peer_addr: String,
@@ -31,7 +32,7 @@ pub struct StreamReader {
 
 impl StreamReader {
 
-    pub fn new (stream_key: StreamKey, hopper_sub: Box<Subscriber<IncipientCoresPackage> + Send>,
+    pub fn new (stream_key: StreamKey, hopper_sub: Recipient<Syn, IncipientCoresPackage>,
         stream: Box<TcpStreamWrapper>, stream_killer: Sender<StreamKey>, peer_addr: String,
         remaining_route: Route, framer: Box<Framer>, originator_public_key: Key) -> StreamReader {
         StreamReader {
@@ -124,7 +125,7 @@ impl StreamReader {
         let incipient_cores_package =
             IncipientCoresPackage::new (self.remaining_route.clone (),
                                         response_payload, &self.originator_public_key);
-        self.hopper_sub.send(incipient_cores_package).expect ("Hopper is dead");
+        self.hopper_sub.try_send(incipient_cores_package).expect ("Hopper is dead");
     }
 }
 

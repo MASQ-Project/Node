@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use std::marker::Send;
-use actix::Subscriber;
+use actix::Recipient;
+use actix::Syn;
 use cryptde::PlainData;
 use cryptde::StreamKey;
 use hopper::ExpiredCoresPackage;
@@ -15,6 +15,6 @@ pub struct ClientResponsePayload {
 
 #[derive(Clone)]
 pub struct ProxyClientSubs {
-    pub bind: Box<Subscriber<BindMessage> + Send>,
-    pub from_hopper: Box<Subscriber<ExpiredCoresPackage> + Send>,
+    pub bind: Recipient<Syn, BindMessage>,
+    pub from_hopper: Recipient<Syn, ExpiredCoresPackage>,
 }

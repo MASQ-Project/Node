@@ -4,8 +4,10 @@ use std::io::Error;
 use std::net::IpAddr;
 use std::sync::mpsc::Sender;
 use std::thread;
-use sub_lib::tcp_wrappers::TcpStreamWrapperFactory;
-use actix::Subscriber;
+use actix::Recipient;
+use actix::Syn;
+use trust_dns_resolver::error::ResolveError;
+use trust_dns_resolver::lookup_ip::LookupIp;
 use stream_handler_pool::StreamHandlerPoolReal;
 use stream_reader::StreamReader;
 use stream_writer::StreamWriter;
@@ -15,12 +17,11 @@ use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::logger::Logger;
 use sub_lib::proxy_server::ClientRequestPayload;
 use sub_lib::tcp_wrappers::TcpStreamWrapper;
-use trust_dns_resolver::lookup_ip::LookupIp;
-use trust_dns_resolver::error::ResolveError;
+use sub_lib::tcp_wrappers::TcpStreamWrapperFactory;
 
 pub struct StreamHandlerEstablisher {
     pub tcp_stream_wrapper_factory: Box<TcpStreamWrapperFactory>,
-    pub hopper_sub: Box<Subscriber<IncipientCoresPackage> + Send>,
+    pub hopper_sub: Recipient<Syn, IncipientCoresPackage>,
     pub stream_adder_tx: Sender<(StreamKey, StreamWriter)>,
     pub stream_killer_tx: Sender<StreamKey>,
     pub logger: Logger

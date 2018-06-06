@@ -1,28 +1,29 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use std::net::SocketAddr;
 use actix::Actor;
+use actix::Addr;
 use actix::Arbiter;
 use actix::Context;
 use actix::Handler;
-use actix::Subscriber;
-use actix::SyncAddress;
-use trust_dns_resolver::config::ResolverConfig;
-use trust_dns_resolver::config::ResolverOpts;
-use trust_dns_resolver::config::NameServerConfig;
-use trust_dns_resolver::config::Protocol;
+use actix::Recipient;
+use actix::Syn;
+use resolver_wrapper::ResolverWrapperFactory;
+use resolver_wrapper::ResolverWrapperFactoryReal;
+use stream_handler_pool::StreamHandlerPool;
+use stream_handler_pool::StreamHandlerPoolFactory;
+use stream_handler_pool::StreamHandlerPoolFactoryReal;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::hopper::IncipientCoresPackage;
+use sub_lib::logger::Logger;
 use sub_lib::peer_actors::BindMessage;
 use sub_lib::proxy_client::ProxyClientSubs;
 use sub_lib::tcp_wrappers::TcpStreamWrapperFactory;
 use sub_lib::tcp_wrappers::TcpStreamWrapperFactoryReal;
-use stream_handler_pool::StreamHandlerPool;
-use stream_handler_pool::StreamHandlerPoolFactory;
-use resolver_wrapper::ResolverWrapperFactory;
-use resolver_wrapper::ResolverWrapperFactoryReal;
-use stream_handler_pool::StreamHandlerPoolFactoryReal;
-use sub_lib::logger::Logger;
+use trust_dns_resolver::config::NameServerConfig;
+use trust_dns_resolver::config::Protocol;
+use trust_dns_resolver::config::ResolverConfig;
+use trust_dns_resolver::config::ResolverOpts;
 
 pub struct ProxyClient {
     dns_servers: Vec<SocketAddr>,
@@ -30,7 +31,7 @@ pub struct ProxyClient {
     resolver_wrapper_factory: Box<ResolverWrapperFactory>,
     stream_handler_pool_factory: Box<StreamHandlerPoolFactory>,
     cryptde: Option<Box<CryptDE>>,
-    to_hopper: Option<Box<Subscriber<IncipientCoresPackage> + Send>>,
+    to_hopper: Option<Recipient<Syn, IncipientCoresPackage>>,
     pool: Option<Box<StreamHandlerPool>>,
     logger: Logger,
 }
@@ -90,10 +91,10 @@ impl ProxyClient {
         }
     }
 
-    pub fn make_subs_from(addr: &SyncAddress<ProxyClient>) -> ProxyClientSubs {
+    pub fn make_subs_from(addr: &Addr<Syn, ProxyClient>) -> ProxyClientSubs {
         ProxyClientSubs {
-            bind: addr.subscriber::<BindMessage>(),
-            from_hopper: addr.subscriber::<ExpiredCoresPackage>(),
+            bind: addr.clone ().recipient::<BindMessage>(),
+            from_hopper: addr.clone ().recipient::<ExpiredCoresPackage>(),
         }
     }
 }
@@ -101,16 +102,27 @@ impl ProxyClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::SocketAddr;
+    use std::cell::RefCell;
+    use std::net::IpAddr;
     use std::net::Shutdown;
+    use std::net::SocketAddr;
     use std::str::FromStr;
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::time::Duration;
-    use actix::System;
     use actix::Arbiter;
     use actix::msgs;
+    use actix::Recipient;
+    use actix::System;
     use serde_cbor;
+    use tokio_core::reactor::CoreId;
+    use local_test_utils::ResolverWrapperFactoryMock;
+    use local_test_utils::ResolverWrapperMock;
+    use local_test_utils::TcpStreamWrapperFactoryMock;
+    use local_test_utils::TcpStreamWrapperMock;
+    use resolver_wrapper::ResolverWrapper;
+    use stream_handler_pool::StreamHandlerPool;
+    use stream_handler_pool::StreamHandlerPoolFactory;
     use sub_lib::cryptde::Key;
     use sub_lib::cryptde::PlainData;
     use sub_lib::cryptde_null::CryptDENull;
@@ -120,16 +132,6 @@ mod tests {
     use test_utils::test_utils::make_peer_actors;
     use test_utils::test_utils::make_peer_actors_from;
     use test_utils::test_utils::Recorder;
-    use stream_handler_pool::StreamHandlerPool;
-    use local_test_utils::TcpStreamWrapperMock;
-    use local_test_utils::TcpStreamWrapperFactoryMock;
-    use local_test_utils::ResolverWrapperFactoryMock;
-    use local_test_utils::ResolverWrapperMock;
-    use std::net::IpAddr;
-    use stream_handler_pool::StreamHandlerPoolFactory;
-    use resolver_wrapper::ResolverWrapper;
-    use std::cell::RefCell;
-    use tokio_core::reactor::CoreId;
 
     fn dnss () -> Vec<SocketAddr> {
         vec! (SocketAddr::from_str ("8.8.8.8:53").unwrap ())
@@ -159,13 +161,13 @@ mod tests {
     }
 
     pub struct StreamHandlerPoolFactoryMock {
-        make_parameters: Arc<Mutex<Vec<(Box<ResolverWrapper>, Box<CryptDE>, Box<Subscriber<IncipientCoresPackage> + Send>)>>>,
+        make_parameters: Arc<Mutex<Vec<(Box<ResolverWrapper>, Box<CryptDE>, Recipient<Syn, IncipientCoresPackage>)>>>,
         make_results: RefCell<Vec<Box<StreamHandlerPool>>>
     }
 
     impl StreamHandlerPoolFactory for StreamHandlerPoolFactoryMock {
         fn make(&self, resolver: Box<ResolverWrapper>, cryptde: Box<CryptDE>,
-                hopper_sub: Box<Subscriber<IncipientCoresPackage> + Send>) -> Box<StreamHandlerPool> {
+                hopper_sub: Recipient<Syn, IncipientCoresPackage>) -> Box<StreamHandlerPool> {
             self.make_parameters.lock ().unwrap ().push ((resolver, cryptde, hopper_sub));
             self.make_results.borrow_mut ().remove (0)
         }
@@ -180,7 +182,7 @@ mod tests {
         }
 
         pub fn make_parameters (self, parameters: &mut Arc<Mutex<Vec<(Box<ResolverWrapper>, Box<CryptDE>,
-                Box<Subscriber<IncipientCoresPackage> + Send>)>>>) -> StreamHandlerPoolFactoryMock {
+                Recipient<Syn, IncipientCoresPackage>)>>>) -> StreamHandlerPoolFactoryMock {
             *parameters = self.make_parameters.clone ();
             self
         }
@@ -217,11 +219,11 @@ mod tests {
         ));
         subject.resolver_wrapper_factory = Box::new (resolver_wrapper_factory);
         subject.stream_handler_pool_factory = Box::new (pool_factory);
-        let subject_addr: SyncAddress<_> = subject.start();
+        let subject_addr: Addr<Syn, ProxyClient> = subject.start();
 
-        subject_addr.send(BindMessage { peer_actors });
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap ();
 
-        Arbiter::system().send(msgs::SystemExit(0));
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run();
 
         let mut new_parameters_guard = new_parameters.lock ().unwrap ();
@@ -276,11 +278,11 @@ mod tests {
         let system = System::new("panics_if_hopper_is_unbound");
         let mut subject = ProxyClient::new(Box::new (cryptde), dnss ());
         subject.tcp_stream_wrapper_factory = Box::new(tcp_stream_wrapper_factory);
-        let subject_addr:SyncAddress<_> = subject.start();
+        let subject_addr: Addr<Syn, ProxyClient> = subject.start();
 
-        subject_addr.send(package);
+        subject_addr.try_send(package).unwrap ();
 
-        Arbiter::system().send(msgs::SystemExit(0));
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run();
     }
 
@@ -316,12 +318,12 @@ mod tests {
         let mut subject = ProxyClient::new(Box::new(cryptde.clone()), dnss());
         subject.resolver_wrapper_factory = Box::new (resolver_factory);
         subject.stream_handler_pool_factory = Box::new (pool_factory);
-        let subject_addr: SyncAddress<_> = subject.start();
-        subject_addr.send(BindMessage{peer_actors});
+        let subject_addr: Addr<Syn, ProxyClient> = subject.start();
+        subject_addr.try_send(BindMessage{peer_actors}).unwrap ();
 
-        subject_addr.send(package);
+        subject_addr.try_send(package).unwrap ();
 
-        Arbiter::system().send(msgs::SystemExit(0));
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run();
         let parameter = process_package_parameters.lock ().unwrap ().remove (0);
         assert_eq! (parameter, ExpiredCoresPackage {

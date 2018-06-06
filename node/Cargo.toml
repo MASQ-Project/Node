@@ -10,15 +10,15 @@ description = ""
 members = ["../sub_lib", "../test_utils", "../entry_dns_lib", "../hopper_lib", "../neighborhood_lib", "../proxy_client_lib", "../proxy_server_lib", "../multinode_integration_tests"]
 
 [dependencies]
-chrono = "0.4.0"
+actix = "0.5.7"
 base64 = "0.9.2"
+chrono = "0.4.0"
+flexi_logger = "0.6.11"
+log = "0.4.1"
+regex = "0.2.5"
 serde = "1.0.24"
 serde_derive = "1.0.24"
 serde_json = "1.0.8"
-regex = "0.2.5"
-actix = "0.4.4"
-log = "0.4.1"
-flexi_logger = "0.6.11"
 serde_cbor = "0.8.1"
 sub_lib = { path = "../sub_lib" }
 entry_dns_lib = { path = "../entry_dns_lib" }

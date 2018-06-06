@@ -1,49 +1,50 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use std::any::Any;
 use std::cell::RefCell;
+use std::cmp::min;
 use std::io;
 use std::io::Error;
 use std::io::Read;
 use std::io::Write;
-use std::cmp::min;
 use std::str::from_utf8;
+use std::sync::Arc;
 use std::sync::mpsc;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::Sender;
-use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 use actix::Actor;
+use actix::Addr;
 use actix::Context;
 use actix::Handler;
-use actix::SyncAddress;
-use log::set_logger;
-use log::Log;
-use log::Record;
-use log::Metadata;
+use actix::Syn;
 use regex::Regex;
-use sub_lib::cryptde::Key;
+use log::Log;
+use log::Metadata;
+use log::Record;
+use log::set_logger;
 use sub_lib::cryptde::CryptDE;
+use sub_lib::cryptde::Key;
 use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::dispatcher::Component;
 use sub_lib::dispatcher::DispatcherSubs;
 use sub_lib::dispatcher::InboundClientData;
 use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::hopper::HopperSubs;
-use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::hopper::HopperTemporaryTransmitDataMsg;
+use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::main_tools::StdStreams;
-use sub_lib::peer_actors::PeerActors;
+use sub_lib::neighborhood::NeighborhoodSubs;
 use sub_lib::peer_actors::BindMessage;
+use sub_lib::peer_actors::PeerActors;
 use sub_lib::proxy_client::ProxyClientSubs;
 use sub_lib::proxy_server::ProxyServerSubs;
 use sub_lib::route::Route;
 use sub_lib::route::RouteSegment;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
-use sub_lib::neighborhood::NeighborhoodSubs;
 
 pub struct ByteArrayWriter {
     pub byte_array: Vec<u8>,
@@ -401,41 +402,41 @@ impl PayloadMock {
     }
 }
 
-pub fn make_proxy_server_subs_from(addr: &SyncAddress<Recorder>) -> ProxyServerSubs {
+pub fn make_proxy_server_subs_from(addr: &Addr<Syn, Recorder>) -> ProxyServerSubs {
     ProxyServerSubs {
-        bind: addr.subscriber::<BindMessage>(),
-        from_dispatcher: addr.subscriber::<InboundClientData>(),
-        from_hopper: addr.subscriber::<ExpiredCoresPackage>(),
+        bind: addr.clone ().recipient::<BindMessage>(),
+        from_dispatcher: addr.clone ().recipient::<InboundClientData>(),
+        from_hopper: addr.clone ().recipient::<ExpiredCoresPackage>(),
     }
 }
 
-pub fn make_dispatcher_subs_from(addr: &SyncAddress<Recorder>) -> DispatcherSubs {
+pub fn make_dispatcher_subs_from(addr: &Addr<Syn, Recorder>) -> DispatcherSubs {
     DispatcherSubs {
-        ibcd_sub: addr.subscriber::<InboundClientData>(),
-        bind: addr.subscriber::<BindMessage>(),
-        from_proxy_server: addr.subscriber::<TransmitDataMsg>(),
-        from_hopper: addr.subscriber::<HopperTemporaryTransmitDataMsg>(),
+        ibcd_sub: addr.clone ().recipient::<InboundClientData>(),
+        bind: addr.clone ().recipient::<BindMessage>(),
+        from_proxy_server: addr.clone ().recipient::<TransmitDataMsg>(),
+        from_hopper: addr.clone ().recipient::<HopperTemporaryTransmitDataMsg>(),
     }
 }
 
-pub fn make_hopper_subs_from(addr: &SyncAddress<Recorder>) -> HopperSubs {
+pub fn make_hopper_subs_from(addr: &Addr<Syn, Recorder>) -> HopperSubs {
     HopperSubs {
-        bind: addr.subscriber::<BindMessage>(),
-        from_hopper_client: addr.subscriber::<IncipientCoresPackage>(),
-        from_dispatcher: addr.subscriber::<InboundClientData>(),
+        bind: addr.clone ().recipient::<BindMessage>(),
+        from_hopper_client: addr.clone ().recipient::<IncipientCoresPackage>(),
+        from_dispatcher: addr.clone ().recipient::<InboundClientData>(),
     }
 }
 
-pub fn make_proxy_client_subs_from(addr: &SyncAddress<Recorder>) -> ProxyClientSubs {
+pub fn make_proxy_client_subs_from(addr: &Addr<Syn, Recorder>) -> ProxyClientSubs {
     ProxyClientSubs {
-        bind: addr.subscriber::<BindMessage>(),
-        from_hopper: addr.subscriber::<ExpiredCoresPackage>(),
+        bind: addr.clone ().recipient::<BindMessage>(),
+        from_hopper: addr.clone ().recipient::<ExpiredCoresPackage>(),
     }
 }
 
-pub fn make_neighborhood_subs_from(addr: &SyncAddress<Recorder>) -> NeighborhoodSubs {
+pub fn make_neighborhood_subs_from(addr: &Addr<Syn, Recorder>) -> NeighborhoodSubs {
     NeighborhoodSubs {
-        bind: addr.subscriber::<BindMessage>(),
+        bind: addr.clone ().recipient::<BindMessage>(),
     }
 }
 
@@ -515,55 +516,50 @@ impl Actor for Recorder {
 }
 
 impl Handler<TransmitDataMsg> for Recorder {
-    type Result = io::Result<()>;
+    type Result = ();
 
-    fn handle(&mut self, msg: TransmitDataMsg, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: TransmitDataMsg, _ctx: &mut Self::Context) {
         self.record (msg);
-        Ok (())
     }
 }
 
 impl Handler<BindMessage> for Recorder {
     type Result = ();
 
-    fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) {
         self.record (msg);
-        ()
     }
 }
 
 impl Handler<IncipientCoresPackage> for Recorder {
     type Result = ();
 
-    fn handle(&mut self, msg: IncipientCoresPackage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: IncipientCoresPackage, _ctx: &mut Self::Context) {
         self.record (msg);
-        ()
     }
 }
 
 impl Handler<ExpiredCoresPackage> for Recorder {
     type Result = ();
 
-    fn handle(&mut self, msg: ExpiredCoresPackage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: ExpiredCoresPackage, _ctx: &mut Self::Context) {
         self.record(msg);
-        ()
     }
 }
 
 impl Handler<InboundClientData> for Recorder {
     type Result = ();
 
-    fn handle(&mut self, msg: InboundClientData, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: InboundClientData, _ctx: &mut Self::Context) {
         self.record (msg)
     }
 }
 
 impl Handler<HopperTemporaryTransmitDataMsg> for Recorder {
-    type Result = io::Result<()>;
+    type Result = ();
 
-    fn handle(&mut self, msg: HopperTemporaryTransmitDataMsg, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: HopperTemporaryTransmitDataMsg, _ctx: &mut Self::Context) {
         self.record(msg);
-        Ok (())
     }
 }
 
@@ -660,20 +656,18 @@ fn shift_one_hop(mut route: Route, cryptde: &CryptDE) -> Route {
 #[cfg (test)]
 mod tests {
     use super::*;
+    use std::borrow::BorrowMut;
     use std::iter;
+    use std::ops::Deref;
     use std::sync::Arc;
     use std::sync::Mutex;
-    use std::time::Duration;
     use std::thread;
-    use std::ops::Deref;
-    use std::borrow::BorrowMut;
-    use actix::System;
-    use actix::Address;
+    use std::time::Duration;
     use actix::Arbiter;
     use actix::msgs;
-    use actix::ResponseType;
-    use sub_lib::cryptde_null::CryptDENull;
+    use actix::System;
     use sub_lib::cryptde::CryptData;
+    use sub_lib::cryptde_null::CryptDENull;
     use sub_lib::hop::Hop;
 
     #[test]
@@ -774,14 +768,9 @@ mod tests {
         // no panic; test passes
     }
 
-    #[derive (Debug, PartialEq)]
+    #[derive (Debug, PartialEq, Message)]
     struct FirstMessageType {
         string: String
-    }
-
-    impl ResponseType for FirstMessageType {
-        type Item = ();
-        type Error = ();
     }
 
     impl Handler<FirstMessageType> for Recorder {
@@ -792,15 +781,10 @@ mod tests {
         }
     }
 
-    #[derive (Debug, PartialEq)]
+    #[derive (Debug, PartialEq, Message)]
     struct SecondMessageType {
         size: usize,
         flag: bool
-    }
-
-    impl ResponseType for SecondMessageType {
-        type Item = ();
-        type Error = ();
     }
 
     impl Handler<SecondMessageType> for Recorder {
@@ -817,11 +801,11 @@ mod tests {
         let recorder = Recorder::new ();
         let recording_arc = recorder.get_recording ();
 
-        let rec_addr: Address<_> = recorder.start ();
+        let rec_addr: Addr<Syn, Recorder> = recorder.start ();
 
-        rec_addr.send (FirstMessageType {string: String::from ("String")});
-        rec_addr.send (SecondMessageType {size: 42, flag: false});
-        Arbiter::system ().send (msgs::SystemExit(0));
+        rec_addr.try_send (FirstMessageType {string: String::from ("String")}).unwrap ();
+        rec_addr.try_send (SecondMessageType {size: 42, flag: false}).unwrap ();
+        Arbiter::system ().try_send (msgs::SystemExit(0)).unwrap ();
 
         system.run ();
 

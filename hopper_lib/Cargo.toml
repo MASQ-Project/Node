@@ -8,11 +8,11 @@ description = ""
 workspace = "../node"
 
 [dependencies]
+actix = "0.5.7"
 serde = "1.0.24"
 serde_derive = "1.0.24"
 serde_cbor = "0.8.1"
 sub_lib = { path = "../sub_lib" }
-actix = "0.4.4"
 
 [dev-dependencies]
 test_utils = { path = "../test_utils" }

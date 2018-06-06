@@ -1,8 +1,10 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use std::net::IpAddr;
 use actix::Actor;
+use actix::Addr;
 use actix::Context;
-use actix::SyncAddress;
+use actix::Handler;
+use actix::Syn;
 use sub_lib::dispatcher::Component;
 use sub_lib::node_addr::NodeAddr;
 use sub_lib::route::Route;
@@ -10,7 +12,6 @@ use sub_lib::cryptde::Key;
 use sub_lib::neighborhood::NeighborhoodSubs;
 use sub_lib::peer_actors::BindMessage;
 use sub_lib::cryptde::CryptDE;
-use actix::Handler;
 
 pub struct Neighborhood {
 }
@@ -32,9 +33,9 @@ impl Neighborhood {
         Neighborhood {}
     }
 
-    pub fn make_subs_from(addr: &SyncAddress<Neighborhood>) -> NeighborhoodSubs {
+    pub fn make_subs_from(addr: &Addr<Syn, Neighborhood>) -> NeighborhoodSubs {
         NeighborhoodSubs {
-            bind: addr.subscriber::<BindMessage>(),
+            bind: addr.clone ().recipient::<BindMessage>(),
         }
     }
 

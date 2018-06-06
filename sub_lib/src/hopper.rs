@@ -1,8 +1,8 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use actix::ResponseType;
-use actix::Subscriber;
-use serde::ser::Serialize;
+use actix::Recipient;
+use actix::Syn;
 use serde::de::Deserialize;
+use serde::ser::Serialize;
 use serde_cbor;
 use cryptde::Key;
 use cryptde::PlainData;
@@ -10,32 +10,21 @@ use dispatcher::Endpoint;
 use dispatcher::InboundClientData;
 use peer_actors::BindMessage;
 use route::Route;
-use std::io;
 
 // TODO when we are decentralized, remove this and replace usages with TransmitDataMsg
-#[derive (PartialEq, Debug)]
+#[derive (PartialEq, Debug, Message)]
 pub struct HopperTemporaryTransmitDataMsg {
     pub endpoint: Endpoint,
     pub last_data: bool,
     pub data: Vec<u8>
 }
 
-impl ResponseType for HopperTemporaryTransmitDataMsg {
-    type Item = ();
-    type Error = io::Error;
-}
-
 /// New CORES package about to be sent to the Hopper and thence put on the Substratum Network
-#[derive (Clone, Debug, PartialEq)]
+#[derive (Clone, Debug, PartialEq, Message)]
 pub struct IncipientCoresPackage {
     pub route: Route,
     pub payload: PlainData,
     pub payload_destination_key: Key
-}
-
-impl ResponseType for IncipientCoresPackage {
-    type Item = ();
-    type Error = ();
 }
 
 impl IncipientCoresPackage {
@@ -51,15 +40,10 @@ impl IncipientCoresPackage {
 }
 
 /// CORES package that has traversed the Substratum Network and is arriving at its destination
-#[derive (Clone, Debug, PartialEq)]
+#[derive (Clone, Debug, PartialEq, Message)]
 pub struct ExpiredCoresPackage {
     pub remaining_route: Route,
     pub payload: PlainData
-}
-
-impl ResponseType for ExpiredCoresPackage {
-    type Item = ();
-    type Error = ();
 }
 
 impl ExpiredCoresPackage {
@@ -81,9 +65,9 @@ impl ExpiredCoresPackage {
 
 #[derive(Clone)]
 pub struct HopperSubs {
-    pub bind: Box<Subscriber<BindMessage> + Send>,
-    pub from_hopper_client: Box<Subscriber<IncipientCoresPackage> + Send>,
-    pub from_dispatcher: Box<Subscriber<InboundClientData> + Send>,
+    pub bind: Recipient<Syn, BindMessage>,
+    pub from_hopper_client: Recipient<Syn, IncipientCoresPackage>,
+    pub from_dispatcher: Recipient<Syn, InboundClientData>,
 }
 
 #[cfg (test)]
@@ -91,9 +75,9 @@ mod tests {
     use super::*;
     use cryptde::PlainData;
     use cryptde_null::CryptDENull;
-    use test_utils::test_utils::PayloadMock;
-    use route::RouteSegment;
     use dispatcher::Component;
+    use route::RouteSegment;
+    use test_utils::test_utils::PayloadMock;
 
     #[test]
     fn incipient_cores_package_is_created_correctly () {

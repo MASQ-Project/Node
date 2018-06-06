@@ -4,7 +4,8 @@ use std::marker::Send;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
-use actix::Subscriber;
+use actix::Recipient;
+use actix::Syn;
 use sub_lib::tcp_wrappers::TcpListenerWrapper;
 use sub_lib::tcp_wrappers::TcpListenerWrapperReal;
 use sub_lib::limiter::Limiter;
@@ -14,7 +15,7 @@ use stream_handler_pool::AddStreamMsg;
 
 pub trait ListenerHandler: Send {
     fn bind_port_and_discriminator_factories (&mut self, port: u16, discriminator_factories: Vec<Box<DiscriminatorFactory>>) -> io::Result<()>;
-    fn bind_subs (&mut self, add_stream_sub: Box<Subscriber<AddStreamMsg> + Send>);
+    fn bind_subs (&mut self, add_stream_sub: Recipient<Syn, AddStreamMsg>);
     fn handle_traffic (&mut self);
 }
 
@@ -26,7 +27,7 @@ pub struct ListenerHandlerReal {
     port: Option<u16>,
     discriminator_factories: Vec<Box<DiscriminatorFactory>>,
     listener: Box<TcpListenerWrapper>,
-    add_stream_sub: Option<Box<Subscriber<AddStreamMsg> + Send>>,
+    add_stream_sub: Option<Recipient<Syn, AddStreamMsg>>,
     limiter: Limiter
 }
 
@@ -37,7 +38,7 @@ impl ListenerHandler for ListenerHandlerReal {
         self.listener.bind (SocketAddr::new (IpAddr::V4 (Ipv4Addr::from (0)), port))
     }
 
-    fn bind_subs (&mut self, add_stream_sub: Box<Subscriber<AddStreamMsg> + Send>) {
+    fn bind_subs (&mut self, add_stream_sub: Recipient<Syn, AddStreamMsg>) {
         self.add_stream_sub = Some (add_stream_sub);
     }
 
@@ -54,11 +55,11 @@ impl ListenerHandler for ListenerHandlerReal {
             };
             let discriminator_factories = self.discriminator_factories.iter ().map (|df| {df.duplicate ()}).collect ();
             self.add_stream_sub.as_ref ().expect ("Internal error: StreamHandlerPool unbound")
-                .send (AddStreamMsg {
+                .try_send (AddStreamMsg {
                     stream,
                     origin_port: self.port,
                     discriminator_factories,
-                }).ok ();
+                }).expect ("Internal error: StreamHandlerPool is dead");
         }
     }
 }
@@ -100,20 +101,20 @@ mod tests {
     use std::io::ErrorKind;
     use std::str::FromStr;
     use std::thread;
-    use actix::SyncAddress;
     use actix::Actor;
+    use actix::Addr;
     use actix::System;
+    use sub_lib::dispatcher::Component;
     use sub_lib::limiter::Limiter;
     use sub_lib::tcp_wrappers::TcpStreamWrapper;
-    use sub_lib::dispatcher::Component;
-    use test_utils::test_utils::TestLog;
-    use test_utils::test_utils::init_test_logging;
-    use test_utils::test_utils::TestLogHandler;
+    use node_test_utils::NullDiscriminatorFactory;
     use node_test_utils::TcpStreamWrapperMock;
+    use test_utils::test_utils::init_test_logging;
+    use test_utils::test_utils::RecordAwaiter;
     use test_utils::test_utils::Recorder;
     use test_utils::test_utils::Recording;
-    use test_utils::test_utils::RecordAwaiter;
-    use node_test_utils::NullDiscriminatorFactory;
+    use test_utils::test_utils::TestLog;
+    use test_utils::test_utils::TestLogHandler;
 
     struct TcpListenerWrapperMock {
         log: Arc<TestLog>,
@@ -271,8 +272,8 @@ mod tests {
         (recorder, recording, awaiter)
     }
 
-    fn start_recorder (recorder: Recorder) -> Box<Subscriber<AddStreamMsg> + Send> {
-        let recorder_addr: SyncAddress<_> = recorder.start ();
-        recorder_addr.subscriber::<AddStreamMsg> ()
+    fn start_recorder (recorder: Recorder) -> Recipient<Syn, AddStreamMsg> {
+        let recorder_addr: Addr<Syn, Recorder> = recorder.start ();
+        recorder_addr.recipient::<AddStreamMsg> ()
     }
 }
