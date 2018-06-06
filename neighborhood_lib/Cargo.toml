@@ -8,5 +8,6 @@ workspace = "../node"
 
 [dependencies]
 actix = "0.5.7"
+futures = "0.1.21"
 regex = "0.2.3"
 sub_lib = { path = "../sub_lib" }

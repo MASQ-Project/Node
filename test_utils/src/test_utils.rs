@@ -20,6 +20,7 @@ use actix::Actor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
+use actix::MessageResult;
 use actix::Syn;
 use regex::Regex;
 use log::Log;
@@ -45,6 +46,7 @@ use sub_lib::proxy_server::ProxyServerSubs;
 use sub_lib::route::Route;
 use sub_lib::route::RouteSegment;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
+use sub_lib::neighborhood::NodeQueryMessage;
 
 pub struct ByteArrayWriter {
     pub byte_array: Vec<u8>,
@@ -560,6 +562,16 @@ impl Handler<HopperTemporaryTransmitDataMsg> for Recorder {
 
     fn handle(&mut self, msg: HopperTemporaryTransmitDataMsg, _ctx: &mut Self::Context) {
         self.record(msg);
+    }
+}
+
+impl Handler<NodeQueryMessage> for Recorder {
+    type Result = MessageResult<NodeQueryMessage>;
+
+    fn handle(&mut self, msg: NodeQueryMessage, _ctx: &mut Self::Context) -> <Self as Handler<NodeQueryMessage>>::Result {
+        self.record (msg);
+        // TODO: Enhance this by allowing clients to specify results to return here
+        MessageResult(None)
     }
 }
 
