@@ -28,6 +28,8 @@ use sub_lib::peer_actors::PeerActors;
 use sub_lib::proxy_client::ProxyClientSubs;
 use sub_lib::proxy_server::ProxyServerSubs;
 
+static mut CRYPT_DE_OPT: Option<CryptDENull> = None;
+
 pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(&self, config: BootstrapperConfig) -> StreamHandlerPoolSubs;
 }
@@ -40,14 +42,18 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
         let (tx, rx) = mpsc::channel();
 
         thread::spawn(move || {
+            let cryptde: &'static CryptDENull = unsafe {
+                CRYPT_DE_OPT = Some(CryptDENull::new());
+                CRYPT_DE_OPT.as_ref().expect("Internal error")
+            };
             let system = System::new("SubstratumNode");
 
             // make all the actors
             let (dispatcher_subs, pool_bind_sub) = ActorSystemFactoryReal::make_and_start_dispatcher();
             let proxy_server_subs = ActorSystemFactoryReal::make_and_start_proxy_server();
-            let proxy_client_subs = ActorSystemFactoryReal::make_and_start_proxy_client(Box::new(CryptDENull::new()), config.dns_servers);
-            let hopper_subs = ActorSystemFactoryReal::make_and_start_hopper(Box::new(CryptDENull::new()));
-            let neighborhood_subs = ActorSystemFactoryReal::make_and_start_neighborhood(Box::new(CryptDENull::new()), config.neighbor_configs);
+            let proxy_client_subs = ActorSystemFactoryReal::make_and_start_proxy_client(cryptde, config.dns_servers);
+            let hopper_subs = ActorSystemFactoryReal::make_and_start_hopper(cryptde);
+            let neighborhood_subs = ActorSystemFactoryReal::make_and_start_neighborhood(cryptde, config.neighbor_configs);
             let stream_handler_pool_subs = ActorSystemFactoryReal::make_and_start_stream_handler_pool();
 
             // collect all the subs
@@ -92,13 +98,13 @@ impl ActorSystemFactoryReal {
         ProxyServer::make_subs_from(&addr)
     }
 
-    fn make_and_start_hopper(cryptde: Box<CryptDE>) -> HopperSubs {
+    fn make_and_start_hopper(cryptde: &'static CryptDE) -> HopperSubs {
         let hopper = Hopper::new(cryptde);
         let addr: Addr<Syn, Hopper> = hopper.start();
         Hopper::make_subs_from(&addr)
     }
 
-    fn make_and_start_neighborhood(cryptde: Box<CryptDE>, config: Vec<(Key, NodeAddr)>) -> NeighborhoodSubs {
+    fn make_and_start_neighborhood(cryptde: &'static CryptDE, config: Vec<(Key, NodeAddr)>) -> NeighborhoodSubs {
         let neighborhood = Neighborhood::new (cryptde, config);
         let addr: Addr<Syn, Neighborhood> = neighborhood.start ();
         Neighborhood::make_subs_from (&addr)
@@ -110,9 +116,16 @@ impl ActorSystemFactoryReal {
         StreamHandlerPool::make_subs_from(&addr)
     }
 
-    fn make_and_start_proxy_client(cryptde: Box<CryptDE>, dns_servers: Vec<SocketAddr>) -> ProxyClientSubs {
+    fn make_and_start_proxy_client(cryptde: &'static CryptDE, dns_servers: Vec<SocketAddr>) -> ProxyClientSubs {
         let proxy_client = ProxyClient::new(cryptde, dns_servers);
         let addr: Addr<Syn, ProxyClient> = proxy_client.start();
         ProxyClient::make_subs_from(&addr)
     }
+}
+
+#[cfg (test)]
+mod tests {
+
+    #[test]
+    fn nothing () {}
 }

@@ -16,7 +16,8 @@ use sub_lib::neighborhood::NodeDescriptor;
 use actix::MessageResult;
 
 pub struct Neighborhood {
-    neighboring_nodes: Vec<NodeDescriptor>
+    cryptde: &'static CryptDE,
+    neighboring_nodes: Vec<NodeDescriptor>,
 }
 
 impl Actor for Neighborhood {
@@ -46,8 +47,9 @@ impl Handler<NodeQueryMessage> for Neighborhood {
 }
 
 impl Neighborhood {
-    pub fn new(_cryptde: Box<CryptDE>, config: Vec<(Key, NodeAddr)>) -> Self {
+    pub fn new(cryptde: &'static CryptDE, config: Vec<(Key, NodeAddr)>) -> Self {
         Neighborhood {
+            cryptde,
             neighboring_nodes: config.into_iter().map(|(key, node_addr)| {
                 NodeDescriptor::new (key, Some (node_addr))
             }).collect ()
@@ -92,14 +94,16 @@ mod tests {
     use actix::Recipient;
     use actix::System;
     use futures::future::Future;
+    use sub_lib::cryptde_null::cryptde;
     use sub_lib::cryptde_null::CryptDENull;
     use actix::msgs;
     use actix::Arbiter;
 
     #[test]
     fn responds_with_none_when_initially_configured_with_no_data () {
+        let cryptde = cryptde ();
         let system = System::new ("responds_with_none_when_initially_configured_with_no_data");
-        let subject = Neighborhood::new (Box::new (CryptDENull::new ()), vec! ());
+        let subject = Neighborhood::new (cryptde, vec! ());
         let addr: Addr<Syn, Neighborhood> = subject.start ();
         let sub: Recipient<Syn, NodeQueryMessage> = addr.recipient::<NodeQueryMessage> ();
 
@@ -113,8 +117,9 @@ mod tests {
 
     #[test]
     fn responds_with_none_when_key_query_matches_no_configured_data () {
+        let cryptde = cryptde ();
         let system = System::new ("responds_with_none_when_initially_configured_with_no_data");
-        let subject = Neighborhood::new (Box::new (CryptDENull::new ()), vec! (
+        let subject = Neighborhood::new (cryptde, vec! (
             (Key::new (&b"booga"[..]), NodeAddr::new (&IpAddr::from_str ("1.2.3.4").unwrap(), &vec! (1234, 2345))),
         ));
         let addr: Addr<Syn, Neighborhood> = subject.start ();
@@ -130,11 +135,12 @@ mod tests {
 
     #[test]
     fn responds_with_result_when_key_query_matches_configured_data () {
+        let cryptde = cryptde ();
         let system = System::new ("responds_with_none_when_initially_configured_with_no_data");
         let public_key = Key::new (&b"booga"[..]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec!(1234, 2345));
         let another_node_addr = NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec!(1234, 2345));
-        let subject = Neighborhood::new (Box::new (CryptDENull::new ()), vec! (
+        let subject = Neighborhood::new (cryptde, vec! (
             (public_key.clone (), node_addr.clone ()),
             (public_key.clone (), another_node_addr.clone ()),
         ));
@@ -151,8 +157,9 @@ mod tests {
 
     #[test]
     fn responds_with_none_when_ip_address_query_matches_no_configured_data () {
+        let cryptde = cryptde ();
         let system = System::new ("responds_with_none_when_initially_configured_with_no_data");
-        let subject = Neighborhood::new (Box::new (CryptDENull::new ()), vec! (
+        let subject = Neighborhood::new (cryptde, vec! (
             (Key::new (&b"booga"[..]), NodeAddr::new (&IpAddr::from_str ("1.2.3.4").unwrap(), &vec! (1234, 2345))),
         ));
         let addr: Addr<Syn, Neighborhood> = subject.start ();
@@ -168,11 +175,12 @@ mod tests {
 
     #[test]
     fn responds_with_result_when_ip_address_query_matches_configured_data () {
+        let cryptde = cryptde ();
         let system = System::new ("responds_with_none_when_initially_configured_with_no_data");
         let public_key = Key::new (&b"booga"[..]);
         let another_public_key = Key::new (&b"gooba"[..]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec!(1234, 2345));
-        let subject = Neighborhood::new (Box::new (CryptDENull::new ()), vec! (
+        let subject = Neighborhood::new (cryptde, vec! (
             (public_key.clone (), node_addr.clone ()),
             (another_public_key.clone (), node_addr.clone ()),
         ));

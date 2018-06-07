@@ -134,7 +134,7 @@ pub enum CryptdecError {
     InvalidKey,
 }
 
-pub trait CryptDE: Send {
+pub trait CryptDE: Send + Sync {
     fn encode(&self, key: &Key, data: &PlainData) -> Result<CryptData, CryptdecError>;
     fn decode(&self, key: &Key, data: &CryptData) -> Result<PlainData, CryptdecError>;
     fn random(&self, dest: &mut [u8]);

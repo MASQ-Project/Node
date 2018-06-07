@@ -110,7 +110,7 @@ mod tests {
     use std::sync::mpsc;
     use actix::System;
     use serde_cbor;
-    use sub_lib::cryptde_null::CryptDENull;
+    use sub_lib::cryptde_null::cryptde;
     use sub_lib::cryptde::PlainData;
     use sub_lib::proxy_server::ProxyProtocol;
     use sub_lib::cryptde::Key;
@@ -140,7 +140,7 @@ mod tests {
             let stored_write_stream: Box<TcpStreamWrapper> = Box::new(TcpStreamWrapperMock::new ()
                 .try_clone_result (Ok (read_stream)));
             let pool = StreamHandlerPoolReal::new(Box::new(ResolverWrapperMock::new()),
-                                                  Box::new(CryptDENull::new()), hopper_sub);
+                                                  cryptde(), hopper_sub);
             let subject = StreamHandlerEstablisher::new(&pool);
 
             let result = subject.spawn_stream_reader(
@@ -187,7 +187,7 @@ mod tests {
             let stored_write_stream: Box<TcpStreamWrapper> = Box::new(TcpStreamWrapperMock::new ()
                 .try_clone_result (Ok (read_stream)));
             let pool = StreamHandlerPoolReal::new(Box::new(ResolverWrapperMock::new()),
-                                                  Box::new(CryptDENull::new()), hopper_sub);
+                                                  cryptde(), hopper_sub);
             let subject = StreamHandlerEstablisher::new(&pool);
 
             let result = subject.spawn_stream_reader(

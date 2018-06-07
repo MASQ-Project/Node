@@ -5,6 +5,20 @@ use cryptde::Key;
 use cryptde::PlainData;
 use cryptde::CryptData;
 
+static mut CRYPT_DE_NULL_OPT: Option<CryptDENull> = None;
+
+pub fn cryptde () -> &'static CryptDE {
+    unsafe {
+        match CRYPT_DE_NULL_OPT {
+            Some (_) => CRYPT_DE_NULL_OPT.as_ref().expect("Internal error"),
+            None => {
+                CRYPT_DE_NULL_OPT = Some(CryptDENull::new());
+                cryptde ()
+            }
+        }
+    }
+}
+
 #[derive (Clone)]
 pub struct CryptDENull {
     private_key: Key,

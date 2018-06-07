@@ -31,7 +31,7 @@ pub struct ProxyClient {
     tcp_stream_wrapper_factory: Box<TcpStreamWrapperFactory>,
     resolver_wrapper_factory: Box<ResolverWrapperFactory>,
     stream_handler_pool_factory: Box<StreamHandlerPoolFactory>,
-    cryptde: Option<Box<CryptDE>>,
+    _cryptde: &'static CryptDE,  // This is not used now, but a version of it may be used in the future when ser/de and en/decrypt are combined.
     to_hopper: Option<Recipient<Syn, IncipientCoresPackage>>,
     pool: Option<Box<StreamHandlerPool>>,
     logger: Logger,
@@ -58,9 +58,8 @@ impl Handler<BindMessage> for ProxyClient {
         }
         let opts = ResolverOpts::default ();
         let resolver = self.resolver_wrapper_factory.make(config, opts, Arbiter::handle ());
-        // crashpoint - is cryptde even needed in the ProxyClient submodule?
         self.pool = Some (self.stream_handler_pool_factory.make (resolver,
-            self.cryptde.take ().expect ("CryptDE unbound"), msg.peer_actors.hopper.from_hopper_client));
+                                                                 self._cryptde, msg.peer_actors.hopper.from_hopper_client));
         ()
     }
 }
@@ -77,7 +76,7 @@ impl Handler<ExpiredCoresPackage> for ProxyClient {
 }
 
 impl ProxyClient {
-    pub fn new(cryptde: Box<CryptDE>, dns_servers: Vec<SocketAddr>) -> ProxyClient {
+    pub fn new(cryptde: &'static CryptDE, dns_servers: Vec<SocketAddr>) -> ProxyClient {
         if dns_servers.is_empty () {
             panic! ("Proxy Client requires at least one DNS server IP address after the --dns_servers parameter")
         }
@@ -86,7 +85,7 @@ impl ProxyClient {
             tcp_stream_wrapper_factory: Box::new(TcpStreamWrapperFactoryReal {}),
             resolver_wrapper_factory: Box::new (ResolverWrapperFactoryReal {}),
             stream_handler_pool_factory: Box::new (StreamHandlerPoolFactoryReal {}),
-            cryptde: Some (cryptde),
+            _cryptde: cryptde,
             to_hopper: None,
             pool: None,
             logger: Logger::new ("Proxy Client")
@@ -127,7 +126,7 @@ mod tests {
     use stream_handler_pool::StreamHandlerPoolFactory;
     use sub_lib::cryptde::Key;
     use sub_lib::cryptde::PlainData;
-    use sub_lib::cryptde_null::CryptDENull;
+    use sub_lib::cryptde_null::cryptde;
     use sub_lib::proxy_server::ClientRequestPayload;
     use sub_lib::proxy_server::ProxyProtocol;
     use test_utils::test_utils;
@@ -163,12 +162,12 @@ mod tests {
     }
 
     pub struct StreamHandlerPoolFactoryMock {
-        make_parameters: Arc<Mutex<Vec<(Box<ResolverWrapper>, Box<CryptDE>, Recipient<Syn, IncipientCoresPackage>)>>>,
+        make_parameters: Arc<Mutex<Vec<(Box<ResolverWrapper>, &'static CryptDE, Recipient<Syn, IncipientCoresPackage>)>>>,
         make_results: RefCell<Vec<Box<StreamHandlerPool>>>
     }
 
     impl StreamHandlerPoolFactory for StreamHandlerPoolFactoryMock {
-        fn make(&self, resolver: Box<ResolverWrapper>, cryptde: Box<CryptDE>,
+        fn make(&self, resolver: Box<ResolverWrapper>, cryptde: &'static CryptDE,
                 hopper_sub: Recipient<Syn, IncipientCoresPackage>) -> Box<StreamHandlerPool> {
             self.make_parameters.lock ().unwrap ().push ((resolver, cryptde, hopper_sub));
             self.make_results.borrow_mut ().remove (0)
@@ -183,7 +182,7 @@ mod tests {
             }
         }
 
-        pub fn make_parameters (self, parameters: &mut Arc<Mutex<Vec<(Box<ResolverWrapper>, Box<CryptDE>,
+        pub fn make_parameters (self, parameters: &mut Arc<Mutex<Vec<(Box<ResolverWrapper>, &'static CryptDE,
                 Recipient<Syn, IncipientCoresPackage>)>>>) -> StreamHandlerPoolFactoryMock {
             *parameters = self.make_parameters.clone ();
             self
@@ -198,7 +197,7 @@ mod tests {
     #[test]
     #[should_panic (expected = "Proxy Client requires at least one DNS server IP address after the --dns_servers parameter")]
     fn at_least_one_dns_server_must_be_provided () {
-        ProxyClient::new (Box::new (CryptDENull::new ()), vec! ());
+        ProxyClient::new (cryptde(), vec! ());
     }
 
     #[test]
@@ -215,7 +214,7 @@ mod tests {
             .make_parameters (&mut pool_factory_make_parameters)
             .make_result (Box::new (pool));
         let peer_actors = make_peer_actors();
-        let mut subject = ProxyClient::new (Box::new (CryptDENull::new ()), vec! (
+        let mut subject = ProxyClient::new (cryptde(), vec! (
             SocketAddr::from_str ("4.3.2.1:4321").unwrap (),
             SocketAddr::from_str ("5.4.3.2:5432").unwrap ()
         ));
@@ -253,9 +252,9 @@ mod tests {
             protocol: ProxyProtocol::HTTP,
             originator_public_key: Key::new (&b"originator_public_key"[..]),
         };
-        let cryptde = CryptDENull::new ();
+        let cryptde = cryptde();
         let package = ExpiredCoresPackage::new(
-            test_utils::route_to_proxy_client(&cryptde.public_key(), &cryptde),
+            test_utils::route_to_proxy_client(&cryptde.public_key(), cryptde),
             PlainData::new(&serde_cbor::ser::to_vec (&request.clone()).unwrap ()[..])
         );
         let mut connect_parameters: Arc<Mutex<Vec<SocketAddr>>> = Arc::new (Mutex::new (vec! ()));
@@ -278,7 +277,7 @@ mod tests {
         let tcp_stream_wrapper_factory = TcpStreamWrapperFactoryMock::new ()
             .tcp_stream_wrapper (stream);
         let system = System::new("panics_if_hopper_is_unbound");
-        let mut subject = ProxyClient::new(Box::new (cryptde), dnss ());
+        let mut subject = ProxyClient::new(cryptde, dnss ());
         subject.tcp_stream_wrapper_factory = Box::new(tcp_stream_wrapper_factory);
         let subject_addr: Addr<Syn, ProxyClient> = subject.start();
 
@@ -299,7 +298,6 @@ mod tests {
             protocol: ProxyProtocol::HTTP,
             originator_public_key: Key::new (&b"originator"[..]),
         };
-        let cryptde = CryptDENull::new();
         let package = ExpiredCoresPackage::new(
             test_utils::make_meaningless_route (),
             PlainData::new(&serde_cbor::ser::to_vec(&request.clone()).unwrap()[..])
@@ -317,7 +315,7 @@ mod tests {
             .lookup_ip_success (vec! (IpAddr::from_str ("4.3.2.1").unwrap ()));
         let resolver_factory = ResolverWrapperFactoryMock::new ()
             .new_result (Box::new (resolver));
-        let mut subject = ProxyClient::new(Box::new(cryptde.clone()), dnss());
+        let mut subject = ProxyClient::new(cryptde(), dnss());
         subject.resolver_wrapper_factory = Box::new (resolver_factory);
         subject.stream_handler_pool_factory = Box::new (pool_factory);
         let subject_addr: Addr<Syn, ProxyClient> = subject.start();

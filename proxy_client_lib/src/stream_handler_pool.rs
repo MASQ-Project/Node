@@ -50,7 +50,7 @@ pub struct StreamHandlerPoolReal {
     pub stream_killer_rx: Receiver<StreamKey>,
     pub tcp_stream_wrapper_factory: Box<TcpStreamWrapperFactory>,
     resolver: Box<ResolverWrapper>,
-    cryptde: Box<CryptDE>,
+    _cryptde: &'static CryptDE, // This is not used now, but a version of it may be used in the future when ser/de and en/decrypt are combined.
     logger: Logger,
 }
 
@@ -116,7 +116,7 @@ impl StreamHandlerPool for StreamHandlerPoolReal {
 }
 
 impl StreamHandlerPoolReal {
-    pub fn new (resolver: Box<ResolverWrapper>, cryptde: Box<CryptDE>, hopper_sub: Recipient<Syn, IncipientCoresPackage>) -> StreamHandlerPoolReal {
+    pub fn new (resolver: Box<ResolverWrapper>, cryptde: &'static CryptDE, hopper_sub: Recipient<Syn, IncipientCoresPackage>) -> StreamHandlerPoolReal {
         let (stream_killer_tx, stream_killer_rx) = mpsc::channel ();
         let (stream_adder_tx, stream_adder_rx) = mpsc::channel ();
         StreamHandlerPoolReal {
@@ -128,7 +128,7 @@ impl StreamHandlerPoolReal {
             stream_killer_rx,
             tcp_stream_wrapper_factory: Box::new (TcpStreamWrapperFactoryReal {}),
             resolver,
-            cryptde,
+            _cryptde: cryptde,
             logger: Logger::new ("Proxy Client")
         }
     }
@@ -238,14 +238,14 @@ impl StreamHandlerPoolReal {
 
 
 pub trait StreamHandlerPoolFactory {
-    fn make (&self, resolver: Box<ResolverWrapper>, cryptde: Box<CryptDE>,
+    fn make (&self, resolver: Box<ResolverWrapper>, cryptde: &'static CryptDE,
         hopper_sub: Recipient<Syn, IncipientCoresPackage>) -> Box<StreamHandlerPool>;
 }
 
 pub struct StreamHandlerPoolFactoryReal {}
 
 impl StreamHandlerPoolFactory for StreamHandlerPoolFactoryReal {
-    fn make(&self, resolver: Box<ResolverWrapper>, cryptde: Box<CryptDE>,
+    fn make(&self, resolver: Box<ResolverWrapper>, cryptde: &'static CryptDE,
             hopper_sub: Recipient<Syn, IncipientCoresPackage>) -> Box<StreamHandlerPool> {
         Box::new(StreamHandlerPoolReal::new (resolver, cryptde, hopper_sub))
     }
@@ -265,7 +265,7 @@ mod tests {
     use trust_dns_resolver::error::ResolveError;
     use trust_dns_resolver::error::ResolveErrorKind;
     use sub_lib::cryptde::Key;
-    use sub_lib::cryptde_null::CryptDENull;
+    use sub_lib::cryptde_null::cryptde;
     use sub_lib::hopper::ExpiredCoresPackage;
     use sub_lib::proxy_server::ProxyProtocol;
     use test_utils::test_utils;
@@ -289,7 +289,7 @@ mod tests {
             let package = ExpiredCoresPackage::new (test_utils::make_meaningless_route (),
                 PlainData::new (&b"invalid"[..]));
             let mut subject = StreamHandlerPoolReal::new (Box::new (ResolverWrapperMock::new ()),
-                                                          Box::new (CryptDENull::new ()), hopper_sub);
+                                                         cryptde(), hopper_sub);
 
             subject.process_package(package);
 
@@ -325,7 +325,7 @@ mod tests {
             .write_result (Ok (123))
             .shutdown_parameters (&mut shutdown_parameters);
         let mut subject = StreamHandlerPoolReal::new (Box::new (ResolverWrapperMock::new ()),
-                                                      Box::new (CryptDENull::new ()), hopper_sub);
+                                                      cryptde(), hopper_sub);
         subject.stream_writers.insert (client_request_payload.stream_key,
                                        StreamWriter::new (Box::new (write_stream)));
 
@@ -361,7 +361,7 @@ mod tests {
             .shutdown_parameters (&mut shutdown_parameters)
             .shutdown_result (Ok (()));
         let mut subject = StreamHandlerPoolReal::new (Box::new (ResolverWrapperMock::new ()),
-                                                      Box::new (CryptDENull::new ()), hopper_sub);
+                                                      cryptde(), hopper_sub);
         subject.stream_writers.insert (client_request_payload.stream_key,
            StreamWriter::new (Box::new (write_stream)));
 
@@ -396,7 +396,7 @@ mod tests {
                 .peer_addr_result(Ok(SocketAddr::from_str("2.3.4.5:80").unwrap()))
                 .write_result(Err(Error::from(ErrorKind::BrokenPipe)));
             let mut subject = StreamHandlerPoolReal::new(Box::new(ResolverWrapperMock::new()),
-                                                         Box::new(CryptDENull::new()), hopper_sub);
+                                                         cryptde(), hopper_sub);
             subject.stream_writers.insert(client_request_payload.stream_key,
                                           StreamWriter::new(Box::new(stream)));
 
@@ -450,7 +450,7 @@ mod tests {
             let stream_factory = TcpStreamWrapperFactoryMock::new()
                 .tcp_stream_wrapper(write_stream);
             let mut subject = StreamHandlerPoolReal::new(Box::new(resolver),
-                                                         Box::new(CryptDENull::new()), hopper_sub);
+                                                         cryptde(), hopper_sub);
             subject.tcp_stream_wrapper_factory = Box::new(stream_factory);
 
             subject.process_package(package);
@@ -494,7 +494,7 @@ mod tests {
             let stream_factory = TcpStreamWrapperFactoryMock::new()
                 .tcp_stream_wrapper(stream);
             let mut subject = StreamHandlerPoolReal::new(Box::new(resolver),
-                                                         Box::new(CryptDENull::new()), hopper_sub);
+                                                         cryptde(), hopper_sub);
             subject.tcp_stream_wrapper_factory = Box::new(stream_factory);
 
             subject.process_package(package);
@@ -559,7 +559,7 @@ mod tests {
             let stream_factory = TcpStreamWrapperFactoryMock::new()
                 .tcp_stream_wrapper(stream);
             let mut subject = StreamHandlerPoolReal::new(Box::new(resolver),
-                                                         Box::new(CryptDENull::new()), hopper_sub);
+                                                         cryptde(), hopper_sub);
             subject.tcp_stream_wrapper_factory = Box::new(stream_factory);
 
             subject.process_package(package);
@@ -615,7 +615,7 @@ mod tests {
             let stream_factory = TcpStreamWrapperFactoryMock::new()
                 .tcp_stream_wrapper(write_stream);
             let mut subject = StreamHandlerPoolReal::new(Box::new(resolver),
-                                                         Box::new(CryptDENull::new()), hopper_sub);
+                                                         cryptde(), hopper_sub);
             subject.tcp_stream_wrapper_factory = Box::new(stream_factory);
 
             subject.process_package(package);
@@ -661,7 +661,7 @@ mod tests {
             let stream_factory = TcpStreamWrapperFactoryMock::new()
                 .tcp_stream_wrapper(write_stream);
             let mut subject = StreamHandlerPoolReal::new(Box::new(resolver),
-                                                         Box::new(CryptDENull::new()), hopper_sub);
+                                                         cryptde(), hopper_sub);
             subject.tcp_stream_wrapper_factory = Box::new(stream_factory);
 
             subject.process_package(package);
@@ -707,7 +707,7 @@ mod tests {
             let stream_factory = TcpStreamWrapperFactoryMock::new()
                 .tcp_stream_wrapper(write_stream);
             let mut subject = StreamHandlerPoolReal::new(Box::new(resolver),
-                                                         Box::new(CryptDENull::new()), hopper_sub);
+                                                         cryptde(), hopper_sub);
             subject.tcp_stream_wrapper_factory = Box::new(stream_factory);
 
             subject.process_package(package);
@@ -750,7 +750,7 @@ mod tests {
                 .lookup_ip_parameters(&mut lookup_ip_parameters)
                 .lookup_ip_failure(ResolveError::from(ResolveErrorKind::Io));
             let mut subject = StreamHandlerPoolReal::new(Box::new(resolver),
-                                                         Box::new(CryptDENull::new()), hopper_sub);
+                                                         cryptde(), hopper_sub);
 
             subject.process_package(package);
 
@@ -771,7 +771,7 @@ mod tests {
     #[test]
     fn try_clone_error_is_logged_and_returned () {
         init_test_logging();
-        let cryptde = CryptDENull::new ();
+        let cryptde = cryptde();
         let hopper = Recorder::new();
         let hopper_awaiter = hopper.get_awaiter ();
         let hopper_recording_arc = hopper.get_recording ();
@@ -802,7 +802,7 @@ mod tests {
             let stream_factory = TcpStreamWrapperFactoryMock::new()
                 .tcp_stream_wrapper(write_stream);
             let mut subject = StreamHandlerPoolReal::new(Box::new(resolver),
-                                                         Box::new (cryptde), hopper_sub);
+                                                         cryptde, hopper_sub);
             subject.tcp_stream_wrapper_factory = Box::new(stream_factory);
 
             subject.process_package(package);

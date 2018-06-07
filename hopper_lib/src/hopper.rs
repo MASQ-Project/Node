@@ -26,7 +26,7 @@ use sub_lib::route::Route;
 use sub_lib::utils::NODE_MAILBOX_CAPACITY;
 
 pub struct Hopper {
-    cryptde: Box<CryptDE>,
+    cryptde: &'static CryptDE,
     to_proxy_server: Option<Recipient<Syn, ExpiredCoresPackage>>,
     to_proxy_client: Option<Recipient<Syn, ExpiredCoresPackage>>,
     // TODO when we are decentralized, change this to a TransmitDataMsg
@@ -140,7 +140,7 @@ impl Handler<InboundClientData> for Hopper {
 }
 
 impl Hopper {
-    pub fn new (cryptde: Box<CryptDE>) -> Hopper {
+    pub fn new (cryptde: &'static CryptDE) -> Hopper {
         Hopper {
             cryptde,
             to_proxy_server: None,
@@ -248,7 +248,7 @@ mod tests {
     use actix::msgs;
     use actix::System;
     use sub_lib::cryptde::PlainData;
-    use sub_lib::cryptde_null::CryptDENull;
+    use sub_lib::cryptde_null::cryptde;
     use sub_lib::dispatcher::Component;
     use sub_lib::hopper::ExpiredCoresPackage;
     use sub_lib::hopper::HopperTemporaryTransmitDataMsg;
@@ -264,9 +264,9 @@ mod tests {
     #[test]
     fn live_cores_package_can_be_constructed_from_scratch () {
         let payload = CryptData::new (&[5, 6]);
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let route = Route::new(vec!(RouteSegment::new(vec!(&Key::new(&[1, 2]), &Key::new(&[3, 4])),
-                      Component::Neighborhood)), &cryptde).unwrap();
+                      Component::Neighborhood)), cryptde).unwrap();
 
         let subject = LiveCoresPackage::new (route.clone(), payload.clone ());
 
@@ -276,13 +276,13 @@ mod tests {
 
     #[test]
     fn live_cores_package_can_be_constructed_from_incipient_cores_package () {
-        let cryptde = CryptDENull::new ();
+        let cryptde = cryptde();
         let key12 = cryptde.public_key ();
         let key34 = Key::new (&[3, 4]);
         let key56 = Key::new (&[5, 6]);
         let mut route = Route::new(vec! (
             RouteSegment::new (vec! (&key12, &key34, &key56), Component::Neighborhood)
-        ), &cryptde).unwrap ();
+        ), cryptde).unwrap ();
         let payload = PayloadMock::new ();
         let incipient = IncipientCoresPackage::new (
             route.clone (),
@@ -290,25 +290,24 @@ mod tests {
             &key56
         );
 
-        let (subject, next_stop) = LiveCoresPackage::from_incipient (incipient, &cryptde);
+        let (subject, next_stop) = LiveCoresPackage::from_incipient (incipient, cryptde);
 
         assert_eq! (next_stop, key34);
-        route.shift (&cryptde.private_key (), &cryptde).unwrap ();
+        route.shift (&cryptde.private_key (), cryptde).unwrap ();
         assert_eq! (subject.route, route);
         assert_eq! (subject.payload, cryptde.encode (&key56, &PlainData::new (&serde_cbor::ser::to_vec (&payload).unwrap ())).unwrap ());
     }
 
     #[test]
     fn converts_incipient_message_to_live_and_sends_to_dispatcher () {
-        let cryptde = CryptDENull::new ();
-        let cryptde_t = cryptde.clone ();
+        let cryptde = cryptde();
         let dispatcher = Recorder::new ();
         let dispatcher_recording_arc = dispatcher.get_recording ();
         let dispatcher_awaiter = dispatcher.get_awaiter();
         let destination_key = Key::new (&[65, 65, 65]);
         let route = Route::new (
             vec! (RouteSegment::new (vec! (&cryptde.public_key (), &destination_key.clone ()), Component::Neighborhood)),
-            &cryptde
+            cryptde
         ).unwrap ();
         let payload = PlainData::new (&b"abcd"[..]);
         let incipient_cores_package = IncipientCoresPackage::new (route.clone (),
@@ -317,7 +316,7 @@ mod tests {
         thread::spawn (move || {
             let system = System::new ("converts_incipient_message_to_live_and_sends_to_dispatcher");
             let peer_actors = make_peer_actors_from(None, Some(dispatcher), None, None, None);
-            let subject = Hopper::new (Box::new (cryptde_t));
+            let subject = Hopper::new (cryptde);
             let subject_addr: Addr<Syn, Hopper> = subject.start ();
             subject_addr.try_send (BindMessage {peer_actors}).unwrap ();
 
@@ -328,7 +327,7 @@ mod tests {
         dispatcher_awaiter.await_message_count(1);
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
         let record = dispatcher_recording.get_record::<HopperTemporaryTransmitDataMsg>(0);
-        let expected_lcp = LiveCoresPackage::from_incipient (incipient_cores_package_a, &cryptde).0;
+        let expected_lcp = LiveCoresPackage::from_incipient (incipient_cores_package_a, cryptde).0;
         let expected_lcp_ser = PlainData::new (&serde_cbor::ser::to_vec (&expected_lcp).unwrap ());
         let expected_lcp_enc = cryptde.encode (&destination_key, &expected_lcp_ser).unwrap ();
         assert_eq! (*record, HopperTemporaryTransmitDataMsg {
@@ -340,12 +339,11 @@ mod tests {
 
     #[test]
     fn converts_live_message_to_expired_for_proxy_client () {
-        let cryptde = CryptDENull::new ();
-        let cryptde_t = cryptde.clone ();
+        let cryptde = cryptde();
         let component = Recorder::new ();
         let component_recording_arc = component.get_recording ();
         let component_awaiter = component.get_awaiter ();
-        let route = route_to_proxy_client(&cryptde.public_key (), &cryptde);
+        let route = route_to_proxy_client(&cryptde.public_key (), cryptde);
         let payload = PlainData::new (&b"abcd"[..]);
         let lcp = LiveCoresPackage::new (route, cryptde.encode (&cryptde.public_key (), &payload).unwrap ());
         let lcp_a = lcp.clone ();
@@ -361,7 +359,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("converts_live_message_to_expired_for_proxy_client");
             let peer_actors = make_peer_actors_from(None, None, None, Some(component), None);
-            let subject = Hopper::new (Box::new (cryptde_t));
+            let subject = Hopper::new (cryptde);
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap ();
 
@@ -372,18 +370,17 @@ mod tests {
         component_awaiter.await_message_count(1);
         let component_recording = component_recording_arc.lock().unwrap();
         let record = component_recording.get_record::<ExpiredCoresPackage>(0);
-        let expected_ecp = lcp_a.to_expired (&cryptde);
+        let expected_ecp = lcp_a.to_expired (cryptde);
         assert_eq! (*record, expected_ecp);
     }
 
     #[test]
     fn converts_live_message_to_expired_for_proxy_server () {
-        let cryptde = CryptDENull::new ();
-        let cryptde_t = cryptde.clone ();
+        let cryptde = cryptde();
         let component = Recorder::new ();
         let component_recording_arc = component.get_recording ();
         let component_awaiter = component.get_awaiter ();
-        let route = route_to_proxy_server(&cryptde.public_key (), &cryptde);
+        let route = route_to_proxy_server(&cryptde.public_key (), cryptde);
         let payload = PlainData::new (&b"abcd"[..]);
         let lcp = LiveCoresPackage::new (route, cryptde.encode (&cryptde.public_key (), &payload).unwrap ());
         let lcp_a = lcp.clone ();
@@ -399,7 +396,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("converts_live_message_to_expired_for_proxy_server");
             let peer_actors = make_peer_actors_from(Some (component), None, None, None, None);
-            let subject = Hopper::new (Box::new (cryptde_t));
+            let subject = Hopper::new (cryptde);
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap ();
 
@@ -410,21 +407,20 @@ mod tests {
         component_awaiter.await_message_count(1);
         let component_recording = component_recording_arc.lock().unwrap();
         let record = component_recording.get_record::<ExpiredCoresPackage>(0);
-        let expected_ecp = lcp_a.to_expired (&cryptde);
+        let expected_ecp = lcp_a.to_expired (cryptde);
         assert_eq! (*record, expected_ecp);
     }
 
     #[test]
     fn passes_on_inbound_client_data_not_meant_for_this_node () {
-        let cryptde = CryptDENull::new ();
-        let cryptde_t = cryptde.clone ();
+        let cryptde = cryptde();
         let dispatcher = Recorder::new ();
         let dispatcher_recording_arc = dispatcher.get_recording ();
         let dispatcher_awaiter = dispatcher.get_awaiter();
         let next_key = Key::new (&[65, 65, 65]);
         let route = Route::new (vec! (
             RouteSegment::new (vec! (&cryptde.public_key (), &next_key), Component::Neighborhood)
-        ), &cryptde).unwrap ();
+        ), cryptde).unwrap ();
         let payload = PlainData::new (&b"abcd"[..]);
         let lcp = LiveCoresPackage::new (route, cryptde.encode (&next_key, &payload).unwrap ());
         let lcp_a = lcp.clone ();
@@ -440,7 +436,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("converts_live_message_to_expired_for_proxy_server");
             let peer_actors = make_peer_actors_from(None, Some (dispatcher), None, None, None);
-            let subject = Hopper::new (Box::new (cryptde_t));
+            let subject = Hopper::new (cryptde);
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap ();
 
@@ -451,7 +447,7 @@ mod tests {
         dispatcher_awaiter.await_message_count(1);
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
         let record = dispatcher_recording.get_record::<HopperTemporaryTransmitDataMsg>(0);
-        let expected_lcp = lcp_a.to_next_live (&cryptde).unwrap ().1;
+        let expected_lcp = lcp_a.to_next_live (cryptde).unwrap ().1;
         let expected_lcp_ser = PlainData::new (&serde_cbor::ser::to_vec (&expected_lcp).unwrap ());
         let expected_lcp_enc = cryptde.encode (&next_key, &expected_lcp_ser).unwrap ();
         assert_eq! (*record, HopperTemporaryTransmitDataMsg {
@@ -464,9 +460,9 @@ mod tests {
     #[test]
     #[should_panic (expected = "ProxyServer unbound in Hopper")]
     fn panics_if_proxy_server_is_unbound() {
-        let cryptde = CryptDENull::new ();
+        let cryptde = cryptde();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let route = route_to_proxy_server(&cryptde.public_key(), &cryptde);
+        let route = route_to_proxy_server(&cryptde.public_key(), cryptde);
         let serialized_payload = serde_cbor::ser::to_vec (&PayloadMock::new()).unwrap ();
         let data = cryptde.encode(&cryptde.public_key(), &PlainData::new(&serialized_payload[..])).unwrap();
         let live_package = LiveCoresPackage::new(route, data);
@@ -481,7 +477,7 @@ mod tests {
             data: encrypted_package,
         };
         let system = System::new("panics_if_proxy_server_is_unbound");
-        let subject = Hopper::new (Box::new (cryptde));
+        let subject = Hopper::new (cryptde);
         let subject_addr: Addr<Syn, Hopper> = subject.start();
 
         subject_addr.try_send(inbound_client_data ).unwrap ();
@@ -493,9 +489,9 @@ mod tests {
     #[test]
     #[should_panic (expected = "ProxyClient unbound in Hopper")]
     fn panics_if_proxy_client_is_unbound() {
-        let cryptde = CryptDENull::new ();
+        let cryptde = cryptde();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let route = route_to_proxy_client(&cryptde.public_key(), &cryptde);
+        let route = route_to_proxy_client(&cryptde.public_key(), cryptde);
         let serialized_payload = serde_cbor::ser::to_vec (&PayloadMock::new()).unwrap ();
         let data = cryptde.encode(&cryptde.public_key(), &PlainData::new(&serialized_payload[..])).unwrap();
         let live_package = LiveCoresPackage::new(route, data);
@@ -510,7 +506,7 @@ mod tests {
             data: encrypted_package,
         };
         let system = System::new("panics_if_proxy_client_is_unbound");
-        let subject = Hopper::new (Box::new (cryptde));
+        let subject = Hopper::new (cryptde);
         let subject_addr: Addr<Syn, Hopper> = subject.start();
 
         subject_addr.try_send(inbound_client_data ).unwrap ();
@@ -522,17 +518,17 @@ mod tests {
     #[test]
     #[should_panic (expected = "Dispatcher unbound in Hopper")]
     fn panics_if_dispatcher_is_unbound() {
-        let cryptde = CryptDENull::new ();
+        let cryptde = cryptde();
         let next_key = Key::new (&[65, 65, 65]);
         let route = Route::new (vec! (
             RouteSegment::new (vec! (&cryptde.public_key (), &next_key), Component::Neighborhood)
-        ), &cryptde).unwrap ();
+        ), cryptde).unwrap ();
         let incipient_package = IncipientCoresPackage::new (
             route,
             PayloadMock::new (), &cryptde.public_key ()
         );
         let system = System::new("panics_if_dispatcher_is_unbound");
-        let subject = Hopper::new (Box::new (cryptde));
+        let subject = Hopper::new (cryptde);
         let subject_addr: Addr<Syn, Hopper> = subject.start();
 
         subject_addr.try_send(incipient_package ).unwrap ();
