@@ -6,6 +6,8 @@ static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
     ErrorKind::ConnectionRefused, ErrorKind::TimedOut
 ];
 
+pub static NODE_MAILBOX_CAPACITY: usize = 50;
+
 pub fn indicates_dead_stream (kind: ErrorKind) -> bool {
     DEAD_STREAM_ERRORS.contains (&kind)
 }
@@ -80,7 +82,6 @@ pub fn to_string_s(data: &[u8]) -> String {
         Err (_) => format! ("{:?}", data)
     }
 }
-
 
 #[cfg (test)]
 mod tests {
@@ -179,5 +180,10 @@ mod tests {
 
         assert_eq! (values, vec! ());
         assert_eq! (result, vec! (1, 2, 3));
+    }
+
+    #[test]
+    fn node_mailbox_capacity_is_higher_than_16() {
+        assert_eq!(NODE_MAILBOX_CAPACITY, 50)
     }
 }

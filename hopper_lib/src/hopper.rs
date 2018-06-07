@@ -23,6 +23,7 @@ use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::logger::Logger;
 use sub_lib::peer_actors::BindMessage;
 use sub_lib::route::Route;
+use sub_lib::utils::NODE_MAILBOX_CAPACITY;
 
 pub struct Hopper {
     cryptde: Box<CryptDE>,
@@ -40,7 +41,8 @@ impl Actor for Hopper {
 impl Handler<BindMessage> for Hopper {
     type Result = ();
 
-    fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
+        ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.to_proxy_server = Some(msg.peer_actors.proxy_server.from_hopper);
         self.to_proxy_client = Some(msg.peer_actors.proxy_client.from_hopper);
         self.to_dispatcher = Some(msg.peer_actors.dispatcher.from_hopper);

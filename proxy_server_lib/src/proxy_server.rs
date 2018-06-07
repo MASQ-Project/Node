@@ -19,6 +19,7 @@ use sub_lib::proxy_server::ProxyServerSubs;
 use sub_lib::route::Route;
 use sub_lib::route::RouteSegment;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
+use sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use client_request_payload_factory::ClientRequestPayloadFactory;
 
 pub struct ProxyServer {
@@ -35,7 +36,8 @@ impl Actor for ProxyServer {
 impl Handler<BindMessage> for ProxyServer {
     type Result = ();
 
-    fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
+        ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.dispatcher = Some(msg.peer_actors.dispatcher.from_proxy_server);
         self.hopper = Some(msg.peer_actors.hopper.from_hopper_client);
         ()

@@ -20,6 +20,7 @@ use sub_lib::peer_actors::BindMessage;
 use sub_lib::proxy_client::ProxyClientSubs;
 use sub_lib::tcp_wrappers::TcpStreamWrapperFactory;
 use sub_lib::tcp_wrappers::TcpStreamWrapperFactoryReal;
+use sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use trust_dns_resolver::config::NameServerConfig;
 use trust_dns_resolver::config::Protocol;
 use trust_dns_resolver::config::ResolverConfig;
@@ -43,8 +44,9 @@ impl Actor for ProxyClient {
 impl Handler<BindMessage> for ProxyClient {
     type Result = ();
 
-    fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
         self.logger.debug (format!("Handling BindMessage"));
+        ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.to_hopper = Some(msg.peer_actors.hopper.from_hopper_client.clone ());
         let mut config = ResolverConfig::new ();
         for dns_server_ref in &self.dns_servers {

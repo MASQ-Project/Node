@@ -14,6 +14,7 @@ use sub_lib::hopper::HopperTemporaryTransmitDataMsg;
 use sub_lib::logger::Logger;
 use sub_lib::peer_actors::BindMessage;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
+use sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use stream_handler_pool::PoolBindMessage;
 
 pub struct Dispatcher {
@@ -30,7 +31,8 @@ impl Actor for Dispatcher {
 impl Handler<BindMessage> for Dispatcher {
     type Result = ();
 
-    fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) {
+        ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.to_proxy_server = Some(msg.peer_actors.proxy_server.from_dispatcher);
         self.to_hopper = Some(msg.peer_actors.hopper.from_dispatcher);
     }

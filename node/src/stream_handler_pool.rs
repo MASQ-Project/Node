@@ -29,6 +29,7 @@ use sub_lib::stream_handler_pool::TransmitDataMsg;
 use sub_lib::tcp_wrappers::TcpStreamWrapper;
 use sub_lib::utils::indicates_dead_stream;
 use sub_lib::utils::indicates_timeout;
+use sub_lib::utils::NODE_MAILBOX_CAPACITY;
 
 trait StreamReader {
     fn handle_traffic (&mut self);
@@ -343,7 +344,8 @@ impl Debug for PoolBindMessage {
 impl Handler<PoolBindMessage> for StreamHandlerPool {
     type Result = ();
 
-    fn handle(&mut self, msg: PoolBindMessage, _ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: PoolBindMessage, ctx: &mut Self::Context) {
+        ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.dispatcher_subs = Some(msg.dispatcher_subs);
         self.self_subs = Some(msg.stream_handler_pool_subs);
     }
