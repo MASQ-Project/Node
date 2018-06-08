@@ -6,7 +6,7 @@ static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
     ErrorKind::ConnectionRefused, ErrorKind::TimedOut
 ];
 
-pub static NODE_MAILBOX_CAPACITY: usize = 50;
+pub static NODE_MAILBOX_CAPACITY: usize = 0; // 0 for unbound
 
 pub fn indicates_dead_stream (kind: ErrorKind) -> bool {
     DEAD_STREAM_ERRORS.contains (&kind)
@@ -183,7 +183,7 @@ mod tests {
     }
 
     #[test]
-    fn node_mailbox_capacity_is_higher_than_16() {
-        assert_eq!(NODE_MAILBOX_CAPACITY, 50)
+    fn node_mailbox_capacity_is_unbound() {
+        assert_eq!(NODE_MAILBOX_CAPACITY, 0)
     }
 }
