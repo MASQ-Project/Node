@@ -16,7 +16,7 @@ use sub_lib::neighborhood::NodeDescriptor;
 use actix::MessageResult;
 
 pub struct Neighborhood {
-    cryptde: &'static CryptDE,
+    _cryptde: &'static CryptDE,
     neighboring_nodes: Vec<NodeDescriptor>,
 }
 
@@ -49,7 +49,7 @@ impl Handler<NodeQueryMessage> for Neighborhood {
 impl Neighborhood {
     pub fn new(cryptde: &'static CryptDE, config: Vec<(Key, NodeAddr)>) -> Self {
         Neighborhood {
-            cryptde,
+            _cryptde: cryptde,
             neighboring_nodes: config.into_iter().map(|(key, node_addr)| {
                 NodeDescriptor::new (key, Some (node_addr))
             }).collect ()
@@ -91,13 +91,13 @@ mod tests {
     use super::*;
     use std::str::FromStr;
     use std::net::IpAddr;
+    use actix::Arbiter;
     use actix::Recipient;
     use actix::System;
-    use futures::future::Future;
-    use sub_lib::cryptde_null::cryptde;
-    use sub_lib::cryptde_null::CryptDENull;
     use actix::msgs;
-    use actix::Arbiter;
+    use futures::future::Future;
+    use test_utils::test_utils::cryptde;
+
 
     #[test]
     fn responds_with_none_when_initially_configured_with_no_data () {

@@ -1,23 +1,10 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use rand::prelude::*;
 use cryptde::CryptDE;
 use cryptde::CryptdecError;
 use cryptde::Key;
 use cryptde::PlainData;
 use cryptde::CryptData;
-
-static mut CRYPT_DE_NULL_OPT: Option<CryptDENull> = None;
-
-pub fn cryptde () -> &'static CryptDE {
-    unsafe {
-        match CRYPT_DE_NULL_OPT {
-            Some (_) => CRYPT_DE_NULL_OPT.as_ref().expect("Internal error"),
-            None => {
-                CRYPT_DE_NULL_OPT = Some(CryptDENull::new());
-                cryptde ()
-            }
-        }
-    }
-}
 
 #[derive (Clone)]
 pub struct CryptDENull {
@@ -26,6 +13,15 @@ pub struct CryptDENull {
 }
 
 impl CryptDE for CryptDENull {
+    fn generate_key_pair(&mut self) {
+        self.private_key = Key::new (&[0; 32]);
+        let mut rng = thread_rng();
+        for idx in 0..32 {
+            self.private_key.data[idx] = rng.gen ();
+        }
+        self.public_key = CryptDENull::other_key (&self.private_key ())
+    }
+
     fn encode(&self, key: &Key, data: &PlainData) -> Result<CryptData, CryptdecError> {
         if key.data.is_empty() {
             Err(CryptdecError::EmptyKey)
@@ -43,11 +39,11 @@ impl CryptDE for CryptDENull {
         } else if data.data.is_empty() {
             Err(CryptdecError::EmptyData)
         } else if key.data.len() > data.data.len() {
-            Err(CryptdecError::InvalidKey)
+            Err(CryptdecError::InvalidKey (CryptDENull::invalid_key_message(key, data)))
         } else {
             let (k, d) = data.data.split_at(key.data.len());
             if k != &key.data[..] {
-                Err(CryptdecError::InvalidKey)
+                Err(CryptdecError::InvalidKey (CryptDENull::invalid_key_message(key, data)))
             } else {
                 Ok(PlainData::new (d))
             }
@@ -71,7 +67,7 @@ impl CryptDE for CryptDENull {
 
 impl CryptDENull {
     pub fn new () -> CryptDENull {
-        let key = Key::new (b"local_private_key");
+        let key = Key::new (b"uninitialized");
         CryptDENull {
             private_key: key.clone (),
             public_key: CryptDENull::other_key (&key)
@@ -81,6 +77,11 @@ impl CryptDENull {
     pub fn other_key(in_key: &Key) -> Key {
         let out_key_data: Vec<u8> = in_key.data.iter ().map (|b| {(*b).wrapping_add (128)}).collect ();
         Key::new (&out_key_data[..])
+    }
+
+    fn invalid_key_message (key: &Key, data: &CryptData) -> String {
+        let data_to_print: Vec<u8> = data.clone ().data.into_iter ().take (key.data.len ()).collect ();
+        format!("Could not decrypt with {:?} data beginning with {:?}", key.data, data_to_print)
     }
 }
 
@@ -150,7 +151,7 @@ mod tests {
 
         let result = subject.decode(&Key::new (b"badKey"), &CryptData::new (b"keydata"));
 
-        assert_eq!(result.err().unwrap(), CryptdecError::InvalidKey);
+        assert_eq!(result.err().unwrap(), CryptdecError::InvalidKey (String::from ("Could not decrypt with [98, 97, 100, 75, 101, 121] data beginning with [107, 101, 121, 100, 97, 116]")));
     }
 
     #[test]
@@ -159,7 +160,7 @@ mod tests {
 
         let result = subject.decode(&Key::new (b"invalidkey"), &CryptData::new (b"keydata"));
 
-        assert_eq!(result.err().unwrap(), CryptdecError::InvalidKey);
+        assert_eq!(result.err().unwrap(), CryptdecError::InvalidKey (String::from ("Could not decrypt with [105, 110, 118, 97, 108, 105, 100, 107, 101, 121] data beginning with [107, 101, 121, 100, 97, 116, 97]")));
     }
 
     #[test]
@@ -173,8 +174,8 @@ mod tests {
     }
 
     #[test]
-    fn private_key () {
-        let expected = Key::new (b"local_private_key");
+    fn private_key_before_generation () {
+        let expected = Key::new (b"uninitialized");
         let subject = CryptDENull::new ();
 
         let result = subject.private_key ();
@@ -183,13 +184,41 @@ mod tests {
     }
 
     #[test]
-    fn public_key () {
+    fn public_key_before_generation () {
         let subject = CryptDENull::new ();
-        let expected = CryptDENull::other_key (&Key::new (b"local_private_key"));
+        let expected = CryptDENull::other_key (&Key::new (b"uninitialized"));
 
         let result = subject.public_key ();
 
         assert_eq! (result, expected);
+    }
+
+    #[test]
+    fn generation_produces_different_keys_each_time () {
+        let mut subject = CryptDENull::new ();
+
+        subject.generate_key_pair ();
+        let first_public = subject.public_key ();
+        let first_private = subject.private_key ();
+
+        subject.generate_key_pair ();
+        let second_public = subject.public_key ();
+        let second_private = subject.private_key ();
+
+        assert_ne! (second_public, first_public);
+        assert_ne! (second_private, first_private);
+    }
+
+    #[test]
+    fn generated_keys_work_with_each_other () {
+        let mut subject = CryptDENull::new ();
+
+        subject.generate_key_pair ();
+
+        let expected_data = PlainData::new (&b"These are the times that try men's souls"[..]);
+        let encrypted_data = subject.encode (&subject.private_key (), &expected_data).unwrap ();
+        let decrypted_data = subject.decode (&subject.public_key (), &encrypted_data).unwrap ();
+        assert_eq! (decrypted_data, expected_data);
     }
 
     #[test]

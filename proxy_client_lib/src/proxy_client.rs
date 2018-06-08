@@ -126,10 +126,10 @@ mod tests {
     use stream_handler_pool::StreamHandlerPoolFactory;
     use sub_lib::cryptde::Key;
     use sub_lib::cryptde::PlainData;
-    use sub_lib::cryptde_null::cryptde;
     use sub_lib::proxy_server::ClientRequestPayload;
     use sub_lib::proxy_server::ProxyProtocol;
     use test_utils::test_utils;
+    use test_utils::test_utils::cryptde;
     use test_utils::test_utils::make_peer_actors;
     use test_utils::test_utils::make_peer_actors_from;
     use test_utils::test_utils::Recorder;

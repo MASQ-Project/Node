@@ -3,6 +3,7 @@
 extern crate actix;
 extern crate chrono;
 extern crate log;
+extern crate rand;
 extern crate regex;
 extern crate serde;
 extern crate serde_cbor;

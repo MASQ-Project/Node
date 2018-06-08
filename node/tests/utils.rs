@@ -80,7 +80,7 @@ impl SubstratumNode {
         let debug_or_release = test_command.split ("\\").skip_while (|s| s != &"target").skip(1).next().unwrap();
         let command_to_start = &format! ("target\\{}\\SubstratumNode", debug_or_release);
         let mut command = Command::new ("cmd");
-        command.args (&["/c", "start", command_to_start, "--dns_port", "5454", "--dns_servers", "8.8.8.8"]);
+        command.args (&["/c", "start", command_to_start, "--dns_servers", "8.8.8.8", "--log_level", "trace"]);
         command
     }
 
@@ -90,7 +90,7 @@ impl SubstratumNode {
         let debug_or_release = test_command.split ("/").skip_while (|s| s != &"target").skip(1).next().unwrap();
         let command_to_start = format! ("target/{}/SubstratumNode", debug_or_release);
         let mut command = Command::new (command_to_start);
-        command.args (&["--dns_port", "5454", "--dns_servers", "8.8.8.8"]);
+        command.args (&["--dns_servers", "8.8.8.8", "--log_level", "trace"]);
         command
     }
 }

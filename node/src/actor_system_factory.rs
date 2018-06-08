@@ -27,8 +27,7 @@ use sub_lib::peer_actors::BindMessage;
 use sub_lib::peer_actors::PeerActors;
 use sub_lib::proxy_client::ProxyClientSubs;
 use sub_lib::proxy_server::ProxyServerSubs;
-
-static mut CRYPT_DE_OPT: Option<CryptDENull> = None;
+use bootstrapper;
 
 pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(&self, config: BootstrapperConfig) -> StreamHandlerPoolSubs;
@@ -39,18 +38,17 @@ pub struct ActorSystemFactoryReal {}
 impl ActorSystemFactory for ActorSystemFactoryReal {
     // THIS CODE HAS NO UNIT TESTS
     fn make_and_start_actors(&self, config: BootstrapperConfig) -> StreamHandlerPoolSubs {
+        let cryptde: &'static CryptDENull = unsafe {
+            bootstrapper::CRYPT_DE_OPT.as_ref().expect("Internal error")
+        };
         let (tx, rx) = mpsc::channel();
 
         thread::spawn(move || {
-            let cryptde: &'static CryptDENull = unsafe {
-                CRYPT_DE_OPT = Some(CryptDENull::new());
-                CRYPT_DE_OPT.as_ref().expect("Internal error")
-            };
             let system = System::new("SubstratumNode");
 
             // make all the actors
             let (dispatcher_subs, pool_bind_sub) = ActorSystemFactoryReal::make_and_start_dispatcher();
-            let proxy_server_subs = ActorSystemFactoryReal::make_and_start_proxy_server();
+            let proxy_server_subs = ActorSystemFactoryReal::make_and_start_proxy_server(cryptde);
             let proxy_client_subs = ActorSystemFactoryReal::make_and_start_proxy_client(cryptde, config.dns_servers);
             let hopper_subs = ActorSystemFactoryReal::make_and_start_hopper(cryptde);
             let neighborhood_subs = ActorSystemFactoryReal::make_and_start_neighborhood(cryptde, config.neighbor_configs);
@@ -58,7 +56,7 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
 
             // collect all the subs
             let peer_actors = PeerActors {
-                dispatcher: dispatcher_subs.clone (),
+                dispatcher: dispatcher_subs.clone(),
                 proxy_server: proxy_server_subs,
                 proxy_client: proxy_client_subs,
                 hopper: hopper_subs,
@@ -66,13 +64,13 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
             };
 
             //bind all the actors
-            peer_actors.dispatcher.bind.try_send(BindMessage { peer_actors: peer_actors.clone() }).expect ("Dispatcher is dead");
-            peer_actors.proxy_server.bind.try_send(BindMessage { peer_actors: peer_actors.clone() }).expect ("Proxy Server is dead");
-            peer_actors.proxy_client.bind.try_send(BindMessage { peer_actors: peer_actors.clone() }).expect ("Proxy Client is dead");
-            peer_actors.hopper.bind.try_send(BindMessage { peer_actors: peer_actors.clone() }).expect ("Hopper is dead");
+            peer_actors.dispatcher.bind.try_send(BindMessage { peer_actors: peer_actors.clone() }).expect("Dispatcher is dead");
+            peer_actors.proxy_server.bind.try_send(BindMessage { peer_actors: peer_actors.clone() }).expect("Proxy Server is dead");
+            peer_actors.proxy_client.bind.try_send(BindMessage { peer_actors: peer_actors.clone() }).expect("Proxy Client is dead");
+            peer_actors.hopper.bind.try_send(BindMessage { peer_actors: peer_actors.clone() }).expect("Hopper is dead");
             peer_actors.neighborhood.bind.try_send(BindMessage { peer_actors: peer_actors.clone() }).expect("Neighborhood is dead");
-            stream_handler_pool_subs.bind.try_send(PoolBindMessage {dispatcher_subs: dispatcher_subs.clone (), stream_handler_pool_subs: stream_handler_pool_subs.clone ()}).expect ("Stream Handler Pool is dead");
-            pool_bind_sub.try_send (PoolBindMessage {dispatcher_subs, stream_handler_pool_subs: stream_handler_pool_subs.clone ()}).expect ("Dispatcher is dead");
+            stream_handler_pool_subs.bind.try_send(PoolBindMessage { dispatcher_subs: dispatcher_subs.clone(), stream_handler_pool_subs: stream_handler_pool_subs.clone() }).expect("Stream Handler Pool is dead");
+            pool_bind_sub.try_send(PoolBindMessage { dispatcher_subs, stream_handler_pool_subs: stream_handler_pool_subs.clone() }).expect("Dispatcher is dead");
 
             //send out the stream handler pool subs (to be bound to listeners)
             tx.send(stream_handler_pool_subs).ok();
@@ -92,8 +90,8 @@ impl ActorSystemFactoryReal {
         (Dispatcher::make_subs_from(&addr), addr.recipient::<PoolBindMessage> ())
     }
 
-    fn make_and_start_proxy_server() -> ProxyServerSubs {
-        let proxy_server = ProxyServer::new();
+    fn make_and_start_proxy_server(cryptde: &'static CryptDE) -> ProxyServerSubs {
+        let proxy_server = ProxyServer::new(cryptde);
         let addr: Addr<Syn, ProxyServer> = proxy_server.start();
         ProxyServer::make_subs_from(&addr)
     }
@@ -121,11 +119,4 @@ impl ActorSystemFactoryReal {
         let addr: Addr<Syn, ProxyClient> = proxy_client.start();
         ProxyClient::make_subs_from(&addr)
     }
-}
-
-#[cfg (test)]
-mod tests {
-
-    #[test]
-    fn nothing () {}
 }

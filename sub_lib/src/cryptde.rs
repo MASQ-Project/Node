@@ -127,14 +127,15 @@ impl<'a> Visitor<'a> for PlainDataVisitor {
     }
 }
 
-#[derive(PartialEq, Debug, Copy, Clone)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum CryptdecError {
     EmptyKey,
     EmptyData,
-    InvalidKey,
+    InvalidKey (String),
 }
 
 pub trait CryptDE: Send + Sync {
+    fn generate_key_pair (&mut self);
     fn encode(&self, key: &Key, data: &PlainData) -> Result<CryptData, CryptdecError>;
     fn decode(&self, key: &Key, data: &CryptData) -> Result<PlainData, CryptdecError>;
     fn random(&self, dest: &mut [u8]);

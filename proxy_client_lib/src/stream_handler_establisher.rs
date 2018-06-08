@@ -110,13 +110,13 @@ mod tests {
     use std::sync::mpsc;
     use actix::System;
     use serde_cbor;
-    use sub_lib::cryptde_null::cryptde;
     use sub_lib::cryptde::PlainData;
-    use sub_lib::proxy_server::ProxyProtocol;
     use sub_lib::cryptde::Key;
+    use sub_lib::proxy_server::ProxyProtocol;
     use sub_lib::proxy_client::ClientResponsePayload;
     use test_utils::test_utils;
     use test_utils::test_utils::Recorder;
+    use test_utils::test_utils::cryptde;
     use local_test_utils::TcpStreamWrapperMock;
     use local_test_utils::ResolverWrapperMock;
 

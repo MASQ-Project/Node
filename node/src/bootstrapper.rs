@@ -16,6 +16,10 @@ use sub_lib::main_tools::StdStreams;
 use sub_lib::node_addr::NodeAddr;
 use sub_lib::parameter_finder::ParameterFinder;
 use sub_lib::socket_server::SocketServer;
+use sub_lib::cryptde::CryptDE;
+use sub_lib::cryptde_null::CryptDENull;
+
+pub static mut CRYPT_DE_OPT: Option<CryptDENull> = None;
 
 #[derive (Clone)]
 pub struct BootstrapperConfig {
@@ -38,7 +42,7 @@ impl SocketServer for Bootstrapper {
         String::from ("Dispatcher")
     }
 
-    fn initialize_as_root(&mut self, args: &Vec<String>, _streams: &mut StdStreams) {
+    fn initialize_as_root(&mut self, args: &Vec<String>, streams: &mut StdStreams) {
         let mut configuration = Configuration::new ();
         configuration.establish (args);
         self.listener_handlers = configuration.ports ().iter ().map (|port_ref| {
@@ -52,6 +56,7 @@ impl SocketServer for Bootstrapper {
             listener_handler
         }).collect ();
         self.config = Some(Bootstrapper::parse_args (args));
+        Bootstrapper::initialize_and_report_cryptde (streams);
     }
 
     fn serve_without_root(&mut self) {
@@ -129,6 +134,17 @@ impl Bootstrapper {
             .expect(format! ("Neighbor port numbers must be 0-65535, not {}", s).as_str ())).collect ();
         (public_key, NodeAddr::new (&ip_addr, &ports))
     }
+
+    fn initialize_and_report_cryptde (streams: &mut StdStreams) {
+        let mut exemplar = CryptDENull::new ();
+        exemplar.generate_key_pair();
+        let cryptde: &'static CryptDENull = unsafe {
+            CRYPT_DE_OPT = Some(exemplar);
+            CRYPT_DE_OPT.as_ref().expect("Internal error")
+        };
+        let public_key_base64 = base64::encode (&cryptde.public_key ().data);
+        writeln! (streams.stdout, "Substratum Node public key: {}", public_key_base64).expect ("Internal error");
+    }
 }
 
 #[cfg (test)]
@@ -159,6 +175,8 @@ mod tests {
     use test_utils::test_utils::Recorder;
     use test_utils::test_utils::Recording;
     use test_utils::test_utils::TestLog;
+    use regex::Regex;
+    use sub_lib::cryptde::PlainData;
 
     struct ListenerHandlerFactoryMock {
         log: TestLog,
@@ -407,6 +425,30 @@ mod tests {
             .build ();
 
         subject.initialize_as_root(&vec! (String::from ("--dns_servers"), String::from ("1.1.1.1")), &mut FakeStreamHolder::new ().streams ());
+    }
+
+    #[test]
+    fn initialize_and_report_cryptde () {
+        let mut holder = FakeStreamHolder::new ();
+
+        {
+            let mut streams = holder.streams ();
+            Bootstrapper::initialize_and_report_cryptde(&mut streams);
+        }
+
+        let cryptde = unsafe {
+            CRYPT_DE_OPT.as_ref().expect("Internal error")
+        };
+        assert_ne! (cryptde.private_key ().data, b"uninitialized".to_vec ());
+        let expected_public_key = base64::encode (&cryptde.public_key ().data);
+        let stdout_dump = holder.stdout.get_string ();
+        let regex = Regex::new(r"Substratum Node public key: (.+?)\n").unwrap();
+        let captured_public_key = regex.captures (stdout_dump.as_str ()).unwrap ().get (1).unwrap ().as_str ();
+        assert_eq! (captured_public_key, expected_public_key);
+        let expected_data = PlainData::new (b"ho'q ;iaerh;frjhvs;lkjerre");
+        let crypt_data = cryptde.encode (&cryptde.private_key (), &expected_data).unwrap ();
+        let decrypted_data = cryptde.decode (&cryptde.public_key (), &crypt_data).unwrap ();
+        assert_eq! (decrypted_data, expected_data)
     }
 
     #[test]

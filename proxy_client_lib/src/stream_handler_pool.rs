@@ -265,13 +265,13 @@ mod tests {
     use trust_dns_resolver::error::ResolveError;
     use trust_dns_resolver::error::ResolveErrorKind;
     use sub_lib::cryptde::Key;
-    use sub_lib::cryptde_null::cryptde;
     use sub_lib::hopper::ExpiredCoresPackage;
     use sub_lib::proxy_server::ProxyProtocol;
     use test_utils::test_utils;
     use test_utils::test_utils::init_test_logging;
     use test_utils::test_utils::Recorder;
     use test_utils::test_utils::TestLogHandler;
+    use test_utils::test_utils::cryptde;
     use local_test_utils::ResolverWrapperMock;
     use local_test_utils::TcpStreamWrapperFactoryMock;
     use local_test_utils::TcpStreamWrapperMock;

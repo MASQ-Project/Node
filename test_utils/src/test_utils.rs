@@ -48,6 +48,14 @@ use sub_lib::route::RouteSegment;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
 use sub_lib::neighborhood::NodeQueryMessage;
 
+lazy_static! {
+    static ref CRYPT_DE_NULL: CryptDENull = CryptDENull::new ();
+}
+
+pub fn cryptde () -> &'static CryptDENull {
+    &CRYPT_DE_NULL
+}
+
 pub struct ByteArrayWriter {
     pub byte_array: Vec<u8>,
     pub next_error: Option<Error>
@@ -692,7 +700,7 @@ mod tests {
         assert_eq! (subject.hops, vec! (
             Hop::new (&key, Component::Hopper).encode (&key, &cryptde).unwrap (),
             Hop::new (&key, Component::ProxyClient).encode (&key, &cryptde).unwrap (),
-            Hop::new (&Key::new(b"ignored"), Component::ProxyServer).encode (&key, &cryptde).unwrap (),
+            Hop::new (&Key::new(b""), Component::ProxyServer).encode (&key, &cryptde).unwrap (),
         ));
     }
 
@@ -703,11 +711,11 @@ mod tests {
 
         let subject = route_to_proxy_client(&key, &cryptde);
 
-        let mut garbage_can: Vec<u8> = iter::repeat (0u8).take (53).collect ();
+        let mut garbage_can: Vec<u8> = iter::repeat (0u8).take (50).collect ();
         cryptde.random (&mut garbage_can[..]);
         assert_eq! (subject.hops, vec! (
             Hop::new (&key, Component::ProxyClient).encode (&key, &cryptde).unwrap (),
-            Hop::new (&Key::new(b"ignored"), Component::ProxyServer).encode (&key, &cryptde).unwrap (),
+            Hop::new (&Key::new(b""), Component::ProxyServer).encode (&key, &cryptde).unwrap (),
             CryptData::new(&garbage_can[..])
         ));
     }
@@ -719,11 +727,11 @@ mod tests {
 
         let subject = route_from_proxy_client(&key, &cryptde);
 
-        let mut garbage_can: Vec<u8> = iter::repeat (0u8).take (53).collect ();
+        let mut garbage_can: Vec<u8> = iter::repeat (0u8).take (50).collect ();
         cryptde.random (&mut garbage_can[..]);
         assert_eq! (subject.hops, vec! (
             Hop::new (&key, Component::ProxyClient).encode (&key, &cryptde).unwrap (),
-            Hop::new (&Key::new(b"ignored"), Component::ProxyServer).encode (&key, &cryptde).unwrap (),
+            Hop::new (&Key::new(b""), Component::ProxyServer).encode (&key, &cryptde).unwrap (),
             CryptData::new(&garbage_can[..])
         ));
     }
@@ -735,12 +743,12 @@ mod tests {
 
         let subject = route_to_proxy_server(&key, &cryptde);
 
-        let mut garbage_can: Vec<u8> = iter::repeat (0u8).take (53).collect ();
+        let mut garbage_can: Vec<u8> = iter::repeat (0u8).take (50).collect ();
         cryptde.random (&mut garbage_can[..]);
         assert_eq! (subject.hops, vec! (
-            Hop::new(&Key::new(b"ignored"), Component::ProxyServer).encode(&key, &cryptde).unwrap(),
+            Hop::new(&Key::new(b""), Component::ProxyServer).encode(&key, &cryptde).unwrap(),
             CryptData::new (&garbage_can[..]),
-            CryptData::new (&garbage_can[3..]),
+            CryptData::new (&garbage_can[..]),
         ));
     }
 

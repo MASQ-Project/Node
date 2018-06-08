@@ -29,7 +29,7 @@ fn perform_transaction() {
     };
 
     let socket = UdpSocket::bind(&format!("0.0.0.0:0")).expect("Couldn't bind socket");
-    socket.connect (&format! ("127.0.0.1:5454")).expect ("Couldn't connect");
+    socket.connect (&format! ("127.0.0.1:53")).expect ("Couldn't connect");
     let transmit_count = socket.send (&buf[..length]).expect("Couldn't send");
     assert_eq!(transmit_count, length);
     socket.set_read_timeout (Some (Duration::from_secs (1))).expect ("Couldn't set read timeout");

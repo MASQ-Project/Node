@@ -44,7 +44,7 @@ impl Route {
             }
         }
         // crashpoint - should not be possible, can we restructure to remove the Option?
-        hops.push (Hop::new(&Key::new(b"ignored"), pending_recipient.expect ("Route segment without recipient")));
+        hops.push (Hop::new(&Key::new(b""), pending_recipient.expect ("Route segment without recipient")));
         Route::hops_to_route (hops[1..].to_vec (), &route_segments[0].keys[0], cryptde)
     }
 
@@ -58,13 +58,15 @@ impl Route {
 
     // TODO: We should probably either have access to a Logger here, or return a Result instead of an Option.
     pub fn shift (&mut self, next_hop_private_key: &Key, cryptde: &CryptDE) -> Option<Hop> {
-        if self.hops.is_empty () {return None}
-        let next_hop = match Route::decode_hop (next_hop_private_key, cryptde, &self.hops.remove (0)) {
+        if self.hops.is_empty () { return None }
+        let top_hop = self.hops.remove (0);
+        let top_hop_len = top_hop.data.len ();
+        let next_hop = match Route::decode_hop (next_hop_private_key, cryptde, &top_hop) {
             None => return None,
             Some (h) => h
         };
 
-        let mut garbage_can: Vec<u8> = iter::repeat (0u8).take (self.average_hop_length ()).collect ();
+        let mut garbage_can: Vec<u8> = iter::repeat (0u8).take (top_hop_len).collect ();
         cryptde.random (&mut garbage_can[..]);
         self.hops.push (CryptData::new (&garbage_can[..]));
 
@@ -92,12 +94,6 @@ impl Route {
             hop_key = &data_hop.public_key;
         }
         Ok (Route {hops: hops_enc})
-    }
-
-    fn average_hop_length (&self) -> usize {
-        // crashpoint - not possible if Route::new was used to create the route - is this fn needed?
-        if self.hops.len () == 0 {panic!("Invalid route - was it not created with new?")}
-        self.hops.iter ().fold (0, |sofar, elem| {sofar + elem.data.len ()}) / self.hops.len ()
     }
 }
 
@@ -131,7 +127,8 @@ mod tests {
         let d_key = Key::new (&[68, 68, 68]);
         let e_key = Key::new (&[69, 69, 69]);
         let f_key = Key::new (&[70, 70, 70]);
-        let cryptde = CryptDENull::new ();
+        let mut cryptde = CryptDENull::new ();
+        cryptde.generate_key_pair();
 
         let subject = Route::new(vec! (
             RouteSegment::new (vec! (&a_key, &b_key, &c_key, &d_key), Component::ProxyClient),
@@ -145,7 +142,7 @@ mod tests {
             Hop::new(&e_key, Component::ProxyClient).encode (&d_key, &cryptde).unwrap (),
             Hop::new(&f_key, Component::Hopper).encode (&e_key, &cryptde).unwrap (),
             Hop::new(&a_key, Component::Hopper).encode (&f_key, &cryptde).unwrap (),
-            Hop::new(&Key::new(b"ignored"), Component::ProxyServer).encode (&a_key, &cryptde).unwrap ()
+            Hop::new(&Key::new(b""), Component::ProxyServer).encode (&a_key, &cryptde).unwrap ()
         ));
     }
 
@@ -153,7 +150,8 @@ mod tests {
     fn new_can_make_short_single_stop_route () {
         let a_key = Key::new (&[65, 65, 65]);
         let b_key = Key::new (&[66, 66, 66]);
-        let cryptde = CryptDENull::new ();
+        let mut cryptde = CryptDENull::new ();
+        cryptde.generate_key_pair();
 
         let subject = Route::new(vec! (
             RouteSegment::new (vec! (&a_key, &b_key), Component::Neighborhood)
@@ -161,13 +159,14 @@ mod tests {
 
         assert_eq! (subject.hops, vec! (
             Hop::new(&b_key, Component::Hopper).encode (&a_key, &cryptde).unwrap (),
-            Hop::new(&Key::new(b"ignored"), Component::Neighborhood).encode (&b_key, &cryptde).unwrap ()
+            Hop::new(&Key::new(b""), Component::Neighborhood).encode (&b_key, &cryptde).unwrap ()
         ));
     }
 
     #[test]
     fn next_hop_decodes_top_hop () {
-        let cryptde = CryptDENull::new ();
+        let mut cryptde = CryptDENull::new ();
+        cryptde.generate_key_pair();
         let key12 = Key::new (&[1, 2]);
         let key34 = Key::new (&[3, 4]);
         let key56 = Key::new (&[5, 6]);
@@ -177,7 +176,7 @@ mod tests {
         assert_eq! (subject.hops, vec! (
             Hop::new(&key34, Component::Hopper).encode (&key12, &cryptde).unwrap (),
             Hop::new(&key56, Component::Hopper).encode (&key34, &cryptde).unwrap (),
-            Hop::new(&Key::new(b"ignored"), Component::Neighborhood).encode (&key56, &cryptde).unwrap ()
+            Hop::new(&Key::new(b""), Component::Neighborhood).encode (&key56, &cryptde).unwrap ()
         ));
 
         let next_hop = subject.next_hop ( &CryptDENull::other_key (&key12), &cryptde).unwrap ();
@@ -186,13 +185,14 @@ mod tests {
         assert_eq! (subject.hops, vec! (
             Hop::new(&key34, Component::Hopper).encode (&key12, &cryptde).unwrap (),
             Hop::new(&key56, Component::Hopper).encode (&key34, &cryptde).unwrap (),
-            Hop::new(&Key::new(b"ignored"), Component::Neighborhood).encode (&key56, &cryptde).unwrap ()
+            Hop::new(&Key::new(b""), Component::Neighborhood).encode (&key56, &cryptde).unwrap ()
         ));
     }
 
     #[test]
     fn shift_returns_next_hop_and_adds_garbage_at_the_bottom () {
-        let cryptde = CryptDENull::new ();
+        let mut cryptde = CryptDENull::new ();
+        cryptde.generate_key_pair();
         let key12 = Key::new (&[1, 2]);
         let key34 = Key::new (&[3, 4]);
         let key56 = Key::new (&[5, 6]);
@@ -202,38 +202,40 @@ mod tests {
         assert_eq! (subject.hops, vec! (
             Hop::new(&key34, Component::Hopper).encode (&key12, &cryptde).unwrap (),
             Hop::new(&key56, Component::Hopper).encode (&key34, &cryptde).unwrap (),
-            Hop::new(&Key::new(b"ignored"), Component::Neighborhood).encode (&key56, &cryptde).unwrap ()
+            Hop::new(&Key::new(b""), Component::Neighborhood).encode (&key56, &cryptde).unwrap ()
         ));
-
-        // shift calculates avg after removing top hop, so we can't just use average_hop_length to be expected garbage_can_length
-        let garbage_can_length = subject.average_hop_length () + 1;
+        let top_hop_len = subject.hops.first ().unwrap ().data.len ();
 
         let next_hop = subject.shift ( &CryptDENull::other_key (&key12), &cryptde).unwrap ();
 
         assert_eq! (next_hop, Hop::new(&key34, Component::Hopper));
-        let mut garbage_can: Vec<u8> = iter::repeat (0u8).take (garbage_can_length).collect ();
+        let mut garbage_can: Vec<u8> = iter::repeat (0u8).take (top_hop_len).collect ();
         cryptde.random (&mut garbage_can[..]);
         assert_eq! (subject.hops, vec! (
             Hop::new(&key56, Component::Hopper).encode (&key34, &cryptde).unwrap (),
-            Hop::new(&Key::new(b"ignored"), Component::Neighborhood).encode (&key56, &cryptde).unwrap (),
+            Hop::new(&Key::new(b""), Component::Neighborhood).encode (&key56, &cryptde).unwrap (),
             CryptData::new (&garbage_can[..])
         ))
     }
 
     #[test]
     fn empty_route_says_none_when_asked_for_next_hop () {
+        let mut cryptde = CryptDENull::new ();
+        cryptde.generate_key_pair();
         let subject = Route { hops: Vec::new() };
 
-        let result = subject.next_hop(&Key::new (&[]), &CryptDENull::new ());
+        let result = subject.next_hop(&Key::new (&[]), &cryptde);
 
         assert_eq! (result, None);
     }
 
     #[test]
     fn shift_says_none_when_asked_for_next_hop () {
+        let mut cryptde = CryptDENull::new ();
+        cryptde.generate_key_pair();
         let mut subject = Route { hops: Vec::new() };
 
-        let result = subject.shift(&Key::new (&[]), &CryptDENull::new ());
+        let result = subject.shift(&Key::new (&[]), &cryptde);
 
         assert_eq! (result, None);
     }

@@ -248,16 +248,16 @@ mod tests {
     use actix::msgs;
     use actix::System;
     use sub_lib::cryptde::PlainData;
-    use sub_lib::cryptde_null::cryptde;
     use sub_lib::dispatcher::Component;
     use sub_lib::hopper::ExpiredCoresPackage;
     use sub_lib::hopper::HopperTemporaryTransmitDataMsg;
     use sub_lib::hopper::IncipientCoresPackage;
     use sub_lib::route::Route;
     use sub_lib::route::RouteSegment;
-    use test_utils::test_utils::make_peer_actors_from;
     use test_utils::test_utils::PayloadMock;
     use test_utils::test_utils::Recorder;
+    use test_utils::test_utils::cryptde;
+    use test_utils::test_utils::make_peer_actors_from;
     use test_utils::test_utils::route_to_proxy_client;
     use test_utils::test_utils::route_to_proxy_server;
 

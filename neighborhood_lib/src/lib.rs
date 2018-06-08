@@ -4,4 +4,7 @@ extern crate futures;
 extern crate regex;
 extern crate sub_lib;
 
+#[cfg(test)]
+extern crate test_utils;
+
 pub mod neighborhood;
