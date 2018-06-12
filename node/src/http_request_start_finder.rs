@@ -1,5 +1,4 @@
 use sub_lib::utils::index_of;
-use sub_lib::dispatcher::Component;
 use sub_lib::http_packet_framer::PacketProgressState;
 use sub_lib::http_packet_framer::HttpPacketStartFinder;
 use sub_lib::http_packet_framer::HttpFramerState;
@@ -45,9 +44,9 @@ impl HttpPacketStartFinder for HttpRequestStartFinder {
 pub struct HttpRequestDiscriminatorFactory {}
 
 impl DiscriminatorFactory for HttpRequestDiscriminatorFactory {
-    fn make(&self) -> Box<Discriminator> {
-        Box::new (Discriminator::new (Box::new (HttpPacketFramer::new (Box::new (HttpRequestStartFinder {}))),
-                                      vec! (Box::new (NullMasquerader::new (Component::ProxyServer)))))
+    fn make(&self) -> Discriminator {
+        Discriminator::new (Box::new (HttpPacketFramer::new (Box::new (HttpRequestStartFinder {}))),
+                                      vec! (Box::new (NullMasquerader::new ())))
     }
 
     fn duplicate(&self) -> Box<DiscriminatorFactory> {
@@ -207,6 +206,6 @@ Another-Header: val".as_bytes()),
 
         http_discriminator.add_data ("GET http://url.com HTTP/1.1\r\n\r\n".as_bytes ());
         let http_chunk = http_discriminator.take_chunk ().unwrap ();
-        assert_eq! (http_chunk, UnmaskedChunk::new (Vec::from ("GET http://url.com HTTP/1.1\r\n\r\n".as_bytes ()), Component::ProxyServer, true));
+        assert_eq! (http_chunk, UnmaskedChunk::new (Vec::from ("GET http://url.com HTTP/1.1\r\n\r\n".as_bytes ()), true));
     }
 }

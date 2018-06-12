@@ -1,5 +1,4 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use sub_lib::dispatcher::Component;
 use sub_lib::tls_framer::TlsFramer;
 use discriminator::Discriminator;
 use discriminator::DiscriminatorFactory;
@@ -8,11 +7,11 @@ use null_masquerader::NullMasquerader;
 pub struct TlsDiscriminatorFactory {}
 
 impl DiscriminatorFactory for TlsDiscriminatorFactory {
-    fn make(&self) -> Box<Discriminator> {
-        Box::new (Discriminator::new (
+    fn make(&self) -> Discriminator {
+        Discriminator::new (
             Box::new (TlsFramer::new ()),
-            vec! (Box::new (NullMasquerader::new (Component::ProxyServer)))
-        ))
+            vec! (Box::new (NullMasquerader::new ()))
+        )
     }
 
     fn duplicate(&self) -> Box<DiscriminatorFactory> {
@@ -48,6 +47,6 @@ mod tests {
         let mut result = subject.make ();
 
         result.add_data (data);
-        assert_eq! (result.take_chunk (), Some (UnmaskedChunk::new (Vec::from (data), Component::ProxyServer, true)));
+        assert_eq! (result.take_chunk (), Some (UnmaskedChunk::new (Vec::from (data), true)));
     }
 }

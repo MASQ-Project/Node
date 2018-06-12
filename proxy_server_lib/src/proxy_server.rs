@@ -5,7 +5,6 @@ use actix::Context;
 use actix::Handler;
 use actix::Recipient;
 use actix::Syn;
-use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::dispatcher::Component;
 use sub_lib::dispatcher::Endpoint;
@@ -114,8 +113,6 @@ mod tests {
     use actix::Arbiter;
     use actix::System;
     use sub_lib::cryptde::PlainData;
-    use sub_lib::dispatcher::Component;
-    use sub_lib::hopper::IncipientCoresPackage;
     use sub_lib::hopper::ExpiredCoresPackage;
     use sub_lib::proxy_client::ClientResponsePayload;
     use sub_lib::proxy_server::ClientRequestPayload;
@@ -140,7 +137,6 @@ mod tests {
         let msg_from_dispatcher = InboundClientData {
             socket_addr: socket_addr.clone(),
             origin_port: Some (80),
-            component: Component::ProxyServer,
             last_data: true,
             data: expected_data.clone()
         };
@@ -204,7 +200,6 @@ mod tests {
         let msg_from_dispatcher = InboundClientData {
             socket_addr: socket_addr.clone(),
             origin_port: Some (443),
-            component: Component::ProxyServer,
             last_data: false,
             data: expected_data.clone()
         };
@@ -256,7 +251,6 @@ mod tests {
         let msg_from_dispatcher = InboundClientData {
             socket_addr: socket_addr.clone(),
             origin_port: Some (443),
-            component: Component::ProxyServer,
             last_data: false,
             data: expected_data.clone()
         };
@@ -306,7 +300,6 @@ mod tests {
         let msg_from_dispatcher = InboundClientData {
             socket_addr: socket_addr.clone(),
             origin_port: Some (443),
-            component: Component::ProxyServer,
             last_data: true,
             data: expected_data.clone()
         };
@@ -448,7 +441,6 @@ mod tests {
         let msg_from_dispatcher = InboundClientData {
             socket_addr: socket_addr.clone(),
             origin_port: Some (53),
-            component: Component::ProxyServer,
             last_data: false,
             data: expected_data.clone()
         };

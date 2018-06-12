@@ -52,18 +52,16 @@ mod tests {
     use std::net::SocketAddr;
     use std::str::FromStr;
     use sub_lib::cryptde_null::CryptDENull;
-    use sub_lib::dispatcher::Component;
     use sub_lib::proxy_server::ProxyProtocol;
     use test_utils::test_utils::init_test_logging;
     use test_utils::test_utils::TestLogHandler;
 
     #[test]
     fn handles_http () {
-        let data = PlainData::new (&b"GET http://borko.com/fleebs.html HTTP/1.1\r\n\r\n"[..]);
+        let data = PlainData::new (&b"GET http://borkoed.com/fleebs.html HTTP/1.1\r\n\r\n"[..]);
         let ibcd = InboundClientData {
             socket_addr: SocketAddr::from_str ("1.2.3.4:5678").unwrap (),
             origin_port: Some (80),
-            component: Component::ProxyServer,
             last_data: false,
             data: data.data.clone (),
         };
@@ -77,7 +75,7 @@ mod tests {
             stream_key: SocketAddr::from_str ("1.2.3.4:5678").unwrap(),
             last_data: false,
             data,
-            target_hostname: Some (String::from ("borko.com")),
+            target_hostname: Some (String::from ("borkoed.com")),
             target_port: 80,
             protocol: ProxyProtocol::HTTP,
             originator_public_key: cryptde.public_key (),
@@ -107,7 +105,6 @@ mod tests {
         let ibcd = InboundClientData {
             socket_addr: SocketAddr::from_str ("1.2.3.4:5678").unwrap (),
             origin_port: Some (443),
-            component: Component::ProxyServer,
             last_data: false,
             data: data.data.clone (),
         };
@@ -145,7 +142,6 @@ mod tests {
         let ibcd = InboundClientData {
             socket_addr: SocketAddr::from_str ("1.2.3.4:5678").unwrap (),
             origin_port: Some (443),
-            component: Component::ProxyServer,
             last_data: true,
             data: data.data.clone (),
         };
@@ -172,7 +168,6 @@ mod tests {
         let ibcd = InboundClientData {
             socket_addr: SocketAddr::from_str ("1.2.3.4:5678").unwrap (),
             origin_port: None,
-            component: Component::ProxyServer,
             last_data: false,
             data: vec!(0x10, 0x11, 0x12),
         };
@@ -192,7 +187,6 @@ mod tests {
         let ibcd = InboundClientData {
             socket_addr: SocketAddr::from_str ("1.2.3.4:5678").unwrap (),
             origin_port: Some (1234),
-            component: Component::ProxyServer,
             last_data: false,
             data: vec!(0x10, 0x11, 0x12),
         };

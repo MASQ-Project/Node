@@ -7,7 +7,6 @@ use actix::Context;
 use actix::Handler;
 use actix::Recipient;
 use actix::Syn;
-use sub_lib::dispatcher::Component;
 use sub_lib::dispatcher::InboundClientData;
 use sub_lib::dispatcher::DispatcherSubs;
 use sub_lib::hopper::HopperTemporaryTransmitDataMsg;
@@ -50,14 +49,7 @@ impl Handler<InboundClientData> for Dispatcher {
     type Result = ();
 
     fn handle(&mut self, msg: InboundClientData, _ctx: &mut Self::Context) {
-        match msg.component {
-            Component::ProxyServer => self.to_proxy_server.as_ref().expect("ProxyServer unbound in Dispatcher").try_send(msg).expect("ProxyServer is dead"),
-            Component::Hopper => unimplemented!(),
-            _ => {
-                // crashpoint - StreamHandlerPool should never send us anything else, so panic! may make sense
-                panic! ("{:?} should not be receiving traffic from Dispatcher", msg.component)
-            }
-        };
+        self.to_proxy_server.as_ref().expect("ProxyServer unbound in Dispatcher").try_send(msg).expect("ProxyServer is dead");
     }
 }
 
@@ -71,7 +63,6 @@ impl Handler<HopperTemporaryTransmitDataMsg> for Dispatcher {
             last_data: msg.last_data,
             data: msg.data,
             socket_addr: SocketAddr::from_str("1.2.3.4:5678").expect("Couldn't create SocketAddr from 1.2.3.4:5678"),
-            component: Component::Hopper,
             origin_port: None,
         };
         self.to_hopper.as_ref().expect("Hopper unbound in Dispatcher").try_send(ibcd).expect("Hopper is dead");
@@ -133,12 +124,10 @@ mod tests {
         let awaiter = proxy_server.get_awaiter();
         let socket_addr = SocketAddr::from_str ("1.2.3.4:5678").unwrap ();
         let origin_port = Some (8080);
-        let component = Component::ProxyServer;
         let data: Vec<u8> = vec! (9, 10, 11);
         let ibcd_in = InboundClientData {
             socket_addr,
             origin_port,
-            component,
             last_data: false,
             data: data.clone ()
         };
@@ -155,72 +144,15 @@ mod tests {
         let recording = recording_arc.lock ().unwrap ();
 
         let message = &recording.get_record::<InboundClientData>(0) as *const _;
-        let (actual_socket_addr, actual_component, actual_data) = unsafe {
+        let (actual_socket_addr, actual_data) = unsafe {
             let tptr = message as *const Box<InboundClientData>;
             let message = &*tptr;
-            (message.socket_addr, message.component, message.data.clone ())
+            (message.socket_addr, message.data.clone ())
         };
 
-        assert_eq!(actual_component, component);
         assert_eq!(actual_socket_addr, socket_addr);
         assert_eq!(actual_data, data);
         assert_eq! (recording.len (), 1);
-    }
-
-    #[test]
-    #[should_panic (expected = "Neighborhood should not be receiving traffic from Dispatcher")]
-    fn panics_if_it_encounters_inbound_traffic_for_neighborhood() {
-        let system = System::new ("test");
-        let subject = Dispatcher::new ();
-        let subject_addr: Addr<Syn, Dispatcher> = subject.start ();
-        let subject_ibcd = subject_addr.clone ().recipient::<InboundClientData> ();
-        let socket_addr = SocketAddr::from_str ("1.2.3.4:8765").unwrap ();
-        let origin_port = Some (80);
-        let component = Component::Neighborhood;
-        let data: Vec<u8> = vec! (9, 10, 11);
-        let ibcd_in = InboundClientData {
-            socket_addr,
-            origin_port,
-            component,
-            last_data: false,
-            data: data.clone ()
-        };
-        let mut peer_actors = make_peer_actors();
-        peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
-        subject_addr.try_send( BindMessage { peer_actors }).unwrap ();
-
-        subject_ibcd.try_send (ibcd_in).unwrap ();
-
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
-        system.run ();
-    }
-
-    #[test]
-    #[should_panic (expected = "ProxyClient should not be receiving traffic from Dispatcher")]
-    fn panics_if_it_encounters_inbound_traffic_for_proxy_client() {
-        let system = System::new ("test");
-        let subject = Dispatcher::new ();
-        let subject_addr: Addr<Syn, Dispatcher> = subject.start ();
-        let subject_ibcd = subject_addr.clone ().recipient::<InboundClientData> ();
-        let socket_addr = SocketAddr::from_str ("1.2.3.4:8765").unwrap ();
-        let origin_port = Some (22);
-        let component = Component::ProxyClient;
-        let data: Vec<u8> = vec! (9, 10, 11);
-        let ibcd_in = InboundClientData {
-            socket_addr,
-            origin_port,
-            component,
-            last_data: false,
-            data: data.clone ()
-        };
-        let mut peer_actors = make_peer_actors();
-        peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
-        subject_addr.try_send( BindMessage { peer_actors }).unwrap ();
-
-        subject_ibcd.try_send (ibcd_in).unwrap ();
-
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
-        system.run ();
     }
 
     #[test]
@@ -232,12 +164,10 @@ mod tests {
         let subject_ibcd = subject_addr.recipient::<InboundClientData> ();
         let socket_addr = SocketAddr::from_str ("1.2.3.4:8765").unwrap ();
         let origin_port = Some (1234);
-        let component = Component::ProxyServer;
         let data: Vec<u8> = vec! (9, 10, 11);
         let ibcd_in = InboundClientData {
             socket_addr,
             origin_port,
-            component,
             last_data: false,
             data: data.clone ()
         };
@@ -362,13 +292,12 @@ mod tests {
         let recording = recording_arc.lock ().unwrap ();
 
         let message = &recording.get_record::<InboundClientData>(0) as *const _;
-        let (actual_component, actual_last_data, actual_data) = unsafe {
+        let (actual_last_data, actual_data) = unsafe {
             let tptr = message as *const Box<InboundClientData>;
             let message = &*tptr;
-            (message.component.clone(), message.last_data, message.data.clone ())
+            (message.last_data, message.data.clone ())
         };
 
-        assert_eq!(actual_component, Component::Hopper);
         assert_eq!(false, actual_last_data);
         assert_eq!(actual_data, data);
         assert_eq!(recording.len (), 1);
@@ -404,13 +333,12 @@ mod tests {
         let recording = recording_arc.lock ().unwrap ();
 
         let message = &recording.get_record::<InboundClientData>(0) as *const _;
-        let (actual_component, actual_last_data, actual_data) = unsafe {
+        let (actual_last_data, actual_data) = unsafe {
             let tptr = message as *const Box<InboundClientData>;
             let message = &*tptr;
-            (message.component.clone(), message.last_data, message.data.clone ())
+            (message.last_data, message.data.clone ())
         };
 
-        assert_eq!(actual_component, Component::Hopper);
         assert_eq!(true, actual_last_data);
         assert_eq!(actual_data, data);
         assert_eq!(recording.len (), 1);

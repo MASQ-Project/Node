@@ -19,7 +19,6 @@ use discriminator::Discriminator;
 use discriminator::DiscriminatorFactory;
 use sub_lib::cryptde::StreamKey;
 use sub_lib::dispatcher;
-use sub_lib::dispatcher::Component;
 use sub_lib::dispatcher::DispatcherSubs;
 use sub_lib::dispatcher::Endpoint;
 use sub_lib::dispatcher::InboundClientData;
@@ -76,7 +75,7 @@ struct StreamReaderReal {
     origin_port: Option<u16>,
     ibcd_sub: Recipient<Syn, dispatcher::InboundClientData>,
     remove_sub: Recipient<Syn, RemoveStreamMsg>,
-    discriminators: Vec<Box<Discriminator>>,
+    discriminators: Vec<Discriminator>,
     logger: Logger
 }
 
@@ -108,7 +107,6 @@ impl StreamReader for StreamReaderReal {
                         self.ibcd_sub.try_send(InboundClientData {
                             socket_addr: self.stream_key,
                             origin_port: self.origin_port,
-                            component: Component::ProxyServer,
                             last_data: true,
                             data: Vec::new(),
                         }).expect("Dispatcher is dead");
@@ -145,7 +143,7 @@ impl StreamReaderReal {
     fn wrangle_discriminators (&mut self, buf: &[u8], length: usize) {
         // Skinny implementation
         if self.discriminators.is_empty () {panic! ("Internal error: no Discriminator factories!")}
-        let discriminator = self.discriminators[0].as_mut ();
+        let discriminator = &mut self.discriminators[0];
         self.logger.debug (format! ("Adding {} bytes to discriminator", length));
         discriminator.add_data (&buf[..length]);
         loop {
@@ -154,12 +152,11 @@ impl StreamReaderReal {
                     let msg = dispatcher::InboundClientData {
                         socket_addr: self.stream_key,
                         origin_port: self.origin_port,
-                        component: unmasked_chunk.component,
                         last_data: false,
                         data: unmasked_chunk.chunk.clone ()
                     };
-                    self.logger.debug (format! ("Discriminator framed and unmasked {} bytes for {}; transmitting to {:?} via Hopper",
-                                                 unmasked_chunk.chunk.len (), msg.socket_addr, unmasked_chunk.component));
+                    self.logger.debug (format! ("Discriminator framed and unmasked {} bytes for {}; transmitting via Hopper",
+                                                 unmasked_chunk.chunk.len (), msg.socket_addr));
                     self.ibcd_sub.try_send(msg).expect("Dispatcher is dead");
                 }
                 None => {
@@ -368,7 +365,6 @@ mod tests {
     use node_test_utils::TcpStreamWrapperMock;
     use node_test_utils::TestLogOwner;
     use node_test_utils::wait_until;
-    use sub_lib::dispatcher::Component;
     use sub_lib::dispatcher::InboundClientData;
     use test_utils::test_utils::init_test_logging;
     use test_utils::test_utils::make_peer_actors;
@@ -463,28 +459,24 @@ mod tests {
         assert_eq! (dispatcher_recording.get_record::<dispatcher::InboundClientData> (0), &dispatcher::InboundClientData {
             socket_addr,
             origin_port,
-            component: Component::ProxyServer,
             last_data: false,
             data: one_http_req_a
         });
         assert_eq! (dispatcher_recording.get_record::<dispatcher::InboundClientData> (1), &dispatcher::InboundClientData {
             socket_addr,
             origin_port,
-            component: Component::ProxyServer,
             last_data: false,
             data: another_http_req_a
         });
         assert_eq! (dispatcher_recording.get_record::<dispatcher::InboundClientData> (2), &dispatcher::InboundClientData {
             socket_addr,
             origin_port,
-            component: Component::ProxyServer,
             last_data: false,
             data: a_third_http_req_a
         });
         assert_eq! (dispatcher_recording.get_record::<dispatcher::InboundClientData> (3), &dispatcher::InboundClientData {
             socket_addr,
             origin_port,
-            component: Component::ProxyServer,
             last_data: true,
             data: Vec::new ()
         });
@@ -539,7 +531,6 @@ mod tests {
         assert_eq! (recording.get_record::<dispatcher::InboundClientData> (0), &dispatcher::InboundClientData {
             socket_addr,
             origin_port,
-            component: Component::ProxyServer,
             last_data: false,
             data: http_req_a
         });

@@ -104,7 +104,6 @@ mod tests {
     use actix::Actor;
     use actix::Addr;
     use actix::System;
-    use sub_lib::dispatcher::Component;
     use sub_lib::limiter::Limiter;
     use sub_lib::tcp_wrappers::TcpStreamWrapper;
     use node_test_utils::NullDiscriminatorFactory;
@@ -176,7 +175,7 @@ mod tests {
         listener.bind_result = Some (Ok (()));
         let listener_log = listener.log.clone ();
         let discriminator_factory = NullDiscriminatorFactory::new ()
-            .discriminator_nature (Component::Hopper, vec! (vec! ()));
+            .discriminator_nature (vec! (b"booga".to_vec()));
         let mut subject = ListenerHandlerReal::new ();
         subject.listener = Box::new (listener);
 
@@ -189,7 +188,7 @@ mod tests {
         let factory = subject.discriminator_factories.remove (0);
         let mut discriminator = factory.make ();
         let chunk = discriminator.take_chunk ().unwrap ();
-        assert_eq! (chunk.component, Component::Hopper);
+        assert_eq! (chunk.chunk, b"booga".to_vec());
         assert_eq! (subject.discriminator_factories.len (), 0);
     }
 
@@ -233,7 +232,7 @@ mod tests {
         ));
         listener.bind_result = Some (Ok (()));
         let discriminator_factory = NullDiscriminatorFactory::new ()
-            .discriminator_nature(Component::Hopper, vec! ());
+            .discriminator_nature(vec! ());
         let (recorder, recording_arc, awaiter) = make_recorder ();
         thread::spawn (move || {
             let system = System::new("test");

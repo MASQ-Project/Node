@@ -352,7 +352,6 @@ mod tests {
         let inbound_client_data = InboundClientData {
             socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             origin_port: None,
-            component: Component::Hopper,
             last_data: false,
             data: data_enc.data
         };
@@ -389,7 +388,6 @@ mod tests {
         let inbound_client_data = InboundClientData {
             socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             origin_port: None,
-            component: Component::Hopper,
             last_data: false,
             data: data_enc.data
         };
@@ -429,7 +427,6 @@ mod tests {
         let inbound_client_data = InboundClientData {
             socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             origin_port: None,
-            component: Component::Hopper,
             last_data: true,
             data: data_enc.data
         };
@@ -472,7 +469,6 @@ mod tests {
         let inbound_client_data = InboundClientData {
             socket_addr,
             origin_port: None,
-            component: Component::Hopper,
             last_data: false,
             data: encrypted_package,
         };
@@ -501,7 +497,6 @@ mod tests {
         let inbound_client_data = InboundClientData {
             socket_addr,
             origin_port: None,
-            component: Component::Hopper,
             last_data: false,
             data: encrypted_package,
         };

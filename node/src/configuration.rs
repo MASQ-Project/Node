@@ -37,7 +37,6 @@ impl Configuration {
 #[cfg (test)]
 mod tests {
     use super::*;
-    use sub_lib::dispatcher::Component;
     use discriminator::UnmaskedChunk;
     use node_test_utils::NullDiscriminatorFactory;
 
@@ -54,8 +53,7 @@ mod tests {
         let mut http_discriminator = http_factory.make ();
         http_discriminator.add_data ("GET http://url.com HTTP/1.1\r\n\r\n".as_bytes ());
         let http_chunk = http_discriminator.take_chunk ().unwrap ();
-        assert_eq! (http_chunk, UnmaskedChunk::new (Vec::from ("GET http://url.com HTTP/1.1\r\n\r\n".as_bytes ()),
-                                                    Component::ProxyServer, true));
+        assert_eq! (http_chunk, UnmaskedChunk::new (Vec::from ("GET http://url.com HTTP/1.1\r\n\r\n".as_bytes ()), true));
     }
 
     #[test]
@@ -71,8 +69,7 @@ mod tests {
         let mut tls_discriminator = tls_factory.make ();
         tls_discriminator.add_data (&vec! (0x16, 0x03, 0x01, 0x00, 0x03, 0x01, 0x02, 0x03)[..]);
         let tls_chunk = tls_discriminator.take_chunk ().unwrap ();
-        assert_eq! (tls_chunk, UnmaskedChunk::new (vec! (0x16, 0x03, 0x01, 0x00, 0x03, 0x01, 0x02, 0x03),
-                                                   Component::ProxyServer, true));
+        assert_eq! (tls_chunk, UnmaskedChunk::new (vec! (0x16, 0x03, 0x01, 0x00, 0x03, 0x01, 0x02, 0x03), true));
     }
 
     #[test]

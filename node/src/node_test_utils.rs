@@ -19,7 +19,6 @@ use actix::Addr;
 use actix::Handler;
 use actix::Syn;
 use sub_lib::tcp_wrappers::TcpStreamWrapper;
-use sub_lib::dispatcher::Component;
 use sub_lib::framer::Framer;
 use sub_lib::framer::FramedChunk;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
@@ -197,8 +196,8 @@ impl Masquerader for MasqueraderMock {
         self.try_unmask_results.borrow_mut ().remove (0)
     }
 
-    fn mask(&self, component: Component, data: &[u8]) -> Result<Vec<u8>, MasqueradeError> {
-        self.log.lock ().unwrap ().log (format! ("mask ({:?}, \"{}\")", component, String::from_utf8 (Vec::from (data)).unwrap ()));
+    fn mask(&self, data: &[u8]) -> Result<Vec<u8>, MasqueradeError> {
+        self.log.lock ().unwrap ().log (format! ("mask (\"{}\")", String::from_utf8 (Vec::from (data)).unwrap ()));
         self.mask_results.borrow_mut ().remove (0)
     }
 }
@@ -254,21 +253,21 @@ impl Framer for NullFramer {
     }
 }
 
-pub fn make_null_discriminator (component: Component, data: Vec<Vec<u8>>) -> Discriminator {
+pub fn make_null_discriminator (data: Vec<Vec<u8>>) -> Discriminator {
     let framer = NullFramer {data};
-    let masquerader = NullMasquerader::new (component);
+    let masquerader = NullMasquerader::new ();
     Discriminator::new (Box::new (framer), vec! (Box::new (masquerader)))
 }
 
 #[derive (Debug, Clone)]
 pub struct NullDiscriminatorFactory {
-    discriminator_natures: RefCell<Vec<(Component, Vec<Vec<u8>>)>>
+    discriminator_natures: RefCell<Vec<Vec<Vec<u8>>>>
 }
 
 impl DiscriminatorFactory for NullDiscriminatorFactory {
-    fn make(&self) -> Box<Discriminator> {
-        let (component, data) = self.discriminator_natures.borrow_mut ().remove (0);
-        Box::new (make_null_discriminator(component, data))
+    fn make(&self) -> Discriminator {
+        let data = self.discriminator_natures.borrow_mut ().remove (0);
+        make_null_discriminator(data)
     }
 
     fn duplicate(&self) -> Box<DiscriminatorFactory> {
@@ -285,8 +284,8 @@ impl NullDiscriminatorFactory {
         }
     }
 
-    pub fn discriminator_nature (self, component: Component, data: Vec<Vec<u8>>) -> NullDiscriminatorFactory {
-        self.discriminator_natures.borrow_mut ().push ((component, data));
+    pub fn discriminator_nature (self, data: Vec<Vec<u8>>) -> NullDiscriminatorFactory {
+        self.discriminator_natures.borrow_mut ().push (data);
         self
     }
 }

@@ -123,7 +123,6 @@ pub enum DispatcherError {
 pub struct InboundClientData {
     pub socket_addr: SocketAddr,
     pub origin_port: Option<u16>,
-    pub component: Component,
     pub last_data: bool,
     pub data: Vec<u8>
 }
@@ -134,8 +133,8 @@ impl Debug for InboundClientData {
             Ok (string) => string,
             Err (_) => format! ("{:?}", &self.data[..])
         };
-        write! (f, "InboundClientData {{ socket_addr: {:?}, origin_port: {:?}, component: {:?}, last_data: {}, data: {} }}",
-                self.socket_addr, self.origin_port, self.component, self.last_data, data_string)
+        write! (f, "InboundClientData {{ socket_addr: {:?}, origin_port: {:?}, last_data: {}, data: {} }}",
+                self.socket_addr, self.origin_port, self.last_data, data_string)
     }
 }
 

@@ -3,7 +3,6 @@ use std::marker::Send;
 use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
-use sub_lib::dispatcher::Component;
 use discriminator::UnmaskedChunk;
 
 #[derive (Debug, PartialEq)]
@@ -28,7 +27,7 @@ impl Display for MasqueradeError {
 
 pub trait Masquerader: Send {
     fn try_unmask (&self, item: &[u8]) -> Option<UnmaskedChunk>;
-    fn mask (&self, component: Component, data: &[u8]) -> Result<Vec<u8>, MasqueradeError>;
+    fn mask (&self, data: &[u8]) -> Result<Vec<u8>, MasqueradeError>;
 }
 
 #[cfg (test)]

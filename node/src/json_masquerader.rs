@@ -1,7 +1,6 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use base64;
 use serde_json;
-use sub_lib::dispatcher::Component;
 use sub_lib::logger::Logger;
 use masquerader::Masquerader;
 use masquerader::MasqueradeError;
@@ -22,14 +21,14 @@ impl Masquerader for JsonMasquerader {
         }
     }
 
-    fn mask(&self, component: Component, data: &[u8]) -> Result<Vec<u8>, MasqueradeError> {
+    fn mask(&self, data: &[u8]) -> Result<Vec<u8>, MasqueradeError> {
         // crashpoint - return a MasqueradeError?
         let json_string = match String::from_utf8(Vec::from(data)) {
             Ok(string) => {
-                JsonMasquerader::make_text_structure(component, string)
+                JsonMasquerader::make_text_structure(string)
             },
             Err(_) => {
-                JsonMasquerader::make_binary_structure(component, data)
+                JsonMasquerader::make_binary_structure(data)
             }
         }.expect("Could not make json string");
         Ok(json_string.into_bytes())
@@ -47,21 +46,18 @@ impl JsonMasquerader {
     fn unmask (&self, data: &[u8]) -> Result<UnmaskedChunk, MasqueradeError> {
         let json_string = JsonMasquerader::string_from_data (data)?;
         let structure = JsonMasquerader::structure_from_string (json_string)?;
-        let component = JsonMasquerader::component_from_structure (&structure)?;
         let data_vector = JsonMasquerader::data_vector_from_structure (&structure)?;
-        Ok (UnmaskedChunk::new (data_vector, component, true))
+        Ok (UnmaskedChunk::new (data_vector, true))
     }
 
-    fn make_text_structure(component: Component, string: String) -> Result<String, serde_json::Error> {
-        let structure = JsonMasqueraderStringStructure {component: String::from (component.as_str ()),
-            bodyText: string};
+    fn make_text_structure(string: String) -> Result<String, serde_json::Error> {
+        let structure = JsonMasqueraderStringStructure {bodyText: string};
         serde_json::to_string (&structure)
     }
 
-    fn make_binary_structure(component: Component, data: &[u8]) -> Result<String, serde_json::Error> {
+    fn make_binary_structure(data: &[u8]) -> Result<String, serde_json::Error> {
         let base64 = base64::encode (data);
-        let structure = JsonMasqueraderDataStructure {component: String::from (component.as_str ()),
-            bodyData: base64};
+        let structure = JsonMasqueraderDataStructure {bodyData: base64};
         serde_json::to_string (&structure)
     }
 
@@ -85,13 +81,6 @@ impl JsonMasquerader {
         }
     }
 
-    fn component_from_structure (structure: &JsonMasqueraderUnmaskStructure) -> Result<Component, MasqueradeError> {
-        match Component::from_str(&structure.component[..]) {
-            Some (component) => Ok (component),
-            None => Err (MasqueradeError::UnexpectedComponent(structure.component.clone ()))
-        }
-    }
-
     fn data_vector_from_structure (structure: &JsonMasqueraderUnmaskStructure) -> Result<Vec<u8>, MasqueradeError> {
         match (structure.bodyText.clone (), structure.bodyData.clone ()) {
             (Some (text), None) => Ok (text.into_bytes()),
@@ -108,21 +97,18 @@ impl JsonMasquerader {
 #[derive (Serialize, Deserialize)]
 #[allow(non_snake_case)]
 struct JsonMasqueraderStringStructure {
-    component: String,
     bodyText: String
 }
 
 #[derive (Serialize, Deserialize)]
 #[allow(non_snake_case)]
 struct JsonMasqueraderDataStructure {
-    component: String,
     bodyData: String
 }
 
 #[derive (Serialize, Deserialize)]
 #[allow(non_snake_case)]
 struct JsonMasqueraderUnmaskStructure {
-    component: String,
     bodyText: Option<String>,
     bodyData: Option<String>
 }
@@ -136,12 +122,10 @@ mod tests {
     #[test]
     fn json_masquerader_can_mask_and_unmask_bodytext () {
         let subject = JsonMasquerader::new ();
-        let data = subject.mask (Component::Hopper,
-                                 String::from ("Fourscore and seven years ago").as_bytes ()).unwrap ();
+        let data = subject.mask (String::from ("Fourscore and seven years ago").as_bytes ()).unwrap ();
 
         let unmasked_chunk = subject.try_unmask (&data[..]).unwrap ();
 
-        assert_eq! (unmasked_chunk.component, Component::Hopper);
         assert_eq! (String::from_utf8 (unmasked_chunk.chunk).unwrap (), "Fourscore and seven years ago");
     }
 
@@ -152,18 +136,16 @@ mod tests {
 
         let result = subject.try_unmask (data);
 
-        assert_eq! (result, Some (UnmaskedChunk::new (Vec::from ("\\}\"{'".as_bytes ()), Component::Neighborhood, true)))
+        assert_eq! (result, Some (UnmaskedChunk::new (Vec::from ("\\}\"{'".as_bytes ()), true)))
     }
 
     #[test]
     fn json_masquerader_can_mask_and_unmask_bodydata () {
         let subject = JsonMasquerader::new ();
-        let data = subject.mask (Component::Hopper,
-                                 &[0x7B, 0xC0, 0x7D, 0xC1]).unwrap ();
+        let data = subject.mask (&[0x7B, 0xC0, 0x7D, 0xC1]).unwrap ();
 
         let unmasked_chunk = subject.try_unmask (&data[..]).unwrap ();
 
-        assert_eq! (unmasked_chunk.component, Component::Hopper);
         assert_eq! (unmasked_chunk.chunk, vec!(0x7B, 0xC0, 0x7D, 0xC1));
     }
 
@@ -173,11 +155,10 @@ mod tests {
         let data = text.as_bytes ();
         let subject = JsonMasquerader::new();
 
-        let result = subject.mask (Component::Neighborhood, data).unwrap ();
+        let result = subject.mask (data).unwrap ();
 
         let actual_json = &String::from_utf8 (result).unwrap ()[..];
         let actual_structure: JsonMasqueraderStringStructure = serde_json::from_str (actual_json).unwrap ();
-        assert_eq! (actual_structure.component, Component::Neighborhood.as_str ());
         assert_eq! (actual_structure.bodyText, String::from ("Fourscore and seven years ago"));
     }
 
@@ -186,11 +167,10 @@ mod tests {
         let data: &[u8] = &[0x7B, 0xC0, 0x7D, 0xC1];
         let subject = JsonMasquerader::new ();
 
-        let result = subject.mask (Component::Neighborhood, data).unwrap ();
+        let result = subject.mask (data).unwrap ();
 
         let actual_json = &String::from_utf8 (result).unwrap ()[..];
         let actual_structure: JsonMasqueraderDataStructure = serde_json::from_str (actual_json).unwrap ();
-        assert_eq! (actual_structure.component, Component::Neighborhood.as_str ());
         assert_eq! (actual_structure.bodyData, String::from ("e8B9wQ=="));
     }
     #[test]
@@ -220,25 +200,9 @@ mod tests {
     }
 
     #[test]
-    fn json_masquerader_handles_json_that_doesnt_match_schema () {
-        verify_error (
-            "{\"hello\": [\"world\", 4]}".as_ref (),
-            "JsonMasquerader: Mid-level data error: JSON does not match schema"
-        );
-    }
-
-    #[test]
-    fn json_masquerader_handles_unknown_component () {
-        verify_error (
-            "{\"component\": \"BOOGA\", \"bodyText\": \"text\"}".as_ref (),
-            "JsonMasquerader: Unexpected component indicator: BOOGA"
-        );
-    }
-
-    #[test]
     fn json_masquerader_handles_bad_base64 () {
         verify_error (
-            "{\"component\": \"HOPR\", \"bodyData\": \"()[]\"}".as_ref (),
+            "{\"bodyData\": \"()[]\"}".as_ref (),
             "JsonMasquerader: High-level data error: Can't decode Base64: '()[]'"
         );
     }
@@ -246,7 +210,7 @@ mod tests {
     #[test]
     fn json_masquerader_handles_both_body_text_and_body_data () {
         verify_error (
-            "{\"component\": \"HOPR\", \"bodyData\": \"QUJDRA==\", \"bodyText\": \"blah\"}".as_ref (),
+            "{\"bodyData\": \"QUJDRA==\", \"bodyText\": \"blah\"}".as_ref (),
             "JsonMasquerader: High-level data error: Found both bodyText and bodyData; can't choose"
         );
     }
@@ -254,7 +218,7 @@ mod tests {
     #[test]
     fn json_masquerader_handles_neither_body_text_nor_body_data () {
         verify_error (
-            "{\"component\": \"HOPR\"}".as_ref (),
+            "{}".as_ref (),
             "Found neither bodyText nor bodyData; need one"
         );
     }
