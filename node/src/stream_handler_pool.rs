@@ -8,7 +8,6 @@ use std::net::Shutdown;
 use std::net::SocketAddr;
 use std::string::ToString;
 use std::thread;
-use std::time::Duration;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
@@ -27,7 +26,6 @@ use sub_lib::node_addr::NodeAddr;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
 use sub_lib::tcp_wrappers::TcpStreamWrapper;
 use sub_lib::utils::indicates_dead_stream;
-use sub_lib::utils::indicates_timeout;
 use sub_lib::utils::NODE_MAILBOX_CAPACITY;
 
 trait StreamReader {
@@ -83,33 +81,22 @@ impl StreamReader for StreamReaderReal {
     fn handle_traffic(&mut self) {
         let port = self.stream.local_addr().expect ("Internal error: no local address").port ();
         self.logger.debug (format! ("StreamReader for port {} starting with no read timeout", port));
-        self.stream.set_read_timeout (None).expect ("Internal error: can't set read timeout");
         let mut buf: [u8; 0x10000] = [0; 0x10000];
         loop {
             match self.stream.read(&mut buf) {
+                Ok(0) => { // see RETURN VALUE section of recv man page (Unix)
+                    self.logger.debug (format! ("Stream on port {} has shut down (0-byte read)", port));
+                    self.shutdown();
+                    break;
+                },
                 Ok(length) => {
-                    if length == 0 {
-                        thread::sleep (Duration::from_millis (100));
-                    } else {
-                        self.logger.debug (format! ("Read {}-byte chunk from port {}", length, port));
-                        self.wrangle_discriminators(&buf, length)
-                    }
+                    self.logger.debug (format! ("Read {}-byte chunk from port {}", length, port));
+                    self.wrangle_discriminators(&buf, length)
                 },
                 Err(e) => {
-                    if indicates_timeout (e.kind ()) {
-                        thread::sleep (Duration::from_millis (100));
-                    }
-                    else if indicates_dead_stream (e.kind ()) {
+                    if indicates_dead_stream (e.kind ()) {
                         self.logger.debug (format! ("Stream on port {} is dead: {}", port, e));
-                        self.remove_sub.try_send (RemoveStreamMsg {socket_addr: self.stream_key}).expect ("StreamHandlerPool is dead");
-                        self.stream.shutdown (Shutdown::Both).ok (); // can't do anything about failure
-                        // TODO: Skinny implementation: wrong for decentralization. StreamReaders for clandestine and non-clandestine data should probably behave differently here.
-                        self.ibcd_sub.try_send(InboundClientData {
-                            socket_addr: self.stream_key,
-                            origin_port: self.origin_port,
-                            last_data: true,
-                            data: Vec::new(),
-                        }).expect("Dispatcher is dead");
+                        self.shutdown();
                         break;
                     }
                     else {
@@ -165,6 +152,18 @@ impl StreamReaderReal {
                 }
             }
         }
+    }
+
+    fn shutdown(&mut self) {
+        self.remove_sub.try_send(RemoveStreamMsg { socket_addr: self.stream_key }).expect("StreamHandlerPool is dead");
+        self.stream.shutdown(Shutdown::Both).ok(); // can't do anything about failure
+        // TODO: Skinny implementation: wrong for decentralization. StreamReaders for clandestine and non-clandestine data should probably behave differently here.
+        self.ibcd_sub.try_send(InboundClientData {
+            socket_addr: self.stream_key,
+            origin_port: self.origin_port,
+            last_data: true,
+            data: Vec::new(),
+        }).expect("Dispatcher is dead");
     }
 }
 
@@ -423,11 +422,9 @@ mod tests {
         second_chunk.extend (athird_http_req.clone ());
         let awaiter = dispatcher.get_awaiter ();
         let mut read_stream = TcpStreamWrapperMock::new();
-        let read_stream_log = read_stream.log.clone ();
         thread::spawn (move || {
             let system = System::new("test");
             read_stream = read_stream.peer_addr_result (Ok(socket_addr));
-            read_stream.set_read_timeout_results = RefCell::new (vec! (Ok (())));
             read_stream.read_results = vec!(
                 (one_http_req.clone(), Ok(one_http_req.len())),
                 (second_chunk.clone (), Ok(second_chunk.len())),
@@ -481,7 +478,71 @@ mod tests {
             data: Vec::new ()
         });
         assert_eq! (dispatcher_recording.len (), 4);
-        assert_eq! (read_stream_log.lock ().unwrap ().dump ()[0], "set_read_timeout (None)");
+    }
+
+    #[test]
+    fn receiving_0_bytes_from_existing_stream_removes_writer_and_shuts_down_stream () {
+        init_test_logging();
+        let dispatcher = Recorder::new ();
+        let dispatcher_recording = dispatcher.get_recording();
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let http_req = Vec::from("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes());
+        let expected_http_req = http_req.clone ();
+        let origin_port = Some (4321);
+        let awaiter = dispatcher.get_awaiter ();
+        let mut read_stream = TcpStreamWrapperMock::new()
+            .peer_addr_result (Ok(socket_addr));
+        read_stream.read_results = vec! (
+            (http_req.clone(), Ok(http_req.len ())),
+            (Vec::new(), Ok(0))
+        );
+        read_stream.shutdown_results = RefCell::new (vec! (Ok (())));
+        let read_stream_log_arc = read_stream.get_test_log ();
+        let write_stream = TcpStreamWrapperMock::new()
+            .peer_addr_result (Ok (socket_addr));
+        let mut stream = TcpStreamWrapperMock::new();
+        stream.try_clone_results = RefCell::new(vec!(Ok(Box::new(read_stream)), Ok(Box::new(write_stream))));
+        thread::spawn (move || {
+            let system = System::new("test");
+            let subject = StreamHandlerPool::new();
+            let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
+            let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
+            let peer_actors = make_peer_actors_from(None, Some(dispatcher), None, None, None);
+
+            subject_subs.bind.try_send(PoolBindMessage { dispatcher_subs: peer_actors.dispatcher, stream_handler_pool_subs: subject_subs.clone ()}).unwrap ();
+
+            subject_subs.add_sub.try_send(AddStreamMsg {
+                stream: Box::new(stream),
+                origin_port,
+                discriminator_factories: vec! (Box::new (HttpRequestDiscriminatorFactory::new ()))
+            }).unwrap ();
+
+            system.run ();
+        });
+
+        awaiter.await_message_count (2);
+        let recording = dispatcher_recording.lock ().unwrap ();
+        assert_eq! (recording.get_record::<dispatcher::InboundClientData> (0), &dispatcher::InboundClientData {
+            socket_addr,
+            origin_port,
+            last_data: false,
+            data: expected_http_req
+        });
+        assert_eq! (recording.get_record::<dispatcher::InboundClientData> (1), &dispatcher::InboundClientData {
+            socket_addr,
+            origin_port,
+            last_data: true,
+            data: Vec::new()
+        });
+        wait_until (|| {
+            read_stream_log_arc.lock ().unwrap ().dump ().len () == 3
+        });
+        assert_eq! (read_stream_log_arc.lock ().unwrap ().dump (), vec! (
+            "read (65536-byte buf)",
+            "read (65536-byte buf)",
+            "shutdown (Both)"
+        ));
+        TestLogHandler::new().exists_log_containing("DEBUG: Dispatcher for V4(1.2.3.4:5678): Stream on port 6789 has shut down (0-byte read)");
     }
 
     #[test]
@@ -496,7 +557,6 @@ mod tests {
         let awaiter = dispatcher.get_awaiter ();
         let mut read_stream = TcpStreamWrapperMock::new()
             .peer_addr_result (Ok(socket_addr));
-        read_stream.set_read_timeout_results = RefCell::new (vec! (Ok (())));
         read_stream.read_results = vec!(
             (Vec::new (), Err(Error::from(ErrorKind::Other))), // no shutdown
             (http_req.clone(), Ok(http_req.len ())),
@@ -543,7 +603,6 @@ mod tests {
         let mut read_stream = TcpStreamWrapperMock::new()
             .peer_addr_result (Ok(socket_addr))
             .peer_addr_result (Err (Error::from (ErrorKind::NotConnected)));
-        read_stream.set_read_timeout_results = RefCell::new (vec! (Ok(())));
         read_stream.read_results = vec! ((Vec::new (), Err (Error::from (ErrorKind::ConnectionRefused))));
         read_stream.shutdown_results = RefCell::new (vec! (Ok (())));
         let read_stream_log = read_stream.log.clone ();
@@ -571,7 +630,7 @@ mod tests {
             discriminator_factories: vec! (Box::new (HttpRequestDiscriminatorFactory::new ()))
         }).unwrap ();
         wait_until (|| {
-            read_stream_log.lock ().unwrap ().dump ().len () == 3
+            read_stream_log.lock ().unwrap ().dump ().len () == 2
         });
 
         subject_subs.transmit_sub.try_send(TransmitDataMsg {
@@ -582,7 +641,6 @@ mod tests {
         TestLogHandler::new ().exists_no_log_matching("WARN.*1\\.2\\.3\\.4:5676.*Continuing after read error");
 
         assert_eq! (read_stream_log.lock ().unwrap ().dump (), vec! (
-            "set_read_timeout (None)",
             "read (65536-byte buf)",
             "shutdown (Both)"
         ));
