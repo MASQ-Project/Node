@@ -21,6 +21,8 @@ else
     COMMAND_DIR="$HOST_NODE_PARENT_DIR/node/target/release"
 fi
 
+KNOWN_NEIGHBORS=""
+
 function wait_for_startup() {
     local IP="$1"
     local RETRIES_REMAINING="$STARTUP_RETRY_MAX"
@@ -47,13 +49,27 @@ function start_node() {
     local CONTAINER_IP="172.18.1.$INDEX"
     local CONTAINER_NAME="test_node_$INDEX"
     echo "Initiating start of $CONTAINER_NAME on $CONTAINER_IP"
-    docker run --detach --ip "$CONTAINER_IP" --dns 127.0.0.1 --rm --name "$CONTAINER_NAME" --net integration_net -v "$COMMAND_DIR":/node_root/node test_node_image
+    local COMMAND="/node_root/node/SubstratumNode"
+    local ARGS="--dns_servers 1.1.1.1 --log_level trace $KNOWN_NEIGHBORS"
+    local DOCKER_RUN="docker run --detach --ip $CONTAINER_IP --dns 127.0.0.1 --rm --name $CONTAINER_NAME --net integration_net -v $COMMAND_DIR:/node_root/node test_node_image $COMMAND $ARGS"
+    echo "$DOCKER_RUN"
+    $DOCKER_RUN
     local RUN_RESULT=$?
     if [ "$RUN_RESULT" != "0" ]; then
         echo "docker run failed: $RUN_RESULT"
         return 1
     fi
     wait_for_startup "$CONTAINER_IP"
+    update_known_neighbors "$CONTAINER_NAME" "$CONTAINER_IP" "$PORT_LIST"
+}
+
+function update_known_neighbors() {
+    local NEIGHBOR_NAME="$1"
+    local NEIGHBOR_IP="$2"
+    local NEIGHBOR_PORT_LIST="$3" # Temporary
+    local NEIGHBOR_KEY="$(docker logs "$NEIGHBOR_NAME" | head -n 2 | tail -n 1 | cut -f5 -d' ')"
+    local NEIGHBOR_PARAM="--neighbor $NEIGHBOR_KEY;$NEIGHBOR_IP;$NEIGHBOR_PORT_LIST"
+    KNOWN_NEIGHBORS="$KNOWN_NEIGHBORS $NEIGHBOR_PARAM"
 }
 
 function kill_containers_up_to() {
@@ -65,8 +81,12 @@ function kill_containers_up_to() {
     done
 }
 
+function stop_running_nodes() {
+    docker ps -a -q --filter ancestor="test_node_image" | xargs docker stop -t 0
+}
+
 function create_network() {
-  docker network disconnect integration_net subjenkins # just in case we're in Jenkins
+  docker network disconnect integration_net subjenkins # just in case we're in Jenkins; ignore error if not
   docker network rm integration_net
   docker network create --subnet=172.18.0.0/16 integration_net
   if [ "$HOST_NODE_PARENT_DIR" != "" ]; then
@@ -77,6 +97,7 @@ function create_network() {
   fi
 }
 
+stop_running_nodes
 create_network
 
 for PORT_LIST in $PORT_LISTS; do

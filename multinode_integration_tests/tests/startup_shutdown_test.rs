@@ -12,10 +12,10 @@ use std::io::ErrorKind;
 use std::time::Duration;
 use regex::Regex;
 use sub_lib::utils::index_of;
-use multinode_integration_tests_lib::substratum_node_cluster::NodeStartupConfig;
-use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeClient;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::command::Command;
+use multinode_integration_tests_lib::substratum_node::NodeStartupConfig;
+use multinode_integration_tests_lib::substratum_client::SubstratumNodeClient;
 
 #[test]
 fn starts_and_stops_substratum_nodes () {

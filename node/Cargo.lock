@@ -508,7 +508,12 @@ dependencies = [
 name = "multinode_integration_tests"
 version = "0.3.3"
 dependencies = [
+ "hopper_lib 0.3.3",
+ "node 0.3.3",
  "regex 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde 1.0.64 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_cbor 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_derive 1.0.64 (registry+https://github.com/rust-lang/crates.io-index)",
  "sub_lib 0.3.3",
  "test_utils 0.3.3",
 ]

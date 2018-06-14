@@ -4,5 +4,8 @@ CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 
 PARENT_DIR="$1"
 
+# Remove this line to slow down the build
+export RUSTC_WRAPPER=sccache
+
 cd "${CI_DIR}/../multinode_integration_tests"
 ci/all.sh "$PARENT_DIR"

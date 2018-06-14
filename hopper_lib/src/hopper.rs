@@ -184,7 +184,7 @@ impl Hopper {
     }
 }
 
-#[derive (Clone, PartialEq, Serialize, Deserialize)]
+#[derive (Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LiveCoresPackage {
     pub route: Route,
     pub payload: CryptData
@@ -260,6 +260,7 @@ mod tests {
     use test_utils::test_utils::make_peer_actors_from;
     use test_utils::test_utils::route_to_proxy_client;
     use test_utils::test_utils::route_to_proxy_server;
+    use test_utils::test_utils::make_meaningless_route;
 
     #[test]
     fn live_cores_package_can_be_constructed_from_scratch () {
@@ -530,5 +531,16 @@ mod tests {
 
         Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run();
+    }
+
+    #[test]
+    fn live_cores_package_serialization_deserialization () {
+        let original = LiveCoresPackage {route: make_meaningless_route(), payload: CryptData::new (&[1, 2, 3, 4])};
+
+        let serialized = serde_cbor::ser::to_vec (&original).unwrap ();
+
+        let deserialized = serde_cbor::de::from_slice::<LiveCoresPackage> (&serialized[..]).unwrap ();
+
+        assert_eq! (deserialized, original);
     }
 }

@@ -9,7 +9,12 @@ workspace = "../node"
 
 [dependencies]
 regex = "0.2.5"
+serde = "1.0.24"
+serde_derive = "1.0.24"
+serde_cbor = "0.8.1"
 sub_lib = { path = "../sub_lib" }
+hopper_lib = { path = "../hopper_lib" }
+node = { path = "../node" }
 
 [dev-dependencies]
 test_utils = { path = "../test_utils" }

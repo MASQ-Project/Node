@@ -26,18 +26,19 @@ extern crate daemonize;
 mod actor_system_factory;
 mod bootstrapper;
 mod configuration;
-mod discriminator;
+pub mod discriminator;
 mod dispatcher;
 mod http_request_start_finder;
-mod json_framer;
-mod json_masquerader;
+pub mod json_discriminator_factory;
+pub mod json_framer;
+pub mod json_masquerader;
 mod listener_handler;
-mod masquerader;
+pub mod masquerader;
 mod null_masquerader;
 mod privilege_drop;
 pub mod server_initializer;
 mod stream_handler_pool;
-mod tls_discriminator;
+pub mod tls_discriminator_factory;
 
 #[cfg (test)]
 mod node_test_utils;

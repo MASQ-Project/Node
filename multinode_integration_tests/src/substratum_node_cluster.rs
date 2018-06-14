@@ -1,105 +1,12 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use std::collections::HashSet;
-use std::collections::HashMap;
-use std::env;
-use std::io::ErrorKind;
-use std::io::Read;
-use std::io::Write;
-use std::net::TcpStream;
-use std::net::IpAddr;
-use std::net::SocketAddr;
-use std::path::PathBuf;
-use std::str::FromStr;
-use std::thread;
-use std::time::Duration;
-use regex::Regex;
 use command::Command;
-
-pub struct NodeStartupConfig {
-    port_numbers: Vec<u16>
-}
-
-impl NodeStartupConfig {
-    pub fn new (port_numbers: Vec<u16>) -> NodeStartupConfig {
-        NodeStartupConfig {
-            port_numbers
-        }
-    }
-
-    pub fn get_port_numbers (&self) -> &Vec<u16> {
-        &self.port_numbers
-    }
-
-    pub fn as_command_line_parameter<'a> (&'a self) -> &'a str {
-        // We don't know what these parameter clusters will look like eventually;
-        // right now they are not looked at except to ensure that they contain no spaces.
-        "booga"
-    }
-}
-
-pub struct SubstratumNode {
-    startup_config: NodeStartupConfig,
-    name: String,
-    ip_address: IpAddr,
-}
-
-impl SubstratumNode {
-    pub fn new (startup_config: NodeStartupConfig, index: usize) -> SubstratumNode {
-        SubstratumNode {
-            startup_config,
-            name: format! ("test_node_{}", index),
-            ip_address: IpAddr::from_str (&format! ("172.18.1.{}", index)).unwrap (),
-        }
-    }
-
-    pub fn get_name (&self) -> &str {
-        &self.name
-    }
-
-    pub fn get_ip_address (&self) -> IpAddr {
-        self.ip_address
-    }
-
-    pub fn get_startup_config (&self) -> &NodeStartupConfig {
-        &self.startup_config
-    }
-
-    pub fn make_client (&self, port: u16) -> SubstratumNodeClient {
-        let socket_addr = SocketAddr::new(self.ip_address, port);
-        SubstratumNodeClient::new(socket_addr)
-    }
-}
-
-pub struct SubstratumNodeClient {
-    stream: TcpStream,
-}
-
-impl SubstratumNodeClient {
-    pub fn new(socket_addr: SocketAddr) -> SubstratumNodeClient {
-        let stream = TcpStream::connect (&socket_addr).unwrap ();
-        stream.set_read_timeout (Some (Duration::from_millis (10))).unwrap ();
-        SubstratumNodeClient {
-            stream,
-        }
-    }
-
-    pub fn send_chunk (&mut self, chunk: Vec<u8>) {
-        self.stream.write (&chunk[..]).unwrap ();
-    }
-
-    pub fn wait_for_chunk (&mut self) -> Vec<u8> {
-        let mut output: Vec<u8> = vec! ();
-        let mut buf: [u8; 65536] = [0; 65536];
-        loop {
-            match self.stream.read (&mut buf) {
-                Ok (n) if n == buf.len () => output.extend (buf.iter ()),
-                Ok (_) => {output.extend (buf.iter ()); return output},
-                Err (ref e) if e.kind () == ErrorKind::WouldBlock => thread::sleep (Duration::from_millis (500)),
-                Err (e) => panic! ("Couldn't read chunk: {:?}", e),
-            }
-        }
-    }
-}
+use regex::Regex;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::env;
+use std::path::PathBuf;
+use substratum_node::NodeStartupConfig;
+use substratum_node::SubstratumNode;
 
 pub struct SubstratumNodeCluster {
     nodes: HashMap<String, SubstratumNode>,
@@ -128,7 +35,7 @@ impl SubstratumNodeCluster {
     }
 
     pub fn stop (&mut self, node_name: &str) -> bool {
-        run_docker_script("stop_node.sh", vec!(node_name));
+        run_docker_script("stop_node.sh", vec!(String::from (node_name)));
 
         match self.nodes.remove(node_name) {
             Some(_) => true,
@@ -154,10 +61,10 @@ fn start_nodes (configs: &Vec<NodeStartupConfig>) {
     run_docker_script("start_nodes.sh", parameters);
 }
 
-fn run_docker_script(script_name: &str, parameters: Vec<&str>) {
+fn run_docker_script(script_name: &str, parameters: Vec<String>) {
     let mut script = docker_dir();
     script.push(script_name);
-    let mut command = Command::new(script.to_str().unwrap(), parameters.clone());
+    let mut command = Command::new(script.to_str().unwrap(), parameters.iter ().map (|x| x.as_str ()).collect ());
     let exit_code = command.wait_for_exit();
     if exit_code != 0 {
         panic!("{}: Script failed:\n{} {:?}\n{}", exit_code, script_name, parameters, command.stderr_as_string())

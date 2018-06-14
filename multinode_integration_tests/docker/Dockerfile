@@ -6,5 +6,3 @@ RUN apt-get install libc6
 
 ENV SUDO_UID 1000
 ENV SUDO_GID 1000
-
-CMD /node_root/node/SubstratumNode --dns_servers 1.1.1.1 --log_level trace

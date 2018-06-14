@@ -2,7 +2,7 @@
 use std::collections::HashMap;
 use discriminator::DiscriminatorFactory;
 use http_request_start_finder::HttpRequestDiscriminatorFactory;
-use tls_discriminator::TlsDiscriminatorFactory;
+use tls_discriminator_factory::TlsDiscriminatorFactory;
 
 pub struct Configuration {
     port_discriminator_factories: HashMap<u16, Vec<Box<DiscriminatorFactory>>>

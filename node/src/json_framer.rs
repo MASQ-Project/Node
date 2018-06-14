@@ -58,7 +58,7 @@ impl JsonFramer {
             in_single_quote_string: false,
             in_double_quote_string: false,
             after_backslash: false,
-            _logger: Logger::new ("JsonDiscriminator")
+            _logger: Logger::new ("JsonFramer")
         }
     }
 

@@ -118,6 +118,7 @@ pub enum RouteError {
 mod tests {
     use super::*;
     use cryptde_null::CryptDENull;
+    use serde_cbor;
 
     #[test]
     fn new_can_make_long_multistop_route () {
@@ -238,5 +239,24 @@ mod tests {
         let result = subject.shift(&Key::new (&[]), &cryptde);
 
         assert_eq! (result, None);
+    }
+
+    #[test]
+    fn route_serialization_deserialization () {
+        let key1 = Key::new (&[1, 2, 3, 4]);
+        let key2 = Key::new (&[4, 3, 2, 1]);
+        let cryptde = CryptDENull::new ();
+        let original = Route::new (
+            vec! (
+                RouteSegment::new (vec! (&key1, &key2), Component::ProxyClient),
+                RouteSegment::new (vec! (&key2, &key1), Component::ProxyServer)
+            ),
+            &cryptde).unwrap ();
+
+        let serialized = serde_cbor::ser::to_vec (&original).unwrap ();
+
+        let deserialized = serde_cbor::de::from_slice::<Route> (&serialized[..]).unwrap ();
+
+        assert_eq! (deserialized, original);
     }
 }
