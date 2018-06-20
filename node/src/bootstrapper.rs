@@ -32,8 +32,6 @@ pub struct Bootstrapper {
     listener_handler_factory: Box<ListenerHandlerFactory>,
     listener_handlers: Vec<Box<ListenerHandler>>,
     actor_system_factory: Box<ActorSystemFactory>,
-    #[allow (dead_code)]
-    stream_handler_pool_subs: Option<StreamHandlerPoolSubs>,
     config: Option<BootstrapperConfig>,
 }
 
@@ -78,9 +76,7 @@ impl Bootstrapper {
         Bootstrapper {
             listener_handler_factory: Box::new (ListenerHandlerFactoryReal::new ()),
             listener_handlers: vec! (),
-
             actor_system_factory: Box::new (ActorSystemFactoryReal {}),
-            stream_handler_pool_subs: None,
             config: None,
         }
     }
@@ -558,7 +554,6 @@ mod tests {
     struct DispatcherBuilder {
         configuration: Option<Configuration>,
         actor_system_factory: Box<ActorSystemFactory>,
-        stream_handler_pool_cluster: Option<StreamHandlerPoolCluster>,
         listener_handler_factory: ListenerHandlerFactoryMock,
     }
 
@@ -567,7 +562,6 @@ mod tests {
             DispatcherBuilder {
                 configuration: None,
                 actor_system_factory: Box::new (ActorSystemFactoryMock::new()),
-                stream_handler_pool_cluster: None,
                 // Don't modify this line unless you've already looked at DispatcherBuilder::add_listener_handler().
                 listener_handler_factory: ListenerHandlerFactoryMock::new (),
             }
@@ -590,13 +584,8 @@ mod tests {
         }
 
         fn build (self) -> Bootstrapper {
-            let stream_handler_pool_subs = match &self.stream_handler_pool_cluster {
-                &Some (ref shpc) => Some (shpc.subs.clone ()),
-                &None => None
-            };
             Bootstrapper {
                 actor_system_factory: self.actor_system_factory,
-                stream_handler_pool_subs,
                 listener_handler_factory: Box::new (self.listener_handler_factory),
                 listener_handlers: vec! (),
                 config: None,
