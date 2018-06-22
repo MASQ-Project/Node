@@ -8,7 +8,9 @@ while read -r line; do
         if [[ $line =~ error.* ]]; then
             echo $line >> $license_errors
         elif [[ $line =~ warning.* ]]; then
-            echo $line >> $license_errors
+            if [[ ! $line =~ cloudabi ]]; then
+                echo $line >> $license_errors
+            fi
         fi
     fi
 done < <(cargo lichking check --all 2>&1)
