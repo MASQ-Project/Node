@@ -118,7 +118,7 @@ impl Bootstrapper {
     fn parse_node_type(finder: &ParameterFinder) -> bool {
         let usage = "--node_type standard|bootstrap";
         match finder.find_value_for("--node_type", usage) {
-            None => panic!("Test-drive me!"),
+            None => false,
             Some(ref node_type) if node_type == "standard" => false,
             Some(ref node_type) if node_type == "bootstrap" => true,
             Some(ref node_type) => panic! ("--node_type must be either standard or bootstrap, not {}", node_type),
@@ -386,6 +386,17 @@ mod tests {
         let result = Bootstrapper::parse_node_type(&finder);
 
         assert_eq!(result, true);
+    }
+
+    #[test]
+    fn parse_node_type_defaults_to_standard() {
+        let finder = ParameterFinder::new (vec! (
+            "--irrelevant", "parameter"
+        ).into_iter ().map (String::from).collect ());
+
+        let result = Bootstrapper::parse_node_type(&finder);
+
+        assert_eq!(result, false);
     }
 
     #[test]
