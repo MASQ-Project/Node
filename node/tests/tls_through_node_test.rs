@@ -41,7 +41,7 @@ fn tls_through_node_integration() {
                 Err (e) => {
                     println!("Could not wrap TcpStream in TlsConnector - retrying: {:?}", e);
                     retries_remaining -= 1;
-                    stream.shutdown(Shutdown::Both).unwrap();
+                    stream.shutdown(Shutdown::Both).is_ok ();
                     thread::sleep(Duration::from_millis(5000));
                 }
             }
