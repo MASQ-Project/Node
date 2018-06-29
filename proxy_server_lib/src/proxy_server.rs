@@ -5,25 +5,30 @@ use actix::Context;
 use actix::Handler;
 use actix::Recipient;
 use actix::Syn;
+use futures::future::Future;
+use tokio;
 use sub_lib::cryptde::CryptDE;
-use sub_lib::dispatcher::Component;
 use sub_lib::dispatcher::Endpoint;
 use sub_lib::dispatcher::InboundClientData;
 use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::logger::Logger;
+use sub_lib::neighborhood::RouteQueryMessage;
 use sub_lib::peer_actors::BindMessage;
 use sub_lib::proxy_client::ClientResponsePayload;
 use sub_lib::proxy_server::ProxyServerSubs;
 use sub_lib::route::Route;
-use sub_lib::route::RouteSegment;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
 use sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use client_request_payload_factory::ClientRequestPayloadFactory;
+use actix::MailboxError;
+use sub_lib::proxy_server::ClientRequestPayload;
+use sub_lib::cryptde::Key;
 
 pub struct ProxyServer {
     dispatcher: Option<Recipient<Syn, TransmitDataMsg>>,
     hopper: Option<Recipient<Syn, IncipientCoresPackage>>,
+    route_source: Option<Recipient<Syn, RouteQueryMessage>>,
     client_request_payload_factory: ClientRequestPayloadFactory,
     cryptde: &'static CryptDE,
     logger: Logger
@@ -40,6 +45,7 @@ impl Handler<BindMessage> for ProxyServer {
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.dispatcher = Some(msg.peer_actors.dispatcher.from_proxy_server);
         self.hopper = Some(msg.peer_actors.hopper.from_hopper_client);
+        self.route_source = Some(msg.peer_actors.neighborhood.route_query);
         ()
     }
 }
@@ -48,18 +54,26 @@ impl Handler<InboundClientData> for ProxyServer {
     type Result = ();
 
     fn handle(&mut self, msg: InboundClientData, _ctx: &mut Self::Context) -> Self::Result {
-        let hopper = self.hopper.as_ref ().expect ("Hopper unbound in ProxyServer");
-        let payload = match self.client_request_payload_factory.make (&msg, self.cryptde, &self.logger) {
-            None => { self.logger.error(format! ("Couldn't create ClientRequestPayload")); return (); },
-            Some (payload) => payload
+        let route_source = self.route_source.as_ref ().expect ("Neighborhood unbound in ProxyServer").clone ();
+        let hopper = self.hopper.as_ref ().expect ("Hopper unbound in ProxyServer").clone ();
+        let public_key = self.cryptde.public_key ().clone ();
+        let payload = match self.make_payload (msg) {
+            Ok (payload) => payload,
+            Err (_) => return ()
         };
-        // TODO this should come from the Neighborhood
-        let route = Route::new(vec! (
-                RouteSegment::new(vec! (&self.cryptde.public_key(), &self.cryptde.public_key ()), Component::ProxyClient),
-                RouteSegment::new(vec! (&self.cryptde.public_key(), &self.cryptde.public_key()), Component::ProxyServer)
-            ), self.cryptde).expect("Couldn't create route");
-        let pkg = IncipientCoresPackage::new(route, payload, &self.cryptde.public_key());
-        hopper.try_send(pkg ).expect ("Hopper is dead")
+        let logger = self.logger.clone ();
+        tokio::spawn (
+            route_source
+                .send (RouteQueryMessage {minimum_hop_count: 0})
+                .then (|route_result| ProxyServer::try_transmit_to_hopper(
+                    hopper,
+                    public_key,
+                    route_result,
+                    payload,
+                    logger
+                ))
+        );
+        ()
     }
 }
 
@@ -89,6 +103,7 @@ impl ProxyServer {
         ProxyServer {
             dispatcher: None,
             hopper: None,
+            route_source: None,
             client_request_payload_factory: ClientRequestPayloadFactory::new (),
             cryptde,
             logger: Logger::new ("Proxy Server"),
@@ -102,6 +117,34 @@ impl ProxyServer {
             from_hopper: addr.clone ().recipient::<ExpiredCoresPackage>(),
         }
     }
+
+    fn make_payload (&self, msg: InboundClientData) -> Result<ClientRequestPayload, ()> {
+        match self.client_request_payload_factory.make (&msg, self.cryptde, &self.logger) {
+            None => {
+                self.logger.error(format!("Couldn't create ClientRequestPayload"));
+                Err (())
+            },
+            Some (payload) => Ok (payload)
+        }
+    }
+
+    fn try_transmit_to_hopper(hopper: Recipient<Syn, IncipientCoresPackage>, public_key: Key, route_result: Result<Option<Route>, MailboxError>, payload: ClientRequestPayload, logger: Logger) -> Result<(), ()> {
+        match route_result {
+            Ok (Some (route)) => {
+                let pkg = IncipientCoresPackage::new(route, payload, &public_key);
+                hopper.try_send(pkg ).expect ("Hopper is dead");
+            },
+            Ok (None) => {
+                let msg = "Neighborhood couldn't generate zero-hop route. This should never happen".to_string();
+                logger.error (msg);
+            },
+            Err (e) => {
+                let msg = format! ("Neighborhood refused to answer route request: {}", e);
+                logger.error (msg);
+            }
+        };
+        Ok (())
+    }
 }
 
 #[cfg(test)]
@@ -109,8 +152,9 @@ mod tests {
     use super::*;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use actix::msgs;
+    use std::thread;
     use actix::Arbiter;
+    use actix::msgs;
     use actix::System;
     use sub_lib::cryptde::PlainData;
     use sub_lib::hopper::ExpiredCoresPackage;
@@ -120,18 +164,18 @@ mod tests {
     use test_utils::test_utils::make_peer_actors_from;
     use test_utils::test_utils::Recorder;
     use test_utils::test_utils::cryptde;
-    use test_utils::test_utils::route_from_proxy_server;
+    use test_utils::test_utils::zero_hop_route;
     use test_utils::test_utils::route_to_proxy_server;
 
     #[test]
     fn proxy_server_receives_http_request_from_dispatcher_then_sends_cores_package_to_hopper() {
-        let system = System::new("proxy_server_receives_http_request_from_dispatcher_then_sends_cores_package_to_hopper");
+        let cryptde = cryptde();
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let hopper_mock = Recorder::new();
         let hopper_log_arc = hopper_mock.get_recording();
         let hopper_awaiter = hopper_mock.get_awaiter();
-        let cryptde = cryptde();
-        let subject = ProxyServer::new(cryptde);
+        let neighborhood_mock = Recorder::new()
+            .route_query_response(Some (zero_hop_route (&cryptde.public_key (), cryptde)));
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
@@ -142,7 +186,7 @@ mod tests {
         };
         let expected_http_request = PlainData::new(http_request);
         let key = cryptde.public_key();
-        let route = route_from_proxy_server(&key, cryptde);
+        let route = zero_hop_route(&key, cryptde);
         let expected_payload = ClientRequestPayload {
             stream_key: socket_addr.clone(),
             last_data: true,
@@ -153,15 +197,18 @@ mod tests {
             originator_public_key: key.clone()
         };
         let expected_pkg = IncipientCoresPackage::new(route.clone(), expected_payload, &key);
-        let subject_addr: Addr<Syn, ProxyServer> = subject.start();
-        let mut peer_actors = make_peer_actors_from(None, None, Some(hopper_mock), None, None);
-        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap ();
+        thread::spawn (move || {
+            let system = System::new("proxy_server_receives_http_request_from_dispatcher_then_sends_cores_package_to_hopper");
+            let subject = ProxyServer::new(cryptde);
+            let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+            let mut peer_actors = make_peer_actors_from(None, None, Some(hopper_mock), None, Some (neighborhood_mock));
+            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+            subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
-        subject_addr.try_send(msg_from_dispatcher).unwrap ();
+            subject_addr.try_send(msg_from_dispatcher).unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
-        system.run();
+            system.run();
+        });
 
         hopper_awaiter.await_message_count(1);
         let recording = hopper_log_arc.lock().unwrap();
@@ -171,7 +218,6 @@ mod tests {
 
     #[test]
     fn proxy_server_receives_tls_client_hello_from_dispatcher_then_sends_cores_package_to_hopper() {
-        let system = System::new("proxy_server_receives_tls_client_hello_from_dispatcher_then_sends_cores_package_to_hopper");
         let tls_request = &[
             0x16, // content_type: Handshake
             0x00, 0x00, 0x00, 0x00, // version, length: don't care
@@ -190,10 +236,12 @@ mod tests {
             0x00, 0x0A, // server_name_length
             's' as u8, 'e' as u8, 'r' as u8, 'v' as u8, 'e' as u8, 'r' as u8, '.' as u8, 'c' as u8, 'o' as u8, 'm' as u8, // server_name
         ];
+        let cryptde = cryptde();
         let hopper_mock = Recorder::new();
         let hopper_log_arc = hopper_mock.get_recording();
         let hopper_awaiter = hopper_mock.get_awaiter();
-        let cryptde = cryptde();
+        let neighborhood_mock = Recorder::new()
+            .route_query_response(Some (zero_hop_route (&cryptde.public_key (), cryptde)));
         let subject = ProxyServer::new(cryptde);
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let expected_data = tls_request.to_vec();
@@ -205,7 +253,7 @@ mod tests {
         };
         let expected_tls_request = PlainData::new(tls_request);
         let key = cryptde.public_key();
-        let route = route_from_proxy_server(&key, cryptde);
+        let route = zero_hop_route(&key, cryptde);
         let expected_payload = ClientRequestPayload {
             stream_key: socket_addr.clone(),
             last_data: false,
@@ -216,15 +264,17 @@ mod tests {
             originator_public_key: key.clone()
         };
         let expected_pkg = IncipientCoresPackage::new(route.clone(), expected_payload, &key);
-        let subject_addr: Addr<Syn, ProxyServer> = subject.start();
-        let mut peer_actors = make_peer_actors_from(None, None, Some(hopper_mock), None, None);
-        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap ();
+        thread::spawn(move || {
+            let system = System::new("proxy_server_receives_tls_client_hello_from_dispatcher_then_sends_cores_package_to_hopper");
+            let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+            let mut peer_actors = make_peer_actors_from(None, None, Some(hopper_mock), None, Some(neighborhood_mock));
+            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+            subject_addr.try_send(BindMessage { peer_actors }).unwrap ();
 
-        subject_addr.try_send(msg_from_dispatcher).unwrap ();
+            subject_addr.try_send(msg_from_dispatcher).unwrap ();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
-        system.run();
+            system.run();
+        });
 
         hopper_awaiter.await_message_count(1);
         let recording = hopper_log_arc.lock().unwrap();
@@ -234,17 +284,18 @@ mod tests {
 
     #[test]
     fn proxy_server_receives_tls_handshake_packet_other_than_client_hello_from_dispatcher_then_sends_cores_package_to_hopper() {
-        let system = System::new("proxy_server_receives_tls_client_hello_from_dispatcher_then_sends_cores_package_to_hopper");
         let tls_request = &[
             0x16, // content_type: Handshake
             0x00, 0x00, 0x00, 0x00, // version, length: don't care
             0x10, // handshake_type: ClientKeyExchange (not important--just not ClientHello)
             0x00, 0x00, 0x00, // length: 0
         ];
+        let cryptde = cryptde();
         let hopper_mock = Recorder::new();
         let hopper_log_arc = hopper_mock.get_recording();
         let hopper_awaiter = hopper_mock.get_awaiter();
-        let cryptde = cryptde();
+        let neighborhood_mock = Recorder::new()
+            .route_query_response(Some (zero_hop_route (&cryptde.public_key (), cryptde)));
         let subject = ProxyServer::new(cryptde);
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let expected_data = tls_request.to_vec();
@@ -256,7 +307,7 @@ mod tests {
         };
         let expected_tls_request = PlainData::new(tls_request);
         let key = cryptde.public_key();
-        let route = route_from_proxy_server(&key, cryptde);
+        let route = zero_hop_route(&key, cryptde);
         let expected_payload = ClientRequestPayload {
             stream_key: socket_addr.clone(),
             last_data: false,
@@ -267,15 +318,17 @@ mod tests {
             originator_public_key: key.clone()
         };
         let expected_pkg = IncipientCoresPackage::new(route.clone(), expected_payload, &key);
-        let subject_addr: Addr<Syn, ProxyServer> = subject.start();
-        let mut peer_actors = make_peer_actors_from(None, None, Some(hopper_mock), None, None);
-        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap ();
+        thread::spawn(move || {
+            let system = System::new("proxy_server_receives_tls_client_hello_from_dispatcher_then_sends_cores_package_to_hopper");
+            let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+            let mut peer_actors = make_peer_actors_from(None, None, Some(hopper_mock), None, Some(neighborhood_mock));
+            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+            subject_addr.try_send(BindMessage { peer_actors }).unwrap ();
 
-        subject_addr.try_send(msg_from_dispatcher).unwrap ();
+            subject_addr.try_send(msg_from_dispatcher).unwrap ();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
-        system.run();
+            system.run();
+        });
 
         hopper_awaiter.await_message_count(1);
         let recording = hopper_log_arc.lock().unwrap();
@@ -285,15 +338,16 @@ mod tests {
 
     #[test]
     fn proxy_server_receives_tls_packet_other_than_handshake_from_dispatcher_then_sends_cores_package_to_hopper() {
-        let system = System::new("proxy_server_receives_tls_client_hello_from_dispatcher_then_sends_cores_package_to_hopper");
         let tls_request = &[
             0xFF, // content_type: don't care, just not Handshake
             0x00, 0x00, 0x00, 0x00, // version, length: don't care
         ];
+        let cryptde = cryptde();
         let hopper_mock = Recorder::new();
         let hopper_log_arc = hopper_mock.get_recording();
         let hopper_awaiter = hopper_mock.get_awaiter();
-        let cryptde = cryptde();
+        let neighborhood_mock = Recorder::new()
+            .route_query_response(Some (zero_hop_route (&cryptde.public_key (), cryptde)));
         let subject = ProxyServer::new(cryptde);
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let expected_data = tls_request.to_vec();
@@ -305,7 +359,7 @@ mod tests {
         };
         let expected_tls_request = PlainData::new(tls_request);
         let key = cryptde.public_key();
-        let route = route_from_proxy_server(&key, cryptde);
+        let route = zero_hop_route(&key, cryptde);
         let expected_payload = ClientRequestPayload {
             stream_key: socket_addr.clone(),
             last_data: true,
@@ -316,15 +370,17 @@ mod tests {
             originator_public_key: key.clone()
         };
         let expected_pkg = IncipientCoresPackage::new(route.clone(), expected_payload, &key);
-        let subject_addr: Addr<Syn, ProxyServer> = subject.start();
-        let mut peer_actors = make_peer_actors_from(None, None, Some(hopper_mock), None, None);
-        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap ();
+        thread::spawn(move || {
+            let system = System::new("proxy_server_receives_tls_client_hello_from_dispatcher_then_sends_cores_package_to_hopper");
+            let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+            let mut peer_actors = make_peer_actors_from(None, None, Some(hopper_mock), None, Some(neighborhood_mock));
+            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+            subject_addr.try_send(BindMessage { peer_actors }).unwrap ();
 
-        subject_addr.try_send(msg_from_dispatcher).unwrap ();
+            subject_addr.try_send(msg_from_dispatcher).unwrap ();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
-        system.run();
+            system.run();
+        });
 
         hopper_awaiter.await_message_count(1);
         let recording = hopper_log_arc.lock().unwrap();
@@ -431,7 +487,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic (expected = "Hopper unbound in ProxyServer")]
+    #[should_panic (expected = "Neighborhood unbound in ProxyServer")]
     fn panics_if_hopper_is_unbound() {
         let system = System::new("panics_if_hopper_is_unbound");
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";

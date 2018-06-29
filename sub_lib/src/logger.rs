@@ -8,6 +8,7 @@ use log::Record;
 use log::logger;
 use std::thread;
 
+#[derive (Clone)]
 pub struct Logger {
     name: String
 }

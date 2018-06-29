@@ -14,9 +14,12 @@ use sub_lib::cryptde::CryptDE;
 use sub_lib::neighborhood::NodeQueryMessage;
 use sub_lib::neighborhood::NodeDescriptor;
 use actix::MessageResult;
+use sub_lib::neighborhood::RouteQueryMessage;
+use sub_lib::hopper::ExpiredCoresPackage;
+use sub_lib::route::RouteSegment;
 
 pub struct Neighborhood {
-    _cryptde: &'static CryptDE,
+    cryptde: &'static CryptDE,
     neighboring_nodes: Vec<NodeDescriptor>,
 }
 
@@ -46,10 +49,33 @@ impl Handler<NodeQueryMessage> for Neighborhood {
     }
 }
 
+impl Handler<RouteQueryMessage> for Neighborhood {
+    type Result = MessageResult<RouteQueryMessage>;
+
+    fn handle(&mut self, msg: RouteQueryMessage, _ctx: &mut Self::Context) -> <Self as Handler<RouteQueryMessage>>::Result {
+        if msg.minimum_hop_count == 0 {
+            let route = Route::new(vec! (
+                RouteSegment::new(vec! (&self.cryptde.public_key(), &self.cryptde.public_key ()), Component::ProxyClient),
+                RouteSegment::new(vec! (&self.cryptde.public_key(), &self.cryptde.public_key()), Component::ProxyServer)
+            ), self.cryptde).expect("Couldn't create route");
+            return MessageResult(Some(route));
+        }
+        MessageResult(None)
+    }
+}
+
+impl Handler<ExpiredCoresPackage> for Neighborhood {
+    type Result = ();
+
+    fn handle(&mut self, _msg: ExpiredCoresPackage, _ctx: &mut Self::Context) -> Self::Result {
+        ()
+    }
+}
+
 impl Neighborhood {
     pub fn new(cryptde: &'static CryptDE, config: Vec<(Key, NodeAddr)>) -> Self {
         Neighborhood {
-            _cryptde: cryptde,
+            cryptde,
             neighboring_nodes: config.into_iter().map(|(key, node_addr)| {
                 NodeDescriptor::new (key, Some (node_addr))
             }).collect ()
@@ -59,6 +85,9 @@ impl Neighborhood {
     pub fn make_subs_from(addr: &Addr<Syn, Neighborhood>) -> NeighborhoodSubs {
         NeighborhoodSubs {
             bind: addr.clone ().recipient::<BindMessage>(),
+            node_query: addr.clone ().recipient::<NodeQueryMessage>(),
+            route_query: addr.clone ().recipient::<RouteQueryMessage>(),
+            from_hopper: addr.clone ().recipient::<ExpiredCoresPackage>(),
         }
     }
 
@@ -193,5 +222,41 @@ mod tests {
         system.run ();
         let result = future.wait ().unwrap ();
         assert_eq! (result.unwrap (), NodeDescriptor::new (public_key, Some (node_addr)));
+    }
+
+    #[test]
+    fn responds_with_none_when_asked_for_route_with_too_many_hops () {
+        let cryptde = cryptde ();
+        let system = System::new ("responds_with_none_when_asked_for_route_with_empty_database");
+        let subject = Neighborhood::new (cryptde, vec! ());
+        let addr: Addr<Syn, Neighborhood> = subject.start ();
+        let sub: Recipient<Syn, RouteQueryMessage> = addr.recipient::<RouteQueryMessage> ();
+
+        let future = sub.send (RouteQueryMessage {minimum_hop_count: 5});
+
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
+        system.run ();
+        let result = future.wait ().unwrap ();
+        assert_eq! (result, None);
+    }
+
+    #[test]
+    fn responds_with_standard_zero_hop_route_when_requested () {
+        let cryptde = cryptde ();
+        let system = System::new ("responds_with_standard_zero_hop_route_when_requested");
+        let subject = Neighborhood::new (cryptde, vec! ());
+        let addr: Addr<Syn, Neighborhood> = subject.start ();
+        let sub: Recipient<Syn, RouteQueryMessage> = addr.recipient::<RouteQueryMessage> ();
+
+        let future = sub.send (RouteQueryMessage {minimum_hop_count: 0});
+
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
+        system.run ();
+        let result = future.wait ().unwrap ().unwrap ();
+        let expected_route = Route::new(vec! (
+            RouteSegment::new(vec! (&cryptde.public_key(), &cryptde.public_key()), Component::ProxyClient),
+            RouteSegment::new(vec! (&cryptde.public_key(), &cryptde.public_key()), Component::ProxyServer)
+        ), cryptde).unwrap ();
+        assert_eq! (result, expected_route);
     }
 }

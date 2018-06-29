@@ -47,6 +47,8 @@ use sub_lib::route::Route;
 use sub_lib::route::RouteSegment;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
 use sub_lib::neighborhood::NodeQueryMessage;
+use sub_lib::neighborhood::RouteQueryMessage;
+use sub_lib::neighborhood::NodeDescriptor;
 
 lazy_static! {
     static ref CRYPT_DE_NULL: CryptDENull = CryptDENull::new ();
@@ -447,6 +449,9 @@ pub fn make_proxy_client_subs_from(addr: &Addr<Syn, Recorder>) -> ProxyClientSub
 pub fn make_neighborhood_subs_from(addr: &Addr<Syn, Recorder>) -> NeighborhoodSubs {
     NeighborhoodSubs {
         bind: addr.clone ().recipient::<BindMessage>(),
+        node_query: addr.clone ().recipient::<NodeQueryMessage>(),
+        route_query: addr.clone ().recipient::<RouteQueryMessage>(),
+        from_hopper: addr.clone ().recipient::<ExpiredCoresPackage>(),
     }
 }
 
@@ -511,6 +516,8 @@ pub fn make_meaningless_route () -> Route {
 
 pub struct Recorder {
     recording: Arc<Mutex<Recording>>,
+    node_query_responses: Vec<Option<NodeDescriptor>>,
+    route_query_responses: Vec<Option<Route>>,
 }
 
 pub struct Recording {
@@ -578,8 +585,24 @@ impl Handler<NodeQueryMessage> for Recorder {
 
     fn handle(&mut self, msg: NodeQueryMessage, _ctx: &mut Self::Context) -> <Self as Handler<NodeQueryMessage>>::Result {
         self.record (msg);
-        // TODO: Enhance this by allowing clients to specify results to return here
-        MessageResult(None)
+        MessageResult (extract_response (&mut self.node_query_responses, "No NodeDescriptors prepared for NodeQueryMessage"))
+    }
+}
+
+impl Handler<RouteQueryMessage> for Recorder {
+    type Result = MessageResult<RouteQueryMessage>;
+
+    fn handle(&mut self, msg: RouteQueryMessage, _ctx: &mut Self::Context) -> <Self as Handler<RouteQueryMessage>>::Result {
+        self.record (msg);
+        MessageResult (extract_response (&mut self.route_query_responses, "No Routes prepared for RouteQueryMessage"))
+    }
+}
+
+fn extract_response<T> (responses: &mut Vec<T>, err_msg: &str) -> T where T: Clone {
+    match responses.len () {
+        n if n == 0 => panic! ("{}", err_msg),
+        n if n == 1 => responses[0].clone (),
+        _ => responses.remove (0)
     }
 }
 
@@ -587,6 +610,8 @@ impl Recorder {
     pub fn new () -> Recorder {
         Recorder {
             recording: Arc::new (Mutex::new (Recording {messages: vec! ()})),
+            node_query_responses: vec! (),
+            route_query_responses: vec! ()
         }
     }
 
@@ -605,6 +630,16 @@ impl Recorder {
         RecordAwaiter {
             recording: self.recording.clone ()
         }
+    }
+
+    pub fn node_query_response (mut self, response: Option<NodeDescriptor>) -> Recorder {
+        self.node_query_responses.push (response);
+        self
+    }
+
+    pub fn route_query_response (mut self, response: Option<Route>) -> Recorder {
+        self.route_query_responses.push (response);
+        self
     }
 }
 
@@ -649,7 +684,7 @@ impl RecordAwaiter {
 }
 
 pub fn route_to_proxy_client (key: &Key, cryptde: &CryptDE) -> Route {
-    shift_one_hop(route_from_proxy_server(key, cryptde), cryptde)
+    shift_one_hop(zero_hop_route(key, cryptde), cryptde)
 }
 
 pub fn route_from_proxy_client (key: &Key, cryptde: &CryptDE) -> Route {
@@ -661,10 +696,10 @@ pub fn route_to_proxy_server (key: &Key, cryptde: &CryptDE) -> Route {
     shift_one_hop(route_from_proxy_client(key, cryptde), cryptde)
 }
 
-pub fn route_from_proxy_server(key: &Key, cryptde: &CryptDE) -> Route {
+pub fn zero_hop_route(public_key: &Key, cryptde: &CryptDE) -> Route {
     Route::new(vec! (
-        RouteSegment::new(vec! (key, key), Component::ProxyClient),
-        RouteSegment::new(vec! (key, key), Component::ProxyServer)
+        RouteSegment::new(vec! (public_key, public_key), Component::ProxyClient),
+        RouteSegment::new(vec! (public_key, public_key), Component::ProxyServer)
     ), cryptde).unwrap()
 }
 
@@ -691,11 +726,11 @@ mod tests {
     use sub_lib::hop::Hop;
 
     #[test]
-    fn characterize_route_from_proxy_server() {
+    fn characterize_zero_hop_route() {
         let cryptde = CryptDENull::new();
         let key = cryptde.public_key();
 
-        let subject = route_from_proxy_server(&key, &cryptde);
+        let subject = zero_hop_route(&key, &cryptde);
 
         assert_eq! (subject.hops, vec! (
             Hop::new (&key, Component::Hopper).encode (&key, &cryptde).unwrap (),

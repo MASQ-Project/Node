@@ -6,10 +6,15 @@ use cryptde::Key;
 use node_addr::NodeAddr;
 use peer_actors::BindMessage;
 use std::net::IpAddr;
+use route::Route;
+use hopper::ExpiredCoresPackage;
 
 #[derive(Clone)]
 pub struct NeighborhoodSubs {
     pub bind: Recipient<Syn, BindMessage>,
+    pub node_query: Recipient<Syn, NodeQueryMessage>,
+    pub route_query: Recipient<Syn, RouteQueryMessage>,
+    pub from_hopper: Recipient<Syn, ExpiredCoresPackage>
 }
 
 #[derive (Clone, Debug, PartialEq)]
@@ -33,4 +38,12 @@ pub enum NodeQueryMessage {
 
 impl Message for NodeQueryMessage {
     type Result = Option<NodeDescriptor>;
+}
+
+pub struct RouteQueryMessage {
+    pub minimum_hop_count: usize
+}
+
+impl Message for RouteQueryMessage {
+    type Result = Option<Route>;
 }

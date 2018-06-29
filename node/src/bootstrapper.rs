@@ -24,7 +24,9 @@ pub static mut CRYPT_DE_OPT: Option<CryptDENull> = None;
 #[derive (Clone)]
 pub struct BootstrapperConfig {
     pub dns_servers: Vec<SocketAddr>,
-    pub neighbor_configs: Vec<(Key, NodeAddr)>
+    pub neighbor_configs: Vec<(Key, NodeAddr)>,
+    pub bootstrap_configs: Vec<(Key, NodeAddr)>,
+    pub is_bootstrap_node: bool,
 }
 
 // TODO: Consider splitting this into a piece that's meant for being root and a piece that's not.
@@ -91,7 +93,9 @@ impl Bootstrapper {
         let finder = ParameterFinder::new(args.clone ());
         BootstrapperConfig {
             dns_servers: Bootstrapper::parse_dns_servers (&finder),
-            neighbor_configs: Bootstrapper::parse_neighbor_configs (&finder),
+            neighbor_configs: Bootstrapper::parse_neighbor_configs (&finder, "--neighbor"),
+            bootstrap_configs: Bootstrapper::parse_neighbor_configs(&finder, "--bootstrap_from"),
+            is_bootstrap_node: Bootstrapper::parse_node_type (&finder),
         }
     }
 
@@ -111,23 +115,32 @@ impl Bootstrapper {
         }).collect()
     }
 
-    fn parse_neighbor_configs (finder: &ParameterFinder) -> Vec<(Key, NodeAddr)> {
-        let parameter_tag = "--neighbor";
-        let usage = "--neighbor <public key>;<IP address>;<port>,<port>,...";
+    fn parse_node_type(finder: &ParameterFinder) -> bool {
+        let usage = "--node_type standard|bootstrap";
+        match finder.find_value_for("--node_type", usage) {
+            None => panic!("Test-drive me!"),
+            Some(ref node_type) if node_type == "standard" => false,
+            Some(ref node_type) if node_type == "bootstrap" => true,
+            Some(ref node_type) => panic! ("--node_type must be either standard or bootstrap, not {}", node_type),
+        }
+    }
+
+    fn parse_neighbor_configs (finder: &ParameterFinder, parameter_tag: &str) -> Vec<(Key, NodeAddr)> {
+        let usage = &format! ("{} <public key>;<IP address>;<port>,<port>,...", parameter_tag)[..];
         finder.find_values_for (parameter_tag, usage).into_iter ()
-            .map (|s|Bootstrapper::parse_neighbor_config (s))
+            .map (|s|Bootstrapper::parse_neighbor_config (s, parameter_tag))
             .collect ()
     }
 
-    fn parse_neighbor_config (string: String) -> (Key, NodeAddr) {
+    fn parse_neighbor_config (string: String, parameter_tag: &str) -> (Key, NodeAddr) {
         let pieces: Vec<&str> = string.split (";").collect ();
-        if pieces.len () != 3 {panic! ("--neighbor <public key>;<IP address>;<port>,<port>,...")}
+        if pieces.len () != 3 {panic! ("{} <public key>;<IP address>;<port>,<port>,...", parameter_tag)}
         let public_key = Key::new (&base64::decode (pieces[0])
-            .expect (format! ("Invalid Base64 for --neighbor <public key>: '{}'", pieces[0]).as_str ())[..]);
+            .expect (format! ("Invalid Base64 for {} <public key>: '{}'", parameter_tag, pieces[0]).as_str ())[..]);
         let ip_addr = IpAddr::from_str (&pieces[1])
-            .expect (format! ("Invalid IP address for --neighbor <IP address>: '{}'", pieces[1]).as_str ());
+            .expect (format! ("Invalid IP address for {} <IP address>: '{}'", parameter_tag, pieces[1]).as_str ());
         let ports: Vec<u16> = pieces[2].split (",").map (|s| s.parse::<u16>()
-            .expect(format! ("Neighbor port numbers must be 0-65535, not {}", s).as_str ())).collect ();
+            .expect(format! ("{} port numbers must be 0-65535, not {}", parameter_tag, s).as_str ())).collect ();
         (public_key, NodeAddr::new (&ip_addr, &ports))
     }
 
@@ -304,7 +317,7 @@ mod tests {
             "--neighbor", "key;1.2.3.4;1234,2345;extra",
         ).into_iter ().map (String::from).collect ());
 
-        Bootstrapper::parse_neighbor_configs (&finder);
+        Bootstrapper::parse_neighbor_configs (&finder, "--neighbor");
     }
 
     #[test]
@@ -314,27 +327,75 @@ mod tests {
             "--neighbor", "bad_key;1.2.3.4;1234,2345",
         ).into_iter ().map (String::from).collect ());
 
-        Bootstrapper::parse_neighbor_configs (&finder);
+        Bootstrapper::parse_neighbor_configs (&finder, "--neighbor");
     }
 
     #[test]
-    #[should_panic (expected = "Invalid IP address for --neighbor <IP address>: '1.2.3.256'")]
+    #[should_panic (expected = "Invalid IP address for --bootstrap_node <IP address>: '1.2.3.256'")]
     fn parse_neighbor_configs_complains_about_bad_ip_address () {
         let finder = ParameterFinder::new (vec! (
-            "--neighbor", "GoodKey;1.2.3.256;1234,2345",
+            "--bootstrap_node", "GoodKey;1.2.3.256;1234,2345",
         ).into_iter ().map (String::from).collect ());
 
-        Bootstrapper::parse_neighbor_configs (&finder);
+        Bootstrapper::parse_neighbor_configs (&finder, "--bootstrap_node");
     }
 
     #[test]
-    #[should_panic (expected = "Neighbor port numbers must be 0-65535, not 65536")]
+    #[should_panic (expected = "--bootstrap_node port numbers must be 0-65535, not 65536")]
     fn parse_neighbor_configs_complains_about_bad_port_numbers () {
         let finder = ParameterFinder::new (vec! (
-            "--neighbor", "GoodKey;1.2.3.4;65536",
+            "--bootstrap_node", "GoodKey;1.2.3.4;65536",
         ).into_iter ().map (String::from).collect ());
 
-        Bootstrapper::parse_neighbor_configs (&finder);
+        Bootstrapper::parse_neighbor_configs (&finder, "--bootstrap_node");
+    }
+
+    #[test]
+    fn parse_neighbor_configs_handles_the_happy_path () {
+        let finder = ParameterFinder::new (vec! (
+            "--booga", "R29vZEtleQ;1.2.3.4;1234,2345,3456",
+            "--irrelevant", "parameter",
+            "--booga", "QW5vdGhlckdvb2RLZXk;2.3.4.5;4567,5678,6789",
+        ).into_iter ().map (String::from).collect ());
+
+        let result = Bootstrapper::parse_neighbor_configs (&finder, "--booga");
+
+        assert_eq! (result, vec! (
+            (Key::new (b"GoodKey"), NodeAddr::new (&IpAddr::from_str ("1.2.3.4").unwrap (), &vec! (1234, 2345, 3456))),
+            (Key::new (b"AnotherGoodKey"), NodeAddr::new (&IpAddr::from_str ("2.3.4.5").unwrap (), &vec! (4567, 5678, 6789)))
+        ))
+    }
+
+    #[test]
+    fn parse_node_type_handles_standard() {
+        let finder = ParameterFinder::new (vec! (
+            "--node_type", "standard"
+        ).into_iter ().map (String::from).collect ());
+
+        let result = Bootstrapper::parse_node_type(&finder);
+
+        assert_eq!(result, false);
+    }
+
+    #[test]
+    fn parse_node_type_handles_bootstrap() {
+        let finder = ParameterFinder::new (vec! (
+            "--node_type", "bootstrap"
+        ).into_iter ().map (String::from).collect ());
+
+        let result = Bootstrapper::parse_node_type(&finder);
+
+        assert_eq!(result, true);
+    }
+
+    #[test]
+    #[should_panic (expected = "--node_type must be either standard or bootstrap, not booga")]
+    fn parse_node_type_complains_about_bad_node_type () {
+        let finder = ParameterFinder::new (vec! (
+            "--node_type", "booga",
+        ).into_iter ().map (String::from).collect ());
+
+        Bootstrapper::parse_node_type (&finder);
     }
 
     #[test]
@@ -345,7 +406,8 @@ mod tests {
             "--irrelevant", "irrelevant",
             "--neighbor", "QmlsbA;1.2.3.4;1234,2345",
             "--neighbor", "VGVk;2.3.4.5;3456,4567",
-            "--irrelevant", "irrelevant"
+            "--node_type", "bootstrap",
+            "--bootstrap_from", "R29vZEtleQ;3.4.5.6;5678"
         ).into_iter ().map (String::from).collect ();
 
         let config = Bootstrapper::parse_args (&args);
@@ -355,6 +417,22 @@ mod tests {
             (Key::new (b"Bill"), NodeAddr::new (&IpAddr::from_str ("1.2.3.4").unwrap (), &vec! (1234, 2345))),
             (Key::new (b"Ted"), NodeAddr::new (&IpAddr::from_str ("2.3.4.5").unwrap (), &vec! (3456, 4567))),
         ));
+        assert_eq! (config.bootstrap_configs, vec! (
+            (Key::new (b"GoodKey"), NodeAddr::new (&IpAddr::from_str ("3.4.5.6").unwrap (), &vec! (5678))),
+        ));
+        assert_eq! (config.is_bootstrap_node, true);
+    }
+
+    #[test]
+    fn parse_args_works_with_node_type_standard () {
+        let args: Vec<String> = vec! (
+            "--dns_servers", "12.34.56.78",
+            "--node_type", "standard",
+        ).into_iter ().map (String::from).collect ();
+
+        let config = Bootstrapper::parse_args (&args);
+
+        assert_eq! (config.is_bootstrap_node, false);
     }
 
     #[test]
