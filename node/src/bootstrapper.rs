@@ -6,6 +6,8 @@ use std::thread;
 use actor_system_factory::ActorSystemFactory;
 use actor_system_factory::ActorSystemFactoryReal;
 use base64;
+use tokio;
+use tokio::prelude::Async;
 use configuration::Configuration;
 use listener_handler::ListenerHandler;
 use listener_handler::ListenerHandlerFactory;
@@ -32,7 +34,7 @@ pub struct BootstrapperConfig {
 // TODO: Consider splitting this into a piece that's meant for being root and a piece that's not.
 pub struct Bootstrapper {
     listener_handler_factory: Box<ListenerHandlerFactory>,
-    listener_handlers: Vec<Box<ListenerHandler>>,
+    listener_handlers: Vec<Box<ListenerHandler<Item=(), Error=()>>>,
     actor_system_factory: Box<ActorSystemFactory>,
     config: Option<BootstrapperConfig>,
 }
@@ -83,9 +85,10 @@ impl Bootstrapper {
         }
     }
 
-    fn start_listener_thread (&self, mut listener_handler: Box<ListenerHandler>) {
+    fn start_listener_thread (&self, listener_handler: Box<ListenerHandler<Item=(), Error=()>>) {
+        // TODO can we eliminate the thread-per-listener here?
         thread::spawn (move || {
-            listener_handler.handle_traffic();
+            tokio::run(listener_handler);
         });
     }
 
@@ -173,18 +176,18 @@ mod tests {
     use actix::Recipient;
     use actix::Syn;
     use actix::System;
+    use regex::Regex;
+    use tokio::prelude::Future;
     use discriminator::DiscriminatorFactory;
     use node_test_utils::extract_log;
     use node_test_utils::make_stream_handler_pool_subs_from;
-    use node_test_utils::TcpStreamWrapperMock;
     use node_test_utils::TestLogOwner;
-    use stream_handler_pool::AddStreamMsg;
+    use stream_messages::AddStreamMsg;
     use test_utils::test_utils::FakeStreamHolder;
     use test_utils::test_utils::RecordAwaiter;
     use test_utils::test_utils::Recorder;
     use test_utils::test_utils::Recording;
     use test_utils::test_utils::TestLog;
-    use regex::Regex;
     use sub_lib::cryptde::PlainData;
 
     struct ListenerHandlerFactoryMock {
@@ -195,7 +198,7 @@ mod tests {
     unsafe impl Sync for ListenerHandlerFactoryMock {}
 
     impl ListenerHandlerFactory for ListenerHandlerFactoryMock {
-        fn make(&self) -> Box<ListenerHandler> {
+        fn make(&self) -> Box<ListenerHandler<Item=(), Error=()>> {
             self.log.log (format! ("make ()"));
             Box::new (self.mocks.borrow_mut ().remove (0))
         }
@@ -233,15 +236,21 @@ mod tests {
             self.log.lock ().unwrap ().log (format! ("bind_subscribers (add_stream_sub)"));
             self.add_stream_sub = Some (add_stream_sub);
         }
+    }
 
-        fn handle_traffic (&mut self) {
-            self.log.lock ().unwrap ().log (format! ("handle_traffic (...)"));
-            let mut add_stream_msgs = self.add_stream_msgs.lock ().unwrap ();
-            let add_stream_sub = self.add_stream_sub.as_ref ().unwrap ();
-            while add_stream_msgs.len () > 0 {
-                let add_stream_msg = add_stream_msgs.remove (0);
-                add_stream_sub.try_send (add_stream_msg).expect ("StreamHandlerPool is dead");
+    impl Future for ListenerHandlerNull {
+        type Item = ();
+        type Error = ();
+
+        fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
+            self.log.lock().unwrap().log(format!("poll (...)"));
+            let mut add_stream_msgs = self.add_stream_msgs.lock().unwrap();
+            let add_stream_sub = self.add_stream_sub.as_ref().unwrap();
+            while add_stream_msgs.len() > 0 {
+                let add_stream_msg = add_stream_msgs.remove(0);
+                add_stream_sub.try_send(add_stream_msg).expect("StreamHandlerPool is dead");
             }
+            Ok(Async::NotReady)
         }
     }
 
@@ -272,7 +281,7 @@ mod tests {
 
     #[test]
     fn knows_its_name () {
-        let subject = DispatcherBuilder::new ().build ();
+        let subject = BootstrapperBuilder::new ().build ();
 
         let result = subject.name ();
 
@@ -451,7 +460,7 @@ mod tests {
         let (first_handler, first_handler_log) = extract_log (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())));
         let (second_handler, second_handler_log) = extract_log (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())));
         let (third_handler, third_handler_log) = extract_log (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())));
-        let mut subject = DispatcherBuilder::new ()
+        let mut subject = BootstrapperBuilder::new ()
             .add_listener_handler (first_handler)
             .add_listener_handler (second_handler)
             .add_listener_handler (third_handler)
@@ -472,7 +481,7 @@ mod tests {
     fn initialize_as_root_stores_dns_servers_and_passes_them_to_actor_system_factory_for_proxy_client_in_serve_without_root () {
         let actor_system_factory = ActorSystemFactoryMock::new();
         let dns_servers_arc = actor_system_factory.dnss.clone();
-        let mut subject = DispatcherBuilder::new ()
+        let mut subject = BootstrapperBuilder::new ()
             .actor_system_factory (Box::new (actor_system_factory))
             .add_listener_handler (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())))
             .add_listener_handler (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())))
@@ -492,7 +501,7 @@ mod tests {
     #[test]
     #[should_panic (expected = "Invalid IP address for --dns_servers <servers>: 'booga'")]
     fn initialize_as_root_complains_about_dns_servers_syntax_errors () {
-        let mut subject = DispatcherBuilder::new ()
+        let mut subject = BootstrapperBuilder::new ()
             .add_listener_handler (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())))
             .add_listener_handler (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())))
             .build ();
@@ -504,7 +513,7 @@ mod tests {
     #[test]
     #[should_panic (expected = "Could not listen on port")]
     fn initialize_as_root_panics_if_tcp_listener_doesnt_bind () {
-        let mut subject = DispatcherBuilder::new ()
+        let mut subject = BootstrapperBuilder::new ()
             .add_listener_handler (ListenerHandlerNull::new (vec! ()).bind_port_result(Err (Error::from (ErrorKind::AddrInUse))))
             .add_listener_handler (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())))
             .build ();
@@ -539,17 +548,17 @@ mod tests {
     #[test]
     fn serve_without_root_moves_streams_from_listener_handlers_to_stream_handler_pool () {
         let first_message = AddStreamMsg {
-            stream: Box::new (TcpStreamWrapperMock::new ().name ("first")),
+            stream: None,
             origin_port: Some (80),
             discriminator_factories: vec! ()
         };
         let second_message = AddStreamMsg {
-            stream: Box::new (TcpStreamWrapperMock::new ().name ("second")),
+            stream: None,
             origin_port: None,
             discriminator_factories: vec! ()
         };
         let third_message = AddStreamMsg {
-            stream: Box::new (TcpStreamWrapperMock::new ().name ("third")),
+            stream: None,
             origin_port: Some (443),
             discriminator_factories: vec! ()
         };
@@ -562,7 +571,7 @@ mod tests {
         let mut actor_system_factory = ActorSystemFactoryMock::new();
         let awaiter = actor_system_factory.stream_handler_pool_cluster.awaiter.take ().unwrap ();
         let recording_arc = actor_system_factory.stream_handler_pool_cluster.recording.take ().unwrap ();
-        let mut subject = DispatcherBuilder::new ()
+        let mut subject = BootstrapperBuilder::new ()
             .actor_system_factory (Box::new (actor_system_factory))
             .add_listener_handler (one_listener_handler)
             .add_listener_handler (another_listener_handler)
@@ -575,20 +584,14 @@ mod tests {
         awaiter.await_message_count (number_of_expected_messages);
         let recording = recording_arc.lock ().unwrap ();
         assert_eq! (recording.len (), number_of_expected_messages);
-        let actual_names: Vec<String> = (0..number_of_expected_messages).into_iter().map (|i| {
+        let actual_ports: Vec<String> = (0..number_of_expected_messages).into_iter().map (|i| {
             let record = recording.get_record::<AddStreamMsg> (i);
-            let pptr = &record.stream as *const _;
-            let stream_name = unsafe {
-                let tptr = pptr as *const Box<TcpStreamWrapperMock>;
-                let stream = &*tptr;
-                stream.name.clone ()
-            };
-            format! ("{}/{:?}", stream_name, record.origin_port)
+            format! ("{:?}", record.origin_port)
 
         }).collect ();
-        assert_eq! (actual_names.contains (&String::from ("first/Some(80)")), true, "{:?} does not contain 'first'", actual_names);
-        assert_eq! (actual_names.contains (&String::from ("second/None")), true, "{:?} does not contain 'second'", actual_names);
-        assert_eq! (actual_names.contains (&String::from ("third/Some(443)")), true, "{:?} does not contain 'third'", actual_names);
+        assert_eq! (actual_ports.contains (&String::from ("Some(80)")), true, "{:?} does not contain 'first'", actual_ports);
+        assert_eq! (actual_ports.contains (&String::from ("None")), true, "{:?} does not contain 'second'", actual_ports);
+        assert_eq! (actual_ports.contains (&String::from ("Some(443)")), true, "{:?} does not contain 'third'", actual_ports);
     }
 
     struct StreamHandlerPoolCluster {
@@ -640,15 +643,15 @@ mod tests {
         }
     }
 
-    struct DispatcherBuilder {
+    struct BootstrapperBuilder {
         configuration: Option<Configuration>,
         actor_system_factory: Box<ActorSystemFactory>,
         listener_handler_factory: ListenerHandlerFactoryMock,
     }
 
-    impl DispatcherBuilder {
-        fn new () -> DispatcherBuilder {
-            DispatcherBuilder {
+    impl BootstrapperBuilder {
+        fn new () -> BootstrapperBuilder {
+            BootstrapperBuilder {
                 configuration: None,
                 actor_system_factory: Box::new (ActorSystemFactoryMock::new()),
                 // Don't modify this line unless you've already looked at DispatcherBuilder::add_listener_handler().
@@ -657,17 +660,17 @@ mod tests {
         }
 
         #[allow (dead_code)]
-        fn configuration (mut self, configuration: Configuration) -> DispatcherBuilder {
+        fn configuration (mut self, configuration: Configuration) -> BootstrapperBuilder {
             self.configuration = Some (configuration);
             self
         }
 
-        fn actor_system_factory (mut self, actor_system_factory: Box<ActorSystemFactory>) -> DispatcherBuilder {
+        fn actor_system_factory (mut self, actor_system_factory: Box<ActorSystemFactory>) -> BootstrapperBuilder {
             self.actor_system_factory = actor_system_factory;
             self
         }
 
-        fn add_listener_handler (mut self, listener_handler: ListenerHandlerNull) -> DispatcherBuilder {
+        fn add_listener_handler (mut self, listener_handler: ListenerHandlerNull) -> BootstrapperBuilder {
             self.listener_handler_factory.add (listener_handler);
             self
         }

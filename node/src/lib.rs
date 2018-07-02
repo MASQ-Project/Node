@@ -5,6 +5,7 @@ extern crate base64;
 extern crate chrono;
 extern crate entry_dns_lib;
 extern crate flexi_logger;
+extern crate futures;
 extern crate hopper_lib;
 extern crate log;
 extern crate neighborhood_lib;
@@ -15,6 +16,7 @@ extern crate serde_cbor;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
+extern crate tokio;
 extern crate sub_lib;
 
 #[cfg (test)]
@@ -38,6 +40,9 @@ mod null_masquerader;
 mod privilege_drop;
 pub mod server_initializer;
 mod stream_handler_pool;
+mod stream_messages;
+mod stream_reader;
+mod stream_writer;
 pub mod tls_discriminator_factory;
 
 #[cfg (test)]

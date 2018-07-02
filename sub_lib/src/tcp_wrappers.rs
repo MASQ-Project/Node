@@ -2,24 +2,11 @@
 use std::io;
 use std::io::Read;
 use std::io::Write;
-use std::net::TcpListener;
 use std::net::TcpStream;
-use std::net::Incoming;
 use std::net::Shutdown;
 use std::net::SocketAddr;
 use std::marker::Send;
 use std::time::Duration;
-
-pub trait TcpListenerWrapper: Send {
-    fn bind (&mut self, addr: SocketAddr) -> io::Result<()>;
-    fn local_addr(&self) -> io::Result<SocketAddr>;
-    fn accept (&self) -> io::Result<(Box<TcpStreamWrapper>, SocketAddr)>;
-    fn incoming(&self) -> Incoming;
-    fn set_ttl(&self, ttl: u32) -> io::Result<()>;
-    fn ttl(&self) -> io::Result<u32>;
-    fn take_error(&self) -> io::Result<Option<io::Error>>;
-    fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()>;
-}
 
 pub trait TcpStreamWrapper: Send + Read + Write {
     fn connect (&mut self, addr: SocketAddr) -> io::Result<()>;
@@ -40,71 +27,17 @@ pub trait TcpStreamWrapper: Send + Read + Write {
     fn try_clone(&self) -> io::Result<Box<TcpStreamWrapper>>;
 }
 
-pub trait TcpListenerWrapperFactory {
-    fn make (&self) -> Box<TcpListenerWrapper>;
-}
-
 pub trait TcpStreamWrapperFactory: Send {
     fn make (&self) -> Box<TcpStreamWrapper>;
     fn dup (&self) -> Box<TcpStreamWrapperFactory>;
-}
-
-pub struct TcpListenerWrapperReal {
-    delegate: Option<TcpListener>,
 }
 
 pub struct TcpStreamWrapperReal {
     delegate: Option<TcpStream>
 }
 
-pub struct TcpListenerWrapperFactoryReal {}
-
 #[derive (Clone)]
 pub struct TcpStreamWrapperFactoryReal {}
-
-impl TcpListenerWrapper for TcpListenerWrapperReal {
-    fn bind(&mut self, addr: SocketAddr) -> io::Result<()> {
-        match TcpListener::bind (addr) {
-            Ok (tcp_listener) => {self.delegate = Some (tcp_listener); Ok (())},
-            Err (e) => Err (e)
-        }
-   }
-
-    fn local_addr(&self) -> io::Result<SocketAddr> {
-        self.delegate ().local_addr ()
-    }
-
-    fn accept (&self) -> io::Result<(Box<TcpStreamWrapper>, SocketAddr)> {
-        match self.delegate ().accept () {
-            Ok ((tcp_stream, socket_addr)) => {
-                let mut stream_wrapper = TcpStreamWrapperReal::new ();
-                stream_wrapper.delegate = Some (tcp_stream);
-                Ok ((Box::new (stream_wrapper), socket_addr))
-            },
-            Err (e) => Err (e)
-        }
-    }
-
-    fn incoming(&self) -> Incoming {
-        self.delegate ().incoming ()
-    }
-
-    fn set_ttl(&self, ttl: u32) -> io::Result<()> {
-        self.delegate ().set_ttl (ttl)
-    }
-
-    fn ttl(&self) -> io::Result<u32> {
-        self.delegate ().ttl ()
-    }
-
-    fn take_error(&self) -> io::Result<Option<io::Error>> {
-        self.delegate ().take_error ()
-    }
-
-    fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
-        self.delegate ().set_nonblocking (nonblocking)
-    }
-}
 
 impl TcpStreamWrapper for TcpStreamWrapperReal {
     fn connect(&mut self, addr: SocketAddr) -> io::Result<()> {
@@ -194,29 +127,11 @@ impl Write for TcpStreamWrapperReal {
     }
 }
 
-impl TcpListenerWrapperFactory for TcpListenerWrapperFactoryReal {
-    fn make(&self) -> Box<TcpListenerWrapper> {
-        Box::new (TcpListenerWrapperReal {
-            delegate: None
-        })
-    }
-}
-
 impl TcpStreamWrapperFactory for TcpStreamWrapperFactoryReal {
     fn make(&self) -> Box<TcpStreamWrapper> {
         Box::new (TcpStreamWrapperReal {delegate: None})
     }
     fn dup(&self) -> Box<TcpStreamWrapperFactory> {Box::new (self.clone ())}
-}
-
-impl TcpListenerWrapperReal {
-    pub fn new () -> TcpListenerWrapperReal {
-        TcpListenerWrapperReal {delegate: None}
-    }
-
-    fn delegate (&self) -> &TcpListener {
-        self.delegate.as_ref().expect ("TcpListener not initialized - bind to a SocketAddr")
-    }
 }
 
 impl TcpStreamWrapperReal {

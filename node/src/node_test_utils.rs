@@ -2,23 +2,24 @@
 #![cfg (test)]
 use std::io;
 use std::io::Error;
+use std::io::Write;
 use std::time::SystemTime;
 use std::time::Duration;
 use std::cell::RefCell;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::mpsc;
 use std::thread;
-use std::net::Shutdown;
-use std::net::SocketAddr;
-use std::ops::DerefMut;
-use std::borrow::BorrowMut;
-use std::str::FromStr;
 use actix::Actor;
 use actix::Addr;
 use actix::Handler;
 use actix::Syn;
-use sub_lib::tcp_wrappers::TcpStreamWrapper;
+use futures::sync::mpsc::SendError;
+use tokio::prelude::Async;
+use sub_lib::channel_wrappers::FuturesChannelFactory;
+use sub_lib::channel_wrappers::SenderWrapper;
+use sub_lib::channel_wrappers::ReceiverWrapper;
+use sub_lib::tokio_wrappers::ReadHalfWrapper;
+use sub_lib::tokio_wrappers::WriteHalfWrapper;
 use sub_lib::framer::Framer;
 use sub_lib::framer::FramedChunk;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
@@ -30,10 +31,8 @@ use discriminator::UnmaskedChunk;
 use masquerader::Masquerader;
 use masquerader::MasqueradeError;
 use null_masquerader::NullMasquerader;
-use stream_handler_pool::AddStreamMsg;
-use stream_handler_pool::RemoveStreamMsg;
+use stream_messages::*;
 use stream_handler_pool::StreamHandlerPoolSubs;
-use stream_handler_pool::PoolBindMessage;
 
 pub trait TestLogOwner {
     fn get_test_log (&self) -> Arc<Mutex<TestLog>>;
@@ -44,142 +43,79 @@ pub fn extract_log<T> (owner: T) -> (T, Arc<Mutex<TestLog>>) where T: TestLogOwn
     (owner, test_log)
 }
 
-pub struct TcpStreamWrapperMock {
-    pub log: Arc<Mutex<TestLog>>,
-    pub peer_addr_results: RefCell<Vec<io::Result<SocketAddr>>>,
-    pub set_read_timeout_results: RefCell<Vec<io::Result<()>>>,
-    pub read_results: Vec<(Vec<u8>, io::Result<usize>)>,
-    pub connect_results: Vec<io::Result<()>>,
-    pub write_params: Arc<Mutex<Vec<Vec<u8>>>>,
-    pub write_results: Vec<io::Result<usize>>,
-    pub shutdown_results: RefCell<Vec<io::Result<()>>>,
-    pub try_clone_results: RefCell<Vec<io::Result<Box<TcpStreamWrapper>>>>,
-    pub name: String
+pub struct ReadHalfWrapperMock {
+    pub poll_read_results: Vec<(Vec<u8>, Result<Async<usize>, io::Error>)>,
 }
 
-pub struct TcpStreamWrapperMockHandle {
-    pub log: Arc<Mutex<TestLog>>,
-    pub write_params: Arc<Mutex<Vec<Vec<u8>>>>
-}
-
-impl io::Read for TcpStreamWrapperMock {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.log.lock ().unwrap ().log (format! ("read ({}-byte buf)", buf.len ()));
-        let (data, result) = self.read_results.remove (0);
-        let utf8 = String::from_utf8 (data.clone ());
-        if utf8.is_ok () && (utf8.expect ("Internal error") == String::from ("block")) {
-            let (_tx, rx) = mpsc::channel::<usize> ();
-            rx.recv ().unwrap (); // block here; don't continue
-            Ok (5) // compiler candy: never executed
-        }
-        else {
-            for i in 0..data.len() {
-                buf[i] = data[i]
-            }
-            result
-        }
+impl ReadHalfWrapper for ReadHalfWrapperMock {
+    fn poll_read(&mut self, buf: &mut [u8]) -> Result<Async<usize>, Error> {
+        let (to_buf, ret_val) = self.poll_read_results.remove(0);
+        buf.as_mut(). write(to_buf.as_slice()).is_ok();
+        ret_val
     }
 }
 
-impl io::Write for TcpStreamWrapperMock {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.write_params.borrow_mut().lock ().unwrap ().push (Vec::from (buf));
-        self.write_results.remove (0)
-    }
+pub struct WriteHalfWrapperMock {
+    pub poll_write_params: Arc<Mutex<Vec<Vec<u8>>>>,
+    pub poll_write_results: Vec<(Result<Async<usize>, io::Error>)>,
+}
 
-    fn flush(&mut self) -> io::Result<()> {
-        unimplemented!()
+impl WriteHalfWrapper for WriteHalfWrapperMock {
+    fn poll_write(&mut self, buf: &[u8]) -> Result<Async<usize>, io::Error> {
+        self.poll_write_params.lock().unwrap().push(buf.to_vec());
+        self.poll_write_results.remove (0)
     }
 }
 
-impl TcpStreamWrapper for TcpStreamWrapperMock {
-    fn connect(&mut self, addr: SocketAddr) -> io::Result<()> {
-        self.log.lock ().unwrap ().log (format! ("connect ({:?})", addr));
-        self.connect_results.remove (0)
-    }
+pub struct ReceiverWrapperMock {
+    pub poll_results: Vec<Result<Async<Option<Vec<u8>>>, ()>>
+}
 
-    fn peer_addr(&self) -> io::Result<SocketAddr> {
-        let mut peer_addr_results_ref = self.peer_addr_results.borrow_mut ();
-        if peer_addr_results_ref.len () > 1 {
-            peer_addr_results_ref.remove (0)
-        }
-        else {
-            match peer_addr_results_ref.first () {
-                Some (x) => match x {
-                    &Ok (ref x) => Ok (x.clone ()),
-                    &Err (ref x) => Err (Error::from (x.kind ()))
-                },
-                None => panic! ("peer_addr_result was not prepared")
-            }
+impl ReceiverWrapper for ReceiverWrapperMock {
+    fn poll(&mut self) -> Result<Async<Option<Vec<u8>>>, ()> {
+        self.poll_results.remove(0)
+    }
+}
+
+impl ReceiverWrapperMock {
+    pub fn new() -> ReceiverWrapperMock {
+        ReceiverWrapperMock {
+            poll_results: vec!()
         }
     }
+}
 
-    fn local_addr(&self) -> io::Result<SocketAddr> {
-        // Skinny implementation
-        Ok (SocketAddr::from_str ("2.3.4.5:6789").unwrap ())
-    }
+pub struct SenderWrapperMock {
+    pub unbounded_send_params: Arc<Mutex<Vec<Vec<u8>>>>,
+    pub unbounded_send_results: Vec<Result<(), SendError<Vec<u8>>>>
+}
 
-    fn set_read_timeout(&self, duration: Option<Duration>) -> io::Result<()> {
-        self.log.lock ().unwrap ().log (format! ("set_read_timeout ({:?})", duration));
-        self.set_read_timeout_results.borrow_mut ().deref_mut ().remove (0)
-    }
-
-    fn shutdown(&self, how: Shutdown) -> io::Result<()> {
-        self.log.lock ().unwrap ().log (format! ("shutdown ({:?})", how));
-        self.shutdown_results.borrow_mut ().deref_mut ().remove (0)
-    }
-
-    fn set_write_timeout(&self, _dur: Option<Duration>) -> io::Result<()> {unimplemented!()}
-    fn read_timeout(&self) -> io::Result<Option<Duration>> {unimplemented!()}
-    fn write_timeout(&self) -> io::Result<Option<Duration>> {unimplemented!()}
-    fn peek(&self, _buf: &mut [u8]) -> io::Result<usize> {unimplemented!()}
-    fn set_nodelay(&self, _nodelay: bool) -> io::Result<()> {unimplemented!()}
-    fn nodelay(&self) -> io::Result<bool> {unimplemented!()}
-    fn set_ttl(&self, _ttl: u32) -> io::Result<()> {unimplemented!()}
-    fn ttl(&self) -> io::Result<u32> {unimplemented!()}
-    fn take_error(&self) -> io::Result<Option<io::Error>> {unimplemented!()}
-    fn set_nonblocking(&self, _nonblocking: bool) -> io::Result<()> {unimplemented!()}
-    fn try_clone (&self) -> io::Result<Box<TcpStreamWrapper>> {
-        self.log.lock ().unwrap ().log (format! ("try_clone ()"));
-        self.try_clone_results.borrow_mut ().deref_mut ().remove (0)
+impl SenderWrapper for SenderWrapperMock {
+    fn unbounded_send(&mut self, data: Vec<u8>) -> Result<(), SendError<Vec<u8>>> {
+        self.unbounded_send_params.lock().unwrap().push(data);
+        self.unbounded_send_results.remove(0)
     }
 }
 
-impl TestLogOwner for TcpStreamWrapperMock {
-    fn get_test_log(&self) -> Arc<Mutex<TestLog>> {self.log.clone ()}
-}
-
-impl TcpStreamWrapperMock {
-    pub fn new () -> TcpStreamWrapperMock {
-        TcpStreamWrapperMock {
-            log: Arc::new (Mutex::new (TestLog::new ())),
-            peer_addr_results: RefCell::new (vec! ()),
-            set_read_timeout_results: RefCell::new (vec! ()),
-            read_results: vec! (),
-            connect_results: vec! (),
-            write_params: Arc::new (Mutex::new (vec! ())),
-            write_results: vec! (),
-            shutdown_results: RefCell::new (vec! ()),
-            try_clone_results: RefCell::new (vec! ()),
-            name: String::from ("unknown")
+impl SenderWrapperMock {
+    pub fn new() -> SenderWrapperMock {
+        SenderWrapperMock {
+            unbounded_send_params: Arc::new(Mutex::new(vec!())),
+            unbounded_send_results: vec!()
         }
     }
+}
 
-    pub fn peer_addr_result (self, result: io::Result<SocketAddr>) -> TcpStreamWrapperMock {
-        self.peer_addr_results.borrow_mut ().push (result);
-        self
-    }
+pub struct FuturesChannelFactoryMock {
+    pub results: Vec<(Box<SenderWrapper>, Box<ReceiverWrapper>)>
+}
 
-    pub fn name (mut self, name: &str) -> TcpStreamWrapperMock {
-        self.name = String::from (name);
-        self
-    }
-
-    #[allow (dead_code)]
-    pub fn make_handle (&self) -> TcpStreamWrapperMockHandle {
-        TcpStreamWrapperMockHandle {
-            log: self.log.clone (),
-            write_params: self.write_params.clone ()
+impl FuturesChannelFactory for FuturesChannelFactoryMock {
+    fn make(&mut self) -> (Box<SenderWrapper>, Box<ReceiverWrapper>) {
+        if self.results.is_empty() {
+            (Box::new(SenderWrapperMock::new()), Box::new(ReceiverWrapperMock::new()))
+        } else {
+            self.results.remove(0)
         }
     }
 }
@@ -229,6 +165,7 @@ impl MasqueraderMock {
     }
 }
 
+#[allow (dead_code)]
 pub fn wait_until<F> (check: F) where F: Fn() -> bool {
     let now = SystemTime::now ();
     while !check () {

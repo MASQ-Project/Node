@@ -1,0 +1,343 @@
+use std::net::SocketAddr;
+use std::io;
+use actix::Recipient;
+use actix::Syn;
+use tokio::prelude::Async;
+use tokio::prelude::Future;
+use discriminator::Discriminator;
+use discriminator::DiscriminatorFactory;
+use sub_lib::cryptde::StreamKey;
+use sub_lib::dispatcher;
+use sub_lib::dispatcher::InboundClientData;
+use sub_lib::logger::Logger;
+use sub_lib::tokio_wrappers::ReadHalfWrapper;
+use sub_lib::utils::indicates_dead_stream;
+use stream_messages::*;
+
+pub struct StreamReaderReal {
+    stream: Box<ReadHalfWrapper>,
+    stream_key: StreamKey,
+    local_addr: SocketAddr,
+    origin_port: Option<u16>,
+    ibcd_sub: Recipient<Syn, dispatcher::InboundClientData>,
+    remove_sub: Recipient<Syn, RemoveStreamMsg>,
+    discriminators: Vec<Discriminator>,
+    logger: Logger
+}
+
+impl Future for StreamReaderReal {
+    type Item = ();
+    type Error = ();
+
+    fn poll(&mut self) -> Result<Async<()>, ()> {
+        let port = self.local_addr.port ();
+        let mut buf: [u8; 0x10000] = [0; 0x10000];
+        loop {
+            match self.stream.poll_read(&mut buf) {
+                Ok(Async::NotReady) => { return Ok(Async::NotReady) },
+                Ok(Async::Ready(0)) => { // see RETURN VALUE section of recv man page (Unix)
+                    self.logger.debug (format! ("Stream on port {} has shut down (0-byte read)", port));
+                    self.shutdown();
+                    return Ok(Async::Ready(()))
+                },
+                Ok(Async::Ready(length)) => {
+                    self.logger.debug (format! ("Read {}-byte chunk from port {}", length, port));
+                    self.wrangle_discriminators(&buf, length)
+                },
+                Err(e) => {
+                    if indicates_dead_stream(e.kind()) {
+                        self.logger.debug(format!("Stream on port {} is dead: {}", port, e));
+                        self.shutdown();
+                        return Err(())
+                    } else {
+                        // TODO this could be... inefficient, if we keep getting non-dead-stream errors. (we do not return)
+                        self.logger.warning(format!("Continuing after read error on port {}: {}", port, e.to_string()))
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl StreamReaderReal {
+    pub fn new (stream: Box<ReadHalfWrapper>, origin_port: Option<u16>, ibcd_sub: Recipient<Syn, dispatcher::InboundClientData>,
+            remove_sub: Recipient<Syn, RemoveStreamMsg>, discriminator_factories: Vec<Box<DiscriminatorFactory>>, peer_addr: StreamKey, local_addr: SocketAddr) -> StreamReaderReal {
+        let name = format! ("Dispatcher for {:?}", peer_addr);
+        if discriminator_factories.is_empty () {panic! ("Internal error: no Discriminator factories!")}
+        StreamReaderReal {
+            stream,
+            stream_key: peer_addr,
+            local_addr,
+            origin_port,
+            ibcd_sub,
+            remove_sub,
+            // Skinny implementation
+            discriminators: vec! (discriminator_factories[0].make ()),
+            logger: Logger::new (&name)
+        }
+    }
+
+    fn wrangle_discriminators (&mut self, buf: &[u8], length: usize) {
+        // Skinny implementation
+        let discriminator = &mut self.discriminators[0];
+        self.logger.debug (format! ("Adding {} bytes to discriminator", length));
+        discriminator.add_data (&buf[..length]);
+        loop {
+            match discriminator.take_chunk() {
+                Some(unmasked_chunk) => {
+                    let msg = dispatcher::InboundClientData {
+                        socket_addr: self.stream_key,
+                        origin_port: self.origin_port,
+                        last_data: false,
+                        data: unmasked_chunk.chunk.clone ()
+                    };
+                    self.logger.debug (format! ("Discriminator framed and unmasked {} bytes for {}; transmitting via Hopper",
+                                                 unmasked_chunk.chunk.len (), msg.socket_addr));
+                    self.ibcd_sub.try_send(msg).expect("Dispatcher is dead");
+                }
+                None => {
+                    self.logger.debug (format!("Discriminator has no more data framed"));
+                    break
+                }
+            }
+        }
+    }
+
+    fn shutdown(&mut self) {
+        self.remove_sub.try_send(RemoveStreamMsg { socket_addr: self.stream_key }).expect("StreamHandlerPool is dead");
+        // TODO: Skinny implementation: wrong for decentralization. StreamReaders for clandestine and non-clandestine data should probably behave differently here.
+        self.ibcd_sub.try_send(InboundClientData {
+            socket_addr: self.stream_key,
+            origin_port: self.origin_port,
+            last_data: true,
+            data: Vec::new(),
+        }).expect("Dispatcher is dead");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::ErrorKind;
+    use std::net::SocketAddr;
+    use std::str::FromStr;
+    use std::sync::Arc;
+    use std::sync::Mutex;
+    use actix::Actor;
+    use actix::Addr;
+    use actix::Arbiter;
+    use actix::msgs;
+    use actix::System;
+    use http_request_start_finder::HttpRequestDiscriminatorFactory;
+    use stream_handler_pool::StreamHandlerPoolSubs;
+    use sub_lib::dispatcher::DispatcherSubs;
+    use node_test_utils::make_stream_handler_pool_subs_from;
+    use node_test_utils::ReadHalfWrapperMock;
+    use test_utils::test_utils::Recorder;
+    use test_utils::test_utils::init_test_logging;
+    use test_utils::test_utils::make_dispatcher_subs_from;
+    use test_utils::test_utils::make_recorder;
+    use test_utils::test_utils::RecordAwaiter;
+    use test_utils::test_utils::Recording;
+    use test_utils::test_utils::TestLogHandler;
+
+    fn stream_handler_pool_stuff() -> (RecordAwaiter, Arc<Mutex<Recording>>, StreamHandlerPoolSubs) {
+        let (shp, awaiter, recording) = make_recorder();
+        (awaiter, recording, make_stream_handler_pool_subs_from(Some(shp)))
+    }
+
+    fn dispatcher_stuff() -> (RecordAwaiter, Arc<Mutex<Recording>>, DispatcherSubs) {
+        let (dispatcher, awaiter, recording) = make_recorder();
+        let addr: Addr<Syn, Recorder> = dispatcher.start();
+        (awaiter, recording, make_dispatcher_subs_from(&addr))
+    }
+
+    #[test]
+    fn stream_reader_shuts_down_and_returns_ok_on_0_byte_read() {
+        init_test_logging();
+        let system = System::new("test");
+        let (shp_awaiter, shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
+        let (d_awaiter, d_recording_arc, dispatcher_subs) = dispatcher_stuff();
+        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
+        let discriminator_factories: Vec<Box<DiscriminatorFactory>> = vec!(Box::new (HttpRequestDiscriminatorFactory::new ()));
+        let reader = ReadHalfWrapperMock { poll_read_results: vec!(
+            (vec!(), Ok(Async::Ready(0)))
+        )};
+
+        let mut subject = StreamReaderReal::new(Box::new(reader), Some(1234 as u16), dispatcher_subs.ibcd_sub, stream_handler_pool_subs.remove_sub, discriminator_factories, peer_addr, local_addr);
+
+        let result = subject.poll();
+
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
+        system.run ();
+
+        shp_awaiter.await_message_count(1);
+        let shp_recording = shp_recording_arc.lock ().unwrap ();
+        assert_eq! (shp_recording.get_record::<RemoveStreamMsg> (0), &RemoveStreamMsg { socket_addr: peer_addr });
+
+        d_awaiter.await_message_count(1);
+        let d_recording = d_recording_arc.lock().unwrap();
+        assert_eq!(d_recording.get_record::<dispatcher::InboundClientData>(0), &dispatcher::InboundClientData {
+            socket_addr: peer_addr,
+            origin_port: Some(1234 as u16),
+            last_data: true,
+            data: Vec::new(),
+        });
+
+        assert_eq!(result, Ok(Async::Ready(())));
+
+        TestLogHandler::new ().exists_log_matching("ThreadId\\(\\d+\\): DEBUG: Dispatcher for V4\\(1\\.2\\.3\\.4:5678\\): Stream on port 6789 has shut down \\(0-byte read\\)");
+    }
+
+    #[test]
+    fn stream_reader_shuts_down_and_returns_err_when_it_gets_a_dead_stream_error() {
+        init_test_logging();
+        let system = System::new("test");
+        let (shp_awaiter, shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
+        let (d_awaiter, d_recording_arc, dispatcher_subs) = dispatcher_stuff();
+        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
+        let discriminator_factories: Vec<Box<DiscriminatorFactory>> = vec!(Box::new (HttpRequestDiscriminatorFactory::new ()));
+        let reader = ReadHalfWrapperMock { poll_read_results: vec!(
+            (vec!(), Err(io::Error::from(ErrorKind::BrokenPipe)))
+        )};
+
+        let mut subject = StreamReaderReal::new(Box::new(reader), Some(1234 as u16), dispatcher_subs.ibcd_sub, stream_handler_pool_subs.remove_sub, discriminator_factories, peer_addr, local_addr);
+
+        let result = subject.poll();
+
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
+        system.run ();
+
+        shp_awaiter.await_message_count(1);
+        let shp_recording = shp_recording_arc.lock ().unwrap ();
+        assert_eq! (shp_recording.get_record::<RemoveStreamMsg> (0), &RemoveStreamMsg { socket_addr: peer_addr });
+
+        d_awaiter.await_message_count(1);
+        let d_recording = d_recording_arc.lock().unwrap();
+        assert_eq!(d_recording.get_record::<dispatcher::InboundClientData>(0), &dispatcher::InboundClientData {
+            socket_addr: peer_addr,
+            origin_port: Some(1234 as u16),
+            last_data: true,
+            data: Vec::new(),
+        });
+
+        assert_eq!(result, Err(()));
+
+        TestLogHandler::new ().exists_log_matching("ThreadId\\(\\d+\\): DEBUG: Dispatcher for V4\\(1\\.2\\.3\\.4:5678\\): Stream on port 6789 is dead: broken pipe");
+    }
+
+    #[test]
+    fn stream_reader_returns_not_ready_when_it_gets_not_ready() {
+        init_test_logging();
+        let system = System::new("test");
+        let (_shp_awaiter, shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
+        let (_d_awaiter, d_recording_arc, dispatcher_subs) = dispatcher_stuff();
+        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
+        let discriminator_factories: Vec<Box<DiscriminatorFactory>> = vec!(Box::new (HttpRequestDiscriminatorFactory::new ()));
+        let reader = ReadHalfWrapperMock { poll_read_results: vec!(
+            (vec!(), Ok(Async::NotReady))
+        )};
+
+        let mut subject = StreamReaderReal::new(Box::new(reader), Some(1234 as u16), dispatcher_subs.ibcd_sub, stream_handler_pool_subs.remove_sub, discriminator_factories, peer_addr, local_addr);
+
+        let result = subject.poll();
+
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
+        system.run ();
+
+        assert_eq!(result, Ok(Async::NotReady));
+
+        let shp_recording = shp_recording_arc.lock ().unwrap ();
+        assert_eq!(shp_recording.len(), 0);
+
+        let d_recording = d_recording_arc.lock().unwrap();
+        assert_eq!(d_recording.len(), 0);
+    }
+
+    #[test]
+    fn stream_reader_logs_err_but_does_not_shut_down_when_it_gets_a_non_dead_stream_error() {
+        init_test_logging();
+        let system = System::new("test");
+        let (_shp_awaiter, shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
+        let (_d_awaiter, d_recording_arc, dispatcher_subs) = dispatcher_stuff();
+        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
+        let discriminator_factories: Vec<Box<DiscriminatorFactory>> = vec!(Box::new (HttpRequestDiscriminatorFactory::new ()));
+        let reader = ReadHalfWrapperMock { poll_read_results: vec!(
+            (vec!(), Err(io::Error::from(ErrorKind::Other))),
+            (vec!(), Ok(Async::NotReady))
+        )};
+
+        let mut subject = StreamReaderReal::new(Box::new(reader), Some(1234 as u16), dispatcher_subs.ibcd_sub, stream_handler_pool_subs.remove_sub, discriminator_factories, peer_addr, local_addr);
+
+        let _result = subject.poll();
+
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
+        system.run ();
+
+        TestLogHandler::new ().await_log_matching("ThreadId\\(\\d+\\): WARN: Dispatcher for V4\\(1\\.2\\.3\\.4:5678\\): Continuing after read error on port 6789: other os error", 1000);
+
+        let shp_recording = shp_recording_arc.lock ().unwrap ();
+        assert_eq!(shp_recording.len(), 0);
+
+        let d_recording = d_recording_arc.lock().unwrap();
+        assert_eq!(d_recording.len(), 0);
+    }
+
+    #[test]
+    #[should_panic (expected = "Internal error: no Discriminator factories!")]
+    fn stream_reader_panics_with_no_discriminator_factories() {
+        init_test_logging();
+        let _system = System::new("test");
+        let (_shp_awaiter, _shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
+        let (_d_awaiter, _d_recording_arc, dispatcher_subs) = dispatcher_stuff();
+        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
+        let discriminator_factories: Vec<Box<DiscriminatorFactory>> = vec!();
+        let reader = ReadHalfWrapperMock { poll_read_results: vec!(
+            (vec!(), Ok(Async::Ready(5)))
+        )};
+
+        let _subject = StreamReaderReal::new(Box::new(reader), Some(1234 as u16), dispatcher_subs.ibcd_sub, stream_handler_pool_subs.remove_sub, discriminator_factories, peer_addr, local_addr);
+    }
+
+    #[test]
+    fn stream_reader_sends_framed_chunks_to_dispatcher() {
+        init_test_logging();
+        let system = System::new("test");
+        let (_shp_awaiter, _shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
+        let (d_awaiter, d_recording_arc, dispatcher_subs) = dispatcher_stuff();
+        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
+        let discriminator_factories: Vec<Box<DiscriminatorFactory>> = vec!(Box::new (HttpRequestDiscriminatorFactory::new ()));
+        let partial_request = Vec::from("GET http://her".as_bytes());
+        let remaining_request = Vec::from("e.com HTTP/1.1\r\n\r\n".as_bytes());
+        let reader = ReadHalfWrapperMock { poll_read_results: vec!(
+            (partial_request.clone(), Ok(Async::Ready(partial_request.len()))),
+            (remaining_request.clone(), Ok(Async::Ready(remaining_request.len()))),
+            (vec!(), Ok(Async::NotReady))
+        )};
+
+        let mut subject = StreamReaderReal::new(Box::new(reader), Some(1234 as u16), dispatcher_subs.ibcd_sub, stream_handler_pool_subs.remove_sub, discriminator_factories, peer_addr, local_addr);
+
+        let _result = subject.poll();
+
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
+        system.run ();
+
+        d_awaiter.await_message_count(1);
+        let d_recording = d_recording_arc.lock().unwrap();
+        assert_eq!(d_recording.get_record::<dispatcher::InboundClientData>(0), &dispatcher::InboundClientData {
+            socket_addr: peer_addr,
+            origin_port: Some(1234 as u16),
+            last_data: false,
+            data: Vec::from("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes()),
+        });
+
+        TestLogHandler::new ().exists_log_matching("ThreadId\\(\\d+\\): DEBUG: Dispatcher for V4\\(1\\.2\\.3\\.4:5678\\): Read 14-byte chunk from port 6789");
+        TestLogHandler::new ().exists_log_matching("ThreadId\\(\\d+\\): DEBUG: Dispatcher for V4\\(1\\.2\\.3\\.4:5678\\): Read 18-byte chunk from port 6789");
+    }
+}

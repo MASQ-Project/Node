@@ -83,6 +83,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn indicates_dead_stream_identifies_dead_stream_errors () {
+        vec! (ErrorKind::BrokenPipe, ErrorKind::ConnectionRefused, ErrorKind::ConnectionReset,
+            ErrorKind::ConnectionAborted, ErrorKind::TimedOut).iter ().for_each (|kind| {
+
+            let result = indicates_dead_stream (*kind);
+
+            assert_eq! (result, true, "indicates_dead_stream ({:?}) should have been true but was false", kind)
+        });
+    }
+
+    #[test]
+    fn indicates_dead_stream_identifies_non_dead_stream_errors () {
+        vec! (ErrorKind::NotFound, ErrorKind::PermissionDenied, ErrorKind::NotConnected,
+              ErrorKind::AddrInUse, ErrorKind::AddrNotAvailable, ErrorKind::AlreadyExists,
+              ErrorKind::WouldBlock, ErrorKind::InvalidInput, ErrorKind::InvalidData,
+              ErrorKind::WriteZero, ErrorKind::Interrupted, ErrorKind::Other,
+              ErrorKind::UnexpectedEof).iter ().for_each (|kind| {
+
+            let result = indicates_dead_stream (*kind);
+
+            assert_eq! (result, false, "indicates_dead_stream ({:?}) should have been false but was true", kind)
+        });
+    }
+
+    #[test]
     fn index_of_fails_to_find_nonexistent_needle_in_haystack() {
         let result = index_of("haystack".as_bytes(), "needle".as_bytes());
 

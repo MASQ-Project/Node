@@ -14,7 +14,7 @@ use sub_lib::logger::Logger;
 use sub_lib::peer_actors::BindMessage;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
 use sub_lib::utils::NODE_MAILBOX_CAPACITY;
-use stream_handler_pool::PoolBindMessage;
+use stream_messages::PoolBindMessage;
 
 pub struct Dispatcher {
     to_proxy_server: Option<Recipient<Syn, InboundClientData>>,

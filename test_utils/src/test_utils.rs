@@ -414,6 +414,13 @@ impl PayloadMock {
     }
 }
 
+pub fn make_recorder() -> (Recorder, RecordAwaiter, Arc<Mutex<Recording>>) {
+    let recorder = Recorder::new();
+    let awaiter = recorder.get_awaiter();
+    let recording = recorder.get_recording();
+    (recorder, awaiter, recording)
+}
+
 pub fn make_proxy_server_subs_from(addr: &Addr<Syn, Recorder>) -> ProxyServerSubs {
     ProxyServerSubs {
         bind: addr.clone ().recipient::<BindMessage>(),

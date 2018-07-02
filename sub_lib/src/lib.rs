@@ -2,6 +2,7 @@
 #[macro_use]
 extern crate actix;
 extern crate chrono;
+extern crate futures;
 extern crate log;
 extern crate rand;
 extern crate regex;
@@ -9,6 +10,7 @@ extern crate serde;
 extern crate serde_cbor;
 #[macro_use]
 extern crate serde_derive;
+extern crate tokio;
 
 #[cfg (test)]
 extern crate test_utils;
@@ -16,6 +18,7 @@ extern crate test_utils;
 #[cfg(unix)]
 extern crate daemonize;
 
+pub mod channel_wrappers;
 pub mod cores_package;
 pub mod cryptde;
 pub mod cryptde_null;
@@ -40,5 +43,6 @@ pub mod socket_server;
 pub mod stream_handler_pool;
 pub mod tcp_wrappers;
 pub mod tls_framer;
+pub mod tokio_wrappers;
 pub mod udp_socket_wrapper;
 pub mod utils;
