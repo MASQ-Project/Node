@@ -7,12 +7,10 @@ use actor_system_factory::ActorSystemFactory;
 use actor_system_factory::ActorSystemFactoryReal;
 use base64;
 use tokio;
-use tokio::prelude::Async;
 use configuration::Configuration;
 use listener_handler::ListenerHandler;
 use listener_handler::ListenerHandlerFactory;
 use listener_handler::ListenerHandlerFactoryReal;
-use stream_handler_pool::StreamHandlerPoolSubs;
 use sub_lib::cryptde::Key;
 use sub_lib::main_tools::StdStreams;
 use sub_lib::node_addr::NodeAddr;
@@ -20,15 +18,15 @@ use sub_lib::parameter_finder::ParameterFinder;
 use sub_lib::socket_server::SocketServer;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde_null::CryptDENull;
+use sub_lib::neighborhood::NeighborhoodConfig;
+use std::net::Ipv4Addr;
 
 pub static mut CRYPT_DE_OPT: Option<CryptDENull> = None;
 
 #[derive (Clone)]
 pub struct BootstrapperConfig {
     pub dns_servers: Vec<SocketAddr>,
-    pub neighbor_configs: Vec<(Key, NodeAddr)>,
-    pub bootstrap_configs: Vec<(Key, NodeAddr)>,
-    pub is_bootstrap_node: bool,
+    pub neighborhood_config: NeighborhoodConfig,
 }
 
 // TODO: Consider splitting this into a piece that's meant for being root and a piece that's not.
@@ -47,7 +45,8 @@ impl SocketServer for Bootstrapper {
     fn initialize_as_root(&mut self, args: &Vec<String>, streams: &mut StdStreams) {
         let mut configuration = Configuration::new ();
         configuration.establish (args);
-        self.listener_handlers = configuration.ports ().iter ().map (|port_ref| {
+        let clandestine_ports = configuration.clandestine_ports ();
+        self.listener_handlers = configuration.all_ports().iter ().map (|port_ref| {
             let mut listener_handler =
                 self.listener_handler_factory.make ();
             let discriminator_factories = configuration.take_discriminator_factories_for (*port_ref);
@@ -57,8 +56,11 @@ impl SocketServer for Bootstrapper {
             }
             listener_handler
         }).collect ();
-        self.config = Some(Bootstrapper::parse_args (args));
-        Bootstrapper::initialize_and_report_cryptde (streams);
+        let cryptde_ref = Bootstrapper::initialize_cryptde();
+        let config = Bootstrapper::parse_args (args, clandestine_ports);
+        Bootstrapper::report_local_descriptor(cryptde_ref, config.neighborhood_config.local_ip_addr,
+                                              config.neighborhood_config.clandestine_port_list.clone (), streams);
+        self.config = Some (config);
     }
 
     fn serve_without_root(&mut self) {
@@ -92,13 +94,29 @@ impl Bootstrapper {
         });
     }
 
-    fn parse_args (args: &Vec<String>) -> BootstrapperConfig {
+    fn parse_args (args: &Vec<String>, ports: Vec<u16>) -> BootstrapperConfig {
         let finder = ParameterFinder::new(args.clone ());
+        let local_ip_addr = Bootstrapper::parse_ip (&finder);
         BootstrapperConfig {
             dns_servers: Bootstrapper::parse_dns_servers (&finder),
-            neighbor_configs: Bootstrapper::parse_neighbor_configs (&finder, "--neighbor"),
-            bootstrap_configs: Bootstrapper::parse_neighbor_configs(&finder, "--bootstrap_from"),
-            is_bootstrap_node: Bootstrapper::parse_node_type (&finder),
+            neighborhood_config: NeighborhoodConfig {
+                neighbor_configs: Bootstrapper::parse_neighbor_configs(&finder, "--neighbor"),
+                bootstrap_configs: Bootstrapper::parse_neighbor_configs(&finder, "--bootstrap_from"),
+                is_bootstrap_node: Bootstrapper::parse_node_type(&finder),
+                local_ip_addr,
+                clandestine_port_list: ports,
+            }
+        }
+    }
+
+    fn parse_ip (finder: &ParameterFinder) -> IpAddr {
+        let usage = "--ip <public IP address>";
+        match finder.find_value_for ("--ip", usage) {
+            Some (ip_addr_string) => match IpAddr::from_str (ip_addr_string.as_str ()) {
+                Ok (ip_addr) => ip_addr,
+                Err (_) => panic!("Invalid IP address for --ip <public IP address>: '{}'", ip_addr_string),
+            }
+            None => IpAddr::V4 (Ipv4Addr::new (12, 34, 56, 78)),
         }
     }
 
@@ -147,15 +165,25 @@ impl Bootstrapper {
         (public_key, NodeAddr::new (&ip_addr, &ports))
     }
 
-    fn initialize_and_report_cryptde (streams: &mut StdStreams) {
+    fn initialize_cryptde () -> &'static CryptDE {
         let mut exemplar = CryptDENull::new ();
         exemplar.generate_key_pair();
         let cryptde: &'static CryptDENull = unsafe {
             CRYPT_DE_OPT = Some(exemplar);
             CRYPT_DE_OPT.as_ref().expect("Internal error")
         };
-        let public_key_base64 = base64::encode (&cryptde.public_key ().data);
-        writeln! (streams.stdout, "Substratum Node public key: {}", public_key_base64).expect ("Internal error");
+        cryptde
+    }
+
+    fn report_local_descriptor(cryptde: &CryptDE, _ip_addr: IpAddr, ports: Vec<u16>, streams: &mut StdStreams) {
+        let port_strings: Vec<String> = ports.iter ().map (|n| format! ("{}", n)).collect ();
+        let _port_list = port_strings.join (",");
+//        writeln! (streams.stdout, "Substratum Node descriptor: {};{};{}",
+//            base64::encode_config (&cryptde.public_key ().data, base64::STANDARD_NO_PAD),
+//            ip_addr,
+//            port_list,
+//        ).expect ("Internal error");
+        writeln! (streams.stdout, "Substratum Node public key: {}", base64::encode_config (&cryptde.public_key ().data, base64::STANDARD_NO_PAD)).expect ("Internal error");
     }
 }
 
@@ -189,6 +217,8 @@ mod tests {
     use test_utils::test_utils::Recording;
     use test_utils::test_utils::TestLog;
     use sub_lib::cryptde::PlainData;
+    use stream_handler_pool::StreamHandlerPoolSubs;
+    use tokio::prelude::Async;
 
     struct ListenerHandlerFactoryMock {
         log: TestLog,
@@ -275,8 +305,8 @@ mod tests {
         }
     }
 
-    fn meaningless_dns_servers() -> Vec<String> {
-        vec! (String::from ("--dns_servers"), String::from ("222.222.222.222"))
+    fn meaningless_cli_params() -> Vec<String> {
+        vec! (String::from ("--dns_servers"), String::from ("222.222.222.222"), String::from ("--port_count"), String::from ("0"))
     }
 
     #[test]
@@ -419,28 +449,55 @@ mod tests {
     }
 
     #[test]
+    fn parse_ip_defaults () {
+        let finder = ParameterFinder::new (vec! (
+            "--irrelevant", "parameter"
+        ).into_iter ().map (String::from).collect ());
+
+        let result = Bootstrapper::parse_ip (&finder);
+
+        assert_eq!(result, IpAddr::from_str ("12.34.56.78").unwrap ())
+    }
+
+    #[test]
+    #[should_panic (expected = "Invalid IP address for --ip <public IP address>: 'booga'")]
+    fn parse_complains_about_bad_ip_address () {
+        let finder = ParameterFinder::new (vec! (
+            "--ip", "booga"
+        ).into_iter ().map (String::from).collect ());
+
+        Bootstrapper::parse_ip (&finder);
+    }
+
+    #[test]
     fn parse_args_creates_configurations () {
         let args: Vec<String> = vec! (
             "--irrelevant", "irrelevant",
             "--dns_servers", "12.34.56.78,23.45.67.89",
             "--irrelevant", "irrelevant",
             "--neighbor", "QmlsbA;1.2.3.4;1234,2345",
+            "--ip", "34.56.78.90",
+            "--port_count", "2",
             "--neighbor", "VGVk;2.3.4.5;3456,4567",
             "--node_type", "bootstrap",
             "--bootstrap_from", "R29vZEtleQ;3.4.5.6;5678"
         ).into_iter ().map (String::from).collect ();
+        let mut configuration = Configuration::new ();
 
-        let config = Bootstrapper::parse_args (&args);
+        configuration.establish (&args);
+        let config = Bootstrapper::parse_args (&args, configuration.clandestine_ports());
 
         assert_eq! (config.dns_servers, vec! (SocketAddr::from_str ("12.34.56.78:53").unwrap (), SocketAddr::from_str ("23.45.67.89:53").unwrap ()));
-        assert_eq! (config.neighbor_configs, vec! (
+        assert_eq! (config.neighborhood_config.neighbor_configs, vec! (
             (Key::new (b"Bill"), NodeAddr::new (&IpAddr::from_str ("1.2.3.4").unwrap (), &vec! (1234, 2345))),
             (Key::new (b"Ted"), NodeAddr::new (&IpAddr::from_str ("2.3.4.5").unwrap (), &vec! (3456, 4567))),
         ));
-        assert_eq! (config.bootstrap_configs, vec! (
+        assert_eq! (config.neighborhood_config.bootstrap_configs, vec! (
             (Key::new (b"GoodKey"), NodeAddr::new (&IpAddr::from_str ("3.4.5.6").unwrap (), &vec! (5678))),
         ));
-        assert_eq! (config.is_bootstrap_node, true);
+        assert_eq! (config.neighborhood_config.is_bootstrap_node, true);
+        assert_eq! (config.neighborhood_config.local_ip_addr, IpAddr::V4 (Ipv4Addr::new (34, 56, 78, 90)));
+        assert_eq! (config.neighborhood_config.clandestine_port_list.len (), 2);
     }
 
     #[test]
@@ -450,9 +507,9 @@ mod tests {
             "--node_type", "standard",
         ).into_iter ().map (String::from).collect ();
 
-        let config = Bootstrapper::parse_args (&args);
+        let config = Bootstrapper::parse_args (&args, vec! ());
 
-        assert_eq! (config.is_bootstrap_node, false);
+        assert_eq! (config.neighborhood_config.is_bootstrap_node, false);
     }
 
     #[test]
@@ -466,7 +523,7 @@ mod tests {
             .add_listener_handler (third_handler)
             .build ();
 
-        subject.initialize_as_root(&meaningless_dns_servers(), &mut FakeStreamHolder::new ().streams ());
+        subject.initialize_as_root(&meaningless_cli_params(), &mut FakeStreamHolder::new ().streams ());
 
         let mut all_calls = vec! ();
         all_calls.extend (first_handler_log.lock ().unwrap ().dump ());
@@ -487,7 +544,7 @@ mod tests {
             .add_listener_handler (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())))
             .build ();
 
-        subject.initialize_as_root(&vec! (String::from ("--dns_servers"), String::from ("1.2.3.4,2.3.4.5")),
+        subject.initialize_as_root(&vec! (String::from ("--dns_servers"), String::from ("1.2.3.4,2.3.4.5"), String::from ("--port_count"), String::from ("0")),
                                    &mut FakeStreamHolder::new ().streams ());
 
         subject.serve_without_root();
@@ -506,7 +563,7 @@ mod tests {
             .add_listener_handler (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())))
             .build ();
 
-        subject.initialize_as_root(&vec! (String::from ("--dns_servers"), String::from ("booga,booga")),
+        subject.initialize_as_root(&vec! (String::from ("--dns_servers"), String::from ("booga,booga"), String::from ("--port_count"), String::from ("0")),
                                    &mut FakeStreamHolder::new ().streams ());
     }
 
@@ -518,31 +575,36 @@ mod tests {
             .add_listener_handler (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())))
             .build ();
 
-        subject.initialize_as_root(&vec! (String::from ("--dns_servers"), String::from ("1.1.1.1")), &mut FakeStreamHolder::new ().streams ());
+        subject.initialize_as_root(&vec! (String::from ("--dns_servers"), String::from ("1.1.1.1"), String::from ("--port_count"), String::from ("0")),
+                                          &mut FakeStreamHolder::new ().streams ());
     }
 
     #[test]
-    fn initialize_and_report_cryptde () {
+    fn initialize_cryptde_and_report_local_descriptor() {
+        let ip_addr = IpAddr::from_str ("2.3.4.5").unwrap ();
+        let ports = vec! (3456u16, 4567u16);
         let mut holder = FakeStreamHolder::new ();
-
-        {
+        let cryptde_ref = {
             let mut streams = holder.streams ();
-            Bootstrapper::initialize_and_report_cryptde(&mut streams);
-        }
 
-        let cryptde = unsafe {
-            CRYPT_DE_OPT.as_ref().expect("Internal error")
+            let cryptde_ref = Bootstrapper::initialize_cryptde();
+            Bootstrapper::report_local_descriptor(cryptde_ref, ip_addr, ports, &mut streams);
+
+            cryptde_ref
         };
-        assert_ne! (cryptde.private_key ().data, b"uninitialized".to_vec ());
-        let expected_public_key = base64::encode (&cryptde.public_key ().data);
+        assert_ne! (cryptde_ref.private_key ().data, b"uninitialized".to_vec ());
         let stdout_dump = holder.stdout.get_string ();
+//        let expected_descriptor = format! ("{};2.3.4.5;3456,4567", base64::encode_config (&cryptde_ref.public_key ().data, base64::STANDARD_NO_PAD));
+//        let regex = Regex::new(r"Substratum Node descriptor: (.+?)\n").unwrap();
+        let expected_descriptor = format! ("{}", base64::encode_config (&cryptde_ref.public_key ().data, base64::STANDARD_NO_PAD));
         let regex = Regex::new(r"Substratum Node public key: (.+?)\n").unwrap();
-        let captured_public_key = regex.captures (stdout_dump.as_str ()).unwrap ().get (1).unwrap ().as_str ();
-        assert_eq! (captured_public_key, expected_public_key);
+        let captured_descriptor = regex.captures (stdout_dump.as_str ()).unwrap ().get (1).unwrap ().as_str ();
+        assert_eq! (captured_descriptor, expected_descriptor);
         let expected_data = PlainData::new (b"ho'q ;iaerh;frjhvs;lkjerre");
-        let crypt_data = cryptde.encode (&cryptde.private_key (), &expected_data).unwrap ();
-        let decrypted_data = cryptde.decode (&cryptde.public_key (), &crypt_data).unwrap ();
+        let crypt_data = cryptde_ref.encode (&cryptde_ref.private_key (), &expected_data).unwrap ();
+        let decrypted_data = cryptde_ref.decode (&cryptde_ref.public_key (), &crypt_data).unwrap ();
         assert_eq! (decrypted_data, expected_data)
+
     }
 
     #[test]
@@ -576,7 +638,7 @@ mod tests {
             .add_listener_handler (one_listener_handler)
             .add_listener_handler (another_listener_handler)
             .build ();
-        subject.initialize_as_root(&meaningless_dns_servers(), &mut FakeStreamHolder::new ().streams ());
+        subject.initialize_as_root(&meaningless_cli_params(), &mut FakeStreamHolder::new ().streams ());
 
         subject.serve_without_root();
 

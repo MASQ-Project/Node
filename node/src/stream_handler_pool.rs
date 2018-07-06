@@ -1,7 +1,6 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::thread;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
@@ -9,7 +8,6 @@ use actix::Handler;
 use actix::Recipient;
 use actix::Syn;
 use tokio::net::TcpStream;
-use tokio::prelude::Async;
 use tokio;
 use discriminator::DiscriminatorFactory;
 use sub_lib::channel_wrappers::FuturesChannelFactory;
@@ -220,6 +218,8 @@ mod tests {
     use test_utils::test_utils::make_peer_actors_from;
     use test_utils::test_utils::Recorder;
     use test_utils::test_utils::TestLogHandler;
+    use tokio::prelude::Async;
+    use std::thread;
 
     struct StreamSplitterMock {
         pub peer_addr: SocketAddr,

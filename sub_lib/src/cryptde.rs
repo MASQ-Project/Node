@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use std::fmt;
 use std::net::SocketAddr;
+use base64;
 use serde;
 use serde::Serialize;
 use serde::Deserialize;
@@ -10,7 +11,7 @@ use serde::de::Visitor;
 
 // TODO: Consider generating each of these three with a single macro
 
-#[derive (Clone, Debug, PartialEq, Eq)]
+#[derive (Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Key {
     pub data: Vec<u8>
 }
@@ -24,6 +25,12 @@ impl Serialize for Key {
 impl<'de> Deserialize<'de> for Key {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
         deserializer.deserialize_bytes(KeyVisitor)
+    }
+}
+
+impl fmt::Display for Key {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write! (f, "{}", base64::encode_config (&self.data, base64::STANDARD_NO_PAD))
     }
 }
 
@@ -200,5 +207,14 @@ mod tests {
         let output = serde_cbor::de::from_slice::<PlainData> (&data[..]).unwrap ();
 
         assert_eq! (output, input);
+    }
+
+    #[test]
+    fn key_can_be_formatted_as_base_64 () {
+        let subject = Key::new (&b"Now is the time for all good men"[..]);
+
+        let result = format! ("{}", subject);
+
+        assert_eq! (result, String::from ("Tm93IGlzIHRoZSB0aW1lIGZvciBhbGwgZ29vZCBtZW4"));
     }
 }

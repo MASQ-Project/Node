@@ -10,6 +10,9 @@ workspace = "../node"
 actix = "0.5.7"
 futures = "0.1.21"
 regex = "0.2.3"
+serde = "1.0.24"
+serde_cbor = "0.8.1"
+serde_derive = "1.0.24"
 sub_lib = { path = "../sub_lib" }
 
 [dev-dependencies]

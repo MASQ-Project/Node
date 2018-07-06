@@ -17,17 +17,16 @@ use stream_handler_pool::StreamHandlerPool;
 use stream_handler_pool::StreamHandlerPoolSubs;
 use stream_messages::PoolBindMessage;
 use sub_lib::cryptde::CryptDE;
-use sub_lib::cryptde::Key;
 use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::dispatcher::DispatcherSubs;
 use sub_lib::hopper::HopperSubs;
 use sub_lib::neighborhood::NeighborhoodSubs;
-use sub_lib::node_addr::NodeAddr;
 use sub_lib::peer_actors::BindMessage;
 use sub_lib::peer_actors::PeerActors;
 use sub_lib::proxy_client::ProxyClientSubs;
 use sub_lib::proxy_server::ProxyServerSubs;
 use bootstrapper;
+use sub_lib::neighborhood::NeighborhoodConfig;
 
 pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(&self, config: BootstrapperConfig) -> StreamHandlerPoolSubs;
@@ -51,7 +50,7 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
             let proxy_server_subs = ActorSystemFactoryReal::make_and_start_proxy_server(cryptde);
             let proxy_client_subs = ActorSystemFactoryReal::make_and_start_proxy_client(cryptde, config.dns_servers);
             let hopper_subs = ActorSystemFactoryReal::make_and_start_hopper(cryptde);
-            let neighborhood_subs = ActorSystemFactoryReal::make_and_start_neighborhood(cryptde, config.neighbor_configs);
+            let neighborhood_subs = ActorSystemFactoryReal::make_and_start_neighborhood(cryptde, config.neighborhood_config);
             let stream_handler_pool_subs = ActorSystemFactoryReal::make_and_start_stream_handler_pool();
 
             // collect all the subs
@@ -102,7 +101,7 @@ impl ActorSystemFactoryReal {
         Hopper::make_subs_from(&addr)
     }
 
-    fn make_and_start_neighborhood(cryptde: &'static CryptDE, config: Vec<(Key, NodeAddr)>) -> NeighborhoodSubs {
+    fn make_and_start_neighborhood(cryptde: &'static CryptDE, config: NeighborhoodConfig) -> NeighborhoodSubs {
         let neighborhood = Neighborhood::new (cryptde, config);
         let addr: Addr<Syn, Neighborhood> = neighborhood.start ();
         Neighborhood::make_subs_from (&addr)

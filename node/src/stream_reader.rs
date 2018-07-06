@@ -1,5 +1,4 @@
 use std::net::SocketAddr;
-use std::io;
 use actix::Recipient;
 use actix::Syn;
 use tokio::prelude::Async;
@@ -118,6 +117,7 @@ impl StreamReaderReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io;
     use std::io::ErrorKind;
     use std::net::SocketAddr;
     use std::str::FromStr;

@@ -9,6 +9,15 @@ use std::net::IpAddr;
 use route::Route;
 use hopper::ExpiredCoresPackage;
 
+#[derive (Clone)]
+pub struct NeighborhoodConfig {
+    pub neighbor_configs: Vec<(Key, NodeAddr)>,
+    pub bootstrap_configs: Vec<(Key, NodeAddr)>,
+    pub is_bootstrap_node: bool,
+    pub local_ip_addr: IpAddr,
+    pub clandestine_port_list: Vec<u16>,
+}
+
 #[derive(Clone)]
 pub struct NeighborhoodSubs {
     pub bind: Recipient<Syn, BindMessage>,
@@ -30,6 +39,9 @@ impl NodeDescriptor {
         }
     }
 }
+
+#[derive (Message)]
+pub struct BootstrapNeighborhoodNowMessage {}
 
 pub enum NodeQueryMessage {
     IpAddress (IpAddr),

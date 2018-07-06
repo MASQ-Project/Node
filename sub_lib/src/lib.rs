@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 #[macro_use]
 extern crate actix;
+extern crate base64;
 extern crate chrono;
 extern crate futures;
 extern crate log;
