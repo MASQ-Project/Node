@@ -49,6 +49,7 @@ use sub_lib::stream_handler_pool::TransmitDataMsg;
 use sub_lib::neighborhood::NodeQueryMessage;
 use sub_lib::neighborhood::RouteQueryMessage;
 use sub_lib::neighborhood::NodeDescriptor;
+use sub_lib::neighborhood::BootstrapNeighborhoodNowMessage;
 
 lazy_static! {
     static ref CRYPT_DE_NULL: CryptDENull = CryptDENull::new ();
@@ -456,6 +457,7 @@ pub fn make_proxy_client_subs_from(addr: &Addr<Syn, Recorder>) -> ProxyClientSub
 pub fn make_neighborhood_subs_from(addr: &Addr<Syn, Recorder>) -> NeighborhoodSubs {
     NeighborhoodSubs {
         bind: addr.clone ().recipient::<BindMessage>(),
+        bootstrap: addr.clone ().recipient::<BootstrapNeighborhoodNowMessage>(),
         node_query: addr.clone ().recipient::<NodeQueryMessage>(),
         route_query: addr.clone ().recipient::<RouteQueryMessage>(),
         from_hopper: addr.clone ().recipient::<ExpiredCoresPackage>(),
@@ -587,6 +589,14 @@ impl Handler<HopperTemporaryTransmitDataMsg> for Recorder {
     }
 }
 
+impl Handler<BootstrapNeighborhoodNowMessage> for Recorder {
+    type Result = ();
+
+    fn handle(&mut self, msg: BootstrapNeighborhoodNowMessage, _ctx: &mut Self::Context) {
+        self.record(msg);
+    }
+}
+
 impl Handler<NodeQueryMessage> for Recorder {
     type Result = MessageResult<NodeQueryMessage>;
 
@@ -653,6 +663,12 @@ impl Recorder {
 impl Recording {
     pub fn len(&self) -> usize {
         return self.messages.len ()
+    }
+
+    pub fn get<T: Any + Send + Clone> (recording_arc: &Arc<Mutex<Recording>>, index: usize) -> T {
+        let recording_arc_clone = recording_arc.clone ();
+        let recording = recording_arc_clone.lock ().unwrap ();
+        recording.get_record::<T> (index).clone ()
     }
 
     pub fn get_record<T> (&self, index: usize) -> &T where T: Any + Send {

@@ -23,7 +23,7 @@ impl Debug for PeerActors {
     }
 }
 
-#[derive (Debug, Message)]
+#[derive (Debug, Message, Clone)]
 pub struct BindMessage {
     pub peer_actors: PeerActors
 }

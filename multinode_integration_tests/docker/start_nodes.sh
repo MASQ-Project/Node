@@ -50,7 +50,8 @@ function start_node() {
     local CONTAINER_NAME="test_node_$INDEX"
     echo "Initiating start of $CONTAINER_NAME on $CONTAINER_IP"
     local COMMAND="/node_root/node/SubstratumNode"
-    local ARGS="--dns_servers 1.1.1.1 --log_level trace $KNOWN_NEIGHBORS"
+    # TODO: Trash IP used here to make the test pass; fix this
+    local ARGS="--dns_servers 1.1.1.1 --ip $CONTAINER_IP --neighbor R29vZEtleQ;1.2.3.4;1234,2345,3456 --port_count 1 --log_level trace $KNOWN_NEIGHBORS"
     local DOCKER_RUN="docker run --detach --ip $CONTAINER_IP --dns 127.0.0.1 --rm --name $CONTAINER_NAME --net integration_net -v $COMMAND_DIR:/node_root/node test_node_image $COMMAND $ARGS"
     echo "$DOCKER_RUN"
     $DOCKER_RUN

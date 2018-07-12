@@ -15,6 +15,7 @@ use std::time::Duration;
 use std::time::Instant;
 use sub_lib::utils::index_of;
 use sub_lib::utils::to_string_s;
+use std::ffi::OsString;
 
 const CHUNK_DATA_LEN: usize = 10;
 const CHUNK_COUNT: usize = 1;
@@ -24,9 +25,13 @@ const BUF_LEN: usize = 16384;
 #[allow (unused_variables)] // 'node' below must not become '_' or disappear, or the
                             // SubstratumNode will be immediately reclaimed.
 fn chunked_http_through_node_integration() {
+    let httpbin_host = std::env::var("HTTPBIN_HOST").unwrap_or(String::from("httpbin.org"));
+    std::env::vars().for_each(|(k,v)| {
+        println!("({}, {})", k, v);
+    });
     let node = utils::SubstratumNode::start ();
     let mut stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:80").unwrap()).unwrap();
-    let request_str = format! ("GET /stream-bytes/{}?seed=0&chunk_size={} HTTP/1.1\r\nHost: httpbin.org\r\n\r\n", CHUNK_COUNT * CHUNK_DATA_LEN, CHUNK_DATA_LEN);
+    let request_str = format! ("GET /stream-bytes/{}?seed=0&chunk_size={} HTTP/1.1\r\nHost: {}\r\n\r\n", CHUNK_COUNT * CHUNK_DATA_LEN, CHUNK_DATA_LEN, httpbin_host);
     let request = request_str.as_bytes ();
 
     stream.write(request.clone ()).unwrap ();

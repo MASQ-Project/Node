@@ -20,13 +20,20 @@ impl GossipProducer for GossipProducerReal {
             Some (node_ref) => node_ref,
             None => panic! ("Target node {:?} not in NeighborhoodDatabase", target)
         };
-        let builder = database.keys ().into_iter ().fold (GossipBuilder::new (), |so_far, key_ref| {
+        let keys : Vec<&Key> = database.keys ().into_iter ()
+            .filter (|key| !database.node_by_key (key).expect ("Key magically disappeared").is_bootstrap_node ())
+            .collect ();
+        let builder = keys.clone ().into_iter ()
+            .filter (|key| !database.node_by_key (key).expect ("Key magically disappeared").is_bootstrap_node ())
+            .fold (GossipBuilder::new (), |so_far, key_ref| {
             let node_record_ref = database.node_by_key (key_ref).expect ("Key magically disappeared");
             let reveal_node_addr = node_record_ref.has_neighbor (target_node_ref.public_key ()) || target_node_ref.has_neighbor (node_record_ref.public_key ());
             so_far.node (node_record_ref, reveal_node_addr)
         });
-        let builder = database.keys ().into_iter ().fold (builder, |so_far_outer, key_ref| {
-            database.node_by_key (key_ref).expect ("Key magically disappeared").neighbors ().iter ().fold (so_far_outer, |so_far_inner, neighbor_ref| {
+        let builder = keys.clone ().into_iter ().fold (builder, |so_far_outer, key_ref| {
+            database.node_by_key (key_ref).expect ("Key magically disappeared").neighbors ().iter ()
+                .filter(|neighbor| !database.node_by_key(neighbor).expect("Key magically disappeared").is_bootstrap_node())
+                .fold (so_far_outer, |so_far_inner, neighbor_ref| {
                 so_far_inner.neighbor_pair (key_ref, neighbor_ref)
             })
         });
@@ -80,9 +87,9 @@ mod tests {
 
         assert_eq!(result.node_records.contains(&GossipNodeRecord::from(&this_node, false)), true, "{:?}", result.node_records);
         assert_eq!(result.node_records.contains(&GossipNodeRecord::from(&first_neighbor, true)), true, "{:?}", result.node_records);
-        assert_eq!(result.node_records.contains(&GossipNodeRecord::from(&second_neighbor, true)), true, "{:?}", result.node_records);
+        assert_eq!(result.node_records.contains(&GossipNodeRecord::from(&second_neighbor, true)), false, "{:?}", result.node_records);
         assert_eq!(result.node_records.contains(&GossipNodeRecord::from(&target, false)), true, "{:?}", result.node_records);
-        assert_eq!(result.node_records.len(), 4);
+        assert_eq!(result.node_records.len(), 3);
         let neighbor_keys: Vec<(Key, Key)> = result.neighbor_pairs.iter().map(|neighbor_relationship| {
             let from_idx = neighbor_relationship.from;
             let to_idx = neighbor_relationship.to;
@@ -92,15 +99,9 @@ mod tests {
         }).collect();
         assert_eq!(neighbor_keys.contains(&(this_node.public_key().clone(),
                                             first_neighbor.public_key().clone())), true, "{:?}", neighbor_keys);
-        assert_eq!(neighbor_keys.contains(&(this_node.public_key().clone(),
-                                            second_neighbor.public_key().clone())), true, "{:?}", neighbor_keys);
-        assert_eq!(neighbor_keys.contains(&(first_neighbor.public_key().clone(),
-                                            second_neighbor.public_key().clone())), true, "{:?}", neighbor_keys);
         assert_eq!(neighbor_keys.contains(&(first_neighbor.public_key().clone(),
                                             target.public_key().clone())), true, "{:?}", neighbor_keys);
-        assert_eq!(neighbor_keys.contains(&(target.public_key().clone(),
-                                            second_neighbor.public_key().clone())), true, "{:?}", neighbor_keys);
-        assert_eq!(neighbor_keys.len(), 5);
+        assert_eq!(neighbor_keys.len(), 2);
     }
 
     #[test]
@@ -123,9 +124,9 @@ mod tests {
 
         assert_eq!(result.node_records.contains(&GossipNodeRecord::from(&this_node, false)), true, "{:?}", result.node_records);
         assert_eq!(result.node_records.contains(&GossipNodeRecord::from(&first_neighbor, false)), true, "{:?}", result.node_records);
-        assert_eq!(result.node_records.contains(&GossipNodeRecord::from(&second_neighbor, false)), true, "{:?}", result.node_records);
+        assert_eq!(result.node_records.contains(&GossipNodeRecord::from(&second_neighbor, false)), false, "{:?}", result.node_records);
         assert_eq!(result.node_records.contains(&GossipNodeRecord::from(&target, false)), true, "{:?}", result.node_records);
-        assert_eq!(result.node_records.len(), 4);
+        assert_eq!(result.node_records.len(), 3);
         let neighbor_keys: Vec<(Key, Key)> = result.neighbor_pairs.iter().map(|neighbor_relationship| {
             let from_idx = neighbor_relationship.from;
             let to_idx = neighbor_relationship.to;
@@ -135,10 +136,6 @@ mod tests {
         }).collect();
         assert_eq!(neighbor_keys.contains(&(this_node.public_key().clone(),
                                             first_neighbor.public_key().clone())), true, "{:?}", neighbor_keys);
-        assert_eq!(neighbor_keys.contains(&(this_node.public_key().clone(),
-                                            second_neighbor.public_key().clone())), true, "{:?}", neighbor_keys);
-        assert_eq!(neighbor_keys.contains(&(first_neighbor.public_key().clone(),
-                                            second_neighbor.public_key().clone())), true, "{:?}", neighbor_keys);
-        assert_eq!(neighbor_keys.len(), 3);
+        assert_eq!(neighbor_keys.len(), 1);
     }
 }

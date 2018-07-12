@@ -27,6 +27,7 @@ use sub_lib::utils::NODE_MAILBOX_CAPACITY;
 
 pub struct Hopper {
     cryptde: &'static CryptDE,
+    is_bootstrap_node: bool,
     to_proxy_server: Option<Recipient<Syn, ExpiredCoresPackage>>,
     to_proxy_client: Option<Recipient<Syn, ExpiredCoresPackage>>,
     // TODO when we are decentralized, change this to a TransmitDataMsg
@@ -108,31 +109,24 @@ impl Handler<InboundClientData> for Hopper {
                 // TODO what should we do here? (nothing is unbound --so we don't need to blow up-- but we can't send this package)
                 return ()
             }
-
         };
 
         let next_hop = live_package.next_hop(self.cryptde.borrow());
 
-        match next_hop.component {
-            Component::ProxyServer => {
-                let expired_package = live_package.to_expired(self.cryptde.borrow());
-                self.logger.debug (format! ("Forwarding ExpiredCoresPackage to Proxy Server: {:?}", expired_package));
-                self.to_proxy_server.as_ref().expect("ProxyServer unbound in Hopper").try_send(expired_package).expect("Proxy Server is dead")
-            },
-            Component::ProxyClient => {
-                let expired_package = live_package.to_expired(self.cryptde.borrow());
-                self.logger.debug (format! ("Forwarding ExpiredCoresPackage to Proxy Client: {:?}", expired_package));
-                self.to_proxy_client.as_ref ().expect ("ProxyClient unbound in Hopper").try_send (expired_package ).expect ("Proxy Client is dead")
-            },
-            Component::Neighborhood => unimplemented!(),
-            Component::Hopper => {
-                let transmit_msg = match self.to_transmit_msg (live_package, msg.last_data) {
-                    // crashpoint - need to figure out how to bubble up different kinds of errors, or just log and return
-                    Err (_) => unimplemented! (),
-                    Ok (m) => m
-                };
-                self.logger.debug (format! ("Relaying {}-byte LiveCoresPackage Dispatcher inside a TransmitDataMsg", transmit_msg.data.len ()));
-                self.to_dispatcher.as_ref().expect("Dispatcher unbound in Hopper").try_send(transmit_msg).expect("Dispatcher is dead");
+        if self.should_route_data (next_hop.component) {
+            match next_hop.component {
+                Component::ProxyServer => self.handle_endpoint(next_hop.component, &self.to_proxy_server, live_package),
+                Component::ProxyClient => self.handle_endpoint(next_hop.component, &self.to_proxy_client, live_package),
+                Component::Neighborhood => unimplemented!(), // TODO: Once this isn't unimplemented, it should always route data regardless of is_bootstrap_node
+                Component::Hopper => {
+                    let transmit_msg = match self.to_transmit_msg(live_package, msg.last_data) {
+                        // crashpoint - need to figure out how to bubble up different kinds of errors, or just log and return
+                        Err(_) => unimplemented!(),
+                        Ok(m) => m
+                    };
+                    self.logger.debug(format!("Relaying {}-byte LiveCoresPackage Dispatcher inside a TransmitDataMsg", transmit_msg.data.len()));
+                    self.to_dispatcher.as_ref().expect("Dispatcher unbound in Hopper").try_send(transmit_msg).expect("Dispatcher is dead");
+                }
             }
         };
         ()
@@ -140,9 +134,10 @@ impl Handler<InboundClientData> for Hopper {
 }
 
 impl Hopper {
-    pub fn new (cryptde: &'static CryptDE) -> Hopper {
+    pub fn new (cryptde: &'static CryptDE, is_bootstrap_node: bool) -> Hopper {
         Hopper {
             cryptde,
+            is_bootstrap_node,
             to_proxy_server: None,
             to_proxy_client: None,
             to_dispatcher: None,
@@ -181,6 +176,22 @@ impl Hopper {
             last_data,
             data: next_live_package_enc.data
         })
+    }
+
+    fn should_route_data (&self, component: Component) -> bool {
+        if self.is_bootstrap_node {
+            self.logger.error (format! ("Request for Bootstrap Node to route data to {:?}: rejected", component));
+            false
+        }
+        else {
+            true
+        }
+    }
+
+    fn handle_endpoint (&self, component: Component, recipient: &Option<Recipient<Syn, ExpiredCoresPackage>>, live_package: LiveCoresPackage) {
+        let expired_package = live_package.to_expired(self.cryptde.borrow());
+        self.logger.debug(format!("Forwarding ExpiredCoresPackage to {:?}: {:?}", component, expired_package));
+        recipient.as_ref().expect(&format! ("{:?} unbound in Hopper", component)).try_send(expired_package).expect(&format! ("{:?} is dead", component))
     }
 }
 
@@ -261,6 +272,8 @@ mod tests {
     use test_utils::test_utils::route_to_proxy_client;
     use test_utils::test_utils::route_to_proxy_server;
     use test_utils::test_utils::make_meaningless_route;
+    use test_utils::test_utils::init_test_logging;
+    use test_utils::test_utils::TestLogHandler;
 
     #[test]
     fn live_cores_package_can_be_constructed_from_scratch () {
@@ -317,7 +330,7 @@ mod tests {
         thread::spawn (move || {
             let system = System::new ("converts_incipient_message_to_live_and_sends_to_dispatcher");
             let peer_actors = make_peer_actors_from(None, Some(dispatcher), None, None, None);
-            let subject = Hopper::new (cryptde);
+            let subject = Hopper::new (cryptde, false);
             let subject_addr: Addr<Syn, Hopper> = subject.start ();
             subject_addr.try_send (BindMessage {peer_actors}).unwrap ();
 
@@ -359,7 +372,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("converts_live_message_to_expired_for_proxy_client");
             let peer_actors = make_peer_actors_from(None, None, None, Some(component), None);
-            let subject = Hopper::new (cryptde);
+            let subject = Hopper::new (cryptde, false);
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap ();
 
@@ -395,7 +408,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("converts_live_message_to_expired_for_proxy_server");
             let peer_actors = make_peer_actors_from(Some (component), None, None, None, None);
-            let subject = Hopper::new (cryptde);
+            let subject = Hopper::new (cryptde, false);
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap ();
 
@@ -408,6 +421,86 @@ mod tests {
         let record = component_recording.get_record::<ExpiredCoresPackage>(0);
         let expected_ecp = lcp_a.to_expired (cryptde);
         assert_eq! (*record, expected_ecp);
+    }
+
+    #[test]
+    fn refuses_data_for_proxy_client_if_is_bootstrap_node () {
+        init_test_logging ();
+        let cryptde = cryptde();
+        let route = route_to_proxy_client(&cryptde.public_key (), cryptde);
+        let payload = PlainData::new (&b"abcd"[..]);
+        let lcp = LiveCoresPackage::new (route, cryptde.encode (&cryptde.public_key (), &payload).unwrap ());
+        let data_ser = PlainData::new (&serde_cbor::ser::to_vec (&lcp).unwrap ()[..]);
+        let data_enc = cryptde.encode (&cryptde.public_key (), &data_ser).unwrap ();
+        let inbound_client_data = InboundClientData {
+            socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            origin_port: None,
+            last_data: false,
+            data: data_enc.data
+        };
+        let system = System::new("refuses_data_for_proxy_client_if_is_bootstrap_node");
+        let subject = Hopper::new (cryptde, true);
+        let subject_addr: Addr<Syn, Hopper> = subject.start();
+
+        subject_addr.try_send(inbound_client_data ).unwrap ();
+
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
+        system.run();
+        TestLogHandler::new ().exists_log_matching("ERROR: Hopper: Request for Bootstrap Node to route data to ProxyClient: rejected");
+    }
+
+    #[test]
+    fn refuses_data_for_proxy_server_if_is_bootstrap_node () {
+        init_test_logging ();
+        let cryptde = cryptde();
+        let route = route_to_proxy_server(&cryptde.public_key(), cryptde);
+        let payload = PlainData::new (&b"abcd"[..]);
+        let lcp = LiveCoresPackage::new (route, cryptde.encode (&cryptde.public_key (), &payload).unwrap ());
+        let data_ser = PlainData::new (&serde_cbor::ser::to_vec (&lcp).unwrap ()[..]);
+        let data_enc = cryptde.encode (&cryptde.public_key (), &data_ser).unwrap ();
+        let inbound_client_data = InboundClientData {
+            socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            origin_port: None,
+            last_data: false,
+            data: data_enc.data
+        };
+        let system = System::new("refuses_data_for_proxy_server_if_is_bootstrap_node");
+        let subject = Hopper::new (cryptde, true);
+        let subject_addr: Addr<Syn, Hopper> = subject.start();
+
+        subject_addr.try_send(inbound_client_data ).unwrap ();
+
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
+        system.run();
+        TestLogHandler::new ().exists_log_matching("ERROR: Hopper: Request for Bootstrap Node to route data to ProxyServer: rejected");
+    }
+
+    #[test]
+    fn refuses_data_for_hopper_if_is_bootstrap_node () {
+        init_test_logging ();
+        let cryptde = cryptde();
+        let route = Route::new(vec! (
+            RouteSegment::new(vec! (&cryptde.public_key(), &cryptde.public_key()), Component::Hopper)
+        ), cryptde).unwrap();
+        let payload = PlainData::new (&b"abcd"[..]);
+        let lcp = LiveCoresPackage::new (route, cryptde.encode (&cryptde.public_key (), &payload).unwrap ());
+        let data_ser = PlainData::new (&serde_cbor::ser::to_vec (&lcp).unwrap ()[..]);
+        let data_enc = cryptde.encode (&cryptde.public_key (), &data_ser).unwrap ();
+        let inbound_client_data = InboundClientData {
+            socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            origin_port: None,
+            last_data: false,
+            data: data_enc.data
+        };
+        let system = System::new("refuses_data_for_hopper_if_is_bootstrap_node");
+        let subject = Hopper::new (cryptde, true);
+        let subject_addr: Addr<Syn, Hopper> = subject.start();
+
+        subject_addr.try_send(inbound_client_data ).unwrap ();
+
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
+        system.run();
+        TestLogHandler::new ().exists_log_matching("ERROR: Hopper: Request for Bootstrap Node to route data to Hopper: rejected");
     }
 
     #[test]
@@ -434,7 +527,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("converts_live_message_to_expired_for_proxy_server");
             let peer_actors = make_peer_actors_from(None, Some (dispatcher), None, None, None);
-            let subject = Hopper::new (cryptde);
+            let subject = Hopper::new (cryptde, false);
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap ();
 
@@ -474,7 +567,7 @@ mod tests {
             data: encrypted_package,
         };
         let system = System::new("panics_if_proxy_server_is_unbound");
-        let subject = Hopper::new (cryptde);
+        let subject = Hopper::new (cryptde, false);
         let subject_addr: Addr<Syn, Hopper> = subject.start();
 
         subject_addr.try_send(inbound_client_data ).unwrap ();
@@ -502,7 +595,7 @@ mod tests {
             data: encrypted_package,
         };
         let system = System::new("panics_if_proxy_client_is_unbound");
-        let subject = Hopper::new (cryptde);
+        let subject = Hopper::new (cryptde, false);
         let subject_addr: Addr<Syn, Hopper> = subject.start();
 
         subject_addr.try_send(inbound_client_data ).unwrap ();
@@ -524,7 +617,7 @@ mod tests {
             PayloadMock::new (), &cryptde.public_key ()
         );
         let system = System::new("panics_if_dispatcher_is_unbound");
-        let subject = Hopper::new (cryptde);
+        let subject = Hopper::new (cryptde, false);
         let subject_addr: Addr<Syn, Hopper> = subject.start();
 
         subject_addr.try_send(incipient_package ).unwrap ();

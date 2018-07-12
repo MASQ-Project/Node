@@ -59,8 +59,8 @@ fn perform_client_interaction (mut client: SubstratumNodeClient) {
     let request = make_http_request();
     client.send_chunk(request);
     let response = client.wait_for_chunk();
-    assert_eq!(index_of(&response[..], b"It was the Bottle Conjuror!").is_some(), true,
-               "Did not contain 'It was the Bottle Conjuror!': '{}'", String::from_utf8(response).unwrap())
+    assert_eq!(index_of(&response[..], b"This domain is established to be used for illustrative examples in documents.").is_some(), true,
+               "Did not contain 'This domain is established to be used for illustrative examples in documents.': '{}'", String::from_utf8(response).unwrap())
 }
 
 fn check_node(cluster: &SubstratumNodeCluster, name: &str, port: u16, ip_address: &str) {
@@ -107,5 +107,5 @@ fn find_running_container_names () -> Vec<String> {
 }
 
 fn make_http_request () -> Vec<u8> {
-    Vec::from (&b"GET /html HTTP/1.1\r\nHost: httpbin.org\r\n\r\n"[..])
+    Vec::from (&b"GET /html HTTP/1.1\r\nHost: example.com\r\n\r\n"[..])
 }

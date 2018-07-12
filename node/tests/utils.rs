@@ -5,6 +5,7 @@ use std::process::Command;
 use std::process::Child;
 use std::io::Read;
 use std::env;
+use std::ffi::OsString;
 use std::time::Instant;
 use std::fs::File;
 use std::ops::Drop;
@@ -76,21 +77,23 @@ impl SubstratumNode {
 
     #[cfg(windows)]
     fn make_node_command () -> Command {
+        let dns_server = env::var_os("DNS_SERVER").unwrap_or(OsString::from("8.8.8.8"));
         let test_command = env::args ().next ().unwrap ();
         let debug_or_release = test_command.split ("\\").skip_while (|s| s != &"target").skip(1).next().unwrap();
         let command_to_start = &format! ("target\\{}\\SubstratumNode", debug_or_release);
         let mut command = Command::new ("cmd");
-        command.args (&["/c", "start", command_to_start, "--dns_servers", "8.8.8.8", "--log_level", "trace"]);
+        command.args (&["/c", "start", command_to_start, "--dns_servers", dns_server.to_str().unwrap(), "--log_level", "trace"]);
         command
     }
 
     #[cfg(unix)]
     fn make_node_command () -> Command {
+        let dns_server = env::var_os("DNS_SERVER").unwrap_or(OsString::from("8.8.8.8"));
         let test_command = env::args ().next ().unwrap ();
         let debug_or_release = test_command.split ("/").skip_while (|s| s != &"target").skip(1).next().unwrap();
         let command_to_start = format! ("target/{}/SubstratumNode", debug_or_release);
         let mut command = Command::new (command_to_start);
-        command.args (&["--dns_servers", "8.8.8.8", "--log_level", "trace"]);
+        command.args (&["--dns_servers", dns_server.to_str().unwrap(), "--log_level", "trace"]);
         command
     }
 }

@@ -19,7 +19,7 @@ pub struct RemoveStreamMsg {
     pub socket_addr: SocketAddr
 }
 
-#[derive (Message)]
+#[derive (Message, Clone)]
 pub struct PoolBindMessage {
     pub dispatcher_subs: DispatcherSubs,
     pub stream_handler_pool_subs: StreamHandlerPoolSubs

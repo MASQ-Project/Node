@@ -64,7 +64,7 @@ impl Handler<InboundClientData> for ProxyServer {
         let logger = self.logger.clone ();
         tokio::spawn (
             route_source
-                .send (RouteQueryMessage {minimum_hop_count: 0})
+                .send (RouteQueryMessage::data_indefinite_route_request(0))
                 .then (|route_result| ProxyServer::try_transmit_to_hopper(
                     hopper,
                     public_key,

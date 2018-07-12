@@ -20,6 +20,8 @@ use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::neighborhood::NeighborhoodConfig;
 use std::net::Ipv4Addr;
+use actor_system_factory::ActorFactoryReal;
+use sub_lib::neighborhood::sentinel_ip_addr;
 
 pub static mut CRYPT_DE_OPT: Option<CryptDENull> = None;
 
@@ -67,6 +69,7 @@ impl SocketServer for Bootstrapper {
         let stream_handler_pool_subs =
             self.actor_system_factory.make_and_start_actors(
                 self.config.as_ref().expect("Missing BootstrapperConfig - call initialize_as_root first").clone(),
+                Box::new (ActorFactoryReal {}),
             );
 
         while self.listener_handlers.len () > 0 {
@@ -82,7 +85,7 @@ impl Bootstrapper {
         Bootstrapper {
             listener_handler_factory: Box::new (ListenerHandlerFactoryReal::new ()),
             listener_handlers: vec! (),
-            actor_system_factory: Box::new (ActorSystemFactoryReal {}),
+            actor_system_factory: Box::new (ActorSystemFactoryReal{}),
             config: None,
         }
     }
@@ -116,7 +119,7 @@ impl Bootstrapper {
                 Ok (ip_addr) => ip_addr,
                 Err (_) => panic!("Invalid IP address for --ip <public IP address>: '{}'", ip_addr_string),
             }
-            None => IpAddr::V4 (Ipv4Addr::new (12, 34, 56, 78)),
+            None => sentinel_ip_addr (),
         }
     }
 
@@ -219,6 +222,7 @@ mod tests {
     use sub_lib::cryptde::PlainData;
     use stream_handler_pool::StreamHandlerPoolSubs;
     use tokio::prelude::Async;
+    use actor_system_factory::ActorFactory;
 
     struct ListenerHandlerFactoryMock {
         log: TestLog,
@@ -456,7 +460,7 @@ mod tests {
 
         let result = Bootstrapper::parse_ip (&finder);
 
-        assert_eq!(result, IpAddr::from_str ("12.34.56.78").unwrap ())
+        assert_eq!(result, sentinel_ip_addr ())
     }
 
     #[test]
@@ -668,7 +672,7 @@ mod tests {
     }
 
     impl ActorSystemFactory for ActorSystemFactoryMock {
-        fn make_and_start_actors(&self, config: BootstrapperConfig) -> StreamHandlerPoolSubs {
+        fn make_and_start_actors(&self, config: BootstrapperConfig, _actor_factory: Box<ActorFactory>) -> StreamHandlerPoolSubs {
             let mut parameter_guard = self.dnss.lock ().unwrap ();
             let parameter_ref = parameter_guard.deref_mut ();
             *parameter_ref = Some (config.dns_servers);

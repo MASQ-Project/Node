@@ -22,8 +22,6 @@ use tls_api::TlsStream;
 use std::thread;
 use std::net::Shutdown;
 
-const RETRIES_ALLOWED: usize = 10;
-
 #[test]
 #[allow (unused_variables)] // 'node' below must not become '_' or disappear, or the
 // SubstratumNode will be immediately reclaimed.
@@ -36,7 +34,7 @@ fn tls_through_node_integration() {
             let stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:443").unwrap()).expect("Could not connect to 127.0.0.1:443");
             stream.set_read_timeout(Some(Duration::from_millis(200))).expect ("Could not set read timeout to 200ms");
             let connector = TlsConnector::builder().expect ("Could not construct TlsConnectorBuilder").build().expect ("Could not build TlsConnector");
-            match connector.connect ("httpbin.org", stream.try_clone ().expect ("Couldn't clone TcpStream")) {
+            match connector.connect ("example.com", stream.try_clone ().expect ("Couldn't clone TcpStream")) {
                 Ok (s) => {tls_stream = Some (s); break},
                 Err (e) => {
                     println!("Could not wrap TcpStream in TlsConnector - retrying: {:?}", e);
@@ -48,7 +46,7 @@ fn tls_through_node_integration() {
         }
         (tls_stream.expect ("Couldn't handshake: retries expended"), retries_remaining)
     };
-    let request = "GET /html HTTP/1.1\r\nHost: httpbin.org\r\n\r\n".as_bytes();
+    let request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes();
     tls_stream.write(request.clone()).expect ("Could not write request to TLS stream");
 
     let mut buf: [u8; 16384] = [0; 16384];
@@ -78,12 +76,15 @@ fn tls_through_node_integration() {
     tls_stream.shutdown().is_ok (); // Can't do anything about an error here
 
     let response = String::from_utf8(Vec::from(&buf[..])).expect ("Response is not UTF-8");
-    assert_eq!(response.contains("200 OK"), true, "{}", response);
-    assert_eq!(response.contains("It was the Bottle Conjuror!"), true, "{}", response);
-    assert_eq!(response.contains("Oh, woe on woe! Oh, Death, why canst thou not sometimes be timely?"), true, "{}", response);
+    assert_eq!(&response[9..15], &"200 OK"[..]);
+//    assert_eq!(response.contains("200 OK"), true, "{}", response);
+    assert_eq!(response.contains("This domain is established to be used for illustrative examples in documents."), true, "{}", response);
+    assert_eq!(response.contains("You may use this\n    domain in examples without prior coordination or asking for permission."), true, "{}", response);
 
     println! ("Test succeeded after {} connection retries", RETRIES_ALLOWED - retries_remaining);
 }
+
+const RETRIES_ALLOWED: usize = 10;
 
 
 // TODO: Adjust this a little and then put it in utils.rs

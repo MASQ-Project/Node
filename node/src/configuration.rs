@@ -55,9 +55,9 @@ impl Configuration {
     }
 
     fn parse_port_count (finder: &ParameterFinder) -> usize {
-        let usage = "--port_count <number of clandestine ports to open, default = 1>";
+        let usage = "--port_count <number of clandestine ports to open, default = 0>";
         match finder.find_value_for ("--port_count", usage) {
-            None => 1, // TODO: This should be 0, not 1
+            None => 0,
             Some (ref port_count_str) => match port_count_str.parse::<usize> () {
                 Ok (port_count) => port_count,
                 Err (_) => panic! ("--port_count <clandestine port count> needs a number, not '{}'", port_count_str)
@@ -115,21 +115,13 @@ mod tests {
     }
 
     #[test]
-    fn no_parameters_produces_configuration_with_one_high_port () {
+    fn no_parameters_produces_configuration_with_no_high_ports () {
         let args = vec! (String::from ("command"));
         let mut subject = Configuration::new ();
 
         subject.establish (&args);
 
-        assert_eq! (subject.clandestine_ports().len (), 1);
-        let high_port = subject.clandestine_ports ()[0];
-        let mut high_port_factories = subject.port_discriminator_factories.remove (&high_port).unwrap ();
-        assert_eq! (high_port_factories.len (), 1);
-        let json_factory = high_port_factories.remove (0);
-        let mut json_discriminator = json_factory.make ();
-        json_discriminator.add_data (&b"{\"component\": \"NBHD\", \"bodyText\": \"booga\"}"[..]);
-        let json_chunk = json_discriminator.take_chunk ().unwrap ();
-        assert_eq! (json_chunk, UnmaskedChunk::new (b"booga".to_vec (), true));
+        assert_eq! (subject.clandestine_ports().len (), 0);
     }
 
     #[test]
