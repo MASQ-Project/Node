@@ -6,24 +6,17 @@
 
 module.exports = (function () {
   const {ipcRenderer} = require('electron')
-  const nodeToggler = require('./node_toggle')
-  const dnsToggler = require('./dns_toggle')
+  const documentWrapper = require('../wrappers/document_wrapper')
+  const nodeActuator = require('./node_actuator')
 
-  var nodeStatus = document.getElementById('node-status')
-  var sliderNodeToggle = document.getElementById('slider-node-toggle')
+  const nodeStatusLabel = documentWrapper.getElementById('node-status-label')
+  const nodeStatusButtonOff = documentWrapper.getElementById('off')
+  const nodeStatusButtonServing = documentWrapper.getElementById('serving')
+  const nodeStatusButtonConsuming = documentWrapper.getElementById('consuming')
 
-  var dnsStatus = document.getElementById('dns-status')
-  var sliderDnsToggle = document.getElementById('slider-dns-toggle')
+  nodeActuator.bind(nodeStatusLabel, nodeStatusButtonOff, nodeStatusButtonServing, nodeStatusButtonConsuming)
 
-  function bindEvents () {
-    nodeToggler.bindEvents(sliderNodeToggle, nodeStatus)
-    dnsToggler.bindEvents(sliderDnsToggle, dnsStatus)
-
-    ipcRenderer.on('kill-substratum-node', function () {
-      dnsToggler.revertDNS()
-      nodeToggler.stopProcess()
-    })
-  }
-
-  bindEvents()
+  ipcRenderer.on('kill-substratum-node', function () {
+    nodeActuator.shutdown()
+  })
 }())

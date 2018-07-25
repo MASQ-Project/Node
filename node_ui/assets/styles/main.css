@@ -1,0 +1,52 @@
+/** Main App SCSS */
+/** Modules */
+@font-face { font-family: 'Open Sans'; src: url("../fonts/OpenSans-SemiBold.eot"); src: url("../fonts/OpenSans-SemiBold.eot?#iefix") format("embedded-opentype"), url("../fonts/OpenSans-SemiBold.woff2") format("woff2"), url("../fonts/OpenSans-SemiBold.woff") format("woff"), url("../fonts/OpenSans-SemiBold.ttf") format("truetype"); font-weight: 600; font-style: normal; }
+
+@font-face { font-family: 'Open Sans'; src: url("../fonts/OpenSans-Italic.eot"); src: url("../fonts/OpenSans-Italic.eot?#iefix") format("embedded-opentype"), url("../fonts/OpenSans-Italic.woff2") format("woff2"), url("../fonts/OpenSans-Italic.woff") format("woff"), url("../fonts/OpenSans-Italic.ttf") format("truetype"); font-weight: normal; font-style: italic; }
+
+@font-face { font-family: 'Open Sans'; src: url("../fonts/OpenSans-Light.eot"); src: url("../fonts/OpenSans-Light.eot?#iefix") format("embedded-opentype"), url("../fonts/OpenSans-Light.woff2") format("woff2"), url("../fonts/OpenSans-Light.woff") format("woff"), url("../fonts/OpenSans-Light.ttf") format("truetype"); font-weight: 300; font-style: normal; }
+
+@font-face { font-family: 'Open Sans'; src: url("../fonts/OpenSans-Bold.eot"); src: url("../fonts/OpenSans-Bold.eot?#iefix") format("embedded-opentype"), url("../fonts/OpenSans-Bold.woff2") format("woff2"), url("../fonts/OpenSans-Bold.woff") format("woff"), url("../fonts/OpenSans-Bold.ttf") format("truetype"); font-weight: bold; font-style: normal; }
+
+@font-face { font-family: 'Open Sans'; src: url("../fonts/OpenSans-SemiBoldItalic.eot"); src: url("../fonts/OpenSans-SemiBoldItalic.eot?#iefix") format("embedded-opentype"), url("../fonts/OpenSans-SemiBoldItalic.woff2") format("woff2"), url("../fonts/OpenSans-SemiBoldItalic.woff") format("woff"), url("../fonts/OpenSans-SemiBoldItalic.ttf") format("truetype"); font-weight: 600; font-style: italic; }
+
+@font-face { font-family: 'Open Sans'; src: url("../fonts/OpenSans-Regular.eot"); src: url("../fonts/OpenSans-Regular.eot?#iefix") format("embedded-opentype"), url("../fonts/OpenSans-Regular.woff2") format("woff2"), url("../fonts/OpenSans-Regular.woff") format("woff"), url("../fonts/OpenSans-Regular.ttf") format("truetype"); font-weight: normal; font-style: normal; }
+
+@font-face { font-family: 'Open Sans'; src: url("../fonts/OpenSans-LightItalic.eot"); src: url("../fonts/OpenSans-LightItalic.eot?#iefix") format("embedded-opentype"), url("../fonts/OpenSans-LightItalic.woff2") format("woff2"), url("../fonts/OpenSans-LightItalic.woff") format("woff"), url("../fonts/OpenSans-LightItalic.ttf") format("truetype"); font-weight: 300; font-style: italic; }
+
+@font-face { font-family: 'Open Sans'; src: url("../fonts/OpenSans-ExtraBold.eot"); src: url("../fonts/OpenSans-ExtraBold.eot?#iefix") format("embedded-opentype"), url("../fonts/OpenSans-ExtraBold.woff2") format("woff2"), url("../fonts/OpenSans-ExtraBold.woff") format("woff"), url("../fonts/OpenSans-ExtraBold.ttf") format("truetype"); font-weight: 800; font-style: normal; }
+
+@font-face { font-family: 'Open Sans'; src: url("../fonts/OpenSans-ExtraBoldItalic.eot"); src: url("../fonts/OpenSans-ExtraBoldItalic.eot?#iefix") format("embedded-opentype"), url("../fonts/OpenSans-ExtraBoldItalic.woff2") format("woff2"), url("../fonts/OpenSans-ExtraBoldItalic.woff") format("woff"), url("../fonts/OpenSans-ExtraBoldItalic.ttf") format("truetype"); font-weight: 800; font-style: italic; }
+
+@font-face { font-family: 'Open Sans'; src: url("../fonts/OpenSans-BoldItalic.eot"); src: url("../fonts/OpenSans-BoldItalic.eot?#iefix") format("embedded-opentype"), url("../fonts/OpenSans-BoldItalic.woff2") format("woff2"), url("../fonts/OpenSans-BoldItalic.woff") format("woff"), url("../fonts/OpenSans-BoldItalic.ttf") format("truetype"); font-weight: bold; font-style: italic; }
+
+body { margin: 0; padding: 0; font-family: "Open Sans", "Apple SD Gothic Neo", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"; font-weight: 300; background: #383839; color: #ABABAB; }
+
+/** Components */
+.app-header { background: #434444; display: flex; align-items: center; justify-content: center; position: relative; height: 55px; border-bottom: 1px solid #4D4D4F; }
+
+.app-header__settings-icon { position: absolute; right: 16px; }
+
+.app-header__settings-icon:hover { cursor: pointer; }
+
+.app-footer { background: #383839; display: flex; align-items: center; justify-content: center; position: relative; height: 44px; border-top: 1px solid #4D4D4F; color: #969596; font-size: 0.6875rem; }
+
+.node-status { background: #383839; padding: 24px 18px; }
+
+.node-status__display { display: flex; justify-content: space-between; }
+
+.node-status__display-label { color: #ABABAB; font-size: 0.78125rem; text-transform: uppercase; letter-spacing: 0.05625rem; font-weight: normal; }
+
+.node-status__display-status { color: #ffffff; font-size: 0.8125rem; text-align: right; }
+
+.node-status__actions { display: flex; margin-top: 20px; }
+
+.node-status__actions button { background: #2B2B2C; color: #969596; outline: 0; margin: 0; padding: 0; height: 40px; font-family: inherit; font-size: 0.78125rem; text-transform: uppercase; flex: 1; border: 0; border-radius: 0; border-right: 1px solid #242424; border-left: 1px solid #242424; cursor: pointer; transition: all 300ms; }
+
+.node-status__actions button.button-active { background: #EE4037; color: #ffffff; }
+
+.node-status__actions button:first-child { border-radius: 3px 0 0 3px; border: 0; }
+
+.node-status__actions button:last-child { border-radius: 0 3px 3px 0; border: 0; }
+
+.node-status__actions button:hover { color: #f5f5f5; }

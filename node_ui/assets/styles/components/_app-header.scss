@@ -1,0 +1,18 @@
+.app-header {
+	background: color('background','medium');
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	position: relative;
+	height: 55px;
+	border-bottom: 1px solid color('background','light');
+
+   	&__settings-icon {
+	   position: absolute;
+	   right: 16px;
+
+	   &:hover {
+		   cursor: pointer;
+	   }
+	}
+}

@@ -1,42 +1,41 @@
 <!DOCTYPE html>
 <!--Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.-->
 <html>
-  <head>
-    <meta charset="UTF-8">
-    <title>SubstratumNode</title>
-    <link rel="stylesheet" href="assets/styles.css">
-  </head>
-  <body>
-    <div id="logo">
-      <img src="assets/substratum_icon.png" height="40" width="40"/>
-    </div>
-    <div id="control-panel">
+	<head>
+		<meta charset="UTF-8">
+		<title>SubstratumNode</title>
+		<link rel="stylesheet" href="assets/styles/main.css">
+	</head>
+	<body>
 
-      <!-- Node Toggle -->
-      <div class="slide-container">
-        <label class="switch">
-          <input type="checkbox" id="slider-node-toggle">
-          <span id="node-slider-mask" class="slider round"></span>
-        </label>
-      </div>
-      <div class="status-container">
-        <label id="node-status">Node Status: Off</label>
-      </div>
+		<div class="app-header">
+			<img src="assets/images/substratum_icon.svg" height="35" width="35" />
+			<img src="assets/images/settings_icon.svg" height="17" width="17" class="app-header__settings-icon" />
+		</div>
 
-      <!-- DNS Toggle -->
-      <div class="slide-container">
-        <label class="switch">
-          <input type="checkbox" id="slider-dns-toggle">
-          <span id="dns-slider-mask" class="slider round"></span>
-        </label>
-      </div>
-      <div class="status-container">
-        <label id="dns-status">Serving</label>
-      </div>
+		<div class="node-status">
+			<div class="node-status__display">
+				<span class="node-status__display-label">
+					Node Status:
+				</span>
+				<span class="node-status__display-status" id="node-status-label">
+					Off
+				</span>
+			</div>
 
-    </div>
-    <script>
-      require('./render-process/renderer')
-    </script>
-  </body>
+			<div class="node-status__actions" id="node-status-buttons">
+				<button id="off" class="button-active">Off</button>
+				<button id="serving">Serving</button>
+				<button id="consuming">Consuming</button>
+			</div>
+		</div>
+
+		<div class="app-footer">
+			SubstratumNode v0.3.4 Beta
+		</div>
+		
+		<script>
+			require('./render-process/renderer')
+		</script>	
+  	</body>
 </html>

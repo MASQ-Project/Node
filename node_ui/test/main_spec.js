@@ -45,49 +45,42 @@ describe('Application launch', function () {
     let client = this.app.client
     return client.waitUntilWindowLoaded()
       .then(function () {
-        var slider = client.element('#slider-node-toggle')
+        let slider = client.element('div.node-status__actions')
         assert.notEqual(slider, null)
       })
       .then(function () {
-        return client.getAttribute('#slider-node-toggle', 'checked')
+        return client.getText('div.node-status__actions button.button-active')
       })
-      .then(function (nodeToggleChecked) {
-        assert.strictEqual(nodeToggleChecked, null) // node is toggled off
-      })
-      .then(function () {
-        var dnsToggle = client.element('#slider-dns-toggle')
-        assert.notEqual(dnsToggle, null)
-      })
-      .then(function () {
-        return client.getAttribute('#slider-dns-toggle', 'checked')
-      })
-      .then(function (dnsToggleChecked) {
-        assert.strictEqual(dnsToggleChecked, null) // the dns toggle is unchecked (reverted)
+      .then(function (activeButtonText) {
+        assert.strictEqual(activeButtonText.toLocaleLowerCase(), 'off') // node is toggled off
       })
   })
 
-  it('toggles substratum node on and off', function () {
+  // This test never really worked because we can't interact with the sudo prompt
+  // It seems like it just completes before it has a chance to prompt
+  // TODO: How can we test something meaningful here?
+  it('toggles substratum node from off to serving back to off', function () {
     let client = this.app.client
     return client.waitUntilWindowLoaded()
       .then(function () {
-        var sliderMask = client.element('#node-slider-mask')
+        let sliderMask = client.element('div.node-status__actions button#serving')
         sliderMask.click()
       })
       .then(function () {
-        return client.getAttribute('#slider-node-toggle', 'checked')
+        return client.getText('#node-status-label')
       })
       .then(function (result) {
-        assert.strictEqual(result, 'true')
+        assert.strictEqual(result.toLocaleLowerCase(), 'serving')
       })
       .then(function () {
-        var sliderMask = client.element('#node-slider-mask')
+        let sliderMask = client.element('div.node-status__actions button#off')
         sliderMask.click()
       })
       .then(function () {
-        return client.getAttribute('#slider-node-toggle', 'checked')
+        return client.getText('#node-status-label')
       })
       .then(function (result) {
-        assert.strictEqual(result, null)
+        assert.strictEqual(result.toLocaleLowerCase(), 'off')
       })
       // .then(function () {
       //   return client.getRenderProcessLogs()
@@ -95,7 +88,7 @@ describe('Application launch', function () {
       // .then(function (logs) {
       //   // FIXME Failing on Jenkins
       //    if (process.platform !== 'win32') {
-      //      var logMessageExists = false
+      //      let logMessageExists = false
       //      logs.forEach(function (log) {
       //        if (log.message.includes('substratum_node process exited with code ')) {
       //          logMessageExists = true

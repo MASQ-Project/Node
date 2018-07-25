@@ -30,6 +30,7 @@
     "artifactName" : "${productName}-${version}.${ext}"
   },
   "scripts": {
+    "dev": "./node_modules/.bin/node-sass assets/styles/main.scss assets/styles/main.css -w -r --output-style compact & electron .",
     "start": "electron .",
     "lint": "standard --fix",
     "test": "mocha",
@@ -45,7 +46,9 @@
     "mocha": "^5.1.1",
     "spectron": "^3.8.0",
     "standard": "^11.0.1",
-    "testdouble": "^3.8.0"
+    "testdouble": "^3.8.0",
+    "node-sass": "^4.5.0",
+    "electron-reload": "^1.2.5"
   },
   "dependencies": {
     "node-cmd": "^3.0.0",

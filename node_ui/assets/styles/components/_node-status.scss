@@ -1,0 +1,66 @@
+.node-status {
+    background: color('background');
+    padding: 24px 18px;
+
+    &__display {
+        display: flex;
+        justify-content: space-between;
+
+        &-label{
+            color: color('text');
+            font-size: rem(12.5px);
+            text-transform: uppercase;
+            letter-spacing: rem(0.9px);
+            font-weight: normal;
+        }
+
+        &-status {
+            color: color('white');
+            font-size: rem(13px);
+            text-align: right;
+        }
+    }
+
+    &__actions {
+        display: flex;
+        margin-top: 20px;
+
+        button {
+            background: color('background','dark');
+            color: color('text','medium');
+            outline: 0;
+            margin: 0;
+            padding: 0;
+            height: 40px;
+            font-family: inherit;
+            font-size: rem(12.5px);
+            text-transform: uppercase;
+            flex: 1;
+            border: 0;
+            border-radius: 0;
+            border-right: 1px solid #242424;
+            border-left: 1px solid #242424;
+            cursor: pointer;
+            transition: all 300ms;
+
+            &.button-active {
+                background: color('primary');
+                color: color('white');
+            }
+
+            &:first-child {
+                border-radius: $border-radius 0 0 $border-radius;
+                border: 0;
+            }
+
+            &:last-child {
+                border-radius: 0 $border-radius $border-radius 0;
+                border: 0;
+            }
+
+            &:hover {
+                 color: color('text','light');
+            }
+        }
+    }
+}
