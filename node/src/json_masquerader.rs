@@ -47,7 +47,7 @@ impl JsonMasquerader {
         let json_string = JsonMasquerader::string_from_data (data)?;
         let structure = JsonMasquerader::structure_from_string (json_string)?;
         let data_vector = JsonMasquerader::data_vector_from_structure (&structure)?;
-        Ok (UnmaskedChunk::new (data_vector, true))
+        Ok (UnmaskedChunk::new (data_vector, true, false))
     }
 
     fn make_text_structure(string: String) -> Result<String, serde_json::Error> {
@@ -136,7 +136,7 @@ mod tests {
 
         let result = subject.try_unmask (data);
 
-        assert_eq! (result, Some (UnmaskedChunk::new (Vec::from ("\\}\"{'".as_bytes ()), true)))
+        assert_eq! (result, Some (UnmaskedChunk::new (Vec::from ("\\}\"{'".as_bytes ()), true, false)))
     }
 
     #[test]

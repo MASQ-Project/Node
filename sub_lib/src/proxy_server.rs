@@ -18,6 +18,7 @@ pub enum ProxyProtocol {
 pub struct ClientRequestPayload {
     pub stream_key: StreamKey,
     pub last_data: bool,
+    pub sequence_number: u64,
     pub data: PlainData,
     pub target_hostname: Option<String>,
     pub target_port: u16,

@@ -12,6 +12,7 @@ use sub_lib::logger::Logger;
 use sub_lib::tokio_wrappers::ReadHalfWrapper;
 use sub_lib::utils::indicates_dead_stream;
 use stream_messages::*;
+use sub_lib::sequencer::Sequencer;
 
 pub struct StreamReaderReal {
     stream: Box<ReadHalfWrapper>,
@@ -21,7 +22,8 @@ pub struct StreamReaderReal {
     ibcd_sub: Recipient<Syn, dispatcher::InboundClientData>,
     remove_sub: Recipient<Syn, RemoveStreamMsg>,
     discriminators: Vec<Discriminator>,
-    logger: Logger
+    logger: Logger,
+    sequencer: Sequencer,
 }
 
 impl Future for StreamReaderReal {
@@ -72,22 +74,28 @@ impl StreamReaderReal {
             remove_sub,
             // Skinny implementation
             discriminators: vec! (discriminator_factories[0].make ()),
-            logger: Logger::new (&name)
+            logger: Logger::new (&name),
+            sequencer: Sequencer::new(),
         }
     }
 
     fn wrangle_discriminators (&mut self, buf: &[u8], length: usize) {
         // Skinny implementation
-        let discriminator = &mut self.discriminators[0];
         self.logger.debug (format! ("Adding {} bytes to discriminator", length));
-        discriminator.add_data (&buf[..length]);
+        self.discriminators[0].add_data (&buf[..length]);
         loop {
-            match discriminator.take_chunk() {
+            match self.discriminators[0].take_chunk() {
                 Some(unmasked_chunk) => {
+                    let sequence_number = if unmasked_chunk.sequenced {
+                        Some(self.sequencer.next_sequence_number())
+                    } else {
+                        None
+                    };
                     let msg = dispatcher::InboundClientData {
                         socket_addr: self.stream_key,
                         origin_port: self.origin_port,
                         last_data: false,
+                        sequence_number,
                         data: unmasked_chunk.chunk.clone ()
                     };
                     self.logger.debug (format! ("Discriminator framed and unmasked {} bytes for {}; transmitting via Hopper",
@@ -105,10 +113,12 @@ impl StreamReaderReal {
     fn shutdown(&mut self) {
         self.remove_sub.try_send(RemoveStreamMsg { socket_addr: self.stream_key }).expect("StreamHandlerPool is dead");
         // TODO: Skinny implementation: wrong for decentralization. StreamReaders for clandestine and non-clandestine data should probably behave differently here.
+        let sequence_number = Some(self.sequencer.next_sequence_number());
         self.ibcd_sub.try_send(InboundClientData {
             socket_addr: self.stream_key,
             origin_port: self.origin_port,
             last_data: true,
+            sequence_number,
             data: Vec::new(),
         }).expect("Dispatcher is dead");
     }
@@ -131,6 +141,7 @@ mod tests {
     use http_request_start_finder::HttpRequestDiscriminatorFactory;
     use stream_handler_pool::StreamHandlerPoolSubs;
     use sub_lib::dispatcher::DispatcherSubs;
+    use masquerader::Masquerader;
     use node_test_utils::make_stream_handler_pool_subs_from;
     use node_test_utils::ReadHalfWrapperMock;
     use test_utils::test_utils::Recorder;
@@ -140,6 +151,8 @@ mod tests {
     use test_utils::test_utils::RecordAwaiter;
     use test_utils::test_utils::Recording;
     use test_utils::test_utils::TestLogHandler;
+    use json_discriminator_factory::JsonDiscriminatorFactory;
+    use json_masquerader::JsonMasquerader;
 
     fn stream_handler_pool_stuff() -> (RecordAwaiter, Arc<Mutex<Recording>>, StreamHandlerPoolSubs) {
         let (shp, awaiter, recording) = make_recorder();
@@ -182,6 +195,7 @@ mod tests {
             socket_addr: peer_addr,
             origin_port: Some(1234 as u16),
             last_data: true,
+            sequence_number: Some(0),
             data: Vec::new(),
         });
 
@@ -220,6 +234,7 @@ mod tests {
             socket_addr: peer_addr,
             origin_port: Some(1234 as u16),
             last_data: true,
+            sequence_number: Some(0),
             data: Vec::new(),
         });
 
@@ -334,10 +349,88 @@ mod tests {
             socket_addr: peer_addr,
             origin_port: Some(1234 as u16),
             last_data: false,
+            sequence_number: Some(0),
             data: Vec::from("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes()),
         });
 
         TestLogHandler::new ().exists_log_matching("ThreadId\\(\\d+\\): DEBUG: Dispatcher for V4\\(1\\.2\\.3\\.4:5678\\): Read 14-byte chunk from port 6789");
         TestLogHandler::new ().exists_log_matching("ThreadId\\(\\d+\\): DEBUG: Dispatcher for V4\\(1\\.2\\.3\\.4:5678\\): Read 18-byte chunk from port 6789");
+    }
+
+    #[test]
+    fn stream_reader_assigns_a_sequence_to_inbound_client_data_that_are_flagged_as_sequenced() {
+        let system = System::new("test");
+        let (_shp_awaiter, _shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
+        let (d_awaiter, d_recording_arc, dispatcher_subs) = dispatcher_stuff();
+        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
+        let discriminator_factories: Vec<Box<DiscriminatorFactory>> = vec!(Box::new (HttpRequestDiscriminatorFactory::new ()));
+        let request1 = Vec::from("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes());
+        let request2 = Vec::from("GET http://example.com HTTP/1.1\r\n\r\n".as_bytes());
+        let reader = ReadHalfWrapperMock { poll_read_results: vec!(
+            (request1.clone(), Ok(Async::Ready(request1.len()))),
+            (vec!(), Ok(Async::NotReady)),
+            (request2.clone(), Ok(Async::Ready(request2.len()))),
+            (vec!(), Ok(Async::NotReady)),
+        )};
+
+        let mut subject = StreamReaderReal::new(Box::new(reader), Some(1234 as u16), dispatcher_subs.ibcd_sub, stream_handler_pool_subs.remove_sub, discriminator_factories, peer_addr, local_addr);
+
+        let _result = subject.poll();
+        let _result = subject.poll();
+
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
+        system.run ();
+
+        d_awaiter.await_message_count(2);
+        let d_recording = d_recording_arc.lock().unwrap();
+        assert_eq!(d_recording.get_record::<dispatcher::InboundClientData>(0), &dispatcher::InboundClientData {
+            socket_addr: peer_addr,
+            origin_port: Some(1234 as u16),
+            last_data: false,
+            sequence_number: Some(0),
+            data: Vec::from("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes()),
+        });
+
+        assert_eq!(d_recording.get_record::<dispatcher::InboundClientData>(1), &dispatcher::InboundClientData {
+            socket_addr: peer_addr,
+            origin_port: Some(1234 as u16),
+            last_data: false,
+            sequence_number: Some(1),
+            data: Vec::from("GET http://example.com HTTP/1.1\r\n\r\n".as_bytes()),
+        });
+    }
+
+    #[test]
+    fn stream_reader_does_not_assign_sequence_to_inbound_client_data_that_is_not_marked_as_sequenece() {
+        let system = System::new("test");
+        let (_shp_awaiter, _shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
+        let (d_awaiter, d_recording_arc, dispatcher_subs) = dispatcher_stuff();
+        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
+        let discriminator_factories: Vec<Box<DiscriminatorFactory>> = vec!(Box::new (JsonDiscriminatorFactory::new()));
+        let json_masquerader = JsonMasquerader::new();
+        let request = Vec::from(json_masquerader.mask("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes()).unwrap());
+        let reader = ReadHalfWrapperMock { poll_read_results: vec!(
+            (request.clone(), Ok(Async::Ready(request.len()))),
+            (vec!(), Ok(Async::NotReady)),
+        )};
+
+        let mut subject = StreamReaderReal::new(Box::new(reader), Some(1234 as u16), dispatcher_subs.ibcd_sub, stream_handler_pool_subs.remove_sub, discriminator_factories, peer_addr, local_addr);
+
+        let _result = subject.poll();
+
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
+        system.run ();
+
+        d_awaiter.await_message_count(1);
+        let d_recording = d_recording_arc.lock().unwrap();
+        assert_eq!(d_recording.get_record::<dispatcher::InboundClientData>(0), &dispatcher::InboundClientData {
+            socket_addr: peer_addr,
+            origin_port: Some(1234 as u16),
+            last_data: false,
+            sequence_number: None,
+            data: Vec::from("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes()),
+        });
     }
 }

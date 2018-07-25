@@ -148,6 +148,7 @@ mod tests {
                 &ClientRequestPayload {
                     stream_key: SocketAddr::from_str("255.255.255.255:65535").unwrap(),
                     last_data: false,
+                    sequence_number: 0,
                     data: PlainData::new(&[]),
                     target_hostname: Some("blah".to_string()),
                     target_port: 0,
@@ -195,6 +196,7 @@ mod tests {
                 &ClientRequestPayload {
                     stream_key: SocketAddr::from_str("255.255.255.255:65535").unwrap(),
                     last_data: false,
+                    sequence_number: 0,
                     data: PlainData::new(&[]),
                     target_hostname: None,
                     target_port: 0,

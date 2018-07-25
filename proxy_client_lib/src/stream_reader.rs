@@ -14,6 +14,7 @@ use sub_lib::route::Route;
 use sub_lib::tcp_wrappers::TcpStreamWrapper;
 use sub_lib::utils::indicates_dead_stream;
 use sub_lib::utils::to_string;
+use sub_lib::sequencer::Sequencer;
 
 pub struct StreamReader {
     stream_key: StreamKey,
@@ -25,6 +26,7 @@ pub struct StreamReader {
     framer: Box<Framer>,
     originator_public_key: Key,
     logger: Logger,
+    sequencer: Sequencer,
 }
 
 impl StreamReader {
@@ -42,6 +44,7 @@ impl StreamReader {
             framer,
             originator_public_key,
             logger: Logger::new ("Proxy Client"),
+            sequencer: Sequencer::new(),
         }
     }
 
@@ -79,10 +82,11 @@ impl StreamReader {
         }
     }
 
-    fn shutdown(&self) {
-        self.send_cores_response (self.stream_key, PlainData::new (&[]), true);
+    fn shutdown(&mut self) {
+        let stream_key = self.stream_key.clone();
+        self.send_cores_response (stream_key, PlainData::new (&[]), true);
         self.stream.shutdown (Shutdown::Both).is_ok ();
-        self.stream_killer.send (self.stream_key).is_ok ();
+        self.stream_killer.send (stream_key).is_ok ();
     }
 
     fn write_loop (&mut self) -> bool {
@@ -92,8 +96,9 @@ impl StreamReader {
                     self.logger.debug (format! ("Framed {}-byte {} response chunk, '{}'", response_chunk.chunk.len (),
                                                 if response_chunk.last_chunk {"final"} else {"non-final"},
                                                 to_string (&response_chunk.chunk)));
+                    let stream_key = self.stream_key.clone();
                     self.send_cores_response(
-                        self.stream_key,
+                        stream_key,
                         PlainData::new (&response_chunk.chunk[..]),
                         response_chunk.last_chunk
                     );
@@ -110,10 +115,11 @@ impl StreamReader {
         }
     }
 
-    fn send_cores_response(&self, stream_key: StreamKey, response_data: PlainData, last_response: bool) {
+    fn send_cores_response(&mut self, stream_key: StreamKey, response_data: PlainData, last_response: bool) {
         let response_payload = ClientResponsePayload {
             stream_key,
             last_response,
+            sequence_number: self.sequencer.next_sequence_number(),
             data: response_data
         };
         let incipient_cores_package =
@@ -155,6 +161,94 @@ mod tests {
     }
 
     #[test]
+    fn stream_reader_assigns_a_sequence_to_client_response_payloads() {
+        let hopper = Recorder::new();
+        let awaiter = hopper.get_awaiter();
+        let hopper_recording_arc = hopper.get_recording();
+        let mut shutdown_parameters = Arc::new(Mutex::new(vec!()));
+        let stream = TcpStreamWrapperMock::new()
+            .peer_addr_result(Ok(SocketAddr::from_str("2.3.4.5:80").unwrap()))
+            .read_buffer(Vec::from(&b"HTTP/1.1 200"[..]))
+            .read_result(Ok(b"HTTP/1.1 200".len()))
+            .read_buffer(Vec::from(&b" OK\r\n\r\nHTTP/1.1 40"[..]))
+            .read_result(Ok(b" OK\r\n\r\nHTTP/1.1 40".len()))
+            .read_buffer(Vec::from(&b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n"[..]))
+            .read_result(Ok(b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n".len()))
+            .read_buffer(vec!())
+            .read_result(Ok(0))
+            .shutdown_parameters(&mut shutdown_parameters)
+            .shutdown_result(Ok(()));
+        thread::spawn(move || {
+            let system = System::new("test");
+            let hopper_sub =
+                test_utils::make_peer_actors_from(None, None, Some(hopper), None, None)
+                    .hopper.from_hopper_client;
+            let (stream_killer, _) = mpsc::channel::<StreamKey>();
+            let mut subject = StreamReader {
+                stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
+                hopper_sub,
+                stream: Box::new(stream),
+                stream_killer,
+                peer_addr: String::from("Peer Address"),
+                remaining_route: test_utils::make_meaningless_route(),
+                framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
+                originator_public_key: Key::new(&b"abcd"[..]),
+                logger: Logger::new("test"),
+                sequencer: Sequencer::new(),
+            };
+
+            subject.run();
+
+            system.run();
+        });
+
+        awaiter.await_message_count(4);
+        let hopper_recording = hopper_recording_arc.lock().unwrap();
+        assert_eq!(hopper_recording.get_record::<IncipientCoresPackage>(0), &IncipientCoresPackage::new(
+            test_utils::make_meaningless_route(),
+            ClientResponsePayload {
+                stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
+                last_response: false,
+                sequence_number: 0,
+                data: PlainData::new(&b"HTTP/1.1 200 OK\r\n\r\n"[..]),
+            },
+            &Key::new(&b"abcd"[..])
+        ));
+        assert_eq!(hopper_recording.get_record::<IncipientCoresPackage>(1), &IncipientCoresPackage::new(
+            test_utils::make_meaningless_route(),
+            ClientResponsePayload {
+                stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
+                last_response: false,
+                sequence_number: 1,
+                data: PlainData::new(&b"HTTP/1.1 404 File not found\r\n\r\n"[..]),
+            },
+            &Key::new(&b"abcd"[..])
+        ));
+        assert_eq!(hopper_recording.get_record::<IncipientCoresPackage>(2), &IncipientCoresPackage::new(
+            test_utils::make_meaningless_route(),
+            ClientResponsePayload {
+                stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
+                last_response: false,
+                sequence_number: 2,
+                data: PlainData::new(&b"HTTP/1.1 503 Server error\r\n\r\n"[..]),
+            },
+            &Key::new(&b"abcd"[..])
+        ));
+        assert_eq!(hopper_recording.get_record::<IncipientCoresPackage>(3), &IncipientCoresPackage::new(
+            test_utils::make_meaningless_route(),
+            ClientResponsePayload {
+                stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
+                last_response: true,
+                sequence_number: 3,
+                data: PlainData::new(&Vec::new()),
+            },
+            &Key::new(&b"abcd"[..])
+        ));
+        let shutdown_parameter = shutdown_parameters.lock().unwrap()[0];
+        assert_eq!(shutdown_parameter, Shutdown::Both);
+    }
+
+    #[test]
     fn when_framer_identifies_last_chunk_stream_reader_takes_down_connection_properly() {
         let stream_key = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let hopper = Recorder::new();
@@ -184,7 +278,8 @@ mod tests {
                 remaining_route,
                 framer,
                 originator_public_key,
-                logger
+                logger,
+                sequencer: Sequencer::new(),
             };
 
             subject.run();
@@ -204,6 +299,7 @@ mod tests {
             payload: PlainData::new(&serde_cbor::ser::to_vec(&ClientResponsePayload {
                 stream_key,
                 last_response: true,
+                sequence_number: 0,
                 data: PlainData::new(&[]),
             }).unwrap()[..]),
             payload_destination_key: Key::new(&b"men's souls"[..]),
@@ -243,6 +339,7 @@ mod tests {
                 framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
                 originator_public_key: Key::new(&b"abcd"[..]),
                 logger: Logger::new("test"),
+                sequencer: Sequencer::new(),
             };
 
             subject.run();
@@ -257,6 +354,7 @@ mod tests {
             ClientResponsePayload {
                 stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
                 last_response: false,
+                sequence_number: 0,
                 data: PlainData::new(&b"HTTP/1.1 200 OK\r\n\r\n"[..]),
             },
             &Key::new(&b"abcd"[..])
@@ -266,6 +364,7 @@ mod tests {
             ClientResponsePayload {
                 stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
                 last_response: false,
+                sequence_number: 1,
                 data: PlainData::new(&b"HTTP/1.1 404 File not found\r\n\r\n"[..]),
             },
             &Key::new(&b"abcd"[..])
@@ -275,6 +374,7 @@ mod tests {
             ClientResponsePayload {
                 stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
                 last_response: false,
+                sequence_number: 2,
                 data: PlainData::new(&b"HTTP/1.1 503 Server error\r\n\r\n"[..]),
             },
             &Key::new(&b"abcd"[..])
@@ -284,6 +384,7 @@ mod tests {
             ClientResponsePayload {
                 stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
                 last_response: true,
+                sequence_number: 3,
                 data: PlainData::new(&b""[..]),
             },
             &Key::new(&b"abcd"[..])
@@ -323,6 +424,7 @@ mod tests {
                 framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
                 originator_public_key: Key::new(&b"abcd"[..]),
                 logger: Logger::new("test"),
+                sequencer: Sequencer::new(),
             };
 
             subject.run();
@@ -341,6 +443,7 @@ mod tests {
             ClientResponsePayload {
                 stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
                 last_response: true,
+                sequence_number: 0,
                 data: PlainData::new(&[]),
             },
             &Key::new(&b"abcd"[..])
@@ -380,6 +483,7 @@ mod tests {
                 framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
                 originator_public_key: Key::new(&b"abcd"[..]),
                 logger: Logger::new("test"),
+                sequencer: Sequencer::new(),
             };
 
             subject.run();
@@ -395,6 +499,7 @@ mod tests {
             ClientResponsePayload {
                 stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
                 last_response: false,
+                sequence_number: 0,
                 data: PlainData::new(&b"HTTP/1.1 200 OK\r\n\r\n"[..]),
             },
             &Key::new(&b"abcd"[..])

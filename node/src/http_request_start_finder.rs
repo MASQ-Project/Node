@@ -206,6 +206,6 @@ Another-Header: val".as_bytes()),
 
         http_discriminator.add_data ("GET http://url.com HTTP/1.1\r\n\r\n".as_bytes ());
         let http_chunk = http_discriminator.take_chunk ().unwrap ();
-        assert_eq! (http_chunk, UnmaskedChunk::new (Vec::from ("GET http://url.com HTTP/1.1\r\n\r\n".as_bytes ()), true));
+        assert_eq! (http_chunk, UnmaskedChunk::new (Vec::from ("GET http://url.com HTTP/1.1\r\n\r\n".as_bytes ()), true, true));
     }
 }

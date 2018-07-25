@@ -277,7 +277,7 @@ describe('NodeActuator', function () {
       })
 
       describe('while consuming', function () {
-        describe('dns revert succeeds', function (){
+        describe('dns revert succeeds', function () {
           beforeEach(function () {
             mockNodeStatusButtonConsuming.onclick()
 
@@ -297,7 +297,7 @@ describe('NodeActuator', function () {
           })
         })
 
-        describe('dns revert fails', function (){
+        describe('dns revert fails', function () {
           beforeEach(function () {
             mockNodeStatusButtonConsuming.onclick()
 
@@ -310,7 +310,7 @@ describe('NodeActuator', function () {
             mockSubstratumNodeProcess.emit('message', 'Command returned error: blooga')
           })
 
-          it("tries to revert the dns", function () {
+          it('tries to revert the dns', function () {
             assertDNSReverted()
           })
 
@@ -343,7 +343,7 @@ describe('NodeActuator', function () {
       })
 
       describe('while consuming', function () {
-        describe('dns revert succeeds', function() {
+        describe('dns revert succeeds', function () {
           beforeEach(function () {
             mockNodeStatusButtonConsuming.onclick()
 
@@ -363,7 +363,7 @@ describe('NodeActuator', function () {
           })
         })
 
-        describe('dns revert fails', function() {
+        describe('dns revert fails', function () {
           beforeEach(function () {
             mockNodeStatusButtonConsuming.onclick()
 

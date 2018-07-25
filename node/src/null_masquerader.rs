@@ -8,7 +8,7 @@ pub struct NullMasquerader {
 
 impl Masquerader for NullMasquerader {
     fn try_unmask(&self, item: &[u8]) -> Option<UnmaskedChunk> {
-        Some (UnmaskedChunk::new (Vec::from (item), true))
+        Some (UnmaskedChunk::new (Vec::from (item), true, true))
     }
 
     fn mask(&self, _data: &[u8]) -> Result<Vec<u8>, MasqueradeError> {
@@ -34,6 +34,16 @@ mod tests {
 
         let result = subject.try_unmask (data).unwrap ();
 
-        assert_eq! (result, UnmaskedChunk::new (Vec::from (data), true));
+        assert_eq! (result, UnmaskedChunk::new (Vec::from (data), true, true));
+    }
+
+    #[test]
+    fn try_unmask_marks_chunk_as_needing_sequencing() {
+        let data = "booga".as_bytes ();
+        let subject = NullMasquerader::new ();
+
+        let result = subject.try_unmask (data).unwrap ();
+
+        assert!(result.sequenced);
     }
 }

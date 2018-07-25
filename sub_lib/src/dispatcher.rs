@@ -124,6 +124,7 @@ pub struct InboundClientData {
     pub socket_addr: SocketAddr,
     pub origin_port: Option<u16>,
     pub last_data: bool,
+    pub sequence_number: Option<u64>,
     pub data: Vec<u8>
 }
 
@@ -133,8 +134,8 @@ impl Debug for InboundClientData {
             Ok (string) => string,
             Err (_) => format! ("{:?}", &self.data[..])
         };
-        write! (f, "InboundClientData {{ socket_addr: {:?}, origin_port: {:?}, last_data: {}, data: {} }}",
-                self.socket_addr, self.origin_port, self.last_data, data_string)
+        write! (f, "InboundClientData {{ socket_addr: {:?}, origin_port: {:?}, last_data: {}, sequence_nubmer: {:?}, data: {} }}",
+                self.socket_addr, self.origin_port, self.last_data, self.sequence_number, data_string)
     }
 }
 

@@ -307,24 +307,28 @@ mod tests {
             socket_addr: peer_addr,
             origin_port,
             last_data: false,
+            sequence_number: Some(0),
             data: one_http_req_a
         });
         assert_eq! (dispatcher_recording.get_record::<dispatcher::InboundClientData> (1), &dispatcher::InboundClientData {
             socket_addr: peer_addr,
             origin_port,
             last_data: false,
+            sequence_number: Some(1),
             data: another_http_req_a
         });
         assert_eq! (dispatcher_recording.get_record::<dispatcher::InboundClientData> (2), &dispatcher::InboundClientData {
             socket_addr: peer_addr,
             origin_port,
             last_data: false,
+            sequence_number: Some(2),
             data: a_third_http_req_a
         });
         assert_eq! (dispatcher_recording.get_record::<dispatcher::InboundClientData> (3), &dispatcher::InboundClientData {
             socket_addr: peer_addr,
             origin_port,
             last_data: true,
+            sequence_number: Some(3),
             data: Vec::new ()
         });
         assert_eq! (dispatcher_recording.len (), 4);

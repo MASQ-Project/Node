@@ -10,6 +10,7 @@ use peer_actors::BindMessage;
 pub struct ClientResponsePayload {
     pub stream_key: StreamKey,
     pub last_response: bool,
+    pub sequence_number: u64,
     pub data: PlainData
 }
 

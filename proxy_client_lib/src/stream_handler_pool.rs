@@ -227,6 +227,7 @@ impl StreamHandlerPoolReal {
         let response = ClientResponsePayload {
             stream_key: request.stream_key,
             last_response: true,
+            sequence_number: 0,
             data: PlainData::new (&[]),
         };
         let package = IncipientCoresPackage::new (route, response,
@@ -305,6 +306,7 @@ mod tests {
         let client_request_payload = ClientRequestPayload {
             stream_key: SocketAddr::from_str ("1.2.3.4:5678").unwrap (),
             last_data: false,
+            sequence_number: 0,
             data: PlainData::new (&b"These are the times"[..]),
             target_hostname: None,
             target_port: 80,
@@ -340,6 +342,7 @@ mod tests {
         let client_request_payload = ClientRequestPayload {
             stream_key: SocketAddr::from_str ("1.2.3.4:5678").unwrap (),
             last_data: true,
+            sequence_number: 0,
             data: PlainData::new (&b"These are the times"[..]),
             target_hostname: None,
             target_port: 80,
@@ -381,6 +384,7 @@ mod tests {
             let client_request_payload = ClientRequestPayload {
                 stream_key: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
                 last_data: false,
+                sequence_number: 0,
                 data: PlainData::new(&b"These are the times"[..]),
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
@@ -422,6 +426,7 @@ mod tests {
             let client_request_payload = ClientRequestPayload {
                 stream_key: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
                 last_data: false,
+                sequence_number: 0,
                 data: PlainData::new(&b"These are the times"[..]),
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
@@ -475,6 +480,7 @@ mod tests {
             let client_request_payload = ClientRequestPayload {
                 stream_key: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
                 last_data: false,
+                sequence_number: 0,
                 data: PlainData::new(&b"These are the times"[..]),
                 target_hostname: None,
                 target_port: 80,
@@ -526,6 +532,7 @@ mod tests {
             let client_request_payload = ClientRequestPayload {
                 stream_key: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
                 last_data: false,
+                sequence_number: 0,
                 data: PlainData::new(&b"These are the times"[..]),
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
@@ -579,6 +586,7 @@ mod tests {
             ClientResponsePayload {
                 stream_key: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
                 last_response: false,
+                sequence_number: 0,
                 data: PlainData::new (&b"HTTP/1.1 200 OK\r\n\r\n"[..]),
             },
             &Key::new(&b"men's souls"[..])
@@ -595,6 +603,7 @@ mod tests {
             let client_request_payload = ClientRequestPayload {
                 stream_key: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
                 last_data: false,
+                sequence_number: 0,
                 data: PlainData::new(&b"These are the times"[..]),
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
@@ -640,6 +649,7 @@ mod tests {
             let client_request_payload = ClientRequestPayload {
                 stream_key: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
                 last_data: true,
+                sequence_number: 0,
                 data: PlainData::new(&b"These are the times"[..]),
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
@@ -686,6 +696,7 @@ mod tests {
             let client_request_payload = ClientRequestPayload {
                 stream_key: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
                 last_data: false,
+                sequence_number: 0,
                 data: PlainData::new(&b"These are the times"[..]),
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
@@ -731,8 +742,9 @@ mod tests {
         let recording_arc = hopper.get_recording ();
         thread::spawn (move || {
             let client_request_payload = ClientRequestPayload {
-                stream_key: stream_key,
+                stream_key,
                 last_data: true,
+                sequence_number: 0,
                 data: PlainData::new(&b"These are the times"[..]),
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
@@ -764,6 +776,7 @@ mod tests {
         assert_eq! (client_response_payload, ClientResponsePayload {
             stream_key,
             last_response: true,
+            sequence_number: 0,
             data: PlainData::new (&[]),
         });
     }
@@ -779,6 +792,7 @@ mod tests {
             let client_request_payload = ClientRequestPayload {
                 stream_key: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
                 last_data: false,
+                sequence_number: 0,
                 data: PlainData::new(&b"These are the times"[..]),
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,

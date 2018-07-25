@@ -47,6 +47,6 @@ mod tests {
         let mut result = subject.make ();
 
         result.add_data (data);
-        assert_eq! (result.take_chunk (), Some (UnmaskedChunk::new (Vec::from (data), true)));
+        assert_eq! (result.take_chunk (), Some (UnmaskedChunk::new (Vec::from (data), true, true)));
     }
 }

@@ -40,6 +40,7 @@ pub mod peer_actors;
 pub mod proxy_client;
 pub mod proxy_server;
 pub mod route;
+pub mod sequencer;
 pub mod socket_server;
 pub mod stream_handler_pool;
 pub mod tcp_wrappers;

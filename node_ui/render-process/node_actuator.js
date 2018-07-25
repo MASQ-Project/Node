@@ -53,7 +53,7 @@ module.exports = (function () {
     if (state === 'consuming') {
       runDNSUtility('revert', function () {
         setStatusToOff()
-      }, function() {
+      }, function () {
         setStatusToInvalid()
       })
     } else {
@@ -99,7 +99,7 @@ module.exports = (function () {
     sudoPrompt.exec(dnsUtilityPath + ' ' + mode, { name: 'DNS utility' }, function (error, stdout, stderr) {
       if (error || stderr) {
         consoleWrapper.log('dns_utility failed: ', stderr || error.message)
-        if(errCb) errCb()
+        if (errCb) errCb()
         // TODO: what to do here?
       } else if (andThen) {
         andThen()

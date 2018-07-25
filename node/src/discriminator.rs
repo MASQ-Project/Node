@@ -7,13 +7,15 @@ use masquerader::Masquerader;
 pub struct UnmaskedChunk {
     pub chunk: Vec<u8>,
     pub last_chunk: bool,
+    pub sequenced: bool,
 }
 
 impl UnmaskedChunk {
-    pub fn new (chunk: Vec<u8>, last_chunk: bool) -> UnmaskedChunk {
+    pub fn new (chunk: Vec<u8>, last_chunk: bool, sequenced: bool) -> UnmaskedChunk {
         UnmaskedChunk {
             chunk,
-            last_chunk
+            last_chunk,
+            sequenced
         }
     }
 }
@@ -180,11 +182,11 @@ mod tests {
         let mut first_try_unmask_parameters: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new (Mutex::new (vec! ()));
         let mut second_try_unmask_parameters: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new (Mutex::new (vec! ()));
         let first_masquerader = MasqueraderMock::new ()
-            .try_unmask_result (Some (UnmaskedChunk::new (Vec::from (&b"choose me"[..]), true)))
+            .try_unmask_result (Some (UnmaskedChunk::new (Vec::from (&b"choose me"[..]), true, true)))
             .try_unmask_result (None)
             .try_unmask_parameters (&mut first_try_unmask_parameters);
         let second_masquerader = MasqueraderMock::new ()
-            .try_unmask_result (Some (UnmaskedChunk::new (Vec::from (&b"don't choose me"[..]), true)))
+            .try_unmask_result (Some (UnmaskedChunk::new (Vec::from (&b"don't choose me"[..]), true, true)))
             .try_unmask_result (None)
             .try_unmask_parameters (&mut second_try_unmask_parameters);
         let mut subject = Discriminator::new (Box::new (framer),
@@ -192,7 +194,7 @@ mod tests {
 
         let result = subject.take_chunk ();
 
-        assert_eq! (result, Some (UnmaskedChunk::new (Vec::from (&b"choose me"[..]), true)));
+        assert_eq! (result, Some (UnmaskedChunk::new (Vec::from (&b"choose me"[..]), true, true)));
         let first_try_unmask_parameters_guard = first_try_unmask_parameters.lock ().unwrap ();
         assert_eq! (first_try_unmask_parameters_guard[0], &b"booga"[..]);
         assert_eq! (first_try_unmask_parameters_guard.len (), 1);
@@ -210,7 +212,7 @@ mod tests {
             .try_unmask_result (None)
             .try_unmask_parameters (&mut first_try_unmask_parameters);
         let second_masquerader = MasqueraderMock::new ()
-            .try_unmask_result (Some (UnmaskedChunk::new (Vec::from (&b"choose me"[..]), true)))
+            .try_unmask_result (Some (UnmaskedChunk::new (Vec::from (&b"choose me"[..]), true, true)))
             .try_unmask_result (None)
             .try_unmask_parameters (&mut second_try_unmask_parameters);
         let mut subject = Discriminator::new (Box::new (framer),
@@ -218,6 +220,6 @@ mod tests {
 
         let result = subject.take_chunk ();
 
-        assert_eq! (result, Some (UnmaskedChunk::new (Vec::from (&b"choose me"[..]), true)));
+        assert_eq! (result, Some (UnmaskedChunk::new (Vec::from (&b"choose me"[..]), true, true)));
     }
 }

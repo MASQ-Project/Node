@@ -181,6 +181,7 @@ mod tests {
         let msg_from_dispatcher = InboundClientData {
             socket_addr: socket_addr.clone(),
             origin_port: Some (80),
+            sequence_number: Some(0),
             last_data: true,
             data: expected_data.clone()
         };
@@ -190,6 +191,7 @@ mod tests {
         let expected_payload = ClientRequestPayload {
             stream_key: socket_addr.clone(),
             last_data: true,
+            sequence_number: 0,
             data: expected_http_request.clone(),
             target_hostname: Some (String::from("nowhere.com")),
             target_port: 80,
@@ -248,6 +250,7 @@ mod tests {
         let msg_from_dispatcher = InboundClientData {
             socket_addr: socket_addr.clone(),
             origin_port: Some (443),
+            sequence_number: Some(0),
             last_data: false,
             data: expected_data.clone()
         };
@@ -257,6 +260,7 @@ mod tests {
         let expected_payload = ClientRequestPayload {
             stream_key: socket_addr.clone(),
             last_data: false,
+            sequence_number: 0,
             data: expected_tls_request.clone(),
             target_hostname: Some (String::from("server.com")),
             target_port: 443,
@@ -302,6 +306,7 @@ mod tests {
         let msg_from_dispatcher = InboundClientData {
             socket_addr: socket_addr.clone(),
             origin_port: Some (443),
+            sequence_number: Some(0),
             last_data: false,
             data: expected_data.clone()
         };
@@ -311,6 +316,7 @@ mod tests {
         let expected_payload = ClientRequestPayload {
             stream_key: socket_addr.clone(),
             last_data: false,
+            sequence_number: 0,
             data: expected_tls_request.clone(),
             target_hostname: None,
             target_port: 443,
@@ -354,6 +360,7 @@ mod tests {
         let msg_from_dispatcher = InboundClientData {
             socket_addr: socket_addr.clone(),
             origin_port: Some (443),
+            sequence_number: Some(0),
             last_data: true,
             data: expected_data.clone()
         };
@@ -363,6 +370,7 @@ mod tests {
         let expected_payload = ClientRequestPayload {
             stream_key: socket_addr.clone(),
             last_data: true,
+            sequence_number: 0,
             data: expected_tls_request.clone(),
             target_hostname: None,
             target_port: 443,
@@ -403,6 +411,7 @@ mod tests {
         let client_response_payload = ClientResponsePayload {
             stream_key: socket_addr.clone(),
             last_response: true,
+            sequence_number: 0,
             data: PlainData::new(b"data")
         };
         let incipient_cores_package = IncipientCoresPackage::new(remaining_route.clone(), client_response_payload, &key);
@@ -440,6 +449,7 @@ mod tests {
         let client_response_payload = ClientResponsePayload {
             stream_key: socket_addr.clone(),
             last_response: false,
+            sequence_number: 0,
             data: PlainData::new(b"data")
         };
         let incipient_cores_package = IncipientCoresPackage::new(remaining_route.clone(), client_response_payload, &key);
@@ -475,6 +485,7 @@ mod tests {
         let client_response_payload = ClientResponsePayload {
             stream_key: socket_addr,
             last_response: true,
+            sequence_number: 0,
             data: PlainData::new(b"data")
         };
         let incipient_cores_package = IncipientCoresPackage::new(remaining_route.clone(), client_response_payload, &key);
@@ -497,6 +508,7 @@ mod tests {
         let msg_from_dispatcher = InboundClientData {
             socket_addr: socket_addr.clone(),
             origin_port: Some (53),
+            sequence_number: Some(0),
             last_data: false,
             data: expected_data.clone()
         };

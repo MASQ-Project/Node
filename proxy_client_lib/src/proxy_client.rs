@@ -246,6 +246,7 @@ mod tests {
         let request = ClientRequestPayload {
             stream_key: SocketAddr::from_str ("1.2.3.4:56789").unwrap (),
             last_data: false,
+            sequence_number: 0,
             data: PlainData::new (b"HEAD http://www.nyan.cat/ HTTP/1.1\r\n\r\n"),
             target_hostname: Some (String::from("target.hostname.com")),
             target_port: 1234,
@@ -292,6 +293,7 @@ mod tests {
         let request = ClientRequestPayload {
             stream_key: SocketAddr::from_str ("1.2.3.4:5678").unwrap (),
             last_data: false,
+            sequence_number: 0,
             data: PlainData::new (&b"inbound data"[..]),
             target_hostname: None,
             target_port: 0,

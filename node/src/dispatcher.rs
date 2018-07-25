@@ -62,6 +62,7 @@ impl Handler<HopperTemporaryTransmitDataMsg> for Dispatcher {
         let ibcd = InboundClientData {
             last_data: msg.last_data,
             data: msg.data,
+            sequence_number: None,
             socket_addr: SocketAddr::from_str("1.2.3.4:5678").expect("Couldn't create SocketAddr from 1.2.3.4:5678"),
             origin_port: None,
         };
@@ -127,6 +128,7 @@ mod tests {
         let ibcd_in = InboundClientData {
             socket_addr,
             origin_port,
+            sequence_number: Some(0),
             last_data: false,
             data: data.clone ()
         };
@@ -168,6 +170,7 @@ mod tests {
             socket_addr,
             origin_port,
             last_data: false,
+            sequence_number: None,
             data: data.clone ()
         };
 

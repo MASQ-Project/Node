@@ -63,6 +63,6 @@ mod tests {
         discriminator.add_data (&json[..]);
         let result = discriminator.take_chunk();
 
-        assert_eq! (result, Some (UnmaskedChunk::new (data.to_vec (), true)))
+        assert_eq! (result, Some (UnmaskedChunk::new (data.to_vec (), true, false)))
     }
 }

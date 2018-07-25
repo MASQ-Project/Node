@@ -366,6 +366,7 @@ mod tests {
         let inbound_client_data = InboundClientData {
             socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             origin_port: None,
+            sequence_number: None,
             last_data: false,
             data: data_enc.data
         };
@@ -403,6 +404,7 @@ mod tests {
             socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             origin_port: None,
             last_data: false,
+            sequence_number: None,
             data: data_enc.data
         };
         thread::spawn(move || {
@@ -436,6 +438,7 @@ mod tests {
             socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             origin_port: None,
             last_data: false,
+            sequence_number: None,
             data: data_enc.data
         };
         let system = System::new("refuses_data_for_proxy_client_if_is_bootstrap_node");
@@ -461,6 +464,7 @@ mod tests {
         let inbound_client_data = InboundClientData {
             socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             origin_port: None,
+            sequence_number: None,
             last_data: false,
             data: data_enc.data
         };
@@ -490,6 +494,7 @@ mod tests {
             socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             origin_port: None,
             last_data: false,
+            sequence_number: None,
             data: data_enc.data
         };
         let system = System::new("refuses_data_for_hopper_if_is_bootstrap_node");
@@ -522,6 +527,7 @@ mod tests {
             socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             origin_port: None,
             last_data: true,
+            sequence_number: None,
             data: data_enc.data
         };
         thread::spawn(move || {
@@ -564,6 +570,7 @@ mod tests {
             socket_addr,
             origin_port: None,
             last_data: false,
+            sequence_number: None,
             data: encrypted_package,
         };
         let system = System::new("panics_if_proxy_server_is_unbound");
@@ -592,6 +599,7 @@ mod tests {
             socket_addr,
             origin_port: None,
             last_data: false,
+            sequence_number: None,
             data: encrypted_package,
         };
         let system = System::new("panics_if_proxy_client_is_unbound");

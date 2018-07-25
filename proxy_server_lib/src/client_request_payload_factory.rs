@@ -37,6 +37,7 @@ impl ClientRequestPayloadFactory {
         Some (ClientRequestPayload {
             stream_key: ibcd.socket_addr,
             last_data: ibcd.last_data,
+            sequence_number: 0,
             data: plain_data,
             target_hostname: host_name,
             target_port: origin_port,
@@ -62,6 +63,7 @@ mod tests {
         let ibcd = InboundClientData {
             socket_addr: SocketAddr::from_str ("1.2.3.4:5678").unwrap (),
             origin_port: Some (80),
+            sequence_number: Some(0),
             last_data: false,
             data: data.data.clone (),
         };
@@ -73,6 +75,7 @@ mod tests {
 
         assert_eq! (result, Some (ClientRequestPayload {
             stream_key: SocketAddr::from_str ("1.2.3.4:5678").unwrap(),
+            sequence_number: 0,
             last_data: false,
             data,
             target_hostname: Some (String::from ("borkoed.com")),
@@ -104,6 +107,7 @@ mod tests {
         ]);
         let ibcd = InboundClientData {
             socket_addr: SocketAddr::from_str ("1.2.3.4:5678").unwrap (),
+            sequence_number: Some(0),
             origin_port: Some (443),
             last_data: false,
             data: data.data.clone (),
@@ -117,6 +121,7 @@ mod tests {
         assert_eq! (result, Some (ClientRequestPayload {
             stream_key: SocketAddr::from_str ("1.2.3.4:5678").unwrap(),
             last_data: false,
+            sequence_number: 0,
             data,
             target_hostname: Some (String::from ("server.com")),
             target_port: 443,
@@ -143,6 +148,7 @@ mod tests {
             socket_addr: SocketAddr::from_str ("1.2.3.4:5678").unwrap (),
             origin_port: Some (443),
             last_data: true,
+            sequence_number: Some(0),
             data: data.data.clone (),
         };
         let cryptde = CryptDENull::new ();
@@ -154,6 +160,7 @@ mod tests {
         assert_eq! (result, Some (ClientRequestPayload {
             stream_key: SocketAddr::from_str ("1.2.3.4:5678").unwrap(),
             last_data: true,
+            sequence_number: 0,
             data,
             target_hostname: None,
             target_port: 443,
@@ -167,6 +174,7 @@ mod tests {
         init_test_logging();
         let ibcd = InboundClientData {
             socket_addr: SocketAddr::from_str ("1.2.3.4:5678").unwrap (),
+            sequence_number: Some(0),
             origin_port: None,
             last_data: false,
             data: vec!(0x10, 0x11, 0x12),
@@ -187,6 +195,7 @@ mod tests {
         let ibcd = InboundClientData {
             socket_addr: SocketAddr::from_str ("1.2.3.4:5678").unwrap (),
             origin_port: Some (1234),
+            sequence_number: Some(0),
             last_data: false,
             data: vec!(0x10, 0x11, 0x12),
         };
@@ -198,5 +207,24 @@ mod tests {
 
         assert_eq! (result, None);
         TestLogHandler::new ().exists_log_containing ("ERROR: test: No protocol associated with origin port 1234 for 3-byte packet: [16, 17, 18]");
+    }
+
+    #[test]
+    fn use_sequence_from_inbound_client_data_in_client_request_payload() {
+        let ibcd = InboundClientData {
+            socket_addr: SocketAddr::from_str ("1.2.3.4:80").unwrap (),
+            origin_port: Some (80),
+            sequence_number: Some(0),
+            last_data: false,
+            data: vec!(0x10, 0x11, 0x12),
+        };
+        let cryptde = CryptDENull::new ();
+        let logger = Logger::new ("test");
+
+        let subject = ClientRequestPayloadFactory::new();
+
+        let result = subject.make(&ibcd, &cryptde, &logger).unwrap();
+
+        assert_eq!(result.sequence_number, 0);
     }
 }
