@@ -10,7 +10,8 @@ use dns_utility_lib::dynamic_store_dns_modifier::StoreWrapper;
 use dns_utility_lib::dynamic_store_dns_modifier::StoreWrapperReal;
 
 #[test]
-fn macos_subvert_and_revert_integration() {
+// Any integration tests that should be run as root should have names ending in '_sudo_integration'
+fn macos_subvert_and_revert_sudo_integration() {
     let store_wrapper = StoreWrapperReal::new ("integration-test");
     let original_dns_ips = get_current_dns_ips (&store_wrapper);
     assert! (!original_dns_ips.is_empty ());

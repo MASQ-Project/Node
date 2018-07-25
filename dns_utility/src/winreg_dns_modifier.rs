@@ -74,6 +74,10 @@ impl DnsModifier for WinRegDnsModifier {
             None => Ok (())
         }
     }
+
+    fn inspect(&self, stdout: &mut (io::Write + Send)) -> Result<(), String> {
+        unimplemented!()
+    }
 }
 
 impl WinRegDnsModifier {

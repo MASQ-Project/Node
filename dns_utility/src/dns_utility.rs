@@ -10,7 +10,8 @@ pub struct DnsUtility {
 
 enum Action {
     Subvert,
-    Revert
+    Revert,
+    Inspect
 }
 
 impl Command for DnsUtility {
@@ -19,6 +20,7 @@ impl Command for DnsUtility {
             a if a.len () < 2 => return DnsUtility::usage (streams),
             a if a[1] == String::from ("subvert") => Action::Subvert,
             a if a[1] == String::from ("revert") => Action::Revert,
+            a if a[1] == String::from ("inspect") => Action::Inspect,
             _ => return DnsUtility::usage (streams),
         };
         self.perform_action (action, streams)
@@ -42,7 +44,8 @@ impl DnsUtility {
         };
         let (result, name) = match action {
             Action::Subvert => (modifier.subvert (), "subvert"),
-            Action::Revert => (modifier.revert (), "revert")
+            Action::Revert => (modifier.revert (), "revert"),
+            Action::Inspect => (modifier.inspect (streams.stdout), "inspect")
         };
         match result {
             Ok (_) => 0,
@@ -54,7 +57,7 @@ impl DnsUtility {
     }
 
     fn usage (streams: &mut StdStreams) -> u8 {
-        writeln!(streams.stderr, "Usage: dns_utility [ subvert | revert ]").expect("Internal error");
+        writeln!(streams.stderr, "Usage: dns_utility [ subvert | revert | inspect ]").expect("Internal error");
         1
     }
 }
@@ -65,10 +68,13 @@ mod tests {
     use test_utils::test_utils::FakeStreamHolder;
     use std::cell::RefCell;
     use dns_modifier::DnsModifier;
+    use std::io;
 
     pub struct DnsModifierMock {
         subvert_results: RefCell<Vec<Result<(), String>>>,
-        revert_results: RefCell<Vec<Result<(), String>>>
+        revert_results: RefCell<Vec<Result<(), String>>>,
+        inspect_to_stdout: RefCell<Vec<String>>,
+        inspect_results: RefCell<Vec<Result<(), String>>>
     }
 
     impl DnsModifier for DnsModifierMock {
@@ -83,13 +89,20 @@ mod tests {
         fn revert(&self) -> Result<(), String> {
             self.revert_results.borrow_mut ().remove (0)
         }
+
+        fn inspect(&self, stdout: &mut (io::Write + Send)) -> Result<(), String> {
+            write! (stdout, "{}", self.inspect_to_stdout.borrow_mut ().remove (0)).unwrap ();
+            self.inspect_results.borrow_mut ().remove (0)
+        }
     }
 
     impl DnsModifierMock {
         pub fn new () -> DnsModifierMock {
             DnsModifierMock {
                 subvert_results: RefCell::new (vec! ()),
-                revert_results: RefCell::new (vec! ())
+                revert_results: RefCell::new (vec! ()),
+                inspect_to_stdout: RefCell::new (vec! ()),
+                inspect_results: RefCell::new (vec! ())
             }
         }
 
@@ -100,6 +113,12 @@ mod tests {
 
         pub fn revert_result (self, result: Result<(), String>) -> DnsModifierMock {
             self.revert_results.borrow_mut ().push (result);
+            self
+        }
+
+        pub fn inspect_result (self, to_stdout: String, result: Result<(), String>) -> DnsModifierMock {
+            self.inspect_to_stdout.borrow_mut ().push (to_stdout);
+            self.inspect_results.borrow_mut ().push (result);
             self
         }
     }
@@ -136,7 +155,7 @@ mod tests {
 
         assert_eq! (result, 1);
         assert_eq! (holder.stderr.get_string (), String::from (
-            "Usage: dns_utility [ subvert | revert ]\n"
+            "Usage: dns_utility [ subvert | revert | inspect ]\n"
         ));
     }
 
@@ -149,7 +168,7 @@ mod tests {
 
         assert_eq! (result, 1);
         assert_eq! (holder.stderr.get_string (), String::from (
-            "Usage: dns_utility [ subvert | revert ]\n"
+            "Usage: dns_utility [ subvert | revert | inspect ]\n"
         ));
     }
 
@@ -235,5 +254,40 @@ mod tests {
 
         assert_eq! (result, 0);
         assert_eq! (holder.stderr.get_string (), String::new ());
+    }
+
+    #[test]
+    fn go_with_inspect_parameter_makes_dns_modifier_calls_inspect_and_handles_failure () {
+        let mut holder = FakeStreamHolder::new ();
+        let dns_modifier = DnsModifierMock::new ()
+            .inspect_result (String::new (), Err (String::from ("blooga blooga")));
+        let factory = DnsModifierFactoryMock::new()
+            .make_result (Some (Box::new (dns_modifier)));
+        let mut subject = DnsUtility::new ();
+        subject.factory = Box::new (factory);
+
+        let result = subject.go (&mut holder.streams (), &vec! (String::new (), String::from ("inspect")));
+
+        assert_eq! (result, 1);
+        assert_eq! (holder.stderr.get_string (), String::from (
+            "Cannot inspect DNS: blooga blooga\n"
+        ));
+    }
+
+    #[test]
+    fn go_with_inspect_parameter_makes_dns_modifier_calls_inspect_and_handles_success () {
+        let mut holder = FakeStreamHolder::new ();
+        let dns_modifier = DnsModifierMock::new ()
+            .inspect_result ("Booga!".to_string (), Ok (()));
+        let factory = DnsModifierFactoryMock::new()
+            .make_result (Some (Box::new (dns_modifier)));
+        let mut subject = DnsUtility::new ();
+        subject.factory = Box::new (factory);
+
+        let result = subject.go (&mut holder.streams (), &vec! (String::new (), String::from ("inspect")));
+
+        assert_eq! (result, 0);
+        assert_eq! (holder.stderr.get_string (), String::new ());
+        assert_eq! (holder.stdout.get_string (), String::from ("Booga!"));
     }
 }

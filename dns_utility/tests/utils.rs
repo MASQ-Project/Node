@@ -6,9 +6,11 @@ use std::process::Child;
 use std::io::Read;
 use std::env;
 use std::ops::Drop;
+use std::process::Stdio;
 
 pub struct TestCommand {
-    child: Child
+    command: String,
+    child: Child,
 }
 
 impl Drop for TestCommand {
@@ -19,10 +21,13 @@ impl Drop for TestCommand {
 
 impl TestCommand {
     pub fn start (command: &str, parameters: Vec<&str>) -> TestCommand {
-        let mut command = TestCommand::make_command(command, parameters);
-        let child = command.spawn ().unwrap ();
+        let mut command_object = TestCommand::make_command(command, parameters.clone ());
+        command_object.stdout (Stdio::piped ());
+        command_object.stderr (Stdio::piped ());
+        let child = command_object.spawn ().unwrap ();
         TestCommand {
-            child
+            command: format! ("{}{}", command, parameters.iter ().fold (String::new (), |so_far, parameter| format! ("{} {}", so_far, parameter))),
+            child,
         }
     }
 
@@ -39,9 +44,17 @@ impl TestCommand {
 
     pub fn output (&mut self) -> String {
         let mut stdout = String::new ();
-        self.child.stdout.as_mut ().unwrap ().read_to_string (&mut stdout).unwrap ();
+        let child_stdout = match self.child.stdout.as_mut () {
+            Some (cso) => cso,
+            None => panic! ("Could not get standard output from command: {}", self.command),
+        };
+        child_stdout.read_to_string (&mut stdout).unwrap ();
         let mut stderr = String::new ();
-        self.child.stderr.as_mut ().unwrap ().read_to_string (&mut stderr).unwrap ();
+        let child_stderr = match self.child.stderr.as_mut () {
+            Some (cse) => cse,
+            None => panic! ("Could not get standard error from command: {}", self.command),
+        };
+        child_stderr.read_to_string (&mut stderr).unwrap ();
         format! ("STANDARD OUTPUT:\n{}\nSTANDARD ERROR:\n{}\n", stdout, stderr)
     }
 

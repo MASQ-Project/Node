@@ -25,16 +25,22 @@ impl DnsModifier for ResolvConfDnsModifier {
 
     #[allow (unused_mut)]
     fn subvert(&self) -> Result<(), String> {
-        let (mut file, contents_before) = self.open_resolv_conf()?;
+        let (mut file, contents_before) = self.open_resolv_conf(true)?;
         let contents_after = self.subvert_contents (contents_before)?;
         self.replace_contents (file, contents_after)
     }
 
     #[allow (unused_mut)]
     fn revert(&self) -> Result<(), String> {
-        let (mut file, contents_before) = self.open_resolv_conf()?;
+        let (mut file, contents_before) = self.open_resolv_conf(true)?;
         let contents_after = self.revert_contents (contents_before)?;
         self.replace_contents (file, contents_after)
+    }
+
+    #[allow (unused_mut)]
+    fn inspect(&self, stdout: &mut (io::Write + Send)) -> Result<(), String> {
+        let (_, contents) = self.open_resolv_conf(false)?;
+        self.inspect_contents (contents, stdout)
     }
 }
 
@@ -45,24 +51,37 @@ impl ResolvConfDnsModifier {
         }
     }
 
-    fn open_resolv_conf(&self) -> Result<(File, String), String> {
+    fn open_resolv_conf(&self, for_write: bool) -> Result<(File, String), String> {
         let mut open_options = OpenOptions::new ();
         open_options.read (true);
-        open_options.write (true);
+        open_options.write (for_write);
         open_options.create (false);
         let path = Path::new (&self.root).join (Path::new ("etc")).join (Path::new ("resolv.conf"));
         let mut file = match open_options.open (path.clone ()) {
             Ok (f) => f,
-            Err (ref e) if e.kind () == ErrorKind::NotFound => return Err (String::from ("/etc/resolv.conf was not found and could not be modified")),
-            Err (ref e) if e.kind () == ErrorKind::PermissionDenied => return Err (String::from ("/etc/resolv.conf is not readable and writable and could not be modified")),
-            Err (ref e) if e.raw_os_error() == Some (21) => return Err (String::from ("/etc/resolv.conf is a directory and could not be modified")),
+            Err (ref e) if e.kind () == ErrorKind::NotFound => return Err (ResolvConfDnsModifier::process_msg ("/etc/resolv.conf was not found", for_write)),
+            Err (ref e) if e.kind () == ErrorKind::PermissionDenied => {
+                let suffix = if for_write {" and writable"} else {""};
+                let msg = format! ("/etc/resolv.conf is not readable{}", suffix);
+                return Err (ResolvConfDnsModifier::process_msg (msg.as_str (), for_write))
+            },
+            Err (ref e) if e.raw_os_error() == Some (21) => return Err (ResolvConfDnsModifier::process_msg ("/etc/resolv.conf is a directory", for_write)),
             Err (e) => return Err (format! ("Unexpected error opening {:?}: {}", path, e))
         };
         let mut contents = String::new ();
         if file.read_to_string (&mut contents).is_err () {
-            return Err(String::from("/etc/resolv.conf is not a UTF-8 text file and could not be modified"))
+            return Err(ResolvConfDnsModifier::process_msg ("/etc/resolv.conf is not a UTF-8 text file", for_write))
         }
         Ok ((file, contents))
+    }
+
+    fn process_msg (msg: &str, for_write: bool) -> String {
+        if for_write {
+            format! ("{} and could not be modified", msg)
+        }
+        else {
+            msg.to_string ()
+        }
     }
 
     fn subvert_contents (&self, contents_before: String) -> Result<String, String> {
@@ -98,6 +117,24 @@ impl ResolvConfDnsModifier {
             contents_after.remove (start);
         });
         Ok (contents_after)
+    }
+
+    fn inspect_contents (&self, contents: String, stdout: &mut (Write + Send)) -> Result<(), String> {
+        let active_nameservers = self.active_nameservers (&contents[..]);
+        self.check_disconnected (&active_nameservers)?;
+        let output_list = active_nameservers.into_iter ()
+            .map (|pair| self.nameserver_line_to_ip (pair.0))
+            .fold (String::new (), |so_far, ip_address| {
+                format! ("{}{}\n", so_far, ip_address)
+            });
+        write! (stdout, "{}", output_list).expect ("stdout doesn't work");
+        Ok (())
+    }
+
+    pub fn nameserver_line_to_ip (&self, nameserver_line: String) -> String {
+        let regex = Regex::new (r"^\s*nameserver\s+([^\s#]*)").expect ("Regex syntax error");
+        let captures = regex.captures (nameserver_line.as_str ()).expect (format! ("Badly formatted nameserver line: {}", nameserver_line).as_str ());
+        String::from (captures.get (1).expect (format! ("Regex had no capture group").as_str ()).as_str ())
     }
 
     pub fn active_nameservers (&self, contents: &str) -> Vec<(String, usize)> {
@@ -196,6 +233,36 @@ mod tests {
     use std::io::Write;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
+    use test_utils::test_utils::FakeStreamHolder;
+
+    #[test]
+    #[should_panic (expected = "Badly formatted nameserver line: booga-booga")]
+    fn nameserver_line_to_ip_panics_when_given_badly_formatted_nameserver_line () {
+        let nameserver_line = "booga-booga".to_string ();
+        let subject = ResolvConfDnsModifier::new ();
+
+        subject.nameserver_line_to_ip (nameserver_line);
+    }
+
+    #[test]
+    fn nameserver_line_to_ip_handles_line_with_leading_whitespace_and_comment () {
+        let nameserver_line = "  \t  \tnameserver  \t  \t booga-booga  \t\t  # comment #".to_string ();
+        let subject = ResolvConfDnsModifier::new ();
+
+        let result = subject.nameserver_line_to_ip (nameserver_line);
+
+        assert_eq! (result, "booga-booga".to_string ());
+    }
+
+    #[test]
+    fn nameserver_line_to_ip_handles_line_with_minimum_whitespace_and_no_comment () {
+        let nameserver_line = "nameserver booga-booga".to_string ();
+        let subject = ResolvConfDnsModifier::new ();
+
+        let result = subject.nameserver_line_to_ip (nameserver_line);
+
+        assert_eq! (result, "booga-booga".to_string ());
+    }
 
     #[test]
     fn active_nameservers_are_properly_detected_in_trimmed_file () {
@@ -537,6 +604,94 @@ mod tests {
         assert_eq! (contents, String::from (
             "#comment\n## nameserver 1.1.1.1\nnameserver 8.8.8.8\nnameserver 9.9.9.9\n"
         ));
+        assert_eq! (result.is_ok (), true);
+    }
+
+    #[test]
+    fn inspect_complains_if_resolv_conf_does_not_exist () {
+        let mut stream_holder = FakeStreamHolder::new ();
+        let root = make_root ("inspect_complains_if_resolv_conf_does_not_exist");
+        let mut subject = ResolvConfDnsModifier::new ();
+        subject.root = root;
+
+        let result = subject.inspect (stream_holder.streams ().stdout);
+
+        assert_eq! (result.err ().unwrap (), String::from ("/etc/resolv.conf was not found"));
+        assert_eq! (stream_holder.stdout.get_string (), String::new ());
+    }
+
+    #[test]
+    fn inspect_complains_if_resolv_conf_exists_but_is_a_directory () {
+        let mut stream_holder = FakeStreamHolder::new ();
+        let root = make_root ("inspect_complains_if_resolv_conf_exists_but_is_a_directory");
+        fs::create_dir_all (Path::new (&root).join (Path::new ("etc")).join (Path::new ("resolv.conf"))).unwrap ();
+        let mut subject = ResolvConfDnsModifier::new ();
+        subject.root = root;
+
+        let result = subject.inspect (stream_holder.streams ().stdout);
+
+        assert_eq! (result.err ().unwrap (), String::from ("/etc/resolv.conf is not a UTF-8 text file"));
+        assert_eq! (stream_holder.stdout.get_string (), String::new ());
+    }
+
+    #[test]
+    fn inspect_complains_if_resolv_conf_exists_but_is_not_readable () {
+        let mut stream_holder = FakeStreamHolder::new ();
+        let root = make_root ("inspect_complains_if_resolv_conf_exists_but_is_not_readable");
+        let file = make_resolv_conf (&root, "");
+        let mut permissions = file.metadata ().unwrap ().permissions();
+        permissions.set_mode(0o333);
+        file.set_permissions(permissions).unwrap ();
+        let mut subject = ResolvConfDnsModifier::new ();
+        subject.root = root;
+
+        let result = subject.inspect (stream_holder.streams ().stdout);
+
+        assert_eq! (result.err ().unwrap (), String::from ("/etc/resolv.conf is not readable"));
+        assert_eq! (stream_holder.stdout.get_string (), String::new ());
+    }
+
+    #[test]
+    fn inspect_complains_if_resolv_conf_is_not_utf_8 () {
+        let mut stream_holder = FakeStreamHolder::new ();
+        let root = make_root ("inspect_complains_if_resolv_conf_is_not_utf_8");
+        let mut file = make_resolv_conf (&root, "");
+        file.seek (SeekFrom::Start (0)).unwrap ();
+        file.write (&[192, 193]).unwrap ();
+        let mut subject = ResolvConfDnsModifier::new ();
+        subject.root = root;
+
+        let result = subject.inspect (stream_holder.streams ().stdout);
+
+        assert_eq! (result.err ().unwrap (), String::from ("/etc/resolv.conf is not a UTF-8 text file"));
+        assert_eq! (stream_holder.stdout.get_string (), String::new ());
+    }
+
+    #[test]
+    fn inspect_complains_if_there_is_no_preexisting_nameserver_directive() {
+        let mut stream_holder = FakeStreamHolder::new ();
+        let root = make_root ("inspect_complains_if_there_is_no_preexisting_nameserver_directive");
+        make_resolv_conf (&root, "");
+        let mut subject = ResolvConfDnsModifier::new ();
+        subject.root = root;
+
+        let result = subject.inspect (stream_holder.streams ().stdout);
+
+        assert_eq! (result.err ().unwrap (), String::from ("This system does not appear to be connected to a network"));
+        assert_eq! (stream_holder.stdout.get_string (), String::new ());
+    }
+
+    #[test]
+    fn inspect_works_if_everything_is_copacetic () {
+        let mut stream_holder = FakeStreamHolder::new ();
+        let root = make_root ("inspect_works_if_everything_is_copacetic");
+        make_resolv_conf (&root, "#comment\n## nameserver 1.1.1.1\nnameserver 8.8.8.8\nnameserver 9.9.9.9\n#nameserver 127.0.0.1\n");
+        let mut subject = ResolvConfDnsModifier::new ();
+        subject.root = root.clone ();
+
+        let result = subject.inspect (stream_holder.streams ().stdout);
+
+        assert_eq! (stream_holder.stdout.get_string (), String::from ("8.8.8.8\n9.9.9.9\n"));
         assert_eq! (result.is_ok (), true);
     }
 

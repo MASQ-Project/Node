@@ -11,15 +11,18 @@ fi
 case "$OSTYPE" in
     msys)
         echo "Windows"
-        "$CI_DIR/run_integration_tests.sh"
+        "$CI_DIR/run_integration_tests.sh" sudo
+        "$CI_DIR/run_integration_tests.sh" user
         ;;
     Darwin | darwin*)
         echo "macOS"
-        sudo "$CI_DIR/run_integration_tests.sh"
+        sudo "$CI_DIR/run_integration_tests.sh" sudo
+        "$CI_DIR/run_integration_tests.sh" user
         ;;
     linux-gnu)
         echo "Linux"
-        sudo "$CI_DIR/run_integration_tests.sh"
+        sudo "$CI_DIR/run_integration_tests.sh" sudo
+        "$CI_DIR/run_integration_tests.sh" user
         ;;
     *)
         exit 1

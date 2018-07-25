@@ -91,9 +91,9 @@ impl Write for ByteArrayWriter {
             };
             Ok (buf.len ())
         }
-            else {
-                Err(next_error_opt.unwrap ())
-            }
+        else {
+            Err(next_error_opt.unwrap ())
+        }
     }
 
     fn flush (&mut self) -> io::Result<()> {

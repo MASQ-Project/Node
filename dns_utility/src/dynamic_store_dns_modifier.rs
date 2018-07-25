@@ -15,6 +15,7 @@ use core_foundation::propertylist::CFPropertyListSubClass;
 use core_foundation::string::CFString;
 use system_configuration::dynamic_store::SCDynamicStore;
 use system_configuration::dynamic_store::SCDynamicStoreBuilder;
+use std::io::Write;
 
 pub struct DynamicStoreDnsModifier {
     store: Box<StoreWrapper>
@@ -43,6 +44,10 @@ impl DnsModifier for DynamicStoreDnsModifier {
             Ok (Some (c)) => c,
         };
         self.set_dns_info (dns_base_path, result)
+    }
+
+    fn inspect(&self, stdout: &mut (Write + Send)) -> Result<(), String> {
+        unimplemented!()
     }
 }
 
