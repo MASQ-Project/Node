@@ -1,70 +1,66 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use std::env::temp_dir;
 use std::str::FromStr;
-use std::thread;
-use std::time::Duration;
 use flexi_logger::LevelFilter;
 use flexi_logger::Logger;
 use flexi_logger::LogSpecification;
+use tokio::prelude::Future;
+use tokio::prelude::Async;
+use bootstrapper::Bootstrapper;
+use entry_dns_lib::dns_socket_server::new_dns_socket_server;
+use privilege_drop::PrivilegeDropper;
+use privilege_drop::PrivilegeDropperReal;
 use sub_lib::main_tools::StdStreams;
 use sub_lib::main_tools::Command;
 use sub_lib::parameter_finder::ParameterFinder;
 use sub_lib::socket_server::SocketServer;
-use entry_dns_lib::dns_socket_server::new_dns_socket_server;
-use bootstrapper::Bootstrapper;
-use privilege_drop::PrivilegeDropper;
-use privilege_drop::PrivilegeDropperReal;
-//#[cfg(unix)]
-//use daemonize::Daemonize;
 
-pub struct ServerInitializer<P, D> where P: PrivilegeDropper, D: Daemonizer {
-    dns_socket_server: Option<Box<SocketServer>>,
-    bootstrapper: Option<Box<SocketServer>>,
+pub struct ServerInitializer<P> where P: PrivilegeDropper {
+    dns_socket_server: Box<SocketServer<Item=(), Error=()>>,
+    bootstrapper: Box<SocketServer<Item=(), Error=()>>,
     privilege_dropper: P,
-    daemonizer: D,
     logger_initializer_wrapper: Box<LoggerInitializerWrapper>,
-    lifetime_secs: u64
 }
 
-impl<P, D> Command for ServerInitializer<P, D> where P: PrivilegeDropper, D: Daemonizer {
-    fn go<'b> (&mut self, streams: &'b mut StdStreams<'b>, args: &Vec<String>) -> u8 {
-        self.logger_initializer_wrapper.init (args);
-        let mut dns_socket_server_box = self.dns_socket_server.take ().expect ("DNS Socket Server missing");
-        dns_socket_server_box.as_mut ().initialize_as_root (args, streams);
-        let mut bootstrapper_box = self.bootstrapper.take ().expect ("Bootstrapper missing");
-        bootstrapper_box.as_mut ().initialize_as_root (args, streams);
+impl<P> Command for ServerInitializer<P> where P: PrivilegeDropper {
+    fn go(&mut self, streams: &mut StdStreams, args: &Vec<String>) -> u8 {
+        self.logger_initializer_wrapper.init(args);
+
+        self.dns_socket_server.as_mut().initialize_as_privileged(args, streams);
+        self.bootstrapper.as_mut().initialize_as_privileged(args, streams);
+
         self.privilege_dropper.drop_privileges();
-        self.daemonizer.daemonize();
-        thread::spawn (move || {
-            dns_socket_server_box.as_mut ().serve_without_root();
-        });
-        thread::spawn (move || {
-            bootstrapper_box.as_mut ().serve_without_root();
-        });
 
-        // Don't kill my child threads
-        thread::sleep (Duration::from_secs (self.lifetime_secs));
+        self.dns_socket_server.as_mut().initialize_as_unprivileged();
+        self.bootstrapper.as_mut().initialize_as_unprivileged();
 
-        return 0
+        1
     }
 }
 
-impl ServerInitializer<PrivilegeDropperReal, DaemonizerReal> {
-    pub fn new ()
-            -> ServerInitializer<PrivilegeDropperReal, DaemonizerReal> {
+impl<P> Future for ServerInitializer<P> where P: PrivilegeDropper {
+    type Item = ();
+    type Error = ();
+
+    fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
+        try_ready!(self.dns_socket_server.as_mut().join(self.bootstrapper.as_mut()).poll());
+        Ok(Async::Ready(()))
+    }
+}
+
+impl ServerInitializer<PrivilegeDropperReal> {
+    pub fn new() -> ServerInitializer<PrivilegeDropperReal> {
         ServerInitializer {
-            dns_socket_server: Some (Box::new (new_dns_socket_server())),
-            bootstrapper: Some (Box::new (Bootstrapper::new ())),
-            privilege_dropper: PrivilegeDropperReal::new (),
-            daemonizer: DaemonizerReal::new (),
-            logger_initializer_wrapper: Box::new (LoggerInitializerWrapperReal {}),
-            lifetime_secs: 0xFFFFFFFFFFFFFFFF
+            dns_socket_server: Box::new(new_dns_socket_server()),
+            bootstrapper: Box::new(Bootstrapper::new()),
+            privilege_dropper: PrivilegeDropperReal::new(),
+            logger_initializer_wrapper: Box::new(LoggerInitializerWrapperReal {}),
         }
     }
 }
 
 trait LoggerInitializerWrapper: Send {
-    fn init (&mut self, args: &Vec<String>) -> bool;
+    fn init(&mut self, args: &Vec<String>) -> bool;
 }
 
 struct LoggerInitializerWrapperReal {}
@@ -73,13 +69,13 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
     fn init(&mut self, args: &Vec<String>) -> bool {
         match Logger::with(LogSpecification::default(LoggerInitializerWrapperReal::get_log_level(args)).finalize())
             .log_to_file()
-            .directory(&temp_dir ().to_str ().expect ("Bad temporary filename")[..])
-            .print_message ()
-            .duplicate_info ()
-            .suppress_timestamp ()
+            .directory(&temp_dir().to_str().expect("Bad temporary filename")[..])
+            .print_message()
+            .duplicate_info()
+            .suppress_timestamp()
             .start() {
-            Ok (_) => true,
-            Err (_) => false
+            Ok(_) => true,
+            Err(_) => false
         }
     }
 }
@@ -89,7 +85,7 @@ impl LoggerInitializerWrapperReal {
         let parameter_tag = "--log_level";
         let usage = "should be one of <trace|debug|info|warn|error|off> (default = warn)";
 
-        match ParameterFinder::new(args.clone ()).find_value_for(parameter_tag, usage) {
+        match ParameterFinder::new(args.clone()).find_value_for(parameter_tag, usage) {
             Some(value) => {
                 match LevelFilter::from_str(value.as_str()) {
                     Ok(lf) => lf,
@@ -101,130 +97,43 @@ impl LoggerInitializerWrapperReal {
     }
 }
 
-pub trait Daemonizer {
-    fn daemonize (&self);
-}
-
-#[cfg(unix)]
-pub struct DaemonizerReal;
-
-#[cfg(windows)]
-pub struct DaemonizerReal;
-
-#[cfg(unix)]
-impl Daemonizer for DaemonizerReal {
-    // Not unit tested
-    fn daemonize(&self) {
-//        match Daemonize::new ()
-//            .working_directory ("/tmp")
-//            .user ("nobody")
-//            .group ("daemon")
-//            .start () {
-//            Ok (_) => (),
-//            Err (e) => panic! ("Couldn't daemonize: {}", e.to_string ())
-//        }
-    }
-}
-
-#[cfg(windows)]
-impl Daemonizer for DaemonizerReal {
-    fn daemonize(&self) {
-        // No daemonization for Windows yet
-    }
-}
-
-#[cfg(unix)]
-impl DaemonizerReal {
-    fn new () -> DaemonizerReal {
-        DaemonizerReal {}
-    }
-}
-
-#[cfg(windows)]
-impl DaemonizerReal {
-    fn new () -> DaemonizerReal {
-        DaemonizerReal {}
-    }
-}
-
-#[cfg (test)]
+#[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
     use std::sync::Arc;
     use std::sync::Mutex;
-    use std::sync::mpsc;
-    use std::sync::mpsc::Sender;
-    use std::sync::mpsc::Receiver;
-    use sub_lib::limiter::Limiter;
-    use sub_lib::logger;
-    use test_utils::test_utils::FakeStreamHolder;
-    use test_utils::test_utils::TestLogHandler;
     use test_utils::test_utils::ByteArrayWriter;
     use test_utils::test_utils::ByteArrayReader;
     use test_utils::test_utils::init_test_logging;
+    use crash_test_dummy::CrashTestDummy;
+    use sub_lib::crash_point::CrashPoint;
 
-    struct SocketServerMock {
-        name: String,
-        rx: Receiver<String>,
-        limiter: Limiter
+    impl SocketServer for CrashTestDummy {
+        fn name(&self) -> String {
+            String::from("crash test SocketServer")
+        }
+
+        fn initialize_as_privileged(&mut self, _args: &Vec<String>, _streams: &mut StdStreams) { }
+
+        fn initialize_as_unprivileged(&mut self) { }
     }
 
-    impl SocketServer for SocketServerMock {
-        fn name (&self) -> String {
-            self.name.clone ()
-        }
+    struct PrivilegeDropperMock {
+        call_count: Arc<Mutex<usize>>,
+    }
 
-        fn initialize_as_root(&mut self, args: &Vec<String>, streams: &mut StdStreams) {
-            logger::Logger::new (&self.name[..]).log (format! ("initialize_as_root: {:?}", args));
-            let mut buf: [u8; 10] = [0; 10];
-            let len = streams.stdin.read (&mut buf).unwrap ();
-            streams.stdout.write (&buf[0..len]).is_ok ();
-            streams.stderr.write (&buf[0..len]).is_ok ();
-        }
-
-        fn serve_without_root(&mut self) {
-            let logger = logger::Logger::new (&self.name);
-            logger.log (format! ("serve_without_root"));
-            while self.limiter.should_continue () {
-                let request = self.rx.recv ().unwrap ();
-                if request == "panic" {
-                    let msg = format! ("{} was instructed to panic", self.name);
-                    panic! (msg);
-                }
-                logger.log (format! ("{}", request));
+    impl PrivilegeDropperMock {
+        pub fn new() -> PrivilegeDropperMock {
+            PrivilegeDropperMock {
+                call_count: Arc::new(Mutex::new(0)),
             }
         }
     }
 
-    impl SocketServerMock {
-        pub fn make(name: &str, limit: i32) -> (SocketServerMock, Sender<String>) {
-            let (tx, rx) = mpsc::channel ();
-            (SocketServerMock {
-                name: String::from (name),
-                rx,
-                limiter: Limiter::with_only(limit)
-            }, tx)
-        }
-    }
-
-    struct PrivilegeDropperMock {
-        tx: Sender<String>
-    }
-
     impl PrivilegeDropper for PrivilegeDropperMock {
         fn drop_privileges(&self) {
-            self.tx.send (String::from ("privileges dropped")).unwrap ();
-        }
-    }
-
-    struct DaemonizerMock {
-        tx: Sender<String>
-    }
-
-    impl Daemonizer for DaemonizerMock {
-        fn daemonize(&self) {
-            self.tx.send (String::from ("daemonized")).unwrap ();
+            let mut calls = self.call_count.lock().unwrap();
+            *calls += 1;
         }
     }
 
@@ -234,129 +143,101 @@ mod tests {
 
     impl LoggerInitializerWrapper for LoggerInitializerWrapperMock {
         fn init(&mut self, args: &Vec<String>) -> bool {
-            self.init_parameters.lock ().unwrap ().push (args.clone());
+            self.init_parameters.lock().unwrap().push(args.clone());
             init_test_logging()
         }
     }
 
     impl LoggerInitializerWrapperMock {
-        pub fn new () -> LoggerInitializerWrapperMock {
+        pub fn new() -> LoggerInitializerWrapperMock {
             LoggerInitializerWrapperMock { init_parameters: Arc::new(Mutex::new(vec!())) }
         }
 
         pub fn init_parameters(&mut self, parameters: &Arc<Mutex<Vec<Vec<String>>>>) {
-            self.init_parameters = parameters.clone ();
+            self.init_parameters = parameters.clone();
         }
     }
 
     #[test]
-    fn exits_after_all_socket_servers_exit () {
-        let (tx, _rx) = mpsc::channel ();
-        let (dns_socket_server, dns_tx) = SocketServerMock::make("EntryDnsServerMock1", 1);
-        let (bootstrapper, bootstrapper_tx) = SocketServerMock::make("BootstrapperMock1", 1);
-        let privilege_dropper = PrivilegeDropperMock {tx: tx.clone ()};
-        let daemonizer = DaemonizerMock {tx: tx.clone ()};
-        let args = vec! ();
+    fn exits_after_all_socket_servers_exit() {
+        let dns_socket_server = CrashTestDummy::new (CrashPoint::Error );
+        let bootstrapper = CrashTestDummy::new(CrashPoint::Error);
+
+        let privilege_dropper = PrivilegeDropperMock::new();
+        let mut logger_initializer_wrapper_mock = LoggerInitializerWrapperMock::new();
+        let logger_init_parameters: Arc<Mutex<Vec<Vec<String>>>> = Arc::new(Mutex::new(vec!()));
+        logger_initializer_wrapper_mock.init_parameters(&logger_init_parameters);
+
         let mut subject = ServerInitializer {
-            dns_socket_server: Some (Box::new (dns_socket_server)),
-            bootstrapper: Some (Box::new (bootstrapper)),
+            dns_socket_server: Box::new(dns_socket_server),
+            bootstrapper: Box::new(bootstrapper),
             privilege_dropper,
-            daemonizer,
-            logger_initializer_wrapper: Box::new (LoggerInitializerWrapperMock::new ()),
-            lifetime_secs: 0
+            logger_initializer_wrapper: Box::new(logger_initializer_wrapper_mock),
         };
 
-        let handle = thread::spawn (move || {
-            let mut holder = FakeStreamHolder {
-                stdin: ByteArrayReader::new ("first1....second1...".as_bytes ()),
-                stdout: ByteArrayWriter::new (),
-                stderr: ByteArrayWriter::new ()
-            };
-            subject.go(&mut holder.streams(), &args);
-        });
-        dns_tx.send (String::from ("request")).unwrap ();
-        bootstrapper_tx.send (String::from ("request")).unwrap ();
-        handle.join ().unwrap ();
+        let stdin = &mut ByteArrayReader::new(&[0; 0]);
+        let stdout = &mut ByteArrayWriter::new();
+        let stderr = &mut ByteArrayWriter::new();
+        let streams = &mut StdStreams {
+            stdin,
+            stdout,
+            stderr
+        };
 
-        // Join succeeded; thread ended, test passed
+        let args = vec!(String::from("glorp"));
+
+        subject.go(streams, &args);
+        let res = subject.wait();
+
+        assert!(res.is_err());
     }
 
     #[test]
-    fn runs_socket_servers_and_returns_zero () {
-        let (tx, rx) = mpsc::channel ();
-        let (dns_socket_server, dns_tx) = SocketServerMock::make("EntryDnsServerMock2", 2);
-        let (bootstrapper, bootstrapper_tx) = SocketServerMock::make("BootstrapperMock2", 2);
-        let privilege_dropper = PrivilegeDropperMock {tx: tx.clone ()};
-        let daemonizer = DaemonizerMock {tx: tx.clone ()};
-        let mut logger_initializer_wrapper = LoggerInitializerWrapperMock::new ();
-        let logger_init_parameters: Arc<Mutex<Vec<Vec<String>>>> = Arc::new(Mutex::new(vec!()));
-        logger_initializer_wrapper.init_parameters(&logger_init_parameters);
-        let args = vec! (String::from("glorp"));
-        let thread_args = args.clone();
+    fn server_initializer_as_a_future() {
+        let dns_socket_server = CrashTestDummy::new(CrashPoint::None);
+        let bootstrapper = CrashTestDummy::new(CrashPoint::None);
+        let privilege_dropper = PrivilegeDropperMock::new();
+
         let mut subject = ServerInitializer {
-            dns_socket_server: Some (Box::new (dns_socket_server)),
-            bootstrapper: Some (Box::new (bootstrapper)),
+            dns_socket_server: Box::new(dns_socket_server),
+            bootstrapper: Box::new(bootstrapper),
             privilege_dropper,
-            daemonizer,
-            logger_initializer_wrapper: Box::new (logger_initializer_wrapper),
-            lifetime_secs: 0
+            logger_initializer_wrapper: Box::new(LoggerInitializerWrapperMock::new()),
         };
-        let holder = FakeStreamHolder {
-            stdin: ByteArrayReader::new ("first2....second2...".as_bytes ()),
-            stdout: ByteArrayWriter::new (),
-            stderr: ByteArrayWriter::new ()
-        };
-        let holder_t = Arc::new (Mutex::new (holder));
-        let holder_m = holder_t.clone ();
 
-        let handle = thread::spawn (move || {
-            let mut locked = holder_t.lock ();
-            let holder_ref = locked.as_mut ().unwrap ();
-            let result = subject.go(&mut holder_ref.streams(), &thread_args);
-            assert_eq! (result, 0);
-        });
-        dns_tx.send (String::from ("one - first request")).unwrap ();
-        dns_tx.send (String::from ("one - second request")).unwrap ();
-        bootstrapper_tx.send (String::from ("two - first request")).unwrap ();
-        bootstrapper_tx.send (String::from ("two - second request")).unwrap ();
-        handle.join ().unwrap ();
-
-        assert_eq! (rx.recv_timeout(Duration::from_millis(50)).unwrap (), String::from ("privileges dropped"));
-        assert_eq! (rx.recv_timeout(Duration::from_millis(50)).unwrap (), String::from ("daemonized"));
-        let holder_ref = holder_m.lock ().unwrap ();
-        let stdout_string = holder_ref.stdout.get_string ();
-        assert_contains (&stdout_string, "first2....second2...");
-        let stderr_string = holder_ref.stderr.get_string ();
-        assert_contains (&stderr_string, "first2....second2...");
-        let tlh = TestLogHandler::new ();
-        tlh.await_log_containing ("one - second request", 5000);
-        tlh.await_log_containing ("two - second request", 5000);
-        tlh.assert_logs_match_in_order(vec! (
-            "EntryDnsServerMock2: initialize_as_root: \\[\"glorp\"\\]",
-            "EntryDnsServerMock2: serve_without_root",
-            "EntryDnsServerMock2: one - first request",
-            "EntryDnsServerMock2: one - second request"
-        ));
-        tlh.assert_logs_match_in_order(vec! (
-            "BootstrapperMock2: initialize_as_root: \\[\"glorp\"\\]",
-            "BootstrapperMock2: serve_without_root",
-            "BootstrapperMock2: two - first request",
-            "BootstrapperMock2: two - second request"
-        ));
-        tlh.assert_logs_contain_in_order(vec! (
-            "EntryDnsServerMock2: initialize_as_root: [\"glorp\"]",
-            "BootstrapperMock2: two - first request",
-        ));
-        tlh.assert_logs_contain_in_order(vec! (
-            "BootstrapperMock2: initialize_as_root: [\"glorp\"]",
-            "EntryDnsServerMock2: one - first request",
-        ));
-        assert_eq!(logger_init_parameters.lock().unwrap().len(), 1);
-        assert_eq!(logger_init_parameters.lock().unwrap().get(0).unwrap(), &args);
+        let result = subject.poll();
+        assert_eq!(result, Ok(Async::Ready(())))
     }
 
-    fn assert_contains (string: &str, substring: &str) {
-        assert_eq! (string.contains (substring), true, "'{}' is not contained in:\n'{}'\n", substring, string);
+    #[test]
+    #[should_panic(expected = "EntryDnsServerMock was instructed to panic")]
+    fn server_initializer_dns_socket_server_panics() {
+        let bootstrapper = CrashTestDummy::new(CrashPoint::None);
+        let privilege_dropper = PrivilegeDropperMock::new();
+
+        let mut subject = ServerInitializer {
+            dns_socket_server: Box::new(CrashTestDummy::panic("EntryDnsServerMock was instructed to panic".to_string())),
+            bootstrapper: Box::new(bootstrapper),
+            privilege_dropper,
+            logger_initializer_wrapper: Box::new(LoggerInitializerWrapperMock::new()),
+        };
+
+        let _ = subject.poll();
+    }
+
+    #[test]
+    #[should_panic(expected = "BootstrapperMock was instructed to panic")]
+    fn server_initializer_bootstrapper_panics() {
+        let dns_socket_server = CrashTestDummy::new(CrashPoint::None);
+        let privilege_dropper = PrivilegeDropperMock::new();
+        let mut subject = ServerInitializer {
+            dns_socket_server: Box::new(dns_socket_server),
+            bootstrapper: Box::new(CrashTestDummy::panic("BootstrapperMock was instructed to panic".to_string())),
+            privilege_dropper,
+            logger_initializer_wrapper: Box::new(LoggerInitializerWrapperMock::new()),
+        };
+
+        let _ = subject.poll();
     }
 
     #[test]
@@ -367,41 +248,68 @@ mod tests {
 
     #[test]
     fn get_log_level_returns_log_level_from_args() {
-        let args = vec! (String::from("--log_level"), String::from("trace"));
+        let args = vec!(String::from("--log_level"), String::from("trace"));
         assert_eq!(LoggerInitializerWrapperReal::get_log_level(&args), LevelFilter::Trace);
 
-        let args = vec! (String::from("--log_level"), String::from("WaRn"));
+        let args = vec!(String::from("--log_level"), String::from("WaRn"));
         assert_eq!(LoggerInitializerWrapperReal::get_log_level(&args), LevelFilter::Warn);
 
-        let args = vec! (String::from("--log_level"), String::from("DebuG"));
+        let args = vec!(String::from("--log_level"), String::from("DebuG"));
         assert_eq!(LoggerInitializerWrapperReal::get_log_level(&args), LevelFilter::Debug);
 
-        let args = vec! (String::from("--log_level"), String::from("INFO"));
+        let args = vec!(String::from("--log_level"), String::from("INFO"));
         assert_eq!(LoggerInitializerWrapperReal::get_log_level(&args), LevelFilter::Info);
 
-        let args = vec! (String::from("--log_level"), String::from("Error"));
+        let args = vec!(String::from("--log_level"), String::from("Error"));
         assert_eq!(LoggerInitializerWrapperReal::get_log_level(&args), LevelFilter::Error);
 
-        let args = vec! (String::from("--log_level"), String::from("off"));
+        let args = vec!(String::from("--log_level"), String::from("off"));
         assert_eq!(LoggerInitializerWrapperReal::get_log_level(&args), LevelFilter::Off);
     }
 
     #[test]
-    #[should_panic (expected = "Bad value 'blooga' for --log_level: should be one of <trace|debug|info|warn|error|off> (default = warn)")]
+    #[should_panic(expected = "Bad value 'blooga' for --log_level: should be one of <trace|debug|info|warn|error|off> (default = warn)")]
     fn get_log_level_panics_if_arg_makes_no_sense() {
-        let args = vec! (
-                         String::from("--dns_servers"), String::from("1.2.3.4"),
-                         String::from("--log_level"), String::from("blooga")
+        let args = vec!(
+            String::from("--dns_servers"), String::from("1.2.3.4"),
+            String::from("--log_level"), String::from("blooga")
         );
 
         LoggerInitializerWrapperReal::get_log_level(&args);
     }
 
     #[test]
-    #[should_panic (expected = "Missing value for --log_level: should be one of <trace|debug|info|warn|error|off> (default = warn)")]
+    #[should_panic(expected = "Missing value for --log_level: should be one of <trace|debug|info|warn|error|off> (default = warn)")]
     fn get_log_level_panics_if_flag_is_last_with_no_value() {
-        let args = vec! (String::from("--log_level"));
+        let args = vec!(String::from("--log_level"));
 
         LoggerInitializerWrapperReal::get_log_level(&args);
+    }
+
+    #[test]
+    fn go_should_drop_privileges() {
+        let bootstrapper = CrashTestDummy::new(CrashPoint::None);
+        let privilege_dropper = PrivilegeDropperMock::new();
+
+        let call_count = Arc::clone(&privilege_dropper.call_count);
+
+        let stdin = &mut ByteArrayReader::new(&[0; 0]);
+        let stdout = &mut ByteArrayWriter::new();
+        let stderr = &mut ByteArrayWriter::new();
+        let streams = &mut StdStreams {
+            stdin,
+            stdout,
+            stderr,
+        };
+        let mut subject = ServerInitializer {
+            dns_socket_server: Box::new(CrashTestDummy::new(CrashPoint::None)),
+            bootstrapper: Box::new(bootstrapper),
+            privilege_dropper,
+            logger_initializer_wrapper: Box::new(LoggerInitializerWrapperMock::new()),
+        };
+
+        subject.go(streams, &vec![]);
+
+        assert_eq!(*call_count.lock().unwrap(), 1);
     }
 }

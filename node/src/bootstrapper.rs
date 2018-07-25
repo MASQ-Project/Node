@@ -2,26 +2,29 @@
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::str::FromStr;
-use std::thread;
+use base64;
+use tokio::prelude::Async;
+use tokio::prelude::Future;
+use tokio::prelude::Stream;
+use tokio::prelude::stream::futures_unordered::FuturesUnordered;
+use actor_system_factory::ActorFactoryReal;
 use actor_system_factory::ActorSystemFactory;
 use actor_system_factory::ActorSystemFactoryReal;
-use base64;
-use tokio;
 use configuration::Configuration;
+use crash_test_dummy::CrashTestDummy;
 use listener_handler::ListenerHandler;
 use listener_handler::ListenerHandlerFactory;
 use listener_handler::ListenerHandlerFactoryReal;
+use sub_lib::crash_point::CrashPoint;
+use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::Key;
+use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::main_tools::StdStreams;
+use sub_lib::neighborhood::NeighborhoodConfig;
+use sub_lib::neighborhood::sentinel_ip_addr;
 use sub_lib::node_addr::NodeAddr;
 use sub_lib::parameter_finder::ParameterFinder;
 use sub_lib::socket_server::SocketServer;
-use sub_lib::cryptde::CryptDE;
-use sub_lib::cryptde_null::CryptDENull;
-use sub_lib::neighborhood::NeighborhoodConfig;
-use std::net::Ipv4Addr;
-use actor_system_factory::ActorFactoryReal;
-use sub_lib::neighborhood::sentinel_ip_addr;
 
 pub static mut CRYPT_DE_OPT: Option<CryptDENull> = None;
 
@@ -29,14 +32,29 @@ pub static mut CRYPT_DE_OPT: Option<CryptDENull> = None;
 pub struct BootstrapperConfig {
     pub dns_servers: Vec<SocketAddr>,
     pub neighborhood_config: NeighborhoodConfig,
+    pub crash_point: CrashPoint,
 }
 
 // TODO: Consider splitting this into a piece that's meant for being root and a piece that's not.
 pub struct Bootstrapper {
     listener_handler_factory: Box<ListenerHandlerFactory>,
-    listener_handlers: Vec<Box<ListenerHandler<Item=(), Error=()>>>,
+    listener_handlers: FuturesUnordered<Box<ListenerHandler<Item=(), Error=()>>>,
     actor_system_factory: Box<ActorSystemFactory>,
     config: Option<BootstrapperConfig>,
+}
+
+impl Future for Bootstrapper {
+    type Item = ();
+    type Error = ();
+
+    fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
+        if let Some(ref bootstrap_config) =  self.config {
+            try_ready!(CrashTestDummy::new(bootstrap_config.crash_point.clone()).poll());
+        }
+
+        try_ready!(self.listener_handlers.poll());
+        Ok(Async::Ready(()))
+    }
 }
 
 impl SocketServer for Bootstrapper {
@@ -44,11 +62,13 @@ impl SocketServer for Bootstrapper {
         String::from ("Dispatcher")
     }
 
-    fn initialize_as_root(&mut self, args: &Vec<String>, streams: &mut StdStreams) {
+    fn initialize_as_privileged(&mut self, args: &Vec<String>, streams: &mut StdStreams) {
         let mut configuration = Configuration::new ();
         configuration.establish (args);
+        self.listener_handlers = FuturesUnordered::<Box<ListenerHandler<Item=(), Error=()>>>::new();
+
         let clandestine_ports = configuration.clandestine_ports ();
-        self.listener_handlers = configuration.all_ports().iter ().map (|port_ref| {
+        configuration.all_ports().iter ().for_each (|port_ref| {
             let mut listener_handler =
                 self.listener_handler_factory.make ();
             let discriminator_factories = configuration.take_discriminator_factories_for (*port_ref);
@@ -56,8 +76,9 @@ impl SocketServer for Bootstrapper {
                 Ok(()) => (),
                 Err(e) => panic! ("Could not listen on port {}: {}", port_ref, e.to_string ())
             }
-            listener_handler
-        }).collect ();
+            self.listener_handlers.push(listener_handler);
+        });
+
         let cryptde_ref = Bootstrapper::initialize_cryptde();
         let config = Bootstrapper::parse_args (args, clandestine_ports);
         Bootstrapper::report_local_descriptor(cryptde_ref, config.neighborhood_config.local_ip_addr,
@@ -65,17 +86,18 @@ impl SocketServer for Bootstrapper {
         self.config = Some (config);
     }
 
-    fn serve_without_root(&mut self) {
+    fn initialize_as_unprivileged(&mut self) {
         let stream_handler_pool_subs =
             self.actor_system_factory.make_and_start_actors(
                 self.config.as_ref().expect("Missing BootstrapperConfig - call initialize_as_root first").clone(),
                 Box::new (ActorFactoryReal {}),
             );
-
-        while self.listener_handlers.len () > 0 {
-            let mut listener_handler = self.listener_handlers.remove (0);
-            listener_handler.bind_subs(stream_handler_pool_subs.add_sub.clone ());
-            self.start_listener_thread (listener_handler);
+        let mut iter_mut = self.listener_handlers.iter_mut();
+        loop {
+             match iter_mut.next()  {
+                 Some(f) => f.bind_subs(stream_handler_pool_subs.add_sub.clone()),
+                 None => break
+             }
         }
     }
 }
@@ -84,23 +106,17 @@ impl Bootstrapper {
     pub fn new () -> Bootstrapper {
         Bootstrapper {
             listener_handler_factory: Box::new (ListenerHandlerFactoryReal::new ()),
-            listener_handlers: vec! (),
-            actor_system_factory: Box::new (ActorSystemFactoryReal{}),
+            listener_handlers: FuturesUnordered::<Box<ListenerHandler<Item=(), Error=()>>>::new(),
+            actor_system_factory: Box::new (ActorSystemFactoryReal {}),
             config: None,
         }
-    }
-
-    fn start_listener_thread (&self, listener_handler: Box<ListenerHandler<Item=(), Error=()>>) {
-        // TODO can we eliminate the thread-per-listener here?
-        thread::spawn (move || {
-            tokio::run(listener_handler);
-        });
     }
 
     fn parse_args (args: &Vec<String>, ports: Vec<u16>) -> BootstrapperConfig {
         let finder = ParameterFinder::new(args.clone ());
         let local_ip_addr = Bootstrapper::parse_ip (&finder);
         BootstrapperConfig {
+            crash_point: Bootstrapper::parse_crash_point(&finder),
             dns_servers: Bootstrapper::parse_dns_servers (&finder),
             neighborhood_config: NeighborhoodConfig {
                 neighbor_configs: Bootstrapper::parse_neighbor_configs(&finder, "--neighbor"),
@@ -108,6 +124,16 @@ impl Bootstrapper {
                 is_bootstrap_node: Bootstrapper::parse_node_type(&finder),
                 local_ip_addr,
                 clandestine_port_list: ports,
+            }
+        }
+    }
+
+    fn parse_crash_point(finder: &ParameterFinder) -> CrashPoint {
+        match finder.find_value_for("--crash_point", "--crash_point <number where 1 = panic, 2 = error, default = 0 - no crash)>") {
+            None => CrashPoint::None,
+            Some(ref crash_point_str) => match crash_point_str.parse::<usize>() {
+                Ok(crash_point) => crash_point.into(),
+                Err(_) => panic!("--crash_point needs a number, not '{}'", crash_point_str)
             }
         }
     }
@@ -181,11 +207,6 @@ impl Bootstrapper {
     fn report_local_descriptor(cryptde: &CryptDE, _ip_addr: IpAddr, ports: Vec<u16>, streams: &mut StdStreams) {
         let port_strings: Vec<String> = ports.iter ().map (|n| format! ("{}", n)).collect ();
         let _port_list = port_strings.join (",");
-//        writeln! (streams.stdout, "Substratum Node descriptor: {};{};{}",
-//            base64::encode_config (&cryptde.public_key ().data, base64::STANDARD_NO_PAD),
-//            ip_addr,
-//            port_list,
-//        ).expect ("Internal error");
         writeln! (streams.stdout, "Substratum Node public key: {}", base64::encode_config (&cryptde.public_key ().data, base64::STANDARD_NO_PAD)).expect ("Internal error");
     }
 }
@@ -198,35 +219,41 @@ mod tests {
     use std::io::Error;
     use std::io::ErrorKind;
     use std::marker::Sync;
+    use std::net::Ipv4Addr;
     use std::net::SocketAddr;
     use std::ops::DerefMut;
     use std::str::FromStr;
     use std::sync::Arc;
     use std::sync::mpsc;
     use std::sync::Mutex;
+    use std::thread;
     use actix::Recipient;
     use actix::Syn;
     use actix::System;
     use regex::Regex;
+    use tokio;
+    use tokio::prelude::Async;
     use tokio::prelude::Future;
+    use actor_system_factory::ActorFactory;
     use discriminator::DiscriminatorFactory;
     use node_test_utils::extract_log;
     use node_test_utils::make_stream_handler_pool_subs_from;
     use node_test_utils::TestLogOwner;
+    use stream_handler_pool::StreamHandlerPoolSubs;
     use stream_messages::AddStreamMsg;
+    use sub_lib::cryptde::PlainData;
+    use sub_lib::logger;
     use test_utils::test_utils::FakeStreamHolder;
     use test_utils::test_utils::RecordAwaiter;
     use test_utils::test_utils::Recorder;
     use test_utils::test_utils::Recording;
     use test_utils::test_utils::TestLog;
-    use sub_lib::cryptde::PlainData;
-    use stream_handler_pool::StreamHandlerPoolSubs;
-    use tokio::prelude::Async;
-    use actor_system_factory::ActorFactory;
+    use test_utils::test_utils::TestLogHandler;
+    use test_utils::test_utils::init_test_logging;
 
     struct ListenerHandlerFactoryMock {
         log: TestLog,
-        mocks: RefCell<Vec<ListenerHandlerNull>>
+        mocks: RefCell<Vec<Box<ListenerHandler<Item=(), Error=()>>>>
     }
 
     unsafe impl Sync for ListenerHandlerFactoryMock {}
@@ -234,7 +261,7 @@ mod tests {
     impl ListenerHandlerFactory for ListenerHandlerFactoryMock {
         fn make(&self) -> Box<ListenerHandler<Item=(), Error=()>> {
             self.log.log (format! ("make ()"));
-            Box::new (self.mocks.borrow_mut ().remove (0))
+            self.mocks.borrow_mut ().remove (0)
         }
     }
 
@@ -246,7 +273,7 @@ mod tests {
             }
         }
 
-        fn add (&mut self, mock: ListenerHandlerNull) {
+        fn add (&mut self, mock: Box<ListenerHandler<Item=(), Error=()>>) {
             self.mocks.borrow_mut ().push (mock)
         }
     }
@@ -256,7 +283,7 @@ mod tests {
         bind_port_and_discriminator_factories_result: Option<io::Result<()>>,
         discriminator_factories_parameter: Option<Vec<Box<DiscriminatorFactory>>>,
         add_stream_sub: Option<Recipient<Syn, AddStreamMsg>>,
-        add_stream_msgs: Arc<Mutex<Vec<AddStreamMsg>>>
+        add_stream_msgs: Arc<Mutex<Vec<AddStreamMsg>>>,
     }
 
     impl ListenerHandler for ListenerHandlerNull {
@@ -267,7 +294,9 @@ mod tests {
         }
 
         fn bind_subs (&mut self, add_stream_sub: Recipient<Syn, AddStreamMsg>) {
-            self.log.lock ().unwrap ().log (format! ("bind_subscribers (add_stream_sub)"));
+            let logger = logger::Logger::new("ListenerHandler");
+            logger.log (format! ("bind_subscribers (add_stream_sub)"));
+
             self.add_stream_sub = Some (add_stream_sub);
         }
     }
@@ -299,7 +328,7 @@ mod tests {
                 bind_port_and_discriminator_factories_result: None,
                 discriminator_factories_parameter: None,
                 add_stream_sub: None,
-                add_stream_msgs: Arc::new (Mutex::new (add_stream_msgs))
+                add_stream_msgs: Arc::new (Mutex::new (add_stream_msgs)),
             }
         }
 
@@ -309,7 +338,7 @@ mod tests {
         }
     }
 
-    fn meaningless_cli_params() -> Vec<String> {
+    fn make_default_cli_params() -> Vec<String> {
         vec! (String::from ("--dns_servers"), String::from ("222.222.222.222"), String::from ("--port_count"), String::from ("0"))
     }
 
@@ -522,12 +551,12 @@ mod tests {
         let (second_handler, second_handler_log) = extract_log (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())));
         let (third_handler, third_handler_log) = extract_log (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())));
         let mut subject = BootstrapperBuilder::new ()
-            .add_listener_handler (first_handler)
-            .add_listener_handler (second_handler)
-            .add_listener_handler (third_handler)
+            .add_listener_handler (Box::new(first_handler))
+            .add_listener_handler (Box::new(second_handler))
+            .add_listener_handler (Box::new(third_handler))
             .build ();
 
-        subject.initialize_as_root(&meaningless_cli_params(), &mut FakeStreamHolder::new ().streams ());
+        subject.initialize_as_privileged(&make_default_cli_params(), &mut FakeStreamHolder::new ().streams ());
 
         let mut all_calls = vec! ();
         all_calls.extend (first_handler_log.lock ().unwrap ().dump ());
@@ -539,19 +568,19 @@ mod tests {
     }
 
     #[test]
-    fn initialize_as_root_stores_dns_servers_and_passes_them_to_actor_system_factory_for_proxy_client_in_serve_without_root () {
+    fn initialize_as_root_stores_dns_servers_and_passes_them_to_actor_system_factory_for_proxy_client_in_initialize_as_unprivileged () {
         let actor_system_factory = ActorSystemFactoryMock::new();
         let dns_servers_arc = actor_system_factory.dnss.clone();
         let mut subject = BootstrapperBuilder::new ()
             .actor_system_factory (Box::new (actor_system_factory))
-            .add_listener_handler (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())))
-            .add_listener_handler (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())))
+            .add_listener_handler (Box::new(ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (()))))
+            .add_listener_handler (Box::new(ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (()))))
             .build ();
 
-        subject.initialize_as_root(&vec! (String::from ("--dns_servers"), String::from ("1.2.3.4,2.3.4.5"), String::from ("--port_count"), String::from ("0")),
+        subject.initialize_as_privileged(&vec! (String::from ("--dns_servers"), String::from ("1.2.3.4,2.3.4.5"), String::from ("--port_count"), String::from ("0")),
                                    &mut FakeStreamHolder::new ().streams ());
 
-        subject.serve_without_root();
+        subject.initialize_as_unprivileged();
 
 
         let dns_servers_guard = dns_servers_arc.lock ().unwrap ();
@@ -563,11 +592,11 @@ mod tests {
     #[should_panic (expected = "Invalid IP address for --dns_servers <servers>: 'booga'")]
     fn initialize_as_root_complains_about_dns_servers_syntax_errors () {
         let mut subject = BootstrapperBuilder::new ()
-            .add_listener_handler (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())))
-            .add_listener_handler (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())))
+            .add_listener_handler (Box::new(ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (()))))
+            .add_listener_handler (Box::new(ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (()))))
             .build ();
 
-        subject.initialize_as_root(&vec! (String::from ("--dns_servers"), String::from ("booga,booga"), String::from ("--port_count"), String::from ("0")),
+        subject.initialize_as_privileged(&vec! (String::from ("--dns_servers"), String::from ("booga,booga"), String::from ("--port_count"), String::from ("0")),
                                    &mut FakeStreamHolder::new ().streams ());
     }
 
@@ -575,11 +604,11 @@ mod tests {
     #[should_panic (expected = "Could not listen on port")]
     fn initialize_as_root_panics_if_tcp_listener_doesnt_bind () {
         let mut subject = BootstrapperBuilder::new ()
-            .add_listener_handler (ListenerHandlerNull::new (vec! ()).bind_port_result(Err (Error::from (ErrorKind::AddrInUse))))
-            .add_listener_handler (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())))
+            .add_listener_handler (Box::new(ListenerHandlerNull::new (vec! ()).bind_port_result(Err (Error::from (ErrorKind::AddrInUse)))))
+            .add_listener_handler (Box::new(ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (()))))
             .build ();
 
-        subject.initialize_as_root(&vec! (String::from ("--dns_servers"), String::from ("1.1.1.1"), String::from ("--port_count"), String::from ("0")),
+        subject.initialize_as_privileged(&vec! (String::from ("--dns_servers"), String::from ("1.1.1.1"), String::from ("--port_count"), String::from ("0")),
                                           &mut FakeStreamHolder::new ().streams ());
     }
 
@@ -598,8 +627,6 @@ mod tests {
         };
         assert_ne! (cryptde_ref.private_key ().data, b"uninitialized".to_vec ());
         let stdout_dump = holder.stdout.get_string ();
-//        let expected_descriptor = format! ("{};2.3.4.5;3456,4567", base64::encode_config (&cryptde_ref.public_key ().data, base64::STANDARD_NO_PAD));
-//        let regex = Regex::new(r"Substratum Node descriptor: (.+?)\n").unwrap();
         let expected_descriptor = format! ("{}", base64::encode_config (&cryptde_ref.public_key ().data, base64::STANDARD_NO_PAD));
         let regex = Regex::new(r"Substratum Node public key: (.+?)\n").unwrap();
         let captured_descriptor = regex.captures (stdout_dump.as_str ()).unwrap ().get (1).unwrap ().as_str ();
@@ -612,7 +639,29 @@ mod tests {
     }
 
     #[test]
-    fn serve_without_root_moves_streams_from_listener_handlers_to_stream_handler_pool () {
+    fn initialize_as_unprivileged_moves_streams_from_listener_handlers_to_stream_handler_pool () {
+        init_test_logging();
+        let one_listener_handler = ListenerHandlerNull::new (vec! (
+        )).bind_port_result (Ok (()));
+        let another_listener_handler = ListenerHandlerNull::new (vec! (
+        )).bind_port_result (Ok (()));
+        let actor_system_factory = ActorSystemFactoryMock::new();
+        let mut subject = BootstrapperBuilder::new()
+            .actor_system_factory(Box::new(actor_system_factory))
+            .add_listener_handler(Box::new(one_listener_handler))
+            .add_listener_handler(Box::new(another_listener_handler))
+            .build();
+        subject.initialize_as_privileged(&make_default_cli_params(), &mut FakeStreamHolder::new().streams());
+
+        subject.initialize_as_unprivileged();
+
+        // Checking log message cause I don't know how to get at add_stream_sub
+        let tlh = TestLogHandler::new();
+        tlh.assert_logs_contain_in_order(vec!("bind_subscribers (add_stream_sub)","bind_subscribers (add_stream_sub)"));
+    }
+
+    #[test]
+    fn poll_listener_handlers() {
         let first_message = AddStreamMsg {
             stream: None,
             origin_port: Some (80),
@@ -633,18 +682,23 @@ mod tests {
         )).bind_port_result (Ok (()));
         let another_listener_handler = ListenerHandlerNull::new (vec! (
             third_message
-        )).bind_port_result (Ok (()));
+        )).bind_port_result (Ok(()));
         let mut actor_system_factory = ActorSystemFactoryMock::new();
-        let awaiter = actor_system_factory.stream_handler_pool_cluster.awaiter.take ().unwrap ();
-        let recording_arc = actor_system_factory.stream_handler_pool_cluster.recording.take ().unwrap ();
-        let mut subject = BootstrapperBuilder::new ()
-            .actor_system_factory (Box::new (actor_system_factory))
-            .add_listener_handler (one_listener_handler)
-            .add_listener_handler (another_listener_handler)
-            .build ();
-        subject.initialize_as_root(&meaningless_cli_params(), &mut FakeStreamHolder::new ().streams ());
+        let awaiter = actor_system_factory.stream_handler_pool_cluster.awaiter.take().unwrap();
+        let recording_arc = actor_system_factory.stream_handler_pool_cluster.recording.take().unwrap();
 
-        subject.serve_without_root();
+        let mut subject = BootstrapperBuilder::new()
+            .actor_system_factory(Box::new(actor_system_factory))
+            .add_listener_handler(Box::new(one_listener_handler))
+            .add_listener_handler(Box::new(another_listener_handler))
+            .build();
+
+        subject.initialize_as_privileged(&make_default_cli_params(), &mut FakeStreamHolder::new().streams());
+        subject.initialize_as_unprivileged();
+
+        thread::spawn(|| {
+            tokio::run(subject);
+        });
 
         let number_of_expected_messages = 3;
         awaiter.await_message_count (number_of_expected_messages);
@@ -658,6 +712,35 @@ mod tests {
         assert_eq! (actual_ports.contains (&String::from ("Some(80)")), true, "{:?} does not contain 'first'", actual_ports);
         assert_eq! (actual_ports.contains (&String::from ("None")), true, "{:?} does not contain 'second'", actual_ports);
         assert_eq! (actual_ports.contains (&String::from ("Some(443)")), true, "{:?} does not contain 'third'", actual_ports);
+    }
+
+    #[test]
+    #[should_panic (expected = "--crash_point needs a number, not 'booga'")]
+    fn parse_crash_point_rejects_invalid_integers () {
+        let args = vec! (String::from ("command"), String::from ("--crash_point"), String::from ("booga"));
+        let finder = ParameterFinder::new (args);
+
+        Bootstrapper::parse_crash_point (&finder);
+    }
+
+    #[test]
+    fn no_parameters_produces_configuration_for_crash_point() {
+        let args = make_default_cli_params();
+        let subject = Bootstrapper::parse_args(&args, vec![]);
+
+        assert_eq!(subject.crash_point, CrashPoint::None);
+    }
+
+    #[test]
+    fn with_parameters_produces_configuration_for_crash_point() {
+        let mut args = make_default_cli_params();
+        let crash_args = vec![String::from("--crash_point"), String::from("1")];
+
+        args.extend(crash_args);
+
+        let subject = Bootstrapper::parse_args(&args, vec![]);
+
+        assert_eq!(subject.crash_point, CrashPoint::Panic);
     }
 
     struct StreamHandlerPoolCluster {
@@ -736,7 +819,7 @@ mod tests {
             self
         }
 
-        fn add_listener_handler (mut self, listener_handler: ListenerHandlerNull) -> BootstrapperBuilder {
+        fn add_listener_handler (mut self, listener_handler: Box<ListenerHandler<Item=(), Error=()>>) -> BootstrapperBuilder {
             self.listener_handler_factory.add (listener_handler);
             self
         }
@@ -745,7 +828,7 @@ mod tests {
             Bootstrapper {
                 actor_system_factory: self.actor_system_factory,
                 listener_handler_factory: Box::new (self.listener_handler_factory),
-                listener_handlers: vec! (),
+                listener_handlers: FuturesUnordered::<Box<ListenerHandler<Item=(), Error=()>>>::new(),
                 config: None,
             }
         }

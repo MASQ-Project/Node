@@ -9,6 +9,7 @@ workspace = "../node"
 
 [dependencies]
 sub_lib = { path = "../sub_lib" }
+tokio = "0.1.7"
 
 [dev-dependencies]
 test_utils = { path = "../test_utils" }

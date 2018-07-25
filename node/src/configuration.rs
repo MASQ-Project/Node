@@ -11,13 +11,13 @@ use json_discriminator_factory::JsonDiscriminatorFactory;
 use sub_lib::parameter_finder::ParameterFinder;
 
 pub struct Configuration {
-    port_discriminator_factories: HashMap<u16, Vec<Box<DiscriminatorFactory>>>
+    port_discriminator_factories: HashMap<u16, Vec<Box<DiscriminatorFactory>>>,
 }
 
 impl Configuration {
     pub fn new () -> Configuration {
         Configuration {
-            port_discriminator_factories: HashMap::new ()
+            port_discriminator_factories: HashMap::new (),
         }
     }
 
@@ -64,6 +64,7 @@ impl Configuration {
             }
         }
     }
+
 }
 
 #[cfg (test)]
@@ -213,4 +214,5 @@ mod tests {
 
         assert_eq! (factories.len (), 0);
     }
+
 }

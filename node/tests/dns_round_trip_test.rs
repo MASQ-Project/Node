@@ -10,7 +10,7 @@ use entry_dns_lib::packet_facade::PacketFacade;
 
 #[test]
 fn handles_two_consecutive_dns_requests_integration() {
-    let _node = utils::SubstratumNode::start ();
+    let _node = utils::SubstratumNode::start (None);
 
     perform_transaction();
     perform_transaction();

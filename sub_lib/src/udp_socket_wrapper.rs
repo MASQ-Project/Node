@@ -1,17 +1,15 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use std::io;
-use std::io::Result;
-use std::net::UdpSocket;
 use std::net::SocketAddr;
-use std::marker::Sized;
 use std::marker::Send;
-use std::time::Duration;
+use tokio::prelude::Async;
+use tokio::net::UdpSocket;
 
-pub trait UdpSocketWrapperTrait: Sized + Send {
+
+pub trait UdpSocketWrapperTrait: Sync + Send {
     fn bind (&mut self, addr: SocketAddr) -> io::Result<bool>;
-    fn set_read_timeout(&self, dur: Option<Duration>) -> Result<()>;
-    fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)>;
-    fn send_to (&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize>;
+    fn recv_from(&mut self, buf: &mut [u8]) -> Result<Async<(usize, SocketAddr)>, io::Error>;
+    fn send_to (&mut self, buf: &[u8], addr: SocketAddr) -> Result<Async<usize>, io::Error>;
 }
 
 pub struct UdpSocketWrapperReal {
@@ -26,28 +24,23 @@ impl UdpSocketWrapperReal {
 
 impl UdpSocketWrapperTrait for UdpSocketWrapperReal {
     fn bind (&mut self, addr: SocketAddr) -> io::Result<bool> {
-        let socket = UdpSocket::bind (addr)?;
+        let socket = UdpSocket::bind (&addr)?;
         self.delegate = Some (socket);
         Ok (true)
     }
 
-    fn set_read_timeout(&self, dur: Option<Duration>) -> Result<()> {
+    fn recv_from(&mut self, buf: &mut [u8]) -> Result<Async<(usize, SocketAddr)>, io::Error> {
         match self.delegate {
-            Some (ref socket) => socket.set_read_timeout (dur),
-            None => panic! ("call bind before set_read_timeout")
-        }
-    }
-
-    fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
-        match self.delegate {
-            Some (ref socket) => socket.recv_from (buf),
+            Some (ref mut socket) => {
+                socket.poll_recv_from (buf)
+            },
             None => panic! ("call bind before recv_from")
         }
     }
 
-    fn send_to (&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize> {
+    fn send_to (&mut self, buf: &[u8], addr: SocketAddr) -> Result<Async<usize>, io::Error> {
         match self.delegate {
-            Some (ref socket) => socket.send_to (buf, addr),
+            Some (ref mut socket) => socket.poll_send_to (buf, &addr),
             None => panic! ("call bind before send_to")
         }
     }

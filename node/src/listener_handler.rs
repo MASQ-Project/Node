@@ -68,7 +68,9 @@ impl Future for ListenerHandlerReal {
                     // TODO this could be... inefficient, if we keep getting non-fatal errors. (we do not return)
                     logger.log(format!("Accepting connection failed: {}", e));
                 },
-                Ok(Async::NotReady) => return Ok(Async::NotReady),
+                Ok(Async::NotReady) => {
+                    return Ok(Async::NotReady)
+                },
             }
         }
     }
@@ -147,6 +149,17 @@ mod tests {
         fn poll_accept (&mut self) -> io::Result<Async<(TcpStream, SocketAddr)>> {
             self.poll_accept_results.borrow_mut().remove(0)
         }
+    }
+
+    #[test]
+    #[should_panic (expected = "Tried to run without initializing")]
+    fn start_a_listener_handler_and_get_panicked() {
+        let listener_handler_future = ListenerHandlerReal::new();
+            let waited = listener_handler_future.wait();
+            match waited {
+                Ok(_) => panic!("thread did not panic!"),
+                Err(_) => {},
+            };
     }
 
     #[test]

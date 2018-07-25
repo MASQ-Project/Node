@@ -1,7 +1,6 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use std::net::SocketAddr;
 use std::sync::mpsc;
-use std::thread;
 use actix::Actor;
 use actix::Addr;
 use actix::Recipient;
@@ -29,6 +28,7 @@ use bootstrapper;
 use sub_lib::neighborhood::NeighborhoodConfig;
 use std::sync::mpsc::Sender;
 use sub_lib::neighborhood::BootstrapNeighborhoodNowMessage;
+use std::thread;
 
 pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(&self, config: BootstrapperConfig, actor_factory: Box<ActorFactory>) -> StreamHandlerPoolSubs;
@@ -43,11 +43,13 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
         };
         let (tx, rx) = mpsc::channel();
 
+        // TODO: this thread::spawn goes away with actix 0.7
         thread::spawn(move || {
             let system = System::new("SubstratumNode");
 
             ActorSystemFactoryReal::prepare_initial_messages(cryptde, config, actor_factory, tx);
 
+            // TODO: System::new and system.run() are handled by actix::run in actix 0.7+ and might not live here
             //run the actor system
             system.run()
         });
@@ -165,6 +167,7 @@ mod tests {
     use actix::Arbiter;
     use test_utils::test_utils::cryptde;
     use sub_lib::cryptde::PlainData;
+    use sub_lib::crash_point::CrashPoint;
 
     struct ActorFactoryMock<'a> {
         dispatcher: RefCell<Option<Recorder>>,
@@ -313,6 +316,7 @@ mod tests {
         let actor_factory = ActorFactoryMock::new ();
         let recordings = actor_factory.get_recordings();
         let config = BootstrapperConfig {
+            crash_point: CrashPoint::None,
             dns_servers: vec! (),
             neighborhood_config: NeighborhoodConfig {
                 neighbor_configs: vec! (),
@@ -343,6 +347,7 @@ mod tests {
         let recordings = actor_factory.get_recordings();
         let parameters = actor_factory.make_parameters ();
         let config = BootstrapperConfig {
+            crash_point: CrashPoint::None,
             dns_servers: vec! (),
             neighborhood_config: NeighborhoodConfig {
                 neighbor_configs: vec! (),

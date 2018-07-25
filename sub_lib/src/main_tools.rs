@@ -3,11 +3,11 @@ use std::io;
 
 #[allow(dead_code)]
 pub struct StdStreams<'a> {
-    pub stdin: &'a mut io::Read,
-    pub stdout: &'a mut io::Write,
-    pub stderr: &'a mut io::Write
+    pub stdin: &'a mut (io::Read + Send),
+    pub stdout: &'a mut (io::Write + Send),
+    pub stderr: &'a mut (io::Write + Send)
 }
 
 pub trait Command {
-    fn go<'a>(&mut self, streams: &'a mut StdStreams<'a>, args: &Vec<String>) -> u8;
+    fn go(&mut self, streams: &mut StdStreams, args: &Vec<String>) -> u8;
 }

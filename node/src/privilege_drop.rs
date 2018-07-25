@@ -13,7 +13,7 @@ extern {
 
 use std::env::var;
 
-pub trait IdWrapper {
+pub trait IdWrapper: Send {
     fn getuid (&self) -> i32;
     fn getgid (&self) -> i32;
     fn setuid (&self, uid: i32) -> i32;
@@ -22,7 +22,7 @@ pub trait IdWrapper {
 
 pub struct IdWrapperReal;
 
-pub trait EnvironmentWrapper {
+pub trait EnvironmentWrapper: Send {
     fn var (&self, key: &str) -> Option<String>;
 }
 
@@ -57,7 +57,7 @@ impl IdWrapper for IdWrapperReal {
     fn setgid (&self, _gid: i32) -> i32  { !unimplemented!() }
 }
 
-pub trait PrivilegeDropper {
+pub trait PrivilegeDropper: Send {
     fn drop_privileges (&self);
 }
 

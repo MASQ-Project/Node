@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 extern crate regex;
+extern crate sub_lib;
 
 use std::process::Command;
 use std::process::Child;
@@ -10,11 +11,24 @@ use std::fs::File;
 use std::ops::Drop;
 use std::time::Duration;
 use std::thread;
+use sub_lib::crash_point::CrashPoint;
 
 pub struct SubstratumNode {
     logfile_stream: Box<Read>,
     logfile_contents: String,
     child: Child
+}
+
+pub struct CommandConfig {
+    pub crash_point: CrashPoint
+}
+
+impl CommandConfig {
+    pub fn new() -> CommandConfig {
+        CommandConfig {
+            crash_point: CrashPoint::None,
+        }
+    }
 }
 
 impl Drop for SubstratumNode {
@@ -24,11 +38,11 @@ impl Drop for SubstratumNode {
 }
 
 impl SubstratumNode {
-    pub fn start () -> SubstratumNode {
+    pub fn start (config: Option<CommandConfig>) -> SubstratumNode {
         let mut logfile_path_buf = env::temp_dir();
         logfile_path_buf.push ("SubstratumNode.log");
         let logfile_path = logfile_path_buf.into_boxed_path ();
-        let mut command = SubstratumNode::make_node_command();
+        let mut command = SubstratumNode::make_node_command(config);
         let child = command.spawn ().unwrap ();
         thread::sleep(Duration::from_millis(500)); // needs time to open logfile and sockets
         let stream = File::open (logfile_path.to_str ().unwrap ()).unwrap ();
@@ -54,6 +68,13 @@ impl SubstratumNode {
         }
     }
 
+    pub fn wait (&mut self) -> Option<i32> {
+        match self.child.wait () {
+            Err (e) => panic! ("{:?}", e),
+            Ok (exit_status) => exit_status.code ()
+        }
+    }
+
     pub fn kill (&mut self) {
         self.child.kill ().is_ok ();
     }
@@ -75,24 +96,28 @@ impl SubstratumNode {
     }
 
     #[cfg(windows)]
-    fn make_node_command () -> Command {
+    fn make_node_command (config: Option<CommandConfig>) -> Command {
+        let config = get_command_config(config);
+        let crash_point = format!("{}", config.crash_point);
         let dns_server = get_var_or("DNS_SERVER", "8.8.8.8");
         let test_command = env::args ().next ().unwrap ();
         let debug_or_release = test_command.split ("\\").skip_while (|s| s != &"target").skip(1).next().unwrap();
         let command_to_start = &format! ("target\\{}\\SubstratumNode", debug_or_release);
         let mut command = Command::new ("cmd");
-        command.args (&["/c", "start", command_to_start, "--dns_servers", &dns_server, "--log_level", "trace"]);
+        command.args (&["/c", command_to_start, "--dns_servers", &dns_server, "--crash_point", &crash_point, "--log_level", "trace"]);
         command
     }
 
     #[cfg(unix)]
-    fn make_node_command () -> Command {
+    fn make_node_command (config: Option<CommandConfig>) -> Command {
+        let config = get_command_config(config);
+        let crash_point = format!("{}", config.crash_point);
         let dns_server = get_var_or("DNS_SERVER", "8.8.8.8");
         let test_command = env::args ().next ().unwrap ();
         let debug_or_release = test_command.split ("/").skip_while (|s| s != &"target").skip(1).next().unwrap();
         let command_to_start = format! ("target/{}/SubstratumNode", debug_or_release);
         let mut command = Command::new (command_to_start);
-        command.args (&["--dns_servers", &dns_server, "--log_level", "trace"]);
+        command.args (&["--dns_servers", &dns_server, "--crash_point", &crash_point, "--log_level", "trace"]);
         command
     }
 }
@@ -103,4 +128,8 @@ pub fn get_var_or(name: &str, default: &str) -> String {
         return String::from(default);
     }
     value.to_string()
+}
+
+fn get_command_config(config_opt: Option<CommandConfig>) -> CommandConfig {
+    if config_opt.is_some() { config_opt.unwrap() } else { CommandConfig::new() }
 }

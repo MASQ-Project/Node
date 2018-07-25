@@ -7,7 +7,7 @@ use packet_facade::Query;
 use packet_facade::ResourceRecord;
 use sub_lib::logger::Logger;
 
-pub trait ProcessorTrait {
+pub trait ProcessorTrait: Send + Sync {
     fn process (&self, buf: &mut[u8], length: usize, addr: &SocketAddr, logger: &Logger) -> usize;
 }
 

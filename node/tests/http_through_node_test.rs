@@ -26,7 +26,7 @@ const BUF_LEN: usize = 16384;
                             // SubstratumNode will be immediately reclaimed.
 fn chunked_http_through_node_integration() {
     let httpbin_host = get_var_or("HTTPBIN_HOST", "httpbin.org");
-    let node = utils::SubstratumNode::start ();
+    let node = utils::SubstratumNode::start (None);
     let mut stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:80").unwrap()).unwrap();
     let request_str = format! ("GET /stream-bytes/{}?seed=0&chunk_size={} HTTP/1.1\r\nHost: {}\r\n\r\n", CHUNK_COUNT * CHUNK_DATA_LEN, CHUNK_DATA_LEN, httpbin_host);
     let request = request_str.as_bytes ();

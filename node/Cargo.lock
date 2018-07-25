@@ -246,6 +246,7 @@ dependencies = [
  "daemonize 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "sub_lib 0.3.3",
  "test_utils 0.3.3",
+ "tokio 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "winservice 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 

@@ -14,7 +14,7 @@ enum Action {
 }
 
 impl Command for DnsUtility {
-    fn go<'a>(&mut self, streams: &mut StdStreams, args: &Vec<String>) -> u8 {
+    fn go(&mut self, streams: &mut StdStreams, args: &Vec<String>) -> u8 {
         let action = match args {
             a if a.len () < 2 => return DnsUtility::usage (streams),
             a if a[1] == String::from ("subvert") => Action::Subvert,

@@ -5,6 +5,7 @@ extern crate base64;
 extern crate chrono;
 extern crate entry_dns_lib;
 extern crate flexi_logger;
+#[macro_use]
 extern crate futures;
 extern crate hopper_lib;
 extern crate log;
@@ -28,6 +29,7 @@ extern crate daemonize;
 mod actor_system_factory;
 mod bootstrapper;
 mod configuration;
+mod crash_test_dummy;
 pub mod discriminator;
 mod dispatcher;
 mod http_request_start_finder;
@@ -47,3 +49,4 @@ pub mod tls_discriminator_factory;
 
 #[cfg (test)]
 mod node_test_utils;
+

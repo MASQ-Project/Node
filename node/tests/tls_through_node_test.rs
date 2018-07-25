@@ -26,7 +26,7 @@ use std::net::Shutdown;
 #[allow (unused_variables)] // 'node' below must not become '_' or disappear, or the
 // SubstratumNode will be immediately reclaimed.
 fn tls_through_node_integration() {
-    let node = utils::SubstratumNode::start();
+    let node = utils::SubstratumNode::start(None);
     let (mut tls_stream, retries_remaining) = {
         let mut tls_stream: Option<TlsStream<TcpStream>> = None;
         let mut retries_remaining = RETRIES_ALLOWED;
