@@ -13,6 +13,9 @@ use winreg::enums::*;
 #[cfg (not (windows))]
 const KEY_ALL_ACCESS: u32 = 1234;
 
+#[cfg (not (windows))]
+const KEY_READ: u32 = 2345;
+
 const NOT_FOUND: i32 = 2;
 const PERMISSION_DENIED: i32 = 5;
 
@@ -76,7 +79,13 @@ impl DnsModifier for WinRegDnsModifier {
     }
 
     fn inspect(&self, stdout: &mut (io::Write + Send)) -> Result<(), String> {
-        unimplemented!()
+        let interfaces = self.find_interfaces_to_inspect ()?;
+        let dns_server_list_csv = self.find_dns_server_list (interfaces)?;
+        let dns_server_list = dns_server_list_csv.split (",");
+        let output = dns_server_list.into_iter ()
+            .fold (String::new (), |so_far, dns_server| format! ("{}{}\n", so_far, dns_server));
+        write! (stdout, "{}", output).expect ("write is broken");
+        Ok (())
     }
 }
 
@@ -96,32 +105,11 @@ impl WinRegDnsModifier {
     }
 
     fn find_interfaces_to_subvert(&self) -> Result<Vec<Box<RegKeyTrait>>, String> {
-        let interface_key = self.handle_reg_error(self.hive.open_subkey_with_flags("SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces", KEY_ALL_ACCESS))?;
-        let gateway_interfaces: Vec<Box<RegKeyTrait>> = interface_key.enum_keys ().into_iter ()
-            .flat_map (|k| {k})
-            .flat_map (| interface_name | {
-                interface_key.open_subkey_with_flags (&interface_name[..], KEY_ALL_ACCESS)
-            })
-            .filter (| interface | {
-                WinRegDnsModifier::get_default_gateway (interface).is_some ()
-                && interface.get_value ("NameServer").is_ok ()
-            })
-            .collect ();
-        if gateway_interfaces.is_empty() { return Err(String::from("This system has no accessible network interfaces configured with default gateways and DNS servers")) }
-        let distinct_gateway_ips: HashSet<String> = gateway_interfaces.iter ()
-            .flat_map (|interface| {
-                WinRegDnsModifier::get_default_gateway (interface)
-            })
-            .collect ();
-        if distinct_gateway_ips.len () > 1 {
-            return Err (String::from (format! ("This system has {} active network interfaces configured with {} different default gateways. Manual configuration required.",
-                gateway_interfaces.len (), distinct_gateway_ips.len ())))
-        }
-        Ok (gateway_interfaces)
+        self.find_interfaces (KEY_ALL_ACCESS)
     }
 
     fn find_interfaces_to_revert(&self) -> Result<Vec<Box<RegKeyTrait>>, String> {
-        let interface_key = self.handle_reg_error(self.hive.open_subkey_with_flags("SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces", KEY_ALL_ACCESS))?;
+        let interface_key = self.handle_reg_error(false, self.hive.open_subkey_with_flags("SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces", KEY_ALL_ACCESS))?;
         let revertible_interfaces = interface_key.enum_keys ().into_iter ()
             .flat_map (|k| {k})
             .flat_map (| interface_name | {
@@ -134,12 +122,89 @@ impl WinRegDnsModifier {
         Ok (revertible_interfaces)
     }
 
+    pub fn find_interfaces_to_inspect(&self) -> Result<Vec<Box<RegKeyTrait>>, String> {
+        self.find_interfaces (KEY_READ)
+    }
+
+    fn find_interfaces (&self, access_required: u32) -> Result<Vec<Box<RegKeyTrait>>, String> {
+        let interface_key = self.handle_reg_error(access_required == KEY_READ,
+            self.hive.open_subkey_with_flags("SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces", access_required))?;
+        let gateway_interfaces: Vec<Box<RegKeyTrait>> = interface_key.enum_keys ().into_iter ()
+            .flat_map (|k| {k})
+            .flat_map (| interface_name | {
+                interface_key.open_subkey_with_flags (&interface_name[..], access_required)
+            })
+            .filter (| interface | {
+                WinRegDnsModifier::get_default_gateway (interface).is_some ()
+                    && interface.get_value ("NameServer").is_ok ()
+            })
+            .collect ();
+        if gateway_interfaces.is_empty() { return Err(String::from("This system has no accessible network interfaces configured with default gateways and DNS servers")) }
+        let distinct_gateway_ips: HashSet<String> = gateway_interfaces.iter ()
+            .flat_map (|interface| {
+                WinRegDnsModifier::get_default_gateway (interface)
+            })
+            .collect ();
+        if distinct_gateway_ips.len () > 1 {
+            let msg = match access_required {
+                KEY_ALL_ACCESS => "Manual configuration required.",
+                KEY_READ => "Cannot summarize DNS settings.",
+                _ => "",
+            };
+            return Err (String::from (format! ("This system has {} active network interfaces configured with {} different default gateways. {}",
+                                               gateway_interfaces.len (), distinct_gateway_ips.len (), msg)))
+        }
+        Ok (gateway_interfaces)
+    }
+
+    pub fn find_dns_server_list (&self, interfaces: Vec<Box<RegKeyTrait>>) -> Result<String, String> {
+        let interfaces_len = interfaces.len ();
+        let list_result_vec: Vec<Result<String, String>> = interfaces.into_iter ()
+            .map (|interface| self.find_dns_servers_for_interface (interface))
+            .collect ();
+        let errors: Vec<String> = list_result_vec.iter ().flat_map (|result_ref| {
+                match result_ref {
+                    &Err (ref e) => Some (e.clone ()),
+                    &Ok (_) => None,
+                }
+            })
+            .collect ();
+        if !errors.is_empty () {
+            return Err (errors.join (", "))
+        }
+        let list_set: HashSet<String> = list_result_vec.into_iter ()
+            .flat_map (|result| {
+                match result {
+                    Err (_) => panic! ("Error magically appeared"),
+                    Ok (list) => Some (list),
+                }
+            })
+            .collect ();
+        if list_set.len () > 1 {
+            Err (format! ("This system has {} active network interfaces configured with {} different DNS server lists. Cannot summarize DNS settings.", interfaces_len, list_set.len ()))
+        }
+        else {
+            let list_vec = list_set.into_iter ().collect::<Vec<String>> ();
+            Ok (list_vec[0].clone ())
+        }
+    }
+
+    fn find_dns_servers_for_interface (&self, interface: Box<RegKeyTrait>) -> Result<String, String> {
+        match (interface.get_value ("DhcpNameServer"), interface.get_value ("NameServer")) {
+            (Err (_), Err (_)) => Err ("Interface has neither NameServer nor DhcpNameServer; probably not connected".to_string ()),
+            (Err (_), Ok (ref permanent)) if permanent == &String::new () => Err ("Interface has neither NameServer nor DhcpNameServer; probably not connected".to_string ()),
+            (Ok (ref dhcp), Err (_)) => Ok(dhcp.clone ()),
+            (Ok (ref dhcp), Ok (ref permanent)) if permanent == &String::new () => Ok(dhcp.clone ()),
+            (_, Ok (permanent)) => Ok(permanent)
+        }
+    }
+
     fn subvert_interface(&self, interface: &Box<RegKeyTrait>) -> Result <(), String> {
         let name_servers = interface.get_value ("NameServer").expect ("Interface became unsubvertible. Check your DNS settings manually.");
         if WinRegDnsModifier::is_subverted(&name_servers) {return Ok (())}
         if WinRegDnsModifier::makes_no_sense(&name_servers) { return Err(String::from("This system's DNS settings don't make sense; aborting")) }
-        self.handle_reg_error (interface.set_value("NameServerBak", name_servers.as_str()))?;
-        self.handle_reg_error (interface.set_value("NameServer", "127.0.0.1"))
+        self.handle_reg_error (false,interface.set_value("NameServerBak", name_servers.as_str()))?;
+        self.handle_reg_error (false,interface.set_value("NameServer", "127.0.0.1"))
     }
 
     fn roll_back_subvert(&self, interface: &Box<RegKeyTrait>) {
@@ -160,12 +225,12 @@ impl WinRegDnsModifier {
             _ => { // but it's okay to overwrite an existing NameServer
                 match interface.set_value("NameServer", old_name_servers.as_str ()) {
                     Ok (_) => (),
-                    Err(e) => return self.handle_reg_error (Err (e)),
+                    Err(e) => return self.handle_reg_error (false, Err (e)),
                 };
             },
         };
 
-        self.handle_reg_error(interface.delete_value("NameServerBak"))
+        self.handle_reg_error(false, interface.delete_value("NameServerBak"))
     }
 
     fn roll_back_revert(&self, interface: &Box<RegKeyTrait>) {
@@ -178,11 +243,11 @@ impl WinRegDnsModifier {
         interface.set_value ("NameServer", "127.0.0.1").expect ("Can't reset NameServer to roll back reversion. Check your DNS settings manually.");
     }
 
-    fn handle_reg_error<T> (&self, result: io::Result<T>) -> Result<T, String> {
+    fn handle_reg_error<T> (&self, read_only: bool, result: io::Result<T>) -> Result<T, String> {
         match result {
             Ok(retval) => Ok(retval),
             Err(ref e) if e.raw_os_error() == Some(PERMISSION_DENIED) => return Err(String::from("You must have administrative privilege to modify your DNS settings")),
-            Err(ref e) if e.raw_os_error() == Some(NOT_FOUND) => return Err(String::from("Registry contains no DNS information to modify")),
+            Err(ref e) if e.raw_os_error() == Some(NOT_FOUND) => return Err(format! ("Registry contains no DNS information {}", if read_only {"to display"} else {"to modify"})),
             Err(ref e) => return Err(format!("Unexpected error: {:?}", e)),
         }
     }
@@ -210,14 +275,14 @@ impl WinRegDnsModifier {
     }
 }
 
-fn plus<T> (mut source: Vec<T>, item: T) -> Vec<T> {
+pub fn plus<T> (mut source: Vec<T>, item: T) -> Vec<T> {
     let mut result = vec! ();
     result.append (&mut source);
     result.push (item);
     result
 }
 
-trait RegKeyTrait: Debug {
+pub trait RegKeyTrait: Debug {
     fn enum_keys (&self) -> Vec<io::Result<String>>;
     fn open_subkey_with_flags (&self, path: &str, perms: u32) -> io::Result<Box<RegKeyTrait>>;
     fn get_value (&self, path: &str) -> io::Result<String>;
@@ -288,6 +353,7 @@ mod tests {
     use std::sync::Arc;
     use utils::get_parameters_from;
     use std::collections::HashMap;
+    use test_utils::test_utils::FakeStreamHolder;
 
     #[derive (Debug)]
     struct RegKeyMock {
@@ -506,6 +572,84 @@ mod tests {
         let result = subject.type_name ();
 
         assert_eq! (result, "WinRegDnsModifier");
+    }
+
+    #[test]
+    fn find_dns_servers_for_interface_handles_all_info_missing () {
+        let interface: Box<RegKeyTrait> = Box::new (RegKeyMock::new ()
+            .get_value_result ("NameServer", Err (Error::from_raw_os_error (NOT_FOUND)))
+            .get_value_result ("DhcpNameServer", Err (Error::from_raw_os_error (NOT_FOUND)))
+        );
+        let subject = WinRegDnsModifier::new ();
+
+        let result = subject.find_dns_servers_for_interface (interface);
+
+        assert_eq! (result, Err ("Interface has neither NameServer nor DhcpNameServer; probably not connected".to_string ()));
+    }
+
+    #[test]
+    fn find_dns_servers_for_interface_handles_name_server_missing () {
+        let interface: Box<RegKeyTrait> = Box::new (RegKeyMock::new ()
+            .get_value_result ("NameServer", Err (Error::from_raw_os_error (NOT_FOUND)))
+            .get_value_result ("DhcpNameServer", Ok ("name server list from DHCP".to_string ()))
+        );
+        let subject = WinRegDnsModifier::new ();
+
+        let result = subject.find_dns_servers_for_interface (interface);
+
+        assert_eq! (result, Ok ("name server list from DHCP".to_string ()));
+    }
+
+    #[test]
+    fn find_dns_servers_for_interface_handles_dhcp_name_server_missing () {
+        let interface: Box<RegKeyTrait> = Box::new (RegKeyMock::new ()
+            .get_value_result ("NameServer", Ok ("name server list from permanent".to_string ()))
+            .get_value_result ("DhcpNameServer", Err (Error::from_raw_os_error (NOT_FOUND)))
+        );
+        let subject = WinRegDnsModifier::new ();
+
+        let result = subject.find_dns_servers_for_interface (interface);
+
+        assert_eq! (result, Ok ("name server list from permanent".to_string ()));
+    }
+
+    #[test]
+    fn find_dns_servers_for_interface_handles_both_dhcp_and_nameserver () {
+        let interface: Box<RegKeyTrait> = Box::new (RegKeyMock::new ()
+            .get_value_result ("NameServer", Ok ("name server list from permanent".to_string ()))
+            .get_value_result ("DhcpNameServer", Ok("name server list from DHCP".to_string ()))
+        );
+        let subject = WinRegDnsModifier::new ();
+
+        let result = subject.find_dns_servers_for_interface (interface);
+
+        assert_eq! (result, Ok ("name server list from permanent".to_string ()));
+    }
+
+    #[test]
+    fn find_dns_servers_for_interface_handles_nameserver_blank_and_dhcp_nameserver_present () {
+        let interface: Box<RegKeyTrait> = Box::new (RegKeyMock::new ()
+            .get_value_result ("NameServer", Ok ("".to_string ()))
+            .get_value_result ("DhcpNameServer", Ok("name server list from DHCP".to_string ()))
+        );
+        let subject = WinRegDnsModifier::new ();
+
+        let result = subject.find_dns_servers_for_interface (interface);
+
+        assert_eq! (result, Ok ("name server list from DHCP".to_string ()));
+    }
+
+    #[test]
+    fn find_dns_servers_for_interface_handles_nameserver_blank_and_dhcp_nameserver_missing () {
+        let interface: Box<RegKeyTrait> = Box::new (RegKeyMock::new ()
+            .get_value_result ("NameServer", Ok ("".to_string ()))
+            .get_value_result ("DhcpNameServer", Err (Error::from_raw_os_error (NOT_FOUND)))
+        );
+        let subject = WinRegDnsModifier::new ();
+
+        let result = subject.find_dns_servers_for_interface (interface);
+
+        assert_eq! (result, Err ("Interface has neither NameServer nor DhcpNameServer; probably not connected".to_string ()));
     }
 
     #[test]
@@ -1053,5 +1197,174 @@ mod tests {
         assert_eq! (get_parameters_from (delete_value_parameters), vec! (
             String::from ("NameServerBak")
         ));
+    }
+
+    #[test]
+    fn inspect_complains_if_no_interfaces_key_exists () {
+        let mut stream_holder = FakeStreamHolder::new ();
+        let hive = RegKeyMock::new ()
+            .open_subkey_with_flags_result(Err (Error::from_raw_os_error(NOT_FOUND)));
+        let mut subject = WinRegDnsModifier::new ();
+        subject.hive = Box::new (hive);
+
+        let result = subject.inspect (stream_holder.streams ().stdout);
+
+        assert_eq! (result.err ().unwrap (), String::from ("Registry contains no DNS information to display"));
+        assert_eq! (stream_holder.stdout.get_string (), String::new ());
+    }
+
+    #[test]
+    fn inspect_complains_about_unexpected_os_error () {
+        let mut stream_holder = FakeStreamHolder::new ();
+        let hive = RegKeyMock::new ()
+            .open_subkey_with_flags_result(Err (Error::from_raw_os_error(3)));
+        let mut subject = WinRegDnsModifier::new ();
+        subject.hive = Box::new (hive);
+
+        let result = subject.inspect (stream_holder.streams ().stdout);
+
+        let string_err = result.err ().unwrap ();
+        assert_eq! (string_err.starts_with ("Unexpected error: "), true, "{}", &string_err);
+        assert_eq! (string_err.contains ("code: 3"), true, "{}", &string_err);
+        assert_eq! (stream_holder.stdout.get_string (), String::new ());
+    }
+
+    #[test]
+    fn inspect_complains_if_no_interfaces_have_default_gateway_or_dhcp_default_gateway_values () {
+        let mut stream_holder = FakeStreamHolder::new ();
+        let one_interface = RegKeyMock::new ()
+            .get_value_result ("DefaultGateway", Err (Error::from_raw_os_error(NOT_FOUND)))
+            .get_value_result ("DhcpDefaultGateway", Err (Error::from_raw_os_error( NOT_FOUND)));
+        let another_interface = RegKeyMock::new ()
+            .get_value_result ("DefaultGateway", Err (Error::from_raw_os_error(NOT_FOUND)))
+            .get_value_result ("DhcpDefaultGateway", Err (Error::from_raw_os_error(NOT_FOUND)));
+        let interfaces = RegKeyMock::new ()
+            .enum_keys_result (vec! (Ok ("one_interface"), Ok ("another_interface")))
+            .open_subkey_with_flags_result(Ok (Box::new (one_interface)))
+            .open_subkey_with_flags_result(Ok (Box::new (another_interface)));
+        let hive = RegKeyMock::new ()
+            .open_subkey_with_flags_result(Ok (Box::new (interfaces)));
+        let mut subject = WinRegDnsModifier::new ();
+        subject.hive = Box::new (hive);
+
+        let result = subject.inspect (stream_holder.streams ().stdout);
+
+        assert_eq! (result.err ().unwrap (), String::from ("This system has no accessible network interfaces configured with default gateways and DNS servers"));
+        assert_eq! (stream_holder.stdout.get_string (), String::new ());
+    }
+
+    #[test]
+    fn inspect_complains_if_interfaces_have_blank_default_gateway_and_dhcp_default_gateway_values () {
+        let mut stream_holder = FakeStreamHolder::new ();
+        let one_interface = RegKeyMock::new ()
+            .get_value_result ("DefaultGateway", Ok (String::new ()))
+            .get_value_result ("DhcpDefaultGateway", Ok (String::new ()));
+        let another_interface = RegKeyMock::new ()
+            .get_value_result ("DefaultGateway", Ok (String::new ()))
+            .get_value_result ("DhcpDefaultGateway", Ok (String::new ()));
+        let interfaces = RegKeyMock::new ()
+            .enum_keys_result (vec! (Ok ("one_interface"), Ok ("another_interface")))
+            .open_subkey_with_flags_result(Ok (Box::new (one_interface)))
+            .open_subkey_with_flags_result(Ok (Box::new (another_interface)));
+        let hive = RegKeyMock::new ()
+            .open_subkey_with_flags_result(Ok (Box::new (interfaces)));
+        let mut subject = WinRegDnsModifier::new ();
+        subject.hive = Box::new (hive);
+
+        let result = subject.inspect (stream_holder.streams ().stdout);
+
+        assert_eq! (result.err ().unwrap (), String::from ("This system has no accessible network interfaces configured with default gateways and DNS servers"));
+        assert_eq! (stream_holder.stdout.get_string (), String::new ());
+    }
+
+    #[test]
+    fn inspect_complains_if_interfaces_have_different_gateway_values() {
+        let mut stream_holder = FakeStreamHolder::new ();
+        let one_interface = RegKeyMock::new ()
+            .get_value_result ("DefaultGateway", Ok(String::from("Gateway IP")))
+            .get_value_result ("DhcpDefaultGateway", Err (Error::from_raw_os_error(NOT_FOUND)))
+            .get_value_result ("NameServer", Ok (String::from ("8.8.8.8")));
+        let another_interface = RegKeyMock::new ()
+            .get_value_result ("DefaultGateway", Err (Error::from_raw_os_error(NOT_FOUND)))
+            .get_value_result ("DhcpDefaultGateway", Ok(String::from("DHCP Gateway IP")))
+            .get_value_result ("NameServer", Ok (String::from ("8.8.8.8")));
+        let last_interface = RegKeyMock::new ()
+            .get_value_result ("DefaultGateway", Err (Error::from_raw_os_error(NOT_FOUND)))
+            .get_value_result ("DhcpDefaultGateway", Ok(String::from("DHCP Gateway IP")))
+            .get_value_result ("NameServer", Ok (String::from ("8.8.8.8")));
+        let interfaces = RegKeyMock::new ()
+            .enum_keys_result (vec! (Ok ("one_interface"), Ok ("another_interface"), Ok ("last_interface")))
+            .open_subkey_with_flags_result(Ok (Box::new (one_interface)))
+            .open_subkey_with_flags_result(Ok (Box::new (another_interface)))
+            .open_subkey_with_flags_result (Ok (Box::new (last_interface)));
+        let hive = RegKeyMock::new ()
+            .open_subkey_with_flags_result(Ok (Box::new (interfaces)));
+        let mut subject = WinRegDnsModifier::new ();
+        subject.hive = Box::new (hive);
+
+        let result = subject.inspect (stream_holder.streams ().stdout);
+
+        assert_eq! (result.err ().unwrap (), String::from ("This system has 3 active network interfaces configured with 2 different default gateways. Cannot summarize DNS settings."));
+        assert_eq! (stream_holder.stdout.get_string (), String::new ());
+    }
+
+    #[test]
+    fn inspect_complains_if_interfaces_have_different_dns_server_lists () {
+        let mut stream_holder = FakeStreamHolder::new ();
+        let one_interface = RegKeyMock::new ()
+            .get_value_result ("DefaultGateway", Ok ("1.2.3.4".to_string ()))
+            .get_value_result ("DhcpDefaultGateway", Err (Error::from_raw_os_error(NOT_FOUND)))
+            .get_value_result ("NameServer", Ok (String::from ("2.3.4.5,6.7.8.9")))
+            .get_value_result ("DhcpNameServer", Err (Error::from_raw_os_error(NOT_FOUND)));
+        let another_interface = RegKeyMock::new ()
+            .get_value_result ("DefaultGateway", Ok ("1.2.3.4".to_string ()))
+            .get_value_result ("DhcpDefaultGateway", Err (Error::from_raw_os_error(NOT_FOUND)))
+            .get_value_result ("NameServer", Ok (String::from ("3.4.5.6,7.8.9.0")))
+            .get_value_result ("DhcpNameServer", Err (Error::from_raw_os_error(NOT_FOUND)));
+        let interfaces = RegKeyMock::new ()
+            .enum_keys_result (vec! (Ok ("one_interface"), Ok ("another_interface")))
+            .open_subkey_with_flags_result(Ok (Box::new (one_interface)))
+            .open_subkey_with_flags_result(Ok (Box::new (another_interface)));
+        let hive = RegKeyMock::new ()
+            .open_subkey_with_flags_result(Ok (Box::new (interfaces)));
+        let mut subject = WinRegDnsModifier::new ();
+        subject.hive = Box::new (hive);
+
+        let result = subject.inspect (stream_holder.streams ().stdout);
+
+        assert_eq! (result.err ().unwrap (), String::from ("This system has 2 active network interfaces configured with 2 different DNS server lists. Cannot summarize DNS settings."));
+        assert_eq! (stream_holder.stdout.get_string (), String::new ());
+    }
+
+    #[test]
+    fn inspect_works_if_everything_is_copasetic () {
+        let mut stream_holder = FakeStreamHolder::new ();
+        let one_active_interface = RegKeyMock::new ()
+            .get_value_result ("DefaultGateway", Ok(String::from("Common Gateway IP")))
+            .get_value_result ("DhcpDefaultGateway", Err (Error::from_raw_os_error(NOT_FOUND)))
+            .get_value_result ("NameServer", Ok (String::from ("8.8.8.8,8.8.8.9")))
+            .get_value_result ("DhcpNameServer", Ok (String::from ("goober")));
+        let another_active_interface = RegKeyMock::new ()
+            .get_value_result ("DefaultGateway", Err (Error::from_raw_os_error(NOT_FOUND)))
+            .get_value_result ("DhcpDefaultGateway", Ok(String::from("Common Gateway IP")))
+            .get_value_result ("NameServer", Ok (String::from ("8.8.8.8,8.8.8.9")))
+            .get_value_result ("DhcpNameServer", Ok (String::from ("ignored")));
+        let inactive_interface = RegKeyMock::new ()
+            .get_value_result ("DefaultGateway", Err (Error::from_raw_os_error(NOT_FOUND)))
+            .get_value_result ("DhcpDefaultGateway", Err (Error::from_raw_os_error(NOT_FOUND)));
+        let interfaces = RegKeyMock::new ()
+            .enum_keys_result (vec! (Ok ("one_active_interface"), Ok ("another_active_interface"), Ok ("inactive_interface")))
+            .open_subkey_with_flags_result(Ok (Box::new (one_active_interface)))
+            .open_subkey_with_flags_result(Ok (Box::new (another_active_interface)))
+            .open_subkey_with_flags_result(Ok (Box::new (inactive_interface)));
+        let hive = RegKeyMock::new ()
+            .open_subkey_with_flags_result(Ok (Box::new (interfaces)));
+        let mut subject = WinRegDnsModifier::new ();
+        subject.hive = Box::new (hive);
+
+        let result = subject.inspect (stream_holder.streams ().stdout);
+
+        assert_eq! (result, Ok (()));
+        assert_eq! (stream_holder.stdout.get_string (), String::from ("8.8.8.8\n8.8.8.9\n"));
     }
 }
