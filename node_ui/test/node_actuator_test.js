@@ -5,6 +5,7 @@
 const td = require('testdouble')
 const assert = require('assert')
 const {EventEmitter} = require('events')
+const util = require('./test_utilities')
 
 describe('NodeActuator', function () {
   let mockChildProcess
@@ -26,9 +27,9 @@ describe('NodeActuator', function () {
     mockConsole = td.replace('../wrappers/console_wrapper')
 
     mockNodeStatusLabel = { innerHTML: 'Off' }
-    mockNodeStatusButtonOff = createMockButton('button-active')
-    mockNodeStatusButtonServing = createMockButton()
-    mockNodeStatusButtonConsuming = createMockButton()
+    mockNodeStatusButtonOff = util.createMockUIElement('button-active')
+    mockNodeStatusButtonServing = util.createMockUIElement()
+    mockNodeStatusButtonConsuming = util.createMockUIElement()
 
     mockSubstratumNodeProcess = new EventEmitter()
     mockSubstratumNodeProcess.send = td.function()
@@ -694,28 +695,6 @@ describe('NodeActuator', function () {
       .thenCallback(error, stdout, stderr)
 
     mockNodeStatusButtonOff.onclick()
-  }
-
-  function createMockButton (defaultClass) {
-    let classListData = {}
-
-    let button = {
-      classList: {
-        add: function (x) {
-          classListData[x] = true
-        },
-        remove: function (x) {
-          classListData[x] = false
-        },
-        contains: function (x) {
-          return classListData[x]
-        }
-      }
-    }
-
-    if (defaultClass) classListData[defaultClass] = true
-
-    return button
   }
 
   function assertStatus (status) {

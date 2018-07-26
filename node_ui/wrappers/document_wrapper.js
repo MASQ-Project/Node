@@ -5,7 +5,12 @@ module.exports = (function () {
     return document.getElementById(id)
   }
 
+  function querySelectorAll (selectors) {
+    return document.querySelectorAll(selectors)
+  }
+
   return {
-    getElementById: getElementById
+    getElementById: getElementById,
+    querySelectorAll: querySelectorAll
   }
 }())

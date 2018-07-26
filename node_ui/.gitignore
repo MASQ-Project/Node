@@ -55,3 +55,6 @@ fabric.properties
 # Editor-based Rest Client
 .idea/httpRequests
 
+# SASS
+assets/styles/main.css
+

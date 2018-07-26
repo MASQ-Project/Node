@@ -5,7 +5,8 @@
 // All of the Node.js APIs are available in this process.
 
 module.exports = (function () {
-  const {ipcRenderer} = require('electron')
+  const {ipcRenderer, shell} = require('electron')
+  const settings = require('./settings')
   const documentWrapper = require('../wrappers/document_wrapper')
   const nodeActuator = require('./node_actuator')
 
@@ -13,10 +14,27 @@ module.exports = (function () {
   const nodeStatusButtonOff = documentWrapper.getElementById('off')
   const nodeStatusButtonServing = documentWrapper.getElementById('serving')
   const nodeStatusButtonConsuming = documentWrapper.getElementById('consuming')
+  const settingsButton = documentWrapper.getElementById('settings-button')
+  const settingsMenu = documentWrapper.getElementById('settings-menu')
+  const settingsQuitButton = documentWrapper.getElementById('settings-menu-quit')
+  const body = documentWrapper.getElementById('main')
 
   nodeActuator.bind(nodeStatusLabel, nodeStatusButtonOff, nodeStatusButtonServing, nodeStatusButtonConsuming)
+  settings.bind(body, settingsMenu, settingsButton, settingsQuitButton)
 
   ipcRenderer.on('kill-substratum-node', function () {
     nodeActuator.shutdown()
+  })
+
+  const links = documentWrapper.querySelectorAll('div[href]')
+
+  Array.prototype.forEach.call(links, (link) => {
+    const url = link.getAttribute('href')
+    if (url.indexOf('http') === 0) {
+      link.addEventListener('click', (e) => {
+        e.preventDefault()
+        shell.openExternal(url)
+      })
+    }
   })
 }())

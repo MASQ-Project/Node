@@ -45,14 +45,22 @@ describe('Application launch', function () {
     let client = this.app.client
     return client.waitUntilWindowLoaded()
       .then(function () {
-        let slider = client.element('div.node-status__actions')
-        assert.notEqual(slider, null)
+        return client.element('div.node-status__actions')
+      })
+      .then(function (slider) {
+        assert.notStrictEqual(slider.type, 'NoSuchElement')
       })
       .then(function () {
         return client.getText('div.node-status__actions button.button-active')
       })
       .then(function (activeButtonText) {
         assert.strictEqual(activeButtonText.toLocaleLowerCase(), 'off') // node is toggled off
+      })
+      .then(function () {
+        return client.element('.settings-menu--inactive')
+      })
+      .then(function (settingButton) {
+        assert.notStrictEqual(settingButton.type, 'NoSuchElement')
       })
   })
 

@@ -6,18 +6,16 @@
 		<title>SubstratumNode</title>
 		<link rel="stylesheet" href="assets/styles/main.css">
 	</head>
-	<body>
+	<body id="main">
 
 		<div class="app-header">
 			<img src="assets/images/substratum_icon.svg" height="35" width="35" />
-			<img src="assets/images/settings_icon.svg" height="17" width="17" class="app-header__settings-icon" />
+			<input type="image" src="assets/images/settings_icon.svg" height="17" width="17" id="settings-button" class="app-header__settings-icon" />
 		</div>
 
 		<div class="node-status">
 			<div class="node-status__display">
-				<span class="node-status__display-label">
-					Node Status:
-				</span>
+				<span class="node-status__display-label">Node Status:</span>
 				<span class="node-status__display-status" id="node-status-label">
 					Off
 				</span>
@@ -32,6 +30,15 @@
 
 		<div class="app-footer">
 			SubstratumNode v0.3.4 Beta
+		</div>
+
+		<div class="settings-menu settings-menu--inactive" id="settings-menu">
+			<div href="https://substratum.net/open-beta-survey/" class="settings-menu__external-link">Send Feedback / Report an Error</div>
+			<hr />
+			<div href="https://github.com/SubstratumNetwork/SubstratumNode" class="settings-menu__external-link">Help / Documentation</div>
+			<div href="https://substratum.net/wp-content/uploads/2018/05/Beta_Terms.pdf" class="settings-menu__external-link">End User Terms &amp; Services</div>
+			<hr />
+			<div id="settings-menu-quit">Quit</div>
 		</div>
 		
 		<script>
