@@ -266,9 +266,9 @@ mod tests {
     use sub_lib::route::Route;
     use sub_lib::route::RouteSegment;
     use test_utils::test_utils::PayloadMock;
-    use test_utils::test_utils::Recorder;
+    use test_utils::recorder::Recorder;
     use test_utils::test_utils::cryptde;
-    use test_utils::test_utils::make_peer_actors_from;
+    use test_utils::recorder::make_peer_actors_from;
     use test_utils::test_utils::route_to_proxy_client;
     use test_utils::test_utils::route_to_proxy_server;
     use test_utils::test_utils::make_meaningless_route;

@@ -84,9 +84,9 @@ mod tests {
     use node_test_utils::make_stream_handler_pool_subs_from;
     use node_test_utils::WriteHalfWrapperMock;
     use node_test_utils::ReceiverWrapperMock;
-    use test_utils::test_utils::make_recorder;
-    use test_utils::test_utils::RecordAwaiter;
-    use test_utils::test_utils::Recording;
+    use test_utils::recorder::make_recorder;
+    use test_utils::recorder::RecordAwaiter;
+    use test_utils::recorder::Recording;
     use std::io::ErrorKind;
     use test_utils::test_utils::init_test_logging;
     use test_utils::test_utils::TestLogHandler;

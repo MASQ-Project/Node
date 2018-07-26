@@ -108,8 +108,8 @@ mod tests {
     use actix::msgs;
     use actix::System;
     use sub_lib::dispatcher::Endpoint;
-    use test_utils::test_utils::Recorder;
-    use test_utils::test_utils::make_peer_actors_from;
+    use test_utils::recorder::Recorder;
+    use test_utils::recorder::make_peer_actors_from;
     use node_test_utils::make_stream_handler_pool_subs_from;
     use actix::Addr;
 

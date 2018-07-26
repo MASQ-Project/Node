@@ -14,3 +14,4 @@ extern crate lazy_static;
 
 #[macro_use]
 pub mod test_utils;
+pub mod recorder;

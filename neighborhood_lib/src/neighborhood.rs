@@ -307,8 +307,8 @@ mod tests {
     use neighborhood_test_utils::make_node_record;
     use gossip::GossipBuilder;
     use std::thread;
-    use test_utils::test_utils::Recorder;
-    use test_utils::test_utils::make_peer_actors_from;
+    use test_utils::recorder::Recorder;
+    use test_utils::recorder::make_peer_actors_from;
     use test_utils::test_utils::make_meaningless_route;
     use sub_lib::cryptde::PlainData;
     use sub_lib::cryptde_null::CryptDENull;

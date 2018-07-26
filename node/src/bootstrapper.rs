@@ -244,9 +244,9 @@ mod tests {
     use sub_lib::cryptde::PlainData;
     use sub_lib::logger;
     use test_utils::test_utils::FakeStreamHolder;
-    use test_utils::test_utils::RecordAwaiter;
-    use test_utils::test_utils::Recorder;
-    use test_utils::test_utils::Recording;
+    use test_utils::recorder::RecordAwaiter;
+    use test_utils::recorder::Recorder;
+    use test_utils::recorder::Recording;
     use test_utils::test_utils::TestLog;
     use test_utils::test_utils::TestLogHandler;
     use test_utils::test_utils::init_test_logging;

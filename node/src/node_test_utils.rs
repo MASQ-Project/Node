@@ -23,7 +23,7 @@ use sub_lib::tokio_wrappers::WriteHalfWrapper;
 use sub_lib::framer::Framer;
 use sub_lib::framer::FramedChunk;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
-use test_utils::test_utils::Recorder;
+use test_utils::recorder::Recorder;
 use test_utils::test_utils::TestLog;
 use discriminator::Discriminator;
 use discriminator::DiscriminatorFactory;

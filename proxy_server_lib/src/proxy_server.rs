@@ -161,8 +161,8 @@ mod tests {
     use sub_lib::proxy_client::ClientResponsePayload;
     use sub_lib::proxy_server::ClientRequestPayload;
     use sub_lib::proxy_server::ProxyProtocol;
-    use test_utils::test_utils::make_peer_actors_from;
-    use test_utils::test_utils::Recorder;
+    use test_utils::recorder::make_peer_actors_from;
+    use test_utils::recorder::Recorder;
     use test_utils::test_utils::cryptde;
     use test_utils::test_utils::zero_hop_route;
     use test_utils::test_utils::route_to_proxy_server;

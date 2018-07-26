@@ -31,7 +31,7 @@ pub struct BindMessage {
 #[cfg (test)]
 mod tests {
     use actix::System;
-    use test_utils::test_utils::make_peer_actors;
+    use test_utils::recorder::make_peer_actors;
 
     #[test]
     fn peer_actors_debug () {

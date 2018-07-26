@@ -145,8 +145,8 @@ impl ActorFactory for ActorFactoryReal {
 #[cfg (test)]
 mod tests {
     use super::*;
-    use test_utils::test_utils::Recorder;
-    use test_utils::test_utils::Recording;
+    use test_utils::recorder::Recorder;
+    use test_utils::recorder::Recording;
     use std::sync::Mutex;
     use std::sync::Arc;
     use std::net::IpAddr;

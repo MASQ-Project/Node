@@ -36,7 +36,7 @@ mod tests {
     use super::*;
     use actix::System;
     use node_test_utils::make_stream_handler_pool_subs_from;
-    use test_utils::test_utils::make_peer_actors;
+    use test_utils::recorder::make_peer_actors;
 
     #[test]
     fn pool_bind_message_is_debug () {

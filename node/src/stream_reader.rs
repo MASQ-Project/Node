@@ -144,12 +144,12 @@ mod tests {
     use masquerader::Masquerader;
     use node_test_utils::make_stream_handler_pool_subs_from;
     use node_test_utils::ReadHalfWrapperMock;
-    use test_utils::test_utils::Recorder;
+    use test_utils::recorder::Recorder;
     use test_utils::test_utils::init_test_logging;
-    use test_utils::test_utils::make_dispatcher_subs_from;
-    use test_utils::test_utils::make_recorder;
-    use test_utils::test_utils::RecordAwaiter;
-    use test_utils::test_utils::Recording;
+    use test_utils::recorder::make_dispatcher_subs_from;
+    use test_utils::recorder::make_recorder;
+    use test_utils::recorder::RecordAwaiter;
+    use test_utils::recorder::Recording;
     use test_utils::test_utils::TestLogHandler;
     use json_discriminator_factory::JsonDiscriminatorFactory;
     use json_masquerader::JsonMasquerader;

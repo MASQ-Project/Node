@@ -145,7 +145,8 @@ mod tests {
     use sub_lib::http_packet_framer::HttpPacketFramer;
     use sub_lib::http_response_start_finder::HttpResponseStartFinder;
     use test_utils::test_utils;
-    use test_utils::test_utils::Recorder;
+    use test_utils::recorder;
+    use test_utils::recorder::Recorder;
     use test_utils::test_utils::init_test_logging;
     use test_utils::test_utils::TestLogHandler;
     use local_test_utils::TcpStreamWrapperMock;
@@ -181,7 +182,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("test");
             let hopper_sub =
-                test_utils::make_peer_actors_from(None, None, Some(hopper), None, None)
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None)
                     .hopper.from_hopper_client;
             let (stream_killer, _) = mpsc::channel::<StreamKey>();
             let mut subject = StreamReader {
@@ -268,7 +269,7 @@ mod tests {
 
         thread::spawn(move || {
             let system = System::new("test");
-            let hopper_sub = test_utils::make_peer_actors_from(None, None, Some(hopper), None, None).hopper.from_hopper_client;
+            let hopper_sub = recorder::make_peer_actors_from(None, None, Some(hopper), None, None).hopper.from_hopper_client;
             let mut subject = StreamReader {
                 stream_key,
                 hopper_sub,
@@ -326,7 +327,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("test");
             let hopper_sub =
-                test_utils::make_peer_actors_from(None, None, Some(hopper), None, None)
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None)
                     .hopper.from_hopper_client;
             let (stream_killer, _) = mpsc::channel::<StreamKey>();
             let mut subject = StreamReader {
@@ -412,7 +413,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("receiving_0_bytes_sends_empty_cores_response_and_kills_stream");
             let hopper_sub =
-                test_utils::make_peer_actors_from(None, None, Some(hopper), None, None)
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None)
                     .hopper.from_hopper_client;
             let mut subject = StreamReader {
                 stream_key,
@@ -471,7 +472,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("receiving_0_bytes_sends_empty_cores_response_and_kills_stream");
             let hopper_sub =
-                test_utils::make_peer_actors_from(None, None, Some(hopper), None, None)
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None)
                     .hopper.from_hopper_client;
             let mut subject = StreamReader {
                 stream_key,

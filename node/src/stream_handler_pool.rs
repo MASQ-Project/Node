@@ -214,9 +214,9 @@ mod tests {
     use node_test_utils::SenderWrapperMock;
     use node_test_utils::WriteHalfWrapperMock;
     use test_utils::test_utils::init_test_logging;
-    use test_utils::test_utils::make_peer_actors;
-    use test_utils::test_utils::make_peer_actors_from;
-    use test_utils::test_utils::Recorder;
+    use test_utils::recorder::make_peer_actors;
+    use test_utils::recorder::make_peer_actors_from;
+    use test_utils::recorder::Recorder;
     use test_utils::test_utils::TestLogHandler;
     use tokio::prelude::Async;
     use std::thread;

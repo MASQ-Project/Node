@@ -130,9 +130,9 @@ mod tests {
     use sub_lib::proxy_server::ProxyProtocol;
     use test_utils::test_utils;
     use test_utils::test_utils::cryptde;
-    use test_utils::test_utils::make_peer_actors;
-    use test_utils::test_utils::make_peer_actors_from;
-    use test_utils::test_utils::Recorder;
+    use test_utils::recorder::make_peer_actors;
+    use test_utils::recorder::make_peer_actors_from;
+    use test_utils::recorder::Recorder;
 
     fn dnss () -> Vec<SocketAddr> {
         vec! (SocketAddr::from_str ("8.8.8.8:53").unwrap ())
