@@ -17,6 +17,10 @@ use system_configuration::dynamic_store::SCDynamicStore;
 use system_configuration::dynamic_store::SCDynamicStoreBuilder;
 use std::io::Write;
 
+const PRIMARY_SERVICE: &str = "PrimaryService";
+const SERVER_ADDRESSES: &str = "ServerAddresses";
+const SERVER_ADDRESSES_BAK: &str = "ServerAddressesBak";
+
 pub struct DynamicStoreDnsModifier {
     store: Box<StoreWrapper>
 }
@@ -27,7 +31,7 @@ impl DnsModifier for DynamicStoreDnsModifier {
     }
 
     fn subvert(&self) -> Result<(), String> {
-        let (dns_base_path, dns_info) = self.get_dns_info()?;
+        let (dns_base_path, dns_info) = self.get_dns_info(true)?;
         let result = match self.subvert_contents (dns_info) {
             Err (e) => return Err (e),
             Ok (None) => return Ok (()),
@@ -37,7 +41,7 @@ impl DnsModifier for DynamicStoreDnsModifier {
     }
 
     fn revert(&self) -> Result<(), String> {
-        let (dns_base_path, dns_info) = self.get_dns_info()?;
+        let (dns_base_path, dns_info) = self.get_dns_info(true)?;
         let result = match self.revert_contents (dns_info) {
             Err (e) => return Err (e),
             Ok (None) => return Ok (()),
@@ -47,7 +51,14 @@ impl DnsModifier for DynamicStoreDnsModifier {
     }
 
     fn inspect(&self, stdout: &mut (Write + Send)) -> Result<(), String> {
-        unimplemented!()
+        let (_, dns_info) = self.get_dns_info(false)?;
+        let active_addresses = match dns_info.get (SERVER_ADDRESSES) {
+            None => return Err(String::from ("This system has no DNS settings")),
+            Some (sa) => sa,
+        };
+        let output = active_addresses.join("\n");
+        writeln! (stdout, "{}", output).expect ("write is broken");
+        Ok (())
     }
 }
 
@@ -58,35 +69,43 @@ impl DynamicStoreDnsModifier {
         }
     }
 
-    fn get_dns_info(&self) -> Result<(String, HashMap<String, Vec<String>>), String> {
+    fn get_dns_info(&self, for_write: bool) -> Result<(String, HashMap<String, Vec<String>>), String> {
         let ipv4_map = match self.store.get_dictionary_string_cfpl("State:/Network/Global/IPv4") {
             Some(m) => m,
-            None => return Err(String::from("Dynamic-Store path State:/Network/Global/IPv4 not found; DNS settings cannot be modified"))
+            None => return Err(DynamicStoreDnsModifier::process_msg("Dynamic-Store path State:/Network/Global/IPv4 not found", for_write))
         };
-        let primary_service_cfpl = match ipv4_map.get ("PrimaryService") {
+        let primary_service_cfpl = match ipv4_map.get (PRIMARY_SERVICE) {
             Some(ps) => ps,
-            None => return Err(String::from("Dynamic-Store path State:/Network/Global/IPv4/PrimaryService not found; DNS settings cannot be modified"))
+            None => return Err(DynamicStoreDnsModifier::process_msg("Dynamic-Store path State:/Network/Global/IPv4/PrimaryService not found", for_write))
         };
         let primary_service = match self.store.cfpl_to_string (&primary_service_cfpl) {
             Ok(s) => s,
-            Err(_) => return Err(String::from("Dynamic-Store path State:/Network/Global/IPv4/PrimaryService is not a string; DNS settings cannot be modified"))
+            Err(_) => return Err(DynamicStoreDnsModifier::process_msg("Dynamic-Store path State:/Network/Global/IPv4/PrimaryService is not a string", for_write))
         };
         let dns_base_path = format! ("State:/Network/Service/{}/DNS", primary_service);
         let dns_map = match self.store.get_dictionary_string_cfpl(&dns_base_path[..]) {
             Some(m) => m,
-            None => return Err(String::from("This system has no DNS settings to modify; aborting"))
+            None => return Err(DynamicStoreDnsModifier::process_msg("This system has no DNS settings", for_write))
         };
         let mut result: HashMap<String, Vec<String>> = HashMap::new ();
-        match self.get_server_addresses(&dns_map, &dns_base_path, "ServerAddresses") {
+        match self.get_server_addresses(&dns_map, &dns_base_path, &SERVER_ADDRESSES, for_write) {
             Err (e) => return Err (e),
             Ok (None) => (),
-            Ok (Some (sa)) => {result.insert (String::from ("ServerAddresses"), sa);},
+            Ok (Some (sa)) => {result.insert (String::from (SERVER_ADDRESSES), sa);},
         }
-        match self.get_server_addresses(&dns_map, &dns_base_path, "ServerAddressesBak") {
-            Ok (Some (sa)) => {result.insert (String::from ("ServerAddressesBak"), sa);},
+        match self.get_server_addresses(&dns_map, &dns_base_path, SERVER_ADDRESSES_BAK, for_write) {
+            Ok (Some (sa)) => {result.insert (String::from (SERVER_ADDRESSES_BAK), sa);},
             _ => (),
         }
         Ok ((dns_base_path, result))
+    }
+
+    fn process_msg (msg: &str, for_write: bool) -> String {
+        if for_write {
+            format! ("{}; DNS settings cannot be modified", msg)
+        } else {
+            msg.to_string ()
+        }
     }
 
     fn set_dns_info(&self, dns_base_path: String, dns_info: HashMap<String, Vec<String>>) -> Result<(), String> {
@@ -113,8 +132,8 @@ impl DynamicStoreDnsModifier {
             return Err (String::from ("This system's DNS settings don't make sense; aborting"))
         }
         let mut result = HashMap::new();
-        result.insert(String::from("ServerAddresses"), vec!(String::from("127.0.0.1")));
-        result.insert(String::from("ServerAddressesBak"), active_addresses.clone());
+        result.insert(String::from(SERVER_ADDRESSES), vec!(String::from("127.0.0.1")));
+        result.insert(String::from(SERVER_ADDRESSES_BAK), active_addresses.clone());
         Ok (Some (result))
     }
 
@@ -126,15 +145,15 @@ impl DynamicStoreDnsModifier {
         if first_address != "127.0.0.1" {
             return Ok (None)
         }
-        let backup_addresses = match contents.get ("ServerAddressesBak") {
+        let backup_addresses = match contents.get (SERVER_ADDRESSES_BAK) {
             None => return Err(String::from("This system has no backed-up DNS settings to restore; aborting")),
             Some(sa) => sa,
         };
-        Ok (Some (HashMap::from_iter (vec!((String::from("ServerAddresses"), backup_addresses.clone())))))
+        Ok (Some (HashMap::from_iter (vec!((String::from(SERVER_ADDRESSES), backup_addresses.clone())))))
     }
 
     fn get_active_addresses_and_first (&self, contents: &HashMap<String, Vec<String>>) -> Result<(Vec<String>, String), String> {
-        let active_addresses = match contents.get ("ServerAddresses") {
+        let active_addresses = match contents.get (SERVER_ADDRESSES) {
             None => return Err(String::from ("This system has no DNS settings to modify; aborting")),
             Some (sa) => sa,
         };
@@ -145,14 +164,14 @@ impl DynamicStoreDnsModifier {
         Ok ((active_addresses.clone (), first_address.clone ()))
     }
 
-    fn get_server_addresses(&self, dns_map: &HashMap<String, CFPropertyList>, dns_base_path: &String, dns_leaf: &str) -> Result<Option<Vec<String>>, String> {
+    fn get_server_addresses(&self, dns_map: &HashMap<String, CFPropertyList>, dns_base_path: &String, dns_leaf: &str, for_write: bool) -> Result<Option<Vec<String>>, String> {
         let server_addresses_cfpl = match dns_map.get(dns_leaf) {
             Some (sa) => sa,
             None => return Ok (None),
         };
         let server_address_cfpls = match self.store.cfpl_to_vec(&server_addresses_cfpl) {
             Ok(sa) => sa,
-            Err(_) => return Err(format!("Dynamic-Store path {}/{} is not an array; DNS settings cannot be modified", dns_base_path, dns_leaf))
+            Err(_) => return Err(DynamicStoreDnsModifier::process_msg(format!("Dynamic-Store path {}/{} is not an array", dns_base_path, dns_leaf).as_str(), for_write))
         };
         if server_address_cfpls.is_empty() {
             return Ok (Some (vec! ()))
@@ -164,7 +183,7 @@ impl DynamicStoreDnsModifier {
             }
         }).collect();
         if server_address_opts.contains(&None) {
-            return Err(format!("Dynamic-Store path {}/{} is not an array of strings; DNS settings cannot be modified", dns_base_path, dns_leaf))
+            return Err(DynamicStoreDnsModifier::process_msg(format!("Dynamic-Store path {}/{} is not an array of strings", dns_base_path, dns_leaf).as_str(), for_write))
         }
         Ok(Some (server_address_opts.into_iter().map(|opt| opt.expect("Internal error")).collect()))
     }
@@ -268,6 +287,7 @@ mod tests {
     use core_foundation::boolean::CFBoolean;
     use core_foundation::string::CFString;
     use utils::get_parameters_from;
+    use test_utils::test_utils::FakeStreamHolder;
 
     struct StoreWrapperMock {
         get_dictionary_string_cfpl_parameters: Arc<Mutex<Vec<String>>>,
@@ -420,7 +440,7 @@ mod tests {
     #[test]
     fn subvert_complains_if_dns_path_does_not_exist () {
         let mut ipv4_map: HashMap<String, CFPropertyList> = HashMap::new ();
-        ipv4_map.insert (String::from ("PrimaryService"), CFString::new ("booga").to_CFPropertyList());
+        ipv4_map.insert (String::from (PRIMARY_SERVICE), CFString::new ("booga").to_CFPropertyList());
         let store = StoreWrapperMock::new ()
             .get_dictionary_string_cfpl_result (Some (ipv4_map))
             .cfpl_to_string_result (Ok (String::from ("booga")))
@@ -430,13 +450,13 @@ mod tests {
 
         let result = subject.subvert ();
 
-        assert_eq! (result, Err (String::from ("This system has no DNS settings to modify; aborting")));
+        assert_eq! (result, Err (String::from ("This system has no DNS settings; DNS settings cannot be modified")));
     }
 
     #[test]
     fn subvert_complains_if_dns_path_has_no_server_addresses () {
         let mut ipv4_map: HashMap<String, CFPropertyList> = HashMap::new ();
-        ipv4_map.insert (String::from ("PrimaryService"), CFString::new ("booga").to_CFPropertyList());
+        ipv4_map.insert (String::from (PRIMARY_SERVICE), CFString::new ("booga").to_CFPropertyList());
         let server_addresses_map: HashMap<String, CFPropertyList> = HashMap::new ();
         let store = StoreWrapperMock::new ()
             .get_dictionary_string_cfpl_result (Some (ipv4_map))
@@ -453,10 +473,10 @@ mod tests {
     #[test]
     fn subvert_complains_if_dns_settings_are_not_in_an_array () {
         let mut ipv4_map: HashMap<String, CFPropertyList> = HashMap::new ();
-        ipv4_map.insert (String::from ("PrimaryService"), CFString::new ("booga").to_CFPropertyList());
+        ipv4_map.insert (String::from (PRIMARY_SERVICE), CFString::new ("booga").to_CFPropertyList());
         let mut server_addresses_map: HashMap<String, CFPropertyList> = HashMap::new ();
         let bad_cfpl = CFBoolean::from (true).to_CFPropertyList();
-        server_addresses_map.insert (String::from ("ServerAddresses"), bad_cfpl.clone ());
+        server_addresses_map.insert (String::from (SERVER_ADDRESSES), bad_cfpl.clone ());
         let store = StoreWrapperMock::new ()
             .get_dictionary_string_cfpl_result (Some (ipv4_map))
             .cfpl_to_string_result (Ok (String::from ("booga")))
@@ -473,11 +493,11 @@ mod tests {
     #[test]
     fn subvert_complains_if_dns_settings_are_empty () {
         let mut ipv4_map: HashMap<String, CFPropertyList> = HashMap::new ();
-        ipv4_map.insert (String::from ("PrimaryService"), CFString::new ("booga").to_CFPropertyList());
+        ipv4_map.insert (String::from (PRIMARY_SERVICE), CFString::new ("booga").to_CFPropertyList());
         let mut server_addresses_map: HashMap<String, CFPropertyList> = HashMap::new ();
         let server_addresses: &[CFString; 0] = &[];
         let server_addresses_cfpl = CFArray::from_CFTypes (server_addresses).to_untyped().to_CFPropertyList();
-        server_addresses_map.insert (String::from ("ServerAddresses"), server_addresses_cfpl.clone ());
+        server_addresses_map.insert (String::from (SERVER_ADDRESSES), server_addresses_cfpl.clone ());
         let store = StoreWrapperMock::new ()
             .get_dictionary_string_cfpl_result (Some (ipv4_map))
             .cfpl_to_string_result (Ok (String::from ("booga")))
@@ -494,13 +514,13 @@ mod tests {
     #[test]
     fn subvert_complains_if_dns_settings_are_not_an_array_of_strings () {
         let mut ipv4_map: HashMap<String, CFPropertyList> = HashMap::new ();
-        ipv4_map.insert (String::from ("PrimaryService"), CFString::new ("booga").to_CFPropertyList());
+        ipv4_map.insert (String::from (PRIMARY_SERVICE), CFString::new ("booga").to_CFPropertyList());
         let mut server_addresses_map: HashMap<String, CFPropertyList> = HashMap::new ();
         let bad_server_addresses = &[
             CFBoolean::from (true),
         ];
         let server_addresses_cfpl = CFArray::from_CFTypes (bad_server_addresses).to_untyped().to_CFPropertyList();
-        server_addresses_map.insert (String::from ("ServerAddresses"), server_addresses_cfpl.clone ());
+        server_addresses_map.insert (String::from (SERVER_ADDRESSES), server_addresses_cfpl.clone ());
         let store = StoreWrapperMock::new ()
             .get_dictionary_string_cfpl_result (Some (ipv4_map))
             .cfpl_to_string_result (Ok (String::from ("booga")))
@@ -518,14 +538,14 @@ mod tests {
     #[test]
     fn subvert_complains_if_settings_dont_make_sense () {
         let mut ipv4_map: HashMap<String, CFPropertyList> = HashMap::new ();
-        ipv4_map.insert (String::from ("PrimaryService"), CFString::new ("booga").to_CFPropertyList());
+        ipv4_map.insert (String::from (PRIMARY_SERVICE), CFString::new ("booga").to_CFPropertyList());
         let mut server_addresses_map: HashMap<String, CFPropertyList> = HashMap::new ();
         let server_addresses = &[
             CFString::from_static_string ("8.8.8.8"),
             CFString::from_static_string ("127.0.0.1"),
         ];
         let server_addresses_cfpl = CFArray::from_CFTypes (server_addresses).to_untyped().to_CFPropertyList();
-        server_addresses_map.insert (String::from ("ServerAddresses"), server_addresses_cfpl.clone ());
+        server_addresses_map.insert (String::from (SERVER_ADDRESSES), server_addresses_cfpl.clone ());
         let store = StoreWrapperMock::new ()
             .get_dictionary_string_cfpl_result (Some (ipv4_map))
             .cfpl_to_string_result (Ok (String::from ("booga")))
@@ -547,14 +567,14 @@ mod tests {
     #[test]
     fn subvert_backs_off_if_dns_is_already_subverted () {
         let mut ipv4_map: HashMap<String, CFPropertyList> = HashMap::new ();
-        ipv4_map.insert (String::from ("PrimaryService"), CFString::new ("booga").to_CFPropertyList());
+        ipv4_map.insert (String::from (PRIMARY_SERVICE), CFString::new ("booga").to_CFPropertyList());
         let mut server_addresses_map: HashMap<String, CFPropertyList> = HashMap::new ();
         let server_addresses = &[
             CFString::from_static_string ("127.0.0.1"),
             CFString::from_static_string ("8.8.8.8"),
         ];
         let server_addresses_cfpl = CFArray::from_CFTypes (server_addresses).to_untyped().to_CFPropertyList();
-        server_addresses_map.insert (String::from ("ServerAddresses"), server_addresses_cfpl.clone ());
+        server_addresses_map.insert (String::from (SERVER_ADDRESSES), server_addresses_cfpl.clone ());
         let store = StoreWrapperMock::new ()
             .get_dictionary_string_cfpl_result (Some (ipv4_map))
             .cfpl_to_string_result (Ok (String::from ("booga")))
@@ -577,14 +597,14 @@ mod tests {
     fn subvert_works_if_everything_is_copacetic () {
         let mut ipv4_map: HashMap<String, CFPropertyList> = HashMap::new ();
         let primary_service_cfpl = CFString::from_static_string ("booga").to_CFPropertyList();
-        ipv4_map.insert (String::from ("PrimaryService"), primary_service_cfpl);
+        ipv4_map.insert (String::from (PRIMARY_SERVICE), primary_service_cfpl);
         let mut server_addresses_map: HashMap<String, CFPropertyList> = HashMap::new ();
         let server_addresses = &[
             CFString::from_static_string ("1.2.3.4"),
             CFString::from_static_string ("5.6.7.8")
         ];
         let server_addresses_cfpl = CFArray::from_CFTypes (server_addresses).to_untyped().to_CFPropertyList();
-        server_addresses_map.insert (String::from ("ServerAddresses"), server_addresses_cfpl.clone ());
+        server_addresses_map.insert (String::from (SERVER_ADDRESSES), server_addresses_cfpl.clone ());
         let get_dictionary_string_cfpl_parameters: Arc<Mutex<Vec<String>>> = Arc::new (Mutex::new (vec! ()));
         let set_dictionary_string_cfpl_parameters_arc = Arc::new (Mutex::new (vec! ()));
         let cfpl_to_string_parameters = Arc::new (Mutex::new (vec! ()));
@@ -626,22 +646,22 @@ mod tests {
         let set_dictionary_string_cfpl_parameters = get_parameters_from (set_dictionary_string_cfpl_parameters_arc);
         let &(ref path, ref actual_dnss) = set_dictionary_string_cfpl_parameters.first ().expect ("Method not called");
         assert_eq! (*path, String::from ("State:/Network/Service/booga/DNS"));
-        compare_cfpls (actual_dnss.get ("ServerAddresses").unwrap (), &new_server_addresses.to_untyped ().to_CFPropertyList());
-        compare_cfpls (actual_dnss.get ("ServerAddressesBak").unwrap (), &new_backup_server_addresses.to_untyped ().to_CFPropertyList());
+        compare_cfpls (actual_dnss.get (SERVER_ADDRESSES).unwrap (), &new_server_addresses.to_untyped ().to_CFPropertyList());
+        compare_cfpls (actual_dnss.get (SERVER_ADDRESSES_BAK).unwrap (), &new_backup_server_addresses.to_untyped ().to_CFPropertyList());
     }
 
     #[test]
     fn subvert_complains_if_write_fails () {
         let mut ipv4_map: HashMap<String, CFPropertyList> = HashMap::new ();
         let primary_service_cfpl = CFString::from_static_string ("booga").to_CFPropertyList();
-        ipv4_map.insert (String::from ("PrimaryService"), primary_service_cfpl);
+        ipv4_map.insert (String::from (PRIMARY_SERVICE), primary_service_cfpl);
         let mut server_addresses_map: HashMap<String, CFPropertyList> = HashMap::new ();
         let server_addresses = &[
             CFString::from_static_string ("1.2.3.4"),
             CFString::from_static_string ("5.6.7.8")
         ];
         let server_addresses_cfpl = CFArray::from_CFTypes (server_addresses).to_untyped().to_CFPropertyList();
-        server_addresses_map.insert (String::from ("ServerAddresses"), server_addresses_cfpl.clone ());
+        server_addresses_map.insert (String::from (SERVER_ADDRESSES), server_addresses_cfpl.clone ());
         let store = StoreWrapperMock::new ()
             .get_dictionary_string_cfpl_result (Some (ipv4_map))
             .cfpl_to_string_result (Ok (String::from ("booga")))
@@ -663,9 +683,9 @@ mod tests {
     #[test]
     fn revert_complains_if_there_is_no_backup () {
         let mut ipv4_map: HashMap<String, CFPropertyList> = HashMap::new ();
-        ipv4_map.insert (String::from ("PrimaryService"), CFString::new ("booga").to_CFPropertyList());
+        ipv4_map.insert (String::from (PRIMARY_SERVICE), CFString::new ("booga").to_CFPropertyList());
         let dns_map: HashMap<String, CFPropertyList> = HashMap::from_iter (vec! (
-            (String::from ("ServerAddresses"), CFArray::from_CFTypes(&[CFString::from_static_string("127.0.0.1")]).to_untyped().to_CFPropertyList()),
+            (String::from (SERVER_ADDRESSES), CFArray::from_CFTypes(&[CFString::from_static_string("127.0.0.1")]).to_untyped().to_CFPropertyList()),
         ).into_iter ());
         let store = StoreWrapperMock::new ()
             .get_dictionary_string_cfpl_result (Some (ipv4_map))
@@ -686,9 +706,9 @@ mod tests {
     #[test]
     fn revert_backs_off_if_settings_are_already_reverted () {
         let mut ipv4_map: HashMap<String, CFPropertyList> = HashMap::new ();
-        ipv4_map.insert (String::from ("PrimaryService"), CFString::new ("booga").to_CFPropertyList());
+        ipv4_map.insert (String::from (PRIMARY_SERVICE), CFString::new ("booga").to_CFPropertyList());
         let dns_map: HashMap<String, CFPropertyList> = HashMap::from_iter (vec! (
-            (String::from ("ServerAddresses"), CFArray::from_CFTypes(&[CFString::from_static_string("1.2.3.4")]).to_untyped().to_CFPropertyList()),
+            (String::from (SERVER_ADDRESSES), CFArray::from_CFTypes(&[CFString::from_static_string("1.2.3.4")]).to_untyped().to_CFPropertyList()),
         ).into_iter ());
         let store = StoreWrapperMock::new ()
             .get_dictionary_string_cfpl_result (Some (ipv4_map))
@@ -710,7 +730,7 @@ mod tests {
     fn revert_works_if_everything_is_copacetic () {
         let mut ipv4_map: HashMap<String, CFPropertyList> = HashMap::new ();
         let primary_service_cfpl = CFString::from_static_string ("booga").to_CFPropertyList();
-        ipv4_map.insert (String::from ("PrimaryService"), primary_service_cfpl);
+        ipv4_map.insert (String::from (PRIMARY_SERVICE), primary_service_cfpl);
         let mut server_addresses_map: HashMap<String, CFPropertyList> = HashMap::new ();
         let active_addresses = &[
             CFString::from_static_string ("127.0.0.1"),
@@ -721,10 +741,10 @@ mod tests {
             CFString::from_static_string ("5.6.7.8")
         ];
         let backup_addresses_cfpl = CFArray::from_CFTypes (backup_addresses).to_untyped().to_CFPropertyList();
-        server_addresses_map.insert (String::from ("ServerAddresses"), active_addresses_cfpl.clone ());
-        server_addresses_map.insert (String::from ("ServerAddressesBak"), backup_addresses_cfpl.clone ());
+        server_addresses_map.insert (String::from (SERVER_ADDRESSES), active_addresses_cfpl.clone ());
+        server_addresses_map.insert (String::from (SERVER_ADDRESSES_BAK), backup_addresses_cfpl.clone ());
         let mut reverted_server_addresses_map: HashMap<String, CFPropertyList> = HashMap::new();
-        reverted_server_addresses_map.insert (String::from ("ServerAddresses"), backup_addresses_cfpl.clone ());
+        reverted_server_addresses_map.insert (String::from (SERVER_ADDRESSES), backup_addresses_cfpl.clone ());
         let set_dictionary_string_cfpl_parameters_arc = Arc::new (Mutex::new (vec! ((String::from("State:/Network/Service/booga/DNS"), reverted_server_addresses_map.clone()))));
         let store = StoreWrapperMock::new ()
             .get_dictionary_string_cfpl_result (Some (ipv4_map))
@@ -752,8 +772,179 @@ mod tests {
         let set_dictionary_string_cfpl_parameters = get_parameters_from (set_dictionary_string_cfpl_parameters_arc);
         let &(ref path, ref actual_dnss) = set_dictionary_string_cfpl_parameters.first ().expect ("Method not called");
         assert_eq! (*path, String::from ("State:/Network/Service/booga/DNS"));
-        assert!(!actual_dnss.contains_key("ServerAddressesBak"));
-        compare_cfpls (actual_dnss.get ("ServerAddresses").unwrap (), &new_server_addresses.to_untyped ().to_CFPropertyList());
+        assert!(!actual_dnss.contains_key(SERVER_ADDRESSES_BAK));
+        compare_cfpls (actual_dnss.get (SERVER_ADDRESSES).unwrap (), &new_server_addresses.to_untyped ().to_CFPropertyList());
+    }
+
+    #[test]
+    fn inspect_complains_if_root_path_doesnt_exist () {
+        let mut stream_holder = FakeStreamHolder::new ();
+        let store = StoreWrapperMock::new ()
+            .get_dictionary_string_cfpl_result (None);
+        let mut subject = DynamicStoreDnsModifier::new ();
+        subject.store = Box::new (store);
+
+        let result = subject.inspect (stream_holder.streams ().stdout);
+
+        assert_eq! (result, Err (String::from ("Dynamic-Store path State:/Network/Global/IPv4 not found")));
+        assert_eq! (stream_holder.stdout.get_string (), String::new ());
+    }
+
+    #[test]
+    fn inspect_complains_if_primary_service_doesnt_exist () {
+        let mut stream_holder = FakeStreamHolder::new ();
+        let ipv4_map: HashMap<String, CFPropertyList> = HashMap::new ();
+        let store = StoreWrapperMock::new ()
+            .get_dictionary_string_cfpl_result (Some (ipv4_map));
+        let mut subject = DynamicStoreDnsModifier::new ();
+        subject.store = Box::new (store);
+
+        let result = subject.inspect (stream_holder.streams ().stdout);
+
+        assert_eq! (result, Err (String::from ("Dynamic-Store path State:/Network/Global/IPv4/PrimaryService not found")));
+        assert_eq! (stream_holder.stdout.get_string (), String::new ());
+    }
+
+    #[test]
+    fn inspect_complains_if_primary_service_is_not_a_string () {
+        let mut stream_holder = FakeStreamHolder::new();
+        let mut ipv4_map: HashMap<String, CFPropertyList> = HashMap::new ();
+        ipv4_map.insert (String::from (PRIMARY_SERVICE), CFBoolean::true_value().to_CFPropertyList());
+        let store = StoreWrapperMock::new ()
+            .get_dictionary_string_cfpl_result (Some (ipv4_map))
+            .cfpl_to_string_result (Err (String::from ("not a string")));
+        let mut subject = DynamicStoreDnsModifier::new ();
+        subject.store = Box::new (store);
+
+        let result = subject.inspect (stream_holder.streams ().stdout);
+
+        assert_eq! (result, Err (String::from ("Dynamic-Store path State:/Network/Global/IPv4/PrimaryService is not a string")));
+        assert_eq! (stream_holder.stdout.get_string (), String::new ());
+    }
+
+    #[test]
+    fn inspect_complains_if_dns_path_does_not_exist () {
+        let mut stream_holder = FakeStreamHolder::new ();
+        let mut ipv4_map: HashMap<String, CFPropertyList> = HashMap::new ();
+        ipv4_map.insert (String::from (PRIMARY_SERVICE), CFString::new ("booga").to_CFPropertyList());
+        let store = StoreWrapperMock::new ()
+            .get_dictionary_string_cfpl_result (Some (ipv4_map))
+            .cfpl_to_string_result (Ok (String::from ("booga")))
+            .get_dictionary_string_cfpl_result (None);
+        let mut subject = DynamicStoreDnsModifier::new ();
+        subject.store = Box::new (store);
+
+        let result = subject.inspect (stream_holder.streams ().stdout);
+
+        assert_eq! (result, Err (String::from ("This system has no DNS settings")));
+        assert_eq! (stream_holder.stdout.get_string (), String::new ());
+    }
+
+    #[test]
+    fn inspect_complains_if_dns_path_has_no_server_addresses () {
+        let mut stream_holder = FakeStreamHolder::new ();
+        let mut ipv4_map: HashMap<String, CFPropertyList> = HashMap::new ();
+        ipv4_map.insert (String::from (PRIMARY_SERVICE), CFString::new ("booga").to_CFPropertyList());
+        let server_addresses_map: HashMap<String, CFPropertyList> = HashMap::new ();
+        let store = StoreWrapperMock::new ()
+            .get_dictionary_string_cfpl_result (Some (ipv4_map))
+            .cfpl_to_string_result (Ok (String::from ("booga")))
+            .get_dictionary_string_cfpl_result (Some (server_addresses_map));
+        let mut subject = DynamicStoreDnsModifier::new ();
+        subject.store = Box::new (store);
+
+        let result = subject.inspect (stream_holder.streams ().stdout);
+
+        assert_eq! (result, Err (String::from ("This system has no DNS settings")));
+        assert_eq! (stream_holder.stdout.get_string (), String::new ());
+    }
+
+    #[test]
+    fn inspect_complains_if_dns_settings_are_not_in_an_array () {
+        let mut stream_holder = FakeStreamHolder::new ();
+        let mut ipv4_map: HashMap<String, CFPropertyList> = HashMap::new ();
+        ipv4_map.insert (String::from (PRIMARY_SERVICE), CFString::new ("booga").to_CFPropertyList());
+        let mut server_addresses_map: HashMap<String, CFPropertyList> = HashMap::new ();
+        let bad_cfpl = CFBoolean::from (true).to_CFPropertyList();
+        server_addresses_map.insert (String::from (SERVER_ADDRESSES), bad_cfpl.clone ());
+        let store = StoreWrapperMock::new ()
+            .get_dictionary_string_cfpl_result (Some (ipv4_map))
+            .cfpl_to_string_result (Ok (String::from ("booga")))
+            .get_dictionary_string_cfpl_result (Some (server_addresses_map))
+            .cfpl_to_vec_result (Err (String::from ("boolean, not array")));
+        let mut subject = DynamicStoreDnsModifier::new ();
+        subject.store = Box::new (store);
+
+        let result = subject.inspect (stream_holder.streams ().stdout);
+
+        assert_eq! (result, Err (String::from ("Dynamic-Store path State:/Network/Service/booga/DNS/ServerAddresses is not an array")));
+        assert_eq! (stream_holder.stdout.get_string (), String::new ());
+    }
+
+    #[test]
+    fn inspect_complains_if_dns_settings_are_not_an_array_of_strings () {
+        let mut stream_holder = FakeStreamHolder::new ();
+        let mut ipv4_map: HashMap<String, CFPropertyList> = HashMap::new ();
+        ipv4_map.insert (String::from (PRIMARY_SERVICE), CFString::new ("booga").to_CFPropertyList());
+        let mut server_addresses_map: HashMap<String, CFPropertyList> = HashMap::new ();
+        let bad_server_addresses = &[
+            CFBoolean::from (true),
+        ];
+        let server_addresses_cfpl = CFArray::from_CFTypes (bad_server_addresses).to_untyped().to_CFPropertyList();
+        server_addresses_map.insert (String::from (SERVER_ADDRESSES), server_addresses_cfpl.clone ());
+        let store = StoreWrapperMock::new ()
+            .get_dictionary_string_cfpl_result (Some (ipv4_map))
+            .cfpl_to_string_result (Ok (String::from ("booga")))
+            .cfpl_to_string_result (Err (String::from ("Not a string")))
+            .get_dictionary_string_cfpl_result (Some (server_addresses_map))
+            .cfpl_to_vec_result (Ok(vec! (CFBoolean::from (true).to_CFPropertyList())));
+        let mut subject = DynamicStoreDnsModifier::new ();
+        subject.store = Box::new (store);
+
+        let result = subject.inspect (stream_holder.streams ().stdout);
+
+        assert_eq! (result, Err (String::from ("Dynamic-Store path State:/Network/Service/booga/DNS/ServerAddresses is not an array of strings")));
+        assert_eq! (stream_holder.stdout.get_string (), String::new ());
+    }
+
+    #[test]
+    fn inspect_works_if_everything_is_copacetic () {
+        let mut stream_holder = FakeStreamHolder::new ();
+        let mut ipv4_map: HashMap<String, CFPropertyList> = HashMap::new ();
+        let primary_service_cfpl = CFString::from_static_string ("booga").to_CFPropertyList();
+        ipv4_map.insert (String::from (PRIMARY_SERVICE), primary_service_cfpl);
+        let mut server_addresses_map: HashMap<String, CFPropertyList> = HashMap::new ();
+        let server_addresses = &[
+            CFString::from_static_string ("1.2.3.4"),
+            CFString::from_static_string ("5.6.7.8")
+        ];
+        let server_addresses_cfpl = CFArray::from_CFTypes (server_addresses).to_untyped().to_CFPropertyList();
+        server_addresses_map.insert (String::from (SERVER_ADDRESSES), server_addresses_cfpl.clone ());
+        let get_dictionary_string_cfpl_parameters: Arc<Mutex<Vec<String>>> = Arc::new (Mutex::new (vec! ()));
+        let set_dictionary_string_cfpl_parameters_arc = Arc::new (Mutex::new (vec! ()));
+        let cfpl_to_string_parameters = Arc::new (Mutex::new (vec! ()));
+        let cfpl_to_vec_parameters = Arc::new (Mutex::new (vec! ()));
+        let store = StoreWrapperMock::new ()
+            .get_dictionary_string_cfpl_parameters (&get_dictionary_string_cfpl_parameters)
+            .get_dictionary_string_cfpl_result (Some (ipv4_map))
+            .cfpl_to_string_parameters (&cfpl_to_string_parameters)
+            .cfpl_to_string_result (Ok (String::from ("booga")))
+            .cfpl_to_string_result (Ok (String::from ("1.2.3.4")))
+            .cfpl_to_string_result (Ok (String::from ("5.6.7.8")))
+            .get_dictionary_string_cfpl_result (Some (server_addresses_map))
+            .cfpl_to_vec_parameters (&cfpl_to_vec_parameters)
+            .cfpl_to_vec_result (Ok(vec! (
+                CFString::from_static_string ("1.2.3.4").to_CFPropertyList(), CFString::from_static_string ("5.6.7.8").to_CFPropertyList()
+            )))
+            .set_dictionary_string_cfpl_parameters (&set_dictionary_string_cfpl_parameters_arc)
+            .set_dictionary_string_cfpl_result(true);
+        let mut subject = DynamicStoreDnsModifier::new ();
+        subject.store = Box::new (store);
+
+        let result = subject.inspect (stream_holder.streams ().stdout);
+
+        assert_eq! (stream_holder.stdout.get_string (), String::from ("1.2.3.4\n5.6.7.8\n"));
+        assert_eq! (result.is_ok (), true);
     }
 
     fn compare_cfpls (a: &CFPropertyList, b: &CFPropertyList) {
