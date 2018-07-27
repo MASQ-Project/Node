@@ -11,6 +11,7 @@ use trust_dns_resolver::lookup_ip::LookupIp;
 use stream_handler_pool::StreamHandlerPoolReal;
 use stream_reader::StreamReader;
 use stream_writer::StreamWriter;
+use sub_lib::sequence_buffer::SequencedPacket;
 use sub_lib::cryptde::StreamKey;
 use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::hopper::IncipientCoresPackage;
@@ -38,7 +39,7 @@ impl StreamHandlerEstablisher {
         }
     }
 
-    pub fn after_resolution (&mut self, payload: &ClientRequestPayload, package: &ExpiredCoresPackage, lookup_result: Result<LookupIp, ResolveError>) -> io::Result<StreamWriter> {
+    pub fn after_resolution (&mut self, payload: &ClientRequestPayload, package: &ExpiredCoresPackage, lookup_result: Result<LookupIp, ResolveError>) -> io::Result<()> {
         let target_hostname = payload.target_hostname.clone ().expect ("Internal error: DNS resolution succeeded on missing hostname");
         let ip_addrs: Vec<IpAddr> = match lookup_result {
             Err (e) => {
@@ -49,10 +50,12 @@ impl StreamHandlerEstablisher {
         };
         self.logger.debug (format! ("Found IP addresses for {}: {:?}", target_hostname, &ip_addrs));
         let mut stored_write_stream = self.tcp_stream_wrapper_factory.make ();
+
         match StreamHandlerPoolReal::connect_stream (&mut stored_write_stream, ip_addrs, &target_hostname, payload.target_port, &self.logger) {
             Err (e) => return Err (e),
             Ok (()) => ()
-        }
+        };
+
         match stored_write_stream.set_read_timeout (None) {
             Err (e) => {
                 let target = match stored_write_stream.peer_addr () {
@@ -63,16 +66,20 @@ impl StreamHandlerEstablisher {
                 return Err (e)
             },
             Ok (()) => ()
-        }
+        };
+
         self.logger.debug (format! ("New stream set to block for reads"));
         match self.spawn_stream_reader (package, payload, &stored_write_stream) {
             Err (e) => return Err (e),
             Ok (_) => ()
-        }
-        let stream_writer = StreamWriter::new (stored_write_stream);
-        let returned_write_stream = stream_writer.clone ();
-        self.stream_adder_tx.send ((payload.stream_key, stream_writer)).expect("StreamHandlerPool died");
-        Ok (returned_write_stream)
+        };
+
+        let mut stream_writer = StreamWriter::new (stored_write_stream);
+
+        let write_result = stream_writer.write(SequencedPacket::from(payload));
+
+        self.stream_adder_tx.send ((payload.stream_key.clone(), stream_writer)).expect("StreamHandlerPool died");
+        write_result
     }
 
     fn spawn_stream_reader (&self, package: &ExpiredCoresPackage, payload: &ClientRequestPayload, write_stream: &Box<TcpStreamWrapper>) -> io::Result<()> {
@@ -92,6 +99,7 @@ impl StreamHandlerEstablisher {
             framer,
             payload.originator_public_key.clone (),
         );
+
         self.logger.debug (format! ("Spawning StreamReader for {}", peer_addr));
         thread::spawn(move || {
             stream_reader.run();

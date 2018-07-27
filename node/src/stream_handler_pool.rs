@@ -18,6 +18,7 @@ use sub_lib::dispatcher::DispatcherSubs;
 use sub_lib::dispatcher::Endpoint;
 use sub_lib::logger::Logger;
 use sub_lib::node_addr::NodeAddr;
+use sub_lib::sequence_buffer::SequencedPacket;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
 use sub_lib::tokio_wrappers::WriteHalfWrapper;
 use sub_lib::tokio_wrappers::ReadHalfWrapper;
@@ -164,7 +165,7 @@ impl Handler<TransmitDataMsg> for StreamHandlerPool {
         let mut to_remove = false;
         match self.stream_writers.get_mut (&socket_addr) {
             Some (tx_box) => {
-                match tx_box.unbounded_send (msg.data[..].to_vec()) {
+                match tx_box.unbounded_send (SequencedPacket::from(&msg)) {
                     Err(_) => to_remove = true,
                     Ok(_) => {
                         if msg.last_data {
@@ -348,7 +349,7 @@ mod tests {
         let sender_params = sender.unbounded_send_params.clone();
         let mut receiver = ReceiverWrapperMock::new();
         receiver.poll_results = vec!(
-            Ok(Async::Ready(Some(b"hello".to_vec()))),
+            Ok(Async::Ready(Some(SequencedPacket::new(b"hello".to_vec(), 0, false)))),
             Ok(Async::NotReady)
         );
         let channel_factory = FuturesChannelFactoryMock { results: vec!((Box::new(sender), Box::new(receiver)))};
@@ -373,6 +374,7 @@ mod tests {
             subject_subs.transmit_sub.try_send(TransmitDataMsg {
                 endpoint: Endpoint::Socket(socket_addr),
                 last_data: true,
+                sequence_number: Some(0),
                 data: b"hello".to_vec()
             }).unwrap();
 
@@ -383,7 +385,7 @@ mod tests {
 
         let mut shp_to_sw_params = sender_params.lock().unwrap();
         assert_eq!(shp_to_sw_params.len(), 1);
-        assert_eq!(shp_to_sw_params.remove(0), b"hello".to_vec());
+        assert_eq!(shp_to_sw_params.remove(0), SequencedPacket::new(b"hello".to_vec(), 0, true));
 
         let mut sw_to_stream_params = write_stream_params_arc.lock().unwrap();
         assert_eq!(sw_to_stream_params.len(), 2);
@@ -425,6 +427,7 @@ mod tests {
         subject_subs.transmit_sub.try_send(TransmitDataMsg {
             endpoint: Endpoint::Socket(socket_addr),
             last_data: true,
+            sequence_number: Some(0),
             data: vec!(0x12, 0x34)
         }).unwrap();
 
@@ -433,6 +436,7 @@ mod tests {
         subject_subs.transmit_sub.try_send(TransmitDataMsg {
             endpoint: Endpoint::Socket(socket_addr),
             last_data: true,
+            sequence_number: Some(0),
             data: vec!(0x56, 0x78)
         }).unwrap();
 
@@ -472,6 +476,7 @@ mod tests {
             subject_subs.transmit_sub.try_send(TransmitDataMsg {
                 endpoint: Endpoint::Socket(socket_addr),
                 last_data: true,
+                sequence_number: Some(0),
                 data: vec!(0x12, 0x34)
             }).unwrap();
 
@@ -515,6 +520,7 @@ mod tests {
         subject_subs.transmit_sub.try_send(TransmitDataMsg {
             endpoint: Endpoint::Socket(socket_addr),
             last_data: false,
+            sequence_number: Some(0),
             data: vec!(0x12, 0x34)
         }).unwrap ();
         tlh.await_log_containing ("ERROR: Dispatcher for V4(1.2.3.4:5679): Cannot transmit 2 bytes: broken pipe", 5000);
@@ -522,6 +528,7 @@ mod tests {
         subject_subs.transmit_sub.try_send(TransmitDataMsg {
             endpoint: Endpoint::Socket(socket_addr),
             last_data: false,
+            sequence_number: Some(0),
             data: vec!(0x12, 0x34)
         }).unwrap ();
         tlh.await_log_containing ("ERROR: Dispatcher: Cannot transmit 2 bytes to V4(1.2.3.4:5679): nonexistent stream", 5000);
@@ -545,6 +552,7 @@ mod tests {
             subject_subs.transmit_sub.try_send(TransmitDataMsg {
                 endpoint: Endpoint::Socket(socket_addr),
                 last_data: false,
+                sequence_number: Some(0),
                 data: vec!(0x12, 0x34)
             }).unwrap ();
 

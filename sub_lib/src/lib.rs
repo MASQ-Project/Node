@@ -20,7 +20,6 @@ extern crate test_utils;
 extern crate daemonize;
 
 pub mod channel_wrappers;
-pub mod cores_package;
 pub mod cryptde;
 pub mod cryptde_null;
 pub mod dispatcher;
@@ -40,6 +39,7 @@ pub mod peer_actors;
 pub mod proxy_client;
 pub mod proxy_server;
 pub mod route;
+pub mod sequence_buffer;
 pub mod sequencer;
 pub mod socket_server;
 pub mod stream_handler_pool;

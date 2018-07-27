@@ -33,11 +33,18 @@ impl ClientRequestPayloadFactory {
             None => {logger.error (format! ("No protocol associated with origin port {} for {}-byte packet: {:?}", origin_port, plain_data.data.len (), &plain_data.data)); return None},
             Some (protocol_pack) => protocol_pack
         };
+        let sequence_number = match ibcd.sequence_number {
+            Some(sequence_number) => sequence_number,
+            None => {
+                logger.error(format!("internal error: got IBCD with no sequence number and {} bytes", ibcd.data.len()));
+                return None;
+            }
+        };
         let host_name = protocol_pack.find_host_name (&plain_data);
         Some (ClientRequestPayload {
             stream_key: ibcd.socket_addr,
             last_data: ibcd.last_data,
-            sequence_number: 0,
+            sequence_number,
             data: plain_data,
             target_hostname: host_name,
             target_port: origin_port,
@@ -63,7 +70,7 @@ mod tests {
         let ibcd = InboundClientData {
             socket_addr: SocketAddr::from_str ("1.2.3.4:5678").unwrap (),
             origin_port: Some (80),
-            sequence_number: Some(0),
+            sequence_number: Some(1),
             last_data: false,
             data: data.data.clone (),
         };
@@ -75,7 +82,7 @@ mod tests {
 
         assert_eq! (result, Some (ClientRequestPayload {
             stream_key: SocketAddr::from_str ("1.2.3.4:5678").unwrap(),
-            sequence_number: 0,
+            sequence_number: 1,
             last_data: false,
             data,
             target_hostname: Some (String::from ("borkoed.com")),
@@ -214,7 +221,7 @@ mod tests {
         let ibcd = InboundClientData {
             socket_addr: SocketAddr::from_str ("1.2.3.4:80").unwrap (),
             origin_port: Some (80),
-            sequence_number: Some(0),
+            sequence_number: Some(1),
             last_data: false,
             data: vec!(0x10, 0x11, 0x12),
         };
@@ -225,6 +232,28 @@ mod tests {
 
         let result = subject.make(&ibcd, &cryptde, &logger).unwrap();
 
-        assert_eq!(result.sequence_number, 0);
+        assert_eq!(result.sequence_number, 1);
+    }
+
+    #[test]
+    fn makes_no_payload_if_sequence_number_is_unknown() {
+        init_test_logging();
+        let ibcd = InboundClientData {
+            socket_addr: SocketAddr::from_str("1.2.3.4:80").unwrap(),
+            origin_port: Some(80),
+            last_data: false,
+            sequence_number: None,
+            data: vec!(1, 3, 5, 7),
+        };
+        let cryptde = CryptDENull::new ();
+        let logger = Logger::new ("test");
+
+        let subject = ClientRequestPayloadFactory::new();
+
+        let result = subject.make(&ibcd, &cryptde, &logger);
+
+        assert_eq!(result, None);
+
+        TestLogHandler::new().exists_log_containing("ERROR: test: internal error: got IBCD with no sequence number and 4 bytes");
     }
 }

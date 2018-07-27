@@ -5,5 +5,6 @@ use dispatcher::Endpoint;
 pub struct TransmitDataMsg {
     pub endpoint: Endpoint,
     pub last_data: bool,
-    pub data: Vec<u8>
+    pub sequence_number: Option<u64>,
+    pub data: Vec<u8>,
 }

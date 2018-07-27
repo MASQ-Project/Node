@@ -95,6 +95,16 @@ impl TcpStreamWrapper for TcpStreamWrapperMock {
         self.results.lock ().unwrap ().connect_results.remove (0)
     }
 
+    fn peer_addr(&self) -> io::Result<SocketAddr> {
+        let guts = self.results.lock ().unwrap ();
+        match &guts.peer_addr_result {
+            &Ok (ref x) => Ok (x.clone ()),
+            &Err (ref e) => Err (io::Error::from (e.kind ()))
+        }
+    }
+
+    fn local_addr(&self) -> io::Result<SocketAddr> { unimplemented!() }
+
     fn shutdown(&self, how: Shutdown) -> io::Result<()> {
         self.shutdown_parameters.lock ().unwrap ().push (how);
         self.results.lock ().unwrap ().shutdown_results.remove (0)
@@ -105,25 +115,6 @@ impl TcpStreamWrapper for TcpStreamWrapperMock {
         self.results.lock ().unwrap ().set_read_timeout_results.remove (0)
     }
 
-    fn try_clone(&self) -> io::Result<Box<TcpStreamWrapper>> {
-        if self.mocked_try_clone {
-            let mut guts = self.results.lock().unwrap();
-            guts.try_clone_results.remove(0)
-        }
-        else {
-            Ok (Box::new (self.clone ()))
-        }
-    }
-
-    fn peer_addr(&self) -> io::Result<SocketAddr> {
-        let guts = self.results.lock ().unwrap ();
-        match &guts.peer_addr_result {
-            &Ok (ref x) => Ok (x.clone ()),
-            &Err (ref e) => Err (io::Error::from (e.kind ()))
-        }
-    }
-
-    fn local_addr(&self) -> io::Result<SocketAddr> { unimplemented!() }
     fn set_write_timeout(&self, _dur: Option<Duration>) -> io::Result<()> { unimplemented!() }
     fn read_timeout(&self) -> io::Result<Option<Duration>> { unimplemented!() }
     fn write_timeout(&self) -> io::Result<Option<Duration>> { unimplemented!() }
@@ -134,6 +125,15 @@ impl TcpStreamWrapper for TcpStreamWrapperMock {
     fn ttl(&self) -> io::Result<u32> { unimplemented!() }
     fn take_error(&self) -> io::Result<Option<io::Error>> { unimplemented!() }
     fn set_nonblocking(&self, _nonblocking: bool) -> io::Result<()> { unimplemented!() }
+    fn try_clone(&self) -> io::Result<Box<TcpStreamWrapper>> {
+        if self.mocked_try_clone {
+            let mut guts = self.results.lock().unwrap();
+            guts.try_clone_results.remove(0)
+        }
+        else {
+            Ok (Box::new (self.clone ()))
+        }
+    }
 }
 
 impl Read for TcpStreamWrapperMock {
@@ -184,6 +184,10 @@ impl TcpStreamWrapperMock {
                 set_read_timeout_results: vec!(),
             }))
         }
+    }
+
+    pub fn get_write_parameters (&self) -> Arc<Mutex<Vec<Vec<u8>>>> {
+        self.write_parameters.clone()
     }
 
     pub fn connect_result (self, result: io::Result<()>) -> TcpStreamWrapperMock {

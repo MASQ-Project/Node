@@ -88,6 +88,7 @@ impl Handler<ExpiredCoresPackage> for ProxyServer {
                     .try_send(TransmitDataMsg {
                         endpoint: Endpoint::Socket(payload.stream_key),
                         last_data: payload.last_response,
+                        sequence_number: Some(payload.sequence_number),
                         data: payload.data.data.clone()
                     }).expect ("Dispatcher is dead");
                 ()

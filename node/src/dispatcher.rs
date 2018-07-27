@@ -192,6 +192,7 @@ mod tests {
         let obcd = TransmitDataMsg {
             endpoint: Endpoint::Socket(socket_addr),
             last_data: false,
+            sequence_number: Some(0),
             data: data.clone ()
         };
 
@@ -235,6 +236,7 @@ mod tests {
         let obcd = TransmitDataMsg {
             endpoint: Endpoint::Socket(socket_addr),
             last_data: false,
+            sequence_number: Some(0),
             data: data.clone ()
         };
         let mut peer_actors = make_peer_actors_from(None, None, None, None, None);

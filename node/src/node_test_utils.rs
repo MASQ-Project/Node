@@ -33,6 +33,7 @@ use masquerader::MasqueradeError;
 use null_masquerader::NullMasquerader;
 use stream_messages::*;
 use stream_handler_pool::StreamHandlerPoolSubs;
+use sub_lib::sequence_buffer::SequencedPacket;
 
 pub trait TestLogOwner {
     fn get_test_log (&self) -> Arc<Mutex<TestLog>>;
@@ -68,11 +69,11 @@ impl WriteHalfWrapper for WriteHalfWrapperMock {
 }
 
 pub struct ReceiverWrapperMock {
-    pub poll_results: Vec<Result<Async<Option<Vec<u8>>>, ()>>
+    pub poll_results: Vec<Result<Async<Option<SequencedPacket>>, ()>>
 }
 
 impl ReceiverWrapper for ReceiverWrapperMock {
-    fn poll(&mut self) -> Result<Async<Option<Vec<u8>>>, ()> {
+    fn poll(&mut self) -> Result<Async<Option<SequencedPacket>>, ()> {
         self.poll_results.remove(0)
     }
 }
@@ -86,12 +87,12 @@ impl ReceiverWrapperMock {
 }
 
 pub struct SenderWrapperMock {
-    pub unbounded_send_params: Arc<Mutex<Vec<Vec<u8>>>>,
-    pub unbounded_send_results: Vec<Result<(), SendError<Vec<u8>>>>
+    pub unbounded_send_params: Arc<Mutex<Vec<SequencedPacket>>>,
+    pub unbounded_send_results: Vec<Result<(), SendError<SequencedPacket>>>
 }
 
 impl SenderWrapper for SenderWrapperMock {
-    fn unbounded_send(&mut self, data: Vec<u8>) -> Result<(), SendError<Vec<u8>>> {
+    fn unbounded_send(&mut self, data: SequencedPacket) -> Result<(), SendError<SequencedPacket>> {
         self.unbounded_send_params.lock().unwrap().push(data);
         self.unbounded_send_results.remove(0)
     }
