@@ -10,9 +10,11 @@
     &__settings-icon {
         position: absolute;
         right: 16px;
-
+        transition: all 200ms;
+        opacity: .5;
+        
         &:hover {
-            cursor: pointer;
+            opacity: 1;
         }
 
         &:focus {
