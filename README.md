@@ -77,16 +77,98 @@ $ sudo SubstratumNode/dns_utility/target/release/dns_utility subvert
 If you have trouble with `dns_utility` or you'd rather make your DNS configuration changes manually, look for 
 [instructions for your platform](https://github.com/SubstratumNetwork/SubstratumNode/tree/master/node/docs).
 
-Once your DNS is successfully subverted, you can start the SubstratumNode itself:
+Once your DNS is successfully subverted, you can start the SubstratumNode itself.  Currently, there are two major ways
+the SubstratumNode can run: zero-hop and decentralized.
+
+A zero-hop SubstratumNode is very easy to start, and it's self-contained: every zero-hop SubstratumNode has an entire
+Substratum Network inside it.  However, it doesn't communicate with any other SubstratumNodes.  Every network transaction
+is zero-hop: your Node is the Client node, the Originating node, and the Exit node all at once.  A zero-hop SubstratumNode
+is good for exploring the system and verifying its compatibility with your hardware, but it doesn't relay traffic through
+any other Nodes.
+
+A decentralized SubstratumNode is considerably more difficult to start, because you have to give it much more information
+to get it running; however, it can route your traffic through other SubstratumNodes running elsewhere in the world to get
+it to and from your destination.
+
+__Important Note:__ Please remember that at the moment neither zero-hop Substratum Nodes nor decentralized SubstratumNodes
+are secure or private in any sense of the word.  Please don't use them for any kind of sensitive traffic at this stage.
+
+#### Running a Zero-Hop SubstratumNode locally
+
+Here's all you need to start your zero-hop SubstratumNode:
 ```
 $ sudo SubstratumNode/node/target/release/SubstratumNode --dns_servers 1.1.1.1
 ```
 In the above example, we're using Cloudflare's DNS, `1.1.1.1`, but you can use your preferred DNS.
-If you can't choose just one favorite DNS, you can also specify multiple ones, separated by a comma (`,`).
+If you can't choose just one favorite DNS, you can also specify multiple ones, separated by a comma but no space (`,`).
 
 _Why do we specify `--dns_servers`? SubstratumNodes still need to talk to the greater Internet.
 See [the ProxyClient README](https://github.com/SubstratumNetwork/SubstratumNode/tree/master/proxy_client_lib)
 for more information._
+
+#### Running a Decentralized SubstratumNode locally
+
+There are several more options that are available for running decentralized. Here is a list of them and their meanings:
+
+* `--ip <IP address>` This is the public IP address of your SubstratumNode: that is, the IP address at which other
+SubstratumNodes can contact yours. If you're in a fairly standard residential situation, then this will be the IP
+address issued to your router by your ISP, and in order to receive data you'll need to create holes in your router's
+firewall to enable incoming data to reach you on your clandestine ports (see below).  In the future, this will be taken
+care of for you (if you haven't turned off UPnP on your router), but right now it's manual.
+
+* `--dns_servers <IP address>,...` This is the same list of DNS servers needed for zero-hop operation. Whenever your
+SubstratumNode is used as an exit Node, it will contact these DNS servers to find the host the client is trying to reach.
+
+* `--neighbor <public key>;<IP address>;<port>,<port>,...`
+This is how you tell your Node about one of its neighbors. The `<public key>` is the Base64-encoded public key of the
+neighbor in question. The `<IP address>` is the public IP address of that neighbor, and the `<port>` numbers are the
+clandestine ports on which the neighbor is listening.  If this other Node is one you're running yourself, you'll see it
+print this information to the console when it comes up.  If it's somewhere else on the Internet, you'll probably receive
+this information in an email or chat message to copy/paste onto your command line.  You can specify as many `--neighbor`s
+as you like.
+
+* `--bootstrap_from <public key>;<IP address>;<port>,<port>,...`
+This parameter has the same format as `--neighbor` above.  It tells your SubstratumNode where to find a bootstrap Node.
+A bootstrap Node is a special kind of Node that does not route any data, but that holds information about the other
+Nodes in the SubstratumNetwork. If you specify `--bootstrap_from`, you should not specify `--neighbor`, and vice versa.
+(This is a temporary restriction that will be lifted in the future.)  Again, you can specify `--bootstrap_from` as many
+times as you like.
+
+* `--node_type { standard | bootstrap }`
+This is how you tell SubstratumNode whether to start up as a bootstrap Node or as a standard (non-bootstrap) Node. If
+you're interested in running data through the system, you won't find the `bootstrap` option particularly fulfilling, but
+you should feel free to try it if you like.  Note: Bootstrap Nodes must start up with no knowledge of their environment,
+so `--node_type bootstrap` will tolerate neither `--neighbor` nor `--bootstrap_from`.
+
+* `--port_count <n>`
+Specify the number of clandestine ports your SubstratumNode should listen on.  It will select the port numbers and
+print them to the console when it starts up.  The default value of n is 0 (zero-hop).  Note: This is a temporary 
+parameter; configuration like this will be done differently in the future.
+
+* `--dns_target <IP address>`
+The DNS server that is part of the SubstratumNode always gives the same answer to every query. This is how you can change
+that answer: specify it here and the DNS server will direct all requests to the target you specify. The default, of
+course, is `127.0.0.1`.  We found this parameter useful for testing, but we don't use it anymore and you probably won't
+need it either.
+
+* `--dns_port <port>`
+Almost everything that uses a DNS server expects to find it listening on port 53.  In the early days of development,
+we found it inconvenient to always put the DNS server on port 53, because it requires admin privilege to do so; so we
+put in this parameter so that we could put it elsewhere and point tests at it.  Since then we've had to find ways to
+do testing on low ports anyway, so now we always leave this parameter out and let it default to 53.  You probably won't
+have much use for this.
+
+If you start trying to start your SubstratumNode decentralized, you will quickly discover that these parameters have
+a great deal of interdependence on each other.  Some are required, some are optional, some are optional only if others
+are provided, and so on.  Here's a brief description of the dependencies.
+
+In order to run decentralized, the SubstratumNode *must* know the IP address others can use to contact it. Therefore,
+you must supply `--ip`. You also must have some way of finding out about your network environment, so you must specify 
+`--neighbor` or `--bootstrap_from` or `--node_type bootstrap`, but only one of those.  Also, your Node must have some
+way to transfer traffic to and from other Nodes, so you must have a `--port_count` greater than zero.  (1 is fine.
+1000 is fine too, but you'll be poking holes in your router's firewall for awhile.)
+
+#### Terminating a SubstratumNode (Zero-Hop or Decentralized)
 
 To terminate the SubstratumNode, just press Ctrl-C in the terminal window. Then you'll still need to revert your
 machine's DNS settings:

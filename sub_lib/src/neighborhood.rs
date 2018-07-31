@@ -116,6 +116,19 @@ impl RouteQueryMessage {
     }
 }
 
+#[derive (PartialEq, Debug, Message)]
+pub struct RemoveNodeMessage {
+    pub public_key: Key,
+}
+
+impl RemoveNodeMessage {
+    pub fn new (public_key: Key) -> RemoveNodeMessage {
+        RemoveNodeMessage {
+            public_key
+        }
+    }
+}
+
 
 #[cfg(test)]
 mod tests {

@@ -128,6 +128,26 @@ impl NeighborhoodDatabase {
         Ok (())
     }
 
+    pub fn remove_node (&mut self, node_key: &Key) -> Result<(), String> {
+        if self.root ().public_key () == node_key {
+            return Err (format! ("Can't remove self"))
+        }
+        let to_remove = match self.by_public_key.remove (node_key) {
+            None => {
+                return Err (format!("No knowledge of node {}: can't remove", node_key))
+            },
+            Some(node_record) => node_record
+        };
+        match to_remove.node_addr_opt () {
+            None => (),
+            Some (node_addr) => {self.by_ip_addr.remove (&node_addr.ip_addr ()); ()}
+        };
+        self.by_public_key.values_mut ().for_each (|node_record| {
+            node_record.neighbors.remove (node_key);
+        });
+        Ok (())
+    }
+
     pub fn add_neighbor (&mut self, node_key: &Key, new_neighbor: &Key) -> Result<(), NeighborhoodDatabaseError> {
         if !self.keys ().contains (new_neighbor) {return Err (NodeKeyNotFound (new_neighbor.clone ()))};
         match self.node_by_key_mut (node_key) {
