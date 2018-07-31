@@ -25,6 +25,11 @@ impl GossipAcceptor for TemporaryBootstrapGossipAcceptor {
             panic! ("I'm just a TemporaryBootstrapGossipAcceptor; I don't know what to do with {}-node Gossip messages!", gossip.node_records.len ());
         }
 
+        if gossip.node_records[0].public_key.data.is_empty() {
+            self.logger.error(format!("Rejected Gossip from Node with blank public key"));
+            return
+        }
+
         if database.keys().len() == 1 {
             self.initial_case(database, gossip);
         } else {
@@ -91,28 +96,36 @@ mod tests {
     use neighborhood_test_utils::make_node_record;
     use gossip::GossipBuilder;
     use neighborhood_test_utils::*;
+    use neighborhood_database::NodeRecord;
+    use test_utils::test_utils::init_test_logging;
+    use test_utils::test_utils::TestLogHandler;
 
     #[test]
-    fn adding_three_single_node_gossips_produces_expected_database_pattern () {
+    fn adding_three_good_single_node_gossips_and_one_bad_one_produces_expected_database_pattern () {
+        init_test_logging ();
         let this_node = make_node_record(1234, true, false);
         let first_node = make_node_record(2345, true, false);
         let second_node = make_node_record(3456, true, false);
         let third_node = make_node_record(4567, true, false);
+        let bad_node = NodeRecord::new (&Key::new (&[]), None, false);
         let mut database = NeighborhoodDatabase::new(this_node.public_key(), this_node.clone ().node_addr_opt ().unwrap (), this_node.is_bootstrap_node());
 
         let first_gossip = GossipBuilder::new().node(&first_node, true).build();
         let second_gossip = GossipBuilder::new().node(&second_node, true).build();
         let third_gossip = GossipBuilder::new().node(&third_node, true).build();
+        let bad_gossip = GossipBuilder::new ().node (&bad_node, true).build();
 
         let subject = TemporaryBootstrapGossipAcceptor::new();
 
         subject.handle(&mut database, first_gossip);
         subject.handle(&mut database, second_gossip);
         subject.handle(&mut database, third_gossip);
+        subject.handle(&mut database, bad_gossip);
 
         assert_eq!(neighbor_keys_of(&database, &this_node), vec_to_set(vec! (first_node.public_key())));
         assert_eq!(neighbor_keys_of(&database, &first_node), vec_to_set(vec! (this_node.public_key(), second_node.public_key())));
         assert_eq!(neighbor_keys_of(&database, &second_node), vec_to_set(vec! (this_node.public_key(), first_node.public_key(), third_node.public_key())));
         assert_eq!(neighbor_keys_of(&database, &third_node), vec_to_set(vec! (this_node.public_key(), second_node.public_key())));
+        TestLogHandler::new ().exists_log_containing ("ERROR: TemporaryBootstrapGossipAcceptor: Rejected Gossip from Node with blank public key");
     }
 }

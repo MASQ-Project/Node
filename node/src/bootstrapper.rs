@@ -187,6 +187,9 @@ impl Bootstrapper {
         if pieces.len () != 3 {panic! ("{} <public key>;<IP address>;<port>,<port>,...", parameter_tag)}
         let public_key = Key::new (&base64::decode (pieces[0])
             .expect (format! ("Invalid Base64 for {} <public key>: '{}'", parameter_tag, pieces[0]).as_str ())[..]);
+        if public_key.data.is_empty () {
+            panic! ("Blank public key for --neighbor {}", string)
+        }
         let ip_addr = IpAddr::from_str (&pieces[1])
             .expect (format! ("Invalid IP address for {} <IP address>: '{}'", parameter_tag, pieces[1]).as_str ());
         let ports: Vec<u16> = pieces[2].split (",").map (|s| s.parse::<u16>()
@@ -397,6 +400,16 @@ mod tests {
     fn parse_neighbor_configs_complains_about_bad_base_64 () {
         let finder = ParameterFinder::new (vec! (
             "--neighbor", "bad_key;1.2.3.4;1234,2345",
+        ).into_iter ().map (String::from).collect ());
+
+        Bootstrapper::parse_neighbor_configs (&finder, "--neighbor");
+    }
+
+    #[test]
+    #[should_panic (expected = "Blank public key for --neighbor ;1.2.3.4;1234,2345")]
+    fn parse_neighbor_configs_complains_about_blank_public_key () {
+        let finder = ParameterFinder::new (vec! (
+            "--neighbor", ";1.2.3.4;1234,2345",
         ).into_iter ().map (String::from).collect ());
 
         Bootstrapper::parse_neighbor_configs (&finder, "--neighbor");

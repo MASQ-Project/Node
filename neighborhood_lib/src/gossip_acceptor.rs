@@ -31,7 +31,17 @@ impl GossipAcceptorReal {
     }
 
     fn handle_node_records (&self, database: &mut NeighborhoodDatabase, gossip_ref: &Gossip) {
-        gossip_ref.node_records.iter ().for_each (|gnr_ref| {
+        gossip_ref.node_records.iter ()
+            .filter (|gnr_ref_ref| {
+                if gnr_ref_ref.public_key.data.is_empty() {
+                    self.logger.error (format! ("Rejecting GossipNodeRecord with blank public key"));
+                    false
+                }
+                else {
+                    true
+                }
+            })
+            .for_each (|gnr_ref| {
             if database.keys ().contains (&gnr_ref.public_key) {
                 let root_public_key = database.root ().public_key ().clone ();
                 let node_record = {database.node_by_key_mut(&gnr_ref.public_key).expect("Key magically disappeared").clone ()};
@@ -63,6 +73,8 @@ impl GossipAcceptorReal {
         gossip_ref.neighbor_pairs.iter ().for_each (|neighbor_relationship| {
             match (key_ref_from_index (neighbor_relationship.from), key_ref_from_index (neighbor_relationship.to)) {
                 (Some (from_key_ref), Some (to_key_ref)) if from_key_ref == to_key_ref => self.logger.error (format! ("Gossip attempted to make node {} neighbor to itself: ignoring", from_key_ref)),
+                (Some (from_key_ref), _) if from_key_ref.data.is_empty () => self.logger.error (format! ("Rejecting neighbor reference with blank public key")),
+                (_, Some (to_key_ref)) if to_key_ref.data.is_empty () => self.logger.error (format! ("Rejecting neighbor reference with blank public key")),
                 (Some (from_key_ref), Some (to_key_ref)) => database.add_neighbor (from_key_ref, to_key_ref).expect("Should have added nodes with these keys already"),
                 (_, _) => self.logger.error (format! ("Gossip described neighbor relationship from node #{} to node #{}, but only contained {} nodes: ignoring", neighbor_relationship.from, neighbor_relationship.to, gossip_ref.node_records.len ()))
             }
@@ -98,6 +110,7 @@ mod tests {
 
     #[test]
     fn gossip_is_copied_into_single_node_database() {
+        init_test_logging();
         let existing_node = make_node_record(1234, true, false);
         let mut database = NeighborhoodDatabase::new(existing_node.public_key(),
                                                      existing_node.node_addr_opt().as_ref().unwrap(), existing_node.is_bootstrap_node());
@@ -105,18 +118,22 @@ mod tests {
         let incoming_near_left = make_node_record(3456, true, false);
         let incoming_near_right = make_node_record(4657, true, false);
         let incoming_far_right = make_node_record(5678, false, false);
+        let bad_record_with_blank_key = NodeRecord::new (&Key::new (&[]), None, false);
         let gossip = GossipBuilder::new()
             .node(&incoming_far_left, false)
             .node(&incoming_near_left, true)
             .node(&existing_node, true)
             .node(&incoming_near_right, true)
             .node(&incoming_far_right, false)
+            .node(&bad_record_with_blank_key, false)
             .neighbor_pair(incoming_near_left.public_key(), incoming_far_left.public_key())
             .neighbor_pair(incoming_near_left.public_key(), existing_node.public_key())
             .neighbor_pair(existing_node.public_key(), incoming_near_left.public_key())
             .neighbor_pair(existing_node.public_key(), incoming_near_right.public_key())
             .neighbor_pair(incoming_near_right.public_key(), existing_node.public_key())
             .neighbor_pair(incoming_near_right.public_key(), incoming_far_right.public_key())
+            .neighbor_pair(incoming_far_right.public_key(), bad_record_with_blank_key.public_key())
+            .neighbor_pair(bad_record_with_blank_key.public_key(), incoming_far_right.public_key())
             .build();
         let subject = GossipAcceptorReal::new();
 
@@ -132,6 +149,11 @@ mod tests {
         assert_eq!(neighbor_keys_of(&database, &incoming_near_right),
                    vec_to_set(vec!(existing_node.public_key(), incoming_far_right.public_key())));
         assert_eq!(neighbor_keys_of(&database, &incoming_far_right), HashSet::new());
+        let tlh = TestLogHandler::new ();
+        tlh.assert_logs_contain_in_order (vec! (
+            "ERROR: GossipAcceptorReal: Rejecting GossipNodeRecord with blank public key",
+            "ERROR: GossipAcceptorReal: Rejecting neighbor reference with blank public key"
+        ));
     }
 
     #[test]
