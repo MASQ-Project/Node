@@ -32,7 +32,10 @@ impl SubstratumNodeClient {
             match self.stream.read (&mut buf) {
                 Ok (n) if n == buf.len () => output.extend (buf.iter ()),
                 Ok (_) => {output.extend (buf.iter ()); return output},
-                Err (ref e) if e.kind () == ErrorKind::WouldBlock => thread::sleep (Duration::from_millis (500)),
+                Err (ref e) if e.kind () == ErrorKind::WouldBlock => {
+                    eprintln! ("Couldn't read chunk; waiting for 500ms to retry");
+                    thread::sleep (Duration::from_millis (500))
+                },
                 Err (e) => panic! ("Couldn't read chunk: {:?}", e),
             }
         }

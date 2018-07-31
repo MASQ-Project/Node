@@ -126,6 +126,7 @@ impl<'a> SubstratumCoresServer<'a> {
             Some (chunk) => return chunk
         }
         loop {
+            println! ("Test server waiting for data from client");
             match self.io_receiver.recv () {
                 Err (e) => panic! ("{:?}", e),
                 Ok (result) => match result {
