@@ -22,3 +22,11 @@ pub fn get_file_contents () -> io::Result<String> {
     file.read_to_string (&mut contents)?;
     Ok (contents)
 }
+
+pub fn is_subverted (entries: &Vec<String>) -> bool {
+    let first_entry = match entries.first () {
+        None => return false,
+        Some (x) => x
+    };
+    ResolvConfDnsModifier::is_substratum_ip(&first_entry)
+}

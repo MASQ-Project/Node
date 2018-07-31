@@ -10,16 +10,23 @@ use dns_utility_lib::dynamic_store_dns_modifier::StoreWrapper;
 use dns_utility_lib::dynamic_store_dns_modifier::StoreWrapperReal;
 
 #[test]
-fn macos_inspect_user_integration() {
+fn macos_inspect_and_status_user_integration() {
     let store_wrapper = StoreWrapperReal::new ("integration-test");
     let current_dns_ips = get_current_dns_ips (&store_wrapper);
     let expected_inspect_output = current_dns_ips.join ("\n");
+    let expected_status_output = if expected_inspect_output == "127.0.0.1" {"subverted".to_string ()} else {"reverted".to_string ()};
 
     let mut inspect_command = TestCommand::start ("dns_utility", vec! ("inspect"));
     let exit_status = inspect_command.wait ();
     let output = inspect_command.output ();
     assert_eq! (exit_status, Some (0), "{}", output);
     assert_eq! (output, format! ("STANDARD OUTPUT:\n{}\n\nSTANDARD ERROR:\n\n", expected_inspect_output));
+
+    let mut status_command = TestCommand::start ("dns_utility", vec! ("status"));
+    let exit_status = status_command.wait ();
+    let output = status_command.output ();
+    assert_eq! (exit_status, Some (0), "{}", output);
+    assert_eq! (output, format! ("STANDARD OUTPUT:\n{}\n\nSTANDARD ERROR:\n\n", expected_status_output));
 }
 
 fn get_current_dns_ips (store_wrapper: &StoreWrapper) -> Vec<String> {

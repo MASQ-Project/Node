@@ -12,6 +12,7 @@ It is built as a utility, and can be run from the command line. There are two ma
 
 The other parameters are:
 - `inspect` - Shows a user's current DNS settings.
+- `status` - Tells whether a user's DNS has been subverted or not.
 
 The `dns_utility` can be run locally from the command line.
 
@@ -21,13 +22,21 @@ $ cd <path to workspace>/SubstratumNode/dns_utility/target/release
 $ dns_utility inspect
 192.168.0.1
 192.168.0.2
+$ dns_utility status
+reverted
+$
 $ sudo dns_utility subvert
 $ dns_utility inspect
 127.0.0.1
+$ dns_utility status
+subverted
+$
 $ sudo dns_utility revert
 $ dns_utility inspect
 192.168.0.1
 192.168.0.2
+$ dns_utility status
+reverted
 $
 ```
 
@@ -37,12 +46,20 @@ Windows (running with admin privilege required by 'subvert' and 'revert'):
 > dns_utility inspect
 192.168.0.1
 192.168.0.2
+> dns_utility status
+reverted
+>
 > dns_utility subvert
 > dns_utility inspect
 127.0.0.1
+> dns_utility status
+subverted
+>
 > dns_utility revert
 192.168.0.1
 192.168.0.2
+> dns_utility status
+reverted
 >
 ```
 
