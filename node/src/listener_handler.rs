@@ -219,18 +219,20 @@ mod tests {
         tlh.exists_log_containing("1239 Listener: Accepting connection failed: entity already exists");
     }
 
+    // This is a bad test, but A) it passes (really, not false positive), and B) it's about to be merged out of existence,
+    // so I have removed references to httpbin.org but not improved it.
     #[test]
     #[allow (unused_variables)] // 'result' below must not become '_' or disappear, or the test will not run properly
     fn handles_successful_accepts_integration () {
         init_test_logging();
-        let future = TcpStream::connect(&SocketAddr::from_str ("52.1.35.184:80").unwrap ()).then(|result| {
+        let example_com_socket_addr = SocketAddr::from_str ("93.184.216.34:80").unwrap ();
+        let future = TcpStream::connect(&example_com_socket_addr).then(move |result| {
             match result {
                 Ok(stream) => {
                     let expected_peer_addr = stream.peer_addr().unwrap();
-                    let httpbin_socket_addr = SocketAddr::from_str ("52.1.35.184:80").unwrap ();
                     let mut listener = TokioListenerWrapperMock::new ();
                     listener.poll_accept_results = RefCell::new (vec! (
-                        Ok (Async::Ready((stream, httpbin_socket_addr))),
+                        Ok (Async::Ready((stream, example_com_socket_addr))),
                         Ok (Async::NotReady)
                     ));
                     listener.bind_result = Some (Ok (()));
@@ -260,11 +262,11 @@ mod tests {
                     assert_eq! (first_msg.origin_port, Some (1234));
                     assert_eq! (first_msg.discriminator_factories.len (), 1);
                     let tlh = TestLogHandler::new ();
-                    tlh.exists_no_log_containing("52.1.35.184:80");
+                    tlh.exists_no_log_containing("93.184.216.34:80");
                     return Ok(())
                 },
                 Err(e) => {
-                    panic!("FAILED Could not connect to httpbin, got: {:?}", e)
+                    panic!("FAILED Could not connect to example.com, got: {:?}", e)
                 }
             }
         });

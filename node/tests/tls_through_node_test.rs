@@ -21,6 +21,7 @@ use tls_api::TlsConnectorBuilder as TlsConnectorBuilderBase;
 use tls_api::TlsStream;
 use std::thread;
 use std::net::Shutdown;
+use utils::read_until_timeout;
 
 #[test]
 #[allow (unused_variables)] // 'node' below must not become '_' or disappear, or the
@@ -46,31 +47,7 @@ fn tls_through_node_integration() {
     };
     let request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes();
     tls_stream.write(request.clone()).expect ("Could not write request to TLS stream");
-
-    let mut buf: [u8; 16384] = [0; 16384];
-    let mut begin_opt: Option<Instant> = None;
-    let mut offset: usize = 0;
-    loop {
-        match tls_stream.read(&mut buf[offset..]) {
-            Err(e) => {
-                if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) {
-                    ()
-                } else {
-                    panic!("Read error: {}", e);
-                }
-            },
-            Ok(len) => {
-                offset += len;
-                begin_opt = Some(Instant::now())
-            }
-        }
-        match begin_opt {
-            None => (),
-            Some(begin) => {
-                if Instant::now().duration_since(begin).as_secs() > 1 { break; }
-            }
-        }
-    }
+    let buf = read_until_timeout(&mut tls_stream);
     tls_stream.shutdown().is_ok (); // Can't do anything about an error here
 
     let response = String::from_utf8(Vec::from(&buf[..])).expect ("Response is not UTF-8");
