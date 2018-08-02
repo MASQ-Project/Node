@@ -29,6 +29,7 @@ pub mod hop;
 pub mod hopper;
 pub mod http_packet_framer;
 pub mod http_response_start_finder;
+pub mod http_server_impersonator;
 pub mod limiter;
 pub mod logger;
 pub mod main_tools;
