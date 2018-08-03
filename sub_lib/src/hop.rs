@@ -26,7 +26,7 @@ impl Hop {
         match serde_cbor::de::from_slice::<Hop> (&plain_data.data[..]) {
             Ok (hop) => Ok (hop),
             // crashpoint - need to figure out how to return deserialize error
-            Err (_) => unimplemented!()
+            Err (_) => unimplemented!("failed to deserialize hop")
         }
     }
 

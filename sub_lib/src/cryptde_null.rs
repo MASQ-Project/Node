@@ -216,8 +216,8 @@ mod tests {
         subject.generate_key_pair ();
 
         let expected_data = PlainData::new (&b"These are the times that try men's souls"[..]);
-        let encrypted_data = subject.encode (&subject.private_key (), &expected_data).unwrap ();
-        let decrypted_data = subject.decode (&subject.public_key (), &encrypted_data).unwrap ();
+        let encrypted_data = subject.encode (&subject.public_key (), &expected_data).unwrap ();
+        let decrypted_data = subject.decode (&subject.private_key (), &encrypted_data).unwrap ();
         assert_eq! (decrypted_data, expected_data);
     }
 

@@ -13,7 +13,6 @@ use std::time::Duration;
 use std::thread;
 use sub_lib::crash_point::CrashPoint;
 use std::io::ErrorKind;
-use std::net::TcpStream;
 
 pub struct SubstratumNode {
     logfile_stream: Box<Read>,
@@ -120,14 +119,6 @@ impl SubstratumNode {
         command.args (&["--dns_servers", "8.8.8.8", "--crash_point", &crash_point, "--log_level", "trace"]);
         command
     }
-}
-
-pub fn get_var_or(name: &str, default: &str) -> String {
-    let value = env::var(name).unwrap_or(String::from(default));
-    if value.is_empty() {
-        return String::from(default);
-    }
-    value.to_string()
 }
 
 pub fn read_until_timeout(stream: &mut Read) -> Vec<u8> {

@@ -28,7 +28,8 @@ use sub_lib::hopper::HopperSubs;
 use sub_lib::proxy_client::ProxyClientSubs;
 use sub_lib::neighborhood::NeighborhoodSubs;
 use sub_lib::peer_actors::PeerActors;
-use sub_lib::hopper::HopperTemporaryTransmitDataMsg;
+use sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
+use sub_lib::neighborhood::DispatcherNodeQueryMessage;
 
 pub struct Recorder {
     recording: Arc<Mutex<Recording>>,
@@ -88,14 +89,6 @@ impl Handler<InboundClientData> for Recorder {
     }
 }
 
-impl Handler<HopperTemporaryTransmitDataMsg> for Recorder {
-    type Result = ();
-
-    fn handle(&mut self, msg: HopperTemporaryTransmitDataMsg, _ctx: &mut Self::Context) {
-        self.record(msg);
-    }
-}
-
 impl Handler<BootstrapNeighborhoodNowMessage> for Recorder {
     type Result = ();
 
@@ -119,6 +112,22 @@ impl Handler<RouteQueryMessage> for Recorder {
     fn handle(&mut self, msg: RouteQueryMessage, _ctx: &mut Self::Context) -> <Self as Handler<RouteQueryMessage>>::Result {
         self.record (msg);
         MessageResult (extract_response (&mut self.route_query_responses, "No Routes prepared for RouteQueryMessage"))
+    }
+}
+
+impl Handler<DispatcherNodeQueryResponse> for Recorder {
+    type Result = ();
+
+    fn handle(&mut self, msg: DispatcherNodeQueryResponse, _ctx: &mut Self::Context) {
+        self.record(msg);
+    }
+}
+
+impl Handler<DispatcherNodeQueryMessage> for Recorder {
+    type Result = ();
+
+    fn handle(&mut self, msg: DispatcherNodeQueryMessage, _ctx: &mut Self::Context) {
+        self.record(msg);
     }
 }
 
@@ -232,8 +241,7 @@ pub fn make_dispatcher_subs_from(addr: &Addr<Syn, Recorder>) -> DispatcherSubs {
     DispatcherSubs {
         ibcd_sub: addr.clone ().recipient::<InboundClientData>(),
         bind: addr.clone ().recipient::<BindMessage>(),
-        from_proxy_server: addr.clone ().recipient::<TransmitDataMsg>(),
-        from_hopper: addr.clone ().recipient::<HopperTemporaryTransmitDataMsg>(),
+        from_dispatcher_client: addr.clone ().recipient::<TransmitDataMsg>(),
     }
 }
 
@@ -259,6 +267,7 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Syn, Recorder>) -> NeighborhoodSu
         node_query: addr.clone ().recipient::<NodeQueryMessage>(),
         route_query: addr.clone ().recipient::<RouteQueryMessage>(),
         from_hopper: addr.clone ().recipient::<ExpiredCoresPackage>(),
+        dispatcher_node_query: addr.clone ().recipient::<DispatcherNodeQueryMessage>(),
     }
 }
 

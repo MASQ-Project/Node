@@ -41,6 +41,7 @@ pub mod masquerader;
 mod null_masquerader;
 mod privilege_drop;
 pub mod server_initializer;
+mod stream_connector;
 mod stream_handler_pool;
 mod stream_messages;
 mod stream_reader;

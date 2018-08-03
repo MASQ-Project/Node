@@ -72,6 +72,7 @@ mod tests {
             origin_port: Some (80),
             sequence_number: Some(1),
             last_data: false,
+            is_clandestine: false,
             data: data.data.clone (),
         };
         let cryptde = CryptDENull::new ();
@@ -117,6 +118,7 @@ mod tests {
             sequence_number: Some(0),
             origin_port: Some (443),
             last_data: false,
+            is_clandestine: false,
             data: data.data.clone (),
         };
         let cryptde = CryptDENull::new ();
@@ -155,6 +157,7 @@ mod tests {
             socket_addr: SocketAddr::from_str ("1.2.3.4:5678").unwrap (),
             origin_port: Some (443),
             last_data: true,
+            is_clandestine: false,
             sequence_number: Some(0),
             data: data.data.clone (),
         };
@@ -184,6 +187,7 @@ mod tests {
             sequence_number: Some(0),
             origin_port: None,
             last_data: false,
+            is_clandestine: false,
             data: vec!(0x10, 0x11, 0x12),
         };
         let cryptde = CryptDENull::new ();
@@ -204,6 +208,7 @@ mod tests {
             origin_port: Some (1234),
             sequence_number: Some(0),
             last_data: false,
+            is_clandestine: true,
             data: vec!(0x10, 0x11, 0x12),
         };
         let cryptde = CryptDENull::new ();
@@ -224,6 +229,7 @@ mod tests {
             sequence_number: Some(1),
             last_data: false,
             data: vec!(0x10, 0x11, 0x12),
+            is_clandestine: false,
         };
         let cryptde = CryptDENull::new ();
         let logger = Logger::new ("test");
@@ -242,6 +248,7 @@ mod tests {
             socket_addr: SocketAddr::from_str("1.2.3.4:80").unwrap(),
             origin_port: Some(80),
             last_data: false,
+            is_clandestine: false,
             sequence_number: None,
             data: vec!(1, 3, 5, 7),
         };

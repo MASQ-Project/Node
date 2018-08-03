@@ -9,19 +9,17 @@ use tokio::net::TcpStream;
 use tokio::prelude::Async;
 use tokio::prelude::AsyncRead;
 use tokio::prelude::AsyncWrite;
+use std::io::Read;
+use std::io::Write;
 
 pub trait TokioListenerWrapper: Send {
     fn bind (&mut self, addr: SocketAddr) -> io::Result<()>;
     fn poll_accept (&mut self) -> Result<Async<(TcpStream, SocketAddr)>, io::Error>;
 }
 
-pub trait ReadHalfWrapper: Send {
-    fn poll_read(&mut self, buf: &mut [u8]) -> Result<Async<usize>, io::Error>;
-}
+pub trait ReadHalfWrapper: Send + AsyncRead {}
 
-pub trait WriteHalfWrapper: Send {
-    fn poll_write(&mut self, buf: &[u8]) -> Result<Async<usize>, io::Error>;
-}
+pub trait WriteHalfWrapper: Send + AsyncWrite {}
 
 pub trait TokioListenerWrapperFactory {
     fn make (&self) -> Box<TokioListenerWrapper>;
@@ -54,10 +52,19 @@ impl TokioListenerWrapper for TokioListenerWrapperReal {
     }
 }
 
-impl ReadHalfWrapper for ReadHalfWrapperReal {
+impl Read for ReadHalfWrapperReal {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, io::Error> {
+        self.delegate.read (buf)
+    }
+}
+
+impl AsyncRead for ReadHalfWrapperReal {
     fn poll_read(&mut self, buf: &mut [u8]) -> Result<Async<usize>, io::Error> {
         self.delegate.poll_read(buf)
     }
+}
+
+impl ReadHalfWrapper for ReadHalfWrapperReal {
 }
 
 impl ReadHalfWrapperReal {
@@ -66,10 +73,27 @@ impl ReadHalfWrapperReal {
     }
 }
 
-impl WriteHalfWrapper for WriteHalfWrapperReal {
+impl Write for WriteHalfWrapperReal {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, io::Error> {
+        self.delegate.write (buf)
+    }
+
+    fn flush(&mut self) -> Result<(), io::Error> {
+        self.delegate.flush ()
+    }
+}
+
+impl AsyncWrite for WriteHalfWrapperReal {
     fn poll_write(&mut self, buf: &[u8]) -> Result<Async<usize>, io::Error> {
         self.delegate.poll_write(buf)
     }
+
+    fn shutdown(&mut self) -> Result<Async<()>, io::Error> {
+        self.delegate.shutdown ()
+    }
+}
+
+impl WriteHalfWrapper for WriteHalfWrapperReal {
 }
 
 impl WriteHalfWrapperReal {

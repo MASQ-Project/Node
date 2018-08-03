@@ -32,8 +32,8 @@ pub struct StreamReader {
 impl StreamReader {
 
     pub fn new (stream_key: StreamKey, hopper_sub: Recipient<Syn, IncipientCoresPackage>,
-        stream: Box<TcpStreamWrapper>, stream_killer: Sender<StreamKey>, peer_addr: String,
-        remaining_route: Route, framer: Box<Framer>, originator_public_key: Key) -> StreamReader {
+                stream: Box<TcpStreamWrapper>, stream_killer: Sender<StreamKey>, peer_addr: String,
+                remaining_route: Route, framer: Box<Framer>, originator_public_key: Key) -> StreamReader {
         StreamReader {
             stream_key,
             hopper_sub,
@@ -73,8 +73,7 @@ impl StreamReader {
                     self.logger.debug (format! ("Stream from {} was closed: {}", self.peer_addr, e));
                     self.shutdown();
                     false
-                }
-                else {
+                } else {
                     self.logger.warning(format! ("Continuing after read error on stream from {}: {}", self.peer_addr, e));
                     true
                 }
@@ -403,12 +402,12 @@ mod tests {
         let stream_key = SocketAddr::from_str("1.2.3.4:80").unwrap();
         let mut shutdown_parameters = Arc::new(Mutex::new(vec!()));
         let (stream_killer, rx) = mpsc::channel::<StreamKey>();
-            let stream = TcpStreamWrapperMock::new()
-                .peer_addr_result(Ok(SocketAddr::from_str("2.3.4.5:80").unwrap()))
-                .read_buffer(vec!())
-                .read_result(Ok(0))
-                .shutdown_parameters(&mut shutdown_parameters)
-                .shutdown_result(Ok(()));
+        let stream = TcpStreamWrapperMock::new()
+            .peer_addr_result(Ok(SocketAddr::from_str("2.3.4.5:80").unwrap()))
+            .read_buffer(vec!())
+            .read_result(Ok(0))
+            .shutdown_parameters(&mut shutdown_parameters)
+            .shutdown_result(Ok(()));
 
         thread::spawn(move || {
             let system = System::new("receiving_0_bytes_sends_empty_cores_response_and_kills_stream");

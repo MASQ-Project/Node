@@ -3,16 +3,37 @@ use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::net::SocketAddr;
-use tokio::net::TcpStream;
-use discriminator::DiscriminatorFactory;
+use configuration::PortConfiguration;
 use sub_lib::dispatcher::DispatcherSubs;
+use sub_lib::neighborhood::NeighborhoodSubs;
 use stream_handler_pool::StreamHandlerPoolSubs;
+use actix::Message;
+use stream_connector::ConnectionInfo;
+use masquerader::Masquerader;
 
-#[derive (Message)]
+#[derive(Message)]
+pub struct StreamAdded {}
+
 pub struct AddStreamMsg {
-    pub stream: Option<TcpStream>,
+    pub connection_info: ConnectionInfo,
     pub origin_port: Option<u16>,
-    pub discriminator_factories: Vec<Box<DiscriminatorFactory>>
+    pub port_configuration: PortConfiguration,
+    pub writer_config: Box<Masquerader>,
+}
+
+impl Message for AddStreamMsg {
+    type Result = StreamAdded;
+}
+
+impl AddStreamMsg {
+    pub fn new (connection_info: ConnectionInfo, origin_port: Option<u16>, port_configuration: PortConfiguration, writer_config: Box<Masquerader>) -> AddStreamMsg {
+        AddStreamMsg {
+            connection_info,
+            origin_port,
+            port_configuration,
+            writer_config
+        }
+    }
 }
 
 #[derive (Debug, Message, PartialEq)]
@@ -23,7 +44,8 @@ pub struct RemoveStreamMsg {
 #[derive (Message, Clone)]
 pub struct PoolBindMessage {
     pub dispatcher_subs: DispatcherSubs,
-    pub stream_handler_pool_subs: StreamHandlerPoolSubs
+    pub stream_handler_pool_subs: StreamHandlerPoolSubs,
+    pub neighborhood_subs: NeighborhoodSubs,
 }
 
 impl Debug for PoolBindMessage {
@@ -44,7 +66,8 @@ mod tests {
         let _system = System::new ("test");
         let dispatcher_subs = make_peer_actors().dispatcher;
         let stream_handler_pool_subs = make_stream_handler_pool_subs_from (None);
-        let subject = PoolBindMessage {dispatcher_subs, stream_handler_pool_subs};
+        let neighborhood_subs = make_peer_actors().neighborhood;
+        let subject = PoolBindMessage {dispatcher_subs, stream_handler_pool_subs, neighborhood_subs};
 
         let result = format! ("{:?}", subject);
 

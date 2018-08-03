@@ -11,8 +11,8 @@ impl Masquerader for NullMasquerader {
         Some (UnmaskedChunk::new (Vec::from (item), true, true))
     }
 
-    fn mask(&self, _data: &[u8]) -> Result<Vec<u8>, MasqueradeError> {
-        unimplemented!()
+    fn mask(&self, data: &[u8]) -> Result<Vec<u8>, MasqueradeError> {
+        Ok(Vec::from(data))
     }
 }
 
@@ -28,7 +28,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn try_unmask_returns_input_data_with_specified_component () {
+    fn try_unmask_returns_input_data_with_specified_clandestine_flag () {
         let data = "booga".as_bytes ();
         let subject = NullMasquerader::new ();
 
@@ -45,5 +45,15 @@ mod tests {
         let result = subject.try_unmask (data).unwrap ();
 
         assert!(result.sequenced);
+    }
+
+    #[test]
+    fn mask_returns_input_data () {
+        let data = "booga".as_bytes ();
+        let subject = NullMasquerader::new ();
+
+        let result = subject.mask (data).unwrap ();
+
+        assert_eq! (result, Vec::from (data));
     }
 }

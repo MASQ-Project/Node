@@ -23,6 +23,7 @@ pub struct StreamReaderReal {
     ibcd_sub: Recipient<Syn, dispatcher::InboundClientData>,
     remove_sub: Recipient<Syn, RemoveStreamMsg>,
     discriminators: Vec<Discriminator>,
+    is_clandestine: bool,
     logger: Logger,
     sequencer: Sequencer,
 }
@@ -33,7 +34,7 @@ impl Future for StreamReaderReal {
 
     fn poll(&mut self) -> Result<Async<()>, ()> {
         let port = self.local_addr.port ();
-        let mut buf: [u8; 0x10000] = [0; 0x10000];
+        let mut buf = [0u8; 0x10000];
         loop {
             match self.stream.poll_read(&mut buf) {
                 Ok(Async::NotReady) => { return Ok(Async::NotReady) },
@@ -62,9 +63,15 @@ impl Future for StreamReaderReal {
 }
 
 impl StreamReaderReal {
-    pub fn new (stream: Box<ReadHalfWrapper>, origin_port: Option<u16>, ibcd_sub: Recipient<Syn, dispatcher::InboundClientData>,
-            remove_sub: Recipient<Syn, RemoveStreamMsg>, discriminator_factories: Vec<Box<DiscriminatorFactory>>, peer_addr: StreamKey, local_addr: SocketAddr) -> StreamReaderReal {
-        let name = format! ("Dispatcher for {:?}", peer_addr);
+    pub fn new(stream: Box<ReadHalfWrapper>,
+               origin_port: Option<u16>,
+               ibcd_sub: Recipient<Syn, dispatcher::InboundClientData>,
+               remove_sub: Recipient<Syn, RemoveStreamMsg>,
+               discriminator_factories: Vec<Box<DiscriminatorFactory>>,
+               is_clandestine: bool,
+               peer_addr: StreamKey,
+               local_addr: SocketAddr) -> StreamReaderReal {
+        let name = format! ("StreamReader for {}", peer_addr);
         if discriminator_factories.is_empty () {panic! ("Internal error: no Discriminator factories!")}
         StreamReaderReal {
             stream,
@@ -75,6 +82,7 @@ impl StreamReaderReal {
             remove_sub,
             // Skinny implementation
             discriminators: vec! (discriminator_factories[0].make ()),
+            is_clandestine,
             logger: Logger::new (&name),
             sequencer: Sequencer::new(),
         }
@@ -96,6 +104,7 @@ impl StreamReaderReal {
                         socket_addr: self.stream_key,
                         origin_port: self.origin_port,
                         last_data: false,
+                        is_clandestine: self.is_clandestine,
                         sequence_number,
                         data: unmasked_chunk.chunk.clone ()
                     };
@@ -119,6 +128,7 @@ impl StreamReaderReal {
             socket_addr: self.stream_key,
             origin_port: self.origin_port,
             last_data: true,
+            is_clandestine: self.is_clandestine,
             sequence_number,
             data: Vec::new(),
         }).expect("Dispatcher is dead");
@@ -144,7 +154,6 @@ mod tests {
     use sub_lib::dispatcher::DispatcherSubs;
     use masquerader::Masquerader;
     use node_test_utils::make_stream_handler_pool_subs_from;
-    use node_test_utils::ReadHalfWrapperMock;
     use test_utils::recorder::Recorder;
     use test_utils::test_utils::init_test_logging;
     use test_utils::recorder::make_dispatcher_subs_from;
@@ -152,6 +161,7 @@ mod tests {
     use test_utils::recorder::RecordAwaiter;
     use test_utils::recorder::Recording;
     use test_utils::test_utils::TestLogHandler;
+    use test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use json_discriminator_factory::JsonDiscriminatorFactory;
     use json_masquerader::JsonMasquerader;
 
@@ -179,7 +189,16 @@ mod tests {
             (vec!(), Ok(Async::Ready(0)))
         )};
 
-        let mut subject = StreamReaderReal::new(Box::new(reader), Some(1234 as u16), dispatcher_subs.ibcd_sub, stream_handler_pool_subs.remove_sub, discriminator_factories, peer_addr, local_addr);
+        let mut subject = StreamReaderReal::new(
+            Box::new(reader),
+            Some(1234 as u16),
+            dispatcher_subs.ibcd_sub,
+            stream_handler_pool_subs.remove_sub,
+            discriminator_factories,
+            true,
+            peer_addr,
+            local_addr,
+        );
 
         let result = subject.poll();
 
@@ -196,13 +215,14 @@ mod tests {
             socket_addr: peer_addr,
             origin_port: Some(1234 as u16),
             last_data: true,
+            is_clandestine: true,
             sequence_number: Some(0),
             data: Vec::new(),
         });
 
         assert_eq!(result, Ok(Async::Ready(())));
 
-        TestLogHandler::new ().exists_log_matching("ThreadId\\(\\d+\\): DEBUG: Dispatcher for V4\\(1\\.2\\.3\\.4:5678\\): Stream on port 6789 has shut down \\(0-byte read\\)");
+        TestLogHandler::new ().exists_log_matching("ThreadId\\(\\d+\\): DEBUG: StreamReader for 1\\.2\\.3\\.4:5678: Stream on port 6789 has shut down \\(0-byte read\\)");
     }
 
     #[test]
@@ -218,7 +238,16 @@ mod tests {
             (vec!(), Err(io::Error::from(ErrorKind::BrokenPipe)))
         )};
 
-        let mut subject = StreamReaderReal::new(Box::new(reader), Some(1234 as u16), dispatcher_subs.ibcd_sub, stream_handler_pool_subs.remove_sub, discriminator_factories, peer_addr, local_addr);
+        let mut subject = StreamReaderReal::new(
+            Box::new(reader),
+            Some(1234 as u16),
+            dispatcher_subs.ibcd_sub,
+            stream_handler_pool_subs.remove_sub,
+            discriminator_factories,
+            true,
+            peer_addr,
+            local_addr,
+        );
 
         let result = subject.poll();
 
@@ -235,13 +264,14 @@ mod tests {
             socket_addr: peer_addr,
             origin_port: Some(1234 as u16),
             last_data: true,
+            is_clandestine: true,
             sequence_number: Some(0),
             data: Vec::new(),
         });
 
         assert_eq!(result, Err(()));
 
-        TestLogHandler::new ().exists_log_matching("ThreadId\\(\\d+\\): DEBUG: Dispatcher for V4\\(1\\.2\\.3\\.4:5678\\): Stream on port 6789 is dead: broken pipe");
+        TestLogHandler::new ().exists_log_matching("ThreadId\\(\\d+\\): DEBUG: StreamReader for 1\\.2\\.3\\.4:5678: Stream on port 6789 is dead: broken pipe");
     }
 
     #[test]
@@ -257,7 +287,16 @@ mod tests {
             (vec!(), Ok(Async::NotReady))
         )};
 
-        let mut subject = StreamReaderReal::new(Box::new(reader), Some(1234 as u16), dispatcher_subs.ibcd_sub, stream_handler_pool_subs.remove_sub, discriminator_factories, peer_addr, local_addr);
+        let mut subject = StreamReaderReal::new(
+            Box::new(reader),
+            Some(1234 as u16),
+            dispatcher_subs.ibcd_sub,
+            stream_handler_pool_subs.remove_sub,
+            discriminator_factories,
+            true,
+            peer_addr,
+            local_addr
+        );
 
         let result = subject.poll();
 
@@ -287,14 +326,22 @@ mod tests {
             (vec!(), Ok(Async::NotReady))
         )};
 
-        let mut subject = StreamReaderReal::new(Box::new(reader), Some(1234 as u16), dispatcher_subs.ibcd_sub, stream_handler_pool_subs.remove_sub, discriminator_factories, peer_addr, local_addr);
+        let mut subject = StreamReaderReal::new(Box::new(reader),
+                                                Some(1234 as u16),
+                                                dispatcher_subs.ibcd_sub,
+                                                stream_handler_pool_subs.remove_sub,
+                                                discriminator_factories,
+                                                true,
+                                                peer_addr,
+                                                local_addr,
+        );
 
         let _result = subject.poll();
 
         Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run ();
 
-        TestLogHandler::new ().await_log_matching("ThreadId\\(\\d+\\): WARN: Dispatcher for V4\\(1\\.2\\.3\\.4:5678\\): Continuing after read error on port 6789: other os error", 1000);
+        TestLogHandler::new ().await_log_matching("ThreadId\\(\\d+\\): WARN: StreamReader for 1\\.2\\.3\\.4:5678: Continuing after read error on port 6789: other os error", 1000);
 
         let shp_recording = shp_recording_arc.lock ().unwrap ();
         assert_eq!(shp_recording.len(), 0);
@@ -317,7 +364,16 @@ mod tests {
             (vec!(), Ok(Async::Ready(5)))
         )};
 
-        let _subject = StreamReaderReal::new(Box::new(reader), Some(1234 as u16), dispatcher_subs.ibcd_sub, stream_handler_pool_subs.remove_sub, discriminator_factories, peer_addr, local_addr);
+        let _subject = StreamReaderReal::new(
+            Box::new(reader),
+            Some(1234 as u16),
+            dispatcher_subs.ibcd_sub,
+            stream_handler_pool_subs.remove_sub,
+            discriminator_factories,
+            true,
+            peer_addr,
+            local_addr,
+        );
     }
 
     #[test]
@@ -337,9 +393,18 @@ mod tests {
             (vec!(), Ok(Async::NotReady))
         )};
 
-        let mut subject = StreamReaderReal::new(Box::new(reader), Some(1234 as u16), dispatcher_subs.ibcd_sub, stream_handler_pool_subs.remove_sub, discriminator_factories, peer_addr, local_addr);
+        let mut subject = StreamReaderReal::new(
+            Box::new(reader),
+            Some(1234 as u16),
+            dispatcher_subs.ibcd_sub,
+            stream_handler_pool_subs.remove_sub,
+            discriminator_factories,
+            true,
+            peer_addr,
+            local_addr
+        );
 
-        let _result = subject.poll();
+        subject.poll().err ();
 
         Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run ();
@@ -350,12 +415,13 @@ mod tests {
             socket_addr: peer_addr,
             origin_port: Some(1234 as u16),
             last_data: false,
+            is_clandestine: true,
             sequence_number: Some(0),
             data: Vec::from("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes()),
         });
 
-        TestLogHandler::new ().exists_log_matching("ThreadId\\(\\d+\\): DEBUG: Dispatcher for V4\\(1\\.2\\.3\\.4:5678\\): Read 14-byte chunk from port 6789");
-        TestLogHandler::new ().exists_log_matching("ThreadId\\(\\d+\\): DEBUG: Dispatcher for V4\\(1\\.2\\.3\\.4:5678\\): Read 18-byte chunk from port 6789");
+        TestLogHandler::new ().exists_log_matching("ThreadId\\(\\d+\\): DEBUG: StreamReader for 1\\.2\\.3\\.4:5678: Read 14-byte chunk from port 6789");
+        TestLogHandler::new ().exists_log_matching("ThreadId\\(\\d+\\): DEBUG: StreamReader for 1\\.2\\.3\\.4:5678: Read 18-byte chunk from port 6789");
     }
 
     #[test]
@@ -375,7 +441,7 @@ mod tests {
             (vec!(), Ok(Async::NotReady)),
         )};
 
-        let mut subject = StreamReaderReal::new(Box::new(reader), Some(1234 as u16), dispatcher_subs.ibcd_sub, stream_handler_pool_subs.remove_sub, discriminator_factories, peer_addr, local_addr);
+        let mut subject = StreamReaderReal::new(Box::new(reader), Some(1234 as u16), dispatcher_subs.ibcd_sub, stream_handler_pool_subs.remove_sub, discriminator_factories, false, peer_addr, local_addr);
 
         let _result = subject.poll();
         let _result = subject.poll();
@@ -389,6 +455,7 @@ mod tests {
             socket_addr: peer_addr,
             origin_port: Some(1234 as u16),
             last_data: false,
+            is_clandestine: false,
             sequence_number: Some(0),
             data: Vec::from("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes()),
         });
@@ -397,6 +464,7 @@ mod tests {
             socket_addr: peer_addr,
             origin_port: Some(1234 as u16),
             last_data: false,
+            is_clandestine: false,
             sequence_number: Some(1),
             data: Vec::from("GET http://example.com HTTP/1.1\r\n\r\n".as_bytes()),
         });
@@ -417,7 +485,7 @@ mod tests {
             (vec!(), Ok(Async::NotReady)),
         )};
 
-        let mut subject = StreamReaderReal::new(Box::new(reader), Some(1234 as u16), dispatcher_subs.ibcd_sub, stream_handler_pool_subs.remove_sub, discriminator_factories, peer_addr, local_addr);
+        let mut subject = StreamReaderReal::new(Box::new(reader), Some(1234 as u16), dispatcher_subs.ibcd_sub, stream_handler_pool_subs.remove_sub, discriminator_factories, true, peer_addr, local_addr);
 
         let _result = subject.poll();
 
@@ -430,6 +498,7 @@ mod tests {
             socket_addr: peer_addr,
             origin_port: Some(1234 as u16),
             last_data: false,
+            is_clandestine: true,
             sequence_number: None,
             data: Vec::from("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes()),
         });

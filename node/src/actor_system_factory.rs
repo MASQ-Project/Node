@@ -28,6 +28,7 @@ use bootstrapper;
 use sub_lib::neighborhood::NeighborhoodConfig;
 use std::sync::mpsc::Sender;
 use sub_lib::neighborhood::BootstrapNeighborhoodNowMessage;
+use discriminator::DiscriminatorFactory;
 use std::thread;
 
 pub trait ActorSystemFactory: Send {
@@ -67,7 +68,7 @@ impl ActorSystemFactoryReal {
         let proxy_client_subs = actor_factory.make_and_start_proxy_client(cryptde, config.dns_servers);
         let hopper_subs = actor_factory.make_and_start_hopper(cryptde, config.neighborhood_config.is_bootstrap_node);
         let neighborhood_subs = actor_factory.make_and_start_neighborhood(cryptde, config.neighborhood_config);
-        let stream_handler_pool_subs = actor_factory.make_and_start_stream_handler_pool();
+        let stream_handler_pool_subs = actor_factory.make_and_start_stream_handler_pool(config.clandestine_discriminator_factories);
 
         // collect all the subs
         let peer_actors = PeerActors {
@@ -75,7 +76,7 @@ impl ActorSystemFactoryReal {
             proxy_server: proxy_server_subs,
             proxy_client: proxy_client_subs,
             hopper: hopper_subs,
-            neighborhood: neighborhood_subs
+            neighborhood: neighborhood_subs.clone(),
         };
 
         //bind all the actors
@@ -84,8 +85,16 @@ impl ActorSystemFactoryReal {
         peer_actors.proxy_client.bind.try_send(BindMessage { peer_actors: peer_actors.clone() }).expect("Proxy Client is dead");
         peer_actors.hopper.bind.try_send(BindMessage { peer_actors: peer_actors.clone() }).expect("Hopper is dead");
         peer_actors.neighborhood.bind.try_send(BindMessage { peer_actors: peer_actors.clone() }).expect("Neighborhood is dead");
-        stream_handler_pool_subs.bind.try_send(PoolBindMessage { dispatcher_subs: dispatcher_subs.clone(), stream_handler_pool_subs: stream_handler_pool_subs.clone() }).expect("Stream Handler Pool is dead");
-        pool_bind_sub.try_send(PoolBindMessage { dispatcher_subs, stream_handler_pool_subs: stream_handler_pool_subs.clone() }).expect("Dispatcher is dead");
+        stream_handler_pool_subs.bind.try_send(PoolBindMessage {
+            dispatcher_subs: dispatcher_subs.clone(),
+            stream_handler_pool_subs: stream_handler_pool_subs.clone(),
+            neighborhood_subs: neighborhood_subs.clone(),
+        }).expect("Stream Handler Pool is dead");
+        pool_bind_sub.try_send(PoolBindMessage {
+            dispatcher_subs,
+            stream_handler_pool_subs: stream_handler_pool_subs.clone(),
+            neighborhood_subs: neighborhood_subs.clone(),
+        }).expect("Dispatcher is dead");
         peer_actors.neighborhood.bootstrap.try_send (BootstrapNeighborhoodNowMessage {}).expect ("Neighborhood is dead");
 
         //send out the stream handler pool subs (to be bound to listeners)
@@ -98,7 +107,7 @@ pub trait ActorFactory: Send {
     fn make_and_start_proxy_server(&self, cryptde: &'static CryptDE) -> ProxyServerSubs;
     fn make_and_start_hopper(&self, cryptde: &'static CryptDE, is_bootstrap_node: bool) -> HopperSubs;
     fn make_and_start_neighborhood(&self, cryptde: &'static CryptDE, config: NeighborhoodConfig) -> NeighborhoodSubs;
-    fn make_and_start_stream_handler_pool(&self) -> StreamHandlerPoolSubs;
+    fn make_and_start_stream_handler_pool(&self, clandestine_discriminator_factories: Vec<Box<DiscriminatorFactory>>) -> StreamHandlerPoolSubs;
     fn make_and_start_proxy_client(&self, cryptde: &'static CryptDE, dns_servers: Vec<SocketAddr>) -> ProxyClientSubs;
 }
 
@@ -129,8 +138,8 @@ impl ActorFactory for ActorFactoryReal {
         Neighborhood::make_subs_from (&addr)
     }
 
-    fn make_and_start_stream_handler_pool(&self) -> StreamHandlerPoolSubs {
-        let pool = StreamHandlerPool::new();
+    fn make_and_start_stream_handler_pool(&self, clandestine_discriminator_factories: Vec<Box<DiscriminatorFactory>>) -> StreamHandlerPoolSubs {
+        let pool = StreamHandlerPool::new(clandestine_discriminator_factories);
         let addr: Addr<Syn, StreamHandlerPool> = pool.start();
         StreamHandlerPool::make_subs_from(&addr)
     }
@@ -149,12 +158,9 @@ mod tests {
     use test_utils::recorder::Recording;
     use std::sync::Mutex;
     use std::sync::Arc;
-    use std::net::IpAddr;
-    use std::net::Ipv4Addr;
     use bootstrapper::CRYPT_DE_OPT;
     use sub_lib::dispatcher::InboundClientData;
     use sub_lib::stream_handler_pool::TransmitDataMsg;
-    use sub_lib::hopper::HopperTemporaryTransmitDataMsg;
     use std::cell::RefCell;
     use sub_lib::hopper::ExpiredCoresPackage;
     use sub_lib::hopper::IncipientCoresPackage;
@@ -167,7 +173,11 @@ mod tests {
     use actix::Arbiter;
     use test_utils::test_utils::cryptde;
     use sub_lib::cryptde::PlainData;
+    use sub_lib::neighborhood::DispatcherNodeQueryMessage;
+    use sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
     use sub_lib::crash_point::CrashPoint;
+    use std::net::Ipv4Addr;
+    use std::net::IpAddr;
 
     struct ActorFactoryMock<'a> {
         dispatcher: RefCell<Option<Recorder>>,
@@ -186,8 +196,7 @@ mod tests {
             let dispatcher_subs = DispatcherSubs {
                 ibcd_sub: addr.clone ().recipient::<InboundClientData>(),
                 bind: addr.clone ().recipient::<BindMessage>(),
-                from_proxy_server: addr.clone ().recipient::<TransmitDataMsg>(),
-                from_hopper: addr.clone ().recipient::<HopperTemporaryTransmitDataMsg>(),
+                from_dispatcher_client: addr.clone ().recipient::<TransmitDataMsg>(),
             };
             (dispatcher_subs, addr.recipient::<PoolBindMessage> ())
         }
@@ -221,16 +230,18 @@ mod tests {
                 node_query: addr.clone ().recipient::<NodeQueryMessage>(),
                 route_query: addr.clone ().recipient::<RouteQueryMessage>(),
                 from_hopper: addr.clone ().recipient::<ExpiredCoresPackage>(),
+                dispatcher_node_query: addr.clone().recipient::<DispatcherNodeQueryMessage>(),
             }
         }
 
-        fn make_and_start_stream_handler_pool(&self) -> StreamHandlerPoolSubs {
+        fn make_and_start_stream_handler_pool(&self, _: Vec<Box<DiscriminatorFactory>>) -> StreamHandlerPoolSubs {
             let addr: Addr<Syn, Recorder> = ActorFactoryMock::start_recorder(&self.stream_handler_pool);
             StreamHandlerPoolSubs {
                 add_sub: addr.clone ().recipient::<AddStreamMsg>(),
                 transmit_sub: addr.clone ().recipient::<TransmitDataMsg>(),
                 remove_sub: addr.clone ().recipient::<RemoveStreamMsg>(),
                 bind: addr.clone ().recipient::<PoolBindMessage>(),
+                node_query_response: addr.clone().recipient::<DispatcherNodeQueryResponse>(),
             }
         }
 
@@ -324,7 +335,8 @@ mod tests {
                 is_bootstrap_node: false,
                 local_ip_addr: IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
                 clandestine_port_list: vec! ()
-            }
+            },
+            clandestine_discriminator_factories: Vec::new(),
         };
         let subject = ActorSystemFactoryReal {};
         unsafe { CRYPT_DE_OPT = Some(CryptDENull::new()); }
@@ -355,7 +367,8 @@ mod tests {
                 is_bootstrap_node: false,
                 local_ip_addr: IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
                 clandestine_port_list: vec! ()
-            }
+            },
+            clandestine_discriminator_factories: Vec::new(),
         };
         let (tx, rx) = mpsc::channel();
         let system = System::new("SubstratumNode");

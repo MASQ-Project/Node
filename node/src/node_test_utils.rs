@@ -1,8 +1,5 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 #![cfg (test)]
-use std::io;
-use std::io::Error;
-use std::io::Write;
 use std::time::SystemTime;
 use std::time::Duration;
 use std::cell::RefCell;
@@ -13,13 +10,7 @@ use actix::Actor;
 use actix::Addr;
 use actix::Handler;
 use actix::Syn;
-use futures::sync::mpsc::SendError;
-use tokio::prelude::Async;
-use sub_lib::channel_wrappers::FuturesChannelFactory;
-use sub_lib::channel_wrappers::SenderWrapper;
-use sub_lib::channel_wrappers::ReceiverWrapper;
-use sub_lib::tokio_wrappers::ReadHalfWrapper;
-use sub_lib::tokio_wrappers::WriteHalfWrapper;
+use actix::MessageResult;
 use sub_lib::framer::Framer;
 use sub_lib::framer::FramedChunk;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
@@ -33,7 +24,7 @@ use masquerader::MasqueradeError;
 use null_masquerader::NullMasquerader;
 use stream_messages::*;
 use stream_handler_pool::StreamHandlerPoolSubs;
-use sub_lib::sequence_buffer::SequencedPacket;
+use sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 
 pub trait TestLogOwner {
     fn get_test_log (&self) -> Arc<Mutex<TestLog>>;
@@ -42,83 +33,6 @@ pub trait TestLogOwner {
 pub fn extract_log<T> (owner: T) -> (T, Arc<Mutex<TestLog>>) where T: TestLogOwner {
     let test_log = owner.get_test_log ();
     (owner, test_log)
-}
-
-pub struct ReadHalfWrapperMock {
-    pub poll_read_results: Vec<(Vec<u8>, Result<Async<usize>, io::Error>)>,
-}
-
-impl ReadHalfWrapper for ReadHalfWrapperMock {
-    fn poll_read(&mut self, buf: &mut [u8]) -> Result<Async<usize>, Error> {
-        let (to_buf, ret_val) = self.poll_read_results.remove(0);
-        buf.as_mut(). write(to_buf.as_slice()).is_ok();
-        ret_val
-    }
-}
-
-pub struct WriteHalfWrapperMock {
-    pub poll_write_params: Arc<Mutex<Vec<Vec<u8>>>>,
-    pub poll_write_results: Vec<(Result<Async<usize>, io::Error>)>,
-}
-
-impl WriteHalfWrapper for WriteHalfWrapperMock {
-    fn poll_write(&mut self, buf: &[u8]) -> Result<Async<usize>, io::Error> {
-        self.poll_write_params.lock().unwrap().push(buf.to_vec());
-        self.poll_write_results.remove (0)
-    }
-}
-
-pub struct ReceiverWrapperMock {
-    pub poll_results: Vec<Result<Async<Option<SequencedPacket>>, ()>>
-}
-
-impl ReceiverWrapper for ReceiverWrapperMock {
-    fn poll(&mut self) -> Result<Async<Option<SequencedPacket>>, ()> {
-        self.poll_results.remove(0)
-    }
-}
-
-impl ReceiverWrapperMock {
-    pub fn new() -> ReceiverWrapperMock {
-        ReceiverWrapperMock {
-            poll_results: vec!()
-        }
-    }
-}
-
-pub struct SenderWrapperMock {
-    pub unbounded_send_params: Arc<Mutex<Vec<SequencedPacket>>>,
-    pub unbounded_send_results: Vec<Result<(), SendError<SequencedPacket>>>
-}
-
-impl SenderWrapper for SenderWrapperMock {
-    fn unbounded_send(&mut self, data: SequencedPacket) -> Result<(), SendError<SequencedPacket>> {
-        self.unbounded_send_params.lock().unwrap().push(data);
-        self.unbounded_send_results.remove(0)
-    }
-}
-
-impl SenderWrapperMock {
-    pub fn new() -> SenderWrapperMock {
-        SenderWrapperMock {
-            unbounded_send_params: Arc::new(Mutex::new(vec!())),
-            unbounded_send_results: vec!()
-        }
-    }
-}
-
-pub struct FuturesChannelFactoryMock {
-    pub results: Vec<(Box<SenderWrapper>, Box<ReceiverWrapper>)>
-}
-
-impl FuturesChannelFactory for FuturesChannelFactoryMock {
-    fn make(&mut self) -> (Box<SenderWrapper>, Box<ReceiverWrapper>) {
-        if self.results.is_empty() {
-            (Box::new(SenderWrapperMock::new()), Box::new(ReceiverWrapperMock::new()))
-        } else {
-            self.results.remove(0)
-        }
-    }
 }
 
 pub struct MasqueraderMock {
@@ -229,10 +143,11 @@ impl NullDiscriminatorFactory {
 }
 
 impl Handler<AddStreamMsg> for Recorder {
-    type Result = ();
+    type Result = MessageResult<AddStreamMsg>;
 
-    fn handle(&mut self, msg: AddStreamMsg, _ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: AddStreamMsg, _ctx: &mut Self::Context) -> <Self as Handler<AddStreamMsg>>::Result {
         self.record (msg);
+        MessageResult (StreamAdded {})
     }
 }
 
@@ -265,5 +180,6 @@ pub fn make_stream_handler_pool_subs_from(stream_handler_pool_opt: Option<Record
         transmit_sub: addr.clone ().recipient::<TransmitDataMsg>(),
         remove_sub: addr.clone ().recipient::<RemoveStreamMsg>(),
         bind: addr.clone ().recipient::<PoolBindMessage>(),
+        node_query_response: addr.clone().recipient::<DispatcherNodeQueryResponse>(),
     }
 }

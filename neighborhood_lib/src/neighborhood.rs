@@ -34,6 +34,8 @@ use gossip_acceptor::GossipAcceptorReal;
 use sub_lib::neighborhood::RouteType;
 use sub_lib::neighborhood::TargetType;
 use sub_lib::neighborhood::sentinel_ip_addr;
+use sub_lib::neighborhood::DispatcherNodeQueryMessage;
+use sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 
 pub struct Neighborhood {
     cryptde: &'static CryptDE,
@@ -92,6 +94,35 @@ impl Handler<NodeQueryMessage> for Neighborhood {
             },
             None => None
         })
+    }
+}
+
+impl Handler<DispatcherNodeQueryMessage> for Neighborhood {
+    type Result = ();
+
+    fn handle(&mut self, msg: DispatcherNodeQueryMessage, _ctx: &mut Self::Context) -> <Self as Handler<DispatcherNodeQueryMessage>>::Result {
+        let node_record_ref_opt = match msg.query {
+            NodeQueryMessage::IpAddress(ip_addr) => self.neighborhood_database.node_by_ip(&ip_addr),
+            NodeQueryMessage::PublicKey(key) => self.neighborhood_database.node_by_key(&key)
+        };
+
+        let node_descriptor = match node_record_ref_opt {
+            Some(node_record_ref) => {
+                Some(NodeDescriptor::new(node_record_ref.public_key().clone(), match node_record_ref.node_addr_opt() {
+                    Some(node_addr_ref) => Some(node_addr_ref.clone()),
+                    None => None
+                }))
+            },
+            None => None
+        };
+
+        let response = DispatcherNodeQueryResponse {
+            result: node_descriptor,
+            context: msg.context,
+        };
+
+        msg.recipient.try_send(response).expect("Dispatcher's StreamHandlerPool is dead");
+        ()
     }
 }
 
@@ -207,6 +238,7 @@ impl Neighborhood {
             node_query: addr.clone ().recipient::<NodeQueryMessage>(),
             route_query: addr.clone ().recipient::<RouteQueryMessage>(),
             from_hopper: addr.clone ().recipient::<ExpiredCoresPackage>(),
+            dispatcher_node_query: addr.clone().recipient::<DispatcherNodeQueryMessage>(),
         }
     }
 
@@ -314,7 +346,7 @@ mod tests {
     use actix::Recipient;
     use actix::System;
     use actix::msgs;
-    use futures::future::Future;
+    use tokio::prelude::Future;
     use serde_cbor;
     use test_utils::test_utils::cryptde;
     use neighborhood_test_utils::make_node_record;
@@ -335,6 +367,10 @@ mod tests {
     use test_utils::test_utils::TestLogHandler;
     use gossip::GossipNodeRecord;
     use sub_lib::neighborhood::sentinel_ip_addr;
+    use sub_lib::stream_handler_pool::TransmitDataMsg;
+    use sub_lib::dispatcher::Endpoint;
+    use test_utils::recorder::Recording;
+    use test_utils::recorder::make_recorder;
 
     #[test]
     #[should_panic (expected = "A SubstratumNode without an --ip setting is not decentralized and cannot have any --neighbor settings")]
@@ -1145,5 +1181,222 @@ mod tests {
 
     fn single_edge_func (db: &mut NeighborhoodDatabase, a: &NodeRecord, b: &NodeRecord) {
         db.add_neighbor(a.public_key(), b.public_key()).unwrap();
+    }
+
+    #[test]
+    fn neighborhood_sends_node_query_response_with_none_when_initially_configured_with_no_data () {
+        let cryptde = cryptde ();
+        let (recorder, awaiter, recording_arc) = make_recorder();
+        thread::spawn(move || {
+            let system = System::new ("responds_with_none_when_initially_configured_with_no_data");
+
+            let addr: Addr<Syn, Recorder> = recorder.start();
+            let recipient: Recipient<Syn, DispatcherNodeQueryResponse> = addr.recipient::<DispatcherNodeQueryResponse>();
+
+            let subject = Neighborhood::new (cryptde, NeighborhoodConfig {
+                neighbor_configs: vec! (),
+                bootstrap_configs: vec! (),
+                is_bootstrap_node: false,
+                local_ip_addr: sentinel_ip_addr (),
+                clandestine_port_list: vec! (),
+            });
+            let addr: Addr<Syn, Neighborhood> = subject.start ();
+            let sub: Recipient<Syn, DispatcherNodeQueryMessage> = addr.recipient::<DispatcherNodeQueryMessage> ();
+
+            sub.try_send(DispatcherNodeQueryMessage {
+                query: NodeQueryMessage::PublicKey (Key::new (&b"booga"[..])),
+                context: TransmitDataMsg {
+                    endpoint: Endpoint::Key(cryptde.public_key()),
+                    last_data: false,
+                    sequence_number: None,
+                    data: Vec::new(),
+                },
+                recipient,
+            }).unwrap();
+
+            system.run ();
+        });
+
+        awaiter.await_message_count(1);
+        let recording = recording_arc.lock().unwrap();
+        assert_eq!(recording.len(), 1);
+        let message = recording.get_record::<DispatcherNodeQueryResponse>(0);
+        assert_eq!(message.result, None);
+    }
+
+    #[test]
+    fn neighborhood_sends_node_query_response_with_none_when_key_query_matches_no_configured_data () {
+        let cryptde = cryptde ();
+        let (recorder, awaiter, recording_arc) = make_recorder();
+        thread::spawn(move || {
+            let system = System::new ("neighborhood_sends_node_query_response_with_none_when_key_query_matches_no_configured_data");
+            let addr: Addr<Syn, Recorder> = recorder.start();
+            let recipient: Recipient<Syn, DispatcherNodeQueryResponse> = addr.recipient::<DispatcherNodeQueryResponse>();
+
+            let subject = Neighborhood::new(cryptde, NeighborhoodConfig {
+                neighbor_configs: vec! (
+                    (Key::new (&b"booga"[..]), NodeAddr::new (&IpAddr::from_str ("1.2.3.4").unwrap(), &vec! (1234, 2345))),
+                ),
+                bootstrap_configs: vec! (),
+                is_bootstrap_node: false,
+                local_ip_addr: IpAddr::from_str ("5.4.3.2").unwrap (),
+                clandestine_port_list: vec! (5678),
+            });
+            let addr: Addr<Syn, Neighborhood> = subject.start ();
+            let sub: Recipient<Syn, DispatcherNodeQueryMessage> = addr.recipient::<DispatcherNodeQueryMessage> ();
+
+            sub.try_send(DispatcherNodeQueryMessage {
+                query: NodeQueryMessage::PublicKey(Key::new(&b"blah"[..])),
+                context: TransmitDataMsg {
+                    endpoint: Endpoint::Key(cryptde.public_key()),
+                    last_data: false,
+                    sequence_number: None,
+                    data: Vec::new(),
+                },
+                recipient
+            }).unwrap();
+
+            system.run ();
+        });
+
+        awaiter.await_message_count(1);
+        let recording = recording_arc.lock().unwrap();
+        assert_eq!(recording.len(), 1);
+        let message = recording.get_record::<DispatcherNodeQueryResponse>(0);
+        assert_eq!(message.result, None);
+    }
+
+    #[test]
+    fn neighborhood_sends_node_query_response_with_result_when_key_query_matches_configured_data () {
+        let cryptde = cryptde ();
+        let (recorder, awaiter, recording_arc) = make_recorder();
+        let one_neighbor = make_node_record(2345, true, false);
+        let another_neighbor = make_node_record(3456, true, false);
+        let another_neighbor_a = another_neighbor.clone();
+        let context = TransmitDataMsg {
+            endpoint: Endpoint::Key(cryptde.public_key()),
+            last_data: false,
+            sequence_number: None,
+            data: Vec::new(),
+        };
+        let context_a = context.clone();
+        thread::spawn(move || {
+            let system = System::new("neighborhood_sends_node_query_response_with_result_when_key_query_matches_configured_data");
+            let addr: Addr<Syn, Recorder> = recorder.start();
+            let recipient = addr.recipient::<DispatcherNodeQueryResponse>();
+            let subject = Neighborhood::new(cryptde, NeighborhoodConfig {
+                neighbor_configs: vec!(
+                    node_record_to_pair(&one_neighbor),
+                    node_record_to_pair(&another_neighbor),
+                ),
+                bootstrap_configs: vec!(),
+                is_bootstrap_node: false,
+                local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
+                clandestine_port_list: vec!(5678),
+            });
+            let addr: Addr<Syn, Neighborhood> = subject.start();
+            let sub: Recipient<Syn, DispatcherNodeQueryMessage> = addr.recipient::<DispatcherNodeQueryMessage>();
+
+            sub.try_send(DispatcherNodeQueryMessage {
+                query: NodeQueryMessage::PublicKey(another_neighbor.public_key().clone()),
+                context,
+                recipient
+            }).unwrap();
+
+            system.run();
+        });
+
+        awaiter.await_message_count(1);
+        let message = Recording::get::<DispatcherNodeQueryResponse>(&recording_arc, 0);
+        assert_eq!(message.result.unwrap(), NodeDescriptor::new (another_neighbor_a.public_key().clone(), Some(another_neighbor_a.node_addr_opt().unwrap().clone())));
+        assert_eq!(message.context, context_a);
+    }
+
+    #[test]
+    fn neighborhood_sends_node_query_response_with_none_when_ip_address_query_matches_no_configured_data () {
+        let cryptde = cryptde ();
+        let (recorder, awaiter, recording_arc) = make_recorder();
+        thread::spawn(move || {
+            let system = System::new("responds_with_none_when_initially_configured_with_no_data");
+            let addr: Addr<Syn, Recorder> = recorder.start();
+            let recipient: Recipient<Syn, DispatcherNodeQueryResponse> = addr.recipient::<DispatcherNodeQueryResponse>();
+            let subject = Neighborhood::new(cryptde, NeighborhoodConfig {
+                neighbor_configs: vec!(
+                    (Key::new(&b"booga"[..]), NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec!(1234, 2345))),
+                ),
+                bootstrap_configs: vec!(),
+                is_bootstrap_node: false,
+                local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
+                clandestine_port_list: vec!(5678),
+            });
+            let addr: Addr<Syn, Neighborhood> = subject.start();
+            let sub: Recipient<Syn, DispatcherNodeQueryMessage> = addr.recipient::<DispatcherNodeQueryMessage>();
+
+            sub.try_send(DispatcherNodeQueryMessage {
+                query: NodeQueryMessage::IpAddress(IpAddr::from_str("2.3.4.5").unwrap()),
+                context: TransmitDataMsg {
+                    endpoint: Endpoint::Key(cryptde.public_key()),
+                    last_data: false,
+                    sequence_number: None,
+                    data: Vec::new(),
+                },
+                recipient
+            }).unwrap();
+
+            system.run();
+        });
+
+        awaiter.await_message_count(1);
+        let recording = recording_arc.lock().unwrap();
+        assert_eq!(recording.len(), 1);
+        let message = recording.get_record::<DispatcherNodeQueryResponse>(0);
+        assert_eq!(message.result, None);
+    }
+
+    #[test]
+    fn neighborhood_sends_node_query_response_with_result_when_ip_address_query_matches_configured_data () {
+        let cryptde = cryptde ();
+        let (recorder, awaiter, recording_arc) = make_recorder();
+        let node_record = make_node_record(1234, true, false);
+        let node_record_a = node_record.clone();
+        let context =  TransmitDataMsg {
+            endpoint: Endpoint::Key(cryptde.public_key()),
+            last_data: false,
+            sequence_number: None,
+            data: Vec::new(),
+        };
+        let context_a = context.clone();
+        thread::spawn(move || {
+            let system = System::new("responds_with_none_when_initially_configured_with_no_data");
+            let addr: Addr<Syn, Recorder> = recorder.start();
+            let recipient: Recipient<Syn, DispatcherNodeQueryResponse> = addr.recipient::<DispatcherNodeQueryResponse>();
+            let another_node_record = make_node_record(2345, true, false);
+            let subject = Neighborhood::new(cryptde, NeighborhoodConfig {
+                neighbor_configs: vec!(
+                    (node_record.public_key().clone(), node_record.node_addr_opt().unwrap().clone()),
+                    (another_node_record.public_key().clone(), another_node_record.node_addr_opt().unwrap().clone()),
+                ),
+                bootstrap_configs: vec!(),
+                is_bootstrap_node: false,
+                local_ip_addr: node_record.node_addr_opt().as_ref().unwrap().ip_addr(),
+                clandestine_port_list: node_record.node_addr_opt().as_ref().unwrap().ports().clone(),
+            });
+            let addr: Addr<Syn, Neighborhood> = subject.start();
+            let sub: Recipient<Syn, DispatcherNodeQueryMessage> = addr.recipient::<DispatcherNodeQueryMessage>();
+
+            sub.try_send(DispatcherNodeQueryMessage {
+                query: NodeQueryMessage::IpAddress(IpAddr::from_str("1.2.3.4").unwrap()),
+                context,
+                recipient
+            }).unwrap();
+
+            system.run();
+        });
+
+        awaiter.await_message_count(1);
+        let message = Recording::get::<DispatcherNodeQueryResponse>(&recording_arc, 0);
+
+        assert_eq! (message.result.unwrap(), NodeDescriptor::new (node_record_a.public_key().clone(), Some(node_record_a.node_addr_opt().unwrap().clone())));
+        assert_eq!(message.context, context_a);
     }
 }

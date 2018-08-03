@@ -1,11 +1,33 @@
-#!/bin/bash
+#!/bin/bash -xv
 # Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 DOCKER_DIR="$( cd "$( dirname "$0" )" && pwd )"
 
-PORT_LISTS=$@
+PORT_LISTS=""
 STARTUP_RETRY_MAX=5
 CONTAINER_INDEX=1
+KNOWN_NEIGHBORS=""
+
+function parse_command_line() {
+    while [[ $# -gt 0 ]]
+    do
+    key="$1"
+
+    case $key in
+        -n|--neighbor)
+        KNOWN_NEIGHBORS="$KNOWN_NEIGHBORS --neighbor $2"
+        shift # past argument
+        shift # past value
+        ;;
+        *)    # unknown option
+        PORT_LISTS="$PORT_LISTS $1" # save it in an array for later
+        shift # past argument
+        ;;
+    esac
+    done
+}
+
+parse_command_line $@
 
 # Docker-beside-Docker: Running this script requires building and starting Docker containers that refer to an
 # existing executable on the host system. If you're not running in a Docker container, the executable you want
@@ -21,7 +43,6 @@ else
     COMMAND_DIR="$HOST_NODE_PARENT_DIR/node/target/release"
 fi
 
-KNOWN_NEIGHBORS=""
 
 function wait_for_startup() {
     local IP="$1"
@@ -51,7 +72,7 @@ function start_node() {
     echo "Initiating start of $CONTAINER_NAME on $CONTAINER_IP"
     local COMMAND="/node_root/node/SubstratumNode"
     # TODO: Trash IP used here to make the test pass; fix this
-    local ARGS="--dns_servers 1.1.1.1 --ip $CONTAINER_IP --neighbor R29vZEtleQ;1.2.3.4;1234,2345,3456 --port_count 1 --log_level trace $KNOWN_NEIGHBORS"
+    local ARGS="--dns_servers 1.1.1.1 --ip $CONTAINER_IP --neighbor R29vZEtleQ:1.2.3.4:1234,2345,3456 --port_count 1 --log_level trace $KNOWN_NEIGHBORS"
     local DOCKER_RUN="docker run --detach --ip $CONTAINER_IP --dns 127.0.0.1 --rm --name $CONTAINER_NAME --net integration_net -v $COMMAND_DIR:/node_root/node test_node_image $COMMAND $ARGS"
     echo "$DOCKER_RUN"
     $DOCKER_RUN
@@ -69,7 +90,7 @@ function update_known_neighbors() {
     local NEIGHBOR_IP="$2"
     local NEIGHBOR_PORT_LIST="$3" # Temporary
     local NEIGHBOR_KEY="$(docker logs "$NEIGHBOR_NAME" | head -n 2 | tail -n 1 | cut -f5 -d' ')"
-    local NEIGHBOR_PARAM="--neighbor $NEIGHBOR_KEY;$NEIGHBOR_IP;$NEIGHBOR_PORT_LIST"
+    local NEIGHBOR_PARAM="--neighbor $NEIGHBOR_KEY:$NEIGHBOR_IP:$NEIGHBOR_PORT_LIST"
     KNOWN_NEIGHBORS="$KNOWN_NEIGHBORS $NEIGHBOR_PARAM"
 }
 

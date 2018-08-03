@@ -18,21 +18,23 @@ use sub_lib::dispatcher::InboundClientData;
 use sub_lib::hop::Hop;
 use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::hopper::HopperSubs;
-use sub_lib::hopper::HopperTemporaryTransmitDataMsg;
 use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::logger::Logger;
 use sub_lib::peer_actors::BindMessage;
 use sub_lib::route::Route;
 use sub_lib::utils::NODE_MAILBOX_CAPACITY;
+use sub_lib::stream_handler_pool::TransmitDataMsg;
+use std::net::SocketAddr;
+use std::str::FromStr;
 
 pub struct Hopper {
     cryptde: &'static CryptDE,
     is_bootstrap_node: bool,
     to_proxy_server: Option<Recipient<Syn, ExpiredCoresPackage>>,
     to_proxy_client: Option<Recipient<Syn, ExpiredCoresPackage>>,
-    // TODO when we are decentralized, change this to a TransmitDataMsg
-    to_dispatcher: Option<Recipient<Syn, HopperTemporaryTransmitDataMsg>>,
+    to_dispatcher: Option<Recipient<Syn, TransmitDataMsg>>,
     logger: Logger,
+    to_self: Option<Recipient<Syn, InboundClientData>>,
 }
 
 impl Actor for Hopper {
@@ -46,7 +48,8 @@ impl Handler<BindMessage> for Hopper {
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.to_proxy_server = Some(msg.peer_actors.proxy_server.from_hopper);
         self.to_proxy_client = Some(msg.peer_actors.proxy_client.from_hopper);
-        self.to_dispatcher = Some(msg.peer_actors.dispatcher.from_hopper);
+        self.to_dispatcher = Some(msg.peer_actors.dispatcher.from_dispatcher_client);
+        self.to_self = Some(msg.peer_actors.hopper.from_dispatcher);
         ()
     }
 }
@@ -76,15 +79,28 @@ impl Handler<IncipientCoresPackage> for Hopper {
             }
         };
 
-        // TODO when we are decentralized, change this to a TransmitDataMsg
-        let transmit_msg = HopperTemporaryTransmitDataMsg {
-            endpoint: Endpoint::Key(key),
-            last_data: false, // Hopper-to-Hopper streams are never remotely killed
-            data: encrypted_package.data,
-        };
+        if self.cryptde.public_key() == key { // to allow 0-hop Routes
+            let inbound_client_data = InboundClientData {
+                socket_addr: SocketAddr::from_str("1.2.3.4:5678").expect("Something terrible has happened"), // irrelevant
+                origin_port: None, // irrelevant
+                last_data: false, // irrelevant
+                sequence_number: None,
+                is_clandestine: true,
+                data: encrypted_package.data,
+            };
+            self.logger.debug(format!("Sending InboundClientData with {}-byte payload to Hopper", inbound_client_data.data.len()));
+            self.to_self.as_ref().expect("Hopper unbound in Hopper").try_send(inbound_client_data).expect("Hopper is dead");
+        } else {
+            let transmit_msg = TransmitDataMsg {
+                endpoint: Endpoint::Key(key),
+                last_data: false, // Hopper-to-Hopper streams are never remotely killed
+                data: encrypted_package.data,
+                sequence_number: None,
+            };
 
-        self.logger.debug (format! ("Sending TransmitDataMsg with {}-byte payload to Dispatcher", transmit_msg.data.len ()));
-        self.to_dispatcher.as_ref().expect("Dispatcher unbound in Hopper").try_send(transmit_msg).expect("Dispatcher is dead");
+            self.logger.debug(format!("Sending TransmitDataMsg with {}-byte payload to Dispatcher", transmit_msg.data.len()));
+            self.to_dispatcher.as_ref().expect("Dispatcher unbound in Hopper").try_send(transmit_msg).expect("Dispatcher is dead");
+        }
         ()
     }
 }
@@ -142,6 +158,7 @@ impl Hopper {
             to_proxy_client: None,
             to_dispatcher: None,
             logger: Logger::new ("Hopper"),
+            to_self: None,
         }
     }
 
@@ -153,8 +170,7 @@ impl Hopper {
         }
     }
 
-    // TODO when we are decentralized, change this type to a TransmitDataMsg
-    pub fn to_transmit_msg (&self, live_package: LiveCoresPackage, last_data: bool) -> Result<HopperTemporaryTransmitDataMsg, CryptdecError> {
+    pub fn to_transmit_msg (&self, live_package: LiveCoresPackage, last_data: bool) -> Result<TransmitDataMsg, CryptdecError> {
         let (next_key, next_live_package) = match live_package.to_next_live (self.cryptde.borrow ()) {
             // crashpoint - log error and return None?
             Err (_) => unimplemented! (),
@@ -170,11 +186,11 @@ impl Hopper {
             Err (_) => unimplemented! (),
             Ok (p) => p
         };
-        // TODO when we are decentralized, change this to a TransmitDataMsg
-        Ok (HopperTemporaryTransmitDataMsg {
+        Ok (TransmitDataMsg {
             endpoint: Endpoint::Key(next_key),
             last_data,
-            data: next_live_package_enc.data
+            data: next_live_package_enc.data,
+            sequence_number: None,
         })
     }
 
@@ -212,7 +228,7 @@ impl LiveCoresPackage {
         let mut route = incipient.route.clone ();
         let next_hop = match route.shift (&cryptde.private_key (), cryptde) {
             // crashpoint - should discuss as a team
-            None => unimplemented!(),
+            None => unimplemented!("no next_hop shifted out of route"),
             Some (h) => h
         };
 
@@ -261,7 +277,6 @@ mod tests {
     use sub_lib::cryptde::PlainData;
     use sub_lib::dispatcher::Component;
     use sub_lib::hopper::ExpiredCoresPackage;
-    use sub_lib::hopper::HopperTemporaryTransmitDataMsg;
     use sub_lib::hopper::IncipientCoresPackage;
     use sub_lib::route::Route;
     use sub_lib::route::RouteSegment;
@@ -274,6 +289,8 @@ mod tests {
     use test_utils::test_utils::make_meaningless_route;
     use test_utils::test_utils::init_test_logging;
     use test_utils::test_utils::TestLogHandler;
+    use test_utils::test_utils::zero_hop_route;
+    use test_utils::recorder::make_recorder;
 
     #[test]
     fn live_cores_package_can_be_constructed_from_scratch () {
@@ -340,14 +357,15 @@ mod tests {
         });
         dispatcher_awaiter.await_message_count(1);
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
-        let record = dispatcher_recording.get_record::<HopperTemporaryTransmitDataMsg>(0);
+        let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
         let expected_lcp = LiveCoresPackage::from_incipient (incipient_cores_package_a, cryptde).0;
         let expected_lcp_ser = PlainData::new (&serde_cbor::ser::to_vec (&expected_lcp).unwrap ());
         let expected_lcp_enc = cryptde.encode (&destination_key, &expected_lcp_ser).unwrap ();
-        assert_eq! (*record, HopperTemporaryTransmitDataMsg {
+        assert_eq! (*record, TransmitDataMsg {
             endpoint: Endpoint::Key (destination_key.clone ()),
             last_data: false,
-            data: expected_lcp_enc.data
+            sequence_number: None,
+            data: expected_lcp_enc.data,
         });
     }
 
@@ -368,6 +386,7 @@ mod tests {
             origin_port: None,
             sequence_number: None,
             last_data: false,
+            is_clandestine: false,
             data: data_enc.data
         };
         thread::spawn(move || {
@@ -404,6 +423,7 @@ mod tests {
             socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             origin_port: None,
             last_data: false,
+            is_clandestine: false,
             sequence_number: None,
             data: data_enc.data
         };
@@ -438,6 +458,7 @@ mod tests {
             socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             origin_port: None,
             last_data: false,
+            is_clandestine: false,
             sequence_number: None,
             data: data_enc.data
         };
@@ -466,6 +487,7 @@ mod tests {
             origin_port: None,
             sequence_number: None,
             last_data: false,
+            is_clandestine: false,
             data: data_enc.data
         };
         let system = System::new("refuses_data_for_proxy_server_if_is_bootstrap_node");
@@ -494,6 +516,7 @@ mod tests {
             socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             origin_port: None,
             last_data: false,
+            is_clandestine: true,
             sequence_number: None,
             data: data_enc.data
         };
@@ -527,6 +550,7 @@ mod tests {
             socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             origin_port: None,
             last_data: true,
+            is_clandestine: false,
             sequence_number: None,
             data: data_enc.data
         };
@@ -543,14 +567,15 @@ mod tests {
         });
         dispatcher_awaiter.await_message_count(1);
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
-        let record = dispatcher_recording.get_record::<HopperTemporaryTransmitDataMsg>(0);
+        let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
         let expected_lcp = lcp_a.to_next_live (cryptde).unwrap ().1;
         let expected_lcp_ser = PlainData::new (&serde_cbor::ser::to_vec (&expected_lcp).unwrap ());
         let expected_lcp_enc = cryptde.encode (&next_key, &expected_lcp_ser).unwrap ();
-        assert_eq! (*record, HopperTemporaryTransmitDataMsg {
+        assert_eq! (*record, TransmitDataMsg {
             endpoint: Endpoint::Key (next_key.clone ()),
             last_data: true,
-            data: expected_lcp_enc.data
+            sequence_number: None,
+            data: expected_lcp_enc.data,
         });
     }
 
@@ -570,6 +595,7 @@ mod tests {
             socket_addr,
             origin_port: None,
             last_data: false,
+            is_clandestine: false,
             sequence_number: None,
             data: encrypted_package,
         };
@@ -599,6 +625,7 @@ mod tests {
             socket_addr,
             origin_port: None,
             last_data: false,
+            is_clandestine: false,
             sequence_number: None,
             data: encrypted_package,
         };
@@ -643,5 +670,36 @@ mod tests {
         let deserialized = serde_cbor::de::from_slice::<LiveCoresPackage> (&serialized[..]).unwrap ();
 
         assert_eq! (deserialized, original);
+    }
+
+    #[test]
+    fn hopper_sends_incipient_cores_package_to_recipient_component_when_next_hop_key_is_the_same_as_the_public_key_of_this_node() {
+        let cryptde = cryptde();
+        let (component, component_awaiter, component_recording_arc) = make_recorder();
+        let destination_key = cryptde.public_key();
+        let route = zero_hop_route(&cryptde.public_key (), cryptde);
+        let payload = PlainData::new (&b"abcd"[..]);
+        let incipient_cores_package = IncipientCoresPackage::new (route,
+                                                                  payload, &destination_key);
+        let incipient_cores_package_a = incipient_cores_package.clone ();
+        let (lcp, _key) = LiveCoresPackage::from_incipient(incipient_cores_package_a, cryptde);
+        thread::spawn (move || {
+            let system = System::new ("hopper_sends_incipient_cores_package_to_recipient_component_when_next_hop_key_is_the_same_as_the_public_key_of_this_node");
+            let mut peer_actors = make_peer_actors_from(None, None, None, Some(component), None);
+            let subject = Hopper::new (cryptde, false);
+            let subject_addr: Addr<Syn, Hopper> = subject.start ();
+            let subject_subs = Hopper::make_subs_from(&subject_addr);
+            peer_actors.hopper = subject_subs;
+            subject_addr.try_send (BindMessage {peer_actors}).unwrap ();
+
+            subject_addr.try_send (incipient_cores_package).unwrap ();
+
+            system.run ();
+        });
+        component_awaiter.await_message_count(1);
+        let component_recording = component_recording_arc.lock().unwrap();
+        let record = component_recording.get_record::<ExpiredCoresPackage>(0);
+        let expected_ecp = lcp.to_expired (cryptde);
+        assert_eq! (*record, expected_ecp);
     }
 }

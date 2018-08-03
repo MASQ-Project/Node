@@ -6,6 +6,7 @@ extern crate serde_cbor;
 #[macro_use]
 extern crate serde_derive;
 extern crate sub_lib;
+extern crate tokio;
 
 #[cfg(test)]
 extern crate test_utils;

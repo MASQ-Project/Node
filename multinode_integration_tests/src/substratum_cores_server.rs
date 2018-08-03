@@ -7,6 +7,7 @@ use std::net::TcpListener;
 use serde_cbor;
 use hopper_lib::hopper::LiveCoresPackage;
 use sub_lib::cryptde::CryptDE;
+use sub_lib::cryptde::CryptData;
 use std::io;
 use std::io::Read;
 use std::thread;
@@ -57,7 +58,7 @@ pub struct SubstratumCoresServer<'a> {
 
 impl<'a> SubstratumCoresServer<'a> {
     fn try_bind (port: u16) -> Option<TcpListener> {
-        for mut last_byte in 1..10 {
+        for last_byte in 1..10 {
             let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(172, 18, 0, last_byte)), port);
             match TcpListener::bind(socket_addr) {
                 Err(ref e) if e.kind() == ErrorKind::AddrNotAvailable => continue,
@@ -114,24 +115,29 @@ impl<'a> SubstratumCoresServer<'a> {
         self.socket_addr
     }
 
-    pub fn wait_for_package(&mut self) -> ExpiredCoresPackage {
-        let chunk = self.get_next_chunk ();
-        let live_cores_package = serde_cbor::de::from_slice::<LiveCoresPackage> (&chunk.chunk[..]).expect (format! ("Error deserializing LCP from {:?}", chunk.chunk).as_str ());
+    pub fn wait_for_package(&mut self, timeout: Duration) -> ExpiredCoresPackage {
+        let chunk = self.get_next_chunk (timeout);
+        let decoded_chunk = self.cryptde.decode(&self.cryptde.private_key(), &CryptData::new(&chunk.chunk[..])).unwrap();
+        let live_cores_package = serde_cbor::de::from_slice::<LiveCoresPackage> (&decoded_chunk.data) .expect (format! ("Error deserializing LCP from {:?}", chunk.chunk).as_str ());
+        println!("Live: {:?}", live_cores_package.payload);
+        println!("Private Key: {:?}", self.cryptde.private_key());
         live_cores_package.to_expired (self.cryptde)
     }
 
-    fn get_next_chunk (&mut self) -> UnmaskedChunk {
+    fn get_next_chunk (&mut self, timeout: Duration) -> UnmaskedChunk {
         match self.discriminators.take_chunk () {
             None => (),
             Some (chunk) => return chunk
         }
         loop {
-            println! ("Test server waiting for data from client");
-            match self.io_receiver.recv () {
+            match self.io_receiver.recv_timeout (timeout) {
                 Err (e) => panic! ("{:?}", e),
                 Ok (result) => match result {
                     Err(e) => panic!("{:?}", e),
-                    Ok(buf) => self.discriminators.add_data(&buf[..]),
+                    Ok(buf) => {
+                        println!("got some buf: {:?}", buf);
+                        self.discriminators.add_data(&buf[..])
+                    },
                 }
             }
             match self.discriminators.take_chunk () {

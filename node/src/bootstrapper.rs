@@ -2,6 +2,7 @@
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::vec::Vec;
 use base64;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
@@ -25,6 +26,8 @@ use sub_lib::neighborhood::sentinel_ip_addr;
 use sub_lib::node_addr::NodeAddr;
 use sub_lib::parameter_finder::ParameterFinder;
 use sub_lib::socket_server::SocketServer;
+use std::net::Ipv4Addr;
+use discriminator::DiscriminatorFactory;
 
 pub static mut CRYPT_DE_OPT: Option<CryptDENull> = None;
 
@@ -33,6 +36,24 @@ pub struct BootstrapperConfig {
     pub dns_servers: Vec<SocketAddr>,
     pub neighborhood_config: NeighborhoodConfig,
     pub crash_point: CrashPoint,
+    pub clandestine_discriminator_factories: Vec<Box<DiscriminatorFactory>>,
+}
+
+impl BootstrapperConfig {
+    pub fn new () -> BootstrapperConfig {
+        BootstrapperConfig {
+            dns_servers: vec! (),
+            neighborhood_config: NeighborhoodConfig {
+                neighbor_configs: vec! (),
+                bootstrap_configs: vec! (),
+                is_bootstrap_node: false,
+                local_ip_addr: IpAddr::V4 (Ipv4Addr::new (0, 0, 0, 0)),
+                clandestine_port_list: vec! (),
+            },
+            crash_point: CrashPoint::None,
+            clandestine_discriminator_factories: vec! (),
+        }
+    }
 }
 
 // TODO: Consider splitting this into a piece that's meant for being root and a piece that's not.
@@ -65,25 +86,23 @@ impl SocketServer for Bootstrapper {
     fn initialize_as_privileged(&mut self, args: &Vec<String>, streams: &mut StdStreams) {
         let mut configuration = Configuration::new ();
         configuration.establish (args);
+        let cryptde_ref = Bootstrapper::initialize_cryptde();
+        let mut config = BootstrapperConfig::new ();
+        Bootstrapper::parse_args (args, &mut config);
+        Bootstrapper::add_clandestine_port_info (&configuration, &mut config);
+        Bootstrapper::report_local_descriptor(cryptde_ref, config.neighborhood_config.local_ip_addr,
+            config.neighborhood_config.clandestine_port_list.clone(), streams);
+        self.config = Some(config);
         self.listener_handlers = FuturesUnordered::<Box<ListenerHandler<Item=(), Error=()>>>::new();
 
-        let clandestine_ports = configuration.clandestine_ports ();
-        configuration.all_ports().iter ().for_each (|port_ref| {
-            let mut listener_handler =
-                self.listener_handler_factory.make ();
-            let discriminator_factories = configuration.take_discriminator_factories_for (*port_ref);
-            match listener_handler.bind_port_and_discriminator_factories (*port_ref, discriminator_factories) {
+        configuration.port_configurations.iter().for_each(|(port, port_configuration)| {
+            let mut listener_handler = self.listener_handler_factory.make();
+            match listener_handler.bind_port_and_configuration(*port, port_configuration.clone ()) {
                 Ok(()) => (),
-                Err(e) => panic! ("Could not listen on port {}: {}", port_ref, e.to_string ())
+                Err(e) => panic! ("Could not listen on port {}: {}", port, e.to_string ())
             }
             self.listener_handlers.push(listener_handler);
         });
-
-        let cryptde_ref = Bootstrapper::initialize_cryptde();
-        let config = Bootstrapper::parse_args (args, clandestine_ports);
-        Bootstrapper::report_local_descriptor(cryptde_ref, config.neighborhood_config.local_ip_addr,
-                                              config.neighborhood_config.clandestine_port_list.clone (), streams);
-        self.config = Some (config);
     }
 
     fn initialize_as_unprivileged(&mut self) {
@@ -112,23 +131,19 @@ impl Bootstrapper {
         }
     }
 
-    fn parse_args (args: &Vec<String>, ports: Vec<u16>) -> BootstrapperConfig {
+    fn parse_args (args: &Vec<String>, config: &mut BootstrapperConfig) {
         let finder = ParameterFinder::new(args.clone ());
         let local_ip_addr = Bootstrapper::parse_ip (&finder);
-        BootstrapperConfig {
-            crash_point: Bootstrapper::parse_crash_point(&finder),
-            dns_servers: Bootstrapper::parse_dns_servers (&finder),
-            neighborhood_config: NeighborhoodConfig {
-                neighbor_configs: Bootstrapper::parse_neighbor_configs(&finder, "--neighbor"),
-                bootstrap_configs: Bootstrapper::parse_neighbor_configs(&finder, "--bootstrap_from"),
-                is_bootstrap_node: Bootstrapper::parse_node_type(&finder),
-                local_ip_addr,
-                clandestine_port_list: ports,
-            }
-        }
+        config.crash_point = Bootstrapper::parse_crash_point(&finder);
+        config.dns_servers = Bootstrapper::parse_dns_servers (&finder);
+        config.neighborhood_config.neighbor_configs = Bootstrapper::parse_neighbor_configs(&finder, "--neighbor");
+        config.neighborhood_config.bootstrap_configs = Bootstrapper::parse_neighbor_configs(&finder, "--bootstrap_from");
+        config.neighborhood_config.is_bootstrap_node = Bootstrapper::parse_node_type(&finder);
+        config.neighborhood_config.local_ip_addr = local_ip_addr;
     }
 
     fn parse_crash_point(finder: &ParameterFinder) -> CrashPoint {
+        // TODO FIXME implement crash point values as string instead of numbers
         match finder.find_value_for("--crash_point", "--crash_point <number where 1 = panic, 2 = error, default = 0 - no crash)>") {
             None => CrashPoint::None,
             Some(ref crash_point_str) => match crash_point_str.parse::<usize>() {
@@ -176,25 +191,37 @@ impl Bootstrapper {
     }
 
     fn parse_neighbor_configs (finder: &ParameterFinder, parameter_tag: &str) -> Vec<(Key, NodeAddr)> {
-        let usage = &format! ("{} <public key>;<IP address>;<port>,<port>,...", parameter_tag)[..];
+        let usage = &format!("{} <public key>:<IP address>:<port>,<port>,...", parameter_tag)[..];
         finder.find_values_for (parameter_tag, usage).into_iter ()
             .map (|s|Bootstrapper::parse_neighbor_config (s, parameter_tag))
             .collect ()
     }
 
-    fn parse_neighbor_config (string: String, parameter_tag: &str) -> (Key, NodeAddr) {
-        let pieces: Vec<&str> = string.split (";").collect ();
-        if pieces.len () != 3 {panic! ("{} <public key>;<IP address>;<port>,<port>,...", parameter_tag)}
+    fn parse_neighbor_config (input: String, parameter_tag: &str) -> (Key, NodeAddr) {
+        let pieces: Vec<&str> = input.split (":").collect ();
+        if pieces.len () != 3 {panic! ("{} <public key>:<IP address>:<port>,<port>,...", parameter_tag)}
         let public_key = Key::new (&base64::decode (pieces[0])
             .expect (format! ("Invalid Base64 for {} <public key>: '{}'", parameter_tag, pieces[0]).as_str ())[..]);
         if public_key.data.is_empty () {
-            panic! ("Blank public key for --neighbor {}", string)
+            panic! ("Blank public key for --neighbor {}", input)
         }
         let ip_addr = IpAddr::from_str (&pieces[1])
             .expect (format! ("Invalid IP address for {} <IP address>: '{}'", parameter_tag, pieces[1]).as_str ());
         let ports: Vec<u16> = pieces[2].split (",").map (|s| s.parse::<u16>()
             .expect(format! ("{} port numbers must be 0-65535, not {}", parameter_tag, s).as_str ())).collect ();
         (public_key, NodeAddr::new (&ip_addr, &ports))
+    }
+
+    // TODO Possibly should be a method on BootstrapperConfig
+    fn add_clandestine_port_info (configuration: &Configuration, config: &mut BootstrapperConfig) {
+        let clandestine_ports = configuration.clandestine_ports();
+        config.clandestine_discriminator_factories = if clandestine_ports.is_empty () {
+            vec! ()
+        }
+        else {
+            configuration.port_configurations.get (&clandestine_ports[0]).expect ("Malformed configuration").discriminator_factories.clone ()
+        };
+        config.neighborhood_config.clandestine_port_list = clandestine_ports;
     }
 
     fn initialize_cryptde () -> &'static CryptDE {
@@ -238,7 +265,6 @@ mod tests {
     use tokio::prelude::Async;
     use tokio::prelude::Future;
     use actor_system_factory::ActorFactory;
-    use discriminator::DiscriminatorFactory;
     use node_test_utils::extract_log;
     use node_test_utils::make_stream_handler_pool_subs_from;
     use node_test_utils::TestLogOwner;
@@ -248,11 +274,18 @@ mod tests {
     use sub_lib::logger;
     use test_utils::test_utils::FakeStreamHolder;
     use test_utils::recorder::RecordAwaiter;
-    use test_utils::recorder::Recorder;
     use test_utils::recorder::Recording;
     use test_utils::test_utils::TestLog;
     use test_utils::test_utils::TestLogHandler;
     use test_utils::test_utils::init_test_logging;
+    use test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
+    use test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
+    use test_utils::recorder::make_recorder;
+    use configuration::PortConfiguration;
+    use discriminator::Discriminator;
+    use discriminator::UnmaskedChunk;
+    use stream_connector::ConnectionInfo;
+    use null_masquerader::NullMasquerader;
 
     struct ListenerHandlerFactoryMock {
         log: TestLog,
@@ -284,15 +317,16 @@ mod tests {
     struct ListenerHandlerNull {
         log: Arc<Mutex<TestLog>>,
         bind_port_and_discriminator_factories_result: Option<io::Result<()>>,
-        discriminator_factories_parameter: Option<Vec<Box<DiscriminatorFactory>>>,
+        port_configuration_parameter: Option<PortConfiguration>,
         add_stream_sub: Option<Recipient<Syn, AddStreamMsg>>,
         add_stream_msgs: Arc<Mutex<Vec<AddStreamMsg>>>,
+        listen_results: Vec<Box<ListenerHandler<Item=(), Error=()>>>,
     }
 
     impl ListenerHandler for ListenerHandlerNull {
-        fn bind_port_and_discriminator_factories (&mut self, port: u16, discriminator_factories: Vec<Box<DiscriminatorFactory>>) -> io::Result<()> {
-            self.log.lock ().unwrap ().log (format! ("bind_port_and_discriminator_factories ({}, ...)", port));
-            self.discriminator_factories_parameter = Some (discriminator_factories);
+        fn bind_port_and_configuration(&mut self, port: u16, discriminator_factories: PortConfiguration) -> io::Result<()> {
+            self.log.lock ().unwrap ().log (format! ("bind_port_and_configuration ({}, ...)", port));
+            self.port_configuration_parameter = Some (discriminator_factories);
             self.bind_port_and_discriminator_factories_result.take ().unwrap ()
         }
 
@@ -329,9 +363,10 @@ mod tests {
             ListenerHandlerNull {
                 log: Arc::new (Mutex::new (TestLog::new ())),
                 bind_port_and_discriminator_factories_result: None,
-                discriminator_factories_parameter: None,
+                port_configuration_parameter: None,
                 add_stream_sub: None,
                 add_stream_msgs: Arc::new (Mutex::new (add_stream_msgs)),
+                listen_results: vec! (),
             }
         }
 
@@ -386,10 +421,10 @@ mod tests {
     }
 
     #[test]
-    #[should_panic (expected = "--neighbor <public key>;<IP address>;<port>,<port>,...")]
+    #[should_panic (expected = "--neighbor <public key>:<IP address>:<port>,<port>,...")]
     fn parse_neighbor_configs_requires_three_pieces_to_a_configuration () {
         let finder = ParameterFinder::new (vec! (
-            "--neighbor", "key;1.2.3.4;1234,2345;extra",
+            "--neighbor", "key:1.2.3.:1234,2345:extra",
         ).into_iter ().map (String::from).collect ());
 
         Bootstrapper::parse_neighbor_configs (&finder, "--neighbor");
@@ -399,17 +434,17 @@ mod tests {
     #[should_panic (expected = "Invalid Base64 for --neighbor <public key>: 'bad_key'")]
     fn parse_neighbor_configs_complains_about_bad_base_64 () {
         let finder = ParameterFinder::new (vec! (
-            "--neighbor", "bad_key;1.2.3.4;1234,2345",
+            "--neighbor", "bad_key:1.2.3.4:1234,2345",
         ).into_iter ().map (String::from).collect ());
 
         Bootstrapper::parse_neighbor_configs (&finder, "--neighbor");
     }
 
     #[test]
-    #[should_panic (expected = "Blank public key for --neighbor ;1.2.3.4;1234,2345")]
+    #[should_panic (expected = "Blank public key for --neighbor :1.2.3.4:1234,2345")]
     fn parse_neighbor_configs_complains_about_blank_public_key () {
         let finder = ParameterFinder::new (vec! (
-            "--neighbor", ";1.2.3.4;1234,2345",
+            "--neighbor", ":1.2.3.4:1234,2345",
         ).into_iter ().map (String::from).collect ());
 
         Bootstrapper::parse_neighbor_configs (&finder, "--neighbor");
@@ -419,7 +454,7 @@ mod tests {
     #[should_panic (expected = "Invalid IP address for --bootstrap_node <IP address>: '1.2.3.256'")]
     fn parse_neighbor_configs_complains_about_bad_ip_address () {
         let finder = ParameterFinder::new (vec! (
-            "--bootstrap_node", "GoodKey;1.2.3.256;1234,2345",
+            "--bootstrap_node", "GoodKey:1.2.3.256:1234,2345",
         ).into_iter ().map (String::from).collect ());
 
         Bootstrapper::parse_neighbor_configs (&finder, "--bootstrap_node");
@@ -429,7 +464,7 @@ mod tests {
     #[should_panic (expected = "--bootstrap_node port numbers must be 0-65535, not 65536")]
     fn parse_neighbor_configs_complains_about_bad_port_numbers () {
         let finder = ParameterFinder::new (vec! (
-            "--bootstrap_node", "GoodKey;1.2.3.4;65536",
+            "--bootstrap_node", "GoodKey:1.2.3.4:65536",
         ).into_iter ().map (String::from).collect ());
 
         Bootstrapper::parse_neighbor_configs (&finder, "--bootstrap_node");
@@ -438,9 +473,9 @@ mod tests {
     #[test]
     fn parse_neighbor_configs_handles_the_happy_path () {
         let finder = ParameterFinder::new (vec! (
-            "--booga", "R29vZEtleQ;1.2.3.4;1234,2345,3456",
+            "--booga", "R29vZEtleQ:1.2.3.4:1234,2345,3456",
             "--irrelevant", "parameter",
-            "--booga", "QW5vdGhlckdvb2RLZXk;2.3.4.5;4567,5678,6789",
+            "--booga", "QW5vdGhlckdvb2RLZXk:2.3.4.5:4567,5678,6789",
         ).into_iter ().map (String::from).collect ());
 
         let result = Bootstrapper::parse_neighbor_configs (&finder, "--booga");
@@ -521,17 +556,19 @@ mod tests {
             "--irrelevant", "irrelevant",
             "--dns_servers", "12.34.56.78,23.45.67.89",
             "--irrelevant", "irrelevant",
-            "--neighbor", "QmlsbA;1.2.3.4;1234,2345",
+            "--neighbor", "QmlsbA:1.2.3.4:1234,2345",
             "--ip", "34.56.78.90",
             "--port_count", "2",
-            "--neighbor", "VGVk;2.3.4.5;3456,4567",
+            "--neighbor", "VGVk:2.3.4.5:3456,4567",
             "--node_type", "bootstrap",
-            "--bootstrap_from", "R29vZEtleQ;3.4.5.6;5678"
+            "--bootstrap_from", "R29vZEtleQ:3.4.5.6:5678",
+            "--irrelevant", "irrelevant",
         ).into_iter ().map (String::from).collect ();
         let mut configuration = Configuration::new ();
 
         configuration.establish (&args);
-        let config = Bootstrapper::parse_args (&args, configuration.clandestine_ports());
+        let mut config = BootstrapperConfig::new ();
+        Bootstrapper::parse_args (&args, &mut config);
 
         assert_eq! (config.dns_servers, vec! (SocketAddr::from_str ("12.34.56.78:53").unwrap (), SocketAddr::from_str ("23.45.67.89:53").unwrap ()));
         assert_eq! (config.neighborhood_config.neighbor_configs, vec! (
@@ -543,7 +580,6 @@ mod tests {
         ));
         assert_eq! (config.neighborhood_config.is_bootstrap_node, true);
         assert_eq! (config.neighborhood_config.local_ip_addr, IpAddr::V4 (Ipv4Addr::new (34, 56, 78, 90)));
-        assert_eq! (config.neighborhood_config.clandestine_port_list.len (), 2);
     }
 
     #[test]
@@ -552,14 +588,15 @@ mod tests {
             "--dns_servers", "12.34.56.78",
             "--node_type", "standard",
         ).into_iter ().map (String::from).collect ();
+        let mut config = BootstrapperConfig::new ();
 
-        let config = Bootstrapper::parse_args (&args, vec! ());
+        Bootstrapper::parse_args (&args, &mut config);
 
         assert_eq! (config.neighborhood_config.is_bootstrap_node, false);
     }
 
     #[test]
-    fn initialize_as_root_with_no_args_binds_port_80 () {
+    fn initialize_as_root_with_no_args_binds_port_80_and_443 () {
         let (first_handler, first_handler_log) = extract_log (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())));
         let (second_handler, second_handler_log) = extract_log (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())));
         let (third_handler, third_handler_log) = extract_log (ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())));
@@ -575,9 +612,49 @@ mod tests {
         all_calls.extend (first_handler_log.lock ().unwrap ().dump ());
         all_calls.extend (second_handler_log.lock ().unwrap ().dump ());
         all_calls.extend (third_handler_log.lock ().unwrap ().dump ());
-        assert_eq! (all_calls.contains (&String::from ("bind_port_and_discriminator_factories (80, ...)")), true, "{:?}", all_calls);
-        assert_eq! (all_calls.contains (&String::from ("bind_port_and_discriminator_factories (443, ...)")), true, "{:?}", all_calls);
+        assert!(all_calls.contains (&String::from ("bind_port_and_configuration (80, ...)")), "{:?}", all_calls);
+        assert!(all_calls.contains (&String::from ("bind_port_and_configuration (443, ...)")), "{:?}", all_calls);
         assert_eq! (all_calls.len (), 2, "{:?}", all_calls);
+    }
+
+    #[test]
+    fn initialize_as_root_with_no_args_produces_empty_clandestine_discriminator_factories_vector () {
+        let first_handler = Box::new(ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())));
+        let second_handler = Box::new(ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())));
+        let mut subject = BootstrapperBuilder::new ()
+            .add_listener_handler (first_handler)
+            .add_listener_handler (second_handler)
+            .build ();
+
+        subject.initialize_as_privileged(&make_default_cli_params(), &mut FakeStreamHolder::new ().streams ());
+
+        let config = subject.config.unwrap ();
+        assert_eq! (config.neighborhood_config.clandestine_port_list.is_empty (), true);
+        assert_eq! (config.clandestine_discriminator_factories.is_empty (), true);
+    }
+
+    #[test]
+    fn initialize_as_root_with_one_clandestine_port_produces_expected_clandestine_discriminator_factories_vector () {
+        let first_handler= Box::new(ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())));
+        let second_handler= Box::new(ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())));
+        let third_handler= Box::new(ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (())));
+        let mut subject = BootstrapperBuilder::new ()
+            .add_listener_handler (first_handler)
+            .add_listener_handler (second_handler)
+            .add_listener_handler (third_handler)
+            .build ();
+
+        subject.initialize_as_privileged(&vec! (String::from ("--dns_servers"), String::from ("222.222.222.222"), String::from ("--port_count"), String::from ("1")), &mut FakeStreamHolder::new ().streams ());
+
+        let config = subject.config.unwrap ();
+        assert_eq! (config.neighborhood_config.clandestine_port_list.len (), 1);
+        let mut clandestine_discriminators = config.clandestine_discriminator_factories.into_iter ()
+            .map (|factory| factory.make ())
+            .collect::<Vec<Discriminator>> ();
+        let mut discriminator = clandestine_discriminators.remove (0);
+        discriminator.add_data (&b"{\"component\": \"NBHD\", \"bodyText\": \"Booga\"}"[..]);
+        assert_eq! (discriminator.take_chunk (), Some (UnmaskedChunk {chunk: b"Booga".to_vec (), last_chunk: true, sequenced: false })); // TODO: Where is this 'true' coming from?  Is it a problem?
+        assert_eq! (clandestine_discriminators.len (), 0);
     }
 
     #[test]
@@ -586,6 +663,7 @@ mod tests {
         let dns_servers_arc = actor_system_factory.dnss.clone();
         let mut subject = BootstrapperBuilder::new ()
             .actor_system_factory (Box::new (actor_system_factory))
+            .add_listener_handler (Box::new(ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (()))))
             .add_listener_handler (Box::new(ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (()))))
             .add_listener_handler (Box::new(ListenerHandlerNull::new (vec! ()).bind_port_result(Ok (()))))
             .build ();
@@ -658,13 +736,16 @@ mod tests {
         )).bind_port_result (Ok (()));
         let another_listener_handler = ListenerHandlerNull::new (vec! (
         )).bind_port_result (Ok (()));
+        let yet_another_listener_handler = ListenerHandlerNull::new(vec! ()).bind_port_result(Ok (()));
+        let cli_params = vec! (String::from ("--dns_servers"), String::from ("222.222.222.222"), String::from ("--port_count"), String::from ("1"));
         let actor_system_factory = ActorSystemFactoryMock::new();
         let mut subject = BootstrapperBuilder::new()
             .actor_system_factory(Box::new(actor_system_factory))
             .add_listener_handler(Box::new(one_listener_handler))
             .add_listener_handler(Box::new(another_listener_handler))
+            .add_listener_handler (Box::new(yet_another_listener_handler))
             .build();
-        subject.initialize_as_privileged(&make_default_cli_params(), &mut FakeStreamHolder::new().streams());
+        subject.initialize_as_privileged(&cli_params, &mut FakeStreamHolder::new().streams());
 
         subject.initialize_as_unprivileged();
 
@@ -674,21 +755,42 @@ mod tests {
     }
 
     #[test]
-    fn poll_listener_handlers() {
+    fn bootstrapper_as_future_polls_listener_handler_futures() {
+        let connection_info1 = ConnectionInfo {
+            reader: Box::new(ReadHalfWrapperMock::new()),
+            writer: Box::new(WriteHalfWrapperMock::new()),
+            local_addr: SocketAddr::from_str("1.1.1.1:80").unwrap(),
+            peer_addr: SocketAddr::from_str("1.1.1.1:40").unwrap(),
+        };
+        let connection_info2 = ConnectionInfo {
+            reader: Box::new(ReadHalfWrapperMock::new()),
+            writer: Box::new(WriteHalfWrapperMock::new()),
+            local_addr: SocketAddr::from_str("2.2.2.2:80").unwrap(),
+            peer_addr: SocketAddr::from_str("2.2.2.2:40").unwrap(),
+        };
+        let connection_info3 = ConnectionInfo {
+            reader: Box::new(ReadHalfWrapperMock::new()),
+            writer: Box::new(WriteHalfWrapperMock::new()),
+            local_addr: SocketAddr::from_str("3.3.3.3:80").unwrap(),
+            peer_addr: SocketAddr::from_str("3.3.3.3:40").unwrap(),
+        };
         let first_message = AddStreamMsg {
-            stream: None,
+            connection_info: connection_info1,
             origin_port: Some (80),
-            discriminator_factories: vec! ()
+            port_configuration: PortConfiguration::new(vec!(), false),
+            writer_config: Box::new(NullMasquerader::new()),
         };
         let second_message = AddStreamMsg {
-            stream: None,
+            connection_info: connection_info2,
             origin_port: None,
-            discriminator_factories: vec! ()
+            port_configuration: PortConfiguration::new(vec!(), false),
+            writer_config: Box::new(NullMasquerader::new()),
         };
         let third_message = AddStreamMsg {
-            stream: None,
+            connection_info: connection_info3,
             origin_port: Some (443),
-            discriminator_factories: vec! ()
+            port_configuration: PortConfiguration::new(vec!(), false),
+            writer_config: Box::new(NullMasquerader::new()),
         };
         let one_listener_handler = ListenerHandlerNull::new (vec! (
             first_message, second_message
@@ -739,7 +841,8 @@ mod tests {
     #[test]
     fn no_parameters_produces_configuration_for_crash_point() {
         let args = make_default_cli_params();
-        let subject = Bootstrapper::parse_args(&args, vec![]);
+        let mut subject = BootstrapperConfig::new();
+        Bootstrapper::parse_args(&args, &mut subject);
 
         assert_eq!(subject.crash_point, CrashPoint::None);
     }
@@ -748,10 +851,11 @@ mod tests {
     fn with_parameters_produces_configuration_for_crash_point() {
         let mut args = make_default_cli_params();
         let crash_args = vec![String::from("--crash_point"), String::from("1")];
+        let mut subject = BootstrapperConfig::new();
 
         args.extend(crash_args);
 
-        let subject = Bootstrapper::parse_args(&args, vec![]);
+        Bootstrapper::parse_args(&args, &mut subject);
 
         assert_eq!(subject.crash_point, CrashPoint::Panic);
     }
@@ -784,9 +888,7 @@ mod tests {
                 let system = System::new ("test");
 
                 let stream_handler_pool_cluster = {
-                    let stream_handler_pool = Recorder::new();
-                    let recording = stream_handler_pool.get_recording();
-                    let awaiter = stream_handler_pool.get_awaiter();
+                    let (stream_handler_pool, awaiter, recording) = make_recorder();
                     StreamHandlerPoolCluster {
                         recording: Some (recording),
                         awaiter: Some (awaiter),

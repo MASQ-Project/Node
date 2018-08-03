@@ -5,56 +5,59 @@ use futures::sync::mpsc::SendError;
 use futures::sync::mpsc::UnboundedReceiver;
 use futures::sync::mpsc::UnboundedSender;
 use tokio::prelude::Async;
-use sequence_buffer::SequencedPacket;
 
-pub trait ReceiverWrapper: Send {
-    fn poll(&mut self) -> Result<Async<Option<SequencedPacket>>, ()>;
+pub trait ReceiverWrapper<T: Send>: Send {
+    fn poll(&mut self) -> Result<Async<Option<T>>, ()>;
 }
 
-pub struct ReceiverWrapperReal {
-    delegate: UnboundedReceiver<SequencedPacket>
+pub struct ReceiverWrapperReal<T> {
+    delegate: UnboundedReceiver<T>
 }
 
-impl ReceiverWrapper for ReceiverWrapperReal {
-    fn poll(&mut self) -> Result<Async<Option<SequencedPacket>>, ()> {
+impl<T: Send> ReceiverWrapper<T> for ReceiverWrapperReal<T> {
+    fn poll(&mut self) -> Result<Async<Option<T>>, ()> {
         self.delegate.poll()
     }
 }
 
-impl ReceiverWrapperReal {
-    pub fn new(delegate: UnboundedReceiver<SequencedPacket>) -> ReceiverWrapperReal {
+impl<T: Send> ReceiverWrapperReal<T> {
+    pub fn new(delegate: UnboundedReceiver<T>) -> ReceiverWrapperReal<T> {
         ReceiverWrapperReal { delegate }
     }
 }
 
-pub trait SenderWrapper: Send {
-    fn unbounded_send(&mut self, packet: SequencedPacket) -> Result<(), SendError<SequencedPacket>>;
+pub trait SenderWrapper<T>: Send {
+    fn unbounded_send(&mut self, data: T) -> Result<(), SendError<T>>;
+    fn clone(&self) -> Box<SenderWrapper<T>>;
 }
 
-pub struct SenderWrapperReal {
-    delegate: UnboundedSender<SequencedPacket>
+pub struct SenderWrapperReal<T> {
+    delegate: UnboundedSender<T>
 }
 
-impl SenderWrapper for SenderWrapperReal {
-    fn unbounded_send(&mut self, data: SequencedPacket) -> Result<(), SendError<SequencedPacket>> {
+impl<T: 'static + Send> SenderWrapper<T> for SenderWrapperReal<T> {
+    fn unbounded_send(&mut self, data: T) -> Result<(), SendError<T>> {
         self.delegate.unbounded_send(data)
+    }
+    fn clone(&self) -> Box<SenderWrapper<T>> {
+        Box::new(SenderWrapperReal::new(self.delegate.clone()))
     }
 }
 
-impl SenderWrapperReal {
-    pub fn new(delegate: UnboundedSender<SequencedPacket>) -> SenderWrapperReal {
+impl<T: Send> SenderWrapperReal<T> {
+    pub fn new(delegate: UnboundedSender<T>) -> SenderWrapperReal<T> {
         SenderWrapperReal { delegate }
     }
 }
 
-pub trait FuturesChannelFactory {
-    fn make(&mut self) -> (Box<SenderWrapper>, Box<ReceiverWrapper>);
+pub trait FuturesChannelFactory<T> {
+    fn make(&mut self) -> (Box<SenderWrapper<T>>, Box<ReceiverWrapper<T>>);
 }
 
 pub struct FuturesChannelFactoryReal {}
 
-impl FuturesChannelFactory for FuturesChannelFactoryReal {
-    fn make(&mut self) -> (Box<SenderWrapper>, Box<ReceiverWrapper>) {
+impl<T: 'static + Send> FuturesChannelFactory<T> for FuturesChannelFactoryReal {
+    fn make(&mut self) -> (Box<SenderWrapper<T>>, Box<ReceiverWrapper<T>>) {
         let (tx, rx) = mpsc::unbounded();
         (Box::new(SenderWrapperReal::new(tx)), Box::new(ReceiverWrapperReal::new(rx)))
     }

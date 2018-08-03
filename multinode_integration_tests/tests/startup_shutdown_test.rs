@@ -22,9 +22,9 @@ fn starts_and_stops_substratum_nodes () {
     clear_leaked_containers ();
 
     let mut subject = SubstratumNodeCluster::new (vec! (
-        NodeStartupConfig::new (vec! (1234)),
-        NodeStartupConfig::new (vec! (2345)),
-        NodeStartupConfig::new (vec! (3456)),
+        NodeStartupConfig::new (vec! (1234), vec!()),
+        NodeStartupConfig::new (vec! (2345), vec!()),
+        NodeStartupConfig::new (vec! (3456), vec!()),
     ));
 
     let expected_nodes: HashSet<String> = vec!["test_node_1".to_string (), "test_node_2".to_string (), "test_node_3".to_string ()].into_iter().collect();

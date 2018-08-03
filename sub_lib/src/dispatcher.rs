@@ -13,10 +13,8 @@ use serde::Serializer;
 use serde::Deserializer;
 use serde::de::Visitor;
 use cryptde::Key;
-use hopper::HopperTemporaryTransmitDataMsg;
 use peer_actors::BindMessage;
 use stream_handler_pool::TransmitDataMsg;
-use utils::to_string;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum Component {
@@ -74,7 +72,7 @@ pub enum Endpoint {
 impl fmt::Debug for Endpoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            &Endpoint::Key (ref key) => write! (f, "Key({})", to_string (&key.data)),
+            &Endpoint::Key (ref key) => write! (f, "Key({})", key),
             &Endpoint::Ip (ref ip_addr) => write! (f, "Ip({})", *ip_addr),
             &Endpoint::Socket (ref socket_addr) => write! (f, "Socket({})", *socket_addr)
         }
@@ -82,15 +80,6 @@ impl fmt::Debug for Endpoint {
 }
 
 impl Component {
-    pub fn as_str(&self) -> &str {
-        match self {
-            &Component::Neighborhood => "NBHD",
-            &Component::Hopper => "HOPR",
-            &Component::ProxyServer => "PXSV",
-            &Component::ProxyClient => "PXCL"
-        }
-    }
-
     pub fn values() -> Vec<Component> {
         vec!(
             Component::Neighborhood,
@@ -98,15 +87,6 @@ impl Component {
             Component::ProxyServer,
             Component::ProxyClient
         )
-    }
-
-    pub fn from_str(string: &str) -> Option<Component> {
-        for candidate in Component::values() {
-            if candidate.as_str() == string {
-                return Some(candidate);
-            }
-        }
-        return None;
     }
 }
 
@@ -121,9 +101,10 @@ pub enum DispatcherError {
 
 #[derive (PartialEq, Clone, Message)]
 pub struct InboundClientData {
-    pub socket_addr: SocketAddr,
-    pub origin_port: Option<u16>,
+    pub socket_addr: SocketAddr, // TODO: Rename to peer_addr
+    pub origin_port: Option<u16>, // TODO: Rename to reception_port
     pub last_data: bool,
+    pub is_clandestine: bool,
     pub sequence_number: Option<u64>,
     pub data: Vec<u8>
 }
@@ -142,10 +123,7 @@ impl Debug for InboundClientData {
 pub struct DispatcherSubs {
     pub ibcd_sub: Recipient<Syn, InboundClientData>,
     pub bind: Recipient<Syn, BindMessage>,
-    // TODO when we are decentralized, rename this to "from_dispatcher_client"
-    pub from_proxy_server: Recipient<Syn, TransmitDataMsg>,
-    // TODO when we are decentralized, remove this
-    pub from_hopper: Recipient<Syn, HopperTemporaryTransmitDataMsg>,
+    pub from_dispatcher_client: Recipient<Syn, TransmitDataMsg>,
 }
 
 impl Clone for DispatcherSubs {
@@ -153,8 +131,7 @@ impl Clone for DispatcherSubs {
         DispatcherSubs {
             ibcd_sub: self.ibcd_sub.clone (),
             bind: self.bind.clone(),
-            from_proxy_server: self.from_proxy_server.clone(),
-            from_hopper: self.from_hopper.clone(),
+            from_dispatcher_client: self.from_dispatcher_client.clone(),
         }
     }
 }
@@ -166,29 +143,12 @@ mod tests {
     use serde_cbor;
 
     #[test]
-    fn component_can_convert_to_string() {
-        assert_eq!(Component::Neighborhood.as_str(), "NBHD");
-        assert_eq!(Component::Hopper.as_str(), "HOPR");
-        assert_eq!(Component::ProxyServer.as_str(), "PXSV");
-        assert_eq!(Component::ProxyClient.as_str(), "PXCL")
-    }
-
-    #[test]
-    fn component_can_convert_from_string() {
-        assert_eq!(Component::from_str("NBHD"), Some(Component::Neighborhood));
-        assert_eq!(Component::from_str("HOPR"), Some(Component::Hopper));
-        assert_eq!(Component::from_str("PXSV"), Some(Component::ProxyServer));
-        assert_eq!(Component::from_str("PXCL"), Some(Component::ProxyClient));
-        assert_eq!(Component::from_str("BOOGA"), None);
-    }
-
-    #[test]
     fn debug_string_for_endpoint_with_utf8_key () {
         let subject = Endpoint::Key (Key::new (b"blah"));
 
         let result = format! ("{:?}", subject);
 
-        assert_eq! (result, String::from ("Key(blah)"))
+        assert_eq! (result, String::from ("Key(YmxhaA)"))
     }
 
     #[test]
@@ -197,7 +157,7 @@ mod tests {
 
         let result = format! ("{:?}", subject);
 
-        assert_eq! (result, String::from ("Key([192, 193])"))
+        assert_eq! (result, String::from ("Key(wME)"))
     }
 
     #[test]

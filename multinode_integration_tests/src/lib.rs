@@ -5,6 +5,7 @@ extern crate serde_cbor;
 extern crate sub_lib;
 extern crate hopper_lib;
 extern crate node_lib;
+extern crate base64;
 
 pub mod command;
 pub mod substratum_node_cluster;

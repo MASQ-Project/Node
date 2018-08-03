@@ -5,7 +5,7 @@ use actix::Context;
 use actix::Handler;
 use actix::Recipient;
 use actix::Syn;
-use futures::future::Future;
+use tokio::prelude::Future;
 use tokio;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::dispatcher::Endpoint;
@@ -46,7 +46,7 @@ impl Handler<BindMessage> for ProxyServer {
 
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
-        self.dispatcher = Some(msg.peer_actors.dispatcher.from_proxy_server);
+        self.dispatcher = Some(msg.peer_actors.dispatcher.from_dispatcher_client);
         self.hopper = Some(msg.peer_actors.hopper.from_hopper_client);
         self.route_source = Some(msg.peer_actors.neighborhood.route_query);
         ()
@@ -226,6 +226,7 @@ mod tests {
             origin_port: Some (80),
             sequence_number: Some(0),
             last_data: true,
+            is_clandestine: false,
             data: expected_data.clone()
         };
         let expected_http_request = PlainData::new(http_request);
@@ -278,7 +279,8 @@ mod tests {
             origin_port: Some (80),
             sequence_number: Some(0),
             last_data: true,
-            data: expected_data.clone()
+            data: expected_data.clone(),
+            is_clandestine: false,
         };
         thread::spawn (move || {
             let system = System::new("proxy_server_receives_http_request_from_dispatcher_but_neighborhood_cant_make_route");
@@ -344,6 +346,7 @@ mod tests {
             origin_port: Some (443),
             sequence_number: Some(0),
             last_data: false,
+            is_clandestine: false,
             data: expected_data.clone()
         };
         let expected_tls_request = PlainData::new(tls_request);
@@ -400,6 +403,7 @@ mod tests {
             origin_port: Some (443),
             sequence_number: Some(0),
             last_data: false,
+            is_clandestine: false,
             data: expected_data.clone()
         };
         let expected_tls_request = PlainData::new(tls_request);
@@ -454,6 +458,7 @@ mod tests {
             origin_port: Some (443),
             sequence_number: Some(0),
             last_data: true,
+            is_clandestine: false,
             data: expected_data.clone()
         };
         let expected_tls_request = PlainData::new(tls_request);
@@ -521,7 +526,8 @@ mod tests {
             origin_port: Some (443),
             sequence_number: Some(0),
             last_data: true,
-            data: tls_request
+            data: tls_request,
+            is_clandestine: false,
         };
         thread::spawn (move || {
             let system = System::new("proxy_server_receives_tls_client_hello_from_dispatcher_but_neighborhood_cant_make_route");
@@ -663,6 +669,7 @@ mod tests {
             origin_port: Some (53),
             sequence_number: Some(0),
             last_data: false,
+            is_clandestine: false,
             data: expected_data.clone()
         };
         let subject_addr: Addr<Syn, ProxyServer> = subject.start();

@@ -6,7 +6,6 @@ extern crate dns_utility_lib;
 mod utils;
 mod linux_utils;
 
-use dns_utility_lib::resolv_conf_dns_modifier::ResolvConfDnsModifier;
 use utils::TestCommand;
 use linux_utils::get_file_contents;
 use linux_utils::get_nameserver_entries;

@@ -2,16 +2,20 @@
 #[macro_use]
 extern crate actix;
 extern crate chrono;
+extern crate futures;
 extern crate log;
 extern crate regex;
 extern crate serde;
 extern crate serde_cbor;
 #[macro_use]
 extern crate serde_derive;
+extern crate tokio;
 extern crate sub_lib;
 #[macro_use]
 extern crate lazy_static;
 
 #[macro_use]
 pub mod test_utils;
+pub mod channel_wrapper_mocks;
+pub mod tokio_wrapper_mocks;
 pub mod recorder;

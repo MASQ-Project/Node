@@ -25,6 +25,8 @@ use trust_dns_resolver::lookup::Lookup;
 use trust_dns_proto::rr::RData;
 use std::io::ErrorKind;
 use resolver_wrapper::WrappedLookupIpFuture;
+use tokio::prelude::Future;
+use tokio::prelude::Async;
 
 pub struct TcpStreamWrapperFactoryMock {
     tcp_stream_wrappers: Arc<Mutex<Vec<TcpStreamWrapperMock>>>
@@ -334,5 +336,16 @@ impl ResolverWrapperFactoryMock {
     pub fn new_parameters(self, parameters: &mut Arc<Mutex<Vec<(ResolverConfig, ResolverOpts, CoreId)>>>) -> ResolverWrapperFactoryMock {
         *parameters = self.factory_parameters.borrow_mut ().clone ();
         self
+    }
+}
+
+pub struct TokioTestFuture {}
+
+impl Future for TokioTestFuture {
+    type Item = ();
+    type Error = io::Error;
+
+    fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
+        Ok(Async::Ready(()))
     }
 }

@@ -10,43 +10,38 @@ use std::net::IpAddr;
 use json_discriminator_factory::JsonDiscriminatorFactory;
 use sub_lib::parameter_finder::ParameterFinder;
 
+// TODO: This should be subsumed into BootstrapperConfig
 pub struct Configuration {
-    port_discriminator_factories: HashMap<u16, Vec<Box<DiscriminatorFactory>>>,
+    pub port_configurations: HashMap<u16, PortConfiguration>
 }
 
 impl Configuration {
     pub fn new () -> Configuration {
         Configuration {
-            port_discriminator_factories: HashMap::new (),
+            port_configurations: HashMap::new ()
         }
     }
 
-    pub fn establish (&mut self, args: &Vec<String>) {
-        self.port_discriminator_factories.insert (80,
-            vec! (Box::new (HttpRequestDiscriminatorFactory::new ())));
-        self.port_discriminator_factories.insert (443,
-            vec! (Box::new (TlsDiscriminatorFactory::new ())));
-        let port_count = Configuration::parse_port_count (&ParameterFinder::new (args.clone ()));
-        for _i in 0..port_count {
-            let port = Configuration::find_free_port ();
-            self.port_discriminator_factories.insert (port,
-                vec! (Box::new (JsonDiscriminatorFactory::new ())));
+    pub fn establish(&mut self, args: &Vec<String>) {
+        self.port_configurations.insert(
+            80, PortConfiguration::new(vec!(Box::new(HttpRequestDiscriminatorFactory::new())), false));
+        self.port_configurations.insert(
+            443, PortConfiguration::new(vec!(Box::new(TlsDiscriminatorFactory::new())), false));
+
+        let port_count = Configuration::parse_port_count(&ParameterFinder::new(args.clone()));
+        for _ in 0..port_count {
+            let port = Configuration::find_free_port();
+            self.port_configurations.insert(
+                port, PortConfiguration::new(vec!(Box::new(JsonDiscriminatorFactory::new())), true));
         }
     }
 
     pub fn all_ports(&self) -> Vec<u16> {
-        self.port_discriminator_factories.keys ().map (|port_ref| {*port_ref}).collect ()
+        self.port_configurations.keys().map(|port_ref| {*port_ref}).collect()
     }
 
     pub fn clandestine_ports (&self) -> Vec<u16> {
         self.all_ports ().into_iter ().filter (|port| (*port != 80) && (*port != 443)).collect ()
-    }
-
-    pub fn take_discriminator_factories_for (&mut self, port: u16) -> Vec<Box<DiscriminatorFactory>> {
-        match self.port_discriminator_factories.remove (&port) {
-            Some (factories) => factories,
-            None => vec! ()
-        }
     }
 
     fn find_free_port () -> u16 {
@@ -65,6 +60,21 @@ impl Configuration {
         }
     }
 
+}
+
+#[derive(Clone)]
+pub struct PortConfiguration {
+    pub discriminator_factories: Vec<Box<DiscriminatorFactory>>,
+    pub is_clandestine: bool,
+}
+
+impl PortConfiguration {
+    pub fn new(discriminator_factories: Vec<Box<DiscriminatorFactory>>, is_clandestine: bool) -> PortConfiguration {
+        PortConfiguration {
+            discriminator_factories,
+            is_clandestine,
+        }
+    }
 }
 
 #[cfg (test)]
@@ -90,9 +100,10 @@ mod tests {
 
         subject.establish (&args);
 
-        let mut port_80_factories = subject.port_discriminator_factories.remove (&80).unwrap ();
-        assert_eq! (port_80_factories.len (), 1);
-        let http_factory = port_80_factories.remove (0);
+        let mut port_80_configuration = subject.port_configurations.remove (&80).unwrap ();
+        assert_eq! (port_80_configuration.discriminator_factories.len (), 1);
+        assert!(!port_80_configuration.is_clandestine);
+        let http_factory = port_80_configuration.discriminator_factories.remove (0);
         let mut http_discriminator = http_factory.make ();
         http_discriminator.add_data ("GET http://url.com HTTP/1.1\r\n\r\n".as_bytes ());
         let http_chunk = http_discriminator.take_chunk ().unwrap ();
@@ -106,9 +117,10 @@ mod tests {
 
         subject.establish (&args);
 
-        let mut port_443_factories = subject.port_discriminator_factories.remove (&443).unwrap ();
-        assert_eq! (port_443_factories.len (), 1);
-        let tls_factory = port_443_factories.remove (0);
+        let mut port_443_configuration = subject.port_configurations.remove (&443).unwrap ();
+        assert_eq! (port_443_configuration.discriminator_factories.len (), 1);
+        assert!(!port_443_configuration.is_clandestine);
+        let tls_factory = port_443_configuration.discriminator_factories.remove (0);
         let mut tls_discriminator = tls_factory.make ();
         tls_discriminator.add_data (&vec! (0x16, 0x03, 0x01, 0x00, 0x03, 0x01, 0x02, 0x03)[..]);
         let tls_chunk = tls_discriminator.take_chunk ().unwrap ();
@@ -132,13 +144,13 @@ mod tests {
 
         subject.establish (&args);
 
-        subject.port_discriminator_factories.remove (&80);
-        subject.port_discriminator_factories.remove (&443);
+        subject.port_configurations.remove (&80);
+        subject.port_configurations.remove (&443);
         assert_eq! (subject.all_ports().len (), 5);
         subject.all_ports().into_iter ().for_each (|high_port| {
-            let mut high_port_factories = subject.port_discriminator_factories.remove (&high_port).unwrap ();
-            assert_eq! (high_port_factories.len (), 1);
-            let json_factory = high_port_factories.remove (0);
+            let mut high_port_configuration = subject.port_configurations.remove (&high_port).unwrap ();
+            assert_eq! (high_port_configuration.discriminator_factories.len (), 1);
+            let json_factory = high_port_configuration.discriminator_factories.remove (0);
             let mut json_discriminator = json_factory.make ();
             json_discriminator.add_data (&b"{\"component\": \"NBHD\", \"bodyText\": \"booga\"}"[..]);
             let json_chunk = json_discriminator.take_chunk ().unwrap ();
@@ -161,13 +173,12 @@ mod tests {
         let factory1 = NullDiscriminatorFactory::new ();
         let factory2 = NullDiscriminatorFactory::new ();
         let factory3 = NullDiscriminatorFactory::new ();
-        subject.port_discriminator_factories.insert (80, vec! (
-            Box::new (factory1), Box::new (factory2)
-        ));
-        subject.port_discriminator_factories.insert (443, vec! (
-            Box::new (factory3)
-        ));
-        subject.port_discriminator_factories.insert (3456, vec! ());
+        subject.port_configurations.insert (
+            80, PortConfiguration::new(vec!(Box::new (factory1), Box::new(factory2)), false));
+        subject.port_configurations.insert (
+            443, PortConfiguration::new(vec!(Box::new(factory3)), false));
+        subject.port_configurations.insert (
+            3456, PortConfiguration::new(vec!(), true));
 
         let ports = subject.all_ports();
 
@@ -183,36 +194,16 @@ mod tests {
         let factory1 = NullDiscriminatorFactory::new ();
         let factory2 = NullDiscriminatorFactory::new ();
         let factory3 = NullDiscriminatorFactory::new ();
-        subject.port_discriminator_factories.insert (80, vec! (
-            Box::new (factory1), Box::new (factory2)
-        ));
-        subject.port_discriminator_factories.insert (443, vec! (
-            Box::new (factory3)
-        ));
-        subject.port_discriminator_factories.insert (3456, vec! ());
+        subject.port_configurations.insert (
+            80, PortConfiguration::new(vec!(Box::new(factory1), Box::new(factory2)), false));
+        subject.port_configurations.insert (
+            443, PortConfiguration::new(vec!(Box::new (factory3)), false));
+        subject.port_configurations.insert (
+            3456, PortConfiguration::new(vec!(), true));
 
         let ports = subject.clandestine_ports();
 
         assert_eq! (ports.contains (&3456), true);
         assert_eq! (ports.len (), 1);
     }
-
-    #[test]
-    fn take_discriminator_factories_for_removes_factories () {
-        let mut subject = Configuration::new ();
-        let factory1 = NullDiscriminatorFactory::new ();
-        let factory2 = NullDiscriminatorFactory::new ();
-        subject.port_discriminator_factories.insert (1234, vec! (
-            Box::new (factory1), Box::new (factory2)
-        ));
-
-        let factories = subject.take_discriminator_factories_for (1234);
-
-        assert_eq! (factories.len (), 2);
-
-        let factories = subject.take_discriminator_factories_for (1234);
-
-        assert_eq! (factories.len (), 0);
-    }
-
 }

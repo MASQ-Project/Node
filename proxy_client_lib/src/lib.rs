@@ -9,6 +9,7 @@ extern crate sub_lib;
 
 #[cfg (test)]
 extern crate test_utils;
+extern crate tokio;
 
 pub mod proxy_client;
 pub mod resolver_wrapper;

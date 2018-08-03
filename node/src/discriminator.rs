@@ -25,6 +25,12 @@ pub trait DiscriminatorFactory: Send {
     fn duplicate (&self) -> Box<DiscriminatorFactory>;
 }
 
+impl Clone for Box<DiscriminatorFactory> {
+    fn clone(&self) -> Box<DiscriminatorFactory> {
+        self.duplicate()
+    }
+}
+
 pub struct Discriminator {
     framer: Box<Framer>,
     masqueraders: Vec<Box<Masquerader>>,

@@ -48,7 +48,6 @@ impl Framer for JsonFramer {
 }
 
 impl JsonFramer {
-    #[allow (dead_code)] // TODO Remove this after Release 2
     pub fn new () -> JsonFramer {
         JsonFramer {
             possible_start: None,

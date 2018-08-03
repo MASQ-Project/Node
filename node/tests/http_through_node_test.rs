@@ -8,17 +8,9 @@ mod utils;
 use std::net::TcpStream;
 use std::net::SocketAddr;
 use std::io::Write;
-use std::io::Read;
-use std::io::ErrorKind;
 use std::str::FromStr;
 use std::time::Duration;
-use std::time::Instant;
-use sub_lib::utils::index_of;
-use sub_lib::utils::to_string_s;
-use utils::get_var_or;
 use utils::read_until_timeout;
-
-const BUF_LEN: usize = 16384;
 
 #[test]
 #[allow (unused_variables)] // 'node' below must not become '_' or disappear, or the

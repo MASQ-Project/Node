@@ -4,7 +4,7 @@ use trust_dns_resolver::config::ResolverOpts;
 use trust_dns_resolver::ResolverFuture;
 use tokio_core::reactor::Handle;
 use trust_dns_resolver::error::ResolveError;
-use futures::Future;
+use tokio::prelude::Future;
 use trust_dns_resolver::lookup_ip::LookupIp;
 
 pub type WrappedLookupIpFuture = Future<Item = LookupIp, Error = ResolveError>;

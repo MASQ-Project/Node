@@ -10,10 +10,12 @@ description = ""
 [dependencies]
 actix = "0.5.7"
 chrono = "0.4.0"
+futures = "0.1.20"
 lazy_static = "1.0.1"
 log = "0.4.1"
 regex = "0.2.5"
 serde = "1.0.24"
 serde_cbor = "0.8.1"
 serde_derive = "1.0.24"
+tokio = "0.1.7"
 sub_lib = { path = "../sub_lib" }

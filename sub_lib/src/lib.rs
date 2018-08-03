@@ -12,6 +12,7 @@ extern crate serde_cbor;
 #[macro_use]
 extern crate serde_derive;
 extern crate tokio;
+extern crate tokio_io;
 
 #[cfg (test)]
 extern crate test_utils;

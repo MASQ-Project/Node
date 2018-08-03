@@ -27,6 +27,10 @@ use sub_lib::dispatcher::Component;
 use sub_lib::main_tools::StdStreams;
 use sub_lib::route::Route;
 use sub_lib::route::RouteSegment;
+use std::net::UdpSocket;
+use std::net::SocketAddr;
+use std::net::IpAddr;
+use std::net::Ipv4Addr;
 
 lazy_static! {
     static ref CRYPT_DE_NULL: CryptDENull = CryptDENull::new ();
@@ -196,7 +200,7 @@ impl TestLogHandler {
     }
 
     pub fn add_log(&self, log: String) {
-        unsafe { TEST_LOGS_ARC.as_ref().unwrap().lock().unwrap().push(log) }
+        unsafe { TEST_LOGS_ARC.as_ref().unwrap().lock().expect("TestLogHandler is poisoned in add_log").push(log) }
     }
 
     pub fn exists_log_matching(&self, pattern: &str) -> usize {
@@ -278,7 +282,7 @@ impl TestLogHandler {
     }
 
     fn get_logs(&self) -> MutexGuard<Vec<String>> {
-        unsafe { TEST_LOGS_ARC.as_ref().unwrap().lock().unwrap() }
+        unsafe { TEST_LOGS_ARC.as_ref().unwrap().lock().expect("TestLogHandler is poisoned in get_logs") }
     }
 
     fn list_logs(&self) -> String {
@@ -423,6 +427,34 @@ pub fn zero_hop_route(public_key: &Key, cryptde: &CryptDE) -> Route {
 fn shift_one_hop(mut route: Route, cryptde: &CryptDE) -> Route {
     route.shift(&cryptde.private_key (), cryptde);
     route
+}
+
+pub fn find_free_port () -> u16 {
+    let socket = UdpSocket::bind (SocketAddr::new (IpAddr::V4 (Ipv4Addr::new (127, 0, 0, 1)), 0)).expect ("Not enough free ports");
+    socket.local_addr ().expect ("Bind failed").port ()
+}
+
+pub fn await_messages<T>(expected_message_count: usize, messages_arc_mutex: &Arc<Mutex<Vec<T>>>) {
+    let local_arc_mutex = messages_arc_mutex.clone();
+    let limit = 1000u64;
+    let mut prev_len: usize = 0;
+    let begin = Instant::now ();
+    loop {
+        let cur_len = {
+            local_arc_mutex.lock ().expect ("await_messages helper function is poisoned").len ()
+        };
+        if cur_len != prev_len {
+            println! ("message collector has received {} messages", cur_len)
+        }
+        let latency_so_far = to_millis (&Instant::now ().duration_since(begin));
+        if latency_so_far > limit {
+            panic! ("After {}ms, message collector has received only {} messages, not {}",
+                    limit, cur_len, expected_message_count);
+        }
+        prev_len = cur_len;
+        if cur_len >= expected_message_count {return}
+        thread::sleep (Duration::from_millis (50))
+    }
 }
 
 #[cfg (test)]

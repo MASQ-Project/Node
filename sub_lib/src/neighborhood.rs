@@ -10,6 +10,8 @@ use route::Route;
 use hopper::ExpiredCoresPackage;
 use dispatcher::Component;
 use std::net::Ipv4Addr;
+use stream_handler_pool::TransmitDataMsg;
+use stream_handler_pool::DispatcherNodeQueryResponse;
 
 pub const SENTINEL_IP_OCTETS: [u8; 4] = [255, 255, 255, 255];
 
@@ -37,7 +39,8 @@ pub struct NeighborhoodSubs {
     pub bootstrap: Recipient<Syn, BootstrapNeighborhoodNowMessage>,
     pub node_query: Recipient<Syn, NodeQueryMessage>,
     pub route_query: Recipient<Syn, RouteQueryMessage>,
-    pub from_hopper: Recipient<Syn, ExpiredCoresPackage>
+    pub from_hopper: Recipient<Syn, ExpiredCoresPackage>,
+    pub dispatcher_node_query: Recipient<Syn, DispatcherNodeQueryMessage>,
 }
 
 #[derive (Clone, Debug, PartialEq)]
@@ -57,6 +60,7 @@ impl NodeDescriptor {
 #[derive (Message, Clone)]
 pub struct BootstrapNeighborhoodNowMessage {}
 
+#[derive(Debug, PartialEq, Clone)]
 pub enum NodeQueryMessage {
     IpAddress (IpAddr),
     PublicKey (Key),
@@ -64,6 +68,13 @@ pub enum NodeQueryMessage {
 
 impl Message for NodeQueryMessage {
     type Result = Option<NodeDescriptor>;
+}
+
+#[derive (Message, Clone)]
+pub struct DispatcherNodeQueryMessage {
+    pub query: NodeQueryMessage,
+    pub context: TransmitDataMsg,
+    pub recipient: Recipient<Syn, DispatcherNodeQueryResponse>,
 }
 
 #[derive (PartialEq, Clone, Debug, Copy)]
