@@ -12,12 +12,14 @@
             text-transform: uppercase;
             letter-spacing: rem(0.9px);
             font-weight: normal;
+            flex: 1;
         }
 
         &-status {
             color: color('white');
             font-size: rem(13px);
             text-align: right;
+            flex: 1;
         }
     }
 
