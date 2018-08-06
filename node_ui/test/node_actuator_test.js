@@ -11,13 +11,16 @@ describe('NodeActuator', function () {
   let mockChildProcess
   let mockSudoPrompt
   let mockConsole
+  let mockPsWrapper
 
-  let mockNodeStatusLabel
   let mockNodeStatusButtonOff
   let mockNodeStatusButtonServing
   let mockNodeStatusButtonConsuming
 
   let mockSubstratumNodeProcess
+
+  let mockStatusHandler
+  let mockDnsUtility
 
   let subject
 
@@ -25,8 +28,10 @@ describe('NodeActuator', function () {
     mockChildProcess = td.replace('child_process')
     mockSudoPrompt = td.replace('sudo-prompt')
     mockConsole = td.replace('../wrappers/console_wrapper')
+    mockStatusHandler = td.replace('../handlers/status_handler')
+    mockDnsUtility = td.replace('../command-process/dns_utility')
+    mockPsWrapper = td.replace('../wrappers/ps_wrapper')
 
-    mockNodeStatusLabel = { innerHTML: 'Off' }
     mockNodeStatusButtonOff = util.createMockUIElement('button-active')
     mockNodeStatusButtonServing = util.createMockUIElement()
     mockNodeStatusButtonConsuming = util.createMockUIElement()
@@ -42,7 +47,7 @@ describe('NodeActuator', function () {
     })).thenReturn(mockSubstratumNodeProcess)
 
     subject = require('../render-process/node_actuator')
-    subject.bind(mockNodeStatusLabel, mockNodeStatusButtonOff, mockNodeStatusButtonServing, mockNodeStatusButtonConsuming)
+    subject.bind(mockNodeStatusButtonOff, mockNodeStatusButtonServing, mockNodeStatusButtonConsuming)
   })
 
   afterEach(function () {
@@ -56,7 +61,6 @@ describe('NodeActuator', function () {
 
     it('does nothing', function () {
       assertStatus('off')
-      assertDNSNotSubverted()
       assertNodeNotStopped()
     })
 
@@ -67,7 +71,6 @@ describe('NodeActuator', function () {
 
       it('does nothing', function () {
         assertStatus('off')
-        assertDNSNotSubverted()
         assertNodeStarted(0)
       })
     })
@@ -100,7 +103,7 @@ describe('NodeActuator', function () {
       })
 
       it('subverts the dns', function () {
-        assertDNSSubverted()
+        verifyDNSSubverted()
       })
 
       it('starts the node', function () {
@@ -170,7 +173,7 @@ describe('NodeActuator', function () {
       })
 
       it('subverts dns', function () {
-        assertDNSSubverted()
+        verifyDNSSubverted()
       })
     })
   })
@@ -185,7 +188,7 @@ describe('NodeActuator', function () {
     })
 
     it('subverts dns', function () {
-      assertDNSSubverted()
+      verifyDNSSubverted()
     })
 
     it('starts the node', function () {
@@ -202,7 +205,7 @@ describe('NodeActuator', function () {
       })
 
       it('reverts the dns', function () {
-        assertDNSReverted()
+        verifyDNSReverted()
       })
 
       it('stops the node', function () {
@@ -224,7 +227,7 @@ describe('NodeActuator', function () {
       })
 
       it('reverts the dns', function () {
-        assertDNSReverted()
+        verifyDNSReverted()
       })
     })
 
@@ -275,6 +278,16 @@ describe('NodeActuator', function () {
         it('updates the status', function () {
           assertStatus('off')
         })
+
+        describe('serve', function () {
+          beforeEach(function () {
+            mockNodeStatusButtonServing.onclick()
+          })
+
+          it('starts the node again', function () {
+            assertNodeStarted(2)
+          })
+        })
       })
 
       describe('while consuming', function () {
@@ -286,7 +299,7 @@ describe('NodeActuator', function () {
           })
 
           it('reverts the dns', function () {
-            assertDNSReverted()
+            verifyDNSReverted(2)
           })
 
           it('logs the error', function () {
@@ -295,32 +308,6 @@ describe('NodeActuator', function () {
 
           it('updates the status', function () {
             assertStatus('off')
-          })
-        })
-
-        describe('dns revert fails', function () {
-          beforeEach(function () {
-            mockNodeStatusButtonConsuming.onclick()
-
-            let error = { message: 'blablabla' }
-            let stdout = false
-            let stderr = false
-            td.when(mockSudoPrompt.exec(td.matchers.anything(), td.matchers.anything()))
-              .thenCallback(error, stdout, stderr)
-
-            mockSubstratumNodeProcess.emit('message', 'Command returned error: blooga')
-          })
-
-          it('tries to revert the dns', function () {
-            assertDNSReverted()
-          })
-
-          it('logs the error', function () {
-            td.verify(mockConsole.log('substratum_node process received message: ', 'Command returned error: blooga'))
-          })
-
-          it('updates the status', function () {
-            assertStatus('invalid')
           })
         })
       })
@@ -352,7 +339,7 @@ describe('NodeActuator', function () {
           })
 
           it('reverts the dns', function () {
-            assertDNSReverted()
+            verifyDNSReverted(2)
           })
 
           it('logs the error', function () {
@@ -361,32 +348,6 @@ describe('NodeActuator', function () {
 
           it('updates the status', function () {
             assertStatus('off')
-          })
-        })
-
-        describe('dns revert fails', function () {
-          beforeEach(function () {
-            mockNodeStatusButtonConsuming.onclick()
-
-            let error = { message: 'blablabla' }
-            let stdout = false
-            let stderr = false
-            td.when(mockSudoPrompt.exec(td.matchers.anything(), td.matchers.anything()))
-              .thenCallback(error, stdout, stderr)
-
-            mockSubstratumNodeProcess.emit('error', new Error('blooga'))
-          })
-
-          it('tries to revert the dns', function () {
-            assertDNSReverted()
-          })
-
-          it('logs the error', function () {
-            td.verify(mockConsole.log('substratum_node process received error: ', 'blooga'))
-          })
-
-          it('updates the status', function () {
-            assertStatus('invalid')
           })
         })
       })
@@ -432,292 +393,52 @@ describe('NodeActuator', function () {
           })
 
           it('reverts DNS', function () {
-            assertDNSReverted()
+            verifyDNSReverted(2)
           })
 
           it('updates the status', function () {
             assertStatus('off')
           })
-        })
-
-        describe('dns revert fails', function () {
-          beforeEach(function () {
-            mockNodeStatusButtonConsuming.onclick()
-
-            let error = { message: 'blablabla' }
-            let stdout = false
-            let stderr = false
-            td.when(mockSudoPrompt.exec(td.matchers.anything(), td.matchers.anything()))
-              .thenCallback(error, stdout, stderr)
-
-            mockSubstratumNodeProcess.emit('exit', 7)
-          })
-
-          it('logs to console', function () {
-            td.verify(mockConsole.log('substratum_node process exited with code ', 7))
-          })
-
-          it('tries to revert DNS', function () {
-            assertDNSReverted()
-          })
-
-          it('updates the status', function () {
-            assertStatus('invalid')
-          })
-        })
-      })
-    })
-  })
-
-  describe('dns utility errors', function () {
-    describe('failing to subvert', function () {
-      describe('from serving', function () {
-        beforeEach(function () {
-          mockNodeStatusButtonServing.onclick()
-        })
-
-        describe('receives error from dns_utility', function () {
-          beforeEach(function () {
-            let error = { message: 'blablabla' }
-            let stdout = false
-            let stderr = false
-            td.when(mockSudoPrompt.exec(td.matchers.anything(), td.matchers.anything()))
-              .thenCallback(error, stdout, stderr)
-
-            mockNodeStatusButtonConsuming.onclick()
-          })
-
-          it('logs to the console', function () {
-            td.verify(mockConsole.log('dns_utility failed: ', 'blablabla'))
-          })
-
-          it('should still be serving', function () {
-            assertStatus('serving')
-          })
-        })
-
-        describe('receives stderr from dns_utility', function () {
-          beforeEach(function () {
-            let error = false
-            let stdout = false
-            let stderr = 'blablabla'
-            td.when(mockSudoPrompt.exec(td.matchers.contains('subvert'), { name: 'DNS utility' }))
-              .thenCallback(error, stdout, stderr)
-
-            mockNodeStatusButtonConsuming.onclick()
-          })
-
-          it('logs to console', function () {
-            td.verify(mockConsole.log('dns_utility failed: ', 'blablabla'))
-          })
-
-          it('should still be serving', function () {
-            assertStatus('serving')
-          })
-        })
-      })
-
-      describe('from off', function () {
-        beforeEach(function () {
-          mockNodeStatusButtonOff.onclick()
-        })
-
-        describe('receives error from dns_utility', function () {
-          beforeEach(function () {
-            let error = { message: 'blablabla' }
-            let stdout = false
-            let stderr = false
-            td.when(mockSudoPrompt.exec(td.matchers.contains('subvert'), { name: 'DNS utility' }))
-              .thenCallback(error, stdout, stderr)
-
-            mockNodeStatusButtonConsuming.onclick()
-          })
-
-          it('logs to the console', function () {
-            td.verify(mockConsole.log('dns_utility failed: ', 'blablabla'))
-          })
-
-          it('should still be off', function () {
-            assertStatus('off')
-          })
-
-          it('does not start the node', function () {
-            assertNodeStarted(0)
-          })
-        })
-
-        describe('receives stderr from dns_utility', function () {
-          beforeEach(function () {
-            let error = false
-            let stdout = false
-            let stderr = 'blablabla'
-            td.when(mockSudoPrompt.exec(td.matchers.contains('subvert'), { name: 'DNS utility' }))
-              .thenCallback(error, stdout, stderr)
-
-            mockNodeStatusButtonConsuming.onclick()
-          })
-
-          it('logs to console', function () {
-            td.verify(mockConsole.log('dns_utility failed: ', 'blablabla'))
-          })
-
-          it('should still be off', function () {
-            assertStatus('off')
-          })
-
-          it('does not start the node', function () {
-            assertNodeStarted(0)
-          })
-        })
-      })
-    })
-
-    describe('failing to revert', function () {
-      beforeEach(function () {
-        mockNodeStatusButtonConsuming.onclick()
-      })
-
-      describe('receives error from dns_utility', function () {
-        beforeEach(function () {
-          let error = { message: 'blablabla' }
-          let stdout = false
-          let stderr = false
-          td.when(mockSudoPrompt.exec(td.matchers.contains('revert'), { name: 'DNS utility' }))
-            .thenCallback(error, stdout, stderr)
-
-          mockNodeStatusButtonOff.onclick()
-        })
-
-        it('logs to the console', function () {
-          td.verify(mockConsole.log('dns_utility failed: ', 'blablabla'))
-        })
-
-        it('does not update the status', function () {
-          assertStatus('consuming')
-        })
-      })
-
-      describe('receives stderr from dns_utility', function () {
-        beforeEach(function () {
-          let error = false
-          let stdout = false
-          let stderr = 'blablabla'
-          td.when(mockSudoPrompt.exec(td.matchers.contains('revert'), { name: 'DNS utility' }))
-            .thenCallback(error, stdout, stderr)
-
-          mockNodeStatusButtonServing.onclick()
-        })
-
-        it('logs to console', function () {
-          td.verify(mockConsole.log('dns_utility failed: ', 'blablabla'))
-        })
-
-        it('does not update the status', function () {
-          assertStatus('consuming')
         })
       })
     })
   })
 
   describe('shutdown', function () {
-    describe('from off', function () {
-      beforeEach(function () {
-        mockNodeStatusButtonOff.onclick()
+    beforeEach(function () {
+      mockNodeStatusButtonServing.onclick()
 
-        subject.shutdown()
-      })
-
-      it('does not try to revert', function () {
-        assertDNSNotReverted()
-      })
-
-      it('does not try to stop the node', function () {
-        assertNodeNotStopped()
-      })
+      subject.shutdown()
     })
 
-    describe('from serving', function () {
-      beforeEach(function () {
-        mockNodeStatusButtonServing.onclick()
-
-        subject.shutdown()
-      })
-
-      it('does not try to revert', function () {
-        assertDNSNotReverted()
-      })
-
-      it('stops the node', function () {
-        assertNodeStopped()
-      })
+    it('reverts the dns', function () {
+      verifyDNSReverted(2)
     })
 
-    describe('from consuming', function () {
-      beforeEach(function () {
-        mockNodeStatusButtonConsuming.onclick()
-
-        subject.shutdown()
-      })
-
-      it('reverts the dns', function () {
-        assertDNSReverted()
-      })
-
-      it('stops the node', function () {
-        assertNodeStopped()
-      })
-    })
-
-    describe('from invalid', function () {
-      beforeEach(function () {
-        becomeInvalid()
-
-        subject.shutdown()
-      })
-
-      it('reverts the dns', function () {
-        assertDNSReverted()
-      })
-
-      it('stops the node', function () {
-        assertNodeStopped()
-      })
+    it('stops the node', function () {
+      assertNodeStopped()
     })
   })
 
-  function becomeInvalid () {
-    mockNodeStatusButtonConsuming.onclick()
+  describe('shutdown existing node process', function () {
+    beforeEach(function () {
+      mockSubstratumNodeProcess = null
 
-    let error = { message: 'blablabla' }
-    let stdout = false
-    let stderr = false
-    td.when(mockSudoPrompt.exec(td.matchers.contains('revert'), { name: 'DNS utility' }))
-      .thenCallback(error, stdout, stderr)
+      subject.shutdown()
+    })
 
-    mockNodeStatusButtonOff.onclick()
-  }
+    it('kills the process', function () {
+      td.verify(mockPsWrapper.killByName('SubstratumNode'))
+    })
+  })
 
   function assertStatus (status) {
     if (status === 'off') {
-      assert.strictEqual(mockNodeStatusLabel.innerHTML, 'Off')
-      assert(mockNodeStatusButtonOff.classList.contains('button-active'), 'Off should be active')
-      assert(!mockNodeStatusButtonServing.classList.contains('button-active'), 'Serving should not be active')
-      assert(!mockNodeStatusButtonConsuming.classList.contains('button-active'), 'Consuming should not be active')
+      td.verify(mockStatusHandler.emit('off'))
     } else if (status === 'serving') {
-      assert.strictEqual(mockNodeStatusLabel.innerHTML, 'Serving')
-      assert(!mockNodeStatusButtonOff.classList.contains('button-active'), 'Off should not be active')
-      assert(mockNodeStatusButtonServing.classList.contains('button-active'), 'Serving should be active')
-      assert(!mockNodeStatusButtonConsuming.classList.contains('button-active'), 'Consuming should not be active')
+      td.verify(mockStatusHandler.emit('serving'))
     } else if (status === 'consuming') {
-      assert.strictEqual(mockNodeStatusLabel.innerHTML, 'Consuming')
-      assert(!mockNodeStatusButtonOff.classList.contains('button-active'), 'Off should not be active')
-      assert(!mockNodeStatusButtonServing.classList.contains('button-active'), 'Serving should not be active')
-      assert(mockNodeStatusButtonConsuming.classList.contains('button-active'), 'Consuming should be active')
-    } else if (status === 'invalid') {
-      assert.strictEqual(mockNodeStatusLabel.innerHTML, 'There was a problem')
-      assert(!mockNodeStatusButtonOff.classList.contains('button-active'), 'Off should not be active')
-      assert(!mockNodeStatusButtonServing.classList.contains('button-active'), 'Serving should not be active')
-      assert(!mockNodeStatusButtonConsuming.classList.contains('button-active'), 'Consuming should not be active')
+      td.verify(mockStatusHandler.emit('consuming'))
     } else {
       assert(false, 'status was not recognized')
     }
@@ -740,16 +461,16 @@ describe('NodeActuator', function () {
     td.verify(mockSubstratumNodeProcess.send('stop'), {times: 0, ignoreExtraArgs: true})
   }
 
-  function assertDNSSubverted () {
-    td.verify(mockSudoPrompt.exec(td.matchers.contains(/[/\\]static[/\\]binaries[/\\]dns_utility" subvert/), { name: 'DNS utility' }, td.matchers.anything()))
+  function verifyDNSSubverted () {
+    td.verify(mockDnsUtility.subvert())
   }
 
   function assertDNSNotSubverted () {
     td.verify(mockSudoPrompt.exec(td.matchers.contains(/[/\\]static[/\\]binaries[/\\]dns_utility" subvert/)), {times: 0, ignoreExtraArgs: true})
   }
 
-  function assertDNSReverted () {
-    td.verify(mockSudoPrompt.exec(td.matchers.contains(/[/\\]static[/\\]binaries[/\\]dns_utility" revert/), { name: 'DNS utility' }, td.matchers.anything()))
+  function verifyDNSReverted (times = 1) {
+    td.verify(mockDnsUtility.revert(), {times: times})
   }
 
   function assertDNSNotReverted () {

@@ -26,7 +26,6 @@ module.exports = (function () {
   }
 
   function toggleSettings () {
-    console.log('toggle settings.')
     if (settingsOpened()) {
       closeSettings()
     } else {

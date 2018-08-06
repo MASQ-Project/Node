@@ -25,6 +25,11 @@
         display: flex;
         margin-top: 20px;
 
+        &--invalid {
+            border: 3px solid color('primary');
+            border-radius: $error-radius;
+        }
+
         button {
             background: color('background','dark');
             color: color('text','medium');

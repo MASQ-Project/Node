@@ -14,7 +14,11 @@ module.exports = (function () {
             classListData[x] = false
           },
           contains: function (x) {
-            return classListData[x]
+            if (classListData[x]) {
+              return true
+            } else {
+              return false
+            }
           }
         }
       }

@@ -10,7 +10,6 @@ module.exports = (function () {
   const documentWrapper = require('../wrappers/document_wrapper')
   const nodeActuator = require('./node_actuator')
 
-  const nodeStatusLabel = documentWrapper.getElementById('node-status-label')
   const nodeStatusButtonOff = documentWrapper.getElementById('off')
   const nodeStatusButtonServing = documentWrapper.getElementById('serving')
   const nodeStatusButtonConsuming = documentWrapper.getElementById('consuming')
@@ -18,8 +17,11 @@ module.exports = (function () {
   const settingsMenu = documentWrapper.getElementById('settings-menu')
   const settingsQuitButton = documentWrapper.getElementById('settings-menu-quit')
   const body = documentWrapper.getElementById('main')
+  const statusHandler = require('../handlers/status_handler')
 
-  nodeActuator.bind(nodeStatusLabel, nodeStatusButtonOff, nodeStatusButtonServing, nodeStatusButtonConsuming)
+  statusHandler.emit('init-status')
+
+  nodeActuator.bind(nodeStatusButtonOff, nodeStatusButtonServing, nodeStatusButtonConsuming)
   settings.bind(body, settingsMenu, settingsButton, settingsQuitButton)
 
   ipcRenderer.on('kill-substratum-node', function () {

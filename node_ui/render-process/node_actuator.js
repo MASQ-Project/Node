@@ -4,83 +4,43 @@ module.exports = (function () {
   const childProcess = require('child_process')
   const path = require('path')
   const consoleWrapper = require('../wrappers/console_wrapper')
-  const sudoPrompt = require('sudo-prompt')
+  const status = require('../handlers/status_handler')
+  const dnsUtility = require('../command-process/dns_utility')
+  const psWrapper = require('../wrappers/ps_wrapper')
 
-  const dnsUtilityPath = '"' + path.resolve(__dirname, '.', '../static/binaries/dns_utility') + '"'
-
-  let state = 'off'
-
-  let nodeStatusLabel
   let nodeStatusButtonOff
   let nodeStatusButtonServing
   let nodeStatusButtonConsuming
 
   let substratumNodeProcess = null
 
-  function setStatusToOff () {
-    nodeStatusLabel.innerHTML = 'Off'
-    nodeStatusButtonOff.classList.add('button-active')
-    nodeStatusButtonServing.classList.remove('button-active')
-    nodeStatusButtonConsuming.classList.remove('button-active')
-    state = 'off'
-  }
-
-  function setStatusToServing () {
-    nodeStatusLabel.innerHTML = 'Serving'
-    nodeStatusButtonOff.classList.remove('button-active')
-    nodeStatusButtonServing.classList.add('button-active')
-    nodeStatusButtonConsuming.classList.remove('button-active')
-    state = 'serving'
-  }
-
-  function setStatusToConsuming () {
-    nodeStatusLabel.innerHTML = 'Consuming'
-    nodeStatusButtonOff.classList.remove('button-active')
-    nodeStatusButtonServing.classList.remove('button-active')
-    nodeStatusButtonConsuming.classList.add('button-active')
-    state = 'consuming'
-  }
-
-  function setStatusToInvalid () {
-    nodeStatusLabel.innerHTML = 'There was a problem'
-    nodeStatusButtonOff.classList.remove('button-active')
-    nodeStatusButtonServing.classList.remove('button-active')
-    nodeStatusButtonConsuming.classList.remove('button-active')
-    state = 'invalid'
-  }
-
-  function revertOrInvalid () {
-    if (state === 'consuming') {
-      runDNSUtility('revert', function () {
-        setStatusToOff()
-      }, function () {
-        setStatusToInvalid()
-      })
-    } else {
-      setStatusToOff()
-    }
+  function setStatusToOffThenRevert () {
+    substratumNodeProcess = null
+    status.emit('off')
+    dnsUtility.revert()
   }
 
   function bindProcessEvents () {
     substratumNodeProcess.on('message', function (message) {
       consoleWrapper.log('substratum_node process received message: ', message)
       if (message.startsWith('Command returned error: ')) {
-        revertOrInvalid()
+        setStatusToOffThenRevert()
       }
     })
 
     substratumNodeProcess.on('error', function (error) {
       consoleWrapper.log('substratum_node process received error: ', error.message)
-      revertOrInvalid()
+      setStatusToOffThenRevert()
     })
 
     substratumNodeProcess.on('exit', function (code) {
       consoleWrapper.log('substratum_node process exited with code ', code)
-      revertOrInvalid()
+      setStatusToOffThenRevert()
     })
   }
 
   function startNode () {
+    if (substratumNodeProcess) return
     const worker = path.resolve(__dirname, '.', '../command-process/substratum_node.js')
     substratumNodeProcess = childProcess.fork(worker, [], {
       silent: true,
@@ -92,64 +52,39 @@ module.exports = (function () {
   }
 
   function stopNode () {
-    substratumNodeProcess.send('stop')
+    if (!substratumNodeProcess) {
+      psWrapper.killByName('SubstratumNode')
+    } else {
+      substratumNodeProcess.send('stop')
+    }
   }
 
-  function runDNSUtility (mode, andThen, errCb) {
-    sudoPrompt.exec(dnsUtilityPath + ' ' + mode, { name: 'DNS utility' }, function (error, stdout, stderr) {
-      if (error || stderr) {
-        consoleWrapper.log('dns_utility failed: ', stderr || error.message)
-        if (errCb) errCb()
-        // TODO: what to do here?
-      } else if (andThen) {
-        andThen()
-      }
-    })
-  }
-
-  function bind (_nodeStatusLabel, _nodeStatusButtonOff, _nodeStatusButtonServing, _nodeStatusButtonConsuming) {
-    nodeStatusLabel = _nodeStatusLabel
+  function bind (_nodeStatusButtonOff, _nodeStatusButtonServing, _nodeStatusButtonConsuming) {
     nodeStatusButtonOff = _nodeStatusButtonOff
     nodeStatusButtonServing = _nodeStatusButtonServing
     nodeStatusButtonConsuming = _nodeStatusButtonConsuming
 
     nodeStatusButtonOff.onclick = function () {
-      if (state === 'off') return
-      if (state === 'consuming') {
-        runDNSUtility('revert', function () {
-          stopNode()
-          setStatusToOff()
-        })
-      } else {
-        stopNode()
-        setStatusToOff()
-      }
+      status.emit('off')
+      dnsUtility.revert()
+      stopNode()
     }
 
     nodeStatusButtonServing.onclick = function () {
-      if (state === 'serving') return
-      if (state === 'consuming') {
-        runDNSUtility('revert', function () {
-          setStatusToServing()
-        })
-      } else {
-        startNode()
-        setStatusToServing()
-      }
+      status.emit('serving')
+      dnsUtility.revert()
+      startNode()
     }
 
     nodeStatusButtonConsuming.onclick = function () {
-      if (state === 'consuming') return
-      runDNSUtility('subvert', function () {
-        if (state === 'off') startNode()
-        setStatusToConsuming()
-      })
+      status.emit('consuming')
+      dnsUtility.subvert()
+      startNode()
     }
   }
 
   function shutdown () {
-    if (state === 'off') return
-    if (state !== 'serving') runDNSUtility('revert')
+    dnsUtility.revert()
     stopNode()
   }
 

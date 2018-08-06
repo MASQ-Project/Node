@@ -6,7 +6,8 @@ const assert = require('assert')
 const td = require('testdouble')
 
 describe('Renderer', function () {
-  let mockIpcRenderer, mockShell, mockNodeActuator, mockDocument, mockSettings, mockUrl1, mockUrl2, mockLink1, mockLink2, eventCaptor, mockEvent1, mockEvent2, mockApp
+  let mockIpcRenderer, mockShell, mockNodeActuator, mockDocument, mockSettings, mockUrl1, mockUrl2, mockLink1,
+    mockLink2, eventCaptor, mockEvent1, mockEvent2, mockApp, mockStatusHandler
 
   let killFunctionCaptor
 
@@ -24,9 +25,9 @@ describe('Renderer', function () {
     mockNodeActuator = td.replace('../render-process/node_actuator')
     mockSettings = td.replace('../render-process/settings')
     mockDocument = td.replace('../wrappers/document_wrapper')
+    mockStatusHandler = td.replace('../handlers/status_handler')
     killFunctionCaptor = td.matchers.captor()
 
-    td.when(mockDocument.getElementById('node-status-label')).thenReturn('Label')
     td.when(mockDocument.getElementById('off')).thenReturn('Off')
     td.when(mockDocument.getElementById('serving')).thenReturn('Serving')
     td.when(mockDocument.getElementById('consuming')).thenReturn('Consuming')
@@ -56,7 +57,8 @@ describe('Renderer', function () {
   })
 
   it('binds the ui elements', function () {
-    td.verify(mockNodeActuator.bind('Label', 'Off', 'Serving', 'Consuming'))
+    td.verify(mockStatusHandler.emit('init-status'))
+    td.verify(mockNodeActuator.bind('Off', 'Serving', 'Consuming'))
     td.verify(mockSettings.bind('Main Body', 'Settings Menu', 'Settings Button', 'Quit Button'))
   })
 

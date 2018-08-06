@@ -13,10 +13,10 @@
     "asar": false,
     "mac": {
       "icon": "build/icons/icon.icns",
-      "forceCodeSigning" : true,
-      "identity" : "Substratum Services, Inc. (TKDGR66924)",
-      "target" : "dmg",
-      "type" : "distribution"
+      "forceCodeSigning": true,
+      "identity": "Substratum Services, Inc. (TKDGR66924)",
+      "target": "dmg",
+      "type": "distribution"
     },
     "win": {
       "icon": "build/icons/icon.ico"
@@ -25,9 +25,9 @@
       "icon": "build/icons"
     }
   },
-  "dmg" : {
-    "title" : "${productName}-${version}",
-    "artifactName" : "${productName}-${version}.${ext}"
+  "dmg": {
+    "title": "${productName}-${version}",
+    "artifactName": "${productName}-${version}.${ext}"
   },
   "scripts": {
     "dev": "./node_modules/.bin/node-sass assets/styles/main.scss assets/styles/main.css -w -r --output-style compact & electron .",
@@ -40,18 +40,19 @@
     "dist": "electron-builder"
   },
   "devDependencies": {
-    "electron-builder": "^20.13.3",
     "devtron": "^1.4.0",
-    "electron": "^1.8.4",
+    "electron": "^2.0.6",
+    "electron-builder": "^20.13.3",
+    "electron-reload": "^1.2.5",
     "mocha": "^5.1.1",
+    "node-sass": "^4.5.0",
     "spectron": "^3.8.0",
     "standard": "^11.0.1",
-    "testdouble": "^3.8.0",
-    "node-sass": "^4.5.0",
-    "electron-reload": "^1.2.5"
+    "testdouble": "^3.8.0"
   },
   "dependencies": {
     "node-cmd": "^3.0.0",
+    "ps-list": "^5.0.0",
     "sudo-prompt": "^8.2.0",
     "tree-kill": "^1.2.0"
   }
