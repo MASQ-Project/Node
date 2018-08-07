@@ -7,13 +7,13 @@ CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 
 case "$OSTYPE" in
    linux*)
-        yarn dist --x64 --linux deb
+        yarn dist --x64 --linux deb --publish=never
         ;;
    darwin*)
-        yarn dist --x64 --mac
+        yarn dist --x64 --mac --publish=never
         ;;
    msys)
-        yarn dist --x64 --windows
+        yarn dist --x64 --windows --publish=never
         ;;
    *)
         echo "unsupported operating system detected."; exit 1
