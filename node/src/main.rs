@@ -6,7 +6,7 @@ extern crate tokio;
 extern crate futures;
 
 use std::io;
-use tokio::prelude::future::lazy;
+use futures::future::lazy;
 use node_lib::server_initializer::ServerInitializer;
 use sub_lib::main_tools::StdStreams;
 use sub_lib::main_tools::Command;

@@ -10,7 +10,6 @@ use actix::Actor;
 use actix::Addr;
 use actix::Handler;
 use actix::Syn;
-use actix::MessageResult;
 use sub_lib::framer::Framer;
 use sub_lib::framer::FramedChunk;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
@@ -143,11 +142,10 @@ impl NullDiscriminatorFactory {
 }
 
 impl Handler<AddStreamMsg> for Recorder {
-    type Result = MessageResult<AddStreamMsg>;
+    type Result = ();
 
-    fn handle(&mut self, msg: AddStreamMsg, _ctx: &mut Self::Context) -> <Self as Handler<AddStreamMsg>>::Result {
+    fn handle(&mut self, msg: AddStreamMsg, _ctx: &mut Self::Context) {
         self.record (msg);
-        MessageResult (StreamAdded {})
     }
 }
 

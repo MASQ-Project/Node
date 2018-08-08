@@ -7,22 +7,15 @@ use configuration::PortConfiguration;
 use sub_lib::dispatcher::DispatcherSubs;
 use sub_lib::neighborhood::NeighborhoodSubs;
 use stream_handler_pool::StreamHandlerPoolSubs;
-use actix::Message;
 use stream_connector::ConnectionInfo;
 use masquerader::Masquerader;
 
-#[derive(Message)]
-pub struct StreamAdded {}
-
+#[derive (Message)]
 pub struct AddStreamMsg {
     pub connection_info: ConnectionInfo,
     pub origin_port: Option<u16>,
     pub port_configuration: PortConfiguration,
     pub writer_config: Box<Masquerader>,
-}
-
-impl Message for AddStreamMsg {
-    type Result = StreamAdded;
 }
 
 impl AddStreamMsg {

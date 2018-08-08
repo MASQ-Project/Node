@@ -263,14 +263,13 @@ mod tests {
     use regex::Regex;
     use tokio;
     use tokio::prelude::Async;
-    use tokio::prelude::Future;
     use actor_system_factory::ActorFactory;
     use node_test_utils::extract_log;
     use node_test_utils::make_stream_handler_pool_subs_from;
     use node_test_utils::TestLogOwner;
+    use sub_lib::cryptde::PlainData;
     use stream_handler_pool::StreamHandlerPoolSubs;
     use stream_messages::AddStreamMsg;
-    use sub_lib::cryptde::PlainData;
     use sub_lib::logger;
     use test_utils::test_utils::FakeStreamHolder;
     use test_utils::recorder::RecordAwaiter;
@@ -320,7 +319,7 @@ mod tests {
         port_configuration_parameter: Option<PortConfiguration>,
         add_stream_sub: Option<Recipient<Syn, AddStreamMsg>>,
         add_stream_msgs: Arc<Mutex<Vec<AddStreamMsg>>>,
-        listen_results: Vec<Box<ListenerHandler<Item=(), Error=()>>>,
+        _listen_results: Vec<Box<ListenerHandler<Item=(), Error=()>>>,
     }
 
     impl ListenerHandler for ListenerHandlerNull {
@@ -366,7 +365,7 @@ mod tests {
                 port_configuration_parameter: None,
                 add_stream_sub: None,
                 add_stream_msgs: Arc::new (Mutex::new (add_stream_msgs)),
-                listen_results: vec! (),
+                _listen_results: vec! (),
             }
         }
 

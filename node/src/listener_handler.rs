@@ -72,7 +72,7 @@ impl Future for ListenerHandlerReal {
                 },
                 Err(e) => {
                     // TODO FIXME we should kill the entire node if there is a fatal error in a listener_handler
-                    // TODO this could be... inefficient, if we keep getting non-fatal errors. (we do not return)
+                    // TODO this could be exploitable and inefficient: if we keep getting errors, we go into a tight loop and do not return
                     self.logger.error (format! ("Could not accept connection: {}", e));
                 },
                 Ok(Async::NotReady) => {

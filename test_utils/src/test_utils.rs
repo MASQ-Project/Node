@@ -320,7 +320,7 @@ impl TestLogHandler {
         for index in 0..indexes.len () {
             msg.push_str (&format! ("  {}: '{}'\n", indexes[index], matchers[index])[..])
         }
-        panic! ("{}", msg);
+        panic! ("{}\nGot:\n{}", msg, self.list_logs());
     }
 
     fn logs_match (&self, pattern: &str) -> Option<usize> {

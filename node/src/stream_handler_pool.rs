@@ -5,7 +5,6 @@ use std::thread;
 use std::time::Duration;
 use actix::Actor;
 use actix::Addr;
-use actix::MessageResult;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
@@ -76,12 +75,12 @@ impl Actor for StreamHandlerPool {
 }
 
 impl Handler<AddStreamMsg> for StreamHandlerPool {
-    type Result = MessageResult<AddStreamMsg>;
+    type Result = ();
 
     fn handle(&mut self, msg: AddStreamMsg, _ctx: &mut Self::Context) -> <Self as Handler<AddStreamMsg>>::Result {
         self.set_up_stream_writer(msg.connection_info.writer, msg.connection_info.peer_addr, msg.writer_config);
         self.set_up_stream_reader(msg.connection_info.reader, msg.origin_port, msg.port_configuration, msg.connection_info.peer_addr, msg.connection_info.local_addr);
-        MessageResult (StreamAdded {})
+        ()
     }
 }
 
@@ -279,9 +278,8 @@ impl StreamHandlerPool {
         writer_config: Box<Masquerader>,
     ) {
         let (tx, rx) = self.channel_factory.make();
-        let stream_writer = StreamWriterReal::new (
+        let stream_writer = StreamWriter::new (
             write_stream,
-            self.self_subs.as_ref().expect("StreamHandlerPool is unbound").remove_sub.clone (),
             socket_addr,
             rx,
             writer_config,
@@ -695,68 +693,6 @@ mod tests {
     }
 
     #[test]
-    fn transmitting_down_a_recalcitrant_existing_stream_produces_an_error_log_and_removes_writer () {
-        init_test_logging();
-        let peer_addr = SocketAddr::from_str("1.2.3.4:5679").unwrap();
-        let local_addr = SocketAddr::from_str("1.2.3.5:5679").unwrap();
-        let reader = ReadHalfWrapperMock::new ()
-            .poll_read_ok (b"block".to_vec ())
-            .poll_read_result (vec! (), Ok (Async::NotReady));
-        let writer = WriteHalfWrapperMock::new ()
-            .poll_write_result(Err (Error::from (ErrorKind::BrokenPipe)));
-        let (sub_tx, sub_rx) = mpsc::channel ();
-
-        thread::spawn (move || {
-            let system = System::new("test");
-            let subject = StreamHandlerPool::new(vec! ());
-            let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
-            let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = make_peer_actors();
-
-            subject_subs.bind.try_send(PoolBindMessage {
-                dispatcher_subs: peer_actors.dispatcher,
-                stream_handler_pool_subs: subject_subs.clone (),
-                neighborhood_subs: peer_actors.neighborhood,
-            }).unwrap ();
-            sub_tx.send (subject_subs).ok ();
-            system.run();
-        });
-
-        let tlh = TestLogHandler::new ();
-        let subject_subs = sub_rx.recv ().unwrap ();
-
-        let connection_info = ConnectionInfo {
-            reader: Box::new (reader),
-            writer: Box::new (writer),
-            local_addr,
-            peer_addr,
-        };
-
-        subject_subs.add_sub.try_send(AddStreamMsg::new (
-            connection_info,
-            None,
-            PortConfiguration::new(vec! (Box::new (HttpRequestDiscriminatorFactory::new ())), false),
-            Box::new(NullMasquerader::new())
-        )).unwrap ();
-
-        subject_subs.transmit_sub.try_send(TransmitDataMsg {
-            endpoint: Endpoint::Socket(peer_addr),
-            last_data: false,
-            sequence_number: Some(0),
-            data: vec!(0x12, 0x34)
-        }).unwrap ();
-        tlh.await_log_containing ("ERROR: StreamWriter for 1.2.3.4:5679: Cannot transmit 2 bytes: broken pipe", 1000);
-
-        subject_subs.transmit_sub.try_send(TransmitDataMsg {
-            endpoint: Endpoint::Socket(peer_addr),
-            last_data: false,
-            sequence_number: Some(0),
-            data: vec!(0x12, 0x34)
-        }).unwrap ();
-        tlh.await_log_containing ("DEBUG: Dispatcher: No existing stream to 1.2.3.4:5679: creating one", 1000);
-    }
-
-    #[test]
     fn when_stream_handler_pool_fails_to_create_nonexistent_stream_for_write_then_it_logs_and_discards () {
         init_test_logging ();
         let public_key = Key { data: vec![0, 1, 2, 3] };
@@ -1122,7 +1058,7 @@ mod tests {
     }
 
     #[test]
-    fn when_a_new_connection_fails_the_stream_writer_flag_is_removed_and_another_connection_will_be_attempted() {
+    fn when_a_new_connection_fails_the_stream_writer_flag_is_removed_and_another_connection_is_attempted_for_the_next_message_with_the_same_stream_key() {
         init_test_logging();
         let cryptde = CryptDENull::new();
         let key = cryptde.public_key();
@@ -1135,7 +1071,12 @@ mod tests {
             sequence_number: Some(0),
             data: b"hello".to_vec(),
         };
-        let msg_a = msg.clone();
+        let msg_a = TransmitDataMsg {
+            endpoint: Endpoint::Socket(peer_addr.clone()),
+            last_data: true,
+            sequence_number: Some(0),
+            data: b"worlds".to_vec(),
+        };
 
         let local_addr = SocketAddr::from_str("1.2.3.4:80").unwrap();
         let poll_write_params_arc = Arc::new(Mutex::new(Vec::new()));
@@ -1144,8 +1085,8 @@ mod tests {
             reader: Box::new (ReadHalfWrapperMock::new ()
                 .poll_read_result (vec! (), Ok(Async::NotReady))),
             writer: Box::new (WriteHalfWrapperMock::new ()
-                .poll_write_result(Ok (Async::NotReady))
                 .poll_write_params(&poll_write_params_arc)
+                .poll_write_result(Ok (Async::Ready(5)))
             ),
             local_addr,
             peer_addr: peer_addr_a,

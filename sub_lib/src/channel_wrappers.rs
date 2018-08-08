@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use std::fmt::Debug;
 use futures::Stream;
 use futures::sync::mpsc;
 use futures::sync::mpsc::SendError;
@@ -26,16 +27,17 @@ impl<T: Send> ReceiverWrapperReal<T> {
     }
 }
 
-pub trait SenderWrapper<T>: Send {
+pub trait SenderWrapper<T>: Debug + Send {
     fn unbounded_send(&mut self, data: T) -> Result<(), SendError<T>>;
     fn clone(&self) -> Box<SenderWrapper<T>>;
 }
 
+#[derive(Debug)]
 pub struct SenderWrapperReal<T> {
     delegate: UnboundedSender<T>
 }
 
-impl<T: 'static + Send> SenderWrapper<T> for SenderWrapperReal<T> {
+impl<T: 'static + Debug + Send> SenderWrapper<T> for SenderWrapperReal<T> {
     fn unbounded_send(&mut self, data: T) -> Result<(), SendError<T>> {
         self.delegate.unbounded_send(data)
     }
@@ -56,7 +58,7 @@ pub trait FuturesChannelFactory<T> {
 
 pub struct FuturesChannelFactoryReal {}
 
-impl<T: 'static + Send> FuturesChannelFactory<T> for FuturesChannelFactoryReal {
+impl<T: 'static + Debug + Send> FuturesChannelFactory<T> for FuturesChannelFactoryReal {
     fn make(&mut self) -> (Box<SenderWrapper<T>>, Box<ReceiverWrapper<T>>) {
         let (tx, rx) = mpsc::unbounded();
         (Box::new(SenderWrapperReal::new(tx)), Box::new(ReceiverWrapperReal::new(rx)))

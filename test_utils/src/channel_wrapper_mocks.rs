@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::sync::Arc;
 use std::sync::Mutex;
 use futures::sync::mpsc::SendError;
@@ -10,7 +11,7 @@ pub struct FuturesChannelFactoryMock<T> {
     pub results: Vec<(Box<SenderWrapper<T>>, Box<ReceiverWrapper<T>>)>
 }
 
-impl<T: 'static + Send> FuturesChannelFactory<T> for FuturesChannelFactoryMock<T> {
+impl<T: 'static + Clone + Debug + Send> FuturesChannelFactory<T> for FuturesChannelFactoryMock<T> {
     fn make(&mut self) -> (Box<SenderWrapper<T>>, Box<ReceiverWrapper<T>>) {
         if self.results.is_empty() {
             (Box::new(SenderWrapperMock::new()), Box::new(ReceiverWrapperMock::new()))
@@ -38,21 +39,26 @@ impl<T> ReceiverWrapperMock<T> {
     }
 }
 
+#[derive(Debug)]
 pub struct SenderWrapperMock<T> {
     pub unbounded_send_params: Arc<Mutex<Vec<T>>>,
     pub unbounded_send_results: Vec<Result<(), SendError<T>>>
 }
 
-impl<T: 'static + Send> SenderWrapper<T> for SenderWrapperMock<T> {
+impl<T: 'static + Clone + Debug + Send> SenderWrapper<T> for SenderWrapperMock<T> {
     fn unbounded_send(&mut self, data: T) -> Result<(), SendError<T>> {
         self.unbounded_send_params.lock().unwrap().push(data);
-        self.unbounded_send_results.remove(0)
+        if self.unbounded_send_results.is_empty() {
+            Ok(())
+        } else {
+            self.unbounded_send_results.remove(0)
+        }
     }
 
     fn clone(&self) -> Box<SenderWrapper<T>> {
         Box::new(SenderWrapperMock {
             unbounded_send_params: self.unbounded_send_params.clone(),
-            unbounded_send_results: vec!(), // TODO FIXME
+            unbounded_send_results: self.unbounded_send_results.clone()
         })
     }
 }

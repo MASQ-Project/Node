@@ -1,6 +1,4 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use std::net::Shutdown;
-use std::sync::mpsc::Sender;
 use actix::Recipient;
 use actix::Syn;
 use sub_lib::cryptde::Key;
@@ -11,15 +9,18 @@ use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::logger::Logger;
 use sub_lib::proxy_client::ClientResponsePayload;
 use sub_lib::route::Route;
-use sub_lib::tcp_wrappers::TcpStreamWrapper;
 use sub_lib::utils::indicates_dead_stream;
 use sub_lib::utils::to_string;
 use sub_lib::sequencer::Sequencer;
+use sub_lib::tokio_wrappers::ReadHalfWrapper;
+use tokio::prelude::Async;
+use tokio::prelude::Future;
+use std::sync::mpsc::Sender;
 
 pub struct StreamReader {
     stream_key: StreamKey,
     hopper_sub: Recipient<Syn, IncipientCoresPackage>,
-    stream: Box<TcpStreamWrapper>,
+    stream: Box<ReadHalfWrapper>,
     stream_killer: Sender<StreamKey>,
     peer_addr: String,
     remaining_route: Route,
@@ -29,11 +30,45 @@ pub struct StreamReader {
     sequencer: Sequencer,
 }
 
-impl StreamReader {
+impl Future for StreamReader {
+    type Item = ();
+    type Error = ();
 
-    pub fn new (stream_key: StreamKey, hopper_sub: Recipient<Syn, IncipientCoresPackage>,
-                stream: Box<TcpStreamWrapper>, stream_killer: Sender<StreamKey>, peer_addr: String,
-                remaining_route: Route, framer: Box<Framer>, originator_public_key: Key) -> StreamReader {
+    fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
+        let mut buf: [u8; 16384] = [0; 16384];
+        loop {
+            match self.stream.poll_read(&mut buf) {
+                Ok(Async::NotReady) => return Ok(Async::NotReady),
+                Ok(Async::Ready(0)) => { // see RETURN VALUE section of recv man page (Unix)
+                    self.logger.debug(format!("Stream from {} was closed: (0-byte read)", self.peer_addr));
+                    self.shutdown();
+                    return Ok(Async::Ready(()));
+                },
+                Ok(Async::Ready(len)) => {
+                    self.logger.debug(format!("Read {}-byte chunk from {}: {}", len, self.peer_addr,
+                                              to_string(&Vec::from(&buf[0..len]))));
+                    self.framer.add_data(&buf[0..len]);
+                    self.send_frames_loop();
+                },
+                Err(e) => {
+                    if indicates_dead_stream(e.kind()) {
+                        self.logger.debug(format!("Stream from {} was closed: {}", self.peer_addr, e));
+                        self.shutdown();
+                        return Err(());
+                    } else {
+                        // TODO this could be exploitable and inefficient: if we keep getting non-dead-stream errors, we go into a tight loop and do not return
+                        self.logger.warning(format!("Continuing after read error on stream from {}: {}", self.peer_addr, e));
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl StreamReader {
+    pub fn new(stream_key: StreamKey, hopper_sub: Recipient<Syn, IncipientCoresPackage>,
+               stream: Box<ReadHalfWrapper>, stream_killer: Sender<StreamKey>, peer_addr: String,
+               remaining_route: Route, framer: Box<Framer>, originator_public_key: Key) -> StreamReader {
         StreamReader {
             stream_key,
             hopper_sub,
@@ -48,47 +83,13 @@ impl StreamReader {
         }
     }
 
-    pub fn run(&mut self) {
-        let mut buf: [u8; 16384] = [0; 16384];
-        while self.read_buffer (&mut buf) && self.write_loop() {
-            // keep calling read and write until one of them returns false
-        }
-    }
-
-    fn read_buffer (&mut self, buf: &mut [u8]) -> bool {
-        match self.stream.read (buf) {
-            Ok (0) => { // see RETURN VALUE section of recv man page (Unix)
-                self.logger.debug (format! ("Stream from {} was closed: (0-byte read)", self.peer_addr));
-                self.shutdown();
-                false
-            },
-            Ok (len) => {
-                self.logger.debug (format! ("Read {}-byte chunk from {}: {}", len, self.peer_addr,
-                                            to_string (&Vec::from (&buf[0..len]))));
-                self.framer.add_data (&buf[0..len]);
-                true
-            },
-            Err (e) => {
-                if indicates_dead_stream(e.kind ()) {
-                    self.logger.debug (format! ("Stream from {} was closed: {}", self.peer_addr, e));
-                    self.shutdown();
-                    false
-                } else {
-                    self.logger.warning(format! ("Continuing after read error on stream from {}: {}", self.peer_addr, e));
-                    true
-                }
-            }
-        }
-    }
-
     fn shutdown(&mut self) {
         let stream_key = self.stream_key.clone();
-        self.send_cores_response (stream_key, PlainData::new (&[]), true);
-        self.stream.shutdown (Shutdown::Both).is_ok ();
-        self.stream_killer.send (stream_key).is_ok ();
+        self.send_cores_response(stream_key, PlainData::new(&[]), true);
+        self.stream_killer.send(self.stream_key).is_ok();
     }
 
-    fn write_loop (&mut self) -> bool {
+    fn send_frames_loop(&mut self) {
         loop {
             match self.framer.take_frame () {
                 Some (response_chunk) => {
@@ -98,18 +99,15 @@ impl StreamReader {
                     let stream_key = self.stream_key.clone();
                     self.send_cores_response(
                         stream_key,
-                        PlainData::new (&response_chunk.chunk[..]),
-                        response_chunk.last_chunk
+                        PlainData::new(&response_chunk.chunk[..]),
+                        response_chunk.last_chunk,
                     );
-                    if response_chunk.last_chunk {
-                        self.stream.shutdown (Shutdown::Both).is_ok ();
-                        self.stream_killer.send (self.stream_key).is_ok ();
-                        return false;
+                    if response_chunk.last_chunk { // FIXME no production framer sets this to true...
+                        self.stream_killer.send(self.stream_key).is_ok();
+                        break
                     }
                 },
-                None => {
-                    return true;
-                }
+                None => break,
             }
         }
     }
@@ -119,7 +117,7 @@ impl StreamReader {
             stream_key,
             last_response,
             sequence_number: self.sequencer.next_sequence_number(),
-            data: response_data
+            data: response_data,
         };
         let incipient_cores_package =
             IncipientCoresPackage::new (self.remaining_route.clone (),
@@ -134,8 +132,6 @@ mod tests {
     use std::io::Error;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use std::sync::Arc;
-    use std::sync::Mutex;
     use std::sync::mpsc;
     use std::thread;
     use actix::System;
@@ -148,8 +144,8 @@ mod tests {
     use test_utils::recorder::Recorder;
     use test_utils::test_utils::init_test_logging;
     use test_utils::test_utils::TestLogHandler;
-    use local_test_utils::TcpStreamWrapperMock;
     use std::io::ErrorKind;
+    use test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
 
     struct StreamEndingFramer {}
 
@@ -165,42 +161,48 @@ mod tests {
         let hopper = Recorder::new();
         let awaiter = hopper.get_awaiter();
         let hopper_recording_arc = hopper.get_recording();
-        let mut shutdown_parameters = Arc::new(Mutex::new(vec!()));
-        let stream = TcpStreamWrapperMock::new()
-            .peer_addr_result(Ok(SocketAddr::from_str("2.3.4.5:80").unwrap()))
-            .read_buffer(Vec::from(&b"HTTP/1.1 200"[..]))
-            .read_result(Ok(b"HTTP/1.1 200".len()))
-            .read_buffer(Vec::from(&b" OK\r\n\r\nHTTP/1.1 40"[..]))
-            .read_result(Ok(b" OK\r\n\r\nHTTP/1.1 40".len()))
-            .read_buffer(Vec::from(&b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n"[..]))
-            .read_result(Ok(b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n".len()))
-            .read_buffer(vec!())
-            .read_result(Ok(0))
-            .shutdown_parameters(&mut shutdown_parameters)
-            .shutdown_result(Ok(()));
+
+        let read_results = vec!(
+            b"HTTP/1.1 200".to_vec(),
+            b" OK\r\n\r\nHTTP/1.1 40".to_vec(),
+            b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n".to_vec()
+        );
+
+        let mut stream = Box::new(ReadHalfWrapperMock::new());
+
+        stream.poll_read_results = vec!(
+            (read_results[0].clone(), Ok(Async::Ready(read_results[0].len()))),
+            (read_results[1].clone(), Ok(Async::Ready(read_results[1].len()))),
+            (read_results[2].clone(), Ok(Async::Ready(read_results[2].len()))),
+            (vec!(), Ok(Async::Ready(0))),
+        );
+
+        let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             let system = System::new("test");
             let hopper_sub =
                 recorder::make_peer_actors_from(None, None, Some(hopper), None, None)
                     .hopper.from_hopper_client;
-            let (stream_killer, _) = mpsc::channel::<StreamKey>();
-            let mut subject = StreamReader {
-                stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
-                hopper_sub,
-                stream: Box::new(stream),
-                stream_killer,
-                peer_addr: String::from("Peer Address"),
-                remaining_route: test_utils::make_meaningless_route(),
-                framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
-                originator_public_key: Key::new(&b"abcd"[..]),
-                logger: Logger::new("test"),
-                sequencer: Sequencer::new(),
-            };
-
-            subject.run();
-
+            tx.send(hopper_sub).is_ok();
             system.run();
         });
+
+        let hopper_sub = rx.recv().unwrap();
+        let (stream_killer, stream_killer_params) = mpsc::channel();
+        let mut subject = StreamReader {
+            stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
+            hopper_sub,
+            stream,
+            stream_killer: stream_killer,
+            peer_addr: String::from("Peer Address"),
+            remaining_route: test_utils::make_meaningless_route(),
+            framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
+            originator_public_key: Key::new(&b"abcd"[..]),
+            logger: Logger::new("test"),
+            sequencer: Sequencer::new(),
+        };
+
+        let _res = subject.poll();
 
         awaiter.await_message_count(4);
         let hopper_recording = hopper_recording_arc.lock().unwrap();
@@ -212,7 +214,7 @@ mod tests {
                 sequence_number: 0,
                 data: PlainData::new(&b"HTTP/1.1 200 OK\r\n\r\n"[..]),
             },
-            &Key::new(&b"abcd"[..])
+            &Key::new(&b"abcd"[..]),
         ));
         assert_eq!(hopper_recording.get_record::<IncipientCoresPackage>(1), &IncipientCoresPackage::new(
             test_utils::make_meaningless_route(),
@@ -222,7 +224,7 @@ mod tests {
                 sequence_number: 1,
                 data: PlainData::new(&b"HTTP/1.1 404 File not found\r\n\r\n"[..]),
             },
-            &Key::new(&b"abcd"[..])
+            &Key::new(&b"abcd"[..]),
         ));
         assert_eq!(hopper_recording.get_record::<IncipientCoresPackage>(2), &IncipientCoresPackage::new(
             test_utils::make_meaningless_route(),
@@ -232,7 +234,7 @@ mod tests {
                 sequence_number: 2,
                 data: PlainData::new(&b"HTTP/1.1 503 Server error\r\n\r\n"[..]),
             },
-            &Key::new(&b"abcd"[..])
+            &Key::new(&b"abcd"[..]),
         ));
         assert_eq!(hopper_recording.get_record::<IncipientCoresPackage>(3), &IncipientCoresPackage::new(
             test_utils::make_meaningless_route(),
@@ -242,10 +244,10 @@ mod tests {
                 sequence_number: 3,
                 data: PlainData::new(&Vec::new()),
             },
-            &Key::new(&b"abcd"[..])
+            &Key::new(&b"abcd"[..]),
         ));
-        let shutdown_parameter = shutdown_parameters.lock().unwrap()[0];
-        assert_eq!(shutdown_parameter, Shutdown::Both);
+        let stream_killer_parameters = stream_killer_params.try_recv().unwrap();
+        assert_eq!(stream_killer_parameters, SocketAddr::from_str("1.2.3.4:80").unwrap());
     }
 
     #[test]
@@ -254,44 +256,45 @@ mod tests {
         let hopper = Recorder::new();
         let recording = hopper.get_recording();
         let awaiter = hopper.get_awaiter();
-        let mut shutdown_parameters = Arc::new(Mutex::new(vec!()));
-        let stream = Box::new(TcpStreamWrapperMock::new()
-            .read_buffer(vec!(4))
-            .read_result(Ok(1))
-            .shutdown_parameters(&mut shutdown_parameters)
-            .shutdown_result(Ok(())));
-        let (stream_killer, rx) = mpsc::channel();
+        let mut stream = Box::new(ReadHalfWrapperMock::new());
+        stream.poll_read_results = vec!(
+            (vec!(4), Ok(Async::Ready(1))),
+            (vec!(), Ok(Async::NotReady))
+        );
+        let (stream_killer, stream_killer_params) = mpsc::channel();
         let remaining_route = test_utils::make_meaningless_route();
         let framer = Box::new(StreamEndingFramer {});
         let originator_public_key = Key::new(&b"men's souls"[..]);
         let logger = Logger::new("test");
 
+        let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             let system = System::new("test");
             let hopper_sub = recorder::make_peer_actors_from(None, None, Some(hopper), None, None).hopper.from_hopper_client;
-            let mut subject = StreamReader {
-                stream_key,
-                hopper_sub,
-                stream,
-                stream_killer,
-                peer_addr: String::new(),
-                remaining_route,
-                framer,
-                originator_public_key,
-                logger,
-                sequencer: Sequencer::new(),
-            };
-
-            subject.run();
-
+            tx.send(hopper_sub).is_ok();
             system.run();
         });
 
+        let hopper_sub = rx.recv().unwrap();
+        let mut subject = StreamReader {
+            stream_key,
+            hopper_sub,
+            stream,
+            stream_killer,
+            peer_addr: String::new(),
+            remaining_route,
+            framer,
+            originator_public_key,
+            logger,
+            sequencer: Sequencer::new(),
+        };
+
+        let result = subject.poll();
+
+        assert_eq!(result, Ok(Async::NotReady));
         awaiter.await_message_count(1);
-        let kill_stream_key = rx.recv().unwrap();
-        assert_eq!(kill_stream_key, stream_key);
-        let shutdown_parameter = shutdown_parameters.lock().unwrap()[0];
-        assert_eq!(shutdown_parameter, Shutdown::Both);
+        let kill_stream_key = stream_killer_params.try_recv().unwrap();
+        assert_eq!(kill_stream_key, stream_key.clone());
         let recording = recording.lock().unwrap();
         let record = recording.get_record::<IncipientCoresPackage>(0);
         assert_eq!(*record, IncipientCoresPackage {
@@ -311,42 +314,41 @@ mod tests {
         let hopper = Recorder::new();
         let awaiter = hopper.get_awaiter();
         let hopper_recording_arc = hopper.get_recording();
-        let mut shutdown_parameters = Arc::new(Mutex::new(vec!()));
-        let stream = TcpStreamWrapperMock::new()
-            .peer_addr_result(Ok(SocketAddr::from_str("2.3.4.5:80").unwrap()))
-            .read_buffer(Vec::from(&b"HTTP/1.1 200"[..]))
-            .read_result(Ok(b"HTTP/1.1 200".len()))
-            .read_buffer(Vec::from(&b" OK\r\n\r\nHTTP/1.1 40"[..]))
-            .read_result(Ok(b" OK\r\n\r\nHTTP/1.1 40".len()))
-            .read_buffer(Vec::from(&b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n"[..]))
-            .read_result(Ok(b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n".len()))
-            .read_result(Err(Error::from(ErrorKind::BrokenPipe)))
-            .shutdown_parameters(&mut shutdown_parameters)
-            .shutdown_result(Ok(()));
+        let mut stream = ReadHalfWrapperMock::new();
+        stream.poll_read_results = vec!(
+            (Vec::from(&b"HTTP/1.1 200"[..]), Ok(Async::Ready(b"HTTP/1.1 200".len()))),
+            (Vec::from(&b" OK\r\n\r\nHTTP/1.1 40"[..]), Ok(Async::Ready(b" OK\r\n\r\nHTTP/1.1 40".len()))),
+            (Vec::from(&b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n"[..]), Ok(Async::Ready(b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n".len()))),
+            (vec!(), Err(Error::from(ErrorKind::BrokenPipe)))
+        );
+        let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             let system = System::new("test");
             let hopper_sub =
                 recorder::make_peer_actors_from(None, None, Some(hopper), None, None)
                     .hopper.from_hopper_client;
-            let (stream_killer, _) = mpsc::channel::<StreamKey>();
-            let mut subject = StreamReader {
-                stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
-                hopper_sub,
-                stream: Box::new(stream),
-                stream_killer,
-                peer_addr: String::from("Peer Address"),
-                remaining_route: test_utils::make_meaningless_route(),
-                framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
-                originator_public_key: Key::new(&b"abcd"[..]),
-                logger: Logger::new("test"),
-                sequencer: Sequencer::new(),
-            };
-
-            subject.run();
+            tx.send(hopper_sub).is_ok();
 
             system.run();
         });
+        let hopper_sub = rx.recv().unwrap();
+        let (stream_killer, stream_killer_params) = mpsc::channel();
+        let mut subject = StreamReader {
+            stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
+            hopper_sub,
+            stream: Box::new(stream),
+            stream_killer,
+            peer_addr: String::from("Peer Address"),
+            remaining_route: test_utils::make_meaningless_route(),
+            framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
+            originator_public_key: Key::new(&b"abcd"[..]),
+            logger: Logger::new("test"),
+            sequencer: Sequencer::new(),
+        };
 
+        let result = subject.poll();
+
+        assert_eq!(result, Err(()));
         awaiter.await_message_count(4);
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(hopper_recording.get_record::<IncipientCoresPackage>(0), &IncipientCoresPackage::new(
@@ -357,7 +359,7 @@ mod tests {
                 sequence_number: 0,
                 data: PlainData::new(&b"HTTP/1.1 200 OK\r\n\r\n"[..]),
             },
-            &Key::new(&b"abcd"[..])
+            &Key::new(&b"abcd"[..]),
         ));
         assert_eq!(hopper_recording.get_record::<IncipientCoresPackage>(1), &IncipientCoresPackage::new(
             test_utils::make_meaningless_route(),
@@ -367,7 +369,7 @@ mod tests {
                 sequence_number: 1,
                 data: PlainData::new(&b"HTTP/1.1 404 File not found\r\n\r\n"[..]),
             },
-            &Key::new(&b"abcd"[..])
+            &Key::new(&b"abcd"[..]),
         ));
         assert_eq!(hopper_recording.get_record::<IncipientCoresPackage>(2), &IncipientCoresPackage::new(
             test_utils::make_meaningless_route(),
@@ -377,7 +379,7 @@ mod tests {
                 sequence_number: 2,
                 data: PlainData::new(&b"HTTP/1.1 503 Server error\r\n\r\n"[..]),
             },
-            &Key::new(&b"abcd"[..])
+            &Key::new(&b"abcd"[..]),
         ));
         assert_eq!(hopper_recording.get_record::<IncipientCoresPackage>(3), &IncipientCoresPackage::new(
             test_utils::make_meaningless_route(),
@@ -387,10 +389,11 @@ mod tests {
                 sequence_number: 3,
                 data: PlainData::new(&b""[..]),
             },
-            &Key::new(&b"abcd"[..])
+            &Key::new(&b"abcd"[..]),
         ));
-        let shutdown_parameter = shutdown_parameters.lock().unwrap()[0];
-        assert_eq!(shutdown_parameter, Shutdown::Both);
+        let kill_stream_msg = stream_killer_params.try_recv().expect("stream was not killed");
+        assert_eq!(kill_stream_msg, SocketAddr::from_str("1.2.3.4:80").unwrap());
+        assert!(stream_killer_params.try_recv().is_err());
     }
 
     #[test]
@@ -400,43 +403,40 @@ mod tests {
         let awaiter = hopper.get_awaiter();
         let hopper_recording_arc = hopper.get_recording();
         let stream_key = SocketAddr::from_str("1.2.3.4:80").unwrap();
-        let mut shutdown_parameters = Arc::new(Mutex::new(vec!()));
-        let (stream_killer, rx) = mpsc::channel::<StreamKey>();
-        let stream = TcpStreamWrapperMock::new()
-            .peer_addr_result(Ok(SocketAddr::from_str("2.3.4.5:80").unwrap()))
-            .read_buffer(vec!())
-            .read_result(Ok(0))
-            .shutdown_parameters(&mut shutdown_parameters)
-            .shutdown_result(Ok(()));
+        let (stream_killer, kill_stream_params) = mpsc::channel();
+        let mut stream = ReadHalfWrapperMock::new();
+        stream.poll_read_results = vec!((vec!(), Ok(Async::Ready(0))));
 
+        let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             let system = System::new("receiving_0_bytes_sends_empty_cores_response_and_kills_stream");
             let hopper_sub =
                 recorder::make_peer_actors_from(None, None, Some(hopper), None, None)
                     .hopper.from_hopper_client;
-            let mut subject = StreamReader {
-                stream_key,
-                hopper_sub,
-                stream: Box::new(stream),
-                stream_killer,
-                peer_addr: String::from("Peer Address"),
-                remaining_route: test_utils::make_meaningless_route(),
-                framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
-                originator_public_key: Key::new(&b"abcd"[..]),
-                logger: Logger::new("test"),
-                sequencer: Sequencer::new(),
-            };
 
-            subject.run();
-
+            tx.send(hopper_sub).is_ok();
             system.run();
         });
 
+        let hopper_sub = rx.recv().unwrap();
+        let mut subject = StreamReader {
+            stream_key,
+            hopper_sub,
+            stream: Box::new(stream),
+            stream_killer,
+            peer_addr: String::from("Peer Address"),
+            remaining_route: test_utils::make_meaningless_route(),
+            framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
+            originator_public_key: Key::new(&b"abcd"[..]),
+            logger: Logger::new("test"),
+            sequencer: Sequencer::new(),
+        };
+
+        let result = subject.poll();
+
+        assert_eq!(result, Ok(Async::Ready(())));
         awaiter.await_message_count(1);
-        let kill_stream_key = rx.recv().unwrap();
-        assert_eq!(kill_stream_key, stream_key);
-        let shutdown_parameter = shutdown_parameters.lock().unwrap()[0];
-        assert_eq!(shutdown_parameter, Shutdown::Both);
+        assert_eq!(kill_stream_params.try_recv().unwrap(), stream_key);
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(hopper_recording.get_record::<IncipientCoresPackage>(0), &IncipientCoresPackage::new(
             test_utils::make_meaningless_route(),
@@ -446,7 +446,7 @@ mod tests {
                 sequence_number: 0,
                 data: PlainData::new(&[]),
             },
-            &Key::new(&b"abcd"[..])
+            &Key::new(&b"abcd"[..]),
         ));
         TestLogHandler::new().exists_log_containing("Stream from Peer Address was closed: (0-byte read)");
     }
@@ -458,39 +458,43 @@ mod tests {
         let awaiter = hopper.get_awaiter();
         let hopper_recording_arc = hopper.get_recording();
         let stream_key = SocketAddr::from_str("1.2.3.4:80").unwrap();
-        let (stream_killer, _) = mpsc::channel::<StreamKey>();
-        let mut shutdown_parameters = Arc::new(Mutex::new(vec!()));
-        let stream = TcpStreamWrapperMock::new()
-            .read_result(Err(Error::from(ErrorKind::Other)))
-            .read_buffer(Vec::from(&b"HTTP/1.1 200 OK\r\n\r\n"[..]))
-            .read_result(Ok(b"HTTP/1.1 200 OK\r\n\r\n".len()))
-            .read_result(Err(Error::from(ErrorKind::BrokenPipe)))
-            .shutdown_parameters(&mut shutdown_parameters)
-            .shutdown_result(Ok(()));
+        let (stream_killer, _) = mpsc::channel();
+        let mut stream = ReadHalfWrapperMock::new();
+        stream.poll_read_results = vec!(
+            (vec!(), Err(Error::from(ErrorKind::Other))),
+            (Vec::from(&b"HTTP/1.1 200 OK\r\n\r\n"[..]), Ok(Async::Ready(b"HTTP/1.1 200 OK\r\n\r\n".len()))),
+            (vec!(), Err(Error::from(ErrorKind::BrokenPipe))),
+        );
+
+        let (tx, rx) = mpsc::channel();
 
         thread::spawn(move || {
-            let system = System::new("receiving_0_bytes_sends_empty_cores_response_and_kills_stream");
+            let system = System::new("non_dead_stream_read_errors_log_but_do_not_shut_down");
             let hopper_sub =
                 recorder::make_peer_actors_from(None, None, Some(hopper), None, None)
                     .hopper.from_hopper_client;
-            let mut subject = StreamReader {
-                stream_key,
-                hopper_sub,
-                stream: Box::new(stream),
-                stream_killer,
-                peer_addr: String::from("Peer Address"),
-                remaining_route: test_utils::make_meaningless_route(),
-                framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
-                originator_public_key: Key::new(&b"abcd"[..]),
-                logger: Logger::new("test"),
-                sequencer: Sequencer::new(),
-            };
 
-            subject.run();
-
+            tx.send(hopper_sub).is_ok();
             system.run();
         });
 
+        let hopper_sub = rx.recv().unwrap();
+        let mut subject = StreamReader {
+            stream_key,
+            hopper_sub,
+            stream: Box::new(stream),
+            stream_killer,
+            peer_addr: String::from("Peer Address"),
+            remaining_route: test_utils::make_meaningless_route(),
+            framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
+            originator_public_key: Key::new(&b"abcd"[..]),
+            logger: Logger::new("test"),
+            sequencer: Sequencer::new(),
+        };
+
+        let result = subject.poll();
+
+        assert_eq!(result, Err(()));
         awaiter.await_message_count(1);
         TestLogHandler::new().exists_log_containing("WARN: test: Continuing after read error on stream from Peer Address: other os error");
         let hopper_recording = hopper_recording_arc.lock().unwrap();
@@ -502,9 +506,7 @@ mod tests {
                 sequence_number: 0,
                 data: PlainData::new(&b"HTTP/1.1 200 OK\r\n\r\n"[..]),
             },
-            &Key::new(&b"abcd"[..])
+            &Key::new(&b"abcd"[..]),
         ));
-        let shutdown_parameter = shutdown_parameters.lock().unwrap()[0];
-        assert_eq!(shutdown_parameter, Shutdown::Both);
     }
 }

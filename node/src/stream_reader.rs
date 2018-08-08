@@ -53,7 +53,7 @@ impl Future for StreamReaderReal {
                         self.shutdown();
                         return Err(())
                     } else {
-                        // TODO this could be... inefficient, if we keep getting non-dead-stream errors. (we do not return)
+                        // TODO this could be exploitable and inefficient: if we keep getting non-dead-stream errors, we go into a tight loop and do not return
                         self.logger.warning(format!("Continuing after read error on port {}: {}", port, e.to_string()))
                     }
                 }

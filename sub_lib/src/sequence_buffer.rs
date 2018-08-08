@@ -90,6 +90,15 @@ impl SequenceBuffer {
         }
     }
 
+    pub fn repush(&mut self, packet: SequencedPacket) {
+        if packet.sequence_number != self.next_expected_sequence_number - 1 {
+            panic!("improper use of repush")
+        } else {
+            self.next_expected_sequence_number = packet.sequence_number;
+            self.buffer.push(packet);
+        }
+    }
+
     pub fn next_expected(&self) -> u64 {
         self.next_expected_sequence_number
     }
@@ -181,5 +190,39 @@ mod tests {
         assert_eq!(subject.poll(), Some(d));
         assert_eq!(subject.poll(), Some(e));
         assert_eq!(subject.poll(), None);
+    }
+
+    #[test]
+    fn sequence_buffer_can_re_add_a_popped_packet() {
+        let mut subject = SequenceBuffer::new();
+        let a = SequencedPacket::new(vec!(1, 23, 6, 5), 1, false);
+        let b = SequencedPacket::new(vec!(5, 9, 1, 2, 5), 2, false);
+        let c = SequencedPacket::new(vec!(5, 9, 1, 2, 5), 0, false);
+
+        subject.push(a);
+        subject.push(b);
+        subject.push(c.clone());
+
+        let thing_we_pushed_back = subject.poll().unwrap();
+        assert_eq!(thing_we_pushed_back, c);
+        subject.repush(thing_we_pushed_back.clone());
+        assert_eq!(subject.poll().unwrap(), thing_we_pushed_back);
+    }
+
+    #[test]
+    #[should_panic(expected = "improper use of repush")]
+    fn repush_panics_if_repushee_sequence_number_is_too_low() {
+        let mut subject = SequenceBuffer::new();
+        let a = SequencedPacket::new(vec!(1, 23, 6, 5), 1, false);
+        let b = SequencedPacket::new(vec!(5, 9, 1, 2, 5), 2, false);
+        let c = SequencedPacket::new(vec!(5, 9, 1, 2, 5), 0, false);
+
+        subject.push(a);
+        subject.push(b);
+        subject.push(c);
+
+        let first_thing_we_pulled_out = subject.poll().unwrap();
+        let _second_thing_we_pulled_out = subject.poll().unwrap();
+        subject.repush(first_thing_we_pulled_out);
     }
 }
