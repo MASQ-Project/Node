@@ -331,8 +331,8 @@ mod tests {
     use test_utils::recorder::Recorder;
     use test_utils::recorder::Recording;
     use test_utils::test_utils::await_messages;
-    use test_utils::test_utils::init_test_logging;
-    use test_utils::test_utils::TestLogHandler;
+    use test_utils::logging::init_test_logging;
+    use test_utils::logging::TestLogHandler;
     use test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use tokio::net::TcpStream;

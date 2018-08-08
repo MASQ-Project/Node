@@ -68,8 +68,8 @@ impl Logger {
 #[cfg (test)]
 mod tests {
     use super::*;
-    use test_utils::test_utils::TestLogHandler;
-    use test_utils::test_utils::init_test_logging;
+    use test_utils::logging::TestLogHandler;
+    use test_utils::logging::init_test_logging;
 
     #[test]
     fn logger_format_is_correct () {

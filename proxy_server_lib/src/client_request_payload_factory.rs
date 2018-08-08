@@ -61,8 +61,8 @@ mod tests {
     use std::str::FromStr;
     use sub_lib::cryptde_null::CryptDENull;
     use sub_lib::proxy_server::ProxyProtocol;
-    use test_utils::test_utils::init_test_logging;
-    use test_utils::test_utils::TestLogHandler;
+    use test_utils::logging::init_test_logging;
+    use test_utils::logging::TestLogHandler;
 
     #[test]
     fn handles_http () {

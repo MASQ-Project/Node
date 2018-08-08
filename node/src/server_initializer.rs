@@ -104,7 +104,7 @@ mod tests {
     use std::sync::Mutex;
     use test_utils::test_utils::ByteArrayWriter;
     use test_utils::test_utils::ByteArrayReader;
-    use test_utils::test_utils::init_test_logging;
+    use test_utils::logging::init_test_logging;
     use crash_test_dummy::CrashTestDummy;
     use sub_lib::crash_point::CrashPoint;
 

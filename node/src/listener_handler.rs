@@ -125,9 +125,9 @@ mod tests {
     use tokio;
     use tokio::net::TcpStream;
     use node_test_utils::NullDiscriminatorFactory;
-    use test_utils::test_utils::init_test_logging;
-    use test_utils::test_utils::TestLog;
-    use test_utils::test_utils::TestLogHandler;
+    use test_utils::logging::init_test_logging;
+    use test_utils::logging::TestLog;
+    use test_utils::logging::TestLogHandler;
     use test_utils::recorder::Recorder;
     use test_utils::recorder::make_recorder;
     use configuration::PortConfiguration;

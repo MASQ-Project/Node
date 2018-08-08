@@ -97,8 +97,8 @@ mod tests {
     use gossip::GossipBuilder;
     use neighborhood_test_utils::*;
     use neighborhood_database::NodeRecord;
-    use test_utils::test_utils::init_test_logging;
-    use test_utils::test_utils::TestLogHandler;
+    use test_utils::logging::init_test_logging;
+    use test_utils::logging::TestLogHandler;
 
     #[test]
     fn adding_three_good_single_node_gossips_and_one_bad_one_produces_expected_database_pattern () {

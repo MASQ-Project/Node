@@ -207,8 +207,8 @@ mod tests {
     use test_utils::test_utils::zero_hop_route;
     use test_utils::test_utils::route_to_proxy_server;
     use sub_lib::http_server_impersonator;
-    use test_utils::test_utils::init_test_logging;
-    use test_utils::test_utils::TestLogHandler;
+    use test_utils::logging::init_test_logging;
+    use test_utils::logging::TestLogHandler;
 
     #[test]
     fn proxy_server_receives_http_request_from_dispatcher_then_sends_cores_package_to_hopper() {

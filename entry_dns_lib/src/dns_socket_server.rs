@@ -155,8 +155,8 @@ mod tests {
     use std::io::Error;
     use std::io::ErrorKind;
     use packet_facade::PacketFacade;
-    use test_utils::test_utils::init_test_logging;
-    use test_utils::test_utils::TestLogHandler;
+    use test_utils::logging::init_test_logging;
+    use test_utils::logging::TestLogHandler;
     use std::sync::Mutex;
     use std::sync::Arc;
     use std::borrow::Borrow;

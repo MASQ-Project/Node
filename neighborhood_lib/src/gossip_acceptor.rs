@@ -98,8 +98,8 @@ mod tests {
     use std::collections::HashSet;
     use std::net::Ipv4Addr;
     use std::net::IpAddr;
-    use test_utils::test_utils::TestLogHandler;
-    use test_utils::test_utils::init_test_logging;
+    use test_utils::logging::TestLogHandler;
+    use test_utils::logging::init_test_logging;
     use neighborhood_database::NodeRecord;
     use sub_lib::node_addr::NodeAddr;
     use gossip::GossipNodeRecord;

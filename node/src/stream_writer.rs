@@ -130,9 +130,9 @@ mod tests {
     use discriminator::UnmaskedChunk;
     use masquerader::MasqueradeError;
     use std::io::ErrorKind;
-    use test_utils::test_utils::init_test_logging;
+    use test_utils::logging::init_test_logging;
     use sub_lib::sequence_buffer::SequencedPacket;
-    use test_utils::test_utils::TestLogHandler;
+    use test_utils::logging::TestLogHandler;
 
     struct FailingMasquerader {}
 

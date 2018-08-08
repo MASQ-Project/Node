@@ -138,8 +138,8 @@ mod tests {
     use packet_facade::PacketFacade;
     use packet_facade::Query;
     use packet_facade::ResourceRecord;
-    use test_utils::test_utils::init_test_logging;
-    use test_utils::test_utils::TestLogHandler;
+    use test_utils::logging::init_test_logging;
+    use test_utils::logging::TestLogHandler;
     use sub_lib::logger::Logger;
     use processor::ProcessorTrait;
     use processor::ProcessorReal;

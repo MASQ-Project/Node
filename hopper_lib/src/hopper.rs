@@ -287,8 +287,8 @@ mod tests {
     use test_utils::test_utils::route_to_proxy_client;
     use test_utils::test_utils::route_to_proxy_server;
     use test_utils::test_utils::make_meaningless_route;
-    use test_utils::test_utils::init_test_logging;
-    use test_utils::test_utils::TestLogHandler;
+    use test_utils::logging::init_test_logging;
+    use test_utils::logging::TestLogHandler;
     use test_utils::test_utils::zero_hop_route;
     use test_utils::recorder::make_recorder;
 

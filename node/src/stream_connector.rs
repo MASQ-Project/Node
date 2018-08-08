@@ -96,8 +96,8 @@ mod tests {
     use tokio::io::read_exact;
     use tokio::io::ErrorKind;
     use test_utils::test_utils::find_free_port;
-    use test_utils::test_utils::init_test_logging;
-    use test_utils::test_utils::TestLogHandler;
+    use test_utils::logging::init_test_logging;
+    use test_utils::logging::TestLogHandler;
 
     #[test]
     fn stream_connector_can_fail_to_connect_pair() {

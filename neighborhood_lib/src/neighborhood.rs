@@ -363,8 +363,8 @@ mod tests {
     use std::sync::Mutex;
     use std::sync::Arc;
     use gossip_acceptor::GossipAcceptorReal;
-    use test_utils::test_utils::init_test_logging;
-    use test_utils::test_utils::TestLogHandler;
+    use test_utils::logging::init_test_logging;
+    use test_utils::logging::TestLogHandler;
     use gossip::GossipNodeRecord;
     use sub_lib::neighborhood::sentinel_ip_addr;
     use sub_lib::stream_handler_pool::TransmitDataMsg;

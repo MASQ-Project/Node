@@ -123,8 +123,8 @@ mod tests {
     use std::io::ErrorKind;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use test_utils::test_utils::init_test_logging;
-    use test_utils::test_utils::TestLogHandler;
+    use test_utils::logging::init_test_logging;
+    use test_utils::logging::TestLogHandler;
     use std::sync::Arc;
     use std::sync::Mutex;
     use serde_cbor;
