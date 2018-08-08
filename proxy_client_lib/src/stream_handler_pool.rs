@@ -21,7 +21,6 @@ use stream_handler_establisher::StreamEstablisherFactory;
 use stream_handler_establisher::StreamEstablisherFactoryReal;
 use sub_lib::channel_wrappers::SenderWrapper;
 use sub_lib::cryptde::CryptDE;
-use sub_lib::cryptde::PlainData;
 use sub_lib::cryptde::StreamKey;
 use sub_lib::framer::Framer;
 use sub_lib::hopper::ExpiredCoresPackage;
@@ -272,12 +271,7 @@ impl StreamHandlerPoolReal {
     }
 
     fn send_terminating_package(route: Route, request: &ClientRequestPayload, hopper_sub: &Recipient<Syn, IncipientCoresPackage>) {
-        let response = ClientResponsePayload {
-            stream_key: request.stream_key,
-            last_response: true,
-            sequence_number: 0,
-            data: PlainData::new(&[]),
-        };
+        let response = ClientResponsePayload::make_terminating_payload(request.stream_key);
         let package = IncipientCoresPackage::new(route, response, &request.originator_public_key);
         hopper_sub.try_send(package).expect("Hopper died");
     }
@@ -317,6 +311,7 @@ mod tests {
     use futures::Stream;
     use futures::sync::mpsc::unbounded;
     use serde_cbor;
+    use tokio;
     use tokio::prelude::Async;
     use trust_dns_resolver::error::ResolveError;
     use trust_dns_resolver::error::ResolveErrorKind;
@@ -327,6 +322,7 @@ mod tests {
     use stream_handler_establisher::StreamHandlerEstablisher;
     use stream_handler_establisher::StreamEstablisherFactory;
     use sub_lib::cryptde::Key;
+    use sub_lib::cryptde::PlainData;
     use sub_lib::hopper::ExpiredCoresPackage;
     use sub_lib::proxy_server::ProxyProtocol;
     use test_utils::channel_wrapper_mocks::FuturesChannelFactoryMock;
@@ -670,12 +666,7 @@ mod tests {
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let record = hopper_recording.get_record::<IncipientCoresPackage>(0);
         let client_response_payload = serde_cbor::de::from_slice::<ClientResponsePayload>(&record.payload.data[..]).unwrap();
-        assert_eq!(client_response_payload, ClientResponsePayload {
-            stream_key,
-            last_response: true,
-            data: PlainData::new(&[]),
-            sequence_number: 0,
-        });
+        assert_eq!(client_response_payload, ClientResponsePayload::make_terminating_payload(stream_key));
     }
 
     #[test]
@@ -742,12 +733,7 @@ mod tests {
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let record = hopper_recording.get_record::<IncipientCoresPackage>(0);
         let client_response_payload = serde_cbor::de::from_slice::<ClientResponsePayload>(&record.payload.data[..]).unwrap();
-        assert_eq!(client_response_payload, ClientResponsePayload {
-            stream_key,
-            last_response: true,
-            data: PlainData::new(&[]),
-            sequence_number: 0,
-        });
+        assert_eq!(client_response_payload, ClientResponsePayload::make_terminating_payload(stream_key));
     }
 
     #[test]
@@ -792,12 +778,7 @@ mod tests {
         let recording = recording_arc.lock().unwrap();
         let record = recording.get_record::<IncipientCoresPackage>(0);
         let client_response_payload = serde_cbor::de::from_slice::<ClientResponsePayload>(&record.payload.data[..]).unwrap();
-        assert_eq!(client_response_payload, ClientResponsePayload {
-            stream_key,
-            last_response: true,
-            sequence_number: 0,
-            data: PlainData::new(&[]),
-        });
+        assert_eq!(client_response_payload, ClientResponsePayload::make_terminating_payload(stream_key));
     }
 
     #[test]

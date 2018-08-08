@@ -19,3 +19,35 @@ pub struct ProxyClientSubs {
     pub bind: Recipient<Syn, BindMessage>,
     pub from_hopper: Recipient<Syn, ExpiredCoresPackage>,
 }
+
+impl ClientResponsePayload {
+    pub fn make_terminating_payload(stream_key: StreamKey) -> ClientResponsePayload {
+        ClientResponsePayload {
+            stream_key,
+            last_response: true,
+            sequence_number: 0,
+            data: PlainData::new(&[]),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::SocketAddr;
+    use std::str::FromStr;
+
+    #[test]
+    fn make_terminating_payload_makes_terminating_payload() {
+        let stream_key = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+
+        let payload = ClientResponsePayload::make_terminating_payload(stream_key);
+
+        assert_eq!(payload, ClientResponsePayload {
+            stream_key,
+            last_response: true,
+            sequence_number: 0,
+            data: PlainData::new(&[])
+        })
+    }
+}
