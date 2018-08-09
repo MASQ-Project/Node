@@ -188,10 +188,6 @@ impl TcpStreamWrapperMock {
         }
     }
 
-    pub fn get_write_parameters (&self) -> Arc<Mutex<Vec<Vec<u8>>>> {
-        self.write_parameters.clone()
-    }
-
     pub fn connect_result (self, result: io::Result<()>) -> TcpStreamWrapperMock {
         self.results.lock ().unwrap ().connect_results.push (result);
         self
@@ -222,11 +218,6 @@ impl TcpStreamWrapperMock {
         self
     }
 
-    pub fn read_delay (self, milliseconds: u64) -> TcpStreamWrapperMock {
-        self.results.lock ().unwrap ().read_delay = milliseconds;
-        self
-    }
-
     pub fn shutdown_result (self, result: io::Result<()>) -> TcpStreamWrapperMock {
         self.results.lock ().unwrap ().shutdown_results.push (result);
         self
@@ -244,21 +235,6 @@ impl TcpStreamWrapperMock {
 
     pub fn set_read_timeout_parameters (mut self, parameters: &Arc<Mutex<Vec<Option<Duration>>>>) -> TcpStreamWrapperMock {
         self.set_read_timeout_parameters = parameters.clone ();
-        self
-    }
-
-    pub fn try_clone_result (self, result: io::Result<Box<TcpStreamWrapper>>) -> TcpStreamWrapperMock {
-        self.results.lock().unwrap().try_clone_results.push(result);
-        self
-    }
-
-    pub fn peer_addr_result (self, result: io::Result<SocketAddr>) -> TcpStreamWrapperMock {
-        self.results.lock ().unwrap ().peer_addr_result = result;
-        self
-    }
-
-    pub fn mocked_try_clone (mut self, mock_try_clone: bool) -> TcpStreamWrapperMock {
-        self.mocked_try_clone = mock_try_clone;
         self
     }
 }

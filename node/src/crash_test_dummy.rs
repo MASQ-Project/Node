@@ -20,6 +20,7 @@ impl CrashTestDummy {
         }
     }
 
+    #[cfg(test)]
     pub fn panic(message: String) -> CrashTestDummy {
         CrashTestDummy {
             crash_point: CrashPoint::Panic,

@@ -52,10 +52,6 @@ impl StreamWriter {
         }
     }
 
-    pub fn peer_addr(&self) -> SocketAddr {
-        self.peer_addr.clone()
-    }
-
     fn extract_payload(&self, package: &ExpiredCoresPackage) -> Result<ClientRequestPayload, ()> {
         package.payload::<ClientRequestPayload>().map_err(|err| {
             self.logger.error(format!("Error ('{}') interpreting payload for transmission: {:?}", err, package.payload.data));

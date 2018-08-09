@@ -18,4 +18,5 @@ mod stream_establisher;
 mod stream_handler_pool;
 mod stream_reader;
 mod stream_writer;
+#[cfg(test)]
 mod local_test_utils;

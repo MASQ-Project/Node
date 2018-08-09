@@ -197,7 +197,7 @@ mod tests {
         let server = LittleTcpServer::start ();
         let socket_addr = server.socket_addr();
 
-        let bogus_ip = IpAddr::from_str("127.1.1.1").unwrap();
+        let bogus_ip = IpAddr::from_str("255.255.255.255").unwrap();
         let good_ip = socket_addr.ip();
 
         let subject = StreamConnectorReal {};
@@ -266,10 +266,8 @@ mod tests {
     fn stream_connector_returns_err_when_it_cannot_connect_to_any_of_the_provided_ip_addrs() {
         init_test_logging();
         let logger = Logger::new("test");
-        let server = LittleTcpServer::start ();
-        let socket_addr = server.socket_addr();
 
-        let bogus_ip = IpAddr::from_str("127.1.1.1").unwrap();
+        let bogus_ip = IpAddr::from_str("255.255.255.255").unwrap();
 
         let subject = StreamConnectorReal {};
         let ip_addrs = vec!(
@@ -278,7 +276,7 @@ mod tests {
 
         let (tx, rx) = mpsc::channel();
         let test_future = lazy(move || {
-            let connection_result = subject.connect_one(ip_addrs, &"some hostname".to_string(), socket_addr.port(), &logger);
+            let connection_result = subject.connect_one(ip_addrs, &"some hostname".to_string(), 9876, &logger);
             tx.send(connection_result).unwrap();
             Ok(())
         });
@@ -290,8 +288,7 @@ mod tests {
         let connection_result = rx.recv().unwrap();
 
         assert! (connection_result.is_err());
-        assert_eq! (connection_result.err().unwrap().kind(), ErrorKind::ConnectionRefused);
-        TestLogHandler::new().exists_log_matching("Could not connect to any of the IP addresses supplied for some hostname: \\[\"127\\.1\\.1\\.1:\\d+\"\\]");
+        TestLogHandler::new().exists_log_matching("Could not connect to any of the IP addresses supplied for some hostname: \\[\"255\\.255\\.255\\.255:\\d+\"\\]");
     }
 
     struct FutureAsserter<I: 'static, E: 'static> {
@@ -358,7 +355,7 @@ mod tests {
                             continue
                         },
                         Ok((mut stream, _)) => {
-                            count_tx.send(());
+                            count_tx.send(()).is_ok();
                             stream.set_read_timeout(Some(Duration::from_millis(100))).unwrap ();
                             loop {
                                 if rx.try_recv().is_ok() { return; }
