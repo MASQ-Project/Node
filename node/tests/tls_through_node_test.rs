@@ -19,6 +19,7 @@ use tls_api::TlsStream;
 use std::thread;
 use std::net::Shutdown;
 use utils::read_until_timeout;
+use tls_api::HandshakeError;
 
 #[test]
 #[allow (unused_variables)] // 'node' below must not become '_' or disappear, or the
@@ -34,9 +35,19 @@ fn tls_through_node_integration() {
             Ok(s) => {
                 tls_stream = Some(s);
             },
+            Err(HandshakeError::Interrupted(interrupted_stream)) => {
+                thread::sleep(Duration::from_millis(100));
+                match interrupted_stream.handshake() {
+                    Ok(stream) => {tls_stream = Some(stream)},
+                    Err(e) => {
+                        println!("connection error after interruption retry: {:?}", e);
+                        handle_connection_error(stream);
+                    }
+                }
+            }
             Err(e) => {
-                stream.shutdown(Shutdown::Both).is_ok();
-                thread::sleep(Duration::from_millis(5000));
+                println!("connection error: {:?}", e);
+                handle_connection_error(stream);
             }
         }
 
@@ -51,4 +62,9 @@ fn tls_through_node_integration() {
     assert_eq!(&response[9..15], &"200 OK"[..]);
     assert_eq!(response.contains("This domain is established to be used for illustrative examples in documents."), true, "{}", response);
     assert_eq!(response.contains("You may use this\n    domain in examples without prior coordination or asking for permission."), true, "{}", response);
+}
+
+fn handle_connection_error(stream: TcpStream) {
+    stream.shutdown(Shutdown::Both).is_ok();
+    thread::sleep(Duration::from_millis(5000));
 }
