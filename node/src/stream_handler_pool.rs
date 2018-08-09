@@ -15,8 +15,8 @@ use configuration::PortConfiguration;
 use discriminator::DiscriminatorFactory;
 use json_masquerader::JsonMasquerader;
 use masquerader::Masquerader;
-use stream_connector::StreamConnector;
-use stream_connector::StreamConnectorReal;
+use sub_lib::stream_connector::StreamConnector;
+use sub_lib::stream_connector::StreamConnectorReal;
 use stream_messages::*;
 use stream_reader::*;
 use stream_writer::*;
@@ -181,7 +181,7 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
             let msg_data_len = msg.context.data.len ();
             let peer_addr_e = peer_addr.clone();
 
-            let connect_future = self.stream_connector.connect_pair (peer_addr, &self.logger)
+            let connect_future = self.stream_connector.connect(peer_addr, &self.logger)
                 .map (move |connection_info| {
                     let origin_port = connection_info.local_addr.port ();
                     add_stream_sub.try_send (AddStreamMsg {
@@ -293,7 +293,6 @@ impl StreamHandlerPool {
 mod tests {
     use super::*;
     use std::thread;
-    use std::cell::RefCell;
     use std::io::Error;
     use std::io::ErrorKind;
     use std::net::IpAddr;
@@ -307,16 +306,13 @@ mod tests {
     use actix::Addr;
     use actix::Syn;
     use actix::System;
-    use futures::future::result;
-    use tokio::io;
     use tokio::prelude::Async;
     use http_request_start_finder::HttpRequestDiscriminatorFactory;
     use json_discriminator_factory::JsonDiscriminatorFactory;
     use json_masquerader::JsonMasquerader;
     use masquerader::Masquerader;
     use null_masquerader::NullMasquerader;
-    use stream_connector::ConnectionInfo;
-    use stream_connector::ConnectionInfoFuture;
+    use sub_lib::stream_connector::ConnectionInfo;
     use sub_lib::dispatcher::InboundClientData;
     use sub_lib::cryptde::CryptDE;
     use sub_lib::cryptde::Key;
@@ -330,74 +326,12 @@ mod tests {
     use test_utils::recorder::make_recorder;
     use test_utils::recorder::Recorder;
     use test_utils::recorder::Recording;
-    use test_utils::test_utils::await_messages;
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
+    use test_utils::stream_connector_mock::StreamConnectorMock;
+    use test_utils::test_utils::await_messages;
     use test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
-    use tokio::net::TcpStream;
-
-    struct StreamConnectorMock {
-        connect_pair_params: Arc<Mutex<Vec<SocketAddr>>>,
-        connect_pair_results: RefCell<Vec<Result<ConnectionInfo, io::Error>>>,
-    }
-
-    impl StreamConnector for StreamConnectorMock {
-        fn connect_pair(&self, socket_addr: SocketAddr, _logger: &Logger) -> ConnectionInfoFuture {
-            self.connect_pair_params.lock ().unwrap ().push (socket_addr);
-            let connection_info_result = self.connect_pair_results.borrow_mut ().remove (0);
-            Box::new (result (connection_info_result))
-        }
-
-        fn split_stream(&self, _stream: TcpStream, _logger: &Logger) -> ConnectionInfo {
-            unimplemented!()
-        }
-
-        fn split_stream_fut(&self, _stream: TcpStream, _logger: &Logger) -> ConnectionInfoFuture {
-            unimplemented!()
-        }
-    }
-
-    impl StreamConnectorMock {
-        pub fn new () -> StreamConnectorMock {
-            Self {
-                connect_pair_params: Arc::new (Mutex::new (vec! ())),
-                connect_pair_results: RefCell::new (vec! ())
-            }
-        }
-
-        pub fn connection (
-            self,
-            local_addr: SocketAddr,
-            peer_addr: SocketAddr,
-            reads: Vec<(Vec<u8>, Result<Async<usize>, io::Error>)>,
-            writes: Vec<Result<Async<usize>, io::Error>>,
-        ) -> StreamConnectorMock {
-            let read_half = reads.into_iter ().fold (ReadHalfWrapperMock::new (), |so_far, elem| {
-                so_far.poll_read_result (elem.0, elem.1)
-            });
-            let write_half = writes.into_iter ().fold (WriteHalfWrapperMock::new (), |so_far, elem| {
-                so_far.poll_write_result (elem)
-            });
-            let connection_info = ConnectionInfo {
-                reader: Box::new (read_half),
-                writer: Box::new (write_half),
-                local_addr,
-                peer_addr,
-            };
-            self.connect_pair_result (Ok (connection_info))
-        }
-
-        pub fn connect_pair_params (mut self, params_arc: &Arc<Mutex<Vec<SocketAddr>>>) -> StreamConnectorMock {
-            self.connect_pair_params = params_arc.clone ();
-            self
-        }
-
-        pub fn connect_pair_result (self, result: Result<ConnectionInfo, io::Error>) -> StreamConnectorMock {
-            self.connect_pair_results.borrow_mut ().push (result);
-            self
-        }
-    }
 
     #[test]
     fn a_newly_added_stream_produces_stream_handler_that_sends_received_data_to_dispatcher () {

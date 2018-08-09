@@ -2,7 +2,6 @@
 
 use std::cell::RefCell;
 use std::io;
-use std::io::Error;
 use std::io::Read;
 use std::io::Write;
 use std::net::Shutdown;
@@ -28,12 +27,6 @@ use trust_dns_resolver::lookup::Lookup;
 use trust_dns_proto::rr::RData;
 use std::io::ErrorKind;
 use resolver_wrapper::WrappedLookupIpFuture;
-use sub_lib::logger::Logger;
-use tokio::net::TcpStream;
-use sub_lib::tokio_wrappers::ReadHalfWrapper;
-use sub_lib::tokio_wrappers::WriteHalfWrapper;
-use stream_handler_pool::StreamConnector;
-use stream_handler_pool::StreamSplitter;
 
 pub struct TcpStreamWrapperFactoryMock {
     tcp_stream_wrappers: Arc<Mutex<Vec<TcpStreamWrapperMock>>>
@@ -343,40 +336,6 @@ impl ResolverWrapperFactoryMock {
     pub fn new_parameters(self, parameters: &mut Arc<Mutex<Vec<(ResolverConfig, ResolverOpts, CoreId)>>>) -> ResolverWrapperFactoryMock {
         *parameters = self.factory_parameters.borrow_mut ().clone ();
         self
-    }
-}
-
-pub struct StreamConnectorMock {
-    pub connect_params: Arc<Mutex<Vec<(Vec<IpAddr>, String, u16)>>>
-}
-
-impl StreamConnector for StreamConnectorMock {
-    fn connect(&self, ip_addrs: Vec<IpAddr>, target_hostname: &String, target_port: u16, _logger: &Logger) -> Result<TcpStream, Error> {
-        let hostname = target_hostname.clone();
-        self.connect_params.lock().unwrap().push((ip_addrs, hostname, target_port));
-        Err(Error::new(ErrorKind::Other,"can't make a TcpStream for unit tests"))
-    }
-
-    fn dup(&self) -> Box<StreamConnector> {
-        Box::new(StreamConnectorMock{ connect_params: self.connect_params.clone() })
-    }
-}
-
-pub struct StreamSplitterMock {
-    pub split_stream_results: RefCell<Vec<(Box<ReadHalfWrapper>, Box<WriteHalfWrapper>, Result<SocketAddr, Error>)>>
-}
-
-impl StreamSplitter for StreamSplitterMock {
-    fn split_stream(&self, _stream: Result<TcpStream, Error>) -> io::Result<(Box<ReadHalfWrapper>, Box<WriteHalfWrapper>, Result<SocketAddr, Error>)> {
-        if self.split_stream_results.borrow().is_empty() {
-            Err(io::Error::new(ErrorKind::Other, "missing split_stream_results"))
-        } else {
-            Ok(self.split_stream_results.borrow_mut().remove(0))
-        }
-    }
-
-    fn dup(&self) -> Box<StreamSplitter> {
-        Box::new(StreamSplitterMock { split_stream_results: RefCell::new(vec!()) })
     }
 }
 

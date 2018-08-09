@@ -1,19 +1,20 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use std::net::SocketAddr;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
-use sub_lib::cryptde::StreamKey;
 use sub_lib::channel_wrappers::ReceiverWrapper;
+use sub_lib::cryptde::StreamKey;
 use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::logger::Logger;
 use sub_lib::proxy_server::ClientRequestPayload;
 use sub_lib::sequence_buffer::SequenceBuffer;
+use sub_lib::sequence_buffer::SequencedPacket;
 use sub_lib::tokio_wrappers::WriteHalfWrapper;
 use sub_lib::utils::indicates_dead_stream;
-use sub_lib::sequence_buffer::SequencedPacket;
 
 pub struct StreamWriter {
     stream: Box<WriteHalfWrapper>,
-    peer_addr: String,
+    peer_addr: SocketAddr,
     logger: Logger,
     sequence_buffer: SequenceBuffer,
     rx_to_write: Box<ReceiverWrapper<ExpiredCoresPackage>>,
@@ -37,7 +38,7 @@ impl Future for StreamWriter {
 
 impl StreamWriter {
     pub fn new(stream: Box<WriteHalfWrapper>,
-               peer_addr: String,
+               peer_addr: SocketAddr,
                rx_to_write: Box<ReceiverWrapper<ExpiredCoresPackage>>,
                stream_key: StreamKey) -> StreamWriter {
         let name = format!("ProxyClient for {}", stream_key);
@@ -51,7 +52,7 @@ impl StreamWriter {
         }
     }
 
-    pub fn peer_addr(&self) -> String {
+    pub fn peer_addr(&self) -> SocketAddr {
         self.peer_addr.clone()
     }
 
@@ -121,7 +122,6 @@ mod tests {
     use super::*;
     use std::io::Error;
     use std::io::ErrorKind;
-    use std::net::SocketAddr;
     use std::str::FromStr;
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
@@ -205,8 +205,7 @@ mod tests {
             ),
         };
         let write_params_mutex = writer.poll_write_params.clone();
-
-        let peer_addr = "1.2.3.4:5678".to_string();
+        let peer_addr = SocketAddr::from_str("2.2.3.4:5678").unwrap();
 
         let mut subject = StreamWriter::new(
             Box::new(writer),
@@ -226,21 +225,22 @@ mod tests {
 
         let tlh = TestLogHandler::new();
         tlh.assert_logs_match_in_order(vec!(
-            "DEBUG: ProxyClient for 1.2.3.4:5678: Writing 5 bytes to 1.2.3.4:5678 over existing stream",
-            "DEBUG: ProxyClient for 1.2.3.4:5678: Wrote 5 bytes to 1.2.3.4:5678",
-            "DEBUG: ProxyClient for 1.2.3.4:5678: Writing 6 bytes to 1.2.3.4:5678 over existing stream",
-            "DEBUG: ProxyClient for 1.2.3.4:5678: Wrote 6 bytes to 1.2.3.4:5678",
-            "DEBUG: ProxyClient for 1.2.3.4:5678: Writing 4 bytes to 1.2.3.4:5678 over existing stream",
-            "DEBUG: ProxyClient for 1.2.3.4:5678: Wrote 4 bytes to 1.2.3.4:5678",
-            "DEBUG: ProxyClient for 1.2.3.4:5678: Writing 0 bytes to 1.2.3.4:5678 over existing stream",
-            "DEBUG: ProxyClient for 1.2.3.4:5678: Wrote 0 bytes to 1.2.3.4:5678",
+            "DEBUG: ProxyClient for 1.2.3.4:5678: Writing 5 bytes to 2.2.3.4:5678 over existing stream",
+            "DEBUG: ProxyClient for 1.2.3.4:5678: Wrote 5 bytes to 2.2.3.4:5678",
+            "DEBUG: ProxyClient for 1.2.3.4:5678: Writing 6 bytes to 2.2.3.4:5678 over existing stream",
+            "DEBUG: ProxyClient for 1.2.3.4:5678: Wrote 6 bytes to 2.2.3.4:5678",
+            "DEBUG: ProxyClient for 1.2.3.4:5678: Writing 4 bytes to 2.2.3.4:5678 over existing stream",
+            "DEBUG: ProxyClient for 1.2.3.4:5678: Wrote 4 bytes to 2.2.3.4:5678",
+            "DEBUG: ProxyClient for 1.2.3.4:5678: Writing 0 bytes to 2.2.3.4:5678 over existing stream",
+            "DEBUG: ProxyClient for 1.2.3.4:5678: Wrote 0 bytes to 2.2.3.4:5678",
         ));
     }
 
     #[test]
     fn stream_writer_returns_not_ready_when_the_stream_is_not_ready() {
+        let stream_key = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let client_request_payload = ClientRequestPayload {
-            stream_key: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            stream_key,
             last_data: false,
             data: PlainData::new(&b"These are the times"[..]),
             target_hostname: Some(String::from("that.try")),
@@ -256,7 +256,6 @@ mod tests {
             Ok(Async::Ready(Some(package))),
             Ok(Async::Ready(None)),
         );
-        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let writer = WriteHalfWrapperMock {
             poll_write_params: Arc::new(Mutex::new(vec!())),
             poll_write_results: vec!(
@@ -265,8 +264,8 @@ mod tests {
         };
         let write_params = writer.poll_write_params.clone();
 
-        let mut subject = StreamWriter::new(Box::new(writer), String::from_str("1.2.3.4:5678").unwrap(),
-                                            rx_to_write, peer_addr);
+        let mut subject = StreamWriter::new(Box::new(writer), SocketAddr::from_str("1.3.3.4:5678").unwrap(),
+                                            rx_to_write, stream_key);
 
         let result = subject.poll();
 
@@ -280,7 +279,7 @@ mod tests {
         rx_to_write.poll_results = vec!(
             Ok(Async::NotReady),
         );
-        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let stream_key = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let writer = WriteHalfWrapperMock {
             poll_write_params: Arc::new(Mutex::new(vec!())),
             poll_write_results: vec!(
@@ -288,8 +287,8 @@ mod tests {
             ),
         };
 
-        let mut subject = StreamWriter::new(Box::new(writer), String::from_str("1.2.3.4:5678").unwrap(),
-                                            rx_to_write, peer_addr);
+        let mut subject = StreamWriter::new(Box::new(writer), SocketAddr::from_str("1.2.4.4:5678").unwrap(),
+                                            rx_to_write, stream_key);
 
         let result = subject.poll();
 
@@ -330,7 +329,7 @@ mod tests {
         let write_params = writer.poll_write_params.clone();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
-        let mut subject = StreamWriter::new(Box::new(writer), format!("{}", peer_addr.clone()),
+        let mut subject = StreamWriter::new(Box::new(writer), peer_addr,
                                             rx_to_write, stream_key);
 
         subject.poll().unwrap();
@@ -346,8 +345,9 @@ mod tests {
     #[test]
     fn stream_writer_attempts_to_write_until_successful_before_reading_new_messages_from_channel() {
         let first_data = &b"These are the times"[..];
+        let stream_key = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let client_request_payload = ClientRequestPayload {
-            stream_key: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            stream_key,
             last_data: false,
             data: PlainData::new(first_data),
             target_hostname: Some(String::from("that.try")),
@@ -360,7 +360,7 @@ mod tests {
                                                      PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]));
         let second_data = &b"These are the other times"[..];
         let client_request_payload = ClientRequestPayload {
-            stream_key: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            stream_key,
             last_data: false,
             data: PlainData::new(second_data),
             target_hostname: Some(String::from("that.try")),
@@ -388,10 +388,10 @@ mod tests {
             ),
         };
         let write_params = writer.poll_write_params.clone();
-        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let peer_addr = SocketAddr::from_str("1.2.3.9:5678").unwrap();
 
-        let mut subject = StreamWriter::new(Box::new(writer), String::from_str("1.2.3.4:5678").unwrap(),
-                                            rx_to_write, peer_addr);
+        let mut subject = StreamWriter::new(Box::new(writer), peer_addr,
+                                            rx_to_write, stream_key);
 
         let result = subject.poll();
 
@@ -406,8 +406,9 @@ mod tests {
 
     #[test]
     fn stream_writer_exits_if_channel_is_closed() {
+        let stream_key = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let client_request_payload = ClientRequestPayload {
-            stream_key: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            stream_key,
             last_data: false,
             data: PlainData::new(&b"These are the times"[..]),
             target_hostname: Some(String::from("that.try")),
@@ -430,10 +431,10 @@ mod tests {
                 Err(Error::from(ErrorKind::BrokenPipe))
             ),
         };
-        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let peer_addr = SocketAddr::from_str("1.2.3.4:999").unwrap();
 
-        let mut subject = StreamWriter::new(Box::new(writer), String::from_str("1.2.3.4:5678").unwrap(),
-                                            rx_to_write, peer_addr);
+        let mut subject = StreamWriter::new(Box::new(writer), peer_addr,
+                                            rx_to_write, stream_key);
 
         let result = subject.poll();
 
@@ -452,10 +453,11 @@ mod tests {
             poll_write_params: Arc::new(Mutex::new(vec!())),
             poll_write_results: vec!(),
         };
-        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let stream_key = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let peer_addr = SocketAddr::from_str("4.2.3.4:5678").unwrap();
 
-        let mut subject = StreamWriter::new(Box::new(writer), String::from_str("1.2.3.4:5678").unwrap(),
-                                            rx_to_write, peer_addr);
+        let mut subject = StreamWriter::new(Box::new(writer), peer_addr,
+                                            rx_to_write, stream_key);
 
         subject.poll().unwrap();
     }
@@ -466,7 +468,7 @@ mod tests {
 
         let stream_key = SocketAddr::from_str("1.2.3.4:8765").unwrap();
         let client_request_payload = ClientRequestPayload {
-            stream_key: stream_key.clone(),
+            stream_key,
             last_data: false,
             data: PlainData::new(&b"These are the times"[..]),
             target_hostname: Some(String::from("that.try")),
@@ -486,7 +488,7 @@ mod tests {
             poll_write_params: Arc::new(Mutex::new(vec!())),
             poll_write_results: vec!(Err(Error::from(ErrorKind::BrokenPipe))),
         };
-        let mut subject = StreamWriter::new(Box::new(writer), String::from_str("2.3.4.5:80").unwrap(),
+        let mut subject = StreamWriter::new(Box::new(writer), SocketAddr::from_str("2.3.4.5:80").unwrap(),
                                             rx_to_write, stream_key);
 
         assert!(subject.poll().is_err());
@@ -496,8 +498,9 @@ mod tests {
 
     #[test]
     fn stream_writer_reattempts_writing_packets_that_were_prevented_by_not_ready() {
+        let stream_key = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let client_request_payload = ClientRequestPayload {
-            stream_key: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            stream_key,
             last_data: false,
             data: PlainData::new(&b"These are the times"[..]),
             target_hostname: Some(String::from("that.try")),
@@ -523,8 +526,7 @@ mod tests {
                 Ok(Async::NotReady),
             ) };
         let write_params = writer.poll_write_params.clone();
-        let peer_addr = String::from("1.2.3.4:5678");
-        let stream_key = SocketAddr::from_str(&peer_addr).unwrap();
+        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
         let mut subject = StreamWriter::new(
             Box::new(writer),

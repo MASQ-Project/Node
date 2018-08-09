@@ -7,7 +7,7 @@ use configuration::PortConfiguration;
 use sub_lib::dispatcher::DispatcherSubs;
 use sub_lib::neighborhood::NeighborhoodSubs;
 use stream_handler_pool::StreamHandlerPoolSubs;
-use stream_connector::ConnectionInfo;
+use sub_lib::stream_connector::ConnectionInfo;
 use masquerader::Masquerader;
 
 #[derive (Message)]

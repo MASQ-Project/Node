@@ -4,8 +4,6 @@ use std::collections::HashMap;
 use std::io;
 use std::io::Error;
 use std::io::ErrorKind;
-use std::net::IpAddr;
-use std::net::SocketAddr;
 use std::sync::mpsc;
 use std::sync::mpsc::Receiver;
 use actix::Arbiter;
@@ -13,12 +11,9 @@ use actix::Recipient;
 use actix::Syn;
 use futures::future::Executor;
 use futures::future::Future;
-use tokio;
-use tokio::io::AsyncRead;
-use tokio::net::TcpStream;
 use resolver_wrapper::ResolverWrapper;
-use stream_handler_establisher::StreamEstablisherFactory;
-use stream_handler_establisher::StreamEstablisherFactoryReal;
+use stream_establisher::StreamEstablisherFactory;
+use stream_establisher::StreamEstablisherFactoryReal;
 use sub_lib::channel_wrappers::SenderWrapper;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::StreamKey;
@@ -33,85 +28,6 @@ use sub_lib::proxy_server::ClientRequestPayload;
 use sub_lib::proxy_server::ProxyProtocol;
 use sub_lib::route::Route;
 use sub_lib::tls_framer::TlsFramer;
-use sub_lib::tokio_wrappers::ReadHalfWrapperReal;
-use sub_lib::tokio_wrappers::WriteHalfWrapperReal;
-use sub_lib::tokio_wrappers::ReadHalfWrapper;
-use sub_lib::tokio_wrappers::WriteHalfWrapper;
-
-pub trait StreamConnector {
-    fn connect(&self, ip_addrs: Vec<IpAddr>, target_hostname: &String, target_port: u16, logger: &Logger) -> Result<TcpStream, io::Error>;
-    fn dup(&self) -> Box<StreamConnector>;
-}
-
-#[derive(Clone)]
-struct StreamConnectorReal {}
-
-impl StreamConnector for StreamConnectorReal {
-    fn connect(&self, ip_addrs: Vec<IpAddr>, target_hostname: &String, target_port: u16, logger: &Logger) -> Result<TcpStream, io::Error> {
-        let mut last_error = Error::from(ErrorKind::Other);
-        let mut socket_addrs_tried = vec!();
-        // TODO spike: can we do this with something like OrderedFutures?
-        for ip_addr in ip_addrs {
-            let (tx, rx) = mpsc::channel();
-            let socket_addr = SocketAddr::new(ip_addr, target_port);
-            let future = TcpStream::connect(&socket_addr)
-                .then(move |result| {
-                    tx.send(result).is_ok();
-                    Ok(())
-                });
-            tokio::spawn(future);
-            loop {
-                match rx.recv() {
-                    Ok(Ok(stream)) => {
-                        logger.debug(format!("Connected new stream to {}", socket_addr));
-                        return Ok(stream);
-                    },
-                    Ok(Err(e)) => {
-                        last_error = e;
-                        socket_addrs_tried.push(format!("{}", socket_addr));
-                        break;
-                    },
-                    Err(_) => break,
-                }
-            }
-        }
-
-        logger.error(format!("Could not connect to any of the IP addresses supplied for {}: {:?}",
-                             target_hostname, socket_addrs_tried));
-        Err(last_error)
-    }
-    fn dup(&self) -> Box<StreamConnector> {
-        Box::new(self.clone())
-    }
-}
-
-pub trait StreamSplitter {
-    fn split_stream(&self, stream: io::Result<TcpStream>) -> io::Result<(Box<ReadHalfWrapper>, Box<WriteHalfWrapper>, io::Result<SocketAddr>)>;
-    fn dup(&self) -> Box<StreamSplitter>;
-}
-
-#[derive(Clone)]
-struct StreamSplitterReal {}
-
-impl StreamSplitter for StreamSplitterReal {
-    fn split_stream(&self, stream: io::Result<TcpStream>) -> io::Result<(Box<ReadHalfWrapper>, Box<WriteHalfWrapper>, io::Result<SocketAddr>)> {
-        match stream {
-            Ok(stream_unwrapped) => {
-                let peer_addr = stream_unwrapped.peer_addr();
-                let (reader, writer) = stream_unwrapped.split();
-                Ok((
-                    Box::new(ReadHalfWrapperReal::new(reader)),
-                    Box::new(WriteHalfWrapperReal::new(writer)),
-                    peer_addr,
-                ))
-            }
-            Err(e) => Err(e)
-        }
-    }
-    fn dup(&self) -> Box<StreamSplitter> {
-        Box::new(self.clone())
-    }
-}
 
 pub trait StreamHandlerPool {
     fn process_package(&mut self, package: ExpiredCoresPackage);
@@ -203,8 +119,6 @@ impl StreamHandlerPoolReal {
             establisher_factory: Box::new(StreamEstablisherFactoryReal {
                 stream_adder_tx,
                 stream_killer_tx,
-                stream_connector: Box::new(StreamConnectorReal {}),
-                stream_splitter: Box::new(StreamSplitterReal {}),
                 hopper_sub: hopper_sub.clone(),
                 logger: Logger::new("Proxy Client"),
             }),
@@ -296,6 +210,7 @@ mod tests {
     use super::*;
     use std::cell::RefCell;
     use std::net::IpAddr;
+    use std::net::SocketAddr;
     use std::ops::Deref;
     use std::str::FromStr;
     use std::sync::Arc;
@@ -317,10 +232,8 @@ mod tests {
     use trust_dns_resolver::error::ResolveErrorKind;
     use local_test_utils::make_send_error;
     use local_test_utils::ResolverWrapperMock;
-    use local_test_utils::StreamConnectorMock;
-    use local_test_utils::StreamSplitterMock;
-    use stream_handler_establisher::StreamHandlerEstablisher;
-    use stream_handler_establisher::StreamEstablisherFactory;
+    use test_utils::stream_connector_mock::StreamConnectorMock;
+    use stream_establisher::StreamEstablisher;
     use sub_lib::cryptde::Key;
     use sub_lib::cryptde::PlainData;
     use sub_lib::hopper::ExpiredCoresPackage;
@@ -365,11 +278,11 @@ mod tests {
     }
 
     struct StreamEstablisherFactoryMock {
-        make_results: RefCell<Vec<StreamHandlerEstablisher>>
+        make_results: RefCell<Vec<StreamEstablisher>>
     }
 
     impl StreamEstablisherFactory for StreamEstablisherFactoryMock {
-        fn make(&self) -> StreamHandlerEstablisher {
+        fn make(&self) -> StreamEstablisher {
             self.make_results.borrow_mut().remove(0)
         }
     }
@@ -438,7 +351,7 @@ mod tests {
             system.run();
         });
 
-        await_messages(1, &write_parameters.clone());
+        await_messages(1, &write_parameters);
 
         assert_eq!(write_parameters.lock().unwrap().remove(0), expected_package);
     }
@@ -559,17 +472,16 @@ mod tests {
                 .lookup_ip_parameters(&lookup_ip_parameters)
                 .lookup_ip_success(vec!(IpAddr::from_str("2.3.4.5").unwrap(), IpAddr::from_str("3.4.5.6").unwrap()));
             let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
-            let reader = Box::new(ReadHalfWrapperMock { poll_read_results: vec!((b"HTTP/1.1 200 OK\r\n\r\n".to_vec(), Ok(Async::Ready(19))), (vec!(), Err(Error::from(ErrorKind::ConnectionAborted)))) });
-            let writer = Box::new(WriteHalfWrapperMock { poll_write_params: write_parameters, poll_write_results: vec!(Ok(Async::Ready(123))) });
+            let reader = ReadHalfWrapperMock { poll_read_results: vec!((b"HTTP/1.1 200 OK\r\n\r\n".to_vec(), Ok(Async::Ready(19))), (vec!(), Err(Error::from(ErrorKind::ConnectionAborted)))) };
+            let writer = WriteHalfWrapperMock { poll_write_params: write_parameters, poll_write_results: vec!(Ok(Async::Ready(123))) };
             let mut subject = StreamHandlerPoolReal::new(Box::new(resolver), cryptde(), hopper_sub);
             let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
             subject.stream_killer_rx = stream_killer_rx;
             let (stream_adder_tx, _stream_adder_rx) = mpsc::channel();
-            let establisher = StreamHandlerEstablisher {
+            let establisher = StreamEstablisher {
                 stream_adder_tx,
                 stream_killer_tx,
-                stream_connector: Box::new(StreamConnectorMock { connect_params: Arc::new(Mutex::new(vec!())) }),
-                stream_splitter: Box::new(StreamSplitterMock { split_stream_results: RefCell::new(vec!((reader, writer, Ok(peer_addr)))) }),
+                stream_connector: Box::new(StreamConnectorMock::new().with_connection(peer_addr.clone(), peer_addr.clone(), reader, writer)),
                 hopper_sub: subject.hopper_sub.clone(),
                 logger: subject.logger.clone(),
                 channel_factory: Box::new(FuturesChannelFactoryReal {}),
@@ -603,16 +515,6 @@ mod tests {
     }
 
     #[test]
-    fn stream_splitter_returns_error_when_connection_result_sent_in_is_error() {
-        let subject = StreamSplitterReal {};
-
-        let result = subject.split_stream(Err(Error::from(ErrorKind::Other)));
-
-        assert!(result.is_err());
-        assert_eq!(result.err().unwrap().kind(), ErrorKind::Other);
-    }
-
-    #[test]
     fn failing_to_make_a_connection_sends_an_error_response() {
         let stream_key = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec!()));
@@ -640,13 +542,11 @@ mod tests {
             let mut subject = StreamHandlerPoolReal::new(Box::new(resolver), cryptde(), hopper_sub);
             let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
             subject.stream_killer_rx = stream_killer_rx;
-            let broken_stream_splitter = StreamSplitterMock { split_stream_results: RefCell::new(vec!())};
             let (stream_adder_tx, _stream_adder_rx) = mpsc::channel();
-            let establisher = StreamHandlerEstablisher {
+            let establisher = StreamEstablisher {
                 stream_adder_tx,
                 stream_killer_tx,
-                stream_connector: Box::new(StreamConnectorMock { connect_params: Arc::new(Mutex::new(vec!())) }),
-                stream_splitter: Box::new(broken_stream_splitter),
+                stream_connector: Box::new(StreamConnectorMock::new().connect_pair_result(Err(Error::from(ErrorKind::Other)))),
                 hopper_sub: subject.hopper_sub.clone(),
                 logger: subject.logger.clone(),
                 channel_factory: Box::new(FuturesChannelFactoryReal {}),
@@ -697,8 +597,8 @@ mod tests {
                 .lookup_ip_parameters(&lookup_ip_parameters)
                 .lookup_ip_success(vec!(IpAddr::from_str("2.3.4.5").unwrap(), IpAddr::from_str("3.4.5.6").unwrap()));
             let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
-            let reader = Box::new(ReadHalfWrapperMock { poll_read_results: vec!((b"HTTP/1.1 200 OK\r\n\r\n".to_vec(), Ok(Async::Ready(19))), (vec!(), Err(Error::from(ErrorKind::ConnectionAborted)))) });
-            let writer = Box::new(WriteHalfWrapperMock { poll_write_params: write_parameters, poll_write_results: vec!(Ok(Async::Ready(123))) });
+            let reader = ReadHalfWrapperMock { poll_read_results: vec!((b"HTTP/1.1 200 OK\r\n\r\n".to_vec(), Ok(Async::Ready(19))), (vec!(), Err(Error::from(ErrorKind::ConnectionAborted)))) };
+            let writer = WriteHalfWrapperMock { poll_write_params: write_parameters, poll_write_results: vec!(Ok(Async::Ready(123))) };
             let mut subject = StreamHandlerPoolReal::new(Box::new(resolver), cryptde(), hopper_sub);
             let disconnected_sender = Box::new(SenderWrapperMock {
                 unbounded_send_params: Arc::new(Mutex::new(vec![])),
@@ -707,11 +607,10 @@ mod tests {
             let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
             subject.stream_killer_rx = stream_killer_rx;
             let (stream_adder_tx, _stream_adder_rx) = mpsc::channel();
-            let establisher = StreamHandlerEstablisher {
+            let establisher = StreamEstablisher {
                 stream_adder_tx,
                 stream_killer_tx,
-                stream_connector: Box::new(StreamConnectorMock { connect_params: Arc::new(Mutex::new(vec!())) }),
-                stream_splitter: Box::new(StreamSplitterMock { split_stream_results: RefCell::new(vec!((reader, writer, Ok(peer_addr)))) }),
+                stream_connector: Box::new(StreamConnectorMock::new().with_connection(peer_addr.clone(), peer_addr.clone(), reader, writer)),
                 hopper_sub: subject.hopper_sub.clone(),
                 logger: subject.logger.clone(),
                 channel_factory: Box::new(FuturesChannelFactoryMock {

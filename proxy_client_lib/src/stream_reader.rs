@@ -1,6 +1,10 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use std::net::SocketAddr;
+use std::sync::mpsc::Sender;
 use actix::Recipient;
 use actix::Syn;
+use tokio::prelude::Async;
+use tokio::prelude::Future;
 use sub_lib::cryptde::Key;
 use sub_lib::cryptde::PlainData;
 use sub_lib::cryptde::StreamKey;
@@ -9,20 +13,17 @@ use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::logger::Logger;
 use sub_lib::proxy_client::ClientResponsePayload;
 use sub_lib::route::Route;
-use sub_lib::utils::indicates_dead_stream;
-use sub_lib::utils::to_string;
 use sub_lib::sequencer::Sequencer;
 use sub_lib::tokio_wrappers::ReadHalfWrapper;
-use tokio::prelude::Async;
-use tokio::prelude::Future;
-use std::sync::mpsc::Sender;
+use sub_lib::utils::indicates_dead_stream;
+use sub_lib::utils::to_string;
 
 pub struct StreamReader {
     stream_key: StreamKey,
     hopper_sub: Recipient<Syn, IncipientCoresPackage>,
     stream: Box<ReadHalfWrapper>,
     stream_killer: Sender<StreamKey>,
-    peer_addr: String,
+    peer_addr: SocketAddr,
     remaining_route: Route,
     framer: Box<Framer>,
     originator_public_key: Key,
@@ -67,7 +68,7 @@ impl Future for StreamReader {
 
 impl StreamReader {
     pub fn new(stream_key: StreamKey, hopper_sub: Recipient<Syn, IncipientCoresPackage>,
-               stream: Box<ReadHalfWrapper>, stream_killer: Sender<StreamKey>, peer_addr: String,
+               stream: Box<ReadHalfWrapper>, stream_killer: Sender<StreamKey>, peer_addr: SocketAddr,
                remaining_route: Route, framer: Box<Framer>, originator_public_key: Key) -> StreamReader {
         StreamReader {
             stream_key,
@@ -193,8 +194,8 @@ mod tests {
             stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
             hopper_sub,
             stream,
-            stream_killer: stream_killer,
-            peer_addr: String::from("Peer Address"),
+            stream_killer,
+            peer_addr: SocketAddr::from_str("8.7.4.3:50").unwrap(),
             remaining_route: test_utils::make_meaningless_route(),
             framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
             originator_public_key: Key::new(&b"abcd"[..]),
@@ -281,7 +282,7 @@ mod tests {
             hopper_sub,
             stream,
             stream_killer,
-            peer_addr: String::new(),
+            peer_addr: SocketAddr::from_str("4.3.6.5:574").unwrap(),
             remaining_route,
             framer,
             originator_public_key,
@@ -338,7 +339,7 @@ mod tests {
             hopper_sub,
             stream: Box::new(stream),
             stream_killer,
-            peer_addr: String::from("Peer Address"),
+            peer_addr: SocketAddr::from_str("5.7.9.0:95").unwrap(),
             remaining_route: test_utils::make_meaningless_route(),
             framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
             originator_public_key: Key::new(&b"abcd"[..]),
@@ -424,7 +425,7 @@ mod tests {
             hopper_sub,
             stream: Box::new(stream),
             stream_killer,
-            peer_addr: String::from("Peer Address"),
+            peer_addr: SocketAddr::from_str("5.3.4.3:654").unwrap(),
             remaining_route: test_utils::make_meaningless_route(),
             framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
             originator_public_key: Key::new(&b"abcd"[..]),
@@ -448,7 +449,7 @@ mod tests {
             },
             &Key::new(&b"abcd"[..]),
         ));
-        TestLogHandler::new().exists_log_containing("Stream from Peer Address was closed: (0-byte read)");
+        TestLogHandler::new().exists_log_containing("Stream from 5.3.4.3:654 was closed: (0-byte read)");
     }
 
     #[test]
@@ -484,7 +485,7 @@ mod tests {
             hopper_sub,
             stream: Box::new(stream),
             stream_killer,
-            peer_addr: String::from("Peer Address"),
+            peer_addr: SocketAddr::from_str("6.5.4.1:8325").unwrap(),
             remaining_route: test_utils::make_meaningless_route(),
             framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
             originator_public_key: Key::new(&b"abcd"[..]),
@@ -496,7 +497,7 @@ mod tests {
 
         assert_eq!(result, Err(()));
         awaiter.await_message_count(1);
-        TestLogHandler::new().exists_log_containing("WARN: test: Continuing after read error on stream from Peer Address: other os error");
+        TestLogHandler::new().exists_log_containing("WARN: test: Continuing after read error on stream from 6.5.4.1:8325: other os error");
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(hopper_recording.get_record::<IncipientCoresPackage>(0), &IncipientCoresPackage::new(
             test_utils::make_meaningless_route(),

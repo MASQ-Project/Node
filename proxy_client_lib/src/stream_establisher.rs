@@ -21,20 +21,20 @@ use tokio;
 use trust_dns_resolver::error::ResolveError;
 use sub_lib::channel_wrappers::FuturesChannelFactory;
 use sub_lib::channel_wrappers::FuturesChannelFactoryReal;
-use stream_handler_pool::StreamConnector;
-use stream_handler_pool::StreamSplitter;
+use sub_lib::stream_connector::StreamConnector;
+use std::net::SocketAddr;
+use sub_lib::stream_connector::StreamConnectorReal;
 
-pub struct StreamHandlerEstablisher {
+pub struct StreamEstablisher {
     pub stream_adder_tx: Sender<(StreamKey, Box<SenderWrapper<ExpiredCoresPackage>>)>,
     pub stream_killer_tx: Sender<StreamKey>,
     pub stream_connector: Box<StreamConnector>,
-    pub stream_splitter: Box<StreamSplitter>,
     pub hopper_sub: Recipient<Syn, IncipientCoresPackage>,
     pub logger: Logger,
     pub channel_factory: Box<FuturesChannelFactory<ExpiredCoresPackage>>,
 }
 
-impl StreamHandlerEstablisher {
+impl StreamEstablisher {
     pub fn establish_stream(&mut self, payload: &ClientRequestPayload, package: &ExpiredCoresPackage, lookup_result: Result<LookupIp, ResolveError>) -> io::Result<Box<SenderWrapper<ExpiredCoresPackage>>> {
         let target_hostname = payload.target_hostname.clone ().expect ("Internal error: DNS resolution succeeded on missing hostname");
         let ip_addrs: Vec<IpAddr> = match lookup_result {
@@ -46,22 +46,19 @@ impl StreamHandlerEstablisher {
         };
         self.logger.debug (format! ("Found IP addresses for {}: {:?}", target_hostname, &ip_addrs));
 
-        let stream = self.stream_connector.connect(ip_addrs, &target_hostname, payload.target_port, &self.logger);
-        let (reader, writer, stream_peer_addr) = self.stream_splitter.split_stream(stream)?;
+        let connection_info = self.stream_connector.connect_one(ip_addrs, &target_hostname, payload.target_port, &self.logger)?;
 
-        let peer_addr = match stream_peer_addr {Ok (a) => format! ("{}", a), Err (_) => format! ("<unknown>")};
-
-        self.spawn_stream_reader (package, &payload.clone(), reader, peer_addr.clone())?;
+        self.spawn_stream_reader (package, &payload.clone(), connection_info.reader, connection_info.peer_addr)?;
 
         let (tx_to_write, rx_to_write) = self.channel_factory.make();
-        let stream_writer = StreamWriter::new (writer, peer_addr, rx_to_write, payload.stream_key);
+        let stream_writer = StreamWriter::new (connection_info.writer, connection_info.peer_addr, rx_to_write, payload.stream_key);
         tokio::spawn(stream_writer);
 
         self.stream_adder_tx.send ((payload.stream_key, tx_to_write.clone())).expect("StreamHandlerPool died");
         Ok (tx_to_write)
     }
 
-    fn spawn_stream_reader (&self, package: &ExpiredCoresPackage, payload: &ClientRequestPayload, read_stream: Box<ReadHalfWrapper>, peer_addr: String) -> io::Result<()> {
+    fn spawn_stream_reader (&self, package: &ExpiredCoresPackage, payload: &ClientRequestPayload, read_stream: Box<ReadHalfWrapper>, peer_addr: SocketAddr) -> io::Result<()> {
         let framer = StreamHandlerPoolReal::framer_from_protocol (payload.protocol);
 
         let stream_reader = StreamReader::new (
@@ -69,7 +66,7 @@ impl StreamHandlerEstablisher {
             self.hopper_sub.clone (),
             read_stream,
             self.stream_killer_tx.clone (),
-            peer_addr.clone (),
+            peer_addr,
             package.remaining_route.clone (),
             framer,
             payload.originator_public_key.clone (),
@@ -81,25 +78,22 @@ impl StreamHandlerEstablisher {
 }
 
 pub trait StreamEstablisherFactory {
-    fn make(&self) -> StreamHandlerEstablisher;
+    fn make(&self) -> StreamEstablisher;
 }
 
 pub struct StreamEstablisherFactoryReal {
     pub stream_adder_tx: Sender<(StreamKey, Box<SenderWrapper<ExpiredCoresPackage>>)>,
     pub stream_killer_tx: Sender<StreamKey>,
-    pub stream_connector: Box<StreamConnector>,
-    pub stream_splitter: Box<StreamSplitter>,
     pub hopper_sub: Recipient<Syn, IncipientCoresPackage>,
     pub logger: Logger,
 }
 
 impl StreamEstablisherFactory for StreamEstablisherFactoryReal {
-    fn make(&self) -> StreamHandlerEstablisher {
-        StreamHandlerEstablisher {
+    fn make(&self) -> StreamEstablisher {
+        StreamEstablisher {
             stream_adder_tx: self.stream_adder_tx.clone(),
             stream_killer_tx: self.stream_killer_tx.clone(),
-            stream_connector: self.stream_connector.dup(),
-            stream_splitter: self.stream_splitter.dup(),
+            stream_connector: Box::new(StreamConnectorReal{}),
             hopper_sub: self.hopper_sub.clone(),
             logger: self.logger.clone(),
             channel_factory: Box::new(FuturesChannelFactoryReal {})
@@ -110,18 +104,14 @@ impl StreamEstablisherFactory for StreamEstablisherFactoryReal {
 #[cfg (test)]
 mod tests {
     use super::*;
-    use std::cell::RefCell;
     use std::io::ErrorKind;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use std::sync::Arc;
     use std::sync::mpsc;
-    use std::sync::Mutex;
     use std::thread;
     use actix::System;
     use serde_cbor;
-    use local_test_utils::StreamConnectorMock;
-    use local_test_utils::StreamSplitterMock;
+    use test_utils::stream_connector_mock::StreamConnectorMock;
     use sub_lib::cryptde::PlainData;
     use sub_lib::cryptde::Key;
     use sub_lib::proxy_server::ProxyProtocol;
@@ -157,11 +147,10 @@ mod tests {
                 (vec!(), Err (Error::from (ErrorKind::BrokenPipe)))
             );
 
-            let subject = StreamHandlerEstablisher {
+            let subject = StreamEstablisher {
                 stream_adder_tx,
                 stream_killer_tx,
-                stream_connector: Box::new(StreamConnectorMock { connect_params: Arc::new(Mutex::new(vec!())) }), // only used in "after_resolution"
-                stream_splitter: Box::new(StreamSplitterMock { split_stream_results: RefCell::new(vec!()) }), // only used in "after_resolution"
+                stream_connector: Box::new(StreamConnectorMock::new()), // only used in "establish_stream"
                 hopper_sub,
                 logger: Logger::new("Proxy Client"),
                 channel_factory: Box::new(FuturesChannelFactoryReal {}),
@@ -179,7 +168,7 @@ mod tests {
                     originator_public_key: Key::new(&[]),
                 },
                 read_stream,
-                String::from_str("1.2.3.4:5678").unwrap(),
+                SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             ).expect ("spawn_stream_reader () failed");
 
             awaiter.await_message_count (1);
@@ -223,11 +212,10 @@ mod tests {
             let (stream_adder_tx, _stream_adder_rx) = mpsc::channel();
             let (stream_killer_tx, _) = mpsc::channel();
 
-            let subject = StreamHandlerEstablisher {
+            let subject = StreamEstablisher {
                 stream_adder_tx,
                 stream_killer_tx,
-                stream_connector: Box::new(StreamConnectorMock { connect_params: Arc::new(Mutex::new(vec!())) }), // only used in "after_resolution"
-                stream_splitter: Box::new(StreamSplitterMock { split_stream_results: RefCell::new(vec!()) }), // only used in "after_resolution"
+                stream_connector: Box::new(StreamConnectorMock::new()), // only used in "establish_stream"
                 hopper_sub,
                 logger: Logger::new("Proxy Client"),
                 channel_factory: Box::new(FuturesChannelFactoryReal {})
@@ -246,7 +234,7 @@ mod tests {
                     originator_public_key: Key::new(&[]),
                 },
                 read_stream,
-                String::from_str ("1.2.3.4:5678").unwrap(),
+                SocketAddr::from_str ("1.2.3.4:5678").unwrap(),
             ).expect ("spawn_stream_reader () failed");
             awaiter.await_message_count (1);
             let hopper_recording = hopper_recording_arc.lock ().unwrap ();

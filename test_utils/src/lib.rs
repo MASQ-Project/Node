@@ -17,6 +17,7 @@ extern crate lazy_static;
 #[macro_use]
 pub mod test_utils;
 pub mod channel_wrapper_mocks;
+pub mod stream_connector_mock;
 pub mod tokio_wrapper_mocks;
 pub mod recorder;
 pub mod logging;

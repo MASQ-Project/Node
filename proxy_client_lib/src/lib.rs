@@ -13,9 +13,9 @@ extern crate test_utils;
 extern crate tokio;
 
 pub mod proxy_client;
-pub mod resolver_wrapper;
-pub mod stream_handler_establisher;
-pub mod stream_handler_pool;
-pub mod stream_reader;
-pub mod stream_writer;
-pub mod local_test_utils;
+mod resolver_wrapper;
+mod stream_establisher;
+mod stream_handler_pool;
+mod stream_reader;
+mod stream_writer;
+mod local_test_utils;

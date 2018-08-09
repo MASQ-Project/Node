@@ -283,7 +283,7 @@ mod tests {
     use configuration::PortConfiguration;
     use discriminator::Discriminator;
     use discriminator::UnmaskedChunk;
-    use stream_connector::ConnectionInfo;
+    use sub_lib::stream_connector::ConnectionInfo;
     use null_masquerader::NullMasquerader;
 
     struct ListenerHandlerFactoryMock {

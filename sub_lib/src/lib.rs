@@ -44,6 +44,7 @@ pub mod route;
 pub mod sequence_buffer;
 pub mod sequencer;
 pub mod socket_server;
+pub mod stream_connector;
 pub mod stream_handler_pool;
 pub mod tcp_wrappers;
 pub mod tls_framer;
