@@ -64,11 +64,9 @@ describe('Application launch', function () {
       })
   })
 
-  // This test never really worked because we can't interact with the sudo prompt
-  // It seems like it just completes before it has a chance to prompt
-  // TODO: How can we test something meaningful here?
   it('toggles substratum node from off to serving back to off', function () {
     let client = this.app.client
+    let wait = ms => new Promise(resolve => setTimeout(resolve, ms))
     return client.waitUntilWindowLoaded()
       .then(function () {
         let sliderMask = client.element('div.node-status__actions button#serving')
@@ -85,25 +83,25 @@ describe('Application launch', function () {
         sliderMask.click()
       })
       .then(function () {
+        return wait(500)
+      })
+      .then(function () {
         return client.getText('#node-status-label')
       })
       .then(function (result) {
         assert.strictEqual(result.toLocaleLowerCase(), 'off')
       })
-      // .then(function () {
-      //   return client.getRenderProcessLogs()
-      // })
-      // .then(function (logs) {
-      //   // FIXME Failing on Jenkins
-      //    if (process.platform !== 'win32') {
-      //      let logMessageExists = false
-      //      logs.forEach(function (log) {
-      //        if (log.message.includes('substratum_node process exited with code ')) {
-      //          logMessageExists = true
-      //        }
-      //      })
-      //      assert.ok(logMessageExists)
-      //    }
-      // })
+      .then(function () {
+        return client.getRenderProcessLogs()
+      })
+      .then(function (logs) {
+        let logMessageExists = false
+        logs.forEach(function (log) {
+          if (log.message.includes('substratum_node process exited with code ')) {
+            logMessageExists = true
+          }
+        })
+        assert.ok(logMessageExists)
+      })
   })
 })
