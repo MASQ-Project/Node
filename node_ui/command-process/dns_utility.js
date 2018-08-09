@@ -5,7 +5,6 @@ module.exports = (function () {
   const path = require('path')
   const consoleWrapper = require('../wrappers/console_wrapper')
   const sudoPrompt = require('sudo-prompt')
-  const statusHandler = require('../handlers/status_handler')
 
   let dnsUtilityPath = path.resolve(__dirname, '.', '../static/binaries/dns_utility')
 
@@ -20,27 +19,31 @@ module.exports = (function () {
   function revert () {
     let isReverted = getStatus()
     if (isReverted && isReverted.indexOf('reverted') >= 0) {
-      return
+      return new Promise((resolve, reject) => resolve(null))
     }
 
-    runDnsUtility('revert', function () { statusHandler.emit('invalid') })
+    return runDnsUtility('revert')
   }
 
   function subvert () {
     let isSubverted = getStatus()
     if (isSubverted && isSubverted.indexOf('subverted') >= 0) {
-      return
+      return new Promise((resolve, reject) => resolve(null))
     }
 
-    runDnsUtility('subvert')
+    return runDnsUtility('subvert')
   }
 
-  function runDnsUtility (mode, errorCallback) {
-    sudoPrompt.exec(dnsUtilityPath + ' ' + mode, { name: 'DNS utility' }, function (error, stdout, stderr) {
-      if (error || stderr) {
-        consoleWrapper.log('dns_utility failed: ', stderr || error.message)
-        errorCallback()
-      }
+  function runDnsUtility (mode) {
+    return new Promise((resolve, reject) => {
+      sudoPrompt.exec(dnsUtilityPath + ' ' + mode, { name: 'DNS utility' }, function (error, stdout, stderr) {
+        if (error || stderr) {
+          consoleWrapper.log('dns_utility failed: ', stderr || error.message)
+          reject(error || stderr)
+        } else {
+          resolve(stdout)
+        }
+      })
     })
   }
 
@@ -49,4 +52,4 @@ module.exports = (function () {
     revert: revert,
     subvert: subvert
   }
-})()
+}())

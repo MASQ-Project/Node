@@ -17,12 +17,11 @@ module.exports = (function () {
   const settingsMenu = documentWrapper.getElementById('settings-menu')
   const settingsQuitButton = documentWrapper.getElementById('settings-menu-quit')
   const body = documentWrapper.getElementById('main')
-  const statusHandler = require('../handlers/status_handler')
-
-  statusHandler.emit('init-status')
 
   nodeActuator.bind(nodeStatusButtonOff, nodeStatusButtonServing, nodeStatusButtonConsuming)
   settings.bind(body, settingsMenu, settingsButton, settingsQuitButton)
+
+  nodeActuator.setStatus()
 
   ipcRenderer.on('kill-substratum-node', function () {
     nodeActuator.shutdown()

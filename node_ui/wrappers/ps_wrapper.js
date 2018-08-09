@@ -1,23 +1,28 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 module.exports = (function () {
-  const ps = require('ps-list')
+  const ps = require('../command-process/ps')
   const treeKill = require('tree-kill')
+  const path = require('path')
 
-  function killByName (processName) {
+  function killNodeProcess () {
     ps().then((list) => {
-      list.filter(row => row.name.indexOf(processName) >= 0).forEach(item => treeKill(item.pid))
+      list.filter(row =>
+        (row.name.indexOf('SubstratumNode') >= 0 && row.cmd.indexOf('static' + path.sep + 'binaries') >= 0)
+      ).forEach(item => treeKill(item.pid))
     })
   }
 
-  function findByName (processName, callback) {
+  function findNodeProcess (callback) {
     ps().then(function (list) {
-      callback(list.filter(row => row.name.indexOf(processName) >= 0))
+      callback(list.filter(row =>
+        (row.name.indexOf('SubstratumNode') >= 0 && row.cmd.indexOf('static' + path.sep + 'binaries') >= 0)
+      ))
     })
   }
 
   return {
-    killByName: killByName,
-    findByName: findByName
+    killNodeProcess: killNodeProcess,
+    findNodeProcess: findNodeProcess
   }
 }())

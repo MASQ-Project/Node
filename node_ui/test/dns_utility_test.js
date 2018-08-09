@@ -12,7 +12,6 @@ describe('DNS Utility', function () {
   let sudoPrompt
   let result
   let mockConsole
-  let mockStatusHandler
 
   let dnsUtilityPath = path.resolve(__dirname, '.', '../static/binaries/dns_utility')
   let dnsUtilityArgs = ['status']
@@ -21,7 +20,6 @@ describe('DNS Utility', function () {
     childProcess = td.replace('child_process')
     sudoPrompt = td.replace('sudo-prompt')
     mockConsole = td.replace('../wrappers/console_wrapper')
-    mockStatusHandler = td.replace('../handlers/status_handler')
 
     subject = require('../command-process/dns_utility')
   })
@@ -106,10 +104,6 @@ describe('DNS Utility', function () {
       it('logs error message', function () {
         td.verify(mockConsole.log('dns_utility failed: ', 'failed to revert'))
       })
-
-      it('sends invalid state', function () {
-        td.verify(mockStatusHandler.emit('invalid'), { times: 1 })
-      })
     })
 
     describe('stderr', function () {
@@ -126,10 +120,6 @@ describe('DNS Utility', function () {
 
       it('logs stderr message', function () {
         td.verify(mockConsole.log('dns_utility failed: ', 'failed to revert'))
-      })
-
-      it('sends invalid state', function () {
-        td.verify(mockStatusHandler.emit('invalid'), { times: 1 })
       })
     })
   })

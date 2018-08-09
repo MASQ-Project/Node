@@ -4,9 +4,9 @@ module.exports = (function () {
   const childProcess = require('child_process')
   const path = require('path')
   const consoleWrapper = require('../wrappers/console_wrapper')
-  const status = require('../handlers/status_handler')
   const dnsUtility = require('../command-process/dns_utility')
   const psWrapper = require('../wrappers/ps_wrapper')
+  const documentWrapper = require('../wrappers/document_wrapper')
 
   let nodeStatusButtonOff
   let nodeStatusButtonServing
@@ -16,8 +16,8 @@ module.exports = (function () {
 
   function setStatusToOffThenRevert () {
     substratumNodeProcess = null
-    status.emit('off')
-    dnsUtility.revert()
+    setValidStatus('Off', 'off')
+    dnsUtility.revert().then((response) => setStatus())
   }
 
   function bindProcessEvents () {
@@ -35,8 +35,43 @@ module.exports = (function () {
 
     substratumNodeProcess.on('exit', function (code) {
       consoleWrapper.log('substratum_node process exited with code ', code)
-      setStatusToOffThenRevert()
+      substratumNodeProcess = null
+      setValidStatus('Off', 'off')
     })
+  }
+
+  function setStatus () {
+    psWrapper.findNodeProcess(initStatus)
+  }
+
+  function initStatus (list) {
+    let dnsStatus = dnsUtility.getStatus()
+    if (list && list.length > 0 && dnsStatus.indexOf('subverted') >= 0) {
+      setValidStatus('Consuming', 'consuming')
+      substratumNodeProcess = list[0]
+    } else if (list && list.length > 0) {
+      setValidStatus('Serving', 'serving')
+      substratumNodeProcess = list[0]
+    } else if (dnsStatus.indexOf('subverted') >= 0) {
+      setInvalidStatus()
+      substratumNodeProcess = null
+    } else {
+      setValidStatus('Off', 'off')
+      substratumNodeProcess = null
+    }
+  }
+
+  function setValidStatus (label, buttonId) {
+    documentWrapper.getElementById('node-status-label').innerHTML = label
+    documentWrapper.querySelectorAll('.button-active').forEach((elem) => elem.classList.remove('button-active'))
+    documentWrapper.getElementById(buttonId).classList.add('button-active')
+    documentWrapper.getElementById('node-status-buttons').classList.remove('node-status__actions--invalid')
+  }
+
+  function setInvalidStatus () {
+    documentWrapper.getElementById('node-status-label').innerHTML = 'An error occurred. Choose a state.'
+    documentWrapper.getElementById('node-status-buttons').classList.add('node-status__actions--invalid')
+    documentWrapper.querySelectorAll('.button-active').forEach((elem) => elem.classList.remove('button-active'))
   }
 
   function startNode () {
@@ -52,11 +87,12 @@ module.exports = (function () {
   }
 
   function stopNode () {
-    if (!substratumNodeProcess) {
-      psWrapper.killByName('SubstratumNode')
+    if (!substratumNodeProcess || substratumNodeProcess.cmd) {
+      psWrapper.killNodeProcess()
     } else {
       substratumNodeProcess.send('stop')
     }
+    substratumNodeProcess = null
   }
 
   function bind (_nodeStatusButtonOff, _nodeStatusButtonServing, _nodeStatusButtonConsuming) {
@@ -65,21 +101,33 @@ module.exports = (function () {
     nodeStatusButtonConsuming = _nodeStatusButtonConsuming
 
     nodeStatusButtonOff.onclick = function () {
-      status.emit('off')
-      dnsUtility.revert()
+      setValidStatus('Off', 'off')
       stopNode()
+      dnsUtility.revert().then((response) => {
+        if (response) {
+          setStatus()
+        }
+      })
     }
 
     nodeStatusButtonServing.onclick = function () {
-      status.emit('serving')
-      dnsUtility.revert()
+      setValidStatus('Serving', 'serving')
       startNode()
+      dnsUtility.revert().then((response) => {
+        if (response) {
+          setStatus()
+        }
+      })
     }
 
     nodeStatusButtonConsuming.onclick = function () {
-      status.emit('consuming')
-      dnsUtility.subvert()
+      setValidStatus('Consuming', 'consuming')
       startNode()
+      dnsUtility.subvert().then((response) => {
+        if (response) {
+          setStatus()
+        }
+      })
     }
   }
 
@@ -90,6 +138,7 @@ module.exports = (function () {
 
   return {
     bind: bind,
-    shutdown: shutdown
+    shutdown: shutdown,
+    setStatus: setStatus
   }
 })()

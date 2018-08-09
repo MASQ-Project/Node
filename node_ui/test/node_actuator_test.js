@@ -12,14 +12,16 @@ describe('NodeActuator', function () {
   let mockSudoPrompt
   let mockConsole
   let mockPsWrapper
+  let mockDocumentWrapper
 
+  let mockNodeStatusLabel
   let mockNodeStatusButtonOff
   let mockNodeStatusButtonServing
   let mockNodeStatusButtonConsuming
+  let mockNodeStatusButtons
 
   let mockSubstratumNodeProcess
 
-  let mockStatusHandler
   let mockDnsUtility
 
   let subject
@@ -28,13 +30,24 @@ describe('NodeActuator', function () {
     mockChildProcess = td.replace('child_process')
     mockSudoPrompt = td.replace('sudo-prompt')
     mockConsole = td.replace('../wrappers/console_wrapper')
-    mockStatusHandler = td.replace('../handlers/status_handler')
     mockDnsUtility = td.replace('../command-process/dns_utility')
     mockPsWrapper = td.replace('../wrappers/ps_wrapper')
+    mockDocumentWrapper = td.replace('../wrappers/document_wrapper')
 
+    mockNodeStatusLabel = util.createMockUIElement('node-status-label')
     mockNodeStatusButtonOff = util.createMockUIElement('button-active')
     mockNodeStatusButtonServing = util.createMockUIElement()
     mockNodeStatusButtonConsuming = util.createMockUIElement()
+    mockNodeStatusButtons = util.createMockUIElement()
+
+    td.when(mockDocumentWrapper.getElementById('node-status-label')).thenReturn(mockNodeStatusLabel)
+    td.when(mockDocumentWrapper.getElementById('off')).thenReturn(mockNodeStatusButtonOff)
+    td.when(mockDocumentWrapper.getElementById('serving')).thenReturn(mockNodeStatusButtonServing)
+    td.when(mockDocumentWrapper.getElementById('consuming')).thenReturn(mockNodeStatusButtonConsuming)
+    td.when(mockDocumentWrapper.getElementById('node-status-buttons')).thenReturn(mockNodeStatusButtons)
+
+    td.when(mockDnsUtility.revert()).thenResolve('')
+    td.when(mockDnsUtility.subvert()).thenResolve('')
 
     mockSubstratumNodeProcess = new EventEmitter()
     mockSubstratumNodeProcess.send = td.function()
@@ -56,6 +69,7 @@ describe('NodeActuator', function () {
 
   describe('off', function () {
     beforeEach(function () {
+      td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonServing, mockNodeStatusButtonConsuming])
       mockNodeStatusButtonOff.onclick()
     })
 
@@ -77,6 +91,7 @@ describe('NodeActuator', function () {
 
     describe('to serving', function () {
       beforeEach(function () {
+        td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonOff, mockNodeStatusButtonConsuming])
         mockNodeStatusButtonServing.onclick()
       })
 
@@ -95,6 +110,7 @@ describe('NodeActuator', function () {
 
     describe('to consuming', function () {
       beforeEach(function () {
+        td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonServing, mockNodeStatusButtonOff])
         mockNodeStatusButtonConsuming.onclick()
       })
 
@@ -114,6 +130,7 @@ describe('NodeActuator', function () {
 
   describe('serving', function () {
     beforeEach(function () {
+      td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonOff, mockNodeStatusButtonConsuming])
       mockNodeStatusButtonServing.onclick()
     })
 
@@ -131,6 +148,7 @@ describe('NodeActuator', function () {
 
     describe('to off', function () {
       beforeEach(function () {
+        td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonServing, mockNodeStatusButtonConsuming])
         mockNodeStatusButtonOff.onclick()
       })
 
@@ -161,6 +179,7 @@ describe('NodeActuator', function () {
 
     describe('to consuming', function () {
       beforeEach(function () {
+        td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonOff, mockNodeStatusButtonServing])
         mockNodeStatusButtonConsuming.onclick()
       })
 
@@ -180,6 +199,7 @@ describe('NodeActuator', function () {
 
   describe('consuming', function () {
     beforeEach(function () {
+      td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonOff, mockNodeStatusButtonServing])
       mockNodeStatusButtonConsuming.onclick()
     })
 
@@ -197,6 +217,7 @@ describe('NodeActuator', function () {
 
     describe('to off', function () {
       beforeEach(function () {
+        td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonServing, mockNodeStatusButtonConsuming])
         mockNodeStatusButtonOff.onclick()
       })
 
@@ -215,6 +236,7 @@ describe('NodeActuator', function () {
 
     describe('to serving', function () {
       beforeEach(function () {
+        td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonOff, mockNodeStatusButtonConsuming])
         mockNodeStatusButtonServing.onclick()
       })
 
@@ -223,7 +245,7 @@ describe('NodeActuator', function () {
       })
 
       it('does not start the node', function () {
-        assertNodeStarted()
+        assertNodeStarted(1)
       })
 
       it('reverts the dns', function () {
@@ -244,8 +266,23 @@ describe('NodeActuator', function () {
     })
   })
 
+  describe('serving with already running node process', function () {
+    beforeEach(function () {
+      td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonOff])
+      td.when(mockDnsUtility.getStatus()).thenReturn('reverted')
+      td.when(mockPsWrapper.findNodeProcess()).thenCallback([{name: 'SubstratumNode', pid: 1234, cmd: 'static/binaries/SubstratumNode'}])
+      subject.setStatus()
+      mockNodeStatusButtonServing.onclick()
+    })
+
+    it('does not start node', function () {
+      assertNodeStarted(0)
+    })
+  })
+
   describe('childProcess messages', function () {
     beforeEach(function () {
+      td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonOff])
       mockNodeStatusButtonServing.onclick()
     })
 
@@ -266,6 +303,7 @@ describe('NodeActuator', function () {
     describe('receiving an error message from child process', function () {
       describe('while serving', function () {
         beforeEach(function () {
+          td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonServing])
           mockNodeStatusButtonServing.onclick()
 
           mockSubstratumNodeProcess.emit('message', 'Command returned error: blooga')
@@ -293,6 +331,7 @@ describe('NodeActuator', function () {
       describe('while consuming', function () {
         describe('dns revert succeeds', function () {
           beforeEach(function () {
+            td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonServing, mockNodeStatusButtonConsuming])
             mockNodeStatusButtonConsuming.onclick()
 
             mockSubstratumNodeProcess.emit('message', 'Command returned error: blooga')
@@ -316,6 +355,7 @@ describe('NodeActuator', function () {
     describe('receiving error from child process', function () {
       describe('while serving', function () {
         beforeEach(function () {
+          td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonServing, mockNodeStatusButtonConsuming])
           mockNodeStatusButtonServing.onclick()
 
           mockSubstratumNodeProcess.emit('error', new Error('blooga'))
@@ -333,6 +373,7 @@ describe('NodeActuator', function () {
       describe('while consuming', function () {
         describe('dns revert succeeds', function () {
           beforeEach(function () {
+            td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonServing, mockNodeStatusButtonConsuming])
             mockNodeStatusButtonConsuming.onclick()
 
             mockSubstratumNodeProcess.emit('error', new Error('blooga'))
@@ -356,6 +397,7 @@ describe('NodeActuator', function () {
     describe('receiving exit from child process', function () {
       describe('while serving', function () {
         beforeEach(function () {
+          td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonServing, mockNodeStatusButtonConsuming])
           mockNodeStatusButtonServing.onclick()
 
           let error = { message: 'blablabla' }
@@ -383,6 +425,7 @@ describe('NodeActuator', function () {
       describe('while consuming', function () {
         describe('dns revert succeeds', function () {
           beforeEach(function () {
+            td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonServing, mockNodeStatusButtonConsuming])
             mockNodeStatusButtonConsuming.onclick()
 
             mockSubstratumNodeProcess.emit('exit', 7)
@@ -393,7 +436,7 @@ describe('NodeActuator', function () {
           })
 
           it('reverts DNS', function () {
-            verifyDNSReverted(2)
+            verifyDNSReverted(1)
           })
 
           it('updates the status', function () {
@@ -406,6 +449,7 @@ describe('NodeActuator', function () {
 
   describe('shutdown', function () {
     beforeEach(function () {
+      td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonServing, mockNodeStatusButtonConsuming])
       mockNodeStatusButtonServing.onclick()
 
       subject.shutdown()
@@ -428,17 +472,31 @@ describe('NodeActuator', function () {
     })
 
     it('kills the process', function () {
-      td.verify(mockPsWrapper.killByName('SubstratumNode'))
+      td.verify(mockPsWrapper.killNodeProcess())
     })
   })
 
   function assertStatus (status) {
     if (status === 'off') {
-      td.verify(mockStatusHandler.emit('off'))
+      assert.strictEqual(mockNodeStatusLabel.innerHTML, 'Off')
+      assert(mockNodeStatusButtonOff.classList.contains('button-active'), 'Off should be active')
+      assert(!mockNodeStatusButtonServing.classList.contains('button-active'), 'Serving should not be active')
+      assert(!mockNodeStatusButtonConsuming.classList.contains('button-active'), 'Consuming should not be active')
     } else if (status === 'serving') {
-      td.verify(mockStatusHandler.emit('serving'))
+      assert.strictEqual(mockNodeStatusLabel.innerHTML, 'Serving')
+      assert(!mockNodeStatusButtonOff.classList.contains('button-active'), 'Off should not be active')
+      assert(mockNodeStatusButtonServing.classList.contains('button-active'), 'Serving should be active')
+      assert(!mockNodeStatusButtonConsuming.classList.contains('button-active'), 'Consuming should not be active')
     } else if (status === 'consuming') {
-      td.verify(mockStatusHandler.emit('consuming'))
+      assert.strictEqual(mockNodeStatusLabel.innerHTML, 'Consuming')
+      assert(!mockNodeStatusButtonOff.classList.contains('button-active'), 'Off should not be active')
+      assert(!mockNodeStatusButtonServing.classList.contains('button-active'), 'Serving should not be active')
+      assert(mockNodeStatusButtonConsuming.classList.contains('button-active'), 'Consuming should be active')
+    } else if (status === 'invalid') {
+      assert.strictEqual(mockNodeStatusLabel.innerHTML, 'There was a problem')
+      assert(!mockNodeStatusButtonOff.classList.contains('button-active'), 'Off should not be active')
+      assert(!mockNodeStatusButtonServing.classList.contains('button-active'), 'Serving should not be active')
+      assert(!mockNodeStatusButtonConsuming.classList.contains('button-active'), 'Consuming should not be active')
     } else {
       assert(false, 'status was not recognized')
     }
