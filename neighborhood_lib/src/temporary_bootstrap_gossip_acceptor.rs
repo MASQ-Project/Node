@@ -4,6 +4,8 @@ use neighborhood_database::NeighborhoodDatabase;
 use sub_lib::logger::Logger;
 use gossip_acceptor::GossipAcceptor;
 use sub_lib::cryptde::Key;
+use neighborhood_database::NodeRecord;
+use gossip::GossipNodeRecord;
 
 // The purpose of this temporary code is to accept only single-node Gossips from 0.4.0-level Nodes
 // at startup and form those nodes into a topological linked list, with the first reporting Node
@@ -21,20 +23,25 @@ pub struct TemporaryBootstrapGossipAcceptor {
 
 impl GossipAcceptor for TemporaryBootstrapGossipAcceptor {
     fn handle(&self, database: &mut NeighborhoodDatabase, gossip: Gossip) {
-        if gossip.node_records.len () != 1 {
-            panic! ("I'm just a TemporaryBootstrapGossipAcceptor; I don't know what to do with {}-node Gossip messages!", gossip.node_records.len ());
-        }
+        let foreign_node_record = match Self::find_single_foreign_node_record(database, &gossip) {
+            None => {
+                self.logger.error (format! ("I'm just a TemporaryBootstrapGossipAcceptor; I don't know what to do with {}-node Gossip messages!", gossip.node_records.len ()));
+                return
+            },
+            Some (foreign_node_record) => foreign_node_record
+        };
 
-        if gossip.node_records[0].public_key.data.is_empty() {
+        if foreign_node_record.public_key ().data.is_empty() {
             self.logger.error(format!("Rejected Gossip from Node with blank public key"));
             return
         }
 
         if database.keys().len() == 1 {
-            self.initial_case(database, gossip);
+            self.initial_case(database, foreign_node_record);
         } else {
-            self.normal_case(database, gossip);
+            self.normal_case(database, foreign_node_record);
         }
+        self.logger.debug (format! ("After processing Gossip: {:?}", database))
     }
 }
 
@@ -43,23 +50,21 @@ impl TemporaryBootstrapGossipAcceptor {
         TemporaryBootstrapGossipAcceptor {logger: Logger::new ("TemporaryBootstrapGossipAcceptor")}
     }
 
-    fn initial_case(&self, database: &mut NeighborhoodDatabase, gossip: Gossip) {
-        let node_record_ref = &gossip.node_records[0].to_node_record();
+    fn initial_case(&self, database: &mut NeighborhoodDatabase, foreign_node_record: NodeRecord) {
         let root_key_ref = &database.root().public_key().clone();
-        database.add_node(node_record_ref).expect (&format! ("initial case collision: {:?}", node_record_ref.public_key ()));
-        database.add_neighbor(node_record_ref.public_key(), root_key_ref).expect ("add_node failed");
-        database.add_neighbor(root_key_ref, node_record_ref.public_key()).expect ("add_node failed");
+        database.add_node(&foreign_node_record).expect (&format! ("initial case collision: {:?}", foreign_node_record.public_key ()));
+        database.add_neighbor(foreign_node_record.public_key(), root_key_ref).expect ("add_node failed");
+        database.add_neighbor(root_key_ref, foreign_node_record.public_key()).expect ("add_node failed");
     }
 
-    fn normal_case(&self, database: &mut NeighborhoodDatabase, gossip: Gossip) {
-        let incoming_record_ref = &gossip.node_records[0].to_node_record();
+    fn normal_case(&self, database: &mut NeighborhoodDatabase, foreign_node_record: NodeRecord) {
         let first_neighbor_key_ref = &TemporaryBootstrapGossipAcceptor::find_first_neighbor(database).clone();
         let last_neighbor_key_ref = &TemporaryBootstrapGossipAcceptor::find_last_neighbor(database, first_neighbor_key_ref).clone();
         let root_key_ref = &database.root().public_key().clone();
-        database.add_node(incoming_record_ref).expect(&format! ("normal_case collision: {:?}", incoming_record_ref.public_key ()));
-        database.add_neighbor(incoming_record_ref.public_key(), root_key_ref).expect ("root node disappeared");
-        database.add_neighbor(incoming_record_ref.public_key(), last_neighbor_key_ref).expect ("add_node failed");
-        database.add_neighbor(last_neighbor_key_ref, incoming_record_ref.public_key()).expect ("last neighbor disappeared");
+        database.add_node(&foreign_node_record).expect(&format! ("normal_case collision: {:?}", foreign_node_record.public_key ()));
+        database.add_neighbor(foreign_node_record.public_key(), root_key_ref).expect ("root node disappeared");
+        database.add_neighbor(foreign_node_record.public_key(), last_neighbor_key_ref).expect ("add_node failed");
+        database.add_neighbor(last_neighbor_key_ref, foreign_node_record.public_key()).expect ("last neighbor disappeared");
     }
 
     fn find_first_neighbor(database: &NeighborhoodDatabase) -> &Key {
@@ -88,6 +93,16 @@ impl TemporaryBootstrapGossipAcceptor {
         }
         panic! ("Could not find last neighbor: database is not linear like it's supposed to be: {:?}", database);
     }
+
+    fn find_single_foreign_node_record (database: &NeighborhoodDatabase, gossip: &Gossip) -> Option<NodeRecord> {
+        let root_key = database.root ().public_key ().clone ();
+        let foreign_gossip_node_records = gossip.node_records.iter ()
+            .filter (|gnr_ref_ref| gnr_ref_ref.public_key != root_key)
+            .map (|gnr_ref| {gnr_ref.clone ()})
+            .collect::<Vec<GossipNodeRecord>> ();
+        if foreign_gossip_node_records.len () != 1 {return None}
+        Some (foreign_gossip_node_records[0].to_node_record ())
+    }
 }
 
 #[cfg (test)]
@@ -108,7 +123,7 @@ mod tests {
         let second_node = make_node_record(3456, true, false);
         let third_node = make_node_record(4567, true, false);
         let bad_node = NodeRecord::new (&Key::new (&[]), None, false);
-        let mut database = NeighborhoodDatabase::new(this_node.public_key(), this_node.clone ().node_addr_opt ().unwrap (), this_node.is_bootstrap_node());
+        let mut database = NeighborhoodDatabase::new(this_node.public_key(), &this_node.node_addr_opt ().unwrap (), this_node.is_bootstrap_node());
 
         let first_gossip = GossipBuilder::new().node(&first_node, true).build();
         let second_gossip = GossipBuilder::new().node(&second_node, true).build();

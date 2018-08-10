@@ -113,7 +113,7 @@ mod tests {
         let builder = builder.node (&node, true);
 
         let mut gossip = builder.build ();
-        assert_eq! (gossip.node_records.remove (0).node_addr_opt.unwrap (), *node.node_addr_opt ().unwrap ())
+        assert_eq! (gossip.node_records.remove (0).node_addr_opt.unwrap (), node.node_addr_opt ().unwrap ())
     }
 
     #[test]

@@ -166,6 +166,7 @@ impl Write for TcpStreamWrapperMock {
     }
 }
 
+#[allow (dead_code)]
 impl TcpStreamWrapperMock {
     pub fn new () -> TcpStreamWrapperMock {
         TcpStreamWrapperMock {

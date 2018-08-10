@@ -97,17 +97,22 @@ impl Handler<TransmitDataMsg> for StreamHandlerPool {
 
     fn handle(&mut self, msg: TransmitDataMsg, _ctx: &mut <Self as Actor>::Context) {
         // TODO Can be recombined with DispatcherNodeQueryMessage after SC-358
+        self.logger.debug (format! ("Handling order to transmit {} bytes to {:?}", msg.data.len (), msg.endpoint));
         let node_query_response_recipient = self.self_subs.as_ref().expect("StreamHandlerPool is unbound.").node_query_response.clone();
         match msg.endpoint.clone() {
             Endpoint::Key(key) => {
                 let request = DispatcherNodeQueryMessage { query: NodeQueryMessage::PublicKey(key.clone()), context: msg, recipient: node_query_response_recipient };
+                self.logger.debug (format! ("Sending node query about {} to Neighborhood", key));
                 self.to_neighborhood.as_ref().expect("StreamHandlerPool is unbound.").try_send(request).expect("Neighborhood is Dead")
             },
             Endpoint::Ip(_) => unimplemented!(),
-            Endpoint::Socket(socket_addr) => node_query_response_recipient.try_send (DispatcherNodeQueryResponse {
-                result: Some(NodeDescriptor::new(Key::new(&[]), Some(NodeAddr::from(&socket_addr)))),
-                context: msg
-            }).expect("StreamHandlerPool is dead?")
+            Endpoint::Socket(socket_addr) => {
+                self.logger.debug (format! ("Translating TransmitDataMsg to node query response about {}", socket_addr));
+                node_query_response_recipient.try_send (DispatcherNodeQueryResponse {
+                    result: Some(NodeDescriptor::new(Key::new(&[]), Some(NodeAddr::from(&socket_addr)))),
+                    context: msg
+                }).expect("StreamHandlerPool is dead?")
+            }
         };
         ()
     }
@@ -118,6 +123,7 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
 
     fn handle(&mut self, msg: DispatcherNodeQueryResponse, _ctx: &mut Self::Context) {
         // TODO Can be recombined with TransmitDataMsg after SC-358
+        self.logger.debug (format! ("Handling node query response containing {:?}", msg.result));
         let node_addr = match msg.result.clone() {
             Some (node_descriptor) => match node_descriptor.node_addr_opt {
                 Some (node_addr) => node_addr,
@@ -134,7 +140,7 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
 
         if node_addr.ports ().is_empty () {
             // If the NodeAddr has no ports, then either we are a 0-hop-only node or something has gone terribly wrong with the Neighborhood's state, so we should blow up.
-            panic!("Neighborhood has returned a NodeDescriptor with no ports. This indicates an irrecoverable error.")
+            panic!("Neighborhood has returned a NodeDescriptor with no ports. This indicates an unrecoverable error.")
         }
 
         // TODO: Picking the first port is a temporary hack. TODO create a card about this and remove this line
@@ -145,6 +151,7 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
             let tx_opt = self.stream_writers.get_mut(&peer_addr).expect("StreamWriter magically disappeared");
             match tx_opt {
                 Some(tx_box) => {
+                    self.logger.debug (format! ("Transmitting {} bytes", msg.context.data.len ()));
                     match tx_box.unbounded_send(SequencedPacket::from(&msg.context)) { // TODO FIXME stream_handler_pool should be able to accept Vec<u8> for clandestine data (when TDM sequence# is None)
                         Err(_) => {
                             to_remove = true
@@ -1069,7 +1076,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic (expected = "Neighborhood has returned a NodeDescriptor with no ports. This indicates an irrecoverable error.")]
+    #[should_panic (expected = "Neighborhood has returned a NodeDescriptor with no ports. This indicates an unrecoverable error.")]
     fn when_node_query_response_node_addr_contains_no_ports_then_stream_handler_pool_panics() {
         init_test_logging();
         let cryptde = CryptDENull::new();

@@ -193,7 +193,10 @@ impl Recording {
             None => panic! ("Only {} messages recorded: no message #{} in the recording", self.messages.len (), index)
         };
         let item_opt = item_box.downcast_ref::<T> ();
-        let item_success_ref = item_opt.unwrap ();
+        let item_success_ref = match item_opt {
+            Some (item) => item,
+            None => panic! ("Message {} could not be downcast to the expected type"),
+        };
         item_success_ref
     }
 }

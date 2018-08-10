@@ -4,6 +4,7 @@ use std::net::SocketAddr;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::fmt::Result;
+use std::fmt::Display;
 
 #[derive (Eq, Hash, Deserialize, Serialize)]
 pub struct NodeAddr {
@@ -55,6 +56,13 @@ impl Clone for NodeAddr {
 impl Debug for NodeAddr {
     fn fmt(&self, f: &mut Formatter) -> Result {
         write! (f, "{}:{:?}", self.ip_addr (), self.ports ())
+    }
+}
+
+impl Display for NodeAddr {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        let port_list = self.ports.iter ().map (|x| format! ("{}", x)).collect::<Vec<String>> ();
+        write! (f, "{}:{}", self.ip_addr (), port_list.join (","))
     }
 }
 
@@ -127,5 +135,16 @@ mod tests {
         let result = format! ("{:?}", subject);
 
         assert_eq! (result, "2.5.8.1:[6, 9]");
+    }
+
+    #[test]
+    fn node_addrs_produces_display_string () {
+        let ip_addr = IpAddr::from_str("2.5.8.1").unwrap();
+        let ports = vec! (9,6);
+        let subject = NodeAddr::new(&ip_addr, &ports);
+
+        let result = format! ("{}", subject);
+
+        assert_eq! (result, "2.5.8.1:6,9");
     }
 }

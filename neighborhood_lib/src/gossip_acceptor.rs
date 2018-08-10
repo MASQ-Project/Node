@@ -22,6 +22,7 @@ impl GossipAcceptor for GossipAcceptorReal {
         self.handle_node_records (database, &gossip);
         self.handle_neighbor_pairs (database, &gossip);
         self.add_ip_neighbors (database, &gossip);
+        self.logger.debug (format! ("Database after accepting Gossip: {:?}", database));
     }
 }
 

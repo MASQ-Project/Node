@@ -24,4 +24,4 @@ cd docker
 ./build.sh
 cd "${CI_DIR}"/..
 
-cargo test --release -- --nocapture
+cargo test --release -- --nocapture --test-threads=1

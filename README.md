@@ -158,15 +158,22 @@ put in this parameter so that we could put it elsewhere and point tests at it.  
 do testing on low ports anyway, so now we always leave this parameter out and let it default to 53.  You probably won't
 have much use for this.
 
-If you start trying to start your SubstratumNode decentralized, you will quickly discover that these parameters have
+* `--log_level error | warn | info | trace | debug`
+The Node has the potential to log a lot of data. (A _lot_ of data: a busy Node can fill your disk in a few minutes.) This
+parameter allows you to specify how much of that potential will be realized. `debug` will encourage the Node to reach its
+full potential, and should probably only be used when you're going to run the Node for a few seconds to try one thing
+that's been giving you problems, and then shut it off to look at the logs. `error`--which is the default--logs only the 
+most serious of errors, and the other values are in-between compromise points.
+
+If you try to start your SubstratumNode decentralized, you will quickly discover that these parameters have
 a great deal of interdependence on each other.  Some are required, some are optional, some are optional only if others
 are provided, and so on.  Here's a brief description of the dependencies.
 
-In order to run decentralized, the SubstratumNode *must* know the IP address others can use to contact it. Therefore,
+In order to run decentralized, the SubstratumNode _must_ know the IP address others can use to contact it. Therefore,
 you must supply `--ip`. You also must have some way of finding out about your network environment, so you must specify 
 `--neighbor` or `--bootstrap_from` or `--node_type bootstrap`, but only one of those.  Also, your Node must have some
-way to transfer traffic to and from other Nodes, so you must have a `--port_count` greater than zero.  (1 is fine.
-1000 is fine too, but you'll be poking holes in your router's firewall for awhile.)
+way to transfer clandestine traffic to and from other Nodes, so you must have a `--port_count` greater than zero.  
+(1 is fine. 1000 is fine too, but you'll be poking holes in your router's firewall for awhile.)
 
 #### Terminating a SubstratumNode (Zero-Hop or Decentralized)
 
@@ -176,6 +183,9 @@ machine's DNS settings:
 $ sudo SubstratumNode/dns_utility/target/release/dns_utility revert
 ```
 This should have you using the Internet normally again.
+
+However, if you've been running decentralized, you'll probably want to close the holes in your router's firewall. Don't
+leave them open against the next time you run: your Node will pick different clandestine ports the next time.
 
 # Disclosure
 

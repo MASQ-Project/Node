@@ -37,8 +37,8 @@ impl NodeRecord {
         &self.public_key
     }
 
-    pub fn node_addr_opt<'a> (&'a self) -> Option<&'a NodeAddr> {
-        self.node_addr_opt.as_ref ()
+    pub fn node_addr_opt (&self) -> Option<NodeAddr> {
+        self.node_addr_opt.clone ()
     }
 
     pub fn is_bootstrap_node (&self) -> bool {
@@ -286,11 +286,11 @@ mod tests {
         let first_node_addr = NodeAddr::new (&IpAddr::from_str ("4.3.2.1").unwrap (), &vec! (4321));
         let result = subject.set_node_addr (&first_node_addr);
         assert_eq! (result, Ok (()));
-        assert_eq! (subject.node_addr_opt (), Some (&first_node_addr));
+        assert_eq! (subject.node_addr_opt (), Some (first_node_addr.clone ()));
         let second_node_addr = NodeAddr::new (&IpAddr::from_str ("5.4.3.2").unwrap (), &vec! (5432));
         let result = subject.set_node_addr (&second_node_addr);
         assert_eq! (result, Err (NeighborhoodDatabaseError::NodeAddrAlreadySet (first_node_addr.clone ())));
-        assert_eq! (subject.node_addr_opt (), Some (&first_node_addr));
+        assert_eq! (subject.node_addr_opt (), Some (first_node_addr));
     }
 
     #[test]

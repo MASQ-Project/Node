@@ -11,7 +11,7 @@ use serde::de::Visitor;
 
 // TODO: Consider generating each of these three with a single macro
 
-#[derive (Clone, Debug, PartialEq, Eq, Hash)]
+#[derive (Clone, PartialEq, Eq, Hash)]
 pub struct Key {
     pub data: Vec<u8>
 }
@@ -29,6 +29,12 @@ impl<'de> Deserialize<'de> for Key {
 }
 
 impl fmt::Display for Key {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write! (f, "{}", base64::encode_config (&self.data, base64::STANDARD_NO_PAD))
+    }
+}
+
+impl fmt::Debug for Key {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write! (f, "{}", base64::encode_config (&self.data, base64::STANDARD_NO_PAD))
     }
@@ -213,8 +219,8 @@ mod tests {
     fn key_can_be_formatted_as_base_64 () {
         let subject = Key::new (&b"Now is the time for all good men"[..]);
 
-        let result = format! ("{}", subject);
+        let result = format! ("{} {:?}", subject, subject);
 
-        assert_eq! (result, String::from ("Tm93IGlzIHRoZSB0aW1lIGZvciBhbGwgZ29vZCBtZW4"));
+        assert_eq! (result, String::from ("Tm93IGlzIHRoZSB0aW1lIGZvciBhbGwgZ29vZCBtZW4 Tm93IGlzIHRoZSB0aW1lIGZvciBhbGwgZ29vZCBtZW4"));
     }
 }

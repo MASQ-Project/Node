@@ -36,6 +36,7 @@ use sub_lib::neighborhood::TargetType;
 use sub_lib::neighborhood::sentinel_ip_addr;
 use sub_lib::neighborhood::DispatcherNodeQueryMessage;
 use sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
+use sub_lib::utils::plus;
 
 pub struct Neighborhood {
     cryptde: &'static CryptDE,
@@ -63,15 +64,36 @@ impl Handler<BootstrapNeighborhoodNowMessage> for Neighborhood {
     type Result = ();
 
     fn handle (&mut self, _msg: BootstrapNeighborhoodNowMessage, _ctx: &mut Self::Context) -> Self::Result {
-        self.neighborhood_database.keys().into_iter()
-        .flat_map(|key_ref| self.neighborhood_database.node_by_key(key_ref))
-        .filter(|node_record| node_record.is_bootstrap_node())
-        .for_each(|bootstrap_node| {
-            let gossip = self.gossip_producer.produce(&self.neighborhood_database, bootstrap_node.public_key());
-            let route = self.create_single_hop_route(bootstrap_node.public_key());
-            let package = IncipientCoresPackage::new(route, gossip, bootstrap_node.public_key());
-            self.hopper.as_ref().expect("unbound hopper").try_send(package).expect("hopper is dead");
-        });
+        let (bootstrap_node_keys, keys_to_report) = self.neighborhood_database.keys ().into_iter ()
+            .fold ((vec! (), vec! ()), |so_far, key| {
+                let (bootstrap_node_keys, keys_to_report) = so_far;
+                let node = self.neighborhood_database.node_by_key (key).expect ("Node magically disappeared");
+                if node.is_bootstrap_node () && (node != self.neighborhood_database.root ()) {
+                    (plus (bootstrap_node_keys, key), keys_to_report)
+                }
+                else {
+                    (bootstrap_node_keys, plus (keys_to_report, key))
+                }
+            });
+
+        if bootstrap_node_keys.is_empty () {
+            self.logger.info (format! ("No bootstrap Nodes to report to; continuing"));
+            return ()
+        }
+        if keys_to_report.is_empty () {
+            self.logger.info (format! ("Nothing to report to bootstrap Node(s)"));
+            return ()
+        }
+        bootstrap_node_keys.into_iter ()
+            .for_each (|bootstrap_node_key| {
+                let gossip = self.gossip_producer.produce(&self.neighborhood_database, &bootstrap_node_key);
+                let route = self.create_single_hop_route(&bootstrap_node_key);
+                let package = IncipientCoresPackage::new(route, gossip.clone (), &bootstrap_node_key);
+                self.logger.info (format! ("Sending initial Gossip about {} nodes to bootstrap Node at {}:{}",
+                    gossip.node_records.len (), bootstrap_node_key,
+                    self.neighborhood_database.node_by_key (&bootstrap_node_key).expect ("Node magically disappeared").node_addr_opt().as_ref ().expect ("internal error: must know NodeAddr of bootstrap Node")));
+                self.hopper.as_ref().expect("unbound hopper").try_send(package).expect("hopper is dead");
+            });
         ()
     }
 }
@@ -150,17 +172,20 @@ impl Handler<ExpiredCoresPackage> for Neighborhood {
             Ok (p) => p,
             Err (_) => {self.logger.error (format! ("Unintelligible Gossip message received: ignoring")); return ();},
         };
+        self.logger.info (format! ("Processing Gossip about {} Nodes", incoming_gossip.node_records.len ()));
         self.gossip_acceptor.handle (&mut self.neighborhood_database, incoming_gossip);
 
         if self.neighborhood_database.root().is_bootstrap_node() {
-            self.neighborhood_database.keys().into_iter().for_each(|key_ref| {
-                if key_ref != self.neighborhood_database.root().public_key() {
+            self.neighborhood_database.keys().into_iter()
+                .filter (|key_ref| key_ref != &self.neighborhood_database.root ().public_key ())
+                .for_each(|key_ref| {
                     let gossip = self.gossip_producer.produce(&self.neighborhood_database, key_ref);
+                    let gossip_len = gossip.node_records.len ();
                     let route = self.create_single_hop_route(key_ref);
                     let package = IncipientCoresPackage::new(route, gossip, key_ref);
+                    self.logger.info (format! ("Relaying Gossip about {} nodes to {}", gossip_len, key_ref));
                     self.hopper.as_ref().expect("unbound hopper").try_send(package).expect("hopper is dead");
-                }
-            });
+                });
         }
         ()
     }
@@ -480,6 +505,54 @@ mod tests {
             local_ip_addr: IpAddr::from_str ("2.3.4.5").unwrap (),
             clandestine_port_list: vec! (2345),
         });
+    }
+
+    #[test]
+    fn bootstrap_node_neighborhood_creates_single_node_database () {
+        let cryptde = cryptde ();
+        let this_node_addr = NodeAddr::new (&IpAddr::from_str ("5.4.3.2").unwrap (), &vec! (5678));
+
+        let subject = Neighborhood::new (cryptde, NeighborhoodConfig {
+            neighbor_configs: vec! (),
+            bootstrap_configs: vec! (),
+            is_bootstrap_node: true,
+            local_ip_addr: this_node_addr.ip_addr (),
+            clandestine_port_list: this_node_addr.ports ().clone (),
+        });
+
+        let root_node_record_ref = subject.neighborhood_database.root();
+
+        assert_eq! (root_node_record_ref.public_key (), &cryptde.public_key ());
+        assert_eq! (root_node_record_ref.node_addr_opt (), Some (this_node_addr));
+        assert_eq! (root_node_record_ref.is_bootstrap_node (), true);
+        assert_eq! (root_node_record_ref.neighbors ().len (), 0);
+    }
+
+    #[test]
+    fn bootstrap_node_with_no_bootstrap_nodes_ignores_bootstrap_neighborhood_now_message () {
+        init_test_logging();
+        let cryptde = cryptde ();
+        let system = System::new ("bootstrap_node_ignores_bootstrap_neighborhood_now_message");
+        let subject = Neighborhood::new(cryptde, NeighborhoodConfig {
+            neighbor_configs: vec! (),
+            bootstrap_configs: vec! (),
+            is_bootstrap_node: true,
+            local_ip_addr: IpAddr::from_str ("5.4.3.2").unwrap (),
+            clandestine_port_list: vec! (5678),
+        });
+        let addr: Addr<Syn, Neighborhood> = subject.start ();
+        let sub: Recipient<Syn, BootstrapNeighborhoodNowMessage> = addr.clone ().recipient::<BootstrapNeighborhoodNowMessage> ();
+        let (hopper, _, hopper_recording_arc) = make_recorder ();
+        let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
+        addr.try_send(BindMessage { peer_actors }).unwrap ();
+
+        sub.try_send(BootstrapNeighborhoodNowMessage {}).unwrap ();
+
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
+        system.run ();
+        let recording = hopper_recording_arc.lock ().unwrap ();
+        assert_eq! (recording.len (), 0);
+        TestLogHandler::new ().exists_log_containing ("INFO: Neighborhood: No bootstrap Nodes to report to; continuing");
     }
 
     #[test]
@@ -943,11 +1016,11 @@ mod tests {
         package_refs.into_iter ().for_each (|package| {
             if &find_package_target (package) == gossip_neighbor.public_key () {
                 checked_keys_inside.lock ().unwrap ().insert (one_neighbor.public_key ());
-                check_outgoing_package(package, &one_neighbor, &gossip_neighbor);
+                check_outgoing_package(package, &one_neighbor, &gossip_neighbor, &this_node);
             }
             else {
                 checked_keys_inside.lock ().unwrap ().insert (gossip_neighbor.public_key ());
-                check_outgoing_package(package, &gossip_neighbor, &one_neighbor);
+                check_outgoing_package(package, &gossip_neighbor, &one_neighbor, &this_node);
             }
         });
         assert_eq! (checked_keys.lock ().unwrap ().len (), 2);
@@ -986,7 +1059,9 @@ mod tests {
         check_direct_route_to (&package_ref.route, bootstrap_node.public_key ());
         assert_eq!(&package_ref.payload_destination_key, bootstrap_node.public_key());
         let gossip: Gossip = serde_cbor::de::from_slice(&package_ref.payload.data[..]).unwrap();
-        assert_eq! (gossip.node_records, vec! (GossipNodeRecord::from(&this_node, true)));
+        assert_contains (&gossip.node_records, &GossipNodeRecord::from (&this_node, true));
+        assert_contains (&gossip.node_records, &GossipNodeRecord::from (&bootstrap_node, false));
+        assert_eq! (gossip.node_records.len (), 2);
         assert_eq! (gossip.neighbor_pairs, vec! ());
     }
 
@@ -1137,6 +1212,10 @@ mod tests {
     }
 
 
+    fn assert_contains (haystack: &Vec<GossipNodeRecord>, needle: &GossipNodeRecord) {
+        assert_eq! (haystack.contains (needle), true, "{:?} does not contain {:?}", haystack, needle);
+    }
+
     fn node_record_to_pair (node_record_ref: &NodeRecord) -> (Key, NodeAddr) {
         (node_record_ref.public_key ().clone (), node_record_ref.node_addr_opt ().unwrap ().clone ())
     }
@@ -1156,15 +1235,16 @@ mod tests {
         assert_eq!(hop.component, Component::Neighborhood);
     }
 
-    fn check_outgoing_package(cores_package: &IncipientCoresPackage, neighbor: &NodeRecord, target: &NodeRecord) -> NeighborhoodDatabase {
+    fn check_outgoing_package(cores_package: &IncipientCoresPackage, neighbor: &NodeRecord, target: &NodeRecord, bootstrap: &NodeRecord) -> NeighborhoodDatabase {
         check_direct_route_to (&cores_package.route, target.public_key ());
         assert_eq!(&cores_package.payload_destination_key, target.public_key());
         let deserialized_payload: Gossip = serde_cbor::de::from_slice(&cores_package.payload.data[..]).unwrap();
-        let mut database = NeighborhoodDatabase::new(target.public_key(), target.node_addr_opt().unwrap(), false);
+        let mut database = NeighborhoodDatabase::new(target.public_key(), &target.node_addr_opt().unwrap (), false);
         GossipAcceptorReal::new().handle(&mut database, deserialized_payload);
-        assert_eq!(database.keys(), vec_to_set(vec!(neighbor.public_key(), target.public_key())));
+        assert_eq!(database.keys(), vec_to_set(vec!(neighbor.public_key(), target.public_key(), bootstrap.public_key ())));
         assert_eq!(database.node_by_key(neighbor.public_key()).unwrap(), neighbor);
         assert_eq!(database.node_by_key(target.public_key()).unwrap(), target);
+        assert_eq!(database.node_by_key(bootstrap.public_key()).unwrap(), bootstrap);
         check_is_neighbor(&database, neighbor, target);
         check_is_neighbor(&database, target, neighbor);
         database

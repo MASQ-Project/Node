@@ -28,9 +28,6 @@ impl<'a> SubstratumCoresClient<'a> {
         let serialized_lcp = serde_cbor::ser::to_vec (&live_cores_package).expect (format! ("Serializing LCP: {:?}", live_cores_package).as_str ());
         let encoded_serialized_package = self.cryptde.encode(&recipient_key, &PlainData::new(&serialized_lcp[..])).unwrap();
         let masqueraded = masquerader.mask (&encoded_serialized_package.data[..]).expect (format! ("Masquerading {}-byte serialized LCP", serialized_lcp.len ()).as_str ());
-
-        println!("Serialized cores package: {:?}", serialized_lcp);
-        println!("Transmitting masqueraded data: {:?}", masqueraded);
         self.delegate.send_chunk (masqueraded);
     }
 

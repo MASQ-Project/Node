@@ -515,6 +515,7 @@ version = "0.3.4"
 dependencies = [
  "base64 0.9.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "hopper_lib 0.3.4",
+ "neighborhood_lib 0.3.4",
  "node 0.3.4",
  "regex 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.70 (registry+https://github.com/rust-lang/crates.io-index)",

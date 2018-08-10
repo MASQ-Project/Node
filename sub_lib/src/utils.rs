@@ -78,6 +78,13 @@ pub fn to_string_s(data: &[u8]) -> String {
     }
 }
 
+pub fn plus<T> (mut source: Vec<T>, item: T) -> Vec<T> {
+    let mut result = vec! ();
+    result.append (&mut source);
+    result.push (item);
+    result
+}
+
 #[cfg (test)]
 mod tests {
     use super::*;

@@ -58,7 +58,7 @@ impl Handler<TransmitDataMsg> for Dispatcher {
     type Result = ();
 
     fn handle(&mut self, msg: TransmitDataMsg, _ctx: &mut Self::Context) {
-        self.logger.debug (format! ("Relaying {} bytes from ProxyServer to StreamHandlerPool", msg.data.len ()));
+        self.logger.debug (format! ("Relaying {} bytes to StreamHandlerPool for {:?}", msg.data.len (), msg.endpoint));
         self.to_stream.as_ref().expect("StreamHandlerPool unbound in Dispatcher").try_send(msg).expect("StreamHandlerPool is dead");
     }
 }

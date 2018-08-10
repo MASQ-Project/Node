@@ -41,7 +41,8 @@ impl<'a> From<&'a TransmitDataMsg> for SequencedPacket {
     fn from(tdm: &'a TransmitDataMsg) -> Self {
         SequencedPacket::new(
             tdm.data.clone(),
-            tdm.sequence_number.expect("internal error: got TDM with no sequence number"),
+            // TODO: This is probably not right; see SC-390
+            tdm.sequence_number.unwrap_or(0),
             tdm.last_data
         )
     }
@@ -139,9 +140,8 @@ mod tests {
         assert!(result.last_data, true);
     }
 
-    #[test]
-    #[should_panic(expected="internal error: got TDM with no sequence number")]
-    fn panics_when_creating_sequenced_packet_from_transmit_data_msg_with_no_sequence_number() {
+    #[test] // TODO: This is probably not the right thing to do; see SC-390
+    fn uses_zero_when_creating_sequenced_packet_from_transmit_data_msg_with_no_sequence_number() {
         let tdm = TransmitDataMsg {
             endpoint: Endpoint::Socket(SocketAddr::from_str("1.2.3.4:80").unwrap()),
             last_data: true,
@@ -149,7 +149,9 @@ mod tests {
             sequence_number: None,
         };
 
-        let _result = SequencedPacket::from(&tdm);
+        let result = SequencedPacket::from(&tdm);
+
+        assert_eq! (result.sequence_number, 0)
     }
 
     #[test]

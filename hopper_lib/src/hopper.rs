@@ -32,6 +32,7 @@ pub struct Hopper {
     is_bootstrap_node: bool,
     to_proxy_server: Option<Recipient<Syn, ExpiredCoresPackage>>,
     to_proxy_client: Option<Recipient<Syn, ExpiredCoresPackage>>,
+    to_neighborhood: Option<Recipient<Syn, ExpiredCoresPackage>>,
     to_dispatcher: Option<Recipient<Syn, TransmitDataMsg>>,
     logger: Logger,
     to_self: Option<Recipient<Syn, InboundClientData>>,
@@ -48,6 +49,7 @@ impl Handler<BindMessage> for Hopper {
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.to_proxy_server = Some(msg.peer_actors.proxy_server.from_hopper);
         self.to_proxy_client = Some(msg.peer_actors.proxy_client.from_hopper);
+        self.to_neighborhood = Some(msg.peer_actors.neighborhood.from_hopper);
         self.to_dispatcher = Some(msg.peer_actors.dispatcher.from_dispatcher_client);
         self.to_self = Some(msg.peer_actors.hopper.from_dispatcher);
         ()
@@ -113,15 +115,15 @@ impl Handler<InboundClientData> for Hopper {
         let decrypted_package = match self.cryptde.decode(&self.cryptde.private_key(), &CryptData::new(&msg.data[..])) {
             Ok(package) => package,
             Err (e) => {
-                self.logger.error(format! ("{:?}", e));
+                self.logger.error(format! ("Couldn't decrypt CORES package: {:?}", e));
                 // TODO what should we do here? (nothing is unbound --so we don't need to blow up-- but we can't send this package)
                 return ()
             }
         };
         let live_package = match serde_cbor::de::from_slice::<LiveCoresPackage>(&decrypted_package.data[..]) {
             Ok(package) => package,
-            Err(_) => {
-                self.logger.error(format!("Couldn't deserialize package"));
+            Err(e) => {
+                self.logger.error(format!("Couldn't deserialize CORES package: {}", e));
                 // TODO what should we do here? (nothing is unbound --so we don't need to blow up-- but we can't send this package)
                 return ()
             }
@@ -133,7 +135,7 @@ impl Handler<InboundClientData> for Hopper {
             match next_hop.component {
                 Component::ProxyServer => self.handle_endpoint(next_hop.component, &self.to_proxy_server, live_package),
                 Component::ProxyClient => self.handle_endpoint(next_hop.component, &self.to_proxy_client, live_package),
-                Component::Neighborhood => unimplemented!(), // TODO: Once this isn't unimplemented, it should always route data regardless of is_bootstrap_node
+                Component::Neighborhood => self.handle_endpoint(next_hop.component, &self.to_neighborhood, live_package),
                 Component::Hopper => {
                     let transmit_msg = match self.to_transmit_msg(live_package, msg.last_data) {
                         // crashpoint - need to figure out how to bubble up different kinds of errors, or just log and return
@@ -156,6 +158,7 @@ impl Hopper {
             is_bootstrap_node,
             to_proxy_server: None,
             to_proxy_client: None,
+            to_neighborhood: None,
             to_dispatcher: None,
             logger: Logger::new ("Hopper"),
             to_self: None,
@@ -195,7 +198,10 @@ impl Hopper {
     }
 
     fn should_route_data (&self, component: Component) -> bool {
-        if self.is_bootstrap_node {
+        if component == Component::Neighborhood {
+            true
+        }
+        else if self.is_bootstrap_node {
             self.logger.error (format! ("Request for Bootstrap Node to route data to {:?}: rejected", component));
             false
         }
@@ -470,7 +476,7 @@ mod tests {
 
         Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run();
-        TestLogHandler::new ().exists_log_matching("ERROR: Hopper: Request for Bootstrap Node to route data to ProxyClient: rejected");
+        TestLogHandler::new ().exists_log_containing("ERROR: Hopper: Request for Bootstrap Node to route data to ProxyClient: rejected");
     }
 
     #[test]
@@ -498,7 +504,7 @@ mod tests {
 
         Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run();
-        TestLogHandler::new ().exists_log_matching("ERROR: Hopper: Request for Bootstrap Node to route data to ProxyServer: rejected");
+        TestLogHandler::new ().exists_log_containing("ERROR: Hopper: Request for Bootstrap Node to route data to ProxyServer: rejected");
     }
 
     #[test]
@@ -528,7 +534,44 @@ mod tests {
 
         Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run();
-        TestLogHandler::new ().exists_log_matching("ERROR: Hopper: Request for Bootstrap Node to route data to Hopper: rejected");
+        TestLogHandler::new ().exists_log_containing("ERROR: Hopper: Request for Bootstrap Node to route data to Hopper: rejected");
+    }
+
+    #[test]
+    fn accepts_data_for_neighborhood_if_is_bootstrap_node () {
+        init_test_logging ();
+        let cryptde = cryptde();
+        let mut route = Route::new(vec! (
+            RouteSegment::new(vec! (&cryptde.public_key(), &cryptde.public_key()), Component::Neighborhood)
+        ), cryptde).unwrap();
+        route.shift (&cryptde.private_key (), cryptde);
+        let payload = PlainData::new (&b"abcd"[..]);
+        let lcp = LiveCoresPackage::new (route, cryptde.encode (&cryptde.public_key (), &payload).unwrap ());
+        let data_ser = PlainData::new (&serde_cbor::ser::to_vec (&lcp).unwrap ()[..]);
+        let data_enc = cryptde.encode (&cryptde.public_key (), &data_ser).unwrap ();
+        let inbound_client_data = InboundClientData {
+            socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            origin_port: None,
+            last_data: false,
+            is_clandestine: true,
+            sequence_number: None,
+            data: data_enc.data
+        };
+        let system = System::new("accepts_data_for_neighborhood_if_is_bootstrap_node");
+        let subject = Hopper::new (cryptde, true);
+        let subject_addr: Addr<Syn, Hopper> = subject.start();
+        let (neighborhood, _, neighborhood_recording_arc) = make_recorder ();
+        let peer_actors = make_peer_actors_from(None, None, None, None, Some (neighborhood));
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap ();
+
+        subject_addr.try_send(inbound_client_data.clone ()).unwrap ();
+
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
+        system.run();
+        let neighborhood_recording = neighborhood_recording_arc.lock ().unwrap ();
+        let message: &ExpiredCoresPackage = neighborhood_recording.get_record (0);
+        assert_eq! (message.clone ().payload_data (), payload);
+        TestLogHandler::new ().exists_no_log_containing("ERROR: Hopper: Request for Bootstrap Node to route data to Neighborhood: rejected");
     }
 
     #[test]
