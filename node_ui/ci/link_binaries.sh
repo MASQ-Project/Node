@@ -10,6 +10,8 @@ if [[ "$OSTYPE" == "msys" ]]; then
   DNS_EXECUTABLE="$DNS_EXECUTABLE.exe"
 fi
 
+rm -rf "$CI_DIR/../static/binaries"
 mkdir -p "$CI_DIR/../static/binaries"
-ln -fs "$CI_DIR/../../node/target/release/$NODE_EXECUTABLE" "$CI_DIR/../static/binaries/"
-ln -fs "$CI_DIR/../../dns_utility/target/release/$DNS_EXECUTABLE" "$CI_DIR/../static/binaries/"
+
+cp "$CI_DIR/../../node/target/release/$NODE_EXECUTABLE" "$CI_DIR/../static/binaries/"
+cp "$CI_DIR/../../dns_utility/target/release/$DNS_EXECUTABLE" "$CI_DIR/../static/binaries/"
