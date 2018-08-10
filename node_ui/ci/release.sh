@@ -3,6 +3,7 @@
 CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 
 "$CI_DIR/setup.sh"
+"$CI_DIR/sass.sh"
 "$CI_DIR/link_binaries.sh"
 
 case "$OSTYPE" in
