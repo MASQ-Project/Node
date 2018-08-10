@@ -12,6 +12,23 @@ and [node.js](https://nodejs.org/en/).
 Once you have installed yarn and node.js, you can run `yarn install` from the `node_ui` directory
 to finish installing dependencies. 
 
+##### CI/Integration Tests
+When running `ci/all.sh` or `yarn spec` you will notice the integration tests exercising the UI by starting and
+stopping the `node`. This can prompt you for administrative privileges depending on the performance of the test
+and will finish the test successfully closing the UI but leaving the prompt. You can safely cancel the prompt or
+on Linux and OSX you can add an entry into the sudoers file so that you are not prompted.
+
+Our local development machines have been configured this way:
+
+1. Create a file if it doesn't already exist, named with your username, like this:
+>`/etc/sudoers.d/your_username`
+
+2. Add entries :
+
+> `%your_username ALL=(ALL) NOPASSWD:SETENV: /${project_path}/node_ui/static/binaries/SubstratumNode`<br/>
+> `%your_username ALL=(ALL) NOPASSWD:SETENV: /${project_path}/node_ui/static/binaries/dns_utility`<br/>
+> `%your_username ALL=(ALL) NOPASSWD:SETENV: /${project_path}/node_ui/static/scripts/substratum_node.sh`<br/>
+
 ## Running SubstratumNode GUI
 `node_ui` depends on the binaries produced from the `node` and `dns_utility` builds.
 You should run the top-level `ci/all.sh` script for the SubstratumNode project before running `node_ui`.
