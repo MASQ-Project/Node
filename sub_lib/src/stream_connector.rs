@@ -345,15 +345,11 @@ mod tests {
             let (tx, rx) = mpsc::channel();
             let (count_tx, count_rx) = mpsc::channel();
             thread::spawn(move || {
-                listener.set_nonblocking(true).unwrap();
                 let mut buf = [0u8; 1024];
                 loop {
                     if rx.try_recv().is_ok() { return; }
                     match listener.accept() {
-                        Err(_) => {
-                            thread::sleep(Duration::from_millis(100));
-                            continue
-                        },
+                        Err(_) => continue,
                         Ok((mut stream, _)) => {
                             count_tx.send(()).is_ok();
                             stream.set_read_timeout(Some(Duration::from_millis(100))).unwrap ();
