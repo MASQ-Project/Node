@@ -4,6 +4,7 @@ use proxy_server::ClientRequestPayload;
 use std::cmp::Ordering;
 use stream_handler_pool::TransmitDataMsg;
 use std::collections::BinaryHeap;
+use utils;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SequencedPacket {
@@ -63,28 +64,40 @@ pub struct SequenceBuffer {
     // BinaryHeap is a Priority Queue implemented with a heap. The priority queue allows
     // SequencedPackets to come in in any order and be retrieved in a sorted order.
     buffer: BinaryHeap<SequencedPacket>,
-    next_expected_sequence_number: u64
+    next_expected_sequence_number: u64,
+    seen_sequence_numbers: Vec<u64>,
 }
 
 impl SequenceBuffer {
     pub fn new() -> SequenceBuffer {
         SequenceBuffer {
             buffer: BinaryHeap::new(),
-            next_expected_sequence_number: 0
+            next_expected_sequence_number: 0,
+            seen_sequence_numbers: vec!(),
         }
     }
 
     pub fn push(&mut self, packet: SequencedPacket) {
-        self.buffer.push(packet);
+        if packet.sequence_number >= self.next_expected_sequence_number && !self.seen_sequence_numbers.contains(&packet.sequence_number) {
+            self.seen_sequence_numbers.push(packet.sequence_number);
+            self.buffer.push(packet);
+        }
     }
 
     pub fn poll(&mut self) -> Option<SequencedPacket> {
         if self.buffer.is_empty() {
             None
         } else {
-            if self.buffer.peek().expect("internal error").sequence_number == self.next_expected_sequence_number {
+            let sequence_number_to_pop = self.buffer.peek().expect("internal error").sequence_number;
+            if sequence_number_to_pop == self.next_expected_sequence_number {
                 self.next_expected_sequence_number += 1;
-                self.buffer.pop()
+                let packet = self.buffer.pop();
+
+                if let Some(index) = utils::index_of(self.seen_sequence_numbers.as_slice(), &[sequence_number_to_pop]) {
+                    self.seen_sequence_numbers.remove(index);
+                }
+
+                packet
             } else {
                 None
             }
@@ -96,6 +109,7 @@ impl SequenceBuffer {
             panic!("improper use of repush")
         } else {
             self.next_expected_sequence_number = packet.sequence_number;
+            self.seen_sequence_numbers.push(packet.sequence_number);
             self.buffer.push(packet);
         }
     }
@@ -195,6 +209,104 @@ mod tests {
     }
 
     #[test]
+    fn sequence_buffer_returns_none_while_waiting_for_next_ordered_sequenced_packet() {
+        let a = SequencedPacket::new(vec!(1, 23, 6, 5), 0, false);
+        let b = SequencedPacket::new(vec!(5, 9, 1, 2, 5), 1, false);
+        let c = SequencedPacket::new(vec!(1, 1, 1, 1, 0), 2, false);
+        let d = SequencedPacket::new(vec!(32, 41, 0, 5, 1, 2, 6), 3, false);
+        let e = SequencedPacket::new(vec!(), 4, true);
+
+        let mut subject = SequenceBuffer::new();
+
+        subject.push(b.clone());
+        assert_eq!(subject.poll(), None);
+        subject.push(d.clone());
+        assert_eq!(subject.poll(), None);
+        subject.push(a.clone());
+        assert_eq!(subject.poll(), Some(a));
+        assert_eq!(subject.poll(), Some(b));
+        assert_eq!(subject.poll(), None);
+        subject.push(e.clone());
+        assert_eq!(subject.poll(), None);
+        subject.push(c.clone());
+        assert_eq!(subject.poll(), Some(c));
+        assert_eq!(subject.poll(), Some(d));
+        assert_eq!(subject.poll(), Some(e));
+        assert_eq!(subject.poll(), None);
+    }
+
+    #[test]
+    fn sequence_buffer_ignores_packets_with_duplicate_sequence_numbers() {
+        let a = SequencedPacket::new(vec!(1, 23, 6, 5), 0, false);
+        let b = SequencedPacket::new(vec!(5, 9, 1, 2, 5), 1, false);
+        let b_dup = SequencedPacket::new(vec!(6, 8, 2, 3, 6), 1, false);
+        let c = SequencedPacket::new(vec!(1, 1, 1, 1, 0), 2, false);
+        let d = SequencedPacket::new(vec!(32, 41, 0, 5, 1, 2, 6), 3, false);
+        let e = SequencedPacket::new(vec!(), 4, true);
+
+        let mut subject = SequenceBuffer::new();
+
+        subject.push(b.clone());
+        assert_eq!(subject.poll(), None);
+        subject.push(d.clone());
+        assert_eq!(subject.poll(), None);
+        subject.push(b_dup.clone());
+        assert_eq!(subject.poll(), None);
+        subject.push(a.clone());
+        assert_eq!(subject.poll(), Some(a));
+        assert_eq!(subject.poll(), Some(b));
+        assert_eq!(subject.poll(), None);
+        subject.push(e.clone());
+        assert_eq!(subject.poll(), None);
+        subject.push(c.clone());
+        assert_eq!(subject.poll(), Some(c));
+        assert_eq!(subject.poll(), Some(d));
+        assert_eq!(subject.poll(), Some(e));
+        assert_eq!(subject.poll(), None);
+    }
+
+    #[test]
+    fn sequence_buffer_ignores_delayed_duplicate_sequence_number() {
+        let a = SequencedPacket::new(vec!(1, 23, 6, 5), 0, false);
+        let b = SequencedPacket::new(vec!(5, 9, 1, 2, 5), 1, false);
+        let b_dup = SequencedPacket::new(vec!(6, 8, 2, 3, 6), 1, false);
+        let c = SequencedPacket::new(vec!(1, 1, 1, 1, 0), 2, false);
+        let d = SequencedPacket::new(vec!(32, 41, 0, 5, 1, 2, 6), 3, false);
+        let e = SequencedPacket::new(vec!(), 4, true);
+
+        let mut subject = SequenceBuffer::new();
+
+        subject.push(b.clone());
+        assert_eq!(subject.poll(), None);
+        subject.push(d.clone());
+        assert_eq!(subject.poll(), None);
+        subject.push(a.clone());
+        assert_eq!(subject.poll(), Some(a));
+        assert_eq!(subject.poll(), Some(b));
+        assert_eq!(subject.poll(), None);
+        subject.push(e.clone());
+        assert_eq!(subject.poll(), None);
+        subject.push(c.clone());
+        assert_eq!(subject.poll(), Some(c));
+        assert_eq!(subject.poll(), Some(d));
+        subject.push(b_dup.clone());
+        assert_eq!(subject.poll(), Some(e));
+        assert_eq!(subject.poll(), None);
+    }
+
+    #[test]
+    fn sequence_buffer_does_not_explode_when_popping_a_packet_that_seems_unseen() {
+        let a = SequencedPacket::new(vec!(1, 2, 3), 0, false);
+        let mut subject = SequenceBuffer::new();
+        subject.push(a.clone());
+        subject.seen_sequence_numbers.clear();
+
+        let result = subject.poll();
+
+        assert_eq!(result, Some(a));
+    }
+
+    #[test]
     fn sequence_buffer_can_re_add_a_popped_packet() {
         let mut subject = SequenceBuffer::new();
         let a = SequencedPacket::new(vec!(1, 23, 6, 5), 1, false);
@@ -226,5 +338,31 @@ mod tests {
         let first_thing_we_pulled_out = subject.poll().unwrap();
         let _second_thing_we_pulled_out = subject.poll().unwrap();
         subject.repush(first_thing_we_pulled_out);
+    }
+
+    #[test]
+    fn repush_does_not_interfere_with_ignoring_duplicate_sequence_numbers() {
+        let mut subject = SequenceBuffer::new();
+
+        let a = SequencedPacket::new(vec!(4, 5, 6), 0, false);
+        let b = SequencedPacket::new(vec!(89), 1, false);
+        let b_imposter = SequencedPacket::new(vec!(254, 5, 7), 1, false);
+        let c = SequencedPacket::new(vec!(89), 2, false);
+
+        subject.push(a.clone());
+        subject.push(b.clone());
+
+        assert_eq!(subject.poll(), Some(a));
+        assert_eq!(subject.poll(), Some(b.clone()));
+
+        subject.repush(b.clone());
+
+        subject.push(b_imposter);
+
+        assert_eq!(subject.poll(), Some(b));
+        assert_eq!(subject.poll(), None);
+
+        subject.push(c.clone());
+        assert_eq!(subject.poll(), Some(c));
     }
 }

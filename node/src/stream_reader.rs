@@ -14,8 +14,6 @@ use sub_lib::tokio_wrappers::ReadHalfWrapper;
 use sub_lib::utils::indicates_dead_stream;
 use stream_messages::*;
 use sub_lib::sequencer::Sequencer;
-use std::thread;
-use std::time::Duration;
 
 pub struct StreamReaderReal {
     stream: Box<ReadHalfWrapper>,
