@@ -6,16 +6,37 @@ const childProcess = require('child_process')
 const pify = require('pify')
 
 function win () {
-  return pify(childProcess).exec('wmic path win32_process get Commandline, name, ProcessId -format:csv').then(stdout => {
+  let startsWith = function (string, prefix) {
+    let actualPrefix = string.substr(0, prefix.length)
+    return actualPrefix === prefix
+  }
+
+  return pify(childProcess).exec('wmic path win32_process get Commandline, name, ProcessId -format:list').then(stdout => {
     let processes = []
+    let pid = null
+    let name = ''
+    let cmd = ''
     for (let line of stdout.trim().split('\n').slice(1)) {
       line = line.trim()
-      let process = line.split(',')
-      processes.push({
-        pid: Number.parseInt(process[3], 10),
-        name: process[2],
-        cmd: process[1]
-      })
+      if (startsWith(line, 'CommandLine=')) {
+        cmd = line.substr('CommandLine='.length)
+      } else if (startsWith(line, 'Name=')) {
+        name = line.substr('Name='.length)
+      } else if (startsWith(line, 'ProcessId=')) {
+        let strPid = line.substr('ProcessId='.length)
+        pid = Number.parseInt(strPid, 10)
+      } else {
+        if (pid != null) {
+          processes.push({
+            pid: pid,
+            name: name,
+            cmd: cmd
+          })
+          pid = null
+          name = ''
+          cmd = ''
+        }
+      }
     }
     return processes
   })
