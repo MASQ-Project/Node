@@ -14,6 +14,7 @@ describe('DNS Utility', function () {
   let mockConsole
 
   let dnsUtilityPath = path.resolve(__dirname, '.', '../static/binaries/dns_utility')
+  let dnsUtilityPathQuoted = '"' + dnsUtilityPath + '"'
   let dnsUtilityArgs = ['status']
 
   beforeEach(function () {
@@ -85,7 +86,7 @@ describe('DNS Utility', function () {
       })
 
       it('should call dns_utility command', function () {
-        td.verify(sudoPrompt.exec(dnsUtilityPath + ' revert', {name: 'DNS utility'}, td.matchers.anything()), {times: 1})
+        td.verify(sudoPrompt.exec(dnsUtilityPathQuoted + ' revert', {name: 'DNS utility'}, td.matchers.anything()), {times: 1})
       })
     })
 
@@ -97,7 +98,7 @@ describe('DNS Utility', function () {
         let stdout = null
         let stderr = null
 
-        td.when(sudoPrompt.exec(dnsUtilityPath + ' revert', {name: 'DNS utility'})).thenCallback(error, stdout, stderr)
+        td.when(sudoPrompt.exec(dnsUtilityPathQuoted + ' revert', {name: 'DNS utility'})).thenCallback(error, stdout, stderr)
         subject.revert()
       })
 
@@ -114,7 +115,7 @@ describe('DNS Utility', function () {
         let stdout = null
         let stderr = 'failed to revert'
 
-        td.when(sudoPrompt.exec(dnsUtilityPath + ' revert', {name: 'DNS utility'})).thenCallback(error, stdout, stderr)
+        td.when(sudoPrompt.exec(dnsUtilityPathQuoted + ' revert', {name: 'DNS utility'})).thenCallback(error, stdout, stderr)
         subject.revert()
       })
 
@@ -143,7 +144,7 @@ describe('DNS Utility', function () {
       })
 
       it('should call dns_utility command', function () {
-        td.verify(sudoPrompt.exec(dnsUtilityPath + ' subvert', {name: 'DNS utility'}, td.matchers.anything()), {times: 1})
+        td.verify(sudoPrompt.exec(dnsUtilityPathQuoted + ' subvert', {name: 'DNS utility'}, td.matchers.anything()), {times: 1})
       })
     })
   })

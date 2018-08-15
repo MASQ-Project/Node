@@ -2,14 +2,16 @@
 
 module.exports = (function () {
   const childProcess = require('child_process')
-  const path = require('path')
+  const pathWrapper = require('../wrappers/path_wrapper')
   const consoleWrapper = require('../wrappers/console_wrapper')
   const sudoPrompt = require('sudo-prompt')
 
-  let dnsUtilityPath = path.resolve(__dirname, '.', '../static/binaries/dns_utility')
+  const dnsUtilityPathRelative = '../static/binaries/dns_utility'
+  const dnsUtilityPathUnquoted = pathWrapper.resolveUnquoted(__dirname, dnsUtilityPathRelative)
+  const dnsUtilityPathQuoted = pathWrapper.resolveQuoted(__dirname, dnsUtilityPathRelative)
 
   function getStatus () {
-    let status = childProcess.spawnSync(dnsUtilityPath, ['status'])
+    let status = childProcess.spawnSync(dnsUtilityPathUnquoted, ['status'])
     if (status && status.error) {
       return 'ERROR: Failed to call dns_utility inspect: ' + status.error.code
     }
@@ -36,7 +38,7 @@ module.exports = (function () {
 
   function runDnsUtility (mode) {
     return new Promise((resolve, reject) => {
-      sudoPrompt.exec(dnsUtilityPath + ' ' + mode, { name: 'DNS utility' }, function (error, stdout, stderr) {
+      sudoPrompt.exec(dnsUtilityPathQuoted + ' ' + mode, { name: 'DNS utility' }, function (error, stdout, stderr) {
         if (error || stderr) {
           consoleWrapper.log('dns_utility failed: ', stderr || error.message)
           reject(error || stderr)

@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 module.exports = (function () {
-  const path = require('path')
+  const path = require('../wrappers/path_wrapper')
   const process = require('../wrappers/process_wrapper')
   const cmd = require('node-cmd')
   const sudoPrompt = require('sudo-prompt')
@@ -12,15 +12,15 @@ module.exports = (function () {
   const runtimeArgs = ['--dns_servers', '1.0.0.1,1.1.1.1,9.9.9.9,8.8.8.8']
 
   function getBinaryPath () {
-    return '"' + path.resolve(__dirname, '.', binaryBasePath + binaryFilename) + '"'
+    return path.resolveQuoted(__dirname, binaryBasePath + binaryFilename)
   }
 
   function getScriptPath (scriptFilenameExtension) {
-    return '"' + path.resolve(__dirname, '.', '../static/scripts/substratum_node.' + scriptFilenameExtension) + '"'
+    return path.resolveQuoted(__dirname, '../static/scripts/substratum_node.' + scriptFilenameExtension)
   }
 
   function getCommand () {
-    var command = this.scriptPath + ' ' + this.binaryPath + ' '
+    let command = this.scriptPath + ' ' + this.binaryPath + ' '
     runtimeArgs.forEach(function (value) {
       command += value + ' '
     })
@@ -40,7 +40,7 @@ module.exports = (function () {
   }
 
   function stopNodeUnix (callback) {
-    var error
+    let error
     try {
       process.kill(-process.pid)
     } catch (err) {

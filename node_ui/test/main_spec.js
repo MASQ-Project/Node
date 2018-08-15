@@ -95,13 +95,13 @@ describe('Application launch', function () {
         return client.getRenderProcessLogs()
       })
       .then(function (logs) {
-        let logMessageExists = false
-        logs.forEach(function (log) {
-          if (log.message.includes('substratum_node process exited with code ')) {
-            logMessageExists = true
-          }
+        let matchingLogs = logs.filter(function (log) {
+          return log.message.includes('substratum_node process exited with code ')
         })
-        assert.ok(logMessageExists)
+        let logsMsg = logs.map(function (log) {
+          return log.message
+        })
+        assert.ok(matchingLogs.length > 0, 'Did not find exit log in:\n' + logsMsg.join('\n'))
       })
   })
 })

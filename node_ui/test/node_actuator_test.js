@@ -524,7 +524,7 @@ describe('NodeActuator', function () {
   }
 
   function assertDNSNotSubverted () {
-    td.verify(mockSudoPrompt.exec(td.matchers.contains(/[/\\]static[/\\]binaries[/\\]dns_utility" subvert/)), {times: 0, ignoreExtraArgs: true})
+    td.verify(mockSudoPrompt.exec(td.matchers.contains(/ subvert/)), {times: 0, ignoreExtraArgs: true})
   }
 
   function verifyDNSReverted (times = 1) {
@@ -532,6 +532,6 @@ describe('NodeActuator', function () {
   }
 
   function assertDNSNotReverted () {
-    td.verify(mockSudoPrompt.exec(td.matchers.contains(/[/\\]static[/\\]binaries[/\\]dns_utility" revert/)), {times: 0, ignoreExtraArgs: true})
+    td.verify(mockSudoPrompt.exec(td.matchers.contains(/ revert/)), {times: 0, ignoreExtraArgs: true})
   }
 })
