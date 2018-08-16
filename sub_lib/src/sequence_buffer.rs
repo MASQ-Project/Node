@@ -42,7 +42,6 @@ impl<'a> From<&'a TransmitDataMsg> for SequencedPacket {
     fn from(tdm: &'a TransmitDataMsg) -> Self {
         SequencedPacket::new(
             tdm.data.clone(),
-            // TODO: This is probably not right; see SC-390
             tdm.sequence_number.unwrap_or(0),
             tdm.last_data
         )

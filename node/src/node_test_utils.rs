@@ -24,6 +24,7 @@ use null_masquerader::NullMasquerader;
 use stream_messages::*;
 use stream_handler_pool::StreamHandlerPoolSubs;
 use sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
+use std::str::FromStr;
 
 pub trait TestLogOwner {
     fn get_test_log (&self) -> Arc<Mutex<TestLog>>;
@@ -179,5 +180,17 @@ pub fn make_stream_handler_pool_subs_from(stream_handler_pool_opt: Option<Record
         remove_sub: addr.clone ().recipient::<RemoveStreamMsg>(),
         bind: addr.clone ().recipient::<PoolBindMessage>(),
         node_query_response: addr.clone().recipient::<DispatcherNodeQueryResponse>(),
+    }
+}
+
+pub struct FailingMasquerader {}
+
+impl Masquerader for FailingMasquerader {
+    fn try_unmask(&self, _item: &[u8]) -> Option<UnmaskedChunk> {
+        unimplemented!()
+    }
+
+    fn mask(&self, _data: &[u8]) -> Result<Vec<u8>, MasqueradeError> {
+        Err(MasqueradeError::LowLevelDataError(String::from_str("don't care").unwrap()))
     }
 }

@@ -18,8 +18,9 @@ use masquerader::Masquerader;
 use sub_lib::stream_connector::StreamConnector;
 use sub_lib::stream_connector::StreamConnectorReal;
 use stream_messages::*;
-use stream_reader::*;
-use stream_writer::*;
+use stream_reader::StreamReaderReal;
+use stream_writer_sorted::StreamWriterSorted;
+use stream_writer_unsorted::StreamWriterUnsorted;
 use sub_lib::channel_wrappers::FuturesChannelFactory;
 use sub_lib::channel_wrappers::FuturesChannelFactoryReal;
 use sub_lib::channel_wrappers::SenderWrapper;
@@ -78,7 +79,8 @@ impl Handler<AddStreamMsg> for StreamHandlerPool {
     type Result = ();
 
     fn handle(&mut self, msg: AddStreamMsg, _ctx: &mut Self::Context) -> <Self as Handler<AddStreamMsg>>::Result {
-        self.set_up_stream_writer(msg.connection_info.writer, msg.connection_info.peer_addr, msg.writer_config);
+        let port_config = msg.port_configuration.clone();
+        self.set_up_stream_writer(msg.connection_info.writer, msg.connection_info.peer_addr, msg.writer_config, port_config.is_clandestine);
         self.set_up_stream_reader(msg.connection_info.reader, msg.origin_port, msg.port_configuration, msg.connection_info.peer_addr, msg.connection_info.local_addr);
         ()
     }
@@ -283,16 +285,26 @@ impl StreamHandlerPool {
         write_stream: Box<WriteHalfWrapper>,
         socket_addr: SocketAddr,
         writer_config: Box<Masquerader>,
+        is_clandestine: bool,
     ) {
         let (tx, rx) = self.channel_factory.make();
-        let stream_writer = StreamWriter::new (
-            write_stream,
-            socket_addr,
-            rx,
-            writer_config,
-        );
         self.stream_writers.insert (socket_addr, Some(tx));
-        tokio::spawn(stream_writer);
+
+        if is_clandestine {
+            tokio::spawn(StreamWriterUnsorted::new(
+                write_stream,
+                socket_addr,
+                rx,
+                writer_config
+            ));
+        } else {
+            tokio::spawn(StreamWriterSorted::new(
+                write_stream,
+                socket_addr,
+                rx,
+                writer_config,
+            ));
+        };
     }
 }
 
@@ -325,9 +337,6 @@ mod tests {
     use sub_lib::cryptde::Key;
     use sub_lib::cryptde_null::CryptDENull;
     use sub_lib::neighborhood::NodeDescriptor;
-    use test_utils::channel_wrapper_mocks::FuturesChannelFactoryMock;
-    use test_utils::channel_wrapper_mocks::SenderWrapperMock;
-    use test_utils::channel_wrapper_mocks::ReceiverWrapperMock;
     use test_utils::recorder::make_peer_actors;
     use test_utils::recorder::make_peer_actors_from;
     use test_utils::recorder::make_recorder;
@@ -437,15 +446,6 @@ mod tests {
     #[test]
     fn stream_handler_pool_writes_data_to_stream_writer() {
         init_test_logging();
-        let mut sender = SenderWrapperMock::new();
-        sender.unbounded_send_results = vec!( Ok(()) );
-        let sender_params = sender.unbounded_send_params.clone();
-        let mut receiver = ReceiverWrapperMock::new();
-        receiver.poll_results = vec!(
-            Ok(Async::Ready(Some(SequencedPacket::new(b"hello".to_vec(), 0, false)))),
-            Ok(Async::NotReady)
-        );
-        let channel_factory = FuturesChannelFactoryMock { results: vec!((Box::new(sender), Box::new(receiver)))};
         let reader = ReadHalfWrapperMock::new ()
             .poll_read_result(vec! (), Ok (Async::NotReady));
         let write_stream_params_arc = Arc::new (Mutex::new (vec! ()));
@@ -457,11 +457,9 @@ mod tests {
         let local_addr = SocketAddr::from_str("1.2.3.4:6789").unwrap();
         let peer_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
 
-
         thread::spawn(move || {
             let system = System::new("test");
-            let mut subject = StreamHandlerPool::new(vec! ());
-            subject.channel_factory = Box::new(channel_factory);
+            let subject = StreamHandlerPool::new(vec! ());
 
             let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
@@ -497,10 +495,6 @@ mod tests {
         });
 
         TestLogHandler::new ().await_log_containing("WARN: StreamWriter for 1.2.3.5:6789: Continuing after write error: other os error", 1000);
-
-        let mut shp_to_sw_params = sender_params.lock().unwrap();
-        assert_eq!(shp_to_sw_params.len(), 1);
-        assert_eq!(shp_to_sw_params.remove(0), SequencedPacket::new(b"hello".to_vec(), 0, true));
 
         let mut sw_to_stream_params = write_stream_params_arc.lock().unwrap();
         assert_eq!(sw_to_stream_params.len(), 2);
@@ -766,22 +760,12 @@ mod tests {
         let local_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let peer_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
 
-        let mut sender = SenderWrapperMock::new();
-        sender.unbounded_send_results = vec!( Ok(()) );
-        let sender_params = sender.unbounded_send_params.clone();
-        let mut receiver = ReceiverWrapperMock::new();
-        receiver.poll_results = vec!(
-            Ok(Async::Ready(Some(SequencedPacket::new(b"hello".to_vec(), 0, true)))),
-            Ok(Async::NotReady)
-        );
-        let channel_factory: FuturesChannelFactoryMock<SequencedPacket> = FuturesChannelFactoryMock { results: vec!((Box::new(sender), Box::new(receiver)))};
         let (neighborhood, awaiter, recording_arc) = make_recorder();
         let (tx, rx) = mpsc::channel();
 
         thread::spawn(move || {
             let system = System::new("test");
-            let mut subject = StreamHandlerPool::new(vec! ());
-            subject.channel_factory = Box::new(channel_factory);
+            let subject = StreamHandlerPool::new(vec! ());
 
             let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
@@ -827,11 +811,6 @@ mod tests {
             context: node_query_msg.context,
         }).unwrap();
 
-        await_messages(1, &sender_params);
-        let mut shp_to_sw_params = sender_params.lock().unwrap();
-        assert_eq!(shp_to_sw_params.len(), 1);
-        assert_eq!(shp_to_sw_params.remove(0), SequencedPacket::new(b"hello".to_vec(), 0, true));
-
         await_messages(2, &write_stream_params_arc);
         let mut sw_to_stream_params = write_stream_params_arc.lock().unwrap();
         assert_eq!(sw_to_stream_params.len(), 2);
@@ -844,15 +823,9 @@ mod tests {
         let cryptde = CryptDENull::new();
         let key = cryptde.public_key();
 
-        let sender = SenderWrapperMock::new();
-        let sender_params = sender.unbounded_send_params.clone();
-        let receiver = ReceiverWrapperMock::new();
-        let channel_factory = FuturesChannelFactoryMock { results: vec!((Box::new(sender), Box::new(receiver)))};
-
         thread::spawn(move || {
             let system = System::new("test");
-            let mut subject = StreamHandlerPool::new(vec! ());
-            subject.channel_factory = Box::new(channel_factory);
+            let subject = StreamHandlerPool::new(vec! ());
 
             let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
@@ -877,9 +850,6 @@ mod tests {
         });
 
         TestLogHandler::new ().await_log_containing(format!("ERROR: Dispatcher: No neighbor found at endpoint {:?}", Endpoint::Key (cryptde.public_key())).as_str(), 1000);
-
-        let shp_to_sw_params = sender_params.lock().unwrap();
-        assert_eq!(shp_to_sw_params.len(), 0);
     }
 
     #[test]
@@ -888,15 +858,9 @@ mod tests {
         let cryptde = CryptDENull::new();
         let key = cryptde.public_key();
 
-        let sender = SenderWrapperMock::new();
-        let sender_params = sender.unbounded_send_params.clone();
-        let receiver = ReceiverWrapperMock::new();
-        let channel_factory = FuturesChannelFactoryMock { results: vec!((Box::new(sender), Box::new(receiver)))};
-
         thread::spawn(move || {
             let system = System::new("test");
-            let mut subject = StreamHandlerPool::new(vec! ());
-            subject.channel_factory = Box::new(channel_factory);
+            let subject = StreamHandlerPool::new(vec! ());
 
             let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
@@ -921,9 +885,6 @@ mod tests {
         });
 
         TestLogHandler::new ().await_log_containing(format!("ERROR: Dispatcher: No known IP for neighbor in route with key: {}", cryptde.public_key()).as_str(), 1000);
-
-        let shp_to_sw_params = sender_params.lock().unwrap();
-        assert_eq!(shp_to_sw_params.len(), 0);
     }
 
     #[test]
@@ -1107,5 +1068,69 @@ mod tests {
         }).unwrap();
 
         system.run();
+    }
+
+    #[test]
+    fn stream_handler_pool_writes_much_clandestine_data_to_stream_writer() {
+        let reader = ReadHalfWrapperMock::new ()
+            .poll_read_result(vec! (), Ok (Async::NotReady));
+        let write_stream_params_arc = Arc::new (Mutex::new (vec! ()));
+        let writer = WriteHalfWrapperMock::new ()
+            .poll_write_result(Ok (Async::Ready (5)))
+            .poll_write_result(Ok (Async::Ready (6)))
+            .poll_write_result(Ok (Async::NotReady))
+            .poll_write_params (&write_stream_params_arc);
+        let local_addr = SocketAddr::from_str("1.2.3.4:6789").unwrap();
+        let peer_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
+
+        thread::spawn(move || {
+            let system = System::new("test");
+            let subject = StreamHandlerPool::new(vec! ());
+
+            let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
+            let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
+            let peer_actors = make_peer_actors();
+            subject_subs.bind.try_send(PoolBindMessage {
+                dispatcher_subs: peer_actors.dispatcher,
+                stream_handler_pool_subs: subject_subs.clone(),
+                neighborhood_subs: peer_actors.neighborhood,
+            }).unwrap();
+
+            let connection_info = ConnectionInfo {
+                reader: Box::new (reader),
+                writer: Box::new (writer),
+                local_addr,
+                peer_addr,
+            };
+
+            subject_subs.add_sub.try_send(AddStreamMsg::new (
+                connection_info,
+                None,
+                PortConfiguration::new(vec!(Box::new(HttpRequestDiscriminatorFactory::new())), true),
+                Box::new(NullMasquerader::new())
+            )).unwrap();
+
+            subject_subs.transmit_sub.try_send(TransmitDataMsg {
+                endpoint: Endpoint::Socket(peer_addr),
+                last_data: false,
+                sequence_number: Some(0),
+                data: b"hello".to_vec()
+            }).unwrap();
+
+            subject_subs.transmit_sub.try_send(TransmitDataMsg {
+                endpoint: Endpoint::Socket(peer_addr),
+                last_data: false,
+                sequence_number: Some(0),
+                data: b"worlds".to_vec()
+            }).unwrap();
+
+            system.run();
+        });
+
+        await_messages(2, &write_stream_params_arc);
+        let mut sw_to_stream_params = write_stream_params_arc.lock().unwrap();
+        assert_eq!(sw_to_stream_params.len(), 2);
+        assert_eq!(sw_to_stream_params.remove(0), b"hello".to_vec());
+        assert_eq!(sw_to_stream_params.remove(0), b"worlds".to_vec());
     }
 }
