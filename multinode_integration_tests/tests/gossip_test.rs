@@ -12,22 +12,23 @@ extern crate test_utils;
 use node_lib::json_masquerader::JsonMasquerader;
 use multinode_integration_tests_lib::substratum_cores_server::SubstratumCoresServer;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
-use multinode_integration_tests_lib::substratum_cores_client::SubstratumCoresClient;
 use sub_lib::route::RouteSegment;
 use sub_lib::route::Route;
 use sub_lib::dispatcher::Component;
 use sub_lib::hopper::IncipientCoresPackage;
 use std::time::Duration;
-use multinode_integration_tests_lib::substratum_node::NodeStartupConfigBuilder;
+use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
 use neighborhood_lib::gossip::Gossip;
 use neighborhood_lib::gossip::GossipNodeRecord;
-use multinode_integration_tests_lib::substratum_node::SubstratumNode;
+use multinode_integration_tests_lib::substratum_real_node::SubstratumRealNode;
 use sub_lib::cryptde::Key;
 use sub_lib::cryptde::CryptDE;
 use multinode_integration_tests_lib::substratum_node::PortSelector;
 use neighborhood_lib::gossip::NeighborRelationship;
 use sub_lib::hopper::ExpiredCoresPackage;
 use std::collections::HashMap;
+use multinode_integration_tests_lib::substratum_node::SubstratumNode;
+use multinode_integration_tests_lib::substratum_mock_node::SubstratumMockNode;
 
 #[test]
 fn standard_node_sends_gossip_to_bootstrap_upon_startup () {
@@ -35,10 +36,10 @@ fn standard_node_sends_gossip_to_bootstrap_upon_startup () {
     let server = SubstratumCoresServer::new ();
     let node_ref = server.node_reference ();
 
-    let subject: &SubstratumNode = cluster.start_node (NodeStartupConfigBuilder::standard ()
+    let subject = cluster.start_real_node(NodeStartupConfigBuilder::standard ()
         .bootstrap_from (node_ref)
         .build ()
-    ).expect ("Couldn't create standard Node");
+    );
 
     let cores_package = server.wait_for_package(Duration::from_millis (1000));
     let gossip: Gossip = cores_package.payload ().unwrap ();
@@ -58,13 +59,16 @@ fn standard_node_sends_gossip_to_bootstrap_upon_startup () {
 #[test]
 fn bootstrap_node_receives_gossip_and_broadcasts_result () {
     let mut cluster = SubstratumNodeCluster::start ().unwrap ();
-    let one_standard_node = SubstratumCoresServer::new ();
-    let another_standard_node = SubstratumCoresServer::new ();
-    let masquerader = JsonMasquerader::new ();
-
-    let subject = cluster.start_node (NodeStartupConfigBuilder::bootstrap ()
+    cluster.start_mock_node (vec! (5550));
+    cluster.start_mock_node (vec! (5550));
+    cluster.start_real_node(NodeStartupConfigBuilder::bootstrap ()
         .build ()
-    ).expect ("Couldn't create bootstrap Node");
+    );
+    let one_standard_node = cluster.get_mock_node ("mock_node_1").unwrap ();
+    let another_standard_node = cluster.get_mock_node ("mock_node_2").unwrap ();
+    let subject = cluster.get_real_node ("test_node_3").unwrap ();
+    let masquerader = JsonMasquerader::new ();
+    let timeout = Duration::from_millis (1000);
 
     let one_gossip = Gossip {
         node_records: vec! (GossipNodeRecord {
@@ -76,11 +80,10 @@ fn bootstrap_node_receives_gossip_and_broadcasts_result () {
     };
     let one_cores_package = make_gossip_cores_package (one_standard_node.public_key (),
         subject.public_key(), one_gossip, one_standard_node.cryptde ());
-    let mut one_client = SubstratumCoresClient::new (subject.socket_addr (PortSelector::First),
-        one_standard_node.cryptde ());
-    one_client.transmit_package (one_cores_package, &masquerader, subject.public_key ());
+    one_standard_node.transmit_package (5550, one_cores_package, &masquerader, &subject.public_key (),
+         subject.socket_addr (PortSelector::First)).unwrap ();
 
-    let one_gossip_response = one_standard_node.wait_for_package(Duration::from_millis (1000));
+    let (_, _, one_gossip_response) = one_standard_node.wait_for_package(&masquerader, timeout).unwrap ();
     let one_gossip_response_payload: Gossip = one_gossip_response.payload ().unwrap ();
     let subject_index = find (&one_gossip_response_payload.node_records, GossipNodeRecord {
         public_key: subject.public_key (),
@@ -104,15 +107,14 @@ fn bootstrap_node_receives_gossip_and_broadcasts_result () {
     };
     let another_cores_package = make_gossip_cores_package (another_standard_node.public_key (),
                                                        subject.public_key(), another_gossip, another_standard_node.cryptde ());
-    let mut another_client = SubstratumCoresClient::new (subject.socket_addr (PortSelector::First),
-                                                     another_standard_node.cryptde ());
-println! ("Transmitting Gossip from second fake node");
-    another_client.transmit_package (another_cores_package, &masquerader, subject.public_key ());
+    another_standard_node.transmit_package (5550, another_cores_package, &masquerader, &subject.public_key (),
+        subject.socket_addr (PortSelector::First)).unwrap ();
 
-    let another_gossip_response = another_standard_node.wait_for_package(Duration::from_millis (1000));
-    verify_three_node_gossip(another_gossip_response, &subject, &another_standard_node, &one_standard_node);
-//    let one_gossip_response = one_standard_node.wait_for_package(Duration::from_millis (1000));
+// TODO: Bring these back in when SC-390 is finished.
+//    let (_, _, one_gossip_response) = one_standard_node.wait_for_package(&masquerader, timeout).unwrap ();
 //    verify_three_node_gossip(one_gossip_response, &subject, &one_standard_node, &another_standard_node);
+    let (_, _, another_gossip_response) = another_standard_node.wait_for_package(&masquerader, timeout).unwrap ();
+    verify_three_node_gossip(another_gossip_response, &subject, &another_standard_node, &one_standard_node);
 }
 
 fn make_gossip_cores_package (from: Key, to: Key, gossip: Gossip, source_cryptde: &CryptDE) -> IncipientCoresPackage {
@@ -123,8 +125,8 @@ fn make_gossip_cores_package (from: Key, to: Key, gossip: Gossip, source_cryptde
     )
 }
 
-fn verify_three_node_gossip (package: ExpiredCoresPackage, subject: &SubstratumNode,
-        recipient: &SubstratumCoresServer, foreigner: &SubstratumCoresServer) {
+fn verify_three_node_gossip (package: ExpiredCoresPackage, subject: &SubstratumRealNode,
+                             recipient: &SubstratumMockNode, foreigner: &SubstratumMockNode) {
     let payload: Gossip = package.payload ().unwrap ();
     let subject_index = find (&payload.node_records, GossipNodeRecord {
         public_key: subject.public_key (),

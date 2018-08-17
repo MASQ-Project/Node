@@ -6,7 +6,6 @@ use cryptde::Key;
 use cryptde::PlainData;
 use cryptde::CryptData;
 
-#[derive (Clone)]
 pub struct CryptDENull {
     private_key: Key,
     public_key: Key
@@ -62,6 +61,11 @@ impl CryptDE for CryptDENull {
 
     fn public_key (&self) -> Key {
         self.public_key.clone ()
+    }
+
+    // This is dup instead of clone because it returns a Box<CryptDE> instead of a CryptDENull.
+    fn dup(&self) -> Box<CryptDE> {
+        Box::new (CryptDENull {private_key: self.private_key.clone (), public_key: self.public_key.clone ()})
     }
 }
 
@@ -229,5 +233,16 @@ mod tests {
 
         assert_ne! (one_key, another_key);
         assert_eq! (CryptDENull::other_key(&another_key), one_key);
+    }
+
+    #[test]
+    fn dup_works () {
+        let mut subject = CryptDENull::new ();
+        subject.generate_key_pair();
+
+        let result = subject.dup();
+
+        assert_eq! (result.public_key (), subject.public_key ());
+        assert_eq! (result.private_key (), subject.private_key ());
     }
 }

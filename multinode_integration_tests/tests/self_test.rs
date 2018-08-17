@@ -13,7 +13,8 @@ use std::io::ErrorKind;
 use std::time::Duration;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::command::Command;
-use multinode_integration_tests_lib::substratum_node::NodeStartupConfigBuilder;
+use multinode_integration_tests_lib::substratum_node::SubstratumNode;
+use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
 use std::net::Ipv4Addr;
 use node_lib::json_masquerader::JsonMasquerader;
 use multinode_integration_tests_lib::substratum_cores_server::SubstratumCoresServer;
@@ -23,50 +24,60 @@ use sub_lib::route::RouteSegment;
 use sub_lib::dispatcher::Component;
 use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::hopper::ExpiredCoresPackage;
+use multinode_integration_tests_lib::substratum_node::PortSelector;
+use sub_lib::cryptde_null::CryptDENull;
+use multinode_integration_tests_lib::substratum_node::NodeReference;
+use sub_lib::neighborhood::sentinel_ip_addr;
+use sub_lib::cryptde::Key;
+use multinode_integration_tests_lib::main::CONTROL_STREAM_PORT;
 
 #[test]
 fn establishes_substratum_node_cluster_from_nothing () {
     let mut cluster = SubstratumNodeCluster::start ().unwrap ();
     assert_eq!(network_is_running(), true);
-    {
-        let node_1_name = "test_node_1";
-        let node_2_name = "test_node_2";
-        let first_ip_addr = IpAddr::V4 (Ipv4Addr::new (172, 18, 1, 1));
-        let second_ip_addr = IpAddr::V4 (Ipv4Addr::new (172, 18, 1, 2));
-        cluster.start_node(NodeStartupConfigBuilder::bootstrap().build()).unwrap();
-        cluster.start_node(NodeStartupConfigBuilder::bootstrap().build()).unwrap();
+    let real_node_name = "test_node_1";
+    let mock_node_name = "mock_node_2";
+    let first_ip_addr = IpAddr::V4 (Ipv4Addr::new (172, 18, 1, 1));
+    let second_ip_addr = IpAddr::V4 (Ipv4Addr::new (172, 18, 1, 2));
+    cluster.start_real_node(NodeStartupConfigBuilder::standard()
+        .neighbor (NodeReference::new (Key::new (&[1]), sentinel_ip_addr (), vec! (1234)))
+        .build());
+    cluster.start_mock_node(vec! (2345));
 
-        let expected_nodes: HashSet<String> = vec![node_1_name.to_string(), node_2_name.to_string()].into_iter().collect();
-        assert_eq!(cluster.running_node_names(), expected_nodes);
-        check_node(&cluster, node_1_name, "172.18.1.1");
-        check_node(&cluster, node_2_name, "172.18.1.2");
+    let expected_nodes: HashSet<String> = vec![real_node_name.to_string(), mock_node_name.to_string()].into_iter().collect();
+    assert_eq!(cluster.running_node_names(), expected_nodes);
+    check_node(&cluster, real_node_name, "172.18.1.1", 80);
+    check_node(&cluster, mock_node_name, "172.18.1.2", CONTROL_STREAM_PORT);
 
-        cluster.stop_node(node_1_name).unwrap();
-        ensure_node_is_not_running(node_1_name, first_ip_addr);
-        ensure_node_is_running(node_2_name, second_ip_addr);
+    cluster.stop_node(real_node_name);
+    ensure_node_is_not_running(real_node_name, first_ip_addr, 80);
+    ensure_node_is_running(mock_node_name, second_ip_addr, CONTROL_STREAM_PORT);
 
-        cluster.stop_node(node_2_name).unwrap();
-        ensure_node_is_not_running(node_1_name, first_ip_addr);
-        ensure_node_is_not_running(node_2_name, second_ip_addr);
-    }
-    cluster.stop ().unwrap ();
+    cluster.stop_node(mock_node_name);
+    ensure_node_is_not_running(real_node_name, first_ip_addr, 80);
+    ensure_node_is_not_running(mock_node_name, second_ip_addr, CONTROL_STREAM_PORT);
+
+    cluster.stop ();
     assert_eq! (network_is_running (), false);
 }
 
 #[test]
 fn dropping_node_and_cluster_cleans_up () {
-    let first_ip_addr = IpAddr::V4(Ipv4Addr::new(172, 18, 1, 1));
+    let real_ip_addr = IpAddr::V4(Ipv4Addr::new(172, 18, 1, 1));
+    let mock_ip_addr = IpAddr::V4(Ipv4Addr::new(172, 18, 1, 2));
     {
         let mut cluster = SubstratumNodeCluster::start().unwrap();
-        cluster.start_node(NodeStartupConfigBuilder::bootstrap().build()).unwrap();
+        cluster.start_real_node(NodeStartupConfigBuilder::bootstrap().build());
+        cluster.start_mock_node(vec!(1234));
     }
 
-    assert_eq! (node_is_running (first_ip_addr), false);
+    assert_eq! (node_is_running (real_ip_addr, 80), false);
+    assert_eq! (node_is_running (mock_ip_addr, CONTROL_STREAM_PORT), false);
     assert_eq! (network_is_running (), false);
 }
 
 #[test]
-fn relays_cores_package () {
+fn server_relays_cores_package () {
     let _cluster = SubstratumNodeCluster::start ().unwrap ();
     let masquerader = JsonMasquerader::new ();
     let server = SubstratumCoresServer::new ();
@@ -89,17 +100,46 @@ fn relays_cores_package () {
     assert_eq! (serde_cbor::de::from_slice::<String> (&expired.payload.data[..]).unwrap (), String::from ("Booga booga!"));
 }
 
-fn check_node (cluster: &SubstratumNodeCluster, name: &str, ip_address: &str) {
-    let node = cluster.get_node (name).unwrap ();
+#[test]
+fn one_mock_node_talks_to_another () {
+    let masquerader = JsonMasquerader::new ();
+    let mut cluster = SubstratumNodeCluster::start().unwrap();
+    cluster.start_mock_node(vec!(5550));
+    cluster.start_mock_node(vec!(5551));
+    let mock_node_1 = cluster.get_mock_node ("mock_node_1").unwrap ();
+    let mock_node_2 = cluster.get_mock_node ("mock_node_2").unwrap ();
+    let cryptde = CryptDENull::new();
+    let route = Route::new(vec!(
+        RouteSegment::new(vec!(
+            &mock_node_1.public_key (),
+            &mock_node_2.public_key (),
+        ), Component::Hopper)
+    ), &cryptde).unwrap();
+    let incipient_cores_package = IncipientCoresPackage::new(route, String::from("payload"),
+         &mock_node_2.public_key ());
+
+    mock_node_1.transmit_package(5550, incipient_cores_package,  &masquerader, &mock_node_2.public_key (),
+        mock_node_2.socket_addr(PortSelector::First)).unwrap ();
+    let (package_from, package_to, expired_cores_package) =
+        mock_node_2.wait_for_package(&masquerader, Duration::from_millis (1000)).unwrap ();
+
+    assert_eq!(package_from.ip (), mock_node_1.ip_address ());
+    assert_eq!(package_to, mock_node_2.socket_addr(PortSelector::First));
+    let actual_payload: String = expired_cores_package.payload().unwrap();
+    assert_eq!(actual_payload, String::from("payload"));
+}
+
+fn check_node (cluster: &SubstratumNodeCluster, name: &str, ip_address: &str, port: u16) {
+    let node = cluster.get_node(name).expect (format! ("Couldn't find node {} to check", name).as_str ());
     assert_eq! (node.name(), name);
     assert_eq! (format! ("{}", node.node_reference()).contains (ip_address), true, "{}", node.node_reference());
     assert_eq! (format! ("{}", node.ip_address()), String::from (ip_address));
     assert_eq! (node.port_list().len (), 1);
-    ensure_node_is_running(name, node.ip_address());
+    ensure_node_is_running(name, node.ip_address(), port);
 }
 
-fn node_is_running(ip_address: IpAddr) -> bool {
-    let socket_addr = SocketAddr::new(ip_address, 80);
+fn node_is_running(ip_address: IpAddr, port: u16) -> bool {
+    let socket_addr = SocketAddr::new(ip_address, port);
     match TcpStream::connect_timeout(&socket_addr, Duration::from_millis(100)) {
         Ok(_) => true,
         Err(ref e) if e.kind() == ErrorKind::TimedOut => false,
@@ -114,10 +154,10 @@ fn network_is_running () -> bool {
     output.contains ("integration_net")
 }
 
-fn ensure_node_is_running(container_name: &str, ip_address: IpAddr) {
-    assert_eq!(node_is_running(ip_address), true, "{} should be running on {}, but isn't", container_name, ip_address)
+fn ensure_node_is_running(container_name: &str, ip_address: IpAddr, port: u16) {
+    assert_eq!(node_is_running(ip_address, port), true, "{} should be running on {}, but isn't", container_name, ip_address)
 }
 
-fn ensure_node_is_not_running(container_name: &str, ip_address: IpAddr) {
-    assert_eq!(node_is_running(ip_address), false, "{} should not be running on {}, but is", container_name, ip_address)
+fn ensure_node_is_not_running(container_name: &str, ip_address: IpAddr, port: u16) {
+    assert_eq!(node_is_running(ip_address, port), false, "{} should not be running on {}, but is", container_name, ip_address)
 }

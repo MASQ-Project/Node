@@ -155,6 +155,8 @@ pub trait CryptDE: Send + Sync {
     // TODO: Would be really nice if these could return &Key instead of Key
     fn private_key(&self) -> Key;
     fn public_key(&self) -> Key;
+    // This is dup instead of clone because making a trait Clone has unpleasant consequences.
+    fn dup(&self) -> Box<CryptDE>;
 }
 
 pub type StreamKey = SocketAddr;

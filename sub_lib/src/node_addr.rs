@@ -1,10 +1,12 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use std::net::IpAddr;
 use std::net::SocketAddr;
+use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
-use std::fmt::Result;
 use std::fmt::Display;
+use std::str::FromStr;
+use utils::plus;
 
 #[derive (Eq, Hash, Deserialize, Serialize)]
 pub struct NodeAddr {
@@ -54,13 +56,13 @@ impl Clone for NodeAddr {
 }
 
 impl Debug for NodeAddr {
-    fn fmt(&self, f: &mut Formatter) -> Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write! (f, "{}:{:?}", self.ip_addr (), self.ports ())
     }
 }
 
 impl Display for NodeAddr {
-    fn fmt(&self, f: &mut Formatter) -> Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let port_list = self.ports.iter ().map (|x| format! ("{}", x)).collect::<Vec<String>> ();
         write! (f, "{}:{}", self.ip_addr (), port_list.join (","))
     }
@@ -69,6 +71,38 @@ impl Display for NodeAddr {
 impl PartialEq for NodeAddr {
     fn eq(&self, other: &NodeAddr) -> bool {
         self.ip_addr ().eq(&other.ip_addr ()) && self.ports ().eq (&other.ports ())
+    }
+}
+
+impl FromStr for NodeAddr {
+    type Err = String;
+
+    fn from_str(input: &str) -> Result<NodeAddr, String> {
+        let pieces: Vec<&str> = input.split (":").collect ();
+        if pieces.len () != 2 {return Err(format! ("NodeAddr should be expressed as '<IP address>:<port>,<port>,...', not '{}'", input))}
+        let ip_addr = match IpAddr::from_str (&pieces[0]) {
+            Err(_) => return Err(format!("NodeAddr must have a valid IP address, not '{}'", pieces[0])),
+            Ok(ip_addr) => ip_addr,
+        };
+        let ports: Vec<u16> = match pieces[1].split (",")
+            .map (|s| {
+                match s.parse::<u16>() {
+                    Err(_) => Err(format!("NodeAddr must have port numbers between 1024 and 65535, not '{}'", s)),
+                    Ok(port) if port < 1024 => Err(format!("NodeAddr must have port numbers between 1024 and 65535, not '{}'", s)),
+                    Ok(port) => Ok (port),
+                }
+            })
+            .fold (Ok (vec! ()), |so_far, parse_result| {
+                match (so_far, parse_result) {
+                    (Err (e), _) => Err (e),
+                    (Ok (_), Err (e)) => Err (e),
+                    (Ok (ports), Ok (port)) => Ok (plus (ports, port)),
+                }
+            }) {
+                Ok(ports) => ports,
+                Err(msg) => return Err(msg),
+            };
+        Ok (NodeAddr::new (&ip_addr, &ports))
     }
 }
 
@@ -146,5 +180,41 @@ mod tests {
         let result = format! ("{}", subject);
 
         assert_eq! (result, "2.5.8.1:6,9");
+    }
+
+    #[test]
+    fn node_addrs_from_str_needs_two_pieces () {
+        let result = NodeAddr::from_str ("Booga");
+
+        assert_eq! (result, Err (String::from ("NodeAddr should be expressed as '<IP address>:<port>,<port>,...', not 'Booga'")));
+    }
+
+    #[test]
+    fn node_addrs_from_str_needs_good_ip_address () {
+        let result = NodeAddr::from_str ("253.254.255.256:1234,2345,3456");
+
+        assert_eq! (result, Err (String::from ("NodeAddr must have a valid IP address, not '253.254.255.256'")));
+    }
+
+    #[test]
+    fn node_addrs_from_str_complains_about_low_port_number () {
+        let result = NodeAddr::from_str ("1.2.3.4:1023");
+
+        assert_eq! (result, Err (String::from ("NodeAddr must have port numbers between 1024 and 65535, not '1023'")));
+    }
+
+    #[test]
+    fn node_addrs_from_str_complains_about_high_port_number () {
+        let result = NodeAddr::from_str ("1.2.3.4:65536");
+
+        assert_eq! (result, Err (String::from ("NodeAddr must have port numbers between 1024 and 65535, not '65536'")));
+    }
+
+    #[test]
+    fn node_addrs_from_str_follows_the_happy_path () {
+        let result = NodeAddr::from_str ("1.2.3.4:1234,2345,3456");
+
+        assert_eq! (result, Ok (NodeAddr::new (&IpAddr::from_str ("1.2.3.4").unwrap (),
+            &vec! (1234, 2345, 3456))));
     }
 }

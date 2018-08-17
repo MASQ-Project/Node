@@ -5,6 +5,7 @@ use std::cmp::Ordering;
 use stream_handler_pool::TransmitDataMsg;
 use std::collections::BinaryHeap;
 use utils;
+use logger::Logger;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SequencedPacket {
@@ -61,6 +62,7 @@ pub struct SequenceBuffer {
     buffer: BinaryHeap<SequencedPacket>,
     next_expected_sequence_number: u64,
     seen_sequence_numbers: Vec<u64>,
+    logger: Logger,
 }
 
 impl SequenceBuffer {
@@ -69,6 +71,7 @@ impl SequenceBuffer {
             buffer: BinaryHeap::new(),
             next_expected_sequence_number: 0,
             seen_sequence_numbers: vec!(),
+            logger: Logger::new ("SequenceBuffer"),
         }
     }
 
@@ -76,6 +79,9 @@ impl SequenceBuffer {
         if packet.sequence_number >= self.next_expected_sequence_number && !self.seen_sequence_numbers.contains(&packet.sequence_number) {
             self.seen_sequence_numbers.push(packet.sequence_number);
             self.buffer.push(packet);
+        }
+        else {
+            self.logger.warning (format! ("Dropping packet with duplicate sequence number {}", packet.sequence_number));
         }
     }
 
@@ -128,6 +134,8 @@ mod tests {
     use std::str::FromStr;
     use stream_handler_pool::TransmitDataMsg;
     use dispatcher::Endpoint;
+    use test_utils::logging::init_test_logging;
+    use test_utils::logging::TestLogHandler;
 
     #[test]
     fn can_create_sequenced_packet_from_client_request_payload() {
@@ -230,6 +238,7 @@ mod tests {
 
     #[test]
     fn sequence_buffer_ignores_packets_with_duplicate_sequence_numbers() {
+        init_test_logging ();
         let a = SequencedPacket::new(vec!(1, 23, 6, 5), 0);
         let b = SequencedPacket::new(vec!(5, 9, 1, 2, 5), 1);
         let b_dup = SequencedPacket::new(vec!(6, 8, 2, 3, 6), 1);
@@ -256,6 +265,7 @@ mod tests {
         assert_eq!(subject.poll(), Some(d));
         assert_eq!(subject.poll(), Some(e));
         assert_eq!(subject.poll(), None);
+        TestLogHandler::new ().exists_log_containing ("WARN: SequenceBuffer: Dropping packet with duplicate sequence number 1");
     }
 
     #[test]

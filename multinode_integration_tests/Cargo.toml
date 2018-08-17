@@ -22,3 +22,7 @@ test_utils = { path = "../test_utils" }
 [lib]
 name = "multinode_integration_tests_lib"
 path = "src/lib.rs"
+
+[[bin]]
+name = "MockNode"
+path = "src/main.rs"

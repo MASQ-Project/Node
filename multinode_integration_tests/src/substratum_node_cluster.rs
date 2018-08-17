@@ -3,18 +3,22 @@ use command::Command;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
-use substratum_node::NodeStartupConfig;
 use substratum_node::SubstratumNode;
+use substratum_real_node::NodeStartupConfig;
+use substratum_real_node::SubstratumRealNode;
+use substratum_mock_node::SubstratumMockNode;
 
 pub struct SubstratumNodeCluster {
-    nodes: HashMap<String, SubstratumNode>,
+    real_nodes: HashMap<String, SubstratumRealNode>,
+    mock_nodes: HashMap<String, SubstratumMockNode>,
     host_node_parent_dir: Option<String>,
     next_index: usize,
 }
 
 impl Drop for SubstratumNodeCluster {
     fn drop(&mut self) {
-        self.nodes.clear ();
+        self.real_nodes.clear ();
+        self.mock_nodes.clear ();
         Self::cleanup ().unwrap ();
     }
 }
@@ -31,38 +35,73 @@ impl SubstratumNodeCluster {
             SubstratumNodeCluster::interconnect_network ()?;
         }
         Ok (SubstratumNodeCluster {
-            nodes: HashMap::new (),
+            real_nodes: HashMap::new (),
+            mock_nodes: HashMap::new (),
             host_node_parent_dir,
             next_index: 1,
         })
     }
 
-    pub fn start_node (&mut self, config: NodeStartupConfig) -> Result<&mut SubstratumNode, String> {
+    pub fn start_real_node (&mut self, config: NodeStartupConfig) -> &SubstratumRealNode {
         let index = self.next_index;
         self.next_index += 1;
-        let node = SubstratumNode::start (config, index, self.host_node_parent_dir.clone ())?;
+        let node = SubstratumRealNode::start (config, index, self.host_node_parent_dir.clone ());
         let name = node.name().to_string ();
-        self.nodes.insert (node.name().to_string (), node);
-        Ok (self.nodes.get_mut (&name).unwrap ())
+        self.real_nodes.insert (name.clone (), node);
+        self.real_nodes.get (&name).unwrap ()
     }
 
-    pub fn stop (self) -> Result<(), String> {
-        SubstratumNodeCluster::cleanup()
+    pub fn start_mock_node(&mut self, ports: Vec<u16>) -> &SubstratumMockNode {
+        let index = self.next_index;
+        self.next_index += 1;
+        let node = SubstratumMockNode::start (ports, index,self.host_node_parent_dir.clone ());
+        let name = node.name().to_string ();
+        self.mock_nodes.insert (name.clone (), node);
+        self.mock_nodes.get (&name).unwrap ()
     }
 
-    pub fn stop_node (&mut self, name: &str) -> Result<(), String> {
-        match self.nodes.remove(name) {
-            Some(node) => { node.stop() },
-            None => { Err(format!("Node {} was not found in cluster", name)) },
-        }
+    pub fn stop (self) {
+        SubstratumNodeCluster::cleanup().unwrap ()
+    }
+
+    pub fn stop_node (&mut self, name: &str) {
+        match self.real_nodes.remove(name) {
+            Some(node) => {node.stop()},
+            None => match self.mock_nodes.remove (name) {
+                Some (node) => {node.stop ()},
+                None => panic! ("Node {} was not found in cluster", name),
+            }
+        };
     }
 
     pub fn running_node_names(&self) -> HashSet<String> {
-        self.nodes.keys ().map (|key_ref| {key_ref.clone ()}).collect()
+        let real_node_names: HashSet<String> = self.real_nodes.keys ().map (|key_ref| {key_ref.clone ()}).collect();
+        let mock_node_names: HashSet<String> = self.mock_nodes.keys ().map (|key_ref| {key_ref.clone ()}).collect();
+        real_node_names.union (&mock_node_names).map (|key_ref| {key_ref.clone ()}).collect::<HashSet<String>> ()
     }
 
-    pub fn get_node<'a> (&'a self, name: &str) -> Option<&'a SubstratumNode> {
-        self.nodes.get (name)
+    pub fn get_real_node (&self, name: &str) -> Option<&SubstratumRealNode> {
+        match self.real_nodes.get (name) {
+            Some (node_ref) => Some (node_ref),
+            None => None
+        }
+    }
+
+    pub fn get_mock_node (&self, name: &str) -> Option<&SubstratumMockNode> {
+        match self.mock_nodes.get (name) {
+            Some (node_ref) => Some (node_ref),
+            None => None
+        }
+    }
+
+    pub fn get_node (&self, name: &str) -> Option<&SubstratumNode> {
+        match self.real_nodes.get(name) {
+            Some(node_ref) => Some (node_ref),
+            None => match self.mock_nodes.get (name) {
+                Some (node_ref) => Some (node_ref),
+                None => None,
+            }
+        }
     }
 
     pub fn is_in_jenkins () -> bool {

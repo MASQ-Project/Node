@@ -198,18 +198,16 @@ impl Bootstrapper {
     }
 
     fn parse_neighbor_config (input: String, parameter_tag: &str) -> (Key, NodeAddr) {
-        let pieces: Vec<&str> = input.split (":").collect ();
-        if pieces.len () != 3 {panic! ("{} <public key>:<IP address>:<port>,<port>,... (not {} {})", parameter_tag, parameter_tag, input)}
+        let pieces: Vec<&str> = input.splitn (2, ":").collect ();
+        if pieces.len () != 2 {panic! ("{} <public key>:<IP address>:<port>,<port>,... (not {} {})", parameter_tag, parameter_tag, input)}
         let public_key = Key::new (&base64::decode (pieces[0])
             .expect (format! ("Invalid Base64 for {} <public key>: '{}'", parameter_tag, pieces[0]).as_str ())[..]);
         if public_key.data.is_empty () {
             panic! ("Blank public key for --neighbor {}", input)
         }
-        let ip_addr = IpAddr::from_str (&pieces[1])
-            .expect (format! ("Invalid IP address for {} <IP address>: '{}'", parameter_tag, pieces[1]).as_str ());
-        let ports: Vec<u16> = pieces[2].split (",").map (|s| s.parse::<u16>()
-            .expect(format! ("{} port numbers must be 0-65535, not {}", parameter_tag, s).as_str ())).collect ();
-        (public_key, NodeAddr::new (&ip_addr, &ports))
+        let node_addr = NodeAddr::from_str (&pieces[1])
+            .expect (format! ("Invalid NodeAddr for {} <NodeAddr>: '{}'", parameter_tag, pieces[1]).as_str ());
+        (public_key, node_addr)
     }
 
     // TODO Possibly should be a method on BootstrapperConfig
@@ -422,9 +420,9 @@ mod tests {
 
     #[test]
     #[should_panic (expected = "--neighbor <public key>:<IP address>:<port>,<port>,...")]
-    fn parse_neighbor_configs_requires_three_pieces_to_a_configuration () {
+    fn parse_neighbor_configs_requires_two_pieces_to_a_configuration () {
         let finder = ParameterFinder::new (vec! (
-            "--neighbor", "key:1.2.3.:1234,2345:extra",
+            "--neighbor", "only_one_piece",
         ).into_iter ().map (String::from).collect ());
 
         Bootstrapper::parse_neighbor_configs (&finder, "--neighbor");
@@ -451,20 +449,10 @@ mod tests {
     }
 
     #[test]
-    #[should_panic (expected = "Invalid IP address for --bootstrap_node <IP address>: '1.2.3.256'")]
-    fn parse_neighbor_configs_complains_about_bad_ip_address () {
+    #[should_panic (expected = "Invalid NodeAddr for --bootstrap_node <NodeAddr>: 'BadNodeAddr'")]
+    fn parse_neighbor_configs_complains_about_bad_node_addr () {
         let finder = ParameterFinder::new (vec! (
-            "--bootstrap_node", "GoodKey:1.2.3.256:1234,2345",
-        ).into_iter ().map (String::from).collect ());
-
-        Bootstrapper::parse_neighbor_configs (&finder, "--bootstrap_node");
-    }
-
-    #[test]
-    #[should_panic (expected = "--bootstrap_node port numbers must be 0-65535, not 65536")]
-    fn parse_neighbor_configs_complains_about_bad_port_numbers () {
-        let finder = ParameterFinder::new (vec! (
-            "--bootstrap_node", "GoodKey:1.2.3.4:65536",
+            "--bootstrap_node", "GoodKey:BadNodeAddr",
         ).into_iter ().map (String::from).collect ());
 
         Bootstrapper::parse_neighbor_configs (&finder, "--bootstrap_node");
