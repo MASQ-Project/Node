@@ -69,6 +69,7 @@ pub struct StreamHandlerPool {
     stream_connector: Box<StreamConnector>,
     channel_factory: Box<FuturesChannelFactory<SequencedPacket>>,
     clandestine_discriminator_factories: Vec<Box<DiscriminatorFactory>>,
+    traffic_analyzer: Box<TrafficAnalyzer>,
 }
 
 impl Actor for StreamHandlerPool {
@@ -80,7 +81,7 @@ impl Handler<AddStreamMsg> for StreamHandlerPool {
 
     fn handle(&mut self, msg: AddStreamMsg, _ctx: &mut Self::Context) -> <Self as Handler<AddStreamMsg>>::Result {
         let port_config = msg.port_configuration.clone();
-        self.set_up_stream_writer(msg.connection_info.writer, msg.connection_info.peer_addr, msg.writer_config, port_config.is_clandestine);
+        self.set_up_stream_writer(msg.connection_info.writer, msg.connection_info.peer_addr, port_config.is_clandestine);
         self.set_up_stream_reader(msg.connection_info.reader, msg.origin_port, msg.port_configuration, msg.connection_info.peer_addr, msg.connection_info.local_addr);
         ()
     }
@@ -154,7 +155,21 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
             match tx_opt {
                 Some(tx_box) => {
                     self.logger.debug (format! ("Transmitting {} bytes", msg.context.data.len ()));
-                    match tx_box.unbounded_send(SequencedPacket::from(&msg.context)) { // TODO FIXME stream_handler_pool should be able to accept Vec<u8> for clandestine data (when TDM sequence# is None)
+
+                    let packet = if msg.context.sequence_number.is_none() {
+                        let masquerader = self.traffic_analyzer.get_masquerader();
+                        match masquerader.mask(msg.context.data.as_slice()) {
+                            Ok(masked_data) => SequencedPacket::new(masked_data, 0),
+                            Err(e) => {
+                                self.logger.error(format!("Masking failed for {}: {}. Discarding {} bytes.", peer_addr, e, msg.context.data.len()));
+                                return
+                            }
+                        }
+                    } else {
+                        SequencedPacket::from(&msg.context)
+                    };
+
+                    match tx_box.unbounded_send(packet) {
                         Err(_) => {
                             to_remove = true
                         },
@@ -197,7 +212,6 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
                         connection_info,
                         origin_port: Some (origin_port),
                         port_configuration: PortConfiguration::new (clandestine_discriminator_factories, true),
-                        writer_config: Box::new(JsonMasquerader::new()),
                     }).expect ("StreamHandlerPool is dead");
                     node_query_response_sub.try_send (msg).expect ("StreamHandlerPool is dead");
                     ()
@@ -242,6 +256,7 @@ impl StreamHandlerPool {
             stream_connector: Box::new (StreamConnectorReal {}),
             channel_factory: Box::new(FuturesChannelFactoryReal {}),
             clandestine_discriminator_factories,
+            traffic_analyzer: Box::new(TrafficAnalyzerReal{}),
         }
     }
 
@@ -284,7 +299,6 @@ impl StreamHandlerPool {
         &mut self,
         write_stream: Box<WriteHalfWrapper>,
         socket_addr: SocketAddr,
-        writer_config: Box<Masquerader>,
         is_clandestine: bool,
     ) {
         let (tx, rx) = self.channel_factory.make();
@@ -295,18 +309,30 @@ impl StreamHandlerPool {
                 write_stream,
                 socket_addr,
                 rx,
-                writer_config
             ));
         } else {
             tokio::spawn(StreamWriterSorted::new(
                 write_stream,
                 socket_addr,
                 rx,
-                writer_config,
             ));
         };
     }
 }
+
+trait TrafficAnalyzer {
+    fn get_masquerader(&self) -> Box<Masquerader>;
+}
+
+struct TrafficAnalyzerReal {}
+
+impl TrafficAnalyzer for TrafficAnalyzerReal {
+    fn get_masquerader(&self) -> Box<Masquerader> {
+        Box::new(JsonMasquerader::new())
+    }
+}
+
+impl TrafficAnalyzerReal {}
 
 #[cfg(test)]
 mod tests {
@@ -330,7 +356,6 @@ mod tests {
     use json_discriminator_factory::JsonDiscriminatorFactory;
     use json_masquerader::JsonMasquerader;
     use masquerader::Masquerader;
-    use null_masquerader::NullMasquerader;
     use sub_lib::stream_connector::ConnectionInfo;
     use sub_lib::dispatcher::InboundClientData;
     use sub_lib::cryptde::CryptDE;
@@ -348,6 +373,15 @@ mod tests {
     use test_utils::test_utils::await_messages;
     use test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
+    use node_test_utils::FailingMasquerader;
+
+    struct TrafficAnalyzerMock {}
+
+    impl TrafficAnalyzer for TrafficAnalyzerMock {
+        fn get_masquerader(&self) -> Box<Masquerader> {
+            Box::new(FailingMasquerader{})
+        }
+    }
 
     #[test]
     fn a_newly_added_stream_produces_stream_handler_that_sends_received_data_to_dispatcher () {
@@ -372,7 +406,7 @@ mod tests {
 
         thread::spawn (move || {
             let system = System::new("test");
-            let mut subject = StreamHandlerPool::new(vec! ()); // TODO: Maybe should put a factory in here and assert on it
+            let mut subject = StreamHandlerPool::new(vec! ());
             subject.stream_connector = Box::new (StreamConnectorMock::new ());
             let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
@@ -400,7 +434,6 @@ mod tests {
                 connection_info, // the stream splitter mock will return mocked reader/writer
                 origin_port,
                 PortConfiguration::new(vec! (Box::new (HttpRequestDiscriminatorFactory::new ())), is_clandestine),
-                Box::new(NullMasquerader::new())
             )).unwrap ();
 
             system.run ();
@@ -481,7 +514,6 @@ mod tests {
                 connection_info,
                 None,
                 PortConfiguration::new(vec!(Box::new(HttpRequestDiscriminatorFactory::new())), true),
-                Box::new(NullMasquerader::new())
             )).unwrap();
 
             subject_subs.transmit_sub.try_send(TransmitDataMsg {
@@ -544,7 +576,6 @@ mod tests {
             connection_info,
             None,
             PortConfiguration::new(vec!(Box::new(HttpRequestDiscriminatorFactory::new())), false),
-            Box::new(NullMasquerader::new())
         )).unwrap();
 
         subject_subs.transmit_sub.try_send(TransmitDataMsg {
@@ -609,7 +640,6 @@ mod tests {
                 connection_info,
                 None,
                 PortConfiguration::new(vec!(Box::new(HttpRequestDiscriminatorFactory::new())), true),
-                Box::new(NullMasquerader::new())
             )).unwrap();
 
             subject_subs.remove_sub.try_send(RemoveStreamMsg { socket_addr: peer_addr }).unwrap();
@@ -715,7 +745,7 @@ mod tests {
         subject_subs.transmit_sub.try_send(TransmitDataMsg {
             endpoint: Endpoint::Key(public_key.clone()),
             last_data: false,
-            sequence_number: Some(0),
+            sequence_number: None,
             data: outgoing_unmasked,
         }).unwrap();
 
@@ -787,7 +817,6 @@ mod tests {
                 connection_info,
                 None,
                 PortConfiguration::new(vec!(Box::new(JsonDiscriminatorFactory::new())), true),
-                Box::new(NullMasquerader::new())
             )).unwrap();
 
             tx.send(subject_subs).unwrap();
@@ -950,8 +979,7 @@ mod tests {
             Some(80u16),
             PortConfiguration::new(
                 vec!(Box::new(HttpRequestDiscriminatorFactory::new())),
-                false),
-            Box::new(NullMasquerader::new()))).unwrap();
+                false))).unwrap();
 
         await_messages(1, &poll_write_params_arc);
         let poll_write_params = poll_write_params_arc.lock().unwrap();
@@ -970,13 +998,13 @@ mod tests {
         let msg = TransmitDataMsg {
             endpoint: Endpoint::Socket(peer_addr.clone()),
             last_data: true,
-            sequence_number: Some(0),
+            sequence_number: None,
             data: b"hello".to_vec(),
         };
         let msg_a = TransmitDataMsg {
             endpoint: Endpoint::Socket(peer_addr.clone()),
             last_data: true,
-            sequence_number: Some(0),
+            sequence_number: None,
             data: b"worlds".to_vec(),
         };
 
@@ -1083,6 +1111,12 @@ mod tests {
         let local_addr = SocketAddr::from_str("1.2.3.4:6789").unwrap();
         let peer_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
 
+        let hello = b"hello".to_vec();
+        let worlds = b"worlds".to_vec();
+
+        let masked_hello = JsonMasquerader::new().mask(&hello).unwrap();
+        let masked_worlds = JsonMasquerader::new().mask(&worlds).unwrap();
+
         thread::spawn(move || {
             let system = System::new("test");
             let subject = StreamHandlerPool::new(vec! ());
@@ -1107,21 +1141,20 @@ mod tests {
                 connection_info,
                 None,
                 PortConfiguration::new(vec!(Box::new(HttpRequestDiscriminatorFactory::new())), true),
-                Box::new(NullMasquerader::new())
             )).unwrap();
 
             subject_subs.transmit_sub.try_send(TransmitDataMsg {
                 endpoint: Endpoint::Socket(peer_addr),
                 last_data: false,
-                sequence_number: Some(0),
-                data: b"hello".to_vec()
+                sequence_number: None,
+                data: hello
             }).unwrap();
 
             subject_subs.transmit_sub.try_send(TransmitDataMsg {
                 endpoint: Endpoint::Socket(peer_addr),
                 last_data: false,
-                sequence_number: Some(0),
-                data: b"worlds".to_vec()
+                sequence_number: None,
+                data: worlds
             }).unwrap();
 
             system.run();
@@ -1130,7 +1163,57 @@ mod tests {
         await_messages(2, &write_stream_params_arc);
         let mut sw_to_stream_params = write_stream_params_arc.lock().unwrap();
         assert_eq!(sw_to_stream_params.len(), 2);
-        assert_eq!(sw_to_stream_params.remove(0), b"hello".to_vec());
-        assert_eq!(sw_to_stream_params.remove(0), b"worlds".to_vec());
+        assert_eq!(sw_to_stream_params.remove(0), masked_hello);
+        assert_eq!(sw_to_stream_params.remove(0), masked_worlds);
+    }
+
+    #[test]
+    fn stream_handler_pool_drops_data_when_masking_fails() {
+        init_test_logging();
+        let reader = ReadHalfWrapperMock::new ()
+            .poll_read_result(vec! (), Ok (Async::NotReady));
+        let writer = WriteHalfWrapperMock::new ()
+            .poll_write_result(Ok (Async::NotReady));
+        let local_addr = SocketAddr::from_str("1.2.3.4:6789").unwrap();
+        let peer_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
+
+        thread::spawn(move || {
+            let system = System::new("test");
+            let mut subject = StreamHandlerPool::new(vec! ());
+            subject.traffic_analyzer = Box::new(TrafficAnalyzerMock{});
+
+            let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
+            let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
+            let peer_actors = make_peer_actors();
+            subject_subs.bind.try_send(PoolBindMessage {
+                dispatcher_subs: peer_actors.dispatcher,
+                stream_handler_pool_subs: subject_subs.clone(),
+                neighborhood_subs: peer_actors.neighborhood,
+            }).unwrap();
+
+            let connection_info = ConnectionInfo {
+                reader: Box::new (reader),
+                writer: Box::new (writer),
+                local_addr,
+                peer_addr,
+            };
+
+            subject_subs.add_sub.try_send(AddStreamMsg::new (
+                connection_info,
+                None,
+                PortConfiguration::new(vec!(Box::new(HttpRequestDiscriminatorFactory::new())), true),
+            )).unwrap();
+
+            subject_subs.transmit_sub.try_send(TransmitDataMsg {
+                endpoint: Endpoint::Socket(peer_addr),
+                last_data: false,
+                sequence_number: None,
+                data: b"hello".to_vec()
+            }).unwrap();
+
+            system.run();
+        });
+
+        TestLogHandler::new().await_log_containing("Masking failed for 1.2.3.5:6789: Low-level data error: don't care. Discarding 5 bytes.", 1000);
     }
 }

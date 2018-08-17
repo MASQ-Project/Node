@@ -10,7 +10,6 @@ use utils;
 pub struct SequencedPacket {
     pub data: Vec<u8>,
     pub sequence_number: u64,
-    pub last_data: bool
 }
 
 impl Ord for SequencedPacket {
@@ -33,7 +32,6 @@ impl<'a> From<&'a ClientRequestPayload> for SequencedPacket {
         SequencedPacket::new(
             crp.data.data.clone(),
             crp.sequence_number,
-            crp.last_data
         )
     }
 }
@@ -43,17 +41,15 @@ impl<'a> From<&'a TransmitDataMsg> for SequencedPacket {
         SequencedPacket::new(
             tdm.data.clone(),
             tdm.sequence_number.unwrap_or(0),
-            tdm.last_data
         )
     }
 }
 
 impl SequencedPacket {
-    pub fn new(data: Vec<u8>, sequence_number: u64, last_data: bool) -> SequencedPacket {
+    pub fn new(data: Vec<u8>, sequence_number: u64) -> SequencedPacket {
         SequencedPacket {
             data,
             sequence_number,
-            last_data
         }
     }
 }
@@ -150,7 +146,6 @@ mod tests {
 
         assert_eq!(result.data, vec![1, 2, 3, 5]);
         assert_eq!(result.sequence_number, 2);
-        assert!(result.last_data, true);
     }
 
     #[test] // TODO: This is probably not the right thing to do; see SC-390
@@ -180,16 +175,15 @@ mod tests {
 
         assert_eq!(result.data, vec![1, 4, 5, 9]);
         assert_eq!(result.sequence_number, 1);
-        assert!(result.last_data);
     }
 
     #[test]
     fn sequence_buffer_reorders_out_of_order_sequenced_packets() {
-        let a = SequencedPacket::new(vec!(1, 23, 6, 5), 0, false);
-        let b = SequencedPacket::new(vec!(5, 9, 1, 2, 5), 1, false);
-        let c = SequencedPacket::new(vec!(1, 1, 1, 1, 0), 2, false);
-        let d = SequencedPacket::new(vec!(32, 41, 0, 5, 1, 2, 6), 3, false);
-        let e = SequencedPacket::new(vec!(), 4, true);
+        let a = SequencedPacket::new(vec!(1, 23, 6, 5), 0);
+        let b = SequencedPacket::new(vec!(5, 9, 1, 2, 5), 1);
+        let c = SequencedPacket::new(vec!(1, 1, 1, 1, 0), 2);
+        let d = SequencedPacket::new(vec!(32, 41, 0, 5, 1, 2, 6), 3);
+        let e = SequencedPacket::new(vec!(), 4);
 
         let mut subject = SequenceBuffer::new();
 
@@ -209,11 +203,11 @@ mod tests {
 
     #[test]
     fn sequence_buffer_returns_none_while_waiting_for_next_ordered_sequenced_packet() {
-        let a = SequencedPacket::new(vec!(1, 23, 6, 5), 0, false);
-        let b = SequencedPacket::new(vec!(5, 9, 1, 2, 5), 1, false);
-        let c = SequencedPacket::new(vec!(1, 1, 1, 1, 0), 2, false);
-        let d = SequencedPacket::new(vec!(32, 41, 0, 5, 1, 2, 6), 3, false);
-        let e = SequencedPacket::new(vec!(), 4, true);
+        let a = SequencedPacket::new(vec!(1, 23, 6, 5), 0);
+        let b = SequencedPacket::new(vec!(5, 9, 1, 2, 5), 1);
+        let c = SequencedPacket::new(vec!(1, 1, 1, 1, 0), 2);
+        let d = SequencedPacket::new(vec!(32, 41, 0, 5, 1, 2, 6), 3);
+        let e = SequencedPacket::new(vec!(), 4);
 
         let mut subject = SequenceBuffer::new();
 
@@ -236,12 +230,12 @@ mod tests {
 
     #[test]
     fn sequence_buffer_ignores_packets_with_duplicate_sequence_numbers() {
-        let a = SequencedPacket::new(vec!(1, 23, 6, 5), 0, false);
-        let b = SequencedPacket::new(vec!(5, 9, 1, 2, 5), 1, false);
-        let b_dup = SequencedPacket::new(vec!(6, 8, 2, 3, 6), 1, false);
-        let c = SequencedPacket::new(vec!(1, 1, 1, 1, 0), 2, false);
-        let d = SequencedPacket::new(vec!(32, 41, 0, 5, 1, 2, 6), 3, false);
-        let e = SequencedPacket::new(vec!(), 4, true);
+        let a = SequencedPacket::new(vec!(1, 23, 6, 5), 0);
+        let b = SequencedPacket::new(vec!(5, 9, 1, 2, 5), 1);
+        let b_dup = SequencedPacket::new(vec!(6, 8, 2, 3, 6), 1);
+        let c = SequencedPacket::new(vec!(1, 1, 1, 1, 0), 2);
+        let d = SequencedPacket::new(vec!(32, 41, 0, 5, 1, 2, 6), 3);
+        let e = SequencedPacket::new(vec!(), 4);
 
         let mut subject = SequenceBuffer::new();
 
@@ -266,12 +260,12 @@ mod tests {
 
     #[test]
     fn sequence_buffer_ignores_delayed_duplicate_sequence_number() {
-        let a = SequencedPacket::new(vec!(1, 23, 6, 5), 0, false);
-        let b = SequencedPacket::new(vec!(5, 9, 1, 2, 5), 1, false);
-        let b_dup = SequencedPacket::new(vec!(6, 8, 2, 3, 6), 1, false);
-        let c = SequencedPacket::new(vec!(1, 1, 1, 1, 0), 2, false);
-        let d = SequencedPacket::new(vec!(32, 41, 0, 5, 1, 2, 6), 3, false);
-        let e = SequencedPacket::new(vec!(), 4, true);
+        let a = SequencedPacket::new(vec!(1, 23, 6, 5), 0);
+        let b = SequencedPacket::new(vec!(5, 9, 1, 2, 5), 1);
+        let b_dup = SequencedPacket::new(vec!(6, 8, 2, 3, 6), 1);
+        let c = SequencedPacket::new(vec!(1, 1, 1, 1, 0), 2);
+        let d = SequencedPacket::new(vec!(32, 41, 0, 5, 1, 2, 6), 3);
+        let e = SequencedPacket::new(vec!(), 4);
 
         let mut subject = SequenceBuffer::new();
 
@@ -295,7 +289,7 @@ mod tests {
 
     #[test]
     fn sequence_buffer_does_not_explode_when_popping_a_packet_that_seems_unseen() {
-        let a = SequencedPacket::new(vec!(1, 2, 3), 0, false);
+        let a = SequencedPacket::new(vec!(1, 2, 3), 0);
         let mut subject = SequenceBuffer::new();
         subject.push(a.clone());
         subject.seen_sequence_numbers.clear();
@@ -308,9 +302,9 @@ mod tests {
     #[test]
     fn sequence_buffer_can_re_add_a_popped_packet() {
         let mut subject = SequenceBuffer::new();
-        let a = SequencedPacket::new(vec!(1, 23, 6, 5), 1, false);
-        let b = SequencedPacket::new(vec!(5, 9, 1, 2, 5), 2, false);
-        let c = SequencedPacket::new(vec!(5, 9, 1, 2, 5), 0, false);
+        let a = SequencedPacket::new(vec!(1, 23, 6, 5), 1);
+        let b = SequencedPacket::new(vec!(5, 9, 1, 2, 5), 2);
+        let c = SequencedPacket::new(vec!(5, 9, 1, 2, 5), 0);
 
         subject.push(a);
         subject.push(b);
@@ -326,9 +320,9 @@ mod tests {
     #[should_panic(expected = "improper use of repush")]
     fn repush_panics_if_repushee_sequence_number_is_too_low() {
         let mut subject = SequenceBuffer::new();
-        let a = SequencedPacket::new(vec!(1, 23, 6, 5), 1, false);
-        let b = SequencedPacket::new(vec!(5, 9, 1, 2, 5), 2, false);
-        let c = SequencedPacket::new(vec!(5, 9, 1, 2, 5), 0, false);
+        let a = SequencedPacket::new(vec!(1, 23, 6, 5), 1);
+        let b = SequencedPacket::new(vec!(5, 9, 1, 2, 5), 2);
+        let c = SequencedPacket::new(vec!(5, 9, 1, 2, 5), 0);
 
         subject.push(a);
         subject.push(b);
@@ -343,10 +337,10 @@ mod tests {
     fn repush_does_not_interfere_with_ignoring_duplicate_sequence_numbers() {
         let mut subject = SequenceBuffer::new();
 
-        let a = SequencedPacket::new(vec!(4, 5, 6), 0, false);
-        let b = SequencedPacket::new(vec!(89), 1, false);
-        let b_imposter = SequencedPacket::new(vec!(254, 5, 7), 1, false);
-        let c = SequencedPacket::new(vec!(89), 2, false);
+        let a = SequencedPacket::new(vec!(4, 5, 6), 0);
+        let b = SequencedPacket::new(vec!(89), 1);
+        let b_imposter = SequencedPacket::new(vec!(254, 5, 7), 1);
+        let c = SequencedPacket::new(vec!(89), 2);
 
         subject.push(a.clone());
         subject.push(b.clone());

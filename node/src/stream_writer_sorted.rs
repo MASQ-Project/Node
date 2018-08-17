@@ -7,7 +7,6 @@ use sub_lib::logger::Logger;
 use sub_lib::sequence_buffer::SequenceBuffer;
 use sub_lib::tokio_wrappers::WriteHalfWrapper;
 use sub_lib::utils::indicates_dead_stream;
-use masquerader::Masquerader;
 use sub_lib::sequence_buffer::SequencedPacket;
 
 pub struct StreamWriterSorted {
@@ -15,7 +14,6 @@ pub struct StreamWriterSorted {
     stream_key: StreamKey,
     rx_to_write: Box<ReceiverWrapper<SequencedPacket>>,
     logger: Logger,
-    masquerader: Box<Masquerader>,
     sequence_buffer: SequenceBuffer,
 }
 
@@ -40,7 +38,7 @@ impl Future for StreamWriterSorted {
 }
 
 impl StreamWriterSorted {
-    pub fn new (stream: Box<WriteHalfWrapper>, socket_addr: StreamKey, rx_to_write: Box<ReceiverWrapper<SequencedPacket>>, writer_config: Box<Masquerader>) -> StreamWriterSorted {
+    pub fn new (stream: Box<WriteHalfWrapper>, socket_addr: StreamKey, rx_to_write: Box<ReceiverWrapper<SequencedPacket>>) -> StreamWriterSorted {
         let name = format! ("StreamWriter for {}", socket_addr);
         let logger = Logger::new (&name[..]);
         StreamWriterSorted {
@@ -48,7 +46,6 @@ impl StreamWriterSorted {
             stream_key: socket_addr,
             rx_to_write,
             logger,
-            masquerader: writer_config,
             sequence_buffer: SequenceBuffer::new(),
         }
     }
@@ -71,12 +68,7 @@ impl StreamWriterSorted {
             Some(_) => None,
         } {
             loop { // this inner loop allows retries for non-dead-stream errors
-                let mask_result = self.masquerader.mask(packet.data.as_slice());
-                let write_result = match mask_result {
-                    Err(_) => unimplemented!("Masking failed"), // TODO should the stream be shut down, or should we allow the recipient to request a retry? // TODO FIXME this will allow silently dropped sequenced packets: the writer will continue to write the remaining packets, which is a problem
-                    Ok(masked_data) => self.stream.poll_write(&masked_data)
-                };
-                match write_result {
+                match self.stream.poll_write(&packet.data) {
                     Err(e) => {
                         if indicates_dead_stream(e.kind()) {
                             self.logger.error(format!("Error writing {} bytes to {}: {}", packet.data.len(), self.stream_key, e));
@@ -125,20 +117,17 @@ mod tests {
     use std::sync::Mutex;
     use test_utils::channel_wrapper_mocks::ReceiverWrapperMock;
     use test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
-    use null_masquerader::NullMasquerader;
-    use json_masquerader::JsonMasquerader;
     use std::io::ErrorKind;
     use test_utils::logging::init_test_logging;
     use sub_lib::sequence_buffer::SequencedPacket;
     use test_utils::logging::TestLogHandler;
-    use node_test_utils::FailingMasquerader;
 
     #[test]
     fn stream_writer_returns_not_ready_when_the_stream_is_not_ready() {
         let mut rx = Box::new(ReceiverWrapperMock::new());
         rx.poll_results = vec!(
-            Ok(Async::Ready(Some(SequencedPacket::new(b"hello".to_vec(), 0, false)))),
-            Ok(Async::Ready(Some(SequencedPacket::new(b"world".to_vec(), 1, false)))),
+            Ok(Async::Ready(Some(SequencedPacket::new(b"hello".to_vec(), 0)))),
+            Ok(Async::Ready(Some(SequencedPacket::new(b"world".to_vec(), 1)))),
             Ok(Async::Ready(None)),
         );
 
@@ -151,7 +140,7 @@ mod tests {
         let write_params = writer.poll_write_params.clone();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
-        let mut subject = StreamWriterSorted::new(Box::new(writer), peer_addr, rx, Box::new(NullMasquerader::new()));
+        let mut subject = StreamWriterSorted::new(Box::new(writer), peer_addr, rx);
 
         let result = subject.poll();
 
@@ -174,7 +163,7 @@ mod tests {
         };
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
-        let mut subject = StreamWriterSorted::new(Box::new(writer), peer_addr, rx, Box::new(NullMasquerader::new()));
+        let mut subject = StreamWriterSorted::new(Box::new(writer), peer_addr, rx);
 
         let result = subject.poll();
 
@@ -186,8 +175,8 @@ mod tests {
         init_test_logging();
         let mut rx = Box::new(ReceiverWrapperMock::new());
         rx.poll_results = vec!(
-            Ok(Async::Ready(Some(SequencedPacket::new(b"hello".to_vec(), 0, false)))),
-            Ok(Async::Ready(Some(SequencedPacket::new(b"world".to_vec(), 0, false)))),
+            Ok(Async::Ready(Some(SequencedPacket::new(b"hello".to_vec(), 0)))),
+            Ok(Async::Ready(Some(SequencedPacket::new(b"world".to_vec(), 0)))),
             Ok(Async::NotReady),
         );
         let writer = WriteHalfWrapperMock {
@@ -199,7 +188,7 @@ mod tests {
         let write_params = writer.poll_write_params.clone();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
-        let mut subject = StreamWriterSorted::new(Box::new(writer), peer_addr.clone(), rx, Box::new(NullMasquerader::new()));
+        let mut subject = StreamWriterSorted::new(Box::new(writer), peer_addr.clone(), rx);
 
         let result = subject.poll();
 
@@ -213,8 +202,8 @@ mod tests {
         init_test_logging();
         let mut rx = Box::new(ReceiverWrapperMock::new());
         rx.poll_results = vec!(
-            Ok(Async::Ready(Some(SequencedPacket::new(b"hello".to_vec(), 0, false)))),
-            Ok(Async::Ready(Some(SequencedPacket::new(b"world".to_vec(), 1, false)))),
+            Ok(Async::Ready(Some(SequencedPacket::new(b"hello".to_vec(), 0)))),
+            Ok(Async::Ready(Some(SequencedPacket::new(b"world".to_vec(), 1)))),
             Ok(Async::NotReady),
         );
         let writer = WriteHalfWrapperMock {
@@ -228,7 +217,7 @@ mod tests {
         let write_params = writer.poll_write_params.clone();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
-        let mut subject = StreamWriterSorted::new(Box::new(writer), peer_addr.clone(), rx, Box::new(NullMasquerader::new()));
+        let mut subject = StreamWriterSorted::new(Box::new(writer), peer_addr.clone(), rx);
 
         subject.poll().unwrap();
 
@@ -242,8 +231,8 @@ mod tests {
         let second_data = b"world";
         let mut rx = Box::new(ReceiverWrapperMock::new());
         rx.poll_results = vec!(
-            Ok(Async::Ready(Some(SequencedPacket::new(first_data.to_vec(), 0, false)))),
-            Ok(Async::Ready(Some(SequencedPacket::new(second_data.to_vec(), 1, false)))),
+            Ok(Async::Ready(Some(SequencedPacket::new(first_data.to_vec(), 0)))),
+            Ok(Async::Ready(Some(SequencedPacket::new(second_data.to_vec(), 1)))),
             Ok(Async::NotReady)
         );
         let writer = WriteHalfWrapperMock {
@@ -256,7 +245,7 @@ mod tests {
         let write_params = writer.poll_write_params.clone();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
-        let mut subject = StreamWriterSorted::new(Box::new(writer), peer_addr.clone(), rx, Box::new(NullMasquerader::new()));
+        let mut subject = StreamWriterSorted::new(Box::new(writer), peer_addr.clone(), rx);
 
         let result = subject.poll();
 
@@ -275,9 +264,9 @@ mod tests {
         let third_data = b"!";
         let mut rx = Box::new(ReceiverWrapperMock::new());
         rx.poll_results = vec!(
-            Ok(Async::Ready(Some(SequencedPacket::new(third_data.to_vec(), 2, false)))),
-            Ok(Async::Ready(Some(SequencedPacket::new(second_data.to_vec(), 1, false)))),
-            Ok(Async::Ready(Some(SequencedPacket::new(first_data.to_vec(), 0, false)))),
+            Ok(Async::Ready(Some(SequencedPacket::new(third_data.to_vec(), 2)))),
+            Ok(Async::Ready(Some(SequencedPacket::new(second_data.to_vec(), 1)))),
+            Ok(Async::Ready(Some(SequencedPacket::new(first_data.to_vec(), 0)))),
             Ok(Async::NotReady)
         );
         let writer = WriteHalfWrapperMock {
@@ -291,7 +280,7 @@ mod tests {
         let write_params = writer.poll_write_params.clone();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
-        let mut subject = StreamWriterSorted::new(Box::new(writer), peer_addr.clone(), rx, Box::new(NullMasquerader::new()));
+        let mut subject = StreamWriterSorted::new(Box::new(writer), peer_addr.clone(), rx);
 
         let result = subject.poll();
 
@@ -310,8 +299,8 @@ mod tests {
         let second_data = b"worlds";
         let mut rx = Box::new(ReceiverWrapperMock::new());
         rx.poll_results = vec!(
-            Ok(Async::Ready(Some(SequencedPacket::new(first_data.to_vec(), 0, false)))),
-            Ok(Async::Ready(Some(SequencedPacket::new(second_data.to_vec(), 1, false)))),
+            Ok(Async::Ready(Some(SequencedPacket::new(first_data.to_vec(), 0)))),
+            Ok(Async::Ready(Some(SequencedPacket::new(second_data.to_vec(), 1)))),
             Ok(Async::NotReady)
         );
         let writer = WriteHalfWrapperMock {
@@ -326,7 +315,7 @@ mod tests {
         let write_params = writer.poll_write_params.clone();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
-        let mut subject = StreamWriterSorted::new(Box::new(writer), peer_addr.clone(), rx, Box::new(NullMasquerader::new()));
+        let mut subject = StreamWriterSorted::new(Box::new(writer), peer_addr.clone(), rx);
 
         let result = subject.poll();
 
@@ -343,7 +332,7 @@ mod tests {
     fn stream_writer_exits_if_channel_is_closed() {
         let mut rx = Box::new(ReceiverWrapperMock::new());
         rx.poll_results = vec!(
-            Ok(Async::Ready(Some(SequencedPacket::new(b"hello".to_vec(), 0, false)))),
+            Ok(Async::Ready(Some(SequencedPacket::new(b"hello".to_vec(), 0)))),
             Ok(Async::Ready(None))
         );
         let writer = WriteHalfWrapperMock {
@@ -355,7 +344,7 @@ mod tests {
         };
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
-        let mut subject = StreamWriterSorted::new(Box::new(writer), peer_addr.clone(), rx, Box::new(NullMasquerader::new()));
+        let mut subject = StreamWriterSorted::new(Box::new(writer), peer_addr.clone(), rx);
 
         let result = subject.poll();
 
@@ -375,7 +364,7 @@ mod tests {
         };
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
-        let mut subject = StreamWriterSorted::new(Box::new(writer), peer_addr.clone(), rx, Box::new(NullMasquerader::new()));
+        let mut subject = StreamWriterSorted::new(Box::new(writer), peer_addr.clone(), rx);
 
         subject.poll().unwrap();
     }
@@ -384,7 +373,7 @@ mod tests {
     fn stream_writer_reattempts_writing_packets_that_were_prevented_by_not_ready() {
         let mut rx = Box::new(ReceiverWrapperMock::new());
         rx.poll_results = vec!(
-            Ok(Async::Ready(Some(SequencedPacket::new(b"hello".to_vec(), 0, false)))),
+            Ok(Async::Ready(Some(SequencedPacket::new(b"hello".to_vec(), 0)))),
             Ok(Async::NotReady),
             Ok(Async::NotReady),
         );
@@ -399,7 +388,7 @@ mod tests {
         let write_params = writer.poll_write_params.clone();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
-        let mut subject = StreamWriterSorted::new(Box::new(writer), peer_addr, rx, Box::new(NullMasquerader::new()));
+        let mut subject = StreamWriterSorted::new(Box::new(writer), peer_addr, rx);
 
         let result = subject.poll();
         assert_eq!(result, Ok(Async::NotReady));
@@ -408,58 +397,5 @@ mod tests {
         assert_eq!(result, Ok(Async::NotReady));
 
         assert_eq!(write_params.lock().unwrap().len(), 2);
-    }
-
-    #[test]
-    fn stream_writer_uses_masquerader_to_mask_outgoing_data() {
-        let first_data = b"hello";
-        let second_data = b"world";
-        let mut rx_to_write = Box::new(ReceiverWrapperMock::new());
-        rx_to_write.poll_results = vec!(
-            Ok(Async::Ready(Some(SequencedPacket::new(first_data.to_vec(), 0, false)))),
-            Ok(Async::Ready(Some(SequencedPacket::new(second_data.to_vec(), 1, false)))),
-            Ok(Async::NotReady)
-        );
-        let writer = WriteHalfWrapperMock {
-            poll_write_params: Arc::new(Mutex::new(vec!())),
-            poll_write_results: vec!(
-                Ok(Async::Ready(first_data.len())),
-                Ok(Async::Ready(second_data.len())),
-            )
-        };
-        let write_params = writer.poll_write_params.clone();
-        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-
-        let mut subject = StreamWriterSorted::new(Box::new(writer), peer_addr.clone(), rx_to_write, Box::new(JsonMasquerader::new()));
-
-        let result = subject.poll();
-
-        assert_eq!(result.is_ok(), true);
-
-        let mut params = write_params.lock().unwrap();
-        assert_eq!(params.len(), 2);
-        let masquerader = JsonMasquerader::new();
-        assert_eq!(params.remove(0), masquerader.mask(first_data).unwrap());
-        assert_eq!(params.remove(0), masquerader.mask(second_data).unwrap());
-    }
-
-    #[test]
-    #[should_panic(expected="Masking failed")]
-    fn stream_writer_panics_when_masking_fails() {
-        let first_data = b"hello";
-        let mut rx_to_write = Box::new(ReceiverWrapperMock::new());
-        rx_to_write.poll_results = vec!(
-            Ok(Async::Ready(Some(SequencedPacket::new(first_data.to_vec(), 0, false)))),
-            Ok(Async::NotReady)
-        );
-        let writer = WriteHalfWrapperMock {
-            poll_write_params: Arc::new(Mutex::new(vec!())),
-            poll_write_results: vec!()
-        };
-        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-
-        let mut subject = StreamWriterSorted::new(Box::new(writer), peer_addr.clone(), rx_to_write, Box::new(FailingMasquerader {}));
-
-        let _result = subject.poll();
     }
 }

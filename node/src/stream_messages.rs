@@ -8,23 +8,20 @@ use sub_lib::dispatcher::DispatcherSubs;
 use sub_lib::neighborhood::NeighborhoodSubs;
 use stream_handler_pool::StreamHandlerPoolSubs;
 use sub_lib::stream_connector::ConnectionInfo;
-use masquerader::Masquerader;
 
 #[derive (Message)]
 pub struct AddStreamMsg {
     pub connection_info: ConnectionInfo,
     pub origin_port: Option<u16>,
     pub port_configuration: PortConfiguration,
-    pub writer_config: Box<Masquerader>,
 }
 
 impl AddStreamMsg {
-    pub fn new (connection_info: ConnectionInfo, origin_port: Option<u16>, port_configuration: PortConfiguration, writer_config: Box<Masquerader>) -> AddStreamMsg {
+    pub fn new (connection_info: ConnectionInfo, origin_port: Option<u16>, port_configuration: PortConfiguration) -> AddStreamMsg {
         AddStreamMsg {
             connection_info,
             origin_port,
             port_configuration,
-            writer_config
         }
     }
 }

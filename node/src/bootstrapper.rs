@@ -286,7 +286,6 @@ mod tests {
     use discriminator::Discriminator;
     use discriminator::UnmaskedChunk;
     use sub_lib::stream_connector::ConnectionInfo;
-    use null_masquerader::NullMasquerader;
 
     struct ListenerHandlerFactoryMock {
         log: TestLog,
@@ -780,19 +779,16 @@ mod tests {
             connection_info: connection_info1,
             origin_port: Some (80),
             port_configuration: PortConfiguration::new(vec!(), false),
-            writer_config: Box::new(NullMasquerader::new()),
         };
         let second_message = AddStreamMsg {
             connection_info: connection_info2,
             origin_port: None,
             port_configuration: PortConfiguration::new(vec!(), false),
-            writer_config: Box::new(NullMasquerader::new()),
         };
         let third_message = AddStreamMsg {
             connection_info: connection_info3,
             origin_port: Some (443),
             port_configuration: PortConfiguration::new(vec!(), false),
-            writer_config: Box::new(NullMasquerader::new()),
         };
         let one_listener_handler = ListenerHandlerNull::new (vec! (
             first_message, second_message

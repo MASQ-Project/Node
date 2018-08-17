@@ -15,9 +15,6 @@ use stream_messages::AddStreamMsg;
 use configuration::PortConfiguration;
 use sub_lib::stream_connector::StreamConnector;
 use sub_lib::stream_connector::StreamConnectorReal;
-use null_masquerader::NullMasquerader;
-use json_masquerader::JsonMasquerader;
-use masquerader::Masquerader;
 
 pub trait ListenerHandler: Send + Future {
     fn bind_port_and_configuration(&mut self, port: u16, port_configuration: PortConfiguration) -> io::Result<()>;
@@ -58,16 +55,11 @@ impl Future for ListenerHandlerReal {
             let result = self.listener.poll_accept();
             match result {
                 Ok(Async::Ready((stream, _socket_addr))) => {
-                    let writer_masquerader: Box<Masquerader> = match self.port_configuration.as_ref().expect("Internal error: port_configuration is None").is_clandestine {
-                        true => Box::new(JsonMasquerader::new()),
-                        false => Box::new(NullMasquerader::new())
-                    };
                     self.add_stream_sub.as_ref().expect("Internal error: StreamHandlerPool unbound")
                         .try_send(AddStreamMsg::new(
                             StreamConnectorReal {}.split_stream(stream, &self.logger),
                             self.port,
                             self.port_configuration.as_ref().expect("Internal error: port_configuration is None").clone(),
-                            writer_masquerader,
                         )).expect("Internal error: StreamHandlerPool is dead");
                 },
                 Err(e) => {
