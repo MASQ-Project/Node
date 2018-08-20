@@ -110,11 +110,10 @@ fn bootstrap_node_receives_gossip_and_broadcasts_result () {
     another_standard_node.transmit_package (5550, another_cores_package, &masquerader, &subject.public_key (),
         subject.socket_addr (PortSelector::First)).unwrap ();
 
-// TODO: Bring these back in when SC-390 is finished.
-//    let (_, _, one_gossip_response) = one_standard_node.wait_for_package(&masquerader, timeout).unwrap ();
-//    verify_three_node_gossip(one_gossip_response, &subject, &one_standard_node, &another_standard_node);
+    let (_, _, one_gossip_response) = one_standard_node.wait_for_package(&masquerader, timeout).unwrap ();
+    verify_three_node_gossip_for_first_node(one_gossip_response, &subject, &one_standard_node, &another_standard_node);
     let (_, _, another_gossip_response) = another_standard_node.wait_for_package(&masquerader, timeout).unwrap ();
-    verify_three_node_gossip(another_gossip_response, &subject, &another_standard_node, &one_standard_node);
+    verify_three_node_gossip_for_second_node(another_gossip_response, &subject, &another_standard_node, &one_standard_node);
 }
 
 fn make_gossip_cores_package (from: Key, to: Key, gossip: Gossip, source_cryptde: &CryptDE) -> IncipientCoresPackage {
@@ -125,14 +124,35 @@ fn make_gossip_cores_package (from: Key, to: Key, gossip: Gossip, source_cryptde
     )
 }
 
-fn verify_three_node_gossip (package: ExpiredCoresPackage, subject: &SubstratumRealNode,
-                             recipient: &SubstratumMockNode, foreigner: &SubstratumMockNode) {
+fn verify_three_node_gossip_for_first_node(package: ExpiredCoresPackage, subject: &SubstratumRealNode,
+                                            recipient: &SubstratumMockNode, foreigner: &SubstratumMockNode) {
     let payload: Gossip = package.payload ().unwrap ();
+    verify_bootstrap_connected_node(&payload, subject, recipient);
+    verify_bi_connected_nodes(&payload, recipient, foreigner);
+    assert_eq! (payload.neighbor_pairs.len (), 3);
+}
+
+fn verify_three_node_gossip_for_second_node(package: ExpiredCoresPackage, subject: &SubstratumRealNode,
+                                            recipient: &SubstratumMockNode, foreigner: &SubstratumMockNode) {
+    let payload: Gossip = package.payload ().unwrap ();
+    verify_bootstrap_connected_node(&payload, subject, foreigner);
+    verify_bi_connected_nodes(&payload, recipient, foreigner);
+    assert_eq! (payload.neighbor_pairs.len (), 3);
+}
+
+fn verify_bootstrap_connected_node(payload: &Gossip, subject: &SubstratumRealNode,
+                                   bootstrap_connected_node: &SubstratumMockNode) {
     let subject_index = find (&payload.node_records, GossipNodeRecord {
         public_key: subject.public_key (),
         node_addr_opt: Some (subject.node_addr ()),
         is_bootstrap_node: true
     });
+    let bootstrap_connected_index = find_node_by_key (&payload.node_records, bootstrap_connected_node.public_key ());
+
+    assert_relationship_present (&payload, subject_index, "subject", bootstrap_connected_index, "bootstrap_connected_node");
+}
+
+fn verify_bi_connected_nodes (payload: &Gossip, recipient: &SubstratumMockNode, foreigner: &SubstratumMockNode) {
     let recipient_index = find (&payload.node_records, GossipNodeRecord {
         public_key: recipient.public_key (),
         node_addr_opt: None,
@@ -143,10 +163,8 @@ fn verify_three_node_gossip (package: ExpiredCoresPackage, subject: &SubstratumR
         node_addr_opt: Some (foreigner.node_addr ()),
         is_bootstrap_node: false
     });
-    assert_relationship_present (&payload, subject_index, "subject", foreigner_index, "foreigner");
     assert_relationship_present (&payload, recipient_index, "recipient", foreigner_index, "foreigner");
     assert_relationship_present (&payload, foreigner_index, "foreigner", recipient_index, "recipient");
-    assert_eq! (payload.neighbor_pairs.len (), 3);
 }
 
 fn find (haystack: &Vec<GossipNodeRecord>, needle: GossipNodeRecord) -> usize {
@@ -157,6 +175,16 @@ fn find (haystack: &Vec<GossipNodeRecord>, needle: GossipNodeRecord) -> usize {
         }
     }
     panic! ("{:?} did not contain {:?}", haystack, needle)
+}
+
+fn find_node_by_key (haystack: &Vec<GossipNodeRecord>, needle: Key) -> usize {
+    for i in 0..haystack.len () {
+        let candidate = &haystack[i];
+        if candidate.public_key == needle {
+            return i
+        }
+    }
+    panic! ("{:?} did not contain GossipNodeRecord with Key {:?}", haystack, needle)
 }
 
 fn assert_relationship_present (payload: &Gossip, from_idx: usize, from_name: &str, to_idx: usize, to_name: &str) {

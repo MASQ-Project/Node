@@ -118,7 +118,7 @@ mod tests {
     #[test]
     fn adding_three_good_single_node_gossips_and_one_bad_one_produces_expected_database_pattern () {
         init_test_logging ();
-        let this_node = make_node_record(1234, true, false);
+        let this_node = make_node_record(1234, true, true);
         let first_node = make_node_record(2345, true, false);
         let second_node = make_node_record(3456, true, false);
         let third_node = make_node_record(4567, true, false);
