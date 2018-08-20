@@ -212,8 +212,8 @@ mod tests {
             (from, to)
         }).collect();
 
-        assert_eq!(neighbor_connections.contains(&(GossipNodeRecord::from(&target, false),
-                                                     GossipNodeRecord::from(&first_neighbor, true))), true, "{:?}", neighbor_connections);
+        assert_eq!(neighbor_connections.contains(&(GossipNodeRecord::from(&first_neighbor, true),
+                                                     GossipNodeRecord::from(&target, false))), true, "{:?}", neighbor_connections);
         assert_eq!(neighbor_connections.contains(&(GossipNodeRecord::from(&target, false),
                                                      GossipNodeRecord::from(&second_neighbor, true))), true, "{:?}", neighbor_connections);
 
