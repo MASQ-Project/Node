@@ -25,6 +25,7 @@ use std::net::UdpSocket;
 use std::net::SocketAddr;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
+use sub_lib::neighborhood::RouteQueryResponse;
 
 lazy_static! {
     static ref CRYPT_DE_NULL: CryptDENull = CryptDENull::new ();
@@ -185,7 +186,7 @@ pub fn make_meaningless_route () -> Route {
 }
 
 pub fn route_to_proxy_client (key: &Key, cryptde: &CryptDE) -> Route {
-    shift_one_hop(zero_hop_route(key, cryptde), cryptde)
+    shift_one_hop(zero_hop_route_response(key, cryptde).route, cryptde)
 }
 
 pub fn route_from_proxy_client (key: &Key, cryptde: &CryptDE) -> Route {
@@ -197,11 +198,14 @@ pub fn route_to_proxy_server (key: &Key, cryptde: &CryptDE) -> Route {
     shift_one_hop(route_from_proxy_client(key, cryptde), cryptde)
 }
 
-pub fn zero_hop_route(public_key: &Key, cryptde: &CryptDE) -> Route {
-    Route::new(vec! (
-        RouteSegment::new(vec! (public_key, public_key), Component::ProxyClient),
-        RouteSegment::new(vec! (public_key, public_key), Component::ProxyServer)
-    ), cryptde).unwrap()
+pub fn zero_hop_route_response(public_key: &Key, cryptde: &CryptDE) -> RouteQueryResponse {
+    RouteQueryResponse {
+        route: Route::new(vec!(
+            RouteSegment::new(vec!(public_key, public_key), Component::ProxyClient),
+            RouteSegment::new(vec!(public_key, public_key), Component::ProxyServer)
+        ), cryptde).unwrap(),
+        segment_endpoints: vec!(public_key.clone(), public_key.clone()),
+    }
 }
 
 fn shift_one_hop(mut route: Route, cryptde: &CryptDE) -> Route {
@@ -256,13 +260,14 @@ mod tests {
         let cryptde = CryptDENull::new();
         let key = cryptde.public_key();
 
-        let subject = zero_hop_route(&key, &cryptde);
+        let subject = zero_hop_route_response(&key, &cryptde);
 
-        assert_eq! (subject.hops, vec! (
+        assert_eq! (subject.route.hops, vec! (
             Hop::new (&key, Component::Hopper).encode (&key, &cryptde).unwrap (),
             Hop::new (&key, Component::ProxyClient).encode (&key, &cryptde).unwrap (),
             Hop::new (&Key::new(b""), Component::ProxyServer).encode (&key, &cryptde).unwrap (),
         ));
+        assert_eq! (subject.segment_endpoints, vec! (key.clone (), key));
     }
 
     #[test]

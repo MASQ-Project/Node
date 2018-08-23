@@ -154,7 +154,7 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
             let tx_opt = self.stream_writers.get_mut(&peer_addr).expect("StreamWriter magically disappeared");
             match tx_opt {
                 Some(tx_box) => {
-                    self.logger.debug (format! ("Transmitting {} bytes", msg.context.data.len ()));
+                    self.logger.debug (format! ("Masking {} bytes", msg.context.data.len ()));
 
                     let packet = if msg.context.sequence_number.is_none() {
                         let masquerader = self.traffic_analyzer.get_masquerader();
@@ -169,6 +169,7 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
                         SequencedPacket::from(&msg.context)
                     };
 
+                    let packet_len = packet.data.len ();
                     match tx_box.unbounded_send(packet) {
                         Err(_) => {
                             to_remove = true
@@ -178,7 +179,8 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
                                 to_remove = true;
                             }
                         }
-                    }
+                    };
+                    self.logger.debug (format! ("Queued {} bytes for transmission", packet_len));
                 },
                 None => { // a connection is already in progress. resubmit this message, to give the connection time to complete
                     self.logger.info(format!("INFO: connection for {} in progress, resubmitting {} bytes", peer_addr, msg.context.data.len()));

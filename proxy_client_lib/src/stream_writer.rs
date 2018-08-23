@@ -129,7 +129,7 @@ mod tests {
     use test_utils::channel_wrapper_mocks::ReceiverWrapperMock;
     use test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use test_utils::test_utils;
-    use test_utils::test_utils::zero_hop_route;
+    use test_utils::test_utils::zero_hop_route_response;
     use sub_lib::cryptde::CryptDE;
     use sub_lib::cryptde_null::CryptDENull;
     use sub_lib::cryptde::Key;
@@ -175,7 +175,7 @@ mod tests {
             ..crp_a.clone()
         };
 
-        let route_dont_care = zero_hop_route(&originator_public_key, &cryptde);
+        let route_dont_care = zero_hop_route_response(&originator_public_key, &cryptde).route;
 
         let ecp_c = ExpiredCoresPackage::new(route_dont_care.clone(), PlainData::new(&serde_cbor::ser::to_vec(&crp_b).unwrap()));
         let ecp_b = ExpiredCoresPackage::new(route_dont_care.clone(), PlainData::new(&serde_cbor::ser::to_vec(&crp_c).unwrap()));

@@ -105,8 +105,7 @@ pub enum PortSelector {
     Index(usize),
 }
 
-pub trait SubstratumNode: Drop + Any {
-    fn stop (&self);
+pub trait SubstratumNode: Any {
     fn name(&self) -> &str;
     fn node_reference(&self) -> NodeReference;
     fn public_key(&self) -> Key;

@@ -23,7 +23,6 @@ use sub_lib::route::Route;
 use sub_lib::route::RouteSegment;
 use sub_lib::dispatcher::Component;
 use sub_lib::hopper::IncipientCoresPackage;
-use sub_lib::hopper::ExpiredCoresPackage;
 use multinode_integration_tests_lib::substratum_node::PortSelector;
 use sub_lib::cryptde_null::CryptDENull;
 use multinode_integration_tests_lib::substratum_node::NodeReference;
@@ -93,7 +92,8 @@ fn server_relays_cores_package () {
     let incipient = IncipientCoresPackage::new (route.clone (), payload, &cryptde.public_key());
 
     client.transmit_package(incipient, &masquerader, cryptde.public_key());
-    let expired: ExpiredCoresPackage = server.wait_for_package (Duration::from_millis(1000));
+    let package = server.wait_for_package (Duration::from_millis(1000));
+    let expired = package.to_expired (server.cryptde ());
 
     route.shift (&cryptde.private_key (), cryptde);
     assert_eq! (expired.remaining_route, route);
@@ -120,8 +120,9 @@ fn one_mock_node_talks_to_another () {
 
     mock_node_1.transmit_package(5550, incipient_cores_package,  &masquerader, &mock_node_2.public_key (),
         mock_node_2.socket_addr(PortSelector::First)).unwrap ();
-    let (package_from, package_to, expired_cores_package) =
+    let (package_from, package_to, package) =
         mock_node_2.wait_for_package(&masquerader, Duration::from_millis (1000)).unwrap ();
+    let expired_cores_package = package.to_expired (mock_node_2.cryptde ());
 
     assert_eq!(package_from.ip (), mock_node_1.ip_address ());
     assert_eq!(package_to, mock_node_2.socket_addr(PortSelector::First));

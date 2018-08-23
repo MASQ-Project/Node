@@ -41,7 +41,8 @@ fn standard_node_sends_gossip_to_bootstrap_upon_startup () {
         .build ()
     );
 
-    let cores_package = server.wait_for_package(Duration::from_millis (1000));
+    let package = server.wait_for_package(Duration::from_millis (1000));
+    let cores_package = package.to_expired (server.cryptde());
     let gossip: Gossip = cores_package.payload ().unwrap ();
     let node_ref = subject.node_reference();
     find (&gossip.node_records, GossipNodeRecord {
@@ -83,7 +84,8 @@ fn bootstrap_node_receives_gossip_and_broadcasts_result () {
     one_standard_node.transmit_package (5550, one_cores_package, &masquerader, &subject.public_key (),
          subject.socket_addr (PortSelector::First)).unwrap ();
 
-    let (_, _, one_gossip_response) = one_standard_node.wait_for_package(&masquerader, timeout).unwrap ();
+    let (_, _, package) = one_standard_node.wait_for_package(&masquerader, timeout).unwrap ();
+    let one_gossip_response = package.to_expired (one_standard_node.cryptde());
     let one_gossip_response_payload: Gossip = one_gossip_response.payload ().unwrap ();
     let subject_index = find (&one_gossip_response_payload.node_records, GossipNodeRecord {
         public_key: subject.public_key (),
@@ -111,9 +113,9 @@ fn bootstrap_node_receives_gossip_and_broadcasts_result () {
         subject.socket_addr (PortSelector::First)).unwrap ();
 
     let (_, _, one_gossip_response) = one_standard_node.wait_for_package(&masquerader, timeout).unwrap ();
-    verify_three_node_gossip_for_first_node(one_gossip_response, &subject, &one_standard_node, &another_standard_node);
+    verify_three_node_gossip_for_first_node(one_gossip_response.to_expired (one_standard_node.cryptde()), &subject, &one_standard_node, &another_standard_node);
     let (_, _, another_gossip_response) = another_standard_node.wait_for_package(&masquerader, timeout).unwrap ();
-    verify_three_node_gossip_for_second_node(another_gossip_response, &subject, &another_standard_node, &one_standard_node);
+    verify_three_node_gossip_for_second_node(another_gossip_response.to_expired (another_standard_node.cryptde ()), &subject, &another_standard_node, &one_standard_node);
 }
 
 fn make_gossip_cores_package (from: Key, to: Key, gossip: Gossip, source_cryptde: &CryptDE) -> IncipientCoresPackage {

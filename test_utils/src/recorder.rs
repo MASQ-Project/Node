@@ -2,7 +2,6 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 use sub_lib::neighborhood::NodeDescriptor;
-use sub_lib::route::Route;
 use std::any::Any;
 use actix::Actor;
 use actix::Context;
@@ -30,11 +29,12 @@ use sub_lib::neighborhood::NeighborhoodSubs;
 use sub_lib::peer_actors::PeerActors;
 use sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use sub_lib::neighborhood::DispatcherNodeQueryMessage;
+use sub_lib::neighborhood::RouteQueryResponse;
 
 pub struct Recorder {
     recording: Arc<Mutex<Recording>>,
     node_query_responses: Vec<Option<NodeDescriptor>>,
-    route_query_responses: Vec<Option<Route>>,
+    route_query_responses: Vec<Option<RouteQueryResponse>>,
 }
 
 pub struct Recording {
@@ -111,7 +111,7 @@ impl Handler<RouteQueryMessage> for Recorder {
 
     fn handle(&mut self, msg: RouteQueryMessage, _ctx: &mut Self::Context) -> <Self as Handler<RouteQueryMessage>>::Result {
         self.record (msg);
-        MessageResult (extract_response (&mut self.route_query_responses, "No Routes prepared for RouteQueryMessage"))
+        MessageResult (extract_response (&mut self.route_query_responses, "No RouteQueryResponses prepared for RouteQueryMessage"))
     }
 }
 
@@ -170,7 +170,7 @@ impl Recorder {
         self
     }
 
-    pub fn route_query_response (mut self, response: Option<Route>) -> Recorder {
+    pub fn route_query_response (mut self, response: Option<RouteQueryResponse>) -> Recorder {
         self.route_query_responses.push (response);
         self
     }

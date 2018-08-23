@@ -101,6 +101,15 @@ mod tests {
     }
 
     #[test]
+    fn returns_host_name_from_header () {
+        let data = PlainData::new (b"OPTIONS /index.html HTTP/1.1\r\nHost: header.host.com\r\n\r\nbodybody");
+
+        let result = HttpProtocolPack{}.find_host_name (&data);
+
+        assert_eq! (result, Some (String::from ("header.host.com")));
+    }
+
+    #[test]
     fn returns_host_name_from_header_if_both_exist () {
         let data = PlainData::new (b"OPTIONS http://top.host.com/index.html HTTP/1.1\r\nHost: header.host.com\r\n\r\nbodybody");
 
@@ -143,5 +152,14 @@ mod tests {
         let result = HttpProtocolPack{}.find_host_name (&data);
 
         assert_eq! (result, Some (String::from ("top.host.com")));
+    }
+
+    #[test]
+    fn from_integration_test () {
+        let data = PlainData::new (b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
+
+        let result = HttpProtocolPack{}.find_host_name (&data);
+
+        assert_eq! (result, Some (String::from ("www.example.com")));
     }
 }

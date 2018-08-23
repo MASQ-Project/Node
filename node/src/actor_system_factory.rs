@@ -64,7 +64,7 @@ impl ActorSystemFactoryReal {
     fn prepare_initial_messages(cryptde: &'static CryptDE, config: BootstrapperConfig, actor_factory: Box<ActorFactory>, tx: Sender<StreamHandlerPoolSubs>) {
         // make all the actors
         let (dispatcher_subs, pool_bind_sub) = actor_factory.make_and_start_dispatcher();
-        let proxy_server_subs = actor_factory.make_and_start_proxy_server(cryptde);
+        let proxy_server_subs = actor_factory.make_and_start_proxy_server(cryptde, config.neighborhood_config.is_decentralized());
         let proxy_client_subs = actor_factory.make_and_start_proxy_client(cryptde, config.dns_servers);
         let hopper_subs = actor_factory.make_and_start_hopper(cryptde, config.neighborhood_config.is_bootstrap_node);
         let neighborhood_subs = actor_factory.make_and_start_neighborhood(cryptde, config.neighborhood_config);
@@ -104,7 +104,7 @@ impl ActorSystemFactoryReal {
 
 pub trait ActorFactory: Send {
     fn make_and_start_dispatcher(&self) -> (DispatcherSubs, Recipient<Syn, PoolBindMessage>);
-    fn make_and_start_proxy_server(&self, cryptde: &'static CryptDE) -> ProxyServerSubs;
+    fn make_and_start_proxy_server(&self, cryptde: &'static CryptDE, is_decentralized: bool) -> ProxyServerSubs;
     fn make_and_start_hopper(&self, cryptde: &'static CryptDE, is_bootstrap_node: bool) -> HopperSubs;
     fn make_and_start_neighborhood(&self, cryptde: &'static CryptDE, config: NeighborhoodConfig) -> NeighborhoodSubs;
     fn make_and_start_stream_handler_pool(&self, clandestine_discriminator_factories: Vec<Box<DiscriminatorFactory>>) -> StreamHandlerPoolSubs;
@@ -120,8 +120,8 @@ impl ActorFactory for ActorFactoryReal {
         (Dispatcher::make_subs_from(&addr), addr.recipient::<PoolBindMessage> ())
     }
 
-    fn make_and_start_proxy_server(&self, cryptde: &'static CryptDE) -> ProxyServerSubs {
-        let proxy_server = ProxyServer::new(cryptde);
+    fn make_and_start_proxy_server(&self, cryptde: &'static CryptDE, is_decentralized: bool) -> ProxyServerSubs {
+        let proxy_server = ProxyServer::new(cryptde, is_decentralized);
         let addr: Addr<Syn, ProxyServer> = proxy_server.start();
         ProxyServer::make_subs_from(&addr)
     }
@@ -201,8 +201,8 @@ mod tests {
             (dispatcher_subs, addr.recipient::<PoolBindMessage> ())
         }
 
-        fn make_and_start_proxy_server(&self, cryptde: &'a CryptDE) -> ProxyServerSubs {
-            self.parameters.proxy_server_params.lock ().unwrap ().get_or_insert (cryptde);
+        fn make_and_start_proxy_server(&self, cryptde: &'a CryptDE, is_decentralized: bool) -> ProxyServerSubs {
+            self.parameters.proxy_server_params.lock ().unwrap ().get_or_insert ((cryptde, is_decentralized));
             let addr: Addr<Syn, Recorder> = ActorFactoryMock::start_recorder (&self.proxy_server);
             ProxyServerSubs {
                 bind: addr.clone ().recipient::<BindMessage>(),
@@ -267,7 +267,7 @@ mod tests {
     #[derive (Clone)]
     struct Parameters<'a> {
         proxy_client_params: Arc<Mutex<Option<(&'a CryptDE, Vec<SocketAddr>)>>>,
-        proxy_server_params: Arc<Mutex<Option<&'a CryptDE>>>,
+        proxy_server_params: Arc<Mutex<Option<(&'a CryptDE, bool)>>>,
         hopper_params: Arc<Mutex<Option<(&'a CryptDE, bool)>>>,
         neighborhood_params: Arc<Mutex<Option<(&'a CryptDE, NeighborhoodConfig)>>>,
     }
@@ -388,7 +388,9 @@ mod tests {
         let (cryptde, dns_servers) = Parameters::get (parameters.proxy_client_params);
         check_cryptde (cryptde);
         assert_eq! (dns_servers, config.dns_servers);
-        check_cryptde (Parameters::get (parameters.proxy_server_params));
+        let (actual_cryptde, actual_is_decentralized) = Parameters::get (parameters.proxy_server_params);
+        check_cryptde (actual_cryptde);
+        assert_eq! (actual_is_decentralized, false);
         let (cryptde, neighborhood_config) = Parameters::get (parameters.neighborhood_params);
         check_cryptde (cryptde);
         assert_eq! (neighborhood_config, config.neighborhood_config);

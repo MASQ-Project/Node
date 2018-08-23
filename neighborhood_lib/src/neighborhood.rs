@@ -37,6 +37,7 @@ use sub_lib::neighborhood::sentinel_ip_addr;
 use sub_lib::neighborhood::DispatcherNodeQueryMessage;
 use sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use sub_lib::utils::plus;
+use sub_lib::neighborhood::RouteQueryResponse;
 
 pub struct Neighborhood {
     cryptde: &'static CryptDE,
@@ -152,15 +153,18 @@ impl Handler<RouteQueryMessage> for Neighborhood {
     type Result = MessageResult<RouteQueryMessage>;
 
     fn handle(&mut self, msg: RouteQueryMessage, _ctx: &mut Self::Context) -> <Self as Handler<RouteQueryMessage>>::Result {
-        if msg.minimum_hop_count == 0 {
-            MessageResult (Some (self.zero_hop_route ()))
+        let msg_str = format! ("{:?}", msg);
+        let result = if msg.minimum_hop_count == 0 {
+            Some (self.zero_hop_route_response())
         }
         else {
-            MessageResult (match msg.route_type {
+            match msg.route_type {
                 RouteType::OneWay => self.make_one_way_route(msg),
                 RouteType::RoundTrip => self.make_round_trip_route(msg)
-            })
-        }
+            }
+        };
+        self.logger.debug (format! ("Processed {} into {:?}", msg_str, result));
+        MessageResult (result)
     }
 }
 
@@ -272,22 +276,30 @@ impl Neighborhood {
         Route::new(vec! (RouteSegment::new(vec! (&self.cryptde.public_key(), destination), Component::Neighborhood)), self.cryptde).expect("route creation error")
     }
 
-    fn zero_hop_route (&self) -> Route {
-        Route::new(vec! (
+    fn zero_hop_route_response(&self) -> RouteQueryResponse {
+        let route = Route::new(vec! (
             RouteSegment::new(vec! (&self.cryptde.public_key(), &self.cryptde.public_key ()), Component::ProxyClient),
             RouteSegment::new(vec! (&self.cryptde.public_key(), &self.cryptde.public_key()), Component::ProxyServer)
-        ), self.cryptde).expect("Couldn't create route")
+        ), self.cryptde).expect("Couldn't create route");
+        RouteQueryResponse {route, segment_endpoints: vec! (self.cryptde.public_key (), self.cryptde.public_key ())}
     }
 
-    fn make_one_way_route (&self, msg: RouteQueryMessage) -> Option<Route> {
+    fn make_one_way_route (&self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
         match self.make_route_segment(&self.cryptde.public_key(), msg.target_key_opt.as_ref(), msg.target_type, msg.minimum_hop_count, msg.target_component) {
-            Some(segment) => Some (Route::new(vec! (segment), self.cryptde).expect("bad route")),
+            Some(segment) => {
+                let segment_endpoint = segment.keys.last ().expect ("empty segment").clone ();
+                Some (RouteQueryResponse {
+                    route: Route::new(vec! (segment), self.cryptde).expect("bad route"),
+                    segment_endpoints: vec! (segment_endpoint),
+                })
+            },
             None => None
         }
     }
 
-    fn make_round_trip_route (&self, msg: RouteQueryMessage) -> Option<Route> {
+    fn make_round_trip_route (&self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
         let local_target_type = if self.neighborhood_database.root().is_bootstrap_node() { TargetType::Bootstrap } else { TargetType::Standard };
+        let mut segment_endpoints: Vec<Key> = vec! ();
         if let Some(over) = self.make_route_segment(
             &self.cryptde.public_key(),
             msg.target_key_opt.as_ref(),
@@ -295,6 +307,8 @@ impl Neighborhood {
             msg.minimum_hop_count,
             msg.target_component
         ) {
+            segment_endpoints.push (over.keys.last ().expect ("empty segment").clone ());
+            self.logger.debug (format! ("Route over: {:?}", over));
             if let Some (back) = self.make_route_segment(
                 over.keys.last().expect("Empty segment"),
                 Some(&self.cryptde.public_key()),
@@ -302,7 +316,12 @@ impl Neighborhood {
                 msg.minimum_hop_count,
                 msg.return_component_opt.expect("No return component")
             ) {
-                return Some(Route::new(vec! (over, back), self.cryptde).expect("Bad route"));
+                segment_endpoints.push (back.keys.last ().expect ("empty segment").clone ());
+                self.logger.debug (format! ("Route back: {:?}", back));
+                return Some(RouteQueryResponse {
+                    route: Route::new(vec!(over, back), self.cryptde).expect("Bad route"),
+                    segment_endpoints,
+                })
             }
         }
         None
@@ -780,11 +799,14 @@ mod tests {
         Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run ();
         let result = future.wait ().unwrap ().unwrap ();
-        let expected_route = Route::new(vec! (
-            RouteSegment::new(vec! (&cryptde.public_key(), &cryptde.public_key()), Component::ProxyClient),
-            RouteSegment::new(vec! (&cryptde.public_key(), &cryptde.public_key()), Component::ProxyServer)
-        ), cryptde).unwrap ();
-        assert_eq! (result, expected_route);
+        let expected_response = RouteQueryResponse {
+            route: Route::new(vec!(
+                RouteSegment::new(vec!(&cryptde.public_key(), &cryptde.public_key()), Component::ProxyClient),
+                RouteSegment::new(vec!(&cryptde.public_key(), &cryptde.public_key()), Component::ProxyServer)
+            ), cryptde).unwrap(),
+            segment_endpoints: vec!(cryptde.public_key (), cryptde.public_key ()),
+        };
+        assert_eq! (result, expected_response);
     }
 
     /*
@@ -842,17 +864,23 @@ mod tests {
         };
 
         let result = gossip_route.wait ().unwrap ().unwrap ();
-        let expected_route = Route::new(vec! (
-            segment (vec! (p, q, r, s, b), Component::Neighborhood)
-        ), cryptde).unwrap ();
-        assert_eq! (result, expected_route);
+        let expected_response = RouteQueryResponse {
+            route: Route::new(vec!(
+                segment(vec!(p, q, r, s, b), Component::Neighborhood)
+            ), cryptde).unwrap(),
+            segment_endpoints: vec!(b.public_key ().clone ())
+        };
+        assert_eq! (result, expected_response);
 
         let result = data_route.wait ().unwrap ().unwrap ();
-        let expected_route = Route::new(vec! (
-            segment (vec! (p, q, r), Component::ProxyClient),
-            segment (vec! (r, q, p), Component::ProxyServer),
-        ), cryptde).unwrap ();
-        assert_eq! (result, expected_route);
+        let expected_response = RouteQueryResponse {
+            route: Route::new(vec!(
+                segment(vec!(p, q, r), Component::ProxyClient),
+                segment(vec!(r, q, p), Component::ProxyServer),
+            ), cryptde).unwrap(),
+            segment_endpoints: vec!(r.public_key ().clone (), p.public_key ().clone ())
+        };
+        assert_eq! (result, expected_response);
     }
 
     /*

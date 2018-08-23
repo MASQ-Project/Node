@@ -295,7 +295,7 @@ mod tests {
     use test_utils::test_utils::make_meaningless_route;
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
-    use test_utils::test_utils::zero_hop_route;
+    use test_utils::test_utils::zero_hop_route_response;
     use test_utils::recorder::make_recorder;
 
     #[test]
@@ -720,7 +720,7 @@ mod tests {
         let cryptde = cryptde();
         let (component, component_awaiter, component_recording_arc) = make_recorder();
         let destination_key = cryptde.public_key();
-        let route = zero_hop_route(&cryptde.public_key (), cryptde);
+        let route = zero_hop_route_response(&cryptde.public_key (), cryptde).route;
         let payload = PlainData::new (&b"abcd"[..]);
         let incipient_cores_package = IncipientCoresPackage::new (route,
                                                                   payload, &destination_key);

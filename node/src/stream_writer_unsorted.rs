@@ -31,6 +31,7 @@ impl Future for StreamWriterUnsorted {
                     }
                 },
                 Some(packet) => {
+                    self.logger.debug (format! ("Transmitting {} bytes of clandestine data", packet.data.len ()));
                     match self.stream.poll_write(&packet.data) {
                         Err(e) => {
                             if indicates_dead_stream(e.kind()) {

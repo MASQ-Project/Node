@@ -33,6 +33,14 @@ pub struct NeighborhoodConfig {
     pub clandestine_port_list: Vec<u16>,
 }
 
+impl NeighborhoodConfig {
+    pub fn is_decentralized (&self) -> bool {
+        (!self.neighbor_configs.is_empty () || !self.bootstrap_configs.is_empty ()) &&
+        (self.local_ip_addr != sentinel_ip_addr()) &&
+        !self.clandestine_port_list.is_empty ()
+    }
+}
+
 #[derive(Clone)]
 pub struct NeighborhoodSubs {
     pub bind: Recipient<Syn, BindMessage>,
@@ -100,7 +108,7 @@ pub struct RouteQueryMessage {
 }
 
 impl Message for RouteQueryMessage {
-    type Result = Option<Route>;
+    type Result = Option<RouteQueryResponse>;
 }
 
 impl RouteQueryMessage {
@@ -127,6 +135,12 @@ impl RouteQueryMessage {
     }
 }
 
+#[derive (PartialEq, Debug, Clone)]
+pub struct RouteQueryResponse {
+    pub route: Route,
+    pub segment_endpoints: Vec<Key>,
+}
+
 #[derive (PartialEq, Debug, Message)]
 pub struct RemoveNodeMessage {
     pub public_key: Key,
@@ -144,6 +158,7 @@ impl RemoveNodeMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
     #[test]
     fn gossip_route_request () {
@@ -174,5 +189,80 @@ mod tests {
             minimum_hop_count: 2,
             return_component_opt: Some (Component::ProxyServer),
         });
+    }
+
+    #[test]
+    fn neighborhood_config_is_not_decentralized_if_there_are_neither_neighbor_configs_nor_bootstrap_configs () {
+        let subject = NeighborhoodConfig {
+            neighbor_configs: vec! (),
+            bootstrap_configs: vec! (),
+            is_bootstrap_node: false,
+            local_ip_addr: IpAddr::from_str ("1.2.3.4").unwrap (),
+            clandestine_port_list: vec! (1234),
+        };
+
+        let result = subject.is_decentralized ();
+
+        assert_eq! (result, false);
+    }
+
+    #[test]
+    fn neighborhood_config_is_not_decentralized_if_the_sentinel_ip_address_is_used () {
+        let subject = NeighborhoodConfig {
+            neighbor_configs: vec! ((Key::new (&b"key"[..]), NodeAddr::new (&IpAddr::from_str ("2.3.4.5").unwrap (), &vec! (2345)))),
+            bootstrap_configs: vec! (),
+            is_bootstrap_node: false,
+            local_ip_addr: sentinel_ip_addr(),
+            clandestine_port_list: vec! (1234),
+        };
+
+        let result = subject.is_decentralized ();
+
+        assert_eq! (result, false);
+    }
+
+    #[test]
+    fn neighborhood_config_is_not_decentralized_if_there_are_no_clandestine_ports () {
+        let subject = NeighborhoodConfig {
+            neighbor_configs: vec! ((Key::new (&b"key"[..]), NodeAddr::new (&IpAddr::from_str ("2.3.4.5").unwrap (), &vec! (2345)))),
+            bootstrap_configs: vec! (),
+            is_bootstrap_node: false,
+            local_ip_addr: IpAddr::from_str ("1.2.3.4").unwrap (),
+            clandestine_port_list: vec! (),
+        };
+
+        let result = subject.is_decentralized ();
+
+        assert_eq! (result, false);
+    }
+
+    #[test]
+    fn neighborhood_config_is_decentralized_if_neighbor_config_and_local_ip_addr_and_clandestine_port () {
+        let subject = NeighborhoodConfig {
+            neighbor_configs: vec! ((Key::new (&b"key"[..]), NodeAddr::new (&IpAddr::from_str ("2.3.4.5").unwrap (), &vec! (2345)))),
+            bootstrap_configs: vec! (),
+            is_bootstrap_node: false,
+            local_ip_addr: IpAddr::from_str ("1.2.3.4").unwrap (),
+            clandestine_port_list: vec! (1234),
+        };
+
+        let result = subject.is_decentralized ();
+
+        assert_eq! (result, true);
+    }
+
+    #[test]
+    fn neighborhood_config_is_decentralized_if_bootstrap_config_and_local_ip_addr_and_clandestine_port () {
+        let subject = NeighborhoodConfig {
+            neighbor_configs: vec! (),
+            bootstrap_configs: vec! ((Key::new (&b"key"[..]), NodeAddr::new (&IpAddr::from_str ("2.3.4.5").unwrap (), &vec! (2345)))),
+            is_bootstrap_node: false,
+            local_ip_addr: IpAddr::from_str ("1.2.3.4").unwrap (),
+            clandestine_port_list: vec! (1234),
+        };
+
+        let result = subject.is_decentralized ();
+
+        assert_eq! (result, true);
     }
 }

@@ -78,6 +78,17 @@ impl CryptDENull {
         }
     }
 
+    pub fn from (public_key: &Key) -> CryptDENull {
+        let mut result = CryptDENull::new ();
+        result.set_key_pair(public_key);
+        result
+    }
+
+    pub fn set_key_pair (&mut self, public_key: &Key) {
+        self.public_key = public_key.clone ();
+        self.private_key = CryptDENull::other_key (public_key);
+    }
+
     pub fn other_key(in_key: &Key) -> Key {
         let out_key_data: Vec<u8> = in_key.data.iter ().map (|b| {(*b).wrapping_add (128)}).collect ();
         Key::new (&out_key_data[..])
@@ -233,6 +244,22 @@ mod tests {
 
         assert_ne! (one_key, another_key);
         assert_eq! (CryptDENull::other_key(&another_key), one_key);
+    }
+
+    #[test]
+    fn from_and_setting_key_pair_works () {
+        let public_key = Key::new (b"The quick brown fox jumps over the lazy dog");
+        let private_key = CryptDENull::other_key(&public_key);
+
+        let subject = CryptDENull::from (&public_key);
+
+        let expected_data = PlainData::new (&b"These are the times that try men's souls"[..]);
+        let encrypted_data = subject.encode (&public_key , &expected_data).unwrap ();
+        let decrypted_data = subject.decode (&subject.private_key (), &encrypted_data).unwrap ();
+        assert_eq! (decrypted_data, expected_data);
+        let encrypted_data = subject.encode (&subject.public_key () , &expected_data).unwrap ();
+        let decrypted_data = subject.decode (&private_key, &encrypted_data).unwrap ();
+        assert_eq! (decrypted_data, expected_data);
     }
 
     #[test]

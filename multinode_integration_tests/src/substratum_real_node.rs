@@ -15,6 +15,7 @@ use substratum_node::PortSelector;
 use substratum_node::NodeReference;
 use substratum_node::SubstratumNodeUtils;
 use substratum_node::SubstratumNode;
+use std::rc::Rc;
 
 #[derive (PartialEq, Clone, Debug, Copy)]
 pub enum NodeType {
@@ -198,43 +199,31 @@ impl NodeStartupConfigBuilder {
     }
 }
 
-// NOTE: It's very important that this never be cloned; then multiple SubstratumRealNodes will point to the same
-// Docker container. The first one to go out of scope will stop the container, and the others will be very confused.
+#[derive (Clone)]
 pub struct SubstratumRealNode {
-    name: String,
-    node_reference: NodeReference,
-}
-
-impl Drop for SubstratumRealNode {
-    fn drop(&mut self) {
-        self.stop ();
-    }
+    guts: Rc<SubstratumRealNodeGuts>,
 }
 
 impl SubstratumNode for SubstratumRealNode {
 
-    fn stop (&self) {
-        SubstratumNodeUtils::stop (self.name ())
-    }
-
     fn name(&self) -> &str {
-        &self.name
+        &self.guts.name
     }
 
     fn node_reference(&self) -> NodeReference {
-        self.node_reference.clone ()
+        self.guts.node_reference.clone ()
     }
 
     fn public_key(&self) -> Key {
-        self.node_reference.public_key.clone ()
+        self.node_reference ().public_key.clone ()
     }
 
     fn ip_address(&self) -> IpAddr {
-        self.node_reference.node_addr.ip_addr()
+        self.node_reference ().node_addr.ip_addr()
     }
 
     fn port_list(&self) -> Vec<u16> {
-        self.node_reference.node_addr.ports().clone ()
+        self.node_reference ().node_addr.ports().clone ()
     }
 
     fn node_addr(&self) -> NodeAddr {
@@ -242,7 +231,7 @@ impl SubstratumNode for SubstratumRealNode {
     }
 
     fn socket_addr(&self, port_selector: PortSelector) -> SocketAddr {
-        SubstratumNodeUtils::socket_addr (&self.node_reference.node_addr, port_selector, self.name ())
+        SubstratumNodeUtils::socket_addr (&self.node_reference ().node_addr, port_selector, self.name ())
     }
 
     fn make_client (&self, port: u16) -> SubstratumNodeClient {
@@ -262,10 +251,8 @@ impl SubstratumRealNode {
             .build ();
         Self::do_docker_run(&real_startup_config, host_node_parent_dir, ip_addr, &name).unwrap ();
         let node_reference = SubstratumRealNode::extract_node_reference(&name).unwrap ();
-        SubstratumRealNode {
-            name,
-            node_reference,
-        }
+        let guts = Rc::new (SubstratumRealNodeGuts {name, node_reference});
+        SubstratumRealNode { guts }
     }
 
     fn do_docker_run(startup_config: &NodeStartupConfig, host_node_parent_dir: Option<String>, ip_addr: IpAddr, name: &String) -> Result<(), String> {
@@ -310,6 +297,17 @@ impl SubstratumRealNode {
                 }
             }
         }
+    }
+}
+
+struct SubstratumRealNodeGuts {
+    name: String,
+    node_reference: NodeReference,
+}
+
+impl Drop for SubstratumRealNodeGuts {
+    fn drop(&mut self) {
+        SubstratumNodeUtils::stop (self.name.as_str ())
     }
 }
 

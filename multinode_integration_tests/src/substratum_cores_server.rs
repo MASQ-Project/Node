@@ -1,6 +1,5 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use sub_lib::hopper::ExpiredCoresPackage;
 use std::net::SocketAddr;
 use std::net::IpAddr;
 use std::net::TcpListener;
@@ -144,13 +143,10 @@ impl SubstratumCoresServer {
         self.cryptde ().private_key ().clone ()
     }
 
-    pub fn wait_for_package(&self, timeout: Duration) -> ExpiredCoresPackage {
+    pub fn wait_for_package(&self, timeout: Duration) -> LiveCoresPackage {
         let chunk = self.get_next_chunk (timeout);
         let decoded_chunk = self.cryptde.decode(&self.cryptde.private_key(), &CryptData::new(&chunk.chunk[..])).unwrap();
-        let live_cores_package = serde_cbor::de::from_slice::<LiveCoresPackage> (&decoded_chunk.data) .expect (format! ("Error deserializing LCP from {:?}", chunk.chunk).as_str ());
-        println!("Live: {:?}", live_cores_package.payload);
-        println!("Private Key: {:?}", self.cryptde.private_key());
-        live_cores_package.to_expired (&self.cryptde)
+        serde_cbor::de::from_slice::<LiveCoresPackage> (&decoded_chunk.data) .expect (format! ("Error deserializing LCP from {:?}", chunk.chunk).as_str ())
     }
 
     fn default_factories () -> Vec<Box<DiscriminatorFactory>> {

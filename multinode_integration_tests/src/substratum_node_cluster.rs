@@ -42,22 +42,22 @@ impl SubstratumNodeCluster {
         })
     }
 
-    pub fn start_real_node (&mut self, config: NodeStartupConfig) -> &SubstratumRealNode {
+    pub fn start_real_node (&mut self, config: NodeStartupConfig) -> SubstratumRealNode {
         let index = self.next_index;
         self.next_index += 1;
         let node = SubstratumRealNode::start (config, index, self.host_node_parent_dir.clone ());
         let name = node.name().to_string ();
         self.real_nodes.insert (name.clone (), node);
-        self.real_nodes.get (&name).unwrap ()
+        self.real_nodes.get (&name).unwrap ().clone ()
     }
 
-    pub fn start_mock_node(&mut self, ports: Vec<u16>) -> &SubstratumMockNode {
+    pub fn start_mock_node(&mut self, ports: Vec<u16>) -> SubstratumMockNode {
         let index = self.next_index;
         self.next_index += 1;
         let node = SubstratumMockNode::start (ports, index,self.host_node_parent_dir.clone ());
         let name = node.name().to_string ();
         self.mock_nodes.insert (name.clone (), node);
-        self.mock_nodes.get (&name).unwrap ()
+        self.mock_nodes.get (&name).unwrap ().clone ()
     }
 
     pub fn stop (self) {
@@ -66,9 +66,9 @@ impl SubstratumNodeCluster {
 
     pub fn stop_node (&mut self, name: &str) {
         match self.real_nodes.remove(name) {
-            Some(node) => {node.stop()},
+            Some(node) => {drop (node)},
             None => match self.mock_nodes.remove (name) {
-                Some (node) => {node.stop ()},
+                Some (node) => {drop (node)},
                 None => panic! ("Node {} was not found in cluster", name),
             }
         };
@@ -80,25 +80,25 @@ impl SubstratumNodeCluster {
         real_node_names.union (&mock_node_names).map (|key_ref| {key_ref.clone ()}).collect::<HashSet<String>> ()
     }
 
-    pub fn get_real_node (&self, name: &str) -> Option<&SubstratumRealNode> {
+    pub fn get_real_node (&self, name: &str) -> Option<SubstratumRealNode> {
         match self.real_nodes.get (name) {
-            Some (node_ref) => Some (node_ref),
+            Some (node_ref) => Some (node_ref.clone ()),
             None => None
         }
     }
 
-    pub fn get_mock_node (&self, name: &str) -> Option<&SubstratumMockNode> {
+    pub fn get_mock_node (&self, name: &str) -> Option<SubstratumMockNode> {
         match self.mock_nodes.get (name) {
-            Some (node_ref) => Some (node_ref),
+            Some (node_ref) => Some (node_ref.clone ()),
             None => None
         }
     }
 
-    pub fn get_node (&self, name: &str) -> Option<&SubstratumNode> {
+    pub fn get_node (&self, name: &str) -> Option<Box<SubstratumNode>> {
         match self.real_nodes.get(name) {
-            Some(node_ref) => Some (node_ref),
+            Some(node_ref) => Some (Box::new (node_ref.clone ())),
             None => match self.mock_nodes.get (name) {
-                Some (node_ref) => Some (node_ref),
+                Some (node_ref) => Some (Box::new (node_ref.clone ())),
                 None => None,
             }
         }

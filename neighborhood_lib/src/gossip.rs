@@ -4,7 +4,7 @@ use sub_lib::cryptde::Key;
 use std::collections::HashMap;
 use neighborhood_database::NodeRecord;
 
-#[derive (Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[derive (Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub struct GossipNodeRecord {
     pub public_key: Key,
     pub node_addr_opt: Option<NodeAddr>,
