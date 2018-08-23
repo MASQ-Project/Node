@@ -16,7 +16,6 @@ use stream_establisher::StreamEstablisherFactory;
 use stream_establisher::StreamEstablisherFactoryReal;
 use sub_lib::channel_wrappers::SenderWrapper;
 use sub_lib::cryptde::CryptDE;
-use sub_lib::cryptde::StreamKey;
 use sub_lib::framer::Framer;
 use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::hopper::IncipientCoresPackage;
@@ -27,6 +26,7 @@ use sub_lib::proxy_client::ClientResponsePayload;
 use sub_lib::proxy_server::ClientRequestPayload;
 use sub_lib::proxy_server::ProxyProtocol;
 use sub_lib::route::Route;
+use sub_lib::stream_key::StreamKey;
 use sub_lib::tls_framer::TlsFramer;
 
 pub trait StreamHandlerPool {

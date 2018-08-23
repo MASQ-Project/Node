@@ -1,11 +1,11 @@
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 use sub_lib::channel_wrappers::ReceiverWrapper;
-use sub_lib::cryptde::StreamKey;
 use sub_lib::logger::Logger;
+use sub_lib::sequence_buffer::SequencedPacket;
+use sub_lib::stream_key::StreamKey;
 use sub_lib::tokio_wrappers::WriteHalfWrapper;
 use sub_lib::utils::indicates_dead_stream;
-use sub_lib::sequence_buffer::SequencedPacket;
 
 pub struct StreamWriterUnsorted {
     stream: Box<WriteHalfWrapper>,

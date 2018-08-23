@@ -3,27 +3,27 @@
 use std::io;
 use std::io::Error;
 use std::net::IpAddr;
+use std::net::SocketAddr;
 use std::sync::mpsc::Sender;
 use actix::Recipient;
 use actix::Syn;
+use tokio;
 use sub_lib::channel_wrappers::SenderWrapper;
-use sub_lib::cryptde::StreamKey;
 use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::logger::Logger;
 use sub_lib::proxy_server::ClientRequestPayload;
 use sub_lib::tokio_wrappers::ReadHalfWrapper;
+use sub_lib::channel_wrappers::FuturesChannelFactory;
+use sub_lib::channel_wrappers::FuturesChannelFactoryReal;
+use sub_lib::stream_connector::StreamConnector;
+use sub_lib::stream_connector::StreamConnectorReal;
+use sub_lib::stream_key::StreamKey;
 use stream_handler_pool::StreamHandlerPoolReal;
 use stream_reader::StreamReader;
 use stream_writer::StreamWriter;
 use trust_dns_resolver::lookup_ip::LookupIp;
-use tokio;
 use trust_dns_resolver::error::ResolveError;
-use sub_lib::channel_wrappers::FuturesChannelFactory;
-use sub_lib::channel_wrappers::FuturesChannelFactoryReal;
-use sub_lib::stream_connector::StreamConnector;
-use std::net::SocketAddr;
-use sub_lib::stream_connector::StreamConnectorReal;
 
 pub struct StreamEstablisher {
     pub stream_adder_tx: Sender<(StreamKey, Box<SenderWrapper<ExpiredCoresPackage>>)>,

@@ -2,9 +2,9 @@
 use actix::Recipient;
 use actix::Syn;
 use cryptde::PlainData;
-use cryptde::StreamKey;
 use hopper::ExpiredCoresPackage;
 use peer_actors::BindMessage;
+use stream_key::StreamKey;
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct ClientResponsePayload {

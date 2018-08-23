@@ -1,6 +1,5 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use std::fmt;
-use std::net::SocketAddr;
 use base64;
 use serde;
 use serde::Serialize;
@@ -158,8 +157,6 @@ pub trait CryptDE: Send + Sync {
     // This is dup instead of clone because making a trait Clone has unpleasant consequences.
     fn dup(&self) -> Box<CryptDE>;
 }
-
-pub type StreamKey = SocketAddr;
 
 #[cfg (test)]
 mod tests {

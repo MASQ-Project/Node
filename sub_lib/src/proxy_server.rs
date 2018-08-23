@@ -3,10 +3,10 @@ use actix::Recipient;
 use actix::Syn;
 use cryptde::Key;
 use cryptde::PlainData;
-use cryptde::StreamKey;
 use dispatcher::InboundClientData;
 use hopper::ExpiredCoresPackage;
 use peer_actors::BindMessage;
+use stream_key::StreamKey;
 
 #[derive (Copy, Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum ProxyProtocol {
