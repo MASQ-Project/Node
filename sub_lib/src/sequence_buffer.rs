@@ -7,7 +7,7 @@ use std::collections::BinaryHeap;
 use utils;
 use logger::Logger;
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct SequencedPacket {
     pub data: Vec<u8>,
     pub sequence_number: u64,
@@ -24,16 +24,13 @@ impl Ord for SequencedPacket {
 
 impl PartialOrd for SequencedPacket {
     fn partial_cmp(&self, other: &SequencedPacket) -> Option<Ordering> {
-        Some(self.cmp(other))
+        Some(self.cmp(&other))
     }
 }
 
 impl<'a> From<&'a ClientRequestPayload> for SequencedPacket {
     fn from(crp: &'a ClientRequestPayload) -> Self {
-        SequencedPacket::new(
-            crp.data.data.clone(),
-            crp.sequence_number,
-        )
+        crp.sequenced_packet.clone ()
     }
 }
 
@@ -127,7 +124,6 @@ impl SequenceBuffer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cryptde::PlainData;
     use proxy_server::ProxyProtocol;
     use cryptde::Key;
     use std::net::SocketAddr;
@@ -136,14 +132,14 @@ mod tests {
     use dispatcher::Endpoint;
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
+    use utils::tests::make_meaningless_stream_key;
 
     #[test]
     fn can_create_sequenced_packet_from_client_request_payload() {
         let crp = ClientRequestPayload {
-            stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
+            stream_key: make_meaningless_stream_key (),
             last_data: true,
-            sequence_number: 2,
-            data: PlainData::new(&[1, 2, 3, 5]),
+            sequenced_packet: SequencedPacket {data: [1, 2, 3, 5].to_vec (), sequence_number: 2},
             target_hostname: None,
             target_port: 0,
             protocol: ProxyProtocol::HTTP,

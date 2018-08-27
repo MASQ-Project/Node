@@ -147,6 +147,7 @@ mod tests {
     use test_utils::logging::TestLogHandler;
     use std::io::ErrorKind;
     use test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
+    use test_utils::test_utils::make_meaningless_stream_key;
 
     struct StreamEndingFramer {}
 
@@ -191,7 +192,7 @@ mod tests {
         let hopper_sub = rx.recv().unwrap();
         let (stream_killer, stream_killer_params) = mpsc::channel();
         let mut subject = StreamReader {
-            stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
+            stream_key: make_meaningless_stream_key (),
             hopper_sub,
             stream,
             stream_killer,
@@ -210,7 +211,7 @@ mod tests {
         assert_eq!(hopper_recording.get_record::<IncipientCoresPackage>(0), &IncipientCoresPackage::new(
             test_utils::make_meaningless_route(),
             ClientResponsePayload {
-                stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
+                stream_key: make_meaningless_stream_key (),
                 last_response: false,
                 sequence_number: 0,
                 data: PlainData::new(&b"HTTP/1.1 200 OK\r\n\r\n"[..]),
@@ -220,7 +221,7 @@ mod tests {
         assert_eq!(hopper_recording.get_record::<IncipientCoresPackage>(1), &IncipientCoresPackage::new(
             test_utils::make_meaningless_route(),
             ClientResponsePayload {
-                stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
+                stream_key: make_meaningless_stream_key (),
                 last_response: false,
                 sequence_number: 1,
                 data: PlainData::new(&b"HTTP/1.1 404 File not found\r\n\r\n"[..]),
@@ -230,7 +231,7 @@ mod tests {
         assert_eq!(hopper_recording.get_record::<IncipientCoresPackage>(2), &IncipientCoresPackage::new(
             test_utils::make_meaningless_route(),
             ClientResponsePayload {
-                stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
+                stream_key: make_meaningless_stream_key (),
                 last_response: false,
                 sequence_number: 2,
                 data: PlainData::new(&b"HTTP/1.1 503 Server error\r\n\r\n"[..]),
@@ -240,7 +241,7 @@ mod tests {
         assert_eq!(hopper_recording.get_record::<IncipientCoresPackage>(3), &IncipientCoresPackage::new(
             test_utils::make_meaningless_route(),
             ClientResponsePayload {
-                stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
+                stream_key: make_meaningless_stream_key (),
                 last_response: true,
                 sequence_number: 3,
                 data: PlainData::new(&Vec::new()),
@@ -248,12 +249,12 @@ mod tests {
             &Key::new(&b"abcd"[..]),
         ));
         let stream_killer_parameters = stream_killer_params.try_recv().unwrap();
-        assert_eq!(stream_killer_parameters, SocketAddr::from_str("1.2.3.4:80").unwrap());
+        assert_eq!(stream_killer_parameters, make_meaningless_stream_key ());
     }
 
     #[test]
     fn when_framer_identifies_last_chunk_stream_reader_takes_down_connection_properly() {
-        let stream_key = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let stream_key = make_meaningless_stream_key ();
         let hopper = Recorder::new();
         let recording = hopper.get_recording();
         let awaiter = hopper.get_awaiter();
@@ -335,7 +336,7 @@ mod tests {
         let hopper_sub = rx.recv().unwrap();
         let (stream_killer, stream_killer_params) = mpsc::channel();
         let mut subject = StreamReader {
-            stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
+            stream_key: make_meaningless_stream_key (),
             hopper_sub,
             stream: Box::new(stream),
             stream_killer,
@@ -355,7 +356,7 @@ mod tests {
         assert_eq!(hopper_recording.get_record::<IncipientCoresPackage>(0), &IncipientCoresPackage::new(
             test_utils::make_meaningless_route(),
             ClientResponsePayload {
-                stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
+                stream_key: make_meaningless_stream_key (),
                 last_response: false,
                 sequence_number: 0,
                 data: PlainData::new(&b"HTTP/1.1 200 OK\r\n\r\n"[..]),
@@ -365,7 +366,7 @@ mod tests {
         assert_eq!(hopper_recording.get_record::<IncipientCoresPackage>(1), &IncipientCoresPackage::new(
             test_utils::make_meaningless_route(),
             ClientResponsePayload {
-                stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
+                stream_key: make_meaningless_stream_key (),
                 last_response: false,
                 sequence_number: 1,
                 data: PlainData::new(&b"HTTP/1.1 404 File not found\r\n\r\n"[..]),
@@ -375,7 +376,7 @@ mod tests {
         assert_eq!(hopper_recording.get_record::<IncipientCoresPackage>(2), &IncipientCoresPackage::new(
             test_utils::make_meaningless_route(),
             ClientResponsePayload {
-                stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
+                stream_key: make_meaningless_stream_key (),
                 last_response: false,
                 sequence_number: 2,
                 data: PlainData::new(&b"HTTP/1.1 503 Server error\r\n\r\n"[..]),
@@ -385,7 +386,7 @@ mod tests {
         assert_eq!(hopper_recording.get_record::<IncipientCoresPackage>(3), &IncipientCoresPackage::new(
             test_utils::make_meaningless_route(),
             ClientResponsePayload {
-                stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
+                stream_key: make_meaningless_stream_key (),
                 last_response: true,
                 sequence_number: 3,
                 data: PlainData::new(&b""[..]),
@@ -393,7 +394,7 @@ mod tests {
             &Key::new(&b"abcd"[..]),
         ));
         let kill_stream_msg = stream_killer_params.try_recv().expect("stream was not killed");
-        assert_eq!(kill_stream_msg, SocketAddr::from_str("1.2.3.4:80").unwrap());
+        assert_eq!(kill_stream_msg, make_meaningless_stream_key ());
         assert!(stream_killer_params.try_recv().is_err());
     }
 
@@ -403,7 +404,7 @@ mod tests {
         let hopper = Recorder::new();
         let awaiter = hopper.get_awaiter();
         let hopper_recording_arc = hopper.get_recording();
-        let stream_key = SocketAddr::from_str("1.2.3.4:80").unwrap();
+        let stream_key = make_meaningless_stream_key ();
         let (stream_killer, kill_stream_params) = mpsc::channel();
         let mut stream = ReadHalfWrapperMock::new();
         stream.poll_read_results = vec!((vec!(), Ok(Async::Ready(0))));
@@ -442,7 +443,7 @@ mod tests {
         assert_eq!(hopper_recording.get_record::<IncipientCoresPackage>(0), &IncipientCoresPackage::new(
             test_utils::make_meaningless_route(),
             ClientResponsePayload {
-                stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
+                stream_key: make_meaningless_stream_key (),
                 last_response: true,
                 sequence_number: 0,
                 data: PlainData::new(&[]),
@@ -458,7 +459,7 @@ mod tests {
         let hopper = Recorder::new();
         let awaiter = hopper.get_awaiter();
         let hopper_recording_arc = hopper.get_recording();
-        let stream_key = SocketAddr::from_str("1.2.3.4:80").unwrap();
+        let stream_key = make_meaningless_stream_key ();
         let (stream_killer, _) = mpsc::channel();
         let mut stream = ReadHalfWrapperMock::new();
         stream.poll_read_results = vec!(
@@ -502,7 +503,7 @@ mod tests {
         assert_eq!(hopper_recording.get_record::<IncipientCoresPackage>(0), &IncipientCoresPackage::new(
             test_utils::make_meaningless_route(),
             ClientResponsePayload {
-                stream_key: SocketAddr::from_str("1.2.3.4:80").unwrap(),
+                stream_key: make_meaningless_stream_key (),
                 last_response: false,
                 sequence_number: 0,
                 data: PlainData::new(&b"HTTP/1.1 200 OK\r\n\r\n"[..]),

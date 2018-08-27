@@ -3,13 +3,12 @@ use tokio::prelude::Future;
 use sub_lib::channel_wrappers::ReceiverWrapper;
 use sub_lib::logger::Logger;
 use sub_lib::sequence_buffer::SequencedPacket;
-use sub_lib::stream_key::StreamKey;
 use sub_lib::tokio_wrappers::WriteHalfWrapper;
 use sub_lib::utils::indicates_dead_stream;
+use std::net::SocketAddr;
 
 pub struct StreamWriterUnsorted {
     stream: Box<WriteHalfWrapper>,
-    _stream_key: StreamKey,
     rx_to_write: Box<ReceiverWrapper<SequencedPacket>>,
     logger: Logger,
     buf: Option<SequencedPacket>,
@@ -56,12 +55,11 @@ impl Future for StreamWriterUnsorted {
 }
 
 impl StreamWriterUnsorted {
-    pub fn new (stream: Box<WriteHalfWrapper>, socket_addr: StreamKey, rx_to_write: Box<ReceiverWrapper<SequencedPacket>>) -> StreamWriterUnsorted {
-        let name = format! ("StreamWriter for {}", socket_addr);
+    pub fn new (stream: Box<WriteHalfWrapper>, peer_addr: SocketAddr, rx_to_write: Box<ReceiverWrapper<SequencedPacket>>) -> StreamWriterUnsorted {
+        let name = format! ("StreamWriter for {}", peer_addr);
         let logger = Logger::new (&name[..]);
         StreamWriterUnsorted {
             stream,
-            _stream_key: socket_addr,
             rx_to_write,
             logger,
             buf: None,

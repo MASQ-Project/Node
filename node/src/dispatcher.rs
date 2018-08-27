@@ -105,12 +105,12 @@ mod tests {
         let proxy_server = Recorder::new();
         let recording_arc = proxy_server.get_recording();
         let awaiter = proxy_server.get_awaiter();
-        let socket_addr = SocketAddr::from_str ("1.2.3.4:5678").unwrap ();
-        let origin_port = Some (8080);
+        let peer_addr = SocketAddr::from_str ("1.2.3.4:5678").unwrap ();
+        let reception_port = Some (8080);
         let data: Vec<u8> = vec! (9, 10, 11);
         let ibcd_in = InboundClientData {
-            socket_addr,
-            origin_port,
+            peer_addr,
+            reception_port,
             sequence_number: Some(0),
             last_data: false,
             is_clandestine: false,
@@ -132,10 +132,10 @@ mod tests {
         let (actual_socket_addr, actual_data) = unsafe {
             let tptr = message as *const Box<InboundClientData>;
             let message = &*tptr;
-            (message.socket_addr, message.data.clone ())
+            (message.peer_addr, message.data.clone ())
         };
 
-        assert_eq!(actual_socket_addr, socket_addr);
+        assert_eq!(actual_socket_addr, peer_addr);
         assert_eq!(actual_data, data);
         assert_eq! (recording.len (), 1);
     }
@@ -149,12 +149,12 @@ mod tests {
         let hopper = Recorder::new();
         let recording_arc = hopper.get_recording();
         let awaiter = hopper.get_awaiter();
-        let socket_addr = SocketAddr::from_str ("1.2.3.4:5678").unwrap ();
-        let origin_port = Some (8080);
+        let peer_addr = SocketAddr::from_str ("1.2.3.4:5678").unwrap ();
+        let reception_port = Some (8080);
         let data: Vec<u8> = vec! (9, 10, 11);
         let ibcd_in = InboundClientData {
-            socket_addr,
-            origin_port,
+            peer_addr,
+            reception_port,
             last_data: false,
             is_clandestine: true,
             sequence_number: None,
@@ -176,10 +176,10 @@ mod tests {
         let (actual_socket_addr, actual_data) = unsafe {
             let tptr = message as *const Box<InboundClientData>;
             let message = &*tptr;
-            (message.socket_addr, message.data.clone ())
+            (message.peer_addr, message.data.clone ())
         };
 
-        assert_eq!(actual_socket_addr, socket_addr);
+        assert_eq!(actual_socket_addr, peer_addr);
         assert_eq!(actual_data, data);
         assert_eq! (recording.len (), 1);
     }
@@ -191,12 +191,12 @@ mod tests {
         let subject = Dispatcher::new ();
         let subject_addr: Addr<Syn, Dispatcher> = subject.start ();
         let subject_ibcd = subject_addr.recipient::<InboundClientData> ();
-        let socket_addr = SocketAddr::from_str ("1.2.3.4:8765").unwrap ();
-        let origin_port = Some (1234);
+        let peer_addr = SocketAddr::from_str ("1.2.3.4:8765").unwrap ();
+        let reception_port = Some (1234);
         let data: Vec<u8> = vec! (9, 10, 11);
         let ibcd_in = InboundClientData {
-            socket_addr,
-            origin_port,
+            peer_addr,
+            reception_port,
             last_data: false,
             is_clandestine: false,
             sequence_number: Some(0),
@@ -216,12 +216,12 @@ mod tests {
         let subject = Dispatcher::new ();
         let subject_addr: Addr<Syn, Dispatcher> = subject.start ();
         let subject_ibcd = subject_addr.recipient::<InboundClientData> ();
-        let socket_addr = SocketAddr::from_str ("1.2.3.4:8765").unwrap ();
-        let origin_port = Some (1234);
+        let peer_addr = SocketAddr::from_str ("1.2.3.4:8765").unwrap ();
+        let reception_port = Some (1234);
         let data: Vec<u8> = vec! (9, 10, 11);
         let ibcd_in = InboundClientData {
-            socket_addr,
-            origin_port,
+            peer_addr,
+            reception_port,
             last_data: false,
             is_clandestine: true,
             sequence_number: None,

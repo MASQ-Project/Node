@@ -4,14 +4,14 @@ use tokio::prelude::Future;
 use sub_lib::channel_wrappers::ReceiverWrapper;
 use sub_lib::logger::Logger;
 use sub_lib::sequence_buffer::SequenceBuffer;
-use sub_lib::stream_key::StreamKey;
 use sub_lib::tokio_wrappers::WriteHalfWrapper;
 use sub_lib::utils::indicates_dead_stream;
 use sub_lib::sequence_buffer::SequencedPacket;
+use std::net::SocketAddr;
 
 pub struct StreamWriterSorted {
     stream: Box<WriteHalfWrapper>,
-    stream_key: StreamKey,
+    peer_addr: SocketAddr,
     rx_to_write: Box<ReceiverWrapper<SequencedPacket>>,
     logger: Logger,
     sequence_buffer: SequenceBuffer,
@@ -38,12 +38,12 @@ impl Future for StreamWriterSorted {
 }
 
 impl StreamWriterSorted {
-    pub fn new (stream: Box<WriteHalfWrapper>, socket_addr: StreamKey, rx_to_write: Box<ReceiverWrapper<SequencedPacket>>) -> StreamWriterSorted {
-        let name = format! ("StreamWriter for {}", socket_addr);
+    pub fn new (stream: Box<WriteHalfWrapper>, peer_addr: SocketAddr, rx_to_write: Box<ReceiverWrapper<SequencedPacket>>) -> StreamWriterSorted {
+        let name = format! ("StreamWriter for {}", peer_addr);
         let logger = Logger::new (&name[..]);
         StreamWriterSorted {
             stream,
-            stream_key: socket_addr,
+            peer_addr,
             rx_to_write,
             logger,
             sequence_buffer: SequenceBuffer::new(),
@@ -71,7 +71,7 @@ impl StreamWriterSorted {
                 match self.stream.poll_write(&packet.data) {
                     Err(e) => {
                         if indicates_dead_stream(e.kind()) {
-                            self.logger.error(format!("Error writing {} bytes to {}: {}", packet.data.len(), self.stream_key, e));
+                            self.logger.error(format!("Error writing {} bytes to {}: {}", packet.data.len(), self.peer_addr, e));
                             return WriteBufferStatus::StreamInError;
                         } else {
                             // TODO this could be exploitable and inefficient: if we keep getting non-dead-stream errors, we go into a tight loop and do not return

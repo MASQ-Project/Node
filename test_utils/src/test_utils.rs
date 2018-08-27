@@ -5,6 +5,7 @@ use std::io::Error;
 use std::io::Read;
 use std::io::Write;
 use std::str::from_utf8;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::mpsc;
 use std::sync::mpsc::Receiver;
@@ -26,6 +27,7 @@ use std::net::SocketAddr;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use sub_lib::neighborhood::RouteQueryResponse;
+use sub_lib::stream_key::StreamKey;
 
 lazy_static! {
     static ref CRYPT_DE_NULL: CryptDENull = CryptDENull::new ();
@@ -175,6 +177,10 @@ impl PayloadMock {
             data: Vec::from ("payload".as_bytes ())
         }
     }
+}
+
+pub fn make_meaningless_stream_key () -> StreamKey {
+    StreamKey::new (Key::new (&[]), SocketAddr::from_str ("4.3.2.1:8765").unwrap ())
 }
 
 pub fn make_meaningless_route () -> Route {

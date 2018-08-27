@@ -10,16 +10,15 @@ use sub_lib::dispatcher;
 use sub_lib::dispatcher::InboundClientData;
 use sub_lib::logger::Logger;
 use sub_lib::sequencer::Sequencer;
-use sub_lib::stream_key::StreamKey;
 use sub_lib::tokio_wrappers::ReadHalfWrapper;
 use sub_lib::utils::indicates_dead_stream;
 use stream_messages::*;
 
 pub struct StreamReaderReal {
     stream: Box<ReadHalfWrapper>,
-    stream_key: StreamKey,
     local_addr: SocketAddr,
-    origin_port: Option<u16>,
+    peer_addr: SocketAddr,
+    reception_port: Option<u16>,
     ibcd_sub: Recipient<Syn, dispatcher::InboundClientData>,
     remove_sub: Recipient<Syn, RemoveStreamMsg>,
     discriminators: Vec<Discriminator>,
@@ -64,20 +63,20 @@ impl Future for StreamReaderReal {
 
 impl StreamReaderReal {
     pub fn new(stream: Box<ReadHalfWrapper>,
-               origin_port: Option<u16>,
+               reception_port: Option<u16>,
                ibcd_sub: Recipient<Syn, dispatcher::InboundClientData>,
                remove_sub: Recipient<Syn, RemoveStreamMsg>,
                discriminator_factories: Vec<Box<DiscriminatorFactory>>,
                is_clandestine: bool,
-               peer_addr: StreamKey,
+               peer_addr: SocketAddr,
                local_addr: SocketAddr) -> StreamReaderReal {
         let name = format! ("StreamReader for {}", peer_addr);
         if discriminator_factories.is_empty () {panic! ("Internal error: no Discriminator factories!")}
         StreamReaderReal {
             stream,
-            stream_key: peer_addr,
             local_addr,
-            origin_port,
+            peer_addr,
+            reception_port,
             ibcd_sub,
             remove_sub,
             // Skinny implementation
@@ -101,15 +100,15 @@ impl StreamReaderReal {
                         None
                     };
                     let msg = dispatcher::InboundClientData {
-                        socket_addr: self.stream_key,
-                        origin_port: self.origin_port,
+                        peer_addr: self.peer_addr,
+                        reception_port: self.reception_port,
                         last_data: false,
                         is_clandestine: self.is_clandestine,
                         sequence_number,
                         data: unmasked_chunk.chunk.clone ()
                     };
                     self.logger.debug (format! ("Discriminator framed and unmasked {} bytes for {}; transmitting via Hopper",
-                                                 unmasked_chunk.chunk.len (), msg.socket_addr));
+                                                 unmasked_chunk.chunk.len (), msg.peer_addr));
                     self.ibcd_sub.try_send(msg).expect("Dispatcher is dead");
                 }
                 None => {
@@ -121,12 +120,12 @@ impl StreamReaderReal {
     }
 
     fn shutdown(&mut self) {
-        self.remove_sub.try_send(RemoveStreamMsg { socket_addr: self.stream_key }).expect("StreamHandlerPool is dead");
+        self.remove_sub.try_send(RemoveStreamMsg { socket_addr: self.peer_addr }).expect("StreamHandlerPool is dead");
         // TODO: Skinny implementation: wrong for decentralization. StreamReaders for clandestine and non-clandestine data should probably behave differently here.
         let sequence_number = Some(self.sequencer.next_sequence_number());
         self.ibcd_sub.try_send(InboundClientData {
-            socket_addr: self.stream_key,
-            origin_port: self.origin_port,
+            peer_addr: self.peer_addr,
+            reception_port: self.reception_port,
             last_data: true,
             is_clandestine: self.is_clandestine,
             sequence_number,
@@ -212,8 +211,8 @@ mod tests {
         d_awaiter.await_message_count(1);
         let d_recording = d_recording_arc.lock().unwrap();
         assert_eq!(d_recording.get_record::<dispatcher::InboundClientData>(0), &dispatcher::InboundClientData {
-            socket_addr: peer_addr,
-            origin_port: Some(1234 as u16),
+            peer_addr: peer_addr,
+            reception_port: Some(1234 as u16),
             last_data: true,
             is_clandestine: true,
             sequence_number: Some(0),
@@ -261,8 +260,8 @@ mod tests {
         d_awaiter.await_message_count(1);
         let d_recording = d_recording_arc.lock().unwrap();
         assert_eq!(d_recording.get_record::<dispatcher::InboundClientData>(0), &dispatcher::InboundClientData {
-            socket_addr: peer_addr,
-            origin_port: Some(1234 as u16),
+            peer_addr: peer_addr,
+            reception_port: Some(1234 as u16),
             last_data: true,
             is_clandestine: true,
             sequence_number: Some(0),
@@ -412,8 +411,8 @@ mod tests {
         d_awaiter.await_message_count(1);
         let d_recording = d_recording_arc.lock().unwrap();
         assert_eq!(d_recording.get_record::<dispatcher::InboundClientData>(0), &dispatcher::InboundClientData {
-            socket_addr: peer_addr,
-            origin_port: Some(1234 as u16),
+            peer_addr: peer_addr,
+            reception_port: Some(1234 as u16),
             last_data: false,
             is_clandestine: true,
             sequence_number: Some(0),
@@ -452,8 +451,8 @@ mod tests {
         d_awaiter.await_message_count(2);
         let d_recording = d_recording_arc.lock().unwrap();
         assert_eq!(d_recording.get_record::<dispatcher::InboundClientData>(0), &dispatcher::InboundClientData {
-            socket_addr: peer_addr,
-            origin_port: Some(1234 as u16),
+            peer_addr: peer_addr,
+            reception_port: Some(1234 as u16),
             last_data: false,
             is_clandestine: false,
             sequence_number: Some(0),
@@ -461,8 +460,8 @@ mod tests {
         });
 
         assert_eq!(d_recording.get_record::<dispatcher::InboundClientData>(1), &dispatcher::InboundClientData {
-            socket_addr: peer_addr,
-            origin_port: Some(1234 as u16),
+            peer_addr: peer_addr,
+            reception_port: Some(1234 as u16),
             last_data: false,
             is_clandestine: false,
             sequence_number: Some(1),
@@ -495,8 +494,8 @@ mod tests {
         d_awaiter.await_message_count(1);
         let d_recording = d_recording_arc.lock().unwrap();
         assert_eq!(d_recording.get_record::<dispatcher::InboundClientData>(0), &dispatcher::InboundClientData {
-            socket_addr: peer_addr,
-            origin_port: Some(1234 as u16),
+            peer_addr: peer_addr,
+            reception_port: Some(1234 as u16),
             last_data: false,
             is_clandestine: true,
             sequence_number: None,

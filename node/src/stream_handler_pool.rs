@@ -40,6 +40,11 @@ use sub_lib::tokio_wrappers::ReadHalfWrapper;
 use sub_lib::tokio_wrappers::WriteHalfWrapper;
 use sub_lib::utils::NODE_MAILBOX_CAPACITY;
 
+// IMPORTANT: Nothing at or below the level of StreamHandlerPool should know about StreamKeys.
+// StreamKeys should exist solely between ProxyServer and ProxyClient. Many of the streams
+// overseen by StreamHandlerPool will not (and should not) have StreamKeys. Don't let the
+// concept leak down this far.
+
 pub struct StreamHandlerPoolSubs {
     pub add_sub: Recipient<Syn, AddStreamMsg>,
     pub transmit_sub: Recipient<Syn, TransmitDataMsg>,
@@ -277,7 +282,7 @@ impl StreamHandlerPool {
         read_stream: Box<ReadHalfWrapper>,
         origin_port: Option<u16>,
         port_configuration: PortConfiguration,
-        socket_addr: SocketAddr,
+        peer_addr: SocketAddr,
         local_addr: SocketAddr
     ) {
         let ibcd_sub: Recipient<Syn, dispatcher::InboundClientData> =
@@ -291,7 +296,7 @@ impl StreamHandlerPool {
             remove_sub,
             port_configuration.discriminator_factories,
             port_configuration.is_clandestine,
-            socket_addr,
+            peer_addr,
             local_addr
         );
         tokio::spawn(stream_reader);
@@ -300,22 +305,22 @@ impl StreamHandlerPool {
     fn set_up_stream_writer (
         &mut self,
         write_stream: Box<WriteHalfWrapper>,
-        socket_addr: SocketAddr,
+        peer_addr: SocketAddr,
         is_clandestine: bool,
     ) {
-        let (tx, rx) = self.channel_factory.make();
-        self.stream_writers.insert (socket_addr, Some(tx));
+        let (tx, rx) = self.channel_factory.make(peer_addr);
+        self.stream_writers.insert (peer_addr, Some(tx));
 
         if is_clandestine {
             tokio::spawn(StreamWriterUnsorted::new(
                 write_stream,
-                socket_addr,
+                peer_addr,
                 rx,
             ));
         } else {
             tokio::spawn(StreamWriterSorted::new(
                 write_stream,
-                socket_addr,
+                peer_addr,
                 rx,
             ));
         };
@@ -392,7 +397,7 @@ mod tests {
         let peer_addr = SocketAddr::from_str("1.2.3.4:80").unwrap();
         let peer_addr_a = peer_addr.clone ();
         let local_addr = SocketAddr::from_str("1.2.3.5:80").unwrap();
-        let origin_port = Some (8081);
+        let reception_port = Some (8081);
         let is_clandestine = false;
         let one_http_req = b"GET http://here.com HTTP/1.1\r\n\r\n".to_vec();
         let one_http_req_a = one_http_req.clone ();
@@ -434,7 +439,7 @@ mod tests {
 
             subject_subs.add_sub.try_send(AddStreamMsg::new (
                 connection_info, // the stream splitter mock will return mocked reader/writer
-                origin_port,
+                reception_port,
                 PortConfiguration::new(vec! (Box::new (HttpRequestDiscriminatorFactory::new ())), is_clandestine),
             )).unwrap ();
 
@@ -444,32 +449,32 @@ mod tests {
         awaiter.await_message_count (4);
         let dispatcher_recording = dispatcher_recording_arc.lock ().unwrap ();
         assert_eq! (dispatcher_recording.get_record::<dispatcher::InboundClientData> (0), &dispatcher::InboundClientData {
-            socket_addr: peer_addr_a,
-            origin_port,
+            peer_addr: peer_addr_a,
+            reception_port,
             last_data: false,
             is_clandestine,
             sequence_number: Some(0),
             data: one_http_req_a
         });
         assert_eq! (dispatcher_recording.get_record::<dispatcher::InboundClientData> (1), &dispatcher::InboundClientData {
-            socket_addr: peer_addr_a,
-            origin_port,
+            peer_addr: peer_addr_a,
+            reception_port,
             last_data: false,
             is_clandestine,
             sequence_number: Some(1),
             data: another_http_req_a
         });
         assert_eq! (dispatcher_recording.get_record::<dispatcher::InboundClientData> (2), &dispatcher::InboundClientData {
-            socket_addr: peer_addr_a,
-            origin_port,
+            peer_addr: peer_addr_a,
+            reception_port,
             last_data: false,
             is_clandestine,
             sequence_number: Some(2),
             data: a_third_http_req_a
         });
         assert_eq! (dispatcher_recording.get_record::<dispatcher::InboundClientData> (3), &dispatcher::InboundClientData {
-            socket_addr: peer_addr_a,
-            origin_port,
+            peer_addr: peer_addr_a,
+            reception_port,
             last_data: true,
             is_clandestine,
             sequence_number: Some(3),
@@ -766,8 +771,8 @@ mod tests {
         let dispatcher_recording = dispatcher_recording_arc.lock ().unwrap ();
         let ibcd = dispatcher_recording.get_record::<InboundClientData> (0);
         assert_eq! (ibcd, &InboundClientData {
-            socket_addr: SocketAddr::from_str ("1.2.3.5:7000").unwrap (),
-            origin_port: Some (54321),
+            peer_addr: SocketAddr::from_str ("1.2.3.5:7000").unwrap (),
+            reception_port: Some (54321),
             last_data: false,
             is_clandestine: true,
             sequence_number: None,

@@ -6,6 +6,7 @@ use futures::sync::mpsc::SendError;
 use futures::sync::mpsc::UnboundedReceiver;
 use futures::sync::mpsc::UnboundedSender;
 use tokio::prelude::Async;
+use std::net::SocketAddr;
 
 pub trait ReceiverWrapper<T: Send>: Send {
     fn poll(&mut self) -> Result<Async<Option<T>>, ()>;
@@ -29,38 +30,45 @@ impl<T: Send> ReceiverWrapperReal<T> {
 
 pub trait SenderWrapper<T>: Debug + Send {
     fn unbounded_send(&mut self, data: T) -> Result<(), SendError<T>>;
+    fn peer_addr (&self) -> SocketAddr;
     fn clone(&self) -> Box<SenderWrapper<T>>;
 }
 
 #[derive(Debug)]
 pub struct SenderWrapperReal<T> {
-    delegate: UnboundedSender<T>
+    peer_addr: SocketAddr,
+    delegate: UnboundedSender<T>,
 }
 
 impl<T: 'static + Debug + Send> SenderWrapper<T> for SenderWrapperReal<T> {
     fn unbounded_send(&mut self, data: T) -> Result<(), SendError<T>> {
         self.delegate.unbounded_send(data)
     }
+
+    fn peer_addr (&self) -> SocketAddr {
+        self.peer_addr
+    }
+
     fn clone(&self) -> Box<SenderWrapper<T>> {
-        Box::new(SenderWrapperReal::new(self.delegate.clone()))
+        Box::new(SenderWrapperReal::new(self.peer_addr (), self.delegate.clone()))
     }
 }
 
 impl<T: Send> SenderWrapperReal<T> {
-    pub fn new(delegate: UnboundedSender<T>) -> SenderWrapperReal<T> {
-        SenderWrapperReal { delegate }
+    pub fn new(peer_addr: SocketAddr, delegate: UnboundedSender<T>) -> SenderWrapperReal<T> {
+        SenderWrapperReal { peer_addr, delegate }
     }
 }
 
 pub trait FuturesChannelFactory<T> {
-    fn make(&mut self) -> (Box<SenderWrapper<T>>, Box<ReceiverWrapper<T>>);
+    fn make(&mut self, peer_addr: SocketAddr) -> (Box<SenderWrapper<T>>, Box<ReceiverWrapper<T>>);
 }
 
 pub struct FuturesChannelFactoryReal {}
 
 impl<T: 'static + Debug + Send> FuturesChannelFactory<T> for FuturesChannelFactoryReal {
-    fn make(&mut self) -> (Box<SenderWrapper<T>>, Box<ReceiverWrapper<T>>) {
+    fn make(&mut self, peer_addr: SocketAddr) -> (Box<SenderWrapper<T>>, Box<ReceiverWrapper<T>>) {
         let (tx, rx) = mpsc::unbounded();
-        (Box::new(SenderWrapperReal::new(tx)), Box::new(ReceiverWrapperReal::new(rx)))
+        (Box::new(SenderWrapperReal::new(peer_addr, tx)), Box::new(ReceiverWrapperReal::new(rx)))
     }
 }

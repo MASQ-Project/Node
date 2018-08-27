@@ -25,6 +25,7 @@ use trust_dns_resolver::config::NameServerConfig;
 use trust_dns_resolver::config::Protocol;
 use trust_dns_resolver::config::ResolverConfig;
 use trust_dns_resolver::config::ResolverOpts;
+use sub_lib::proxy_server::ClientRequestPayload;
 
 pub struct ProxyClient {
     dns_servers: Vec<SocketAddr>,
@@ -68,8 +69,16 @@ impl Handler<ExpiredCoresPackage> for ProxyClient {
     type Result = ();
 
     fn handle(&mut self, msg: ExpiredCoresPackage, _ctx: &mut Self::Context) -> Self::Result {
+        let payload = match msg.payload::<ClientRequestPayload> () {
+            Ok (payload) => payload,
+            Err (e) => {
+                self.logger.error (format! ("Error ('{}') interpreting payload for transmission: {:?}", e, msg.payload_data ().data));
+                return ()
+            },
+        };
+        let return_route = msg.remaining_route;
         let pool = self.pool.as_mut ().expect ("StreamHandlerPool unbound");
-        pool.process_package (msg);
+        pool.process_package (payload, return_route);
         self.logger.debug (format! ("ExpiredCoresPackage handled"));
         ()
     }
@@ -133,18 +142,23 @@ mod tests {
     use test_utils::recorder::make_peer_actors;
     use test_utils::recorder::make_peer_actors_from;
     use test_utils::recorder::Recorder;
+    use sub_lib::route::Route;
+    use sub_lib::sequence_buffer::SequencedPacket;
+    use test_utils::logging::init_test_logging;
+    use test_utils::logging::TestLogHandler;
+    use test_utils::test_utils::make_meaningless_stream_key;
 
     fn dnss () -> Vec<SocketAddr> {
         vec! (SocketAddr::from_str ("8.8.8.8:53").unwrap ())
     }
 
     pub struct StreamHandlerPoolMock {
-        process_package_parameters: Arc<Mutex<Vec<ExpiredCoresPackage>>>,
+        process_package_parameters: Arc<Mutex<Vec<(ClientRequestPayload, Route)>>>,
     }
 
     impl StreamHandlerPool for StreamHandlerPoolMock {
-        fn process_package(&mut self, package: ExpiredCoresPackage) {
-            self.process_package_parameters.lock ().unwrap ().push (package);
+        fn process_package(&mut self, payload: ClientRequestPayload, route: Route) {
+            self.process_package_parameters.lock ().unwrap ().push ((payload, route));
         }
     }
 
@@ -155,7 +169,7 @@ mod tests {
             }
         }
 
-        pub fn process_package_parameters (self, parameters: &mut Arc<Mutex<Vec<ExpiredCoresPackage>>>) -> StreamHandlerPoolMock {
+        pub fn process_package_parameters (self, parameters: &mut Arc<Mutex<Vec<(ClientRequestPayload, Route)>>>) -> StreamHandlerPoolMock {
             *parameters = self.process_package_parameters.clone ();
             self
         }
@@ -244,10 +258,9 @@ mod tests {
     fn panics_if_unbound() {
         let response_data = Vec::from (&b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 29\r\n\r\nUser-agent: *\nDisallow: /deny"[..]);
         let request = ClientRequestPayload {
-            stream_key: SocketAddr::from_str ("1.2.3.4:56789").unwrap (),
+            stream_key: make_meaningless_stream_key (),
             last_data: false,
-            sequence_number: 0,
-            data: PlainData::new (b"HEAD http://www.nyan.cat/ HTTP/1.1\r\n\r\n"),
+            sequenced_packet: SequencedPacket {data: b"HEAD http://www.nyan.cat/ HTTP/1.1\r\n\r\n".to_vec (), sequence_number: 0},
             target_hostname: Some (String::from("target.hostname.com")),
             target_port: 1234,
             protocol: ProxyProtocol::HTTP,
@@ -265,7 +278,7 @@ mod tests {
         let stream = TcpStreamWrapperMock::new ()
             .connect_result (Ok (()))
             .connect_parameters (&mut connect_parameters)
-            .write_result (Ok (request.data.data.len ()))
+            .write_result (Ok (request.sequenced_packet.data.len ()))
             .write_parameters (&mut write_parameters)
             .set_read_timeout_result (Ok (()))
             .set_read_timeout_parameters (&mut set_read_timeout_parameters)
@@ -289,12 +302,29 @@ mod tests {
     }
 
     #[test]
+    fn invalid_package_is_logged_and_discarded() {
+        init_test_logging();
+        let package = ExpiredCoresPackage::new(test_utils::make_meaningless_route(),
+                                               PlainData::new(&b"invalid"[..]));
+        let system = System::new ("invalid_package_is_logged_and_discarded");
+        let subject = ProxyClient::new (cryptde (), dnss());
+        let addr: Addr<Syn, ProxyClient> = subject.start();
+        let peer_actors = make_peer_actors_from(None, None, None, None, None);
+        addr.try_send (BindMessage {peer_actors}).unwrap ();
+
+        addr.try_send(package).unwrap ();
+
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
+        system.run();
+        TestLogHandler::new ().await_log_containing("ERROR: Proxy Client: Error ('EOF while parsing a value at offset 7') interpreting payload for transmission: [105, 110, 118, 97, 108, 105, 100]", 1000);
+    }
+
+    #[test]
     fn data_from_hopper_is_relayed_to_stream_handler_pool () {
         let request = ClientRequestPayload {
-            stream_key: SocketAddr::from_str ("1.2.3.4:5678").unwrap (),
+            stream_key: make_meaningless_stream_key (),
             last_data: false,
-            sequence_number: 0,
-            data: PlainData::new (&b"inbound data"[..]),
+            sequenced_packet: SequencedPacket {data: b"inbound data".to_vec (), sequence_number: 0},
             target_hostname: None,
             target_port: 0,
             protocol: ProxyProtocol::HTTP,
@@ -328,9 +358,6 @@ mod tests {
         Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run();
         let parameter = process_package_parameters.lock ().unwrap ().remove (0);
-        assert_eq! (parameter, ExpiredCoresPackage {
-            remaining_route: test_utils::make_meaningless_route(),
-            payload: PlainData::new(&serde_cbor::ser::to_vec(&request.clone()).unwrap()[..]),
-        });
+        assert_eq! (parameter, (request, test_utils::make_meaningless_route()));
     }
 }

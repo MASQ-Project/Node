@@ -83,8 +83,8 @@ impl Handler<IncipientCoresPackage> for Hopper {
 
         if self.cryptde.public_key() == key { // to allow 0-hop Routes
             let inbound_client_data = InboundClientData {
-                socket_addr: SocketAddr::from_str("1.2.3.4:5678").expect("Something terrible has happened"), // irrelevant
-                origin_port: None, // irrelevant
+                peer_addr: SocketAddr::from_str("1.2.3.4:5678").expect("Something terrible has happened"), // irrelevant
+                reception_port: None, // irrelevant
                 last_data: false, // irrelevant
                 sequence_number: None,
                 is_clandestine: true,
@@ -388,8 +388,8 @@ mod tests {
         let data_ser = PlainData::new (&serde_cbor::ser::to_vec (&lcp).unwrap ()[..]);
         let data_enc = cryptde.encode (&cryptde.public_key (), &data_ser).unwrap ();
         let inbound_client_data = InboundClientData {
-            socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            origin_port: None,
+            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            reception_port: None,
             sequence_number: None,
             last_data: false,
             is_clandestine: false,
@@ -426,8 +426,8 @@ mod tests {
         let data_ser = PlainData::new (&serde_cbor::ser::to_vec (&lcp).unwrap ()[..]);
         let data_enc = cryptde.encode (&cryptde.public_key (), &data_ser).unwrap ();
         let inbound_client_data = InboundClientData {
-            socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            origin_port: None,
+            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            reception_port: None,
             last_data: false,
             is_clandestine: false,
             sequence_number: None,
@@ -461,8 +461,8 @@ mod tests {
         let data_ser = PlainData::new (&serde_cbor::ser::to_vec (&lcp).unwrap ()[..]);
         let data_enc = cryptde.encode (&cryptde.public_key (), &data_ser).unwrap ();
         let inbound_client_data = InboundClientData {
-            socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            origin_port: None,
+            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            reception_port: None,
             last_data: false,
             is_clandestine: false,
             sequence_number: None,
@@ -489,8 +489,8 @@ mod tests {
         let data_ser = PlainData::new (&serde_cbor::ser::to_vec (&lcp).unwrap ()[..]);
         let data_enc = cryptde.encode (&cryptde.public_key (), &data_ser).unwrap ();
         let inbound_client_data = InboundClientData {
-            socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            origin_port: None,
+            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            reception_port: None,
             sequence_number: None,
             last_data: false,
             is_clandestine: false,
@@ -519,8 +519,8 @@ mod tests {
         let data_ser = PlainData::new (&serde_cbor::ser::to_vec (&lcp).unwrap ()[..]);
         let data_enc = cryptde.encode (&cryptde.public_key (), &data_ser).unwrap ();
         let inbound_client_data = InboundClientData {
-            socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            origin_port: None,
+            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            reception_port: None,
             last_data: false,
             is_clandestine: true,
             sequence_number: None,
@@ -550,8 +550,8 @@ mod tests {
         let data_ser = PlainData::new (&serde_cbor::ser::to_vec (&lcp).unwrap ()[..]);
         let data_enc = cryptde.encode (&cryptde.public_key (), &data_ser).unwrap ();
         let inbound_client_data = InboundClientData {
-            socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            origin_port: None,
+            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            reception_port: None,
             last_data: false,
             is_clandestine: true,
             sequence_number: None,
@@ -590,8 +590,8 @@ mod tests {
         let data_ser = PlainData::new (&serde_cbor::ser::to_vec (&lcp).unwrap ()[..]);
         let data_enc = cryptde.encode (&cryptde.public_key (), &data_ser).unwrap ();
         let inbound_client_data = InboundClientData {
-            socket_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            origin_port: None,
+            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            reception_port: None,
             last_data: true,
             is_clandestine: false,
             sequence_number: None,
@@ -626,7 +626,7 @@ mod tests {
     #[should_panic (expected = "ProxyServer unbound in Hopper")]
     fn panics_if_proxy_server_is_unbound() {
         let cryptde = cryptde();
-        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let route = route_to_proxy_server(&cryptde.public_key(), cryptde);
         let serialized_payload = serde_cbor::ser::to_vec (&PayloadMock::new()).unwrap ();
         let data = cryptde.encode(&cryptde.public_key(), &PlainData::new(&serialized_payload[..])).unwrap();
@@ -635,8 +635,8 @@ mod tests {
         let encrypted_package = cryptde.encode(&cryptde.public_key(), &live_data).unwrap().data;
 
         let inbound_client_data = InboundClientData {
-            socket_addr,
-            origin_port: None,
+            peer_addr,
+            reception_port: None,
             last_data: false,
             is_clandestine: false,
             sequence_number: None,
@@ -656,7 +656,7 @@ mod tests {
     #[should_panic (expected = "ProxyClient unbound in Hopper")]
     fn panics_if_proxy_client_is_unbound() {
         let cryptde = cryptde();
-        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let route = route_to_proxy_client(&cryptde.public_key(), cryptde);
         let serialized_payload = serde_cbor::ser::to_vec (&PayloadMock::new()).unwrap ();
         let data = cryptde.encode(&cryptde.public_key(), &PlainData::new(&serialized_payload[..])).unwrap();
@@ -665,8 +665,8 @@ mod tests {
         let encrypted_package = cryptde.encode(&cryptde.public_key(), &live_data).unwrap().data;
 
         let inbound_client_data = InboundClientData {
-            socket_addr,
-            origin_port: None,
+            peer_addr,
+            reception_port: None,
             last_data: false,
             is_clandestine: false,
             sequence_number: None,

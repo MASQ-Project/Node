@@ -19,6 +19,7 @@ serde_cbor = "0.8.1"
 serde_derive = "1.0.24"
 tokio = "0.1.7"
 tokio-io = "0.1.7"
+sha1 = "0.6.0"
 
 [dev-dependencies]
 test_utils = { path = "../test_utils" }

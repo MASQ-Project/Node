@@ -34,12 +34,11 @@ impl ClientResponsePayload {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::SocketAddr;
-    use std::str::FromStr;
+    use utils::tests::make_meaningless_stream_key;
 
     #[test]
     fn make_terminating_payload_makes_terminating_payload() {
-        let stream_key = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let stream_key: StreamKey = make_meaningless_stream_key ();
 
         let payload = ClientResponsePayload::make_terminating_payload(stream_key);
 

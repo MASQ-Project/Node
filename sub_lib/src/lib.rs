@@ -11,6 +11,7 @@ extern crate serde;
 extern crate serde_cbor;
 #[macro_use]
 extern crate serde_derive;
+extern crate sha1;
 extern crate tokio;
 extern crate tokio_io;
 
@@ -20,6 +21,7 @@ extern crate test_utils;
 #[cfg(unix)]
 extern crate daemonize;
 
+pub mod bidi_hashmap;
 pub mod channel_wrappers;
 pub mod cryptde;
 pub mod cryptde_null;

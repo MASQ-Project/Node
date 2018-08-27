@@ -2,11 +2,11 @@
 use actix::Recipient;
 use actix::Syn;
 use cryptde::Key;
-use cryptde::PlainData;
 use dispatcher::InboundClientData;
 use hopper::ExpiredCoresPackage;
 use peer_actors::BindMessage;
 use stream_key::StreamKey;
+use sequence_buffer::SequencedPacket;
 
 #[derive (Copy, Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum ProxyProtocol {
@@ -18,8 +18,7 @@ pub enum ProxyProtocol {
 pub struct ClientRequestPayload {
     pub stream_key: StreamKey,
     pub last_data: bool,
-    pub sequence_number: u64,
-    pub data: PlainData,
+    pub sequenced_packet: SequencedPacket,
     pub target_hostname: Option<String>,
     pub target_port: u16,
     pub protocol: ProxyProtocol,

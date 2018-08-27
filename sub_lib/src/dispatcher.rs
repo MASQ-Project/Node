@@ -101,8 +101,8 @@ pub enum DispatcherError {
 
 #[derive (PartialEq, Clone, Message)]
 pub struct InboundClientData {
-    pub socket_addr: SocketAddr, // TODO: Rename to peer_addr
-    pub origin_port: Option<u16>, // TODO: Rename to reception_port
+    pub peer_addr: SocketAddr,
+    pub reception_port: Option<u16>,
     pub last_data: bool,
     pub is_clandestine: bool,
     pub sequence_number: Option<u64>,
@@ -115,8 +115,8 @@ impl Debug for InboundClientData {
             Ok (string) => string,
             Err (_) => format! ("{:?}", &self.data[..])
         };
-        write! (f, "InboundClientData {{ socket_addr: {:?}, origin_port: {:?}, last_data: {}, sequence_nubmer: {:?}, data: {} }}",
-                self.socket_addr, self.origin_port, self.last_data, self.sequence_number, data_string)
+        write! (f, "InboundClientData {{ socket_addr: {:?}, origin_port: {:?}, last_data: {}, sequence_number: {:?}, data: {} }}",
+                self.peer_addr, self.reception_port, self.last_data, self.sequence_number, data_string)
     }
 }
 
