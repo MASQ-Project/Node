@@ -26,6 +26,7 @@ impl StreamKey {
             IpAddr::V4 (ipv4) => hash.update (&ipv4.octets ()),
             IpAddr::V6 (_ipv6) => unimplemented! (),
         }
+        hash.update (&[(peer_addr.port () >> 8) as u8, (peer_addr.port () & 0xFF) as u8]);
         hash.update (&public_key.data[..]);
         StreamKey {
             hash: hash.digest ().bytes ()
@@ -55,6 +56,18 @@ mod tests {
     fn matching_keys_and_mismatched_addrs_make_mismatched_stream_keys () {
         let key = Key::new (&b"These are the times"[..]);
         let one_addr = SocketAddr::from_str ("2.3.4.5:6789").unwrap ();
+        let another_addr = SocketAddr::from_str ("3.4.5.6:6789").unwrap ();
+
+        let one = StreamKey::new (key.clone (), one_addr);
+        let another = StreamKey::new (key, another_addr);
+
+        assert_ne! (one, another);
+    }
+
+    #[test]
+    fn matching_keys_and_mismatched_port_numbers_make_mismatched_stream_keys () {
+        let key = Key::new (&b"These are the times"[..]);
+        let one_addr = SocketAddr::from_str ("3.4.5.6:6789").unwrap ();
         let another_addr = SocketAddr::from_str ("3.4.5.6:7890").unwrap ();
 
         let one = StreamKey::new (key.clone (), one_addr);
@@ -83,6 +96,6 @@ mod tests {
 
         let result = format! ("{:?}", subject);
 
-        assert_eq! (result, String::from ("ei+TGv1eqJtle76g26bhknr8C74"));
+        assert_eq! (result, String::from ("X4SEhZulE9WrmSolWqKFErYBVgI"));
     }
 }
