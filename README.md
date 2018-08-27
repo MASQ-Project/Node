@@ -175,6 +175,28 @@ you must supply `--ip`. You also must have some way of finding out about your ne
 way to transfer clandestine traffic to and from other Nodes, so you must have a `--port_count` greater than zero.  
 (1 is fine. 1000 is fine too, but you'll be poking holes in your router's firewall for awhile.)
 
+Your home network is behind your internet provider's router and a public IP address. Other nodes in the Substratum Network
+will communicate with your public IP address requiring some ports to be opened on your router. The Node gossip protocol 
+"gossips" to other nodes the ports you are listening on and it is those ports you will need to open. When your node 
+is started it will print the list of ports; you will need to forward those exact ports from your router to 
+your computer's IP address.
+
+Opening ports on your router is somewhat technical and at a minimum you should know how to login to your router in 
+order to make changes. Opening a port is usually referred to as Port Forwarding or Port Mapping within a router's 
+interface and maybe labeled as such. Assigning a Static IP for your computer will make this process easier as your 
+IP address can change each time your computer restarts or you restart the network interface. There are many guides that 
+you can find on the internet by searching for "Port Forwarding" or "How to Port Forwarding". 
+Here is an example: [PortForward.com](https://portforward.com)
+
+#### About the "Neighborhood"
+
+Eventually the neighborhood will be a complex network of Nodes that do and don't know each other's IP addresses; but for 
+the 0.4.x series of releases, we're constraining them to a single-file sequence of Nodes, with each one (except the ends) 
+intimately acquainted with exactly two others: one in front and one behind. Nodes are added to the sequence in the order 
+they contact the bootstrap Node. This keeps the situation nice and deterministic for testing.
+_Decentralization_ requires a minimum of three "hops" and six nodes in your neighborhood before you can consume. 
+This configuration of six nodes ensures that not one single node contains the entire network topology.
+
 #### Terminating a SubstratumNode (Zero-Hop or Decentralized)
 
 To terminate the SubstratumNode, just press Ctrl-C in the terminal window. Then you'll still need to revert your
