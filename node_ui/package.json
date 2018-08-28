@@ -1,6 +1,6 @@
 {
   "name": "SubstratumNode",
-  "version": "0.3.5",
+  "version": "0.4.0",
   "description": "SubstratumNode user interface",
   "main": "main.js",
   "homepage": "https://substratum.net",

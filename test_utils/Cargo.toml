@@ -1,6 +1,6 @@
 [package]
 name = "test_utils"
-version = "0.3.5"
+version = "0.4.0"
 license = "GPL-3.0-only"
 authors = ["Substratum Services"]
 copyright = "Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved."
