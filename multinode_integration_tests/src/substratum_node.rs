@@ -107,11 +107,15 @@ pub enum PortSelector {
 
 pub trait SubstratumNode: Any {
     fn name(&self) -> &str;
+    // This is the NodeReference stated by the Node in the console. Its IP address won't be accurate if it's a zero-hop Node.
     fn node_reference(&self) -> NodeReference;
     fn public_key(&self) -> Key;
+    // This is the IP address of the container in which the Node is running.
     fn ip_address(&self) -> IpAddr;
     fn port_list(&self) -> Vec<u16>;
+    // This contains the IP address of the container in which the Node is running.
     fn node_addr(&self) -> NodeAddr;
+    // This contains the IP address of the container in which the Node is running.
     fn socket_addr(&self, port_selector: PortSelector) -> SocketAddr;
     fn make_client (&self, port: u16) -> SubstratumNodeClient;
 }

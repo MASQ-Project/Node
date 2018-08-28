@@ -94,7 +94,7 @@ impl Handler<ExpiredCoresPackage> for ProxyServer {
     fn handle(&mut self, msg: ExpiredCoresPackage, _ctx: &mut Self::Context) -> Self::Result {
         match msg.payload::<ClientResponsePayload>() {
             Ok(payload) => {
-                self.logger.debug(format!("Relaying {}-byte ExpiredCoresPackage payload from Hopper to Dispatcher", payload.data.data.len()));
+                self.logger.debug(format!("Relaying {}-byte ExpiredCoresPackage payload from Hopper to Dispatcher", payload.sequenced_packet.data.len()));
                 match self.keys_and_addrs.a_to_b(&payload.stream_key) {
                     Some(socket_addr) => {
                         let last_data = payload.last_response;
@@ -102,15 +102,15 @@ impl Handler<ExpiredCoresPackage> for ProxyServer {
                             .try_send(TransmitDataMsg {
                                 endpoint: Endpoint::Socket(socket_addr),
                                 last_data,
-                                sequence_number: Some(payload.sequence_number),
-                                data: payload.data.data.clone(),
+                                sequence_number: Some(payload.sequenced_packet.sequence_number),
+                                data: payload.sequenced_packet.data.clone(),
                             }).expect("Dispatcher is dead");
                         if last_data {
                             self.keys_and_addrs.remove_b(&socket_addr);
                         }
                     },
                     None => self.logger.error(format!("Discarding {}-byte packet {} from an unrecognized stream key: {:?}",
-                        payload.data.data.len(), payload.sequence_number, payload.stream_key)),
+                        payload.sequenced_packet.data.len(), payload.sequenced_packet.sequence_number, payload.stream_key)),
                 }
                 ()
             },
@@ -796,8 +796,7 @@ mod tests {
         let client_response_payload = ClientResponsePayload {
             stream_key: stream_key.clone(),
             last_response: true,
-            sequence_number: 12345678,
-            data: PlainData::new(b"16 bytes of data")
+            sequenced_packet: SequencedPacket {data: b"16 bytes of data".to_vec (), sequence_number: 12345678},
         };
         let incipient_cores_package = IncipientCoresPackage::new(remaining_route.clone(), client_response_payload, &key);
         let first_expired_cores_package = ExpiredCoresPackage::new(remaining_route, incipient_cores_package.payload);
@@ -839,8 +838,7 @@ mod tests {
         let client_response_payload = ClientResponsePayload {
             stream_key: stream_key,
             last_response: false,
-            sequence_number: 0,
-            data: PlainData::new(b"data")
+            sequenced_packet: SequencedPacket {data: b"data".to_vec (), sequence_number: 0},
         };
         let incipient_cores_package = IncipientCoresPackage::new(remaining_route.clone(), client_response_payload, &key);
         let first_expired_cores_package = ExpiredCoresPackage::new(remaining_route, incipient_cores_package.payload);
@@ -883,8 +881,7 @@ mod tests {
         let client_response_payload = ClientResponsePayload {
             stream_key: stream_key,
             last_response: true,
-            sequence_number: 0,
-            data: PlainData::new(b"data")
+            sequenced_packet: SequencedPacket {data: b"data".to_vec (), sequence_number: 0},
         };
         let incipient_cores_package = IncipientCoresPackage::new(remaining_route.clone(), client_response_payload, &key);
         let expired_cores_package = ExpiredCoresPackage::new(remaining_route, incipient_cores_package.payload);

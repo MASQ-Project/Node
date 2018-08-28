@@ -465,8 +465,7 @@ mod tests {
             ClientResponsePayload {
                 stream_key: make_meaningless_stream_key (),
                 last_response: false,
-                sequence_number: 0,
-                data: PlainData::new(&b"HTTP/1.1 200 OK\r\n\r\n"[..]),
+                sequenced_packet: SequencedPacket {data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec (), sequence_number: 0},
             },
             &Key::new(&b"men's souls"[..]),
         ));

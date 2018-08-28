@@ -17,6 +17,7 @@ use sub_lib::stream_key::StreamKey;
 use sub_lib::tokio_wrappers::ReadHalfWrapper;
 use sub_lib::utils::indicates_dead_stream;
 use sub_lib::utils::to_string;
+use sub_lib::sequence_buffer::SequencedPacket;
 
 pub struct StreamReader {
     stream_key: StreamKey,
@@ -117,8 +118,7 @@ impl StreamReader {
         let response_payload = ClientResponsePayload {
             stream_key,
             last_response,
-            sequence_number: self.sequencer.next_sequence_number(),
-            data: response_data,
+            sequenced_packet: SequencedPacket {data: response_data.data, sequence_number: self.sequencer.next_sequence_number()},
         };
         let incipient_cores_package =
             IncipientCoresPackage::new (self.remaining_route.clone (),
@@ -213,8 +213,7 @@ mod tests {
             ClientResponsePayload {
                 stream_key: make_meaningless_stream_key (),
                 last_response: false,
-                sequence_number: 0,
-                data: PlainData::new(&b"HTTP/1.1 200 OK\r\n\r\n"[..]),
+                sequenced_packet: SequencedPacket {data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec (), sequence_number: 0},
             },
             &Key::new(&b"abcd"[..]),
         ));
@@ -223,8 +222,7 @@ mod tests {
             ClientResponsePayload {
                 stream_key: make_meaningless_stream_key (),
                 last_response: false,
-                sequence_number: 1,
-                data: PlainData::new(&b"HTTP/1.1 404 File not found\r\n\r\n"[..]),
+                sequenced_packet: SequencedPacket {data: b"HTTP/1.1 404 File not found\r\n\r\n".to_vec (), sequence_number: 1},
             },
             &Key::new(&b"abcd"[..]),
         ));
@@ -233,8 +231,7 @@ mod tests {
             ClientResponsePayload {
                 stream_key: make_meaningless_stream_key (),
                 last_response: false,
-                sequence_number: 2,
-                data: PlainData::new(&b"HTTP/1.1 503 Server error\r\n\r\n"[..]),
+                sequenced_packet: SequencedPacket {data: b"HTTP/1.1 503 Server error\r\n\r\n".to_vec (), sequence_number: 2},
             },
             &Key::new(&b"abcd"[..]),
         ));
@@ -243,8 +240,7 @@ mod tests {
             ClientResponsePayload {
                 stream_key: make_meaningless_stream_key (),
                 last_response: true,
-                sequence_number: 3,
-                data: PlainData::new(&Vec::new()),
+                sequenced_packet: SequencedPacket {data: vec! (), sequence_number: 3},
             },
             &Key::new(&b"abcd"[..]),
         ));
@@ -304,8 +300,7 @@ mod tests {
             payload: PlainData::new(&serde_cbor::ser::to_vec(&ClientResponsePayload {
                 stream_key,
                 last_response: true,
-                sequence_number: 0,
-                data: PlainData::new(&[]),
+                sequenced_packet: SequencedPacket {data: vec! (), sequence_number: 0},
             }).unwrap()[..]),
             payload_destination_key: Key::new(&b"men's souls"[..]),
         });
@@ -358,8 +353,7 @@ mod tests {
             ClientResponsePayload {
                 stream_key: make_meaningless_stream_key (),
                 last_response: false,
-                sequence_number: 0,
-                data: PlainData::new(&b"HTTP/1.1 200 OK\r\n\r\n"[..]),
+                sequenced_packet: SequencedPacket {data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec (), sequence_number: 0},
             },
             &Key::new(&b"abcd"[..]),
         ));
@@ -368,8 +362,7 @@ mod tests {
             ClientResponsePayload {
                 stream_key: make_meaningless_stream_key (),
                 last_response: false,
-                sequence_number: 1,
-                data: PlainData::new(&b"HTTP/1.1 404 File not found\r\n\r\n"[..]),
+                sequenced_packet: SequencedPacket {data: b"HTTP/1.1 404 File not found\r\n\r\n".to_vec (), sequence_number: 1},
             },
             &Key::new(&b"abcd"[..]),
         ));
@@ -378,8 +371,7 @@ mod tests {
             ClientResponsePayload {
                 stream_key: make_meaningless_stream_key (),
                 last_response: false,
-                sequence_number: 2,
-                data: PlainData::new(&b"HTTP/1.1 503 Server error\r\n\r\n"[..]),
+                sequenced_packet: SequencedPacket {data: b"HTTP/1.1 503 Server error\r\n\r\n".to_vec (), sequence_number: 2},
             },
             &Key::new(&b"abcd"[..]),
         ));
@@ -388,8 +380,7 @@ mod tests {
             ClientResponsePayload {
                 stream_key: make_meaningless_stream_key (),
                 last_response: true,
-                sequence_number: 3,
-                data: PlainData::new(&b""[..]),
+                sequenced_packet: SequencedPacket {data: vec! (), sequence_number: 3},
             },
             &Key::new(&b"abcd"[..]),
         ));
@@ -445,8 +436,7 @@ mod tests {
             ClientResponsePayload {
                 stream_key: make_meaningless_stream_key (),
                 last_response: true,
-                sequence_number: 0,
-                data: PlainData::new(&[]),
+                sequenced_packet: SequencedPacket {data: vec! (), sequence_number: 0},
             },
             &Key::new(&b"abcd"[..]),
         ));
@@ -505,8 +495,7 @@ mod tests {
             ClientResponsePayload {
                 stream_key: make_meaningless_stream_key (),
                 last_response: false,
-                sequence_number: 0,
-                data: PlainData::new(&b"HTTP/1.1 200 OK\r\n\r\n"[..]),
+                sequenced_packet: SequencedPacket {data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec (), sequence_number: 0},
             },
             &Key::new(&b"abcd"[..]),
         ));

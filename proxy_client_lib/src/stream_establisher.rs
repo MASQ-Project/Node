@@ -186,7 +186,7 @@ mod tests {
         let response = response_rx.recv().unwrap();
 
         assert_eq! (response.last_response, false);
-        assert_eq! (response.data.data, b"HTTP/1.1 200 OK\r\n\r\n".to_vec ());
+        assert_eq! (response.sequenced_packet.data, b"HTTP/1.1 200 OK\r\n\r\n".to_vec ());
     }
 
     #[test]
@@ -251,6 +251,6 @@ mod tests {
         let response = response_rx.recv().unwrap();
 
         assert_eq! (response.last_response, false);
-        assert_eq! (response.data.data, vec! (0x16, 0x03, 0x03, 0x00, 0x00));
+        assert_eq! (response.sequenced_packet.data, vec! (0x16, 0x03, 0x03, 0x00, 0x00));
     }
 }

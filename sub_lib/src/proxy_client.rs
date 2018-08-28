@@ -1,17 +1,16 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use actix::Recipient;
 use actix::Syn;
-use cryptde::PlainData;
 use hopper::ExpiredCoresPackage;
 use peer_actors::BindMessage;
 use stream_key::StreamKey;
+use sequence_buffer::SequencedPacket;
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct ClientResponsePayload {
     pub stream_key: StreamKey,
     pub last_response: bool,
-    pub sequence_number: u64,
-    pub data: PlainData
+    pub sequenced_packet: SequencedPacket,
 }
 
 #[derive(Clone)]
@@ -25,8 +24,7 @@ impl ClientResponsePayload {
         ClientResponsePayload {
             stream_key,
             last_response: true,
-            sequence_number: 0,
-            data: PlainData::new(&[]),
+            sequenced_packet: SequencedPacket {data: vec! (), sequence_number: 0},
         }
     }
 }
@@ -45,8 +43,7 @@ mod tests {
         assert_eq!(payload, ClientResponsePayload {
             stream_key,
             last_response: true,
-            sequence_number: 0,
-            data: PlainData::new(&[])
+            sequenced_packet: SequencedPacket {data: vec! (), sequence_number: 0},
         })
     }
 }

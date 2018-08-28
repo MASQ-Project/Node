@@ -17,7 +17,6 @@ use neighborhood_lib::gossip::GossipNodeRecord;
 use neighborhood_lib::gossip::NeighborRelationship;
 use node_lib::json_masquerader::JsonMasquerader;
 use sub_lib::cryptde::Key;
-use sub_lib::cryptde::PlainData;
 use sub_lib::dispatcher::Component;
 use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::proxy_server::ClientRequestPayload;
@@ -97,8 +96,7 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test () {
     let response_payload = ClientResponsePayload {
         stream_key: request_payload.stream_key,
         last_response: false,
-        sequence_number: 0,
-        data: PlainData::new (&b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 21\r\n\r\nOoh! Do you work out?"[..]),
+        sequenced_packet: SequencedPacket {data: b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 21\r\n\r\nOoh! Do you work out?".to_vec (), sequence_number: 0},
     };
     let outgoing_package = IncipientCoresPackage::new (route, response_payload, &subject.public_key ());
     mock_standard.transmit_package (5551, outgoing_package, &masquerader, &subject.public_key (), subject.socket_addr (PortSelector::First)).unwrap ();
@@ -150,8 +148,9 @@ fn cores_package_to_http_request_and_http_response_to_cores_package_test () {
     let client_response_payload = incoming_cores_package.payload::<ClientResponsePayload> ().unwrap ();
     assert_eq! (client_response_payload.stream_key, make_meaningless_stream_key ());
     assert_eq! (client_response_payload.last_response, false);
-    assert_eq! (client_response_payload.sequence_number, 0);
-    assert_eq! (index_of (&client_response_payload.data.data, &b"This domain is established to be used for illustrative examples in documents."[..]).is_some (), true);
+    assert_eq! (client_response_payload.sequenced_packet.sequence_number, 0);
+    assert_eq! (index_of (&client_response_payload.sequenced_packet.data,
+        &b"This domain is established to be used for illustrative examples in documents."[..]).is_some (), true);
 }
 
 #[test]
@@ -169,7 +168,27 @@ fn end_to_end_gossip_and_routing_test () {
     client.send_chunk (Vec::from (&b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n"[..]));
     let response = client.wait_for_chunk();
 
-    assert_eq! (index_of (&response, &b"This domain is established to be used for illustrative examples in documents."[..]).is_some (), true);
+    assert_eq! (index_of (&response,
+        &b"This domain is established to be used for illustrative examples in documents."[..]).is_some (), true);
+}
+
+#[test]
+fn multiple_stream_zero_hop_test () {
+    let mut cluster = SubstratumNodeCluster::start ().unwrap ();
+    let zero_hop_node = cluster.start_real_node (NodeStartupConfigBuilder::zero_hop().build ());
+    let mut one_client = zero_hop_node.make_client (80);
+    let mut another_client = zero_hop_node.make_client (80);
+
+    one_client.send_chunk (Vec::from (&b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n"[..]));
+    another_client.send_chunk (Vec::from (&b"GET / HTTP/1.1\r\nHost: www.fallingfalling.com\r\n\r\n"[..]));
+
+    let one_response = one_client.wait_for_chunk();
+    let another_response = another_client.wait_for_chunk ();
+
+    assert_eq! (index_of (&one_response,
+        &b"This domain is established to be used for illustrative examples in documents."[..]).is_some (), true);
+    assert_eq! (index_of (&another_response,
+        &b"FALLING FALLING .COM BY RAFAEL ROZENDAAL"[..]).is_some (), true);
 }
 
 fn make_gossip (pairs: Vec<(&NodeReference, bool)>) -> Gossip {

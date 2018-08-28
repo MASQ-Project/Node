@@ -96,6 +96,19 @@ pub struct NodeStartupConfigBuilder {
 }
 
 impl NodeStartupConfigBuilder {
+    pub fn zero_hop () -> NodeStartupConfigBuilder {
+        NodeStartupConfigBuilder {
+            ip: sentinel_ip_addr(),
+            dns_servers: vec!(IpAddr::from_str("8.8.8.8").unwrap()),
+            neighbors: vec!(),
+            bootstrap_froms: vec!(),
+            node_type: NodeType::Standard,
+            port_count: 0,
+            dns_target: IpAddr::from_str("127.0.0.1").unwrap(),
+            dns_port: 53,
+        }
+    }
+
     pub fn standard() -> NodeStartupConfigBuilder {
         NodeStartupConfigBuilder {
             ip: sentinel_ip_addr(), // this is replaced at startup
@@ -219,7 +232,7 @@ impl SubstratumNode for SubstratumRealNode {
     }
 
     fn ip_address(&self) -> IpAddr {
-        self.node_reference ().node_addr.ip_addr()
+        self.guts.container_ip
     }
 
     fn port_list(&self) -> Vec<u16> {
@@ -231,7 +244,7 @@ impl SubstratumNode for SubstratumRealNode {
     }
 
     fn socket_addr(&self, port_selector: PortSelector) -> SocketAddr {
-        SubstratumNodeUtils::socket_addr (&self.node_reference ().node_addr, port_selector, self.name ())
+        SubstratumNodeUtils::socket_addr (&self.node_addr (), port_selector, self.name ())
     }
 
     fn make_client (&self, port: u16) -> SubstratumNodeClient {
@@ -246,12 +259,13 @@ impl SubstratumRealNode {
         let ip_addr = IpAddr::V4 (Ipv4Addr::new (172, 18, 1, index as u8));
         let name = format! ("test_node_{}", index);
         SubstratumNodeUtils::clean_up_existing_container (&name[..]);
-        let real_startup_config = NodeStartupConfigBuilder::copy (&startup_config)
-            .ip (ip_addr)
-            .build ();
+        let real_startup_config = match startup_config.port_count {
+            0 => startup_config,
+            _ => NodeStartupConfigBuilder::copy(&startup_config).ip(ip_addr).build()
+        };
         Self::do_docker_run(&real_startup_config, host_node_parent_dir, ip_addr, &name).unwrap ();
         let node_reference = SubstratumRealNode::extract_node_reference(&name).unwrap ();
-        let guts = Rc::new (SubstratumRealNodeGuts {name, node_reference});
+        let guts = Rc::new (SubstratumRealNodeGuts {name, container_ip: ip_addr, node_reference});
         SubstratumRealNode { guts }
     }
 
@@ -302,6 +316,7 @@ impl SubstratumRealNode {
 
 struct SubstratumRealNodeGuts {
     name: String,
+    container_ip: IpAddr,
     node_reference: NodeReference,
 }
 
@@ -314,6 +329,21 @@ impl Drop for SubstratumRealNodeGuts {
 #[cfg (test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn node_startup_config_builder_zero_hop () {
+
+        let result = NodeStartupConfigBuilder::zero_hop ().build ();
+
+        assert_eq! (result.ip, sentinel_ip_addr());
+        assert_eq! (result.dns_servers, vec! (IpAddr::from_str ("8.8.8.8").unwrap ()));
+        assert_eq! (result.neighbors, vec! ());
+        assert_eq! (result.bootstrap_froms, vec! ());
+        assert_eq! (result.node_type, NodeType::Standard);
+        assert_eq! (result.port_count, 0);
+        assert_eq! (result.dns_target, IpAddr::from_str ("127.0.0.1").unwrap ());
+        assert_eq! (result.dns_port, 53);
+    }
 
     #[test]
     fn node_startup_config_builder_standard () {
