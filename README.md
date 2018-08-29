@@ -134,7 +134,7 @@ Nodes in the SubstratumNetwork. If you specify `--bootstrap_from`, you should no
 (This is a temporary restriction that will be lifted in the future.)  Again, you can specify `--bootstrap_from` as many
 times as you like.
 
-* `--node_type { standard | bootstrap }`
+* `--node_type < standard | bootstrap >`
 This is how you tell SubstratumNode whether to start up as a bootstrap Node or as a standard (non-bootstrap) Node. If
 you're interested in running data through the system, you won't find the `bootstrap` option particularly fulfilling, but
 you should feel free to try it if you like.  Note: Bootstrap Nodes must start up with no knowledge of their environment,
@@ -158,12 +158,12 @@ put in this parameter so that we could put it elsewhere and point tests at it.  
 do testing on low ports anyway, so now we always leave this parameter out and let it default to 53.  You probably won't
 have much use for this.
 
-* `--log_level error | warn | info | trace | debug`
+* `--log_level < off | error | warn | info | debug | trace >`
 The Node has the potential to log a lot of data. (A _lot_ of data: a busy Node can fill your disk in a few minutes.) This
-parameter allows you to specify how much of that potential will be realized. `debug` will encourage the Node to reach its
+parameter allows you to specify how much of that potential will be realized. `trace` will encourage the Node to reach its
 full potential, and should probably only be used when you're going to run the Node for a few seconds to try one thing
-that's been giving you problems, and then shut it off to look at the logs. `error`--which is the default--logs only the 
-most serious of errors, and the other values are in-between compromise points.
+that's been giving you problems, and then shut it off to look at the logs. `error` logs only the 
+most serious of errors, and the other values are in-between compromise points. Default is `warn`.
 
 If you try to start your SubstratumNode decentralized, you will quickly discover that these parameters have
 a great deal of interdependence on each other.  Some are required, some are optional, some are optional only if others
