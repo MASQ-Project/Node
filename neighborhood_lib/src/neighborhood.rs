@@ -38,6 +38,7 @@ use sub_lib::neighborhood::DispatcherNodeQueryMessage;
 use sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use sub_lib::utils::plus;
 use sub_lib::neighborhood::RouteQueryResponse;
+use sub_lib::utils::NODE_MAILBOX_CAPACITY;
 
 pub struct Neighborhood {
     cryptde: &'static CryptDE,
@@ -55,7 +56,8 @@ impl Actor for Neighborhood {
 impl Handler<BindMessage> for Neighborhood {
     type Result = ();
 
-    fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
+        ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.hopper = Some (msg.peer_actors.hopper.from_hopper_client);
         ()
     }
