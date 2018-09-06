@@ -1014,6 +1014,7 @@ mod tests {
             sequence_number: None,
             data: b"worlds".to_vec(),
         };
+        let expected_data = JsonMasquerader::new().mask(&msg_a.data).unwrap();
 
         let local_addr = SocketAddr::from_str("1.2.3.4:80").unwrap();
         let poll_write_params_arc = Arc::new(Mutex::new(Vec::new()));
@@ -1023,7 +1024,7 @@ mod tests {
                 .poll_read_result (vec! (), Ok(Async::NotReady))),
             writer: Box::new (WriteHalfWrapperMock::new ()
                 .poll_write_params(&poll_write_params_arc)
-                .poll_write_result(Ok (Async::Ready(5)))
+                .poll_write_result(Ok (Async::Ready(expected_data.len())))
             ),
             local_addr,
             peer_addr: peer_addr_a,
@@ -1107,22 +1108,22 @@ mod tests {
 
     #[test]
     fn stream_handler_pool_writes_much_clandestine_data_to_stream_writer() {
-        let reader = ReadHalfWrapperMock::new ()
-            .poll_read_result(vec! (), Ok (Async::NotReady));
-        let write_stream_params_arc = Arc::new (Mutex::new (vec! ()));
-        let writer = WriteHalfWrapperMock::new ()
-            .poll_write_result(Ok (Async::Ready (5)))
-            .poll_write_result(Ok (Async::Ready (6)))
-            .poll_write_result(Ok (Async::NotReady))
-            .poll_write_params (&write_stream_params_arc);
-        let local_addr = SocketAddr::from_str("1.2.3.4:6789").unwrap();
-        let peer_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
-
         let hello = b"hello".to_vec();
         let worlds = b"worlds".to_vec();
 
         let masked_hello = JsonMasquerader::new().mask(&hello).unwrap();
         let masked_worlds = JsonMasquerader::new().mask(&worlds).unwrap();
+
+        let reader = ReadHalfWrapperMock::new ()
+            .poll_read_result(vec! (), Ok (Async::NotReady));
+        let write_stream_params_arc = Arc::new (Mutex::new (vec! ()));
+        let writer = WriteHalfWrapperMock::new ()
+            .poll_write_result(Ok (Async::Ready (masked_hello.len())))
+            .poll_write_result(Ok (Async::Ready (masked_worlds.len())))
+            .poll_write_result(Ok (Async::NotReady))
+            .poll_write_params (&write_stream_params_arc);
+        let local_addr = SocketAddr::from_str("1.2.3.4:6789").unwrap();
+        let peer_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
 
         thread::spawn(move || {
             let system = System::new("test");

@@ -62,41 +62,42 @@ impl StreamWriter {
     }
 
     fn write_from_buffer_to_stream(&mut self) -> Result<Async<()>, ()> {
-        let mut repushee = None;
+        loop {
+            let packet_opt = self.sequence_buffer.poll();
 
-        while let Some(packet) = match repushee { // break out of outer loop if there was a NotReady
-            None => self.sequence_buffer.poll(),
-            Some(_) => None,
-        } {
-            loop { // this allows retries for non-dead-stream errors
-                self.logger.debug(format!("Writing {} bytes over existing stream", packet.data.len()));
-                match self.stream.poll_write(&packet.data) {
-                    Err(e) => {
-                        if indicates_dead_stream(e.kind()) {
-                            self.logger.error(format!("Error writing {} bytes: {}", packet.data.len(), e));
-                            return Err(())
-                        } else {
-                            // TODO this could be exploitable and inefficient: if we keep getting non-dead-stream errors, we go into a tight loop and do not return
-                            self.logger.warning(format!("Continuing after write error: {}", e));
-                        }
-                    },
-                    Ok(Async::Ready(_)) => {
-                        self.logger.debug(format!("Wrote {} bytes", packet.data.len()));
-                        break // break out of inner loop to get the next packet from buffer
-                    },
-                    Ok(Async::NotReady) => {
-                        repushee = Some(packet);
-                        break
+            match packet_opt {
+                Some(packet) => {
+                    self.logger.debug(format!("Writing {} bytes over existing stream", packet.data.len()));
+                    match self.stream.poll_write(&packet.data) {
+                        Err(e) => {
+                            if indicates_dead_stream(e.kind()) {
+                                self.logger.error(format!("Error writing {} bytes: {}", packet.data.len(), e));
+                                return Err(())
+                            } else {
+                                // TODO this could be exploitable and inefficient: if we keep getting non-dead-stream errors, we go into a tight loop and do not return
+                                self.logger.warning(format!("Continuing after write error: {}", e));
+                                self.sequence_buffer.repush(packet);
+                            }
+                        },
+                        Ok(Async::NotReady) => {
+                            self.sequence_buffer.repush(packet);
+                            return Ok(Async::NotReady)
+                        },
+                        Ok(Async::Ready(len)) => {
+                            if len != packet.data.len() {
+                                self.logger.debug(format!("Wrote partial packet {}/{} bytes; rescheduling {} bytes", len, &packet.data.len(), &packet.data.len()-len));
+                                self.sequence_buffer.repush(SequencedPacket::new(packet.data.iter().skip(len).map(|p| p.clone()).collect(), packet.sequence_number));
+                            } else {
+                                self.logger.debug(format!("Wrote {} bytes", packet.data.len()));
+                            }
+                        },
                     }
+                },
+                None => {
+                    return Ok(Async::Ready(()))
                 }
             }
         }
-
-        if let Some(packet) = repushee {
-            self.sequence_buffer.repush(packet);
-            return Ok(Async::NotReady)
-        }
-        Ok(Async::Ready(()))
     }
 }
 
@@ -304,7 +305,7 @@ mod tests {
         let writer = WriteHalfWrapperMock {
             poll_write_params: Arc::new(Mutex::new(vec!())),
             poll_write_results: vec!(
-                Ok(Async::Ready(5)),
+                Ok(Async::Ready(19)),
                 Err(Error::from(ErrorKind::BrokenPipe))
             ),
         };
@@ -375,7 +376,7 @@ mod tests {
             poll_write_params: Arc::new(Mutex::new(vec!())),
             poll_write_results: vec!(
                 Ok(Async::NotReady),
-                Ok(Async::Ready(5)),
+                Ok(Async::Ready(19)),
                 Ok(Async::NotReady),
             ) };
         let write_params = writer.poll_write_params.clone();
@@ -395,5 +396,45 @@ mod tests {
         assert_eq!(result, Ok(Async::NotReady));
 
         assert_eq!(write_params.lock().unwrap().len(), 2);
+    }
+
+
+    #[test]
+    fn stream_writer_resubmits_partial_packet_when_written_len_is_less_than_packet_len() {
+        let stream_key = make_meaningless_stream_key ();
+        let mut rx = Box::new(ReceiverWrapperMock::new());
+        rx.poll_results = vec!(
+            Ok(Async::Ready(Some(SequencedPacket::new(b"worlds".to_vec(), 0)))),
+            Ok(Async::NotReady),
+            Ok(Async::NotReady),
+            Ok(Async::NotReady),
+        );
+
+        let writer = WriteHalfWrapperMock {
+            poll_write_params: Arc::new(Mutex::new(vec!())),
+            poll_write_results: vec!(
+                Ok(Async::Ready(3)),
+                Ok(Async::Ready(2)),
+                Ok(Async::Ready(1)),
+                Ok(Async::NotReady),
+            ),
+        };
+        let write_params = writer.poll_write_params.clone();
+        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+
+        let mut subject = StreamWriter::new(
+            Box::new(writer),
+            peer_addr,
+            rx,
+            stream_key,
+        );
+
+        let result = subject.poll();
+        assert_eq!(result, Ok(Async::NotReady));
+
+        assert_eq!(write_params.lock().unwrap().len(), 3);
+        assert_eq!(write_params.lock().unwrap().get(0).unwrap(), &b"worlds".to_vec());
+        assert_eq!(write_params.lock().unwrap().get(1).unwrap(), &b"lds".to_vec());
+        assert_eq!(write_params.lock().unwrap().get(2).unwrap(), &b"s".to_vec());
     }
 }
