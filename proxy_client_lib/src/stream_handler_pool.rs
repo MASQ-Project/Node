@@ -100,7 +100,7 @@ impl StreamHandlerPool for StreamHandlerPoolReal {
         }
 
         if let Some((stream_key, socket_addr)) = to_remove {
-            self.logger.trace(format!("Removing stream writer for {}", socket_addr));
+            self.logger.debug(format!("Removing stream writer for {}", socket_addr));
             self.stream_writer_channels.remove(&stream_key);
         }
     }

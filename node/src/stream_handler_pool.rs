@@ -188,7 +188,7 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
                     self.logger.debug (format! ("Queued {} bytes for transmission", packet_len));
                 },
                 None => { // a connection is already in progress. resubmit this message, to give the connection time to complete
-                    self.logger.info(format!("INFO: connection for {} in progress, resubmitting {} bytes", peer_addr, msg.context.data.len()));
+                    self.logger.info(format!("connection for {} in progress, resubmitting {} bytes", peer_addr, msg.context.data.len()));
                     let recipient = self.self_subs.as_ref().expect("StreamHandlerPool is unbound.").node_query_response.clone();
                     // TODO FIXME revisit once SC-358 is done (idea: create an actor for delaying messages?)
                     thread::spawn(move || { // to avoid getting into too-tight a resubmit loop, add a delay; in a separate thread, to avoid delaying other traffic
@@ -235,7 +235,7 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
         }
 
         if to_remove {
-            self.logger.trace(format!("Removing stream writer for {}", peer_addr));
+            self.logger.debug(format!("Removing stream writer for {}", peer_addr));
             self.stream_writers.remove(&peer_addr);
         }
     }
@@ -965,7 +965,7 @@ mod tests {
         });
         let subject_subs = rx.recv().unwrap();
 
-        TestLogHandler::new ().await_log_containing(format!("INFO: connection for {} in progress, resubmitting {} bytes", peer_addr_a, msg_a.data.len()).as_str(), 1000);
+        TestLogHandler::new ().await_log_containing(format!("connection for {} in progress, resubmitting {} bytes", peer_addr_a, msg_a.data.len()).as_str(), 1000);
 
         let local_addr = SocketAddr::from_str("1.2.3.4:80").unwrap();
         let poll_write_params_arc = Arc::new(Mutex::new(Vec::new()));

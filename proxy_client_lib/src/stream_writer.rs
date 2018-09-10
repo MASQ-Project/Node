@@ -38,7 +38,7 @@ impl StreamWriter {
                peer_addr: SocketAddr,
                rx_to_write: Box<ReceiverWrapper<SequencedPacket>>,
                stream_key: StreamKey) -> StreamWriter {
-        let name = format!("ProxyClient for {:?}/{}", stream_key, peer_addr);
+        let name = format!("StreamWriter for {:?}/{}", stream_key, peer_addr);
         let logger = Logger::new(&name[..]);
         StreamWriter {
             stream,
@@ -84,11 +84,10 @@ impl StreamWriter {
                             return Ok(Async::NotReady)
                         },
                         Ok(Async::Ready(len)) => {
+                            self.logger.debug(format!("Wrote {}/{} bytes of clear data (#{})", len, &packet.data.len(), &packet.sequence_number));
                             if len != packet.data.len() {
-                                self.logger.debug(format!("Wrote partial packet {}/{} bytes; rescheduling {} bytes", len, &packet.data.len(), &packet.data.len()-len));
+                                self.logger.debug(format!("rescheduling {} bytes", &packet.data.len()-len));
                                 self.sequence_buffer.repush(SequencedPacket::new(packet.data.iter().skip(len).map(|p| p.clone()).collect(), packet.sequence_number));
-                            } else {
-                                self.logger.debug(format!("Wrote {} bytes", packet.data.len()));
                             }
                         },
                     }
@@ -163,14 +162,14 @@ mod tests {
 
         let tlh = TestLogHandler::new();
         tlh.assert_logs_contain_in_order(vec!(
-            format! ("DEBUG: ProxyClient for {:?}/2.2.3.4:5678: Writing 5 bytes over existing stream", stream_key).as_str (),
-            format! ("DEBUG: ProxyClient for {:?}/2.2.3.4:5678: Wrote 5 bytes", stream_key).as_str (),
-            format! ("DEBUG: ProxyClient for {:?}/2.2.3.4:5678: Writing 6 bytes over existing stream", stream_key).as_str (),
-            format! ("DEBUG: ProxyClient for {:?}/2.2.3.4:5678: Wrote 6 bytes", stream_key).as_str (),
-            format! ("DEBUG: ProxyClient for {:?}/2.2.3.4:5678: Writing 4 bytes over existing stream", stream_key).as_str (),
-            format! ("DEBUG: ProxyClient for {:?}/2.2.3.4:5678: Wrote 4 bytes", stream_key).as_str (),
-            format! ("DEBUG: ProxyClient for {:?}/2.2.3.4:5678: Writing 0 bytes over existing stream", stream_key).as_str (),
-            format! ("DEBUG: ProxyClient for {:?}/2.2.3.4:5678: Wrote 0 bytes", stream_key).as_str (),
+            format! ("DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Writing 5 bytes over existing stream", stream_key).as_str (),
+            format! ("DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Wrote 5/5 bytes of clear data", stream_key).as_str (),
+            format! ("DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Writing 6 bytes over existing stream", stream_key).as_str (),
+            format! ("DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Wrote 6/6 bytes of clear data", stream_key).as_str (),
+            format! ("DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Writing 4 bytes over existing stream", stream_key).as_str (),
+            format! ("DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Wrote 4/4 bytes of clear data", stream_key).as_str (),
+            format! ("DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Writing 0 bytes over existing stream", stream_key).as_str (),
+            format! ("DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Wrote 0/0 bytes of clear data", stream_key).as_str (),
         ));
     }
 
@@ -251,9 +250,9 @@ mod tests {
         assert_eq!(write_params.lock().unwrap().len(), 2);
         let tlh = TestLogHandler::new();
         tlh.assert_logs_contain_in_order(vec!(
-            format! ("DEBUG: ProxyClient for {:?}/1.3.3.4:5678: Writing 19 bytes over existing stream", stream_key).as_str (),
-            format! ("WARN: ProxyClient for {:?}/1.3.3.4:5678: Continuing after write error: other os error", stream_key).as_str (),
-            format! ("DEBUG: ProxyClient for {:?}/1.3.3.4:5678: Wrote 19 bytes", stream_key).as_str ()));
+            format! ("DEBUG: StreamWriter for {:?}/1.3.3.4:5678: Writing 19 bytes over existing stream", stream_key).as_str (),
+            format! ("WARN: StreamWriter for {:?}/1.3.3.4:5678: Continuing after write error: other os error", stream_key).as_str (),
+            format! ("DEBUG: StreamWriter for {:?}/1.3.3.4:5678: Wrote 19/19 bytes of clear data", stream_key).as_str ()));
     }
 
     #[test]
@@ -359,7 +358,7 @@ mod tests {
 
         assert!(subject.poll().is_err());
 
-        TestLogHandler::new().exists_log_containing(format! ("ERROR: ProxyClient for {:?}/2.3.4.5:80: Error writing 19 bytes: broken pipe", stream_key).as_str ());
+        TestLogHandler::new().exists_log_containing(format! ("ERROR: StreamWriter for {:?}/2.3.4.5:80: Error writing 19 bytes: broken pipe", stream_key).as_str ());
     }
 
     #[test]

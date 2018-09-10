@@ -47,7 +47,7 @@ impl Future for StreamReader {
                     return Ok(Async::Ready(()));
                 },
                 Ok(Async::Ready(len)) => {
-                    self.logger.debug(format!("Read {}-byte chunk from {}: {}", len, self.peer_addr,
+                    self.logger.trace(format!("Read {}-byte chunk from {}: {}", len, self.peer_addr,
                                               to_string(&Vec::from(&buf[0..len]))));
                     self.framer.add_data(&buf[0..len]);
                     self.send_frames_loop();
@@ -80,7 +80,7 @@ impl StreamReader {
             remaining_route,
             framer,
             originator_public_key,
-            logger: Logger::new ("Proxy Client"),
+            logger: Logger::new (&format!("StreamReader for {:?}/{}", stream_key, peer_addr)[..]),
             sequencer: Sequencer::new(),
         }
     }
@@ -95,7 +95,7 @@ impl StreamReader {
         loop {
             match self.framer.take_frame () {
                 Some (response_chunk) => {
-                    self.logger.debug (format! ("Framed {}-byte {} response chunk, '{}'", response_chunk.chunk.len (),
+                    self.logger.trace (format! ("Framed {}-byte {} response chunk, '{}'", response_chunk.chunk.len (),
                                                 if response_chunk.last_chunk {"final"} else {"non-final"},
                                                 to_string (&response_chunk.chunk)));
                     let stream_key = self.stream_key.clone();
@@ -120,6 +120,7 @@ impl StreamReader {
             last_response,
             sequenced_packet: SequencedPacket {data: response_data.data, sequence_number: self.sequencer.next_sequence_number()},
         };
+        self.logger.debug(format!("Read {} bytes of clear data (#{})", response_payload.sequenced_packet.data.len(), response_payload.sequenced_packet.sequence_number));
         let incipient_cores_package =
             IncipientCoresPackage::new (self.remaining_route.clone (),
                                         response_payload, &self.originator_public_key);

@@ -212,7 +212,7 @@ impl Hopper {
 
     fn handle_endpoint (&self, component: Component, recipient: &Option<Recipient<Syn, ExpiredCoresPackage>>, live_package: LiveCoresPackage) {
         let expired_package = live_package.to_expired(self.cryptde.borrow());
-        self.logger.debug(format!("Forwarding ExpiredCoresPackage to {:?}: {:?}", component, expired_package));
+        self.logger.trace(format!("Forwarding ExpiredCoresPackage to {:?}: {:?}", component, expired_package));
         recipient.as_ref().expect(&format! ("{:?} unbound in Hopper", component)).try_send(expired_package).expect(&format! ("{:?} is dead", component))
     }
 }

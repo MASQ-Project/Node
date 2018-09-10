@@ -43,8 +43,9 @@ impl Future for StreamWriterUnsorted {
                             }
                         },
                         Ok(Async::Ready(len)) => {
+                            self.logger.debug(format!("Wrote {}/{} bytes of clandestine data", len, &packet.data.len()));
                             if len != packet.data.len() {
-                                self.logger.debug(format!("Wrote partial packet {}/{} bytes; rescheduling {} bytes", len, &packet.data.len(), &packet.data.len()-len));
+                                self.logger.debug(format!("rescheduling {} bytes", &packet.data.len()-len));
                                 self.buf = Some(SequencedPacket::new(packet.data.iter().skip(len).map(|p| p.clone()).collect(), packet.sequence_number));
                             }
                         },

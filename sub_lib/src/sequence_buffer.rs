@@ -97,6 +97,7 @@ impl SequenceBuffer {
 
                 packet
             } else {
+                self.logger.debug(format!("Buffer waiting for packet #{}", self.next_expected_sequence_number));
                 None
             }
         }

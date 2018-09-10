@@ -83,8 +83,9 @@ impl StreamWriterSorted {
                             return WriteBufferStatus::BufferNotEmpty
                         },
                         Ok(Async::Ready(len)) => {
+                            self.logger.debug(format!("Wrote {}/{} bytes of clear data (#{})", len, &packet.data.len(), &packet.sequence_number));
                             if len != packet.data.len() {
-                                self.logger.debug(format!("Wrote partial packet {}/{} bytes; rescheduling {} bytes", len, &packet.data.len(), &packet.data.len()-len));
+                                self.logger.debug(format!("rescheduling {} bytes", &packet.data.len()-len));
                                 self.sequence_buffer.repush(SequencedPacket::new(packet.data.iter().skip(len).map(|p| p.clone()).collect(), packet.sequence_number));
                             }
                         },

@@ -99,6 +99,10 @@ impl StreamReaderReal {
                     } else {
                         None
                     };
+                    match sequence_number {
+                        Some(num) => self.logger.debug(format!("Read {} bytes of clear data (#{})", unmasked_chunk.chunk.len(), num)),
+                        None => self.logger.debug(format!("Read {} bytes of clandestine data", unmasked_chunk.chunk.len()))
+                    };
                     let msg = dispatcher::InboundClientData {
                         peer_addr: self.peer_addr,
                         reception_port: self.reception_port,

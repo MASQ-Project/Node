@@ -165,7 +165,7 @@ impl Handler<RouteQueryMessage> for Neighborhood {
                 RouteType::RoundTrip => self.make_round_trip_route(msg)
             }
         };
-        self.logger.debug (format! ("Processed {} into {:?}", msg_str, result));
+        self.logger.trace (format! ("Processed {} into {:?}", msg_str, result));
         MessageResult (result)
     }
 }
