@@ -1,5 +1,7 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use std::io::ErrorKind;
+use std::net::IpAddr;
+use std::str::FromStr;
 
 static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
     ErrorKind::BrokenPipe, ErrorKind::ConnectionAborted, ErrorKind::ConnectionReset,
@@ -7,6 +9,10 @@ static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
 ];
 
 pub static NODE_MAILBOX_CAPACITY: usize = 0; // 0 for unbound
+
+pub fn localhost() -> IpAddr {
+    IpAddr::from_str("127.0.0.1").expect("Something really crazy has happened")
+}
 
 pub fn indicates_dead_stream (kind: ErrorKind) -> bool {
     DEAD_STREAM_ERRORS.contains (&kind)

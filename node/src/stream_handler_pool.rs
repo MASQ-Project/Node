@@ -38,6 +38,7 @@ use sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
 use sub_lib::tokio_wrappers::ReadHalfWrapper;
 use sub_lib::tokio_wrappers::WriteHalfWrapper;
+use sub_lib::utils::localhost;
 use sub_lib::utils::NODE_MAILBOX_CAPACITY;
 
 // IMPORTANT: Nothing at or below the level of StreamHandlerPool should know about StreamKeys.
@@ -199,6 +200,11 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
                 }
             }
         } else {
+            if peer_addr.ip() == localhost() {
+                self.logger.error(format!("Local connection {:?} not found. Discarding {} bytes.", peer_addr, msg.context.data.len()));
+                return ()
+            }
+
             self.logger.debug (format! ("No existing stream to {}: creating one", peer_addr));
 
             let subs = self.self_subs.clone ().expect ("Internal error");
@@ -1223,5 +1229,43 @@ mod tests {
         });
 
         TestLogHandler::new().await_log_containing("Masking failed for 1.2.3.5:6789: Low-level data error: don't care. Discarding 5 bytes.", 1000);
+    }
+
+    #[test]
+    fn stream_handler_pool_logs_error_and_returns_when_local_connection_is_gone () {
+        init_test_logging();
+        let outgoing_unmasked = b"Outgoing data".to_vec ();
+        let outgoing_unmasked_len = outgoing_unmasked.len();
+        let (tx, rx) = mpsc::channel();
+        thread::spawn (move || {
+            let system = System::new("stream_handler_pool_creates_nonexistent_stream_for_reading_and_writing");
+            let discriminator_factory = JsonDiscriminatorFactory::new ();
+            let mut subject = StreamHandlerPool::new(vec! (Box::new (discriminator_factory)));
+            subject.stream_connector = Box::new (StreamConnectorMock::new()); // this will panic if a connection is attempted
+            let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
+            let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
+            let peer_actors = make_peer_actors();
+            subject_subs.bind.try_send(PoolBindMessage {
+                dispatcher_subs: peer_actors.dispatcher,
+                stream_handler_pool_subs: subject_subs.clone(),
+                neighborhood_subs: peer_actors.neighborhood,
+            }).unwrap();
+
+            tx.send(subject_subs).unwrap();
+
+            system.run();
+        });
+
+        let subject_subs = rx.recv().unwrap();
+        let local_addr = SocketAddr::from_str("127.0.0.1:46377").unwrap();
+
+        subject_subs.transmit_sub.try_send(TransmitDataMsg {
+            endpoint: Endpoint::Socket(local_addr),
+            last_data: false,
+            sequence_number: Some(0),
+            data: outgoing_unmasked,
+        }).unwrap();
+
+        TestLogHandler::new().await_log_containing(format!("Local connection {:?} not found. Discarding {} bytes.", local_addr, outgoing_unmasked_len).as_str(), 1000);
     }
 }
