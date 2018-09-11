@@ -36,6 +36,7 @@ use std::collections::HashSet;
 use std::thread;
 use sub_lib::sequence_buffer::SequencedPacket;
 use test_utils::test_utils::make_meaningless_stream_key;
+use sub_lib::http_server_impersonator;
 
 #[test]
 fn http_request_to_cores_package_and_cores_package_to_http_response_test () {
@@ -170,6 +171,46 @@ fn end_to_end_gossip_and_routing_test () {
 
     assert_eq! (index_of (&response,
         &b"This domain is established to be used for illustrative examples in documents."[..]).is_some (), true);
+}
+
+
+#[test]
+fn cannot_find_route_for_http_request_test () {
+    let mut cluster = SubstratumNodeCluster::start ().unwrap ();
+    let bootstrap_node = cluster.start_real_node (NodeStartupConfigBuilder::bootstrap ().build ());
+    let originating_node = cluster.start_real_node (NodeStartupConfigBuilder::standard ().bootstrap_from (bootstrap_node.node_reference ()).build ());
+    thread::sleep (Duration::from_millis (1000));
+
+    let mut client = originating_node.make_client (80);
+
+    client.send_chunk (Vec::from (&b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n"[..]));
+    let response = client.wait_for_chunk();
+
+    let expected_response = http_server_impersonator::make_error_response (503, "Routing Problem",
+                       "Can't find a route to www.example.com",
+                       "Substratum can't find a route through the Network yet to a Node that knows \
+                where to find www.example.com. Maybe later enough will be known about the Network to \
+                find that Node, but we can't guarantee it. We're sorry.");
+
+    assert! (&response.starts_with(&expected_response));
+}
+
+#[test]
+fn cannot_find_route_for_tls_request_test () {
+    let mut cluster = SubstratumNodeCluster::start ().unwrap ();
+    let bootstrap_node = cluster.start_real_node (NodeStartupConfigBuilder::bootstrap ().build ());
+    let originating_node = cluster.start_real_node (NodeStartupConfigBuilder::standard ().bootstrap_from (bootstrap_node.node_reference ()).build ());
+    thread::sleep (Duration::from_millis (1000));
+
+    let mut client = originating_node.make_client (443);
+    client.set_timeout(Duration::from_secs(3));
+
+    client.send_chunk (Vec::from (&b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n"[..]));
+    let response = client.wait_for_chunk();
+
+    let expected_response: Vec<u8> = vec!();
+
+    assert_eq! (response, expected_response);
 }
 
 #[test]
