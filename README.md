@@ -194,8 +194,15 @@ Eventually the neighborhood will be a complex network of Nodes that do and don't
 the 0.4.x series of releases, we're constraining them to a single-file sequence of Nodes, with each one (except the ends) 
 intimately acquainted with exactly two others: one in front and one behind. Nodes are added to the sequence in the order 
 they contact the bootstrap Node. This keeps the situation nice and deterministic for testing.
-_Decentralization_ requires a minimum of three "hops" and six nodes in your neighborhood before you can consume. 
-This configuration of six nodes ensures that not one single node contains the entire network topology.
+_Decentralization_ will require a minimum of three "hops" per route and six nodes in your neighborhood before you can
+consume securely.
+This configuration of six nodes ensures that not one single node contains the entire network topology, and the three-hop
+minimum ensures that for any CORES package, not one single node will know the IP address of both the originating Node
+and the exit Node.
+
+__HOWEVER__ The current version of SubstratumNode is configured with only a two-hop minimum.
+This gives the team more flexibility in testing the SubstratumNetwork, but it means that the current version does not
+meet the minimum security requirements described above.
 
 #### Terminating a SubstratumNode (Zero-Hop or Decentralized)
 

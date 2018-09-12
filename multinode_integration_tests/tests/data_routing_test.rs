@@ -66,8 +66,7 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test () {
 
     let ne1_noderef = NodeReference::new (Key::new (&b"ne1"[..]), IpAddr::from_str ("100.100.100.001").unwrap (), vec! (5561));
     let ne2_noderef = NodeReference::new (Key::new (&b"ne2"[..]), IpAddr::from_str ("100.100.100.002").unwrap (), vec! (5562));
-    let ne3_noderef = NodeReference::new (Key::new (&b"ne3"[..]), IpAddr::from_str ("100.100.100.003").unwrap (), vec! (5563));
-    let outgoing_gossip = make_gossip (vec! ((&subject.node_reference (), false), (&mock_standard.node_reference (), true), (&ne1_noderef, false), (&ne2_noderef, false), (&ne3_noderef, false)));
+    let outgoing_gossip = make_gossip (vec! ((&subject.node_reference (), false), (&mock_standard.node_reference (), true), (&ne1_noderef, false), (&ne2_noderef, false)));
     let route = Route::new (vec! (
         RouteSegment::new (vec! (&mock_bootstrap.public_key (), &subject.public_key ()), Component::Neighborhood)
     ), mock_bootstrap.cryptde ()).unwrap ();
@@ -81,7 +80,7 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test () {
     client.send_chunk (Vec::from (&b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n"[..]));
 
     let (_, _, package) = mock_standard.wait_for_package(&masquerader, Duration::from_millis (1000)).unwrap ();
-    let incoming_cores_package = package.to_expired (&CryptDENull::from (&ne2_noderef.public_key));
+    let incoming_cores_package = package.to_expired (&CryptDENull::from (&ne1_noderef.public_key));
     let request_payload = incoming_cores_package.payload::<ClientRequestPayload> ().unwrap ();
     assert_eq! (request_payload.last_data, false);
     assert_eq! (request_payload.sequenced_packet.sequence_number, 0);

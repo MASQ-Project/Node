@@ -71,7 +71,7 @@ impl Handler<InboundClientData> for ProxyServer {
             Err (_) => return ()
         };
         let logger = self.logger.clone ();
-        let minimum_hop_count = if self.is_decentralized {3} else {0};
+        let minimum_hop_count = if self.is_decentralized {2} else {0};
         tokio::spawn (
             route_source
                 .send (RouteQueryMessage::data_indefinite_route_request(minimum_hop_count))
@@ -472,7 +472,7 @@ mod tests {
         assert_eq!(record, &expected_pkg);
         let recording = neighborhood_recording_arc.lock ().unwrap ();
         let record = recording.get_record::<RouteQueryMessage> (0);
-        assert_eq! (record, &RouteQueryMessage::data_indefinite_route_request(3));
+        assert_eq! (record, &RouteQueryMessage::data_indefinite_route_request(2));
     }
 
     #[test]
@@ -525,7 +525,7 @@ mod tests {
         assert_eq!(record, &expected_msg);
         let recording = neighborhood_recording_arc.lock ().unwrap ();
         let record = recording.get_record::<RouteQueryMessage> (0);
-        assert_eq! (record, &RouteQueryMessage::data_indefinite_route_request(3));
+        assert_eq! (record, &RouteQueryMessage::data_indefinite_route_request(2));
         TestLogHandler::new ().exists_log_containing ("ERROR: Proxy Server: Failed to find route to nowhere.com");
     }
 
