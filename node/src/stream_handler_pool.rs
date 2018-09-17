@@ -165,7 +165,7 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
                     let packet = if msg.context.sequence_number.is_none() {
                         let masquerader = self.traffic_analyzer.get_masquerader();
                         match masquerader.mask(msg.context.data.as_slice()) {
-                            Ok(masked_data) => SequencedPacket::new(masked_data, 0),
+                            Ok(masked_data) => SequencedPacket::new(masked_data, 0, false),
                             Err(e) => {
                                 self.logger.error(format!("Masking failed for {}: {}. Discarding {} bytes.", peer_addr, e, msg.context.data.len()));
                                 return
@@ -181,12 +181,12 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
                             to_remove = true
                         },
                         Ok(_) => {
+                            self.logger.debug (format! ("Queued {} bytes for transmission", packet_len));
                             if msg.context.last_data {
                                 to_remove = true;
                             }
                         }
                     };
-                    self.logger.debug (format! ("Queued {} bytes for transmission", packet_len));
                 },
                 None => { // a connection is already in progress. resubmit this message, to give the connection time to complete
                     self.logger.info(format!("connection for {} in progress, resubmitting {} bytes", peer_addr, msg.context.data.len()));

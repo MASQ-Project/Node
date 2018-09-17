@@ -9,7 +9,6 @@ use sequence_buffer::SequencedPacket;
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct ClientResponsePayload {
     pub stream_key: StreamKey,
-    pub last_response: bool,
     pub sequenced_packet: SequencedPacket,
 }
 
@@ -23,8 +22,7 @@ impl ClientResponsePayload {
     pub fn make_terminating_payload(stream_key: StreamKey) -> ClientResponsePayload {
         ClientResponsePayload {
             stream_key,
-            last_response: true,
-            sequenced_packet: SequencedPacket {data: vec! (), sequence_number: 0},
+            sequenced_packet: SequencedPacket {data: vec! (), sequence_number: 0, last_data: true},
         }
     }
 }
@@ -42,8 +40,7 @@ mod tests {
 
         assert_eq!(payload, ClientResponsePayload {
             stream_key,
-            last_response: true,
-            sequenced_packet: SequencedPacket {data: vec! (), sequence_number: 0},
+            sequenced_packet: SequencedPacket {data: vec! (), sequence_number: 0, last_data: true},
         })
     }
 }

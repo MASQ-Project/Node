@@ -82,7 +82,7 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test () {
     let (_, _, package) = mock_standard.wait_for_package(&masquerader, Duration::from_millis (1000)).unwrap ();
     let incoming_cores_package = package.to_expired (&CryptDENull::from (&ne1_noderef.public_key));
     let request_payload = incoming_cores_package.payload::<ClientRequestPayload> ().unwrap ();
-    assert_eq! (request_payload.last_data, false);
+    assert_eq! (request_payload.sequenced_packet.last_data, false);
     assert_eq! (request_payload.sequenced_packet.sequence_number, 0);
     assert_eq! (request_payload.sequenced_packet.data, Vec::from (&b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n"[..]));
     assert_eq! (request_payload.target_hostname, Some (String::from ("www.example.com")));
@@ -95,8 +95,7 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test () {
     ), mock_standard.cryptde ()).unwrap ();
     let response_payload = ClientResponsePayload {
         stream_key: request_payload.stream_key,
-        last_response: false,
-        sequenced_packet: SequencedPacket {data: b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 21\r\n\r\nOoh! Do you work out?".to_vec (), sequence_number: 0},
+        sequenced_packet: SequencedPacket {data: b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 21\r\n\r\nOoh! Do you work out?".to_vec (), sequence_number: 0, last_data: false},
     };
     let outgoing_package = IncipientCoresPackage::new (route, response_payload, &subject.public_key ());
     mock_standard.transmit_package (5551, outgoing_package, &masquerader, &subject.public_key (), subject.socket_addr (PortSelector::First)).unwrap ();
@@ -129,8 +128,7 @@ fn cores_package_to_http_request_and_http_response_to_cores_package_test () {
 
     let client_request_payload = ClientRequestPayload {
         stream_key: make_meaningless_stream_key (),
-        last_data: true,
-        sequenced_packet: SequencedPacket {data: b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n".to_vec (), sequence_number: 0},
+        sequenced_packet: SequencedPacket {data: b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n".to_vec (), sequence_number: 0, last_data: true},
         target_hostname: Some (String::from ("www.example.com")),
         target_port: 80,
         protocol: ProxyProtocol::HTTP,
@@ -147,7 +145,7 @@ fn cores_package_to_http_request_and_http_response_to_cores_package_test () {
     let incoming_cores_package = package.to_expired (&CryptDENull::from (&ne1_noderef.public_key));
     let client_response_payload = incoming_cores_package.payload::<ClientResponsePayload> ().unwrap ();
     assert_eq! (client_response_payload.stream_key, make_meaningless_stream_key ());
-    assert_eq! (client_response_payload.last_response, false);
+    assert_eq! (client_response_payload.sequenced_packet.last_data, false);
     assert_eq! (client_response_payload.sequenced_packet.sequence_number, 0);
     assert_eq! (index_of (&client_response_payload.sequenced_packet.data,
         &b"This domain is established to be used for illustrative examples in documents."[..]).is_some (), true);

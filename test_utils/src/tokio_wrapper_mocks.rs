@@ -53,6 +53,7 @@ impl ReadHalfWrapperMock {
 pub struct WriteHalfWrapperMock {
     pub poll_write_params: Arc<Mutex<Vec<Vec<u8>>>>,
     pub poll_write_results: Vec<Result<Async<usize>, io::Error>>,
+    pub shutdown_results: Arc<Mutex<Vec<Result<Async<()>, io::Error>>>>,
 }
 
 impl WriteHalfWrapper for WriteHalfWrapperMock {
@@ -76,7 +77,8 @@ impl AsyncWrite for WriteHalfWrapperMock {
     }
 
     fn shutdown(&mut self) -> Result<Async<()>, io::Error> {
-        unimplemented!()
+        if self.shutdown_results.lock().unwrap().is_empty () {panic! ("WriteHalfWrapperMock: shutdown_results is empty")}
+        self.shutdown_results.lock().unwrap().remove(0)
     }
 }
 
@@ -85,6 +87,7 @@ impl WriteHalfWrapperMock {
         WriteHalfWrapperMock {
             poll_write_params: Arc::new(Mutex::new(vec!())),
             poll_write_results: vec!(),
+            shutdown_results: Arc::new(Mutex::new(vec!())),
         }
     }
 
@@ -100,5 +103,14 @@ impl WriteHalfWrapperMock {
 
     pub fn poll_write_ok (self, len: usize) -> WriteHalfWrapperMock {
         self.poll_write_result (Ok (Async::Ready (len)))
+    }
+
+    pub fn shutdown_result (self, result: Result<Async<()>, io::Error>) -> WriteHalfWrapperMock {
+        self.shutdown_results.lock().unwrap().push(result);
+        self
+    }
+
+    pub fn shutdown_ok (self) -> WriteHalfWrapperMock {
+        self.shutdown_result(Ok(Async::Ready(())))
     }
 }

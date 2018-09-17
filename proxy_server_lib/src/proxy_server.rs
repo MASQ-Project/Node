@@ -97,7 +97,7 @@ impl Handler<ExpiredCoresPackage> for ProxyServer {
                 self.logger.debug(format!("Relaying {}-byte ExpiredCoresPackage payload from Hopper to Dispatcher", payload.sequenced_packet.data.len()));
                 match self.keys_and_addrs.a_to_b(&payload.stream_key) {
                     Some(socket_addr) => {
-                        let last_data = payload.last_response;
+                        let last_data = payload.sequenced_packet.last_data;
                         self.dispatcher.as_ref().expect("Dispatcher unbound in ProxyServer")
                             .try_send(TransmitDataMsg {
                                 endpoint: Endpoint::Socket(socket_addr),
@@ -316,8 +316,7 @@ mod tests {
         let route = zero_hop_route_response (&key, cryptde).route;
         let expected_payload = ClientRequestPayload {
             stream_key: stream_key.clone(),
-            last_data: true,
-            sequenced_packet: SequencedPacket {data: expected_http_request.data.clone(), sequence_number: 0},
+            sequenced_packet: SequencedPacket {data: expected_http_request.data.clone(), sequence_number: 0, last_data: true},
             target_hostname: Some (String::from("nowhere.com")),
             target_port: 80,
             protocol: ProxyProtocol::HTTP,
@@ -379,8 +378,7 @@ mod tests {
         let route = zero_hop_route_response (&key, cryptde).route;
         let expected_payload = ClientRequestPayload {
             stream_key: stream_key.clone(),
-            last_data: true,
-            sequenced_packet: SequencedPacket {data: expected_http_request.data.clone(), sequence_number: 0},
+            sequenced_packet: SequencedPacket {data: expected_http_request.data.clone(), sequence_number: 0, last_data: true},
             target_hostname: Some (String::from("nowhere.com")),
             target_port: 80,
             protocol: ProxyProtocol::HTTP,
@@ -442,8 +440,7 @@ mod tests {
         let key = cryptde.public_key();
         let expected_payload = ClientRequestPayload {
             stream_key: stream_key.clone (),
-            last_data: true,
-            sequenced_packet: SequencedPacket {data: expected_http_request.data.clone(), sequence_number: 0},
+            sequenced_packet: SequencedPacket {data: expected_http_request.data.clone(), sequence_number: 0, last_data: true},
             target_hostname: Some (String::from("nowhere.com")),
             target_port: 80,
             protocol: ProxyProtocol::HTTP,
@@ -574,8 +571,7 @@ mod tests {
         let route = zero_hop_route_response(&key, cryptde).route;
         let expected_payload = ClientRequestPayload {
             stream_key: stream_key.clone(),
-            last_data: false,
-            sequenced_packet: SequencedPacket {data: expected_tls_request.data.clone(), sequence_number: 0},
+            sequenced_packet: SequencedPacket {data: expected_tls_request.data.clone(), sequence_number: 0, last_data: false},
             target_hostname: Some (String::from("server.com")),
             target_port: 443,
             protocol: ProxyProtocol::TLS,
@@ -633,8 +629,7 @@ mod tests {
         let route = zero_hop_route_response(&key, cryptde).route;
         let expected_payload = ClientRequestPayload {
             stream_key: stream_key.clone(),
-            last_data: false,
-            sequenced_packet: SequencedPacket {data: expected_tls_request.data.clone(), sequence_number: 0},
+            sequenced_packet: SequencedPacket {data: expected_tls_request.data.clone(), sequence_number: 0, last_data: false},
             target_hostname: None,
             target_port: 443,
             protocol: ProxyProtocol::TLS,
@@ -690,8 +685,7 @@ mod tests {
         let route = zero_hop_route_response(&key, cryptde).route;
         let expected_payload = ClientRequestPayload {
             stream_key: stream_key.clone(),
-            last_data: true,
-            sequenced_packet: SequencedPacket {data: expected_tls_request.data.clone(), sequence_number: 0},
+            sequenced_packet: SequencedPacket {data: expected_tls_request.data.clone(), sequence_number: 0, last_data: true},
             target_hostname: None,
             target_port: 443,
             protocol: ProxyProtocol::TLS,
@@ -795,8 +789,7 @@ mod tests {
         let remaining_route = route_to_proxy_server(&key, cryptde);
         let client_response_payload = ClientResponsePayload {
             stream_key: stream_key.clone(),
-            last_response: true,
-            sequenced_packet: SequencedPacket {data: b"16 bytes of data".to_vec (), sequence_number: 12345678},
+            sequenced_packet: SequencedPacket {data: b"16 bytes of data".to_vec (), sequence_number: 12345678, last_data: true},
         };
         let incipient_cores_package = IncipientCoresPackage::new(remaining_route.clone(), client_response_payload, &key);
         let first_expired_cores_package = ExpiredCoresPackage::new(remaining_route, incipient_cores_package.payload);
@@ -837,8 +830,7 @@ mod tests {
         let remaining_route = route_to_proxy_server(&key, cryptde);
         let client_response_payload = ClientResponsePayload {
             stream_key: stream_key,
-            last_response: false,
-            sequenced_packet: SequencedPacket {data: b"data".to_vec (), sequence_number: 0},
+            sequenced_packet: SequencedPacket {data: b"data".to_vec (), sequence_number: 0, last_data: false},
         };
         let incipient_cores_package = IncipientCoresPackage::new(remaining_route.clone(), client_response_payload, &key);
         let first_expired_cores_package = ExpiredCoresPackage::new(remaining_route, incipient_cores_package.payload);
@@ -880,8 +872,7 @@ mod tests {
         let remaining_route = route_to_proxy_server(&key, cryptde);
         let client_response_payload = ClientResponsePayload {
             stream_key: stream_key,
-            last_response: true,
-            sequenced_packet: SequencedPacket {data: b"data".to_vec (), sequence_number: 0},
+            sequenced_packet: SequencedPacket {data: b"data".to_vec (), sequence_number: 0, last_data: true},
         };
         let incipient_cores_package = IncipientCoresPackage::new(remaining_route.clone(), client_response_payload, &key);
         let expired_cores_package = ExpiredCoresPackage::new(remaining_route, incipient_cores_package.payload);

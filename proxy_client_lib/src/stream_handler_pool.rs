@@ -55,7 +55,7 @@ impl StreamHandlerPool for StreamHandlerPoolReal {
             Some(ref mut writer_channel) => {
                 match StreamHandlerPoolReal::perform_write(payload.sequenced_packet.clone (), writer_channel) {
                     Ok (_) => {
-                        if payload.last_data {
+                        if payload.sequenced_packet.last_data {
                             to_remove = Some((payload.stream_key.clone(), writer_channel.peer_addr ()));
                         }
                         ()
@@ -71,6 +71,12 @@ impl StreamHandlerPool for StreamHandlerPoolReal {
                 // TODO: Figure out what to do if a flurry of requests for a particular stream key
                 // come flooding in so densely that several of them arrive in the time it takes to
                 // resolve the first one and add it to the stream_writers map.
+
+                if payload.sequenced_packet.last_data && payload.sequenced_packet.data.len() == 0 {
+                    self.logger.debug(format!("Empty last_data message received for nonexistent stream {:?}. Returning.", payload.stream_key));
+                    return;
+                }
+
                 self.logger.debug(format!("No stream to {:?} exists; resolving host", &payload.target_hostname));
                 let mut fqdn = match &payload.target_hostname {
                     &None => {
@@ -280,8 +286,7 @@ mod tests {
         let stream_key = make_meaningless_stream_key ();
         let client_request_payload = ClientRequestPayload {
             stream_key: stream_key.clone (),
-            last_data: false,
-            sequenced_packet: SequencedPacket {data: b"These are the times".to_vec (), sequence_number: 0},
+            sequenced_packet: SequencedPacket {data: b"These are the times".to_vec (), sequence_number: 0, last_data: false},
             target_hostname: None,
             target_port: 80,
             protocol: ProxyProtocol::HTTP,
@@ -325,8 +330,7 @@ mod tests {
         thread::spawn(move || {
             let client_request_payload = ClientRequestPayload {
                 stream_key: make_meaningless_stream_key (),
-                last_data: false,
-                sequenced_packet: SequencedPacket {data: b"These are the times".to_vec (), sequence_number: 0},
+                sequenced_packet: SequencedPacket {data: b"These are the times".to_vec (), sequence_number: 0, last_data: false},
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
                 protocol: ProxyProtocol::HTTP,
@@ -359,7 +363,7 @@ mod tests {
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let package = hopper_recording.get_record::<IncipientCoresPackage>(0);
         let payload = serde_cbor::de::from_slice::<ClientResponsePayload>(&package.payload.data[..]).unwrap();
-        assert_eq!(payload.last_response, true);
+        assert_eq!(payload.sequenced_packet.last_data, true);
     }
 
     #[test]
@@ -373,8 +377,7 @@ mod tests {
                     .hopper.from_hopper_client;
             let client_request_payload = ClientRequestPayload {
                 stream_key: make_meaningless_stream_key (),
-                last_data: false,
-                sequenced_packet: SequencedPacket {data: b"These are the times".to_vec (), sequence_number: 0},
+                sequenced_packet: SequencedPacket {data: b"These are the times".to_vec (), sequence_number: 0, last_data: false},
                 target_hostname: None,
                 target_port: 80,
                 protocol: ProxyProtocol::HTTP,
@@ -398,7 +401,7 @@ mod tests {
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let package = hopper_recording.get_record::<IncipientCoresPackage>(0);
         let payload = serde_cbor::de::from_slice::<ClientResponsePayload>(&package.payload.data[..]).unwrap();
-        assert_eq!(payload.last_response, true);
+        assert_eq!(payload.sequenced_packet.last_data, true);
         TestLogHandler::new().exists_log_containing(format! ("ERROR: Proxy Client: Cannot open new stream with key {:?}: no hostname supplied",
             make_meaningless_stream_key ()).as_str ());
     }
@@ -417,8 +420,7 @@ mod tests {
                     .hopper.from_hopper_client;
             let client_request_payload = ClientRequestPayload {
                 stream_key: make_meaningless_stream_key (),
-                last_data: false,
-                sequenced_packet: SequencedPacket {data: b"These are the times".to_vec (), sequence_number: 0},
+                sequenced_packet: SequencedPacket {data: b"These are the times".to_vec (), sequence_number: 0, last_data: false},
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
                 protocol: ProxyProtocol::HTTP,
@@ -431,7 +433,7 @@ mod tests {
                 .lookup_ip_success(vec!(IpAddr::from_str("2.3.4.5").unwrap(), IpAddr::from_str("3.4.5.6").unwrap()));
             let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
             let reader = ReadHalfWrapperMock { poll_read_results: vec!((b"HTTP/1.1 200 OK\r\n\r\n".to_vec(), Ok(Async::Ready(19))), (vec!(), Err(Error::from(ErrorKind::ConnectionAborted)))) };
-            let writer = WriteHalfWrapperMock { poll_write_params: write_parameters, poll_write_results: vec!(Ok(Async::Ready(123))) };
+            let writer = WriteHalfWrapperMock { poll_write_params: write_parameters, poll_write_results: vec!(Ok(Async::Ready(123))), shutdown_results: Arc::new(Mutex::new(vec!())) };
             let mut subject = StreamHandlerPoolReal::new(Box::new(resolver), cryptde(), hopper_sub);
             let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
             subject.stream_killer_rx = stream_killer_rx;
@@ -464,8 +466,7 @@ mod tests {
             test_utils::make_meaningless_route(),
             ClientResponsePayload {
                 stream_key: make_meaningless_stream_key (),
-                last_response: false,
-                sequenced_packet: SequencedPacket {data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec (), sequence_number: 0},
+                sequenced_packet: SequencedPacket {data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec (), sequence_number: 0, last_data: false},
             },
             &Key::new(&b"men's souls"[..]),
         ));
@@ -483,8 +484,7 @@ mod tests {
                     .hopper.from_hopper_client;
             let client_request_payload = ClientRequestPayload {
                 stream_key,
-                last_data: false,
-                sequenced_packet: SequencedPacket {data: b"These are the times".to_vec (), sequence_number: 0},
+                sequenced_packet: SequencedPacket {data: b"These are the times".to_vec (), sequence_number: 0, last_data: false},
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
                 protocol: ProxyProtocol::HTTP,
@@ -536,11 +536,10 @@ mod tests {
             let hopper_sub =
                 recorder::make_peer_actors_from(None, None, Some(hopper), None, None)
                     .hopper.from_hopper_client;
-            let sequenced_packet = SequencedPacket { data: b"These are the times".to_vec(), sequence_number: 0 };
+            let sequenced_packet = SequencedPacket { data: b"These are the times".to_vec(), sequence_number: 0, last_data: false };
 
             let client_request_payload = ClientRequestPayload {
                 stream_key,
-                last_data: false,
                 sequenced_packet: sequenced_packet.clone(),
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
@@ -554,7 +553,7 @@ mod tests {
                 .lookup_ip_success(vec!(IpAddr::from_str("2.3.4.5").unwrap(), IpAddr::from_str("3.4.5.6").unwrap()));
             let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
             let reader = ReadHalfWrapperMock { poll_read_results: vec!((b"HTTP/1.1 200 OK\r\n\r\n".to_vec(), Ok(Async::Ready(19))), (vec!(), Err(Error::from(ErrorKind::ConnectionAborted)))) };
-            let writer = WriteHalfWrapperMock { poll_write_params: write_parameters, poll_write_results: vec!(Ok(Async::Ready(123))) };
+            let writer = WriteHalfWrapperMock { poll_write_params: write_parameters, poll_write_results: vec!(Ok(Async::Ready(123))), shutdown_results: Arc::new(Mutex::new(vec!())) };
             let mut subject = StreamHandlerPoolReal::new(Box::new(resolver), cryptde(), hopper_sub);
             let disconnected_sender = Box::new(SenderWrapperMock {
                 peer_addr,
@@ -602,8 +601,7 @@ mod tests {
         thread::spawn(move || {
             let client_request_payload = ClientRequestPayload {
                 stream_key,
-                last_data: true,
-                sequenced_packet: SequencedPacket {data: b"These are the times".to_vec (), sequence_number: 0},
+                sequenced_packet: SequencedPacket {data: b"These are the times".to_vec (), sequence_number: 0, last_data: true},
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
                 protocol: ProxyProtocol::HTTP,
@@ -642,10 +640,9 @@ mod tests {
         let stream_key = make_meaningless_stream_key ();
         let hopper = Recorder::new();
         let (tx_to_write, mut rx_to_write) = unbounded();
-        let sequenced_packet = SequencedPacket { data: b"These are the times".to_vec(), sequence_number: 0 };
+        let sequenced_packet = SequencedPacket { data: b"These are the times".to_vec(), sequence_number: 0, last_data: true };
         let client_request_payload = ClientRequestPayload {
             stream_key: stream_key.clone(),
-            last_data: true,
             sequenced_packet: sequenced_packet.clone(),
             target_hostname: Some(String::from("that.try")),
             target_port: 80,
@@ -698,10 +695,9 @@ mod tests {
         init_test_logging();
         let stream_key = make_meaningless_stream_key ();
         let hopper = Recorder::new();
-        let sequenced_packet = SequencedPacket { data: b"These are the times".to_vec(), sequence_number: 0 };
+        let sequenced_packet = SequencedPacket { data: b"These are the times".to_vec(), sequence_number: 0, last_data: true };
         let client_request_payload = ClientRequestPayload {
             stream_key: stream_key.clone(),
-            last_data: true,
             sequenced_packet: sequenced_packet.clone(),
             target_hostname: Some(String::from("that.try")),
             target_port: 80,
@@ -736,5 +732,45 @@ mod tests {
 
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing("Removing stream writer for 1.2.3.4:5678");
+    }
+
+    #[test]
+    fn process_package_does_not_create_new_connection_for_last_data_message_with_no_data_and_sends_no_messages() {
+        init_test_logging();
+        let (hopper, _hopper_awaiter, hopper_recording_arc) = make_recorder();
+        thread::spawn(move || {
+            let system = System::new("test");
+            let hopper_sub =
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None)
+                    .hopper.from_hopper_client;
+            let client_request_payload = ClientRequestPayload {
+                stream_key: make_meaningless_stream_key (),
+                sequenced_packet: SequencedPacket {data: vec!(), sequence_number: 0, last_data: true},
+                target_hostname: None,
+                target_port: 80,
+                protocol: ProxyProtocol::HTTP,
+                originator_public_key: Key::new(&b"men's souls"[..]),
+            };
+            let package = ExpiredCoresPackage::new(test_utils::make_meaningless_route(),
+                                                   PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]));
+            let resolver = ResolverWrapperMock::new();
+            let mut subject = StreamHandlerPoolReal::new(Box::new(resolver), cryptde(), hopper_sub);
+
+            subject.establisher_factory = Box::new(StreamEstablisherFactoryMock { make_results: RefCell::new(vec!()) });
+
+            let test_actor = TestActor { subject };
+            let addr: Addr<Syn, TestActor> = test_actor.start();
+            let test_trigger: Recipient<Syn, TriggerSubject> = addr.clone().recipient::<TriggerSubject>();
+            test_trigger.try_send(TriggerSubject { package }).is_ok();
+
+            system.run();
+        });
+
+        let tlh = TestLogHandler::new();
+        tlh.await_log_containing(&format!("Empty last_data message received for nonexistent stream {:?}. Returning.", make_meaningless_stream_key())[..], 500);
+
+        let hopper_recording = hopper_recording_arc.lock().unwrap();
+        assert_eq!(hopper_recording.len(), 0);
+
     }
 }

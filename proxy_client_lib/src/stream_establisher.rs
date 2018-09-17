@@ -160,8 +160,7 @@ mod tests {
                 &test_utils::make_meaningless_route(),
                 &ClientRequestPayload {
                     stream_key: make_meaningless_stream_key (),
-                    last_data: false,
-                    sequenced_packet: SequencedPacket {data: vec! (), sequence_number: 0},
+                    sequenced_packet: SequencedPacket {data: vec! (), sequence_number: 0, last_data: false},
                     target_hostname: Some("blah".to_string()),
                     target_port: 0,
                     protocol: ProxyProtocol::HTTP,
@@ -185,7 +184,7 @@ mod tests {
 
         let response = response_rx.recv().unwrap();
 
-        assert_eq! (response.last_response, false);
+        assert_eq! (response.sequenced_packet.last_data, false);
         assert_eq! (response.sequenced_packet.data, b"HTTP/1.1 200 OK\r\n\r\n".to_vec ());
     }
 
@@ -225,8 +224,7 @@ mod tests {
                 &test_utils::make_meaningless_route(),
                 &ClientRequestPayload {
                     stream_key: make_meaningless_stream_key (),
-                    last_data: false,
-                    sequenced_packet: SequencedPacket {data: vec! (), sequence_number: 0},
+                    sequenced_packet: SequencedPacket {data: vec! (), sequence_number: 0, last_data: false},
                     target_hostname: None,
                     target_port: 0,
                     protocol: ProxyProtocol::TLS,
@@ -250,7 +248,7 @@ mod tests {
 
         let response = response_rx.recv().unwrap();
 
-        assert_eq! (response.last_response, false);
+        assert_eq! (response.sequenced_packet.last_data, false);
         assert_eq! (response.sequenced_packet.data, vec! (0x16, 0x03, 0x03, 0x00, 0x00));
     }
 }

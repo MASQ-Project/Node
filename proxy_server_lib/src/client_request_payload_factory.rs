@@ -44,8 +44,7 @@ impl ClientRequestPayloadFactory {
         let host_name = protocol_pack.find_host_name (&PlainData::new (&ibcd.data));
         Some (ClientRequestPayload {
             stream_key,
-            last_data: ibcd.last_data,
-            sequenced_packet: SequencedPacket {data: ibcd.data.clone (), sequence_number},
+            sequenced_packet: SequencedPacket {data: ibcd.data.clone (), sequence_number, last_data: ibcd.last_data},
             target_hostname: host_name,
             target_port: origin_port,
             protocol: protocol_pack.proxy_protocol (),
@@ -84,8 +83,7 @@ mod tests {
 
         assert_eq! (result, Some (ClientRequestPayload {
             stream_key: make_meaningless_stream_key (),
-            sequenced_packet: SequencedPacket {data: data.data, sequence_number: 1},
-            last_data: false,
+            sequenced_packet: SequencedPacket {data: data.data, sequence_number: 1, last_data: false},
             target_hostname: Some (String::from ("borkoed.com")),
             target_port: 80,
             protocol: ProxyProtocol::HTTP,
@@ -129,8 +127,7 @@ mod tests {
 
         assert_eq! (result, Some (ClientRequestPayload {
             stream_key: make_meaningless_stream_key (),
-            last_data: false,
-            sequenced_packet: SequencedPacket {data: data.data, sequence_number: 0},
+            sequenced_packet: SequencedPacket {data: data.data, sequence_number: 0, last_data: false},
             target_hostname: Some (String::from ("server.com")),
             target_port: 443,
             protocol: ProxyProtocol::TLS,
@@ -168,8 +165,7 @@ mod tests {
 
         assert_eq! (result, Some (ClientRequestPayload {
             stream_key: make_meaningless_stream_key (),
-            last_data: true,
-            sequenced_packet: SequencedPacket {data: data.data, sequence_number: 0},
+            sequenced_packet: SequencedPacket {data: data.data, sequence_number: 0, last_data: true},
             target_hostname: None,
             target_port: 443,
             protocol: ProxyProtocol::TLS,

@@ -18,8 +18,6 @@ use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::logger::Logger;
 use sub_lib::peer_actors::BindMessage;
 use sub_lib::proxy_client::ProxyClientSubs;
-use sub_lib::tcp_wrappers::TcpStreamWrapperFactory;
-use sub_lib::tcp_wrappers::TcpStreamWrapperFactoryReal;
 use sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use trust_dns_resolver::config::NameServerConfig;
 use trust_dns_resolver::config::Protocol;
@@ -29,7 +27,6 @@ use sub_lib::proxy_server::ClientRequestPayload;
 
 pub struct ProxyClient {
     dns_servers: Vec<SocketAddr>,
-    tcp_stream_wrapper_factory: Box<TcpStreamWrapperFactory>,
     resolver_wrapper_factory: Box<ResolverWrapperFactory>,
     stream_handler_pool_factory: Box<StreamHandlerPoolFactory>,
     _cryptde: &'static CryptDE,  // This is not used now, but a version of it may be used in the future when ser/de and en/decrypt are combined.
@@ -91,7 +88,6 @@ impl ProxyClient {
         }
         ProxyClient {
             dns_servers,
-            tcp_stream_wrapper_factory: Box::new(TcpStreamWrapperFactoryReal {}),
             resolver_wrapper_factory: Box::new (ResolverWrapperFactoryReal {}),
             stream_handler_pool_factory: Box::new (StreamHandlerPoolFactoryReal {}),
             _cryptde: cryptde,
@@ -114,12 +110,10 @@ mod tests {
     use super::*;
     use std::cell::RefCell;
     use std::net::IpAddr;
-    use std::net::Shutdown;
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::sync::Arc;
     use std::sync::Mutex;
-    use std::time::Duration;
     use actix::Arbiter;
     use actix::msgs;
     use actix::Recipient;
@@ -128,8 +122,6 @@ mod tests {
     use tokio_core::reactor::CoreId;
     use local_test_utils::ResolverWrapperFactoryMock;
     use local_test_utils::ResolverWrapperMock;
-    use local_test_utils::TcpStreamWrapperFactoryMock;
-    use local_test_utils::TcpStreamWrapperMock;
     use resolver_wrapper::ResolverWrapper;
     use stream_handler_pool::StreamHandlerPool;
     use stream_handler_pool::StreamHandlerPoolFactory;
@@ -256,11 +248,9 @@ mod tests {
     #[test]
     #[should_panic (expected = "StreamHandlerPool unbound")]
     fn panics_if_unbound() {
-        let response_data = Vec::from (&b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 29\r\n\r\nUser-agent: *\nDisallow: /deny"[..]);
         let request = ClientRequestPayload {
             stream_key: make_meaningless_stream_key (),
-            last_data: false,
-            sequenced_packet: SequencedPacket {data: b"HEAD http://www.nyan.cat/ HTTP/1.1\r\n\r\n".to_vec (), sequence_number: 0},
+            sequenced_packet: SequencedPacket {data: b"HEAD http://www.nyan.cat/ HTTP/1.1\r\n\r\n".to_vec (), sequence_number: 0, last_data: false},
             target_hostname: Some (String::from("target.hostname.com")),
             target_port: 1234,
             protocol: ProxyProtocol::HTTP,
@@ -271,28 +261,8 @@ mod tests {
             test_utils::route_to_proxy_client(&cryptde.public_key(), cryptde),
             PlainData::new(&serde_cbor::ser::to_vec (&request.clone()).unwrap ()[..])
         );
-        let mut connect_parameters: Arc<Mutex<Vec<SocketAddr>>> = Arc::new (Mutex::new (vec! ()));
-        let mut write_parameters: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new (Mutex::new (vec! ()));
-        let mut set_read_timeout_parameters: Arc<Mutex<Vec<Option<Duration>>>> = Arc::new (Mutex::new (vec! ()));
-        let mut shutdown_parameters: Arc<Mutex<Vec<Shutdown>>> = Arc::new (Mutex::new (vec! ()));
-        let stream = TcpStreamWrapperMock::new ()
-            .connect_result (Ok (()))
-            .connect_parameters (&mut connect_parameters)
-            .write_result (Ok (request.sequenced_packet.data.len ()))
-            .write_parameters (&mut write_parameters)
-            .set_read_timeout_result (Ok (()))
-            .set_read_timeout_parameters (&mut set_read_timeout_parameters)
-            .read_buffer (Vec::from (&response_data[0..40]))
-            .read_result (Ok (40))
-            .read_buffer (Vec::from (&response_data[40..]))
-            .read_result (Ok (response_data.len () - 40))
-            .shutdown_parameters (&mut shutdown_parameters)
-            .shutdown_result (Ok (()));
-        let tcp_stream_wrapper_factory = TcpStreamWrapperFactoryMock::new ()
-            .tcp_stream_wrapper (stream);
         let system = System::new("panics_if_hopper_is_unbound");
-        let mut subject = ProxyClient::new(cryptde, dnss ());
-        subject.tcp_stream_wrapper_factory = Box::new(tcp_stream_wrapper_factory);
+        let subject = ProxyClient::new(cryptde, dnss ());
         let subject_addr: Addr<Syn, ProxyClient> = subject.start();
 
         subject_addr.try_send(package).unwrap ();
@@ -323,8 +293,7 @@ mod tests {
     fn data_from_hopper_is_relayed_to_stream_handler_pool () {
         let request = ClientRequestPayload {
             stream_key: make_meaningless_stream_key (),
-            last_data: false,
-            sequenced_packet: SequencedPacket {data: b"inbound data".to_vec (), sequence_number: 0},
+            sequenced_packet: SequencedPacket {data: b"inbound data".to_vec (), sequence_number: 0, last_data: false},
             target_hostname: None,
             target_port: 0,
             protocol: ProxyProtocol::HTTP,
