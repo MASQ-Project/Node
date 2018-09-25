@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-module.exports = (function () {
+module.exports = (() => {
   var pid = process.pid
   var platform = process.platform
   var env = process.env
@@ -35,4 +35,4 @@ module.exports = (function () {
     on: on,
     send: send
   }
-}())
+})()

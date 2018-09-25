@@ -9,25 +9,25 @@ const pathWrapper = require('../wrappers/path_wrapper')
 const unwrappedPath = 'path with spaces'
 const unwrappedFilename = 'filename.txt'
 
-describe('path_wrapper, directed to wrap a path with quotes', function () {
+describe('path_wrapper, directed to wrap a path with quotes', () => {
   let wrappedPath = ''
-  beforeEach(function () {
+  beforeEach(() => {
     wrappedPath = pathWrapper.resolveQuoted(unwrappedPath, unwrappedFilename)
   })
 
-  it('uses double quotes', function () {
+  it('uses double quotes', () => {
     const expectedWrappedPath = '"' + path.resolve(unwrappedPath, unwrappedFilename) + '"'
     assert.equal(wrappedPath, expectedWrappedPath)
   })
 })
 
-describe('path_wrapper, directed to wrap a path without quotes', function () {
+describe('path_wrapper, directed to wrap a path without quotes', () => {
   let wrappedPath = ''
-  beforeEach(function () {
+  beforeEach(() => {
     wrappedPath = pathWrapper.resolveUnquoted(unwrappedPath, unwrappedFilename)
   })
 
-  it('uses no quotes', function () {
+  it('uses no quotes', () => {
     const expectedWrappedPath = path.resolve(unwrappedPath, unwrappedFilename)
     assert.equal(wrappedPath, expectedWrappedPath)
   })

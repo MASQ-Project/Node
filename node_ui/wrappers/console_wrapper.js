@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-module.exports = (function () {
+module.exports = (() => {
   function log (message, optionalParams) {
     if (optionalParams) {
       console.log(message, optionalParams)
@@ -12,4 +12,4 @@ module.exports = (function () {
   return {
     log: log
   }
-}())
+})()

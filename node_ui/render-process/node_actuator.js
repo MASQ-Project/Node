@@ -1,6 +1,8 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-module.exports = (function () {
+module.exports = (() => {
+  var {dialog} = require('electron').remote
+
   const childProcess = require('child_process')
   const path = require('path')
   const consoleWrapper = require('../wrappers/console_wrapper')
@@ -17,26 +19,28 @@ module.exports = (function () {
   function setStatusToOffThenRevert () {
     substratumNodeProcess = null
     setValidStatus('Off', 'off')
-    dnsUtility.revert().then((response) => setStatus())
+    dnsUtility.revert().then(() => setStatus())
   }
 
   function bindProcessEvents () {
-    substratumNodeProcess.on('message', function (message) {
+    substratumNodeProcess.on('message', message => {
       consoleWrapper.log('substratum_node process received message: ', message)
       if (message.startsWith('Command returned error: ')) {
+        if (substratumNodeProcess) { dialog.showErrorBox('Error', message) }
         setStatusToOffThenRevert()
       }
     })
 
-    substratumNodeProcess.on('error', function (error) {
+    substratumNodeProcess.on('error', error => {
       consoleWrapper.log('substratum_node process received error: ', error.message)
+      if (substratumNodeProcess) { dialog.showErrorBox('Error', error.message) }
       setStatusToOffThenRevert()
     })
 
-    substratumNodeProcess.on('exit', function (code) {
+    substratumNodeProcess.on('exit', code => {
       consoleWrapper.log('substratum_node process exited with code ', code)
       substratumNodeProcess = null
-      setValidStatus('Off', 'off')
+      setStatus()
     })
   }
 
@@ -88,11 +92,13 @@ module.exports = (function () {
 
   function stopNode () {
     if (!substratumNodeProcess || substratumNodeProcess.cmd) {
+      substratumNodeProcess = null
       psWrapper.killNodeProcess()
     } else {
-      substratumNodeProcess.send('stop')
+      let processToKill = substratumNodeProcess
+      substratumNodeProcess = null
+      processToKill.send('stop')
     }
-    substratumNodeProcess = null
   }
 
   function bind (_nodeStatusButtonOff, _nodeStatusButtonServing, _nodeStatusButtonConsuming) {
@@ -100,33 +106,43 @@ module.exports = (function () {
     nodeStatusButtonServing = _nodeStatusButtonServing
     nodeStatusButtonConsuming = _nodeStatusButtonConsuming
 
-    nodeStatusButtonOff.onclick = function () {
+    nodeStatusButtonOff.onclick = () => {
       setValidStatus('Off', 'off')
-      stopNode()
       dnsUtility.revert().then((response) => {
+        stopNode()
         if (response) {
           setStatus()
         }
+      }, (error) => {
+        setStatus()
+        dialog.showErrorBox('Error', error.message)
       })
     }
 
-    nodeStatusButtonServing.onclick = function () {
+    nodeStatusButtonServing.onclick = () => {
       setValidStatus('Serving', 'serving')
       startNode()
       dnsUtility.revert().then((response) => {
         if (response) {
           setStatus()
         }
+      }, (error) => {
+        setStatus()
+        dialog.showErrorBox('Error', error.message)
       })
     }
 
-    nodeStatusButtonConsuming.onclick = function () {
+    nodeStatusButtonConsuming.onclick = () => {
       setValidStatus('Consuming', 'consuming')
       startNode()
       dnsUtility.subvert().then((response) => {
         if (response) {
           setStatus()
         }
+      },
+      (error) => {
+        setStatus()
+        dialog.showErrorBox('Error', error.message)
       })
     }
   }

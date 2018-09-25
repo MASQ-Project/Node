@@ -70,17 +70,17 @@ function createWindow () {
     slashes: true
   }))
 
-  mainWindow.on('blur', function () {
+  mainWindow.on('blur', () => {
     // if (!mainWindow.webContents.isDevToolsOpened()) {
     //  mainWindow.hide()
     // }
   })
 
-  mainWindow.on('closed', function () {
+  mainWindow.on('closed', () => {
     mainWindow = null
   })
 
-  mainWindow.on('close', function () {
+  mainWindow.on('close', () => {
     console.log('sending signal to kill SubstratumNode')
     mainWindow.webContents.send('kill-substratum-node')
   })
@@ -103,16 +103,16 @@ function showWindow () {
 
 // app.dock.hide()
 
-app.on('ready', function () {
+app.on('ready', () => {
   createWindow()
   // createTray()
 })
 
-app.on('window-all-closed', function () {
+app.on('window-all-closed', () => {
   app.quit()
 })
 
-app.on('activate', function () {
+app.on('activate', () => {
   if (mainWindow === null) {
     createWindow()
   }

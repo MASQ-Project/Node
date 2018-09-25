@@ -6,11 +6,11 @@ const assert = require('assert')
 const td = require('testdouble')
 const util = require('./test_utilities')
 
-describe('Settings', function () {
+describe('Settings', () => {
   let subject
   let mockApp, mockSettingsButton, mockSettingsMenu, mockQuitButton, mockMainBody, mockEvent
 
-  beforeEach(function () {
+  beforeEach(() => {
     mockApp = td.object('App')
     td.replace('electron', {
       remote: {
@@ -30,85 +30,85 @@ describe('Settings', function () {
     subject.bind(mockMainBody, mockSettingsMenu, mockSettingsButton, mockQuitButton)
   })
 
-  afterEach(function () {
+  afterEach(() => {
     td.reset()
   })
 
-  describe('clicking the settings button', function () {
-    beforeEach(function () {
+  describe('clicking the settings button', () => {
+    beforeEach(() => {
       mockSettingsButton.onclick()
     })
 
-    it('opens settings menu', function () {
+    it('opens settings menu', () => {
       assert(mockSettingsMenu.classList.contains('settings-menu--active'))
       assert(!mockSettingsMenu.classList.contains('settings-menu--inactive'))
     })
 
-    describe('clicking quit', function () {
-      beforeEach(function () {
+    describe('clicking quit', () => {
+      beforeEach(() => {
         mockQuitButton.onclick()
       })
 
-      it('calls app quit', function () {
+      it('calls app quit', () => {
         td.verify(mockApp.quit())
       })
     })
 
-    describe('clicking the settings button again', function () {
-      beforeEach(function () {
+    describe('clicking the settings button again', () => {
+      beforeEach(() => {
         mockSettingsButton.onclick()
       })
 
-      it('closes the settings menu', function () {
+      it('closes the settings menu', () => {
         assert(mockSettingsMenu.classList.contains('settings-menu--inactive'))
         assert(!mockSettingsMenu.classList.contains('settings-menu--active'))
       })
     })
 
-    describe('main body onclick', function () {
-      describe('clicking the body', function () {
-        beforeEach(function () {
+    describe('main body onclick', () => {
+      describe('clicking the body', () => {
+        beforeEach(() => {
           mockEvent = {target: mockMainBody}
           mockMainBody.onclick(mockEvent)
         })
 
-        it('closes the settings menu', function () {
+        it('closes the settings menu', () => {
           assert(mockSettingsMenu.classList.contains('settings-menu--inactive'))
           assert(!mockSettingsMenu.classList.contains('settings-menu--active'))
         })
       })
 
-      describe('clicking the menu', function () {
-        beforeEach(function () {
+      describe('clicking the menu', () => {
+        beforeEach(() => {
           mockEvent = { target: mockSettingsMenu }
           mockMainBody.onclick(mockEvent)
         })
 
-        it('does not close the settings menu', function () {
+        it('does not close the settings menu', () => {
           assert(mockSettingsMenu.classList.contains('settings-menu--active'))
           assert(!mockSettingsMenu.classList.contains('settings-menu--inactive'))
         })
       })
 
-      describe('clicking a menu child', function () {
-        beforeEach(function () {
+      describe('clicking a menu child', () => {
+        beforeEach(() => {
           mockEvent = { target: mockQuitButton }
           mockMainBody.onclick(mockEvent)
         })
 
-        it('does not close the settings menu', function () {
+        it('does not close the settings menu', () => {
           assert(mockSettingsMenu.classList.contains('settings-menu--active'))
           assert(!mockSettingsMenu.classList.contains('settings-menu--inactive'))
         })
       })
 
-      describe('clicking the settings button', function () {
-        beforeEach(function () {
+      describe('clicking the settings button', () => {
+        beforeEach(() => {
           mockEvent = { target: mockSettingsButton }
           mockMainBody.onclick(mockEvent)
         })
 
-        it('does not close the settings menu', function () {
+        it('does not close the settings menu', () => {
           assert(mockSettingsMenu.classList.contains('settings-menu--active'))
           assert(!mockSettingsMenu.classList.contains('settings-menu--inactive'))
         })

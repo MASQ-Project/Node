@@ -17,16 +17,27 @@
       "identity": "Substratum Services, Inc. (TKDGR66924)",
       "target": "dmg",
       "type": "distribution",
-      "files":["!ci/*","!test/*","!*.iml"]
-
+      "files": [
+        "!ci/*",
+        "!test/*",
+        "!*.iml"
+      ]
     },
     "win": {
       "icon": "build/icons/icon.ico",
-      "files":["!ci/*","!test/*","!*.iml"]
+      "files": [
+        "!ci/*",
+        "!test/*",
+        "!*.iml"
+      ]
     },
     "linux": {
       "icon": "build/icons",
-      "files":["!ci/*","!test/*","!*.iml"]
+      "files": [
+        "!ci/*",
+        "!test/*",
+        "!*.iml"
+      ]
     }
   },
   "dmg": {

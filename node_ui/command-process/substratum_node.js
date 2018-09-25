@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-module.exports = (function () {
+module.exports = (() => {
   const commandHelper = require('./command_helper')
   const process = require('../wrappers/process_wrapper')
   const console = require('../wrappers/console_wrapper')
@@ -26,12 +26,10 @@ module.exports = (function () {
   function handleCommandResult (error, stdout, stderr) {
     if (error) {
       process.send('Command returned error: ' + error.message)
-    }
-    if (stdout) {
-      process.send('Command returned output: ' + stdout)
-    }
-    if (stderr) {
+    } else if (stderr) {
       process.send('Command returned error: ' + stderr)
+    } else if (stdout) {
+      process.send('Command returned output: ' + stdout)
     }
   }
 
@@ -49,4 +47,4 @@ module.exports = (function () {
     start: start,
     stop: stop
   }
-}())
+})()

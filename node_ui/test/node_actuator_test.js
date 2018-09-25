@@ -7,7 +7,8 @@ const assert = require('assert')
 const {EventEmitter} = require('events')
 const util = require('./test_utilities')
 
-describe('NodeActuator', function () {
+describe('NodeActuator', () => {
+  let mockDialog
   let mockChildProcess
   let mockSudoPrompt
   let mockConsole
@@ -26,7 +27,9 @@ describe('NodeActuator', function () {
 
   let subject
 
-  beforeEach(function () {
+  beforeEach(() => {
+    mockDialog = td.object(['showErrorBox'])
+    td.replace('electron', { remote: { dialog: mockDialog } })
     mockChildProcess = td.replace('child_process')
     mockSudoPrompt = td.replace('sudo-prompt')
     mockConsole = td.replace('../wrappers/console_wrapper')
@@ -46,9 +49,6 @@ describe('NodeActuator', function () {
     td.when(mockDocumentWrapper.getElementById('consuming')).thenReturn(mockNodeStatusButtonConsuming)
     td.when(mockDocumentWrapper.getElementById('node-status-buttons')).thenReturn(mockNodeStatusButtons)
 
-    td.when(mockDnsUtility.revert()).thenResolve('')
-    td.when(mockDnsUtility.subvert()).thenResolve('')
-
     mockSubstratumNodeProcess = new EventEmitter()
     mockSubstratumNodeProcess.send = td.function()
     td.when(mockSudoPrompt.exec(td.matchers.anything(), td.matchers.anything()))
@@ -63,202 +63,208 @@ describe('NodeActuator', function () {
     subject.bind(mockNodeStatusButtonOff, mockNodeStatusButtonServing, mockNodeStatusButtonConsuming)
   })
 
-  afterEach(function () {
+  afterEach(() => {
     td.reset()
   })
 
-  describe('off', function () {
-    beforeEach(function () {
+  describe('off', () => {
+    beforeEach(() => {
+      td.when(mockDnsUtility.revert()).thenResolve('')
+      td.when(mockDnsUtility.subvert()).thenResolve('')
       td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonServing, mockNodeStatusButtonConsuming])
       mockNodeStatusButtonOff.onclick()
     })
 
-    it('does nothing', function () {
+    it('does nothing', () => {
       assertStatus('off')
       assertNodeNotStopped()
     })
 
-    describe('to off', function () {
-      beforeEach(function () {
+    describe('to off', () => {
+      beforeEach(() => {
         mockNodeStatusButtonOff.onclick()
       })
 
-      it('does nothing', function () {
+      it('does nothing', () => {
         assertStatus('off')
         assertNodeStarted(0)
       })
     })
 
-    describe('to serving', function () {
-      beforeEach(function () {
+    describe('to serving', () => {
+      beforeEach(() => {
         td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonOff, mockNodeStatusButtonConsuming])
         mockNodeStatusButtonServing.onclick()
       })
 
-      it('sets the status to serving', function () {
+      it('sets the status to serving', () => {
         assertStatus('serving')
       })
 
-      it('does not revert the dns', function () {
+      it('does not revert the dns', () => {
         assertDNSNotReverted()
       })
 
-      it('starts the node', function () {
+      it('starts the node', () => {
         assertNodeStarted()
       })
     })
 
-    describe('to consuming', function () {
-      beforeEach(function () {
+    describe('to consuming', () => {
+      beforeEach(() => {
         td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonServing, mockNodeStatusButtonOff])
         mockNodeStatusButtonConsuming.onclick()
       })
 
-      it('sets the status to consuming', function () {
+      it('sets the status to consuming', () => {
         assertStatus('consuming')
       })
 
-      it('subverts the dns', function () {
+      it('subverts the dns', () => {
         verifyDNSSubverted()
       })
 
-      it('starts the node', function () {
+      it('starts the node', () => {
         assertNodeStarted()
       })
     })
   })
 
-  describe('serving', function () {
-    beforeEach(function () {
+  describe('serving', () => {
+    beforeEach(() => {
+      td.when(mockDnsUtility.revert()).thenResolve('')
+      td.when(mockDnsUtility.subvert()).thenResolve('')
       td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonOff, mockNodeStatusButtonConsuming])
       mockNodeStatusButtonServing.onclick()
     })
 
-    it('sets the status to serving', function () {
+    it('sets the status to serving', () => {
       assertStatus('serving')
     })
 
-    it('does not revert the dns', function () {
+    it('does not revert the dns', () => {
       assertDNSNotReverted()
     })
 
-    it('starts the node', function () {
+    it('starts the node', () => {
       assertNodeStarted()
     })
 
-    describe('to off', function () {
-      beforeEach(function () {
+    describe('to off', () => {
+      beforeEach(async () => {
         td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonServing, mockNodeStatusButtonConsuming])
         mockNodeStatusButtonOff.onclick()
       })
 
-      it('sets the status to off', function () {
+      it('sets the status to off', () => {
         assertStatus('off')
       })
 
-      it('does not revert dns', function () {
+      it('does not revert dns', () => {
         assertDNSNotReverted()
       })
 
-      it('stops the node', function () {
+      it('stops the node', () => {
         assertNodeStopped()
       })
     })
 
-    describe('to serving', function () {
-      beforeEach(function () {
+    describe('to serving', () => {
+      beforeEach(() => {
         mockNodeStatusButtonServing.onclick()
       })
 
-      it('does not try to start node again', function () {
+      it('does not try to start node again', () => {
         assertStatus('serving')
         assertDNSNotSubverted()
         assertNodeStarted()
       })
     })
 
-    describe('to consuming', function () {
-      beforeEach(function () {
+    describe('to consuming', () => {
+      beforeEach(() => {
         td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonOff, mockNodeStatusButtonServing])
         mockNodeStatusButtonConsuming.onclick()
       })
 
-      it('sets the status to consuming', function () {
+      it('sets the status to consuming', () => {
         assertStatus('consuming')
       })
 
-      it('does not start the node', function () {
+      it('does not start the node', () => {
         assertNodeStarted()
       })
 
-      it('subverts dns', function () {
+      it('subverts dns', () => {
         verifyDNSSubverted()
       })
     })
   })
 
-  describe('consuming', function () {
-    beforeEach(function () {
+  describe('consuming', () => {
+    beforeEach(() => {
+      td.when(mockDnsUtility.revert()).thenResolve('')
+      td.when(mockDnsUtility.subvert()).thenResolve('')
       td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonOff, mockNodeStatusButtonServing])
       mockNodeStatusButtonConsuming.onclick()
     })
 
-    it('sets the status to consuming', function () {
+    it('sets the status to consuming', () => {
       assertStatus('consuming')
     })
 
-    it('subverts dns', function () {
+    it('subverts dns', () => {
       verifyDNSSubverted()
     })
 
-    it('starts the node', function () {
+    it('starts the node', () => {
       assertNodeStarted()
     })
 
-    describe('to off', function () {
-      beforeEach(function () {
+    describe('to off', () => {
+      beforeEach(async () => {
         td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonServing, mockNodeStatusButtonConsuming])
         mockNodeStatusButtonOff.onclick()
       })
 
-      it('sets the status to off', function () {
+      it('sets the status to off', () => {
         assertStatus('off')
       })
 
-      it('reverts the dns', function () {
+      it('reverts the dns', () => {
         verifyDNSReverted()
       })
 
-      it('stops the node', function () {
+      it('stops the node', () => {
         assertNodeStopped()
       })
     })
 
-    describe('to serving', function () {
-      beforeEach(function () {
+    describe('to serving', () => {
+      beforeEach(() => {
         td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonOff, mockNodeStatusButtonConsuming])
         mockNodeStatusButtonServing.onclick()
       })
 
-      it('sets the status to serving', function () {
+      it('sets the status to serving', () => {
         assertStatus('serving')
       })
 
-      it('does not start the node', function () {
+      it('does not start the node', () => {
         assertNodeStarted(1)
       })
 
-      it('reverts the dns', function () {
+      it('reverts the dns', () => {
         verifyDNSReverted()
       })
     })
 
-    describe('to consuming', function () {
-      beforeEach(function () {
+    describe('to consuming', () => {
+      beforeEach(() => {
         mockNodeStatusButtonConsuming.onclick()
       })
 
-      it('does nothing', function () {
+      it('does nothing', () => {
         assertStatus('consuming')
         assertDNSNotReverted()
         assertNodeStarted()
@@ -266,8 +272,51 @@ describe('NodeActuator', function () {
     })
   })
 
-  describe('serving with already running node process', function () {
-    beforeEach(function () {
+  describe('dns utility failures', () => {
+    describe('when Off was clicked', () => {
+      beforeEach(async () => {
+        td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonOff])
+        td.when(mockDnsUtility.revert()).thenReject(new Error('booga'))
+
+        mockNodeStatusButtonOff.onclick()
+      })
+
+      it('shows a dialog', () => {
+        td.verify(mockDialog.showErrorBox('Error', 'booga'))
+      })
+    })
+
+    describe('when Serving was clicked', () => {
+      beforeEach(async () => {
+        td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonServing])
+        td.when(mockDnsUtility.revert()).thenReject(new Error('borf'))
+
+        mockNodeStatusButtonServing.onclick()
+      })
+
+      it('shows a dialog', () => {
+        td.verify(mockDialog.showErrorBox('Error', 'borf'))
+      })
+    })
+
+    describe('when Consuming was clicked', () => {
+      beforeEach(async () => {
+        td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonConsuming])
+        td.when(mockDnsUtility.subvert()).thenReject(new Error('snarf'))
+
+        mockNodeStatusButtonConsuming.onclick()
+      })
+
+      it('shows a dialog', () => {
+        td.verify(mockDialog.showErrorBox('Error', 'snarf'))
+      })
+    })
+  })
+
+  describe('serving with already running node process', () => {
+    beforeEach(() => {
+      td.when(mockDnsUtility.revert()).thenResolve('')
+      td.when(mockDnsUtility.subvert()).thenResolve('')
       td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonOff])
       td.when(mockDnsUtility.getStatus()).thenReturn('reverted')
       td.when(mockPsWrapper.findNodeProcess()).thenCallback([{name: 'SubstratumNode', pid: 1234, cmd: 'static/binaries/SubstratumNode'}])
@@ -275,128 +324,138 @@ describe('NodeActuator', function () {
       mockNodeStatusButtonServing.onclick()
     })
 
-    it('does not start node', function () {
+    it('does not start node', () => {
       assertNodeStarted(0)
     })
   })
 
-  describe('childProcess messages', function () {
-    beforeEach(function () {
+  describe('childProcess messages', () => {
+    beforeEach(() => {
+      td.when(mockDnsUtility.revert()).thenResolve('')
+      td.when(mockDnsUtility.subvert()).thenResolve('')
       td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonOff])
       mockNodeStatusButtonServing.onclick()
     })
 
-    describe('receiving a message from child process', function () {
-      beforeEach(function () {
+    describe('receiving a message from child process', () => {
+      beforeEach(() => {
         mockSubstratumNodeProcess.emit('message', 'blooga')
       })
 
-      it('logs the message', function () {
+      it('logs the message', () => {
         td.verify(mockConsole.log('substratum_node process received message: ', 'blooga'))
       })
 
-      it('does not update the status', function () {
+      it('does not update the status', () => {
         assertStatus('serving')
       })
     })
 
-    describe('receiving an error message from child process', function () {
-      describe('while serving', function () {
-        beforeEach(function () {
+    describe('receiving an error message from child process', () => {
+      describe('while serving', () => {
+        beforeEach(() => {
           td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonServing])
           mockNodeStatusButtonServing.onclick()
 
           mockSubstratumNodeProcess.emit('message', 'Command returned error: blooga')
         })
 
-        it('logs the error', function () {
+        it('logs the error', () => {
           td.verify(mockConsole.log('substratum_node process received message: ', 'Command returned error: blooga'))
         })
 
-        it('updates the status', function () {
+        it('shows a dialog describing the error', () => {
+          td.verify(mockDialog.showErrorBox('Error', 'Command returned error: blooga'))
+        })
+
+        it('updates the status', () => {
           assertStatus('off')
         })
 
-        describe('serve', function () {
-          beforeEach(function () {
+        describe('serve', () => {
+          beforeEach(() => {
             mockNodeStatusButtonServing.onclick()
           })
 
-          it('starts the node again', function () {
+          it('starts the node again', () => {
             assertNodeStarted(2)
           })
         })
       })
 
-      describe('while consuming', function () {
-        describe('dns revert succeeds', function () {
-          beforeEach(function () {
+      describe('while consuming', () => {
+        describe('dns revert succeeds', () => {
+          beforeEach(() => {
             td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonServing, mockNodeStatusButtonConsuming])
             mockNodeStatusButtonConsuming.onclick()
 
             mockSubstratumNodeProcess.emit('message', 'Command returned error: blooga')
           })
 
-          it('reverts the dns', function () {
+          it('reverts the dns', () => {
             verifyDNSReverted(2)
           })
 
-          it('logs the error', function () {
+          it('logs the error', () => {
             td.verify(mockConsole.log('substratum_node process received message: ', 'Command returned error: blooga'))
           })
 
-          it('updates the status', function () {
+          it('shows a dialog describing the error', () => {
+            td.verify(mockDialog.showErrorBox('Error', 'Command returned error: blooga'))
+          })
+
+          it('updates the status', () => {
             assertStatus('off')
           })
         })
       })
     })
 
-    describe('receiving error from child process', function () {
-      describe('while serving', function () {
-        beforeEach(function () {
+    describe('receiving error from child process', () => {
+      describe('while serving', () => {
+        beforeEach(() => {
           td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonServing, mockNodeStatusButtonConsuming])
           mockNodeStatusButtonServing.onclick()
 
           mockSubstratumNodeProcess.emit('error', new Error('blooga'))
         })
 
-        it('logs the error', function () {
+        it('logs the error', () => {
           td.verify(mockConsole.log('substratum_node process received error: ', 'blooga'))
         })
 
-        it('updates the status', function () {
+        it('updates the status', () => {
           assertStatus('off')
         })
       })
 
-      describe('while consuming', function () {
-        describe('dns revert succeeds', function () {
-          beforeEach(function () {
+      describe('while consuming', () => {
+        describe('dns revert succeeds', () => {
+          beforeEach(() => {
             td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonServing, mockNodeStatusButtonConsuming])
             mockNodeStatusButtonConsuming.onclick()
 
             mockSubstratumNodeProcess.emit('error', new Error('blooga'))
           })
 
-          it('reverts the dns', function () {
+          it('reverts the dns', () => {
             verifyDNSReverted(2)
           })
 
-          it('logs the error', function () {
+          it('logs the error', () => {
             td.verify(mockConsole.log('substratum_node process received error: ', 'blooga'))
           })
 
-          it('updates the status', function () {
+          it('updates the status', () => {
             assertStatus('off')
           })
         })
       })
     })
 
-    describe('receiving exit from child process', function () {
-      describe('while serving', function () {
-        beforeEach(function () {
+    describe('receiving exit from child process', () => {
+      describe('while serving', () => {
+        beforeEach(() => {
           td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonServing, mockNodeStatusButtonConsuming])
           mockNodeStatusButtonServing.onclick()
 
@@ -405,74 +464,114 @@ describe('NodeActuator', function () {
           let stderr = false
           td.when(mockSudoPrompt.exec(td.matchers.anything(), td.matchers.anything()))
             .thenCallback(error, stdout, stderr)
+          td.when(mockDnsUtility.getStatus()).thenReturn('')
+          td.when(mockPsWrapper.findNodeProcess()).thenCallback([])
 
           mockSubstratumNodeProcess.emit('exit', 7)
         })
 
-        it('logs to console', function () {
+        it('logs to console', () => {
           td.verify(mockConsole.log('substratum_node process exited with code ', 7))
         })
 
-        it('does not revert DNS', function () {
+        it('does not revert DNS', () => {
           assertDNSNotReverted()
         })
 
-        it('updates the status', function () {
+        it('updates the status', () => {
           assertStatus('off')
         })
       })
 
-      describe('while consuming', function () {
-        describe('dns revert succeeds', function () {
-          beforeEach(function () {
+      describe('while consuming', () => {
+        describe('dns revert succeeds', () => {
+          beforeEach(() => {
             td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonServing, mockNodeStatusButtonConsuming])
             mockNodeStatusButtonConsuming.onclick()
+            td.when(mockDnsUtility.getStatus()).thenReturn('subverted')
+            td.when(mockPsWrapper.findNodeProcess()).thenCallback([])
 
             mockSubstratumNodeProcess.emit('exit', 7)
           })
 
-          it('logs to console', function () {
+          it('logs to console', () => {
             td.verify(mockConsole.log('substratum_node process exited with code ', 7))
           })
 
-          it('reverts DNS', function () {
+          it('reverts DNS', () => {
             verifyDNSReverted(1)
           })
 
-          it('updates the status', function () {
-            assertStatus('off')
+          it('updates the status', () => {
+            assertStatus('invalid')
           })
         })
       })
     })
   })
 
-  describe('shutdown', function () {
-    beforeEach(function () {
+  describe('shutdown', () => {
+    beforeEach(() => {
+      td.when(mockDnsUtility.revert()).thenResolve('')
+      td.when(mockDnsUtility.subvert()).thenResolve('')
       td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonServing, mockNodeStatusButtonConsuming])
       mockNodeStatusButtonServing.onclick()
 
       subject.shutdown()
     })
 
-    it('reverts the dns', function () {
+    it('reverts the dns', () => {
       verifyDNSReverted(2)
     })
 
-    it('stops the node', function () {
+    it('stops the node', () => {
       assertNodeStopped()
     })
   })
 
-  describe('shutdown existing node process', function () {
-    beforeEach(function () {
-      mockSubstratumNodeProcess = null
+  describe('shutdown existing node process', () => {
+    beforeEach(() => {
+      subject.shutdown()
+    })
+
+    it('kills the process', () => {
+      td.verify(mockPsWrapper.killNodeProcess())
+    })
+  })
+
+  describe('shutdown windows cmd', () => {
+    beforeEach(() => {
+      td.when(mockDnsUtility.revert()).thenResolve('')
+      td.when(mockDnsUtility.subvert()).thenResolve('')
+      td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonServing, mockNodeStatusButtonConsuming])
+      mockSubstratumNodeProcess.cmd = 'something.cmd'
+      mockNodeStatusButtonServing.onclick()
 
       subject.shutdown()
     })
 
-    it('kills the process', function () {
+    it('kills the process', () => {
       td.verify(mockPsWrapper.killNodeProcess())
+    })
+
+    describe('then an error message comes from the process', () => {
+      beforeEach(() => {
+        mockSubstratumNodeProcess.emit('message', 'Command returned error: borf')
+      })
+
+      it('does not show the alert', () => {
+        td.verify(mockDialog.showErrorBox(), { times: 0, ignoreExtraArgs: true })
+      })
+    })
+
+    describe('then an error comes from the process', () => {
+      beforeEach(() => {
+        mockSubstratumNodeProcess.emit('error', 'bzzzzzzzzzzzzz')
+      })
+
+      it('does not show the alert', () => {
+        td.verify(mockDialog.showErrorBox(), { times: 0, ignoreExtraArgs: true })
+      })
     })
   })
 
@@ -493,7 +592,7 @@ describe('NodeActuator', function () {
       assert(!mockNodeStatusButtonServing.classList.contains('button-active'), 'Serving should not be active')
       assert(mockNodeStatusButtonConsuming.classList.contains('button-active'), 'Consuming should be active')
     } else if (status === 'invalid') {
-      assert.strictEqual(mockNodeStatusLabel.innerHTML, 'There was a problem')
+      assert.strictEqual(mockNodeStatusLabel.innerHTML, 'An error occurred. Choose a state.')
       assert(!mockNodeStatusButtonOff.classList.contains('button-active'), 'Off should not be active')
       assert(!mockNodeStatusButtonServing.classList.contains('button-active'), 'Serving should not be active')
       assert(!mockNodeStatusButtonConsuming.classList.contains('button-active'), 'Consuming should not be active')

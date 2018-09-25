@@ -4,7 +4,7 @@
 // be executed in the renderer process for that window.
 // All of the Node.js APIs are available in this process.
 
-module.exports = (function () {
+module.exports = (() => {
   const {ipcRenderer, shell} = require('electron')
   const settings = require('./settings')
   const documentWrapper = require('../wrappers/document_wrapper')
@@ -23,7 +23,7 @@ module.exports = (function () {
 
   nodeActuator.setStatus()
 
-  ipcRenderer.on('kill-substratum-node', function () {
+  ipcRenderer.on('kill-substratum-node', () => {
     nodeActuator.shutdown()
   })
 
@@ -38,4 +38,4 @@ module.exports = (function () {
       })
     }
   })
-}())
+})()

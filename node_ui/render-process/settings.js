@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-module.exports = (function () {
+module.exports = (() => {
   const {app} = require('electron').remote
   let settingsButton, settingsMenu, settingsQuitButton, body
 
@@ -10,11 +10,11 @@ module.exports = (function () {
     settingsQuitButton = _settingsQuitButton
     body = _body
 
-    settingsButton.onclick = function () {
+    settingsButton.onclick = () => {
       toggleSettings()
     }
 
-    settingsQuitButton.onclick = function () {
+    settingsQuitButton.onclick = () => {
       app.quit()
     }
 
@@ -62,4 +62,4 @@ module.exports = (function () {
   return {
     bind: bind
   }
-}())
+})()

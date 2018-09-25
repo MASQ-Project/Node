@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-module.exports = (function () {
+module.exports = (() => {
   const childProcess = require('child_process')
   const pathWrapper = require('../wrappers/path_wrapper')
   const consoleWrapper = require('../wrappers/console_wrapper')
@@ -21,7 +21,7 @@ module.exports = (function () {
   function revert () {
     let isReverted = getStatus()
     if (isReverted && isReverted.indexOf('reverted') >= 0) {
-      return new Promise((resolve, reject) => resolve(null))
+      return Promise.resolve(null)
     }
 
     return runDnsUtility('revert')
@@ -30,7 +30,7 @@ module.exports = (function () {
   function subvert () {
     let isSubverted = getStatus()
     if (isSubverted && isSubverted.indexOf('subverted') >= 0) {
-      return new Promise((resolve, reject) => resolve(null))
+      return Promise.resolve(null)
     }
 
     return runDnsUtility('subvert')
@@ -38,10 +38,10 @@ module.exports = (function () {
 
   function runDnsUtility (mode) {
     return new Promise((resolve, reject) => {
-      sudoPrompt.exec(dnsUtilityPathQuoted + ' ' + mode, { name: 'DNS utility' }, function (error, stdout, stderr) {
+      sudoPrompt.exec(dnsUtilityPathQuoted + ' ' + mode, { name: 'DNS utility' }, (error, stdout, stderr) => {
         if (error || stderr) {
           consoleWrapper.log('dns_utility failed: ', stderr || error.message)
-          reject(error || stderr)
+          reject(error || new Error(stderr))
         } else {
           resolve(stdout)
         }
@@ -54,4 +54,4 @@ module.exports = (function () {
     revert: revert,
     subvert: subvert
   }
-}())
+})()

@@ -4,10 +4,10 @@
 
 const td = require('testdouble')
 
-describe('SubstratumNode', function () {
+describe('SubstratumNode', () => {
   let commandHelper, console, process, subject
 
-  beforeEach(function () {
+  beforeEach(() => {
     console = td.replace('../wrappers/console_wrapper')
     process = td.replace('../wrappers/process_wrapper')
     commandHelper = td.replace('../command-process/command_helper')
@@ -15,50 +15,82 @@ describe('SubstratumNode', function () {
     subject = require('../command-process/substratum_node')
   })
 
-  afterEach(function () {
+  afterEach(() => {
     td.reset()
   })
 
-  describe('starting', function () {
-    beforeEach(function () {
-      td.when(commandHelper.startSubstratumNode(td.callback)).thenCallback(new Error('the error'), 'stdout', 'stderr')
+  describe('starting', () => {
+    describe('when there is an error', () => {
+      beforeEach(() => {
+        td.when(commandHelper.startSubstratumNode(td.callback)).thenCallback(new Error('the error'))
 
-      subject.start()
+        subject.start()
+      })
+
+      it('logs to the console', () => {
+        td.verify(console.log('start initiated'))
+      })
+
+      it('sends a message', () => {
+        td.verify(process.send('Command returned error: the error'))
+      })
     })
 
-    it('logs to the console', function () {
-      td.verify(console.log('start initiated'))
+    describe('when there is an stderror', () => {
+      beforeEach(() => {
+        td.when(commandHelper.startSubstratumNode(td.callback)).thenCallback(undefined, undefined, 'the stderror')
+
+        subject.start()
+      })
+
+      it('logs to the console', () => {
+        td.verify(console.log('start initiated'))
+      })
+
+      it('sends a message', () => {
+        td.verify(process.send('Command returned error: the stderror'))
+      })
     })
 
-    it('starts the node', function () {
-      td.verify(process.send('Command returned error: the error'))
-      td.verify(process.send('Command returned output: stdout'))
-      td.verify(process.send('Command returned error: stderr'))
+    describe('when there is stdout', () => {
+      beforeEach(() => {
+        td.when(commandHelper.startSubstratumNode(td.callback)).thenCallback(undefined, 'the stdout')
+
+        subject.start()
+      })
+
+      it('logs to the console', () => {
+        td.verify(console.log('start initiated'))
+      })
+
+      it('sends a message', () => {
+        td.verify(process.send('Command returned output: the stdout'))
+      })
     })
   })
 
-  describe('stopping', function () {
-    describe('successfully', function () {
-      beforeEach(function () {
+  describe('stopping', () => {
+    describe('successfully', () => {
+      beforeEach(() => {
         td.when(commandHelper.stopSubstratumNode(td.callback)).thenCallback()
 
         subject.stop()
       })
 
-      it('logs to the console', function () {
+      it('logs to the console', () => {
         td.verify(console.log('stop initiated'))
         td.verify(console.log('Substratum Node was successfully shutdown.'))
       })
     })
 
-    describe('unsuccessfully', function () {
-      beforeEach(function () {
+    describe('unsuccessfully', () => {
+      beforeEach(() => {
         td.when(commandHelper.stopSubstratumNode()).thenCallback('ERROR!')
 
         subject.stop()
       })
 
-      it('logs to the console', function () {
+      it('logs to the console', () => {
         td.verify(console.log('stop initiated'))
         td.verify(console.log('Substratum Node failed to shutdown with error: ', 'ERROR!'))
       })

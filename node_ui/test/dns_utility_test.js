@@ -6,7 +6,7 @@ const assert = require('assert')
 const td = require('testdouble')
 const path = require('path')
 
-describe('DNS Utility', function () {
+describe('DNS Utility', () => {
   let subject
   let childProcess
   let sudoPrompt
@@ -17,7 +17,7 @@ describe('DNS Utility', function () {
   let dnsUtilityPathQuoted = '"' + dnsUtilityPath + '"'
   let dnsUtilityArgs = ['status']
 
-  beforeEach(function () {
+  beforeEach(() => {
     childProcess = td.replace('child_process')
     sudoPrompt = td.replace('sudo-prompt')
     mockConsole = td.replace('../wrappers/console_wrapper')
@@ -25,73 +25,73 @@ describe('DNS Utility', function () {
     subject = require('../command-process/dns_utility')
   })
 
-  afterEach(function () {
+  afterEach(() => {
     td.reset()
   })
 
-  describe('getStatus', function () {
-    describe('for subverted', function () {
-      beforeEach(function () {
+  describe('getStatus', () => {
+    describe('for subverted', () => {
+      beforeEach(() => {
         td.when(childProcess.spawnSync(dnsUtilityPath, dnsUtilityArgs)).thenReturn({stdout: 'subverted'})
 
         result = subject.getStatus()
       })
 
-      it('returns subverted', function () {
+      it('returns subverted', () => {
         assert.equal('subverted', result)
       })
     })
 
-    describe('for reverted', function () {
-      beforeEach(function () {
+    describe('for reverted', () => {
+      beforeEach(() => {
         td.when(childProcess.spawnSync(dnsUtilityPath, dnsUtilityArgs)).thenReturn({stdout: 'reverted'})
 
         result = subject.getStatus()
       })
 
-      it('returns reverted', function () {
+      it('returns reverted', () => {
         assert.equal('reverted', result)
       })
     })
 
-    describe('for error', function () {
-      beforeEach(function () {
+    describe('for error', () => {
+      beforeEach(() => {
         td.when(childProcess.spawnSync(dnsUtilityPath, dnsUtilityArgs)).thenReturn({error: {code: 'ENOENT'}})
 
         result = subject.getStatus()
       })
 
-      it('returns ERROR ', function () {
+      it('returns ERROR ', () => {
         assert('ERROR: Failed to call inspect: ENOENT', result)
       })
     })
   })
 
-  describe('revert', function () {
-    describe('for not subverted', function () {
-      beforeEach(function () {
+  describe('revert', () => {
+    describe('for not subverted', () => {
+      beforeEach(() => {
         td.when(childProcess.spawnSync(dnsUtilityPath, dnsUtilityArgs)).thenReturn({stdout: 'reverted'})
         subject.revert()
       })
 
-      it('should not call dns_utility command', function () {
+      it('should not call dns_utility command', () => {
         td.verify(sudoPrompt.exec(td.matchers.anything(), td.matchers.anything, td.matchers.anything), {times: 0})
       })
     })
 
-    describe('for subverted ', function () {
-      beforeEach(function () {
+    describe('for subverted ', () => {
+      beforeEach(() => {
         td.when(childProcess.spawnSync(dnsUtilityPath, dnsUtilityArgs)).thenReturn({stdout: 'subverted'})
         subject.revert()
       })
 
-      it('should call dns_utility command', function () {
+      it('should call dns_utility command', () => {
         td.verify(sudoPrompt.exec(dnsUtilityPathQuoted + ' revert', {name: 'DNS utility'}, td.matchers.anything()), {times: 1})
       })
     })
 
-    describe('error', function () {
-      beforeEach(function () {
+    describe('error', () => {
+      beforeEach(() => {
         td.when(childProcess.spawnSync(dnsUtilityPath, dnsUtilityArgs)).thenReturn({stdout: 'subverted'})
 
         let error = {message: 'failed to revert'}
@@ -99,16 +99,18 @@ describe('DNS Utility', function () {
         let stderr = null
 
         td.when(sudoPrompt.exec(dnsUtilityPathQuoted + ' revert', {name: 'DNS utility'})).thenCallback(error, stdout, stderr)
-        subject.revert()
+        subject.revert().catch((reason) => {
+          assert.strictEqual(reason.message, error.message)
+        })
       })
 
-      it('logs error message', function () {
+      it('logs error message', () => {
         td.verify(mockConsole.log('dns_utility failed: ', 'failed to revert'))
       })
     })
 
-    describe('stderr', function () {
-      beforeEach(function () {
+    describe('stderr', () => {
+      beforeEach(() => {
         td.when(childProcess.spawnSync(dnsUtilityPath, dnsUtilityArgs)).thenReturn({stdout: 'subverted'})
 
         let error = null
@@ -116,34 +118,36 @@ describe('DNS Utility', function () {
         let stderr = 'failed to revert'
 
         td.when(sudoPrompt.exec(dnsUtilityPathQuoted + ' revert', {name: 'DNS utility'})).thenCallback(error, stdout, stderr)
-        subject.revert()
+        subject.revert().catch((reason) => {
+          assert.strictEqual(reason.message, stderr)
+        })
       })
 
-      it('logs stderr message', function () {
+      it('logs stderr message', () => {
         td.verify(mockConsole.log('dns_utility failed: ', 'failed to revert'))
       })
     })
   })
 
-  describe('subvert', function () {
-    describe('for reverted', function () {
-      beforeEach(function () {
+  describe('subvert', () => {
+    describe('for reverted', () => {
+      beforeEach(() => {
         td.when(childProcess.spawnSync(dnsUtilityPath, dnsUtilityArgs)).thenReturn({stdout: 'subverted'})
         subject.subvert()
       })
 
-      it('should not call dns_utility command', function () {
+      it('should not call dns_utility command', () => {
         td.verify(sudoPrompt.exec(td.matchers.anything(), td.matchers.anything(), td.matchers.anything()), {times: 0})
       })
     })
 
-    describe('for subverted', function () {
-      beforeEach(function () {
+    describe('for subverted', () => {
+      beforeEach(() => {
         td.when(childProcess.spawnSync(dnsUtilityPath, dnsUtilityArgs)).thenReturn({stdout: 'reverted'})
         subject.subvert()
       })
 
-      it('should call dns_utility command', function () {
+      it('should call dns_utility command', () => {
         td.verify(sudoPrompt.exec(dnsUtilityPathQuoted + ' subvert', {name: 'DNS utility'}, td.matchers.anything()), {times: 1})
       })
     })

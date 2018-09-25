@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-module.exports = (function () {
+module.exports = (() => {
   const path = require('../wrappers/path_wrapper')
   const process = require('../wrappers/process_wrapper')
   const cmd = require('node-cmd')
@@ -11,6 +11,8 @@ module.exports = (function () {
   const binaryFilename = 'SubstratumNode'
   const runtimeArgs = ['--dns_servers', '1.0.0.1,1.1.1.1,9.9.9.9,8.8.8.8']
 
+  let startSubstratumNode, stopSubstratumNode, binaryPath, scriptPath
+
   function getBinaryPath () {
     return path.resolveQuoted(__dirname, binaryBasePath + binaryFilename)
   }
@@ -20,7 +22,7 @@ module.exports = (function () {
   }
 
   function getCommand () {
-    let command = this.scriptPath + ' ' + this.binaryPath + ' '
+    let command = scriptPath + ' ' + binaryPath + ' '
     runtimeArgs.forEach(function (value) {
       command += value + ' '
     })
@@ -49,26 +51,22 @@ module.exports = (function () {
     callback(error)
   }
 
-  function init () {
-    if (process.platform === 'win32') {
-      this.binaryPath = getBinaryPath()
-      this.scriptPath = getScriptPath('cmd')
-      this.startSubstratumNode = startNodeWindows
-      this.stopSubstratumNode = stopNodeWindows
-    } else {
-      process.env.SUDO_UID = process.getuid()
-      process.env.SUDO_GID = process.getgid()
-      this.binaryPath = getBinaryPath()
-      this.scriptPath = getScriptPath('sh') + ' ' + process.getuid() + ' ' + process.getgid()
-      this.startSubstratumNode = startNodeUnix
-      this.stopSubstratumNode = stopNodeUnix
-    }
+  if (process.platform === 'win32') {
+    binaryPath = getBinaryPath()
+    scriptPath = getScriptPath('cmd')
+    startSubstratumNode = startNodeWindows
+    stopSubstratumNode = stopNodeWindows
+  } else {
+    process.env.SUDO_UID = process.getuid()
+    process.env.SUDO_GID = process.getgid()
+    binaryPath = getBinaryPath()
+    scriptPath = getScriptPath('sh') + ' ' + process.getuid() + ' ' + process.getgid()
+    startSubstratumNode = startNodeUnix
+    stopSubstratumNode = stopNodeUnix
   }
-
-  init()
 
   return {
-    startSubstratumNode: this.startSubstratumNode,
-    stopSubstratumNode: this.stopSubstratumNode
+    startSubstratumNode: startSubstratumNode,
+    stopSubstratumNode: stopSubstratumNode
   }
-}())
+})()

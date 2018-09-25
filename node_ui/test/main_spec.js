@@ -10,7 +10,7 @@ const {Application} = require('spectron')
 describe('Application launch', function () {
   this.timeout(10000)
 
-  beforeEach(function () {
+  beforeEach(() => {
     this.app = new Application({
       // Your electron path can be any binary
       // i.e for OSX an example path could be '/Applications/MyApp.app/Contents/MacOS/MyApp'
@@ -35,28 +35,28 @@ describe('Application launch', function () {
     return this.app.start()
   })
 
-  afterEach(function () {
+  afterEach(() => {
     if (this.app && this.app.isRunning()) {
       return this.app.stop()
     }
   })
 
-  it('shows initial state', function () {
+  it('shows initial state', () => {
     let client = this.app.client
     return client.waitUntilWindowLoaded()
-      .then(function () {
+      .then(() => {
         return client.element('div.node-status__actions')
       })
       .then(function (slider) {
         assert.notStrictEqual(slider.type, 'NoSuchElement')
       })
-      .then(function () {
+      .then(() => {
         return client.getText('div.node-status__actions button.button-active')
       })
       .then(function (activeButtonText) {
         assert.ok(activeButtonText)
       })
-      .then(function () {
+      .then(() => {
         return client.element('.settings-menu--inactive')
       })
       .then(function (settingButton) {
@@ -64,34 +64,34 @@ describe('Application launch', function () {
       })
   })
 
-  it('toggles substratum node from off to serving back to off', function () {
+  it('toggles substratum node from off to serving back to off', () => {
     let client = this.app.client
     let wait = ms => new Promise(resolve => setTimeout(resolve, ms))
     return client.waitUntilWindowLoaded()
-      .then(function () {
+      .then(() => {
         let sliderMask = client.element('div.node-status__actions button#serving')
         sliderMask.click()
       })
-      .then(function () {
+      .then(() => {
         return client.getText('#node-status-label')
       })
       .then(function (result) {
         assert.strictEqual(result.toLocaleLowerCase(), 'serving')
       })
-      .then(function () {
+      .then(() => {
         let sliderMask = client.element('div.node-status__actions button#off')
         sliderMask.click()
       })
-      .then(function () {
+      .then(() => {
         return wait(500)
       })
-      .then(function () {
+      .then(() => {
         return client.getText('#node-status-label')
       })
       .then(function (result) {
         assert.strictEqual(result.toLocaleLowerCase(), 'off')
       })
-      .then(function () {
+      .then(() => {
         return client.getRenderProcessLogs()
       })
       .then(function (logs) {

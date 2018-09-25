@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-module.exports = (function () {
+module.exports = (() => {
   const ps = require('../command-process/ps')
   const treeKill = require('tree-kill')
   const path = require('path')
@@ -25,4 +25,4 @@ module.exports = (function () {
     killNodeProcess: killNodeProcess,
     findNodeProcess: findNodeProcess
   }
-}())
+})()

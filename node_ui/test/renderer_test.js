@@ -5,13 +5,13 @@
 const assert = require('assert')
 const td = require('testdouble')
 
-describe('Renderer', function () {
+describe('Renderer', () => {
   let mockIpcRenderer, mockShell, mockNodeActuator, mockDocument, mockSettings, mockUrl1, mockUrl2, mockLink1,
     mockLink2, eventCaptor, mockEvent1, mockEvent2, mockApp
 
   let killFunctionCaptor
 
-  beforeEach(function () {
+  beforeEach(() => {
     mockIpcRenderer = td.object(['on'])
     mockShell = td.object(['openExternal'])
     td.replace('electron', {
@@ -51,17 +51,17 @@ describe('Renderer', function () {
     require('../render-process/renderer')
   })
 
-  afterEach(function () {
+  afterEach(() => {
     td.reset()
   })
 
-  it('binds the ui elements', function () {
+  it('binds the ui elements', () => {
     td.verify(mockNodeActuator.bind('Off', 'Serving', 'Consuming'))
     td.verify(mockSettings.bind('Main Body', 'Settings Menu', 'Settings Button', 'Quit Button'))
   })
 
-  describe('sets all links', function () {
-    beforeEach(function () {
+  describe('sets all links', () => {
+    beforeEach(() => {
       td.verify(mockLink1.addEventListener('click', eventCaptor.capture()))
       td.verify(mockLink2.addEventListener('click', eventCaptor.capture()))
 
@@ -69,7 +69,7 @@ describe('Renderer', function () {
       eventCaptor.values[1](mockEvent2)
     })
 
-    it('to open externally', function () {
+    it('to open externally', () => {
       let urlCaptor = td.matchers.captor()
       td.verify(mockShell.openExternal(urlCaptor.capture()))
       td.verify(mockShell.openExternal(urlCaptor.capture()))
@@ -80,13 +80,13 @@ describe('Renderer', function () {
     })
   })
 
-  describe('receiving a kill-substratum-node message', function () {
-    beforeEach(function () {
+  describe('receiving a kill-substratum-node message', () => {
+    beforeEach(() => {
       td.verify(mockIpcRenderer.on('kill-substratum-node', killFunctionCaptor.capture()))
       killFunctionCaptor.value()
     })
 
-    it('reverts the dns', function () {
+    it('reverts the dns', () => {
       td.verify(mockNodeActuator.shutdown())
     })
   })

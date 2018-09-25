@@ -5,10 +5,10 @@
 const assert = require('assert')
 const td = require('testdouble')
 
-describe('CommandHelper', function () {
+describe('CommandHelper', () => {
   let process, nodeCmd, sudoPrompt, treeKill, subject
 
-  beforeEach(function () {
+  beforeEach(() => {
     process = td.replace('../wrappers/process_wrapper')
     nodeCmd = td.replace('node-cmd')
     sudoPrompt = td.replace('sudo-prompt')
@@ -18,12 +18,12 @@ describe('CommandHelper', function () {
     process.pid = 1234
   })
 
-  afterEach(function () {
+  afterEach(() => {
     td.reset()
   })
 
-  describe('Unix Platforms', function () {
-    beforeEach(function () {
+  describe('Unix Platforms', () => {
+    beforeEach(() => {
       process.platform = 'linux'
       td.when(process.getuid()).thenReturn('uid')
       td.when(process.getgid()).thenReturn('gid')
@@ -31,55 +31,53 @@ describe('CommandHelper', function () {
       subject = require('../command-process/command_helper')
     })
 
-    it('sets sudo environment variables', function () {
+    it('sets sudo environment variables', () => {
       assert.strictEqual(process.env.SUDO_UID, 'uid')
       assert.strictEqual(process.env.SUDO_GID, 'gid')
     })
 
-    describe('starting', function () {
+    describe('starting', () => {
       const command = /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" uid gid ".*[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns_servers \d.*/
 
-      beforeEach(function () {
+      beforeEach(() => {
         process.platform = 'notwindows'
         subject = require('../command-process/command_helper')
 
         subject.startSubstratumNode('callback')
       })
 
-      it('executes the command via sudo prompt', function () {
+      it('executes the command via sudo prompt', () => {
         td.verify(sudoPrompt.exec(td.matchers.contains(command), { name: 'Substratum Node' }, 'callback'))
       })
     })
 
-    describe('stopping', function () {
-      describe('successfully', function () {
-        var error
-        var wasCalled
+    describe('stopping', () => {
+      describe('successfully', () => {
+        let error, wasCalled
 
-        beforeEach(function () {
+        beforeEach(() => {
           wasCalled = false
 
-          subject.stopSubstratumNode(function (e) {
+          subject.stopSubstratumNode(e => {
             error = e
             wasCalled = true
           })
         })
 
-        it('kills the process', function () {
+        it('kills the process', () => {
           td.verify(process.kill(-1234))
         })
 
-        it('executes the callback', function () {
+        it('executes the callback', () => {
           assert.strictEqual(wasCalled, true)
           assert.strictEqual(error, undefined)
         })
       })
 
-      describe('sends back an error if encountered', function () {
-        var error
-        var wasCalled
+      describe('sends back an error if encountered', () => {
+        let error, wasCalled
 
-        beforeEach(function () {
+        beforeEach(() => {
           wasCalled = false
           td.when(process.kill(-1234)).thenThrow(new Error('whoa!'))
 
@@ -89,7 +87,7 @@ describe('CommandHelper', function () {
           })
         })
 
-        it('executes the callback', function () {
+        it('executes the callback', () => {
           assert.strictEqual(wasCalled, true)
           assert.strictEqual(error, 'whoa!')
         })
@@ -97,31 +95,31 @@ describe('CommandHelper', function () {
     })
   })
 
-  describe('Windows Platform', function () {
-    beforeEach(function () {
+  describe('Windows Platform', () => {
+    beforeEach(() => {
       process.platform = 'win32'
 
       subject = require('../command-process/command_helper')
     })
 
-    describe('starting', function () {
+    describe('starting', () => {
       const command = /[/\\]static[/\\]scripts[/\\]substratum_node\.cmd" ".*[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns_servers \d.*/
 
-      beforeEach(function () {
+      beforeEach(() => {
         subject.startSubstratumNode('callback')
       })
 
-      it('executes the command via node cmd', function () {
+      it('executes the command via node cmd', () => {
         td.verify(nodeCmd.get(td.matchers.contains(command), 'callback'))
       })
     })
 
-    describe('stopping', function () {
-      beforeEach(function () {
+    describe('stopping', () => {
+      beforeEach(() => {
         subject.stopSubstratumNode('callback')
       })
 
-      it('kills the process', function () {
+      it('kills the process', () => {
         td.verify(treeKill(1234, 'callback'))
       })
     })
