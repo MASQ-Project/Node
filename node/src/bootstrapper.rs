@@ -28,6 +28,7 @@ use sub_lib::parameter_finder::ParameterFinder;
 use sub_lib::socket_server::SocketServer;
 use std::net::Ipv4Addr;
 use discriminator::DiscriminatorFactory;
+use sub_lib::logger::Logger;
 
 pub static mut CRYPT_DE_OPT: Option<CryptDENull> = None;
 
@@ -238,6 +239,9 @@ impl Bootstrapper {
         writeln! (streams.stdout, "SubstratumNode local descriptor: {}:{}:{}",
                   base64::encode_config (&cryptde.public_key ().data, base64::STANDARD_NO_PAD),
                   ip_addr, port_list).expect ("Internal error");
+        Logger::new("Bootstrapper").log(format!("SubstratumNode local descriptor: {}:{}:{}",
+                                        base64::encode_config (&cryptde.public_key ().data, base64::STANDARD_NO_PAD),
+                                        ip_addr, port_list));
     }
 }
 
@@ -270,7 +274,6 @@ mod tests {
     use sub_lib::cryptde::PlainData;
     use stream_handler_pool::StreamHandlerPoolSubs;
     use stream_messages::AddStreamMsg;
-    use sub_lib::logger;
     use test_utils::test_utils::FakeStreamHolder;
     use test_utils::recorder::RecordAwaiter;
     use test_utils::recorder::Recording;
@@ -329,7 +332,7 @@ mod tests {
         }
 
         fn bind_subs (&mut self, add_stream_sub: Recipient<Syn, AddStreamMsg>) {
-            let logger = logger::Logger::new("ListenerHandler");
+            let logger = Logger::new("ListenerHandler");
             logger.log (format! ("bind_subscribers (add_stream_sub)"));
 
             self.add_stream_sub = Some (add_stream_sub);
