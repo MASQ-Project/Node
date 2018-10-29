@@ -29,7 +29,7 @@ describe('ps_wrapper', () => {
       }])
       mockPath.sep = '/'
       await subject.killNodeProcess()
-      td.verify(mockTreeKill(td.matchers.anything()), {times: 0})
+      td.verify(mockTreeKill(td.matchers.anything()), { times: 0 })
     })
 
     it('kills with *nix path', async () => {
@@ -40,7 +40,7 @@ describe('ps_wrapper', () => {
       }])
       mockPath.sep = '/'
       await subject.killNodeProcess()
-      td.verify(mockTreeKill('1234'), {times: 1})
+      td.verify(mockTreeKill('1234'), { times: 1 })
     })
 
     it('kills with Windows path', async () => {
@@ -51,7 +51,7 @@ describe('ps_wrapper', () => {
       }])
       mockPath.sep = '\\'
       await subject.killNodeProcess()
-      td.verify(mockTreeKill('1234'), {times: 1})
+      td.verify(mockTreeKill('1234'), { times: 1 })
     })
   })
 

@@ -3,14 +3,15 @@
 extern crate actix;
 extern crate futures;
 extern crate serde_cbor;
+extern crate tokio;
 extern crate tokio_core;
-extern crate trust_dns_proto;
 extern crate trust_dns_resolver;
 extern crate sub_lib;
 
 #[cfg (test)]
 extern crate test_utils;
-extern crate tokio;
+#[cfg(test)]
+extern crate trust_dns_proto;
 
 pub mod proxy_client;
 mod resolver_wrapper;

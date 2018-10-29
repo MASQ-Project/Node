@@ -51,11 +51,12 @@ impl Handler<BindMessage> for ProxyClient {
             self.logger.info (format! ("Adding DNS server: {}", dns_server_ref.ip ()));
             config.add_name_server(NameServerConfig {
                 socket_addr: *dns_server_ref,
-                protocol: Protocol::Udp
+                protocol: Protocol::Udp,
+                tls_dns_name: None,
             })
         }
         let opts = ResolverOpts::default ();
-        let resolver = self.resolver_wrapper_factory.make(config, opts, Arbiter::handle ());
+        let resolver = self.resolver_wrapper_factory.make(config, opts);
         self.pool = Some (self.stream_handler_pool_factory.make (resolver,
                                                                  self._cryptde, msg.peer_actors.hopper.from_hopper_client));
         ()
@@ -210,7 +211,7 @@ mod tests {
     fn bind_operates_properly () {
         let system = System::new("bind_initializes_resolver_wrapper_properly");
         let resolver_wrapper = ResolverWrapperMock::new ();
-        let mut new_parameters: Arc<Mutex<Vec<(ResolverConfig, ResolverOpts, CoreId)>>> = Arc::new (Mutex::new (vec! ()));
+        let mut new_parameters: Arc<Mutex<Vec<(ResolverConfig, ResolverOpts)>>> = Arc::new (Mutex::new (vec! ()));
         let resolver_wrapper_factory = ResolverWrapperFactoryMock::new ()
             .new_parameters (&mut new_parameters)
             .new_result (Box::new (resolver_wrapper));
@@ -234,12 +235,12 @@ mod tests {
         system.run();
 
         let mut new_parameters_guard = new_parameters.lock ().unwrap ();
-        let (config, opts, _) = new_parameters_guard.remove (0);
+        let (config, opts) = new_parameters_guard.remove (0);
         assert_eq! (config.domain (), None);
         assert_eq! (config.search (), &[]);
         assert_eq! (config.name_servers (), &[
-            NameServerConfig {socket_addr: SocketAddr::from_str ("4.3.2.1:4321").unwrap (), protocol: Protocol::Udp},
-            NameServerConfig {socket_addr: SocketAddr::from_str ("5.4.3.2:5432").unwrap (), protocol: Protocol::Udp},
+            NameServerConfig {socket_addr: SocketAddr::from_str ("4.3.2.1:4321").unwrap (), protocol: Protocol::Udp, tls_dns_name: None},
+            NameServerConfig {socket_addr: SocketAddr::from_str ("5.4.3.2:5432").unwrap (), protocol: Protocol::Udp, tls_dns_name: None},
         ]);
         assert_eq! (opts, ResolverOpts::default ());
         assert_eq! (new_parameters_guard.is_empty (), true);

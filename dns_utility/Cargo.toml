@@ -9,14 +9,14 @@ description = "Command-line utility to turn DNS subversion on and off"
 [dependencies]
 regex = "0.2.5"
 sub_lib = { path = "../sub_lib" }
-libc = "0.2.40"
+libc = "0.2.43"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 system-configuration = "0.1.0"
 core-foundation = "0.5.1"
 
 [target.'cfg(windows)'.dependencies]
-winreg = "0.5.0"
+winreg = "0.5.1"
 
 [dev-dependencies]
 test_utils = {path = "../test_utils" }
@@ -29,4 +29,4 @@ path = "src/main.rs"
 name = "dns_utility_lib"
 path = "src/lib.rs"
 
-cargo-bundle = "0.2.0"
+cargo-bundle = "0.4.0"

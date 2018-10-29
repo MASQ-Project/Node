@@ -4,7 +4,7 @@
 
 const td = require('testdouble')
 const assert = require('assert')
-const {EventEmitter} = require('events')
+const { EventEmitter } = require('events')
 const util = require('./test_utilities')
 
 describe('NodeActuator', () => {
@@ -319,7 +319,7 @@ describe('NodeActuator', () => {
       td.when(mockDnsUtility.subvert()).thenResolve('')
       td.when(mockDocumentWrapper.querySelectorAll('.button-active')).thenReturn([mockNodeStatusButtonOff])
       td.when(mockDnsUtility.getStatus()).thenReturn('reverted')
-      td.when(mockPsWrapper.findNodeProcess()).thenCallback([{name: 'SubstratumNode', pid: 1234, cmd: 'static/binaries/SubstratumNode'}])
+      td.when(mockPsWrapper.findNodeProcess()).thenCallback([{ name: 'SubstratumNode', pid: 1234, cmd: 'static/binaries/SubstratumNode' }])
       subject.setStatus()
       mockNodeStatusButtonServing.onclick()
     })
@@ -606,8 +606,8 @@ describe('NodeActuator', () => {
       silent: true,
       stdio: [0, 1, 2, 'ipc'],
       detached: true
-    }), {times: times})
-    td.verify(mockSubstratumNodeProcess.send('start'), {times: times, ignoreExtraArgs: times === 0})
+    }), { times: times })
+    td.verify(mockSubstratumNodeProcess.send('start'), { times: times, ignoreExtraArgs: times === 0 })
   }
 
   function assertNodeStopped () {
@@ -615,7 +615,7 @@ describe('NodeActuator', () => {
   }
 
   function assertNodeNotStopped () {
-    td.verify(mockSubstratumNodeProcess.send('stop'), {times: 0, ignoreExtraArgs: true})
+    td.verify(mockSubstratumNodeProcess.send('stop'), { times: 0, ignoreExtraArgs: true })
   }
 
   function verifyDNSSubverted () {
@@ -623,14 +623,14 @@ describe('NodeActuator', () => {
   }
 
   function assertDNSNotSubverted () {
-    td.verify(mockSudoPrompt.exec(td.matchers.contains(/ subvert/)), {times: 0, ignoreExtraArgs: true})
+    td.verify(mockSudoPrompt.exec(td.matchers.contains(/ subvert/)), { times: 0, ignoreExtraArgs: true })
   }
 
   function verifyDNSReverted (times = 1) {
-    td.verify(mockDnsUtility.revert(), {times: times})
+    td.verify(mockDnsUtility.revert(), { times: times })
   }
 
   function assertDNSNotReverted () {
-    td.verify(mockSudoPrompt.exec(td.matchers.contains(/ revert/)), {times: 0, ignoreExtraArgs: true})
+    td.verify(mockSudoPrompt.exec(td.matchers.contains(/ revert/)), { times: 0, ignoreExtraArgs: true })
   }
 })

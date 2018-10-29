@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 module.exports = (() => {
-  const {app} = require('electron').remote
+  const { app } = require('electron').remote
   let settingsButton, settingsMenu, settingsQuitButton, body
 
   function bind (_body, _settingsMenu, _settingsButton, _settingsQuitButton) {
