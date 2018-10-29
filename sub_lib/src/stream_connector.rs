@@ -191,6 +191,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn stream_connector_can_try_connections_until_it_succeeds_then_use_the_successful_one() {
         init_test_logging();
         let logger = Logger::new("test");
@@ -227,6 +228,7 @@ mod tests {
 
 
     #[test]
+    #[ignore]
     fn stream_connector_only_tries_connecting_until_successful() {
         init_test_logging();
         let logger = Logger::new("test");
@@ -263,6 +265,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn stream_connector_returns_err_when_it_cannot_connect_to_any_of_the_provided_ip_addrs() {
         init_test_logging();
         let logger = Logger::new("test");
