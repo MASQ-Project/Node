@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-const { app, BrowserWindow } = require('electron') // Menu
+const {app, BrowserWindow} = require('electron') // Menu
 const path = require('path')
 const url = require('url')
 // const assetsDirectory = path.join(__dirname, 'assets')

@@ -8,15 +8,15 @@ workspace = "../node"
 
 [dependencies]
 actix = "0.5.7"
-futures = "0.1.25"
-serde_cbor = "0.9.0"
-tokio = "0.1.11"
-tokio-core = "0.1.17"
-trust-dns-resolver = "0.9.1"
+futures = "0.1.20"
+serde_cbor = "0.8.1"
+tokio = "0.1.7"
+tokio-core = "0.1.12"
+trust-dns-proto = "0.3.2"
+trust-dns-resolver = "0.8.1"
 sub_lib = { path = "../sub_lib" }
 
 [dev-dependencies]
-trust-dns-proto = "0.4.3"
 test_utils = { path = "../test_utils" }
 
 [lib]

@@ -9,13 +9,13 @@ workspace = "../node"
 
 [dependencies]
 sub_lib = { path = "../sub_lib" }
-tokio = "0.1.11"
+tokio = "0.1.7"
 
 [dev-dependencies]
 test_utils = { path = "../test_utils" }
 
 [target.'cfg(unix)'.dependencies]
-daemonize = "0.3.0"
+daemonize = "0.2.3"
 
 [target.'cfg(windows)'.dependencies]
 winservice = "0.1.1"
@@ -24,4 +24,4 @@ winservice = "0.1.1"
 name = "entry_dns_lib"
 path = "src/lib.rs"
 
-cargo-bundle = "0.4.0"
+cargo-bundle = "0.2.0"

@@ -68,7 +68,7 @@ describe('Settings', () => {
     describe('main body onclick', () => {
       describe('clicking the body', () => {
         beforeEach(() => {
-          mockEvent = { target: mockMainBody }
+          mockEvent = {target: mockMainBody}
           mockMainBody.onclick(mockEvent)
         })
 

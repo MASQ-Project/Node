@@ -552,8 +552,8 @@ mod tests {
                 .lookup_ip_parameters(&lookup_ip_parameters)
                 .lookup_ip_success(vec!(IpAddr::from_str("2.3.4.5").unwrap(), IpAddr::from_str("3.4.5.6").unwrap()));
             let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
-            let reader = ReadHalfWrapperMock { poll_read_results: vec!((b"HTTP/1.1 200 OK\r\n\r\n".to_vec(), Ok(Async::Ready(19))), (vec!(), Err(Error::from(ErrorKind::ConnectionAborted)))) };
-            let writer = WriteHalfWrapperMock { poll_write_params: write_parameters, poll_write_results: vec!(Ok(Async::Ready(123))), shutdown_results: Arc::new(Mutex::new(vec!())) };
+            let reader = ReadHalfWrapperMock { poll_read_results: vec!((vec!(), Ok(Async::NotReady)), (vec!(), Err(Error::from(ErrorKind::ConnectionAborted)))) };
+            let writer = WriteHalfWrapperMock { poll_write_params: write_parameters, poll_write_results: vec!(Ok(Async::NotReady)), shutdown_results: Arc::new(Mutex::new(vec!())) };
             let mut subject = StreamHandlerPoolReal::new(Box::new(resolver), cryptde(), hopper_sub);
             let disconnected_sender = Box::new(SenderWrapperMock {
                 peer_addr,

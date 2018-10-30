@@ -6,12 +6,14 @@ use tokio::io;
 use tokio::io::AsyncRead;
 use tokio::net::TcpStream;
 use tokio::prelude::Future;
+use tokio::reactor::Handle;
 use logger::Logger;
 use tokio_wrappers::ReadHalfWrapper;
 use tokio_wrappers::WriteHalfWrapper;
 use tokio_wrappers::ReadHalfWrapperReal;
 use tokio_wrappers::WriteHalfWrapperReal;
 use std::net::IpAddr;
+use std::net::TcpStream as StdTcpStream;
 use std::sync::mpsc;
 use std::io::ErrorKind;
 
@@ -65,27 +67,20 @@ impl StreamConnector for StreamConnectorReal {
         let mut socket_addrs_tried = vec!();
 
         for ip_addr in ip_addrs {
-            let (tx, rx) = mpsc::channel();
             let socket_addr = SocketAddr::new(ip_addr, target_port);
 
-            let future = TcpStream::connect(&socket_addr)
-                .then(move |result| {
-                    tx.send(result).is_ok();
-                    Ok(())
-                });
-            tokio::spawn(future);
-
-            match rx.recv() { // block waiting for the connection result
-                Ok(Ok(stream)) => { // connection succeeded
+            match StdTcpStream::connect(&socket_addr) {
+                Ok(stream) => {
                     logger.debug(format!("Connected new stream to {}", socket_addr));
-                    return Ok(self.split_stream(stream, logger));
+                    let tokio_stream = TcpStream::from_std(stream, &Handle::default()).expect("Tokio could not create a TcpStream");
+                    return Ok(self.split_stream(tokio_stream, logger))
                 },
-                Ok(Err(e)) => { // connection failed
+                Err(e) => {
                     last_error = e;
                     socket_addrs_tried.push(format!("{}", socket_addr));
-                },
-                Err(_) => {} // channel failed, just continue
-            }
+                    continue
+                }
+            };
         }
 
         logger.error(format!("Could not connect to any of the IP addresses supplied for {}: {:?}",
@@ -191,7 +186,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn stream_connector_can_try_connections_until_it_succeeds_then_use_the_successful_one() {
         init_test_logging();
         let logger = Logger::new("test");
@@ -228,7 +222,6 @@ mod tests {
 
 
     #[test]
-    #[ignore]
     fn stream_connector_only_tries_connecting_until_successful() {
         init_test_logging();
         let logger = Logger::new("test");
@@ -265,7 +258,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn stream_connector_returns_err_when_it_cannot_connect_to_any_of_the_provided_ip_addrs() {
         init_test_logging();
         let logger = Logger::new("test");

@@ -19,14 +19,14 @@ describe('ps', () => {
 
   it('types name, pid, cmd correctly', () => {
     results.forEach(item => {
-      assert.strictEqual(typeof item.name, 'string')
-      assert.strictEqual(typeof item.pid, 'number')
-      assert.strictEqual(typeof item.cmd, 'string')
+      assert.equal(typeof item.name, 'string')
+      assert.equal(typeof item.pid, 'number')
+      assert.equal(typeof item.cmd, 'string')
     })
   })
 
   it('finds itself', () => {
-    assert.notStrictEqual(results.filter(item => {
+    assert.notEqual(results.filter(item => {
       return (item.name.indexOf('node') >= 0 && item.cmd.indexOf('_spec.js') >= 0)
     }).length, 0)
   })

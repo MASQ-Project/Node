@@ -2,6 +2,7 @@
 use trust_dns_resolver::config::ResolverConfig;
 use trust_dns_resolver::config::ResolverOpts;
 use trust_dns_resolver::ResolverFuture;
+use tokio_core::reactor::Handle;
 use trust_dns_resolver::error::ResolveError;
 use tokio::prelude::Future;
 use trust_dns_resolver::lookup_ip::LookupIp;
@@ -13,11 +14,11 @@ pub trait ResolverWrapper {
 }
 
 pub trait ResolverWrapperFactory {
-    fn make(&self, config: ResolverConfig, options: ResolverOpts) -> Box<ResolverWrapper>;
+    fn make(&self, config: ResolverConfig, options: ResolverOpts, reactor: &Handle) -> Box<ResolverWrapper>;
 }
 
 pub struct ResolverWrapperReal {
-    delegate: Box<ResolverFuture>
+    delegate: ResolverFuture
 }
 
 impl ResolverWrapper for ResolverWrapperReal {
@@ -28,9 +29,7 @@ impl ResolverWrapper for ResolverWrapperReal {
 
 pub struct ResolverWrapperFactoryReal;
 impl ResolverWrapperFactory for ResolverWrapperFactoryReal {
-    fn make(&self, config: ResolverConfig, options: ResolverOpts) -> Box<ResolverWrapper> {
-        // THIS HAPPENS ONLY ONCE AT STARTUP during ProxyClient bind. So don't worry about the `wait()`.
-        let delegate = Box::new(ResolverFuture::new(config, options).wait().expect("couldn't create resolver future"));
-        Box::new (ResolverWrapperReal {delegate})
+    fn make(&self, config: ResolverConfig, options: ResolverOpts, reactor: &Handle) -> Box<ResolverWrapper> {
+        Box::new (ResolverWrapperReal {delegate: ResolverFuture::new (config, options, reactor)})
     }
 }

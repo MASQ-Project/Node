@@ -11,17 +11,17 @@ members = ["../sub_lib", "../test_utils", "../entry_dns_lib", "../hopper_lib", "
 
 [dependencies]
 actix = "0.5.7"
-base64 = "0.9.3"
-chrono = "0.4.6"
-flexi_logger = "0.9.2"
-futures = "0.1.25"
-log = "0.4.5"
+base64 = "0.9.2"
+chrono = "0.4.0"
+flexi_logger = "0.6.11"
+futures = "0.1.20"
+log = "0.4.1"
 regex = "0.2.5"
-serde = "1.0.80"
-serde_derive = "1.0.80"
-serde_json = "1.0.32"
-serde_cbor = "0.9.0"
-tokio = "0.1.11"
+serde = "1.0.24"
+serde_derive = "1.0.24"
+serde_json = "1.0.8"
+serde_cbor = "0.8.1"
+tokio = "0.1.7"
 sub_lib = { path = "../sub_lib" }
 entry_dns_lib = { path = "../entry_dns_lib" }
 neighborhood_lib = { path = "../neighborhood_lib" }
@@ -30,12 +30,12 @@ proxy_client_lib = { path = "../proxy_client_lib" }
 hopper_lib = { path = "../hopper_lib" }
 
 [dev-dependencies]
-tls-api = "0.1.20"
-tls-api-native-tls = "0.1.20"
+tls-api = "0.1.19"
+tls-api-native-tls = "0.1.19"
 test_utils = { path = "../test_utils" }
 
 [target.'cfg(unix)'.dependencies]
-daemonize = "0.3.0"
+daemonize = "0.2.3"
 
 [target.'cfg(windows)'.dependencies]
 
@@ -47,4 +47,4 @@ path = "src/main.rs"
 name = "node_lib"
 path = "src/lib.rs"
 
-cargo-bundle = "0.4.0"
+cargo-bundle = "0.2.0"

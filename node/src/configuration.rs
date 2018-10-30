@@ -85,10 +85,13 @@ mod tests {
 
     #[test]
     fn find_free_port_works_ten_times () {
-        let ports: Vec<u16> = (0u16..10u16).map (|_| Configuration::find_free_port ()).collect ();
+        let sockets: Vec<UdpSocket> = (0u16..10u16).map (|_| {
+            let port = Configuration::find_free_port ();
+            UdpSocket::bind(SocketAddr::new (IpAddr::V4 (Ipv4Addr::new (127, 0, 0, 1)), port)).expect(&format!("Could not bind free port {}", port))
+        }).collect ();
         for i in 0..10 {
             for j in (i + 1)..10 {
-                assert_ne! (ports[i], ports[j], "Port #{} is the same as port #{}: {}!", i, j, ports[i]);
+                assert_ne! (sockets[i].local_addr ().expect ("Bind failed").port (), sockets[j].local_addr ().expect ("Bind failed").port (), "Port #{} is the same as port #{}: {}!", i, j, sockets[i].local_addr ().expect ("Bind failed").port ());
             }
         }
     }

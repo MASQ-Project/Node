@@ -17,7 +17,7 @@ describe('path_wrapper, directed to wrap a path with quotes', () => {
 
   it('uses double quotes', () => {
     const expectedWrappedPath = '"' + path.resolve(unwrappedPath, unwrappedFilename) + '"'
-    assert.strictEqual(wrappedPath, expectedWrappedPath)
+    assert.equal(wrappedPath, expectedWrappedPath)
   })
 })
 
@@ -29,6 +29,6 @@ describe('path_wrapper, directed to wrap a path without quotes', () => {
 
   it('uses no quotes', () => {
     const expectedWrappedPath = path.resolve(unwrappedPath, unwrappedFilename)
-    assert.strictEqual(wrappedPath, expectedWrappedPath)
+    assert.equal(wrappedPath, expectedWrappedPath)
   })
 })
