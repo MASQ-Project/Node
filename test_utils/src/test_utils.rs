@@ -215,7 +215,7 @@ pub fn zero_hop_route_response(public_key: &Key, cryptde: &CryptDE) -> RouteQuer
 }
 
 fn shift_one_hop(mut route: Route, cryptde: &CryptDE) -> Route {
-    route.shift(&cryptde.private_key (), cryptde);
+    route.shift(cryptde);
     route
 }
 

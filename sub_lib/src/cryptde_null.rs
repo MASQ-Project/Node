@@ -21,28 +21,28 @@ impl CryptDE for CryptDENull {
         self.public_key = CryptDENull::other_key (&self.private_key ())
     }
 
-    fn encode(&self, key: &Key, data: &PlainData) -> Result<CryptData, CryptdecError> {
-        if key.data.is_empty() {
+    fn encode(&self, public_key: &Key, data: &PlainData) -> Result<CryptData, CryptdecError> {
+        if public_key.data.is_empty() {
             Err(CryptdecError::EmptyKey)
         } else if data.data.is_empty() {
             Err(CryptdecError::EmptyData)
         } else {
-            let other_key = CryptDENull::other_key(key);
+            let other_key = CryptDENull::other_key(public_key);
             Ok(CryptData::new (&[&other_key.data[..], &data.data[..]].concat()[..]))
         }
     }
 
-    fn decode(&self, key: &Key, data: &CryptData) -> Result<PlainData, CryptdecError> {
-        if key.data.is_empty() {
+    fn decode(&self, data: &CryptData) -> Result<PlainData, CryptdecError> {
+        if self.private_key.data.is_empty() {
             Err(CryptdecError::EmptyKey)
         } else if data.data.is_empty() {
             Err(CryptdecError::EmptyData)
-        } else if key.data.len() > data.data.len() {
-            Err(CryptdecError::InvalidKey (CryptDENull::invalid_key_message(key, data)))
+        } else if self.private_key.data.len() > data.data.len() {
+            Err(CryptdecError::InvalidKey (CryptDENull::invalid_key_message(&self.private_key, data)))
         } else {
-            let (k, d) = data.data.split_at(key.data.len());
-            if k != &key.data[..] {
-                Err(CryptdecError::InvalidKey (CryptDENull::invalid_key_message(key, data)))
+            let (k, d) = data.data.split_at(self.private_key.data.len());
+            if k != &self.private_key.data[..] {
+                Err(CryptdecError::InvalidKey (CryptDENull::invalid_key_message(&self.private_key, data)))
             } else {
                 Ok(PlainData::new (d))
             }
@@ -66,6 +66,27 @@ impl CryptDE for CryptDENull {
     // This is dup instead of clone because it returns a Box<CryptDE> instead of a CryptDENull.
     fn dup(&self) -> Box<CryptDE> {
         Box::new (CryptDENull {private_key: self.private_key.clone (), public_key: self.public_key.clone ()})
+    }
+
+    fn sign(&self, data: &PlainData) -> Result<CryptData, CryptdecError> {
+        self.encode(&self.private_key(), data)
+    }
+
+    fn verify_signature(&self, public_key: &Key, data: &CryptData) -> Result<PlainData, CryptdecError> {
+        if public_key.data.is_empty() {
+            Err(CryptdecError::EmptyKey)
+        } else if data.data.is_empty() {
+            Err(CryptdecError::EmptyData)
+        } else if public_key.data.len() > data.data.len() {
+            Err(CryptdecError::InvalidKey (CryptDENull::invalid_key_message(&public_key, data)))
+        } else {
+            let (k, d) = data.data.split_at(public_key.data.len());
+            if k != &public_key.data[..] {
+                Err(CryptdecError::InvalidKey (CryptDENull::invalid_key_message(&public_key, data)))
+            } else {
+                Ok(PlainData::new (d))
+            }
+        }
     }
 }
 
@@ -135,45 +156,50 @@ mod tests {
 
     #[test]
     fn decode_with_empty_key() {
-        let subject = CryptDENull::new ();
+        let mut subject = CryptDENull::new ();
+        subject.private_key = Key::new(b"");
 
-        let result = subject.decode(&Key::new(b""), &CryptData::new (b"keydata"));
+        let result = subject.decode(&CryptData::new (b"keydata"));
 
         assert_eq!(result.err().unwrap(), CryptdecError::EmptyKey);
     }
 
     #[test]
     fn decode_with_empty_data() {
-        let subject = CryptDENull::new ();
+        let mut subject = CryptDENull::new ();
+        subject.private_key = Key::new (b"key");
 
-        let result = subject.decode(&Key::new (b"key"), &CryptData::new (b""));
+        let result = subject.decode(&CryptData::new (b""));
 
         assert_eq!(result.err().unwrap(), CryptdecError::EmptyData);
     }
 
     #[test]
     fn decode_with_key_and_data() {
-        let subject = CryptDENull::new ();
+        let mut subject = CryptDENull::new ();
+        subject.private_key = Key::new (b"key");
 
-        let result = subject.decode(&Key::new (b"key"), &CryptData::new (b"keydata"));
+        let result = subject.decode(&CryptData::new (b"keydata"));
 
         assert_eq!(result.ok().unwrap(), PlainData::new (b"data"));
     }
 
     #[test]
     fn decode_with_invalid_key_and_data() {
-        let subject = CryptDENull::new ();
+        let mut subject = CryptDENull::new ();
+        subject.private_key = Key::new (b"badKey");
 
-        let result = subject.decode(&Key::new (b"badKey"), &CryptData::new (b"keydata"));
+        let result = subject.decode(&CryptData::new (b"keydata"));
 
         assert_eq!(result.err().unwrap(), CryptdecError::InvalidKey (String::from ("Could not decrypt with [98, 97, 100, 75, 101, 121] data beginning with [107, 101, 121, 100, 97, 116]")));
     }
 
     #[test]
     fn decode_with_key_exceeding_data_length() {
-        let subject = CryptDENull::new ();
+        let mut subject = CryptDENull::new ();
+        subject.private_key = Key::new (b"invalidkey");
 
-        let result = subject.decode(&Key::new (b"invalidkey"), &CryptData::new (b"keydata"));
+        let result = subject.decode(&CryptData::new (b"keydata"));
 
         assert_eq!(result.err().unwrap(), CryptdecError::InvalidKey (String::from ("Could not decrypt with [105, 110, 118, 97, 108, 105, 100, 107, 101, 121] data beginning with [107, 101, 121, 100, 97, 116, 97]")));
     }
@@ -232,7 +258,7 @@ mod tests {
 
         let expected_data = PlainData::new (&b"These are the times that try men's souls"[..]);
         let encrypted_data = subject.encode (&subject.public_key (), &expected_data).unwrap ();
-        let decrypted_data = subject.decode (&subject.private_key (), &encrypted_data).unwrap ();
+        let decrypted_data = subject.decode (&encrypted_data).unwrap ();
         assert_eq! (decrypted_data, expected_data);
     }
 
@@ -255,10 +281,10 @@ mod tests {
 
         let expected_data = PlainData::new (&b"These are the times that try men's souls"[..]);
         let encrypted_data = subject.encode (&public_key , &expected_data).unwrap ();
-        let decrypted_data = subject.decode (&subject.private_key (), &encrypted_data).unwrap ();
+        let decrypted_data = subject.decode (&encrypted_data).unwrap ();
         assert_eq! (decrypted_data, expected_data);
         let encrypted_data = subject.encode (&subject.public_key () , &expected_data).unwrap ();
-        let decrypted_data = subject.decode (&private_key, &encrypted_data).unwrap ();
+        let decrypted_data = subject.decode (&encrypted_data).unwrap ();
         assert_eq! (decrypted_data, expected_data);
     }
 
@@ -271,5 +297,82 @@ mod tests {
 
         assert_eq! (result.public_key (), subject.public_key ());
         assert_eq! (result.private_key (), subject.private_key ());
+    }
+
+    #[test]
+    fn sign_with_empty_key() {
+        let mut subject = CryptDENull::new ();
+        subject.private_key = Key::new (b"");
+
+        let result = subject.sign(&PlainData::new (b"data"));
+
+        assert_eq!(result.err().unwrap(), CryptdecError::EmptyKey);
+    }
+
+    #[test]
+    fn sign_with_empty_data() {
+        let mut subject = CryptDENull::new ();
+        subject.private_key = Key::new (b"key");
+
+        let result = subject.sign(&PlainData::new (b""));
+
+        assert_eq!(result.err().unwrap(), CryptdecError::EmptyData);
+    }
+
+    #[test]
+    fn sign_with_key_and_data() {
+        let mut subject = CryptDENull::new ();
+        subject.private_key = Key::new (b"key");
+
+        let result = subject.sign(&PlainData::new (b"data"));
+
+        let mut data = CryptDENull::other_key(&Key::new (b"key")).data;
+        data.extend (b"data".iter ());
+        assert_eq!(result.ok().unwrap(), CryptData::new (&data[..]));
+    }
+
+    #[test]
+    fn verify_signature_with_empty_key() {
+        let subject = CryptDENull::new ();
+
+        let result = subject.verify_signature(&Key::new(b""), &CryptData::new (b"keydata"));
+
+        assert_eq!(result.err().unwrap(), CryptdecError::EmptyKey);
+    }
+
+    #[test]
+    fn verify_signature_with_empty_data() {
+        let subject = CryptDENull::new ();
+
+        let result = subject.verify_signature(&Key::new (b"key"), &CryptData::new (b""));
+
+        assert_eq!(result.err().unwrap(), CryptdecError::EmptyData);
+    }
+
+    #[test]
+    fn verify_signature_with_key_and_data() {
+        let subject = CryptDENull::from (&Key::new(b"key"));
+
+        let result = subject.verify_signature(&subject.public_key(), &CryptData::new (b"keydata"));
+
+        assert_eq!(result.ok().unwrap(), PlainData::new (b"data"));
+    }
+
+    #[test]
+    fn verify_signature_with_invalid_key_and_data() {
+        let subject = CryptDENull::new ();
+
+        let result = subject.verify_signature(&Key::new (b"badKey"), &CryptData::new (b"keydata"));
+
+        assert_eq!(result.err().unwrap(), CryptdecError::InvalidKey (String::from ("Could not decrypt with [98, 97, 100, 75, 101, 121] data beginning with [107, 101, 121, 100, 97, 116]")));
+    }
+
+    #[test]
+    fn verify_signature_with_key_exceeding_data_length() {
+        let subject = CryptDENull::new ();
+
+        let result = subject.verify_signature(&Key::new (b"invalidkey"), &CryptData::new (b"keydata"));
+
+        assert_eq!(result.err().unwrap(), CryptdecError::InvalidKey (String::from ("Could not decrypt with [105, 110, 118, 97, 108, 105, 100, 107, 101, 121] data beginning with [107, 101, 121, 100, 97, 116, 97]")));
     }
 }

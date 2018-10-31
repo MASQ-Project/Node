@@ -112,7 +112,7 @@ impl Handler<InboundClientData> for Hopper {
 
     fn handle(&mut self, msg: InboundClientData, _ctx: &mut Self::Context) -> Self::Result {
         self.logger.debug (format! ("Received {} bytes of InboundClientData from Dispatcher", msg.data.len ()));
-        let decrypted_package = match self.cryptde.decode(&self.cryptde.private_key(), &CryptData::new(&msg.data[..])) {
+        let decrypted_package = match self.cryptde.decode(&CryptData::new(&msg.data[..])) {
             Ok(package) => package,
             Err (e) => {
                 self.logger.error(format! ("Couldn't decrypt CORES package: {:?}", e));
@@ -232,7 +232,7 @@ impl LiveCoresPackage {
         // crashpoint - should discuss as a team
         let encrypted_payload = cryptde.encode (&incipient.payload_destination_key, &incipient.payload).expect ("Encode error");
         let mut route = incipient.route.clone ();
-        let next_hop = match route.shift (&cryptde.private_key (), cryptde) {
+        let next_hop = match route.shift (cryptde) {
             // crashpoint - should discuss as a team
             None => unimplemented!("no next_hop shifted out of route"),
             Some (h) => h
@@ -242,7 +242,7 @@ impl LiveCoresPackage {
     }
 
     pub fn to_expired (self, cryptde: &CryptDE) -> ExpiredCoresPackage {
-        let payload = match cryptde.decode (&cryptde.private_key (), &self.payload) {
+        let payload = match cryptde.decode (&self.payload) {
             Ok (payload) => payload,
             // crashpoint - should discuss as a team
             Err (e) => panic! ("{:?}", e)
@@ -251,7 +251,7 @@ impl LiveCoresPackage {
     }
 
     pub fn to_next_live (mut self, cryptde: &CryptDE) -> Result<(Key, LiveCoresPackage), CryptdecError> {
-        let next_hop = match self.route.shift (&cryptde.private_key (), cryptde) {
+        let next_hop = match self.route.shift (cryptde) {
             // crashpoint - should discuss as a team
             None => unimplemented! (),
             Some (h) => h
@@ -262,7 +262,7 @@ impl LiveCoresPackage {
     }
 
     pub fn next_hop (&self, cryptde: &CryptDE) -> Hop {
-        match self.route.next_hop (&cryptde.private_key (), cryptde) {
+        match self.route.next_hop (cryptde) {
             // crashpoint - should discuss as a team
             None => unimplemented! (),
             Some (h) => h
@@ -330,7 +330,7 @@ mod tests {
         let (subject, next_stop) = LiveCoresPackage::from_incipient (incipient, cryptde);
 
         assert_eq! (next_stop, key34);
-        route.shift (&cryptde.private_key (), cryptde).unwrap ();
+        route.shift (cryptde).unwrap ();
         assert_eq! (subject.route, route);
         assert_eq! (subject.payload, cryptde.encode (&key56, &PlainData::new (&serde_cbor::ser::to_vec (&payload).unwrap ())).unwrap ());
     }
@@ -544,7 +544,7 @@ mod tests {
         let mut route = Route::new(vec! (
             RouteSegment::new(vec! (&cryptde.public_key(), &cryptde.public_key()), Component::Neighborhood)
         ), cryptde).unwrap();
-        route.shift (&cryptde.private_key (), cryptde);
+        route.shift (cryptde);
         let payload = PlainData::new (&b"abcd"[..]);
         let lcp = LiveCoresPackage::new (route, cryptde.encode (&cryptde.public_key (), &payload).unwrap ());
         let data_ser = PlainData::new (&serde_cbor::ser::to_vec (&lcp).unwrap ()[..]);

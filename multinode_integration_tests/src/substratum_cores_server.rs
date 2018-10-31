@@ -145,7 +145,7 @@ impl SubstratumCoresServer {
 
     pub fn wait_for_package(&self, timeout: Duration) -> LiveCoresPackage {
         let chunk = self.get_next_chunk (timeout);
-        let decoded_chunk = self.cryptde.decode(&self.cryptde.private_key(), &CryptData::new(&chunk.chunk[..])).unwrap();
+        let decoded_chunk = self.cryptde.decode(&CryptData::new(&chunk.chunk[..])).unwrap();
         serde_cbor::de::from_slice::<LiveCoresPackage> (&decoded_chunk.data) .expect (format! ("Error deserializing LCP from {:?}", chunk.chunk).as_str ())
     }
 

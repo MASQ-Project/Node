@@ -148,14 +148,16 @@ pub enum CryptdecError {
 
 pub trait CryptDE: Send + Sync {
     fn generate_key_pair (&mut self);
-    fn encode(&self, key: &Key, data: &PlainData) -> Result<CryptData, CryptdecError>;
-    fn decode(&self, key: &Key, data: &CryptData) -> Result<PlainData, CryptdecError>;
+    fn encode(&self, public_key: &Key, data: &PlainData) -> Result<CryptData, CryptdecError>;
+    fn decode(&self, data: &CryptData) -> Result<PlainData, CryptdecError>;
     fn random(&self, dest: &mut [u8]);
     // TODO: Would be really nice if these could return &Key instead of Key
     fn private_key(&self) -> Key;
     fn public_key(&self) -> Key;
     // This is dup instead of clone because making a trait Clone has unpleasant consequences.
     fn dup(&self) -> Box<CryptDE>;
+    fn sign(&self, data: &PlainData) -> Result<CryptData, CryptdecError>;
+    fn verify_signature(&self, public_key: &Key, data: &CryptData) -> Result<PlainData, CryptdecError>;
 }
 
 #[cfg (test)]

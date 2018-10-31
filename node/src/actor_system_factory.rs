@@ -407,7 +407,7 @@ mod tests {
     fn check_cryptde (candidate: &CryptDE) {
         let plain_data = PlainData::new (&b"booga"[..]);
         let crypt_data = candidate.encode (&candidate.public_key (), &plain_data).unwrap ();
-        let result = cryptde ().decode (&cryptde ().private_key (), &crypt_data).unwrap ();
+        let result = cryptde ().decode (&crypt_data).unwrap ();
         assert_eq! (result, plain_data);
     }
 }

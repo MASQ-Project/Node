@@ -715,8 +715,8 @@ mod tests {
         assert_eq! (captured_descriptor, expected_descriptor);
 
         let expected_data = PlainData::new (b"ho'q ;iaerh;frjhvs;lkjerre");
-        let crypt_data = cryptde_ref.encode (&cryptde_ref.private_key (), &expected_data).unwrap ();
-        let decrypted_data = cryptde_ref.decode (&cryptde_ref.public_key (), &crypt_data).unwrap ();
+        let crypt_data = cryptde_ref.encode (&cryptde_ref.public_key (), &expected_data).unwrap ();
+        let decrypted_data = cryptde_ref.decode (&crypt_data).unwrap ();
         assert_eq! (decrypted_data, expected_data)
 
     }

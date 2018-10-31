@@ -1252,16 +1252,16 @@ mod tests {
 
     fn find_package_target (package: &IncipientCoresPackage) -> Key {
         let mut route = package.route.clone ();
-        let hop = route.shift (&CryptDENull::other_key(&cryptde ().public_key ()), cryptde()).unwrap ();
+        let hop = route.shift (cryptde()).unwrap ();
         hop.public_key
     }
 
     fn check_direct_route_to (route: &Route, destination: &Key) {
         let mut route = route.clone ();
-        let hop = route.shift(&CryptDENull::other_key(&cryptde().public_key()), cryptde()).unwrap();
+        let hop = route.shift(cryptde()).unwrap();
         assert_eq!(&hop.public_key, destination);
         assert_eq!(hop.component, Component::Hopper);
-        let hop = route.shift(&CryptDENull::other_key(destination), cryptde()).unwrap();
+        let hop = route.shift(&CryptDENull::from(&destination)).unwrap();
         assert_eq!(hop.component, Component::Neighborhood);
     }
 

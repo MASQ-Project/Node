@@ -21,8 +21,8 @@ impl Hop {
         }
     }
 
-    pub fn decode (key: &Key, cryptde: &CryptDE, crypt_data: &CryptData) -> Result<Self, CryptdecError> {
-        let plain_data = cryptde.decode (key, crypt_data)?;
+    pub fn decode (cryptde: &CryptDE, crypt_data: &CryptData) -> Result<Self, CryptdecError> {
+        let plain_data = cryptde.decode (crypt_data)?;
         match serde_cbor::de::from_slice::<Hop> (&plain_data.data[..]) {
             Ok (hop) => Ok (hop),
             // crashpoint - need to figure out how to return deserialize error
@@ -30,13 +30,13 @@ impl Hop {
         }
     }
 
-    pub fn encode (&self, key: &Key, cryptde: &CryptDE) -> Result<CryptData, CryptdecError> {
+    pub fn encode (&self, public_key: &Key, cryptde: &CryptDE) -> Result<CryptData, CryptdecError> {
         let plain_data = match serde_cbor::ser::to_vec (&self) {
             Ok (data) => PlainData::new (&data[..]),
             // crashpoint - need to figure out how to return serialize error
             Err (_) => unimplemented!()
         };
-        cryptde.encode (key, &plain_data)
+        cryptde.encode (public_key, &plain_data)
     }
 }
 
@@ -56,8 +56,8 @@ mod tests {
     #[test]
     fn encode_decode () {
         let cryptde = CryptDENull::new ();
-        let encode_key = Key::new (b"waffle");
-        let decode_key = CryptDENull::other_key (&encode_key);
+        let encode_key = cryptde.public_key();
+        let decode_key = cryptde.private_key();
         let hopper_hop = Hop::new(&&Key::new(&[4, 3, 2, 1]), Component::Hopper);
         let neighborhood_hop = Hop::new(&Key::new (&[1, 2, 3, 4]), Component::Neighborhood);
         let proxy_server_hop = Hop::new(&Key::new (&[127, 128]), Component::ProxyServer);
@@ -70,10 +70,10 @@ mod tests {
         let proxy_client_hop_encoded = proxy_client_hop.encode (&encode_key, &cryptde).unwrap ();
         let none_hop_encoded = relay_hop.encode (&encode_key, &cryptde).unwrap ();
 
-        assert_eq! (Hop::decode (&decode_key, &cryptde, &hopper_hop_encoded).unwrap (), hopper_hop);
-        assert_eq! (Hop::decode (&decode_key, &cryptde, &neighborhood_hop_encoded).unwrap (), neighborhood_hop);
-        assert_eq! (Hop::decode (&decode_key, &cryptde, &proxy_server_hop_encoded).unwrap (), proxy_server_hop);
-        assert_eq! (Hop::decode (&decode_key, &cryptde, &proxy_client_hop_encoded).unwrap (), proxy_client_hop);
-        assert_eq! (Hop::decode (&decode_key, &cryptde, &none_hop_encoded).unwrap (), relay_hop);
+        assert_eq! (Hop::decode (&cryptde, &hopper_hop_encoded).unwrap (), hopper_hop);
+        assert_eq! (Hop::decode (&cryptde, &neighborhood_hop_encoded).unwrap (), neighborhood_hop);
+        assert_eq! (Hop::decode (&cryptde, &proxy_server_hop_encoded).unwrap (), proxy_server_hop);
+        assert_eq! (Hop::decode (&cryptde, &proxy_client_hop_encoded).unwrap (), proxy_client_hop);
+        assert_eq! (Hop::decode (&cryptde, &none_hop_encoded).unwrap (), relay_hop);
     }
 }

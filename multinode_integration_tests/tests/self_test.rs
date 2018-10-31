@@ -95,7 +95,7 @@ fn server_relays_cores_package () {
     let package = server.wait_for_package (Duration::from_millis(1000));
     let expired = package.to_expired (server.cryptde ());
 
-    route.shift (&cryptde.private_key (), cryptde);
+    route.shift (cryptde);
     assert_eq! (expired.remaining_route, route);
     assert_eq! (serde_cbor::de::from_slice::<String> (&expired.payload.data[..]).unwrap (), String::from ("Booga booga!"));
 }
