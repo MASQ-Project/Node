@@ -8,6 +8,8 @@ extern crate serde_derive;
 extern crate sub_lib;
 extern crate tokio;
 
+extern crate sha1;
+
 #[cfg(test)]
 extern crate test_utils;
 
