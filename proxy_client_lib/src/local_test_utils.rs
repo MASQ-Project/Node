@@ -13,7 +13,6 @@ use futures::future;
 use futures::sync::mpsc::SendError;
 use futures::sync::mpsc::unbounded;
 use trust_dns_resolver::error::ResolveError;
-use tokio_core::reactor::CoreId;
 use trust_dns_resolver::lookup::Lookup;
 use trust_dns_proto::rr::RData;
 use resolver_wrapper::WrappedLookupIpFuture;
@@ -45,7 +44,7 @@ impl ResolverWrapperMock {
                 IpAddr::V6 (ip_addr) => RData::AAAA(ip_addr).into ()
             }
         }).collect ();
-        let lookup_ip = Lookup::new (Arc::new (rdatas)).into ();
+        let lookup_ip = Lookup::new_with_max_ttl (Arc::new (rdatas)).into ();
         self.lookup_ip_results.borrow_mut ().push (Box::new (future::ok (lookup_ip)));
         self
     }
@@ -63,14 +62,14 @@ impl ResolverWrapperMock {
 
 pub struct ResolverWrapperFactoryMock {
     factory_results: RefCell<Vec<Box<ResolverWrapper>>>,
-    factory_parameters: RefCell<Arc<Mutex<Vec<(ResolverConfig, ResolverOpts, CoreId)>>>>
+    factory_parameters: RefCell<Arc<Mutex<Vec<(ResolverConfig, ResolverOpts)>>>>
 }
 
 impl ResolverWrapperFactory for ResolverWrapperFactoryMock {
-    fn make(&self, config: ResolverConfig, options: ResolverOpts, reactor: &Handle) -> Box<ResolverWrapper> {
+    fn make(&self, config: ResolverConfig, options: ResolverOpts) -> Box<ResolverWrapper> {
         let parameters_ref_mut = self.factory_parameters.borrow_mut ();
         let mut parameters_guard = parameters_ref_mut.lock ().unwrap ();
-        parameters_guard.push ((config, options, reactor.id ()));
+        parameters_guard.push ((config, options));
         self.factory_results.borrow_mut ().remove (0)
     }
 }
@@ -88,7 +87,7 @@ impl ResolverWrapperFactoryMock {
         self
     }
 
-    pub fn new_parameters(self, parameters: &mut Arc<Mutex<Vec<(ResolverConfig, ResolverOpts, CoreId)>>>) -> ResolverWrapperFactoryMock {
+    pub fn new_parameters(self, parameters: &mut Arc<Mutex<Vec<(ResolverConfig, ResolverOpts)>>>) -> ResolverWrapperFactoryMock {
         *parameters = self.factory_parameters.borrow_mut ().clone ();
         self
     }

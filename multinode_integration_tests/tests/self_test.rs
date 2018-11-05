@@ -144,7 +144,8 @@ fn node_is_running(ip_address: IpAddr, port: u16) -> bool {
     match TcpStream::connect_timeout(&socket_addr, Duration::from_millis(100)) {
         Ok(_) => true,
         Err(ref e) if e.kind() == ErrorKind::TimedOut => false,
-        Err(e) => panic!("{}", e),
+        Err(ref e) if e.kind() == ErrorKind::AddrNotAvailable => false,
+        Err(e) => panic!("Could not connect to {}: {}", socket_addr, e),
     }
 }
 

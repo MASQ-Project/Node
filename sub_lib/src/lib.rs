@@ -13,7 +13,6 @@ extern crate serde_cbor;
 extern crate serde_derive;
 extern crate sha1;
 extern crate tokio;
-extern crate tokio_io;
 
 #[cfg (test)]
 extern crate test_utils;

@@ -7,14 +7,14 @@ copyright = "Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) an
 workspace = "../node"
 
 [dependencies]
-actix = "0.5.7"
-futures = "0.1.21"
-regex = "0.2.3"
-serde = "1.0.24"
-serde_cbor = "0.8.1"
-serde_derive = "1.0.24"
+actix = "= 0.5.7" # upgrading causes flakiness
+futures = "0.1.25"
+regex = "1.0.5"
+serde = "1.0.80"
+serde_cbor = "0.9.0"
+serde_derive = "1.0.80"
 sub_lib = { path = "../sub_lib" }
-tokio = "0.1.7"
+tokio = "0.1.11"
 
 [dev-dependencies]
 test_utils = { path = "../test_utils" }

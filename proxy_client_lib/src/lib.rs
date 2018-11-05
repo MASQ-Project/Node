@@ -4,6 +4,7 @@ extern crate actix;
 extern crate futures;
 extern crate serde_cbor;
 extern crate tokio_core;
+#[cfg(test)]
 extern crate trust_dns_proto;
 extern crate trust_dns_resolver;
 extern crate sub_lib;

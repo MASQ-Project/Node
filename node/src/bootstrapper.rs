@@ -455,7 +455,7 @@ mod tests {
     #[should_panic (expected = "Invalid NodeAddr for --bootstrap_node <NodeAddr>: 'BadNodeAddr'")]
     fn parse_neighbor_configs_complains_about_bad_node_addr () {
         let finder = ParameterFinder::new (vec! (
-            "--bootstrap_node", "GoodKey:BadNodeAddr",
+            "--bootstrap_node", "R29vZEtleQ==:BadNodeAddr",
         ).into_iter ().map (String::from).collect ());
 
         Bootstrapper::parse_neighbor_configs (&finder, "--bootstrap_node");
