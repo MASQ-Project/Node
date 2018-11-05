@@ -59,15 +59,13 @@ mod tests {
     use super::*;
     use neighborhood_test_utils::*;
     use gossip::GossipNodeRecord;
-    use test_utils::test_utils::cryptde;
-    use sub_lib::cryptde_null::CryptDENull;
 
     #[test]
     #[should_panic(expected="Target node AgMEBQ not in NeighborhoodDatabase")]
     fn produce_fails_for_target_not_in_database() {
         let this_node = make_node_record(1234, true, false);
         let target_node = make_node_record(2345, true, false);
-        let database = NeighborhoodDatabase::new(this_node.public_key(), this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), cryptde ());
+        let database = NeighborhoodDatabase::new(this_node.public_key(), this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node());
 
         let subject = GossipProducerReal::new();
 
@@ -80,10 +78,8 @@ mod tests {
         let first_neighbor = make_node_record(2345, true, false);
         let second_neighbor = make_node_record(3456, true, true);
         let target = make_node_record (4567, false, false);
-
         let mut database = NeighborhoodDatabase::new(this_node.public_key(),
-                                                     this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), &CryptDENull::from(this_node.public_key()));
-
+                                                     this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node());
         database.add_node(&first_neighbor).unwrap();
         database.add_node(&second_neighbor).unwrap();
         database.add_node(&target).unwrap();
@@ -104,15 +100,15 @@ mod tests {
         let neighbor_keys: Vec<(Key, Key)> = result.neighbor_pairs.iter().map(|neighbor_relationship| {
             let from_idx = neighbor_relationship.from;
             let to_idx = neighbor_relationship.to;
-            let from_key: Key = result.node_records.get(from_idx as usize).unwrap().inner.public_key.clone();
-            let to_key: Key = result.node_records.get(to_idx as usize).unwrap().inner.public_key.clone();
+            let from_key: Key = result.node_records.get(from_idx as usize).unwrap().public_key.clone();
+            let to_key: Key = result.node_records.get(to_idx as usize).unwrap().public_key.clone();
             (from_key, to_key)
         }).collect();
-        assert_eq!(neighbor_keys.len(), 2);
         assert_eq!(neighbor_keys.contains(&(this_node.public_key().clone(),
                                             first_neighbor.public_key().clone())), true, "{:?}", neighbor_keys);
         assert_eq!(neighbor_keys.contains(&(first_neighbor.public_key().clone(),
                                             target.public_key().clone())), true, "{:?}", neighbor_keys);
+        assert_eq!(neighbor_keys.len(), 2);
     }
 
     #[test]
@@ -122,7 +118,7 @@ mod tests {
         let second_neighbor = make_node_record(3456, true, true);
         let target = make_node_record (4567, false, false);
         let mut database = NeighborhoodDatabase::new(this_node.public_key(),
-                                                     this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), &CryptDENull::from(this_node.public_key()));
+                                                     this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node());
         database.add_node(&first_neighbor).unwrap();
         database.add_node(&second_neighbor).unwrap();
         database.add_node(&target).unwrap();
@@ -141,13 +137,13 @@ mod tests {
         let neighbor_keys: Vec<(Key, Key)> = result.neighbor_pairs.iter().map(|neighbor_relationship| {
             let from_idx = neighbor_relationship.from;
             let to_idx = neighbor_relationship.to;
-            let from_key: Key = result.node_records.get(from_idx as usize).unwrap().inner.public_key.clone();
-            let to_key: Key = result.node_records.get(to_idx as usize).unwrap().inner.public_key.clone();
+            let from_key: Key = result.node_records.get(from_idx as usize).unwrap().public_key.clone();
+            let to_key: Key = result.node_records.get(to_idx as usize).unwrap().public_key.clone();
             (from_key, to_key)
         }).collect();
-        assert_eq!(neighbor_keys.len(), 1);
         assert_eq!(neighbor_keys.contains(&(this_node.public_key().clone(),
                                             first_neighbor.public_key().clone())), true, "{:?}", neighbor_keys);
+        assert_eq!(neighbor_keys.len(), 1);
     }
 
     #[test]
@@ -156,7 +152,7 @@ mod tests {
         let bootstrap = make_node_record(3456, true, true);
         let target = make_node_record (4567, false, false);
         let mut database = NeighborhoodDatabase::new(this_node.public_key(),
-                                                     this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), &CryptDENull::from(this_node.public_key()));
+                                                     this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node());
         database.add_node(&bootstrap).unwrap();
         database.add_node(&target).unwrap();
         database.add_neighbor(this_node.public_key(), bootstrap.public_key()).unwrap();
@@ -173,8 +169,8 @@ mod tests {
         let neighbor_keys: Vec<(Key, Key)> = result.neighbor_pairs.iter().map(|neighbor_relationship| {
             let from_idx = neighbor_relationship.from;
             let to_idx = neighbor_relationship.to;
-            let from_key: Key = result.node_records.get(from_idx as usize).unwrap().inner.public_key.clone();
-            let to_key: Key = result.node_records.get(to_idx as usize).unwrap().inner.public_key.clone();
+            let from_key: Key = result.node_records.get(from_idx as usize).unwrap().public_key.clone();
+            let to_key: Key = result.node_records.get(to_idx as usize).unwrap().public_key.clone();
             (from_key, to_key)
         }).collect();
         assert_eq!(neighbor_keys.contains(&(bootstrap.public_key().clone(),
@@ -190,7 +186,7 @@ mod tests {
         let second_neighbor = make_node_record(3456, true, false);
         let target = make_node_record (4567, false, false);
         let mut database = NeighborhoodDatabase::new(this_node.public_key(),
-                                                     this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), &CryptDENull::from(this_node.public_key()));
+                                                     this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node());
         database.add_node(&first_neighbor).unwrap();
         database.add_node(&second_neighbor).unwrap();
         database.add_node(&target).unwrap();

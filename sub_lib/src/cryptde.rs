@@ -61,7 +61,7 @@ impl<'a> Visitor<'a> for KeyVisitor {
     }
 }
 
-#[derive (Clone, Debug, PartialEq, Eq)]
+#[derive (Clone, Debug, PartialEq)]
 pub struct CryptData {
     pub data: Vec<u8>
 }
