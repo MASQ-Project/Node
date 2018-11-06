@@ -97,7 +97,7 @@ impl TemporaryBootstrapGossipAcceptor {
     fn find_single_foreign_node_record (database: &NeighborhoodDatabase, gossip: &Gossip) -> Option<NodeRecord> {
         let root_key = database.root ().public_key ().clone ();
         let foreign_gossip_node_records = gossip.node_records.iter ()
-            .filter (|gnr_ref_ref| gnr_ref_ref.public_key != root_key)
+            .filter (|gnr_ref_ref| gnr_ref_ref.inner.public_key != root_key)
             .map (|gnr_ref| {gnr_ref.clone ()})
             .collect::<Vec<GossipNodeRecord>> ();
         if foreign_gossip_node_records.len () != 1 {return None}
@@ -114,6 +114,8 @@ mod tests {
     use neighborhood_database::NodeRecord;
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
+    use test_utils::test_utils::cryptde;
+    use sub_lib::cryptde::CryptData;
 
     #[test]
     fn adding_three_good_single_node_gossips_and_one_bad_one_produces_expected_database_pattern () {
@@ -122,8 +124,8 @@ mod tests {
         let first_node = make_node_record(2345, true, false);
         let second_node = make_node_record(3456, true, false);
         let third_node = make_node_record(4567, true, false);
-        let bad_node = NodeRecord::new (&Key::new (&[]), None, false);
-        let mut database = NeighborhoodDatabase::new(this_node.public_key(), &this_node.node_addr_opt ().unwrap (), this_node.is_bootstrap_node());
+        let bad_node = NodeRecord::new (&Key::new (&[]), None, false, Some(CryptData::new(b"hello")), Some(CryptData::new(b"world")));
+        let mut database = NeighborhoodDatabase::new(this_node.public_key(), &this_node.node_addr_opt ().unwrap (), this_node.is_bootstrap_node(), cryptde ());
 
         let first_gossip = GossipBuilder::new().node(&first_node, true).build();
         let second_gossip = GossipBuilder::new().node(&second_node, true).build();

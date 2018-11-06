@@ -7,6 +7,7 @@ extern crate sub_lib;
 extern crate hopper_lib;
 extern crate node_lib;
 extern crate test_utils;
+extern crate neighborhood_lib;
 
 pub mod command;
 pub mod substratum_node_cluster;

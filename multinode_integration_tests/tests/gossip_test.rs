@@ -29,6 +29,40 @@ use sub_lib::hopper::ExpiredCoresPackage;
 use std::collections::HashMap;
 use multinode_integration_tests_lib::substratum_node::SubstratumNode;
 use multinode_integration_tests_lib::substratum_mock_node::SubstratumMockNode;
+use neighborhood_lib::neighborhood_database::NodeRecordInner;
+use neighborhood_lib::neighborhood_database::NodeRecord;
+use sub_lib::cryptde_null::CryptDENull;
+
+fn make_gossip_record(node: &SubstratumNode, is_bootstrap_node: bool, reveal_ip: bool) -> GossipNodeRecord {
+    let mut inner = NodeRecordInner {
+        public_key: node.public_key(),
+        node_addr_opt: Some(node.node_addr()),
+        is_bootstrap_node
+    };
+    let cryptde = CryptDENull::from(&node.public_key());
+    let complete_signature = inner.generate_signature(&cryptde);
+
+    let obscured_inner = NodeRecordInner {
+        public_key: node.public_key(),
+        node_addr_opt: None,
+        is_bootstrap_node
+    };
+    let obscured_signature = obscured_inner.generate_signature(&cryptde);
+
+    if reveal_ip {
+        GossipNodeRecord {
+            inner,
+            complete_signature,
+            obscured_signature,
+        }
+    } else {
+        GossipNodeRecord {
+            inner: obscured_inner,
+            complete_signature,
+            obscured_signature,
+        }
+    }
+}
 
 #[test]
 fn standard_node_sends_gossip_to_bootstrap_upon_startup () {
@@ -45,15 +79,20 @@ fn standard_node_sends_gossip_to_bootstrap_upon_startup () {
     let cores_package = package.to_expired (server.cryptde());
     let gossip: Gossip = cores_package.payload ().unwrap ();
     let node_ref = subject.node_reference();
-    find (&gossip.node_records, GossipNodeRecord {
+    let inner = NodeRecordInner {
         public_key: node_ref.public_key.clone (),
         node_addr_opt: Some (node_ref.node_addr.clone ()),
         is_bootstrap_node: false,
-    });
+    };
+    let (complete_signature, obscured_signature) = {
+        let mut nr = NodeRecord::new(&node_ref.public_key, Some(&node_ref.node_addr), false, None, None);
+        nr.sign(&CryptDENull::from(&node_ref.public_key));
+        (nr.complete_signature().unwrap(), nr.obscured_signature().unwrap())
+    };
     find (&gossip.node_records, GossipNodeRecord {
-        public_key: server.public_key (),
-        node_addr_opt: None,
-        is_bootstrap_node: true,
+        inner,
+        complete_signature,
+        obscured_signature
     });
 }
 
@@ -72,11 +111,7 @@ fn bootstrap_node_receives_gossip_and_broadcasts_result () {
     let timeout = Duration::from_millis (1000);
 
     let one_gossip = Gossip {
-        node_records: vec! (GossipNodeRecord {
-            public_key: one_standard_node.public_key (),
-            node_addr_opt: Some (one_standard_node.node_addr ()),
-            is_bootstrap_node: false
-        }),
+        node_records: vec! (make_gossip_record(&one_standard_node, false, true)),
         neighbor_pairs: vec! (),
     };
     let one_cores_package = make_gossip_cores_package (one_standard_node.public_key (),
@@ -87,24 +122,12 @@ fn bootstrap_node_receives_gossip_and_broadcasts_result () {
     let (_, _, package) = one_standard_node.wait_for_package(&masquerader, timeout).unwrap ();
     let one_gossip_response = package.to_expired (one_standard_node.cryptde());
     let one_gossip_response_payload: Gossip = one_gossip_response.payload ().unwrap ();
-    let subject_index = find (&one_gossip_response_payload.node_records, GossipNodeRecord {
-        public_key: subject.public_key (),
-        node_addr_opt: Some (subject.node_addr ()),
-        is_bootstrap_node: true
-    });
-    let one_node_index = find (&one_gossip_response_payload.node_records, GossipNodeRecord {
-        public_key: one_standard_node.public_key (),
-        node_addr_opt: None,
-        is_bootstrap_node: false
-    });
+    let subject_index = find (&one_gossip_response_payload.node_records, make_gossip_record(&subject, true, true));
+    let one_node_index = find (&one_gossip_response_payload.node_records, make_gossip_record(&one_standard_node, false, false));
     assert_eq! (one_gossip_response_payload.neighbor_pairs, vec! (NeighborRelationship {from: subject_index as u32, to: one_node_index as u32}));
 
     let another_gossip = Gossip {
-        node_records: vec! (GossipNodeRecord {
-            public_key: another_standard_node.public_key (),
-            node_addr_opt: Some (another_standard_node.node_addr ()),
-            is_bootstrap_node: false
-        }),
+        node_records: vec! (make_gossip_record(&another_standard_node, false, true)),
         neighbor_pairs: vec! (),
     };
     let another_cores_package = make_gossip_cores_package (another_standard_node.public_key (),
@@ -144,27 +167,15 @@ fn verify_three_node_gossip_for_second_node(package: ExpiredCoresPackage, subjec
 
 fn verify_bootstrap_connected_node(payload: &Gossip, subject: &SubstratumRealNode,
                                    bootstrap_connected_node: &SubstratumMockNode) {
-    let subject_index = find (&payload.node_records, GossipNodeRecord {
-        public_key: subject.public_key (),
-        node_addr_opt: Some (subject.node_addr ()),
-        is_bootstrap_node: true
-    });
+    let subject_index = find (&payload.node_records, make_gossip_record(subject, true, true));
     let bootstrap_connected_index = find_node_by_key (&payload.node_records, bootstrap_connected_node.public_key ());
 
     assert_relationship_present (&payload, subject_index, "subject", bootstrap_connected_index, "bootstrap_connected_node");
 }
 
 fn verify_bi_connected_nodes (payload: &Gossip, recipient: &SubstratumMockNode, foreigner: &SubstratumMockNode) {
-    let recipient_index = find (&payload.node_records, GossipNodeRecord {
-        public_key: recipient.public_key (),
-        node_addr_opt: None,
-        is_bootstrap_node: false
-    });
-    let foreigner_index = find (&payload.node_records, GossipNodeRecord {
-        public_key: foreigner.public_key (),
-        node_addr_opt: Some (foreigner.node_addr ()),
-        is_bootstrap_node: false
-    });
+    let recipient_index = find (&payload.node_records, make_gossip_record(recipient, false, false));
+    let foreigner_index = find (&payload.node_records, make_gossip_record(foreigner, false, true));
     assert_relationship_present (&payload, recipient_index, "recipient", foreigner_index, "foreigner");
     assert_relationship_present (&payload, foreigner_index, "foreigner", recipient_index, "recipient");
 }
@@ -182,7 +193,7 @@ fn find (haystack: &Vec<GossipNodeRecord>, needle: GossipNodeRecord) -> usize {
 fn find_node_by_key (haystack: &Vec<GossipNodeRecord>, needle: Key) -> usize {
     for i in 0..haystack.len () {
         let candidate = &haystack[i];
-        if candidate.public_key == needle {
+        if candidate.inner.public_key == needle {
             return i
         }
     }

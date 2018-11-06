@@ -3,6 +3,7 @@
 use neighborhood_database::NodeRecord;
 use std::net::Ipv4Addr;
 use sub_lib::cryptde::Key;
+use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::node_addr::NodeAddr;
 use std::net::IpAddr;
 use std::collections::HashSet;
@@ -17,7 +18,8 @@ pub fn make_node_record(n: u16, has_ip: bool, is_bootstrap_node: bool) -> NodeRe
     let key = Key::new (&[a, b, c, d]);
     let ip_addr = IpAddr::V4 (Ipv4Addr::new (a, b, c, d));
     let node_addr = NodeAddr::new (&ip_addr, &vec! (n % 10000));
-    NodeRecord::new (&key, if has_ip {Some (&node_addr)} else {None}, is_bootstrap_node)
+
+    NodeRecord::new_for_tests(&key, if has_ip {Some(&node_addr)} else {None}, is_bootstrap_node)
 }
 
 pub fn vec_to_set<T>(vec: Vec<T>) -> HashSet<T> where T: Eq + Hash {
@@ -30,4 +32,12 @@ pub fn neighbor_keys_of<'a>(database_ref: &'a NeighborhoodDatabase, node_record:
     let node_ref = database_ref.node_by_key(public_key_ref).unwrap();
     let neighbor_key_refs: HashSet<&Key> = node_ref.neighbors().iter().map(|key_ref| key_ref).collect();
     neighbor_key_refs
+}
+
+impl NodeRecord {
+    pub fn new_for_tests(public_key: &Key, node_addr_opt: Option<&NodeAddr>, is_bootstrap_node: bool) -> NodeRecord {
+        let mut node_record = NodeRecord::new(public_key, node_addr_opt, is_bootstrap_node, None, None);
+        node_record.sign(&CryptDENull::from(&public_key));
+        node_record
+    }
 }

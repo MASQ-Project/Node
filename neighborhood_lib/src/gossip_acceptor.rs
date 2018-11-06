@@ -43,7 +43,7 @@ impl GossipAcceptorReal {
     fn handle_node_records (&self, database: &mut NeighborhoodDatabase, gossip_ref: &Gossip) {
         gossip_ref.node_records.iter ()
             .filter (|gnr_ref_ref| {
-                if gnr_ref_ref.public_key.data.is_empty() {
+                if gnr_ref_ref.inner.public_key.data.is_empty() {
                     self.logger.error (format! ("Rejecting GossipNodeRecord with blank public key"));
                     false
                 }
@@ -52,15 +52,15 @@ impl GossipAcceptorReal {
                 }
             })
             .for_each (|gnr_ref| {
-            if database.keys ().contains (&gnr_ref.public_key) {
+            if database.keys ().contains (&gnr_ref.inner.public_key) {
                 let root_public_key = database.root ().public_key ().clone ();
-                let node_record = {database.node_by_key_mut(&gnr_ref.public_key).expect("Key magically disappeared").clone ()};
-                if let Some(new_node_addr_ref) = gnr_ref.node_addr_opt.as_ref() {
+                let node_record = {database.node_by_key_mut(&gnr_ref.inner.public_key).expect("Key magically disappeared").clone ()};
+                if let Some(new_node_addr_ref) = gnr_ref.inner.node_addr_opt.as_ref() {
                     match database.node_by_key_mut (node_record.public_key ()).expect ("Key magically disappeared").set_node_addr(new_node_addr_ref) {
                         Ok (_) => database.add_neighbor (&root_public_key, node_record.public_key ()).expect ("Key magically disappeared"),
                         Err (NeighborhoodDatabaseError::NodeAddrAlreadySet (old_addr)) => {
                             self.logger.error(format!("Gossip attempted to change IP address of node {} from {} to {}: ignoring",
-                                &gnr_ref.public_key, old_addr.ip_addr (), new_node_addr_ref.ip_addr()));
+                                &gnr_ref.inner.public_key, old_addr.ip_addr (), new_node_addr_ref.ip_addr()));
                         },
                         Err (_) => panic! ("Compiler candy"),
                     }
@@ -75,7 +75,7 @@ impl GossipAcceptorReal {
         let key_ref_from_index = |index| {
             let usize_index = index as usize;
             if usize_index < gossip_ref.node_records.len () {
-                Some(&gossip_ref.node_records[usize_index].public_key)
+                Some(&gossip_ref.node_records[usize_index].inner.public_key)
             } else {
                 None
             }
@@ -94,8 +94,8 @@ impl GossipAcceptorReal {
     fn add_ip_neighbors (&self, database: &mut NeighborhoodDatabase, gossip_ref: &Gossip) {
         let root_key_ref = database.root ().public_key ().clone ();
         gossip_ref.node_records.iter ().for_each (|gnr_ref| {
-            if gnr_ref.node_addr_opt.is_some () && (&gnr_ref.public_key != &root_key_ref) {
-                database.add_neighbor (&root_key_ref, &gnr_ref.public_key).expect ("Node magically disappeared");
+            if gnr_ref.inner.node_addr_opt.is_some () && (&gnr_ref.inner.public_key != &root_key_ref) {
+                database.add_neighbor (&root_key_ref, &gnr_ref.inner.public_key).expect ("Node magically disappeared");
             }
         });
     }
@@ -117,18 +117,20 @@ mod tests {
     use gossip::GossipBuilder;
     use neighborhood_test_utils::*;
     use gossip::NeighborRelationship;
+    use test_utils::test_utils::cryptde;
+    use sub_lib::cryptde::CryptData;
 
     #[test]
     fn gossip_is_copied_into_single_node_database() {
         init_test_logging();
         let existing_node = make_node_record(1234, true, false);
         let mut database = NeighborhoodDatabase::new(existing_node.public_key(),
-                                                     existing_node.node_addr_opt().as_ref().unwrap(), existing_node.is_bootstrap_node());
+                                                     existing_node.node_addr_opt().as_ref().unwrap(), existing_node.is_bootstrap_node(), cryptde ());
         let incoming_far_left = make_node_record(2345, false, false);
         let incoming_near_left = make_node_record(3456, true, false);
         let incoming_near_right = make_node_record(4657, true, false);
         let incoming_far_right = make_node_record(5678, false, false);
-        let bad_record_with_blank_key = NodeRecord::new (&Key::new (&[]), None, false);
+        let bad_record_with_blank_key = NodeRecord::new (&Key::new (&[]), None, false, Some(CryptData::new(b"hello")), Some(CryptData::new(b"world")));
         let gossip = GossipBuilder::new()
             .node(&incoming_far_left, false)
             .node(&incoming_near_left, true)
@@ -170,7 +172,7 @@ mod tests {
     fn gossip_generates_neighbors_from_provided_ip_addresses_with_standard_gossip_acceptor() {
         let existing_node = make_node_record(1234, true, false);
         let mut database = NeighborhoodDatabase::new(existing_node.public_key(),
-                                                     existing_node.node_addr_opt().as_ref().unwrap(), existing_node.is_bootstrap_node());
+                                                     existing_node.node_addr_opt().as_ref().unwrap(), existing_node.is_bootstrap_node(), cryptde ());
         let neighbor_one = make_node_record(4657, true, false);
         let neighbor_two = make_node_record(5678, true, false);
         let not_a_neighbor_one = make_node_record(2345, false, false);
@@ -200,11 +202,9 @@ mod tests {
         let this_node = make_node_record(1234, true, false);
         let existing_node = make_node_record(2345, true, false);
         let mut database = NeighborhoodDatabase::new(this_node.public_key(),
-                                                     this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node());
+                                                     this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), cryptde ());
         database.add_node(&existing_node).unwrap();
-        let new_node = NodeRecord::new(existing_node.public_key(),
-                                       Some(&NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(3, 4, 5, 6)),
-                                                           &vec!(12345))), false);
+        let new_node = NodeRecord::new_for_tests(existing_node.public_key(), Some(&NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(3, 4, 5, 6)), &vec!(12345))), false);
         let gossip = GossipBuilder::new()
             .node(&new_node, true)
             .build();
@@ -225,7 +225,7 @@ mod tests {
         let existing_node = make_node_record(2345, false, false);
         let incoming_node = make_node_record(2345, true, false);
         let mut database = NeighborhoodDatabase::new(this_node.public_key(),
-                                                     this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node());
+                                                     this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), cryptde ());
         database.add_node(&existing_node).unwrap();
 
         let gossip = GossipBuilder::new()
@@ -246,7 +246,7 @@ mod tests {
         init_test_logging();
         let this_node = make_node_record(1234, true, false);
         let mut database = NeighborhoodDatabase::new(this_node.public_key(),
-                                                     this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node());
+                                                     this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), cryptde ());
         let left_twin = make_node_record(2345, true, false);
         let right_twin = make_node_record(2345, true, false);
         let gossip = Gossip {
@@ -274,7 +274,7 @@ mod tests {
         init_test_logging();
         let this_node = make_node_record(1234, true, false);
         let mut database = NeighborhoodDatabase::new(this_node.public_key(),
-                                                     this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node());
+                                                     this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), cryptde ());
         let incoming_node = make_node_record(2345, true, false);
         let gossip = Gossip {
             node_records: vec!(
@@ -300,7 +300,7 @@ mod tests {
         init_test_logging();
         let this_node = make_node_record(1234, true, false);
         let mut database = NeighborhoodDatabase::new(this_node.public_key(),
-                                                     this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node());
+                                                     this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), cryptde ());
         let incoming_node = make_node_record(2345, true, false);
         let gossip = Gossip {
             node_records: vec!(
