@@ -23,6 +23,7 @@ impl GossipAcceptor for GossipAcceptorReal {
             the purpose of `handle` is to update a node's known neighborhood based on incoming Gossip. It doesn't do
             anything special with the Gossip, just records any new information, but it does not change already known information
             e.g. it will add an IP addr to a known neighbor without one, but it will not change a known IP addr of a known neighbor
+            it will also add to its own neighbor list any nodes in the Gossip that include NodeAddr information
         params:
             `database`: the DB that contains this node's known neighborhood
             `gossip`: the Gossip message with which to update the DB
@@ -30,7 +31,7 @@ impl GossipAcceptor for GossipAcceptorReal {
     fn handle(&self, database: &mut NeighborhoodDatabase, gossip: Gossip) {
         self.handle_node_records (database, &gossip);
         self.handle_neighbor_pairs (database, &gossip);
-        self.add_ip_neighbors (database, &gossip);
+        self.add_ip_neighbors (database, &gossip); // this shouldn't be here (yet) >:{
         self.logger.debug (format! ("Database after accepting Gossip: {:?}", database));
     }
 }

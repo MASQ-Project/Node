@@ -30,6 +30,7 @@ use sub_lib::peer_actors::PeerActors;
 use sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use sub_lib::neighborhood::DispatcherNodeQueryMessage;
 use sub_lib::neighborhood::RouteQueryResponse;
+use sub_lib::hopper::ExpiredCoresPackagePackage;
 
 pub struct Recorder {
     recording: Arc<Mutex<Recording>>,
@@ -77,6 +78,14 @@ impl Handler<ExpiredCoresPackage> for Recorder {
     type Result = ();
 
     fn handle(&mut self, msg: ExpiredCoresPackage, _ctx: &mut Self::Context) {
+        self.record(msg);
+    }
+}
+
+impl Handler<ExpiredCoresPackagePackage> for Recorder {
+    type Result = ();
+
+    fn handle(&mut self, msg: ExpiredCoresPackagePackage, _ctx: &mut Self::Context) {
         self.record(msg);
     }
 }
@@ -269,7 +278,7 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Syn, Recorder>) -> NeighborhoodSu
         bootstrap: addr.clone ().recipient::<BootstrapNeighborhoodNowMessage>(),
         node_query: addr.clone ().recipient::<NodeQueryMessage>(),
         route_query: addr.clone ().recipient::<RouteQueryMessage>(),
-        from_hopper: addr.clone ().recipient::<ExpiredCoresPackage>(),
+        from_hopper: addr.clone ().recipient::<ExpiredCoresPackagePackage>(),
         dispatcher_node_query: addr.clone ().recipient::<DispatcherNodeQueryMessage>(),
     }
 }

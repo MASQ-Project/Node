@@ -39,6 +39,7 @@ use sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use sub_lib::utils::plus;
 use sub_lib::neighborhood::RouteQueryResponse;
 use sub_lib::utils::NODE_MAILBOX_CAPACITY;
+use sub_lib::hopper::ExpiredCoresPackagePackage;
 
 pub struct Neighborhood {
     cryptde: &'static CryptDE,
@@ -170,11 +171,11 @@ impl Handler<RouteQueryMessage> for Neighborhood {
     }
 }
 
-impl Handler<ExpiredCoresPackage> for Neighborhood {
+impl Handler<ExpiredCoresPackagePackage> for Neighborhood {
     type Result = ();
 
-    fn handle(&mut self, msg: ExpiredCoresPackage, _ctx: &mut Self::Context) -> Self::Result {
-        let incoming_gossip: Gossip = match msg.payload() {
+    fn handle(&mut self, msg: ExpiredCoresPackagePackage, _ctx: &mut Self::Context) -> Self::Result {
+        let incoming_gossip: Gossip = match msg.expired_cores_package.payload() {
             Ok (p) => p,
             Err (_) => {self.logger.error (format! ("Unintelligible Gossip message received: ignoring")); return ();},
         };
@@ -268,7 +269,7 @@ impl Neighborhood {
             bootstrap: addr.clone ().recipient::<BootstrapNeighborhoodNowMessage>(),
             node_query: addr.clone ().recipient::<NodeQueryMessage>(),
             route_query: addr.clone ().recipient::<RouteQueryMessage>(),
-            from_hopper: addr.clone ().recipient::<ExpiredCoresPackage>(),
+            from_hopper: addr.clone ().recipient::<ExpiredCoresPackagePackage>(),
             dispatcher_node_query: addr.clone().recipient::<DispatcherNodeQueryMessage>(),
         }
     }
@@ -984,7 +985,7 @@ mod tests {
     fn bad_cores_package_is_logged_and_ignored () {
         let cryptde = cryptde ();
         init_test_logging ();
-        let cores_package = ExpiredCoresPackage::new (make_meaningless_route (), PlainData::new (&b"booga"[..]));
+        let cores_package = ExpiredCoresPackagePackage { expired_cores_package: ExpiredCoresPackage::new (make_meaningless_route (), PlainData::new (&b"booga"[..])), sender_ip: IpAddr::from_str("1.2.3.4").unwrap() };
         let system = System::new ("");
         let subject = Neighborhood::new (cryptde, NeighborhoodConfig {
             neighbor_configs: vec! (),
@@ -994,7 +995,7 @@ mod tests {
             clandestine_port_list: vec! (),
         });
         let addr: Addr<Syn, Neighborhood> = subject.start ();
-        let sub: Recipient<Syn, ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage> ();
+        let sub: Recipient<Syn, ExpiredCoresPackagePackage> = addr.recipient::<ExpiredCoresPackagePackage> ();
 
         sub.try_send (cores_package).unwrap ();
 
@@ -1011,7 +1012,7 @@ mod tests {
         let gossip_neighbor = make_node_record (4567, true, false);
         let gossip = GossipBuilder::new ().node (&gossip_neighbor, true).build ();
         let serialized_gossip = PlainData::new (&serde_cbor::ser::to_vec (&gossip).unwrap ()[..]);
-        let cores_package = ExpiredCoresPackage::new (make_meaningless_route (), serialized_gossip);
+        let cores_package = ExpiredCoresPackagePackage { expired_cores_package: ExpiredCoresPackage::new (make_meaningless_route (), serialized_gossip), sender_ip: IpAddr::from_str("1.2.3.4").unwrap() };
         let hopper = Recorder::new ();
         let hopper_awaiter = hopper.get_awaiter ();
         let hopper_recording = hopper.get_recording ();
@@ -1033,7 +1034,7 @@ mod tests {
             let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
             addr.try_send(BindMessage { peer_actors }).unwrap ();
 
-            let sub: Recipient<Syn, ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage> ();
+            let sub: Recipient<Syn, ExpiredCoresPackagePackage> = addr.recipient::<ExpiredCoresPackagePackage> ();
             sub.try_send (cores_package).unwrap ();
 
             system.run ();
@@ -1105,7 +1106,7 @@ mod tests {
             .node (&one_neighbor, false)
             .build ();
         let serialized_gossip = PlainData::new (&serde_cbor::ser::to_vec (&gossip).unwrap ()[..]);
-        let cores_package = ExpiredCoresPackage::new (make_meaningless_route (), serialized_gossip);
+        let cores_package = ExpiredCoresPackagePackage { expired_cores_package: ExpiredCoresPackage::new (make_meaningless_route (), serialized_gossip), sender_ip: IpAddr::from_str("1.2.3.4").unwrap() };
         let mut subject = Neighborhood::new (cryptde, NeighborhoodConfig {
             neighbor_configs: vec! (),
             bootstrap_configs: vec! ((bootstrap_neighbor.public_key ().clone (), bootstrap_neighbor.node_addr_opt ().unwrap ().clone ())),

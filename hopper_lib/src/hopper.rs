@@ -26,13 +26,15 @@ use sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
 use std::net::SocketAddr;
 use std::str::FromStr;
+use sub_lib::hopper::ExpiredCoresPackagePackage;
+use std::net::IpAddr;
 
 pub struct Hopper {
     cryptde: &'static CryptDE,
     is_bootstrap_node: bool,
     to_proxy_server: Option<Recipient<Syn, ExpiredCoresPackage>>,
     to_proxy_client: Option<Recipient<Syn, ExpiredCoresPackage>>,
-    to_neighborhood: Option<Recipient<Syn, ExpiredCoresPackage>>,
+    to_neighborhood: Option<Recipient<Syn, ExpiredCoresPackagePackage>>,
     to_dispatcher: Option<Recipient<Syn, TransmitDataMsg>>,
     logger: Logger,
     to_self: Option<Recipient<Syn, InboundClientData>>,
@@ -132,10 +134,11 @@ impl Handler<InboundClientData> for Hopper {
         let next_hop = live_package.next_hop(self.cryptde.borrow());
 
         if self.should_route_data (next_hop.component) {
+            let sender_ip = msg.peer_addr.ip();
             match next_hop.component {
                 Component::ProxyServer => self.handle_endpoint(next_hop.component, &self.to_proxy_server, live_package),
                 Component::ProxyClient => self.handle_endpoint(next_hop.component, &self.to_proxy_client, live_package),
-                Component::Neighborhood => self.handle_endpoint(next_hop.component, &self.to_neighborhood, live_package),
+                Component::Neighborhood => self.handle_ip_endpoint(next_hop.component, &self.to_neighborhood, live_package, sender_ip),
                 Component::Hopper => {
                     let transmit_msg = match self.to_transmit_msg(live_package, msg.last_data) {
                         // crashpoint - need to figure out how to bubble up different kinds of errors, or just log and return
@@ -214,6 +217,13 @@ impl Hopper {
         let expired_package = live_package.to_expired(self.cryptde.borrow());
         self.logger.trace(format!("Forwarding ExpiredCoresPackage to {:?}: {:?}", component, expired_package));
         recipient.as_ref().expect(&format! ("{:?} unbound in Hopper", component)).try_send(expired_package).expect(&format! ("{:?} is dead", component))
+    }
+
+    fn handle_ip_endpoint (&self, component: Component, recipient: &Option<Recipient<Syn, ExpiredCoresPackagePackage>>, live_package: LiveCoresPackage, sender_ip: IpAddr) {
+        let expired_package = live_package.to_expired(self.cryptde.borrow());
+        let expired_package_package = ExpiredCoresPackagePackage { expired_cores_package: expired_package, sender_ip };
+        self.logger.trace(format!("Forwarding ExpiredCoresPackagePackage to {:?}: {:?}", component, expired_package_package));
+        recipient.as_ref().expect(&format! ("{:?} unbound in Hopper", component)).try_send(expired_package_package).expect(&format! ("{:?} is dead", component))
     }
 }
 
@@ -569,9 +579,46 @@ mod tests {
         Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
         system.run();
         let neighborhood_recording = neighborhood_recording_arc.lock ().unwrap ();
-        let message: &ExpiredCoresPackage = neighborhood_recording.get_record (0);
-        assert_eq! (message.clone ().payload_data (), payload);
+        let message: &ExpiredCoresPackagePackage = neighborhood_recording.get_record (0);
+        assert_eq! (message.clone ().expired_cores_package.payload_data (), payload);
+        assert_eq! (message.clone ().sender_ip, IpAddr::from_str("1.2.3.4").unwrap());
         TestLogHandler::new ().exists_no_log_containing("ERROR: Hopper: Request for Bootstrap Node to route data to Neighborhood: rejected");
+    }
+
+    #[test]
+    fn rejects_data_for_non_neighborhood_component_if_is_bootstrap_node () {
+        init_test_logging ();
+        let cryptde = cryptde();
+        let mut route = Route::new(vec! (
+            RouteSegment::new(vec! (&cryptde.public_key(), &cryptde.public_key()), Component::ProxyClient)
+        ), cryptde).unwrap();
+        route.shift (cryptde);
+        let payload = PlainData::new (&b"abcd"[..]);
+        let lcp = LiveCoresPackage::new (route, cryptde.encode (&cryptde.public_key (), &payload).unwrap ());
+        let data_ser = PlainData::new (&serde_cbor::ser::to_vec (&lcp).unwrap ()[..]);
+        let data_enc = cryptde.encode (&cryptde.public_key (), &data_ser).unwrap ();
+        let inbound_client_data = InboundClientData {
+            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            reception_port: None,
+            last_data: false,
+            is_clandestine: true,
+            sequence_number: None,
+            data: data_enc.data
+        };
+        let system = System::new("rejects_data_for_non_neighborhood_component_if_is_bootstrap_node");
+        let subject = Hopper::new (cryptde, true);
+        let subject_addr: Addr<Syn, Hopper> = subject.start();
+        let (proxy_client, _, proxy_client_recording_arc) = make_recorder ();
+        let peer_actors = make_peer_actors_from(None, None, None, Some(proxy_client), None);
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap ();
+
+        subject_addr.try_send(inbound_client_data.clone ()).unwrap ();
+
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
+        system.run();
+        let proxy_client_recording = proxy_client_recording_arc.lock ().unwrap ();
+        assert_eq! (proxy_client_recording.len(), 0);
+        TestLogHandler::new ().exists_log_containing("ERROR: Hopper: Request for Bootstrap Node to route data to ProxyClient: rejected");
     }
 
     #[test]

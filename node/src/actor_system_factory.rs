@@ -178,6 +178,7 @@ mod tests {
     use sub_lib::crash_point::CrashPoint;
     use std::net::Ipv4Addr;
     use std::net::IpAddr;
+    use sub_lib::hopper::ExpiredCoresPackagePackage;
 
     struct ActorFactoryMock<'a> {
         dispatcher: RefCell<Option<Recorder>>,
@@ -229,7 +230,7 @@ mod tests {
                 bootstrap: addr.clone ().recipient::<BootstrapNeighborhoodNowMessage>(),
                 node_query: addr.clone ().recipient::<NodeQueryMessage>(),
                 route_query: addr.clone ().recipient::<RouteQueryMessage>(),
-                from_hopper: addr.clone ().recipient::<ExpiredCoresPackage>(),
+                from_hopper: addr.clone ().recipient::<ExpiredCoresPackagePackage>(),
                 dispatcher_node_query: addr.clone().recipient::<DispatcherNodeQueryMessage>(),
             }
         }

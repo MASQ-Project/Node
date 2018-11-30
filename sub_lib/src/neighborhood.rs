@@ -12,6 +12,7 @@ use dispatcher::Component;
 use std::net::Ipv4Addr;
 use stream_handler_pool::TransmitDataMsg;
 use stream_handler_pool::DispatcherNodeQueryResponse;
+use hopper::ExpiredCoresPackagePackage;
 
 pub const SENTINEL_IP_OCTETS: [u8; 4] = [255, 255, 255, 255];
 
@@ -47,7 +48,7 @@ pub struct NeighborhoodSubs {
     pub bootstrap: Recipient<Syn, BootstrapNeighborhoodNowMessage>,
     pub node_query: Recipient<Syn, NodeQueryMessage>,
     pub route_query: Recipient<Syn, RouteQueryMessage>,
-    pub from_hopper: Recipient<Syn, ExpiredCoresPackage>,
+    pub from_hopper: Recipient<Syn, ExpiredCoresPackagePackage>,
     pub dispatcher_node_query: Recipient<Syn, DispatcherNodeQueryMessage>,
 }
 

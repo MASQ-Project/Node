@@ -9,6 +9,7 @@ use cryptde::PlainData;
 use dispatcher::InboundClientData;
 use peer_actors::BindMessage;
 use route::Route;
+use std::net::IpAddr;
 
 /// New CORES package about to be sent to the Hopper and thence put on the Substratum Network
 #[derive (Clone, Debug, PartialEq, Message)]
@@ -28,6 +29,12 @@ impl IncipientCoresPackage {
             payload_destination_key: payload_destination_key.clone ()
         }
     }
+}
+
+#[derive (Clone, Debug, PartialEq, Message)]
+pub struct ExpiredCoresPackagePackage {
+    pub expired_cores_package: ExpiredCoresPackage,
+    pub sender_ip: IpAddr,
 }
 
 /// CORES package that has traversed the Substratum Network and is arriving at its destination
