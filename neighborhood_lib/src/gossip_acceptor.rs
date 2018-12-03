@@ -9,7 +9,7 @@ pub trait GossipAcceptor {
     // malformed Gossip for security reasons. Do whatever's easiest. An attacker might send
     // malformed Gossip accidentally at the beginning, but he will soon learn to generate valid
     // Gossip, whereupon effort spent detecting malformed Gossip will be wasted.
-    fn handle (&self, database: &mut NeighborhoodDatabase, gossip: Gossip);
+    fn handle (&self, database: &mut NeighborhoodDatabase, gossip: Gossip) -> bool;
 }
 
 pub struct GossipAcceptorReal {
@@ -28,11 +28,12 @@ impl GossipAcceptor for GossipAcceptorReal {
             `database`: the DB that contains this node's known neighborhood
             `gossip`: the Gossip message with which to update the DB
     */
-    fn handle(&self, database: &mut NeighborhoodDatabase, gossip: Gossip) {
-        self.handle_node_records (database, &gossip);
-        self.handle_neighbor_pairs (database, &gossip);
-        self.add_ip_neighbors (database, &gossip); // this shouldn't be here (yet) >:{
+    fn handle(&self, database: &mut NeighborhoodDatabase, gossip: Gossip) -> bool {
+        let mut changed = self.handle_node_records (database, &gossip);
+        changed = self.handle_neighbor_pairs (database, &gossip) || changed;
+        changed = self.add_ip_neighbors (database, &gossip) || changed;
         self.logger.debug (format! ("Database after accepting Gossip: {:?}", database));
+        changed
     }
 }
 
@@ -41,7 +42,8 @@ impl GossipAcceptorReal {
         GossipAcceptorReal {logger: Logger::new ("GossipAcceptorReal")}
     }
 
-    fn handle_node_records (&self, database: &mut NeighborhoodDatabase, gossip_ref: &Gossip) {
+    fn handle_node_records (&self, database: &mut NeighborhoodDatabase, gossip_ref: &Gossip) -> bool {
+        let mut changed = false;
         gossip_ref.node_records.iter ()
             .filter (|gnr_ref_ref| {
                 if gnr_ref_ref.inner.public_key.data.is_empty() {
@@ -58,7 +60,7 @@ impl GossipAcceptorReal {
                 let node_record = {database.node_by_key_mut(&gnr_ref.inner.public_key).expect("Key magically disappeared").clone ()};
                 if let Some(new_node_addr_ref) = gnr_ref.inner.node_addr_opt.as_ref() {
                     match database.node_by_key_mut (node_record.public_key ()).expect ("Key magically disappeared").set_node_addr(new_node_addr_ref) {
-                        Ok (_) => database.add_neighbor (&root_public_key, node_record.public_key ()).expect ("Key magically disappeared"),
+                        Ok (_) => (),
                         Err (NeighborhoodDatabaseError::NodeAddrAlreadySet (old_addr)) => {
                             self.logger.error(format!("Gossip attempted to change IP address of node {} from {} to {}: ignoring",
                                 &gnr_ref.inner.public_key, old_addr.ip_addr (), new_node_addr_ref.ip_addr()));
@@ -68,11 +70,14 @@ impl GossipAcceptorReal {
                 }
             } else {
                 database.add_node(&gnr_ref.to_node_record()).expect("Key magically appeared");
+                changed = true;
             }
         });
+        changed
     }
 
-    fn handle_neighbor_pairs (&self, database: &mut NeighborhoodDatabase, gossip_ref: &Gossip) {
+    fn handle_neighbor_pairs (&self, database: &mut NeighborhoodDatabase, gossip_ref: &Gossip) -> bool {
+        let mut changed = false;
         let key_ref_from_index = |index| {
             let usize_index = index as usize;
             if usize_index < gossip_ref.node_records.len () {
@@ -86,19 +91,24 @@ impl GossipAcceptorReal {
                 (Some (from_key_ref), Some (to_key_ref)) if from_key_ref == to_key_ref => self.logger.error (format! ("Gossip attempted to make node {} neighbor to itself: ignoring", from_key_ref)),
                 (Some (from_key_ref), _) if from_key_ref.data.is_empty () => self.logger.error (format! ("Rejecting neighbor reference with blank public key")),
                 (_, Some (to_key_ref)) if to_key_ref.data.is_empty () => self.logger.error (format! ("Rejecting neighbor reference with blank public key")),
-                (Some (from_key_ref), Some (to_key_ref)) => database.add_neighbor (from_key_ref, to_key_ref).expect("Should have added nodes with these keys already"),
+                (Some (from_key_ref), Some (to_key_ref)) => {
+                    changed = database.add_neighbor (from_key_ref, to_key_ref).expect("Should have added nodes with these keys already") || changed;
+                },
                 (_, _) => self.logger.error (format! ("Gossip described neighbor relationship from node #{} to node #{}, but only contained {} nodes: ignoring", neighbor_relationship.from, neighbor_relationship.to, gossip_ref.node_records.len ()))
             }
         });
+        changed
     }
 
-    fn add_ip_neighbors (&self, database: &mut NeighborhoodDatabase, gossip_ref: &Gossip) {
+    fn add_ip_neighbors (&self, database: &mut NeighborhoodDatabase, gossip_ref: &Gossip) -> bool {
+        let mut changed = false;
         let root_key_ref = database.root ().public_key ().clone ();
         gossip_ref.node_records.iter ().for_each (|gnr_ref| {
             if gnr_ref.inner.node_addr_opt.is_some () && (&gnr_ref.inner.public_key != &root_key_ref) {
-                database.add_neighbor (&root_key_ref, &gnr_ref.inner.public_key).expect ("Node magically disappeared");
+                changed = database.add_neighbor (&root_key_ref, &gnr_ref.inner.public_key).expect ("Node magically disappeared") || changed;
             }
         });
+        changed
     }
 }
 
@@ -320,5 +330,127 @@ mod tests {
         assert_eq!(database.node_by_key(incoming_node.public_key()).unwrap().neighbors(), &empty_set);
         let tlh = TestLogHandler::new();
         tlh.assert_logs_contain_in_order(vec!("ERROR: GossipAcceptorReal: Gossip described neighbor relationship from node #0 to node #42, but only contained 1 nodes: ignoring"));
+    }
+
+    #[test]
+    fn handle_returns_true_when_a_new_node_record_is_added_without_a_node_addr_or_new_edges() {
+        let this_node = make_node_record(1234, true, false);
+        let incoming_node = make_node_record(2345, false, false);
+        let mut database = NeighborhoodDatabase::new(this_node.public_key(),
+                                                     this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), cryptde ());
+        let gossip = GossipBuilder::new()
+            .node(&incoming_node, false)
+            .build();
+        let subject = GossipAcceptorReal::new();
+
+        let result = subject.handle(&mut database, gossip);
+
+        let incoming_node_ref = database.node_by_key(incoming_node.public_key()).unwrap();
+        let incoming_node_addr = incoming_node_ref.node_addr_opt();
+        assert!(incoming_node_addr.is_none());
+        assert!(result, "Gossip did not result in a change to the DB as expected")
+    }
+
+    #[test]
+    fn handle_returns_true_when_a_new_edge_is_created_between_already_known_nodes() {
+        let this_node = make_node_record(1234, true, false);
+        let existing_node = make_node_record(2345, false, false);
+        let mut database = NeighborhoodDatabase::new(this_node.public_key(),
+                                                     this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), cryptde ());
+        database.add_node(&existing_node).unwrap();
+
+        let gossip = GossipBuilder::new()
+            .node(&this_node, true)
+            .node(&existing_node, true)
+            .neighbor_pair(this_node.public_key(), existing_node.public_key())
+            .build();
+        let subject = GossipAcceptorReal::new();
+
+        let result = subject.handle(&mut database, gossip);
+
+        assert_eq!(database.has_neighbor (this_node.public_key (), existing_node.public_key ()), true);
+        assert!(result, "Gossip did not result in a change to the DB as expected")
+    }
+
+    #[test]
+    fn handle_returns_true_when_an_existing_node_record_is_updated_to_include_node_addr() {
+        let this_node = make_node_record(1234, true, false);
+
+        let existing_node_with_ip = make_node_record(2345, true, false);
+        let existing_node_without_ip = NodeRecord::new(&existing_node_with_ip.public_key().clone(), None,
+                                                       existing_node_with_ip.is_bootstrap_node(), existing_node_with_ip.complete_signature().clone(),
+                                                       existing_node_with_ip.obscured_signature().clone());
+
+        let mut database = NeighborhoodDatabase::new(this_node.public_key(),
+                                                     this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), cryptde ());
+        database.add_node(&existing_node_without_ip).unwrap();
+
+        let gossip = GossipBuilder::new()
+            .node(&existing_node_with_ip, true)
+            .build();
+        let subject = GossipAcceptorReal::new();
+
+        let result = subject.handle(&mut database, gossip);
+
+        assert_eq!(database.has_neighbor (this_node.public_key (), existing_node_with_ip.public_key ()), true);
+        assert!(result, "Gossip did not result in a change to the DB as expected")
+    }
+
+    #[test]
+    fn handle_returns_true_when_a_new_node_record_includes_a_node_addr() {
+        let this_node = make_node_record(1234, true, false);
+
+        let incoming_node = make_node_record(2345, true, false);
+
+        let mut database = NeighborhoodDatabase::new(this_node.public_key(),
+                                                     this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), cryptde ());
+
+        let gossip = GossipBuilder::new()
+            .node(&incoming_node, true)
+            .build();
+        let subject = GossipAcceptorReal::new();
+
+        let result = subject.handle(&mut database, gossip);
+
+        assert_eq!(database.has_neighbor (this_node.public_key (), incoming_node.public_key ()), true);
+        assert!(result, "Gossip did not result in a change to the DB as expected")
+    }
+
+    #[test]
+    fn handle_returns_false_when_gossip_results_in_no_changes_for_existing_node_with_no_node_addr() {
+        let this_node = make_node_record(1234, true, false);
+        let existing_node = make_node_record(2345, false, false);
+        let mut database = NeighborhoodDatabase::new(this_node.public_key(),
+                                                     this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), cryptde ());
+        database.add_node(&existing_node).unwrap();
+
+        let gossip = GossipBuilder::new()
+            .node(&existing_node, false)
+            .build();
+        let subject = GossipAcceptorReal::new();
+
+        let result = subject.handle(&mut database, gossip);
+
+        assert!(!result, "Gossip unexpectedly resulted in a change to the DB");
+    }
+
+    #[test]
+    fn handle_returns_false_when_gossip_results_in_no_changes_for_existing_node_with_node_addr() {
+        let this_node = make_node_record(1234, true, false);
+        let existing_node = make_node_record(2345, true, false);
+        let mut database = NeighborhoodDatabase::new(this_node.public_key(),
+                                                     this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), cryptde ());
+        database.add_node(&existing_node).unwrap();
+        database.add_neighbor(this_node.public_key(), existing_node.public_key());
+
+        let gossip = GossipBuilder::new()
+            .node(&existing_node, true)
+            .build();
+        let subject = GossipAcceptorReal::new();
+
+        let result = subject.handle(&mut database, gossip);
+
+        assert_eq!(database.has_neighbor (this_node.public_key (), existing_node.public_key ()), true);
+        assert!(!result, "Gossip unexpectedly resulted in a change to the DB");
     }
 }

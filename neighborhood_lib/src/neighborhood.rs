@@ -179,10 +179,11 @@ impl Handler<ExpiredCoresPackagePackage> for Neighborhood {
             Ok (p) => p,
             Err (_) => {self.logger.error (format! ("Unintelligible Gossip message received: ignoring")); return ();},
         };
-        self.logger.info (format! ("Processing Gossip about {} Nodes", incoming_gossip.node_records.len ()));
-        self.gossip_acceptor.handle (&mut self.neighborhood_database, incoming_gossip);
+        let num_nodes = incoming_gossip.node_records.len();
+        self.logger.info (format! ("Processing Gossip about {} Nodes", num_nodes));
+        let db_changed = self.gossip_acceptor.handle (&mut self.neighborhood_database, incoming_gossip);
 
-        if self.neighborhood_database.root().is_bootstrap_node() {
+        if self.neighborhood_database.root().is_bootstrap_node() && db_changed {
             self.neighborhood_database.keys().into_iter()
                 .filter (|key_ref| key_ref != &self.neighborhood_database.root ().public_key ())
                 .for_each(|key_ref| {
@@ -194,6 +195,7 @@ impl Handler<ExpiredCoresPackagePackage> for Neighborhood {
                     self.hopper.as_ref().expect("unbound hopper").try_send(package).expect("hopper is dead");
                 });
         }
+        self.logger.info (format! ("Finished processing Gossip about {} Nodes", num_nodes));
         ()
     }
 }
@@ -1506,5 +1508,46 @@ mod tests {
 
         assert_eq! (message.result.unwrap(), NodeDescriptor::new (node_record_a.public_key().clone(), Some(node_record_a.node_addr_opt().unwrap().clone())));
         assert_eq!(message.context, context_a);
+    }
+
+    // TODO keep (but modify) this test when bootstrap logic is removed!
+    #[test]
+    fn bootstrap_node_gossips_only_when_db_changes () {
+        init_test_logging();
+        let cryptde = cryptde ();
+        let this_node = NodeRecord::new_for_tests (&cryptde.public_key (), Some (&NodeAddr::new (&IpAddr::from_str ("5.4.3.2").unwrap (), &vec! (1234))), true);
+        let one_neighbor = make_node_record (2345, true, false);
+        let gossip = GossipBuilder::new ().node (&one_neighbor, true).build ();
+        let serialized_gossip = PlainData::new (&serde_cbor::ser::to_vec (&gossip).unwrap ()[..]);
+        let cores_package = ExpiredCoresPackagePackage { expired_cores_package: ExpiredCoresPackage::new (make_meaningless_route (), serialized_gossip), sender_ip: IpAddr::from_str("1.2.3.4").unwrap() };
+        let hopper = Recorder::new ();
+        let hopper_awaiter = hopper.get_awaiter ();
+        let hopper_recording = hopper.get_recording ();
+        let this_node_inside = this_node.clone ();
+        let one_neighbor_inside = one_neighbor.clone ();
+        thread::spawn (move || {
+            let system = System::new ("");
+            let mut subject = Neighborhood::new (cryptde, NeighborhoodConfig {
+                neighbor_configs: vec! (),
+                bootstrap_configs: vec! (),
+                is_bootstrap_node: true,
+                local_ip_addr: IpAddr::from_str ("5.4.3.2").unwrap (),
+                clandestine_port_list: vec! (1234),
+            });
+            subject.neighborhood_database.add_node (&one_neighbor_inside).unwrap ();
+            subject.neighborhood_database.add_neighbor (this_node_inside.public_key (), one_neighbor_inside.public_key ()).unwrap ();
+            subject.neighborhood_database.add_neighbor (one_neighbor_inside.public_key (), this_node_inside.public_key ()).unwrap ();
+            let addr: Addr<Syn, Neighborhood> = subject.start ();
+            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
+            addr.try_send(BindMessage { peer_actors }).unwrap ();
+
+            let sub: Recipient<Syn, ExpiredCoresPackagePackage> = addr.recipient::<ExpiredCoresPackagePackage> ();
+            sub.try_send (cores_package).unwrap ();
+
+            system.run ();
+        });
+        TestLogHandler::new().await_log_containing(&format!("Finished processing Gossip about 1 Nodes"), 500);
+        let locked_recording = hopper_recording.lock ().unwrap ();
+        assert_eq!(0, locked_recording.len());
     }
 }

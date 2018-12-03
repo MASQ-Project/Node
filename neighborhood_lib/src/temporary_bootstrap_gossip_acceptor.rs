@@ -22,18 +22,18 @@ pub struct TemporaryBootstrapGossipAcceptor {
 }
 
 impl GossipAcceptor for TemporaryBootstrapGossipAcceptor {
-    fn handle(&self, database: &mut NeighborhoodDatabase, gossip: Gossip) {
+    fn handle(&self, database: &mut NeighborhoodDatabase, gossip: Gossip) -> bool {
         let foreign_node_record = match Self::find_single_foreign_node_record(database, &gossip) {
             None => {
                 self.logger.error (format! ("I'm just a TemporaryBootstrapGossipAcceptor; I don't know what to do with {}-node Gossip messages!", gossip.node_records.len ()));
-                return
+                return false
             },
             Some (foreign_node_record) => foreign_node_record
         };
 
         if foreign_node_record.public_key ().data.is_empty() {
             self.logger.error(format!("Rejected Gossip from Node with blank public key"));
-            return
+            return false
         }
 
         if database.keys().len() == 1 {
@@ -41,7 +41,8 @@ impl GossipAcceptor for TemporaryBootstrapGossipAcceptor {
         } else {
             self.normal_case(database, foreign_node_record);
         }
-        self.logger.debug (format! ("After processing Gossip: {:?}", database))
+        self.logger.debug (format! ("After processing Gossip: {:?}", database));
+        true
     }
 }
 

@@ -208,12 +208,11 @@ impl NeighborhoodDatabase {
         Ok (())
     }
 
-    pub fn add_neighbor (&mut self, node_key: &Key, new_neighbor: &Key) -> Result<(), NeighborhoodDatabaseError> {
+    pub fn add_neighbor (&mut self, node_key: &Key, new_neighbor: &Key) -> Result<bool, NeighborhoodDatabaseError> {
         if !self.keys ().contains (new_neighbor) {return Err (NodeKeyNotFound (new_neighbor.clone ()))};
         match self.node_by_key_mut (node_key) {
             Some(node) => {
-                node.neighbors.insert (new_neighbor.clone ());
-                Ok(())
+                return Ok(node.neighbors.insert (new_neighbor.clone ()));
             },
             None => Err(NodeKeyNotFound(node_key.clone()))
         }
@@ -372,5 +371,30 @@ mod tests {
         assert_ne! (exemplar, mod_is_bootstrap);
         assert_ne! (exemplar, mod_complete_signature);
         assert_ne! (exemplar, mod_obscured_signature);
+    }
+
+    #[test]
+    fn add_neighbor_returns_true_when_new_edge_is_created() {
+        let this_node = make_node_record(1234, true, false);
+        let other_node = make_node_record (2345, true, false);
+        let mut subject = NeighborhoodDatabase::new(&this_node.inner.public_key, this_node.inner.node_addr_opt.as_ref ().unwrap (), false, &CryptDENull::from(this_node.public_key()));
+        subject.add_node(&other_node);
+
+        let result = subject.add_neighbor(this_node.public_key(), other_node.public_key());
+
+        assert!(result.unwrap(), "add_neighbor done goofed");
+    }
+
+    #[test]
+    fn add_neighbor_returns_false_when_edge_already_exists() {
+        let this_node = make_node_record(1234, true, false);
+        let other_node = make_node_record (2345, true, false);
+        let mut subject = NeighborhoodDatabase::new(&this_node.inner.public_key, this_node.inner.node_addr_opt.as_ref ().unwrap (), false, &CryptDENull::from(this_node.public_key()));
+        subject.add_node(&other_node);
+        subject.add_neighbor(this_node.public_key(), other_node.public_key());
+
+        let result = subject.add_neighbor(this_node.public_key(), other_node.public_key());
+
+        assert!(!result.unwrap(), "add_neighbor done goofed");
     }
 }
