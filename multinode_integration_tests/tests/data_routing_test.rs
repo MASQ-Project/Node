@@ -39,6 +39,7 @@ use test_utils::test_utils::make_meaningless_stream_key;
 use sub_lib::http_server_impersonator;
 use neighborhood_lib::neighborhood_database::NodeRecordInner;
 use neighborhood_lib::neighborhood_database::NodeRecord;
+use neighborhood_lib::neighborhood_database::NodeSignatures;
 
 #[test]
 fn http_request_to_cores_package_and_cores_package_to_http_response_test () {
@@ -70,8 +71,7 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test () {
     assert_eq! (incoming_gossip.node_records.into_iter ().collect::<HashSet<GossipNodeRecord>> (), vec! (
         GossipNodeRecord {
             inner,
-            complete_signature,
-            obscured_signature,
+            signatures: NodeSignatures::new(complete_signature, obscured_signature),
         }).into_iter ().collect::<HashSet<GossipNodeRecord>> ());
 
     let ne1_noderef = NodeReference::new (Key::new (&b"ne1"[..]), IpAddr::from_str ("100.100.100.001").unwrap (), vec! (5561));
@@ -250,14 +250,13 @@ fn make_gossip (pairs: Vec<(&NodeReference, bool)>) -> Gossip {
                 is_bootstrap_node: false,
             };
             let (complete_signature, obscured_signature) = {
-                let mut nr = NodeRecord::new(&node_ref_ref.public_key, Some(&node_ref_ref.node_addr), false, None, None);
+                let mut nr = NodeRecord::new(&node_ref_ref.public_key, Some(&node_ref_ref.node_addr), false, None);
                 nr.sign(&CryptDENull::from(&node_ref_ref.public_key));
-                (nr.complete_signature().unwrap(), nr.obscured_signature().unwrap())
+                (nr.signatures().unwrap().complete().clone(), nr.signatures().unwrap().obscured().clone())
             };
             plus (so_far, GossipNodeRecord {
                 inner,
-                complete_signature,
-                obscured_signature
+                signatures: NodeSignatures::new(complete_signature, obscured_signature)
             })
         });
     let mut gossip_neighbor_pairs = vec! ();

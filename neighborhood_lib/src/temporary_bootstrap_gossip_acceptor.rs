@@ -117,6 +117,7 @@ mod tests {
     use test_utils::logging::TestLogHandler;
     use test_utils::test_utils::cryptde;
     use sub_lib::cryptde::CryptData;
+    use neighborhood_database::NodeSignatures;
 
     #[test]
     fn adding_three_good_single_node_gossips_and_one_bad_one_produces_expected_database_pattern () {
@@ -125,7 +126,7 @@ mod tests {
         let first_node = make_node_record(2345, true, false);
         let second_node = make_node_record(3456, true, false);
         let third_node = make_node_record(4567, true, false);
-        let bad_node = NodeRecord::new (&Key::new (&[]), None, false, Some(CryptData::new(b"hello")), Some(CryptData::new(b"world")));
+        let bad_node = NodeRecord::new (&Key::new (&[]), None, false, Some(NodeSignatures::new(CryptData::new(b"hello"), CryptData::new(b"world"))));
         let mut database = NeighborhoodDatabase::new(this_node.public_key(), &this_node.node_addr_opt ().unwrap (), this_node.is_bootstrap_node(), cryptde ());
 
         let first_gossip = GossipBuilder::new().node(&first_node, true).build();

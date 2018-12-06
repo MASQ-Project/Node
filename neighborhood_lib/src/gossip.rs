@@ -4,12 +4,12 @@ use std::collections::HashMap;
 use neighborhood_database::NodeRecord;
 use neighborhood_database::NodeRecordInner;
 use sub_lib::cryptde::CryptData;
+use neighborhood_database::NodeSignatures;
 
 #[derive (Clone, PartialEq, Hash, Eq, Debug, Serialize, Deserialize)]
 pub struct GossipNodeRecord {
     pub inner: NodeRecordInner,
-    pub complete_signature: CryptData,
-    pub obscured_signature: CryptData,
+    pub signatures: NodeSignatures,
 }
 
 impl GossipNodeRecord {
@@ -28,13 +28,12 @@ impl GossipNodeRecord {
                 is_bootstrap_node: node_record_ref.is_bootstrap_node()
             },
             // crashpoint
-            complete_signature: node_record_ref.complete_signature().expect("Attempted to create Gossip about an unsigned NodeRecord"),
-            obscured_signature: node_record_ref.obscured_signature().expect("Attempted to create Gossip about an unsigned NodeRecord"),
+            signatures: node_record_ref.signatures().expect("Attempted to create Gossip about an unsigned NodeRecord"),
         }
     }
 
     pub fn to_node_record(&self) -> NodeRecord {
-        NodeRecord::new (&self.inner.public_key, self.inner.node_addr_opt.as_ref(), self.inner.is_bootstrap_node, Some(self.complete_signature.clone()), Some(self.obscured_signature.clone()))
+        NodeRecord::new (&self.inner.public_key, self.inner.node_addr_opt.as_ref(), self.inner.is_bootstrap_node, Some(self.signatures.clone()))
     }
 }
 
@@ -71,7 +70,7 @@ impl GossipBuilder {
             // crashpoint
             panic! ("GossipBuilder cannot add a node more than once")
         }
-        if node_record_ref.complete_signature() != None && node_record_ref.obscured_signature() != None {
+        if node_record_ref.signatures().is_some() {
             self.gossip.node_records.push (GossipNodeRecord::from (node_record_ref, reveal_node_addr));
             self.key_to_index.insert (node_record_ref.public_key ().clone (), (self.gossip.node_records.len () - 1) as u32);
         }
@@ -157,13 +156,10 @@ mod tests {
     }
 
     #[test]
-    fn adding_node_with_missing_signature_results_in_no_added_node() {
+    fn adding_node_with_missing_signatures_results_in_no_added_node() {
         let builder = GossipBuilder::new();
 
-        let node = NodeRecord::new(&Key::new(&[5, 4, 3, 2]), Some(&NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec!(1234))), false, None, Some(CryptData::new(b"hello")));
-        let builder = builder.node(&node, true);
-
-        let node = NodeRecord::new(&Key::new(&[5, 4, 3, 2]), Some(&NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec!(1234))), false, Some(CryptData::new(b"hello")), None);
+        let node = NodeRecord::new(&Key::new(&[5, 4, 3, 2]), Some(&NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec!(1234))), false, None);
         let builder = builder.node(&node, true);
 
         let gossip = builder.build();
@@ -172,16 +168,8 @@ mod tests {
 
     #[test]
     #[should_panic (expected = "Attempted to create Gossip about an unsigned NodeRecord")]
-    fn gossip_node_record_cannot_be_created_from_node_with_missing_complete_signature() {
-        let node = NodeRecord::new(&Key::new(&[5, 4, 3, 2]), Some(&NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec!(1234))), false, None, Some(CryptData::new(b"hello")));
-
-        let _gossip = GossipNodeRecord::from(&node, true);
-    }
-
-    #[test]
-    #[should_panic (expected = "Attempted to create Gossip about an unsigned NodeRecord")]
-    fn gossip_node_record_cannot_be_created_from_node_with_missing_obscured_signature() {
-        let node = NodeRecord::new(&Key::new(&[5, 4, 3, 2]), Some(&NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec!(1234))), false, Some(CryptData::new(b"hello")), None);
+    fn gossip_node_record_cannot_be_created_from_node_with_missing_signatures() {
+        let node = NodeRecord::new(&Key::new(&[5, 4, 3, 2]), Some(&NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec!(1234))), false, None);
 
         let _gossip = GossipNodeRecord::from(&node, true);
     }

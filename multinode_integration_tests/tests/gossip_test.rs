@@ -32,6 +32,7 @@ use multinode_integration_tests_lib::substratum_mock_node::SubstratumMockNode;
 use neighborhood_lib::neighborhood_database::NodeRecordInner;
 use neighborhood_lib::neighborhood_database::NodeRecord;
 use sub_lib::cryptde_null::CryptDENull;
+use neighborhood_lib::neighborhood_database::NodeSignatures;
 
 fn make_gossip_record(node: &SubstratumNode, is_bootstrap_node: bool, reveal_ip: bool) -> GossipNodeRecord {
     let mut inner = NodeRecordInner {
@@ -48,18 +49,17 @@ fn make_gossip_record(node: &SubstratumNode, is_bootstrap_node: bool, reveal_ip:
         is_bootstrap_node
     };
     let obscured_signature = obscured_inner.generate_signature(&cryptde);
+    let signatures = NodeSignatures::new(complete_signature, obscured_signature);
 
     if reveal_ip {
         GossipNodeRecord {
             inner,
-            complete_signature,
-            obscured_signature,
+            signatures,
         }
     } else {
         GossipNodeRecord {
             inner: obscured_inner,
-            complete_signature,
-            obscured_signature,
+            signatures,
         }
     }
 }
@@ -85,14 +85,13 @@ fn standard_node_sends_gossip_to_bootstrap_upon_startup () {
         is_bootstrap_node: false,
     };
     let (complete_signature, obscured_signature) = {
-        let mut nr = NodeRecord::new(&node_ref.public_key, Some(&node_ref.node_addr), false, None, None);
+        let mut nr = NodeRecord::new(&node_ref.public_key, Some(&node_ref.node_addr), false, None);
         nr.sign(&CryptDENull::from(&node_ref.public_key));
-        (nr.complete_signature().unwrap(), nr.obscured_signature().unwrap())
+        (nr.signatures().unwrap().complete().clone(), nr.signatures().unwrap().obscured().clone())
     };
     find (&gossip.node_records, GossipNodeRecord {
         inner,
-        complete_signature,
-        obscured_signature
+        signatures: NodeSignatures::new(complete_signature, obscured_signature),
     });
 }
 

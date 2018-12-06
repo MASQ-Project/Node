@@ -243,7 +243,7 @@ impl Neighborhood {
         let add_node = |neighborhood_database: &mut NeighborhoodDatabase, neighbor: &(Key, NodeAddr), is_bootstrap_node: bool| {
             let (key, node_addr) = neighbor;
             let root_key_ref = &neighborhood_database.root().public_key().clone();
-            neighborhood_database.add_node(&NodeRecord::new(&key, Some(&node_addr), is_bootstrap_node, None, None)).expect(&format! ("Database already contains node {:?}", key));
+            neighborhood_database.add_node(&NodeRecord::new(&key, Some(&node_addr), is_bootstrap_node, None)).expect(&format! ("Database already contains node {:?}", key));
             neighborhood_database.add_neighbor(root_key_ref, &key).expect("internal error");
         };
 
@@ -1103,7 +1103,7 @@ mod tests {
         let this_node = NodeRecord::new_for_tests (&cryptde.public_key (), Some (&NodeAddr::new (&IpAddr::from_str ("5.4.3.2").unwrap (), &vec! (1234))), false);
         let one_neighbor = make_node_record (2345, false, false);
         let bootstrap_temp = make_node_record (4567, true, true);
-        let bootstrap_neighbor = NodeRecord::new(&bootstrap_temp.public_key(), Some(&bootstrap_temp.node_addr_opt().unwrap()), true, None, None);
+        let bootstrap_neighbor = NodeRecord::new(&bootstrap_temp.public_key(), Some(&bootstrap_temp.node_addr_opt().unwrap()), true, None);
         let gossip = GossipBuilder::new ()
             .node (&one_neighbor, false)
             .build ();

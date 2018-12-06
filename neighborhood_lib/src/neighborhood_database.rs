@@ -37,25 +37,46 @@ impl NodeRecordInner {
     }
 }
 
+#[derive (Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub struct NodeSignatures {
+    complete: CryptData,
+    obscured: CryptData,
+}
+
+impl NodeSignatures {
+    pub fn new(complete: CryptData, obscured: CryptData) -> NodeSignatures {
+        NodeSignatures {
+            complete,
+            obscured
+        }
+    }
+
+    pub fn complete(&self) -> &CryptData {
+        &self.complete
+    }
+
+    pub fn obscured(&self) -> &CryptData {
+        &self.obscured
+    }
+}
+
 #[derive (Clone, Debug)]
 pub struct NodeRecord {
     neighbors: HashSet<Key>,
     // NOTE: If you add fields here, drive them into the implementation of PartialEq below.
     inner: NodeRecordInner,
-    complete_signature: Option<CryptData>,
-    obscured_signature: Option<CryptData>,
+    signatures: Option<NodeSignatures>,
 }
 
 impl PartialEq for NodeRecord {
     fn eq(&self, other: &NodeRecord) -> bool {
         self.inner == other.inner &&
-        self.complete_signature == other.complete_signature &&
-        self.obscured_signature == other.obscured_signature
+        self.signatures == other.signatures
     }
 }
 
 impl NodeRecord {
-    pub fn new (public_key: &Key, node_addr_opt: Option<&NodeAddr>, is_bootstrap_node: bool, complete_signature: Option<CryptData>, obscured_signature: Option<CryptData>) -> NodeRecord {
+    pub fn new (public_key: &Key, node_addr_opt: Option<&NodeAddr>, is_bootstrap_node: bool, signatures: Option<NodeSignatures>) -> NodeRecord {
         NodeRecord {
             neighbors: HashSet::new (),
             inner: NodeRecordInner{
@@ -66,8 +87,7 @@ impl NodeRecord {
                 },
                 is_bootstrap_node,
             },
-            complete_signature,
-            obscured_signature,
+            signatures,
         }
     }
 
@@ -93,6 +113,19 @@ impl NodeRecord {
         }
     }
 
+    pub fn set_signatures(&mut self, signatures: NodeSignatures) -> Result<bool, NeighborhoodDatabaseError> {
+        if self.signatures.is_none() {
+            self.signatures = Some(signatures);
+            Ok(true)
+        } else {
+            if &signatures == self.signatures.as_ref().unwrap() {
+                Ok(false)
+            } else {
+                Err(NeighborhoodDatabaseError::NodeSignaturesAlreadySet(self.signatures.clone().expect("Node Signatures magically disappeared")))
+            }
+        }
+    }
+
     pub fn neighbors(&self) -> &HashSet<Key> {
         &self.neighbors
     }
@@ -105,23 +138,21 @@ impl NodeRecord {
         self.neighbors.contains (public_key)
     }
 
-    pub fn complete_signature(&self) -> Option<CryptData> {
-        self.complete_signature.clone()
-    }
-
-    pub fn obscured_signature(&self) -> Option<CryptData> {
-        self.obscured_signature.clone()
+    pub fn signatures(&self) -> Option<NodeSignatures> {
+        self.signatures.clone()
     }
 
     pub fn sign(&mut self, cryptde: &CryptDE) {
-        self.complete_signature = Some(self.inner.generate_signature(cryptde));
+        let complete_signature = self.inner.generate_signature(cryptde);
 
         let obscured_inner = NodeRecordInner {
             public_key: self.inner.clone().public_key,
             node_addr_opt: None,
             is_bootstrap_node: self.inner.is_bootstrap_node,
         };
-        self.obscured_signature = Some(obscured_inner.generate_signature(cryptde));
+        let obscured_signature = obscured_inner.generate_signature(cryptde);
+
+        self.signatures = Some(NodeSignatures::new(complete_signature, obscured_signature));
     }
 }
 
@@ -140,7 +171,7 @@ impl NeighborhoodDatabase {
             by_ip_addr: HashMap::new (),
         };
 
-        let mut node_record = NodeRecord::new (public_key, Some(node_addr), is_bootstrap_node, None, None);
+        let mut node_record = NodeRecord::new (public_key, Some(node_addr), is_bootstrap_node, None);
         node_record.sign(cryptde);
         result.add_node (&node_record).expect ("Unable to add self NodeRecord to Neighborhood");
         result
@@ -224,6 +255,7 @@ pub enum NeighborhoodDatabaseError {
     NodeKeyNotFound (Key),
     NodeKeyCollision (Key),
     NodeAddrAlreadySet (NodeAddr),
+    NodeSignaturesAlreadySet (NodeSignatures)
 }
 
 #[cfg (test)]
@@ -352,15 +384,49 @@ mod tests {
     }
 
     #[test]
+    fn set_signatures_returns_true_when_signatures_are_not_set() {
+        let mut subject_signed = make_node_record(1234, false, false);
+        let mut subject = NodeRecord::new(subject_signed.public_key(), subject_signed.node_addr_opt().as_ref(), subject_signed.is_bootstrap_node(), None);
+
+        assert_eq!(subject.signatures(), None);
+
+        let signatures = NodeSignatures::new(CryptData::new(&[123, 456, 789]), CryptData::new(&[987, 654, 321]));
+
+        let result = subject.set_signatures(signatures.clone());
+
+        assert_eq!(result, Ok((true)));
+        assert_eq!(subject.signatures(), Some(signatures.clone()));
+
+    }
+
+    #[test]
+    fn set_signatures_returns_false_when_signatures_match() {
+        let mut subject = make_node_record(1234, false, false);
+
+        let signatures = subject.signatures().unwrap().clone();
+        let result = subject.set_signatures(signatures);
+
+        assert_eq!(result, Ok((false)));
+    }
+
+    #[test]
+    fn set_signatures_returns_error_when_signatures_differ() {
+        let mut subject = make_node_record(1234, false, false);
+
+        let result = subject.set_signatures(NodeSignatures::new(CryptData::new(&[1, 2, 3]), CryptData::new(&[9, 8, 7])));
+
+        assert_eq!(result, Err(NeighborhoodDatabaseError::NodeSignaturesAlreadySet(subject.signatures().unwrap())));
+    }
+
+    #[test]
     fn node_record_partial_eq () {
-        let exemplar = NodeRecord::new (&Key::new (&b"poke"[..]), Some (&NodeAddr::new (&IpAddr::from_str ("1.2.3.4").unwrap (), &vec! (1234))), true, None, None);
-        let duplicate = NodeRecord::new (&Key::new (&b"poke"[..]), Some (&NodeAddr::new (&IpAddr::from_str ("1.2.3.4").unwrap (), &vec! (1234))), true, None, None);
-        let mut with_neighbor = NodeRecord::new (&Key::new (&b"poke"[..]), Some (&NodeAddr::new (&IpAddr::from_str ("1.2.3.4").unwrap (), &vec! (1234))), true, None, None);
-        let mod_key = NodeRecord::new (&Key::new (&b"kope"[..]), Some (&NodeAddr::new (&IpAddr::from_str ("1.2.3.4").unwrap (), &vec! (1234))), true, None, None);
-        let mod_node_addr = NodeRecord::new (&Key::new (&b"poke"[..]), Some (&NodeAddr::new (&IpAddr::from_str ("1.2.3.5").unwrap (), &vec! (1234))), true, None, None);
-        let mod_is_bootstrap = NodeRecord::new (&Key::new (&b"poke"[..]), Some (&NodeAddr::new (&IpAddr::from_str ("1.2.3.4").unwrap (), &vec! (1234))), false, None, None);
-        let mod_complete_signature = NodeRecord::new (&Key::new(&b"poke"[..]), Some(&NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec!(1234))), true, Some(CryptData::new(b"")), exemplar.obscured_signature().clone());
-        let mod_obscured_signature = NodeRecord::new (&Key::new(&b"poke"[..]), Some(&NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec!(1234))), true, exemplar.complete_signature().clone(), Some(CryptData::new(b"")));
+        let exemplar = NodeRecord::new (&Key::new (&b"poke"[..]), Some (&NodeAddr::new (&IpAddr::from_str ("1.2.3.4").unwrap (), &vec! (1234))), true, None);
+        let duplicate = NodeRecord::new (&Key::new (&b"poke"[..]), Some (&NodeAddr::new (&IpAddr::from_str ("1.2.3.4").unwrap (), &vec! (1234))), true, None);
+        let mut with_neighbor = NodeRecord::new (&Key::new (&b"poke"[..]), Some (&NodeAddr::new (&IpAddr::from_str ("1.2.3.4").unwrap (), &vec! (1234))), true, None);
+        let mod_key = NodeRecord::new (&Key::new (&b"kope"[..]), Some (&NodeAddr::new (&IpAddr::from_str ("1.2.3.4").unwrap (), &vec! (1234))), true, None);
+        let mod_node_addr = NodeRecord::new (&Key::new (&b"poke"[..]), Some (&NodeAddr::new (&IpAddr::from_str ("1.2.3.5").unwrap (), &vec! (1234))), true, None);
+        let mod_is_bootstrap = NodeRecord::new (&Key::new (&b"poke"[..]), Some (&NodeAddr::new (&IpAddr::from_str ("1.2.3.4").unwrap (), &vec! (1234))), false, None);
+        let mod_signatures = NodeRecord::new (&Key::new(&b"poke"[..]), Some(&NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec!(1234))), true, Some(NodeSignatures::new(CryptData::new(b""), CryptData::new(b""))));
         with_neighbor.neighbors.insert (mod_key.public_key ().clone ());
 
         assert_eq! (exemplar, exemplar);
@@ -369,8 +435,7 @@ mod tests {
         assert_ne! (exemplar, mod_key);
         assert_ne! (exemplar, mod_node_addr);
         assert_ne! (exemplar, mod_is_bootstrap);
-        assert_ne! (exemplar, mod_complete_signature);
-        assert_ne! (exemplar, mod_obscured_signature);
+        assert_ne! (exemplar, mod_signatures);
     }
 
     #[test]

@@ -36,7 +36,7 @@ pub fn neighbor_keys_of<'a>(database_ref: &'a NeighborhoodDatabase, node_record:
 
 impl NodeRecord {
     pub fn new_for_tests(public_key: &Key, node_addr_opt: Option<&NodeAddr>, is_bootstrap_node: bool) -> NodeRecord {
-        let mut node_record = NodeRecord::new(public_key, node_addr_opt, is_bootstrap_node, None, None);
+        let mut node_record = NodeRecord::new(public_key, node_addr_opt, is_bootstrap_node, None);
         node_record.sign(&CryptDENull::from(&public_key));
         node_record
     }
