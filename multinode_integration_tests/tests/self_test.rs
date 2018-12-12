@@ -4,6 +4,7 @@ extern crate sub_lib;
 extern crate multinode_integration_tests_lib;
 extern crate node_lib;
 extern crate serde_cbor;
+extern crate test_utils;
 
 use std::collections::HashSet;
 use std::net::IpAddr;
@@ -29,6 +30,7 @@ use multinode_integration_tests_lib::substratum_node::NodeReference;
 use sub_lib::neighborhood::sentinel_ip_addr;
 use sub_lib::cryptde::Key;
 use multinode_integration_tests_lib::main::CONTROL_STREAM_PORT;
+use test_utils::test_utils::wait_for;
 
 #[test]
 fn establishes_substratum_node_cluster_from_nothing () {
@@ -70,9 +72,9 @@ fn dropping_node_and_cluster_cleans_up () {
         cluster.start_mock_node(vec!(1234));
     }
 
-    assert_eq! (node_is_running (real_ip_addr, 80), false);
-    assert_eq! (node_is_running (mock_ip_addr, CONTROL_STREAM_PORT), false);
-    assert_eq! (network_is_running (), false);
+    wait_for (None, None, || !node_is_running (real_ip_addr, 80));
+    wait_for (None, None, || !node_is_running (mock_ip_addr, CONTROL_STREAM_PORT));
+    wait_for (None, None, || !network_is_running ());
 }
 
 #[test]

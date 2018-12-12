@@ -247,6 +247,17 @@ pub fn await_messages<T>(expected_message_count: usize, messages_arc_mutex: &Arc
     }
 }
 
+pub fn wait_for<F> (interval_ms: Option<u64>, limit_ms: Option<u64>, f: F) where F: Fn () -> bool {
+    let real_interval_ms = interval_ms.unwrap_or (250);
+    let real_limit_ms = limit_ms.unwrap_or (1000);
+    let time_limit = Instant::now () + Duration::from_millis (real_limit_ms);
+    while !f () {
+        assert_eq! (Instant::now () < time_limit, true,
+                    "Timeout: waited for more than {}ms", real_limit_ms);
+        thread::sleep (Duration::from_millis (real_interval_ms));
+    }
+}
+
 #[cfg (test)]
 mod tests {
     use super::*;

@@ -116,6 +116,7 @@ impl GossipAcceptorReal {
         gossip_ref.node_records.iter ().for_each (|gnr_ref| {
             if gnr_ref.inner.node_addr_opt.is_some () && (&gnr_ref.inner.public_key != &root_key_ref) {
                 changed = database.add_neighbor (&root_key_ref, &gnr_ref.inner.public_key).expect ("Node magically disappeared") || changed;
+                changed = database.add_neighbor (&gnr_ref.inner.public_key, &root_key_ref).expect ("Node magically disappeared") || changed;
             }
         });
         changed
@@ -211,8 +212,8 @@ mod tests {
 
         assert_eq!(neighbor_keys_of(&database, &existing_node),
                    vec_to_set(vec!(neighbor_one.public_key(), neighbor_two.public_key())));
-        assert_eq!(neighbor_keys_of(&database, &neighbor_one), HashSet::new());
-        assert_eq!(neighbor_keys_of(&database, &neighbor_two), HashSet::new());
+        assert_eq!(neighbor_keys_of(&database, &neighbor_one), vec_to_set(vec!(existing_node.public_key())));
+        assert_eq!(neighbor_keys_of(&database, &neighbor_two), vec_to_set(vec!(existing_node.public_key())));
         assert_eq!(neighbor_keys_of(&database, &not_a_neighbor_one), HashSet::new());
         assert_eq!(neighbor_keys_of(&database, &not_a_neighbor_two), HashSet::new());
         assert_eq!(database.keys().len(), 5);
@@ -285,8 +286,7 @@ mod tests {
 
         subject.handle(&mut database, gossip);
 
-        let empty_set: HashSet<Key> = HashSet::new();
-        assert_eq!(database.node_by_key(left_twin.public_key()).unwrap().neighbors(), &empty_set);
+        assert_eq!(database.node_by_key(left_twin.public_key()).unwrap().neighbors(), &vec_to_set(vec!(this_node.public_key().clone())));
         let tlh = TestLogHandler::new();
         tlh.assert_logs_contain_in_order(vec!("ERROR: GossipAcceptorReal: Gossip attempted to make node AgMEBQ neighbor to itself: ignoring"));
     }
@@ -311,8 +311,7 @@ mod tests {
 
         subject.handle(&mut database, gossip);
 
-        let empty_set: HashSet<Key> = HashSet::new();
-        assert_eq!(database.node_by_key(incoming_node.public_key()).unwrap().neighbors(), &empty_set);
+        assert_eq!(database.node_by_key(incoming_node.public_key()).unwrap().neighbors(), &vec_to_set(vec!(this_node.public_key().clone())));
         let tlh = TestLogHandler::new();
         tlh.assert_logs_contain_in_order(vec!("ERROR: GossipAcceptorReal: Gossip described neighbor relationship from node #42 to node #0, but only contained 1 nodes: ignoring"));
     }
@@ -337,8 +336,7 @@ mod tests {
 
         subject.handle(&mut database, gossip);
 
-        let empty_set: HashSet<Key> = HashSet::new();
-        assert_eq!(database.node_by_key(incoming_node.public_key()).unwrap().neighbors(), &empty_set);
+        assert_eq!(database.node_by_key(incoming_node.public_key()).unwrap().neighbors(), &vec_to_set(vec!(this_node.public_key().clone())));
         let tlh = TestLogHandler::new();
         tlh.assert_logs_contain_in_order(vec!("ERROR: GossipAcceptorReal: Gossip described neighbor relationship from node #0 to node #42, but only contained 1 nodes: ignoring"));
     }
@@ -478,6 +476,7 @@ mod tests {
                                                      this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), cryptde ());
         database.add_node(&existing_node).unwrap();
         database.add_neighbor(this_node.public_key(), existing_node.public_key());
+        database.add_neighbor(existing_node.public_key(), this_node.public_key());
 
         let gossip = GossipBuilder::new()
             .node(&existing_node, true)
@@ -499,6 +498,7 @@ mod tests {
 
         database.add_node(&neighbor).unwrap();
         database.add_neighbor(this_node.public_key(), neighbor.public_key());
+        database.add_neighbor(neighbor.public_key(), this_node.public_key());
 
         let gossip = GossipBuilder::new()
             .node(&malefactor, true)

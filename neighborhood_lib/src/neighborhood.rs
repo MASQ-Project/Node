@@ -26,7 +26,6 @@ use gossip_acceptor::GossipAcceptor;
 use sub_lib::neighborhood::NeighborhoodConfig;
 use neighborhood_database::NodeRecord;
 use gossip::Gossip;
-use temporary_bootstrap_gossip_acceptor::TemporaryBootstrapGossipAcceptor;
 use gossip_producer::GossipProducerReal;
 use gossip_producer::GossipProducer;
 use sub_lib::logger::Logger;
@@ -181,9 +180,9 @@ impl Handler<ExpiredCoresPackagePackage> for Neighborhood {
         };
         let num_nodes = incoming_gossip.node_records.len();
         self.logger.info (format! ("Processing Gossip about {} Nodes", num_nodes));
-        let db_changed = self.gossip_acceptor.handle (&mut self.neighborhood_database, incoming_gossip);
 
-        if self.neighborhood_database.root().is_bootstrap_node() && db_changed {
+        let db_changed = self.gossip_acceptor.handle (&mut self.neighborhood_database, incoming_gossip);
+        if db_changed {
             self.neighborhood_database.keys().into_iter()
                 .filter (|key_ref| key_ref != &self.neighborhood_database.root ().public_key ())
                 .for_each(|key_ref| {
@@ -231,11 +230,7 @@ impl Neighborhood {
         else if (config.neighbor_configs.is_empty () && config.bootstrap_configs.is_empty () && !config.is_bootstrap_node) || config.clandestine_port_list.is_empty () {
             panic! ("An --ip setting indicates that you want to decentralize, but you also need at least one --neighbor or --bootstrap_from setting or --node_type bootstrap for that, and a --port_count greater than 0")
         }
-        let gossip_acceptor : Box<GossipAcceptor> = if config.is_bootstrap_node {
-            Box::new (TemporaryBootstrapGossipAcceptor::new ())
-        } else {
-            Box::new (GossipAcceptorReal::new())
-        };
+        let gossip_acceptor : Box<GossipAcceptor> = Box::new (GossipAcceptorReal::new());
         let gossip_producer = Box::new (GossipProducerReal::new ());
         let local_node_addr = NodeAddr::new (&config.local_ip_addr, &config.clandestine_port_list);
         let mut neighborhood_database = NeighborhoodDatabase::new (&cryptde.public_key(), &local_node_addr, config.is_bootstrap_node, cryptde);
@@ -1007,7 +1002,7 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_node_receives_gossip_and_replies () {
+    fn node_receives_gossip_and_replies () {
         let cryptde = cryptde ();
         let this_node = NodeRecord::new_for_tests (&cryptde.public_key (), Some (&NodeAddr::new (&IpAddr::from_str ("5.4.3.2").unwrap (), &vec! (1234))), true);
         let one_neighbor = make_node_record (2345, true, false);
@@ -1048,12 +1043,12 @@ mod tests {
         let checked_keys_inside = checked_keys.clone ();
         package_refs.into_iter ().for_each (|package| {
             if &find_package_target (package) == gossip_neighbor.public_key () {
-                checked_keys_inside.lock ().unwrap ().insert (one_neighbor.public_key ());
-                check_outgoing_package(package, &one_neighbor, &gossip_neighbor, &this_node);
+                checked_keys_inside.lock ().unwrap ().insert (gossip_neighbor.public_key ());
+                check_outgoing_package(package, &this_node, &gossip_neighbor, &one_neighbor);
             }
             else {
-                checked_keys_inside.lock ().unwrap ().insert (gossip_neighbor.public_key ());
-                check_outgoing_package(package, &gossip_neighbor, &one_neighbor, &this_node);
+                checked_keys_inside.lock ().unwrap ().insert (one_neighbor.public_key ());
+                check_outgoing_package(package, &this_node, &one_neighbor, &gossip_neighbor);
             }
         });
         assert_eq! (checked_keys.lock ().unwrap ().len (), 2);
@@ -1095,42 +1090,6 @@ mod tests {
         assert_contains (&gossip.node_records, &GossipNodeRecord::from (&this_node, true));
         assert_eq! (gossip.node_records.len (), 1);
         assert_eq! (gossip.neighbor_pairs, vec! ());
-    }
-
-    #[test]
-    fn standard_node_accepts_gossip_properly() {
-        let cryptde = cryptde ();
-        let this_node = NodeRecord::new_for_tests (&cryptde.public_key (), Some (&NodeAddr::new (&IpAddr::from_str ("5.4.3.2").unwrap (), &vec! (1234))), false);
-        let one_neighbor = make_node_record (2345, false, false);
-        let bootstrap_temp = make_node_record (4567, true, true);
-        let bootstrap_neighbor = NodeRecord::new(&bootstrap_temp.public_key(), Some(&bootstrap_temp.node_addr_opt().unwrap()), true, None);
-        let gossip = GossipBuilder::new ()
-            .node (&one_neighbor, false)
-            .build ();
-        let serialized_gossip = PlainData::new (&serde_cbor::ser::to_vec (&gossip).unwrap ()[..]);
-        let cores_package = ExpiredCoresPackagePackage { expired_cores_package: ExpiredCoresPackage::new (make_meaningless_route (), serialized_gossip), sender_ip: IpAddr::from_str("1.2.3.4").unwrap() };
-        let mut subject = Neighborhood::new (cryptde, NeighborhoodConfig {
-            neighbor_configs: vec! (),
-            bootstrap_configs: vec! ((bootstrap_neighbor.public_key ().clone (), bootstrap_neighbor.node_addr_opt ().unwrap ().clone ())),
-            is_bootstrap_node: false,
-            local_ip_addr: IpAddr::from_str ("5.4.3.2").unwrap (),
-            clandestine_port_list: vec! (1234),
-        });
-
-        // Warning: creating (unsafe!) mutable reference to Context<Neighborhood> at address 0. Will
-        // pop a segmentation fault if used. Wouldn't do this, except that otherwise we can't access
-        // the database to see the changes once .start() has been called on the actor.
-        let null_ptr = 0 as *mut Context<Neighborhood>;
-        let null_ctx_ref = unsafe {&mut *null_ptr as &mut Context<Neighborhood>};
-
-        subject.handle (cores_package, null_ctx_ref);
-
-        let database = subject.neighborhood_database;
-        assert_eq!(database.keys (), vec_to_set(vec! (this_node.public_key (), one_neighbor.public_key (), bootstrap_neighbor.public_key ())));
-        assert_eq!(database.node_by_key(this_node.public_key()).unwrap(), &this_node);
-        assert_eq!(database.node_by_key(one_neighbor.public_key()).unwrap(), &one_neighbor);
-        assert_eq!(database.node_by_key(bootstrap_neighbor.public_key()).unwrap(), &bootstrap_neighbor);
-        check_is_neighbor(&database, &this_node, &bootstrap_neighbor);
     }
 
     #[test]
@@ -1265,16 +1224,17 @@ mod tests {
         assert_eq!(hop.component, Component::Neighborhood);
     }
 
-    fn check_outgoing_package(cores_package: &IncipientCoresPackage, neighbor: &NodeRecord, target: &NodeRecord, bootstrap: &NodeRecord) -> NeighborhoodDatabase {
+    fn check_outgoing_package(cores_package: &IncipientCoresPackage, neighbor: &NodeRecord, target: &NodeRecord, far_neighbor: &NodeRecord) -> NeighborhoodDatabase {
         check_direct_route_to (&cores_package.route, target.public_key ());
         assert_eq!(&cores_package.payload_destination_key, target.public_key());
         let deserialized_payload: Gossip = serde_cbor::de::from_slice(&cores_package.payload.data[..]).unwrap();
         let mut database = NeighborhoodDatabase::new(target.public_key(), &target.node_addr_opt().unwrap (), false, &CryptDENull::from(target.public_key()));
         GossipAcceptorReal::new().handle(&mut database, deserialized_payload);
-        assert_eq!(database.keys(), vec_to_set(vec!(neighbor.public_key(), target.public_key(), bootstrap.public_key ())));
+        assert_eq!(database.keys(), vec_to_set(vec!(neighbor.public_key(), target.public_key(), far_neighbor.public_key ())));
         assert_eq!(database.node_by_key(neighbor.public_key()).unwrap(), neighbor);
         assert_eq!(database.node_by_key(target.public_key()).unwrap(), target);
-        assert_eq!(database.node_by_key(bootstrap.public_key()).unwrap(), bootstrap);
+        let far_neighbor_hidden = NodeRecord::new(far_neighbor.public_key(), None, far_neighbor.is_bootstrap_node(), far_neighbor.signatures().clone());
+        assert_eq!(database.node_by_key(far_neighbor.public_key()).unwrap(), &far_neighbor_hidden);
         check_is_neighbor(&database, neighbor, target);
         check_is_neighbor(&database, target, neighbor);
         database
@@ -1510,12 +1470,12 @@ mod tests {
         assert_eq!(message.context, context_a);
     }
 
-    // TODO keep (but modify) this test when bootstrap logic is removed!
     #[test]
-    fn bootstrap_node_gossips_only_when_db_changes () {
+    fn node_gossips_only_when_db_changes () {
         init_test_logging();
         let cryptde = cryptde ();
-        let this_node = NodeRecord::new_for_tests (&cryptde.public_key (), Some (&NodeAddr::new (&IpAddr::from_str ("5.4.3.2").unwrap (), &vec! (1234))), true);
+        let bootstrap_node = make_node_record(5648, true, true);
+        let this_node = NodeRecord::new_for_tests (&cryptde.public_key (), Some (&NodeAddr::new (&IpAddr::from_str ("5.4.3.2").unwrap (), &vec! (1234))), false);
         let one_neighbor = make_node_record (2345, true, false);
         let gossip = GossipBuilder::new ().node (&one_neighbor, true).build ();
         let serialized_gossip = PlainData::new (&serde_cbor::ser::to_vec (&gossip).unwrap ()[..]);
@@ -1529,8 +1489,8 @@ mod tests {
             let system = System::new ("");
             let mut subject = Neighborhood::new (cryptde, NeighborhoodConfig {
                 neighbor_configs: vec! (),
-                bootstrap_configs: vec! (),
-                is_bootstrap_node: true,
+                bootstrap_configs: vec! ((bootstrap_node.public_key().clone(), bootstrap_node.node_addr_opt().unwrap())),
+                is_bootstrap_node: false,
                 local_ip_addr: IpAddr::from_str ("5.4.3.2").unwrap (),
                 clandestine_port_list: vec! (1234),
             });

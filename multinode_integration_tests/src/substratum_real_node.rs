@@ -282,8 +282,8 @@ impl SubstratumRealNode {
         let v_param = format!("{}:/node_root/node", node_command_dir);
         let mut docker_args = Command::strings(vec!("run", "--detach", "--ip",
             ip_addr_string.as_str(), "--dns", "127.0.0.1", "--name", name_string.as_str(),
-            "--net", "integration_net", "-v", v_param.as_str(), "test_node_image",
-            "/node_root/node/SubstratumNode"));
+            "--net", "integration_net", "-v", v_param.as_str(), "-e", "RUST_BACKTRACE=full",
+            "test_node_image", "/node_root/node/SubstratumNode"));
         docker_args.extend(node_args);
         let mut command = Command::new(docker_command, docker_args);
         command.stdout_or_stderr()?;

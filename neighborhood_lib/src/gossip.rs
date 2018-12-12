@@ -79,8 +79,8 @@ impl GossipBuilder {
 
     pub fn neighbor_pair (mut self, from: &Key, to: &Key) -> GossipBuilder {
         {
-            let from_index = self.key_to_index.get(from).expect("Internal error");
-            let to_index = self.key_to_index.get(to).expect("Internal error");
+            let from_index = self.key_to_index.get(from).expect(&format!("From node ({}) in neighbor_pair not in Gossip", from));
+            let to_index = self.key_to_index.get(to).expect(&format!("To node ({}) in neighbor_pair not in Gossip", to));
             self.gossip.neighbor_pairs.push(NeighborRelationship {
                 from: *from_index,
                 to: *to_index

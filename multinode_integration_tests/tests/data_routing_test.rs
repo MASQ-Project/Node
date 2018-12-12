@@ -83,6 +83,8 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test () {
     let outgoing_package = IncipientCoresPackage::new (route, outgoing_gossip, &subject.public_key ());
     mock_bootstrap.transmit_package (5551, outgoing_package, &masquerader, &subject.public_key (), subject.socket_addr (PortSelector::First)).unwrap ();
 
+    mock_standard.wait_for_package(&masquerader, Duration::from_millis(1000)).unwrap();
+
     // It'd be nice if there were a better way to ensure that the Gossip had been consumed.
     thread::sleep (Duration::from_millis (1000));
 
@@ -136,6 +138,8 @@ fn cores_package_to_http_request_and_http_response_to_cores_package_test () {
     let outgoing_package = IncipientCoresPackage::new (route, outgoing_gossip, &subject.public_key ());
     mock_bootstrap.transmit_package (5551, outgoing_package, &masquerader, &subject.public_key (), subject.socket_addr (PortSelector::First)).unwrap ();
 
+    mock_standard.wait_for_package (&masquerader, Duration::from_millis(1000)).unwrap();
+
     let client_request_payload = ClientRequestPayload {
         stream_key: make_meaningless_stream_key (),
         sequenced_packet: SequencedPacket {data: b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n".to_vec (), sequence_number: 0, last_data: true},
@@ -166,12 +170,11 @@ fn end_to_end_gossip_and_routing_test () {
     let mut cluster = SubstratumNodeCluster::start ().unwrap ();
     let bootstrap_node = cluster.start_real_node (NodeStartupConfigBuilder::bootstrap ().build ());
     let originating_node = cluster.start_real_node (NodeStartupConfigBuilder::standard ().bootstrap_from (bootstrap_node.node_reference ()).build ());
-    thread::sleep (Duration::from_millis (1000));
-
-    cluster.start_real_node (NodeStartupConfigBuilder::standard ().bootstrap_from (bootstrap_node.node_reference ()).build ());
-    cluster.start_real_node (NodeStartupConfigBuilder::standard ().bootstrap_from (bootstrap_node.node_reference ()).build ());
-    cluster.start_real_node (NodeStartupConfigBuilder::standard ().bootstrap_from (bootstrap_node.node_reference ()).build ());
     let mut client = originating_node.make_client (80);
+
+    let relay_node_1 = cluster.start_real_node (NodeStartupConfigBuilder::standard ().bootstrap_from (originating_node.node_reference ()).build ());
+    let relay_node_2 = cluster.start_real_node (NodeStartupConfigBuilder::standard ().bootstrap_from (relay_node_1.node_reference ()).build ());
+    cluster.start_real_node (NodeStartupConfigBuilder::standard ().bootstrap_from (relay_node_2.node_reference ()).build ());
 
     client.send_chunk (Vec::from (&b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n"[..]));
     let response = client.wait_for_chunk();
