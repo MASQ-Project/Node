@@ -14,7 +14,6 @@ use sub_lib::cryptde::CryptDE;
 use sub_lib::neighborhood::BootstrapNeighborhoodNowMessage;
 use sub_lib::neighborhood::RouteQueryMessage;
 use sub_lib::neighborhood::NodeQueryMessage;
-use sub_lib::neighborhood::RemoveNodeMessage;
 use sub_lib::neighborhood::NodeDescriptor;
 use actix::MessageResult;
 use sub_lib::route::RouteSegment;
@@ -33,6 +32,7 @@ use sub_lib::neighborhood::RouteType;
 use sub_lib::neighborhood::TargetType;
 use sub_lib::neighborhood::sentinel_ip_addr;
 use sub_lib::neighborhood::DispatcherNodeQueryMessage;
+use sub_lib::neighborhood::RemoveNeighborMessage;
 use sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use sub_lib::utils::plus;
 use sub_lib::neighborhood::RouteQueryResponse;
@@ -198,13 +198,15 @@ impl Handler<ExpiredCoresPackagePackage> for Neighborhood {
     }
 }
 
-impl Handler<RemoveNodeMessage> for Neighborhood {
+
+impl Handler<RemoveNeighborMessage> for Neighborhood {
     type Result = ();
 
-    fn handle(&mut self, msg: RemoveNodeMessage, _ctx: &mut Self::Context) -> Self::Result {
-        match self.neighborhood_database.remove_node (&msg.public_key) {
+    fn handle(&mut self, msg: RemoveNeighborMessage, _ctx: &mut Self::Context) -> Self::Result {
+        let public_key = &msg.public_key;
+        match self.neighborhood_database.remove_neighbor (public_key) {
             Err (s) => self.logger.error (s),
-            Ok (_) => ()
+            Ok (_) => self.logger.info(format!("removed neighbor by public key: {}", public_key)),
         }
         ()
     }
@@ -267,6 +269,7 @@ impl Neighborhood {
             route_query: addr.clone ().recipient::<RouteQueryMessage>(),
             from_hopper: addr.clone ().recipient::<ExpiredCoresPackagePackage>(),
             dispatcher_node_query: addr.clone().recipient::<DispatcherNodeQueryMessage>(),
+            remove_neighbor: addr.clone().recipient::<RemoveNeighborMessage>(),
         }
     }
 
@@ -1101,53 +1104,8 @@ mod tests {
         assert_eq! (gossip.neighbor_pairs, vec! ());
     }
 
-    #[test]
-    fn neighborhood_with_empty_database_receives_and_processes_remove_node_message_regarding_unknown_node () {
-        init_test_logging();
-        let cryptde = cryptde ();
-        let system = System::new ("neighborhood_with_empty_database_receives_and_processes_remove_node_message_regarding_unknown_node");
-        let subject = Neighborhood::new (cryptde, NeighborhoodConfig {
-            neighbor_configs: vec! (),
-            bootstrap_configs: vec! (),
-            is_bootstrap_node: true,
-            local_ip_addr: IpAddr::from_str ("5.4.3.2").unwrap (),
-            clandestine_port_list: vec! (1234),
-        });
-        let nonexistent_node_key = Key::new (&[1, 2, 3, 4]);
-        let addr: Addr<Syn, Neighborhood> = subject.start ();
-        let sub: Recipient<Syn, RemoveNodeMessage> = addr.recipient::<RemoveNodeMessage> ();
-
-        sub.try_send (RemoveNodeMessage::new (nonexistent_node_key)).unwrap ();
-
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
-        system.run ();
-        TestLogHandler::new ().exists_log_containing ("ERROR: Neighborhood: No knowledge of node AQIDBA: can't remove");
-    }
-
-    #[test]
-    fn neighborhood_refuses_to_processes_remove_node_message_regarding_itself () {
-        init_test_logging();
-        let cryptde = cryptde ();
-        let system = System::new ("neighborhood_refuses_to_processes_remove_node_message_regarding_itself");
-        let subject = Neighborhood::new (cryptde, NeighborhoodConfig {
-            neighbor_configs: vec! (),
-            bootstrap_configs: vec! (),
-            is_bootstrap_node: true,
-            local_ip_addr: IpAddr::from_str ("5.4.3.2").unwrap (),
-            clandestine_port_list: vec! (1234),
-        });
-        let addr: Addr<Syn, Neighborhood> = subject.start ();
-        let sub: Recipient<Syn, RemoveNodeMessage> = addr.recipient::<RemoveNodeMessage> ();
-
-        sub.try_send (RemoveNodeMessage::new (cryptde.public_key())).unwrap ();
-
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
-        system.run ();
-        TestLogHandler::new ().exists_log_containing ("ERROR: Neighborhood: Can't remove self");
-    }
-
     /*
-            Database, where we'll fail to make a three-hop route after removing A:
+            Database, where we'll fail to make a three-hop route to C after removing A:
 
                  NN--------+
                  NN        |
@@ -1156,13 +1114,22 @@ mod tests {
                  AA-->BB-->CC
                  AA<--BB<--CC
 
+                 after removing A as neighbor...
+
+                 NN--------+
+                 NN        |
+                           |
+                           v
+                 AA-->BB-->CC
+                 AA<--BB<--CC
+
             Tests will be written from the viewpoint of N.
     */
 
     #[test]
-    fn neighborhood_completely_removes_node_when_directed_to () {
+    fn neighborhood_removes_neighbor_when_directed_to () {
         let cryptde = cryptde();
-        let system = System::new("neighborhood_completely_removes_node_when_directed_to");
+        let system = System::new("neighborhood_removes_neighbor_when_directed_to");
         let mut subject = Neighborhood::new (cryptde, NeighborhoodConfig {
             neighbor_configs: vec! (),
             bootstrap_configs: vec! (),
@@ -1189,24 +1156,25 @@ mod tests {
         }
         let addr: Addr<Syn, Neighborhood> = subject.start ();
 
-        addr.try_send (RemoveNodeMessage::new (a.public_key ().clone ())).unwrap ();
+        addr.try_send (RemoveNeighborMessage { public_key: a.public_key ().clone ()}).unwrap ();
 
         let three_hop_route_request = RouteQueryMessage {
             route_type: RouteType::OneWay,
             target_type: TargetType::Standard,
-            target_key_opt: None,
+            target_key_opt: Some(c.public_key().clone()),
             target_component: Component::ProxyClient,
             minimum_hop_count: 3,
             return_component_opt: None,
         };
         let unsuccessful_three_hop_route = addr.send (three_hop_route_request);
-        let failed_public_key_query = addr.send (NodeQueryMessage::PublicKey (a.public_key ().clone ()));
+        let public_key_query = addr.send (NodeQueryMessage::PublicKey (a.public_key ().clone ()));
         let failed_ip_address_query = addr.send (NodeQueryMessage::IpAddress (a.node_addr_opt ().unwrap ().ip_addr ()));
         Arbiter::system().try_send(msgs::SystemExit(0)).unwrap ();
+
         system.run ();
-        assert_eq! (unsuccessful_three_hop_route.wait ().unwrap (), None);
-        assert_eq! (failed_public_key_query.wait ().unwrap (), None);
-        assert_eq! (failed_ip_address_query.wait ().unwrap (), None);
+        assert_eq! (None, unsuccessful_three_hop_route.wait ().unwrap ());
+        assert_eq! (a.public_key(), &public_key_query.wait ().unwrap ().unwrap().public_key);
+        assert_eq! (None, failed_ip_address_query.wait ().unwrap ());
     }
 
     fn node_record_to_pair (node_record_ref: &NodeRecord) -> (Key, NodeAddr) {

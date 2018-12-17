@@ -50,6 +50,7 @@ pub struct NeighborhoodSubs {
     pub route_query: Recipient<Syn, RouteQueryMessage>,
     pub from_hopper: Recipient<Syn, ExpiredCoresPackagePackage>,
     pub dispatcher_node_query: Recipient<Syn, DispatcherNodeQueryMessage>,
+    pub remove_neighbor: Recipient<Syn, RemoveNeighborMessage>,
 }
 
 #[derive (Clone, Debug, PartialEq)]
@@ -142,17 +143,9 @@ pub struct RouteQueryResponse {
     pub segment_endpoints: Vec<Key>,
 }
 
-#[derive (PartialEq, Debug, Message)]
-pub struct RemoveNodeMessage {
+#[derive (PartialEq, Debug, Message, Clone)]
+pub struct RemoveNeighborMessage {
     pub public_key: Key,
-}
-
-impl RemoveNodeMessage {
-    pub fn new (public_key: Key) -> RemoveNodeMessage {
-        RemoveNodeMessage {
-            public_key
-        }
-    }
 }
 
 

@@ -42,6 +42,11 @@ impl Command {
         }
     }
 
+    pub fn stdout_and_stderr (&mut self) -> String {
+        self.wait_for_exit();
+        self.stdout_as_string() + self.stderr_as_string().as_str()
+    }
+
     pub fn stdout_as_string (&self) -> String {
         let text = String::from_utf8 (self.output.as_ref ().unwrap ().stdout.clone ()).unwrap ();
         println! ("{}", text);

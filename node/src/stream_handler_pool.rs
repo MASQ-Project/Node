@@ -32,6 +32,7 @@ use sub_lib::logger::Logger;
 use sub_lib::neighborhood::DispatcherNodeQueryMessage;
 use sub_lib::neighborhood::NodeDescriptor;
 use sub_lib::neighborhood::NodeQueryMessage;
+use sub_lib::neighborhood::RemoveNeighborMessage;
 use sub_lib::node_addr::NodeAddr;
 use sub_lib::sequence_buffer::SequencedPacket;
 use sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
@@ -70,7 +71,8 @@ pub struct StreamHandlerPool {
     stream_writers: HashMap<SocketAddr, Option<Box<SenderWrapper<SequencedPacket>>>>,
     dispatcher_subs: Option<DispatcherSubs>,
     self_subs: Option<StreamHandlerPoolSubs>,
-    to_neighborhood: Option<Recipient<Syn, DispatcherNodeQueryMessage>>,
+    ask_neighborhood: Option<Recipient<Syn, DispatcherNodeQueryMessage>>,
+    tell_neighborhood: Option<Recipient<Syn, RemoveNeighborMessage>>,
     logger: Logger,
     stream_connector: Box<StreamConnector>,
     channel_factory: Box<FuturesChannelFactory<SequencedPacket>>,
@@ -112,7 +114,7 @@ impl Handler<TransmitDataMsg> for StreamHandlerPool {
             Endpoint::Key(key) => {
                 let request = DispatcherNodeQueryMessage { query: NodeQueryMessage::PublicKey(key.clone()), context: msg, recipient: node_query_response_recipient };
                 self.logger.debug (format! ("Sending node query about {} to Neighborhood", key));
-                self.to_neighborhood.as_ref().expect("StreamHandlerPool is unbound.").try_send(request).expect("Neighborhood is Dead")
+                self.ask_neighborhood.as_ref().expect("StreamHandlerPool is unbound.").try_send(request).expect("Neighborhood is Dead")
             },
             Endpoint::Ip(_) => unimplemented!(),
             Endpoint::Socket(socket_addr) => {
@@ -211,12 +213,14 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
             let add_stream_sub = subs.add_sub;
             let node_query_response_sub = subs.node_query_response;
             let remove_sub = subs.remove_sub;
+            let tell_neighborhood = self.tell_neighborhood.clone().expect("Internal error");
 
             self.stream_writers.insert(peer_addr, None);
             let logger = self.logger.clone ();
             let clandestine_discriminator_factories = self.clandestine_discriminator_factories.clone ();
             let msg_data_len = msg.context.data.len ();
             let peer_addr_e = peer_addr.clone();
+            let key = msg.result.clone().map(|d| d.public_key).expect("Key magically disappeared");
 
             let connect_future = self.stream_connector.connect(peer_addr, &self.logger)
                 .map (move |connection_info| {
@@ -232,6 +236,9 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
                 .map_err (move |err| { // connection was unsuccessful
                     logger.error (format! ("Stream to {} does not exist and could not be connected; discarding {} bytes: {}", peer_addr, msg_data_len, err));
                     remove_sub.try_send(RemoveStreamMsg { socket_addr: peer_addr_e }).expect("StreamHandlerPool is dead");
+
+                    let remove_node_message = RemoveNeighborMessage {public_key: key};
+                    tell_neighborhood.try_send(remove_node_message).expect("Neighborhood is Dead");
                     ()
                 });
 
@@ -254,7 +261,8 @@ impl Handler<PoolBindMessage> for StreamHandlerPool {
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.dispatcher_subs = Some(msg.dispatcher_subs);
         self.self_subs = Some(msg.stream_handler_pool_subs);
-        self.to_neighborhood = Some(msg.neighborhood_subs.dispatcher_node_query);
+        self.ask_neighborhood = Some(msg.neighborhood_subs.dispatcher_node_query);
+        self.tell_neighborhood = Some(msg.neighborhood_subs.remove_neighbor);
     }
 }
 
@@ -264,7 +272,8 @@ impl StreamHandlerPool {
             stream_writers: HashMap::new (),
             dispatcher_subs: None,
             self_subs: None,
-            to_neighborhood: None,
+            ask_neighborhood: None,
+            tell_neighborhood: None,
             logger: Logger::new ("Dispatcher"),
             stream_connector: Box::new (StreamConnectorReal {}),
             channel_factory: Box::new(FuturesChannelFactoryReal {}),
@@ -671,20 +680,22 @@ mod tests {
     }
 
     #[test]
-    fn when_stream_handler_pool_fails_to_create_nonexistent_stream_for_write_then_it_logs_and_discards () {
+    fn when_stream_handler_pool_fails_to_create_nonexistent_stream_for_write_then_it_logs_and_notifies_neighborhood () {
         init_test_logging ();
         let public_key = Key { data: vec![0, 1, 2, 3] };
+        let expected_key = public_key.clone();
         let connect_pair_params_arc = Arc::new (Mutex::new (vec! ()));
         let connect_pair_params_arc_a = connect_pair_params_arc.clone ();
+        let (neighborhood, neighborhood_awaiter, neighborhood_recording_arc) = make_recorder();
         thread::spawn (move || {
-            let system = System::new("when_stream_handler_pool_fails_to_create_nonexistent_stream_for_write_then_it_logs_and_discards");
+            let system = System::new("when_stream_handler_pool_fails_to_create_nonexistent_stream_for_write_then_it_logs_and_notifies_neighborhood");
             let mut subject = StreamHandlerPool::new(vec! ());
             subject.stream_connector = Box::new (StreamConnectorMock::new()
                 .connect_pair_result(Err(Error::from(ErrorKind::Other)))
                 .connect_pair_params(&connect_pair_params_arc));
             let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = make_peer_actors_from(None, None, None, None, None);
+            let peer_actors = make_peer_actors_from(None, None, None, None, Some(neighborhood));
             subject_subs.bind.try_send(PoolBindMessage {
                 dispatcher_subs: peer_actors.dispatcher,
                 stream_handler_pool_subs: subject_subs.clone(),
@@ -703,7 +714,12 @@ mod tests {
 
             system.run();
         });
+
         TestLogHandler::new ().await_log_containing("ERROR: Dispatcher: Stream to 1.2.3.5:7000 does not exist and could not be connected; discarding 5 bytes: other os error", 1000);
+        neighborhood_awaiter.await_message_count(1);
+        let remove_neighbor_msg = Recording::get::<RemoveNeighborMessage>(&neighborhood_recording_arc, 0);
+        assert_eq!(remove_neighbor_msg.public_key, expected_key);
+
         let connect_pair_params = connect_pair_params_arc_a.lock ().unwrap ();
         let connect_pair_params_vec: &Vec<SocketAddr> = connect_pair_params.as_ref ();
         assert_eq! (connect_pair_params_vec, &vec! (SocketAddr::from_str ("1.2.3.5:7000").unwrap ()));

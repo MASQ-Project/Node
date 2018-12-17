@@ -164,6 +164,7 @@ mod tests {
     use std::cell::RefCell;
     use sub_lib::hopper::ExpiredCoresPackage;
     use sub_lib::hopper::IncipientCoresPackage;
+    use sub_lib::neighborhood::RemoveNeighborMessage;
     use sub_lib::neighborhood::NodeQueryMessage;
     use sub_lib::neighborhood::RouteQueryMessage;
     use stream_messages::AddStreamMsg;
@@ -231,7 +232,8 @@ mod tests {
                 node_query: addr.clone ().recipient::<NodeQueryMessage>(),
                 route_query: addr.clone ().recipient::<RouteQueryMessage>(),
                 from_hopper: addr.clone ().recipient::<ExpiredCoresPackagePackage>(),
-                dispatcher_node_query: addr.clone().recipient::<DispatcherNodeQueryMessage>(),
+                dispatcher_node_query: addr.clone ().recipient::<DispatcherNodeQueryMessage>(),
+                remove_neighbor: addr.clone ().recipient::<RemoveNeighborMessage>(),
             }
         }
 

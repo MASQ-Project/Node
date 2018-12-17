@@ -2,6 +2,7 @@
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::thread;
 use base64;
 use substratum_client::SubstratumNodeClient;
 use sub_lib::node_addr::NodeAddr;
@@ -17,6 +18,8 @@ use command::Command;
 use std::fmt;
 use base64::STANDARD_NO_PAD;
 use std::any::Any;
+use std::time::Duration;
+use std::time::Instant;
 
 #[derive (PartialEq, Clone, Debug)]
 pub struct NodeReference {
@@ -150,6 +153,21 @@ impl SubstratumNodeUtils {
         SocketAddr::new (node_addr.ip_addr (), port_list[idx])
     }
 
+    pub fn wrote_log_containing (name: &str, substring: &str, timeout: Duration) {
+        let time_limit = Instant::now () + timeout;
+        let mut entire_log = String::new ();
+        while Instant::now () < time_limit {
+            entire_log = SubstratumNodeUtils::retrieve_logs(name);
+            if entire_log.contains (substring) {
+                return
+            }
+            else {
+                thread::sleep (Duration::from_millis (250))
+            }
+        }
+        panic! ("After {:?}, this substring\n\n{}\n\ndid not appear in this log:\n\n{}", timeout, substring, entire_log);
+    }
+
     fn start_from (start: &Path) -> PathBuf {
         let recognized: Vec<Result<DirEntry, io::Error>> = fs::read_dir (start).unwrap ()
             .filter (|entry| {
@@ -167,6 +185,11 @@ impl SubstratumNodeUtils {
         else {
             Self::start_from (start.parent ().unwrap ())
         }
+    }
+
+    fn retrieve_logs (name: &str) -> String {
+        let mut command = Command::new ("docker", Command::strings (vec! ("logs", name)));
+        command.stdout_and_stderr ()
     }
 }
 

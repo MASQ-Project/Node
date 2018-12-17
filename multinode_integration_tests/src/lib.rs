@@ -10,6 +10,7 @@ extern crate test_utils;
 extern crate neighborhood_lib;
 
 pub mod command;
+pub mod gossip_builder;
 pub mod substratum_node_cluster;
 pub mod substratum_node;
 pub mod substratum_real_node;

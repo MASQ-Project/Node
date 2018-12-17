@@ -51,7 +51,6 @@ impl SubstratumNodeClient {
                     output.extend (buf.iter ())
                 },
                 Ok (_) => {
-                    begin = Instant::now();
                     output.extend (buf.iter ());
                     return output
                 },

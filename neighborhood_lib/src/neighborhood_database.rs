@@ -52,6 +52,20 @@ impl NodeSignatures {
         }
     }
 
+    pub fn from(cryptde: &CryptDE, node_record_inner: &NodeRecordInner) -> Self {
+        let complete_signature = node_record_inner.generate_signature(cryptde);
+
+        let obscured_inner = NodeRecordInner {
+            public_key: node_record_inner.clone().public_key,
+            node_addr_opt: None,
+            is_bootstrap_node: node_record_inner.is_bootstrap_node,
+            neighbors: node_record_inner.neighbors.clone (),
+        };
+        let obscured_signature = obscured_inner.generate_signature(cryptde);
+
+        NodeSignatures::new(complete_signature, obscured_signature)
+    }
+
     pub fn complete(&self) -> &CryptData {
         &self.complete
     }
@@ -114,6 +128,10 @@ impl NodeRecord {
         }
     }
 
+    pub fn unset_node_addr (&mut self) {
+        self.inner.node_addr_opt = None
+    }
+
     pub fn set_signatures(&mut self, signatures: NodeSignatures) -> Result<bool, NeighborhoodDatabaseError> {
         if self.signatures.is_none() {
             self.signatures = Some(signatures);
@@ -135,6 +153,19 @@ impl NodeRecord {
         &mut self.inner.neighbors
     }
 
+    pub fn remove_neighbor(&mut self, public_key: &Key) -> bool {
+        // TODO: use the following when remove_item is in stable rust
+//        self.inner.neighbors.remove_item(public_key).is_some()
+        let pos = self.inner.neighbors.iter().position(|x| *x == *public_key);
+        match pos {
+            Some(index) => {
+                self.inner.neighbors.remove(index);
+                true
+            },
+            None => false
+        }
+    }
+
     pub fn has_neighbor (&self, public_key: &Key) -> bool {
         self.inner.neighbors.contains (public_key)
     }
@@ -143,18 +174,8 @@ impl NodeRecord {
         self.signatures.clone()
     }
 
-    pub fn sign(&mut self, cryptde: &CryptDE) {
-        let complete_signature = self.inner.generate_signature(cryptde);
-
-        let obscured_inner = NodeRecordInner {
-            public_key: self.inner.clone().public_key,
-            node_addr_opt: None,
-            is_bootstrap_node: self.inner.is_bootstrap_node,
-            neighbors: self.inner.neighbors.clone (),
-        };
-        let obscured_signature = obscured_inner.generate_signature(cryptde);
-
-        self.signatures = Some(NodeSignatures::new(complete_signature, obscured_signature));
+    pub fn sign (&mut self, cryptde: &CryptDE) {
+        self.signatures = Some (NodeSignatures::from (cryptde, &self.inner))
     }
 }
 
@@ -181,6 +202,11 @@ impl NeighborhoodDatabase {
 
     pub fn root (&self) -> &NodeRecord {
         self.node_by_key (&self.this_node).expect ("Internal error")
+    }
+
+    pub fn root_mut (&mut self) -> &mut NodeRecord {
+        let root_key = &self.this_node.clone();
+        self.node_by_key_mut(root_key).expect("Internal error")
     }
 
     pub fn keys (&self) -> HashSet<&Key> {
@@ -221,28 +247,32 @@ impl NeighborhoodDatabase {
         Ok (())
     }
 
-    pub fn remove_node (&mut self, node_key: &Key) -> Result<(), String> {
-        if self.root ().public_key () == node_key {
-            return Err (format! ("Can't remove self"))
-        }
-        let to_remove = match self.by_public_key.remove (node_key) {
-            None => {
-                return Err (format!("No knowledge of node {}: can't remove", node_key))
-            },
-            Some(node_record) => node_record
-        };
-        match to_remove.node_addr_opt () {
-            None => (),
-            Some (node_addr) => {self.by_ip_addr.remove (&node_addr.ip_addr ()); ()}
-        };
-        // Note: Not tested because it's about to be removed by merge of SC-599 (2018-12-13)
-        self.by_public_key.values_mut ().for_each (|node_record| {
-            match (0..(node_record.neighbors ().len ())).find (|idx| (&node_record.neighbors ()[*idx] == node_key)) {
-                None => (), // Not tested; see above about SC-599
-                Some (idx) => {node_record.inner.neighbors.remove (idx);}
+    pub fn remove_neighbor (&mut self, node_key: &Key) -> Result<bool, String> {
+        let ip_addr: Option<IpAddr>;
+        {
+            let to_remove = match self.node_by_key_mut(node_key) {
+                Some(node_record) => {
+                    ip_addr = node_record
+                        .node_addr_opt()
+                        .clone()
+                        .map(|addr| addr.ip_addr());
+                    node_record
+                },
+                None => {
+                    return Err(format!(
+                        "could not remove nonexistent neighbor by public key: {:?}",
+                        node_key
+                    ))
+                }
             };
-        });
-        Ok (())
+            to_remove.unset_node_addr();
+        }
+        match ip_addr {
+            Some(ip) => self.by_ip_addr.remove(&ip),
+            None => None
+        };
+
+        Ok(self.root_mut().remove_neighbor(node_key))
     }
 
     pub fn add_neighbor (&mut self, node_key: &Key, new_neighbor: &Key) -> Result<bool, NeighborhoodDatabaseError> {
@@ -288,6 +318,19 @@ mod tests {
     }
 
     #[test]
+    fn can_get_mutable_root() {
+        let this_node = make_node_record(1234, true, false);
+
+        let mut subject = NeighborhoodDatabase::new (&this_node.public_key(), this_node.node_addr_opt().as_ref ().unwrap (), false, &CryptDENull::from(this_node.public_key()));
+
+        assert_eq! (subject.this_node, this_node.public_key().clone ());
+        assert_eq! (subject.by_public_key, [(this_node.public_key().clone (), this_node.clone ())].iter ().cloned ().collect ());
+        assert_eq! (subject.by_ip_addr, [(this_node.node_addr_opt().as_ref ().unwrap().ip_addr (), this_node.public_key().clone ())].iter ().cloned ().collect ());
+        let root = subject.root_mut ();
+        assert_eq! (*root, this_node);
+    }
+
+    #[test]
     fn cant_add_a_node_twice () {
         let this_node = make_node_record(1234, true, false);
         let first_copy = make_node_record (2345, true, false);
@@ -327,58 +370,6 @@ mod tests {
         assert_eq! (subject.node_by_ip(&this_node.inner.node_addr_opt.as_ref().unwrap().ip_addr()).unwrap().clone(), this_node);
         assert_eq! (subject.node_by_ip(&one_node.inner.node_addr_opt.as_ref().unwrap().ip_addr()).unwrap().clone(), one_node);
         assert_eq! (subject.node_by_ip(&another_node.inner.node_addr_opt.unwrap().ip_addr()), None);
-    }
-
-    #[test]
-    fn cant_use_remove_node_to_remove_own_node () {
-        let this_node = make_node_record(1234, true, false);
-        let mut subject = NeighborhoodDatabase::new(&this_node.inner.public_key, this_node.inner.node_addr_opt.as_ref ().unwrap (), false, &CryptDENull::from(this_node.public_key()));
-
-        let result = subject.remove_node (this_node.public_key ());
-
-        assert_eq! (result, Err (String::from ("Can't remove self")))
-    }
-
-    #[test]
-    fn cant_use_remove_node_to_remove_unknown_node () {
-        let this_node = make_node_record(1234, true, false);
-        let unknown_node = make_node_record(4321, false, false);
-        let mut subject = NeighborhoodDatabase::new(&this_node.inner.public_key, this_node.inner.node_addr_opt.as_ref ().unwrap (), false, &CryptDENull::from(this_node.public_key()));
-
-        let result = subject.remove_node (unknown_node.public_key ());
-
-        assert_eq! (result, Err (format! ("No knowledge of node {}: can't remove", unknown_node.public_key ())))
-    }
-
-    #[test]
-    fn remove_node_removes_node_whose_ip_addr_we_dont_know () {
-        let this_node = make_node_record(1234, true, false);
-        let unknown_ip_node = make_node_record(4321, false, false);
-        let mut subject = NeighborhoodDatabase::new(&this_node.inner.public_key, this_node.inner.node_addr_opt.as_ref ().unwrap (), false, &CryptDENull::from(this_node.public_key()));
-        subject.add_node(&unknown_ip_node).unwrap();
-        subject.add_neighbor (this_node.public_key (), unknown_ip_node.public_key ()).unwrap ();
-        subject.add_neighbor (unknown_ip_node.public_key (), this_node.public_key ()).unwrap ();
-
-        let result = subject.remove_node (unknown_ip_node.public_key ());
-
-        assert_eq! (result, Ok (()));
-        assert_eq! (subject.node_by_key (unknown_ip_node.public_key()), None);
-    }
-
-    #[test]
-    fn remove_node_removes_node_whose_ip_addr_we_do_know () {
-        let this_node = make_node_record(1234, true, false);
-        let known_ip_node = make_node_record(4321, true, false);
-        let mut subject = NeighborhoodDatabase::new(&this_node.inner.public_key, this_node.inner.node_addr_opt.as_ref ().unwrap (), false, &CryptDENull::from(this_node.public_key()));
-        subject.add_node(&known_ip_node).unwrap();
-        subject.add_neighbor (this_node.public_key (), known_ip_node.public_key ()).unwrap ();
-        subject.add_neighbor (known_ip_node.public_key (), this_node.public_key ()).unwrap ();
-
-        let result = subject.remove_node (known_ip_node.public_key ());
-
-        assert_eq! (result, Ok (()));
-        assert_eq! (subject.node_by_key (known_ip_node.public_key()), None);
-        assert_eq! (subject.node_by_ip (&known_ip_node.node_addr_opt().unwrap ().ip_addr()), None);
     }
 
     #[test]
@@ -444,6 +435,15 @@ mod tests {
     }
 
     #[test]
+    fn unset_node_addr() {
+        let mut subject = make_node_record(1234, true, false);
+
+        subject.unset_node_addr();
+
+        assert_eq!(None, subject.node_addr_opt());
+    }
+
+    #[test]
     fn set_signatures_returns_true_when_signatures_are_not_set() {
         let subject_signed = make_node_record(1234, false, false);
         let mut subject = NodeRecord::new(subject_signed.public_key(), subject_signed.node_addr_opt().as_ref(), subject_signed.is_bootstrap_node(), None);
@@ -476,6 +476,24 @@ mod tests {
         let result = subject.set_signatures(NodeSignatures::new(CryptData::new(&[1, 2, 3]), CryptData::new(&[9, 8, 7])));
 
         assert_eq!(result, Err(NeighborhoodDatabaseError::NodeSignaturesAlreadySet(subject.signatures().unwrap())));
+    }
+
+    #[test]
+    fn node_signatures_can_be_created_from_node_record_inner() {
+        let to_be_signed = NodeRecordInner {
+            public_key: Key::new (&[1, 2, 3, 4]),
+            node_addr_opt: Some (NodeAddr::new (&IpAddr::from_str("1.2.3.4").unwrap (), &vec! (1234))),
+            is_bootstrap_node: true,
+            neighbors: Vec::new()
+        };
+        let cryptde = CryptDENull::from (&to_be_signed.public_key);
+
+        let result = NodeSignatures::from (&cryptde, &to_be_signed);
+
+        assert_eq!(result.complete (), &to_be_signed.generate_signature (&cryptde));
+        let mut to_be_signed_obscured = to_be_signed.clone ();
+        to_be_signed_obscured.node_addr_opt = None;
+        assert_eq!(result.obscured (), &to_be_signed_obscured.generate_signature (&cryptde))
     }
 
     #[test]
@@ -521,5 +539,46 @@ mod tests {
         let result = subject.add_neighbor(this_node.public_key(), other_node.public_key());
 
         assert!(!result.unwrap(), "add_neighbor done goofed");
+    }
+
+    #[test]
+    fn remove_neighbor_returns_error_when_given_nonexistent_node_key() {
+        let this_node = make_node_record(123, true, false);
+        let mut subject = NeighborhoodDatabase::new(&this_node.inner.public_key, this_node.inner.node_addr_opt.as_ref ().unwrap (), false, &CryptDENull::from(this_node.public_key()));
+        let nonexistent_key = &Key::new(b"nonexistent");
+
+        let result = subject.remove_neighbor(nonexistent_key);
+
+        let err_message = format!("could not remove nonexistent neighbor by public key: {:?}", nonexistent_key);
+        assert_eq!(err_message, result.expect_err("not an error"));
+    }
+
+    #[test]
+    fn remove_neighbor_returns_true_when_neighbor_was_removed() {
+        let this_node = make_node_record(123, true, false);
+        let mut subject = NeighborhoodDatabase::new(&this_node.inner.public_key, this_node.inner.node_addr_opt.as_ref ().unwrap (), false, &CryptDENull::from(this_node.public_key()));
+        let other_node = make_node_record(2345, true, false);
+        subject.add_node(&other_node);
+        subject.add_neighbor(&this_node.public_key(), &other_node.public_key());
+
+        let result = subject.remove_neighbor(other_node.public_key());
+
+        assert_eq!(None, subject.node_by_key(other_node.public_key()).unwrap().node_addr_opt());
+        assert_eq!(None, subject.node_by_ip(&other_node.node_addr_opt().unwrap().ip_addr()));
+        assert!(result.ok().expect("should be ok"));
+    }
+
+    #[test]
+    fn remove_neighbor_returns_false_when_neighbor_was_not_removed() {
+        let this_node = make_node_record(123, true, false);
+        let mut subject = NeighborhoodDatabase::new(&this_node.inner.public_key, this_node.inner.node_addr_opt.as_ref ().unwrap (), false, &CryptDENull::from(this_node.public_key()));
+        let neighborless_node = make_node_record(2345, true, false);
+        subject.add_node(&neighborless_node);
+
+        let result = subject.remove_neighbor(neighborless_node.public_key());
+
+        assert_eq!(None, subject.node_by_key(neighborless_node.public_key()).unwrap().node_addr_opt());
+        assert_eq!(None, subject.node_by_ip(&neighborless_node.node_addr_opt().unwrap().ip_addr()));
+        assert!(!result.ok().expect("should be ok"));
     }
 }
