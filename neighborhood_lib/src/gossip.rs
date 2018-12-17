@@ -3,7 +3,6 @@ use sub_lib::cryptde::Key;
 use std::collections::HashMap;
 use neighborhood_database::NodeRecord;
 use neighborhood_database::NodeRecordInner;
-use sub_lib::cryptde::CryptData;
 use neighborhood_database::NodeSignatures;
 
 #[derive (Clone, PartialEq, Hash, Eq, Debug, Serialize, Deserialize)]
@@ -25,7 +24,8 @@ impl GossipNodeRecord {
                 } else {
                     None
                 },
-                is_bootstrap_node: node_record_ref.is_bootstrap_node()
+                is_bootstrap_node: node_record_ref.is_bootstrap_node(),
+                neighbors: node_record_ref.neighbors ().clone (),
             },
             // crashpoint
             signatures: node_record_ref.signatures().expect("Attempted to create Gossip about an unsigned NodeRecord"),

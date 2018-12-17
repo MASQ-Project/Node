@@ -57,7 +57,8 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test () {
     let inner = NodeRecordInner {
         public_key: subject.public_key(),
         node_addr_opt: Some(subject.node_addr()),
-        is_bootstrap_node: false
+        is_bootstrap_node: false,
+        neighbors: vec! (mock_bootstrap.public_key ()),
     };
     let cryptde = CryptDENull::from(&subject.public_key());
     let complete_signature = inner.generate_signature(&cryptde);
@@ -65,14 +66,14 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test () {
     let obscured_inner = NodeRecordInner {
         public_key: subject.public_key(),
         node_addr_opt: None,
-        is_bootstrap_node: false
+        is_bootstrap_node: false,
+        neighbors: vec! (mock_bootstrap.public_key ()),
     };
     let obscured_signature = obscured_inner.generate_signature(&cryptde);
-    assert_eq! (incoming_gossip.node_records.into_iter ().collect::<HashSet<GossipNodeRecord>> (), vec! (
-        GossipNodeRecord {
+    assert_eq! (incoming_gossip.node_records, vec! (GossipNodeRecord {
             inner,
             signatures: NodeSignatures::new(complete_signature, obscured_signature),
-        }).into_iter ().collect::<HashSet<GossipNodeRecord>> ());
+        }));
 
     let ne1_noderef = NodeReference::new (Key::new (&b"ne1"[..]), IpAddr::from_str ("100.100.100.001").unwrap (), vec! (5561));
     let ne2_noderef = NodeReference::new (Key::new (&b"ne2"[..]), IpAddr::from_str ("100.100.100.002").unwrap (), vec! (5562));
@@ -251,6 +252,7 @@ fn make_gossip (pairs: Vec<(&NodeReference, bool)>) -> Gossip {
                 public_key: node_ref_ref.public_key.clone (),
                 node_addr_opt: if reveal {Some (node_ref_ref.node_addr.clone ())} else {None},
                 is_bootstrap_node: false,
+                neighbors: vec! (),
             };
             let (complete_signature, obscured_signature) = {
                 let mut nr = NodeRecord::new(&node_ref_ref.public_key, Some(&node_ref_ref.node_addr), false, None);

@@ -61,6 +61,7 @@ mod tests {
     use gossip::GossipNodeRecord;
     use test_utils::test_utils::cryptde;
     use sub_lib::cryptde_null::CryptDENull;
+    use test_utils::test_utils::assert_contains;
 
     #[test]
     #[should_panic(expected="Target node AgMEBQ not in NeighborhoodDatabase")]
@@ -76,10 +77,15 @@ mod tests {
 
     #[test]
     fn database_produces_gossip_with_standard_gossip_handler_and_well_connected_target () {
-        let this_node = make_node_record(1234, true, false);
-        let first_neighbor = make_node_record(2345, true, false);
+        let mut this_node = make_node_record(1234, true, false);
+        let mut first_neighbor = make_node_record(2345, true, false);
         let second_neighbor = make_node_record(3456, true, true);
-        let target = make_node_record (4567, false, false);
+        let mut target = make_node_record (4567, false, false);
+        this_node.neighbors_mut().push (first_neighbor.public_key ().clone ());
+        this_node.neighbors_mut().push (second_neighbor.public_key ().clone ());
+        first_neighbor.neighbors_mut().push (second_neighbor.public_key ().clone ());
+        first_neighbor.neighbors_mut().push (target.public_key ().clone ());
+        target.neighbors_mut().push (second_neighbor.public_key ().clone ());
 
         let mut database = NeighborhoodDatabase::new(this_node.public_key(),
                                                      this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), &CryptDENull::from(this_node.public_key()));
@@ -96,10 +102,10 @@ mod tests {
 
         let result = subject.produce(&database, target.public_key ());
 
-        assert_eq!(result.node_records.contains(&GossipNodeRecord::from(&this_node, false)), true, "{:?}", result.node_records);
-        assert_eq!(result.node_records.contains(&GossipNodeRecord::from(&first_neighbor, true)), true, "{:?}", result.node_records);
-        assert_eq!(result.node_records.contains(&GossipNodeRecord::from(&second_neighbor, true)), true, "{:?}", result.node_records);
-        assert_eq!(result.node_records.contains(&GossipNodeRecord::from(&target, false)), true, "{:?}", result.node_records);
+        assert_contains (&result.node_records, &GossipNodeRecord::from(&this_node, false));
+        assert_contains (&result.node_records, &GossipNodeRecord::from(&first_neighbor, true));
+        assert_contains (&result.node_records, &GossipNodeRecord::from(&second_neighbor, true));
+        assert_contains (&result.node_records, &GossipNodeRecord::from(&target, false));
         assert_eq!(result.node_records.len(), 4);
         let neighbor_keys: Vec<(Key, Key)> = result.neighbor_pairs.iter().map(|neighbor_relationship| {
             let from_idx = neighbor_relationship.from;
@@ -109,18 +115,21 @@ mod tests {
             (from_key, to_key)
         }).collect();
         assert_eq!(neighbor_keys.len(), 2);
-        assert_eq!(neighbor_keys.contains(&(this_node.public_key().clone(),
-                                            first_neighbor.public_key().clone())), true, "{:?}", neighbor_keys);
-        assert_eq!(neighbor_keys.contains(&(first_neighbor.public_key().clone(),
-                                            target.public_key().clone())), true, "{:?}", neighbor_keys);
+        assert_contains (&neighbor_keys, &(this_node.public_key().clone(),
+                                            first_neighbor.public_key().clone()));
+        assert_contains (&neighbor_keys, &(first_neighbor.public_key().clone(),
+                                            target.public_key().clone()));
     }
 
     #[test]
     fn database_produces_gossip_with_standard_gossip_handler_and_badly_connected_target () {
-        let this_node = make_node_record(1234, true, false);
-        let first_neighbor = make_node_record(2345, true, false);
+        let mut this_node = make_node_record(1234, true, false);
+        let mut first_neighbor = make_node_record(2345, true, false);
         let second_neighbor = make_node_record(3456, true, true);
         let target = make_node_record (4567, false, false);
+        this_node.neighbors_mut().push (first_neighbor.public_key ().clone ());
+        this_node.neighbors_mut().push (second_neighbor.public_key ().clone ());
+        first_neighbor.neighbors_mut().push (second_neighbor.public_key ().clone ());
         let mut database = NeighborhoodDatabase::new(this_node.public_key(),
                                                      this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), &CryptDENull::from(this_node.public_key()));
         database.add_node(&first_neighbor).unwrap();
@@ -133,10 +142,10 @@ mod tests {
 
         let result = subject.produce(&database, target.public_key ());
 
-        assert_eq!(result.node_records.contains(&GossipNodeRecord::from(&this_node, false)), true, "{:?}", result.node_records);
-        assert_eq!(result.node_records.contains(&GossipNodeRecord::from(&first_neighbor, false)), true, "{:?}", result.node_records);
-        assert_eq!(result.node_records.contains(&GossipNodeRecord::from(&second_neighbor, false)), true, "{:?}", result.node_records);
-        assert_eq!(result.node_records.contains(&GossipNodeRecord::from(&target, false)), true, "{:?}", result.node_records);
+        assert_contains (&result.node_records, &GossipNodeRecord::from(&this_node, false));
+        assert_contains (&result.node_records, &GossipNodeRecord::from(&first_neighbor, false));
+        assert_contains (&result.node_records, &GossipNodeRecord::from(&second_neighbor, false));
+        assert_contains (&result.node_records, &GossipNodeRecord::from(&target, false));
         assert_eq!(result.node_records.len(), 4);
         let neighbor_keys: Vec<(Key, Key)> = result.neighbor_pairs.iter().map(|neighbor_relationship| {
             let from_idx = neighbor_relationship.from;
@@ -146,15 +155,17 @@ mod tests {
             (from_key, to_key)
         }).collect();
         assert_eq!(neighbor_keys.len(), 1);
-        assert_eq!(neighbor_keys.contains(&(this_node.public_key().clone(),
-                                            first_neighbor.public_key().clone())), true, "{:?}", neighbor_keys);
+        assert_contains (&neighbor_keys, &(this_node.public_key().clone(), first_neighbor.public_key().clone()));
     }
 
     #[test]
     fn gossip_producer_filters_out_target_connections_to_bootstrap_nodes() { //but keeps target connections from bootstrap nodes
-        let this_node = make_node_record(1234, true, false);
-        let bootstrap = make_node_record(3456, true, true);
-        let target = make_node_record (4567, false, false);
+        let mut this_node = make_node_record(1234, true, false);
+        let mut bootstrap = make_node_record(3456, true, true);
+        let mut target = make_node_record (4567, false, false);
+        this_node.neighbors_mut().push (bootstrap.public_key ().clone ());
+        bootstrap.neighbors_mut().push (target.public_key ().clone ());
+        target.neighbors_mut().push (bootstrap.public_key ().clone ());
         let mut database = NeighborhoodDatabase::new(this_node.public_key(),
                                                      this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), &CryptDENull::from(this_node.public_key()));
         database.add_node(&bootstrap).unwrap();
@@ -166,9 +177,9 @@ mod tests {
 
         let result = subject.produce(&database, target.public_key ());
 
-        assert_eq!(result.node_records.contains(&GossipNodeRecord::from(&this_node, false)), true, "{:?}", result.node_records);
-        assert_eq!(result.node_records.contains(&GossipNodeRecord::from(&bootstrap, true)), true, "{:?}", result.node_records);
-        assert_eq!(result.node_records.contains(&GossipNodeRecord::from(&target, false)), true, "{:?}", result.node_records);
+        assert_contains (&result.node_records, &GossipNodeRecord::from(&this_node, false));
+        assert_contains (&result.node_records, &GossipNodeRecord::from(&bootstrap, true));
+        assert_contains (&result.node_records, &GossipNodeRecord::from(&target, false));
         assert_eq!(result.node_records.len(), 3);
         let neighbor_keys: Vec<(Key, Key)> = result.neighbor_pairs.iter().map(|neighbor_relationship| {
             let from_idx = neighbor_relationship.from;
@@ -185,10 +196,15 @@ mod tests {
 
     #[test]
     fn gossip_producer_masks_ip_addrs_for_nodes_not_directly_connected_to_target() {
-        let this_node = make_node_record(1234, true, false);
-        let first_neighbor = make_node_record(2345, true, false);
+        let mut this_node = make_node_record(1234, true, false);
+        let mut first_neighbor = make_node_record(2345, true, false);
         let second_neighbor = make_node_record(3456, true, false);
-        let target = make_node_record (4567, false, false);
+        let mut target = make_node_record (4567, false, false);
+        this_node.neighbors_mut().push (first_neighbor.public_key().clone ());
+        this_node.neighbors_mut().push (second_neighbor.public_key().clone ());
+        first_neighbor.neighbors_mut().push(second_neighbor.public_key().clone ());
+        first_neighbor.neighbors_mut().push(target.public_key().clone ());
+        target.neighbors_mut().push (second_neighbor.public_key ().clone ());
         let mut database = NeighborhoodDatabase::new(this_node.public_key(),
                                                      this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), &CryptDENull::from(this_node.public_key()));
         database.add_node(&first_neighbor).unwrap();
@@ -203,10 +219,10 @@ mod tests {
 
         let result = subject.produce(&database, target.public_key ());
 
-        assert_eq!(result.node_records.contains(&GossipNodeRecord::from(&this_node, false)), true, "{:?}", result.node_records);
-        assert_eq!(result.node_records.contains(&GossipNodeRecord::from(&first_neighbor, true)), true, "{:?}", result.node_records);
-        assert_eq!(result.node_records.contains(&GossipNodeRecord::from(&second_neighbor, true)), true, "{:?}", result.node_records);
-        assert_eq!(result.node_records.contains(&GossipNodeRecord::from(&target, false)), true, "{:?}", result.node_records);
+        assert_contains (&result.node_records, &GossipNodeRecord::from(&this_node, false));
+        assert_contains (&result.node_records, &GossipNodeRecord::from(&first_neighbor, true));
+        assert_contains (&result.node_records, &GossipNodeRecord::from(&second_neighbor, true));
+        assert_contains (&result.node_records, &GossipNodeRecord::from(&target, false));
         assert_eq!(result.node_records.len(), 4);
         let neighbor_connections: Vec<(GossipNodeRecord, GossipNodeRecord)> = result.neighbor_pairs.iter().map(|neighbor_relationship| {
             let from_idx = neighbor_relationship.from;
@@ -216,18 +232,18 @@ mod tests {
             (from, to)
         }).collect();
 
-        assert_eq!(neighbor_connections.contains(&(GossipNodeRecord::from(&first_neighbor, true),
-                                                     GossipNodeRecord::from(&target, false))), true, "{:?}", neighbor_connections);
-        assert_eq!(neighbor_connections.contains(&(GossipNodeRecord::from(&target, false),
-                                                     GossipNodeRecord::from(&second_neighbor, true))), true, "{:?}", neighbor_connections);
+        assert_contains (&neighbor_connections, &(GossipNodeRecord::from(&first_neighbor, true),
+                                                     GossipNodeRecord::from(&target, false)));
+        assert_contains (&neighbor_connections, &(GossipNodeRecord::from(&target, false),
+                                                     GossipNodeRecord::from(&second_neighbor, true)));
 
-        assert_eq!(neighbor_connections.contains(&(GossipNodeRecord::from(&this_node, false), // node_addr of this_node is not revealed for target
-                                                   GossipNodeRecord::from(&first_neighbor, true))), true, "{:?}", neighbor_connections);
+        assert_contains (&neighbor_connections, &(GossipNodeRecord::from(&this_node, false), // node_addr of this_node is not revealed for target
+                                                   GossipNodeRecord::from(&first_neighbor, true)));
 
-        assert_eq!(neighbor_connections.contains(&(GossipNodeRecord::from(&this_node, false),
-                                                   GossipNodeRecord::from(&second_neighbor, true))), true, "{:?}", neighbor_connections);
-        assert_eq!(neighbor_connections.contains(&(GossipNodeRecord::from(&first_neighbor, true),
-                                                   GossipNodeRecord::from(&second_neighbor, true))), true, "{:?}", neighbor_connections);
+        assert_contains (&neighbor_connections, &(GossipNodeRecord::from(&this_node, false),
+                                                   GossipNodeRecord::from(&second_neighbor, true)));
+        assert_contains (&neighbor_connections, &(GossipNodeRecord::from(&first_neighbor, true),
+                                                   GossipNodeRecord::from(&second_neighbor, true)));
         assert_eq!(neighbor_connections.len(), 5);
     }
 }

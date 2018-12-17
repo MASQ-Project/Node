@@ -17,7 +17,6 @@ use sub_lib::neighborhood::NodeQueryMessage;
 use sub_lib::neighborhood::RemoveNodeMessage;
 use sub_lib::neighborhood::NodeDescriptor;
 use actix::MessageResult;
-use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::route::RouteSegment;
 use sub_lib::hopper::IncipientCoresPackage;
 use actix::Recipient;
@@ -71,7 +70,7 @@ impl Handler<BootstrapNeighborhoodNowMessage> for Neighborhood {
             .fold ((vec! (), vec! ()), |so_far, key| {
                 let (bootstrap_node_keys, keys_to_report) = so_far;
                 let node = self.neighborhood_database.node_by_key (key).expect ("Node magically disappeared");
-                if node.is_bootstrap_node () && (node != self.neighborhood_database.root ()) {
+                if node.is_bootstrap_node () && (node.public_key () != self.neighborhood_database.root ().public_key ()) {
                     (plus (bootstrap_node_keys, key), keys_to_report)
                 }
                 else {
@@ -415,6 +414,8 @@ mod tests {
     use sub_lib::dispatcher::Endpoint;
     use test_utils::recorder::Recording;
     use test_utils::recorder::make_recorder;
+    use sub_lib::hopper::ExpiredCoresPackage;
+    use test_utils::test_utils::assert_contains;
 
     #[test]
     #[should_panic (expected = "A SubstratumNode without an --ip setting is not decentralized and cannot have any --neighbor settings")]
@@ -929,7 +930,7 @@ mod tests {
 
         let contains = |routes: &Vec<Vec<&Key>>, expected_nodes: Vec<&NodeRecord>| {
             let expected_keys: Vec<&Key> = expected_nodes.into_iter ().map (|n| n.public_key ()).collect ();
-            assert_eq! (routes.contains (&expected_keys), true, "{:?}", routes);
+            assert_contains (&routes, &expected_keys);
         };
 
         // At least two hops from P to anywhere standard
@@ -1004,9 +1005,12 @@ mod tests {
     #[test]
     fn node_receives_gossip_and_replies () {
         let cryptde = cryptde ();
-        let this_node = NodeRecord::new_for_tests (&cryptde.public_key (), Some (&NodeAddr::new (&IpAddr::from_str ("5.4.3.2").unwrap (), &vec! (1234))), true);
-        let one_neighbor = make_node_record (2345, true, false);
-        let gossip_neighbor = make_node_record (4567, true, false);
+        let mut this_node = NodeRecord::new_for_tests (&cryptde.public_key (), Some (&NodeAddr::new (&IpAddr::from_str ("5.4.3.2").unwrap (), &vec! (1234))), true);
+        let mut one_neighbor = make_node_record (2345, true, false);
+        this_node.neighbors_mut ().push (one_neighbor.public_key ().clone ());
+        one_neighbor.neighbors_mut ().push (this_node.public_key ().clone ());
+        let mut gossip_neighbor = make_node_record (4567, true, false);
+        gossip_neighbor.neighbors_mut ().push (this_node.public_key ().clone ());
         let gossip = GossipBuilder::new ().node (&gossip_neighbor, true).build ();
         let serialized_gossip = PlainData::new (&serde_cbor::ser::to_vec (&gossip).unwrap ()[..]);
         let cores_package = ExpiredCoresPackagePackage { expired_cores_package: ExpiredCoresPackage::new (make_meaningless_route (), serialized_gossip), sender_ip: IpAddr::from_str("1.2.3.4").unwrap() };
@@ -1020,13 +1024,13 @@ mod tests {
             let mut subject = Neighborhood::new (cryptde, NeighborhoodConfig {
                 neighbor_configs: vec! (),
                 bootstrap_configs: vec! (),
-                is_bootstrap_node: true,
-                local_ip_addr: IpAddr::from_str ("5.4.3.2").unwrap (),
-                clandestine_port_list: vec! (1234),
+                is_bootstrap_node: this_node_inside.is_bootstrap_node(),
+                local_ip_addr: this_node_inside.node_addr_opt().unwrap ().ip_addr(),
+                clandestine_port_list: this_node_inside.node_addr_opt().unwrap ().ports(),
             });
             subject.neighborhood_database.add_node (&one_neighbor_inside).unwrap ();
-            subject.neighborhood_database.add_neighbor (this_node_inside.public_key (), one_neighbor_inside.public_key ()).unwrap ();
-            subject.neighborhood_database.add_neighbor (one_neighbor_inside.public_key (), this_node_inside.public_key ()).unwrap ();
+            subject.neighborhood_database.add_neighbor (&cryptde.public_key (), one_neighbor_inside.public_key ()).unwrap ();
+            subject.neighborhood_database.add_neighbor (one_neighbor_inside.public_key (), &cryptde.public_key ()).unwrap ();
             let addr: Addr<Syn, Neighborhood> = subject.start ();
             let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
             addr.try_send(BindMessage { peer_actors }).unwrap ();
@@ -1039,6 +1043,9 @@ mod tests {
         hopper_awaiter.await_message_count (2);
         let locked_recording = hopper_recording.lock ().unwrap ();
         let package_refs = vec! (locked_recording.get_record (0), locked_recording.get_record (1));
+        // Now make this_node look the way subject's initial NodeRecord will have looked after receiving the Gossip, so that
+        // it appears correct for check_outgoing_package.
+        this_node.neighbors_mut ().push (gossip_neighbor.public_key ().clone ());
         let checked_keys: Arc<Mutex<HashSet<&Key>>> = Arc::new (Mutex::new (HashSet::new ()));
         let checked_keys_inside = checked_keys.clone ();
         package_refs.into_iter ().for_each (|package| {
@@ -1057,7 +1064,6 @@ mod tests {
     #[test]
     fn standard_node_requests_bootstrap_properly () {
         let cryptde = cryptde ();
-        let this_node = NodeRecord::new_for_tests (&cryptde.public_key (), Some (&NodeAddr::new (&IpAddr::from_str ("5.4.3.2").unwrap (), &vec! (1234))), false);
         let bootstrap_node = make_node_record (1234, true, true);
         let hopper = Recorder::new ();
         let hopper_awaiter = hopper.get_awaiter ();
@@ -1087,6 +1093,9 @@ mod tests {
         check_direct_route_to (&package_ref.route, bootstrap_node.public_key ());
         assert_eq!(&package_ref.payload_destination_key, bootstrap_node.public_key());
         let gossip: Gossip = serde_cbor::de::from_slice(&package_ref.payload.data[..]).unwrap();
+        let mut this_node = NodeRecord::new_for_tests (&cryptde.public_key (),
+            Some (&NodeAddr::new (&IpAddr::from_str ("5.4.3.2").unwrap (), &vec! (1234))), false);
+        this_node.neighbors_mut().push (bootstrap_node.public_key().clone ());
         assert_contains (&gossip.node_records, &GossipNodeRecord::from (&this_node, true));
         assert_eq! (gossip.node_records.len (), 1);
         assert_eq! (gossip.neighbor_pairs, vec! ());
@@ -1200,11 +1209,6 @@ mod tests {
         assert_eq! (failed_ip_address_query.wait ().unwrap (), None);
     }
 
-
-    fn assert_contains (haystack: &Vec<GossipNodeRecord>, needle: &GossipNodeRecord) {
-        assert_eq! (haystack.contains (needle), true, "{:?} does not contain {:?}", haystack, needle);
-    }
-
     fn node_record_to_pair (node_record_ref: &NodeRecord) -> (Key, NodeAddr) {
         (node_record_ref.public_key ().clone (), node_record_ref.node_addr_opt ().unwrap ().clone ())
     }
@@ -1224,24 +1228,40 @@ mod tests {
         assert_eq!(hop.component, Component::Neighborhood);
     }
 
-    fn check_outgoing_package(cores_package: &IncipientCoresPackage, neighbor: &NodeRecord, target: &NodeRecord, far_neighbor: &NodeRecord) -> NeighborhoodDatabase {
+    // Checks that cores_package contains the following Gossip:   target <=> source <=> far_neighbor
+    fn check_outgoing_package(cores_package: &IncipientCoresPackage, source: &NodeRecord, target: &NodeRecord, far_neighbor: &NodeRecord) -> NeighborhoodDatabase {
         check_direct_route_to (&cores_package.route, target.public_key ());
         assert_eq!(&cores_package.payload_destination_key, target.public_key());
         let deserialized_payload: Gossip = serde_cbor::de::from_slice(&cores_package.payload.data[..]).unwrap();
-        let mut database = NeighborhoodDatabase::new(target.public_key(), &target.node_addr_opt().unwrap (), false, &CryptDENull::from(target.public_key()));
+        let mut database = NeighborhoodDatabase::new(target.public_key(), &target.node_addr_opt().unwrap (),
+                                                     false, &CryptDENull::from(target.public_key()));
         GossipAcceptorReal::new().handle(&mut database, deserialized_payload);
-        assert_eq!(database.keys(), vec_to_set(vec!(neighbor.public_key(), target.public_key(), far_neighbor.public_key ())));
-        assert_eq!(database.node_by_key(neighbor.public_key()).unwrap(), neighbor);
+        assert_eq!(database.keys(), vec_to_set(vec!(source.public_key(), target.public_key(), far_neighbor.public_key ())));
+        assert_eq!(database.node_by_key(source.public_key()).unwrap(), source);
         assert_eq!(database.node_by_key(target.public_key()).unwrap(), target);
-        let far_neighbor_hidden = NodeRecord::new(far_neighbor.public_key(), None, far_neighbor.is_bootstrap_node(), far_neighbor.signatures().clone());
+        let far_neighbor_hidden = NodeRecord::new(far_neighbor.public_key(),
+                                                  None, far_neighbor.is_bootstrap_node(), far_neighbor.signatures().clone());
         assert_eq!(database.node_by_key(far_neighbor.public_key()).unwrap(), &far_neighbor_hidden);
-        check_is_neighbor(&database, neighbor, target);
-        check_is_neighbor(&database, target, neighbor);
+        check_is_neighbor(&database, source, target);
+        check_is_neighbor(&database, target, source);
+
+        check_is_neighbor(&database, source, far_neighbor);
+        if source.is_bootstrap_node() {
+            check_is_not_neighbor(&database, far_neighbor, source);
+        }
+        else {
+            check_is_neighbor(&database, far_neighbor, source);
+        }
+
         database
     }
 
     fn check_is_neighbor(database: &NeighborhoodDatabase, from: &NodeRecord, to: &NodeRecord) {
-        assert_eq! (database.has_neighbor (from.public_key (), to.public_key ()), true, "Node {:?} should have {:?} as its neighbor, but doesn't: {:?}", from.public_key (), to.public_key (), database);
+        assert_eq! (database.has_neighbor (from.public_key (), to.public_key ()), true, "Node {:?} should have {:?} as its neighbor, but doesn't:\n{:?}", from.public_key (), to.public_key (), database);
+    }
+
+    fn check_is_not_neighbor(database: &NeighborhoodDatabase, from: &NodeRecord, to: &NodeRecord) {
+        assert_eq! (database.has_neighbor (from.public_key (), to.public_key ()), false, "Node {:?} should not have {:?} as its neighbor, but does:\n{:?}", from.public_key (), to.public_key (), database);
     }
 
     fn dual_edge_func (db: &mut NeighborhoodDatabase, a: &NodeRecord, b: &NodeRecord) {
@@ -1481,7 +1501,6 @@ mod tests {
         let serialized_gossip = PlainData::new (&serde_cbor::ser::to_vec (&gossip).unwrap ()[..]);
         let cores_package = ExpiredCoresPackagePackage { expired_cores_package: ExpiredCoresPackage::new (make_meaningless_route (), serialized_gossip), sender_ip: IpAddr::from_str("1.2.3.4").unwrap() };
         let hopper = Recorder::new ();
-        let hopper_awaiter = hopper.get_awaiter ();
         let hopper_recording = hopper.get_recording ();
         let this_node_inside = this_node.clone ();
         let one_neighbor_inside = one_neighbor.clone ();

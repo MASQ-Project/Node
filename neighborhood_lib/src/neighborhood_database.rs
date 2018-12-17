@@ -16,6 +16,7 @@ pub struct NodeRecordInner {
     pub public_key: Key,
     pub node_addr_opt: Option<NodeAddr>,
     pub is_bootstrap_node: bool,
+    pub neighbors: Vec<Key>,
 }
 
 impl NodeRecordInner {
@@ -62,9 +63,9 @@ impl NodeSignatures {
 
 #[derive (Clone, Debug)]
 pub struct NodeRecord {
-    neighbors: HashSet<Key>,
     // NOTE: If you add fields here, drive them into the implementation of PartialEq below.
     inner: NodeRecordInner,
+    // TODO: Replace this with a retransmittable representation of the signed packet/signature from the incoming Gossip.
     signatures: Option<NodeSignatures>,
 }
 
@@ -78,7 +79,6 @@ impl PartialEq for NodeRecord {
 impl NodeRecord {
     pub fn new (public_key: &Key, node_addr_opt: Option<&NodeAddr>, is_bootstrap_node: bool, signatures: Option<NodeSignatures>) -> NodeRecord {
         NodeRecord {
-            neighbors: HashSet::new (),
             inner: NodeRecordInner{
                 public_key: public_key.clone(),
                 node_addr_opt: match node_addr_opt {
@@ -86,6 +86,7 @@ impl NodeRecord {
                     None => None
                 },
                 is_bootstrap_node,
+                neighbors: vec! (),
             },
             signatures,
         }
@@ -126,16 +127,16 @@ impl NodeRecord {
         }
     }
 
-    pub fn neighbors(&self) -> &HashSet<Key> {
-        &self.neighbors
+    pub fn neighbors(&self) -> &Vec<Key> {
+        &self.inner.neighbors
     }
 
-    pub fn neighbors_mut(&mut self) -> &HashSet<Key> {
-        &mut self.neighbors
+    pub fn neighbors_mut(&mut self) -> &mut Vec<Key> {
+        &mut self.inner.neighbors
     }
 
     pub fn has_neighbor (&self, public_key: &Key) -> bool {
-        self.neighbors.contains (public_key)
+        self.inner.neighbors.contains (public_key)
     }
 
     pub fn signatures(&self) -> Option<NodeSignatures> {
@@ -149,6 +150,7 @@ impl NodeRecord {
             public_key: self.inner.clone().public_key,
             node_addr_opt: None,
             is_bootstrap_node: self.inner.is_bootstrap_node,
+            neighbors: self.inner.neighbors.clone (),
         };
         let obscured_signature = obscured_inner.generate_signature(cryptde);
 
@@ -233,17 +235,23 @@ impl NeighborhoodDatabase {
             None => (),
             Some (node_addr) => {self.by_ip_addr.remove (&node_addr.ip_addr ()); ()}
         };
+        // Note: Not tested because it's about to be removed by merge of SC-599 (2018-12-13)
         self.by_public_key.values_mut ().for_each (|node_record| {
-            node_record.neighbors.remove (node_key);
+            match (0..(node_record.neighbors ().len ())).find (|idx| (&node_record.neighbors ()[*idx] == node_key)) {
+                None => (), // Not tested; see above about SC-599
+                Some (idx) => {node_record.inner.neighbors.remove (idx);}
+            };
         });
         Ok (())
     }
 
     pub fn add_neighbor (&mut self, node_key: &Key, new_neighbor: &Key) -> Result<bool, NeighborhoodDatabaseError> {
         if !self.keys ().contains (new_neighbor) {return Err (NodeKeyNotFound (new_neighbor.clone ()))};
+        if self.has_neighbor (node_key, new_neighbor) {return Ok (false)}
         match self.node_by_key_mut (node_key) {
             Some(node) => {
-                return Ok(node.neighbors.insert (new_neighbor.clone ()));
+                node.neighbors_mut ().push(new_neighbor.clone());
+                Ok(true)
             },
             None => Err(NodeKeyNotFound(node_key.clone()))
         }
@@ -322,6 +330,58 @@ mod tests {
     }
 
     #[test]
+    fn cant_use_remove_node_to_remove_own_node () {
+        let this_node = make_node_record(1234, true, false);
+        let mut subject = NeighborhoodDatabase::new(&this_node.inner.public_key, this_node.inner.node_addr_opt.as_ref ().unwrap (), false, &CryptDENull::from(this_node.public_key()));
+
+        let result = subject.remove_node (this_node.public_key ());
+
+        assert_eq! (result, Err (String::from ("Can't remove self")))
+    }
+
+    #[test]
+    fn cant_use_remove_node_to_remove_unknown_node () {
+        let this_node = make_node_record(1234, true, false);
+        let unknown_node = make_node_record(4321, false, false);
+        let mut subject = NeighborhoodDatabase::new(&this_node.inner.public_key, this_node.inner.node_addr_opt.as_ref ().unwrap (), false, &CryptDENull::from(this_node.public_key()));
+
+        let result = subject.remove_node (unknown_node.public_key ());
+
+        assert_eq! (result, Err (format! ("No knowledge of node {}: can't remove", unknown_node.public_key ())))
+    }
+
+    #[test]
+    fn remove_node_removes_node_whose_ip_addr_we_dont_know () {
+        let this_node = make_node_record(1234, true, false);
+        let unknown_ip_node = make_node_record(4321, false, false);
+        let mut subject = NeighborhoodDatabase::new(&this_node.inner.public_key, this_node.inner.node_addr_opt.as_ref ().unwrap (), false, &CryptDENull::from(this_node.public_key()));
+        subject.add_node(&unknown_ip_node).unwrap();
+        subject.add_neighbor (this_node.public_key (), unknown_ip_node.public_key ()).unwrap ();
+        subject.add_neighbor (unknown_ip_node.public_key (), this_node.public_key ()).unwrap ();
+
+        let result = subject.remove_node (unknown_ip_node.public_key ());
+
+        assert_eq! (result, Ok (()));
+        assert_eq! (subject.node_by_key (unknown_ip_node.public_key()), None);
+    }
+
+    #[test]
+    fn remove_node_removes_node_whose_ip_addr_we_do_know () {
+        let this_node = make_node_record(1234, true, false);
+        let known_ip_node = make_node_record(4321, true, false);
+        let mut subject = NeighborhoodDatabase::new(&this_node.inner.public_key, this_node.inner.node_addr_opt.as_ref ().unwrap (), false, &CryptDENull::from(this_node.public_key()));
+        subject.add_node(&known_ip_node).unwrap();
+        subject.add_neighbor (this_node.public_key (), known_ip_node.public_key ()).unwrap ();
+        subject.add_neighbor (known_ip_node.public_key (), this_node.public_key ()).unwrap ();
+
+        let result = subject.remove_node (known_ip_node.public_key ());
+
+        assert_eq! (result, Ok (()));
+        assert_eq! (subject.node_by_key (known_ip_node.public_key()), None);
+        assert_eq! (subject.node_by_ip (&known_ip_node.node_addr_opt().unwrap ().ip_addr()), None);
+    }
+
+    #[test]
     fn add_neighbor_works () {
         let this_node = make_node_record(1234, true, false);
         let one_node = make_node_record(2345, false, false);
@@ -385,16 +445,16 @@ mod tests {
 
     #[test]
     fn set_signatures_returns_true_when_signatures_are_not_set() {
-        let mut subject_signed = make_node_record(1234, false, false);
+        let subject_signed = make_node_record(1234, false, false);
         let mut subject = NodeRecord::new(subject_signed.public_key(), subject_signed.node_addr_opt().as_ref(), subject_signed.is_bootstrap_node(), None);
 
         assert_eq!(subject.signatures(), None);
 
-        let signatures = NodeSignatures::new(CryptData::new(&[123, 456, 789]), CryptData::new(&[987, 654, 321]));
+        let signatures = NodeSignatures::new(CryptData::new(&[123, 56, 89]), CryptData::new(&[87, 54, 21]));
 
         let result = subject.set_signatures(signatures.clone());
 
-        assert_eq!(result, Ok((true)));
+        assert_eq!(result, Ok(true));
         assert_eq!(subject.signatures(), Some(signatures.clone()));
 
     }
@@ -406,7 +466,7 @@ mod tests {
         let signatures = subject.signatures().unwrap().clone();
         let result = subject.set_signatures(signatures);
 
-        assert_eq!(result, Ok((false)));
+        assert_eq!(result, Ok(false));
     }
 
     #[test]
@@ -427,11 +487,11 @@ mod tests {
         let mod_node_addr = NodeRecord::new (&Key::new (&b"poke"[..]), Some (&NodeAddr::new (&IpAddr::from_str ("1.2.3.5").unwrap (), &vec! (1234))), true, None);
         let mod_is_bootstrap = NodeRecord::new (&Key::new (&b"poke"[..]), Some (&NodeAddr::new (&IpAddr::from_str ("1.2.3.4").unwrap (), &vec! (1234))), false, None);
         let mod_signatures = NodeRecord::new (&Key::new(&b"poke"[..]), Some(&NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec!(1234))), true, Some(NodeSignatures::new(CryptData::new(b""), CryptData::new(b""))));
-        with_neighbor.neighbors.insert (mod_key.public_key ().clone ());
+        with_neighbor.neighbors_mut ().push (mod_key.public_key ().clone ());
 
         assert_eq! (exemplar, exemplar);
         assert_eq! (exemplar, duplicate);
-        assert_eq! (exemplar, with_neighbor);
+        assert_ne! (exemplar, with_neighbor);
         assert_ne! (exemplar, mod_key);
         assert_ne! (exemplar, mod_node_addr);
         assert_ne! (exemplar, mod_is_bootstrap);
@@ -443,7 +503,7 @@ mod tests {
         let this_node = make_node_record(1234, true, false);
         let other_node = make_node_record (2345, true, false);
         let mut subject = NeighborhoodDatabase::new(&this_node.inner.public_key, this_node.inner.node_addr_opt.as_ref ().unwrap (), false, &CryptDENull::from(this_node.public_key()));
-        subject.add_node(&other_node);
+        subject.add_node(&other_node).unwrap ();
 
         let result = subject.add_neighbor(this_node.public_key(), other_node.public_key());
 
@@ -455,8 +515,8 @@ mod tests {
         let this_node = make_node_record(1234, true, false);
         let other_node = make_node_record (2345, true, false);
         let mut subject = NeighborhoodDatabase::new(&this_node.inner.public_key, this_node.inner.node_addr_opt.as_ref ().unwrap (), false, &CryptDENull::from(this_node.public_key()));
-        subject.add_node(&other_node);
-        subject.add_neighbor(this_node.public_key(), other_node.public_key());
+        subject.add_node(&other_node).unwrap ();
+        subject.add_neighbor(this_node.public_key(), other_node.public_key()).unwrap ();
 
         let result = subject.add_neighbor(this_node.public_key(), other_node.public_key());
 

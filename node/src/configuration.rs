@@ -82,6 +82,7 @@ mod tests {
     use super::*;
     use discriminator::UnmaskedChunk;
     use node_test_utils::NullDiscriminatorFactory;
+    use test_utils::test_utils::assert_contains;
 
     #[test]
     fn find_free_port_works_ten_times () {
@@ -185,9 +186,9 @@ mod tests {
 
         let ports = subject.all_ports();
 
-        assert_eq! (ports.contains (&80), true);
-        assert_eq! (ports.contains (&443), true);
-        assert_eq! (ports.contains (&3456), true);
+        assert_contains (&ports, &80);
+        assert_contains (&ports, &443);
+        assert_contains (&ports, &3456);
         assert_eq! (ports.len (), 3);
     }
 

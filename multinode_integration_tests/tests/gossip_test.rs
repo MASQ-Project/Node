@@ -33,15 +33,16 @@ use neighborhood_lib::neighborhood_database::NodeRecordInner;
 use neighborhood_lib::neighborhood_database::NodeRecord;
 use sub_lib::cryptde_null::CryptDENull;
 use neighborhood_lib::neighborhood_database::NodeSignatures;
+use test_utils::test_utils::assert_contains;
 
 #[test]
 fn when_bootstrapping_from_a_node_then_the_node_sends_gossip_upon_startup () {
     let mut cluster = SubstratumNodeCluster::start ().unwrap ();
     let server = SubstratumCoresServer::new ();
-    let node_ref = server.node_reference ();
+    let bootstrap_node_ref = server.node_reference ();
 
     let subject = cluster.start_real_node(NodeStartupConfigBuilder::standard ()
-        .bootstrap_from (node_ref)
+        .bootstrap_from (bootstrap_node_ref.clone ())
         .build ()
     );
 
@@ -53,24 +54,15 @@ fn when_bootstrapping_from_a_node_then_the_node_sends_gossip_upon_startup () {
         public_key: node_ref.public_key.clone (),
         node_addr_opt: Some (node_ref.node_addr.clone ()),
         is_bootstrap_node: false,
+        neighbors: vec! (bootstrap_node_ref.public_key.clone ()),
     };
     let (complete_signature, obscured_signature) = {
         let mut nr = NodeRecord::new(&node_ref.public_key, Some(&node_ref.node_addr), false, None);
         nr.sign(&CryptDENull::from(&node_ref.public_key));
         (nr.signatures().unwrap().complete().clone(), nr.signatures().unwrap().obscured().clone())
     };
-    find (&gossip.node_records, GossipNodeRecord {
+    assert_contains (&gossip.node_records, &GossipNodeRecord {
         inner,
         signatures: NodeSignatures::new(complete_signature, obscured_signature),
     });
-}
-
-fn find (haystack: &Vec<GossipNodeRecord>, needle: GossipNodeRecord) -> usize {
-    for i in 0..haystack.len () {
-        let candidate = &haystack[i];
-        if candidate == &needle {
-            return i
-        }
-    }
-    panic! ("{:?} did not contain {:?}", haystack, needle)
 }

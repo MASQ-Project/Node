@@ -28,6 +28,7 @@ use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use sub_lib::neighborhood::RouteQueryResponse;
 use sub_lib::stream_key::StreamKey;
+use std::fmt::Debug;
 
 lazy_static! {
     static ref CRYPT_DE_NULL: CryptDENull = CryptDENull::new ();
@@ -257,6 +258,11 @@ pub fn wait_for<F> (interval_ms: Option<u64>, limit_ms: Option<u64>, f: F) where
         thread::sleep (Duration::from_millis (real_interval_ms));
     }
 }
+
+pub fn assert_contains<T> (haystack: &Vec<T>, needle: &T) where T: Debug + PartialEq {
+    assert_eq! (haystack.contains (needle), true, "{:?}\ndoes not contain\n{:?}", haystack, needle);
+}
+
 
 #[cfg (test)]
 mod tests {

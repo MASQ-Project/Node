@@ -157,7 +157,7 @@ pub trait CryptDE: Send + Sync {
     // This is dup instead of clone because making a trait Clone has unpleasant consequences.
     fn dup(&self) -> Box<CryptDE>;
     fn sign(&self, data: &PlainData) -> Result<CryptData, CryptdecError>;
-    fn verify_signature(&self, public_key: &Key, data: &CryptData) -> Result<PlainData, CryptdecError>;
+    fn verify_signature(&self, data: &PlainData, signature: &CryptData, public_key: &Key) -> bool;
 }
 
 #[cfg (test)]

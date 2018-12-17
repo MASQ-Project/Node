@@ -275,6 +275,7 @@ mod tests {
     use stream_handler_pool::StreamHandlerPoolSubs;
     use stream_messages::AddStreamMsg;
     use test_utils::test_utils::FakeStreamHolder;
+    use test_utils::test_utils::assert_contains;
     use test_utils::recorder::RecordAwaiter;
     use test_utils::recorder::Recording;
     use test_utils::logging::TestLog;
@@ -813,9 +814,9 @@ mod tests {
             format! ("{:?}", record.origin_port)
 
         }).collect ();
-        assert_eq! (actual_ports.contains (&String::from ("Some(80)")), true, "{:?} does not contain 'first'", actual_ports);
-        assert_eq! (actual_ports.contains (&String::from ("None")), true, "{:?} does not contain 'second'", actual_ports);
-        assert_eq! (actual_ports.contains (&String::from ("Some(443)")), true, "{:?} does not contain 'third'", actual_ports);
+        assert_contains (&actual_ports, &String::from ("Some(80)"));
+        assert_contains (&actual_ports, &String::from ("None"));
+        assert_contains (&actual_ports, &String::from ("Some(443)"));
     }
 
     #[test]
