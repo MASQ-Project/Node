@@ -78,19 +78,11 @@ impl NodeSignatures {
     }
 }
 
-#[derive (Clone, Debug)]
+#[derive (Clone, Debug, PartialEq)]
 pub struct NodeRecord {
-    // NOTE: If you add fields here, drive them into the implementation of PartialEq below.
     inner: NodeRecordInner,
     // TODO: Replace this with a retransmittable representation of the signed packet/signature from the incoming Gossip.
     signatures: Option<NodeSignatures>,
-}
-
-impl PartialEq for NodeRecord {
-    fn eq(&self, other: &NodeRecord) -> bool {
-        self.inner == other.inner &&
-        self.signatures == other.signatures
-    }
 }
 
 impl NodeRecord {
@@ -625,6 +617,7 @@ mod tests {
         assert_eq!(result.contains("\"BAUGBw\" -> \"AQIDBA\" [style=dashed];"), true, "node_three -x-> this_node");
     }
 
+    #[test]
     fn remove_neighbor_returns_error_when_given_nonexistent_node_key() {
         let this_node = make_node_record(123, true, false);
         let mut subject = NeighborhoodDatabase::new(&this_node.inner.public_key, this_node.inner.node_addr_opt.as_ref ().unwrap (), false, &CryptDENull::from(this_node.public_key()));

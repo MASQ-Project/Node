@@ -1006,12 +1006,9 @@ mod tests {
     }
 
     #[test]
-    fn node_receives_gossip_and_replies () {
+    fn neighborhood_sends_gossip_when_db_changes() {
         let cryptde = cryptde ();
         let mut this_node = NodeRecord::new_for_tests (&cryptde.public_key (), Some (&NodeAddr::new (&IpAddr::from_str ("5.4.3.2").unwrap (), &vec! (1234))), true);
-        let mut one_neighbor = make_node_record (2345, true, false);
-        this_node.neighbors_mut ().push (one_neighbor.public_key ().clone ());
-        one_neighbor.neighbors_mut ().push (this_node.public_key ().clone ());
         let mut gossip_neighbor = make_node_record (4567, true, false);
         gossip_neighbor.neighbors_mut ().push (this_node.public_key ().clone ());
         let gossip = GossipBuilder::new ().node (&gossip_neighbor, true).build ();
@@ -1021,7 +1018,6 @@ mod tests {
         let hopper_awaiter = hopper.get_awaiter ();
         let hopper_recording = hopper.get_recording ();
         let this_node_inside = this_node.clone ();
-        let one_neighbor_inside = one_neighbor.clone ();
         thread::spawn (move || {
             let system = System::new ("");
             let mut subject = Neighborhood::new (cryptde, NeighborhoodConfig {
@@ -1031,9 +1027,6 @@ mod tests {
                 local_ip_addr: this_node_inside.node_addr_opt().unwrap ().ip_addr(),
                 clandestine_port_list: this_node_inside.node_addr_opt().unwrap ().ports(),
             });
-            subject.neighborhood_database.add_node (&one_neighbor_inside).unwrap ();
-            subject.neighborhood_database.add_neighbor (&cryptde.public_key (), one_neighbor_inside.public_key ()).unwrap ();
-            subject.neighborhood_database.add_neighbor (one_neighbor_inside.public_key (), &cryptde.public_key ()).unwrap ();
             let addr: Addr<Syn, Neighborhood> = subject.start ();
             let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
             addr.try_send(BindMessage { peer_actors }).unwrap ();
@@ -1043,25 +1036,19 @@ mod tests {
 
             system.run ();
         });
-        hopper_awaiter.await_message_count (2);
+        hopper_awaiter.await_message_count (1);
         let locked_recording = hopper_recording.lock ().unwrap ();
-        let package_refs = vec! (locked_recording.get_record (0), locked_recording.get_record (1));
+        let package = locked_recording.get_record (0);
         // Now make this_node look the way subject's initial NodeRecord will have looked after receiving the Gossip, so that
         // it appears correct for check_outgoing_package.
         this_node.neighbors_mut ().push (gossip_neighbor.public_key ().clone ());
-        let checked_keys: Arc<Mutex<HashSet<&Key>>> = Arc::new (Mutex::new (HashSet::new ()));
-        let checked_keys_inside = checked_keys.clone ();
-        package_refs.into_iter ().for_each (|package| {
-            if &find_package_target (package) == gossip_neighbor.public_key () {
-                checked_keys_inside.lock ().unwrap ().insert (gossip_neighbor.public_key ());
-                check_outgoing_package(package, &this_node, &gossip_neighbor, &one_neighbor);
-            }
-            else {
-                checked_keys_inside.lock ().unwrap ().insert (one_neighbor.public_key ());
-                check_outgoing_package(package, &this_node, &one_neighbor, &gossip_neighbor);
-            }
-        });
-        assert_eq! (checked_keys.lock ().unwrap ().len (), 2);
+
+        if &find_package_target (package) == gossip_neighbor.public_key () {
+            check_outgoing_package(package, &this_node, &gossip_neighbor);
+        }
+        else {
+            assert_eq!(true, false, "Got unexpected Gossip message: {:?}", package);
+        }
     }
 
     #[test]
@@ -1196,30 +1183,19 @@ mod tests {
         assert_eq!(hop.component, Component::Neighborhood);
     }
 
-    // Checks that cores_package contains the following Gossip:   target <=> source <=> far_neighbor
-    fn check_outgoing_package(cores_package: &IncipientCoresPackage, source: &NodeRecord, target: &NodeRecord, far_neighbor: &NodeRecord) -> NeighborhoodDatabase {
+    // Checks that cores_package contains the following Gossip:   target <=> source
+    fn check_outgoing_package(cores_package: &IncipientCoresPackage, source: &NodeRecord, target: &NodeRecord) -> NeighborhoodDatabase {
         check_direct_route_to (&cores_package.route, target.public_key ());
         assert_eq!(&cores_package.payload_destination_key, target.public_key());
         let deserialized_payload: Gossip = serde_cbor::de::from_slice(&cores_package.payload.data[..]).unwrap();
         let mut database = NeighborhoodDatabase::new(target.public_key(), &target.node_addr_opt().unwrap (),
                                                      false, &CryptDENull::from(target.public_key()));
         GossipAcceptorReal::new().handle(&mut database, deserialized_payload);
-        assert_eq!(database.keys(), vec_to_set(vec!(source.public_key(), target.public_key(), far_neighbor.public_key ())));
         assert_eq!(database.node_by_key(source.public_key()).unwrap(), source);
         assert_eq!(database.node_by_key(target.public_key()).unwrap(), target);
-        let far_neighbor_hidden = NodeRecord::new(far_neighbor.public_key(),
-                                                  None, far_neighbor.is_bootstrap_node(), far_neighbor.signatures().clone());
-        assert_eq!(database.node_by_key(far_neighbor.public_key()).unwrap(), &far_neighbor_hidden);
+
         check_is_neighbor(&database, source, target);
         check_is_neighbor(&database, target, source);
-
-        check_is_neighbor(&database, source, far_neighbor);
-        if source.is_bootstrap_node() {
-            check_is_not_neighbor(&database, far_neighbor, source);
-        }
-        else {
-            check_is_neighbor(&database, far_neighbor, source);
-        }
 
         database
     }
@@ -1459,7 +1435,7 @@ mod tests {
     }
 
     #[test]
-    fn node_gossips_only_when_db_changes () {
+    fn neighborhood_does_not_gossip_when_db_does_not_change() {
         init_test_logging();
         let cryptde = cryptde ();
         let bootstrap_node = make_node_record(5648, true, true);

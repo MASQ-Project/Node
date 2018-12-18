@@ -173,9 +173,9 @@ fn end_to_end_gossip_and_routing_test () {
     let originating_node = cluster.start_real_node (NodeStartupConfigBuilder::standard ().bootstrap_from (bootstrap_node.node_reference ()).build ());
     let mut client = originating_node.make_client (80);
 
-    let relay_node_1 = cluster.start_real_node (NodeStartupConfigBuilder::standard ().bootstrap_from (originating_node.node_reference ()).build ());
-    let relay_node_2 = cluster.start_real_node (NodeStartupConfigBuilder::standard ().bootstrap_from (relay_node_1.node_reference ()).build ());
-    cluster.start_real_node (NodeStartupConfigBuilder::standard ().bootstrap_from (relay_node_2.node_reference ()).build ());
+    cluster.start_real_node (NodeStartupConfigBuilder::standard ().bootstrap_from (bootstrap_node.node_reference ()).build ());
+    cluster.start_real_node (NodeStartupConfigBuilder::standard ().bootstrap_from (bootstrap_node.node_reference ()).build ());
+    cluster.start_real_node (NodeStartupConfigBuilder::standard ().bootstrap_from (bootstrap_node.node_reference ()).build ());
 
     client.send_chunk (Vec::from (&b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n"[..]));
     let response = client.wait_for_chunk();
