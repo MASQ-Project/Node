@@ -182,9 +182,7 @@ impl Handler<ExpiredCoresPackagePackage> for Neighborhood {
 
         let db_changed = self.gossip_acceptor.handle (&mut self.neighborhood_database, incoming_gossip);
         if db_changed {
-            self.neighborhood_database.keys().into_iter()
-                .filter (|key_ref| key_ref != &self.neighborhood_database.root ().public_key ())
-                .for_each(|key_ref| {
+            self.neighborhood_database.root().neighbors().into_iter().for_each(|key_ref| {
                     let gossip = self.gossip_producer.produce(&self.neighborhood_database, key_ref);
                     let gossip_len = gossip.node_records.len ();
                     let route = self.create_single_hop_route(key_ref);
@@ -1472,5 +1470,48 @@ mod tests {
         TestLogHandler::new().await_log_containing(&format!("Finished processing Gossip about 1 Nodes"), 500);
         let locked_recording = hopper_recording.lock ().unwrap ();
         assert_eq!(0, locked_recording.len());
+    }
+
+    #[test]
+    fn node_gossips_only_to_immediate_neighbors () {
+        init_test_logging();
+        let cryptde = cryptde ();
+        let mut this_node = NodeRecord::new_for_tests (&cryptde.public_key (), Some (&NodeAddr::new (&IpAddr::from_str ("5.4.3.2").unwrap (), &vec! (1234))), true);
+        let mut far_neighbor = make_node_record(1234, true, false);
+        let mut gossip_neighbor = make_node_record (4567, true, false);
+        gossip_neighbor.neighbors_mut ().push (this_node.public_key ().clone ());
+        gossip_neighbor.neighbors_mut ().push (far_neighbor.public_key ().clone ());
+        far_neighbor.neighbors_mut ().push (gossip_neighbor.public_key ().clone ());
+
+        let gossip = GossipBuilder::new ().node (&gossip_neighbor, true).node(&far_neighbor, false).build ();
+        let serialized_gossip = PlainData::new (&serde_cbor::ser::to_vec (&gossip).unwrap ()[..]);
+        let cores_package = ExpiredCoresPackagePackage { expired_cores_package: ExpiredCoresPackage::new (make_meaningless_route (), serialized_gossip), sender_ip: IpAddr::from_str("1.2.3.4").unwrap() };
+        let hopper = Recorder::new ();
+        let hopper_awaiter = hopper.get_awaiter ();
+        let hopper_recording = hopper.get_recording ();
+        let this_node_inside = this_node.clone ();
+        thread::spawn (move || {
+            let system = System::new ("");
+            let mut subject = Neighborhood::new (cryptde, NeighborhoodConfig {
+                neighbor_configs: vec! (),
+                bootstrap_configs: vec! (),
+                is_bootstrap_node: this_node_inside.is_bootstrap_node(),
+                local_ip_addr: this_node_inside.node_addr_opt().unwrap ().ip_addr(),
+                clandestine_port_list: this_node_inside.node_addr_opt().unwrap ().ports(),
+            });
+            let addr: Addr<Syn, Neighborhood> = subject.start ();
+            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
+            addr.try_send(BindMessage { peer_actors }).unwrap ();
+
+            let sub: Recipient<Syn, ExpiredCoresPackagePackage> = addr.recipient::<ExpiredCoresPackagePackage> ();
+            sub.try_send (cores_package).unwrap ();
+
+            system.run ();
+        });
+        TestLogHandler::new().await_log_containing(&format!("Finished processing Gossip about 2 Nodes"), 500);
+        let locked_recording = hopper_recording.lock ().unwrap ();
+        assert_eq!(1, locked_recording.len());
+        let package = locked_recording.get_record (0);
+        assert_eq!(&find_package_target (package), gossip_neighbor.public_key ());
     }
 }
