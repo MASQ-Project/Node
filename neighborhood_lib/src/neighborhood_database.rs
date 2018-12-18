@@ -10,6 +10,9 @@ use sub_lib::cryptde::PlainData;
 use sub_lib::cryptde::CryptDE;
 use serde_cbor;
 use sha1;
+use std::fmt::Debug;
+use std::fmt::Formatter;
+use std::fmt::Error;
 
 #[derive (Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub struct NodeRecordInner {
@@ -179,11 +182,16 @@ impl NodeRecord {
     }
 }
 
-#[derive (Debug)]
 pub struct NeighborhoodDatabase {
     this_node: Key,
     by_public_key: HashMap<Key, NodeRecord>,
     by_ip_addr: HashMap<IpAddr, Key>,
+}
+
+impl Debug for NeighborhoodDatabase {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        f.write_str(self.to_dot_graph().as_str())
+    }
 }
 
 impl NeighborhoodDatabase {
@@ -285,6 +293,40 @@ impl NeighborhoodDatabase {
             },
             None => Err(NodeKeyNotFound(node_key.clone()))
         }
+    }
+
+    pub fn to_dot_graph(&self) -> String {
+        let mut result = String::new();
+
+        self.keys().into_iter().for_each(|key| {
+            let node = self.node_by_key(key).expect("Key magically disappeared");
+
+            // add node descriptor
+            let mut node_label = format!("{}", key);
+            match node.node_addr_opt() {
+                Some(addr) => node_label.push_str(&format!("\\n{}", addr)),
+                None => {}
+            };
+            if node.is_bootstrap_node() {
+                node_label.push_str("\\nbootstrap");
+            }
+            let mut node_str = format!("\"{}\" [label=\"{}\"]", key, node_label);
+            if node.public_key() == self.root().public_key() {
+                node_str.push_str(" [style=filled]");
+            }
+            result = format!("{}; {}", node_str, result);
+
+            // add node neighbors
+            node.neighbors().into_iter().for_each(|neighbor| {
+                result.push_str(&format!(" \"{}\" -> \"{}\"", key, neighbor));
+                if node.is_bootstrap_node() || self.node_by_key(neighbor).expect("Key magically disappeared").is_bootstrap_node() {
+                    result.push_str(" [style=dashed]");
+                }
+                result.push_str(";");
+            })
+        });
+
+        format!("digraph db {{ {} }}", result)
     }
 }
 
@@ -542,6 +584,47 @@ mod tests {
     }
 
     #[test]
+    fn database_can_be_pretty_printed_to_dot_format() {
+        let cryptde = CryptDENull::new();
+        let this_node = make_node_record(1234, true, true);     // AQIDBA
+        let node_one = make_node_record(2345, true, false);     // AgMEBQ
+        let node_two = make_node_record(3456, true, false);     // AwQFBg
+        let node_three = make_node_record(4567, true, false);   // BAUGBw
+
+        let mut subject = NeighborhoodDatabase::new(&this_node.public_key(), this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), &cryptde);
+
+        subject.add_node(&node_one);
+        subject.add_node(&node_two);
+        subject.add_node(&node_three);
+
+        subject.add_neighbor(&this_node.public_key(), &node_one.public_key());
+        subject.add_neighbor(&node_one.public_key(), &this_node.public_key());
+
+        subject.add_neighbor(&node_one.public_key(), &node_two.public_key());
+        subject.add_neighbor(&node_two.public_key(), &node_one.public_key());
+        subject.add_neighbor(&node_two.public_key(), &this_node.public_key());
+
+        subject.add_neighbor(&node_two.public_key(), &node_three.public_key());
+        subject.add_neighbor(&node_three.public_key(), &node_two.public_key());
+        subject.add_neighbor(&node_three.public_key(), &this_node.public_key());
+
+        let result = subject.to_dot_graph();
+
+        assert_eq!(result.matches("->").count(), 8);
+        assert_eq!(result.contains("\"AQIDBA\" [label=\"AQIDBA\\n1.2.3.4:1234\\nbootstrap\"] [style=filled];"), true, "bootstrap node (this_node) is not displayed properly");
+        assert_eq!(result.contains("\"AgMEBQ\" [label=\"AgMEBQ\\n2.3.4.5:2345\"];"), true, "node_one is not displayed properly");
+        assert_eq!(result.contains("\"AwQFBg\" [label=\"AwQFBg\\n3.4.5.6:3456\"];"), true, "node_two is not displayed properly");
+        assert_eq!(result.contains("\"BAUGBw\" [label=\"BAUGBw\\n4.5.6.7:4567\"];"), true, "node_three is not displayed properly");
+        assert_eq!(result.contains("\"AQIDBA\" -> \"AgMEBQ\" [style=dashed];"), true, "this_node -x-> node_one");
+        assert_eq!(result.contains("\"AgMEBQ\" -> \"AQIDBA\" [style=dashed];"), true, "node_one -x-> this_node");
+        assert_eq!(result.contains("\"AgMEBQ\" -> \"AwQFBg\";"), true, "node_one -x-> node_two");
+        assert_eq!(result.contains("\"AwQFBg\" -> \"AgMEBQ\";"), true, "node_two -x-> node_one");
+        assert_eq!(result.contains("\"AwQFBg\" -> \"AQIDBA\" [style=dashed];"), true, "node_two -x-> this_node");
+        assert_eq!(result.contains("\"BAUGBw\" -> \"AwQFBg\";"), true, "node_three -x-> node_two");
+        assert_eq!(result.contains("\"AwQFBg\" -> \"BAUGBw\";"), true, "node_two -x-> node_three");
+        assert_eq!(result.contains("\"BAUGBw\" -> \"AQIDBA\" [style=dashed];"), true, "node_three -x-> this_node");
+    }
+
     fn remove_neighbor_returns_error_when_given_nonexistent_node_key() {
         let this_node = make_node_record(123, true, false);
         let mut subject = NeighborhoodDatabase::new(&this_node.inner.public_key, this_node.inner.node_addr_opt.as_ref ().unwrap (), false, &CryptDENull::from(this_node.public_key()));
