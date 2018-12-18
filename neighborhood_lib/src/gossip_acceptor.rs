@@ -3,6 +3,10 @@ use gossip::Gossip;
 use neighborhood_database::NeighborhoodDatabase;
 use sub_lib::logger::Logger;
 use neighborhood_database::NeighborhoodDatabaseError;
+use gossip::GossipNodeRecord;
+use sub_lib::cryptde::Key;
+use std::collections::HashSet;
+use neighborhood_database::NodeRecord;
 
 pub trait GossipAcceptor {
     // Philosophy of handling Gossip messages that are malformed: Don't spend effort on rejecting
@@ -30,7 +34,6 @@ impl GossipAcceptor for GossipAcceptorReal {
     */
     fn handle(&self, database: &mut NeighborhoodDatabase, gossip: Gossip) -> bool {
         let mut changed = self.handle_node_records (database, &gossip);
-        changed = self.handle_neighbor_pairs (database, &gossip) || changed;
         changed = self.add_ip_neighbors (database, &gossip) || changed;
         self.logger.debug (format! ("Database after accepting Gossip: {:?}", database));
         changed
@@ -46,66 +49,19 @@ impl GossipAcceptorReal {
         let mut changed = false;
         gossip_ref.node_records.iter ()
             .filter (|gnr_ref_ref| {
-                if gnr_ref_ref.inner.public_key.data.is_empty() {
-                    self.logger.error (format! ("Rejecting GossipNodeRecord with blank public key"));
-                    false
-                }
-                else {
-                    true
-                }
+                self.is_not_invalid(&gnr_ref_ref)
             })
             .for_each(|gnr_ref| {
-                if database.keys().contains(&gnr_ref.inner.public_key) {
-                    let node_record = database.node_by_key_mut(&gnr_ref.inner.public_key).expect("Key magically disappeared").clone();
-
-                    if let Some(new_node_addr_ref) = gnr_ref.inner.node_addr_opt.as_ref() {
-                        match database.node_by_key_mut(node_record.public_key()).expect("Key magically disappeared").set_node_addr(new_node_addr_ref) {
-                            Ok(_) => changed = true,
-                            Err(NeighborhoodDatabaseError::NodeAddrAlreadySet(old_addr)) => {
-                                self.logger.error(format!("Gossip attempted to change IP address of node {} from {} to {}: ignoring",
-                                                          &gnr_ref.inner.public_key, old_addr.ip_addr(), new_node_addr_ref.ip_addr()));
-                            },
-                            Err(_) => panic!("Compiler candy")
-                        }
-                    }
-
-                    match database.node_by_key_mut(node_record.public_key()).expect("Key magically disappeared").set_signatures(gnr_ref.signatures.clone()) {
-                        Ok(true) => changed = true,
-                        Ok(false) => (),
-                        Err(NeighborhoodDatabaseError::NodeSignaturesAlreadySet(signatures)) => {
-                            self.logger.error(format!("Gossip tried to modify signatures of node {} from {:?} to {:?}", node_record.public_key(), signatures, gnr_ref.signatures));
-                        },
-                        Err(_) => panic!("Compiler candy")
-                    }
+                changed = if database.keys().contains(&gnr_ref.inner.public_key) {
+                    let node_record = database.node_by_key_mut(&gnr_ref.inner.public_key).expect("Key magically disappeared");
+                    self.update_node_addrs (gnr_ref, node_record) ||
+                        self.update_neighbors (gnr_ref, node_record) ||
+                        self.update_signatures (gnr_ref, node_record) || changed
                 } else {
                     database.add_node(&gnr_ref.to_node_record()).expect("Key magically appeared");
-                    changed = true;
+                    true
                 }
             });
-        changed
-    }
-
-    fn handle_neighbor_pairs (&self, database: &mut NeighborhoodDatabase, gossip_ref: &Gossip) -> bool {
-        let mut changed = false;
-        let key_ref_from_index = |index| {
-            let usize_index = index as usize;
-            if usize_index < gossip_ref.node_records.len () {
-                Some(&gossip_ref.node_records[usize_index].inner.public_key)
-            } else {
-                None
-            }
-        };
-        gossip_ref.neighbor_pairs.iter ().for_each (|neighbor_relationship| {
-            match (key_ref_from_index (neighbor_relationship.from), key_ref_from_index (neighbor_relationship.to)) {
-                (Some (from_key_ref), Some (to_key_ref)) if from_key_ref == to_key_ref => self.logger.error (format! ("Gossip attempted to make node {} neighbor to itself: ignoring", from_key_ref)),
-                (Some (from_key_ref), _) if from_key_ref.data.is_empty () => self.logger.error (format! ("Rejecting neighbor reference with blank public key")),
-                (_, Some (to_key_ref)) if to_key_ref.data.is_empty () => self.logger.error (format! ("Rejecting neighbor reference with blank public key")),
-                (Some (from_key_ref), Some (to_key_ref)) => {
-                    changed = database.add_neighbor (from_key_ref, to_key_ref).expect("Should have added nodes with these keys already") || changed;
-                },
-                (_, _) => self.logger.error (format! ("Gossip described neighbor relationship from node #{} to node #{}, but only contained {} nodes: ignoring", neighbor_relationship.from, neighbor_relationship.to, gossip_ref.node_records.len ()))
-            }
-        });
         changed
     }
 
@@ -121,13 +77,66 @@ impl GossipAcceptorReal {
         });
         changed
     }
+
+    fn is_not_invalid(&self, gnr: &GossipNodeRecord) -> bool {
+        let empty_key = Key::new (&[]);
+        if gnr.inner.public_key.data.is_empty() {
+            self.logger.error(format!("Rejecting GossipNodeRecord with blank public key"));
+            false
+        } else if gnr.inner.neighbors.contains(&empty_key) {
+            self.logger.error(format!("Rejecting neighbor reference with blank public key"));
+            false
+        } else if gnr.inner.neighbors.contains(&gnr.inner.public_key) {
+            self.logger.error(format! ("Gossip attempted to make node {} neighbor to itself: ignoring", &gnr.inner.public_key));
+            false
+        } else {
+            true
+        }
+    }
+
+    fn update_node_addrs (&self, gnr_ref: &GossipNodeRecord, node_record: &mut NodeRecord) -> bool {
+        if let Some(new_node_addr_ref) = gnr_ref.inner.node_addr_opt.as_ref() {
+            match node_record.set_node_addr(new_node_addr_ref) {
+                Ok(_) => true,
+                Err(NeighborhoodDatabaseError::NodeAddrAlreadySet(old_addr)) => {
+                    self.logger.error(format!("Gossip attempted to change IP address of node {} from {} to {}: ignoring",
+                                              &gnr_ref.inner.public_key, old_addr.ip_addr(), new_node_addr_ref.ip_addr()));
+                    false
+                },
+                Err(_) => panic!("Compiler candy")
+            }
+        }
+        else {
+            false
+        }
+    }
+
+    fn update_neighbors (&self, gnr_ref: &GossipNodeRecord, node_record: &mut NodeRecord) -> bool {
+        let unchanged = {
+            let existing_neighbors: HashSet<&Key> = gnr_ref.inner.neighbors.iter().collect();
+            let incoming_neighbors: HashSet<&Key> = node_record.neighbors().iter().collect();
+            existing_neighbors == incoming_neighbors
+        };
+        if unchanged {
+            false
+        }
+        else {
+            let neighbors = node_record.neighbors_mut();
+            neighbors.clear();
+            neighbors.extend(gnr_ref.inner.neighbors.clone());
+            true
+        }
+    }
+
+    fn update_signatures(&self, gnr_ref: &GossipNodeRecord, node_record: &mut NodeRecord) -> bool {
+        node_record.set_signatures(gnr_ref.signatures.clone())
+    }
 }
 
 #[cfg (test)]
 mod tests {
     use super::*;
     use neighborhood_test_utils::make_node_record;
-    use std::collections::HashSet;
     use std::net::Ipv4Addr;
     use std::net::IpAddr;
     use test_utils::logging::TestLogHandler;
@@ -138,7 +147,6 @@ mod tests {
     use sub_lib::cryptde::Key;
     use gossip::GossipBuilder;
     use neighborhood_test_utils::*;
-    use gossip::NeighborRelationship;
     use test_utils::test_utils::cryptde;
     use sub_lib::cryptde::CryptData;
     use neighborhood_database::NodeSignatures;
@@ -146,14 +154,22 @@ mod tests {
     #[test]
     fn gossip_is_copied_into_single_node_database() {
         init_test_logging();
-        let existing_node = make_node_record(1234, true, false);
+        let mut existing_node = make_node_record(1234, true, false);
         let mut database = NeighborhoodDatabase::new(existing_node.public_key(),
                                                      existing_node.node_addr_opt().as_ref().unwrap(), existing_node.is_bootstrap_node(), cryptde ());
         let incoming_far_left = make_node_record(2345, false, false);
-        let incoming_near_left = make_node_record(3456, true, false);
-        let incoming_near_right = make_node_record(4657, true, false);
-        let incoming_far_right = make_node_record(5678, false, false);
-        let bad_record_with_blank_key = NodeRecord::new (&Key::new (&[]), None, false, Some(NodeSignatures::new(CryptData::new(b"hello"), CryptData::new(b"world"))));
+        let mut incoming_near_left = make_node_record(3456, true, false);
+        let mut incoming_near_right = make_node_record(4657, true, false);
+        let mut incoming_far_right = make_node_record(5678, false, false);
+        let mut bad_record_with_blank_key = NodeRecord::new (&Key::new (&[]), None, false, Some(NodeSignatures::new(CryptData::new(b"hello"), CryptData::new(b"world"))));
+        incoming_near_left.neighbors_mut ().push (incoming_far_left.public_key ().clone ());
+        incoming_near_left.neighbors_mut ().push (existing_node.public_key ().clone ());
+        existing_node.neighbors_mut ().push (incoming_near_left.public_key ().clone ());
+        existing_node.neighbors_mut ().push (incoming_near_right.public_key ().clone ());
+        incoming_near_right.neighbors_mut ().push (existing_node.public_key ().clone ());
+        incoming_near_right.neighbors_mut ().push (incoming_far_right.public_key ().clone ());
+        incoming_far_right.neighbors_mut ().push (bad_record_with_blank_key.public_key ().clone ());
+        bad_record_with_blank_key.neighbors_mut ().push (incoming_far_right.public_key ().clone ());
         let gossip = GossipBuilder::new()
             .node(&incoming_far_left, false)
             .node(&incoming_near_left, true)
@@ -161,33 +177,30 @@ mod tests {
             .node(&incoming_near_right, true)
             .node(&incoming_far_right, false)
             .node(&bad_record_with_blank_key, false)
-            .neighbor_pair(incoming_near_left.public_key(), incoming_far_left.public_key())
-            .neighbor_pair(incoming_near_left.public_key(), existing_node.public_key())
-            .neighbor_pair(existing_node.public_key(), incoming_near_left.public_key())
-            .neighbor_pair(existing_node.public_key(), incoming_near_right.public_key())
-            .neighbor_pair(incoming_near_right.public_key(), existing_node.public_key())
-            .neighbor_pair(incoming_near_right.public_key(), incoming_far_right.public_key())
-            .neighbor_pair(incoming_far_right.public_key(), bad_record_with_blank_key.public_key())
-            .neighbor_pair(bad_record_with_blank_key.public_key(), incoming_far_right.public_key())
             .build();
         let subject = GossipAcceptorReal::new();
 
         subject.handle(&mut database, gossip);
 
-        assert_eq!(database.keys(), vec_to_set(vec!(incoming_far_left.public_key(), incoming_near_left.public_key(),
-                                                    existing_node.public_key(), incoming_near_right.public_key(), incoming_far_right.public_key())));
-        assert_eq!(neighbor_keys_of(&database, &incoming_far_left), HashSet::new());
+        assert_eq!(database.keys(), vec_to_set (vec!(
+            incoming_far_left.public_key(),
+            incoming_near_left.public_key(),
+            existing_node.public_key(),
+            incoming_near_right.public_key()
+        )));
+        let empty_neighbors: Vec<&Key> = vec! ();
+        assert_eq!(neighbor_keys_of(&database, &incoming_far_left),
+                   empty_neighbors);
         assert_eq!(neighbor_keys_of(&database, &incoming_near_left),
-                   vec_to_set(vec!(incoming_far_left.public_key(), existing_node.public_key())));
+                   vec!(incoming_far_left.public_key(), existing_node.public_key()));
         assert_eq!(neighbor_keys_of(&database, &existing_node),
-                   vec_to_set(vec!(incoming_near_left.public_key(), incoming_near_right.public_key())));
+                   vec!(incoming_near_left.public_key(), incoming_near_right.public_key()));
         assert_eq!(neighbor_keys_of(&database, &incoming_near_right),
-                   vec_to_set(vec!(existing_node.public_key(), incoming_far_right.public_key())));
-        assert_eq!(neighbor_keys_of(&database, &incoming_far_right), HashSet::new());
+                   vec!(existing_node.public_key(), incoming_far_right.public_key()));
         let tlh = TestLogHandler::new ();
         tlh.assert_logs_contain_in_order (vec! (
+            "ERROR: GossipAcceptorReal: Rejecting neighbor reference with blank public key",
             "ERROR: GossipAcceptorReal: Rejecting GossipNodeRecord with blank public key",
-            "ERROR: GossipAcceptorReal: Rejecting neighbor reference with blank public key"
         ));
     }
 
@@ -211,11 +224,11 @@ mod tests {
         subject.handle(&mut database, gossip);
 
         assert_eq!(neighbor_keys_of(&database, &existing_node),
-                   vec_to_set(vec!(neighbor_one.public_key(), neighbor_two.public_key())));
-        assert_eq!(neighbor_keys_of(&database, &neighbor_one), vec_to_set(vec!(existing_node.public_key())));
-        assert_eq!(neighbor_keys_of(&database, &neighbor_two), vec_to_set(vec!(existing_node.public_key())));
-        assert_eq!(neighbor_keys_of(&database, &not_a_neighbor_one), HashSet::new());
-        assert_eq!(neighbor_keys_of(&database, &not_a_neighbor_two), HashSet::new());
+                   vec!(neighbor_one.public_key(), neighbor_two.public_key()));
+        assert_eq!(neighbor_keys_of(&database, &neighbor_one), vec!(existing_node.public_key()));
+        assert_eq!(neighbor_keys_of(&database, &neighbor_two), vec!(existing_node.public_key()));
+        assert_eq!(neighbor_keys_of(&database, &not_a_neighbor_one).is_empty (), true);
+        assert_eq!(neighbor_keys_of(&database, &not_a_neighbor_two).is_empty (), true);
         assert_eq!(database.keys().len(), 5);
     }
 
@@ -265,80 +278,37 @@ mod tests {
     }
 
     #[test]
-    fn handle_neighbor_pairs_complains_about_indices_that_resolve_to_matching_public_keys() {
+    fn handle_neighbor_pairs_complains_about_gossip_records_that_neighbor_themselves() {
         init_test_logging();
-        let this_node = make_node_record(1234, true, false);
+        let mut this_node = make_node_record(1234, true, false);
+        // existing_neighbor (2345) has a neighbor of its own: 5678.
+        let mut existing_neighbor = make_node_record (2345, true, false);
+        existing_neighbor.neighbors_mut().push (Key::new (&[5, 6, 7, 8]));
+        this_node.neighbors_mut ().push (existing_neighbor.public_key ().clone ());
         let mut database = NeighborhoodDatabase::new(this_node.public_key(),
                                                      this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), cryptde ());
-        let left_twin = make_node_record(2345, true, false);
-        let right_twin = make_node_record(2345, true, false);
+        database.add_node (&existing_neighbor).unwrap ();
+
+        // Now node 2345 claims a completely different neighbors list including itself: 2345 and 6789.
+        let mut invalid_record = make_node_record(2345, true, false);
+        let invalid_record_public_key = invalid_record.public_key ().clone ();
+        invalid_record.neighbors_mut ().push (invalid_record_public_key);
+        invalid_record.neighbors_mut ().push (Key::new (&[6, 7, 8, 9]));
+
         let gossip = Gossip {
             node_records: vec!(
-                GossipNodeRecord::from(&left_twin, true),
-                GossipNodeRecord::from(&right_twin, true),
-            ),
-            neighbor_pairs: vec!(NeighborRelationship {
-                from: 0,
-                to: 1
-            }),
+                GossipNodeRecord::from(&invalid_record, true),
+            )
         };
         let subject = GossipAcceptorReal::new();
 
         subject.handle(&mut database, gossip);
 
-        assert_eq!(database.node_by_key(left_twin.public_key()).unwrap().neighbors(), &vec!(this_node.public_key().clone()));
+        // existing_neighbor in the database is untouched by the invalid Gossip.
+        assert_eq!(database.node_by_key(existing_neighbor.public_key()).unwrap().neighbors(),
+                   &vec!(Key::new (&[5, 6, 7, 8]), this_node.public_key ().clone ()));
         let tlh = TestLogHandler::new();
         tlh.assert_logs_contain_in_order(vec!("ERROR: GossipAcceptorReal: Gossip attempted to make node AgMEBQ neighbor to itself: ignoring"));
-    }
-
-    #[test]
-    fn handle_neighbor_pairs_complains_when_from_neighbor_index_is_bad() {
-        init_test_logging();
-        let this_node = make_node_record(1234, true, false);
-        let mut database = NeighborhoodDatabase::new(this_node.public_key(),
-                                                     this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), cryptde ());
-        let incoming_node = make_node_record(2345, true, false);
-        let gossip = Gossip {
-            node_records: vec!(
-                GossipNodeRecord::from(&incoming_node, true),
-            ),
-            neighbor_pairs: vec!(NeighborRelationship {
-                from: 42,
-                to: 0
-            }),
-        };
-        let subject = GossipAcceptorReal::new();
-
-        subject.handle(&mut database, gossip);
-
-        assert_eq!(database.node_by_key(incoming_node.public_key()).unwrap().neighbors(), &vec!(this_node.public_key().clone()));
-        let tlh = TestLogHandler::new();
-        tlh.assert_logs_contain_in_order(vec!("ERROR: GossipAcceptorReal: Gossip described neighbor relationship from node #42 to node #0, but only contained 1 nodes: ignoring"));
-    }
-
-    #[test]
-    fn handle_neighbor_pairs_complains_when_to_neighbor_index_is_bad() {
-        init_test_logging();
-        let this_node = make_node_record(1234, true, false);
-        let mut database = NeighborhoodDatabase::new(this_node.public_key(),
-                                                     this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), cryptde ());
-        let incoming_node = make_node_record(2345, true, false);
-        let gossip = Gossip {
-            node_records: vec!(
-                GossipNodeRecord::from(&incoming_node, true),
-            ),
-            neighbor_pairs: vec!(NeighborRelationship {
-                from: 0,
-                to: 42
-            }),
-        };
-        let subject = GossipAcceptorReal::new();
-
-        subject.handle(&mut database, gossip);
-
-        assert_eq!(database.node_by_key(incoming_node.public_key()).unwrap().neighbors(), &vec!(this_node.public_key().clone()));
-        let tlh = TestLogHandler::new();
-        tlh.assert_logs_contain_in_order(vec!("ERROR: GossipAcceptorReal: Gossip described neighbor relationship from node #0 to node #42, but only contained 1 nodes: ignoring"));
     }
 
     #[test]
@@ -386,8 +356,9 @@ mod tests {
 
     #[test]
     fn handle_returns_true_when_a_new_edge_is_created_between_already_known_nodes() {
-        let this_node = make_node_record(1234, true, false);
+        let mut this_node = make_node_record(1234, true, false);
         let existing_node = make_node_record(2345, false, false);
+        this_node.neighbors_mut().push (existing_node.public_key().clone ());
         let mut database = NeighborhoodDatabase::new(this_node.public_key(),
                                                      this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), cryptde ());
         database.add_node(&existing_node).unwrap();
@@ -395,7 +366,6 @@ mod tests {
         let gossip = GossipBuilder::new()
             .node(&this_node, true)
             .node(&existing_node, true)
-            .neighbor_pair(this_node.public_key(), existing_node.public_key())
             .build();
         let subject = GossipAcceptorReal::new();
 
@@ -471,12 +441,16 @@ mod tests {
     #[test]
     fn handle_returns_false_when_gossip_results_in_no_changes_for_existing_node_with_node_addr() {
         let this_node = make_node_record(1234, true, false);
-        let existing_node = make_node_record(2345, true, false);
-        let mut database = NeighborhoodDatabase::new(this_node.public_key(),
-                                                     this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), cryptde ());
+        let mut existing_node = make_node_record(2345, true, false);
+        existing_node.neighbors_mut ().push (this_node.public_key ().clone ());
+        let mut database = NeighborhoodDatabase::new(
+            this_node.public_key(),
+            this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.is_bootstrap_node(),
+            cryptde ()
+        );
         database.add_node(&existing_node).unwrap();
         database.add_neighbor(this_node.public_key(), existing_node.public_key()).unwrap ();
-        database.add_neighbor(existing_node.public_key(), this_node.public_key()).unwrap ();
 
         let gossip = GossipBuilder::new()
             .node(&existing_node, true)
@@ -487,50 +461,6 @@ mod tests {
 
         assert_eq!(database.has_neighbor (this_node.public_key (), existing_node.public_key ()), true);
         assert!(!result, "Gossip unexpectedly resulted in a change to the DB");
-    }
-
-    #[test]
-    fn handle_returns_false_when_an_existing_neighbor_with_existing_signatures_is_gossipped_about() {
-        let this_node = make_node_record(1234, true, false);
-        let neighbor = make_node_record(2345, true, false);
-        let malefactor = NodeRecord::new(neighbor.public_key(), neighbor.node_addr_opt().as_ref(), neighbor.is_bootstrap_node(), Some(NodeSignatures::new(CryptData::new(&[6, 7, 5, 4]), CryptData::new(&[3, 6, 9, 12]))));
-        let mut database = NeighborhoodDatabase::new(this_node.public_key(), &this_node.node_addr_opt().unwrap(), this_node.is_bootstrap_node(), cryptde());
-
-        database.add_node(&neighbor).unwrap();
-        database.add_neighbor(this_node.public_key(), neighbor.public_key()).unwrap ();
-        database.add_neighbor(neighbor.public_key(), this_node.public_key()).unwrap ();
-
-        let gossip = GossipBuilder::new()
-            .node(&malefactor, true)
-            .build();
-        let subject = GossipAcceptorReal::new();
-
-        let result = subject.handle(&mut database, gossip);
-
-        let neighbor_in_db = database.node_by_key(neighbor.public_key()).unwrap();
-        assert_eq!(neighbor_in_db.signatures(), neighbor.signatures());
-        assert!(!result, "Gossip unexpectedly resulted in a change to the DB");
-    }
-
-    #[test]
-    fn handle_complains_when_an_existing_neighbor_with_existing_signatures_is_gossipped_about() {
-        init_test_logging();
-        let this_node = make_node_record(1234, true, false);
-        let neighbor = make_node_record(2345, true, false);
-        let malefactor = NodeRecord::new(neighbor.public_key(), neighbor.node_addr_opt().as_ref(), neighbor.is_bootstrap_node(), Some(NodeSignatures::new(CryptData::new(&[6, 7, 5, 4]), CryptData::new(&[3, 6, 9, 12]))));
-        let mut database = NeighborhoodDatabase::new(this_node.public_key(), &this_node.node_addr_opt().unwrap(), this_node.is_bootstrap_node(), cryptde());
-
-        database.add_node(&neighbor).unwrap();
-        database.add_neighbor(this_node.public_key(), neighbor.public_key()).unwrap ();
-
-        let gossip = GossipBuilder::new()
-            .node(&malefactor, true)
-            .build();
-        let subject = GossipAcceptorReal::new();
-
-        subject.handle(&mut database, gossip);
-
-        TestLogHandler::new().await_log_containing(&format!("ERROR: GossipAcceptorReal: Gossip tried to modify signatures of node AgMEBQ from {:?} to {:?}", neighbor.signatures().unwrap(), malefactor.signatures().unwrap()), 500);
     }
 
     #[test]

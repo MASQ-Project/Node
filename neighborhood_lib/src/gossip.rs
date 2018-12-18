@@ -1,9 +1,9 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use sub_lib::cryptde::Key;
-use std::collections::HashMap;
 use neighborhood_database::NodeRecord;
 use neighborhood_database::NodeRecordInner;
 use neighborhood_database::NodeSignatures;
+use std::collections::HashSet;
 
 #[derive (Clone, PartialEq, Hash, Eq, Debug, Serialize, Deserialize)]
 pub struct GossipNodeRecord {
@@ -33,25 +33,25 @@ impl GossipNodeRecord {
     }
 
     pub fn to_node_record(&self) -> NodeRecord {
-        NodeRecord::new (&self.inner.public_key, self.inner.node_addr_opt.as_ref(), self.inner.is_bootstrap_node, Some(self.signatures.clone()))
+        let mut node_record = NodeRecord::new (
+            &self.inner.public_key,
+            self.inner.node_addr_opt.as_ref(),
+            self.inner.is_bootstrap_node,
+            Some(self.signatures.clone())
+        );
+        node_record.neighbors_mut ().extend (self.inner.neighbors.clone ());
+        node_record
     }
-}
-
-#[derive (Clone, PartialEq, Debug, Serialize, Deserialize)]
-pub struct NeighborRelationship {
-    pub from: u32,
-    pub to: u32
 }
 
 #[derive (Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Gossip {
     pub node_records: Vec<GossipNodeRecord>,
-    pub neighbor_pairs: Vec<NeighborRelationship>,
 }
 
 pub struct GossipBuilder {
     gossip: Gossip,
-    key_to_index: HashMap<Key, u32>,
+    keys_so_far: HashSet<Key>,
 }
 
 impl GossipBuilder {
@@ -59,32 +59,19 @@ impl GossipBuilder {
         GossipBuilder {
             gossip: Gossip {
                 node_records: vec!(),
-                neighbor_pairs: vec!(),
             },
-            key_to_index: HashMap::new()
+            keys_so_far: HashSet::new()
         }
     }
 
     pub fn node (mut self, node_record_ref: &NodeRecord, reveal_node_addr: bool) -> GossipBuilder {
-        if self.key_to_index.contains_key (node_record_ref.public_key ()) {
+        if self.keys_so_far.contains (node_record_ref.public_key ()) {
             // crashpoint
             panic! ("GossipBuilder cannot add a node more than once")
         }
         if node_record_ref.signatures().is_some() {
             self.gossip.node_records.push (GossipNodeRecord::from (node_record_ref, reveal_node_addr));
-            self.key_to_index.insert (node_record_ref.public_key ().clone (), (self.gossip.node_records.len () - 1) as u32);
-        }
-        self
-    }
-
-    pub fn neighbor_pair (mut self, from: &Key, to: &Key) -> GossipBuilder {
-        {
-            let from_index = self.key_to_index.get(from).expect(&format!("From node ({}) in neighbor_pair not in Gossip", from));
-            let to_index = self.key_to_index.get(to).expect(&format!("To node ({}) in neighbor_pair not in Gossip", to));
-            self.gossip.neighbor_pairs.push(NeighborRelationship {
-                from: *from_index,
-                to: *to_index
-            });
+            self.keys_so_far.insert (node_record_ref.public_key ().clone ());
         }
         self
     }

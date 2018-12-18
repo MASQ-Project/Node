@@ -24,7 +24,6 @@ use multinode_integration_tests_lib::substratum_real_node::SubstratumRealNode;
 use sub_lib::cryptde::Key;
 use sub_lib::cryptde::CryptDE;
 use multinode_integration_tests_lib::substratum_node::PortSelector;
-use neighborhood_lib::gossip::NeighborRelationship;
 use sub_lib::hopper::ExpiredCoresPackage;
 use std::collections::HashMap;
 use multinode_integration_tests_lib::substratum_node::SubstratumNode;

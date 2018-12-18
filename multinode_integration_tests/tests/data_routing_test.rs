@@ -14,7 +14,6 @@ use std::str::FromStr;
 use std::time::Duration;
 use neighborhood_lib::gossip::Gossip;
 use neighborhood_lib::gossip::GossipNodeRecord;
-use neighborhood_lib::gossip::NeighborRelationship;
 use node_lib::json_masquerader::JsonMasquerader;
 use sub_lib::cryptde::Key;
 use sub_lib::dispatcher::Component;
@@ -32,7 +31,6 @@ use multinode_integration_tests_lib::substratum_node::NodeReference;
 use multinode_integration_tests_lib::substratum_node::SubstratumNode;
 use multinode_integration_tests_lib::substratum_node::PortSelector;
 use sub_lib::cryptde_null::CryptDENull;
-use std::collections::HashSet;
 use std::thread;
 use sub_lib::sequence_buffer::SequencedPacket;
 use test_utils::test_utils::make_meaningless_stream_key;
@@ -244,8 +242,8 @@ fn multiple_stream_zero_hop_test () {
 }
 
 fn make_gossip (pairs: Vec<(&NodeReference, bool)>) -> Gossip {
-    let node_ref_count = pairs.len () as u32;
-    let gossip_node_records = pairs.into_iter ()
+    let node_ref_count = pairs.len () as usize;
+    let mut gossip_node_records = pairs.into_iter ()
         .fold (vec! (), |so_far, pair| {
             let (node_ref_ref, reveal) = pair;
             let inner = NodeRecordInner {
@@ -264,15 +262,15 @@ fn make_gossip (pairs: Vec<(&NodeReference, bool)>) -> Gossip {
                 signatures: NodeSignatures::new(complete_signature, obscured_signature)
             })
         });
-    let mut gossip_neighbor_pairs = vec! ();
     for i in 0..(node_ref_count - 1) {
-        gossip_neighbor_pairs.push (NeighborRelationship {from: i, to: (i + 1)})
+        let neighbor_key = gossip_node_records[i + 1].inner.public_key.clone ();
+        gossip_node_records[i].inner.neighbors.push (neighbor_key);
     }
     for i in 1..node_ref_count {
-        gossip_neighbor_pairs.push (NeighborRelationship {from: i, to: (i - 1)})
+        let neighbor_key = gossip_node_records[i - 1].inner.public_key.clone ();
+        gossip_node_records[i].inner.neighbors.push (neighbor_key);
     }
     Gossip {
         node_records: gossip_node_records,
-        neighbor_pairs: gossip_neighbor_pairs,
     }
 }

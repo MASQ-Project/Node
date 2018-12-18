@@ -127,16 +127,12 @@ impl NodeRecord {
         self.inner.node_addr_opt = None
     }
 
-    pub fn set_signatures(&mut self, signatures: NodeSignatures) -> Result<bool, NeighborhoodDatabaseError> {
-        if self.signatures.is_none() {
-            self.signatures = Some(signatures);
-            Ok(true)
-        } else {
-            if &signatures == self.signatures.as_ref().unwrap() {
-                Ok(false)
-            } else {
-                Err(NeighborhoodDatabaseError::NodeSignaturesAlreadySet(self.signatures.clone().expect("Node Signatures magically disappeared")))
-            }
+    pub fn set_signatures(&mut self, signatures: NodeSignatures) -> bool {
+        let existing_signatures = self.signatures.clone ();
+        match &existing_signatures {
+            Some (ref existing) if existing == &signatures => false,
+            Some (_) => {self.signatures = Some (signatures); true},
+            None => {self.signatures = Some (signatures); true},
         }
     }
 
@@ -309,9 +305,14 @@ impl NeighborhoodDatabase {
             result = format!("{}; {}", node_str, result);
 
             // add node neighbors
-            node.neighbors().into_iter().for_each(|neighbor| {
-                result.push_str(&format!(" \"{}\" -> \"{}\"", key, neighbor));
-                if node.is_bootstrap_node() || self.node_by_key(neighbor).expect("Key magically disappeared").is_bootstrap_node() {
+            node.neighbors().into_iter().for_each(|neighbor_key| {
+                result.push_str(&format!(" \"{}\" -> \"{}\"", key, neighbor_key));
+                let neighbor_opt = self.node_by_key (neighbor_key);
+                let neighbor_is_bootstrap_node = match neighbor_opt {
+                    Some (n) => n.is_bootstrap_node(),
+                    None => false
+                };
+                if node.is_bootstrap_node() || neighbor_is_bootstrap_node {
                     result.push_str(" [style=dashed]");
                 }
                 result.push_str(";");
@@ -488,28 +489,29 @@ mod tests {
 
         let result = subject.set_signatures(signatures.clone());
 
-        assert_eq!(result, Ok(true));
+        assert_eq!(result, true);
         assert_eq!(subject.signatures(), Some(signatures.clone()));
 
     }
 
     #[test]
-    fn set_signatures_returns_false_when_signatures_match() {
+    fn set_signatures_returns_false_when_new_signatures_are_identical() {
         let mut subject = make_node_record(1234, false, false);
 
-        let signatures = subject.signatures().unwrap().clone();
-        let result = subject.set_signatures(signatures);
+        let signatures = subject.signatures ().unwrap ();
+        let result = subject.set_signatures(signatures.clone());
 
-        assert_eq!(result, Ok(false));
+        assert_eq!(result, false);
     }
 
     #[test]
-    fn set_signatures_returns_error_when_signatures_differ() {
+    fn set_signatures_returns_true_when_existing_signatures_are_changed() {
         let mut subject = make_node_record(1234, false, false);
 
-        let result = subject.set_signatures(NodeSignatures::new(CryptData::new(&[1, 2, 3]), CryptData::new(&[9, 8, 7])));
+        let signatures = NodeSignatures::new(CryptData::new(&[123, 56, 89]), CryptData::new(&[87, 54, 21]));
+        let result = subject.set_signatures(signatures);
 
-        assert_eq!(result, Err(NeighborhoodDatabaseError::NodeSignaturesAlreadySet(subject.signatures().unwrap())));
+        assert_eq!(result, true);
     }
 
     #[test]
@@ -585,20 +587,20 @@ mod tests {
 
         let mut subject = NeighborhoodDatabase::new(&this_node.public_key(), this_node.node_addr_opt().as_ref().unwrap(), this_node.is_bootstrap_node(), &cryptde);
 
-        subject.add_node(&node_one);
-        subject.add_node(&node_two);
-        subject.add_node(&node_three);
+        subject.add_node(&node_one).unwrap ();
+        subject.add_node(&node_two).unwrap ();
+        subject.add_node(&node_three).unwrap ();
 
-        subject.add_neighbor(&this_node.public_key(), &node_one.public_key());
-        subject.add_neighbor(&node_one.public_key(), &this_node.public_key());
+        subject.add_neighbor(&this_node.public_key(), &node_one.public_key()).unwrap ();
+        subject.add_neighbor(&node_one.public_key(), &this_node.public_key()).unwrap ();
 
-        subject.add_neighbor(&node_one.public_key(), &node_two.public_key());
-        subject.add_neighbor(&node_two.public_key(), &node_one.public_key());
-        subject.add_neighbor(&node_two.public_key(), &this_node.public_key());
+        subject.add_neighbor(&node_one.public_key(), &node_two.public_key()).unwrap ();
+        subject.add_neighbor(&node_two.public_key(), &node_one.public_key()).unwrap ();
+        subject.add_neighbor(&node_two.public_key(), &this_node.public_key()).unwrap ();
 
-        subject.add_neighbor(&node_two.public_key(), &node_three.public_key());
-        subject.add_neighbor(&node_three.public_key(), &node_two.public_key());
-        subject.add_neighbor(&node_three.public_key(), &this_node.public_key());
+        subject.add_neighbor(&node_two.public_key(), &node_three.public_key()).unwrap ();
+        subject.add_neighbor(&node_three.public_key(), &node_two.public_key()).unwrap ();
+        subject.add_neighbor(&node_three.public_key(), &this_node.public_key()).unwrap ();
 
         let result = subject.to_dot_graph();
 
@@ -634,8 +636,8 @@ mod tests {
         let this_node = make_node_record(123, true, false);
         let mut subject = NeighborhoodDatabase::new(&this_node.inner.public_key, this_node.inner.node_addr_opt.as_ref ().unwrap (), false, &CryptDENull::from(this_node.public_key()));
         let other_node = make_node_record(2345, true, false);
-        subject.add_node(&other_node);
-        subject.add_neighbor(&this_node.public_key(), &other_node.public_key());
+        subject.add_node(&other_node).unwrap ();
+        subject.add_neighbor(&this_node.public_key(), &other_node.public_key()).unwrap ();
 
         let result = subject.remove_neighbor(other_node.public_key());
 
@@ -649,7 +651,7 @@ mod tests {
         let this_node = make_node_record(123, true, false);
         let mut subject = NeighborhoodDatabase::new(&this_node.inner.public_key, this_node.inner.node_addr_opt.as_ref ().unwrap (), false, &CryptDENull::from(this_node.public_key()));
         let neighborless_node = make_node_record(2345, true, false);
-        subject.add_node(&neighborless_node);
+        subject.add_node(&neighborless_node).unwrap ();
 
         let result = subject.remove_neighbor(neighborless_node.public_key());
 

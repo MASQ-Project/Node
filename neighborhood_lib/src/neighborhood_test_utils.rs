@@ -27,11 +27,10 @@ pub fn vec_to_set<T>(vec: Vec<T>) -> HashSet<T> where T: Eq + Hash {
     set
 }
 
-pub fn neighbor_keys_of<'a>(database_ref: &'a NeighborhoodDatabase, node_record: &NodeRecord) -> HashSet<&'a Key> {
+pub fn neighbor_keys_of<'a>(database_ref: &'a NeighborhoodDatabase, node_record: &NodeRecord) -> Vec<&'a Key> {
     let public_key_ref = node_record.public_key();
     let node_ref = database_ref.node_by_key(public_key_ref).unwrap();
-    let neighbor_key_refs: HashSet<&Key> = node_ref.neighbors().iter().map(|key_ref| key_ref).collect();
-    neighbor_key_refs
+    node_ref.neighbors().iter().map(|key_ref| key_ref).collect()
 }
 
 impl NodeRecord {

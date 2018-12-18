@@ -1,6 +1,5 @@
 use neighborhood_lib::gossip::Gossip;
 use neighborhood_lib::gossip::GossipNodeRecord;
-use neighborhood_lib::gossip::NeighborRelationship;
 use neighborhood_lib::neighborhood_database::NodeRecordInner;
 use neighborhood_lib::neighborhood_database::NodeSignatures;
 use std::ops::Range;
@@ -13,6 +12,7 @@ use sub_lib::node_addr::NodeAddr;
 use sub_lib::route::Route;
 use sub_lib::route::RouteSegment;
 use substratum_node::SubstratumNode;
+use std::collections::HashMap;
 
 
 pub struct GossipBuilder {
@@ -59,22 +59,28 @@ impl GossipBuilder {
     }
 
     pub fn build (self) -> Gossip {
-        let node_records = self.node_info.into_iter ().map (|node_info| {
+        let mut node_records: Vec<GossipNodeRecord> = self.node_info.into_iter ().map (|node_info| {
             let signatures = NodeSignatures::from(node_info.cryptde.as_ref(), &node_info.node_record_inner);
             GossipNodeRecord {
                 inner: node_info.node_record_inner,
                 signatures,
             }
         }).collect ();
-        let neighbor_pairs = self.connection_pairs.into_iter ().map (|connection_pair| {
-            let (from_key, to_key) = connection_pair;
-            let from_index = Self::find_index_of (&node_records, &from_key);
-            let to_index = Self::find_index_of (&node_records, &to_key);
-            NeighborRelationship {from: from_index as u32, to: to_index as u32}
-        }).collect ();
+
+        self.connection_pairs.iter ().for_each (|pair_ref| {
+            let from_key = pair_ref.0.clone ();
+            let from_node_ref_opt = node_records.iter_mut ().find (|n| n.inner.public_key == from_key);
+            let to_key = pair_ref.1.clone ();
+            if let Some (from_node_ref) = from_node_ref_opt {
+                from_node_ref.inner.neighbors.push (to_key);
+            }
+            else {
+                panic! ("You directed that {:?} should be made a neighbor of {:?}, but {:?} was never added to the GossipBuilder",
+                    to_key, from_key, from_key)
+            }
+        });
         Gossip {
             node_records,
-            neighbor_pairs
         }
     }
 
