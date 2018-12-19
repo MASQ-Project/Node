@@ -402,10 +402,6 @@ mod tests {
     use sub_lib::cryptde::PlainData;
     use sub_lib::cryptde_null::CryptDENull;
     use gossip::Gossip;
-    use neighborhood_test_utils::vec_to_set;
-    use std::collections::HashSet;
-    use std::sync::Mutex;
-    use std::sync::Arc;
     use gossip_acceptor::GossipAcceptorReal;
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
@@ -1018,7 +1014,7 @@ mod tests {
         let this_node_inside = this_node.clone ();
         thread::spawn (move || {
             let system = System::new ("");
-            let mut subject = Neighborhood::new (cryptde, NeighborhoodConfig {
+            let subject = Neighborhood::new (cryptde, NeighborhoodConfig {
                 neighbor_configs: vec! (),
                 bootstrap_configs: vec! (),
                 is_bootstrap_node: this_node_inside.is_bootstrap_node(),
@@ -1468,7 +1464,7 @@ mod tests {
     fn node_gossips_only_to_immediate_neighbors () {
         init_test_logging();
         let cryptde = cryptde ();
-        let mut this_node = NodeRecord::new_for_tests (&cryptde.public_key (), Some (&NodeAddr::new (&IpAddr::from_str ("5.4.3.2").unwrap (), &vec! (1234))), true);
+        let this_node = NodeRecord::new_for_tests (&cryptde.public_key (), Some (&NodeAddr::new (&IpAddr::from_str ("5.4.3.2").unwrap (), &vec! (1234))), true);
         let mut far_neighbor = make_node_record(1234, true, false);
         let mut gossip_neighbor = make_node_record (4567, true, false);
         gossip_neighbor.neighbors_mut ().push (this_node.public_key ().clone ());
@@ -1479,12 +1475,11 @@ mod tests {
         let serialized_gossip = PlainData::new (&serde_cbor::ser::to_vec (&gossip).unwrap ()[..]);
         let cores_package = ExpiredCoresPackagePackage { expired_cores_package: ExpiredCoresPackage::new (make_meaningless_route (), serialized_gossip), sender_ip: IpAddr::from_str("1.2.3.4").unwrap() };
         let hopper = Recorder::new ();
-        let hopper_awaiter = hopper.get_awaiter ();
         let hopper_recording = hopper.get_recording ();
         let this_node_inside = this_node.clone ();
         thread::spawn (move || {
             let system = System::new ("");
-            let mut subject = Neighborhood::new (cryptde, NeighborhoodConfig {
+            let subject = Neighborhood::new (cryptde, NeighborhoodConfig {
                 neighbor_configs: vec! (),
                 bootstrap_configs: vec! (),
                 is_bootstrap_node: this_node_inside.is_bootstrap_node(),

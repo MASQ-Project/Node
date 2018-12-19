@@ -2,7 +2,6 @@
 use std::net::SocketAddr;
 use actix::Actor;
 use actix::Addr;
-use actix::Arbiter;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
@@ -120,7 +119,6 @@ mod tests {
     use actix::Recipient;
     use actix::System;
     use serde_cbor;
-    use tokio_core::reactor::CoreId;
     use local_test_utils::ResolverWrapperFactoryMock;
     use local_test_utils::ResolverWrapperMock;
     use resolver_wrapper::ResolverWrapper;

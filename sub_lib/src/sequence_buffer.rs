@@ -121,15 +121,12 @@ impl SequenceBuffer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use proxy_server::ProxyProtocol;
-    use cryptde::Key;
     use std::net::SocketAddr;
     use std::str::FromStr;
     use stream_handler_pool::TransmitDataMsg;
     use dispatcher::Endpoint;
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
-    use utils::tests::make_meaningless_stream_key;
 
     #[test]
     fn uses_zero_when_creating_sequenced_packet_from_transmit_data_msg_with_no_sequence_number() {

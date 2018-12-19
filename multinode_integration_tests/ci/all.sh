@@ -24,4 +24,6 @@ cd docker
 ./build.sh
 cd "${CI_DIR}"/..
 
+# TODO remove -Aproc-macro-derive-resolution-fallback when they are promoted to errors
+export RUSTFLAGS="-D warnings -Anon-snake-case -Aproc-macro-derive-resolution-fallback"
 cargo test --release -- --nocapture --test-threads=1

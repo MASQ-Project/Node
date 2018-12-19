@@ -7,7 +7,6 @@ use node_addr::NodeAddr;
 use peer_actors::BindMessage;
 use std::net::IpAddr;
 use route::Route;
-use hopper::ExpiredCoresPackage;
 use dispatcher::Component;
 use std::net::Ipv4Addr;
 use stream_handler_pool::TransmitDataMsg;

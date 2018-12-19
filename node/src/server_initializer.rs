@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use std::env::temp_dir;
 use std::str::FromStr;
+use flexi_logger::Duplicate;
 use flexi_logger::LevelFilter;
 use flexi_logger::Logger;
 use flexi_logger::LogSpecification;
@@ -71,7 +72,7 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
             .log_to_file()
             .directory(&temp_dir().to_str().expect("Bad temporary filename")[..])
             .print_message()
-            .duplicate_info()
+            .duplicate_to_stderr(Duplicate::Info)
             .suppress_timestamp()
             .start() {
             Ok(_) => true,

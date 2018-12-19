@@ -8,7 +8,6 @@ use resolver_wrapper::ResolverWrapperFactory;
 use trust_dns_resolver::config::ResolverConfig;
 use trust_dns_resolver::config::ResolverOpts;
 use std::net::IpAddr;
-use tokio_core::reactor::Handle;
 use futures::future;
 use futures::sync::mpsc::SendError;
 use futures::sync::mpsc::unbounded;

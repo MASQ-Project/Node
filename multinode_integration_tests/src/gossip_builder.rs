@@ -2,17 +2,14 @@ use neighborhood_lib::gossip::Gossip;
 use neighborhood_lib::gossip::GossipNodeRecord;
 use neighborhood_lib::neighborhood_database::NodeRecordInner;
 use neighborhood_lib::neighborhood_database::NodeSignatures;
-use std::ops::Range;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::Key;
 use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::dispatcher::Component;
 use sub_lib::hopper::IncipientCoresPackage;
-use sub_lib::node_addr::NodeAddr;
 use sub_lib::route::Route;
 use sub_lib::route::RouteSegment;
 use substratum_node::SubstratumNode;
-use std::collections::HashMap;
 
 
 pub struct GossipBuilder {
@@ -94,12 +91,6 @@ impl GossipBuilder {
             gossip,
             to
         )
-    }
-
-    fn find_index_of (node_records: &Vec<GossipNodeRecord>, key: &Key) -> usize {
-        let mut indices: Range<usize> = 0..node_records.len ();
-        let find_result = indices.find (|idx| &node_records[*idx].inner.public_key == key);
-        find_result.expect (format! ("Supplied connection reference {:?} for nonexistent node", key).as_str ())
     }
 }
 

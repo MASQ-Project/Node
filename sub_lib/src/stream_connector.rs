@@ -1,7 +1,6 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use std::net::SocketAddr;
 use futures::future::ok;
-use tokio;
 use tokio::io;
 use tokio::io::AsyncRead;
 use tokio::net::TcpStream;
@@ -14,7 +13,6 @@ use tokio_wrappers::ReadHalfWrapperReal;
 use tokio_wrappers::WriteHalfWrapperReal;
 use std::net::IpAddr;
 use std::net::TcpStream as StdTcpStream;
-use std::sync::mpsc;
 use std::io::ErrorKind;
 
 pub type ConnectionInfoFuture = Box<Future<Item = ConnectionInfo, Error = io::Error> + Send>;

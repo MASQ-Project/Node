@@ -57,7 +57,6 @@ mod tests {
     fn encode_decode () {
         let cryptde = CryptDENull::new ();
         let encode_key = cryptde.public_key();
-        let decode_key = cryptde.private_key();
         let hopper_hop = Hop::new(&&Key::new(&[4, 3, 2, 1]), Component::Hopper);
         let neighborhood_hop = Hop::new(&Key::new (&[1, 2, 3, 4]), Component::Neighborhood);
         let proxy_server_hop = Hop::new(&Key::new (&[127, 128]), Component::ProxyServer);

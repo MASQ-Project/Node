@@ -69,6 +69,7 @@ impl SubstratumNode {
         }
     }
 
+    #[allow (dead_code)]
     pub fn wait (&mut self) -> Option<i32> {
         match self.child.wait () {
             Err (e) => panic! ("{:?}", e),
@@ -121,6 +122,7 @@ impl SubstratumNode {
     }
 }
 
+#[allow (dead_code)]
 pub fn read_until_timeout(stream: &mut Read) -> Vec<u8> {
     let mut buf = [0u8; 16384];
     let mut begin_opt: Option<Instant> = None;

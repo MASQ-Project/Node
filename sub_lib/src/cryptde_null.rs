@@ -262,7 +262,6 @@ mod tests {
     #[test]
     fn from_and_setting_key_pair_works () {
         let public_key = Key::new (b"The quick brown fox jumps over the lazy dog");
-        let private_key = CryptDENull::other_key(&public_key);
 
         let subject = CryptDENull::from (&public_key);
 
