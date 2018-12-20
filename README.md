@@ -188,23 +188,11 @@ IP address can change each time your computer restarts or you restart the networ
 you can find on the internet by searching for "Port Forwarding" or "How to Port Forwarding". 
 Here is an example: [PortForward.com](https://portforward.com)
 
-#### About the "Neighborhood"
+More information on the operation, care, and feeding of the Neighborhood is available
+[in the neighborhood_lib subproject](https://github.com/SubstratumNetwork/SubstratumNode/tree/master/neighborhood_lib).
 
-Eventually the neighborhood will be a complex network of Nodes that do and don't know each other's IP addresses; but for 
-the 0.4.x series of releases, we're constraining them to a single-file sequence of Nodes, with each one (except the ends) 
-intimately acquainted with exactly two others: one in front and one behind. Nodes are added to the sequence in the order 
-they contact the bootstrap Node. This keeps the situation nice and deterministic for testing.
-_Decentralization_ will require a minimum of three "hops" per route and six nodes in your neighborhood before you can
-consume securely.
-This configuration of six nodes ensures that not one single node contains the entire network topology, and the three-hop
-minimum ensures that for any CORES package, not one single node will know the IP address of both the originating Node
-and the exit Node.
 
-__HOWEVER__ The current version of SubstratumNode is configured with only a two-hop minimum.
-This gives the team more flexibility in testing the SubstratumNetwork, but it means that the current version does not
-meet the minimum security requirements described above.
-
-#### Terminating a SubstratumNode (Zero-Hop or Decentralized)
+### Terminating a SubstratumNode (Zero-Hop or Decentralized)
 
 To terminate the SubstratumNode, just press Ctrl-C in the terminal window. Then you'll still need to revert your
 machine's DNS settings:
@@ -223,7 +211,8 @@ We run tests on every push to `master` on these platforms:
 - MacOS High Sierra
 - Windows 10 64-bit
 
-SubstratumNode doesn't reliably build on 32-bit Windows due to issues with the build tools for that platform. We recommend using a 64-bit version to build.
+SubstratumNode doesn't reliably build on 32-bit Windows due to issues with the build tools for that platform. We 
+recommend using a 64-bit version to build.
 
 We do plan to release binaries that will run on 32-bit Windows, but they will likely be built on 64-bit Windows.
 
