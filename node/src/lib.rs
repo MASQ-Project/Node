@@ -10,17 +10,17 @@ extern crate futures;
 extern crate hopper_lib;
 extern crate log;
 extern crate neighborhood_lib;
-extern crate proxy_server_lib;
 extern crate proxy_client_lib;
+extern crate proxy_server_lib;
 extern crate regex;
 extern crate serde_cbor;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
-extern crate tokio;
 extern crate sub_lib;
+extern crate tokio;
 
-#[cfg (test)]
+#[cfg(test)]
 extern crate test_utils;
 
 #[cfg(unix)]
@@ -48,6 +48,5 @@ mod stream_writer_sorted;
 mod stream_writer_unsorted;
 pub mod tls_discriminator_factory;
 
-#[cfg (test)]
+#[cfg(test)]
 mod node_test_utils;
-

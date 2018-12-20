@@ -10,7 +10,9 @@ use utils::CommandConfig;
 #[cfg(unix)]
 #[test]
 fn node_exits_from_future_panic_integration() {
-    let panic_config = CommandConfig { crash_point: CrashPoint::Panic };
+    let panic_config = CommandConfig {
+        crash_point: CrashPoint::Panic,
+    };
     let mut node = utils::SubstratumNode::start(Some(panic_config));
 
     let exit_code = node.wait();
@@ -20,7 +22,9 @@ fn node_exits_from_future_panic_integration() {
 #[cfg(windows)]
 #[test]
 fn node_exits_from_future_panic_integration() {
-    let panic_config = CommandConfig { crash_point: CrashPoint::Panic };
+    let panic_config = CommandConfig {
+        crash_point: CrashPoint::Panic,
+    };
     let mut node = utils::SubstratumNode::start(Some(panic_config));
 
     let exit_code = node.wait();

@@ -1,8 +1,8 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use futures::Async;
 use sub_lib::crash_point::CrashPoint;
 use sub_lib::logger::Logger;
-use futures::Async;
 use tokio::prelude::future::Future;
 
 pub struct CrashTestDummy {
@@ -38,11 +38,13 @@ impl Future for CrashTestDummy {
         match self.crash_point {
             CrashPoint::None => Ok(Async::Ready(())),
             CrashPoint::Panic => {
-                self.logger.error(String::from("Intercepted instruction to panic."));
+                self.logger
+                    .error(String::from("Intercepted instruction to panic."));
                 panic!(self.message.clone());
             }
             CrashPoint::Error => {
-                self.logger.error(String::from("Intercepted instruction to return error."));
+                self.logger
+                    .error(String::from("Intercepted instruction to return error."));
                 Err(())
             }
         }

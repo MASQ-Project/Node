@@ -1,16 +1,16 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-extern crate sub_lib;
 extern crate entry_dns_lib;
+extern crate sub_lib;
 
 mod utils;
 
+use entry_dns_lib::packet_facade::PacketFacade;
 use std::net::UdpSocket;
 use std::time::Duration;
-use entry_dns_lib::packet_facade::PacketFacade;
 
 #[test]
 fn handles_two_consecutive_dns_requests_integration() {
-    let _node = utils::SubstratumNode::start (None);
+    let _node = utils::SubstratumNode::start(None);
 
     perform_transaction();
     perform_transaction();
@@ -25,14 +25,18 @@ fn perform_transaction() {
         facade.set_opcode(0x0);
         facade.set_recursion_desired(true);
         facade.add_query("www.domain.com", 0x0001, 0x0001);
-        facade.get_length ()
+        facade.get_length()
     };
 
     let socket = UdpSocket::bind(&format!("0.0.0.0:0")).expect("Couldn't bind socket");
-    socket.connect (&format! ("127.0.0.1:53")).expect ("Couldn't connect");
-    let transmit_count = socket.send (&buf[..length]).expect("Couldn't send");
+    socket
+        .connect(&format!("127.0.0.1:53"))
+        .expect("Couldn't connect");
+    let transmit_count = socket.send(&buf[..length]).expect("Couldn't send");
     assert_eq!(transmit_count, length);
-    socket.set_read_timeout (Some (Duration::from_secs (1))).expect ("Couldn't set read timeout");
+    socket
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .expect("Couldn't set read timeout");
     let receive_count = socket.recv(&mut buf).expect("Couldn't receive");
 
     {
@@ -61,8 +65,6 @@ fn perform_transaction() {
 }
 
 fn make_hex_string(bytes: &[u8]) -> String {
-    let strs: Vec<String> = bytes.iter()
-        .map(|b| format!("{:02X}", b))
-        .collect();
+    let strs: Vec<String> = bytes.iter().map(|b| format!("{:02X}", b)).collect();
     strs.join(" ")
 }

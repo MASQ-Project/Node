@@ -1,18 +1,17 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 #![windows_subsystem = "windows"]
-extern crate sub_lib;
-extern crate node_lib;
-extern crate tokio;
 extern crate futures;
+extern crate node_lib;
+extern crate sub_lib;
+extern crate tokio;
 
-use std::io;
 use futures::future::lazy;
 use node_lib::server_initializer::ServerInitializer;
-use sub_lib::main_tools::StdStreams;
+use std::io;
 use sub_lib::main_tools::Command;
+use sub_lib::main_tools::StdStreams;
 
 pub fn main() {
-
     let main_fn = move || {
         let mut streams: StdStreams = StdStreams {
             stdin: &mut io::stdin(),
@@ -27,7 +26,6 @@ pub fn main() {
         tokio::spawn(command);
         Ok(())
     };
-
 
     tokio::run(lazy(main_fn));
     ::std::process::exit(1 as i32);

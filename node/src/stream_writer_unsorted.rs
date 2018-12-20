@@ -1,11 +1,11 @@
-use tokio::prelude::Async;
-use tokio::prelude::Future;
+use std::net::SocketAddr;
 use sub_lib::channel_wrappers::ReceiverWrapper;
 use sub_lib::logger::Logger;
 use sub_lib::sequence_buffer::SequencedPacket;
 use sub_lib::tokio_wrappers::WriteHalfWrapper;
 use sub_lib::utils::indicates_dead_stream;
-use std::net::SocketAddr;
+use tokio::prelude::Async;
+use tokio::prelude::Future;
 
 pub struct StreamWriterUnsorted {
     stream: Box<WriteHalfWrapper>,
@@ -26,33 +26,54 @@ impl Future for StreamWriterUnsorted {
                         Ok(Async::Ready(Some(data))) => Some(data),
                         Ok(Async::Ready(None)) => return Ok(Async::Ready(())), // the channel has been closed on the tx side
                         Ok(Async::NotReady) => return Ok(Async::NotReady),
-                        Err(_) => panic!("got an error from an unbounded channel which cannot return error")
+                        Err(_) => panic!(
+                            "got an error from an unbounded channel which cannot return error"
+                        ),
                     }
-                },
+                }
                 Some(packet) => {
-                    self.logger.debug (format! ("Transmitting {} bytes of clandestine data", packet.data.len ()));
+                    self.logger.debug(format!(
+                        "Transmitting {} bytes of clandestine data",
+                        packet.data.len()
+                    ));
                     match self.stream.poll_write(&packet.data) {
                         Err(e) => {
                             if indicates_dead_stream(e.kind()) {
-                                self.logger.error(format!("Cannot transmit {} bytes: {}", packet.data.len(), e));
-                                return Err(())
+                                self.logger.error(format!(
+                                    "Cannot transmit {} bytes: {}",
+                                    packet.data.len(),
+                                    e
+                                ));
+                                return Err(());
                             } else {
                                 self.buf = Some(packet);
                                 // TODO this could be... inefficient, if we keep getting non-dead-stream errors. (we do not return)
-                                self.logger.warning(format!("Continuing after write error: {}", e));
+                                self.logger
+                                    .warning(format!("Continuing after write error: {}", e));
                             }
-                        },
+                        }
                         Ok(Async::Ready(len)) => {
-                            self.logger.debug(format!("Wrote {}/{} bytes of clandestine data", len, &packet.data.len()));
+                            self.logger.debug(format!(
+                                "Wrote {}/{} bytes of clandestine data",
+                                len,
+                                &packet.data.len()
+                            ));
                             if len != packet.data.len() {
-                                self.logger.debug(format!("rescheduling {} bytes", &packet.data.len()-len));
-                                self.buf = Some(SequencedPacket::new(packet.data.iter().skip(len).map(|p| p.clone()).collect(), packet.sequence_number, false));
+                                self.logger.debug(format!(
+                                    "rescheduling {} bytes",
+                                    &packet.data.len() - len
+                                ));
+                                self.buf = Some(SequencedPacket::new(
+                                    packet.data.iter().skip(len).map(|p| p.clone()).collect(),
+                                    packet.sequence_number,
+                                    false,
+                                ));
                             }
-                        },
+                        }
                         Ok(Async::NotReady) => {
                             self.buf = Some(packet);
-                            return Ok(Async::NotReady)
-                        },
+                            return Ok(Async::NotReady);
+                        }
                     }
                 }
             }
@@ -61,9 +82,13 @@ impl Future for StreamWriterUnsorted {
 }
 
 impl StreamWriterUnsorted {
-    pub fn new (stream: Box<WriteHalfWrapper>, peer_addr: SocketAddr, rx_to_write: Box<ReceiverWrapper<SequencedPacket>>) -> StreamWriterUnsorted {
-        let name = format! ("StreamWriter for {}", peer_addr);
-        let logger = Logger::new (&name[..]);
+    pub fn new(
+        stream: Box<WriteHalfWrapper>,
+        peer_addr: SocketAddr,
+        rx_to_write: Box<ReceiverWrapper<SequencedPacket>>,
+    ) -> StreamWriterUnsorted {
+        let name = format!("StreamWriter for {}", peer_addr);
+        let logger = Logger::new(&name[..]);
         StreamWriterUnsorted {
             stream,
             rx_to_write,
@@ -77,21 +102,29 @@ impl StreamWriterUnsorted {
 mod tests {
     use super::*;
     use std::io;
+    use std::io::ErrorKind;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use test_utils::channel_wrapper_mocks::ReceiverWrapperMock;
-    use std::io::ErrorKind;
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
+    use test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
 
     #[test]
     fn stream_writer_returns_not_ready_when_the_stream_is_not_ready() {
         let mut rx = Box::new(ReceiverWrapperMock::new());
-        rx.poll_results = vec!(
-            Ok(Async::Ready(Some(SequencedPacket::new(b"hello".to_vec(), 0, false)))),
-            Ok(Async::Ready(Some(SequencedPacket::new(b"world".to_vec(), 0, false)))),
-        );
+        rx.poll_results = vec![
+            Ok(Async::Ready(Some(SequencedPacket::new(
+                b"hello".to_vec(),
+                0,
+                false,
+            )))),
+            Ok(Async::Ready(Some(SequencedPacket::new(
+                b"world".to_vec(),
+                0,
+                false,
+            )))),
+        ];
 
         let writer = WriteHalfWrapperMock::new().poll_write_result(Ok(Async::NotReady));
         let write_params = writer.poll_write_params.clone();
@@ -108,9 +141,7 @@ mod tests {
     #[test]
     fn stream_writer_returns_not_ready_when_the_channel_is_not_ready() {
         let mut rx = Box::new(ReceiverWrapperMock::new());
-        rx.poll_results = vec!(
-            Ok(Async::NotReady),
-        );
+        rx.poll_results = vec![Ok(Async::NotReady)];
 
         let writer = WriteHalfWrapperMock::new().poll_write_result(Ok(Async::Ready(5)));
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -125,11 +156,20 @@ mod tests {
     #[test]
     fn stream_writer_returns_err_when_it_gets_a_dead_stream_error() {
         let mut rx = Box::new(ReceiverWrapperMock::new());
-        rx.poll_results = vec!(
-            Ok(Async::Ready(Some(SequencedPacket::new(b"hello".to_vec(), 0, false)))),
-            Ok(Async::Ready(Some(SequencedPacket::new(b"world".to_vec(), 0, false)))),
-        );
-        let writer = WriteHalfWrapperMock::new().poll_write_result(Err(io::Error::from(ErrorKind::BrokenPipe)));
+        rx.poll_results = vec![
+            Ok(Async::Ready(Some(SequencedPacket::new(
+                b"hello".to_vec(),
+                0,
+                false,
+            )))),
+            Ok(Async::Ready(Some(SequencedPacket::new(
+                b"world".to_vec(),
+                0,
+                false,
+            )))),
+        ];
+        let writer = WriteHalfWrapperMock::new()
+            .poll_write_result(Err(io::Error::from(ErrorKind::BrokenPipe)));
         let write_params = writer.poll_write_params.clone();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
@@ -145,10 +185,18 @@ mod tests {
     fn stream_writer_logs_error_and_continues_when_it_gets_a_non_dead_stream_error() {
         init_test_logging();
         let mut rx = Box::new(ReceiverWrapperMock::new());
-        rx.poll_results = vec!(
-            Ok(Async::Ready(Some(SequencedPacket::new(b"hello".to_vec(), 0, false)))),
-            Ok(Async::Ready(Some(SequencedPacket::new(b"world".to_vec(), 0, false)))),
-        );
+        rx.poll_results = vec![
+            Ok(Async::Ready(Some(SequencedPacket::new(
+                b"hello".to_vec(),
+                0,
+                false,
+            )))),
+            Ok(Async::Ready(Some(SequencedPacket::new(
+                b"world".to_vec(),
+                0,
+                false,
+            )))),
+        ];
         let writer = WriteHalfWrapperMock::new()
             .poll_write_result(Err(io::Error::from(ErrorKind::Other)))
             .poll_write_result(Ok(Async::Ready(5)))
@@ -170,11 +218,19 @@ mod tests {
         let first_data = b"hello";
         let second_data = b"world";
         let mut rx = Box::new(ReceiverWrapperMock::new());
-        rx.poll_results = vec!(
-            Ok(Async::Ready(Some(SequencedPacket::new(first_data.to_vec(), 0, false)))),
-            Ok(Async::Ready(Some(SequencedPacket::new(second_data.to_vec(), 0, false)))),
-            Ok(Async::NotReady)
-        );
+        rx.poll_results = vec![
+            Ok(Async::Ready(Some(SequencedPacket::new(
+                first_data.to_vec(),
+                0,
+                false,
+            )))),
+            Ok(Async::Ready(Some(SequencedPacket::new(
+                second_data.to_vec(),
+                0,
+                false,
+            )))),
+            Ok(Async::NotReady),
+        ];
         let writer = WriteHalfWrapperMock::new()
             .poll_write_result(Ok(Async::Ready(first_data.len())))
             .poll_write_result(Ok(Async::Ready(second_data.len())));
@@ -199,11 +255,19 @@ mod tests {
         let first_data = b"hello";
         let second_data = b"world";
         let mut rx = Box::new(ReceiverWrapperMock::new());
-        rx.poll_results = vec!(
-            Ok(Async::Ready(Some(SequencedPacket::new(first_data.to_vec(), 0, false)))),
-            Ok(Async::Ready(Some(SequencedPacket::new(second_data.to_vec(), 0, false)))),
-            Ok(Async::NotReady)
-        );
+        rx.poll_results = vec![
+            Ok(Async::Ready(Some(SequencedPacket::new(
+                first_data.to_vec(),
+                0,
+                false,
+            )))),
+            Ok(Async::Ready(Some(SequencedPacket::new(
+                second_data.to_vec(),
+                0,
+                false,
+            )))),
+            Ok(Async::NotReady),
+        ];
         let writer = WriteHalfWrapperMock::new()
             .poll_write_result(Err(io::Error::from(ErrorKind::Other)))
             .poll_write_result(Ok(Async::Ready(first_data.len())))
@@ -228,10 +292,14 @@ mod tests {
     #[test]
     fn stream_writer_exits_if_channel_is_closed() {
         let mut rx = Box::new(ReceiverWrapperMock::new());
-        rx.poll_results = vec!(
-            Ok(Async::Ready(Some(SequencedPacket::new(b"hello".to_vec(), 0, false)))),
-            Ok(Async::Ready(None))
-        );
+        rx.poll_results = vec![
+            Ok(Async::Ready(Some(SequencedPacket::new(
+                b"hello".to_vec(),
+                0,
+                false,
+            )))),
+            Ok(Async::Ready(None)),
+        ];
         let writer = WriteHalfWrapperMock::new()
             .poll_write_result(Ok(Async::Ready(5)))
             .poll_write_result(Err(io::Error::from(ErrorKind::BrokenPipe)));
@@ -246,12 +314,10 @@ mod tests {
     }
 
     #[test]
-    #[should_panic (expected = "got an error from an unbounded channel which cannot return error")]
+    #[should_panic(expected = "got an error from an unbounded channel which cannot return error")]
     fn stream_writer_panics_if_channel_returns_err() {
         let mut rx = Box::new(ReceiverWrapperMock::new());
-        rx.poll_results = vec!(
-            Err(()),
-        );
+        rx.poll_results = vec![Err(())];
         let writer = WriteHalfWrapperMock::new();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
@@ -263,11 +329,15 @@ mod tests {
     #[test]
     fn stream_writer_reattempts_writing_packets_that_were_prevented_by_not_ready() {
         let mut rx = Box::new(ReceiverWrapperMock::new());
-        rx.poll_results = vec!(
-            Ok(Async::Ready(Some(SequencedPacket::new(b"hello".to_vec(), 0, false)))),
+        rx.poll_results = vec![
+            Ok(Async::Ready(Some(SequencedPacket::new(
+                b"hello".to_vec(),
+                0,
+                false,
+            )))),
             Ok(Async::NotReady),
             Ok(Async::NotReady),
-        );
+        ];
 
         let writer = WriteHalfWrapperMock::new()
             .poll_write_result(Ok(Async::NotReady))
@@ -290,12 +360,16 @@ mod tests {
     #[test]
     fn stream_writer_resubmits_partial_packet_when_written_len_is_less_than_packet_len() {
         let mut rx = Box::new(ReceiverWrapperMock::new());
-        rx.poll_results = vec!(
-            Ok(Async::Ready(Some(SequencedPacket::new(b"worlds".to_vec(), 0, false)))),
+        rx.poll_results = vec![
+            Ok(Async::Ready(Some(SequencedPacket::new(
+                b"worlds".to_vec(),
+                0,
+                false,
+            )))),
             Ok(Async::NotReady),
             Ok(Async::NotReady),
             Ok(Async::NotReady),
-        );
+        ];
 
         let writer = WriteHalfWrapperMock::new()
             .poll_write_result(Ok(Async::Ready(3)))
@@ -311,8 +385,14 @@ mod tests {
         assert_eq!(result, Ok(Async::NotReady));
 
         assert_eq!(write_params.lock().unwrap().len(), 3);
-        assert_eq!(write_params.lock().unwrap().get(0).unwrap(), &b"worlds".to_vec());
-        assert_eq!(write_params.lock().unwrap().get(1).unwrap(), &b"lds".to_vec());
+        assert_eq!(
+            write_params.lock().unwrap().get(0).unwrap(),
+            &b"worlds".to_vec()
+        );
+        assert_eq!(
+            write_params.lock().unwrap().get(1).unwrap(),
+            &b"lds".to_vec()
+        );
         assert_eq!(write_params.lock().unwrap().get(2).unwrap(), &b"s".to_vec());
     }
 }
