@@ -3,41 +3,42 @@ use actix::Actor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
-use actix::Syn;
-use sub_lib::dispatcher::Component;
-use sub_lib::node_addr::NodeAddr;
-use sub_lib::route::Route;
-use sub_lib::cryptde::Key;
-use sub_lib::neighborhood::NeighborhoodSubs;
-use sub_lib::peer_actors::BindMessage;
-use sub_lib::cryptde::CryptDE;
-use sub_lib::neighborhood::BootstrapNeighborhoodNowMessage;
-use sub_lib::neighborhood::RouteQueryMessage;
-use sub_lib::neighborhood::NodeQueryMessage;
-use sub_lib::neighborhood::NodeDescriptor;
 use actix::MessageResult;
-use sub_lib::route::RouteSegment;
-use sub_lib::hopper::IncipientCoresPackage;
 use actix::Recipient;
-use neighborhood_database::NeighborhoodDatabase;
-use gossip_acceptor::GossipAcceptor;
-use sub_lib::neighborhood::NeighborhoodConfig;
-use neighborhood_database::NodeRecord;
+use actix::Syn;
+
 use gossip::Gossip;
-use gossip_producer::GossipProducerReal;
-use gossip_producer::GossipProducer;
-use sub_lib::logger::Logger;
+use gossip_acceptor::GossipAcceptor;
 use gossip_acceptor::GossipAcceptorReal;
-use sub_lib::neighborhood::RouteType;
-use sub_lib::neighborhood::TargetType;
-use sub_lib::neighborhood::sentinel_ip_addr;
-use sub_lib::neighborhood::DispatcherNodeQueryMessage;
-use sub_lib::neighborhood::RemoveNeighborMessage;
-use sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
-use sub_lib::utils::plus;
-use sub_lib::neighborhood::RouteQueryResponse;
-use sub_lib::utils::NODE_MAILBOX_CAPACITY;
+use gossip_producer::GossipProducer;
+use gossip_producer::GossipProducerReal;
+use neighborhood_database::NeighborhoodDatabase;
+use neighborhood_database::NodeRecord;
+use sub_lib::cryptde::CryptDE;
+use sub_lib::cryptde::Key;
+use sub_lib::dispatcher::Component;
 use sub_lib::hopper::ExpiredCoresPackagePackage;
+use sub_lib::hopper::IncipientCoresPackage;
+use sub_lib::logger::Logger;
+use sub_lib::neighborhood::BootstrapNeighborhoodNowMessage;
+use sub_lib::neighborhood::DispatcherNodeQueryMessage;
+use sub_lib::neighborhood::NeighborhoodConfig;
+use sub_lib::neighborhood::NeighborhoodSubs;
+use sub_lib::neighborhood::NodeDescriptor;
+use sub_lib::neighborhood::NodeQueryMessage;
+use sub_lib::neighborhood::RemoveNeighborMessage;
+use sub_lib::neighborhood::RouteQueryMessage;
+use sub_lib::neighborhood::RouteQueryResponse;
+use sub_lib::neighborhood::RouteType;
+use sub_lib::neighborhood::sentinel_ip_addr;
+use sub_lib::neighborhood::TargetType;
+use sub_lib::node_addr::NodeAddr;
+use sub_lib::peer_actors::BindMessage;
+use sub_lib::route::Route;
+use sub_lib::route::RouteSegment;
+use sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
+use sub_lib::utils::NODE_MAILBOX_CAPACITY;
+use sub_lib::utils::plus;
 
 pub struct Neighborhood {
     cryptde: &'static CryptDE,
@@ -181,30 +182,25 @@ impl Handler<ExpiredCoresPackagePackage> for Neighborhood {
         self.logger.info (format! ("Processing Gossip about {} Nodes", num_nodes));
 
         let db_changed = self.gossip_acceptor.handle (&mut self.neighborhood_database, incoming_gossip);
-        if db_changed {
-            self.neighborhood_database.root().neighbors().into_iter().for_each(|key_ref| {
-                    let gossip = self.gossip_producer.produce(&self.neighborhood_database, key_ref);
-                    let gossip_len = gossip.node_records.len ();
-                    let route = self.create_single_hop_route(key_ref);
-                    let package = IncipientCoresPackage::new(route, gossip, key_ref);
-                    self.logger.info (format! ("Relaying Gossip about {} nodes to {}", gossip_len, key_ref));
-                    self.hopper.as_ref().expect("unbound hopper").try_send(package).expect("hopper is dead");
-                });
-        }
+        if db_changed { self.gossip_to_neighbors(); }
         self.logger.info (format! ("Finished processing Gossip about {} Nodes", num_nodes));
         ()
     }
 }
-
 
 impl Handler<RemoveNeighborMessage> for Neighborhood {
     type Result = ();
 
     fn handle(&mut self, msg: RemoveNeighborMessage, _ctx: &mut Self::Context) -> Self::Result {
         let public_key = &msg.public_key;
-        match self.neighborhood_database.remove_neighbor (public_key) {
-            Err (s) => self.logger.error (s),
-            Ok (_) => self.logger.info(format!("removed neighbor by public key: {}", public_key)),
+        match self.neighborhood_database.remove_neighbor(public_key) {
+            Err(s) => self.logger.error(s),
+            Ok(db_changed) => {
+                if db_changed {
+                    self.gossip_to_neighbors();
+                    self.logger.info(format!("removed neighbor by public key: {}", public_key))
+                }
+            },
         }
         ()
     }
@@ -257,6 +253,17 @@ impl Neighborhood {
             neighborhood_database,
             logger: Logger::new ("Neighborhood"),
         }
+    }
+
+    fn gossip_to_neighbors(&self) {
+        self.neighborhood_database.root().neighbors().into_iter().for_each(|key_ref| {
+            let gossip = self.gossip_producer.produce(&self.neighborhood_database, key_ref);
+            let gossip_len = gossip.node_records.len ();
+            let route = self.create_single_hop_route(key_ref);
+            let package = IncipientCoresPackage::new(route, gossip, key_ref);
+            self.logger.info (format! ("Relaying Gossip about {} nodes to {}", gossip_len, key_ref));
+            self.hopper.as_ref().expect("unbound hopper").try_send(package).expect("hopper is dead");
+        });
     }
 
     pub fn make_subs_from(addr: &Addr<Syn, Neighborhood>) -> NeighborhoodSubs {
@@ -383,36 +390,37 @@ impl Neighborhood {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::str::FromStr;
     use std::net::IpAddr;
+    use std::str::FromStr;
+    use std::thread;
+
     use actix::Arbiter;
+    use actix::msgs;
     use actix::Recipient;
     use actix::System;
-    use actix::msgs;
-    use tokio::prelude::Future;
     use serde_cbor;
-    use test_utils::test_utils::cryptde;
-    use neighborhood_test_utils::make_node_record;
+    use tokio::prelude::Future;
+
     use gossip::GossipBuilder;
-    use std::thread;
-    use test_utils::recorder::Recorder;
-    use test_utils::recorder::make_peer_actors_from;
-    use test_utils::test_utils::make_meaningless_route;
+    use gossip::GossipNodeRecord;
+    use neighborhood_test_utils::make_node_record;
     use sub_lib::cryptde::PlainData;
     use sub_lib::cryptde_null::CryptDENull;
-    use gossip::Gossip;
-    use gossip_acceptor::GossipAcceptorReal;
-    use test_utils::logging::init_test_logging;
-    use test_utils::logging::TestLogHandler;
-    use gossip::GossipNodeRecord;
+    use sub_lib::dispatcher::Endpoint;
+    use sub_lib::hopper::ExpiredCoresPackage;
     use sub_lib::neighborhood::sentinel_ip_addr;
     use sub_lib::stream_handler_pool::TransmitDataMsg;
-    use sub_lib::dispatcher::Endpoint;
-    use test_utils::recorder::Recording;
+    use test_utils::logging::init_test_logging;
+    use test_utils::logging::TestLogHandler;
+    use test_utils::recorder::make_peer_actors_from;
     use test_utils::recorder::make_recorder;
-    use sub_lib::hopper::ExpiredCoresPackage;
+    use test_utils::recorder::Recorder;
+    use test_utils::recorder::Recording;
     use test_utils::test_utils::assert_contains;
+    use test_utils::test_utils::cryptde;
+    use test_utils::test_utils::make_meaningless_route;
+
+    use super::*;
 
     #[test]
     #[should_panic (expected = "A SubstratumNode without an --ip setting is not decentralized and cannot have any --neighbor settings")]
@@ -1000,6 +1008,51 @@ mod tests {
     }
 
     #[test]
+    fn gossips_after_removing_a_neighbor() {
+        let hopper = Recorder::new();
+        let hopper_awaiter = hopper.get_awaiter();
+        let hopper_recording = hopper.get_recording();
+        let cryptde = cryptde();
+        let this_node = NodeRecord::new_for_tests (&cryptde.public_key (), Some(&NodeAddr::new(&IpAddr::from_str ("5.4.3.2").unwrap(), &vec![1234])), true);
+        let this_node_inside = this_node.clone();
+        let removed_neighbor = make_node_record(2345, true, false);
+        let removed_neighbor_inside = removed_neighbor.clone();
+
+        thread::spawn(move || {
+            let system = System::new("gossips_after_removing_a_neighbor");
+            let mut subject = Neighborhood::new(cryptde, NeighborhoodConfig {
+                neighbor_configs: vec!(),
+                bootstrap_configs: vec!(),
+                is_bootstrap_node: this_node_inside.is_bootstrap_node(),
+                local_ip_addr: this_node_inside.node_addr_opt().unwrap ().ip_addr(),
+                clandestine_port_list: this_node_inside.node_addr_opt().unwrap ().ports(),
+            });
+
+            let other_neighbor = make_node_record(3456, true, false);
+            subject.neighborhood_database.add_node(&removed_neighbor_inside).unwrap();
+            subject.neighborhood_database.add_node(&other_neighbor).unwrap();
+            subject.neighborhood_database.add_neighbor(&cryptde.public_key(), removed_neighbor_inside.public_key()).unwrap();
+            subject.neighborhood_database.add_neighbor(&cryptde.public_key(), other_neighbor.public_key()).unwrap();
+
+            let addr: Addr<Syn, Neighborhood> = subject.start();
+            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
+            addr.try_send(BindMessage { peer_actors }).unwrap();
+
+            let sub: Recipient<Syn, RemoveNeighborMessage> = addr.recipient::<RemoveNeighborMessage>();
+            sub.try_send(RemoveNeighborMessage { public_key: removed_neighbor_inside.public_key().clone() }).unwrap();
+
+            system.run();
+        });
+
+        hopper_awaiter.await_message_count(1);
+        let locked_recording = hopper_recording.lock().unwrap();
+        let package: &IncipientCoresPackage = locked_recording.get_record(0);
+        let gossip: Gossip = serde_cbor::de::from_slice(&package.payload.data[..]).unwrap();
+        let the_node_record = gossip.node_records.iter().find(|&x| x.inner.public_key == cryptde.public_key()).expect("should have the node record");
+        assert!(!the_node_record.inner.neighbors.contains(&removed_neighbor.public_key()));
+    }
+
+    #[test]
     fn neighborhood_sends_gossip_when_db_changes() {
         let cryptde = cryptde ();
         let mut this_node = NodeRecord::new_for_tests (&cryptde.public_key (), Some (&NodeAddr::new (&IpAddr::from_str ("5.4.3.2").unwrap (), &vec! (1234))), true);
@@ -1110,6 +1163,7 @@ mod tests {
     fn neighborhood_removes_neighbor_when_directed_to () {
         let cryptde = cryptde();
         let system = System::new("neighborhood_removes_neighbor_when_directed_to");
+        let hopper = Recorder::new();
         let mut subject = Neighborhood::new (cryptde, NeighborhoodConfig {
             neighbor_configs: vec! (),
             bootstrap_configs: vec! (),
@@ -1134,7 +1188,10 @@ mod tests {
             edge (b, c);
             edge (c, b);
         }
-        let addr: Addr<Syn, Neighborhood> = subject.start ();
+
+        let addr: Addr<Syn, Neighborhood> = subject.start();
+        let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
+        addr.try_send(BindMessage { peer_actors }).unwrap();
 
         addr.try_send (RemoveNeighborMessage { public_key: a.public_key ().clone ()}).unwrap ();
 

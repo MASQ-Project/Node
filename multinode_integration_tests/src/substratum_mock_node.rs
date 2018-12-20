@@ -143,8 +143,8 @@ impl SubstratumMockNode {
         let data_hunk = self.wait_for_data(timeout)?;
         let unmasked_data = masquerader.try_unmask(&data_hunk.data[..]).unwrap().chunk;
         let decrypted_data = self.cryptde ().decode(&CryptData::new(&unmasked_data[..])).unwrap();
-        let lcp = serde_cbor::de::from_slice::<LiveCoresPackage>(&decrypted_data.data[..]).unwrap();
-        Ok((data_hunk.from, data_hunk.to, lcp))
+        let live_cores_package = serde_cbor::de::from_slice::<LiveCoresPackage>(&decrypted_data.data[..]).unwrap();
+        Ok((data_hunk.from, data_hunk.to, live_cores_package))
     }
 
     pub fn cryptde(&self) -> &CryptDE {
