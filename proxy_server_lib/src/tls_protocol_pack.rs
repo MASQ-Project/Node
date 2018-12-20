@@ -183,6 +183,8 @@ mod tests {
 
     #[test]
     fn does_not_panic_for_packet_with_truncated_session_id_length() {
+        // Removing this directive will make the Windows and other builds argue over formatting
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let data = PlainData::new(&[
             0x16, // content_type: Handshake
             0x00, 0x00, 0x00, 0x00, // version, length: don't care

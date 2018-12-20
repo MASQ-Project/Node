@@ -4,9 +4,10 @@ CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 
 cd "$CI_DIR"/../node
 
-if [[ "$WINDIR" == "" ]]; then
-    cargo fmt --all --quiet -- --check
-    exit_code="$?"
-    cargo fmt --all
-    exit "$exit_code"
+cargo fmt --all -- --check
+exit_code="$?"
+if [[ "$exit_code" != "0" ]]; then
+    echo "Your code failed the formatting check. If you wish to leave the code the way it is, use the directive #[cfg_attr(rustfmt, rustfmt_skip)]"
 fi
+cargo fmt --all
+exit "$exit_code"
