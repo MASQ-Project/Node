@@ -13,8 +13,8 @@ extern crate sha1;
 #[cfg(test)]
 extern crate test_utils;
 
-pub mod gossip_acceptor;
 pub mod gossip;
+pub mod gossip_acceptor;
 pub mod gossip_producer;
 pub mod neighborhood;
 pub mod neighborhood_database;

@@ -14,7 +14,7 @@ extern crate serde_derive;
 extern crate sha1;
 extern crate tokio;
 
-#[cfg (test)]
+#[cfg(test)]
 extern crate test_utils;
 
 #[cfg(unix)]
@@ -22,6 +22,7 @@ extern crate daemonize;
 
 pub mod bidi_hashmap;
 pub mod channel_wrappers;
+pub mod crash_point;
 pub mod cryptde;
 pub mod cryptde_null;
 pub mod dispatcher;
@@ -52,4 +53,3 @@ pub mod tls_framer;
 pub mod tokio_wrappers;
 pub mod udp_socket_wrapper;
 pub mod utils;
-pub mod crash_point;

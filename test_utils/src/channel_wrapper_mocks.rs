@@ -1,21 +1,24 @@
+use futures::sync::mpsc::SendError;
 use std::fmt::Debug;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::Mutex;
-use futures::sync::mpsc::SendError;
-use tokio::prelude::Async;
 use sub_lib::channel_wrappers::FuturesChannelFactory;
 use sub_lib::channel_wrappers::ReceiverWrapper;
 use sub_lib::channel_wrappers::SenderWrapper;
-use std::net::SocketAddr;
+use tokio::prelude::Async;
 
 pub struct FuturesChannelFactoryMock<T> {
-    pub results: Vec<(Box<SenderWrapper<T>>, Box<ReceiverWrapper<T>>)>
+    pub results: Vec<(Box<SenderWrapper<T>>, Box<ReceiverWrapper<T>>)>,
 }
 
 impl<T: 'static + Clone + Debug + Send> FuturesChannelFactory<T> for FuturesChannelFactoryMock<T> {
     fn make(&mut self, peer_addr: SocketAddr) -> (Box<SenderWrapper<T>>, Box<ReceiverWrapper<T>>) {
         if self.results.is_empty() {
-            (Box::new(SenderWrapperMock::new(peer_addr)), Box::new(ReceiverWrapperMock::new()))
+            (
+                Box::new(SenderWrapperMock::new(peer_addr)),
+                Box::new(ReceiverWrapperMock::new()),
+            )
         } else {
             self.results.remove(0)
         }
@@ -23,7 +26,7 @@ impl<T: 'static + Clone + Debug + Send> FuturesChannelFactory<T> for FuturesChan
 }
 
 pub struct ReceiverWrapperMock<T> {
-    pub poll_results: Vec<Result<Async<Option<T>>, ()>>
+    pub poll_results: Vec<Result<Async<Option<T>>, ()>>,
 }
 
 impl<T: Send> ReceiverWrapper<T> for ReceiverWrapperMock<T> {
@@ -35,7 +38,7 @@ impl<T: Send> ReceiverWrapper<T> for ReceiverWrapperMock<T> {
 impl<T> ReceiverWrapperMock<T> {
     pub fn new() -> ReceiverWrapperMock<T> {
         ReceiverWrapperMock {
-            poll_results: vec!()
+            poll_results: vec![],
         }
     }
 }
@@ -44,7 +47,7 @@ impl<T> ReceiverWrapperMock<T> {
 pub struct SenderWrapperMock<T> {
     pub peer_addr: SocketAddr,
     pub unbounded_send_params: Arc<Mutex<Vec<T>>>,
-    pub unbounded_send_results: Vec<Result<(), SendError<T>>>
+    pub unbounded_send_results: Vec<Result<(), SendError<T>>>,
 }
 
 impl<T: 'static + Clone + Debug + Send> SenderWrapper<T> for SenderWrapperMock<T> {
@@ -57,7 +60,7 @@ impl<T: 'static + Clone + Debug + Send> SenderWrapper<T> for SenderWrapperMock<T
         }
     }
 
-    fn peer_addr (&self) -> SocketAddr {
+    fn peer_addr(&self) -> SocketAddr {
         self.peer_addr
     }
 
@@ -65,7 +68,7 @@ impl<T: 'static + Clone + Debug + Send> SenderWrapper<T> for SenderWrapperMock<T
         Box::new(SenderWrapperMock {
             peer_addr: self.peer_addr,
             unbounded_send_params: self.unbounded_send_params.clone(),
-            unbounded_send_results: self.unbounded_send_results.clone()
+            unbounded_send_results: self.unbounded_send_results.clone(),
         })
     }
 }
@@ -74,8 +77,8 @@ impl<T> SenderWrapperMock<T> {
     pub fn new(peer_addr: SocketAddr) -> SenderWrapperMock<T> {
         SenderWrapperMock {
             peer_addr,
-            unbounded_send_params: Arc::new(Mutex::new(vec!())),
-            unbounded_send_results: vec!()
+            unbounded_send_params: Arc::new(Mutex::new(vec![])),
+            unbounded_send_results: vec![],
         }
     }
 }

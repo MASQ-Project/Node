@@ -1,12 +1,12 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use dispatcher::DispatcherSubs;
+use hopper::HopperSubs;
+use neighborhood::NeighborhoodSubs;
+use proxy_client::ProxyClientSubs;
+use proxy_server::ProxyServerSubs;
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
-use proxy_server::ProxyServerSubs;
-use dispatcher::DispatcherSubs;
-use hopper::HopperSubs;
-use proxy_client::ProxyClientSubs;
-use neighborhood::NeighborhoodSubs;
 
 #[derive(Clone)]
 pub struct PeerActors {
@@ -19,28 +19,28 @@ pub struct PeerActors {
 
 impl Debug for PeerActors {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write! (f, "PeerActors")
+        write!(f, "PeerActors")
     }
 }
 
-#[derive (Debug, Message, Clone)]
+#[derive(Debug, Message, Clone)]
 pub struct BindMessage {
-    pub peer_actors: PeerActors
+    pub peer_actors: PeerActors,
 }
 
-#[cfg (test)]
+#[cfg(test)]
 mod tests {
     use actix::System;
     use test_utils::recorder::make_peer_actors;
 
     #[test]
-    fn peer_actors_debug () {
-        let _ = System::new ("test");
-        let subject = make_peer_actors ();
+    fn peer_actors_debug() {
+        let _ = System::new("test");
+        let subject = make_peer_actors();
 
-        let result = format! ("{:?}", subject);
+        let result = format!("{:?}", subject);
 
-        assert_eq! (result, String::from ("PeerActors"))
+        assert_eq!(result, String::from("PeerActors"))
     }
 
 }

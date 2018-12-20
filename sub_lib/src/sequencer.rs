@@ -1,13 +1,13 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 pub struct Sequencer {
-    current_sequence_number: u64
+    current_sequence_number: u64,
 }
 
 impl Sequencer {
     pub fn new() -> Sequencer {
         Sequencer {
-            current_sequence_number: 0
+            current_sequence_number: 0,
         }
     }
 

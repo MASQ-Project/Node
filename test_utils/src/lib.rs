@@ -9,8 +9,8 @@ extern crate serde;
 extern crate serde_cbor;
 #[macro_use]
 extern crate serde_derive;
-extern crate tokio;
 extern crate sub_lib;
+extern crate tokio;
 #[macro_use]
 extern crate lazy_static;
 

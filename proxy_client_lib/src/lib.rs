@@ -3,21 +3,21 @@
 extern crate actix;
 extern crate futures;
 extern crate serde_cbor;
+extern crate sub_lib;
 extern crate tokio_core;
 #[cfg(test)]
 extern crate trust_dns_proto;
 extern crate trust_dns_resolver;
-extern crate sub_lib;
 
-#[cfg (test)]
+#[cfg(test)]
 extern crate test_utils;
 extern crate tokio;
 
+#[cfg(test)]
+mod local_test_utils;
 pub mod proxy_client;
 mod resolver_wrapper;
 mod stream_establisher;
 mod stream_handler_pool;
 mod stream_reader;
 mod stream_writer;
-#[cfg(test)]
-mod local_test_utils;

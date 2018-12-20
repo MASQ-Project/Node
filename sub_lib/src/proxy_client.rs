@@ -3,8 +3,8 @@ use actix::Recipient;
 use actix::Syn;
 use hopper::ExpiredCoresPackage;
 use peer_actors::BindMessage;
-use stream_key::StreamKey;
 use sequence_buffer::SequencedPacket;
+use stream_key::StreamKey;
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct ClientResponsePayload {
@@ -22,7 +22,11 @@ impl ClientResponsePayload {
     pub fn make_terminating_payload(stream_key: StreamKey) -> ClientResponsePayload {
         ClientResponsePayload {
             stream_key,
-            sequenced_packet: SequencedPacket {data: vec! (), sequence_number: 0, last_data: true},
+            sequenced_packet: SequencedPacket {
+                data: vec![],
+                sequence_number: 0,
+                last_data: true,
+            },
         }
     }
 }
@@ -34,13 +38,20 @@ mod tests {
 
     #[test]
     fn make_terminating_payload_makes_terminating_payload() {
-        let stream_key: StreamKey = make_meaningless_stream_key ();
+        let stream_key: StreamKey = make_meaningless_stream_key();
 
         let payload = ClientResponsePayload::make_terminating_payload(stream_key);
 
-        assert_eq!(payload, ClientResponsePayload {
-            stream_key,
-            sequenced_packet: SequencedPacket {data: vec! (), sequence_number: 0, last_data: true},
-        })
+        assert_eq!(
+            payload,
+            ClientResponsePayload {
+                stream_key,
+                sequenced_packet: SequencedPacket {
+                    data: vec!(),
+                    sequence_number: 0,
+                    last_data: true
+                },
+            }
+        )
     }
 }

@@ -1,34 +1,33 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use std::net::SocketAddr;
-use std::net::IpAddr;
-use std::net::TcpListener;
-use serde_cbor;
 use hopper_lib::hopper::LiveCoresPackage;
-use sub_lib::cryptde::CryptDE;
-use sub_lib::cryptde::CryptData;
-use std::io;
-use std::io::Read;
-use std::thread;
-use std::time::Duration;
-use std::sync::mpsc;
-use std::sync::mpsc::Receiver;
-use std::thread::JoinHandle;
 use node_lib::discriminator::Discriminator;
 use node_lib::discriminator::DiscriminatorFactory;
 use node_lib::discriminator::UnmaskedChunk;
-use std::net::Ipv4Addr;
-use substratum_node_cluster::SubstratumNodeCluster;
-use test_utils::test_utils::find_free_port;
-use node_lib::json_discriminator_factory::JsonDiscriminatorFactory;
 use node_lib::http_request_start_finder::HttpRequestDiscriminatorFactory;
+use node_lib::json_discriminator_factory::JsonDiscriminatorFactory;
 use node_lib::tls_discriminator_factory::TlsDiscriminatorFactory;
+use serde_cbor;
+use std::cell::RefCell;
+use std::io;
+use std::io::Read;
+use std::net::IpAddr;
+use std::net::Ipv4Addr;
+use std::net::SocketAddr;
+use std::net::TcpListener;
+use std::sync::mpsc;
+use std::sync::mpsc::Receiver;
+use std::thread;
+use std::thread::JoinHandle;
+use std::time::Duration;
+use sub_lib::cryptde::CryptDE;
+use sub_lib::cryptde::CryptData;
 use sub_lib::cryptde::Key;
-use substratum_node::NodeReference;
 use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::node_addr::NodeAddr;
-use std::cell::RefCell;
-
+use substratum_node::NodeReference;
+use substratum_node_cluster::SubstratumNodeCluster;
+use test_utils::test_utils::find_free_port;
 
 // TODO: Cover this with tests and put it in the production tree.
 pub struct DiscriminatorCluster {
@@ -36,23 +35,28 @@ pub struct DiscriminatorCluster {
 }
 
 impl DiscriminatorCluster {
-    pub fn new (factories: Vec<Box<DiscriminatorFactory>>) -> DiscriminatorCluster {
+    pub fn new(factories: Vec<Box<DiscriminatorFactory>>) -> DiscriminatorCluster {
         DiscriminatorCluster {
-            discriminators: factories.into_iter ().map (|x| x.make ()).collect ()
+            discriminators: factories.into_iter().map(|x| x.make()).collect(),
         }
     }
 
-    pub fn add_data (&mut self, data: &[u8]) {
-        self.discriminators.iter_mut ().for_each (|x| x.add_data (data))
+    pub fn add_data(&mut self, data: &[u8]) {
+        self.discriminators
+            .iter_mut()
+            .for_each(|x| x.add_data(data))
     }
 
-    pub fn take_chunk (&mut self) -> Option<UnmaskedChunk> {
-        let mut chunks: Vec<UnmaskedChunk> = self.discriminators.iter_mut ().flat_map (|x| x.take_chunk ()).collect ();
-        if chunks.len () == 0 {
+    pub fn take_chunk(&mut self) -> Option<UnmaskedChunk> {
+        let mut chunks: Vec<UnmaskedChunk> = self
+            .discriminators
+            .iter_mut()
+            .flat_map(|x| x.take_chunk())
+            .collect();
+        if chunks.len() == 0 {
             None
-        }
-        else {
-            Some (chunks.remove (0))
+        } else {
+            Some(chunks.remove(0))
         }
     }
 }
@@ -66,49 +70,54 @@ pub struct SubstratumCoresServer {
 }
 
 impl SubstratumCoresServer {
-    pub fn new () -> SubstratumCoresServer {
+    pub fn new() -> SubstratumCoresServer {
         let ip_address = Self::find_local_integration_net_ip_address();
-        let port = find_free_port ();
-        let local_addr = SocketAddr::new (ip_address, port);
-        let listener = TcpListener::bind (local_addr).expect (format! ("Couldn't start server on {}", local_addr).as_str ());
-        let mut cryptde = CryptDENull::new ();
-        cryptde.generate_key_pair ();
+        let port = find_free_port();
+        let local_addr = SocketAddr::new(ip_address, port);
+        let listener = TcpListener::bind(local_addr)
+            .expect(format!("Couldn't start server on {}", local_addr).as_str());
+        let mut cryptde = CryptDENull::new();
+        cryptde.generate_key_pair();
         let (io_tx, io_rx) = mpsc::channel::<io::Result<Vec<u8>>>();
-        let join_handle = thread::spawn (move || {
-            loop {
-                let (mut stream, _) = match listener.accept() {
-                    Err(e) => {
-                        eprintln!("Error accepting connection to {}: {:?}", local_addr, &e);
-                        io_tx.send(Err(e)).unwrap();
-                        return
-                    }
-                    Ok(p) => p
-                };
-                let peer_addr = stream.peer_addr ().unwrap ();
-                let mut buf = [0u8; 16384];
-                loop {
-                    match stream.read(&mut buf) {
-                        Ok(0) => {
-                            eprintln! ("TcpStream local {} / remote {}", local_addr, peer_addr);
-                            break
-                        },
-                        Ok(size) => {
-                            let mut bytes = buf.to_vec();
-                            bytes.truncate(size);
-                            eprintln! ("Received {} bytes from local {} / remote {}: {:?}", size, local_addr, peer_addr, bytes);
-                            io_tx.send(Ok(bytes)).unwrap();
-                        },
-                        Err(e) => {
-                            eprintln!("Error reading from stream local {} / remote {}: {:?}", local_addr, peer_addr, &e);
-                            io_tx.send(Err(e)).unwrap();
-                        },
-                    };
+        let join_handle = thread::spawn(move || loop {
+            let (mut stream, _) = match listener.accept() {
+                Err(e) => {
+                    eprintln!("Error accepting connection to {}: {:?}", local_addr, &e);
+                    io_tx.send(Err(e)).unwrap();
+                    return;
                 }
+                Ok(p) => p,
+            };
+            let peer_addr = stream.peer_addr().unwrap();
+            let mut buf = [0u8; 16384];
+            loop {
+                match stream.read(&mut buf) {
+                    Ok(0) => {
+                        eprintln!("TcpStream local {} / remote {}", local_addr, peer_addr);
+                        break;
+                    }
+                    Ok(size) => {
+                        let mut bytes = buf.to_vec();
+                        bytes.truncate(size);
+                        eprintln!(
+                            "Received {} bytes from local {} / remote {}: {:?}",
+                            size, local_addr, peer_addr, bytes
+                        );
+                        io_tx.send(Ok(bytes)).unwrap();
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "Error reading from stream local {} / remote {}: {:?}",
+                            local_addr, peer_addr, &e
+                        );
+                        io_tx.send(Err(e)).unwrap();
+                    }
+                };
             }
         });
-        thread::sleep (Duration::from_millis (100));
+        thread::sleep(Duration::from_millis(100));
         SubstratumCoresServer {
-            discriminators: RefCell::new (DiscriminatorCluster::new (Self::default_factories ())),
+            discriminators: RefCell::new(DiscriminatorCluster::new(Self::default_factories())),
             cryptde,
             io_receiver: io_rx,
             socket_addr: local_addr,
@@ -116,72 +125,84 @@ impl SubstratumCoresServer {
         }
     }
 
-    pub fn local_addr (&self) -> SocketAddr {
+    pub fn local_addr(&self) -> SocketAddr {
         self.socket_addr
     }
 
-    pub fn node_reference (&self) -> NodeReference {
+    pub fn node_reference(&self) -> NodeReference {
         NodeReference {
-            public_key: self.cryptde.public_key ().clone (),
-            node_addr: NodeAddr::new (&self.socket_addr.ip(), &vec! (self.socket_addr.port ())),
+            public_key: self.cryptde.public_key().clone(),
+            node_addr: NodeAddr::new(&self.socket_addr.ip(), &vec![self.socket_addr.port()]),
         }
     }
 
-    pub fn cryptde<'a> (&'a self) -> &'a CryptDE {
+    pub fn cryptde<'a>(&'a self) -> &'a CryptDE {
         &self.cryptde
     }
 
-    pub fn public_key (&self) -> Key {
-        self.node_reference ().public_key.clone ()
+    pub fn public_key(&self) -> Key {
+        self.node_reference().public_key.clone()
     }
 
-    pub fn node_addr (&self) -> NodeAddr {
-        self.node_reference ().node_addr.clone ()
+    pub fn node_addr(&self) -> NodeAddr {
+        self.node_reference().node_addr.clone()
     }
 
-    pub fn private_key (&self) -> Key {
-        self.cryptde ().private_key ().clone ()
+    pub fn private_key(&self) -> Key {
+        self.cryptde().private_key().clone()
     }
 
     pub fn wait_for_package(&self, timeout: Duration) -> LiveCoresPackage {
-        let chunk = self.get_next_chunk (timeout);
-        let decoded_chunk = self.cryptde.decode(&CryptData::new(&chunk.chunk[..])).unwrap();
-        serde_cbor::de::from_slice::<LiveCoresPackage> (&decoded_chunk.data) .expect (format! ("Error deserializing LCP from {:?}", chunk.chunk).as_str ())
+        let chunk = self.get_next_chunk(timeout);
+        let decoded_chunk = self
+            .cryptde
+            .decode(&CryptData::new(&chunk.chunk[..]))
+            .unwrap();
+        serde_cbor::de::from_slice::<LiveCoresPackage>(&decoded_chunk.data)
+            .expect(format!("Error deserializing LCP from {:?}", chunk.chunk).as_str())
     }
 
-    fn default_factories () -> Vec<Box<DiscriminatorFactory>> {
-        vec! (
-            Box::new (JsonDiscriminatorFactory::new ()),
-            Box::new (HttpRequestDiscriminatorFactory::new ()),
-            Box::new (TlsDiscriminatorFactory::new ()),
-        )
+    fn default_factories() -> Vec<Box<DiscriminatorFactory>> {
+        vec![
+            Box::new(JsonDiscriminatorFactory::new()),
+            Box::new(HttpRequestDiscriminatorFactory::new()),
+            Box::new(TlsDiscriminatorFactory::new()),
+        ]
     }
 
-    fn find_local_integration_net_ip_address () -> IpAddr {
-        IpAddr::V4(Ipv4Addr::new(172, 18, 0,
-                                 if SubstratumNodeCluster::is_in_jenkins () {2} else {1}))
+    fn find_local_integration_net_ip_address() -> IpAddr {
+        IpAddr::V4(Ipv4Addr::new(
+            172,
+            18,
+            0,
+            if SubstratumNodeCluster::is_in_jenkins() {
+                2
+            } else {
+                1
+            },
+        ))
     }
 
-    fn get_next_chunk (&self, timeout: Duration) -> UnmaskedChunk {
-        let mut discriminators = self.discriminators.borrow_mut ();
-        match discriminators.take_chunk () {
+    fn get_next_chunk(&self, timeout: Duration) -> UnmaskedChunk {
+        let mut discriminators = self.discriminators.borrow_mut();
+        match discriminators.take_chunk() {
             None => (),
-            Some (chunk) => return chunk
+            Some(chunk) => return chunk,
         }
         loop {
-            match self.io_receiver.recv_timeout (timeout) {
-                Err (e) => panic! ("{:?}", e),
-                Ok (result) => match result {
+            match self.io_receiver.recv_timeout(timeout) {
+                Err(e) => panic!("{:?}", e),
+                Ok(result) => match result {
                     Err(e) => panic!("{:?}", e),
                     Ok(buf) => {
                         println!("got some buf: {:?}", buf);
                         discriminators.add_data(&buf[..])
-                    },
-                }
+                    }
+                },
             }
-            match discriminators.take_chunk () {
+            match discriminators.take_chunk() {
                 None => (),
-                Some (chunk) => return chunk
+                Some(chunk) => return chunk,
             }
         }
     }

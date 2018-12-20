@@ -5,7 +5,7 @@ use std::io;
 pub struct StdStreams<'a> {
     pub stdin: &'a mut (io::Read + Send),
     pub stdout: &'a mut (io::Write + Send),
-    pub stderr: &'a mut (io::Write + Send)
+    pub stderr: &'a mut (io::Write + Send),
 }
 
 pub trait Command {

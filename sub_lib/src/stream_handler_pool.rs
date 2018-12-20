@@ -2,7 +2,7 @@
 use dispatcher::Endpoint;
 use neighborhood::NodeDescriptor;
 
-#[derive (PartialEq, Debug, Message, Clone)]
+#[derive(PartialEq, Debug, Message, Clone)]
 pub struct TransmitDataMsg {
     pub endpoint: Endpoint,
     pub last_data: bool,
@@ -10,7 +10,7 @@ pub struct TransmitDataMsg {
     pub data: Vec<u8>,
 }
 
-#[derive (Message, Clone)]
+#[derive(Message, Clone)]
 pub struct DispatcherNodeQueryResponse {
     pub result: Option<NodeDescriptor>,
     pub context: TransmitDataMsg,

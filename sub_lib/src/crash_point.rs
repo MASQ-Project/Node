@@ -1,8 +1,8 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
-use std::fmt;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum CrashPoint {
