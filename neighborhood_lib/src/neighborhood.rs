@@ -7,6 +7,7 @@ use actix::MessageResult;
 use actix::Recipient;
 use actix::Syn;
 
+use gossip::to_dot_graph;
 use gossip::Gossip;
 use gossip_acceptor::GossipAcceptor;
 use gossip_acceptor::GossipAcceptorReal;
@@ -231,6 +232,17 @@ impl Handler<ExpiredCoresPackagePackage> for Neighborhood {
                 return ();
             }
         };
+        self.logger.trace(format!(
+            "Received Gossip: {}",
+            to_dot_graph(
+                incoming_gossip.clone(),
+                self.neighborhood_database.root().public_key(),
+                match self.neighborhood_database.node_by_ip(&msg.sender_ip) {
+                    Some(node) => node.public_key().clone(),
+                    None => Key::new(&[]),
+                }
+            )
+        ));
         let num_nodes = incoming_gossip.node_records.len();
         self.logger
             .info(format!("Processing Gossip about {} Nodes", num_nodes));
@@ -2167,5 +2179,80 @@ mod tests {
         assert_eq!(1, locked_recording.len());
         let package = locked_recording.get_record(0);
         assert_eq!(&find_package_target(package), gossip_neighbor.public_key());
+    }
+
+    #[test]
+    fn neighborhood_logs_received_gossip_in_dot_graph_format() {
+        init_test_logging();
+        let cryptde = cryptde();
+        let this_node = NodeRecord::new_for_tests(
+            &cryptde.public_key(),
+            Some(&NodeAddr::new(
+                &IpAddr::from_str("5.4.3.2").unwrap(),
+                &vec![1234],
+            )),
+            true,
+        );
+        let mut far_neighbor = make_node_record(1234, true, false);
+        let mut gossip_neighbor = make_node_record(4567, true, false);
+        gossip_neighbor
+            .neighbors_mut()
+            .push(this_node.public_key().clone());
+        gossip_neighbor
+            .neighbors_mut()
+            .push(far_neighbor.public_key().clone());
+        far_neighbor
+            .neighbors_mut()
+            .push(gossip_neighbor.public_key().clone());
+
+        let gossip = GossipBuilder::new()
+            .node(&gossip_neighbor, true)
+            .node(&this_node, true)
+            .node(&far_neighbor, false)
+            .build();
+        let serialized_gossip = PlainData::new(&serde_cbor::ser::to_vec(&gossip).unwrap()[..]);
+        let cores_package = ExpiredCoresPackagePackage {
+            expired_cores_package: ExpiredCoresPackage::new(
+                make_meaningless_route(),
+                serialized_gossip,
+            ),
+            sender_ip: IpAddr::from_str("1.2.3.4").unwrap(),
+        };
+        let hopper = Recorder::new();
+        let this_node_inside = this_node.clone();
+        thread::spawn(move || {
+            let system = System::new("");
+            let subject = Neighborhood::new(
+                cryptde,
+                NeighborhoodConfig {
+                    neighbor_configs: vec![],
+                    bootstrap_configs: vec![],
+                    is_bootstrap_node: this_node_inside.is_bootstrap_node(),
+                    local_ip_addr: this_node_inside.node_addr_opt().unwrap().ip_addr(),
+                    clandestine_port_list: this_node_inside.node_addr_opt().unwrap().ports(),
+                },
+            );
+            let addr: Addr<Syn, Neighborhood> = subject.start();
+            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
+            addr.try_send(BindMessage { peer_actors }).unwrap();
+
+            let sub: Recipient<Syn, ExpiredCoresPackagePackage> =
+                addr.recipient::<ExpiredCoresPackagePackage>();
+            sub.try_send(cores_package).unwrap();
+
+            system.run();
+        });
+        TestLogHandler::new()
+            .await_log_containing(&format!("Finished processing Gossip about 3 Nodes"), 500);
+
+        TestLogHandler::new().exists_log_containing("Received Gossip: digraph db { ");
+        TestLogHandler::new().exists_log_containing("\"AQIDBA\" [label=\"AQIDBA\"];");
+        TestLogHandler::new().exists_log_containing("\"9e7p7un06eHs6frl5A\" [label=\"9e7p7un06eHs6frl5A\\n5.4.3.2:1234\\nbootstrap\"] [shape=box];");
+        TestLogHandler::new()
+            .exists_log_containing("\"BAUGBw\" [label=\"BAUGBw\\n4.5.6.7:4567\"];");
+        TestLogHandler::new().exists_log_containing("\"AQIDBA\" -> \"BAUGBw\";");
+        TestLogHandler::new().exists_log_containing("\"BAUGBw\" -> \"AQIDBA\";");
+        TestLogHandler::new()
+            .exists_log_containing("\"BAUGBw\" -> \"9e7p7un06eHs6frl5A\" [style=dashed];");
     }
 }

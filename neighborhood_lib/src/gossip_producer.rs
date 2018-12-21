@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use gossip::to_dot_graph;
 use gossip::Gossip;
 use gossip::GossipBuilder;
 use neighborhood_database::NeighborhoodDatabase;
@@ -13,7 +14,7 @@ pub trait GossipProducer {
 }
 
 pub struct GossipProducerReal {
-    _logger: Logger,
+    logger: Logger,
 }
 
 impl GossipProducer for GossipProducerReal {
@@ -48,14 +49,19 @@ impl GossipProducer for GossipProducerReal {
                     || introducees.contains(&key_ref);
                 so_far.node(node_record_ref, reveal_node_addr)
             });
-        builder.build()
+        let gossip = builder.build();
+        self.logger.trace(format!(
+            "Created Gossip: {}",
+            to_dot_graph(gossip.clone(), target, database.root().public_key().clone())
+        ));
+        gossip
     }
 }
 
 impl GossipProducerReal {
     pub fn new() -> GossipProducerReal {
         GossipProducerReal {
-            _logger: Logger::new("GossipProducerReal"),
+            logger: Logger::new("GossipProducerReal"),
         }
     }
 
@@ -122,6 +128,8 @@ mod tests {
     use gossip::GossipNodeRecord;
     use neighborhood_test_utils::*;
     use sub_lib::cryptde_null::CryptDENull;
+    use test_utils::logging::init_test_logging;
+    use test_utils::logging::TestLogHandler;
     use test_utils::test_utils::assert_contains;
     use test_utils::test_utils::cryptde;
 
@@ -976,4 +984,57 @@ mod tests {
     // TODO test about assuming that unknown target neighbors are not bootstrap when deciding how many introductions to make
     // ^^^ (not possible to set up yet because we can't add_neighbor a key for target that we don't already have in the DB as a NodeRecord)
     // This test will drive out the unimplemented!() in choose_introducees
+
+    #[test]
+    fn produce_logs_about_the_resulting_gossip() {
+        init_test_logging();
+        let this_node = make_node_record(1234, true, true);
+        let first_neighbor = make_node_record(2345, true, false);
+        let target = make_node_record(4567, true, false);
+        let mut database = NeighborhoodDatabase::new(
+            this_node.public_key(),
+            this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.is_bootstrap_node(),
+            &CryptDENull::from(this_node.public_key()),
+        );
+        database.add_node(&first_neighbor).unwrap();
+        database.add_node(&target).unwrap();
+        database
+            .add_neighbor(this_node.public_key(), first_neighbor.public_key())
+            .unwrap();
+        database
+            .add_neighbor(first_neighbor.public_key(), this_node.public_key())
+            .unwrap();
+        database
+            .add_neighbor(first_neighbor.public_key(), target.public_key())
+            .unwrap();
+        database
+            .add_neighbor(this_node.public_key(), target.public_key())
+            .unwrap();
+        database
+            .add_neighbor(target.public_key(), this_node.public_key())
+            .unwrap();
+        database
+            .add_neighbor(target.public_key(), first_neighbor.public_key())
+            .unwrap();
+
+        let subject = GossipProducerReal::new();
+
+        let _result = subject.produce(&database, target.public_key());
+
+        TestLogHandler::new().await_log_containing("Created Gossip: digraph db { ", 500);
+        TestLogHandler::new().await_log_containing(
+            "\"AQIDBA\" [label=\"AQIDBA\\n1.2.3.4:1234\\nbootstrap\"] [style=filled];",
+            500,
+        );
+        TestLogHandler::new()
+            .await_log_containing("\"BAUGBw\" [label=\"BAUGBw\"] [shape=box];", 500);
+        TestLogHandler::new()
+            .await_log_containing("\"AgMEBQ\" [label=\"AgMEBQ\\n2.3.4.5:2345\"];", 500);
+        TestLogHandler::new().await_log_containing("\"AgMEBQ\" -> \"AQIDBA\" [style=dashed];", 500);
+        TestLogHandler::new().await_log_containing("\"BAUGBw\" -> \"AQIDBA\" [style=dashed];", 500);
+        TestLogHandler::new().await_log_containing("\"BAUGBw\" -> \"AgMEBQ\";", 500);
+        TestLogHandler::new().await_log_containing("\"AQIDBA\" -> \"AgMEBQ\" [style=dashed];", 500);
+        TestLogHandler::new().await_log_containing("\"AQIDBA\" -> \"BAUGBw\" [style=dashed];", 500);
+    }
 }
