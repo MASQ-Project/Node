@@ -270,6 +270,7 @@ impl Handler<RemoveNeighborMessage> for Neighborhood {
             Err(s) => self.logger.error(s),
             Ok(db_changed) => {
                 if db_changed {
+                    self.neighborhood_database.root_mut().increment_version();
                     self.gossip_to_neighbors();
                     self.logger
                         .info(format!("removed neighbor by public key: {}", public_key))
@@ -323,6 +324,7 @@ impl Neighborhood {
                     Some(&node_addr),
                     is_bootstrap_node,
                     None,
+                    0,
                 ))
                 .expect(&format!("Database already contains node {:?}", key));
             neighborhood_database
@@ -1544,16 +1546,29 @@ mod tests {
         let locked_recording = hopper_recording.lock().unwrap();
         let package = locked_recording.get_record(0);
         // Now make this_node look the way subject's initial NodeRecord will have looked after receiving the Gossip, so that
-        // it appears correct for check_outgoing_package.
+        // it appears correct for checking the gossip contents.
         this_node
             .neighbors_mut()
             .push(gossip_neighbor.public_key().clone());
+        this_node.increment_version();
 
-        if &find_package_target(package) == gossip_neighbor.public_key() {
-            check_outgoing_package(package, &this_node, &gossip_neighbor);
-        } else {
-            assert_eq!(true, false, "Got unexpected Gossip message: {:?}", package);
-        }
+        assert_eq!(&find_package_target(package), gossip_neighbor.public_key());
+        check_direct_route_to(&package.route, gossip_neighbor.public_key());
+        assert_eq!(
+            &package.payload_destination_key,
+            gossip_neighbor.public_key()
+        );
+        let gossip: Gossip = serde_cbor::de::from_slice(&package.payload.data[..]).unwrap();
+        assert_eq!(gossip.node_records.len(), 2);
+        let gossip_node_records = gossip.node_records;
+        assert_contains(
+            &gossip_node_records,
+            &GossipNodeRecord::from(&gossip_neighbor, false),
+        );
+        assert_contains(
+            &gossip_node_records,
+            &GossipNodeRecord::from(&this_node, true),
+        );
     }
 
     #[test]
@@ -1724,42 +1739,6 @@ mod tests {
         assert_eq!(hop.component, Component::Hopper);
         let hop = route.shift(&CryptDENull::from(&destination)).unwrap();
         assert_eq!(hop.component, Component::Neighborhood);
-    }
-
-    // Checks that cores_package contains the following Gossip:   target <=> source
-    fn check_outgoing_package(
-        cores_package: &IncipientCoresPackage,
-        source: &NodeRecord,
-        target: &NodeRecord,
-    ) -> NeighborhoodDatabase {
-        check_direct_route_to(&cores_package.route, target.public_key());
-        assert_eq!(&cores_package.payload_destination_key, target.public_key());
-        let deserialized_payload: Gossip =
-            serde_cbor::de::from_slice(&cores_package.payload.data[..]).unwrap();
-        let mut database = NeighborhoodDatabase::new(
-            target.public_key(),
-            &target.node_addr_opt().unwrap(),
-            false,
-            &CryptDENull::from(target.public_key()),
-        );
-        GossipAcceptorReal::new().handle(&mut database, deserialized_payload);
-        assert_eq!(database.node_by_key(source.public_key()).unwrap(), source);
-        assert_eq!(database.node_by_key(target.public_key()).unwrap(), target);
-        check_is_neighbor(&database, source, target);
-        check_is_neighbor(&database, target, source);
-
-        database
-    }
-
-    fn check_is_neighbor(database: &NeighborhoodDatabase, from: &NodeRecord, to: &NodeRecord) {
-        assert_eq!(
-            database.has_neighbor(from.public_key(), to.public_key()),
-            true,
-            "Node {:?} should have {:?} as its neighbor, but doesn't:\n{:?}",
-            from.public_key(),
-            to.public_key(),
-            database
-        );
     }
 
     fn dual_edge_func(db: &mut NeighborhoodDatabase, a: &NodeRecord, b: &NodeRecord) {
@@ -2254,5 +2233,80 @@ mod tests {
         TestLogHandler::new().exists_log_containing("\"BAUGBw\" -> \"AQIDBA\";");
         TestLogHandler::new()
             .exists_log_containing("\"BAUGBw\" -> \"9e7p7un06eHs6frl5A\" [style=dashed];");
+    }
+
+    #[test]
+    fn increments_root_version_number_after_removing_a_neighbor() {
+        let hopper = Recorder::new();
+        let hopper_awaiter = hopper.get_awaiter();
+        let hopper_recording = hopper.get_recording();
+        let cryptde = cryptde();
+        let this_node = NodeRecord::new_for_tests(
+            &cryptde.public_key(),
+            Some(&NodeAddr::new(
+                &IpAddr::from_str("5.4.3.2").unwrap(),
+                &vec![1234],
+            )),
+            true,
+        );
+        let this_node_inside = this_node.clone();
+        let removed_neighbor = make_node_record(2345, true, false);
+        let removed_neighbor_inside = removed_neighbor.clone();
+
+        thread::spawn(move || {
+            let system = System::new("gossips_after_removing_a_neighbor");
+            let mut subject = Neighborhood::new(
+                cryptde,
+                NeighborhoodConfig {
+                    neighbor_configs: vec![],
+                    bootstrap_configs: vec![],
+                    is_bootstrap_node: this_node_inside.is_bootstrap_node(),
+                    local_ip_addr: this_node_inside.node_addr_opt().unwrap().ip_addr(),
+                    clandestine_port_list: this_node_inside.node_addr_opt().unwrap().ports(),
+                },
+            );
+
+            let other_neighbor = make_node_record(3456, true, false);
+            subject
+                .neighborhood_database
+                .add_node(&removed_neighbor_inside)
+                .unwrap();
+            subject
+                .neighborhood_database
+                .add_node(&other_neighbor)
+                .unwrap();
+            subject
+                .neighborhood_database
+                .add_neighbor(&cryptde.public_key(), removed_neighbor_inside.public_key())
+                .unwrap();
+            subject
+                .neighborhood_database
+                .add_neighbor(&cryptde.public_key(), other_neighbor.public_key())
+                .unwrap();
+
+            let addr: Addr<Syn, Neighborhood> = subject.start();
+            let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
+            addr.try_send(BindMessage { peer_actors }).unwrap();
+
+            let sub: Recipient<Syn, RemoveNeighborMessage> =
+                addr.recipient::<RemoveNeighborMessage>();
+            sub.try_send(RemoveNeighborMessage {
+                public_key: removed_neighbor_inside.public_key().clone(),
+            })
+            .unwrap();
+
+            system.run();
+        });
+
+        hopper_awaiter.await_message_count(1);
+        let locked_recording = hopper_recording.lock().unwrap();
+        let package: &IncipientCoresPackage = locked_recording.get_record(0);
+        let gossip: Gossip = serde_cbor::de::from_slice(&package.payload.data[..]).unwrap();
+        let the_node_record = gossip
+            .node_records
+            .iter()
+            .find(|&x| x.inner.public_key == cryptde.public_key())
+            .expect("should have the node record");
+        assert_eq!(the_node_record.inner.version, 1);
     }
 }

@@ -49,7 +49,8 @@ impl NodeRecord {
         node_addr_opt: Option<&NodeAddr>,
         is_bootstrap_node: bool,
     ) -> NodeRecord {
-        let mut node_record = NodeRecord::new(public_key, node_addr_opt, is_bootstrap_node, None);
+        let mut node_record =
+            NodeRecord::new(public_key, node_addr_opt, is_bootstrap_node, None, 0);
         node_record.sign(&CryptDENull::from(&public_key));
         node_record
     }

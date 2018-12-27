@@ -8,7 +8,7 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use utils::plus;
 
-#[derive(Eq, Hash, Deserialize, Serialize)]
+#[derive(Eq, PartialEq, Hash, Deserialize, Serialize)]
 pub struct NodeAddr {
     ip_addr: IpAddr,
     ports: Vec<u16>,
@@ -70,12 +70,6 @@ impl Display for NodeAddr {
             .map(|x| format!("{}", x))
             .collect::<Vec<String>>();
         write!(f, "{}:{}", self.ip_addr(), port_list.join(","))
-    }
-}
-
-impl PartialEq for NodeAddr {
-    fn eq(&self, other: &NodeAddr) -> bool {
-        self.ip_addr().eq(&other.ip_addr()) && self.ports().eq(&other.ports())
     }
 }
 

@@ -43,9 +43,16 @@ fn when_bootstrapping_from_a_node_then_the_node_sends_gossip_upon_startup() {
         node_addr_opt: Some(node_ref.node_addr.clone()),
         is_bootstrap_node: false,
         neighbors: vec![bootstrap_node_ref.public_key.clone()],
+        version: 0,
     };
     let (complete_signature, obscured_signature) = {
-        let mut nr = NodeRecord::new(&node_ref.public_key, Some(&node_ref.node_addr), false, None);
+        let mut nr = NodeRecord::new(
+            &node_ref.public_key,
+            Some(&node_ref.node_addr),
+            false,
+            None,
+            0,
+        );
         nr.sign(&CryptDENull::from(&node_ref.public_key));
         (
             nr.signatures().unwrap().complete().clone(),

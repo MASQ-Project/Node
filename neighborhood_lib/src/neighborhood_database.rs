@@ -20,6 +20,7 @@ pub struct NodeRecordInner {
     pub node_addr_opt: Option<NodeAddr>,
     pub is_bootstrap_node: bool,
     pub neighbors: Vec<Key>,
+    pub version: u32,
 }
 
 impl NodeRecordInner {
@@ -63,6 +64,7 @@ impl NodeSignatures {
             node_addr_opt: None,
             is_bootstrap_node: node_record_inner.is_bootstrap_node,
             neighbors: node_record_inner.neighbors.clone(),
+            version: node_record_inner.version,
         };
         let obscured_signature = obscured_inner.generate_signature(cryptde);
 
@@ -91,6 +93,7 @@ impl NodeRecord {
         node_addr_opt: Option<&NodeAddr>,
         is_bootstrap_node: bool,
         signatures: Option<NodeSignatures>,
+        version: u32,
     ) -> NodeRecord {
         NodeRecord {
             inner: NodeRecordInner {
@@ -101,6 +104,7 @@ impl NodeRecord {
                 },
                 is_bootstrap_node,
                 neighbors: vec![],
+                version,
             },
             signatures,
         }
@@ -181,6 +185,18 @@ impl NodeRecord {
     pub fn sign(&mut self, cryptde: &CryptDE) {
         self.signatures = Some(NodeSignatures::from(cryptde, &self.inner))
     }
+
+    pub fn version(&self) -> u32 {
+        self.inner.version
+    }
+
+    pub fn increment_version(&mut self) {
+        self.inner.version += 1;
+    }
+
+    pub fn set_version(&mut self, value: u32) {
+        self.inner.version = value;
+    }
 }
 
 pub struct NeighborhoodDatabase {
@@ -208,7 +224,8 @@ impl NeighborhoodDatabase {
             by_ip_addr: HashMap::new(),
         };
 
-        let mut node_record = NodeRecord::new(public_key, Some(node_addr), is_bootstrap_node, None);
+        let mut node_record =
+            NodeRecord::new(public_key, Some(node_addr), is_bootstrap_node, None, 0);
         node_record.sign(cryptde);
         result
             .add_node(&node_record)
@@ -707,6 +724,7 @@ mod tests {
             subject_signed.node_addr_opt().as_ref(),
             subject_signed.is_bootstrap_node(),
             None,
+            0,
         );
 
         assert_eq!(subject.signatures(), None);
@@ -755,6 +773,7 @@ mod tests {
             )),
             is_bootstrap_node: true,
             neighbors: Vec::new(),
+            version: 0,
         };
         let cryptde = CryptDENull::from(&to_be_signed.public_key);
 
@@ -782,6 +801,7 @@ mod tests {
             )),
             true,
             None,
+            0,
         );
         let duplicate = NodeRecord::new(
             &Key::new(&b"poke"[..]),
@@ -791,6 +811,7 @@ mod tests {
             )),
             true,
             None,
+            0,
         );
         let mut with_neighbor = NodeRecord::new(
             &Key::new(&b"poke"[..]),
@@ -800,6 +821,7 @@ mod tests {
             )),
             true,
             None,
+            0,
         );
         let mod_key = NodeRecord::new(
             &Key::new(&b"kope"[..]),
@@ -809,6 +831,7 @@ mod tests {
             )),
             true,
             None,
+            0,
         );
         let mod_node_addr = NodeRecord::new(
             &Key::new(&b"poke"[..]),
@@ -818,6 +841,7 @@ mod tests {
             )),
             true,
             None,
+            0,
         );
         let mod_is_bootstrap = NodeRecord::new(
             &Key::new(&b"poke"[..]),
@@ -827,6 +851,7 @@ mod tests {
             )),
             false,
             None,
+            0,
         );
         let mod_signatures = NodeRecord::new(
             &Key::new(&b"poke"[..]),
@@ -839,6 +864,7 @@ mod tests {
                 CryptData::new(b""),
                 CryptData::new(b""),
             )),
+            0,
         );
         with_neighbor
             .neighbors_mut()
@@ -1080,5 +1106,31 @@ mod tests {
             subject.node_by_ip(&neighborless_node.node_addr_opt().unwrap().ip_addr())
         );
         assert!(!result.ok().expect("should be ok"));
+    }
+
+    #[test]
+    fn increment_version_increments_node_record_version_by_1() {
+        let mut this_node = make_node_record(123, true, false);
+
+        assert_eq!(this_node.version(), 0);
+
+        this_node.increment_version();
+        assert_eq!(this_node.version(), 1);
+
+        this_node.increment_version();
+        assert_eq!(this_node.version(), 2);
+
+        this_node.increment_version();
+        assert_eq!(this_node.version(), 3);
+    }
+
+    #[test]
+    fn set_version_sets_the_version() {
+        let mut this_node = make_node_record(123, true, false);
+        assert_eq!(this_node.version(), 0);
+
+        this_node.set_version(10000);
+
+        assert_eq!(this_node.version(), 10000);
     }
 }

@@ -47,6 +47,7 @@ fn neighborhood_notified_of_missing_node_when_connection_refused() {
             node_addr_opt: Some(NodeAddr::new(&refusing_node.ip_address(), &vec![1234])),
             is_bootstrap_node: false,
             neighbors: vec![],
+            version: 0,
         })
         .add_connection(&mock_bootstrap.public_key(), &subject.public_key())
         .add_connection(&subject.public_key(), &refusing_node_key)

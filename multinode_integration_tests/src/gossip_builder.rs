@@ -34,6 +34,7 @@ impl GossipBuilder {
                 },
                 is_bootstrap_node: is_bootstrap,
                 neighbors: vec![],
+                version: 0,
             },
             cryptde: Box::new(CryptDENull::from(&node.public_key())),
         });

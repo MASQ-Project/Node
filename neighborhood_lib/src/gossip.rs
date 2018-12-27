@@ -36,6 +36,7 @@ impl GossipNodeRecord {
                 },
                 is_bootstrap_node: node_record_ref.is_bootstrap_node(),
                 neighbors: node_record_ref.neighbors().clone(),
+                version: node_record_ref.version(),
             },
             // crashpoint
             signatures: node_record_ref
@@ -50,6 +51,7 @@ impl GossipNodeRecord {
             self.inner.node_addr_opt.as_ref(),
             self.inner.is_bootstrap_node,
             Some(self.signatures.clone()),
+            self.inner.version,
         );
         node_record
             .neighbors_mut()
@@ -57,6 +59,7 @@ impl GossipNodeRecord {
         node_record
     }
 
+    // TODO - should we use a json serializer to make this?
     fn to_human_readable(&self) -> String {
         let mut human_readable = String::new();
         human_readable.push_str("\nGossipNodeRecord {");
@@ -71,6 +74,7 @@ impl GossipNodeRecord {
             self.inner.is_bootstrap_node
         ));
         human_readable.push_str(&format!("\n\t\tneighbors: {:?},", self.inner.neighbors));
+        human_readable.push_str(&format!("\n\t\tversion: {:?},", self.inner.version));
         human_readable.push_str("\n\t},");
         human_readable.push_str("\n\tsignatures: Signatures {");
         human_readable.push_str(&format!(
@@ -178,6 +182,22 @@ mod tests {
     use sub_lib::node_addr::NodeAddr;
 
     #[test]
+    fn can_create_a_node_record() {
+        let mut expected_node_record = make_node_record(1234, true, true);
+        expected_node_record.set_version(6);
+        let builder = GossipBuilder::new().node(&expected_node_record, true);
+
+        let actual_node_record = builder
+            .build()
+            .node_records
+            .first()
+            .expect("should have the gnr")
+            .to_node_record();
+
+        assert_eq!(actual_node_record, expected_node_record);
+    }
+
+    #[test]
     #[should_panic(expected = "GossipBuilder cannot add a node more than once")]
     fn adding_node_twice_to_gossip_builder_causes_panic() {
         let node = make_node_record(1234, true, true);
@@ -245,6 +265,7 @@ mod tests {
             )),
             false,
             None,
+            0,
         );
         let builder = builder.node(&node, true);
 
@@ -263,6 +284,7 @@ mod tests {
             )),
             false,
             None,
+            0,
         );
 
         let _gossip = GossipNodeRecord::from(&node, true);
@@ -277,7 +299,7 @@ mod tests {
         let result = format!("{:?}", gossip);
         let expected = format!(
             "\nGossipNodeRecord {{{}{}\n}}",
-            "\n\tinner: NodeRecordInner {\n\t\tpublic_key: AQIDBA,\n\t\tnode_addr_opt: Some(1.2.3.4:[1234]),\n\t\tis_bootstrap_node: false,\n\t\tneighbors: [],\n\t},",
+            "\n\tinner: NodeRecordInner {\n\t\tpublic_key: AQIDBA,\n\t\tnode_addr_opt: Some(1.2.3.4:[1234]),\n\t\tis_bootstrap_node: false,\n\t\tneighbors: [],\n\t\tversion: 0,\n\t},",
             "\n\tsignatures: Signatures {\n\t\tcomplete: CryptData { data: [115, 105, 103, 110, 101, 100] },\n\t\tobscured: CryptData { data: [115, 105, 103, 110, 101, 100] },\n\t},"
         );
 

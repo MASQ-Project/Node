@@ -61,6 +61,7 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test() {
         node_addr_opt: Some(subject.node_addr()),
         is_bootstrap_node: false,
         neighbors: vec![mock_bootstrap.public_key()],
+        version: 0,
     };
     let cryptde = CryptDENull::from(&subject.public_key());
     let complete_signature = inner.generate_signature(&cryptde);
@@ -70,6 +71,7 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test() {
         node_addr_opt: None,
         is_bootstrap_node: false,
         neighbors: vec![mock_bootstrap.public_key()],
+        version: 0,
     };
     let obscured_signature = obscured_inner.generate_signature(&cryptde);
     assert_eq!(
@@ -452,6 +454,7 @@ fn make_gossip(pairs: Vec<(&NodeReference, bool)>) -> Gossip {
             },
             is_bootstrap_node: false,
             neighbors: vec![],
+            version: 0,
         };
         let (complete_signature, obscured_signature) = {
             let mut nr = NodeRecord::new(
@@ -459,6 +462,7 @@ fn make_gossip(pairs: Vec<(&NodeReference, bool)>) -> Gossip {
                 Some(&node_ref_ref.node_addr),
                 false,
                 None,
+                0,
             );
             nr.sign(&CryptDENull::from(&node_ref_ref.public_key));
             (
