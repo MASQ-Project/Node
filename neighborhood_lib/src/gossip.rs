@@ -89,6 +89,10 @@ impl GossipNodeRecord {
         human_readable.push_str("\n}");
         human_readable
     }
+
+    pub fn public_key(&self) -> Key {
+        self.inner.public_key.clone()
+    }
 }
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]

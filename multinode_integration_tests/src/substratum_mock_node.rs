@@ -2,6 +2,10 @@
 use command::Command;
 use hopper_lib::hopper::LiveCoresPackage;
 use main::CONTROL_STREAM_PORT;
+use neighborhood_lib::gossip::Gossip;
+use neighborhood_lib::gossip::GossipBuilder;
+use neighborhood_lib::neighborhood_database::NodeRecord;
+use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::Masquerader;
 use serde_cbor;
 use std::cell::RefCell;
@@ -20,9 +24,12 @@ use sub_lib::cryptde::CryptData;
 use sub_lib::cryptde::Key;
 use sub_lib::cryptde::PlainData;
 use sub_lib::cryptde_null::CryptDENull;
+use sub_lib::dispatcher::Component;
 use sub_lib::framer::Framer;
 use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::node_addr::NodeAddr;
+use sub_lib::route::Route;
+use sub_lib::route::RouteSegment;
 use sub_lib::utils::indicates_dead_stream;
 use substratum_client::SubstratumNodeClient;
 use substratum_node::NodeReference;
@@ -111,6 +118,33 @@ impl SubstratumMockNode {
         }
     }
 
+    pub fn bootstrap_from(&self, node: &SubstratumNode) {
+        let masquerader = JsonMasquerader::new();
+        let mut node_record =
+            NodeRecord::new(&self.public_key(), Some(&self.node_addr()), false, None, 0);
+        node_record.sign(self.cryptde());
+
+        let gossip = GossipBuilder::new().node(&node_record, true).build();
+        let route = Route::new(
+            vec![RouteSegment::new(
+                vec![&self.public_key(), &node.public_key()],
+                Component::Neighborhood,
+            )],
+            self.cryptde(),
+        )
+        .unwrap();
+        let package = IncipientCoresPackage::new(route, gossip, &node.public_key());
+
+        self.transmit_package(
+            *node.port_list().first().unwrap(),
+            package,
+            &masquerader,
+            &node.public_key(),
+            node.socket_addr(PortSelector::First),
+        )
+        .unwrap();
+    }
+
     pub fn transmit_data(&self, data_hunk: DataHunk) -> Result<(), io::Error> {
         let to_transmit: Vec<u8> = data_hunk.into();
         match self.control_stream.borrow_mut().write(&to_transmit[..]) {
@@ -182,6 +216,13 @@ impl SubstratumMockNode {
         let live_cores_package =
             serde_cbor::de::from_slice::<LiveCoresPackage>(&decrypted_data.data[..]).unwrap();
         Ok((data_hunk.from, data_hunk.to, live_cores_package))
+    }
+
+    pub fn wait_for_gossip(&self, timeout: Duration) -> Gossip {
+        let masquerader = JsonMasquerader::new();
+        let (_, _, package) = self.wait_for_package(&masquerader, timeout).unwrap();
+        let incoming_cores_package = package.to_expired(self.cryptde());
+        incoming_cores_package.payload::<Gossip>().unwrap()
     }
 
     pub fn cryptde(&self) -> &CryptDE {
