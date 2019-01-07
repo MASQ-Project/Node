@@ -95,9 +95,12 @@ impl GossipAcceptorReal {
             let gnr_nao = gnr_ref.inner.node_addr_opt.clone();
             if gnr_nao.is_some() && (&gnr_key != &root_key_ref) {
                 if !database.has_neighbor(&root_key_ref, &gnr_key) {
-                    let addr_vec: Vec<SocketAddr> = gnr_nao.expect("GossipNodeRecord NodeAddr option is magically None.").into();
+                    let addr_vec: Vec<SocketAddr> = gnr_nao
+                        .expect("GossipNodeRecord NodeAddr option is magically None.")
+                        .into();
                     let mut tcp_stream = self.tcp_stream_factory.make();
-                    let connection_result = tcp_stream.connect(*addr_vec.get(0).expect("SocketAddr magically disappeared."));
+                    let connection_result = tcp_stream
+                        .connect(*addr_vec.get(0).expect("SocketAddr magically disappeared."));
                     if connection_result.is_ok() {
                         changed = database
                             .add_neighbor(&root_key_ref, &gnr_key)
@@ -208,7 +211,8 @@ mod tests {
             let mut result = GossipAcceptorReal::new();
             let mut factory = TcpStreamWrapperFactoryMock::new();
             for _ in 0..count {
-                factory = factory.tcp_stream_wrapper(TcpStreamWrapperMock::new().connect_result(Ok(())));
+                factory =
+                    factory.tcp_stream_wrapper(TcpStreamWrapperMock::new().connect_result(Ok(())));
             }
             result.tcp_stream_factory = Box::new(factory);
             result
