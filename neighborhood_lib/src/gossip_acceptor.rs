@@ -5,8 +5,11 @@ use neighborhood_database::NeighborhoodDatabase;
 use neighborhood_database::NeighborhoodDatabaseError;
 use neighborhood_database::NodeRecord;
 use std::collections::HashSet;
+use std::net::SocketAddr;
 use sub_lib::cryptde::Key;
 use sub_lib::logger::Logger;
+use sub_lib::tcp_wrappers::TcpStreamWrapperFactory;
+use sub_lib::tcp_wrappers::TcpStreamWrapperFactoryReal;
 
 pub trait GossipAcceptor {
     // Philosophy of handling Gossip messages that are malformed: Don't spend effort on rejecting
@@ -18,6 +21,7 @@ pub trait GossipAcceptor {
 
 pub struct GossipAcceptorReal {
     pub logger: Logger,
+    pub tcp_stream_factory: Box<TcpStreamWrapperFactory>,
 }
 
 impl GossipAcceptor for GossipAcceptorReal {
@@ -44,6 +48,7 @@ impl GossipAcceptorReal {
     pub fn new() -> GossipAcceptorReal {
         GossipAcceptorReal {
             logger: Logger::new("GossipAcceptorReal"),
+            tcp_stream_factory: Box::new(TcpStreamWrapperFactoryReal {}),
         }
     }
 
@@ -86,12 +91,20 @@ impl GossipAcceptorReal {
         let mut changed = false;
         let root_key_ref = database.root().public_key().clone();
         gossip_ref.node_records.iter().for_each(|gnr_ref| {
-            if gnr_ref.inner.node_addr_opt.is_some() && (&gnr_ref.inner.public_key != &root_key_ref)
-            {
-                changed = database
-                    .add_neighbor(&root_key_ref, &gnr_ref.inner.public_key)
-                    .expect("Node magically disappeared")
-                    || changed;
+            let gnr_key = gnr_ref.inner.public_key.clone();
+            let gnr_nao = gnr_ref.inner.node_addr_opt.clone();
+            if gnr_nao.is_some() && (&gnr_key != &root_key_ref) {
+                if !database.has_neighbor(&root_key_ref, &gnr_key) {
+                    let addr_vec: Vec<SocketAddr> = gnr_nao.expect("GossipNodeRecord NodeAddr option is magically None.").into();
+                    let mut tcp_stream = self.tcp_stream_factory.make();
+                    let connection_result = tcp_stream.connect(*addr_vec.get(0).expect("SocketAddr magically disappeared."));
+                    if connection_result.is_ok() {
+                        changed = database
+                            .add_neighbor(&root_key_ref, &gnr_key)
+                            .expect("Node magically disappeared")
+                            || changed;
+                    }
+                }
             }
         });
         if changed {
@@ -177,6 +190,7 @@ mod tests {
     use neighborhood_database::NodeSignatures;
     use neighborhood_test_utils::make_node_record;
     use neighborhood_test_utils::*;
+    use std::io;
     use std::net::IpAddr;
     use std::net::Ipv4Addr;
     use std::str::FromStr;
@@ -185,11 +199,49 @@ mod tests {
     use sub_lib::node_addr::NodeAddr;
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
+    use test_utils::tcp_wrapper_mocks::TcpStreamWrapperFactoryMock;
+    use test_utils::tcp_wrapper_mocks::TcpStreamWrapperMock;
     use test_utils::test_utils::cryptde;
 
+    impl GossipAcceptorReal {
+        fn new_for_tests(count: u32) -> GossipAcceptorReal {
+            let mut result = GossipAcceptorReal::new();
+            let mut factory = TcpStreamWrapperFactoryMock::new();
+            for _ in 0..count {
+                factory = factory.tcp_stream_wrapper(TcpStreamWrapperMock::new().connect_result(Ok(())));
+            }
+            result.tcp_stream_factory = Box::new(factory);
+            result
+        }
+    }
+
     #[test]
-    fn add_ip_neighbors_does_not_add_neighbors_without_ip() {
-        let subject: GossipAcceptorReal = GossipAcceptorReal::new();
+    fn gossip_does_not_add_neighbors_that_already_exist() {
+        let subject = GossipAcceptorReal::new_for_tests(1);
+
+        let this_addr = NodeAddr::new(&IpAddr::from_str("5.7.3.4").unwrap(), &vec![13]);
+        let root_key = &Key::new(b"scrud");
+        let mut db = NeighborhoodDatabase::new(root_key, &this_addr, false, cryptde());
+
+        let other_node = make_node_record(3333, true, false);
+        let other_node_gossip = GossipNodeRecord::from(&other_node, true);
+
+        db.add_node(&other_node).unwrap();
+        db.add_neighbor(root_key, other_node.public_key()).unwrap();
+
+        let gossip = Gossip {
+            node_records: vec![other_node_gossip],
+        };
+
+        let result = subject.handle(&mut db, gossip);
+
+        assert!(!result);
+    }
+
+    #[test]
+    fn gossip_does_not_add_neighbors_without_ip() {
+        let subject = GossipAcceptorReal::new_for_tests(1);
+
         let this_addr = NodeAddr::new(&IpAddr::from_str("5.7.3.4").unwrap(), &vec![13]);
         let mut db = NeighborhoodDatabase::new(&Key::new(b"scrud"), &this_addr, false, cryptde());
 
@@ -200,9 +252,35 @@ mod tests {
             node_records: vec![other_node_gossip],
         };
 
-        subject.add_ip_neighbors(&mut db, &gossip);
+        subject.handle(&mut db, gossip);
 
-        assert!(!db.has_neighbor(db.root().public_key(), other_node.public_key()))
+        assert!(!db.has_neighbor(db.root().public_key(), other_node.public_key()));
+    }
+
+    #[test]
+    fn gossip_does_not_add_neighbors_it_cannot_establish_a_tcp_stream_with() {
+        let mut subject = GossipAcceptorReal::new();
+
+        subject.tcp_stream_factory = Box::new(
+            TcpStreamWrapperFactoryMock::new().tcp_stream_wrapper(
+                TcpStreamWrapperMock::new()
+                    .connect_result(Err(io::Error::from(io::ErrorKind::TimedOut))),
+            ),
+        );
+
+        let this_addr = NodeAddr::new(&IpAddr::from_str("5.7.3.4").unwrap(), &vec![13]);
+        let mut db = NeighborhoodDatabase::new(&Key::new(b"scrud"), &this_addr, false, cryptde());
+
+        let other_node = make_node_record(3333, true, false);
+        let other_node_gossip = GossipNodeRecord::from(&other_node, true);
+
+        let gossip = Gossip {
+            node_records: vec![other_node_gossip],
+        };
+
+        subject.handle(&mut db, gossip);
+
+        assert!(!db.has_neighbor(db.root().public_key(), other_node.public_key()));
     }
 
     #[test]
@@ -261,7 +339,7 @@ mod tests {
             .node(&incoming_far_right, false)
             .node(&bad_record_with_blank_key, false)
             .build();
-        let subject = GossipAcceptorReal::new();
+        let subject = GossipAcceptorReal::new_for_tests(2);
 
         subject.handle(&mut database, gossip);
 
@@ -320,7 +398,7 @@ mod tests {
             .node(&not_a_neighbor_one, false)
             .node(&not_a_neighbor_two, false)
             .build();
-        let subject = GossipAcceptorReal::new();
+        let subject = GossipAcceptorReal::new_for_tests(2);
 
         subject.handle(&mut database, gossip);
 
@@ -359,6 +437,9 @@ mod tests {
             cryptde(),
         );
         database.add_node(&existing_node).unwrap();
+        database
+            .add_neighbor(this_node.public_key(), existing_node.public_key())
+            .unwrap();
         let new_node = NodeRecord::new_for_tests(
             existing_node.public_key(),
             Some(&NodeAddr::new(
@@ -396,7 +477,7 @@ mod tests {
         database.add_node(&existing_node).unwrap();
 
         let gossip = GossipBuilder::new().node(&incoming_node, true).build();
-        let subject = GossipAcceptorReal::new();
+        let subject = GossipAcceptorReal::new_for_tests(1);
 
         subject.handle(&mut database, gossip);
 
@@ -415,15 +496,12 @@ mod tests {
     #[test]
     fn handle_neighbor_pairs_complains_about_gossip_records_that_neighbor_themselves() {
         init_test_logging();
-        let mut this_node = make_node_record(1234, true, false);
+        let this_node = make_node_record(1234, true, false);
         // existing_neighbor (2345) has a neighbor of its own: 5678.
         let mut existing_neighbor = make_node_record(2345, true, false);
         existing_neighbor
             .neighbors_mut()
             .push(Key::new(&[5, 6, 7, 8]));
-        this_node
-            .neighbors_mut()
-            .push(existing_neighbor.public_key().clone());
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
@@ -431,6 +509,9 @@ mod tests {
             cryptde(),
         );
         database.add_node(&existing_neighbor).unwrap();
+        database
+            .add_neighbor(this_node.public_key(), existing_neighbor.public_key())
+            .unwrap();
 
         // Now node 2345 claims a completely different neighbors list including itself: 2345 and 6789.
         let mut invalid_record = make_node_record(2345, true, false);
@@ -545,7 +626,7 @@ mod tests {
             .node(&this_node, true)
             .node(&existing_node_with_ip, true)
             .build();
-        let subject = GossipAcceptorReal::new();
+        let subject = GossipAcceptorReal::new_for_tests(1);
 
         let result = subject.handle(&mut database, gossip);
 
@@ -578,7 +659,7 @@ mod tests {
         );
 
         let gossip = GossipBuilder::new().node(&incoming_node, true).build();
-        let subject = GossipAcceptorReal::new();
+        let subject = GossipAcceptorReal::new_for_tests(1);
 
         let result = subject.handle(&mut database, gossip);
 
@@ -690,7 +771,7 @@ mod tests {
         );
 
         let gossip = GossipBuilder::new().node(&incoming_node, true).build();
-        let subject = GossipAcceptorReal::new();
+        let subject = GossipAcceptorReal::new_for_tests(1);
 
         assert_eq!(
             database

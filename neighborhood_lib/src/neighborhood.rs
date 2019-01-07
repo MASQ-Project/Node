@@ -596,6 +596,8 @@ mod tests {
     use test_utils::recorder::make_recorder;
     use test_utils::recorder::Recorder;
     use test_utils::recorder::Recording;
+    use test_utils::tcp_wrapper_mocks::TcpStreamWrapperFactoryMock;
+    use test_utils::tcp_wrapper_mocks::TcpStreamWrapperMock;
     use test_utils::test_utils::assert_contains;
     use test_utils::test_utils::cryptde;
     use test_utils::test_utils::make_meaningless_route;
@@ -1522,7 +1524,7 @@ mod tests {
         let this_node_inside = this_node.clone();
         thread::spawn(move || {
             let system = System::new("");
-            let subject = Neighborhood::new(
+            let mut subject = Neighborhood::new(
                 cryptde,
                 NeighborhoodConfig {
                     neighbor_configs: vec![],
@@ -1532,6 +1534,14 @@ mod tests {
                     clandestine_port_list: this_node_inside.node_addr_opt().unwrap().ports(),
                 },
             );
+
+            let mut gossip_acceptor = GossipAcceptorReal::new();
+            gossip_acceptor.tcp_stream_factory = Box::new(
+                TcpStreamWrapperFactoryMock::new()
+                    .tcp_stream_wrapper(TcpStreamWrapperMock::new().connect_result(Ok(()))),
+            );
+            subject.gossip_acceptor = Box::new(gossip_acceptor);
+
             let addr: Addr<Syn, Neighborhood> = subject.start();
             let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
             addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -2133,7 +2143,7 @@ mod tests {
         let this_node_inside = this_node.clone();
         thread::spawn(move || {
             let system = System::new("");
-            let subject = Neighborhood::new(
+            let mut subject = Neighborhood::new(
                 cryptde,
                 NeighborhoodConfig {
                     neighbor_configs: vec![],
@@ -2143,6 +2153,14 @@ mod tests {
                     clandestine_port_list: this_node_inside.node_addr_opt().unwrap().ports(),
                 },
             );
+
+            let mut gossip_acceptor = GossipAcceptorReal::new();
+            gossip_acceptor.tcp_stream_factory = Box::new(
+                TcpStreamWrapperFactoryMock::new()
+                    .tcp_stream_wrapper(TcpStreamWrapperMock::new().connect_result(Ok(()))),
+            );
+            subject.gossip_acceptor = Box::new(gossip_acceptor);
+
             let addr: Addr<Syn, Neighborhood> = subject.start();
             let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
             addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -2208,6 +2226,14 @@ mod tests {
                     clandestine_port_list: bootstrap_node_inside.node_addr_opt().unwrap().ports(),
                 },
             );
+
+            let mut gossip_acceptor = GossipAcceptorReal::new();
+            gossip_acceptor.tcp_stream_factory = Box::new(
+                TcpStreamWrapperFactoryMock::new()
+                    .tcp_stream_wrapper(TcpStreamWrapperMock::new().connect_result(Ok(()))),
+            );
+            subject.gossip_acceptor = Box::new(gossip_acceptor);
+
             subject
                 .neighborhood_database
                 .add_node(&other_neighbor_inside)
@@ -2289,7 +2315,7 @@ mod tests {
         let this_node_inside = this_node.clone();
         thread::spawn(move || {
             let system = System::new("");
-            let subject = Neighborhood::new(
+            let mut subject = Neighborhood::new(
                 cryptde,
                 NeighborhoodConfig {
                     neighbor_configs: vec![],
@@ -2299,6 +2325,14 @@ mod tests {
                     clandestine_port_list: this_node_inside.node_addr_opt().unwrap().ports(),
                 },
             );
+
+            let mut gossip_acceptor = GossipAcceptorReal::new();
+            gossip_acceptor.tcp_stream_factory = Box::new(
+                TcpStreamWrapperFactoryMock::new()
+                    .tcp_stream_wrapper(TcpStreamWrapperMock::new().connect_result(Ok(()))),
+            );
+            subject.gossip_acceptor = Box::new(gossip_acceptor);
+
             let addr: Addr<Syn, Neighborhood> = subject.start();
             let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
             addr.try_send(BindMessage { peer_actors }).unwrap();

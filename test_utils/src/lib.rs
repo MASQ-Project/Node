@@ -11,6 +11,7 @@ extern crate serde_cbor;
 extern crate serde_derive;
 extern crate sub_lib;
 extern crate tokio;
+extern crate tokio_core;
 #[macro_use]
 extern crate lazy_static;
 
@@ -22,4 +23,5 @@ pub mod data_hunk_framer;
 pub mod logging;
 pub mod recorder;
 pub mod stream_connector_mock;
+pub mod tcp_wrapper_mocks;
 pub mod tokio_wrapper_mocks;

@@ -30,7 +30,9 @@ fn graph_connects_but_does_not_over_connect() {
 
     mock_node.bootstrap_from(&bootstrap_node);
 
-    let response_gossip = mock_node.wait_for_gossip(Duration::from_millis(1000));
+    let response_gossip = mock_node
+        .wait_for_gossip(Duration::from_millis(1000))
+        .unwrap();
 
     assert_eq!(response_gossip.node_records.len(), 7);
 

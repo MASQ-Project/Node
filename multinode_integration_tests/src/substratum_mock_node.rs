@@ -218,11 +218,15 @@ impl SubstratumMockNode {
         Ok((data_hunk.from, data_hunk.to, live_cores_package))
     }
 
-    pub fn wait_for_gossip(&self, timeout: Duration) -> Gossip {
+    pub fn wait_for_gossip(&self, timeout: Duration) -> Option<Gossip> {
         let masquerader = JsonMasquerader::new();
-        let (_, _, package) = self.wait_for_package(&masquerader, timeout).unwrap();
-        let incoming_cores_package = package.to_expired(self.cryptde());
-        incoming_cores_package.payload::<Gossip>().unwrap()
+        match self.wait_for_package(&masquerader, timeout) {
+            Ok((_, _, package)) => {
+                let incoming_cores_package = package.to_expired(self.cryptde());
+                incoming_cores_package.payload::<Gossip>().ok()
+            }
+            Err(_) => None,
+        }
     }
 
     pub fn cryptde(&self) -> &CryptDE {

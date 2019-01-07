@@ -273,6 +273,10 @@ impl MockNode {
                         stream.shutdown(Shutdown::Both).is_ok();
                         break;
                     }
+                    Ok(0) => {
+                        eprintln!("{} shut down stream", peer_addr);
+                        stream.shutdown(Shutdown::Both).is_ok();
+                    }
                     Ok(len) => {
                         let data_hunk = DataHunk::new(
                             peer_addr,
@@ -292,11 +296,6 @@ impl MockNode {
                             ) {
                                 break;
                             }
-                        }
-                        if len == 0 {
-                            eprintln!("{} shut down stream", peer_addr);
-                            stream.shutdown(Shutdown::Both).is_ok();
-                            break;
                         }
                     }
                     _ => (),
