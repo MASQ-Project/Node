@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 #![windows_subsystem = "windows"]
 extern crate futures;
 extern crate node_lib;

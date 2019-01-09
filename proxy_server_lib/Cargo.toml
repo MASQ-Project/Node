@@ -3,7 +3,7 @@ name = "proxy_server_lib"
 version = "0.4.1"
 license = "GPL-3.0-only"
 authors = ["Substratum Services"]
-copyright = "Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved."
+copyright = "Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved."
 workspace = "../node"
 
 [dependencies]

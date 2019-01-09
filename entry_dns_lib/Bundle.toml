@@ -2,7 +2,7 @@ name = "SubstratumNode"
 identifier = "net.substratum.node"
 icon = ["substratum.png"]
 version = "1.0.0"
-copyright = "Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved."
+copyright = "Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved."
 short_description = "SubstratumNode for the decentralized web"
 long_description = """
 SubstratumNode allows members to make money while they sleep.

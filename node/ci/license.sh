@@ -1,5 +1,5 @@
 #!/bin/bash -e
-# Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+# Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 echo "Checking licenses referenced in Cargo.toml dependencies..."
 shopt -s nocasematch
 license_errors=$(date +"./%Y-%m-%d-%H%M-license-errors.tmp")

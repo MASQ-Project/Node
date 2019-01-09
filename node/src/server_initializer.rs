@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use bootstrapper::Bootstrapper;
 use entry_dns_lib::dns_socket_server::new_dns_socket_server;
 use flexi_logger::Duplicate;

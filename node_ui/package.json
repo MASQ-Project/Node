@@ -6,7 +6,7 @@
   "homepage": "https://substratum.net",
   "repository": "https://github.com/SubstratumNetwork/SubstratumNode",
   "author": "Substratum LLC <support@substratum.net>",
-  "copyright": "Copyright (c) 2017-2018 Substratum LLC (${homepage}) and/or its affiliates. All rights reserved.",
+  "copyright": "Copyright (c) 2017-2019 Substratum LLC (${homepage}) and/or its affiliates. All rights reserved.",
   "license": "GPL-3.0",
   "build": {
     "appId": "net.substratum.node",

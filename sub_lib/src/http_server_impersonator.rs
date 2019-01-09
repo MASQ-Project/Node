@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 pub fn make_error_page(status: u16, title: &str, subtitle: &str, content: &str) -> String {
     let html = String::from(ERROR_TEMPLATE);

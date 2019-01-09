@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use sub_lib::main_tools::Command;
 use sub_lib::main_tools::StdStreams;
 use dns_modifier_factory::DnsModifierFactory;

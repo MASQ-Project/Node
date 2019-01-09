@@ -8,4 +8,4 @@ It is also responsible for initializing all of the components of the SubstratumN
 This is the project that generates the executable known as SubstratumNode.
 
 
-Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
