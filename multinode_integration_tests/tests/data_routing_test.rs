@@ -60,6 +60,7 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test() {
         public_key: subject.public_key(),
         node_addr_opt: Some(subject.node_addr()),
         is_bootstrap_node: false,
+        wallet_address: None,
         neighbors: vec![mock_bootstrap.public_key()],
         version: 0,
     };
@@ -70,6 +71,7 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test() {
         public_key: subject.public_key(),
         node_addr_opt: None,
         is_bootstrap_node: false,
+        wallet_address: None,
         neighbors: vec![mock_bootstrap.public_key()],
         version: 0,
     };
@@ -453,6 +455,7 @@ fn make_gossip(pairs: Vec<(&NodeReference, bool)>) -> Gossip {
                 None
             },
             is_bootstrap_node: false,
+            wallet_address: None,
             neighbors: vec![],
             version: 0,
         };
@@ -460,6 +463,7 @@ fn make_gossip(pairs: Vec<(&NodeReference, bool)>) -> Gossip {
             let mut nr = NodeRecord::new(
                 &node_ref_ref.public_key,
                 Some(&node_ref_ref.node_addr),
+                inner.wallet_address.clone(),
                 false,
                 None,
                 0,

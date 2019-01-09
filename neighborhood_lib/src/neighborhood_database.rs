@@ -18,6 +18,7 @@ use sub_lib::node_addr::NodeAddr;
 pub struct NodeRecordInner {
     pub public_key: Key,
     pub node_addr_opt: Option<NodeAddr>,
+    pub wallet_address: Option<String>,
     pub is_bootstrap_node: bool,
     pub neighbors: Vec<Key>,
     pub version: u32,
@@ -62,6 +63,7 @@ impl NodeSignatures {
         let obscured_inner = NodeRecordInner {
             public_key: node_record_inner.clone().public_key,
             node_addr_opt: None,
+            wallet_address: node_record_inner.wallet_address.clone(),
             is_bootstrap_node: node_record_inner.is_bootstrap_node,
             neighbors: node_record_inner.neighbors.clone(),
             version: node_record_inner.version,
@@ -91,6 +93,7 @@ impl NodeRecord {
     pub fn new(
         public_key: &Key,
         node_addr_opt: Option<&NodeAddr>,
+        wallet_address: Option<String>,
         is_bootstrap_node: bool,
         signatures: Option<NodeSignatures>,
         version: u32,
@@ -102,6 +105,7 @@ impl NodeRecord {
                     Some(node_addr) => Some(node_addr.clone()),
                     None => None,
                 },
+                wallet_address,
                 is_bootstrap_node,
                 neighbors: vec![],
                 version,
@@ -197,6 +201,19 @@ impl NodeRecord {
     pub fn set_version(&mut self, value: u32) {
         self.inner.version = value;
     }
+
+    pub fn wallet_address(&self) -> Option<String> {
+        self.inner.wallet_address.clone()
+    }
+
+    pub fn set_wallet_address(&mut self, wallet_address: Option<String>) -> bool {
+        if self.inner.wallet_address == wallet_address {
+            false
+        } else {
+            self.inner.wallet_address = wallet_address;
+            true
+        }
+    }
 }
 
 pub struct NeighborhoodDatabase {
@@ -215,6 +232,7 @@ impl NeighborhoodDatabase {
     pub fn new(
         public_key: &Key,
         node_addr: &NodeAddr,
+        wallet_address: Option<String>,
         is_bootstrap_node: bool,
         cryptde: &CryptDE,
     ) -> NeighborhoodDatabase {
@@ -224,8 +242,14 @@ impl NeighborhoodDatabase {
             by_ip_addr: HashMap::new(),
         };
 
-        let mut node_record =
-            NodeRecord::new(public_key, Some(node_addr), is_bootstrap_node, None, 0);
+        let mut node_record = NodeRecord::new(
+            public_key,
+            Some(node_addr),
+            wallet_address,
+            is_bootstrap_node,
+            None,
+            0,
+        );
         node_record.sign(cryptde);
         result
             .add_node(&node_record)
@@ -397,6 +421,7 @@ mod tests {
         let subject = NeighborhoodDatabase::new(
             &this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet_address(),
             false,
             &CryptDENull::from(this_node.public_key()),
         );
@@ -430,6 +455,7 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             &this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet_address(),
             false,
             &CryptDENull::from(this_node.public_key()),
         );
@@ -464,6 +490,7 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             &this_node.inner.public_key,
             this_node.inner.node_addr_opt.as_ref().unwrap(),
+            Some(String::from("0x1234")),
             false,
             &CryptDENull::from(this_node.public_key()),
         );
@@ -486,6 +513,7 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             &this_node.inner.public_key,
             this_node.inner.node_addr_opt.as_ref().unwrap(),
+            Some(String::from("0x1234")),
             false,
             &CryptDENull::from(this_node.public_key()),
         );
@@ -517,6 +545,7 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             &this_node.inner.public_key,
             this_node.inner.node_addr_opt.as_ref().unwrap(),
+            Some(String::from("0x1234")),
             false,
             &CryptDENull::from(this_node.public_key()),
         );
@@ -551,6 +580,7 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             &this_node.inner.public_key,
             this_node.inner.node_addr_opt.as_ref().unwrap(),
+            Some(String::from("0x1234")),
             false,
             &CryptDENull::from(this_node.public_key()),
         );
@@ -653,6 +683,7 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             &this_node.inner.public_key,
             this_node.inner.node_addr_opt.as_ref().unwrap(),
+            Some(String::from("0x1234")),
             false,
             &CryptDENull::from(this_node.public_key()),
         );
@@ -674,6 +705,7 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             &this_node.inner.public_key,
             this_node.inner.node_addr_opt.as_ref().unwrap(),
+            Some(String::from("0x1234")),
             false,
             &CryptDENull::from(this_node.public_key()),
         );
@@ -722,6 +754,7 @@ mod tests {
         let mut subject = NodeRecord::new(
             subject_signed.public_key(),
             subject_signed.node_addr_opt().as_ref(),
+            Some(String::from("0x1234")),
             subject_signed.is_bootstrap_node(),
             None,
             0,
@@ -772,6 +805,7 @@ mod tests {
                 &vec![1234],
             )),
             is_bootstrap_node: true,
+            wallet_address: Some(String::from("0x1234")),
             neighbors: Vec::new(),
             version: 0,
         };
@@ -799,6 +833,7 @@ mod tests {
                 &IpAddr::from_str("1.2.3.4").unwrap(),
                 &vec![1234],
             )),
+            None,
             true,
             None,
             0,
@@ -809,6 +844,7 @@ mod tests {
                 &IpAddr::from_str("1.2.3.4").unwrap(),
                 &vec![1234],
             )),
+            None,
             true,
             None,
             0,
@@ -819,6 +855,7 @@ mod tests {
                 &IpAddr::from_str("1.2.3.4").unwrap(),
                 &vec![1234],
             )),
+            None,
             true,
             None,
             0,
@@ -829,6 +866,7 @@ mod tests {
                 &IpAddr::from_str("1.2.3.4").unwrap(),
                 &vec![1234],
             )),
+            None,
             true,
             None,
             0,
@@ -839,6 +877,7 @@ mod tests {
                 &IpAddr::from_str("1.2.3.5").unwrap(),
                 &vec![1234],
             )),
+            None,
             true,
             None,
             0,
@@ -849,6 +888,7 @@ mod tests {
                 &IpAddr::from_str("1.2.3.4").unwrap(),
                 &vec![1234],
             )),
+            None,
             false,
             None,
             0,
@@ -859,6 +899,7 @@ mod tests {
                 &IpAddr::from_str("1.2.3.4").unwrap(),
                 &vec![1234],
             )),
+            None,
             true,
             Some(NodeSignatures::new(
                 CryptData::new(b""),
@@ -886,6 +927,7 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             &this_node.inner.public_key,
             this_node.inner.node_addr_opt.as_ref().unwrap(),
+            Some(String::from("0x1234")),
             false,
             &CryptDENull::from(this_node.public_key()),
         );
@@ -903,6 +945,7 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             &this_node.inner.public_key,
             this_node.inner.node_addr_opt.as_ref().unwrap(),
+            Some(String::from("0x1234")),
             false,
             &CryptDENull::from(this_node.public_key()),
         );
@@ -927,6 +970,7 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             &this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
+            Some(String::from("0x1234")),
             this_node.is_bootstrap_node(),
             &cryptde,
         );
@@ -1035,6 +1079,7 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             &this_node.inner.public_key,
             this_node.inner.node_addr_opt.as_ref().unwrap(),
+            Some(String::from("0x123")),
             false,
             &CryptDENull::from(this_node.public_key()),
         );
@@ -1055,6 +1100,7 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             &this_node.inner.public_key,
             this_node.inner.node_addr_opt.as_ref().unwrap(),
+            Some(String::from("0x123")),
             false,
             &CryptDENull::from(this_node.public_key()),
         );
@@ -1086,6 +1132,7 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             &this_node.inner.public_key,
             this_node.inner.node_addr_opt.as_ref().unwrap(),
+            Some(String::from("0x123")),
             false,
             &CryptDENull::from(this_node.public_key()),
         );
@@ -1132,5 +1179,25 @@ mod tests {
         this_node.set_version(10000);
 
         assert_eq!(this_node.version(), 10000);
+    }
+
+    #[test]
+    fn set_wallet_address_returns_true_when_the_wallet_address_changes() {
+        let mut this_node = make_node_record(1234, true, false);
+        assert_eq!(this_node.wallet_address(), Some(String::from("0x1234")));
+
+        assert!(this_node.set_wallet_address(None));
+
+        assert_eq!(this_node.wallet_address(), None);
+    }
+
+    #[test]
+    fn set_wallet_address_returns_false_when_the_wallet_address_does_not_change() {
+        let mut this_node = make_node_record(1234, true, false);
+        assert_eq!(this_node.wallet_address(), Some(String::from("0x1234")));
+
+        assert!(!this_node.set_wallet_address(Some(String::from("0x1234"))));
+
+        assert_eq!(this_node.wallet_address(), Some(String::from("0x1234")));
     }
 }

@@ -141,6 +141,7 @@ mod tests {
         let database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet_address(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -175,6 +176,7 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet_address(),
             this_node.is_bootstrap_node(),
             &CryptDENull::from(this_node.public_key()),
         );
@@ -238,6 +240,7 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet_address(),
             this_node.is_bootstrap_node(),
             &CryptDENull::from(this_node.public_key()),
         );
@@ -290,6 +293,7 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet_address(),
             this_node.is_bootstrap_node(),
             &CryptDENull::from(this_node.public_key()),
         );
@@ -347,6 +351,7 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet_address(),
             this_node.is_bootstrap_node(),
             &CryptDENull::from(this_node.public_key()),
         );
@@ -420,6 +425,7 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet_address(),
             this_node.is_bootstrap_node(),
             &CryptDENull::from(this_node.public_key()),
         );
@@ -503,6 +509,7 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet_address(),
             this_node.is_bootstrap_node(),
             &CryptDENull::from(this_node.public_key()),
         );
@@ -599,6 +606,7 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet_address(),
             this_node.is_bootstrap_node(),
             &CryptDENull::from(this_node.public_key()),
         );
@@ -717,6 +725,7 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet_address(),
             this_node.is_bootstrap_node(),
             &CryptDENull::from(this_node.public_key()),
         );
@@ -814,6 +823,7 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet_address(),
             this_node.is_bootstrap_node(),
             &CryptDENull::from(this_node.public_key()),
         );
@@ -904,6 +914,7 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet_address(),
             this_node.is_bootstrap_node(),
             &CryptDENull::from(this_node.public_key()),
         );
@@ -994,6 +1005,7 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet_address(),
             this_node.is_bootstrap_node(),
             &CryptDENull::from(this_node.public_key()),
         );

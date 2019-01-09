@@ -44,13 +44,27 @@ pub fn neighbor_keys_of<'a>(
 }
 
 impl NodeRecord {
+    pub fn wallet_address_from_key(public_key: &Key) -> String {
+        let mut result = String::from("0x");
+        for i in &public_key.data {
+            result.push_str(&format!("{:x}", i));
+        }
+        result
+    }
+
     pub fn new_for_tests(
         public_key: &Key,
         node_addr_opt: Option<&NodeAddr>,
         is_bootstrap_node: bool,
     ) -> NodeRecord {
-        let mut node_record =
-            NodeRecord::new(public_key, node_addr_opt, is_bootstrap_node, None, 0);
+        let mut node_record = NodeRecord::new(
+            public_key,
+            node_addr_opt,
+            Some(NodeRecord::wallet_address_from_key(public_key)),
+            is_bootstrap_node,
+            None,
+            0,
+        );
         node_record.sign(&CryptDENull::from(&public_key));
         node_record
     }

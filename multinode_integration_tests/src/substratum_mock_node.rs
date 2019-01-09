@@ -120,8 +120,14 @@ impl SubstratumMockNode {
 
     pub fn bootstrap_from(&self, node: &SubstratumNode) {
         let masquerader = JsonMasquerader::new();
-        let mut node_record =
-            NodeRecord::new(&self.public_key(), Some(&self.node_addr()), false, None, 0);
+        let mut node_record = NodeRecord::new(
+            &self.public_key(),
+            Some(&self.node_addr()),
+            None,
+            false,
+            None,
+            0,
+        );
         node_record.sign(self.cryptde());
 
         let gossip = GossipBuilder::new().node(&node_record, true).build();

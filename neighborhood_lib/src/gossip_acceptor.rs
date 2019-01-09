@@ -73,6 +73,7 @@ impl GossipAcceptorReal {
                         node_addr_changed
                             || self.update_neighbors(gnr_ref, node_record)
                             || self.update_signatures(gnr_ref, node_record)
+                            || self.update_wallet_address(gnr_ref, node_record)
                             || changed
                     } else {
                         node_addr_changed || changed
@@ -178,6 +179,14 @@ impl GossipAcceptorReal {
         node_record.set_signatures(gnr_ref.signatures.clone())
     }
 
+    fn update_wallet_address(
+        &self,
+        gnr_ref: &GossipNodeRecord,
+        node_record: &mut NodeRecord,
+    ) -> bool {
+        node_record.set_wallet_address(gnr_ref.inner.wallet_address.clone())
+    }
+
     fn update_version(&self, gnr_ref: &GossipNodeRecord, node_record: &mut NodeRecord) {
         node_record.set_version(gnr_ref.inner.version);
     }
@@ -225,7 +234,7 @@ mod tests {
 
         let this_addr = NodeAddr::new(&IpAddr::from_str("5.7.3.4").unwrap(), &vec![13]);
         let root_key = &Key::new(b"scrud");
-        let mut db = NeighborhoodDatabase::new(root_key, &this_addr, false, cryptde());
+        let mut db = NeighborhoodDatabase::new(root_key, &this_addr, None, false, cryptde());
 
         let other_node = make_node_record(3333, true, false);
         let other_node_gossip = GossipNodeRecord::from(&other_node, true);
@@ -247,7 +256,8 @@ mod tests {
         let subject = GossipAcceptorReal::new_for_tests(1);
 
         let this_addr = NodeAddr::new(&IpAddr::from_str("5.7.3.4").unwrap(), &vec![13]);
-        let mut db = NeighborhoodDatabase::new(&Key::new(b"scrud"), &this_addr, false, cryptde());
+        let mut db =
+            NeighborhoodDatabase::new(&Key::new(b"scrud"), &this_addr, None, false, cryptde());
 
         let other_node = make_node_record(3333, false, false);
         let other_node_gossip = GossipNodeRecord::from(&other_node, true);
@@ -273,7 +283,8 @@ mod tests {
         );
 
         let this_addr = NodeAddr::new(&IpAddr::from_str("5.7.3.4").unwrap(), &vec![13]);
-        let mut db = NeighborhoodDatabase::new(&Key::new(b"scrud"), &this_addr, false, cryptde());
+        let mut db =
+            NeighborhoodDatabase::new(&Key::new(b"scrud"), &this_addr, None, false, cryptde());
 
         let other_node = make_node_record(3333, true, false);
         let other_node_gossip = GossipNodeRecord::from(&other_node, true);
@@ -294,6 +305,7 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             existing_node.public_key(),
             existing_node.node_addr_opt().as_ref().unwrap(),
+            existing_node.wallet_address(),
             existing_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -303,6 +315,7 @@ mod tests {
         let mut incoming_far_right = make_node_record(5678, false, false);
         let mut bad_record_with_blank_key = NodeRecord::new(
             &Key::new(&[]),
+            None,
             None,
             false,
             Some(NodeSignatures::new(
@@ -389,6 +402,7 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             existing_node.public_key(),
             existing_node.node_addr_opt().as_ref().unwrap(),
+            existing_node.wallet_address(),
             existing_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -437,6 +451,7 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet_address(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -475,6 +490,7 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet_address(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -509,6 +525,7 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet_address(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -553,6 +570,7 @@ mod tests {
                 &IpAddr::V4(Ipv4Addr::new(2, 3, 4, 5)),
                 &vec![1337],
             )),
+            Some(String::from("0x2345")),
             false,
             None,
             0,
@@ -560,6 +578,7 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             &this_node.node_addr_opt().unwrap(),
+            this_node.wallet_address(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -593,6 +612,7 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet_address(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -620,6 +640,7 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet_address(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -658,6 +679,7 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet_address(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -685,6 +707,7 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet_address(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -711,6 +734,7 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet_address(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -744,6 +768,7 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             &this_node.node_addr_opt().unwrap(),
+            this_node.wallet_address(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -770,6 +795,7 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet_address(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -808,6 +834,7 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet_address(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -850,6 +877,7 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet_address(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -877,5 +905,79 @@ mod tests {
                 .version(),
             newer_version.version()
         );
+    }
+
+    #[test]
+    fn handle_updates_wallet_address_when_a_newer_version_is_received_and_returns_true() {
+        let this_node = make_node_record(1234, true, false);
+        let existing_node = make_node_record(2345, true, false);
+        let mut newer_version = existing_node.clone();
+        newer_version.set_wallet_address(Some(String::from("0xaBcD3F")));
+        newer_version
+            .neighbors_mut()
+            .push(this_node.public_key().clone());
+        newer_version.increment_version();
+
+        let mut database = NeighborhoodDatabase::new(
+            this_node.public_key(),
+            this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet_address(),
+            this_node.is_bootstrap_node(),
+            cryptde(),
+        );
+        database.add_node(&existing_node).unwrap();
+        database
+            .add_neighbor(this_node.public_key(), existing_node.public_key())
+            .unwrap();
+        database
+            .add_neighbor(existing_node.public_key(), this_node.public_key())
+            .unwrap();
+
+        let gossip = GossipBuilder::new().node(&newer_version, true).build();
+        let subject = GossipAcceptorReal::new();
+
+        let result = subject.handle(&mut database, gossip);
+
+        assert!(result, "Gossip did not result in a change to the database");
+        let node = database.node_by_key(existing_node.public_key()).unwrap();
+        assert_eq!(node.version(), newer_version.version());
+        assert_eq!(node.wallet_address(), newer_version.wallet_address());
+    }
+
+    #[test]
+    fn handle_returns_false_when_gossip_results_in_no_change_to_an_existing_node_wallet_address() {
+        let this_node = make_node_record(1234, true, false);
+        let existing_node = make_node_record(2345, true, false);
+        let mut newer_version = existing_node.clone();
+        newer_version.set_wallet_address(Some(String::from("0x2345")));
+        newer_version
+            .neighbors_mut()
+            .push(this_node.public_key().clone());
+        newer_version.increment_version();
+
+        let mut database = NeighborhoodDatabase::new(
+            this_node.public_key(),
+            this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet_address(),
+            this_node.is_bootstrap_node(),
+            cryptde(),
+        );
+        database.add_node(&existing_node).unwrap();
+        database
+            .add_neighbor(this_node.public_key(), existing_node.public_key())
+            .unwrap();
+        database
+            .add_neighbor(existing_node.public_key(), this_node.public_key())
+            .unwrap();
+
+        let gossip = GossipBuilder::new().node(&newer_version, true).build();
+        let subject = GossipAcceptorReal::new();
+
+        let result = subject.handle(&mut database, gossip);
+
+        assert!(!result, "Gossip resulted in a change to the database");
+        let node = database.node_by_key(existing_node.public_key()).unwrap();
+        assert_eq!(node.version(), newer_version.version());
+        assert_eq!(node.wallet_address(), newer_version.wallet_address());
     }
 }

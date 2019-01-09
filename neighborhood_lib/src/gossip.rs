@@ -34,6 +34,7 @@ impl GossipNodeRecord {
                 } else {
                     None
                 },
+                wallet_address: node_record_ref.wallet_address(),
                 is_bootstrap_node: node_record_ref.is_bootstrap_node(),
                 neighbors: node_record_ref.neighbors().clone(),
                 version: node_record_ref.version(),
@@ -49,6 +50,7 @@ impl GossipNodeRecord {
         let mut node_record = NodeRecord::new(
             &self.inner.public_key,
             self.inner.node_addr_opt.as_ref(),
+            self.inner.wallet_address.clone(),
             self.inner.is_bootstrap_node,
             Some(self.signatures.clone()),
             self.inner.version,
@@ -72,6 +74,10 @@ impl GossipNodeRecord {
         human_readable.push_str(&format!(
             "\n\t\tis_bootstrap_node: {:?},",
             self.inner.is_bootstrap_node
+        ));
+        human_readable.push_str(&format!(
+            "\n\t\twallet_address: {:?},",
+            self.inner.wallet_address
         ));
         human_readable.push_str(&format!("\n\t\tneighbors: {:?},", self.inner.neighbors));
         human_readable.push_str(&format!("\n\t\tversion: {:?},", self.inner.version));
@@ -267,6 +273,7 @@ mod tests {
                 &IpAddr::from_str("1.2.3.4").unwrap(),
                 &vec![1234],
             )),
+            None,
             false,
             None,
             0,
@@ -286,6 +293,7 @@ mod tests {
                 &IpAddr::from_str("1.2.3.4").unwrap(),
                 &vec![1234],
             )),
+            None,
             false,
             None,
             0,
@@ -303,7 +311,7 @@ mod tests {
         let result = format!("{:?}", gossip);
         let expected = format!(
             "\nGossipNodeRecord {{{}{}\n}}",
-            "\n\tinner: NodeRecordInner {\n\t\tpublic_key: AQIDBA,\n\t\tnode_addr_opt: Some(1.2.3.4:[1234]),\n\t\tis_bootstrap_node: false,\n\t\tneighbors: [],\n\t\tversion: 0,\n\t},",
+            "\n\tinner: NodeRecordInner {\n\t\tpublic_key: AQIDBA,\n\t\tnode_addr_opt: Some(1.2.3.4:[1234]),\n\t\tis_bootstrap_node: false,\n\t\twallet_address: Some(\"0x1234\"),\n\t\tneighbors: [],\n\t\tversion: 0,\n\t},",
             "\n\tsignatures: Signatures {\n\t\tcomplete: CryptData { data: [115, 105, 103, 110, 101, 100] },\n\t\tobscured: CryptData { data: [115, 105, 103, 110, 101, 100] },\n\t},"
         );
 

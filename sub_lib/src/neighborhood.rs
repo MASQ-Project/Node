@@ -31,6 +31,7 @@ pub struct NeighborhoodConfig {
     pub is_bootstrap_node: bool,
     pub local_ip_addr: IpAddr,
     pub clandestine_port_list: Vec<u16>,
+    pub wallet_address: Option<String>,
 }
 
 impl NeighborhoodConfig {
@@ -198,6 +199,7 @@ mod tests {
         let subject = NeighborhoodConfig {
             neighbor_configs: vec![],
             bootstrap_configs: vec![],
+            wallet_address: None,
             is_bootstrap_node: false,
             local_ip_addr: IpAddr::from_str("1.2.3.4").unwrap(),
             clandestine_port_list: vec![1234],
@@ -216,6 +218,7 @@ mod tests {
                 NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]),
             )],
             bootstrap_configs: vec![],
+            wallet_address: None,
             is_bootstrap_node: false,
             local_ip_addr: sentinel_ip_addr(),
             clandestine_port_list: vec![1234],
@@ -234,6 +237,7 @@ mod tests {
                 NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]),
             )],
             bootstrap_configs: vec![],
+            wallet_address: None,
             is_bootstrap_node: false,
             local_ip_addr: IpAddr::from_str("1.2.3.4").unwrap(),
             clandestine_port_list: vec![],
@@ -253,6 +257,7 @@ mod tests {
                 NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]),
             )],
             bootstrap_configs: vec![],
+            wallet_address: None,
             is_bootstrap_node: false,
             local_ip_addr: IpAddr::from_str("1.2.3.4").unwrap(),
             clandestine_port_list: vec![1234],
@@ -272,6 +277,7 @@ mod tests {
                 Key::new(&b"key"[..]),
                 NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]),
             )],
+            wallet_address: None,
             is_bootstrap_node: false,
             local_ip_addr: IpAddr::from_str("1.2.3.4").unwrap(),
             clandestine_port_list: vec![1234],
