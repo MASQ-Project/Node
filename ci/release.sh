@@ -4,10 +4,12 @@ CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 PASSPHRASE="$1"
 NODE_EXECUTABLE="SubstratumNode"
 DNS_EXECUTABLE="dns_utility"
+GPG_EXECUTABLE="gpg"
 
 if [[ "$OSTYPE" == "msys" ]]; then
   NODE_EXECUTABLE="$NODE_EXECUTABLE.exe"
   DNS_EXECUTABLE="$DNS_EXECUTABLE.exe"
+  GPG_EXECUTABLE="/c/Program Files (x86)/gnupg/bin/gpg"
 fi
 
 cd "$CI_DIR/../dns_utility"
@@ -19,8 +21,8 @@ cargo clean
 "ci/build.sh"
 
 # sign
-gpg --batch --passphrase "$PASSPHRASE" -b target/release/$NODE_EXECUTABLE
-gpg --verify target/release/$NODE_EXECUTABLE.sig target/release/$NODE_EXECUTABLE
+"${GPG_EXECUTABLE}" --batch --passphrase "$PASSPHRASE" -b target/release/$NODE_EXECUTABLE
+"${GPG_EXECUTABLE}" --verify target/release/$NODE_EXECUTABLE.sig target/release/$NODE_EXECUTABLE
 
 # gui
 cd "$CI_DIR/../node_ui"
