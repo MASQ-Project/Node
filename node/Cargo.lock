@@ -253,11 +253,11 @@ dependencies = [
 
 [[package]]
 name = "entry_dns_lib"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "daemonize 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "sub_lib 0.4.1",
- "test_utils 0.4.1",
+ "sub_lib 0.4.2",
+ "test_utils 0.4.2",
  "tokio 0.1.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "winservice 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -361,14 +361,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "hopper_lib"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "actix 0.5.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_cbor 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
- "sub_lib 0.4.1",
- "test_utils 0.4.1",
+ "sub_lib 0.4.2",
+ "test_utils 0.4.2",
 ]
 
 [[package]]
@@ -539,18 +539,18 @@ dependencies = [
 
 [[package]]
 name = "multinode_integration_tests"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "base64 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "hopper_lib 0.4.1",
- "neighborhood_lib 0.4.1",
- "node 0.4.1",
+ "hopper_lib 0.4.2",
+ "neighborhood_lib 0.4.2",
+ "node 0.4.2",
  "regex 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_cbor 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
- "sub_lib 0.4.1",
- "test_utils 0.4.1",
+ "sub_lib 0.4.2",
+ "test_utils 0.4.2",
 ]
 
 [[package]]
@@ -569,7 +569,7 @@ dependencies = [
 
 [[package]]
 name = "neighborhood_lib"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "actix 0.5.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -578,8 +578,8 @@ dependencies = [
  "serde_cbor 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
  "sha1 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "sub_lib 0.4.1",
- "test_utils 0.4.1",
+ "sub_lib 0.4.2",
+ "test_utils 0.4.2",
  "tokio 0.1.11 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -595,27 +595,27 @@ dependencies = [
 
 [[package]]
 name = "node"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "actix 0.5.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "base64 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "daemonize 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "entry_dns_lib 0.4.1",
+ "entry_dns_lib 0.4.2",
  "flexi_logger 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
- "hopper_lib 0.4.1",
+ "hopper_lib 0.4.2",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "neighborhood_lib 0.4.1",
- "proxy_client_lib 0.4.1",
- "proxy_server_lib 0.4.1",
+ "neighborhood_lib 0.4.2",
+ "proxy_client_lib 0.4.2",
+ "proxy_server_lib 0.4.2",
  "regex 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_cbor 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.32 (registry+https://github.com/rust-lang/crates.io-index)",
- "sub_lib 0.4.1",
- "test_utils 0.4.1",
+ "sub_lib 0.4.2",
+ "test_utils 0.4.2",
  "tls-api 0.1.20 (registry+https://github.com/rust-lang/crates.io-index)",
  "tls-api-native-tls 0.1.20 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio 0.1.11 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -739,13 +739,13 @@ dependencies = [
 
 [[package]]
 name = "proxy_client_lib"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "actix 0.5.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_cbor 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "sub_lib 0.4.1",
- "test_utils 0.4.1",
+ "sub_lib 0.4.2",
+ "test_utils 0.4.2",
  "tokio 0.1.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio-core 0.1.17 (registry+https://github.com/rust-lang/crates.io-index)",
  "trust-dns-proto 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -754,14 +754,14 @@ dependencies = [
 
 [[package]]
 name = "proxy_server_lib"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "actix 0.5.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
- "neighborhood_lib 0.4.1",
+ "neighborhood_lib 0.4.2",
  "serde_cbor 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "sub_lib 0.4.1",
- "test_utils 0.4.1",
+ "sub_lib 0.4.2",
+ "test_utils 0.4.2",
  "tokio 0.1.11 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -1043,7 +1043,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "sub_lib"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "actix 0.5.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "base64 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1057,7 +1057,7 @@ dependencies = [
  "serde_cbor 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
  "sha1 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "test_utils 0.4.1",
+ "test_utils 0.4.2",
  "tokio 0.1.11 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -1121,7 +1121,7 @@ dependencies = [
 
 [[package]]
 name = "test_utils"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "actix 0.5.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1132,7 +1132,7 @@ dependencies = [
  "serde 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_cbor 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
- "sub_lib 0.4.1",
+ "sub_lib 0.4.2",
  "tokio 0.1.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio-core 0.1.17 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
