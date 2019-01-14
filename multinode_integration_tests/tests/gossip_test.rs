@@ -42,7 +42,7 @@ fn when_bootstrapping_from_a_node_then_the_node_sends_gossip_upon_startup() {
         public_key: node_ref.public_key.clone(),
         node_addr_opt: Some(node_ref.node_addr.clone()),
         is_bootstrap_node: false,
-        wallet_address: None,
+        wallet: None,
         neighbors: vec![bootstrap_node_ref.public_key.clone()],
         version: 0,
     };
@@ -50,7 +50,7 @@ fn when_bootstrapping_from_a_node_then_the_node_sends_gossip_upon_startup() {
         let mut nr = NodeRecord::new(
             &node_ref.public_key,
             Some(&node_ref.node_addr),
-            inner.wallet_address.clone(),
+            inner.wallet.clone(),
             false,
             None,
             0,

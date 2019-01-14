@@ -9,6 +9,7 @@ use std::net::Ipv4Addr;
 use sub_lib::cryptde::Key;
 use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::node_addr::NodeAddr;
+use sub_lib::wallet::Wallet;
 
 pub fn make_node_record(n: u16, has_ip: bool, is_bootstrap_node: bool) -> NodeRecord {
     let a = ((n / 1000) % 10) as u8;
@@ -44,12 +45,12 @@ pub fn neighbor_keys_of<'a>(
 }
 
 impl NodeRecord {
-    pub fn wallet_address_from_key(public_key: &Key) -> String {
+    pub fn wallet_from_key(public_key: &Key) -> Wallet {
         let mut result = String::from("0x");
         for i in &public_key.data {
             result.push_str(&format!("{:x}", i));
         }
-        result
+        Wallet { address: result }
     }
 
     pub fn new_for_tests(
@@ -60,7 +61,7 @@ impl NodeRecord {
         let mut node_record = NodeRecord::new(
             public_key,
             node_addr_opt,
-            Some(NodeRecord::wallet_address_from_key(public_key)),
+            Some(NodeRecord::wallet_from_key(public_key)),
             is_bootstrap_node,
             None,
             0,

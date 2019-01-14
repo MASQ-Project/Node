@@ -33,7 +33,7 @@ impl GossipBuilder {
                     false => None,
                 },
                 is_bootstrap_node: is_bootstrap,
-                wallet_address: None,
+                wallet: None,
                 neighbors: vec![],
                 version: 0,
             },

@@ -26,6 +26,7 @@ use sub_lib::neighborhood::NeighborhoodConfig;
 use sub_lib::node_addr::NodeAddr;
 use sub_lib::parameter_finder::ParameterFinder;
 use sub_lib::socket_server::SocketServer;
+use sub_lib::wallet::Wallet;
 use tokio::prelude::stream::futures_unordered::FuturesUnordered;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
@@ -51,7 +52,7 @@ impl BootstrapperConfig {
                 is_bootstrap_node: false,
                 local_ip_addr: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
                 clandestine_port_list: vec![],
-                wallet_address: None,
+                wallet: None,
             },
             crash_point: CrashPoint::None,
             clandestine_discriminator_factories: vec![],
@@ -158,7 +159,7 @@ impl Bootstrapper {
             Bootstrapper::parse_neighbor_configs(&finder, "--bootstrap_from");
         config.neighborhood_config.is_bootstrap_node = Bootstrapper::parse_node_type(&finder);
         config.neighborhood_config.local_ip_addr = local_ip_addr;
-        config.neighborhood_config.wallet_address = Bootstrapper::parse_wallet_address(&finder);
+        config.neighborhood_config.wallet = Bootstrapper::parse_wallet_address(&finder);
     }
 
     fn parse_crash_point(finder: &ParameterFinder) -> CrashPoint {
@@ -181,14 +182,14 @@ impl Bootstrapper {
             .is_match(address)
     }
 
-    fn parse_wallet_address(finder: &ParameterFinder) -> Option<String> {
+    fn parse_wallet_address(finder: &ParameterFinder) -> Option<Wallet> {
         let usage = "--wallet_address <address> where 'address' is an Ethereum wallet address";
         match finder.find_value_for("--wallet_address", usage) {
             Some(address) => {
                 if !Bootstrapper::is_valid_ethereum_address(&address) {
                     panic!("--wallet_address requires a valid Ethereum wallet address");
                 }
-                Some(address)
+                Some(Wallet { address })
             }
             None => None,
         }
@@ -510,7 +511,7 @@ mod tests {
     #[should_panic(
         expected = "Missing value for --wallet_address: --wallet_address <address> where 'address' is an Ethereum wallet address"
     )]
-    fn parse_wallet_requires_an_address() {
+    fn parse_wallet_address_requires_an_address() {
         let finder = ParameterFinder::new(vec![String::from("--wallet_address")]);
 
         Bootstrapper::parse_wallet_address(&finder);
@@ -518,7 +519,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "--wallet_address requires a valid Ethereum wallet address")]
-    fn parse_wallet_requires_an_address_that_is_42_characters_long() {
+    fn parse_wallet_address_requires_an_address_that_is_42_characters_long() {
         let finder = ParameterFinder::new(vec![
             String::from("--wallet_address"),
             String::from("my-favorite-wallet.com"),
@@ -529,7 +530,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "--wallet_address requires a valid Ethereum wallet address")]
-    fn parse_wallet_must_start_with_0x() {
+    fn parse_wallet_address_must_start_with_0x() {
         let finder = ParameterFinder::new(vec![
             String::from("--wallet_address"),
             String::from("x0my-favorite-wallet.com222222222222222222"),
@@ -540,7 +541,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "--wallet_address requires a valid Ethereum wallet address")]
-    fn parse_wallet_must_contain_only_hex_characters() {
+    fn parse_wallet_address_must_contain_only_hex_characters() {
         let finder = ParameterFinder::new(vec![
             String::from("--wallet_address"),
             String::from("0x9707f21F95B9839A54605100Ca69dCc2e7eaA26q"),
@@ -565,7 +566,7 @@ mod tests {
 
         assert_eq!(
             Bootstrapper::parse_wallet_address(&finder),
-            Some(String::from("0xbDfeFf9A1f4A1bdF483d680046344316019C58CF"))
+            Some(Wallet::new("0xbDfeFf9A1f4A1bdF483d680046344316019C58CF"))
         );
     }
 
@@ -859,8 +860,8 @@ mod tests {
             IpAddr::V4(Ipv4Addr::new(34, 56, 78, 90))
         );
         assert_eq!(
-            config.neighborhood_config.wallet_address,
-            Some(String::from("0xbDfeFf9A1f4A1bdF483d680046344316019C58CF"))
+            config.neighborhood_config.wallet,
+            Some(Wallet::new("0xbDfeFf9A1f4A1bdF483d680046344316019C58CF"))
         );
     }
 

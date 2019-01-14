@@ -475,7 +475,7 @@ mod tests {
                 is_bootstrap_node: false,
                 local_ip_addr: IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
                 clandestine_port_list: vec![],
-                wallet_address: None,
+                wallet: None,
             },
             clandestine_discriminator_factories: Vec::new(),
         };
@@ -510,7 +510,7 @@ mod tests {
                 is_bootstrap_node: false,
                 local_ip_addr: IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
                 clandestine_port_list: vec![],
-                wallet_address: None,
+                wallet: None,
             },
             clandestine_discriminator_factories: Vec::new(),
         };

@@ -312,7 +312,7 @@ impl Neighborhood {
         let mut neighborhood_database = NeighborhoodDatabase::new(
             &cryptde.public_key(),
             &local_node_addr,
-            config.wallet_address,
+            config.wallet,
             config.is_bootstrap_node,
             cryptde,
         );
@@ -624,7 +624,7 @@ mod tests {
                 is_bootstrap_node: false,
                 local_ip_addr: sentinel_ip_addr(),
                 clandestine_port_list: vec![],
-                wallet_address: None,
+                wallet: None,
             },
         );
     }
@@ -648,7 +648,7 @@ mod tests {
                 is_bootstrap_node: false,
                 local_ip_addr: sentinel_ip_addr(),
                 clandestine_port_list: vec![],
-                wallet_address: None,
+                wallet: None,
             },
         );
     }
@@ -668,7 +668,7 @@ mod tests {
                 is_bootstrap_node: false,
                 local_ip_addr: sentinel_ip_addr(),
                 clandestine_port_list: vec![1234],
-                wallet_address: None,
+                wallet: None,
             },
         );
     }
@@ -688,7 +688,7 @@ mod tests {
                 is_bootstrap_node: true,
                 local_ip_addr: sentinel_ip_addr(),
                 clandestine_port_list: vec![],
-                wallet_address: None,
+                wallet: None,
             },
         );
     }
@@ -712,7 +712,7 @@ mod tests {
                 is_bootstrap_node: false,
                 local_ip_addr: IpAddr::from_str("2.3.4.5").unwrap(),
                 clandestine_port_list: vec![],
-                wallet_address: None,
+                wallet: None,
             },
         );
     }
@@ -736,7 +736,7 @@ mod tests {
                 is_bootstrap_node: false,
                 local_ip_addr: IpAddr::from_str("2.3.4.5").unwrap(),
                 clandestine_port_list: vec![],
-                wallet_address: None,
+                wallet: None,
             },
         );
     }
@@ -757,7 +757,7 @@ mod tests {
                 is_bootstrap_node: false,
                 local_ip_addr: IpAddr::from_str("2.3.4.5").unwrap(),
                 clandestine_port_list: vec![2345],
-                wallet_address: None,
+                wallet: None,
             },
         );
     }
@@ -775,7 +775,7 @@ mod tests {
                 is_bootstrap_node: true,
                 local_ip_addr: this_node_addr.ip_addr(),
                 clandestine_port_list: this_node_addr.ports().clone(),
-                wallet_address: None,
+                wallet: None,
             },
         );
 
@@ -800,7 +800,7 @@ mod tests {
                 is_bootstrap_node: true,
                 local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                 clandestine_port_list: vec![5678],
-                wallet_address: None,
+                wallet: None,
             },
         );
         let addr: Addr<Syn, Neighborhood> = subject.start();
@@ -845,7 +845,7 @@ mod tests {
                 is_bootstrap_node: false,
                 local_ip_addr: this_node_addr.ip_addr(),
                 clandestine_port_list: this_node_addr.ports().clone(),
-                wallet_address: None,
+                wallet: None,
             },
         );
 
@@ -908,7 +908,7 @@ mod tests {
                 is_bootstrap_node: false,
                 local_ip_addr: this_node_addr.ip_addr(),
                 clandestine_port_list: this_node_addr.ports().clone(),
-                wallet_address: None,
+                wallet: None,
             },
         );
 
@@ -959,7 +959,7 @@ mod tests {
                 is_bootstrap_node: false,
                 local_ip_addr: sentinel_ip_addr(),
                 clandestine_port_list: vec![],
-                wallet_address: None,
+                wallet: None,
             },
         );
         let addr: Addr<Syn, Neighborhood> = subject.start();
@@ -988,7 +988,7 @@ mod tests {
                 is_bootstrap_node: false,
                 local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                 clandestine_port_list: vec![5678],
-                wallet_address: None,
+                wallet: None,
             },
         );
         let addr: Addr<Syn, Neighborhood> = subject.start();
@@ -1019,7 +1019,7 @@ mod tests {
                 is_bootstrap_node: false,
                 local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                 clandestine_port_list: vec![5678],
-                wallet_address: None,
+                wallet: None,
             },
         );
         let addr: Addr<Syn, Neighborhood> = subject.start();
@@ -1056,7 +1056,7 @@ mod tests {
                 is_bootstrap_node: false,
                 local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                 clandestine_port_list: vec![5678],
-                wallet_address: None,
+                wallet: None,
             },
         );
         let addr: Addr<Syn, Neighborhood> = subject.start();
@@ -1100,7 +1100,7 @@ mod tests {
                     .unwrap()
                     .ports()
                     .clone(),
-                wallet_address: node_record.wallet_address(),
+                wallet: node_record.wallet(),
             },
         );
         let addr: Addr<Syn, Neighborhood> = subject.start();
@@ -1134,7 +1134,7 @@ mod tests {
                 is_bootstrap_node: false,
                 local_ip_addr: sentinel_ip_addr(),
                 clandestine_port_list: vec![],
-                wallet_address: None,
+                wallet: None,
             },
         );
         let addr: Addr<Syn, Neighborhood> = subject.start();
@@ -1160,7 +1160,7 @@ mod tests {
                 is_bootstrap_node: false,
                 local_ip_addr: sentinel_ip_addr(),
                 clandestine_port_list: vec![],
-                wallet_address: None,
+                wallet: None,
             },
         );
         let addr: Addr<Syn, Neighborhood> = subject.start();
@@ -1213,7 +1213,7 @@ mod tests {
                 is_bootstrap_node: false,
                 local_ip_addr: sentinel_ip_addr(),
                 clandestine_port_list: vec![],
-                wallet_address: None,
+                wallet: None,
             },
         );
         let b = &make_node_record(1234, true, true);
@@ -1300,7 +1300,7 @@ mod tests {
                 is_bootstrap_node: false,
                 local_ip_addr: sentinel_ip_addr(),
                 clandestine_port_list: vec![],
-                wallet_address: None,
+                wallet: None,
             },
         );
         let b = &make_node_record(1234, true, true);
@@ -1423,7 +1423,7 @@ mod tests {
                 is_bootstrap_node: false,
                 local_ip_addr: sentinel_ip_addr(),
                 clandestine_port_list: vec![],
-                wallet_address: None,
+                wallet: None,
             },
         );
         let addr: Addr<Syn, Neighborhood> = subject.start();
@@ -1467,7 +1467,7 @@ mod tests {
                     is_bootstrap_node: this_node_inside.is_bootstrap_node(),
                     local_ip_addr: this_node_inside.node_addr_opt().unwrap().ip_addr(),
                     clandestine_port_list: this_node_inside.node_addr_opt().unwrap().ports(),
-                    wallet_address: None,
+                    wallet: None,
                 },
             );
 
@@ -1556,7 +1556,7 @@ mod tests {
                     is_bootstrap_node: this_node_inside.is_bootstrap_node(),
                     local_ip_addr: this_node_inside.node_addr_opt().unwrap().ip_addr(),
                     clandestine_port_list: this_node_inside.node_addr_opt().unwrap().ports(),
-                    wallet_address: this_node_inside.wallet_address(),
+                    wallet: this_node_inside.wallet(),
                 },
             );
 
@@ -1627,9 +1627,7 @@ mod tests {
                     is_bootstrap_node: false,
                     local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                     clandestine_port_list: vec![1234],
-                    wallet_address: Some(NodeRecord::wallet_address_from_key(
-                        &cryptde.public_key(),
-                    )),
+                    wallet: Some(NodeRecord::wallet_from_key(&cryptde.public_key())),
                 },
             );
             let addr: Addr<Syn, Neighborhood> = subject.start();
@@ -1704,7 +1702,7 @@ mod tests {
                 is_bootstrap_node: false,
                 local_ip_addr: sentinel_ip_addr(),
                 clandestine_port_list: vec![],
-                wallet_address: None,
+                wallet: None,
             },
         );
         let n = &subject.neighborhood_database.root().clone();
@@ -1808,7 +1806,7 @@ mod tests {
                     is_bootstrap_node: false,
                     local_ip_addr: sentinel_ip_addr(),
                     clandestine_port_list: vec![],
-                    wallet_address: None,
+                    wallet: None,
                 },
             );
             let addr: Addr<Syn, Neighborhood> = subject.start();
@@ -1859,7 +1857,7 @@ mod tests {
                     is_bootstrap_node: false,
                     local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                     clandestine_port_list: vec![5678],
-                    wallet_address: None,
+                    wallet: None,
                 },
             );
             let addr: Addr<Syn, Neighborhood> = subject.start();
@@ -1917,7 +1915,7 @@ mod tests {
                     is_bootstrap_node: false,
                     local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                     clandestine_port_list: vec![5678],
-                    wallet_address: None,
+                    wallet: None,
                 },
             );
             let addr: Addr<Syn, Neighborhood> = subject.start();
@@ -1967,7 +1965,7 @@ mod tests {
                     is_bootstrap_node: false,
                     local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                     clandestine_port_list: vec![5678],
-                    wallet_address: None,
+                    wallet: None,
                 },
             );
             let addr: Addr<Syn, Neighborhood> = subject.start();
@@ -2038,7 +2036,7 @@ mod tests {
                         .unwrap()
                         .ports()
                         .clone(),
-                    wallet_address: node_record.wallet_address(),
+                    wallet: node_record.wallet(),
                 },
             );
             let addr: Addr<Syn, Neighborhood> = subject.start();
@@ -2109,7 +2107,7 @@ mod tests {
                     is_bootstrap_node: false,
                     local_ip_addr: this_node.node_addr_opt().unwrap().ip_addr(),
                     clandestine_port_list: this_node.node_addr_opt().unwrap().ports(),
-                    wallet_address: this_node.wallet_address(),
+                    wallet: this_node.wallet(),
                 },
             );
             subject
@@ -2186,7 +2184,7 @@ mod tests {
                     is_bootstrap_node: this_node_inside.is_bootstrap_node(),
                     local_ip_addr: this_node_inside.node_addr_opt().unwrap().ip_addr(),
                     clandestine_port_list: this_node_inside.node_addr_opt().unwrap().ports(),
-                    wallet_address: this_node_inside.wallet_address(),
+                    wallet: this_node_inside.wallet(),
                 },
             );
 
@@ -2260,7 +2258,7 @@ mod tests {
                     is_bootstrap_node: bootstrap_node_inside.is_bootstrap_node(),
                     local_ip_addr: bootstrap_node_inside.node_addr_opt().unwrap().ip_addr(),
                     clandestine_port_list: bootstrap_node_inside.node_addr_opt().unwrap().ports(),
-                    wallet_address: bootstrap_node_inside.wallet_address(),
+                    wallet: bootstrap_node_inside.wallet(),
                 },
             );
 
@@ -2360,7 +2358,7 @@ mod tests {
                     is_bootstrap_node: this_node_inside.is_bootstrap_node(),
                     local_ip_addr: this_node_inside.node_addr_opt().unwrap().ip_addr(),
                     clandestine_port_list: this_node_inside.node_addr_opt().unwrap().ports(),
-                    wallet_address: this_node_inside.wallet_address(),
+                    wallet: this_node_inside.wallet(),
                 },
             );
 
@@ -2423,7 +2421,7 @@ mod tests {
                     is_bootstrap_node: this_node_inside.is_bootstrap_node(),
                     local_ip_addr: this_node_inside.node_addr_opt().unwrap().ip_addr(),
                     clandestine_port_list: this_node_inside.node_addr_opt().unwrap().ports(),
-                    wallet_address: this_node_inside.wallet_address(),
+                    wallet: this_node_inside.wallet(),
                 },
             );
 

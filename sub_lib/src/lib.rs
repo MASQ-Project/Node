@@ -54,3 +54,4 @@ pub mod tls_framer;
 pub mod tokio_wrappers;
 pub mod udp_socket_wrapper;
 pub mod utils;
+pub mod wallet;

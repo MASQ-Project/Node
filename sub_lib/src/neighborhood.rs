@@ -12,6 +12,7 @@ use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use stream_handler_pool::DispatcherNodeQueryResponse;
 use stream_handler_pool::TransmitDataMsg;
+use wallet::Wallet;
 
 pub const SENTINEL_IP_OCTETS: [u8; 4] = [255, 255, 255, 255];
 
@@ -31,7 +32,7 @@ pub struct NeighborhoodConfig {
     pub is_bootstrap_node: bool,
     pub local_ip_addr: IpAddr,
     pub clandestine_port_list: Vec<u16>,
-    pub wallet_address: Option<String>,
+    pub wallet: Option<Wallet>,
 }
 
 impl NeighborhoodConfig {
@@ -199,7 +200,7 @@ mod tests {
         let subject = NeighborhoodConfig {
             neighbor_configs: vec![],
             bootstrap_configs: vec![],
-            wallet_address: None,
+            wallet: None,
             is_bootstrap_node: false,
             local_ip_addr: IpAddr::from_str("1.2.3.4").unwrap(),
             clandestine_port_list: vec![1234],
@@ -218,7 +219,7 @@ mod tests {
                 NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]),
             )],
             bootstrap_configs: vec![],
-            wallet_address: None,
+            wallet: None,
             is_bootstrap_node: false,
             local_ip_addr: sentinel_ip_addr(),
             clandestine_port_list: vec![1234],
@@ -237,7 +238,7 @@ mod tests {
                 NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]),
             )],
             bootstrap_configs: vec![],
-            wallet_address: None,
+            wallet: None,
             is_bootstrap_node: false,
             local_ip_addr: IpAddr::from_str("1.2.3.4").unwrap(),
             clandestine_port_list: vec![],
@@ -257,7 +258,7 @@ mod tests {
                 NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]),
             )],
             bootstrap_configs: vec![],
-            wallet_address: None,
+            wallet: None,
             is_bootstrap_node: false,
             local_ip_addr: IpAddr::from_str("1.2.3.4").unwrap(),
             clandestine_port_list: vec![1234],
@@ -277,7 +278,7 @@ mod tests {
                 Key::new(&b"key"[..]),
                 NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]),
             )],
-            wallet_address: None,
+            wallet: None,
             is_bootstrap_node: false,
             local_ip_addr: IpAddr::from_str("1.2.3.4").unwrap(),
             clandestine_port_list: vec![1234],
