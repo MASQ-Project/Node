@@ -471,7 +471,6 @@ mod tests {
             dns_servers: vec![],
             neighborhood_config: NeighborhoodConfig {
                 neighbor_configs: vec![],
-                bootstrap_configs: vec![],
                 is_bootstrap_node: false,
                 local_ip_addr: IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
                 clandestine_port_list: vec![],
@@ -506,7 +505,6 @@ mod tests {
             dns_servers: vec![],
             neighborhood_config: NeighborhoodConfig {
                 neighbor_configs: vec![],
-                bootstrap_configs: vec![],
                 is_bootstrap_node: false,
                 local_ip_addr: IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
                 clandestine_port_list: vec![],

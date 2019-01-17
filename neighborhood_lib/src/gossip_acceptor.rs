@@ -70,10 +70,18 @@ impl GossipAcceptorReal {
                     let node_addr_changed = self.update_node_addrs(gnr_ref, node_record);
                     if node_record.version() < gnr_ref.inner.version {
                         self.update_version(gnr_ref, node_record);
+
+                        let is_bootstrap_node_changed =
+                            self.update_is_bootstrap_node(gnr_ref, node_record);
+                        let neighbors_changed = self.update_neighbors(gnr_ref, node_record);
+                        let signatures_changed = self.update_signatures(gnr_ref, node_record);
+                        let wallet_changed = self.update_wallet(gnr_ref, node_record);
+
                         node_addr_changed
-                            || self.update_neighbors(gnr_ref, node_record)
-                            || self.update_signatures(gnr_ref, node_record)
-                            || self.update_wallet(gnr_ref, node_record)
+                            || is_bootstrap_node_changed
+                            || neighbors_changed
+                            || signatures_changed
+                            || wallet_changed
                             || changed
                     } else {
                         node_addr_changed || changed
@@ -185,6 +193,14 @@ impl GossipAcceptorReal {
 
     fn update_version(&self, gnr_ref: &GossipNodeRecord, node_record: &mut NodeRecord) {
         node_record.set_version(gnr_ref.inner.version);
+    }
+
+    fn update_is_bootstrap_node(
+        &self,
+        gnr_ref: &GossipNodeRecord,
+        node_record: &mut NodeRecord,
+    ) -> bool {
+        node_record.set_is_bootstrap_node(gnr_ref.inner.is_bootstrap_node)
     }
 }
 
@@ -975,6 +991,129 @@ mod tests {
         assert!(!result, "Gossip resulted in a change to the database");
         let node = database.node_by_key(existing_node.public_key()).unwrap();
         assert_eq!(node.version(), newer_version.version());
+        assert_eq!(node.wallet(), newer_version.wallet());
+    }
+
+    #[test]
+    fn handle_updates_is_bootstrap_node_when_a_newer_version_is_received_and_returns_true() {
+        let this_node = make_node_record(1234, true, false);
+        let original_is_bootstrap = false;
+        let existing_node = make_node_record(2345, true, original_is_bootstrap);
+
+        let new_is_bootstrap = true;
+        let mut newer_version = existing_node.clone();
+        newer_version.set_is_bootstrap_node(new_is_bootstrap);
+        newer_version
+            .neighbors_mut()
+            .push(this_node.public_key().clone());
+        newer_version.increment_version();
+
+        let mut database = NeighborhoodDatabase::new(
+            this_node.public_key(),
+            this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet(),
+            this_node.is_bootstrap_node(),
+            cryptde(),
+        );
+        database.add_node(&existing_node).unwrap();
+        database
+            .add_neighbor(this_node.public_key(), existing_node.public_key())
+            .unwrap();
+        database
+            .add_neighbor(existing_node.public_key(), this_node.public_key())
+            .unwrap();
+
+        let gossip = GossipBuilder::new().node(&newer_version, true).build();
+        let subject = GossipAcceptorReal::new();
+
+        let result = subject.handle(&mut database, gossip);
+
+        assert!(result, "Gossip should result in a change to the database");
+        let node = database.node_by_key(existing_node.public_key()).unwrap();
+        assert_eq!(node.version(), newer_version.version());
+        assert_eq!(node.is_bootstrap_node(), newer_version.is_bootstrap_node());
+    }
+
+    #[test]
+    fn handle_returns_false_when_gossip_results_in_no_change_to_is_bootstrap_node() {
+        let this_node = make_node_record(1234, true, false);
+        let is_bootstrap = true;
+        let existing_node = make_node_record(2345, true, is_bootstrap);
+
+        let mut newer_version = existing_node.clone();
+        newer_version
+            .neighbors_mut()
+            .push(this_node.public_key().clone());
+        newer_version.increment_version();
+
+        let mut database = NeighborhoodDatabase::new(
+            this_node.public_key(),
+            this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet(),
+            this_node.is_bootstrap_node(),
+            cryptde(),
+        );
+        database.add_node(&existing_node).unwrap();
+        database
+            .add_neighbor(this_node.public_key(), existing_node.public_key())
+            .unwrap();
+        database
+            .add_neighbor(existing_node.public_key(), this_node.public_key())
+            .unwrap();
+
+        let gossip = GossipBuilder::new().node(&newer_version, true).build();
+        let subject = GossipAcceptorReal::new();
+
+        let result = subject.handle(&mut database, gossip);
+
+        assert!(
+            !result,
+            "Gossip should not result in a change to the database"
+        );
+        let node = database.node_by_key(existing_node.public_key()).unwrap();
+        assert_eq!(node.version(), newer_version.version());
+        assert_eq!(node.is_bootstrap_node(), newer_version.is_bootstrap_node());
+    }
+
+    #[test]
+    fn handle_updates_multiple_changes_when_a_newer_version_is_received_and_returns_true() {
+        let this_node = make_node_record(1234, true, false);
+        let original_is_bootstrap = false;
+        let existing_node = make_node_record(2345, true, original_is_bootstrap);
+
+        let new_is_bootstrap = true;
+        let mut newer_version = existing_node.clone();
+        newer_version.set_is_bootstrap_node(new_is_bootstrap);
+        newer_version.set_wallet(Some(Wallet::new("0xaBcD3F")));
+        newer_version
+            .neighbors_mut()
+            .push(this_node.public_key().clone());
+        newer_version.increment_version();
+
+        let mut database = NeighborhoodDatabase::new(
+            this_node.public_key(),
+            this_node.node_addr_opt().as_ref().unwrap(),
+            this_node.wallet(),
+            this_node.is_bootstrap_node(),
+            cryptde(),
+        );
+        database.add_node(&existing_node).unwrap();
+        database
+            .add_neighbor(this_node.public_key(), existing_node.public_key())
+            .unwrap();
+        database
+            .add_neighbor(existing_node.public_key(), this_node.public_key())
+            .unwrap();
+
+        let gossip = GossipBuilder::new().node(&newer_version, true).build();
+        let subject = GossipAcceptorReal::new();
+
+        let result = subject.handle(&mut database, gossip);
+
+        assert!(result, "Gossip should result in a change to the database");
+        let node = database.node_by_key(existing_node.public_key()).unwrap();
+        assert_eq!(node.version(), newer_version.version());
+        assert_eq!(node.is_bootstrap_node(), newer_version.is_bootstrap_node());
         assert_eq!(node.wallet(), newer_version.wallet());
     }
 }

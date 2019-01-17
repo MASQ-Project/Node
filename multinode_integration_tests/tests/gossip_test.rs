@@ -18,6 +18,7 @@ use neighborhood_lib::gossip::GossipNodeRecord;
 use neighborhood_lib::neighborhood_database::NodeRecord;
 use neighborhood_lib::neighborhood_database::NodeRecordInner;
 use neighborhood_lib::neighborhood_database::NodeSignatures;
+use std::thread;
 use std::time::Duration;
 use sub_lib::cryptde_null::CryptDENull;
 use test_utils::test_utils::assert_contains;
@@ -30,7 +31,7 @@ fn when_bootstrapping_from_a_node_then_the_node_sends_gossip_upon_startup() {
 
     let subject = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .bootstrap_from(bootstrap_node_ref.clone())
+            .neighbor(bootstrap_node_ref.clone())
             .build(),
     );
 
@@ -68,4 +69,39 @@ fn when_bootstrapping_from_a_node_then_the_node_sends_gossip_upon_startup() {
             signatures: NodeSignatures::new(complete_signature, obscured_signature),
         },
     );
+}
+
+#[test]
+fn when_bootstrapping_from_a_standard_node_then_the_gossip_reveals_that_it_is_standard() {
+    let mut cluster = SubstratumNodeCluster::start().unwrap();
+    let mock_node = cluster.start_mock_node(vec![34685]);
+    let bootstrap_node = cluster.start_real_node(NodeStartupConfigBuilder::bootstrap().build());
+
+    let neighbor_node = cluster.start_real_node(
+        NodeStartupConfigBuilder::standard()
+            .neighbor(bootstrap_node.node_reference())
+            .build(),
+    );
+
+    let subject = cluster.start_real_node(
+        NodeStartupConfigBuilder::standard()
+            .neighbor(neighbor_node.node_reference())
+            .build(),
+    );
+
+    thread::sleep(Duration::from_millis(1000)); // let the gossip settle down
+
+    mock_node.bootstrap_from(&subject);
+
+    let response_gossip = mock_node
+        .wait_for_gossip(Duration::from_millis(1000))
+        .expect("did not receive gossip");
+
+    let neighbor_record = response_gossip
+        .node_records
+        .iter()
+        .find(|record| record.public_key() == neighbor_node.public_key())
+        .expect("should contain neighbor");
+
+    assert!(!neighbor_record.inner.is_bootstrap_node);
 }

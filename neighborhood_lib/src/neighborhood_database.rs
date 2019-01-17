@@ -215,6 +215,15 @@ impl NodeRecord {
             true
         }
     }
+
+    pub fn set_is_bootstrap_node(&mut self, is_bootstrap_node: bool) -> bool {
+        if self.inner.is_bootstrap_node == is_bootstrap_node {
+            false
+        } else {
+            self.inner.is_bootstrap_node = is_bootstrap_node;
+            true
+        }
+    }
 }
 
 pub struct NeighborhoodDatabase {
@@ -1200,5 +1209,43 @@ mod tests {
         assert!(!this_node.set_wallet(Some(Wallet::new("0x1234"))));
 
         assert_eq!(this_node.wallet(), Some(Wallet::new("0x1234")));
+    }
+
+    #[test]
+    fn set_is_bootstrap_node_returns_true_when_is_bootstrap_node_changes() {
+        let mut this_node = make_node_record(1234, true, true);
+        assert!(
+            this_node.is_bootstrap_node(),
+            "should initially be a bootstrap node"
+        );
+
+        assert!(
+            this_node.set_is_bootstrap_node(false),
+            "should indicate a change"
+        );
+
+        assert!(
+            !this_node.is_bootstrap_node(),
+            "should have changed to being non-bootsrap"
+        );
+    }
+
+    #[test]
+    fn set_is_bootstrap_node_returns_false_when_is_bootstrap_node_does_not_change() {
+        let mut this_node = make_node_record(1234, true, false);
+        assert!(
+            !this_node.is_bootstrap_node(),
+            "should initially be non-bootsrap"
+        );
+
+        assert!(
+            !this_node.set_is_bootstrap_node(false),
+            "should not have indicated a change"
+        );
+
+        assert!(
+            !this_node.is_bootstrap_node(),
+            "should still be non-bootsrap"
+        );
     }
 }

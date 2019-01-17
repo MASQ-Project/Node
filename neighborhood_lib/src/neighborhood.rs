@@ -290,21 +290,16 @@ impl Neighborhood {
             if !config.neighbor_configs.is_empty() {
                 panic! ("A SubstratumNode without an --ip setting is not decentralized and cannot have any --neighbor settings")
             }
-            if !config.bootstrap_configs.is_empty() {
-                panic! ("A SubstratumNode without an --ip setting is not decentralized and cannot have any --bootstrap_from settings")
-            }
             if !config.clandestine_port_list.is_empty() {
                 panic! ("A SubstratumNode without an --ip setting is not decentralized and cannot have any --port_count setting other than 0")
             }
             if config.is_bootstrap_node {
                 panic! ("A SubstratumNode without an --ip setting is not decentralized and cannot be --node_type bootstrap")
             }
-        } else if (config.neighbor_configs.is_empty()
-            && config.bootstrap_configs.is_empty()
-            && !config.is_bootstrap_node)
+        } else if (config.neighbor_configs.is_empty() && !config.is_bootstrap_node)
             || config.clandestine_port_list.is_empty()
         {
-            panic! ("An --ip setting indicates that you want to decentralize, but you also need at least one --neighbor or --bootstrap_from setting or --node_type bootstrap for that, and a --port_count greater than 0")
+            panic! ("An --ip setting indicates that you want to decentralize, but you also need at least one --neighbor setting or --node_type bootstrap for that, and a --port_count greater than 0")
         }
         let gossip_acceptor: Box<GossipAcceptor> = Box::new(GossipAcceptorReal::new());
         let gossip_producer = Box::new(GossipProducerReal::new());
@@ -337,17 +332,8 @@ impl Neighborhood {
                 .expect("internal error");
         };
 
-        // TODO: Take this out when Bootstrap databases are no longer linear
-        if !config.neighbor_configs.is_empty() && !config.bootstrap_configs.is_empty() {
-            panic! ("While bootstrap Node databases are linear, specify either --neighbor or --bootstrap_from (or neither), but not both");
-        }
-
         config
             .neighbor_configs
-            .iter()
-            .for_each(|neighbor| add_node(&mut neighborhood_database, neighbor, false));
-        config
-            .bootstrap_configs
             .iter()
             .for_each(|neighbor| add_node(&mut neighborhood_database, neighbor, true));
 
@@ -620,31 +606,6 @@ mod tests {
                     neighbor.public_key().clone(),
                     neighbor.node_addr_opt().unwrap().clone(),
                 )],
-                bootstrap_configs: vec![],
-                is_bootstrap_node: false,
-                local_ip_addr: sentinel_ip_addr(),
-                clandestine_port_list: vec![],
-                wallet: None,
-            },
-        );
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "A SubstratumNode without an --ip setting is not decentralized and cannot have any --bootstrap_from settings"
-    )]
-    fn neighborhood_cannot_be_created_with_bootstrap_froms_and_default_ip() {
-        let cryptde = cryptde();
-        let bootstrap_from = make_node_record(1234, true, false);
-
-        Neighborhood::new(
-            cryptde,
-            NeighborhoodConfig {
-                neighbor_configs: vec![],
-                bootstrap_configs: vec![(
-                    bootstrap_from.public_key().clone(),
-                    bootstrap_from.node_addr_opt().unwrap().clone(),
-                )],
                 is_bootstrap_node: false,
                 local_ip_addr: sentinel_ip_addr(),
                 clandestine_port_list: vec![],
@@ -664,7 +625,6 @@ mod tests {
             cryptde,
             NeighborhoodConfig {
                 neighbor_configs: vec![],
-                bootstrap_configs: vec![],
                 is_bootstrap_node: false,
                 local_ip_addr: sentinel_ip_addr(),
                 clandestine_port_list: vec![1234],
@@ -684,7 +644,6 @@ mod tests {
             cryptde,
             NeighborhoodConfig {
                 neighbor_configs: vec![],
-                bootstrap_configs: vec![],
                 is_bootstrap_node: true,
                 local_ip_addr: sentinel_ip_addr(),
                 clandestine_port_list: vec![],
@@ -695,7 +654,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "An --ip setting indicates that you want to decentralize, but you also need at least one --neighbor or --bootstrap_from setting or --node_type bootstrap for that, and a --port_count greater than 0"
+        expected = "An --ip setting indicates that you want to decentralize, but you also need at least one --neighbor setting or --node_type bootstrap for that, and a --port_count greater than 0"
     )]
     fn neighborhood_cannot_be_created_with_ip_and_neighbors_but_no_clandestine_ports() {
         let cryptde = cryptde();
@@ -708,7 +667,6 @@ mod tests {
                     neighbor.public_key().clone(),
                     neighbor.node_addr_opt().unwrap().clone(),
                 )],
-                bootstrap_configs: vec![],
                 is_bootstrap_node: false,
                 local_ip_addr: IpAddr::from_str("2.3.4.5").unwrap(),
                 clandestine_port_list: vec![],
@@ -719,41 +677,15 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "An --ip setting indicates that you want to decentralize, but you also need at least one --neighbor or --bootstrap_from setting or --node_type bootstrap for that, and a --port_count greater than 0"
+        expected = "An --ip setting indicates that you want to decentralize, but you also need at least one --neighbor setting or --node_type bootstrap for that, and a --port_count greater than 0"
     )]
-    fn neighborhood_cannot_be_created_with_ip_and_bootstrap_froms_but_no_clandestine_ports() {
-        let cryptde = cryptde();
-        let bootstrap_from = make_node_record(1234, true, false);
-
-        Neighborhood::new(
-            cryptde,
-            NeighborhoodConfig {
-                neighbor_configs: vec![],
-                bootstrap_configs: vec![(
-                    bootstrap_from.public_key().clone(),
-                    bootstrap_from.node_addr_opt().unwrap().clone(),
-                )],
-                is_bootstrap_node: false,
-                local_ip_addr: IpAddr::from_str("2.3.4.5").unwrap(),
-                clandestine_port_list: vec![],
-                wallet: None,
-            },
-        );
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "An --ip setting indicates that you want to decentralize, but you also need at least one --neighbor or --bootstrap_from setting or --node_type bootstrap for that, and a --port_count greater than 0"
-    )]
-    fn neighborhood_cannot_be_created_with_ip_and_clandestine_ports_but_no_neighbors_or_bootstrap_froms(
-    ) {
+    fn neighborhood_cannot_be_created_with_ip_and_clandestine_ports_but_no_neighbors() {
         let cryptde = cryptde();
 
         Neighborhood::new(
             cryptde,
             NeighborhoodConfig {
                 neighbor_configs: vec![],
-                bootstrap_configs: vec![],
                 is_bootstrap_node: false,
                 local_ip_addr: IpAddr::from_str("2.3.4.5").unwrap(),
                 clandestine_port_list: vec![2345],
@@ -771,7 +703,6 @@ mod tests {
             cryptde,
             NeighborhoodConfig {
                 neighbor_configs: vec![],
-                bootstrap_configs: vec![],
                 is_bootstrap_node: true,
                 local_ip_addr: this_node_addr.ip_addr(),
                 clandestine_port_list: this_node_addr.ports().clone(),
@@ -788,7 +719,7 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_node_with_no_bootstrap_nodes_ignores_bootstrap_neighborhood_now_message() {
+    fn bootstrap_node_with_no_neighbor_configs_ignores_bootstrap_neighborhood_now_message() {
         init_test_logging();
         let cryptde = cryptde();
         let system = System::new("bootstrap_node_ignores_bootstrap_neighborhood_now_message");
@@ -796,7 +727,6 @@ mod tests {
             cryptde,
             NeighborhoodConfig {
                 neighbor_configs: vec![],
-                bootstrap_configs: vec![],
                 is_bootstrap_node: true,
                 local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                 clandestine_port_list: vec![5678],
@@ -822,70 +752,7 @@ mod tests {
     }
 
     #[test]
-    fn neighborhood_adds_nodes_and_links_without_bootstraps() {
-        let cryptde = cryptde();
-        let one_node = make_node_record(1234, true, false);
-        let another_node = make_node_record(2345, true, false);
-        let this_node_addr = NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]);
-
-        let subject = Neighborhood::new(
-            cryptde,
-            NeighborhoodConfig {
-                neighbor_configs: vec![
-                    (
-                        one_node.public_key().clone(),
-                        one_node.node_addr_opt().unwrap().clone(),
-                    ),
-                    (
-                        another_node.public_key().clone(),
-                        another_node.node_addr_opt().unwrap().clone(),
-                    ),
-                ],
-                bootstrap_configs: vec![],
-                is_bootstrap_node: false,
-                local_ip_addr: this_node_addr.ip_addr(),
-                clandestine_port_list: this_node_addr.ports().clone(),
-                wallet: None,
-            },
-        );
-
-        let root_node_record_ref = subject.neighborhood_database.root();
-
-        assert_eq!(
-            root_node_record_ref.node_addr_opt().unwrap().clone(),
-            this_node_addr
-        );
-        assert_eq!(root_node_record_ref.is_bootstrap_node(), false);
-
-        assert_eq!(
-            root_node_record_ref.has_neighbor(one_node.public_key()),
-            true
-        );
-        assert_eq!(
-            root_node_record_ref.has_neighbor(another_node.public_key()),
-            true
-        );
-
-        assert_eq!(
-            subject
-                .neighborhood_database
-                .node_by_key(one_node.public_key())
-                .unwrap()
-                .is_bootstrap_node(),
-            false
-        );
-        assert_eq!(
-            subject
-                .neighborhood_database
-                .node_by_key(another_node.public_key())
-                .unwrap()
-                .is_bootstrap_node(),
-            false
-        );
-    }
-
-    #[test]
-    fn neighborhood_adds_nodes_and_links_without_neighbors() {
+    fn neighborhood_adds_nodes_and_links() {
         let cryptde = cryptde();
         let one_bootstrap_node = make_node_record(3456, true, true);
         let another_bootstrap_node = make_node_record(4567, true, true);
@@ -894,8 +761,7 @@ mod tests {
         let subject = Neighborhood::new(
             cryptde,
             NeighborhoodConfig {
-                neighbor_configs: vec![],
-                bootstrap_configs: vec![
+                neighbor_configs: vec![
                     (
                         one_bootstrap_node.public_key().clone(),
                         one_bootstrap_node.node_addr_opt().unwrap().clone(),
@@ -955,7 +821,6 @@ mod tests {
             cryptde,
             NeighborhoodConfig {
                 neighbor_configs: vec![],
-                bootstrap_configs: vec![],
                 is_bootstrap_node: false,
                 local_ip_addr: sentinel_ip_addr(),
                 clandestine_port_list: vec![],
@@ -984,7 +849,6 @@ mod tests {
                     Key::new(&b"booga"[..]),
                     NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234, 2345]),
                 )],
-                bootstrap_configs: vec![],
                 is_bootstrap_node: false,
                 local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                 clandestine_port_list: vec![5678],
@@ -1015,7 +879,6 @@ mod tests {
                     node_record_to_pair(&one_neighbor),
                     node_record_to_pair(&another_neighbor),
                 ],
-                bootstrap_configs: vec![],
                 is_bootstrap_node: false,
                 local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                 clandestine_port_list: vec![5678],
@@ -1052,7 +915,6 @@ mod tests {
                     Key::new(&b"booga"[..]),
                     NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234, 2345]),
                 )],
-                bootstrap_configs: vec![],
                 is_bootstrap_node: false,
                 local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                 clandestine_port_list: vec![5678],
@@ -1091,7 +953,6 @@ mod tests {
                         another_node_record.node_addr_opt().unwrap().clone(),
                     ),
                 ],
-                bootstrap_configs: vec![],
                 is_bootstrap_node: false,
                 local_ip_addr: node_record.node_addr_opt().as_ref().unwrap().ip_addr(),
                 clandestine_port_list: node_record
@@ -1130,7 +991,6 @@ mod tests {
             cryptde,
             NeighborhoodConfig {
                 neighbor_configs: vec![],
-                bootstrap_configs: vec![],
                 is_bootstrap_node: false,
                 local_ip_addr: sentinel_ip_addr(),
                 clandestine_port_list: vec![],
@@ -1156,7 +1016,6 @@ mod tests {
             cryptde,
             NeighborhoodConfig {
                 neighbor_configs: vec![],
-                bootstrap_configs: vec![],
                 is_bootstrap_node: false,
                 local_ip_addr: sentinel_ip_addr(),
                 clandestine_port_list: vec![],
@@ -1209,7 +1068,6 @@ mod tests {
             cryptde,
             NeighborhoodConfig {
                 neighbor_configs: vec![],
-                bootstrap_configs: vec![],
                 is_bootstrap_node: false,
                 local_ip_addr: sentinel_ip_addr(),
                 clandestine_port_list: vec![],
@@ -1296,7 +1154,6 @@ mod tests {
             cryptde(),
             NeighborhoodConfig {
                 neighbor_configs: vec![],
-                bootstrap_configs: vec![],
                 is_bootstrap_node: false,
                 local_ip_addr: sentinel_ip_addr(),
                 clandestine_port_list: vec![],
@@ -1419,7 +1276,6 @@ mod tests {
             cryptde,
             NeighborhoodConfig {
                 neighbor_configs: vec![],
-                bootstrap_configs: vec![],
                 is_bootstrap_node: false,
                 local_ip_addr: sentinel_ip_addr(),
                 clandestine_port_list: vec![],
@@ -1463,7 +1319,6 @@ mod tests {
                 cryptde,
                 NeighborhoodConfig {
                     neighbor_configs: vec![],
-                    bootstrap_configs: vec![],
                     is_bootstrap_node: this_node_inside.is_bootstrap_node(),
                     local_ip_addr: this_node_inside.node_addr_opt().unwrap().ip_addr(),
                     clandestine_port_list: this_node_inside.node_addr_opt().unwrap().ports(),
@@ -1552,7 +1407,6 @@ mod tests {
                 cryptde,
                 NeighborhoodConfig {
                     neighbor_configs: vec![],
-                    bootstrap_configs: vec![],
                     is_bootstrap_node: this_node_inside.is_bootstrap_node(),
                     local_ip_addr: this_node_inside.node_addr_opt().unwrap().ip_addr(),
                     clandestine_port_list: this_node_inside.node_addr_opt().unwrap().ports(),
@@ -1619,8 +1473,7 @@ mod tests {
             let subject = Neighborhood::new(
                 cryptde,
                 NeighborhoodConfig {
-                    neighbor_configs: vec![],
-                    bootstrap_configs: vec![(
+                    neighbor_configs: vec![(
                         bootstrap_node_inside.public_key().clone(),
                         bootstrap_node_inside.node_addr_opt().unwrap().clone(),
                     )],
@@ -1698,7 +1551,6 @@ mod tests {
             cryptde,
             NeighborhoodConfig {
                 neighbor_configs: vec![],
-                bootstrap_configs: vec![],
                 is_bootstrap_node: false,
                 local_ip_addr: sentinel_ip_addr(),
                 clandestine_port_list: vec![],
@@ -1802,7 +1654,6 @@ mod tests {
                 cryptde,
                 NeighborhoodConfig {
                     neighbor_configs: vec![],
-                    bootstrap_configs: vec![],
                     is_bootstrap_node: false,
                     local_ip_addr: sentinel_ip_addr(),
                     clandestine_port_list: vec![],
@@ -1853,7 +1704,6 @@ mod tests {
                         Key::new(&b"booga"[..]),
                         NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234, 2345]),
                     )],
-                    bootstrap_configs: vec![],
                     is_bootstrap_node: false,
                     local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                     clandestine_port_list: vec![5678],
@@ -1911,7 +1761,6 @@ mod tests {
                         node_record_to_pair(&one_neighbor),
                         node_record_to_pair(&another_neighbor),
                     ],
-                    bootstrap_configs: vec![],
                     is_bootstrap_node: false,
                     local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                     clandestine_port_list: vec![5678],
@@ -1961,7 +1810,6 @@ mod tests {
                         Key::new(&b"booga"[..]),
                         NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234, 2345]),
                     )],
-                    bootstrap_configs: vec![],
                     is_bootstrap_node: false,
                     local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                     clandestine_port_list: vec![5678],
@@ -2027,7 +1875,6 @@ mod tests {
                             another_node_record.node_addr_opt().unwrap().clone(),
                         ),
                     ],
-                    bootstrap_configs: vec![],
                     is_bootstrap_node: false,
                     local_ip_addr: node_record.node_addr_opt().as_ref().unwrap().ip_addr(),
                     clandestine_port_list: node_record
@@ -2099,8 +1946,7 @@ mod tests {
             let mut subject = Neighborhood::new(
                 cryptde,
                 NeighborhoodConfig {
-                    neighbor_configs: vec![],
-                    bootstrap_configs: vec![(
+                    neighbor_configs: vec![(
                         bootstrap_node.public_key().clone(),
                         bootstrap_node.node_addr_opt().unwrap(),
                     )],
@@ -2180,7 +2026,6 @@ mod tests {
                 cryptde,
                 NeighborhoodConfig {
                     neighbor_configs: vec![],
-                    bootstrap_configs: vec![],
                     is_bootstrap_node: this_node_inside.is_bootstrap_node(),
                     local_ip_addr: this_node_inside.node_addr_opt().unwrap().ip_addr(),
                     clandestine_port_list: this_node_inside.node_addr_opt().unwrap().ports(),
@@ -2254,7 +2099,6 @@ mod tests {
                 cryptde,
                 NeighborhoodConfig {
                     neighbor_configs: vec![],
-                    bootstrap_configs: vec![],
                     is_bootstrap_node: bootstrap_node_inside.is_bootstrap_node(),
                     local_ip_addr: bootstrap_node_inside.node_addr_opt().unwrap().ip_addr(),
                     clandestine_port_list: bootstrap_node_inside.node_addr_opt().unwrap().ports(),
@@ -2354,7 +2198,6 @@ mod tests {
                 cryptde,
                 NeighborhoodConfig {
                     neighbor_configs: vec![],
-                    bootstrap_configs: vec![],
                     is_bootstrap_node: this_node_inside.is_bootstrap_node(),
                     local_ip_addr: this_node_inside.node_addr_opt().unwrap().ip_addr(),
                     clandestine_port_list: this_node_inside.node_addr_opt().unwrap().ports(),
@@ -2417,7 +2260,6 @@ mod tests {
                 cryptde,
                 NeighborhoodConfig {
                     neighbor_configs: vec![],
-                    bootstrap_configs: vec![],
                     is_bootstrap_node: this_node_inside.is_bootstrap_node(),
                     local_ip_addr: this_node_inside.node_addr_opt().unwrap().ip_addr(),
                     clandestine_port_list: this_node_inside.node_addr_opt().unwrap().ports(),

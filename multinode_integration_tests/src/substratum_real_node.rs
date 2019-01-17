@@ -28,7 +28,6 @@ pub struct NodeStartupConfig {
     pub ip: IpAddr,
     pub dns_servers: Vec<IpAddr>,
     pub neighbors: Vec<NodeReference>,
-    pub bootstrap_froms: Vec<NodeReference>,
     pub node_type: NodeType,
     pub port_count: usize,
     pub dns_target: IpAddr,
@@ -41,7 +40,6 @@ impl NodeStartupConfig {
             ip: sentinel_ip_addr(),
             dns_servers: Vec::new(),
             neighbors: Vec::new(),
-            bootstrap_froms: Vec::new(),
             node_type: NodeType::Bootstrap,
             port_count: 0,
             dns_target: sentinel_ip_addr(),
@@ -58,10 +56,6 @@ impl NodeStartupConfig {
         self.neighbors.iter().for_each(|neighbor| {
             args.push("--neighbor".to_string());
             args.push(format!("{}", neighbor));
-        });
-        self.bootstrap_froms.iter().for_each(|bootstrap_from| {
-            args.push("--bootstrap_from".to_string());
-            args.push(format!("{}", bootstrap_from));
         });
         args.push("--node_type".to_string());
         args.push(
@@ -95,7 +89,6 @@ pub struct NodeStartupConfigBuilder {
     ip: IpAddr,
     dns_servers: Vec<IpAddr>,
     neighbors: Vec<NodeReference>,
-    bootstrap_froms: Vec<NodeReference>,
     node_type: NodeType,
     port_count: usize,
     dns_target: IpAddr,
@@ -108,7 +101,6 @@ impl NodeStartupConfigBuilder {
             ip: sentinel_ip_addr(),
             dns_servers: vec![IpAddr::from_str("8.8.8.8").unwrap()],
             neighbors: vec![],
-            bootstrap_froms: vec![],
             node_type: NodeType::Standard,
             port_count: 0,
             dns_target: IpAddr::from_str("127.0.0.1").unwrap(),
@@ -121,7 +113,6 @@ impl NodeStartupConfigBuilder {
             ip: sentinel_ip_addr(), // this is replaced at startup
             dns_servers: vec![IpAddr::from_str("8.8.8.8").unwrap()],
             neighbors: vec![],
-            bootstrap_froms: vec![],
             node_type: NodeType::Standard,
             port_count: 1,
             dns_target: IpAddr::from_str("127.0.0.1").unwrap(),
@@ -134,7 +125,6 @@ impl NodeStartupConfigBuilder {
             ip: sentinel_ip_addr(), // this is replaced at startup
             dns_servers: vec![IpAddr::from_str("8.8.8.8").unwrap()],
             neighbors: vec![],
-            bootstrap_froms: vec![],
             node_type: NodeType::Bootstrap,
             port_count: 1,
             dns_target: IpAddr::from_str("127.0.0.1").unwrap(),
@@ -147,7 +137,6 @@ impl NodeStartupConfigBuilder {
             ip: config.ip.clone(),
             dns_servers: config.dns_servers.clone(),
             neighbors: config.neighbors.clone(),
-            bootstrap_froms: config.bootstrap_froms.clone(),
             node_type: config.node_type,
             port_count: config.port_count,
             dns_target: config.dns_target.clone(),
@@ -172,16 +161,6 @@ impl NodeStartupConfigBuilder {
 
     pub fn neighbors(mut self, value: Vec<NodeReference>) -> NodeStartupConfigBuilder {
         self.neighbors = value;
-        self
-    }
-
-    pub fn bootstrap_from(mut self, value: NodeReference) -> NodeStartupConfigBuilder {
-        self.bootstrap_froms.push(value);
-        self
-    }
-
-    pub fn bootstrap_froms(mut self, value: Vec<NodeReference>) -> NodeStartupConfigBuilder {
-        self.bootstrap_froms = value;
         self
     }
 
@@ -210,7 +189,6 @@ impl NodeStartupConfigBuilder {
             ip: self.ip,
             dns_servers: self.dns_servers,
             neighbors: self.neighbors,
-            bootstrap_froms: self.bootstrap_froms,
             node_type: self.node_type,
             port_count: self.port_count,
             dns_target: self.dns_target,
@@ -377,7 +355,6 @@ mod tests {
             vec!(IpAddr::from_str("8.8.8.8").unwrap())
         );
         assert_eq!(result.neighbors, vec!());
-        assert_eq!(result.bootstrap_froms, vec!());
         assert_eq!(result.node_type, NodeType::Standard);
         assert_eq!(result.port_count, 0);
         assert_eq!(result.dns_target, IpAddr::from_str("127.0.0.1").unwrap());
@@ -394,7 +371,6 @@ mod tests {
             vec!(IpAddr::from_str("8.8.8.8").unwrap())
         );
         assert_eq!(result.neighbors, vec!());
-        assert_eq!(result.bootstrap_froms, vec!());
         assert_eq!(result.node_type, NodeType::Standard);
         assert_eq!(result.port_count, 1);
         assert_eq!(result.dns_target, IpAddr::from_str("127.0.0.1").unwrap());
@@ -411,7 +387,6 @@ mod tests {
             vec!(IpAddr::from_str("8.8.8.8").unwrap())
         );
         assert_eq!(result.neighbors, vec!());
-        assert_eq!(result.bootstrap_froms, vec!());
         assert_eq!(result.node_type, NodeType::Bootstrap);
         assert_eq!(result.port_count, 1);
         assert_eq!(result.dns_target, IpAddr::from_str("127.0.0.1").unwrap());
@@ -427,12 +402,6 @@ mod tests {
         let another_neighbor_key = Key::new(&[2, 3, 4, 5]);
         let another_neighbor_ip_addr = IpAddr::from_str("5.6.7.8").unwrap();
         let another_neighbor_ports = vec![3456, 4567];
-        let one_bootstrap_key = Key::new(&[3, 4, 5, 6]);
-        let one_bootstrap_ip_addr = IpAddr::from_str("6.7.8.9").unwrap();
-        let one_bootstrap_ports = vec![5678, 6789];
-        let another_bootstrap_key = Key::new(&[4, 5, 6, 7]);
-        let another_bootstrap_ip_addr = IpAddr::from_str("7.8.9.10").unwrap();
-        let another_bootstrap_ports = vec![7890, 8901];
         let dns_servers = vec![
             IpAddr::from_str("2.3.4.5").unwrap(),
             IpAddr::from_str("3.4.5.6").unwrap(),
@@ -449,18 +418,6 @@ mod tests {
                 another_neighbor_ports.clone(),
             ),
         ];
-        let bootstrap_froms = vec![
-            NodeReference::new(
-                one_bootstrap_key.clone(),
-                one_bootstrap_ip_addr.clone(),
-                one_bootstrap_ports.clone(),
-            ),
-            NodeReference::new(
-                another_bootstrap_key.clone(),
-                another_bootstrap_ip_addr.clone(),
-                another_bootstrap_ports.clone(),
-            ),
-        ];
         let dns_target = IpAddr::from_str("8.9.10.11").unwrap();
 
         let result = NodeStartupConfigBuilder::bootstrap()
@@ -468,8 +425,6 @@ mod tests {
             .dns_servers(dns_servers.clone())
             .neighbor(neighbors[0].clone())
             .neighbor(neighbors[1].clone())
-            .bootstrap_from(bootstrap_froms[0].clone())
-            .bootstrap_from(bootstrap_froms[1].clone())
             .node_type(NodeType::Standard)
             .port_count(2)
             .dns_target(dns_target)
@@ -479,7 +434,6 @@ mod tests {
         assert_eq!(result.ip, ip_addr);
         assert_eq!(result.dns_servers, dns_servers);
         assert_eq!(result.neighbors, neighbors);
-        assert_eq!(result.bootstrap_froms, bootstrap_froms);
         assert_eq!(result.node_type, NodeType::Standard);
         assert_eq!(result.port_count, 2);
         assert_eq!(result.dns_target, dns_target);
@@ -496,11 +450,6 @@ mod tests {
                 IpAddr::from_str("255.255.255.255").unwrap(),
                 vec![255],
             )],
-            bootstrap_froms: vec![NodeReference::new(
-                Key::new(&[255]),
-                IpAddr::from_str("255.255.255.255").unwrap(),
-                vec![255],
-            )],
             node_type: NodeType::Standard,
             port_count: 200,
             dns_target: IpAddr::from_str("255.255.255.255").unwrap(),
@@ -513,12 +462,6 @@ mod tests {
         let another_neighbor_key = Key::new(&[2, 3, 4, 5]);
         let another_neighbor_ip_addr = IpAddr::from_str("5.6.7.8").unwrap();
         let another_neighbor_ports = vec![3456, 4567];
-        let one_bootstrap_key = Key::new(&[3, 4, 5, 6]);
-        let one_bootstrap_ip_addr = IpAddr::from_str("6.7.8.9").unwrap();
-        let one_bootstrap_ports = vec![5678, 6789];
-        let another_bootstrap_key = Key::new(&[4, 5, 6, 7]);
-        let another_bootstrap_ip_addr = IpAddr::from_str("7.8.9.10").unwrap();
-        let another_bootstrap_ports = vec![7890, 8901];
         let dns_servers = vec![
             IpAddr::from_str("2.3.4.5").unwrap(),
             IpAddr::from_str("3.4.5.6").unwrap(),
@@ -535,25 +478,12 @@ mod tests {
                 another_neighbor_ports.clone(),
             ),
         ];
-        let bootstrap_froms = vec![
-            NodeReference::new(
-                one_bootstrap_key.clone(),
-                one_bootstrap_ip_addr.clone(),
-                one_bootstrap_ports.clone(),
-            ),
-            NodeReference::new(
-                another_bootstrap_key.clone(),
-                another_bootstrap_ip_addr.clone(),
-                another_bootstrap_ports.clone(),
-            ),
-        ];
         let dns_target = IpAddr::from_str("8.9.10.11").unwrap();
 
         let result = NodeStartupConfigBuilder::copy(&original)
             .ip(ip_addr)
             .dns_servers(dns_servers.clone())
             .neighbors(neighbors.clone())
-            .bootstrap_froms(bootstrap_froms.clone())
             .node_type(NodeType::Bootstrap)
             .port_count(2)
             .dns_target(dns_target)
@@ -563,7 +493,6 @@ mod tests {
         assert_eq!(result.ip, ip_addr);
         assert_eq!(result.dns_servers, dns_servers);
         assert_eq!(result.neighbors, neighbors);
-        assert_eq!(result.bootstrap_froms, bootstrap_froms);
         assert_eq!(result.node_type, NodeType::Bootstrap);
         assert_eq!(result.port_count, 2);
         assert_eq!(result.dns_target, dns_target);
@@ -582,22 +511,10 @@ mod tests {
             IpAddr::from_str("5.6.7.8").unwrap(),
             vec![3456, 4567],
         );
-        let one_bootstrap_from = NodeReference::new(
-            Key::new(&[3, 4, 5, 6]),
-            IpAddr::from_str("6.7.8.9").unwrap(),
-            vec![5678, 6789],
-        );
-        let another_bootstrap_from = NodeReference::new(
-            Key::new(&[4, 5, 6, 7]),
-            IpAddr::from_str("7.8.9.10").unwrap(),
-            vec![7890, 8901],
-        );
 
         let subject = NodeStartupConfigBuilder::standard()
             .neighbor(one_neighbor.clone())
             .neighbor(another_neighbor.clone())
-            .bootstrap_from(one_bootstrap_from.clone())
-            .bootstrap_from(another_bootstrap_from.clone())
             .build();
 
         let result = subject.make_args();
@@ -613,10 +530,6 @@ mod tests {
                 format!("{}", one_neighbor).as_str(),
                 "--neighbor",
                 format!("{}", another_neighbor).as_str(),
-                "--bootstrap_from",
-                format!("{}", one_bootstrap_from).as_str(),
-                "--bootstrap_from",
-                format!("{}", another_bootstrap_from).as_str(),
                 "--node_type",
                 "standard",
                 "--port_count",

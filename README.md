@@ -124,21 +124,14 @@ This is how you tell your Node about one of its neighbors. The `<public key>` is
 neighbor in question. The `<IP address>` is the public IP address of that neighbor, and the `<port>` numbers are the
 clandestine ports on which the neighbor is listening.  If this other Node is one you're running yourself, you'll see it
 print this information to the console when it comes up.  If it's somewhere else on the Internet, you'll probably receive
-this information in an email or chat message to copy/paste onto your command line.  You can specify as many `--neighbor`s
-as you like.
-
-* `--bootstrap_from <public key>;<IP address>;<port>,<port>,...`
-This parameter has the same format as `--neighbor` above.  It tells your SubstratumNode where to find a bootstrap Node.
-A bootstrap Node is a special kind of Node that does not route any data, but that holds information about the other
-Nodes in the SubstratumNetwork. If you specify `--bootstrap_from`, you should not specify `--neighbor`, and vice versa.
-(This is a temporary restriction that will be lifted in the future.)  Again, you can specify `--bootstrap_from` as many
-times as you like.
+this information in an email or chat message to copy/paste onto your command line.  You can specify as many `--neighbor`
+parameters as you like.
 
 * `--node_type < standard | bootstrap >`
-This is how you tell SubstratumNode whether to start up as a bootstrap Node or as a standard (non-bootstrap) Node. If
+This is how you tell SubstratumNode whether to start up as a bootstrap-only Node or as a standard (non-bootstrap) Node. If
 you're interested in running data through the system, you won't find the `bootstrap` option particularly fulfilling, but
-you should feel free to try it if you like.  Note: Bootstrap Nodes must start up with no knowledge of their environment,
-so `--node_type bootstrap` will tolerate neither `--neighbor` nor `--bootstrap_from`.
+you should feel free to try it if you like.  Note: Bootstrap-only Nodes must start up with no knowledge of their environment,
+so `--node_type bootstrap` will not tolerate `--neighbor`.
 
 * `--port_count <n>`
 Specify the number of clandestine ports your SubstratumNode should listen on.  It will select the port numbers and
@@ -171,7 +164,7 @@ are provided, and so on.  Here's a brief description of the dependencies.
 
 In order to run decentralized, the SubstratumNode _must_ know the IP address others can use to contact it. Therefore,
 you must supply `--ip`. You also must have some way of finding out about your network environment, so you must specify 
-`--neighbor` or `--bootstrap_from` or `--node_type bootstrap`, but only one of those.  Also, your Node must have some
+`--neighbor` or `--node_type bootstrap`, but only one of those.  Also, your Node must have some
 way to transfer clandestine traffic to and from other Nodes, so you must have a `--port_count` greater than zero.  
 (1 is fine. 1000 is fine too, but you'll be poking holes in your router's firewall for awhile.)
 

@@ -21,7 +21,7 @@ fn graph_connects_but_does_not_over_connect() {
     for _ in 0..5 {
         cluster.start_real_node(
             NodeStartupConfigBuilder::standard()
-                .bootstrap_from(bootstrap_node.node_reference())
+                .neighbor(bootstrap_node.node_reference())
                 .build(),
         );
     }

@@ -27,7 +27,7 @@ fn neighborhood_notified_of_missing_node_when_connection_refused() {
     let mock_bootstrap = cluster.start_mock_node(vec![5550]);
     let subject = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .bootstrap_from(mock_bootstrap.node_reference())
+            .neighbor(mock_bootstrap.node_reference())
             .build(),
     );
 
@@ -42,7 +42,7 @@ fn neighborhood_notified_of_missing_node_when_connection_refused() {
     let disappearing_node_key = {
         let disappearing_node = cluster.start_real_node(
             NodeStartupConfigBuilder::standard()
-                .bootstrap_from(mock_bootstrap.node_reference())
+                .neighbor(mock_bootstrap.node_reference())
                 .build(),
         );
         disappearing_node_name = String::from(disappearing_node.name());

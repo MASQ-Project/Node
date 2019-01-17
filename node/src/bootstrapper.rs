@@ -48,7 +48,6 @@ impl BootstrapperConfig {
             dns_servers: vec![],
             neighborhood_config: NeighborhoodConfig {
                 neighbor_configs: vec![],
-                bootstrap_configs: vec![],
                 is_bootstrap_node: false,
                 local_ip_addr: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
                 clandestine_port_list: vec![],
@@ -155,8 +154,6 @@ impl Bootstrapper {
         config.dns_servers = Bootstrapper::parse_dns_servers(&finder);
         config.neighborhood_config.neighbor_configs =
             Bootstrapper::parse_neighbor_configs(&finder, "--neighbor");
-        config.neighborhood_config.bootstrap_configs =
-            Bootstrapper::parse_neighbor_configs(&finder, "--bootstrap_from");
         config.neighborhood_config.is_bootstrap_node = Bootstrapper::parse_node_type(&finder);
         config.neighborhood_config.local_ip_addr = local_ip_addr;
         config.neighborhood_config.wallet = Bootstrapper::parse_wallet_address(&finder);
@@ -659,16 +656,16 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Invalid NodeAddr for --bootstrap_node <NodeAddr>: 'BadNodeAddr'")]
+    #[should_panic(expected = "Invalid NodeAddr for --neighbor <NodeAddr>: 'BadNodeAddr'")]
     fn parse_neighbor_configs_complains_about_bad_node_addr() {
         let finder = ParameterFinder::new(
-            vec!["--bootstrap_node", "R29vZEtleQ==:BadNodeAddr"]
+            vec!["--neighbor", "R29vZEtleQ==:BadNodeAddr"]
                 .into_iter()
                 .map(String::from)
                 .collect(),
         );
 
-        Bootstrapper::parse_neighbor_configs(&finder, "--bootstrap_node");
+        Bootstrapper::parse_neighbor_configs(&finder, "--neighbor");
     }
 
     #[test]
@@ -811,8 +808,6 @@ mod tests {
             "VGVk:2.3.4.5:3456,4567",
             "--node_type",
             "bootstrap",
-            "--bootstrap_from",
-            "R29vZEtleQ:3.4.5.6:5678",
             "--irrelevant",
             "irrelevant",
             "--wallet_address",
@@ -846,13 +841,6 @@ mod tests {
                     NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec!(3456, 4567))
                 ),
             )
-        );
-        assert_eq!(
-            config.neighborhood_config.bootstrap_configs,
-            vec!((
-                Key::new(b"GoodKey"),
-                NodeAddr::new(&IpAddr::from_str("3.4.5.6").unwrap(), &vec!(5678))
-            ),)
         );
         assert_eq!(config.neighborhood_config.is_bootstrap_node, true);
         assert_eq!(

@@ -47,7 +47,7 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test() {
     let mock_standard = cluster.start_mock_node(vec![5551]);
     let subject = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .bootstrap_from(mock_bootstrap.node_reference())
+            .neighbor(mock_bootstrap.node_reference())
             .build(),
     );
 
@@ -192,7 +192,7 @@ fn cores_package_to_http_request_and_http_response_to_cores_package_test() {
     let mock_standard = cluster.start_mock_node(vec![5551]);
     let subject = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .bootstrap_from(mock_bootstrap.node_reference())
+            .neighbor(mock_bootstrap.node_reference())
             .build(),
     );
 
@@ -318,24 +318,24 @@ fn end_to_end_gossip_and_routing_test() {
     let bootstrap_node = cluster.start_real_node(NodeStartupConfigBuilder::bootstrap().build());
     let originating_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .bootstrap_from(bootstrap_node.node_reference())
+            .neighbor(bootstrap_node.node_reference())
             .build(),
     );
     let mut client = originating_node.make_client(80);
 
     cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .bootstrap_from(bootstrap_node.node_reference())
+            .neighbor(bootstrap_node.node_reference())
             .build(),
     );
     cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .bootstrap_from(bootstrap_node.node_reference())
+            .neighbor(bootstrap_node.node_reference())
             .build(),
     );
     cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .bootstrap_from(bootstrap_node.node_reference())
+            .neighbor(bootstrap_node.node_reference())
             .build(),
     );
 
@@ -360,7 +360,7 @@ fn cannot_find_route_for_http_request_test() {
     let bootstrap_node = cluster.start_real_node(NodeStartupConfigBuilder::bootstrap().build());
     let originating_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .bootstrap_from(bootstrap_node.node_reference())
+            .neighbor(bootstrap_node.node_reference())
             .build(),
     );
     thread::sleep(Duration::from_millis(1000));
@@ -390,7 +390,7 @@ fn cannot_find_route_for_tls_request_test() {
     let bootstrap_node = cluster.start_real_node(NodeStartupConfigBuilder::bootstrap().build());
     let originating_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .bootstrap_from(bootstrap_node.node_reference())
+            .neighbor(bootstrap_node.node_reference())
             .build(),
     );
     thread::sleep(Duration::from_millis(1000));

@@ -28,7 +28,6 @@ pub fn sentinel_ip_addr() -> IpAddr {
 #[derive(Clone, PartialEq, Debug)]
 pub struct NeighborhoodConfig {
     pub neighbor_configs: Vec<(Key, NodeAddr)>,
-    pub bootstrap_configs: Vec<(Key, NodeAddr)>,
     pub is_bootstrap_node: bool,
     pub local_ip_addr: IpAddr,
     pub clandestine_port_list: Vec<u16>,
@@ -37,7 +36,7 @@ pub struct NeighborhoodConfig {
 
 impl NeighborhoodConfig {
     pub fn is_decentralized(&self) -> bool {
-        (!self.neighbor_configs.is_empty() || !self.bootstrap_configs.is_empty())
+        !self.neighbor_configs.is_empty()
             && (self.local_ip_addr != sentinel_ip_addr())
             && !self.clandestine_port_list.is_empty()
     }
@@ -195,11 +194,9 @@ mod tests {
     }
 
     #[test]
-    fn neighborhood_config_is_not_decentralized_if_there_are_neither_neighbor_configs_nor_bootstrap_configs(
-    ) {
+    fn neighborhood_config_is_not_decentralized_if_there_are_no_neighbor_configs() {
         let subject = NeighborhoodConfig {
             neighbor_configs: vec![],
-            bootstrap_configs: vec![],
             wallet: None,
             is_bootstrap_node: false,
             local_ip_addr: IpAddr::from_str("1.2.3.4").unwrap(),
@@ -218,7 +215,6 @@ mod tests {
                 Key::new(&b"key"[..]),
                 NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]),
             )],
-            bootstrap_configs: vec![],
             wallet: None,
             is_bootstrap_node: false,
             local_ip_addr: sentinel_ip_addr(),
@@ -237,7 +233,6 @@ mod tests {
                 Key::new(&b"key"[..]),
                 NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]),
             )],
-            bootstrap_configs: vec![],
             wallet: None,
             is_bootstrap_node: false,
             local_ip_addr: IpAddr::from_str("1.2.3.4").unwrap(),
@@ -254,27 +249,6 @@ mod tests {
     ) {
         let subject = NeighborhoodConfig {
             neighbor_configs: vec![(
-                Key::new(&b"key"[..]),
-                NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]),
-            )],
-            bootstrap_configs: vec![],
-            wallet: None,
-            is_bootstrap_node: false,
-            local_ip_addr: IpAddr::from_str("1.2.3.4").unwrap(),
-            clandestine_port_list: vec![1234],
-        };
-
-        let result = subject.is_decentralized();
-
-        assert_eq!(result, true);
-    }
-
-    #[test]
-    fn neighborhood_config_is_decentralized_if_bootstrap_config_and_local_ip_addr_and_clandestine_port(
-    ) {
-        let subject = NeighborhoodConfig {
-            neighbor_configs: vec![],
-            bootstrap_configs: vec![(
                 Key::new(&b"key"[..]),
                 NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]),
             )],
