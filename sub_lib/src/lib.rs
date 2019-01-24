@@ -20,6 +20,7 @@ extern crate test_utils;
 #[cfg(unix)]
 extern crate daemonize;
 
+pub mod accountant;
 pub mod bidi_hashmap;
 pub mod channel_wrappers;
 pub mod crash_point;

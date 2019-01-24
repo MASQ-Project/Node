@@ -2,6 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
+      <module fileurl="file://$PROJECT_DIR$/accountant_lib/accountant_lib.iml" filepath="$PROJECT_DIR$/accountant_lib/accountant_lib.iml" />
       <module fileurl="file://$PROJECT_DIR$/ci/ci.iml" filepath="$PROJECT_DIR$/ci/ci.iml" />
       <module fileurl="file://$PROJECT_DIR$/dns_utility/dns_utility.iml" filepath="$PROJECT_DIR$/dns_utility/dns_utility.iml" />
       <module fileurl="file://$PROJECT_DIR$/entry_dns_lib/entry_dns_lib.iml" filepath="$PROJECT_DIR$/entry_dns_lib/entry_dns_lib.iml" />

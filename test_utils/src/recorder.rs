@@ -11,6 +11,7 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use sub_lib::accountant::AccountantSubs;
 use sub_lib::dispatcher::DispatcherSubs;
 use sub_lib::dispatcher::InboundClientData;
 use sub_lib::hopper::ExpiredCoresPackage;
@@ -322,6 +323,12 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Syn, Recorder>) -> NeighborhoodSu
     }
 }
 
+pub fn make_accountant_subs_from(addr: &Addr<Syn, Recorder>) -> AccountantSubs {
+    AccountantSubs {
+        bind: addr.clone().recipient::<BindMessage>(),
+    }
+}
+
 // This must be called after System.new and before System.run
 pub fn make_peer_actors_from(
     proxy_server: Option<Recorder>,
@@ -329,38 +336,29 @@ pub fn make_peer_actors_from(
     hopper: Option<Recorder>,
     proxy_client: Option<Recorder>,
     neighborhood: Option<Recorder>,
+    accountant: Option<Recorder>,
 ) -> PeerActors {
-    let proxy_server = match proxy_server {
-        Some(proxy_server) => proxy_server,
-        None => Recorder::new(),
-    };
+    let proxy_server = proxy_server.unwrap_or(Recorder::new());
+    let dispatcher = dispatcher.unwrap_or(Recorder::new());
+    let hopper = hopper.unwrap_or(Recorder::new());
+    let proxy_client = proxy_client.unwrap_or(Recorder::new());
+    let neighborhood = neighborhood.unwrap_or(Recorder::new());
+    let accountant = accountant.unwrap_or(Recorder::new());
 
-    let dispatcher = match dispatcher {
-        Some(dispatcher) => dispatcher,
-        None => Recorder::new(),
-    };
-
-    let hopper = match hopper {
-        Some(hopper) => hopper,
-        None => Recorder::new(),
-    };
-
-    let proxy_client = match proxy_client {
-        Some(proxy_client) => proxy_client,
-        None => Recorder::new(),
-    };
-
-    let neighborhood = match neighborhood {
-        Some(neighborhood) => neighborhood,
-        None => Recorder::new(),
-    };
-
-    make_peer_actors_from_recorders(proxy_server, dispatcher, hopper, proxy_client, neighborhood)
+    make_peer_actors_from_recorders(
+        proxy_server,
+        dispatcher,
+        hopper,
+        proxy_client,
+        neighborhood,
+        accountant,
+    )
 }
 
 // This must be called after System.new and before System.run
 pub fn make_peer_actors() -> PeerActors {
     make_peer_actors_from_recorders(
+        Recorder::new(),
         Recorder::new(),
         Recorder::new(),
         Recorder::new(),
@@ -375,12 +373,14 @@ fn make_peer_actors_from_recorders(
     hopper: Recorder,
     proxy_client: Recorder,
     neighborhood: Recorder,
+    accountant: Recorder,
 ) -> PeerActors {
     let proxy_server_addr = proxy_server.start();
     let dispatcher_addr = dispatcher.start();
     let hopper_addr = hopper.start();
     let proxy_client_addr = proxy_client.start();
     let neighborhood_addr = neighborhood.start();
+    let accountant_addr = accountant.start();
 
     PeerActors {
         proxy_server: make_proxy_server_subs_from(&proxy_server_addr),
@@ -388,6 +388,7 @@ fn make_peer_actors_from_recorders(
         hopper: make_hopper_subs_from(&hopper_addr),
         proxy_client: make_proxy_client_subs_from(&proxy_client_addr),
         neighborhood: make_neighborhood_subs_from(&neighborhood_addr),
+        accountant: make_accountant_subs_from(&accountant_addr),
     }
 }
 

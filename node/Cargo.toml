@@ -7,7 +7,7 @@ copyright = "Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) an
 description = ""
 
 [workspace]
-members = ["../sub_lib", "../test_utils", "../entry_dns_lib", "../hopper_lib", "../neighborhood_lib", "../proxy_client_lib", "../proxy_server_lib", "../multinode_integration_tests"]
+members = ["../sub_lib", "../test_utils", "../entry_dns_lib", "../hopper_lib", "../neighborhood_lib", "../proxy_client_lib", "../proxy_server_lib", "../accountant_lib", "../multinode_integration_tests"]
 
 [dependencies]
 actix = "= 0.5.7" # upgrading causes flakiness
@@ -24,10 +24,11 @@ serde_cbor = "0.9.0"
 tokio = "0.1.11"
 sub_lib = { path = "../sub_lib" }
 entry_dns_lib = { path = "../entry_dns_lib" }
-neighborhood_lib = { path = "../neighborhood_lib" }
-proxy_server_lib = { path = "../proxy_server_lib" }
-proxy_client_lib = { path = "../proxy_client_lib" }
 hopper_lib = { path = "../hopper_lib" }
+neighborhood_lib = { path = "../neighborhood_lib" }
+proxy_client_lib = { path = "../proxy_client_lib" }
+proxy_server_lib = { path = "../proxy_server_lib" }
+accountant_lib = { path = "../accountant_lib"}
 
 [dev-dependencies]
 tls-api = "0.1.20"

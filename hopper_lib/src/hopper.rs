@@ -472,7 +472,7 @@ mod tests {
         let incipient_cores_package_a = incipient_cores_package.clone();
         thread::spawn(move || {
             let system = System::new("converts_incipient_message_to_live_and_sends_to_dispatcher");
-            let peer_actors = make_peer_actors_from(None, Some(dispatcher), None, None, None);
+            let peer_actors = make_peer_actors_from(None, Some(dispatcher), None, None, None, None);
             let subject = Hopper::new(cryptde, false);
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -523,7 +523,7 @@ mod tests {
         };
         thread::spawn(move || {
             let system = System::new("converts_live_message_to_expired_for_proxy_client");
-            let peer_actors = make_peer_actors_from(None, None, None, Some(component), None);
+            let peer_actors = make_peer_actors_from(None, None, None, Some(component), None, None);
             let subject = Hopper::new(cryptde, false);
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -564,7 +564,7 @@ mod tests {
         };
         thread::spawn(move || {
             let system = System::new("converts_live_message_to_expired_for_proxy_server");
-            let peer_actors = make_peer_actors_from(Some(component), None, None, None, None);
+            let peer_actors = make_peer_actors_from(Some(component), None, None, None, None, None);
             let subject = Hopper::new(cryptde, false);
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -718,7 +718,7 @@ mod tests {
         let subject = Hopper::new(cryptde, true);
         let subject_addr: Addr<Syn, Hopper> = subject.start();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
-        let peer_actors = make_peer_actors_from(None, None, None, None, Some(neighborhood));
+        let peer_actors = make_peer_actors_from(None, None, None, None, Some(neighborhood), None);
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(inbound_client_data.clone()).unwrap();
@@ -773,7 +773,7 @@ mod tests {
         let subject = Hopper::new(cryptde, true);
         let subject_addr: Addr<Syn, Hopper> = subject.start();
         let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
-        let peer_actors = make_peer_actors_from(None, None, None, Some(proxy_client), None);
+        let peer_actors = make_peer_actors_from(None, None, None, Some(proxy_client), None, None);
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(inbound_client_data.clone()).unwrap();
@@ -817,7 +817,7 @@ mod tests {
         };
         thread::spawn(move || {
             let system = System::new("converts_live_message_to_expired_for_proxy_server");
-            let peer_actors = make_peer_actors_from(None, Some(dispatcher), None, None, None);
+            let peer_actors = make_peer_actors_from(None, Some(dispatcher), None, None, None, None);
             let subject = Hopper::new(cryptde, false);
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -971,7 +971,8 @@ mod tests {
         let (lcp, _key) = LiveCoresPackage::from_incipient(incipient_cores_package_a, cryptde);
         thread::spawn(move || {
             let system = System::new ("hopper_sends_incipient_cores_package_to_recipient_component_when_next_hop_key_is_the_same_as_the_public_key_of_this_node");
-            let mut peer_actors = make_peer_actors_from(None, None, None, Some(component), None);
+            let mut peer_actors =
+                make_peer_actors_from(None, None, None, Some(component), None, None);
             let subject = Hopper::new(cryptde, false);
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             let subject_subs = Hopper::make_subs_from(&subject_addr);

@@ -15,6 +15,7 @@ use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::vec::Vec;
+use sub_lib::accountant::AccountantConfig;
 use sub_lib::crash_point::CrashPoint;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::Key;
@@ -38,6 +39,7 @@ pub static mut CRYPT_DE_OPT: Option<CryptDENull> = None;
 pub struct BootstrapperConfig {
     pub dns_servers: Vec<SocketAddr>,
     pub neighborhood_config: NeighborhoodConfig,
+    pub accountant_config: AccountantConfig,
     pub crash_point: CrashPoint,
     pub clandestine_discriminator_factories: Vec<Box<DiscriminatorFactory>>,
 }
@@ -52,6 +54,9 @@ impl BootstrapperConfig {
                 local_ip_addr: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
                 clandestine_port_list: vec![],
                 wallet: None,
+            },
+            accountant_config: AccountantConfig {
+                replace_me: String::new(),
             },
             crash_point: CrashPoint::None,
             clandestine_discriminator_factories: vec![],

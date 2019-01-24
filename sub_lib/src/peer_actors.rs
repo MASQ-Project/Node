@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use accountant::AccountantSubs;
 use dispatcher::DispatcherSubs;
 use hopper::HopperSubs;
 use neighborhood::NeighborhoodSubs;
@@ -15,6 +16,7 @@ pub struct PeerActors {
     pub hopper: HopperSubs,
     pub proxy_client: ProxyClientSubs,
     pub neighborhood: NeighborhoodSubs,
+    pub accountant: AccountantSubs,
 }
 
 impl Debug for PeerActors {

@@ -391,7 +391,7 @@ mod tests {
             let system = System::new("test");
 
             let hopper = Recorder::new();
-            let hopper_sub = make_peer_actors_from(None, None, Some(hopper), None, None)
+            let hopper_sub = make_peer_actors_from(None, None, Some(hopper), None, None, None)
                 .hopper
                 .from_hopper_client;
             let mut subject = StreamHandlerPoolReal::new(
@@ -444,9 +444,10 @@ mod tests {
                 PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
             );
             let system = System::new("test");
-            let hopper_sub = recorder::make_peer_actors_from(None, None, Some(hopper), None, None)
-                .hopper
-                .from_hopper_client;
+            let hopper_sub =
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None)
+                    .hopper
+                    .from_hopper_client;
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_success(vec![IpAddr::from_str("2.3.4.5").unwrap()]);
             let mut tx_to_write: SenderWrapperMock<SequencedPacket> =
@@ -482,9 +483,10 @@ mod tests {
         let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
         thread::spawn(move || {
             let system = System::new("test");
-            let hopper_sub = recorder::make_peer_actors_from(None, None, Some(hopper), None, None)
-                .hopper
-                .from_hopper_client;
+            let hopper_sub =
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None)
+                    .hopper
+                    .from_hopper_client;
             let client_request_payload = ClientRequestPayload {
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
@@ -538,9 +540,10 @@ mod tests {
         let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
         thread::spawn(move || {
             let system = System::new("test");
-            let hopper_sub = recorder::make_peer_actors_from(None, None, Some(hopper), None, None)
-                .hopper
-                .from_hopper_client;
+            let hopper_sub =
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None)
+                    .hopper
+                    .from_hopper_client;
             let client_request_payload = ClientRequestPayload {
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
@@ -641,9 +644,10 @@ mod tests {
         let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
         thread::spawn(move || {
             let system = System::new("test");
-            let hopper_sub = recorder::make_peer_actors_from(None, None, Some(hopper), None, None)
-                .hopper
-                .from_hopper_client;
+            let hopper_sub =
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None)
+                    .hopper
+                    .from_hopper_client;
             let client_request_payload = ClientRequestPayload {
                 stream_key,
                 sequenced_packet: SequencedPacket {
@@ -714,9 +718,10 @@ mod tests {
         let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
         thread::spawn(move || {
             let system = System::new("test");
-            let hopper_sub = recorder::make_peer_actors_from(None, None, Some(hopper), None, None)
-                .hopper
-                .from_hopper_client;
+            let hopper_sub =
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None)
+                    .hopper
+                    .from_hopper_client;
             let sequenced_packet = SequencedPacket {
                 data: b"These are the times".to_vec(),
                 sequence_number: 0,
@@ -832,9 +837,10 @@ mod tests {
                 PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
             );
             let system = System::new("test");
-            let hopper_sub = recorder::make_peer_actors_from(None, None, Some(hopper), None, None)
-                .hopper
-                .from_hopper_client;
+            let hopper_sub =
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None)
+                    .hopper
+                    .from_hopper_client;
             let mut lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_parameters(&mut lookup_ip_parameters)
@@ -890,9 +896,10 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             let system = System::new("test");
-            let hopper_sub = recorder::make_peer_actors_from(None, None, Some(hopper), None, None)
-                .hopper
-                .from_hopper_client;
+            let hopper_sub =
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None)
+                    .hopper
+                    .from_hopper_client;
             let resolver = ResolverWrapperMock::new();
             let mut subject = StreamHandlerPoolReal::new(Box::new(resolver), cryptde(), hopper_sub);
             subject.stream_writer_channels.insert(
@@ -961,9 +968,10 @@ mod tests {
         let send_params = sender_wrapper.unbounded_send_params.clone();
         thread::spawn(move || {
             let system = System::new("test");
-            let hopper_sub = recorder::make_peer_actors_from(None, None, Some(hopper), None, None)
-                .hopper
-                .from_hopper_client;
+            let hopper_sub =
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None)
+                    .hopper
+                    .from_hopper_client;
             let resolver = ResolverWrapperMock::new();
 
             let mut subject = StreamHandlerPoolReal::new(Box::new(resolver), cryptde(), hopper_sub);
@@ -994,9 +1002,10 @@ mod tests {
         let (hopper, _hopper_awaiter, hopper_recording_arc) = make_recorder();
         thread::spawn(move || {
             let system = System::new("test");
-            let hopper_sub = recorder::make_peer_actors_from(None, None, Some(hopper), None, None)
-                .hopper
-                .from_hopper_client;
+            let hopper_sub =
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None)
+                    .hopper
+                    .from_hopper_client;
             let client_request_payload = ClientRequestPayload {
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {

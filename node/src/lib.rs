@@ -23,6 +23,7 @@ extern crate tokio;
 #[cfg(test)]
 extern crate test_utils;
 
+extern crate accountant_lib;
 #[cfg(unix)]
 extern crate daemonize;
 

@@ -132,7 +132,8 @@ mod tests {
             is_clandestine: false,
             data: data.clone(),
         };
-        let mut peer_actors = make_peer_actors_from(Some(proxy_server), None, None, None, None);
+        let mut peer_actors =
+            make_peer_actors_from(Some(proxy_server), None, None, None, None, None);
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
@@ -176,7 +177,7 @@ mod tests {
             sequence_number: None,
             data: data.clone(),
         };
-        let mut peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
+        let mut peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None, None);
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
@@ -289,7 +290,7 @@ mod tests {
             sequence_number: None,
             data: data.clone(),
         };
-        let mut peer_actors = make_peer_actors_from(None, None, None, None, None);
+        let mut peer_actors = make_peer_actors_from(None, None, None, None, None, None);
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         let stream_handler_pool_subs =
             make_stream_handler_pool_subs_from(Some(stream_handler_pool));

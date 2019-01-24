@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use accountant_lib::accountant::Accountant;
 use actix::Actor;
 use actix::Addr;
 use actix::Recipient;
@@ -19,6 +20,8 @@ use std::thread;
 use stream_handler_pool::StreamHandlerPool;
 use stream_handler_pool::StreamHandlerPoolSubs;
 use stream_messages::PoolBindMessage;
+use sub_lib::accountant::AccountantConfig;
+use sub_lib::accountant::AccountantSubs;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::dispatcher::DispatcherSubs;
@@ -83,6 +86,7 @@ impl ActorSystemFactoryReal {
             .make_and_start_hopper(cryptde, config.neighborhood_config.is_bootstrap_node);
         let neighborhood_subs =
             actor_factory.make_and_start_neighborhood(cryptde, config.neighborhood_config);
+        let accountant_subs = actor_factory.make_and_start_accountant(config.accountant_config);
         let stream_handler_pool_subs = actor_factory
             .make_and_start_stream_handler_pool(config.clandestine_discriminator_factories);
 
@@ -93,6 +97,7 @@ impl ActorSystemFactoryReal {
             proxy_client: proxy_client_subs,
             hopper: hopper_subs,
             neighborhood: neighborhood_subs.clone(),
+            accountant: accountant_subs.clone(),
         };
 
         //bind all the actors
@@ -131,6 +136,13 @@ impl ActorSystemFactoryReal {
                 peer_actors: peer_actors.clone(),
             })
             .expect("Neighborhood is dead");
+        peer_actors
+            .accountant
+            .bind
+            .try_send(BindMessage {
+                peer_actors: peer_actors.clone(),
+            })
+            .expect("Accountant is dead");
         stream_handler_pool_subs
             .bind
             .try_send(PoolBindMessage {
@@ -174,6 +186,7 @@ pub trait ActorFactory: Send {
         cryptde: &'static CryptDE,
         config: NeighborhoodConfig,
     ) -> NeighborhoodSubs;
+    fn make_and_start_accountant(&self, config: AccountantConfig) -> AccountantSubs;
     fn make_and_start_stream_handler_pool(
         &self,
         clandestine_discriminator_factories: Vec<Box<DiscriminatorFactory>>,
@@ -225,6 +238,12 @@ impl ActorFactory for ActorFactoryReal {
         let neighborhood = Neighborhood::new(cryptde, config);
         let addr: Addr<Syn, Neighborhood> = neighborhood.start();
         Neighborhood::make_subs_from(&addr)
+    }
+
+    fn make_and_start_accountant(&self, config: AccountantConfig) -> AccountantSubs {
+        let accountant = Accountant::new(config);
+        let addr: Addr<Syn, Accountant> = accountant.start();
+        Accountant::make_subs_from(&addr)
     }
 
     fn make_and_start_stream_handler_pool(
@@ -283,6 +302,7 @@ mod tests {
         proxy_server: RefCell<Option<Recorder>>,
         hopper: RefCell<Option<Recorder>>,
         neighborhood: RefCell<Option<Recorder>>,
+        accountant: RefCell<Option<Recorder>>,
         stream_handler_pool: RefCell<Option<Recorder>>,
 
         parameters: Parameters<'a>,
@@ -357,6 +377,18 @@ mod tests {
             }
         }
 
+        fn make_and_start_accountant(&self, config: AccountantConfig) -> AccountantSubs {
+            self.parameters
+                .accountant_params
+                .lock()
+                .unwrap()
+                .get_or_insert(config);
+            let addr: Addr<Syn, Recorder> = ActorFactoryMock::start_recorder(&self.accountant);
+            AccountantSubs {
+                bind: addr.clone().recipient::<BindMessage>(),
+            }
+        }
+
         fn make_and_start_stream_handler_pool(
             &self,
             _: Vec<Box<DiscriminatorFactory>>,
@@ -396,6 +428,7 @@ mod tests {
         proxy_server: Arc<Mutex<Recording>>,
         hopper: Arc<Mutex<Recording>>,
         neighborhood: Arc<Mutex<Recording>>,
+        accountant: Arc<Mutex<Recording>>,
         stream_handler_pool: Arc<Mutex<Recording>>,
     }
 
@@ -405,6 +438,7 @@ mod tests {
         proxy_server_params: Arc<Mutex<Option<(&'a CryptDE, bool)>>>,
         hopper_params: Arc<Mutex<Option<(&'a CryptDE, bool)>>>,
         neighborhood_params: Arc<Mutex<Option<(&'a CryptDE, NeighborhoodConfig)>>>,
+        accountant_params: Arc<Mutex<Option<AccountantConfig>>>,
     }
 
     impl<'a> Parameters<'a> {
@@ -414,6 +448,7 @@ mod tests {
                 proxy_server_params: Arc::new(Mutex::new(None)),
                 hopper_params: Arc::new(Mutex::new(None)),
                 neighborhood_params: Arc::new(Mutex::new(None)),
+                accountant_params: Arc::new(Mutex::new(None)),
             }
         }
 
@@ -431,6 +466,7 @@ mod tests {
                 proxy_server: RefCell::new(Some(Recorder::new())),
                 hopper: RefCell::new(Some(Recorder::new())),
                 neighborhood: RefCell::new(Some(Recorder::new())),
+                accountant: RefCell::new(Some(Recorder::new())),
                 stream_handler_pool: RefCell::new(Some(Recorder::new())),
 
                 parameters: Parameters::new(),
@@ -444,6 +480,7 @@ mod tests {
                 proxy_server: self.proxy_server.borrow().as_ref().unwrap().get_recording(),
                 hopper: self.hopper.borrow().as_ref().unwrap().get_recording(),
                 neighborhood: self.neighborhood.borrow().as_ref().unwrap().get_recording(),
+                accountant: self.accountant.borrow().as_ref().unwrap().get_recording(),
                 stream_handler_pool: self
                     .stream_handler_pool
                     .borrow()
@@ -476,6 +513,9 @@ mod tests {
                 clandestine_port_list: vec![],
                 wallet: None,
             },
+            accountant_config: AccountantConfig {
+                replace_me: String::new(),
+            },
             clandestine_discriminator_factories: Vec::new(),
         };
         let subject = ActorSystemFactoryReal {};
@@ -491,6 +531,7 @@ mod tests {
         Recording::get::<BindMessage>(&recordings.proxy_client, 0);
         Recording::get::<BindMessage>(&recordings.proxy_server, 0);
         Recording::get::<BindMessage>(&recordings.neighborhood, 0);
+        Recording::get::<BindMessage>(&recordings.accountant, 0);
         Recording::get::<PoolBindMessage>(&recordings.stream_handler_pool, 0);
         Recording::get::<BootstrapNeighborhoodNowMessage>(&recordings.neighborhood, 1);
     }
@@ -509,6 +550,9 @@ mod tests {
                 local_ip_addr: IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
                 clandestine_port_list: vec![],
                 wallet: None,
+            },
+            accountant_config: AccountantConfig {
+                replace_me: String::new(),
             },
             clandestine_discriminator_factories: Vec::new(),
         };

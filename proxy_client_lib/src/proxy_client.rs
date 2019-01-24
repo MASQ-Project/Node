@@ -340,7 +340,7 @@ mod tests {
         let system = System::new("invalid_package_is_logged_and_discarded");
         let subject = ProxyClient::new(cryptde(), dnss());
         let addr: Addr<Syn, ProxyClient> = subject.start();
-        let peer_actors = make_peer_actors_from(None, None, None, None, None);
+        let peer_actors = make_peer_actors_from(None, None, None, None, None, None);
         addr.try_send(BindMessage { peer_actors }).unwrap();
 
         addr.try_send(package).unwrap();
@@ -371,7 +371,7 @@ mod tests {
         let hopper = Recorder::new();
 
         let system = System::new("unparseable_request_results_in_log_and_no_response");
-        let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None);
+        let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None, None);
         let mut process_package_parameters = Arc::new(Mutex::new(vec![]));
         let pool = Box::new(
             StreamHandlerPoolMock::new()
