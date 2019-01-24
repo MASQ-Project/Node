@@ -9,4 +9,7 @@ extern crate sub_lib;
 #[cfg(test)]
 extern crate test_utils;
 
+pub mod consuming_service;
 pub mod hopper;
+pub mod live_cores_package;
+pub mod routing_service;

@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use hopper_lib::hopper::LiveCoresPackage;
+use hopper_lib::live_cores_package::LiveCoresPackage;
 use node_lib::discriminator::Discriminator;
 use node_lib::discriminator::DiscriminatorFactory;
 use node_lib::discriminator::UnmaskedChunk;

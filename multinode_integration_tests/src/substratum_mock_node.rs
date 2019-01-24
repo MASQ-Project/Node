@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use command::Command;
-use hopper_lib::hopper::LiveCoresPackage;
+use hopper_lib::live_cores_package::LiveCoresPackage;
 use main::CONTROL_STREAM_PORT;
 use neighborhood_lib::gossip::Gossip;
 use neighborhood_lib::gossip::GossipBuilder;
