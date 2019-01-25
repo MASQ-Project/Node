@@ -234,7 +234,7 @@ impl MockNode {
                 return Err(format!(
                     "Couldn't bind TcpListener to {}: {}",
                     local_addr, e
-                ))
+                ));
             }
             Ok(listener) => listener,
         };

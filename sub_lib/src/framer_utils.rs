@@ -20,7 +20,7 @@ pub fn find_chunk_offset_length(data_so_far: &[u8]) -> Option<ChunkOffsetLength>
                 return Some(ChunkOffsetLength {
                     offset: result.offset + accumulated_offset,
                     length: result.length,
-                })
+                });
             }
         }
     }

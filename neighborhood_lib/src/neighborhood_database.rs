@@ -335,7 +335,7 @@ impl NeighborhoodDatabase {
                     return Err(format!(
                         "could not remove nonexistent neighbor by public key: {:?}",
                         node_key
-                    ))
+                    ));
                 }
             };
             to_remove.unset_node_addr();

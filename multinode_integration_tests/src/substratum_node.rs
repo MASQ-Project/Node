@@ -85,7 +85,7 @@ impl NodeReference {
                 return Err(format!(
                     "The IP address of a NodeReference must be valid, not '{}'",
                     slice
-                ))
+                ));
             }
         }
     }
@@ -113,7 +113,7 @@ impl NodeReference {
                 return Err(format!(
                     "Each port number must be 65535 or less, not '{}'",
                     x
-                ))
+                ));
             }
             None => (),
         }

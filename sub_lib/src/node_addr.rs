@@ -89,7 +89,7 @@ impl FromStr for NodeAddr {
                 return Err(format!(
                     "NodeAddr must have a valid IP address, not '{}'",
                     pieces[0]
-                ))
+                ));
             }
             Ok(ip_addr) => ip_addr,
         };

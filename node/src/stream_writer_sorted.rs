@@ -35,10 +35,10 @@ impl Future for StreamWriterSorted {
             (_, WriteBufferStatus::StreamInError) => return Err(()), // dead stream error, shut down (this must be first in the match)
             (ReadChannelStatus::StillOpen, _) => return Ok(Async::NotReady), // may receive more data, don't shut down
             (ReadChannelStatus::Closed, WriteBufferStatus::BufferNotEmpty) => {
-                return Ok(Async::NotReady)
+                return Ok(Async::NotReady);
             } // still have packets to write, don't shut down yet
             (ReadChannelStatus::Closed, WriteBufferStatus::BufferEmpty) => {
-                return Ok(Async::Ready(()))
+                return Ok(Async::Ready(()));
             } // all done, shut down
         }
     }
