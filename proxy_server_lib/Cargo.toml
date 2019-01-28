@@ -10,7 +10,7 @@ workspace = "../node"
 actix = "= 0.5.7" # upgrading causes flakiness
 futures = "0.1.25"
 serde_cbor = "0.9.0"
-tokio = "0.1.11"
+tokio = "0.1.15"
 sub_lib = { path = "../sub_lib" }
 neighborhood_lib = { path = "../neighborhood_lib" }
 

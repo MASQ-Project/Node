@@ -871,6 +871,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // TODO: Play SC-696 card to re-write this test -- it is flaky
     fn after_writing_last_data_the_stream_should_close() {
         init_test_logging();
         let stream_key = make_meaningless_stream_key();

@@ -11,7 +11,7 @@ actix = "= 0.5.7" # upgrading causes flakiness
 futures = "0.1.25"
 tokio-core = "0.1.12"
 serde_cbor = "0.9.0"
-tokio = "0.1.11"
+tokio = "0.1.15"
 trust-dns-resolver = "0.9.1"
 sub_lib = { path = "../sub_lib" }
 
