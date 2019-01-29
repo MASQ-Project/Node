@@ -46,6 +46,7 @@ Temporary Items
 **/.idea/**/tasks.xml
 **/.idea/dictionaries
 **/.idea/misc.xml
+**/.idea/codeStyles/codeStyleConfig.xml
 
 # Sensitive or high-churn files:
 **/.idea/**/dataSources/
