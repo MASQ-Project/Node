@@ -20,10 +20,10 @@ use neighborhood_lib::neighborhood_database::NodeRecordInner;
 use neighborhood_lib::neighborhood_database::NodeSignatures;
 use std::thread;
 use std::time::Duration;
+use sub_lib::accountant;
 use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::wallet::Wallet;
 use test_utils::test_utils::assert_contains;
-use sub_lib::accountant;
 
 #[test]
 fn when_bootstrapping_from_a_node_then_the_node_sends_gossip_upon_startup() {
@@ -46,7 +46,7 @@ fn when_bootstrapping_from_a_node_then_the_node_sends_gossip_upon_startup() {
         node_addr_opt: Some(node_ref.node_addr.clone()),
         is_bootstrap_node: false,
         earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
-        consuming_wallet: Some (accountant::TEMPORARY_CONSUMING_WALLET.clone()),
+        consuming_wallet: Some(accountant::TEMPORARY_CONSUMING_WALLET.clone()),
         neighbors: vec![bootstrap_node_ref.public_key.clone()],
         version: 0,
     };
