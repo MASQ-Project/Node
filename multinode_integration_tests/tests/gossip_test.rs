@@ -22,7 +22,6 @@ use std::thread;
 use std::time::Duration;
 use sub_lib::accountant;
 use sub_lib::cryptde_null::CryptDENull;
-use sub_lib::wallet::Wallet;
 use test_utils::test_utils::assert_contains;
 
 #[test]
