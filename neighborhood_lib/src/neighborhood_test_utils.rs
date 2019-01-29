@@ -45,12 +45,22 @@ pub fn neighbor_keys_of<'a>(
 }
 
 impl NodeRecord {
-    pub fn wallet_from_key(public_key: &Key) -> Wallet {
+    pub fn earning_wallet_from_key(public_key: &Key) -> Wallet {
         let mut result = String::from("0x");
         for i in &public_key.data {
             result.push_str(&format!("{:x}", i));
         }
         Wallet { address: result }
+    }
+
+    pub fn consuming_wallet_from_key(public_key: &Key) -> Option<Wallet> {
+        let mut result = String::from("0x");
+        let mut reversed_public_key_data = public_key.data.clone();
+        reversed_public_key_data.reverse();
+        for i in &reversed_public_key_data {
+            result.push_str(&format!("{:x}", i));
+        }
+        Some(Wallet { address: result })
     }
 
     pub fn new_for_tests(
@@ -61,7 +71,8 @@ impl NodeRecord {
         let mut node_record = NodeRecord::new(
             public_key,
             node_addr_opt,
-            Some(NodeRecord::wallet_from_key(public_key)),
+            NodeRecord::earning_wallet_from_key(public_key),
+            NodeRecord::consuming_wallet_from_key(public_key),
             is_bootstrap_node,
             None,
             0,

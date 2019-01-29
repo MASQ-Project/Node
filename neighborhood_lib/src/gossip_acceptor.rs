@@ -188,7 +188,10 @@ impl GossipAcceptorReal {
     }
 
     fn update_wallet(&self, gnr_ref: &GossipNodeRecord, node_record: &mut NodeRecord) -> bool {
-        node_record.set_wallet(gnr_ref.inner.wallet.clone())
+        node_record.set_wallets(
+            gnr_ref.inner.earning_wallet.clone(),
+            gnr_ref.inner.consuming_wallet.clone(),
+        )
     }
 
     fn update_version(&self, gnr_ref: &GossipNodeRecord, node_record: &mut NodeRecord) {
@@ -247,7 +250,14 @@ mod tests {
 
         let this_addr = NodeAddr::new(&IpAddr::from_str("5.7.3.4").unwrap(), &vec![13]);
         let root_key = &Key::new(b"scrud");
-        let mut db = NeighborhoodDatabase::new(root_key, &this_addr, None, false, cryptde());
+        let mut db = NeighborhoodDatabase::new(
+            root_key,
+            &this_addr,
+            Wallet::new("earning"),
+            Some(Wallet::new("consuming")),
+            false,
+            cryptde(),
+        );
 
         let other_node = make_node_record(3333, true, false);
         let other_node_gossip = GossipNodeRecord::from(&other_node, true);
@@ -269,8 +279,14 @@ mod tests {
         let subject = GossipAcceptorReal::new_for_tests(1);
 
         let this_addr = NodeAddr::new(&IpAddr::from_str("5.7.3.4").unwrap(), &vec![13]);
-        let mut db =
-            NeighborhoodDatabase::new(&Key::new(b"scrud"), &this_addr, None, false, cryptde());
+        let mut db = NeighborhoodDatabase::new(
+            &Key::new(b"scrud"),
+            &this_addr,
+            Wallet::new("earning"),
+            Some(Wallet::new("consuming")),
+            false,
+            cryptde(),
+        );
 
         let other_node = make_node_record(3333, false, false);
         let other_node_gossip = GossipNodeRecord::from(&other_node, true);
@@ -296,8 +312,14 @@ mod tests {
         );
 
         let this_addr = NodeAddr::new(&IpAddr::from_str("5.7.3.4").unwrap(), &vec![13]);
-        let mut db =
-            NeighborhoodDatabase::new(&Key::new(b"scrud"), &this_addr, None, false, cryptde());
+        let mut db = NeighborhoodDatabase::new(
+            &Key::new(b"scrud"),
+            &this_addr,
+            Wallet::new("earning"),
+            Some(Wallet::new("consuming")),
+            false,
+            cryptde(),
+        );
 
         let other_node = make_node_record(3333, true, false);
         let other_node_gossip = GossipNodeRecord::from(&other_node, true);
@@ -318,7 +340,8 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             existing_node.public_key(),
             existing_node.node_addr_opt().as_ref().unwrap(),
-            existing_node.wallet(),
+            existing_node.earning_wallet(),
+            existing_node.consuming_wallet(),
             existing_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -329,7 +352,8 @@ mod tests {
         let mut bad_record_with_blank_key = NodeRecord::new(
             &Key::new(&[]),
             None,
-            None,
+            Wallet::new("earning"),
+            Some(Wallet::new("consuming")),
             false,
             Some(NodeSignatures::new(
                 CryptData::new(b"hello"),
@@ -415,7 +439,8 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             existing_node.public_key(),
             existing_node.node_addr_opt().as_ref().unwrap(),
-            existing_node.wallet(),
+            existing_node.earning_wallet(),
+            existing_node.consuming_wallet(),
             existing_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -464,7 +489,8 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.wallet(),
+            this_node.earning_wallet(),
+            this_node.consuming_wallet(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -503,7 +529,8 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.wallet(),
+            this_node.earning_wallet(),
+            this_node.consuming_wallet(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -538,7 +565,8 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.wallet(),
+            this_node.earning_wallet(),
+            this_node.consuming_wallet(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -583,7 +611,8 @@ mod tests {
                 &IpAddr::V4(Ipv4Addr::new(2, 3, 4, 5)),
                 &vec![1337],
             )),
-            Some(Wallet::new("0x2345")),
+            Wallet::new("earning"),
+            Some(Wallet::new("consuming")),
             false,
             None,
             0,
@@ -591,7 +620,8 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             &this_node.node_addr_opt().unwrap(),
-            this_node.wallet(),
+            this_node.earning_wallet(),
+            this_node.consuming_wallet(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -625,7 +655,8 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.wallet(),
+            this_node.earning_wallet(),
+            this_node.consuming_wallet(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -653,7 +684,8 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.wallet(),
+            this_node.earning_wallet(),
+            this_node.consuming_wallet(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -692,7 +724,8 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.wallet(),
+            this_node.earning_wallet(),
+            this_node.consuming_wallet(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -720,7 +753,8 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.wallet(),
+            this_node.earning_wallet(),
+            this_node.consuming_wallet(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -747,7 +781,8 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.wallet(),
+            this_node.earning_wallet(),
+            this_node.consuming_wallet(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -781,7 +816,8 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             &this_node.node_addr_opt().unwrap(),
-            this_node.wallet(),
+            this_node.earning_wallet(),
+            this_node.consuming_wallet(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -808,7 +844,8 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.wallet(),
+            this_node.earning_wallet(),
+            this_node.consuming_wallet(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -847,7 +884,8 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.wallet(),
+            this_node.earning_wallet(),
+            this_node.consuming_wallet(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -890,7 +928,8 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.wallet(),
+            this_node.earning_wallet(),
+            this_node.consuming_wallet(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -925,7 +964,7 @@ mod tests {
         let this_node = make_node_record(1234, true, false);
         let existing_node = make_node_record(2345, true, false);
         let mut newer_version = existing_node.clone();
-        newer_version.set_wallet(Some(Wallet::new("0xaBcD3F")));
+        newer_version.set_wallets(Wallet::new("0xaBcD3F"), Some(Wallet::new("0xD3FcBa")));
         newer_version
             .neighbors_mut()
             .push(this_node.public_key().clone());
@@ -934,7 +973,8 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.wallet(),
+            this_node.earning_wallet(),
+            this_node.consuming_wallet(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -954,7 +994,7 @@ mod tests {
         assert!(result, "Gossip did not result in a change to the database");
         let node = database.node_by_key(existing_node.public_key()).unwrap();
         assert_eq!(node.version(), newer_version.version());
-        assert_eq!(node.wallet(), newer_version.wallet());
+        assert_eq!(node.consuming_wallet(), newer_version.consuming_wallet());
     }
 
     #[test]
@@ -962,7 +1002,7 @@ mod tests {
         let this_node = make_node_record(1234, true, false);
         let existing_node = make_node_record(2345, true, false);
         let mut newer_version = existing_node.clone();
-        newer_version.set_wallet(Some(Wallet::new("0x2345")));
+        newer_version.set_wallets(Wallet::new("0x2345"), Some(Wallet::new("0x5432")));
         newer_version
             .neighbors_mut()
             .push(this_node.public_key().clone());
@@ -971,7 +1011,8 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.wallet(),
+            this_node.earning_wallet(),
+            this_node.consuming_wallet(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -991,7 +1032,7 @@ mod tests {
         assert!(!result, "Gossip resulted in a change to the database");
         let node = database.node_by_key(existing_node.public_key()).unwrap();
         assert_eq!(node.version(), newer_version.version());
-        assert_eq!(node.wallet(), newer_version.wallet());
+        assert_eq!(node.consuming_wallet(), newer_version.consuming_wallet());
     }
 
     #[test]
@@ -1011,7 +1052,8 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.wallet(),
+            this_node.earning_wallet(),
+            this_node.consuming_wallet(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -1049,7 +1091,8 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.wallet(),
+            this_node.earning_wallet(),
+            this_node.consuming_wallet(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -1084,7 +1127,7 @@ mod tests {
         let new_is_bootstrap = true;
         let mut newer_version = existing_node.clone();
         newer_version.set_is_bootstrap_node(new_is_bootstrap);
-        newer_version.set_wallet(Some(Wallet::new("0xaBcD3F")));
+        newer_version.set_wallets(Wallet::new("0xaBcD3F"), Some(Wallet::new("0xF3DcBa")));
         newer_version
             .neighbors_mut()
             .push(this_node.public_key().clone());
@@ -1093,7 +1136,8 @@ mod tests {
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.wallet(),
+            this_node.earning_wallet(),
+            this_node.consuming_wallet(),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -1114,6 +1158,6 @@ mod tests {
         let node = database.node_by_key(existing_node.public_key()).unwrap();
         assert_eq!(node.version(), newer_version.version());
         assert_eq!(node.is_bootstrap_node(), newer_version.is_bootstrap_node());
-        assert_eq!(node.wallet(), newer_version.wallet());
+        assert_eq!(node.consuming_wallet(), newer_version.consuming_wallet());
     }
 }

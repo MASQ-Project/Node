@@ -9,16 +9,19 @@ use sub_lib::dispatcher::Component;
 use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::route::Route;
 use sub_lib::route::RouteSegment;
+use sub_lib::wallet::Wallet;
 use substratum_node::SubstratumNode;
 
 pub struct GossipBuilder {
+    consuming_wallet: Option<Wallet>,
     node_info: Vec<GossipBuilderNodeInfo>,
     connection_pairs: Vec<(Key, Key)>,
 }
 
 impl GossipBuilder {
-    pub fn new() -> GossipBuilder {
+    pub fn new(consuming_wallet: Option<Wallet>) -> GossipBuilder {
         GossipBuilder {
+            consuming_wallet,
             node_info: vec![],
             connection_pairs: vec![],
         }
@@ -33,7 +36,8 @@ impl GossipBuilder {
                     false => None,
                 },
                 is_bootstrap_node: is_bootstrap,
-                wallet: None,
+                earning_wallet: node.earning_wallet().clone(),
+                consuming_wallet: node.consuming_wallet().clone(),
                 neighbors: vec![],
                 version: 0,
             },
@@ -87,11 +91,13 @@ impl GossipBuilder {
     }
 
     pub fn build_cores_package(self, from: &Key, to: &Key) -> IncipientCoresPackage {
+        let consuming_wallet = self.consuming_wallet.clone();
         let gossip = self.build();
         IncipientCoresPackage::new(
             Route::new(
                 vec![RouteSegment::new(vec![from, to], Component::Neighborhood)],
                 &CryptDENull::from(from),
+                consuming_wallet,
             )
             .unwrap(),
             gossip,

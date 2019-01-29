@@ -20,6 +20,7 @@ use sub_lib::dispatcher::Component;
 use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::route::Route;
 use sub_lib::route::RouteSegment;
+use sub_lib::wallet::Wallet;
 
 #[test]
 fn neighborhood_notified_of_missing_node_when_connection_refused() {
@@ -53,7 +54,7 @@ fn neighborhood_notified_of_missing_node_when_connection_refused() {
             .wait_for_gossip(Duration::from_millis(1000))
             .unwrap();
 
-        let cores_package = GossipBuilder::new()
+        let cores_package = GossipBuilder::new(Some(Wallet::new("consuming")))
             .add_node(&mock_bootstrap, true, true)
             .add_node(&subject, false, true)
             .add_node(&disappearing_node, false, true)
@@ -96,6 +97,7 @@ fn neighborhood_notified_of_missing_node_when_connection_refused() {
                 Component::ProxyClient,
             )],
             mock_bootstrap.cryptde(),
+            Some(Wallet::new("consuming")),
         )
         .unwrap(),
         String::from("Meaningless payload"),

@@ -13,6 +13,8 @@ extern crate serde_cbor;
 extern crate serde_derive;
 extern crate sha1;
 extern crate tokio;
+#[macro_use]
+extern crate lazy_static;
 
 #[cfg(test)]
 extern crate test_utils;

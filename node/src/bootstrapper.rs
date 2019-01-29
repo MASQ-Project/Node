@@ -15,6 +15,7 @@ use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::vec::Vec;
+use sub_lib::accountant;
 use sub_lib::accountant::AccountantConfig;
 use sub_lib::crash_point::CrashPoint;
 use sub_lib::cryptde::CryptDE;
@@ -53,7 +54,8 @@ impl BootstrapperConfig {
                 is_bootstrap_node: false,
                 local_ip_addr: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
                 clandestine_port_list: vec![],
-                wallet: None,
+                earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
+                consuming_wallet: None,
             },
             accountant_config: AccountantConfig {
                 replace_me: String::new(),
@@ -161,7 +163,11 @@ impl Bootstrapper {
             Bootstrapper::parse_neighbor_configs(&finder, "--neighbor");
         config.neighborhood_config.is_bootstrap_node = Bootstrapper::parse_node_type(&finder);
         config.neighborhood_config.local_ip_addr = local_ip_addr;
-        config.neighborhood_config.wallet = Bootstrapper::parse_wallet_address(&finder);
+        config.neighborhood_config.earning_wallet = Bootstrapper::parse_wallet_address(&finder)
+            .unwrap_or(accountant::DEFAULT_EARNING_WALLET.clone());
+        // TODO: In real life this should come from a command-line parameter
+        config.neighborhood_config.consuming_wallet =
+            Some(accountant::TEMPORARY_CONSUMING_WALLET.clone());
     }
 
     fn parse_crash_point(finder: &ParameterFinder) -> CrashPoint {
@@ -189,9 +195,12 @@ impl Bootstrapper {
         match finder.find_value_for("--wallet_address", usage) {
             Some(address) => {
                 if !Bootstrapper::is_valid_ethereum_address(&address) {
-                    panic!("--wallet_address requires a valid Ethereum wallet address");
+                    panic!(
+                        "--wallet_address requires a valid Ethereum wallet address, not '{}'",
+                        address
+                    );
                 }
-                Some(Wallet { address })
+                Some(Wallet::new(address.as_str()))
             }
             None => None,
         }
@@ -553,7 +562,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_wallet_address_returns_none_with_no_address() {
+    fn parse_wallet_address_returns_none_if_no_address_supplied() {
         let finder = ParameterFinder::new(vec![]);
 
         assert_eq!(Bootstrapper::parse_wallet_address(&finder), None);
@@ -853,8 +862,8 @@ mod tests {
             IpAddr::V4(Ipv4Addr::new(34, 56, 78, 90))
         );
         assert_eq!(
-            config.neighborhood_config.wallet,
-            Some(Wallet::new("0xbDfeFf9A1f4A1bdF483d680046344316019C58CF"))
+            config.neighborhood_config.earning_wallet,
+            Wallet::new("0xbDfeFf9A1f4A1bdF483d680046344316019C58CF")
         );
     }
 
@@ -869,6 +878,10 @@ mod tests {
         Bootstrapper::parse_args(&args, &mut config);
 
         assert_eq!(config.neighborhood_config.is_bootstrap_node, false);
+        assert_eq!(
+            config.neighborhood_config.earning_wallet,
+            accountant::DEFAULT_EARNING_WALLET.clone()
+        );
     }
 
     #[test]

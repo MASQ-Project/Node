@@ -106,6 +106,7 @@ mod tests {
     use sub_lib::hopper::IncipientCoresPackage;
     use sub_lib::route::Route;
     use sub_lib::route::RouteSegment;
+    use sub_lib::wallet::Wallet;
     use test_utils::test_utils::cryptde;
     use test_utils::test_utils::route_to_proxy_client;
     use test_utils::test_utils::PayloadMock;
@@ -152,6 +153,7 @@ mod tests {
     #[should_panic(expected = "Hopper unbound: no ConsumingService")]
     fn panics_if_consuming_service_is_unbound() {
         let cryptde = cryptde();
+        let consuming_wallet = Wallet::new("wallet");
         let next_key = Key::new(&[65, 65, 65]);
         let route = Route::new(
             vec![RouteSegment::new(
@@ -159,6 +161,7 @@ mod tests {
                 Component::Neighborhood,
             )],
             cryptde,
+            Some(consuming_wallet),
         )
         .unwrap();
         let incipient_package =

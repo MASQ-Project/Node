@@ -2,6 +2,15 @@
 use actix::Recipient;
 use actix::Syn;
 use peer_actors::BindMessage;
+use wallet::Wallet;
+
+lazy_static! {
+    // TODO: This is not a real wallet address. We need a Substratum wallet to accept default payments.
+    pub static ref DEFAULT_EARNING_WALLET: Wallet = Wallet::new("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+    // TODO: The consuming wallet should never be defaulted; it should always come in from a
+    // (possibly-complicated) command-line parameter, or the bidirectional GUI.
+    pub static ref TEMPORARY_CONSUMING_WALLET: Wallet = Wallet::new ("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF");
+}
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct AccountantConfig {

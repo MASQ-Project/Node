@@ -8,9 +8,11 @@ use std::rc::Rc;
 use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
+use sub_lib::accountant;
 use sub_lib::cryptde::Key;
 use sub_lib::neighborhood::sentinel_ip_addr;
 use sub_lib::node_addr::NodeAddr;
+use sub_lib::wallet::Wallet;
 use substratum_client::SubstratumNodeClient;
 use substratum_node::NodeReference;
 use substratum_node::PortSelector;
@@ -32,6 +34,7 @@ pub struct NodeStartupConfig {
     pub port_count: usize,
     pub dns_target: IpAddr,
     pub dns_port: u16,
+    pub earning_wallet: Wallet,
 }
 
 impl NodeStartupConfig {
@@ -44,6 +47,7 @@ impl NodeStartupConfig {
             port_count: 0,
             dns_target: sentinel_ip_addr(),
             dns_port: 0,
+            earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
         }
     }
 
@@ -57,6 +61,8 @@ impl NodeStartupConfig {
             args.push("--neighbor".to_string());
             args.push(format!("{}", neighbor));
         });
+        args.push("--wallet_address".to_string());
+        args.push(format!("{}", self.earning_wallet.address));
         args.push("--node_type".to_string());
         args.push(
             match self.node_type {
@@ -93,6 +99,7 @@ pub struct NodeStartupConfigBuilder {
     port_count: usize,
     dns_target: IpAddr,
     dns_port: u16,
+    earning_wallet: Wallet,
 }
 
 impl NodeStartupConfigBuilder {
@@ -105,6 +112,7 @@ impl NodeStartupConfigBuilder {
             port_count: 0,
             dns_target: IpAddr::from_str("127.0.0.1").unwrap(),
             dns_port: 53,
+            earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
         }
     }
 
@@ -117,6 +125,7 @@ impl NodeStartupConfigBuilder {
             port_count: 1,
             dns_target: IpAddr::from_str("127.0.0.1").unwrap(),
             dns_port: 53,
+            earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
         }
     }
 
@@ -129,6 +138,7 @@ impl NodeStartupConfigBuilder {
             port_count: 1,
             dns_target: IpAddr::from_str("127.0.0.1").unwrap(),
             dns_port: 53,
+            earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
         }
     }
 
@@ -141,6 +151,7 @@ impl NodeStartupConfigBuilder {
             port_count: config.port_count,
             dns_target: config.dns_target.clone(),
             dns_port: config.dns_port,
+            earning_wallet: config.earning_wallet.clone(),
         }
     }
 
@@ -184,6 +195,11 @@ impl NodeStartupConfigBuilder {
         self
     }
 
+    pub fn earning_wallet(mut self, value: Wallet) -> NodeStartupConfigBuilder {
+        self.earning_wallet = value;
+        self
+    }
+
     pub fn build(self) -> NodeStartupConfig {
         NodeStartupConfig {
             ip: self.ip,
@@ -193,6 +209,7 @@ impl NodeStartupConfigBuilder {
             port_count: self.port_count,
             dns_target: self.dns_target,
             dns_port: self.dns_port,
+            earning_wallet: self.earning_wallet,
         }
     }
 }
@@ -231,6 +248,14 @@ impl SubstratumNode for SubstratumRealNode {
         SubstratumNodeUtils::socket_addr(&self.node_addr(), port_selector, self.name())
     }
 
+    fn earning_wallet(&self) -> Wallet {
+        self.guts.earning_wallet.clone()
+    }
+
+    fn consuming_wallet(&self) -> Option<Wallet> {
+        self.guts.consuming_wallet.clone()
+    }
+
     fn make_client(&self, port: u16) -> SubstratumNodeClient {
         let socket_addr = SocketAddr::new(self.ip_address(), port);
         SubstratumNodeClient::new(socket_addr)
@@ -245,6 +270,7 @@ impl SubstratumRealNode {
     ) -> SubstratumRealNode {
         let ip_addr = IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8));
         let name = format!("test_node_{}", index);
+        let earning_wallet = startup_config.earning_wallet.clone();
         SubstratumNodeUtils::clean_up_existing_container(&name[..]);
         let real_startup_config = match startup_config.port_count {
             0 => startup_config,
@@ -258,6 +284,8 @@ impl SubstratumRealNode {
             name,
             container_ip: ip_addr,
             node_reference,
+            earning_wallet,
+            consuming_wallet: None,
         });
         SubstratumRealNode { guts }
     }
@@ -333,6 +361,8 @@ struct SubstratumRealNodeGuts {
     name: String,
     container_ip: IpAddr,
     node_reference: NodeReference,
+    earning_wallet: Wallet,
+    consuming_wallet: Option<Wallet>,
 }
 
 impl Drop for SubstratumRealNodeGuts {
@@ -454,6 +484,7 @@ mod tests {
             port_count: 200,
             dns_target: IpAddr::from_str("255.255.255.255").unwrap(),
             dns_port: 54,
+            earning_wallet: Wallet::new("booga"),
         };
         let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
         let one_neighbor_key = Key::new(&[1, 2, 3, 4]);
@@ -497,6 +528,7 @@ mod tests {
         assert_eq!(result.port_count, 2);
         assert_eq!(result.dns_target, dns_target);
         assert_eq!(result.dns_port, 35);
+        assert_eq!(result.earning_wallet, Wallet::new("booga"));
     }
 
     #[test]
@@ -530,6 +562,8 @@ mod tests {
                 format!("{}", one_neighbor).as_str(),
                 "--neighbor",
                 format!("{}", another_neighbor).as_str(),
+                "--wallet_address",
+                accountant::DEFAULT_EARNING_WALLET.address.as_str(),
                 "--node_type",
                 "standard",
                 "--port_count",

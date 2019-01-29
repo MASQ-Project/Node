@@ -19,7 +19,8 @@ use sub_lib::wallet::Wallet;
 pub struct NodeRecordInner {
     pub public_key: Key,
     pub node_addr_opt: Option<NodeAddr>,
-    pub wallet: Option<Wallet>,
+    pub earning_wallet: Wallet,
+    pub consuming_wallet: Option<Wallet>,
     pub is_bootstrap_node: bool,
     pub neighbors: Vec<Key>,
     pub version: u32,
@@ -64,7 +65,8 @@ impl NodeSignatures {
         let obscured_inner = NodeRecordInner {
             public_key: node_record_inner.clone().public_key,
             node_addr_opt: None,
-            wallet: node_record_inner.wallet.clone(),
+            earning_wallet: node_record_inner.earning_wallet.clone(),
+            consuming_wallet: node_record_inner.consuming_wallet.clone(),
             is_bootstrap_node: node_record_inner.is_bootstrap_node,
             neighbors: node_record_inner.neighbors.clone(),
             version: node_record_inner.version,
@@ -94,7 +96,8 @@ impl NodeRecord {
     pub fn new(
         public_key: &Key,
         node_addr_opt: Option<&NodeAddr>,
-        wallet: Option<Wallet>,
+        earning_wallet: Wallet,
+        consuming_wallet: Option<Wallet>,
         is_bootstrap_node: bool,
         signatures: Option<NodeSignatures>,
         version: u32,
@@ -106,7 +109,8 @@ impl NodeRecord {
                     Some(node_addr) => Some(node_addr.clone()),
                     None => None,
                 },
-                wallet,
+                earning_wallet,
+                consuming_wallet,
                 is_bootstrap_node,
                 neighbors: vec![],
                 version,
@@ -203,17 +207,32 @@ impl NodeRecord {
         self.inner.version = value;
     }
 
-    pub fn wallet(&self) -> Option<Wallet> {
-        self.inner.wallet.clone()
+    pub fn earning_wallet(&self) -> Wallet {
+        self.inner.earning_wallet.clone()
     }
 
-    pub fn set_wallet(&mut self, wallet: Option<Wallet>) -> bool {
-        if self.inner.wallet == wallet {
+    pub fn consuming_wallet(&self) -> Option<Wallet> {
+        self.inner.consuming_wallet.clone()
+    }
+
+    pub fn set_wallets(
+        &mut self,
+        earning_wallet: Wallet,
+        consuming_wallet: Option<Wallet>,
+    ) -> bool {
+        let earning_change = if self.inner.earning_wallet == earning_wallet {
             false
         } else {
-            self.inner.wallet = wallet;
+            self.inner.earning_wallet = earning_wallet;
             true
-        }
+        };
+        let consuming_change = if self.inner.consuming_wallet == consuming_wallet {
+            false
+        } else {
+            self.inner.consuming_wallet = consuming_wallet;
+            true
+        };
+        earning_change || consuming_change
     }
 
     pub fn set_is_bootstrap_node(&mut self, is_bootstrap_node: bool) -> bool {
@@ -242,7 +261,8 @@ impl NeighborhoodDatabase {
     pub fn new(
         public_key: &Key,
         node_addr: &NodeAddr,
-        wallet: Option<Wallet>,
+        earning_wallet: Wallet,
+        consuming_wallet: Option<Wallet>,
         is_bootstrap_node: bool,
         cryptde: &CryptDE,
     ) -> NeighborhoodDatabase {
@@ -255,7 +275,8 @@ impl NeighborhoodDatabase {
         let mut node_record = NodeRecord::new(
             public_key,
             Some(node_addr),
-            wallet,
+            earning_wallet,
+            consuming_wallet,
             is_bootstrap_node,
             None,
             0,
@@ -431,7 +452,8 @@ mod tests {
         let subject = NeighborhoodDatabase::new(
             &this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.wallet(),
+            this_node.earning_wallet(),
+            this_node.consuming_wallet(),
             false,
             &CryptDENull::from(this_node.public_key()),
         );
@@ -465,7 +487,8 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             &this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.wallet(),
+            this_node.earning_wallet(),
+            this_node.consuming_wallet(),
             false,
             &CryptDENull::from(this_node.public_key()),
         );
@@ -500,7 +523,8 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             &this_node.inner.public_key,
             this_node.inner.node_addr_opt.as_ref().unwrap(),
-            Some(Wallet::new("0x1234")),
+            Wallet::new("0x1234"),
+            Some(Wallet::new("0x2345")),
             false,
             &CryptDENull::from(this_node.public_key()),
         );
@@ -523,7 +547,8 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             &this_node.inner.public_key,
             this_node.inner.node_addr_opt.as_ref().unwrap(),
-            Some(Wallet::new("0x1234")),
+            Wallet::new("0x1234"),
+            Some(Wallet::new("0x4321")),
             false,
             &CryptDENull::from(this_node.public_key()),
         );
@@ -555,7 +580,8 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             &this_node.inner.public_key,
             this_node.inner.node_addr_opt.as_ref().unwrap(),
-            Some(Wallet::new("0x1234")),
+            Wallet::new("0x1234"),
+            Some(Wallet::new("0x4321")),
             false,
             &CryptDENull::from(this_node.public_key()),
         );
@@ -590,7 +616,8 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             &this_node.inner.public_key,
             this_node.inner.node_addr_opt.as_ref().unwrap(),
-            Some(Wallet::new("0x1234")),
+            Wallet::new("0x1234"),
+            Some(Wallet::new("0x2345")),
             false,
             &CryptDENull::from(this_node.public_key()),
         );
@@ -693,7 +720,8 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             &this_node.inner.public_key,
             this_node.inner.node_addr_opt.as_ref().unwrap(),
-            Some(Wallet::new("0x1234")),
+            Wallet::new("0x1234"),
+            Some(Wallet::new("0x2345")),
             false,
             &CryptDENull::from(this_node.public_key()),
         );
@@ -715,7 +743,8 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             &this_node.inner.public_key,
             this_node.inner.node_addr_opt.as_ref().unwrap(),
-            Some(Wallet::new("0x1234")),
+            Wallet::new("0x1234"),
+            Some(Wallet::new("0x2345")),
             false,
             &CryptDENull::from(this_node.public_key()),
         );
@@ -764,7 +793,8 @@ mod tests {
         let mut subject = NodeRecord::new(
             subject_signed.public_key(),
             subject_signed.node_addr_opt().as_ref(),
-            Some(Wallet::new("0x1234")),
+            Wallet::new("0x1234"),
+            Some(Wallet::new("0x2345")),
             subject_signed.is_bootstrap_node(),
             None,
             0,
@@ -815,7 +845,8 @@ mod tests {
                 &vec![1234],
             )),
             is_bootstrap_node: true,
-            wallet: Some(Wallet::new("0x1234")),
+            earning_wallet: Wallet::new("0x2345"),
+            consuming_wallet: Some(Wallet::new("0x1234")),
             neighbors: Vec::new(),
             version: 0,
         };
@@ -837,46 +868,42 @@ mod tests {
 
     #[test]
     fn node_record_partial_eq() {
+        let node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]);
+        let node_addr_opt = Some(&node_addr);
+        let earning_wallet = Wallet::new("wallet");
+        let consuming_wallet = Wallet::new("wallet");
         let exemplar = NodeRecord::new(
             &Key::new(&b"poke"[..]),
-            Some(&NodeAddr::new(
-                &IpAddr::from_str("1.2.3.4").unwrap(),
-                &vec![1234],
-            )),
-            None,
+            node_addr_opt.clone(),
+            earning_wallet.clone(),
+            Some(consuming_wallet.clone()),
             true,
             None,
             0,
         );
         let duplicate = NodeRecord::new(
             &Key::new(&b"poke"[..]),
-            Some(&NodeAddr::new(
-                &IpAddr::from_str("1.2.3.4").unwrap(),
-                &vec![1234],
-            )),
-            None,
+            node_addr_opt.clone(),
+            earning_wallet.clone(),
+            Some(consuming_wallet.clone()),
             true,
             None,
             0,
         );
         let mut with_neighbor = NodeRecord::new(
             &Key::new(&b"poke"[..]),
-            Some(&NodeAddr::new(
-                &IpAddr::from_str("1.2.3.4").unwrap(),
-                &vec![1234],
-            )),
-            None,
+            node_addr_opt.clone(),
+            earning_wallet.clone(),
+            Some(consuming_wallet.clone()),
             true,
             None,
             0,
         );
         let mod_key = NodeRecord::new(
             &Key::new(&b"kope"[..]),
-            Some(&NodeAddr::new(
-                &IpAddr::from_str("1.2.3.4").unwrap(),
-                &vec![1234],
-            )),
-            None,
+            node_addr_opt.clone(),
+            earning_wallet.clone(),
+            Some(consuming_wallet.clone()),
             true,
             None,
             0,
@@ -887,29 +914,44 @@ mod tests {
                 &IpAddr::from_str("1.2.3.5").unwrap(),
                 &vec![1234],
             )),
+            earning_wallet.clone(),
+            Some(consuming_wallet.clone()),
+            true,
             None,
+            0,
+        );
+        let mod_earning_wallet = NodeRecord::new(
+            &Key::new(&b"poke"[..]),
+            node_addr_opt.clone(),
+            Wallet::new("booga"),
+            Some(consuming_wallet.clone()),
+            true,
+            None,
+            0,
+        );
+        let mod_consuming_wallet = NodeRecord::new(
+            &Key::new(&b"poke"[..]),
+            node_addr_opt.clone(),
+            earning_wallet.clone(),
+            Some(Wallet::new("booga")),
             true,
             None,
             0,
         );
         let mod_is_bootstrap = NodeRecord::new(
             &Key::new(&b"poke"[..]),
-            Some(&NodeAddr::new(
-                &IpAddr::from_str("1.2.3.4").unwrap(),
-                &vec![1234],
-            )),
-            None,
+            node_addr_opt.clone(),
+            earning_wallet.clone(),
+            Some(consuming_wallet.clone()),
             false,
             None,
             0,
         );
         let mod_signatures = NodeRecord::new(
             &Key::new(&b"poke"[..]),
-            Some(&NodeAddr::new(
-                &IpAddr::from_str("1.2.3.4").unwrap(),
-                &vec![1234],
-            )),
-            None,
+            node_addr_opt.clone(),
+            earning_wallet.clone(),
+            Some(consuming_wallet.clone()),
             true,
             Some(NodeSignatures::new(
                 CryptData::new(b""),
@@ -926,6 +968,8 @@ mod tests {
         assert_ne!(exemplar, with_neighbor);
         assert_ne!(exemplar, mod_key);
         assert_ne!(exemplar, mod_node_addr);
+        assert_ne!(exemplar, mod_earning_wallet);
+        assert_ne!(exemplar, mod_consuming_wallet);
         assert_ne!(exemplar, mod_is_bootstrap);
         assert_ne!(exemplar, mod_signatures);
     }
@@ -937,7 +981,8 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             &this_node.inner.public_key,
             this_node.inner.node_addr_opt.as_ref().unwrap(),
-            Some(Wallet::new("0x1234")),
+            Wallet::new("0x1234"),
+            Some(Wallet::new("0x2345")),
             false,
             &CryptDENull::from(this_node.public_key()),
         );
@@ -955,7 +1000,8 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             &this_node.inner.public_key,
             this_node.inner.node_addr_opt.as_ref().unwrap(),
-            Some(Wallet::new("0x1234")),
+            Wallet::new("0x1234"),
+            Some(Wallet::new("0x2345")),
             false,
             &CryptDENull::from(this_node.public_key()),
         );
@@ -980,7 +1026,8 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             &this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
-            Some(Wallet::new("0x1234")),
+            Wallet::new("0x1234"),
+            Some(Wallet::new("0x2345")),
             this_node.is_bootstrap_node(),
             &cryptde,
         );
@@ -1089,7 +1136,8 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             &this_node.inner.public_key,
             this_node.inner.node_addr_opt.as_ref().unwrap(),
-            Some(Wallet::new("0x123")),
+            Wallet::new("0x123"),
+            Some(Wallet::new("0x234")),
             false,
             &CryptDENull::from(this_node.public_key()),
         );
@@ -1110,7 +1158,8 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             &this_node.inner.public_key,
             this_node.inner.node_addr_opt.as_ref().unwrap(),
-            Some(Wallet::new("0x123")),
+            Wallet::new("0x123"),
+            Some(Wallet::new("0x234")),
             false,
             &CryptDENull::from(this_node.public_key()),
         );
@@ -1142,7 +1191,8 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             &this_node.inner.public_key,
             this_node.inner.node_addr_opt.as_ref().unwrap(),
-            Some(Wallet::new("0x123")),
+            Wallet::new("0x123"),
+            Some(Wallet::new("0x234")),
             false,
             &CryptDENull::from(this_node.public_key()),
         );
@@ -1192,23 +1242,37 @@ mod tests {
     }
 
     #[test]
-    fn set_wallet_returns_true_when_the_wallet_changes() {
+    fn set_wallets_returns_true_when_the_earning_wallet_changes() {
         let mut this_node = make_node_record(1234, true, false);
-        assert_eq!(this_node.wallet(), Some(Wallet::new("0x1234")));
+        assert_eq!(this_node.earning_wallet(), Wallet::new("0x1234"));
+        assert_eq!(this_node.consuming_wallet(), Some(Wallet::new("0x4321")));
 
-        assert!(this_node.set_wallet(None));
+        assert!(this_node.set_wallets(Wallet::new("0x2345"), Some(Wallet::new("0x4321"))));
 
-        assert_eq!(this_node.wallet(), None);
+        assert_eq!(this_node.earning_wallet(), Wallet::new("0x2345"));
     }
 
     #[test]
-    fn set_wallet_returns_false_when_the_wallet_does_not_change() {
+    fn set_wallets_returns_true_when_the_consuming_wallet_changes() {
         let mut this_node = make_node_record(1234, true, false);
-        assert_eq!(this_node.wallet(), Some(Wallet::new("0x1234")));
+        assert_eq!(this_node.earning_wallet(), Wallet::new("0x1234"));
+        assert_eq!(this_node.consuming_wallet(), Some(Wallet::new("0x4321")));
 
-        assert!(!this_node.set_wallet(Some(Wallet::new("0x1234"))));
+        assert!(this_node.set_wallets(Wallet::new("0x1234"), Some(Wallet::new("0x2345"))));
 
-        assert_eq!(this_node.wallet(), Some(Wallet::new("0x1234")));
+        assert_eq!(this_node.consuming_wallet(), Some(Wallet::new("0x2345")));
+    }
+
+    #[test]
+    fn set_wallets_returns_false_when_the_wallet_does_not_change() {
+        let mut this_node = make_node_record(1234, true, false);
+        assert_eq!(this_node.earning_wallet(), Wallet::new("0x1234"));
+        assert_eq!(this_node.consuming_wallet(), Some(Wallet::new("0x4321")));
+
+        assert!(!this_node.set_wallets(Wallet::new("0x1234"), Some(Wallet::new("0x4321"))));
+
+        assert_eq!(this_node.earning_wallet(), Wallet::new("0x1234"));
+        assert_eq!(this_node.consuming_wallet(), Some(Wallet::new("0x4321")));
     }
 
     #[test]

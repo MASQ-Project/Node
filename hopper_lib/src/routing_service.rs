@@ -12,7 +12,7 @@ use sub_lib::cryptde::PlainData;
 use sub_lib::dispatcher::Component;
 use sub_lib::dispatcher::Endpoint;
 use sub_lib::dispatcher::InboundClientData;
-use sub_lib::hop::Hop;
+use sub_lib::hop::LiveHop;
 use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::hopper::ExpiredCoresPackagePackage;
 use sub_lib::logger::Logger;
@@ -74,7 +74,7 @@ impl RoutingService {
     fn route_data(
         &self,
         sender_ip: IpAddr,
-        next_hop: Hop,
+        next_hop: LiveHop,
         live_package: LiveCoresPackage,
         last_data: bool,
     ) {
@@ -92,6 +92,7 @@ impl RoutingService {
         live_package: LiveCoresPackage,
     ) {
         match component {
+            Component::Hopper => panic!("Internal error"),
             Component::ProxyServer => {
                 self.handle_endpoint(component, &self.to_proxy_server, live_package)
             }
@@ -100,12 +101,6 @@ impl RoutingService {
             }
             Component::Neighborhood => {
                 self.handle_ip_endpoint(component, &self.to_neighborhood, live_package, sender_ip)
-            }
-            component => {
-                unimplemented!(
-                    "Data targets {:?}, but we don't handle that yet: log and ignore",
-                    component
-                );
             }
         }
     }
@@ -245,6 +240,7 @@ mod tests {
     use sub_lib::peer_actors::BindMessage;
     use sub_lib::route::Route;
     use sub_lib::route::RouteSegment;
+    use sub_lib::wallet::Wallet;
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
     use test_utils::recorder::make_peer_actors;
@@ -411,12 +407,14 @@ mod tests {
     fn refuses_data_for_hopper_if_is_bootstrap_node() {
         init_test_logging();
         let cryptde = cryptde();
+        let consuming_wallet = Wallet::new("wallet");
         let route = Route::new(
             vec![RouteSegment::new(
                 vec![&cryptde.public_key(), &cryptde.public_key()],
                 Component::Hopper,
             )],
             cryptde,
+            Some(consuming_wallet),
         )
         .unwrap();
         let payload = PlainData::new(&b"abcd"[..]);
@@ -453,15 +451,17 @@ mod tests {
     fn accepts_data_for_neighborhood_if_is_bootstrap_node() {
         init_test_logging();
         let cryptde = cryptde();
+        let consuming_wallet = Wallet::new("wallet");
         let mut route = Route::new(
             vec![RouteSegment::new(
                 vec![&cryptde.public_key(), &cryptde.public_key()],
                 Component::Neighborhood,
             )],
             cryptde,
+            Some(consuming_wallet),
         )
         .unwrap();
-        route.shift(cryptde);
+        route.shift(cryptde).unwrap();
         let payload = PlainData::new(&b"abcd"[..]);
         let lcp = LiveCoresPackage::new(
             route,
@@ -507,15 +507,17 @@ mod tests {
     fn rejects_data_for_non_neighborhood_component_if_is_bootstrap_node() {
         init_test_logging();
         let cryptde = cryptde();
+        let consuming_wallet = Wallet::new("wallet");
         let mut route = Route::new(
             vec![RouteSegment::new(
                 vec![&cryptde.public_key(), &cryptde.public_key()],
                 Component::ProxyClient,
             )],
             cryptde,
+            Some(consuming_wallet),
         )
         .unwrap();
-        route.shift(cryptde);
+        route.shift(cryptde).unwrap();
         let payload = PlainData::new(&b"abcd"[..]);
         let lcp = LiveCoresPackage::new(
             route,
@@ -553,6 +555,7 @@ mod tests {
     #[test]
     fn passes_on_inbound_client_data_not_meant_for_this_node() {
         let cryptde = cryptde();
+        let consuming_wallet = Wallet::new("wallet");
         let dispatcher = Recorder::new();
         let dispatcher_recording_arc = dispatcher.get_recording();
         let dispatcher_awaiter = dispatcher.get_awaiter();
@@ -563,6 +566,7 @@ mod tests {
                 Component::Neighborhood,
             )],
             cryptde,
+            Some(consuming_wallet),
         )
         .unwrap();
         let payload = PlainData::new(&b"abcd"[..]);

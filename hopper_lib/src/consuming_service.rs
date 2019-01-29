@@ -146,6 +146,7 @@ mod tests {
     use sub_lib::peer_actors::BindMessage;
     use sub_lib::route::Route;
     use sub_lib::route::RouteSegment;
+    use sub_lib::wallet::Wallet;
     use test_utils::recorder::make_peer_actors_from;
     use test_utils::recorder::make_recorder;
     use test_utils::recorder::Recorder;
@@ -155,6 +156,7 @@ mod tests {
     #[test]
     fn converts_incipient_message_to_live_and_sends_to_dispatcher() {
         let cryptde = cryptde();
+        let consuming_wallet = Wallet::new("wallet");
         let dispatcher = Recorder::new();
         let dispatcher_recording_arc = dispatcher.get_recording();
         let dispatcher_awaiter = dispatcher.get_awaiter();
@@ -165,6 +167,7 @@ mod tests {
                 Component::Neighborhood,
             )],
             cryptde,
+            Some(consuming_wallet),
         )
         .unwrap();
         let payload = PlainData::new(&b"abcd"[..]);

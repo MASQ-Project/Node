@@ -85,9 +85,11 @@ mod tests {
     use dispatcher::Component;
     use route::RouteSegment;
     use test_utils::test_utils::PayloadMock;
+    use wallet::Wallet;
 
     #[test]
     fn incipient_cores_package_is_created_correctly() {
+        let consuming_wallet = Wallet::new("wallet");
         let route_key = Key::new(&[1]);
         let route = Route::new(
             vec![
@@ -95,6 +97,7 @@ mod tests {
                 RouteSegment::new(vec![&route_key, &route_key], Component::ProxyServer),
             ],
             &CryptDENull::new(),
+            Some(consuming_wallet.clone()),
         )
         .unwrap();
         let payload = PayloadMock::new();
@@ -114,12 +117,14 @@ mod tests {
         let a_key = Key::new(&[65, 65, 65]);
         let b_key = Key::new(&[66, 66, 66]);
         let cryptde = CryptDENull::new();
+        let consuming_wallet = Wallet::new("wallet");
         let route = Route::new(
             vec![RouteSegment::new(
                 vec![&a_key, &b_key],
                 Component::Neighborhood,
             )],
             &cryptde,
+            Some(consuming_wallet.clone()),
         )
         .unwrap();
         let deserialized_payload = PayloadMock::new();

@@ -19,6 +19,7 @@ use std::time::Duration;
 use std::time::Instant;
 use sub_lib::cryptde::Key;
 use sub_lib::node_addr::NodeAddr;
+use sub_lib::wallet::Wallet;
 use substratum_client::SubstratumNodeClient;
 
 #[derive(PartialEq, Clone, Debug)]
@@ -139,6 +140,11 @@ pub trait SubstratumNode: Any {
     fn node_addr(&self) -> NodeAddr;
     // This contains the IP address of the container in which the Node is running.
     fn socket_addr(&self, port_selector: PortSelector) -> SocketAddr;
+    // This is the wallet address at which this Node expects to be paid.
+    fn earning_wallet(&self) -> Wallet;
+    // This is the wallet address from which this Node expects to pay bills, or None if the Node is earn-only.
+    fn consuming_wallet(&self) -> Option<Wallet>;
+
     fn make_client(&self, port: u16) -> SubstratumNodeClient;
 }
 

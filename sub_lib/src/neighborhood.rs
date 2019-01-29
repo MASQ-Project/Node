@@ -31,7 +31,8 @@ pub struct NeighborhoodConfig {
     pub is_bootstrap_node: bool,
     pub local_ip_addr: IpAddr,
     pub clandestine_port_list: Vec<u16>,
-    pub wallet: Option<Wallet>,
+    pub earning_wallet: Wallet,
+    pub consuming_wallet: Option<Wallet>,
 }
 
 impl NeighborhoodConfig {
@@ -197,7 +198,8 @@ mod tests {
     fn neighborhood_config_is_not_decentralized_if_there_are_no_neighbor_configs() {
         let subject = NeighborhoodConfig {
             neighbor_configs: vec![],
-            wallet: None,
+            earning_wallet: Wallet::new("router"),
+            consuming_wallet: Some(Wallet::new("consumer")),
             is_bootstrap_node: false,
             local_ip_addr: IpAddr::from_str("1.2.3.4").unwrap(),
             clandestine_port_list: vec![1234],
@@ -215,7 +217,8 @@ mod tests {
                 Key::new(&b"key"[..]),
                 NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]),
             )],
-            wallet: None,
+            earning_wallet: Wallet::new("router"),
+            consuming_wallet: Some(Wallet::new("consumer")),
             is_bootstrap_node: false,
             local_ip_addr: sentinel_ip_addr(),
             clandestine_port_list: vec![1234],
@@ -233,7 +236,8 @@ mod tests {
                 Key::new(&b"key"[..]),
                 NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]),
             )],
-            wallet: None,
+            earning_wallet: Wallet::new("router"),
+            consuming_wallet: Some(Wallet::new("consumer")),
             is_bootstrap_node: false,
             local_ip_addr: IpAddr::from_str("1.2.3.4").unwrap(),
             clandestine_port_list: vec![],
@@ -252,7 +256,8 @@ mod tests {
                 Key::new(&b"key"[..]),
                 NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]),
             )],
-            wallet: None,
+            earning_wallet: Wallet::new("router"),
+            consuming_wallet: Some(Wallet::new("consumer")),
             is_bootstrap_node: false,
             local_ip_addr: IpAddr::from_str("1.2.3.4").unwrap(),
             clandestine_port_list: vec![1234],

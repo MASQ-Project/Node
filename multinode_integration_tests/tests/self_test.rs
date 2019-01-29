@@ -30,6 +30,7 @@ use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::neighborhood::sentinel_ip_addr;
 use sub_lib::route::Route;
 use sub_lib::route::RouteSegment;
+use sub_lib::wallet::Wallet;
 use test_utils::test_utils::wait_for;
 
 #[test]
@@ -101,6 +102,7 @@ fn server_relays_cores_package() {
             Component::Neighborhood,
         )],
         cryptde,
+        Some(Wallet::new("consuming")),
     )
     .unwrap();
     let payload = String::from("Booga booga!");
@@ -110,7 +112,7 @@ fn server_relays_cores_package() {
     let package = server.wait_for_package(Duration::from_millis(1000));
     let expired = package.to_expired(server.cryptde());
 
-    route.shift(cryptde);
+    route.shift(cryptde).unwrap();
     assert_eq!(expired.remaining_route, route);
     assert_eq!(
         serde_cbor::de::from_slice::<String>(&expired.payload.data[..]).unwrap(),
@@ -133,6 +135,7 @@ fn one_mock_node_talks_to_another() {
             Component::Hopper,
         )],
         &cryptde,
+        Some(Wallet::new("consuming")),
     )
     .unwrap();
     let incipient_cores_package =

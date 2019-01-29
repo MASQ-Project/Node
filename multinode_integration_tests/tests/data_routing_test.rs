@@ -24,6 +24,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
+use sub_lib::accountant;
 use sub_lib::cryptde::Key;
 use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::dispatcher::Component;
@@ -37,6 +38,7 @@ use sub_lib::route::RouteSegment;
 use sub_lib::sequence_buffer::SequencedPacket;
 use sub_lib::utils::index_of;
 use sub_lib::utils::plus;
+use sub_lib::wallet::Wallet;
 use test_utils::test_utils::make_meaningless_stream_key;
 
 #[test]
@@ -47,6 +49,7 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test() {
     let mock_standard = cluster.start_mock_node(vec![5551]);
     let subject = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
+            .earning_wallet(Wallet::new("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"))
             .neighbor(mock_bootstrap.node_reference())
             .build(),
     );
@@ -60,21 +63,16 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test() {
         public_key: subject.public_key(),
         node_addr_opt: Some(subject.node_addr()),
         is_bootstrap_node: false,
-        wallet: None,
+        earning_wallet: Wallet::new("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"),
+        consuming_wallet: Some(accountant::TEMPORARY_CONSUMING_WALLET.clone()),
         neighbors: vec![mock_bootstrap.public_key()],
         version: 0,
     };
     let cryptde = CryptDENull::from(&subject.public_key());
     let complete_signature = inner.generate_signature(&cryptde);
 
-    let obscured_inner = NodeRecordInner {
-        public_key: subject.public_key(),
-        node_addr_opt: None,
-        is_bootstrap_node: false,
-        wallet: None,
-        neighbors: vec![mock_bootstrap.public_key()],
-        version: 0,
-    };
+    let mut obscured_inner = inner.clone();
+    obscured_inner.node_addr_opt = None;
     let obscured_signature = obscured_inner.generate_signature(&cryptde);
     assert_eq!(
         incoming_gossip.node_records,
@@ -106,6 +104,7 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test() {
             Component::Neighborhood,
         )],
         mock_bootstrap.cryptde(),
+        Some(Wallet::new("0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE")),
     )
     .unwrap();
     let outgoing_package =
@@ -159,6 +158,7 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test() {
             Component::ProxyServer,
         )],
         mock_standard.cryptde(),
+        Some(Wallet::new("consuming")),
     )
     .unwrap();
     let response_payload = ClientResponsePayload {
@@ -227,6 +227,7 @@ fn cores_package_to_http_request_and_http_response_to_cores_package_test() {
             Component::Neighborhood,
         )],
         mock_bootstrap.cryptde(),
+        Some(Wallet::new("consuming")),
     )
     .unwrap();
     let outgoing_package =
@@ -275,6 +276,7 @@ fn cores_package_to_http_request_and_http_response_to_cores_package_test() {
             ),
         ],
         mock_standard.cryptde(),
+        Some(Wallet::new("consuming")),
     )
     .unwrap();
     let outgoing_package =
@@ -321,24 +323,24 @@ fn end_to_end_gossip_and_routing_test() {
             .neighbor(bootstrap_node.node_reference())
             .build(),
     );
+
+    cluster.start_real_node(
+        NodeStartupConfigBuilder::standard()
+            .neighbor(bootstrap_node.node_reference())
+            .build(),
+    );
+    cluster.start_real_node(
+        NodeStartupConfigBuilder::standard()
+            .neighbor(bootstrap_node.node_reference())
+            .build(),
+    );
+    cluster.start_real_node(
+        NodeStartupConfigBuilder::standard()
+            .neighbor(bootstrap_node.node_reference())
+            .build(),
+    );
+
     let mut client = originating_node.make_client(80);
-
-    cluster.start_real_node(
-        NodeStartupConfigBuilder::standard()
-            .neighbor(bootstrap_node.node_reference())
-            .build(),
-    );
-    cluster.start_real_node(
-        NodeStartupConfigBuilder::standard()
-            .neighbor(bootstrap_node.node_reference())
-            .build(),
-    );
-    cluster.start_real_node(
-        NodeStartupConfigBuilder::standard()
-            .neighbor(bootstrap_node.node_reference())
-            .build(),
-    );
-
     client.send_chunk(Vec::from(
         &b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n"[..],
     ));
@@ -350,7 +352,9 @@ fn end_to_end_gossip_and_routing_test() {
             &b"This domain is established to be used for illustrative examples in documents."[..]
         )
         .is_some(),
-        true
+        true,
+        "Actual response:\n{}",
+        String::from_utf8(response).unwrap()
     );
 }
 
@@ -381,7 +385,11 @@ fn cannot_find_route_for_http_request_test() {
          find that Node, but we can't guarantee it. We're sorry.",
     );
 
-    assert!(&response.starts_with(&expected_response));
+    assert!(
+        &response.starts_with(&expected_response),
+        "Actual response:\n{:?}",
+        response
+    );
 }
 
 #[test]
@@ -431,7 +439,9 @@ fn multiple_stream_zero_hop_test() {
             &b"This domain is established to be used for illustrative examples in documents."[..]
         )
         .is_some(),
-        true
+        true,
+        "Actual response:\n{}",
+        String::from_utf8(one_response).unwrap()
     );
     assert_eq!(
         index_of(
@@ -439,7 +449,9 @@ fn multiple_stream_zero_hop_test() {
             &b"FALLING FALLING .COM BY RAFAEL ROZENDAAL"[..]
         )
         .is_some(),
-        true
+        true,
+        "Actual response:\n{}",
+        String::from_utf8(another_response).unwrap()
     );
 }
 
@@ -455,7 +467,8 @@ fn make_gossip(pairs: Vec<(&NodeReference, bool)>) -> Gossip {
                 None
             },
             is_bootstrap_node: false,
-            wallet: None,
+            earning_wallet: Wallet::new("earning"),
+            consuming_wallet: Some(Wallet::new("consuming")),
             neighbors: vec![],
             version: 0,
         };
@@ -463,7 +476,8 @@ fn make_gossip(pairs: Vec<(&NodeReference, bool)>) -> Gossip {
             let mut nr = NodeRecord::new(
                 &node_ref_ref.public_key,
                 Some(&node_ref_ref.node_addr),
-                inner.wallet.clone(),
+                inner.earning_wallet.clone(),
+                inner.consuming_wallet.clone(),
                 false,
                 None,
                 0,

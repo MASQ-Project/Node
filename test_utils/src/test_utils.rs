@@ -29,6 +29,7 @@ use sub_lib::neighborhood::RouteQueryResponse;
 use sub_lib::route::Route;
 use sub_lib::route::RouteSegment;
 use sub_lib::stream_key::StreamKey;
+use sub_lib::wallet::Wallet;
 
 lazy_static! {
     static ref CRYPT_DE_NULL: CryptDENull = CryptDENull::new();
@@ -208,6 +209,7 @@ pub fn make_meaningless_route() -> Route {
             Component::ProxyClient,
         )],
         &CryptDENull::new(),
+        Some(Wallet::new("irrelevant")),
     )
     .unwrap()
 }
@@ -233,6 +235,7 @@ pub fn zero_hop_route_response(public_key: &Key, cryptde: &CryptDE) -> RouteQuer
                 RouteSegment::new(vec![public_key, public_key], Component::ProxyServer),
             ],
             cryptde,
+            None,
         )
         .unwrap(),
         segment_endpoints: vec![public_key.clone(), public_key.clone()],
@@ -240,7 +243,7 @@ pub fn zero_hop_route_response(public_key: &Key, cryptde: &CryptDE) -> RouteQuer
 }
 
 fn shift_one_hop(mut route: Route, cryptde: &CryptDE) -> Route {
-    route.shift(cryptde);
+    route.shift(cryptde).unwrap();
     route
 }
 
@@ -323,7 +326,7 @@ mod tests {
     use std::time::Duration;
     use sub_lib::cryptde::CryptData;
     use sub_lib::cryptde_null::CryptDENull;
-    use sub_lib::hop::Hop;
+    use sub_lib::hop::LiveHop;
 
     #[test]
     fn characterize_zero_hop_route() {
@@ -335,13 +338,13 @@ mod tests {
         assert_eq!(
             subject.route.hops,
             vec!(
-                Hop::new(&key, Component::Hopper)
+                LiveHop::new(&key, None, Component::Hopper)
                     .encode(&key, &cryptde)
                     .unwrap(),
-                Hop::new(&key, Component::ProxyClient)
+                LiveHop::new(&key, None, Component::ProxyClient)
                     .encode(&key, &cryptde)
                     .unwrap(),
-                Hop::new(&Key::new(b""), Component::ProxyServer)
+                LiveHop::new(&Key::new(b""), None, Component::ProxyServer)
                     .encode(&key, &cryptde)
                     .unwrap(),
             )
@@ -356,15 +359,15 @@ mod tests {
 
         let subject = route_to_proxy_client(&key, &cryptde);
 
-        let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(50).collect();
+        let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(68).collect();
         cryptde.random(&mut garbage_can[..]);
         assert_eq!(
             subject.hops,
             vec!(
-                Hop::new(&key, Component::ProxyClient)
+                LiveHop::new(&key, None, Component::ProxyClient)
                     .encode(&key, &cryptde)
                     .unwrap(),
-                Hop::new(&Key::new(b""), Component::ProxyServer)
+                LiveHop::new(&Key::new(b""), None, Component::ProxyServer)
                     .encode(&key, &cryptde)
                     .unwrap(),
                 CryptData::new(&garbage_can[..])
@@ -379,15 +382,15 @@ mod tests {
 
         let subject = route_from_proxy_client(&key, &cryptde);
 
-        let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(50).collect();
+        let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(68).collect();
         cryptde.random(&mut garbage_can[..]);
         assert_eq!(
             subject.hops,
             vec!(
-                Hop::new(&key, Component::ProxyClient)
+                LiveHop::new(&key, None, Component::ProxyClient)
                     .encode(&key, &cryptde)
                     .unwrap(),
-                Hop::new(&Key::new(b""), Component::ProxyServer)
+                LiveHop::new(&Key::new(b""), None, Component::ProxyServer)
                     .encode(&key, &cryptde)
                     .unwrap(),
                 CryptData::new(&garbage_can[..])
@@ -402,12 +405,12 @@ mod tests {
 
         let subject = route_to_proxy_server(&key, &cryptde);
 
-        let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(50).collect();
+        let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(68).collect();
         cryptde.random(&mut garbage_can[..]);
         assert_eq!(
             subject.hops,
             vec!(
-                Hop::new(&Key::new(b""), Component::ProxyServer)
+                LiveHop::new(&Key::new(b""), None, Component::ProxyServer)
                     .encode(&key, &cryptde)
                     .unwrap(),
                 CryptData::new(&garbage_can[..]),

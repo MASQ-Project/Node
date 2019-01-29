@@ -292,6 +292,7 @@ mod tests {
     use sub_lib::neighborhood::RouteQueryMessage;
     use sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
     use sub_lib::stream_handler_pool::TransmitDataMsg;
+    use sub_lib::wallet::Wallet;
     use test_utils::recorder::Recorder;
     use test_utils::recorder::Recording;
     use test_utils::test_utils::cryptde;
@@ -511,7 +512,8 @@ mod tests {
                 is_bootstrap_node: false,
                 local_ip_addr: IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
                 clandestine_port_list: vec![],
-                wallet: None,
+                earning_wallet: Wallet::new("router"),
+                consuming_wallet: Some(Wallet::new("consumer")),
             },
             accountant_config: AccountantConfig {
                 replace_me: String::new(),
@@ -549,7 +551,8 @@ mod tests {
                 is_bootstrap_node: false,
                 local_ip_addr: IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
                 clandestine_port_list: vec![],
-                wallet: None,
+                earning_wallet: Wallet::new("router"),
+                consuming_wallet: Some(Wallet::new("consumer")),
             },
             accountant_config: AccountantConfig {
                 replace_me: String::new(),

@@ -4,7 +4,7 @@ use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::CryptData;
 use sub_lib::cryptde::CryptdecError;
 use sub_lib::cryptde::Key;
-use sub_lib::hop::Hop;
+use sub_lib::hop::LiveHop;
 use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::route::Route;
@@ -31,8 +31,8 @@ impl LiveCoresPackage {
         let mut route = incipient.route.clone();
         let next_hop = match route.shift(cryptde) {
             // crashpoint - should discuss as a team
-            None => unimplemented!("no next_hop shifted out of route"),
-            Some(h) => h,
+            Err(_) => unimplemented!("no next_hop shifted out of route"),
+            Ok(h) => h,
         };
 
         (
@@ -56,19 +56,19 @@ impl LiveCoresPackage {
     ) -> Result<(Key, LiveCoresPackage), CryptdecError> {
         let next_hop = match self.route.shift(cryptde) {
             // crashpoint - should discuss as a team
-            None => unimplemented!(),
-            Some(h) => h,
+            Err(_) => unimplemented!(),
+            Ok(h) => h,
         };
         let next_key = next_hop.public_key;
         let next_live = LiveCoresPackage::new(self.route, self.payload);
         Ok((next_key, next_live))
     }
 
-    pub fn next_hop(&self, cryptde: &CryptDE) -> Hop {
+    pub fn next_hop(&self, cryptde: &CryptDE) -> LiveHop {
         match self.route.next_hop(cryptde) {
             // crashpoint - should discuss as a team
-            None => unimplemented!(),
-            Some(h) => h,
+            Err(_) => unimplemented!(),
+            Ok(h) => h,
         }
     }
 }
@@ -82,6 +82,7 @@ mod tests {
     use sub_lib::hopper::IncipientCoresPackage;
     use sub_lib::route::Route;
     use sub_lib::route::RouteSegment;
+    use sub_lib::wallet::Wallet;
     use test_utils::test_utils::cryptde;
     use test_utils::test_utils::make_meaningless_route;
     use test_utils::test_utils::PayloadMock;
@@ -90,12 +91,14 @@ mod tests {
     fn live_cores_package_can_be_constructed_from_scratch() {
         let payload = CryptData::new(&[5, 6]);
         let cryptde = cryptde();
+        let consuming_wallet = Wallet::new("wallet");
         let route = Route::new(
             vec![RouteSegment::new(
                 vec![&Key::new(&[1, 2]), &Key::new(&[3, 4])],
                 Component::Neighborhood,
             )],
             cryptde,
+            Some(consuming_wallet),
         )
         .unwrap();
 
@@ -108,6 +111,7 @@ mod tests {
     #[test]
     fn live_cores_package_can_be_constructed_from_incipient_cores_package() {
         let cryptde = cryptde();
+        let consuming_wallet = Wallet::new("wallet");
         let key12 = cryptde.public_key();
         let key34 = Key::new(&[3, 4]);
         let key56 = Key::new(&[5, 6]);
@@ -117,6 +121,7 @@ mod tests {
                 Component::Neighborhood,
             )],
             cryptde,
+            Some(consuming_wallet),
         )
         .unwrap();
         let payload = PayloadMock::new();

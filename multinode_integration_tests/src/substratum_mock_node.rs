@@ -31,6 +31,7 @@ use sub_lib::node_addr::NodeAddr;
 use sub_lib::route::Route;
 use sub_lib::route::RouteSegment;
 use sub_lib::utils::indicates_dead_stream;
+use sub_lib::wallet::Wallet;
 use substratum_client::SubstratumNodeClient;
 use substratum_node::NodeReference;
 use substratum_node::PortSelector;
@@ -86,6 +87,14 @@ impl SubstratumNode for SubstratumMockNode {
         SubstratumNodeUtils::socket_addr(&self.node_addr(), port_selector, self.name())
     }
 
+    fn earning_wallet(&self) -> Wallet {
+        self.guts.earning_wallet.clone()
+    }
+
+    fn consuming_wallet(&self) -> Option<Wallet> {
+        self.guts.consuming_wallet.clone()
+    }
+
     fn make_client(&self, _port: u16) -> SubstratumNodeClient {
         unimplemented!()
     }
@@ -97,8 +106,10 @@ impl SubstratumMockNode {
         index: usize,
         host_node_parent_dir: Option<String>,
     ) -> SubstratumMockNode {
-        let node_addr = NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8)), &ports);
         let name = format!("mock_node_{}", index);
+        let node_addr = NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8)), &ports);
+        let earning_wallet = Wallet::new(format!("{}_earning", name).as_str());
+        let consuming_wallet = Some(Wallet::new(format!("{}_consuming", name).as_str()));
         SubstratumNodeUtils::clean_up_existing_container(&name[..]);
         Self::do_docker_run(&node_addr, host_node_parent_dir, &name);
         let wait_addr = SocketAddr::new(node_addr.ip_addr(), CONTROL_STREAM_PORT);
@@ -109,6 +120,8 @@ impl SubstratumMockNode {
         let guts = Rc::new(SubstratumMockNodeGuts {
             name,
             node_addr,
+            earning_wallet,
+            consuming_wallet,
             cryptde,
             framer,
         });
@@ -123,7 +136,8 @@ impl SubstratumMockNode {
         let mut node_record = NodeRecord::new(
             &self.public_key(),
             Some(&self.node_addr()),
-            None,
+            node.earning_wallet(),
+            node.consuming_wallet(),
             false,
             None,
             0,
@@ -137,6 +151,7 @@ impl SubstratumMockNode {
                 Component::Neighborhood,
             )],
             self.cryptde(),
+            node.consuming_wallet().clone(),
         )
         .unwrap();
         let package = IncipientCoresPackage::new(route, gossip, &node.public_key());
@@ -304,6 +319,8 @@ impl SubstratumMockNode {
 struct SubstratumMockNodeGuts {
     name: String,
     node_addr: NodeAddr,
+    earning_wallet: Wallet,
+    consuming_wallet: Option<Wallet>,
     cryptde: Box<CryptDE>,
     framer: RefCell<DataHunkFramer>,
 }

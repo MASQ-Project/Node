@@ -301,6 +301,7 @@ mod tests {
     use sub_lib::route::Route;
     use sub_lib::route::RouteSegment;
     use sub_lib::sequence_buffer::SequencedPacket;
+    use sub_lib::wallet::Wallet;
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
     use test_utils::recorder::make_peer_actors_from;
@@ -498,6 +499,7 @@ mod tests {
     fn proxy_server_receives_http_request_from_dispatcher_then_sends_multihop_cores_package_to_hopper(
     ) {
         let cryptde = cryptde();
+        let consuming_wallet = Wallet::new("wallet");
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let hopper_mock = Recorder::new();
         let hopper_log_arc = hopper_mock.get_recording();
@@ -525,6 +527,7 @@ mod tests {
                 ),
             ],
             cryptde,
+            Some(consuming_wallet),
         )
         .unwrap();
         let (neighborhood_mock, _, neighborhood_recording_arc) = make_recorder();

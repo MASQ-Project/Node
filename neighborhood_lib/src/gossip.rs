@@ -34,7 +34,8 @@ impl GossipNodeRecord {
                 } else {
                     None
                 },
-                wallet: node_record_ref.wallet(),
+                earning_wallet: node_record_ref.earning_wallet(),
+                consuming_wallet: node_record_ref.consuming_wallet(),
                 is_bootstrap_node: node_record_ref.is_bootstrap_node(),
                 neighbors: node_record_ref.neighbors().clone(),
                 version: node_record_ref.version(),
@@ -50,7 +51,8 @@ impl GossipNodeRecord {
         let mut node_record = NodeRecord::new(
             &self.inner.public_key,
             self.inner.node_addr_opt.as_ref(),
-            self.inner.wallet.clone(),
+            self.inner.earning_wallet.clone(),
+            self.inner.consuming_wallet.clone(),
             self.inner.is_bootstrap_node,
             Some(self.signatures.clone()),
             self.inner.version,
@@ -75,7 +77,14 @@ impl GossipNodeRecord {
             "\n\t\tis_bootstrap_node: {:?},",
             self.inner.is_bootstrap_node
         ));
-        human_readable.push_str(&format!("\n\t\twallet: {:?},", self.inner.wallet));
+        human_readable.push_str(&format!(
+            "\n\t\tearning_wallet: {:?},",
+            self.inner.earning_wallet
+        ));
+        human_readable.push_str(&format!(
+            "\n\t\tconsuming_wallet: {:?},",
+            self.inner.consuming_wallet
+        ));
         human_readable.push_str(&format!("\n\t\tneighbors: {:?},", self.inner.neighbors));
         human_readable.push_str(&format!("\n\t\tversion: {:?},", self.inner.version));
         human_readable.push_str("\n\t},");
@@ -187,6 +196,7 @@ mod tests {
     use std::net::IpAddr;
     use std::str::FromStr;
     use sub_lib::node_addr::NodeAddr;
+    use sub_lib::wallet::Wallet;
 
     #[test]
     fn can_create_a_node_record() {
@@ -270,7 +280,8 @@ mod tests {
                 &IpAddr::from_str("1.2.3.4").unwrap(),
                 &vec![1234],
             )),
-            None,
+            Wallet::new("earning"),
+            Some(Wallet::new("consuming")),
             false,
             None,
             0,
@@ -290,7 +301,8 @@ mod tests {
                 &IpAddr::from_str("1.2.3.4").unwrap(),
                 &vec![1234],
             )),
-            None,
+            Wallet::new("earning"),
+            Some(Wallet::new("consuming")),
             false,
             None,
             0,
@@ -308,7 +320,7 @@ mod tests {
         let result = format!("{:?}", gossip);
         let expected = format!(
             "\nGossipNodeRecord {{{}{}\n}}",
-            "\n\tinner: NodeRecordInner {\n\t\tpublic_key: AQIDBA,\n\t\tnode_addr_opt: Some(1.2.3.4:[1234]),\n\t\tis_bootstrap_node: false,\n\t\twallet: Some(Wallet { address: \"0x1234\" }),\n\t\tneighbors: [],\n\t\tversion: 0,\n\t},",
+            "\n\tinner: NodeRecordInner {\n\t\tpublic_key: AQIDBA,\n\t\tnode_addr_opt: Some(1.2.3.4:[1234]),\n\t\tis_bootstrap_node: false,\n\t\tearning_wallet: Wallet { address: \"0x1234\" },\n\t\tconsuming_wallet: Some(Wallet { address: \"0x4321\" }),\n\t\tneighbors: [],\n\t\tversion: 0,\n\t},",
             "\n\tsignatures: Signatures {\n\t\tcomplete: CryptData { data: [115, 105, 103, 110, 101, 100] },\n\t\tobscured: CryptData { data: [115, 105, 103, 110, 101, 100] },\n\t},"
         );
 
