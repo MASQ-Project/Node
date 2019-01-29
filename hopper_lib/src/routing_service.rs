@@ -14,7 +14,6 @@ use sub_lib::dispatcher::Endpoint;
 use sub_lib::dispatcher::InboundClientData;
 use sub_lib::hop::LiveHop;
 use sub_lib::hopper::ExpiredCoresPackage;
-use sub_lib::hopper::ExpiredCoresPackagePackage;
 use sub_lib::logger::Logger;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
 
@@ -23,7 +22,7 @@ pub struct RoutingService {
     is_bootstrap_node: bool,
     to_proxy_client: Recipient<Syn, ExpiredCoresPackage>,
     to_proxy_server: Recipient<Syn, ExpiredCoresPackage>,
-    to_neighborhood: Recipient<Syn, ExpiredCoresPackagePackage>,
+    to_neighborhood: Recipient<Syn, ExpiredCoresPackage>,
     to_dispatcher: Recipient<Syn, TransmitDataMsg>,
     logger: Logger,
 }
@@ -34,7 +33,7 @@ impl RoutingService {
         is_bootstrap_node: bool,
         to_proxy_client: Recipient<Syn, ExpiredCoresPackage>,
         to_proxy_server: Recipient<Syn, ExpiredCoresPackage>,
-        to_neighborhood: Recipient<Syn, ExpiredCoresPackagePackage>,
+        to_neighborhood: Recipient<Syn, ExpiredCoresPackage>,
         to_dispatcher: Recipient<Syn, TransmitDataMsg>,
     ) -> RoutingService {
         RoutingService {
@@ -49,21 +48,26 @@ impl RoutingService {
     }
 
     pub fn route(&self, ibcd: InboundClientData) {
+        let data_size = ibcd.data.len();
         self.logger.debug(format!(
             "Received {} bytes of InboundClientData from Dispatcher",
-            ibcd.data.len()
+            data_size
         ));
         let sender_ip = ibcd.peer_addr.ip();
         let last_data = ibcd.last_data;
         let live_package = match self.decrypt_and_deserialize_lcp(ibcd) {
             Ok(package) => package,
-            Err(_) => {
-                // TODO what should we do here? (nothing is unbound --so we don't need to blow up-- but we can't send this package)
+            Err(_) => return (), // log already written
+        };
+
+        let next_hop = match live_package.route.next_hop(self.cryptde.borrow()) {
+            Ok(hop) => hop,
+            Err(e) => {
+                self.logger
+                    .error(format!("Invalid {}-byte CORES package: {:?}", data_size, e));
                 return ();
             }
         };
-
-        let next_hop = live_package.next_hop(self.cryptde.borrow());
 
         if self.should_route_data(next_hop.component) {
             self.route_data(sender_ip, next_hop, live_package, last_data);
@@ -88,20 +92,29 @@ impl RoutingService {
     fn route_data_internally(
         &self,
         component: Component,
-        sender_ip: IpAddr,
+        immediate_neighbor_ip: IpAddr,
         live_package: LiveCoresPackage,
     ) {
         match component {
             Component::Hopper => panic!("Internal error"),
-            Component::ProxyServer => {
-                self.handle_endpoint(component, &self.to_proxy_server, live_package)
-            }
-            Component::ProxyClient => {
-                self.handle_endpoint(component, &self.to_proxy_client, live_package)
-            }
-            Component::Neighborhood => {
-                self.handle_ip_endpoint(component, &self.to_neighborhood, live_package, sender_ip)
-            }
+            Component::ProxyServer => self.handle_endpoint(
+                component,
+                &self.to_proxy_server,
+                live_package,
+                immediate_neighbor_ip,
+            ),
+            Component::ProxyClient => self.handle_endpoint(
+                component,
+                &self.to_proxy_client,
+                live_package,
+                immediate_neighbor_ip,
+            ),
+            Component::Neighborhood => self.handle_endpoint(
+                component,
+                &self.to_neighborhood,
+                live_package,
+                immediate_neighbor_ip,
+            ),
         }
     }
 
@@ -125,7 +138,7 @@ impl RoutingService {
         live_package: LiveCoresPackage,
         last_data: bool,
     ) -> Result<TransmitDataMsg, CryptdecError> {
-        let (next_key, next_live_package) = match live_package.to_next_live(self.cryptde.borrow()) {
+        let (next_hop, next_live_package) = match live_package.to_next_live(self.cryptde.borrow()) {
             // crashpoint - log error and return None?
             Err(_) => unimplemented!(),
             Ok(p) => p,
@@ -135,16 +148,16 @@ impl RoutingService {
             Err(_) => unimplemented!(),
             Ok(p) => p,
         };
-        let next_live_package_enc = match self
-            .cryptde
-            .encode(&next_key, &PlainData::new(&next_live_package_ser[..]))
-        {
+        let next_live_package_enc = match self.cryptde.encode(
+            &next_hop.public_key,
+            &PlainData::new(&next_live_package_ser[..]),
+        ) {
             // crashpoint - log error and return None?
             Err(_) => unimplemented!(),
             Ok(p) => p,
         };
         Ok(TransmitDataMsg {
-            endpoint: Endpoint::Key(next_key),
+            endpoint: Endpoint::Key(next_hop.public_key),
             last_data,
             data: next_live_package_enc.data,
             sequence_number: None,
@@ -170,8 +183,20 @@ impl RoutingService {
         component: Component,
         recipient: &Recipient<Syn, ExpiredCoresPackage>,
         live_package: LiveCoresPackage,
+        immediate_neighbor_ip: IpAddr,
     ) {
-        let expired_package = live_package.to_expired(self.cryptde.borrow());
+        let data_len = live_package.payload.data.len();
+        let expired_package =
+            match live_package.to_expired(immediate_neighbor_ip, self.cryptde.borrow()) {
+                Ok(pkg) => pkg,
+                Err(e) => {
+                    self.logger.error(format!(
+                        "Couldn't expire CORES package with {}-byte payload: {:?}",
+                        data_len, e
+                    ));
+                    return ();
+                }
+            };
         self.logger.trace(format!(
             "Forwarding ExpiredCoresPackage to {:?}: {:?}",
             component, expired_package
@@ -181,33 +206,15 @@ impl RoutingService {
             .expect(&format!("{:?} is dead", component))
     }
 
-    fn handle_ip_endpoint(
-        &self,
-        component: Component,
-        recipient: &Recipient<Syn, ExpiredCoresPackagePackage>,
-        live_package: LiveCoresPackage,
-        sender_ip: IpAddr,
-    ) {
-        let expired_package = live_package.to_expired(self.cryptde.borrow());
-        let expired_package_package = ExpiredCoresPackagePackage {
-            expired_cores_package: expired_package,
-            sender_ip,
-        };
-        self.logger.trace(format!(
-            "Forwarding ExpiredCoresPackagePackage to {:?}: {:?}",
-            component, expired_package_package
-        ));
-        recipient
-            .try_send(expired_package_package)
-            .expect(&format!("{:?} is dead", component))
-    }
-
     fn decrypt_and_deserialize_lcp(&self, ibcd: InboundClientData) -> Result<LiveCoresPackage, ()> {
         let decrypted_package = match self.cryptde.decode(&CryptData::new(&ibcd.data[..])) {
             Ok(package) => package,
             Err(e) => {
-                self.logger
-                    .error(format!("Couldn't decrypt CORES package: {:?}", e));
+                self.logger.error(format!(
+                    "Couldn't decrypt CORES package from {}-byte buffer: {:?}",
+                    ibcd.data.len(),
+                    e
+                ));
                 return Err(());
             }
         };
@@ -251,7 +258,7 @@ mod tests {
     use test_utils::test_utils::route_to_proxy_client;
     use test_utils::test_utils::route_to_proxy_server;
 
-    #[test]
+    #[test] // TODO: Rewrite test so that subject is RoutingService rather than Hopper
     fn converts_live_message_to_expired_for_proxy_client() {
         let cryptde = cryptde();
         let component = Recorder::new();
@@ -288,11 +295,13 @@ mod tests {
         component_awaiter.await_message_count(1);
         let component_recording = component_recording_arc.lock().unwrap();
         let record = component_recording.get_record::<ExpiredCoresPackage>(0);
-        let expected_ecp = lcp_a.to_expired(cryptde);
+        let expected_ecp = lcp_a
+            .to_expired(IpAddr::from_str("1.2.3.4").unwrap(), cryptde)
+            .unwrap();
         assert_eq!(*record, expected_ecp);
     }
 
-    #[test]
+    #[test] // TODO: Rewrite test so that subject is RoutingService rather than Hopper
     fn converts_live_message_to_expired_for_proxy_server() {
         let cryptde = cryptde();
         let component = Recorder::new();
@@ -308,7 +317,7 @@ mod tests {
         let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
         let data_enc = cryptde.encode(&cryptde.public_key(), &data_ser).unwrap();
         let inbound_client_data = InboundClientData {
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            peer_addr: SocketAddr::from_str("1.3.2.4:5678").unwrap(),
             reception_port: None,
             last_data: false,
             is_clandestine: false,
@@ -329,11 +338,13 @@ mod tests {
         component_awaiter.await_message_count(1);
         let component_recording = component_recording_arc.lock().unwrap();
         let record = component_recording.get_record::<ExpiredCoresPackage>(0);
-        let expected_ecp = lcp_a.to_expired(cryptde);
+        let expected_ecp = lcp_a
+            .to_expired(IpAddr::from_str("1.3.2.4").unwrap(), cryptde)
+            .unwrap();
         assert_eq!(*record, expected_ecp);
     }
 
-    #[test]
+    #[test] // TODO: Rewrite test so that subject is RoutingService rather than Hopper
     fn refuses_data_for_proxy_client_if_is_bootstrap_node() {
         init_test_logging();
         let cryptde = cryptde();
@@ -368,7 +379,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[test] // TODO: Rewrite test so that subject is RoutingService rather than Hopper
     fn refuses_data_for_proxy_server_if_is_bootstrap_node() {
         init_test_logging();
         let cryptde = cryptde();
@@ -403,7 +414,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[test] // TODO: Rewrite test so that subject is RoutingService rather than Hopper
     fn refuses_data_for_hopper_if_is_bootstrap_node() {
         init_test_logging();
         let cryptde = cryptde();
@@ -447,7 +458,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[test] // TODO: Rewrite test so that subject is RoutingService rather than Hopper
     fn accepts_data_for_neighborhood_if_is_bootstrap_node() {
         init_test_logging();
         let cryptde = cryptde();
@@ -489,13 +500,10 @@ mod tests {
         Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
         system.run();
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
-        let message: &ExpiredCoresPackagePackage = neighborhood_recording.get_record(0);
+        let message: &ExpiredCoresPackage = neighborhood_recording.get_record(0);
+        assert_eq!(message.clone().payload_data(), payload);
         assert_eq!(
-            message.clone().expired_cores_package.payload_data(),
-            payload
-        );
-        assert_eq!(
-            message.clone().sender_ip,
+            message.clone().immediate_neighbor_ip,
             IpAddr::from_str("1.2.3.4").unwrap()
         );
         TestLogHandler::new().exists_no_log_containing(
@@ -503,7 +511,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[test] // TODO: Rewrite test so that subject is RoutingService rather than Hopper
     fn rejects_data_for_non_neighborhood_component_if_is_bootstrap_node() {
         init_test_logging();
         let cryptde = cryptde();
@@ -552,7 +560,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[test] // TODO: Rewrite test so that subject is RoutingService rather than Hopper
     fn passes_on_inbound_client_data_not_meant_for_this_node() {
         let cryptde = cryptde();
         let consuming_wallet = Wallet::new("wallet");
@@ -607,6 +615,109 @@ mod tests {
                 sequence_number: None,
                 data: expected_lcp_enc.data,
             }
+        );
+    }
+
+    #[test]
+    fn route_logs_and_ignores_inbound_client_data_that_doesnt_deserialize_properly() {
+        init_test_logging();
+        let inbound_client_data = InboundClientData {
+            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            reception_port: None,
+            last_data: true,
+            is_clandestine: true,
+            sequence_number: None,
+            data: vec![],
+        };
+        let _system = System::new("consume_logs_error_when_given_bad_input_data");
+        let peer_actors = make_peer_actors();
+        let subject = RoutingService::new(
+            cryptde(),
+            false,
+            peer_actors.proxy_client.from_hopper,
+            peer_actors.proxy_server.from_hopper,
+            peer_actors.neighborhood.from_hopper,
+            peer_actors.dispatcher.from_dispatcher_client,
+        );
+
+        subject.route(inbound_client_data);
+
+        TestLogHandler::new().exists_log_containing(
+            "ERROR: RoutingService: Couldn't decrypt CORES package from 0-byte buffer: EmptyData",
+        );
+    }
+
+    #[test]
+    fn route_logs_and_ignores_invalid_live_cores_package() {
+        init_test_logging();
+        let cryptde = cryptde();
+        let lcp = LiveCoresPackage::new(Route { hops: vec![] }, CryptData::new(&[]));
+        let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
+        let data_enc = cryptde.encode(&cryptde.public_key(), &data_ser).unwrap();
+        let inbound_client_data = InboundClientData {
+            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            reception_port: None,
+            last_data: true,
+            is_clandestine: true,
+            sequence_number: None,
+            data: data_enc.data,
+        };
+        let _system = System::new("consume_logs_error_when_given_bad_input_data");
+        let peer_actors = make_peer_actors();
+        let subject = RoutingService::new(
+            cryptde,
+            false,
+            peer_actors.proxy_client.from_hopper,
+            peer_actors.proxy_server.from_hopper,
+            peer_actors.neighborhood.from_hopper,
+            peer_actors.dispatcher.from_dispatcher_client,
+        );
+
+        subject.route(inbound_client_data);
+
+        TestLogHandler::new().exists_log_containing(
+            "ERROR: RoutingService: Invalid 36-byte CORES package: EmptyRoute",
+        );
+    }
+
+    #[test]
+    fn route_logs_and_ignores_incoming_cores_package_that_cant_be_properly_expired() {
+        init_test_logging();
+        let cryptde = cryptde();
+        let hop = LiveHop::new(&cryptde.public_key(), None, Component::Neighborhood);
+        let hop_ser = PlainData::new(&serde_cbor::ser::to_vec(&hop).unwrap()[..]);
+        let hop_enc = cryptde.encode(&cryptde.public_key(), &hop_ser).unwrap();
+        let lcp = LiveCoresPackage::new(
+            Route {
+                hops: vec![hop_enc],
+            },
+            CryptData::new(&[]),
+        );
+        let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
+        let data_enc = cryptde.encode(&cryptde.public_key(), &data_ser).unwrap();
+        let inbound_client_data = InboundClientData {
+            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            reception_port: None,
+            last_data: true,
+            is_clandestine: true,
+            sequence_number: None,
+            data: data_enc.data,
+        };
+        let _system = System::new("consume_logs_error_when_given_bad_input_data");
+        let peer_actors = make_peer_actors();
+        let subject = RoutingService::new(
+            cryptde,
+            false,
+            peer_actors.proxy_client.from_hopper,
+            peer_actors.proxy_server.from_hopper,
+            peer_actors.neighborhood.from_hopper,
+            peer_actors.dispatcher.from_dispatcher_client,
+        );
+
+        subject.route(inbound_client_data);
+
+        TestLogHandler::new().exists_log_containing(
+            "ERROR: RoutingService: Couldn't expire CORES package with 0-byte payload: EmptyData",
         );
     }
 }

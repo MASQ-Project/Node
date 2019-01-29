@@ -317,6 +317,7 @@ mod tests {
         };
         let cryptde = cryptde();
         let package = ExpiredCoresPackage::new(
+            IpAddr::from_str("1.2.3.4").unwrap(),
             test_utils::route_to_proxy_client(&cryptde.public_key(), cryptde),
             PlainData::new(&serde_cbor::ser::to_vec(&request.clone()).unwrap()[..]),
         );
@@ -334,6 +335,7 @@ mod tests {
     fn invalid_package_is_logged_and_discarded() {
         init_test_logging();
         let package = ExpiredCoresPackage::new(
+            IpAddr::from_str("1.2.3.4").unwrap(),
             test_utils::make_meaningless_route(),
             PlainData::new(&b"invalid"[..]),
         );
@@ -365,6 +367,7 @@ mod tests {
             originator_public_key: Key::new(&b"originator"[..]),
         };
         let package = ExpiredCoresPackage::new(
+            IpAddr::from_str("1.2.3.4").unwrap(),
             test_utils::make_meaningless_route(),
             PlainData::new(&serde_cbor::ser::to_vec(&request.clone()).unwrap()[..]),
         );

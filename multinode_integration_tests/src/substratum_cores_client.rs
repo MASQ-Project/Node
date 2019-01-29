@@ -30,7 +30,7 @@ impl<'a> SubstratumCoresClient<'a> {
         recipient_key: Key,
     ) {
         let (live_cores_package, _) =
-            LiveCoresPackage::from_incipient(incipient_cores_package, self.cryptde);
+            LiveCoresPackage::from_incipient(incipient_cores_package, self.cryptde).unwrap();
         let serialized_lcp = serde_cbor::ser::to_vec(&live_cores_package)
             .expect(format!("Serializing LCP: {:?}", live_cores_package).as_str());
         let encoded_serialized_package = self

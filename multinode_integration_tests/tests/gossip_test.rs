@@ -18,6 +18,8 @@ use neighborhood_lib::gossip::GossipNodeRecord;
 use neighborhood_lib::neighborhood_database::NodeRecord;
 use neighborhood_lib::neighborhood_database::NodeRecordInner;
 use neighborhood_lib::neighborhood_database::NodeSignatures;
+use std::net::IpAddr;
+use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use sub_lib::accountant;
@@ -37,7 +39,9 @@ fn when_bootstrapping_from_a_node_then_the_node_sends_gossip_upon_startup() {
     );
 
     let package = server.wait_for_package(Duration::from_millis(1000));
-    let cores_package = package.to_expired(server.cryptde());
+    let cores_package = package
+        .to_expired(IpAddr::from_str("1.2.3.4").unwrap(), server.cryptde())
+        .unwrap();
     let gossip: Gossip = cores_package.payload().unwrap();
     let node_ref = subject.node_reference();
     let inner = NodeRecordInner {

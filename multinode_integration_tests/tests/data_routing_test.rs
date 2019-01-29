@@ -57,7 +57,12 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test() {
     let (_, _, package) = mock_bootstrap
         .wait_for_package(&masquerader, Duration::from_millis(1000))
         .unwrap();
-    let incoming_cores_package = package.to_expired(mock_bootstrap.cryptde());
+    let incoming_cores_package = package
+        .to_expired(
+            IpAddr::from_str("1.2.3.4").unwrap(),
+            mock_bootstrap.cryptde(),
+        )
+        .unwrap();
     let incoming_gossip = incoming_cores_package.payload::<Gossip>().unwrap();
     let inner = NodeRecordInner {
         public_key: subject.public_key(),
@@ -134,7 +139,12 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test() {
     let (_, _, package) = mock_standard
         .wait_for_package(&masquerader, Duration::from_millis(1000))
         .unwrap();
-    let incoming_cores_package = package.to_expired(&CryptDENull::from(&ne1_noderef.public_key));
+    let incoming_cores_package = package
+        .to_expired(
+            IpAddr::from_str("1.2.3.4").unwrap(),
+            &CryptDENull::from(&ne1_noderef.public_key),
+        )
+        .unwrap();
     let request_payload = incoming_cores_package
         .payload::<ClientRequestPayload>()
         .unwrap();
@@ -294,7 +304,12 @@ fn cores_package_to_http_request_and_http_response_to_cores_package_test() {
     let (_, _, package) = mock_standard
         .wait_for_package(&masquerader, Duration::from_millis(1000))
         .unwrap();
-    let incoming_cores_package = package.to_expired(&CryptDENull::from(&ne1_noderef.public_key));
+    let incoming_cores_package = package
+        .to_expired(
+            IpAddr::from_str("1.2.3.4").unwrap(),
+            &CryptDENull::from(&ne1_noderef.public_key),
+        )
+        .unwrap();
     let client_response_payload = incoming_cores_package
         .payload::<ClientResponsePayload>()
         .unwrap();

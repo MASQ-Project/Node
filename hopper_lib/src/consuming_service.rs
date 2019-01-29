@@ -45,18 +45,22 @@ impl ConsumingService {
             "Received IncipientCoresPackage with {}-byte payload",
             incipient_cores_package.payload.data.len()
         ));
-        let (live_package, next_node_key) =
-            LiveCoresPackage::from_incipient(incipient_cores_package, self.cryptde.borrow());
+        match LiveCoresPackage::from_incipient(incipient_cores_package, self.cryptde.borrow()) {
+            Ok((live_package, next_node_key)) => {
+                let encrypted_package =
+                    match self.serialize_and_encrypt_lcp(live_package, &next_node_key) {
+                        Ok(p) => p,
+                        Err(_) => {
+                            // TODO what should we do here? (nothing is unbound --so we don't need to blow up-- but we can't send this package)
+                            return ();
+                        }
+                    };
 
-        let encrypted_package = match self.serialize_and_encrypt_lcp(live_package, &next_node_key) {
-            Ok(p) => p,
-            Err(_) => {
-                // TODO what should we do here? (nothing is unbound --so we don't need to blow up-- but we can't send this package)
-                return ();
+                self.launch_lcp(encrypted_package, next_node_key);
             }
+            Err(e) => self.logger.error(e),
         };
 
-        self.launch_lcp(encrypted_package, next_node_key);
         ()
     }
 
@@ -98,7 +102,7 @@ impl ConsumingService {
 
     fn launch_zero_hop_lcp(&self, encrypted_package: CryptData) {
         let inbound_client_data = InboundClientData {
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678")
+            peer_addr: SocketAddr::from_str("127.0.0.1:0")
                 .expect("Something terrible has happened"), // irrelevant
             reception_port: None, // irrelevant
             last_data: false,     // irrelevant
@@ -140,6 +144,8 @@ mod tests {
     use actix::Addr;
     use actix::System;
     use hopper::Hopper;
+    use std::net::IpAddr;
+    use std::str::FromStr;
     use std::thread;
     use sub_lib::dispatcher::Component;
     use sub_lib::hopper::ExpiredCoresPackage;
@@ -147,13 +153,16 @@ mod tests {
     use sub_lib::route::Route;
     use sub_lib::route::RouteSegment;
     use sub_lib::wallet::Wallet;
+    use test_utils::logging::init_test_logging;
+    use test_utils::logging::TestLogHandler;
+    use test_utils::recorder::make_peer_actors;
     use test_utils::recorder::make_peer_actors_from;
     use test_utils::recorder::make_recorder;
     use test_utils::recorder::Recorder;
     use test_utils::test_utils::cryptde;
     use test_utils::test_utils::zero_hop_route_response;
 
-    #[test]
+    #[test] // TODO: Rewrite test so that subject is ConsumingService rather than Hopper
     fn converts_incipient_message_to_live_and_sends_to_dispatcher() {
         let cryptde = cryptde();
         let consuming_wallet = Wallet::new("wallet");
@@ -188,7 +197,9 @@ mod tests {
         dispatcher_awaiter.await_message_count(1);
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
         let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
-        let expected_lcp = LiveCoresPackage::from_incipient(incipient_cores_package_a, cryptde).0;
+        let expected_lcp = LiveCoresPackage::from_incipient(incipient_cores_package_a, cryptde)
+            .unwrap()
+            .0;
         let expected_lcp_ser = PlainData::new(&serde_cbor::ser::to_vec(&expected_lcp).unwrap());
         let expected_lcp_enc = cryptde.encode(&destination_key, &expected_lcp_ser).unwrap();
         assert_eq!(
@@ -202,7 +213,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[test] // TODO: Rewrite test so that subject is ConsumingService rather than Hopper
     fn hopper_sends_incipient_cores_package_to_recipient_component_when_next_hop_key_is_the_same_as_the_public_key_of_this_node(
     ) {
         let cryptde = cryptde();
@@ -212,7 +223,8 @@ mod tests {
         let payload = PlainData::new(&b"abcd"[..]);
         let incipient_cores_package = IncipientCoresPackage::new(route, payload, &destination_key);
         let incipient_cores_package_a = incipient_cores_package.clone();
-        let (lcp, _key) = LiveCoresPackage::from_incipient(incipient_cores_package_a, cryptde);
+        let (lcp, _key) =
+            LiveCoresPackage::from_incipient(incipient_cores_package_a, cryptde).unwrap();
         thread::spawn(move || {
             let system = System::new ("hopper_sends_incipient_cores_package_to_recipient_component_when_next_hop_key_is_the_same_as_the_public_key_of_this_node");
             let mut peer_actors =
@@ -230,7 +242,30 @@ mod tests {
         component_awaiter.await_message_count(1);
         let component_recording = component_recording_arc.lock().unwrap();
         let record = component_recording.get_record::<ExpiredCoresPackage>(0);
-        let expected_ecp = lcp.to_expired(cryptde);
+        let expected_ecp = lcp
+            .to_expired(IpAddr::from_str("127.0.0.1").unwrap(), cryptde)
+            .unwrap();
         assert_eq!(*record, expected_ecp);
+    }
+
+    #[test]
+    fn consume_logs_error_when_given_bad_input_data() {
+        init_test_logging();
+        let _system = System::new("consume_logs_error_when_given_bad_input_data");
+        let peer_actors = make_peer_actors();
+        let to_dispatcher = peer_actors.dispatcher.from_dispatcher_client;
+        let to_hopper = peer_actors.hopper.from_dispatcher;
+
+        let subject = ConsumingService::new(cryptde(), false, to_dispatcher, to_hopper);
+
+        subject.consume(IncipientCoresPackage::new(
+            Route { hops: vec![] },
+            CryptData::new(&[]),
+            &Key::new(&[1, 2]),
+        ));
+
+        TestLogHandler::new().exists_log_containing(
+            "ERROR: ConsumingService: Could not decrypt next hop: EmptyRoute",
+        );
     }
 }

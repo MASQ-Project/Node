@@ -47,6 +47,8 @@ impl Handler<BindMessage> for Hopper {
     }
 }
 
+// TODO: Make this message return a Future, so that the Proxy Server (or whatever) can tell if its
+// message didn't go through.
 impl Handler<IncipientCoresPackage> for Hopper {
     type Result = ();
 

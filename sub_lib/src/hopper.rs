@@ -34,22 +34,22 @@ impl IncipientCoresPackage {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Message)]
-pub struct ExpiredCoresPackagePackage {
-    pub expired_cores_package: ExpiredCoresPackage,
-    pub sender_ip: IpAddr,
-}
-
 /// CORES package that has traversed the Substratum Network and is arriving at its destination
 #[derive(Clone, Debug, PartialEq, Message)]
 pub struct ExpiredCoresPackage {
-    pub remaining_route: Route,
+    pub immediate_neighbor_ip: IpAddr,
+    pub remaining_route: Route, // This is topped by the hop that brought the package here, not the next hop
     pub payload: PlainData,
 }
 
 impl ExpiredCoresPackage {
-    pub fn new(remaining_route: Route, payload: PlainData) -> ExpiredCoresPackage {
+    pub fn new(
+        immediate_neighbor_ip: IpAddr,
+        remaining_route: Route,
+        payload: PlainData,
+    ) -> ExpiredCoresPackage {
         ExpiredCoresPackage {
+            immediate_neighbor_ip,
             remaining_route,
             payload,
         }
@@ -84,6 +84,7 @@ mod tests {
     use cryptde_null::CryptDENull;
     use dispatcher::Component;
     use route::RouteSegment;
+    use std::str::FromStr;
     use test_utils::test_utils::PayloadMock;
     use wallet::Wallet;
 
@@ -114,6 +115,7 @@ mod tests {
 
     #[test]
     fn expired_cores_package_is_created_correctly() {
+        let immediate_neighbor_ip = IpAddr::from_str("1.2.3.4").unwrap();
         let a_key = Key::new(&[65, 65, 65]);
         let b_key = Key::new(&[66, 66, 66]);
         let cryptde = CryptDENull::new();
@@ -130,8 +132,13 @@ mod tests {
         let deserialized_payload = PayloadMock::new();
         let payload = serde_cbor::ser::to_vec(&deserialized_payload).unwrap();
 
-        let subject = ExpiredCoresPackage::new(route.clone(), PlainData::new(&payload[..]));
+        let subject = ExpiredCoresPackage::new(
+            immediate_neighbor_ip,
+            route.clone(),
+            PlainData::new(&payload[..]),
+        );
 
+        assert_eq!(subject.immediate_neighbor_ip, immediate_neighbor_ip);
         assert_eq!(subject.remaining_route, route);
         assert_eq!(
             subject.payload::<PayloadMock>().unwrap(),

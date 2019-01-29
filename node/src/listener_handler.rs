@@ -308,7 +308,7 @@ mod tests {
         });
 
         // todo fixme wait for listener to be running in a better way
-        thread::sleep(Duration::from_millis(100));
+        thread::sleep(Duration::from_millis(500));
 
         let socket_addr = SocketAddr::new(IpAddr::from_str("127.0.0.1").unwrap(), port);
         let x = net::TcpStream::connect(socket_addr).unwrap();

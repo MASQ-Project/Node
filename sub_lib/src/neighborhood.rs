@@ -4,7 +4,7 @@ use actix::Recipient;
 use actix::Syn;
 use cryptde::Key;
 use dispatcher::Component;
-use hopper::ExpiredCoresPackagePackage;
+use hopper::ExpiredCoresPackage;
 use node_addr::NodeAddr;
 use peer_actors::BindMessage;
 use route::Route;
@@ -49,7 +49,7 @@ pub struct NeighborhoodSubs {
     pub bootstrap: Recipient<Syn, BootstrapNeighborhoodNowMessage>,
     pub node_query: Recipient<Syn, NodeQueryMessage>,
     pub route_query: Recipient<Syn, RouteQueryMessage>,
-    pub from_hopper: Recipient<Syn, ExpiredCoresPackagePackage>,
+    pub from_hopper: Recipient<Syn, ExpiredCoresPackage>,
     pub dispatcher_node_query: Recipient<Syn, DispatcherNodeQueryMessage>,
     pub remove_neighbor: Recipient<Syn, RemoveNeighborMessage>,
 }

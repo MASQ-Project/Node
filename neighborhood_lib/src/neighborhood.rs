@@ -18,7 +18,7 @@ use sub_lib::accountant;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::Key;
 use sub_lib::dispatcher::Component;
-use sub_lib::hopper::ExpiredCoresPackagePackage;
+use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::logger::Logger;
 use sub_lib::neighborhood::sentinel_ip_addr;
@@ -216,15 +216,11 @@ impl Handler<RouteQueryMessage> for Neighborhood {
     }
 }
 
-impl Handler<ExpiredCoresPackagePackage> for Neighborhood {
+impl Handler<ExpiredCoresPackage> for Neighborhood {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        msg: ExpiredCoresPackagePackage,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
-        let incoming_gossip: Gossip = match msg.expired_cores_package.payload() {
+    fn handle(&mut self, msg: ExpiredCoresPackage, _ctx: &mut Self::Context) -> Self::Result {
+        let incoming_gossip: Gossip = match msg.payload() {
             Ok(p) => p,
             Err(_) => {
                 self.logger
@@ -237,7 +233,10 @@ impl Handler<ExpiredCoresPackagePackage> for Neighborhood {
             to_dot_graph(
                 incoming_gossip.clone(),
                 self.neighborhood_database.root().public_key(),
-                match self.neighborhood_database.node_by_ip(&msg.sender_ip) {
+                match self
+                    .neighborhood_database
+                    .node_by_ip(&msg.immediate_neighbor_ip)
+                {
                     Some(node) => node.public_key().clone(),
                     None => Key::new(&[]),
                 }
@@ -386,7 +385,7 @@ impl Neighborhood {
             bootstrap: addr.clone().recipient::<BootstrapNeighborhoodNowMessage>(),
             node_query: addr.clone().recipient::<NodeQueryMessage>(),
             route_query: addr.clone().recipient::<RouteQueryMessage>(),
-            from_hopper: addr.clone().recipient::<ExpiredCoresPackagePackage>(),
+            from_hopper: addr.clone().recipient::<ExpiredCoresPackage>(),
             dispatcher_node_query: addr.clone().recipient::<DispatcherNodeQueryMessage>(),
             remove_neighbor: addr.clone().recipient::<RemoveNeighborMessage>(),
         }
@@ -1574,12 +1573,10 @@ mod tests {
         let earning_wallet = Wallet::new("earning");
         let consuming_wallet = Some(Wallet::new("consuming"));
         init_test_logging();
-        let cores_package = ExpiredCoresPackagePackage {
-            expired_cores_package: ExpiredCoresPackage::new(
-                make_meaningless_route(),
-                PlainData::new(&b"booga"[..]),
-            ),
-            sender_ip: IpAddr::from_str("1.2.3.4").unwrap(),
+        let cores_package = ExpiredCoresPackage {
+            immediate_neighbor_ip: IpAddr::from_str("1.2.3.4").unwrap(),
+            remaining_route: make_meaningless_route(),
+            payload: PlainData::new(&b"booga"[..]),
         };
         let system = System::new("");
         let subject = Neighborhood::new(
@@ -1594,8 +1591,7 @@ mod tests {
             },
         );
         let addr: Addr<Syn, Neighborhood> = subject.start();
-        let sub: Recipient<Syn, ExpiredCoresPackagePackage> =
-            addr.recipient::<ExpiredCoresPackagePackage>();
+        let sub: Recipient<Syn, ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
 
         sub.try_send(cores_package).unwrap();
 
@@ -1704,12 +1700,10 @@ mod tests {
             .push(this_node.public_key().clone());
         let gossip = GossipBuilder::new().node(&gossip_neighbor, true).build();
         let serialized_gossip = PlainData::new(&serde_cbor::ser::to_vec(&gossip).unwrap()[..]);
-        let cores_package = ExpiredCoresPackagePackage {
-            expired_cores_package: ExpiredCoresPackage::new(
-                make_meaningless_route(),
-                serialized_gossip,
-            ),
-            sender_ip: IpAddr::from_str("1.2.3.4").unwrap(),
+        let cores_package = ExpiredCoresPackage {
+            immediate_neighbor_ip: IpAddr::from_str("1.2.3.4").unwrap(),
+            remaining_route: make_meaningless_route(),
+            payload: serialized_gossip,
         };
         let hopper = Recorder::new();
         let hopper_awaiter = hopper.get_awaiter();
@@ -1740,8 +1734,7 @@ mod tests {
             let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None, None);
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            let sub: Recipient<Syn, ExpiredCoresPackagePackage> =
-                addr.recipient::<ExpiredCoresPackagePackage>();
+            let sub: Recipient<Syn, ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
             sub.try_send(cores_package).unwrap();
 
             system.run();
@@ -2264,12 +2257,10 @@ mod tests {
             .push(this_node.public_key().clone());
         let gossip = GossipBuilder::new().node(&one_neighbor, true).build();
         let serialized_gossip = PlainData::new(&serde_cbor::ser::to_vec(&gossip).unwrap()[..]);
-        let cores_package = ExpiredCoresPackagePackage {
-            expired_cores_package: ExpiredCoresPackage::new(
-                make_meaningless_route(),
-                serialized_gossip,
-            ),
-            sender_ip: IpAddr::from_str("1.2.3.4").unwrap(),
+        let cores_package = ExpiredCoresPackage {
+            immediate_neighbor_ip: IpAddr::from_str("1.2.3.4").unwrap(),
+            remaining_route: make_meaningless_route(),
+            payload: serialized_gossip,
         };
         let hopper = Recorder::new();
         let hopper_recording = hopper.get_recording();
@@ -2301,8 +2292,7 @@ mod tests {
             let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None, None);
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            let sub: Recipient<Syn, ExpiredCoresPackagePackage> =
-                addr.recipient::<ExpiredCoresPackagePackage>();
+            let sub: Recipient<Syn, ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
             sub.try_send(cores_package).unwrap();
 
             system.run();
@@ -2342,12 +2332,10 @@ mod tests {
             .node(&far_neighbor, false)
             .build();
         let serialized_gossip = PlainData::new(&serde_cbor::ser::to_vec(&gossip).unwrap()[..]);
-        let cores_package = ExpiredCoresPackagePackage {
-            expired_cores_package: ExpiredCoresPackage::new(
-                make_meaningless_route(),
-                serialized_gossip,
-            ),
-            sender_ip: IpAddr::from_str("1.2.3.4").unwrap(),
+        let cores_package = ExpiredCoresPackage {
+            immediate_neighbor_ip: IpAddr::from_str("1.2.3.4").unwrap(),
+            remaining_route: make_meaningless_route(),
+            payload: serialized_gossip,
         };
         let hopper = Recorder::new();
         let hopper_recording = hopper.get_recording();
@@ -2378,8 +2366,7 @@ mod tests {
             let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None, None);
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            let sub: Recipient<Syn, ExpiredCoresPackagePackage> =
-                addr.recipient::<ExpiredCoresPackagePackage>();
+            let sub: Recipient<Syn, ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
             sub.try_send(cores_package).unwrap();
 
             system.run();
@@ -2415,12 +2402,10 @@ mod tests {
 
         let gossip = GossipBuilder::new().node(&neighborless_node, true).build();
         let serialized_gossip = PlainData::new(&serde_cbor::ser::to_vec(&gossip).unwrap()[..]);
-        let cores_package = ExpiredCoresPackagePackage {
-            expired_cores_package: ExpiredCoresPackage::new(
-                make_meaningless_route(),
-                serialized_gossip,
-            ),
-            sender_ip: neighborless_node.node_addr_opt().unwrap().ip_addr(),
+        let cores_package = ExpiredCoresPackage {
+            immediate_neighbor_ip: neighborless_node.node_addr_opt().unwrap().ip_addr(),
+            remaining_route: make_meaningless_route(),
+            payload: serialized_gossip,
         };
         let hopper = Recorder::new();
         let hopper_recording = hopper.get_recording();
@@ -2463,8 +2448,7 @@ mod tests {
             let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None, None);
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            let sub: Recipient<Syn, ExpiredCoresPackagePackage> =
-                addr.recipient::<ExpiredCoresPackagePackage>();
+            let sub: Recipient<Syn, ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
             sub.try_send(cores_package).unwrap();
 
             system.run();
@@ -2518,12 +2502,10 @@ mod tests {
             .node(&far_neighbor, false)
             .build();
         let serialized_gossip = PlainData::new(&serde_cbor::ser::to_vec(&gossip).unwrap()[..]);
-        let cores_package = ExpiredCoresPackagePackage {
-            expired_cores_package: ExpiredCoresPackage::new(
-                make_meaningless_route(),
-                serialized_gossip,
-            ),
-            sender_ip: IpAddr::from_str("1.2.3.4").unwrap(),
+        let cores_package = ExpiredCoresPackage {
+            immediate_neighbor_ip: IpAddr::from_str("1.2.3.4").unwrap(),
+            remaining_route: make_meaningless_route(),
+            payload: serialized_gossip,
         };
         let hopper = Recorder::new();
         let this_node_inside = this_node.clone();
@@ -2552,14 +2534,13 @@ mod tests {
             let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None, None);
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            let sub: Recipient<Syn, ExpiredCoresPackagePackage> =
-                addr.recipient::<ExpiredCoresPackagePackage>();
+            let sub: Recipient<Syn, ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
             sub.try_send(cores_package).unwrap();
 
             system.run();
         });
         TestLogHandler::new()
-            .await_log_containing(&format!("Finished processing Gossip about 3 Nodes"), 500);
+            .await_log_containing(&format!("Finished processing Gossip about 3 Nodes"), 1000);
 
         TestLogHandler::new().exists_log_containing("Received Gossip: digraph db { ");
         TestLogHandler::new().exists_log_containing("\"AQIDBA\" [label=\"AQIDBA\"];");

@@ -15,7 +15,6 @@ use sub_lib::accountant::AccountantSubs;
 use sub_lib::dispatcher::DispatcherSubs;
 use sub_lib::dispatcher::InboundClientData;
 use sub_lib::hopper::ExpiredCoresPackage;
-use sub_lib::hopper::ExpiredCoresPackagePackage;
 use sub_lib::hopper::HopperSubs;
 use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::neighborhood::BootstrapNeighborhoodNowMessage;
@@ -80,14 +79,6 @@ impl Handler<ExpiredCoresPackage> for Recorder {
     type Result = ();
 
     fn handle(&mut self, msg: ExpiredCoresPackage, _ctx: &mut Self::Context) {
-        self.record(msg);
-    }
-}
-
-impl Handler<ExpiredCoresPackagePackage> for Recorder {
-    type Result = ();
-
-    fn handle(&mut self, msg: ExpiredCoresPackagePackage, _ctx: &mut Self::Context) {
         self.record(msg);
     }
 }
@@ -317,7 +308,7 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Syn, Recorder>) -> NeighborhoodSu
         bootstrap: addr.clone().recipient::<BootstrapNeighborhoodNowMessage>(),
         node_query: addr.clone().recipient::<NodeQueryMessage>(),
         route_query: addr.clone().recipient::<RouteQueryMessage>(),
-        from_hopper: addr.clone().recipient::<ExpiredCoresPackagePackage>(),
+        from_hopper: addr.clone().recipient::<ExpiredCoresPackage>(),
         dispatcher_node_query: addr.clone().recipient::<DispatcherNodeQueryMessage>(),
         remove_neighbor: addr.clone().recipient::<RemoveNeighborMessage>(),
     }

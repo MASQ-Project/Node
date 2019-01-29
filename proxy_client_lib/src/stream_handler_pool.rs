@@ -383,6 +383,7 @@ mod tests {
         tx_to_write.unbounded_send_results = vec![Ok(())];
         let write_parameters = tx_to_write.unbounded_send_params.clone();
         let package = ExpiredCoresPackage::new(
+            IpAddr::from_str("1.2.3.4").unwrap(),
             test_utils::make_meaningless_route(),
             PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
         );
@@ -440,6 +441,7 @@ mod tests {
                 originator_public_key: Key::new(&b"men's souls"[..]),
             };
             let package = ExpiredCoresPackage::new(
+                IpAddr::from_str("1.2.3.4").unwrap(),
                 test_utils::make_meaningless_route(),
                 PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
             );
@@ -500,6 +502,7 @@ mod tests {
                 originator_public_key: Key::new(&b"men's souls"[..]),
             };
             let package = ExpiredCoresPackage::new(
+                IpAddr::from_str("1.2.3.4").unwrap(),
                 test_utils::make_meaningless_route(),
                 PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
             );
@@ -557,6 +560,7 @@ mod tests {
                 originator_public_key: Key::new(&b"men's souls"[..]),
             };
             let package = ExpiredCoresPackage::new(
+                IpAddr::from_str("1.2.3.4").unwrap(),
                 test_utils::make_meaningless_route(),
                 PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
             );
@@ -661,6 +665,7 @@ mod tests {
                 originator_public_key: Key::new(&b"men's souls"[..]),
             };
             let package = ExpiredCoresPackage::new(
+                IpAddr::from_str("1.2.3.4").unwrap(),
                 test_utils::make_meaningless_route(),
                 PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
             );
@@ -737,6 +742,7 @@ mod tests {
                 originator_public_key: Key::new(&b"men's souls"[..]),
             };
             let package = ExpiredCoresPackage::new(
+                IpAddr::from_str("1.2.3.4").unwrap(),
                 test_utils::make_meaningless_route(),
                 PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
             );
@@ -833,6 +839,7 @@ mod tests {
                 originator_public_key: Key::new(&b"men's souls"[..]),
             };
             let package = ExpiredCoresPackage::new(
+                IpAddr::from_str("1.2.3.4").unwrap(),
                 test_utils::make_meaningless_route(),
                 PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
             );
@@ -891,6 +898,7 @@ mod tests {
             originator_public_key: Key::new(&b"men's souls"[..]),
         };
         let package = ExpiredCoresPackage::new(
+            IpAddr::from_str("1.2.3.4").unwrap(),
             test_utils::make_meaningless_route(),
             PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
         );
@@ -960,6 +968,7 @@ mod tests {
             originator_public_key: Key::new(&b"men's souls"[..]),
         };
         let package = ExpiredCoresPackage::new(
+            IpAddr::from_str("1.2.3.4").unwrap(),
             test_utils::make_meaningless_route(),
             PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
         );
@@ -1020,6 +1029,7 @@ mod tests {
                 originator_public_key: Key::new(&b"men's souls"[..]),
             };
             let package = ExpiredCoresPackage::new(
+                IpAddr::from_str("1.2.3.4").unwrap(),
                 test_utils::make_meaningless_route(),
                 PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
             );

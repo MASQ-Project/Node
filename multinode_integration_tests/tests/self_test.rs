@@ -22,6 +22,7 @@ use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::net::TcpStream;
+use std::str::FromStr;
 use std::time::Duration;
 use sub_lib::cryptde::Key;
 use sub_lib::cryptde_null::CryptDENull;
@@ -110,7 +111,9 @@ fn server_relays_cores_package() {
 
     client.transmit_package(incipient, &masquerader, cryptde.public_key());
     let package = server.wait_for_package(Duration::from_millis(1000));
-    let expired = package.to_expired(server.cryptde());
+    let expired = package
+        .to_expired(IpAddr::from_str("1.2.3.4").unwrap(), server.cryptde())
+        .unwrap();
 
     route.shift(cryptde).unwrap();
     assert_eq!(expired.remaining_route, route);
@@ -153,7 +156,9 @@ fn one_mock_node_talks_to_another() {
     let (package_from, package_to, package) = mock_node_2
         .wait_for_package(&masquerader, Duration::from_millis(1000))
         .unwrap();
-    let expired_cores_package = package.to_expired(mock_node_2.cryptde());
+    let expired_cores_package = package
+        .to_expired(IpAddr::from_str("1.2.3.4").unwrap(), mock_node_2.cryptde())
+        .unwrap();
 
     assert_eq!(package_from.ip(), mock_node_1.ip_address());
     assert_eq!(package_to, mock_node_2.socket_addr(PortSelector::First));

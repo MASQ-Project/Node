@@ -182,7 +182,7 @@ impl SubstratumMockNode {
         target_key: &Key,
         target_addr: SocketAddr,
     ) -> Result<(), io::Error> {
-        let (lcp, _) = LiveCoresPackage::from_incipient(package, self.cryptde());
+        let (lcp, _) = LiveCoresPackage::from_incipient(package, self.cryptde()).unwrap();
         let lcp_data = serde_cbor::ser::to_vec(&lcp).unwrap();
         let encrypted_data = self
             .cryptde()
@@ -242,8 +242,8 @@ impl SubstratumMockNode {
     pub fn wait_for_gossip(&self, timeout: Duration) -> Option<Gossip> {
         let masquerader = JsonMasquerader::new();
         match self.wait_for_package(&masquerader, timeout) {
-            Ok((_, _, package)) => {
-                let incoming_cores_package = package.to_expired(self.cryptde());
+            Ok((from, _, package)) => {
+                let incoming_cores_package = package.to_expired(from.ip(), self.cryptde()).unwrap();
                 incoming_cores_package.payload::<Gossip>().ok()
             }
             Err(_) => None,

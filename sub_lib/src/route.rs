@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use cryptde::CryptDE;
 use cryptde::CryptData;
+use cryptde::CryptdecError;
 use cryptde::Key;
 use dispatcher::Component;
 use hop::LiveHop;
@@ -15,7 +16,7 @@ pub struct Route {
 impl Route {
     pub fn new(
         route_segments: Vec<RouteSegment>,
-        cryptde: &CryptDE,
+        cryptde: &CryptDE, // Any CryptDE can go here; it's only used to encrypt to public keys.
         consuming_wallet: Option<Wallet>,
     ) -> Result<Route, RouteError> {
         if route_segments.is_empty() {
@@ -58,6 +59,7 @@ impl Route {
         Route::hops_to_route(hops[1..].to_vec(), &route_segments[0].keys[0], cryptde)
     }
 
+    // This cryptde must be the CryptDE of the next hop to come off the Route.
     pub fn next_hop(&self, cryptde: &CryptDE) -> Result<LiveHop, RouteError> {
         match self.hops.first() {
             None => Err(RouteError::EmptyRoute),
@@ -82,7 +84,7 @@ impl Route {
 
     fn decode_hop(cryptde: &CryptDE, hop_enc: &CryptData) -> Result<LiveHop, RouteError> {
         match LiveHop::decode(cryptde, hop_enc) {
-            Err(_) => Err(RouteError::HopDecodeProblem),
+            Err(e) => Err(RouteError::HopDecodeProblem(e)),
             Ok(h) => Ok(h),
         }
     }
@@ -124,7 +126,7 @@ impl RouteSegment {
 
 #[derive(Debug, PartialEq)]
 pub enum RouteError {
-    HopDecodeProblem,
+    HopDecodeProblem(CryptdecError),
     EmptyRoute,
     NoRouteSegments,
     TooFewKeysInRouteSegment,

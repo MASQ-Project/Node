@@ -285,6 +285,7 @@ mod tests {
     use actix::Arbiter;
     use actix::System;
     use std::cell::RefCell;
+    use std::net::IpAddr;
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::sync::Arc;
@@ -976,8 +977,11 @@ mod tests {
         };
         let incipient_cores_package =
             IncipientCoresPackage::new(remaining_route.clone(), client_response_payload, &key);
-        let first_expired_cores_package =
-            ExpiredCoresPackage::new(remaining_route, incipient_cores_package.payload);
+        let first_expired_cores_package = ExpiredCoresPackage::new(
+            IpAddr::from_str("1.2.3.4").unwrap(),
+            remaining_route,
+            incipient_cores_package.payload,
+        );
         let second_expired_cores_package = first_expired_cores_package.clone();
         let mut peer_actors =
             make_peer_actors_from(None, Some(dispatcher_mock), None, None, None, None);
@@ -1026,8 +1030,11 @@ mod tests {
         };
         let incipient_cores_package =
             IncipientCoresPackage::new(remaining_route.clone(), client_response_payload, &key);
-        let first_expired_cores_package =
-            ExpiredCoresPackage::new(remaining_route, incipient_cores_package.payload);
+        let first_expired_cores_package = ExpiredCoresPackage::new(
+            IpAddr::from_str("1.2.3.4").unwrap(),
+            remaining_route,
+            incipient_cores_package.payload,
+        );
         let second_expired_cores_package = first_expired_cores_package.clone();
         let mut peer_actors =
             make_peer_actors_from(None, Some(dispatcher_mock), None, None, None, None);
@@ -1077,8 +1084,11 @@ mod tests {
         };
         let incipient_cores_package =
             IncipientCoresPackage::new(remaining_route.clone(), client_response_payload, &key);
-        let expired_cores_package =
-            ExpiredCoresPackage::new(remaining_route, incipient_cores_package.payload);
+        let expired_cores_package = ExpiredCoresPackage::new(
+            IpAddr::from_str("1.2.3.4").unwrap(),
+            remaining_route,
+            incipient_cores_package.payload,
+        );
 
         subject_addr.try_send(expired_cores_package).unwrap();
 
