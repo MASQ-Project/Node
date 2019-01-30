@@ -12,6 +12,7 @@ use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 use sub_lib::accountant::AccountantSubs;
+use sub_lib::accountant::ReportRoutingServiceMessage;
 use sub_lib::dispatcher::DispatcherSubs;
 use sub_lib::dispatcher::InboundClientData;
 use sub_lib::hopper::ExpiredCoresPackage;
@@ -151,6 +152,14 @@ impl Handler<RemoveNeighborMessage> for Recorder {
     type Result = ();
 
     fn handle(&mut self, msg: RemoveNeighborMessage, _ctx: &mut Self::Context) {
+        self.record(msg);
+    }
+}
+
+impl Handler<ReportRoutingServiceMessage> for Recorder {
+    type Result = ();
+
+    fn handle(&mut self, msg: ReportRoutingServiceMessage, _ctx: &mut Self::Context) {
         self.record(msg);
     }
 }
@@ -317,6 +326,7 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Syn, Recorder>) -> NeighborhoodSu
 pub fn make_accountant_subs_from(addr: &Addr<Syn, Recorder>) -> AccountantSubs {
     AccountantSubs {
         bind: addr.clone().recipient::<BindMessage>(),
+        report_routing_service: addr.clone().recipient::<ReportRoutingServiceMessage>(),
     }
 }
 

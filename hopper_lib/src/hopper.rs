@@ -42,6 +42,7 @@ impl Handler<BindMessage> for Hopper {
             msg.peer_actors.proxy_server.from_hopper,
             msg.peer_actors.neighborhood.from_hopper,
             msg.peer_actors.dispatcher.from_dispatcher_client,
+            msg.peer_actors.accountant.report_routing_service,
         ));
         ()
     }

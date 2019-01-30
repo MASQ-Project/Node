@@ -5,6 +5,7 @@ use actix::Syn;
 use live_cores_package::LiveCoresPackage;
 use std::borrow::Borrow;
 use std::net::IpAddr;
+use sub_lib::accountant::ReportRoutingServiceMessage;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::CryptData;
 use sub_lib::cryptde::CryptdecError;
@@ -16,6 +17,7 @@ use sub_lib::hop::LiveHop;
 use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::logger::Logger;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
+use sub_lib::wallet::Wallet;
 
 pub struct RoutingService {
     cryptde: &'static CryptDE,
@@ -24,6 +26,7 @@ pub struct RoutingService {
     to_proxy_server: Recipient<Syn, ExpiredCoresPackage>,
     to_neighborhood: Recipient<Syn, ExpiredCoresPackage>,
     to_dispatcher: Recipient<Syn, TransmitDataMsg>,
+    to_accountant_routing: Recipient<Syn, ReportRoutingServiceMessage>,
     logger: Logger,
 }
 
@@ -35,6 +38,7 @@ impl RoutingService {
         to_proxy_server: Recipient<Syn, ExpiredCoresPackage>,
         to_neighborhood: Recipient<Syn, ExpiredCoresPackage>,
         to_dispatcher: Recipient<Syn, TransmitDataMsg>,
+        to_accountant_routing: Recipient<Syn, ReportRoutingServiceMessage>,
     ) -> RoutingService {
         RoutingService {
             cryptde,
@@ -43,6 +47,7 @@ impl RoutingService {
             to_proxy_server,
             to_neighborhood,
             to_dispatcher,
+            to_accountant_routing,
             logger: Logger::new("RoutingService"),
         }
     }
@@ -83,7 +88,7 @@ impl RoutingService {
         last_data: bool,
     ) {
         if next_hop.component == Component::Hopper {
-            self.route_data_externally(live_package, last_data);
+            self.route_data_externally(live_package, next_hop.consuming_wallet, last_data);
         } else {
             self.route_data_internally(next_hop.component, sender_ip, live_package)
         }
@@ -118,12 +123,36 @@ impl RoutingService {
         }
     }
 
-    fn route_data_externally(&self, live_package: LiveCoresPackage, last_data: bool) {
+    fn route_data_externally(
+        &self,
+        live_package: LiveCoresPackage,
+        consuming_wallet_opt: Option<Wallet>,
+        last_data: bool,
+    ) {
+        let payload_size = live_package.payload.data.len() as u32;
+        match consuming_wallet_opt {
+            Some(consuming_wallet) => self
+                .to_accountant_routing
+                .try_send(ReportRoutingServiceMessage {
+                    consuming_wallet,
+                    payload_size,
+                })
+                .expect("Accountant is dead"),
+            None => {
+                self.logger.error(format!(
+                    "Refusing to route CORES package with {}-byte payload without consuming wallet",
+                    payload_size
+                ));
+                return ();
+            }
+        }
+
         let transmit_msg = match self.to_transmit_data_msg(live_package, last_data) {
             // crashpoint - need to figure out how to bubble up different kinds of errors, or just log and return
             Err(_) => unimplemented!(),
             Ok(m) => m,
         };
+
         self.logger.debug(format!(
             "Relaying {}-byte LiveCoresPackage Dispatcher inside a TransmitDataMsg",
             transmit_msg.data.len()
@@ -243,7 +272,10 @@ mod tests {
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::thread;
+    use sub_lib::accountant::ReportRoutingServiceMessage;
     use sub_lib::cryptde::Key;
+    use sub_lib::cryptde_null::CryptDENull;
+    use sub_lib::hopper::IncipientCoresPackage;
     use sub_lib::peer_actors::BindMessage;
     use sub_lib::route::Route;
     use sub_lib::route::RouteSegment;
@@ -257,6 +289,7 @@ mod tests {
     use test_utils::test_utils::cryptde;
     use test_utils::test_utils::route_to_proxy_client;
     use test_utils::test_utils::route_to_proxy_server;
+    use test_utils::test_utils::PayloadMock;
 
     #[test] // TODO: Rewrite test so that subject is RoutingService rather than Hopper
     fn converts_live_message_to_expired_for_proxy_client() {
@@ -564,9 +597,8 @@ mod tests {
     fn passes_on_inbound_client_data_not_meant_for_this_node() {
         let cryptde = cryptde();
         let consuming_wallet = Wallet::new("wallet");
-        let dispatcher = Recorder::new();
-        let dispatcher_recording_arc = dispatcher.get_recording();
-        let dispatcher_awaiter = dispatcher.get_awaiter();
+        let (dispatcher, dispatcher_awaiter, dispatcher_recording_arc) = make_recorder();
+        let (accountant, accountant_awaiter, accountant_recording_arc) = make_recorder();
         let next_key = Key::new(&[65, 65, 65]);
         let route = Route::new(
             vec![RouteSegment::new(
@@ -574,7 +606,7 @@ mod tests {
                 Component::Neighborhood,
             )],
             cryptde,
-            Some(consuming_wallet),
+            Some(consuming_wallet.clone()),
         )
         .unwrap();
         let payload = PlainData::new(&b"abcd"[..]);
@@ -592,7 +624,8 @@ mod tests {
         };
         thread::spawn(move || {
             let system = System::new("converts_live_message_to_expired_for_proxy_server");
-            let peer_actors = make_peer_actors_from(None, Some(dispatcher), None, None, None, None);
+            let peer_actors =
+                make_peer_actors_from(None, Some(dispatcher), None, None, None, Some(accountant));
             let subject = Hopper::new(cryptde, false);
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -616,6 +649,66 @@ mod tests {
                 data: expected_lcp_enc.data,
             }
         );
+        accountant_awaiter.await_message_count(1);
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        let message = accountant_recording.get_record::<ReportRoutingServiceMessage>(0);
+        assert_eq!(
+            *message,
+            ReportRoutingServiceMessage {
+                consuming_wallet,
+                payload_size: lcp.payload.data.len() as u32
+            }
+        )
+    }
+
+    #[test]
+    fn route_logs_and_ignores_cores_package_that_demands_routing_without_consuming_wallet() {
+        init_test_logging();
+        let cryptde = cryptde();
+        let origin_key = Key::new(&[1, 2]);
+        let origin_cryptde = CryptDENull::from(&origin_key);
+        let destination_key = Key::new(&[3, 4]);
+        let payload = PayloadMock::new();
+        let route = Route::new(
+            vec![RouteSegment::new(
+                vec![&origin_key, &cryptde.public_key(), &destination_key],
+                Component::ProxyClient,
+            )],
+            &origin_cryptde,
+            None,
+        )
+        .unwrap();
+        let icp = IncipientCoresPackage::new(route, payload, &destination_key);
+        let (lcp, _) = LiveCoresPackage::from_incipient(icp, &origin_cryptde).unwrap();
+        let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
+        let data_enc = cryptde.encode(&cryptde.public_key(), &data_ser).unwrap();
+        let inbound_client_data = InboundClientData {
+            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            reception_port: None,
+            last_data: true,
+            is_clandestine: true,
+            sequence_number: None,
+            data: data_enc.data,
+        };
+        let _system = System::new(
+            "route_logs_and_ignores_cores_package_that_demands_routing_without_consuming_wallet",
+        );
+        let peer_actors = make_peer_actors();
+        let subject = RoutingService::new(
+            cryptde,
+            false,
+            peer_actors.proxy_client.from_hopper,
+            peer_actors.proxy_server.from_hopper,
+            peer_actors.neighborhood.from_hopper,
+            peer_actors.dispatcher.from_dispatcher_client,
+            peer_actors.accountant.report_routing_service,
+        );
+
+        subject.route(inbound_client_data);
+
+        TestLogHandler::new().exists_log_containing(
+            "ERROR: RoutingService: Refusing to route CORES package with 23-byte payload without consuming wallet",
+        );
     }
 
     #[test]
@@ -638,6 +731,7 @@ mod tests {
             peer_actors.proxy_server.from_hopper,
             peer_actors.neighborhood.from_hopper,
             peer_actors.dispatcher.from_dispatcher_client,
+            peer_actors.accountant.report_routing_service,
         );
 
         subject.route(inbound_client_data);
@@ -671,6 +765,7 @@ mod tests {
             peer_actors.proxy_server.from_hopper,
             peer_actors.neighborhood.from_hopper,
             peer_actors.dispatcher.from_dispatcher_client,
+            peer_actors.accountant.report_routing_service,
         );
 
         subject.route(inbound_client_data);
@@ -712,6 +807,7 @@ mod tests {
             peer_actors.proxy_server.from_hopper,
             peer_actors.neighborhood.from_hopper,
             peer_actors.dispatcher.from_dispatcher_client,
+            peer_actors.accountant.report_routing_service,
         );
 
         subject.route(inbound_client_data);

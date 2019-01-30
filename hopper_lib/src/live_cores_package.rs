@@ -33,7 +33,7 @@ impl LiveCoresPackage {
 
     pub fn from_incipient(
         incipient: IncipientCoresPackage,
-        cryptde: &CryptDE, // can be any CryptDE: only used for encrypting
+        cryptde: &CryptDE, // must be the CryptDE of the Node to which the top hop is encrypted
     ) -> Result<(LiveCoresPackage, Key), String> {
         let encrypted_payload =
             match cryptde.encode(&incipient.payload_destination_key, &incipient.payload) {

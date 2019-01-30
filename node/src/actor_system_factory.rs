@@ -280,6 +280,7 @@ mod tests {
     use std::time::Duration;
     use stream_messages::AddStreamMsg;
     use stream_messages::RemoveStreamMsg;
+    use sub_lib::accountant::ReportRoutingServiceMessage;
     use sub_lib::crash_point::CrashPoint;
     use sub_lib::cryptde::PlainData;
     use sub_lib::dispatcher::InboundClientData;
@@ -386,6 +387,7 @@ mod tests {
             let addr: Addr<Syn, Recorder> = ActorFactoryMock::start_recorder(&self.accountant);
             AccountantSubs {
                 bind: addr.clone().recipient::<BindMessage>(),
+                report_routing_service: addr.clone().recipient::<ReportRoutingServiceMessage>(),
             }
         }
 
