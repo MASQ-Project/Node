@@ -239,7 +239,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("test");
             let hopper_sub =
-                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None)
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None, None)
                     .hopper
                     .from_hopper_client;
             tx.send(hopper_sub).is_ok();
@@ -350,7 +350,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("test");
             let hopper_sub =
-                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None)
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None, None)
                     .hopper
                     .from_hopper_client;
             tx.send(hopper_sub).is_ok();
@@ -426,7 +426,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("test");
             let hopper_sub =
-                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None)
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None, None)
                     .hopper
                     .from_hopper_client;
             tx.send(hopper_sub).is_ok();
@@ -536,7 +536,7 @@ mod tests {
             let system =
                 System::new("receiving_0_bytes_sends_empty_cores_response_and_kills_stream");
             let hopper_sub =
-                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None)
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None, None)
                     .hopper
                     .from_hopper_client;
 
@@ -606,7 +606,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("non_dead_stream_read_errors_log_but_do_not_shut_down");
             let hopper_sub =
-                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None)
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None, None)
                     .hopper
                     .from_hopper_client;
 

@@ -4,6 +4,10 @@ export SUDO_UID=$1
 export SUDO_GID=$2
 shift 2
 echo PID=$$
+
 $@ > /dev/null # ignore stdout to avoid overflowing the buffer
 
-
+# Uncomment these to get println!s from Node logged to a file
+#touch /tmp/node_log.txt
+#chmod 777 /tmp/node_log.txt
+#$@ >> /tmp/node_log.txt

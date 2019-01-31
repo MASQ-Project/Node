@@ -5,16 +5,16 @@ module.exports = (() => {
   const treeKill = require('tree-kill')
   const path = require('path')
 
-  function killNodeProcess () {
-    ps().then((list) => {
+  async function killNodeProcess () {
+    return ps().then((list) => {
       list.filter(row =>
         (row.name.indexOf('SubstratumNode') >= 0 && row.cmd.indexOf('static' + path.sep + 'binaries') >= 0)
       ).forEach(item => treeKill(item.pid))
     })
   }
 
-  function findNodeProcess (callback) {
-    ps().then(function (list) {
+  async function findNodeProcess (callback) {
+    return ps().then(function (list) {
       callback(list.filter(row =>
         (row.name.indexOf('SubstratumNode') >= 0 && row.cmd.indexOf('static' + path.sep + 'binaries') >= 0)
       ))

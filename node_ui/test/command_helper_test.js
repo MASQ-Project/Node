@@ -23,31 +23,42 @@ describe('CommandHelper', () => {
   })
 
   describe('Unix Platforms', () => {
+    let subject
+
     beforeEach(() => {
       process.platform = 'linux'
-      td.when(process.getuid()).thenReturn('uid')
-      td.when(process.getgid()).thenReturn('gid')
+      td.when(process.getuid()).thenReturn('os-uid')
+      td.when(process.getgid()).thenReturn('os-gid')
 
       subject = require('../command-process/command_helper')
     })
 
-    it('sets sudo environment variables', () => {
-      assert.strictEqual(process.env.SUDO_UID, 'uid')
-      assert.strictEqual(process.env.SUDO_GID, 'gid')
-    })
-
     describe('starting', () => {
-      const command = /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" uid gid ".*[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns_servers \d.*/
+      describe('when the environment variables SUDO_UID and SUDO_GID are missing', () => {
+        const command = /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" os-uid os-gid ".*[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns_servers \d.*/
 
-      beforeEach(() => {
-        process.platform = 'notwindows'
-        subject = require('../command-process/command_helper')
+        beforeEach(() => {
+          subject.startSubstratumNode('callback')
+        })
 
-        subject.startSubstratumNode('callback')
+        it('executes the command via sudo prompt', () => {
+          td.verify(sudoPrompt.exec(td.matchers.contains(command), { name: 'Substratum Node' }, 'callback'))
+        })
       })
 
-      it('executes the command via sudo prompt', () => {
-        td.verify(sudoPrompt.exec(td.matchers.contains(command), { name: 'Substratum Node' }, 'callback'))
+      describe('when the environment variables SUDO_UID and SUDO_GID are populated', () => {
+        const command = /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" env-uid env-gid ".*[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns_servers \d.*/
+
+        beforeEach(() => {
+          process.env = {SUDO_UID: 'env-uid', SUDO_GID: 'env-gid'}
+          subject = require('../command-process/command_helper')
+
+          subject.startSubstratumNode('callback')
+        })
+
+        it('executes the command via sudo prompt', () => {
+          td.verify(sudoPrompt.exec(td.matchers.contains(command), { name: 'Substratum Node' }, 'callback'))
+        })
       })
     })
 

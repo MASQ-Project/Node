@@ -283,9 +283,9 @@ pub fn await_messages<T>(expected_message_count: usize, messages_arc_mutex: &Arc
     }
 }
 
-pub fn wait_for<F>(interval_ms: Option<u64>, limit_ms: Option<u64>, f: F)
+pub fn wait_for<F>(interval_ms: Option<u64>, limit_ms: Option<u64>, mut f: F)
 where
-    F: Fn() -> bool,
+    F: FnMut() -> bool,
 {
     let real_interval_ms = interval_ms.unwrap_or(250);
     let real_limit_ms = limit_ms.unwrap_or(1000);

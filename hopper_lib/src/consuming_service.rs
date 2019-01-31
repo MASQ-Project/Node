@@ -185,7 +185,8 @@ mod tests {
         let incipient_cores_package_a = incipient_cores_package.clone();
         thread::spawn(move || {
             let system = System::new("converts_incipient_message_to_live_and_sends_to_dispatcher");
-            let peer_actors = make_peer_actors_from(None, Some(dispatcher), None, None, None, None);
+            let peer_actors =
+                make_peer_actors_from(None, Some(dispatcher), None, None, None, None, None);
             let subject = Hopper::new(cryptde, false);
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -228,7 +229,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new ("hopper_sends_incipient_cores_package_to_recipient_component_when_next_hop_key_is_the_same_as_the_public_key_of_this_node");
             let mut peer_actors =
-                make_peer_actors_from(None, None, None, Some(component), None, None);
+                make_peer_actors_from(None, None, None, Some(component), None, None, None);
             let subject = Hopper::new(cryptde, false);
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             let subject_subs = Hopper::make_subs_from(&subject_addr);

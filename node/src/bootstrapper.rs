@@ -28,6 +28,8 @@ use sub_lib::neighborhood::NeighborhoodConfig;
 use sub_lib::node_addr::NodeAddr;
 use sub_lib::parameter_finder::ParameterFinder;
 use sub_lib::socket_server::SocketServer;
+use sub_lib::ui_gateway::UiGatewayConfig;
+use sub_lib::ui_gateway::DEFAULT_UI_PORT;
 use sub_lib::wallet::Wallet;
 use tokio::prelude::stream::futures_unordered::FuturesUnordered;
 use tokio::prelude::Async;
@@ -43,6 +45,7 @@ pub struct BootstrapperConfig {
     pub accountant_config: AccountantConfig,
     pub crash_point: CrashPoint,
     pub clandestine_discriminator_factories: Vec<Box<DiscriminatorFactory>>,
+    pub ui_gateway_config: UiGatewayConfig,
 }
 
 impl BootstrapperConfig {
@@ -62,6 +65,9 @@ impl BootstrapperConfig {
             },
             crash_point: CrashPoint::None,
             clandestine_discriminator_factories: vec![],
+            ui_gateway_config: UiGatewayConfig {
+                ui_port: DEFAULT_UI_PORT,
+            },
         }
     }
 }
@@ -163,6 +169,7 @@ impl Bootstrapper {
             Bootstrapper::parse_neighbor_configs(&finder, "--neighbor");
         config.neighborhood_config.is_bootstrap_node = Bootstrapper::parse_node_type(&finder);
         config.neighborhood_config.local_ip_addr = local_ip_addr;
+        config.ui_gateway_config.ui_port = Bootstrapper::parse_ui_port(&finder);
         config.neighborhood_config.earning_wallet = Bootstrapper::parse_wallet_address(&finder)
             .unwrap_or(accountant::DEFAULT_EARNING_WALLET.clone());
         // TODO: In real life this should come from a command-line parameter
@@ -217,6 +224,24 @@ impl Bootstrapper {
                 ),
             },
             None => sentinel_ip_addr(),
+        }
+    }
+
+    fn parse_ui_port(finder: &ParameterFinder) -> u16 {
+        let usage = "--ui_port <port number>";
+        match finder.find_value_for("--ui_port", usage) {
+            Some(port_string) => match str::parse::<u16>(port_string.as_str()) {
+                Ok(port_number) if port_number < 1024 => panic!(
+                    "Invalid port for --ui_port <port number>: '{}'",
+                    port_string
+                ),
+                Ok(port_number) => port_number,
+                Err(_) => panic!(
+                    "Invalid port for --ui_port <port number>: '{}'",
+                    port_string
+                ),
+            },
+            None => DEFAULT_UI_PORT,
         }
     }
 
@@ -804,6 +829,68 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Invalid port for --ui_port <port number>: 'booga'")]
+    fn parse_complains_about_non_numeric_ui_port() {
+        let finder = ParameterFinder::new(
+            vec!["--ui_port", "booga"]
+                .into_iter()
+                .map(String::from)
+                .collect(),
+        );
+
+        Bootstrapper::parse_ui_port(&finder);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid port for --ui_port <port number>: '1023'")]
+    fn parse_complains_about_ui_port_too_low() {
+        let finder = ParameterFinder::new(
+            vec!["--ui_port", "1023"]
+                .into_iter()
+                .map(String::from)
+                .collect(),
+        );
+
+        Bootstrapper::parse_ui_port(&finder);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid port for --ui_port <port number>: '65536'")]
+    fn parse_complains_about_ui_port_too_high() {
+        let finder = ParameterFinder::new(
+            vec!["--ui_port", "65536"]
+                .into_iter()
+                .map(String::from)
+                .collect(),
+        );
+
+        Bootstrapper::parse_ui_port(&finder);
+    }
+
+    #[test]
+    fn parse_ui_port_works() {
+        let finder = ParameterFinder::new(
+            vec!["--ui_port", "5335"]
+                .into_iter()
+                .map(String::from)
+                .collect(),
+        );
+
+        let result = Bootstrapper::parse_ui_port(&finder);
+
+        assert_eq!(result, 5335)
+    }
+
+    #[test]
+    fn parse_ui_port_defaults() {
+        let finder = ParameterFinder::new(vec![]);
+
+        let result = Bootstrapper::parse_ui_port(&finder);
+
+        assert_eq!(result, DEFAULT_UI_PORT)
+    }
+
+    #[test]
     fn parse_args_creates_configurations() {
         let args: Vec<String> = vec![
             "--irrelevant",
@@ -822,6 +909,8 @@ mod tests {
             "VGVk:2.3.4.5:3456,4567",
             "--node_type",
             "bootstrap",
+            "--ui_port",
+            "5335",
             "--irrelevant",
             "irrelevant",
             "--wallet_address",
@@ -861,6 +950,7 @@ mod tests {
             config.neighborhood_config.local_ip_addr,
             IpAddr::V4(Ipv4Addr::new(34, 56, 78, 90))
         );
+        assert_eq!(config.ui_gateway_config.ui_port, 5335);
         assert_eq!(
             config.neighborhood_config.earning_wallet,
             Wallet::new("0xbDfeFf9A1f4A1bdF483d680046344316019C58CF")

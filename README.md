@@ -158,6 +158,11 @@ full potential, and should probably only be used when you're going to run the No
 that's been giving you problems, and then shut it off to look at the logs. `error` logs only the 
 most serious of errors, and the other values are in-between compromise points. Default is `warn`.
 
+* `--ui_port <port>`
+This is how you tell the node which port it should listen on for local WebSocket connections to the UI gateway. This allows
+the node to be controlled and inspected by other programs, such as the Substratum Node UI. The default port is 5333; in most
+cases, this will not need to be changed.
+
 If you try to start your SubstratumNode decentralized, you will quickly discover that these parameters have
 a great deal of interdependence on each other.  Some are required, some are optional, some are optional only if others
 are provided, and so on.  Here's a brief description of the dependencies.

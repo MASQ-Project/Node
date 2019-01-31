@@ -316,7 +316,8 @@ mod tests {
         };
         thread::spawn(move || {
             let system = System::new("converts_live_message_to_expired_for_proxy_client");
-            let peer_actors = make_peer_actors_from(None, None, None, Some(component), None, None);
+            let peer_actors =
+                make_peer_actors_from(None, None, None, Some(component), None, None, None);
             let subject = Hopper::new(cryptde, false);
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -359,7 +360,8 @@ mod tests {
         };
         thread::spawn(move || {
             let system = System::new("converts_live_message_to_expired_for_proxy_server");
-            let peer_actors = make_peer_actors_from(Some(component), None, None, None, None, None);
+            let peer_actors =
+                make_peer_actors_from(Some(component), None, None, None, None, None, None);
             let subject = Hopper::new(cryptde, false);
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -525,7 +527,8 @@ mod tests {
         let subject = Hopper::new(cryptde, true);
         let subject_addr: Addr<Syn, Hopper> = subject.start();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
-        let peer_actors = make_peer_actors_from(None, None, None, None, Some(neighborhood), None);
+        let peer_actors =
+            make_peer_actors_from(None, None, None, None, Some(neighborhood), None, None);
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(inbound_client_data.clone()).unwrap();
@@ -579,7 +582,8 @@ mod tests {
         let subject = Hopper::new(cryptde, true);
         let subject_addr: Addr<Syn, Hopper> = subject.start();
         let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
-        let peer_actors = make_peer_actors_from(None, None, None, Some(proxy_client), None, None);
+        let peer_actors =
+            make_peer_actors_from(None, None, None, Some(proxy_client), None, None, None);
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(inbound_client_data.clone()).unwrap();
@@ -624,8 +628,15 @@ mod tests {
         };
         thread::spawn(move || {
             let system = System::new("converts_live_message_to_expired_for_proxy_server");
-            let peer_actors =
-                make_peer_actors_from(None, Some(dispatcher), None, None, None, Some(accountant));
+            let peer_actors = make_peer_actors_from(
+                None,
+                Some(dispatcher),
+                None,
+                None,
+                None,
+                Some(accountant),
+                None,
+            );
             let subject = Hopper::new(cryptde, false);
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();

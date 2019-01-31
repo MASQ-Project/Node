@@ -392,9 +392,10 @@ mod tests {
             let system = System::new("test");
 
             let hopper = Recorder::new();
-            let hopper_sub = make_peer_actors_from(None, None, Some(hopper), None, None, None)
-                .hopper
-                .from_hopper_client;
+            let hopper_sub =
+                make_peer_actors_from(None, None, Some(hopper), None, None, None, None)
+                    .hopper
+                    .from_hopper_client;
             let mut subject = StreamHandlerPoolReal::new(
                 Box::new(ResolverWrapperMock::new()),
                 cryptde(),
@@ -447,7 +448,7 @@ mod tests {
             );
             let system = System::new("test");
             let hopper_sub =
-                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None)
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None, None)
                     .hopper
                     .from_hopper_client;
             let resolver = ResolverWrapperMock::new()
@@ -486,7 +487,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("test");
             let hopper_sub =
-                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None)
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None, None)
                     .hopper
                     .from_hopper_client;
             let client_request_payload = ClientRequestPayload {
@@ -544,7 +545,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("test");
             let hopper_sub =
-                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None)
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None, None)
                     .hopper
                     .from_hopper_client;
             let client_request_payload = ClientRequestPayload {
@@ -649,7 +650,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("test");
             let hopper_sub =
-                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None)
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None, None)
                     .hopper
                     .from_hopper_client;
             let client_request_payload = ClientRequestPayload {
@@ -724,7 +725,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("test");
             let hopper_sub =
-                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None)
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None, None)
                     .hopper
                     .from_hopper_client;
             let sequenced_packet = SequencedPacket {
@@ -845,7 +846,7 @@ mod tests {
             );
             let system = System::new("test");
             let hopper_sub =
-                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None)
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None, None)
                     .hopper
                     .from_hopper_client;
             let mut lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
@@ -906,7 +907,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("test");
             let hopper_sub =
-                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None)
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None, None)
                     .hopper
                     .from_hopper_client;
             let resolver = ResolverWrapperMock::new();
@@ -979,7 +980,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("test");
             let hopper_sub =
-                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None)
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None, None)
                     .hopper
                     .from_hopper_client;
             let resolver = ResolverWrapperMock::new();
@@ -1013,7 +1014,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("test");
             let hopper_sub =
-                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None)
+                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None, None)
                     .hopper
                     .from_hopper_client;
             let client_request_payload = ClientRequestPayload {

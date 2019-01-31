@@ -48,9 +48,9 @@
     "dev": "./node_modules/.bin/node-sass assets/styles/main.scss assets/styles/main.css -w -r --output-style compact & electron .",
     "start": "electron .",
     "lint": "standard --fix",
-    "test": "mocha",
-    "unit": "mocha test/*_test.js",
-    "spec": "mocha test/*_spec.js",
+    "test": "jasmine",
+    "unit": "jasmine test/*_test.js",
+    "spec": "jasmine test/*_spec.js",
     "pack": "electron-builder --dir",
     "dist": "electron-builder"
   },
@@ -59,16 +59,19 @@
     "electron": "^2.0.6",
     "electron-builder": "^20.13.3",
     "electron-reload": "^1.2.5",
-    "mocha": "^5.1.1",
+    "jasmine": "^3.3.1",
     "node-sass": "^4.5.0",
-    "spectron": "^3.8.0",
+    "spectron": "^4.0.0",
     "standard": "^11.0.1",
     "testdouble": "^3.8.0"
   },
   "dependencies": {
+    "electron-log": "^2.2.17",
+    "isomorphic-ws": "^4.0.1",
     "node-cmd": "^3.0.0",
     "ps-list": "^5.0.0",
     "sudo-prompt": "^8.2.0",
-    "tree-kill": "^1.2.0"
+    "tree-kill": "^1.2.0",
+    "ws": "^6.1.2"
   }
 }

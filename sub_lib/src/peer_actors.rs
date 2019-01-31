@@ -8,6 +8,7 @@ use proxy_server::ProxyServerSubs;
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
+use ui_gateway::UiGatewaySubs;
 
 #[derive(Clone)]
 pub struct PeerActors {
@@ -17,6 +18,7 @@ pub struct PeerActors {
     pub proxy_client: ProxyClientSubs,
     pub neighborhood: NeighborhoodSubs,
     pub accountant: AccountantSubs,
+    pub ui_gateway: UiGatewaySubs,
 }
 
 impl Debug for PeerActors {

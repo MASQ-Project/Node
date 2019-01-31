@@ -3,6 +3,7 @@
 module.exports = (() => {
   const path = require('../wrappers/path_wrapper')
   const process = require('../wrappers/process_wrapper')
+  const consoleWrapper = require('../wrappers/console_wrapper')
   const cmd = require('node-cmd')
   const sudoPrompt = require('sudo-prompt')
   const treeKill = require('tree-kill')
@@ -26,6 +27,7 @@ module.exports = (() => {
     runtimeArgs.forEach(function (value) {
       command += value + ' '
     })
+    consoleWrapper.log('getCommand(): ' + command)
     return command
   }
 
@@ -34,6 +36,7 @@ module.exports = (() => {
   }
 
   function startNodeUnix (callback) {
+    consoleWrapper.log('command_helper: invoking startNodeUnix')
     sudoPrompt.exec(getCommand(), { name: 'Substratum Node' }, callback)
   }
 
@@ -57,10 +60,20 @@ module.exports = (() => {
     startSubstratumNode = startNodeWindows
     stopSubstratumNode = stopNodeWindows
   } else {
-    process.env.SUDO_UID = process.getuid()
-    process.env.SUDO_GID = process.getgid()
+    consoleWrapper.log('command_helper: configuring startNodeUnix')
+    let sudoUid, sudoGid
+    if (process.env.SUDO_UID) {
+      sudoUid = process.env.SUDO_UID
+    } else {
+      sudoUid = process.getuid()
+    }
+    if (process.env.SUDO_GID) {
+      sudoGid = process.env.SUDO_GID
+    } else {
+      sudoGid = process.getgid()
+    }
     binaryPath = getBinaryPath()
-    scriptPath = getScriptPath('sh') + ' ' + process.getuid() + ' ' + process.getgid()
+    scriptPath = getScriptPath('sh') + ' ' + sudoUid + ' ' + sudoGid
     startSubstratumNode = startNodeUnix
     stopSubstratumNode = stopNodeUnix
   }

@@ -33,6 +33,9 @@ use sub_lib::peer_actors::BindMessage;
 use sub_lib::peer_actors::PeerActors;
 use sub_lib::proxy_client::ProxyClientSubs;
 use sub_lib::proxy_server::ProxyServerSubs;
+use sub_lib::ui_gateway::UiGatewayConfig;
+use sub_lib::ui_gateway::UiGatewaySubs;
+use ui_gateway_lib::ui_gateway::UiGateway;
 
 pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(
@@ -87,6 +90,7 @@ impl ActorSystemFactoryReal {
         let neighborhood_subs =
             actor_factory.make_and_start_neighborhood(cryptde, config.neighborhood_config);
         let accountant_subs = actor_factory.make_and_start_accountant(config.accountant_config);
+        let ui_gateway_subs = actor_factory.make_and_start_ui_gateway(config.ui_gateway_config);
         let stream_handler_pool_subs = actor_factory
             .make_and_start_stream_handler_pool(config.clandestine_discriminator_factories);
 
@@ -98,6 +102,7 @@ impl ActorSystemFactoryReal {
             hopper: hopper_subs,
             neighborhood: neighborhood_subs.clone(),
             accountant: accountant_subs.clone(),
+            ui_gateway: ui_gateway_subs.clone(),
         };
 
         //bind all the actors
@@ -143,6 +148,13 @@ impl ActorSystemFactoryReal {
                 peer_actors: peer_actors.clone(),
             })
             .expect("Accountant is dead");
+        peer_actors
+            .ui_gateway
+            .bind
+            .try_send(BindMessage {
+                peer_actors: peer_actors.clone(),
+            })
+            .expect("UiGateway is dead");
         stream_handler_pool_subs
             .bind
             .try_send(PoolBindMessage {
@@ -187,6 +199,7 @@ pub trait ActorFactory: Send {
         config: NeighborhoodConfig,
     ) -> NeighborhoodSubs;
     fn make_and_start_accountant(&self, config: AccountantConfig) -> AccountantSubs;
+    fn make_and_start_ui_gateway(&self, config: UiGatewayConfig) -> UiGatewaySubs;
     fn make_and_start_stream_handler_pool(
         &self,
         clandestine_discriminator_factories: Vec<Box<DiscriminatorFactory>>,
@@ -246,6 +259,12 @@ impl ActorFactory for ActorFactoryReal {
         Accountant::make_subs_from(&addr)
     }
 
+    fn make_and_start_ui_gateway(&self, config: UiGatewayConfig) -> UiGatewaySubs {
+        let ui_gateway = UiGateway::new(&config);
+        let addr: Addr<Syn, UiGateway> = ui_gateway.start();
+        UiGateway::make_subs_from(&addr)
+    }
+
     fn make_and_start_stream_handler_pool(
         &self,
         clandestine_discriminator_factories: Vec<Box<DiscriminatorFactory>>,
@@ -292,6 +311,9 @@ mod tests {
     use sub_lib::neighborhood::RouteQueryMessage;
     use sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
     use sub_lib::stream_handler_pool::TransmitDataMsg;
+    use sub_lib::ui_gateway::FromUiMessage;
+    use sub_lib::ui_gateway::UiGatewayConfig;
+    use sub_lib::ui_gateway::UiMessage;
     use sub_lib::wallet::Wallet;
     use test_utils::recorder::Recorder;
     use test_utils::recorder::Recording;
@@ -305,6 +327,7 @@ mod tests {
         neighborhood: RefCell<Option<Recorder>>,
         accountant: RefCell<Option<Recorder>>,
         stream_handler_pool: RefCell<Option<Recorder>>,
+        ui_gateway: RefCell<Option<Recorder>>,
 
         parameters: Parameters<'a>,
     }
@@ -391,6 +414,20 @@ mod tests {
             }
         }
 
+        fn make_and_start_ui_gateway(&self, config: UiGatewayConfig) -> UiGatewaySubs {
+            self.parameters
+                .ui_gateway_params
+                .lock()
+                .unwrap()
+                .get_or_insert(config);
+            let addr: Addr<Syn, Recorder> = ActorFactoryMock::start_recorder(&self.ui_gateway);
+            UiGatewaySubs {
+                bind: addr.clone().recipient::<BindMessage>(),
+                ui_message_sub: addr.clone().recipient::<UiMessage>(),
+                from_ui_message_sub: addr.clone().recipient::<FromUiMessage>(),
+            }
+        }
+
         fn make_and_start_stream_handler_pool(
             &self,
             _: Vec<Box<DiscriminatorFactory>>,
@@ -432,6 +469,7 @@ mod tests {
         neighborhood: Arc<Mutex<Recording>>,
         accountant: Arc<Mutex<Recording>>,
         stream_handler_pool: Arc<Mutex<Recording>>,
+        ui_gateway: Arc<Mutex<Recording>>,
     }
 
     #[derive(Clone)]
@@ -441,6 +479,7 @@ mod tests {
         hopper_params: Arc<Mutex<Option<(&'a CryptDE, bool)>>>,
         neighborhood_params: Arc<Mutex<Option<(&'a CryptDE, NeighborhoodConfig)>>>,
         accountant_params: Arc<Mutex<Option<AccountantConfig>>>,
+        ui_gateway_params: Arc<Mutex<Option<UiGatewayConfig>>>,
     }
 
     impl<'a> Parameters<'a> {
@@ -451,6 +490,7 @@ mod tests {
                 hopper_params: Arc::new(Mutex::new(None)),
                 neighborhood_params: Arc::new(Mutex::new(None)),
                 accountant_params: Arc::new(Mutex::new(None)),
+                ui_gateway_params: Arc::new(Mutex::new(None)),
             }
         }
 
@@ -470,6 +510,7 @@ mod tests {
                 neighborhood: RefCell::new(Some(Recorder::new())),
                 accountant: RefCell::new(Some(Recorder::new())),
                 stream_handler_pool: RefCell::new(Some(Recorder::new())),
+                ui_gateway: RefCell::new(Some(Recorder::new())),
 
                 parameters: Parameters::new(),
             }
@@ -489,6 +530,7 @@ mod tests {
                     .as_ref()
                     .unwrap()
                     .get_recording(),
+                ui_gateway: self.ui_gateway.borrow().as_ref().unwrap().get_recording(),
             }
         }
 
@@ -520,6 +562,7 @@ mod tests {
                 replace_me: String::new(),
             },
             clandestine_discriminator_factories: Vec::new(),
+            ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
         };
         let subject = ActorSystemFactoryReal {};
         unsafe {
@@ -535,6 +578,7 @@ mod tests {
         Recording::get::<BindMessage>(&recordings.proxy_server, 0);
         Recording::get::<BindMessage>(&recordings.neighborhood, 0);
         Recording::get::<BindMessage>(&recordings.accountant, 0);
+        Recording::get::<BindMessage>(&recordings.ui_gateway, 0);
         Recording::get::<PoolBindMessage>(&recordings.stream_handler_pool, 0);
         Recording::get::<BootstrapNeighborhoodNowMessage>(&recordings.neighborhood, 1);
     }
@@ -559,6 +603,7 @@ mod tests {
                 replace_me: String::new(),
             },
             clandestine_discriminator_factories: Vec::new(),
+            ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
         };
         let (tx, rx) = mpsc::channel();
         let system = System::new("SubstratumNode");
@@ -577,6 +622,7 @@ mod tests {
         check_bind_message(&recordings.proxy_client);
         check_bind_message(&recordings.proxy_server);
         check_bind_message(&recordings.neighborhood);
+        check_bind_message(&recordings.ui_gateway);
         let (cryptde, is_bootstrap_node) = Parameters::get(parameters.hopper_params);
         check_cryptde(cryptde);
         assert_eq!(is_bootstrap_node, false);
@@ -590,6 +636,8 @@ mod tests {
         let (cryptde, neighborhood_config) = Parameters::get(parameters.neighborhood_params);
         check_cryptde(cryptde);
         assert_eq!(neighborhood_config, config.neighborhood_config);
+        let ui_gateway_config = Parameters::get(parameters.ui_gateway_params);
+        assert_eq!(ui_gateway_config.ui_port, 5335);
         let _stream_handler_pool_subs = rx.recv().unwrap();
         // more...more...what? How to check contents of _stream_handler_pool_subs?
     }

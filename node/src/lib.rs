@@ -19,6 +19,7 @@ extern crate serde_derive;
 extern crate serde_json;
 extern crate sub_lib;
 extern crate tokio;
+extern crate ui_gateway_lib;
 
 #[cfg(test)]
 extern crate test_utils;

@@ -32,6 +32,9 @@ use sub_lib::proxy_client::ProxyClientSubs;
 use sub_lib::proxy_server::ProxyServerSubs;
 use sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
+use sub_lib::ui_gateway::FromUiMessage;
+use sub_lib::ui_gateway::UiGatewaySubs;
+use sub_lib::ui_gateway::UiMessage;
 use test_utils::to_millis;
 
 pub struct Recorder {
@@ -132,6 +135,14 @@ impl Handler<RouteQueryMessage> for Recorder {
     }
 }
 
+impl Handler<RemoveNeighborMessage> for Recorder {
+    type Result = ();
+
+    fn handle(&mut self, msg: RemoveNeighborMessage, _ctx: &mut Self::Context) {
+        self.record(msg);
+    }
+}
+
 impl Handler<DispatcherNodeQueryResponse> for Recorder {
     type Result = ();
 
@@ -148,10 +159,18 @@ impl Handler<DispatcherNodeQueryMessage> for Recorder {
     }
 }
 
-impl Handler<RemoveNeighborMessage> for Recorder {
+impl Handler<UiMessage> for Recorder {
     type Result = ();
 
-    fn handle(&mut self, msg: RemoveNeighborMessage, _ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: UiMessage, _ctx: &mut Self::Context) {
+        self.record(msg);
+    }
+}
+
+impl Handler<FromUiMessage> for Recorder {
+    type Result = ();
+
+    fn handle(&mut self, msg: FromUiMessage, _ctx: &mut Self::Context) {
         self.record(msg);
     }
 }
@@ -330,6 +349,14 @@ pub fn make_accountant_subs_from(addr: &Addr<Syn, Recorder>) -> AccountantSubs {
     }
 }
 
+pub fn make_ui_gateway_subs_from(addr: &Addr<Syn, Recorder>) -> UiGatewaySubs {
+    UiGatewaySubs {
+        bind: addr.clone().recipient::<BindMessage>(),
+        ui_message_sub: addr.clone().recipient::<UiMessage>(),
+        from_ui_message_sub: addr.clone().recipient::<FromUiMessage>(),
+    }
+}
+
 // This must be called after System.new and before System.run
 pub fn make_peer_actors_from(
     proxy_server: Option<Recorder>,
@@ -338,6 +365,7 @@ pub fn make_peer_actors_from(
     proxy_client: Option<Recorder>,
     neighborhood: Option<Recorder>,
     accountant: Option<Recorder>,
+    ui_gateway: Option<Recorder>,
 ) -> PeerActors {
     let proxy_server = proxy_server.unwrap_or(Recorder::new());
     let dispatcher = dispatcher.unwrap_or(Recorder::new());
@@ -345,6 +373,7 @@ pub fn make_peer_actors_from(
     let proxy_client = proxy_client.unwrap_or(Recorder::new());
     let neighborhood = neighborhood.unwrap_or(Recorder::new());
     let accountant = accountant.unwrap_or(Recorder::new());
+    let ui_gateway = ui_gateway.unwrap_or(Recorder::new());
 
     make_peer_actors_from_recorders(
         proxy_server,
@@ -353,12 +382,14 @@ pub fn make_peer_actors_from(
         proxy_client,
         neighborhood,
         accountant,
+        ui_gateway,
     )
 }
 
 // This must be called after System.new and before System.run
 pub fn make_peer_actors() -> PeerActors {
     make_peer_actors_from_recorders(
+        Recorder::new(),
         Recorder::new(),
         Recorder::new(),
         Recorder::new(),
@@ -375,6 +406,7 @@ fn make_peer_actors_from_recorders(
     proxy_client: Recorder,
     neighborhood: Recorder,
     accountant: Recorder,
+    ui_gateway: Recorder,
 ) -> PeerActors {
     let proxy_server_addr = proxy_server.start();
     let dispatcher_addr = dispatcher.start();
@@ -382,6 +414,7 @@ fn make_peer_actors_from_recorders(
     let proxy_client_addr = proxy_client.start();
     let neighborhood_addr = neighborhood.start();
     let accountant_addr = accountant.start();
+    let ui_gateway_addr = ui_gateway.start();
 
     PeerActors {
         proxy_server: make_proxy_server_subs_from(&proxy_server_addr),
@@ -390,6 +423,7 @@ fn make_peer_actors_from_recorders(
         proxy_client: make_proxy_client_subs_from(&proxy_client_addr),
         neighborhood: make_neighborhood_subs_from(&neighborhood_addr),
         accountant: make_accountant_subs_from(&accountant_addr),
+        ui_gateway: make_ui_gateway_subs_from(&ui_gateway_addr),
     }
 }
 

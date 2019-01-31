@@ -511,7 +511,8 @@ mod tests {
             subject.stream_connector = Box::new(StreamConnectorMock::new());
             let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = make_peer_actors_from(None, Some(dispatcher), None, None, None, None);
+            let peer_actors =
+                make_peer_actors_from(None, Some(dispatcher), None, None, None, None, None);
 
             subject_subs
                 .bind
@@ -862,7 +863,7 @@ mod tests {
             let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
             let peer_actors =
-                make_peer_actors_from(None, None, None, None, Some(neighborhood), None);
+                make_peer_actors_from(None, None, None, None, Some(neighborhood), None, None);
             subject_subs
                 .bind
                 .try_send(PoolBindMessage {
@@ -949,8 +950,15 @@ mod tests {
             );
             let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors =
-                make_peer_actors_from(None, Some(dispatcher), None, None, Some(neighborhood), None);
+            let peer_actors = make_peer_actors_from(
+                None,
+                Some(dispatcher),
+                None,
+                None,
+                Some(neighborhood),
+                None,
+                None,
+            );
             subject_subs
                 .bind
                 .try_send(PoolBindMessage {
@@ -1040,7 +1048,7 @@ mod tests {
             let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
             let peer_actors =
-                make_peer_actors_from(None, None, None, None, Some(neighborhood), None);
+                make_peer_actors_from(None, None, None, None, Some(neighborhood), None, None);
             subject_subs
                 .bind
                 .try_send(PoolBindMessage {

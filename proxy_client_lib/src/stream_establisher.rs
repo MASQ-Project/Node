@@ -168,9 +168,10 @@ mod tests {
         let (hopper_tx, hopper_rx) = mpsc::channel();
         thread::spawn(move || {
             let system = System::new("test");
-            let hopper_sub = make_peer_actors_from(None, None, Some(hopper), None, None, None)
-                .hopper
-                .from_hopper_client;
+            let hopper_sub =
+                make_peer_actors_from(None, None, Some(hopper), None, None, None, None)
+                    .hopper
+                    .from_hopper_client;
             hopper_tx.send(hopper_sub).is_ok();
             system.run();
         });
@@ -245,9 +246,10 @@ mod tests {
         let (hopper_tx, hopper_rx) = mpsc::channel();
         thread::spawn(move || {
             let system = System::new("test");
-            let hopper_sub = make_peer_actors_from(None, None, Some(hopper), None, None, None)
-                .hopper
-                .from_hopper_client;
+            let hopper_sub =
+                make_peer_actors_from(None, None, Some(hopper), None, None, None, None)
+                    .hopper
+                    .from_hopper_client;
             hopper_tx.send(hopper_sub).is_ok();
             system.run();
         });

@@ -55,7 +55,7 @@ impl SubstratumNode {
     }
 
     #[allow(dead_code)]
-    pub fn wait_for(&mut self, pattern: &str, limit_ms: Option<u64>) {
+    pub fn wait_for_log(&mut self, pattern: &str, limit_ms: Option<u64>) {
         let regex = regex::Regex::new(pattern).unwrap();
         let mut buf: [u8; 0x1000] = [0; 0x1000];
         let real_limit_ms = limit_ms.unwrap_or(0xFFFFFFFF);
@@ -80,11 +80,20 @@ impl SubstratumNode {
     }
 
     #[allow(dead_code)]
-    pub fn wait(&mut self) -> Option<i32> {
-        match self.child.wait() {
-            Err(e) => panic!("{:?}", e),
-            Ok(exit_status) => exit_status.code(),
+    pub fn wait_for_exit(&mut self, milliseconds: u64) -> Option<i32> {
+        let time_limit = Instant::now() + Duration::from_millis(milliseconds);
+        while Instant::now() < time_limit {
+            match self.child.try_wait() {
+                Err(e) => panic!("{:?}", e),
+                Ok(Some(exit_status)) => return exit_status.code(),
+                Ok(None) => (),
+            }
+            thread::sleep(Duration::from_millis(100));
         }
+        panic!(
+            "Waited fruitlessly for Node termination for {}ms",
+            milliseconds
+        );
     }
 
     pub fn kill(&mut self) {
@@ -190,9 +199,5 @@ pub fn read_until_timeout(stream: &mut Read) -> Vec<u8> {
 }
 
 fn get_command_config(config_opt: Option<CommandConfig>) -> CommandConfig {
-    if config_opt.is_some() {
-        config_opt.unwrap()
-    } else {
-        CommandConfig::new()
-    }
+    config_opt.unwrap_or(CommandConfig::new())
 }
