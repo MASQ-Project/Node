@@ -75,8 +75,6 @@ fn establishes_substratum_node_cluster_from_nothing() {
 
 #[test]
 fn dropping_node_and_cluster_cleans_up() {
-    let real_ip_addr = IpAddr::V4(Ipv4Addr::new(172, 18, 1, 1));
-    let mock_ip_addr = IpAddr::V4(Ipv4Addr::new(172, 18, 1, 2));
     {
         let mut cluster = SubstratumNodeCluster::start().unwrap();
         cluster.start_real_node(NodeStartupConfigBuilder::bootstrap().build());
