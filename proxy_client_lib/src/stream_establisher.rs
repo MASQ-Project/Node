@@ -4,24 +4,31 @@ use actix::Recipient;
 use actix::Syn;
 use std::io;
 use std::io::Error;
+use std::io::ErrorKind;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::sync::mpsc::Sender;
-use stream_handler_pool::StreamHandlerPoolReal;
 use stream_reader::StreamReader;
 use stream_writer::StreamWriter;
+use sub_lib::accountant::ReportExitServiceMessage;
 use sub_lib::channel_wrappers::FuturesChannelFactory;
 use sub_lib::channel_wrappers::FuturesChannelFactoryReal;
 use sub_lib::channel_wrappers::SenderWrapper;
+use sub_lib::framer::Framer;
 use sub_lib::hopper::IncipientCoresPackage;
+use sub_lib::http_packet_framer::HttpPacketFramer;
+use sub_lib::http_response_start_finder::HttpResponseStartFinder;
 use sub_lib::logger::Logger;
 use sub_lib::proxy_server::ClientRequestPayload;
+use sub_lib::proxy_server::ProxyProtocol;
 use sub_lib::route::Route;
 use sub_lib::sequence_buffer::SequencedPacket;
 use sub_lib::stream_connector::StreamConnector;
 use sub_lib::stream_connector::StreamConnectorReal;
 use sub_lib::stream_key::StreamKey;
+use sub_lib::tls_framer::TlsFramer;
 use sub_lib::tokio_wrappers::ReadHalfWrapper;
+use sub_lib::wallet::Wallet;
 use tokio;
 use trust_dns_resolver::error::ResolveError;
 use trust_dns_resolver::lookup_ip::LookupIp;
@@ -31,21 +38,43 @@ pub struct StreamEstablisher {
     pub stream_killer_tx: Sender<StreamKey>,
     pub stream_connector: Box<StreamConnector>,
     pub hopper_sub: Recipient<Syn, IncipientCoresPackage>,
+    pub accountant_sub: Recipient<Syn, ReportExitServiceMessage>,
     pub logger: Logger,
     pub channel_factory: Box<FuturesChannelFactory<SequencedPacket>>,
+}
+
+impl Clone for StreamEstablisher {
+    fn clone(&self) -> Self {
+        StreamEstablisher {
+            stream_adder_tx: self.stream_adder_tx.clone(),
+            stream_killer_tx: self.stream_killer_tx.clone(),
+            stream_connector: Box::new(StreamConnectorReal {}),
+            hopper_sub: self.hopper_sub.clone(),
+            accountant_sub: self.accountant_sub.clone(),
+            logger: self.logger.clone(),
+            channel_factory: Box::new(FuturesChannelFactoryReal {}),
+        }
+    }
 }
 
 impl StreamEstablisher {
     pub fn establish_stream(
         &mut self,
         payload: &ClientRequestPayload,
+        consuming_wallet: Option<Wallet>,
         return_route: &Route,
         lookup_result: Result<LookupIp, ResolveError>,
     ) -> io::Result<Box<SenderWrapper<SequencedPacket>>> {
-        let target_hostname = payload
-            .target_hostname
-            .clone()
-            .expect("Internal error: DNS resolution succeeded on missing hostname");
+        let target_hostname = match &payload.target_hostname {
+            Some(target_hostname) => target_hostname.clone(),
+            None => {
+                self.logger.error(format!(
+                    "Cannot open new stream with key {:?}: no hostname supplied",
+                    payload.stream_key
+                ));
+                return Err(Error::from(ErrorKind::Other));
+            }
+        };
         let ip_addrs: Vec<IpAddr> = match lookup_result {
             Err(e) => {
                 self.logger.error(format!(
@@ -71,6 +100,7 @@ impl StreamEstablisher {
         self.spawn_stream_reader(
             return_route,
             &payload.clone(),
+            consuming_wallet,
             connection_info.reader,
             connection_info.peer_addr,
         )?;
@@ -94,14 +124,17 @@ impl StreamEstablisher {
         &self,
         return_route: &Route,
         payload: &ClientRequestPayload,
+        consuming_wallet: Option<Wallet>,
         read_stream: Box<ReadHalfWrapper>,
         peer_addr: SocketAddr,
     ) -> io::Result<()> {
-        let framer = StreamHandlerPoolReal::framer_from_protocol(payload.protocol);
+        let framer = Self::framer_from_protocol(payload.protocol);
 
         let stream_reader = StreamReader::new(
             payload.stream_key,
+            consuming_wallet,
             self.hopper_sub.clone(),
+            self.accountant_sub.clone(),
             read_stream,
             self.stream_killer_tx.clone(),
             peer_addr,
@@ -114,9 +147,18 @@ impl StreamEstablisher {
         tokio::spawn(stream_reader);
         Ok(())
     }
+
+    pub fn framer_from_protocol(protocol: ProxyProtocol) -> Box<Framer> {
+        match protocol {
+            ProxyProtocol::HTTP => {
+                Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {})))
+            }
+            ProxyProtocol::TLS => Box::new(TlsFramer::new()),
+        }
+    }
 }
 
-pub trait StreamEstablisherFactory {
+pub trait StreamEstablisherFactory: Send {
     fn make(&self) -> StreamEstablisher;
 }
 
@@ -124,6 +166,7 @@ pub struct StreamEstablisherFactoryReal {
     pub stream_adder_tx: Sender<(StreamKey, Box<SenderWrapper<SequencedPacket>>)>,
     pub stream_killer_tx: Sender<StreamKey>,
     pub hopper_sub: Recipient<Syn, IncipientCoresPackage>,
+    pub accountant_sub: Recipient<Syn, ReportExitServiceMessage>,
     pub logger: Logger,
 }
 
@@ -134,6 +177,7 @@ impl StreamEstablisherFactory for StreamEstablisherFactoryReal {
             stream_killer_tx: self.stream_killer_tx.clone(),
             stream_connector: Box::new(StreamConnectorReal {}),
             hopper_sub: self.hopper_sub.clone(),
+            accountant_sub: self.accountant_sub.clone(),
             logger: self.logger.clone(),
             channel_factory: Box::new(FuturesChannelFactoryReal {}),
         }
@@ -164,21 +208,25 @@ mod tests {
 
     #[test]
     fn spawn_stream_reader_handles_http() {
-        let (hopper, awaiter, hopper_recording_arc) = make_recorder();
-        let (hopper_tx, hopper_rx) = mpsc::channel();
+        let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
+        let (accountant, _, _) = make_recorder();
+        let (sub_tx, sub_rx) = mpsc::channel();
         thread::spawn(move || {
             let system = System::new("test");
-            let hopper_sub =
-                make_peer_actors_from(None, None, Some(hopper), None, None, None, None)
-                    .hopper
-                    .from_hopper_client;
-            hopper_tx.send(hopper_sub).is_ok();
+            let peer_actors =
+                make_peer_actors_from(None, None, Some(hopper), None, None, None, Some(accountant));
+            sub_tx
+                .send((
+                    peer_actors.hopper.from_hopper_client,
+                    peer_actors.accountant.report_exit_service,
+                ))
+                .is_ok();
             system.run();
         });
 
         let (response_tx, response_rx) = mpsc::channel();
         let test_future = lazy(move || {
-            let hopper_sub = hopper_rx.recv().unwrap();
+            let (hopper_sub, accountant_sub) = sub_rx.recv().unwrap();
 
             let (stream_adder_tx, _stream_adder_rx) = mpsc::channel();
             let (stream_killer_tx, _) = mpsc::channel();
@@ -194,6 +242,7 @@ mod tests {
                 stream_killer_tx,
                 stream_connector: Box::new(StreamConnectorMock::new()), // only used in "establish_stream"
                 hopper_sub,
+                accountant_sub,
                 logger: Logger::new("Proxy Client"),
                 channel_factory: Box::new(FuturesChannelFactoryReal {}),
             };
@@ -212,12 +261,13 @@ mod tests {
                         protocol: ProxyProtocol::HTTP,
                         originator_public_key: Key::new(&[]),
                     },
+                    Some(Wallet::new("consuming")),
                     read_stream,
                     SocketAddr::from_str("1.2.3.4:5678").unwrap(),
                 )
                 .expect("spawn_stream_reader () failed");
 
-            awaiter.await_message_count(1);
+            hopper_awaiter.await_message_count(1);
             let hopper_recording = hopper_recording_arc.lock().unwrap();
             let record = hopper_recording.get_record::<IncipientCoresPackage>(0);
             let response =
@@ -242,21 +292,25 @@ mod tests {
 
     #[test]
     fn spawn_stream_reader_handles_tls() {
-        let (hopper, awaiter, hopper_recording_arc) = make_recorder();
-        let (hopper_tx, hopper_rx) = mpsc::channel();
+        let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
+        let (accountant, _, _) = make_recorder();
+        let (sub_tx, sub_rx) = mpsc::channel();
         thread::spawn(move || {
             let system = System::new("test");
-            let hopper_sub =
-                make_peer_actors_from(None, None, Some(hopper), None, None, None, None)
-                    .hopper
-                    .from_hopper_client;
-            hopper_tx.send(hopper_sub).is_ok();
+            let peer_actors =
+                make_peer_actors_from(None, None, Some(hopper), None, None, None, Some(accountant));
+            sub_tx
+                .send((
+                    peer_actors.hopper.from_hopper_client.clone(),
+                    peer_actors.accountant.report_exit_service.clone(),
+                ))
+                .is_ok();
             system.run();
         });
 
         let (response_tx, response_rx) = mpsc::channel();
         let test_future = lazy(move || {
-            let hopper_sub = hopper_rx.recv().unwrap();
+            let (hopper_sub, accountant_sub) = sub_rx.recv().unwrap();
             let mut read_stream = Box::new(ReadHalfWrapperMock::new());
             read_stream.poll_read_results = vec![
                 (b"HTTP/1.1 200 OK\r\n\r\n".to_vec(), Ok(Async::Ready(19))),
@@ -271,6 +325,7 @@ mod tests {
                 stream_killer_tx,
                 stream_connector: Box::new(StreamConnectorMock::new()), // only used in "establish_stream"
                 hopper_sub,
+                accountant_sub,
                 logger: Logger::new("Proxy Client"),
                 channel_factory: Box::new(FuturesChannelFactoryReal {}),
             };
@@ -290,11 +345,12 @@ mod tests {
                         protocol: ProxyProtocol::TLS,
                         originator_public_key: Key::new(&[]),
                     },
+                    Some(Wallet::new("consuming")),
                     read_stream,
                     SocketAddr::from_str("1.2.3.4:5678").unwrap(),
                 )
                 .expect("spawn_stream_reader () failed");
-            awaiter.await_message_count(1);
+            hopper_awaiter.await_message_count(1);
             let hopper_recording = hopper_recording_arc.lock().unwrap();
             let record = hopper_recording.get_record::<IncipientCoresPackage>(0);
             let response =

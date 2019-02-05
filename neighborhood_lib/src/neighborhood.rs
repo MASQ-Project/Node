@@ -1575,6 +1575,7 @@ mod tests {
         init_test_logging();
         let cores_package = ExpiredCoresPackage {
             immediate_neighbor_ip: IpAddr::from_str("1.2.3.4").unwrap(),
+            consuming_wallet: Some(Wallet::new("consuming")),
             remaining_route: make_meaningless_route(),
             payload: PlainData::new(&b"booga"[..]),
         };
@@ -1703,6 +1704,7 @@ mod tests {
         let serialized_gossip = PlainData::new(&serde_cbor::ser::to_vec(&gossip).unwrap()[..]);
         let cores_package = ExpiredCoresPackage {
             immediate_neighbor_ip: IpAddr::from_str("1.2.3.4").unwrap(),
+            consuming_wallet: Some(Wallet::new("consuming")),
             remaining_route: make_meaningless_route(),
             payload: serialized_gossip,
         };
@@ -2262,6 +2264,7 @@ mod tests {
         let serialized_gossip = PlainData::new(&serde_cbor::ser::to_vec(&gossip).unwrap()[..]);
         let cores_package = ExpiredCoresPackage {
             immediate_neighbor_ip: IpAddr::from_str("1.2.3.4").unwrap(),
+            consuming_wallet: Some(Wallet::new("consuming")),
             remaining_route: make_meaningless_route(),
             payload: serialized_gossip,
         };
@@ -2338,6 +2341,7 @@ mod tests {
         let serialized_gossip = PlainData::new(&serde_cbor::ser::to_vec(&gossip).unwrap()[..]);
         let cores_package = ExpiredCoresPackage {
             immediate_neighbor_ip: IpAddr::from_str("1.2.3.4").unwrap(),
+            consuming_wallet: Some(Wallet::new("consuming")),
             remaining_route: make_meaningless_route(),
             payload: serialized_gossip,
         };
@@ -2409,6 +2413,7 @@ mod tests {
         let serialized_gossip = PlainData::new(&serde_cbor::ser::to_vec(&gossip).unwrap()[..]);
         let cores_package = ExpiredCoresPackage {
             immediate_neighbor_ip: neighborless_node.node_addr_opt().unwrap().ip_addr(),
+            consuming_wallet: Some(Wallet::new("consuming")),
             remaining_route: make_meaningless_route(),
             payload: serialized_gossip,
         };
@@ -2510,6 +2515,7 @@ mod tests {
         let serialized_gossip = PlainData::new(&serde_cbor::ser::to_vec(&gossip).unwrap()[..]);
         let cores_package = ExpiredCoresPackage {
             immediate_neighbor_ip: IpAddr::from_str("1.2.3.4").unwrap(),
+            consuming_wallet: Some(Wallet::new("consuming")),
             remaining_route: make_meaningless_route(),
             payload: serialized_gossip,
         };

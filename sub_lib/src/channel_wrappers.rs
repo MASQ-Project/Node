@@ -29,7 +29,7 @@ impl<T: Send> ReceiverWrapperReal<T> {
 }
 
 pub trait SenderWrapper<T>: Debug + Send {
-    fn unbounded_send(&mut self, data: T) -> Result<(), SendError<T>>;
+    fn unbounded_send(&self, data: T) -> Result<(), SendError<T>>;
     fn peer_addr(&self) -> SocketAddr;
     fn clone(&self) -> Box<SenderWrapper<T>>;
 }
@@ -41,7 +41,7 @@ pub struct SenderWrapperReal<T> {
 }
 
 impl<T: 'static + Debug + Send> SenderWrapper<T> for SenderWrapperReal<T> {
-    fn unbounded_send(&mut self, data: T) -> Result<(), SendError<T>> {
+    fn unbounded_send(&self, data: T) -> Result<(), SendError<T>> {
         self.delegate.unbounded_send(data)
     }
 
@@ -66,7 +66,7 @@ impl<T: Send> SenderWrapperReal<T> {
     }
 }
 
-pub trait FuturesChannelFactory<T> {
+pub trait FuturesChannelFactory<T>: Send {
     fn make(&mut self, peer_addr: SocketAddr) -> (Box<SenderWrapper<T>>, Box<ReceiverWrapper<T>>);
 }
 

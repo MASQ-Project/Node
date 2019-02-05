@@ -14,6 +14,9 @@ pub enum ProxyProtocol {
     TLS,
 }
 
+// TODO: Based on the way it's used, this struct should comprise two elements: one, a nested
+// struct that contains all the small, quickly-cloned things, and the other the big,
+// expensively-cloned SequencedPacket.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct ClientRequestPayload {
     pub stream_key: StreamKey,

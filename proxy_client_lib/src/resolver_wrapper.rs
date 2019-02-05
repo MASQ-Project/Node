@@ -8,8 +8,8 @@ use trust_dns_resolver::ResolverFuture;
 
 pub type WrappedLookupIpFuture = Future<Item = LookupIp, Error = ResolveError> + Send;
 
-pub trait ResolverWrapper {
-    fn lookup_ip(&self, host: &str) -> Box<WrappedLookupIpFuture>;
+pub trait ResolverWrapper: Send {
+    fn lookup_ip(&self, host: Option<String>) -> Box<WrappedLookupIpFuture>;
 }
 
 pub trait ResolverWrapperFactory {
@@ -21,8 +21,10 @@ pub struct ResolverWrapperReal {
 }
 
 impl ResolverWrapper for ResolverWrapperReal {
-    fn lookup_ip(&self, host: &str) -> Box<WrappedLookupIpFuture> {
-        Box::new(self.delegate.lookup_ip(host))
+    fn lookup_ip(&self, host_opt: Option<String>) -> Box<WrappedLookupIpFuture> {
+        //TODO: This is likely not optimal, we need to figure out how to return a LookupIpFuture Error
+        let host = host_opt.unwrap_or(String::from("<unspecified>"));
+        Box::new(self.delegate.lookup_ip(host.as_str()))
     }
 }
 

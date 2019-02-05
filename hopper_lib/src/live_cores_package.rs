@@ -3,7 +3,6 @@
 use std::net::IpAddr;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::CryptData;
-use sub_lib::cryptde::CryptdecError;
 use sub_lib::cryptde::Key;
 use sub_lib::hop::LiveHop;
 use sub_lib::hopper::ExpiredCoresPackage;
@@ -52,15 +51,22 @@ impl LiveCoresPackage {
         ))
     }
 
-    // cryptde must be the CryptDE of the Node for which the payload is intended.
     pub fn to_expired(
         self,
         immediate_neighbor_ip: IpAddr,
-        cryptde: &CryptDE,
-    ) -> Result<ExpiredCoresPackage, CryptdecError> {
-        let payload = cryptde.decode(&self.payload)?;
+        cryptde: &CryptDE, // Must be the CryptDE of the Node for which the payload is intended.
+    ) -> Result<ExpiredCoresPackage, String> {
+        let payload = match cryptde.decode(&self.payload) {
+            Ok(p) => p,
+            Err(e) => return Err(format!("{:?}", e)),
+        };
+        let top_hop = match self.route.next_hop(cryptde) {
+            Err(e) => return Err(format!("{:?}", e)),
+            Ok(hop) => hop,
+        };
         Ok(ExpiredCoresPackage::new(
             immediate_neighbor_ip,
+            top_hop.consuming_wallet,
             self.route,
             payload,
         ))
@@ -71,6 +77,7 @@ impl LiveCoresPackage {
 mod tests {
     use super::*;
     use std::str::FromStr;
+    use sub_lib::cryptde::CryptdecError;
     use sub_lib::cryptde::Key;
     use sub_lib::cryptde::PlainData;
     use sub_lib::cryptde_null::CryptDENull;
@@ -228,63 +235,90 @@ mod tests {
     fn expired_cores_package_can_be_constructed_from_live_cores_package() {
         let immediate_neighbor_ip = IpAddr::from_str("1.2.3.4").unwrap();
         let payload = PayloadMock::new();
-        let destination_key = Key::new(&[3, 4]);
-        let destination_cryptde = CryptDENull::from(&destination_key);
+        let first_stop_key = Key::new(&[3, 4]);
+        let first_stop_cryptde = CryptDENull::from(&first_stop_key);
         let relay_key = Key::new(&[1, 2]);
         let relay_cryptde = CryptDENull::from(&relay_key);
+        let second_stop_key = Key::new(&[5, 6]);
+        let second_stop_cryptde = CryptDENull::from(&second_stop_key);
         let cryptde = cryptde();
         let serialized_payload = serde_cbor::ser::to_vec(&payload).unwrap();
         let encrypted_payload = cryptde
-            .encode(&destination_key, &PlainData::new(&serialized_payload))
+            .encode(&first_stop_key, &PlainData::new(&serialized_payload))
             .unwrap();
         let consuming_wallet = Wallet::new("wallet");
-        let route = Route::new(
-            vec![RouteSegment::new(
-                vec![&relay_key, &destination_key],
-                Component::Neighborhood,
-            )],
+        let mut route = Route::new(
+            vec![
+                RouteSegment::new(vec![&relay_key, &first_stop_key], Component::Neighborhood),
+                RouteSegment::new(
+                    vec![&first_stop_key, &relay_key, &second_stop_key],
+                    Component::ProxyServer,
+                ),
+            ],
             cryptde,
             Some(consuming_wallet),
         )
         .unwrap();
+        route.shift(&relay_cryptde).unwrap();
         let subject = LiveCoresPackage::new(route.clone(), encrypted_payload.clone());
 
         let result = subject
-            .to_expired(immediate_neighbor_ip, &destination_cryptde)
+            .to_expired(immediate_neighbor_ip, &first_stop_cryptde)
             .unwrap();
 
         assert_eq!(result.immediate_neighbor_ip, immediate_neighbor_ip);
+        assert_eq!(result.consuming_wallet, Some(Wallet::new("wallet")));
         assert_eq!(
             result.payload,
             PlainData::new(&serde_cbor::ser::to_vec(&payload).unwrap())
         );
         let mut route = result.remaining_route.clone();
         assert_eq!(
+            route.shift(&first_stop_cryptde).unwrap(),
+            LiveHop::new(
+                &relay_key,
+                Some(Wallet::new("wallet")),
+                Component::Neighborhood
+            )
+        );
+        assert_eq!(
             route.shift(&relay_cryptde).unwrap(),
             LiveHop::new(
-                &destination_key,
+                &second_stop_key,
                 Some(Wallet::new("wallet")),
                 Component::Hopper
             )
         );
         assert_eq!(
-            route.shift(&destination_cryptde).unwrap(),
+            route.shift(&second_stop_cryptde).unwrap(),
             LiveHop::new(
                 &Key::new(&[]),
                 Some(Wallet::new("wallet")),
-                Component::Neighborhood
+                Component::ProxyServer
             )
         );
         assert_eq!(&route.hops[0].data[..8], &[52, 52, 52, 52, 52, 52, 52, 52]); // garbage
     }
 
     #[test]
-    fn to_expired_complains_about_bad_input() {
+    fn to_expired_complains_about_bad_payload() {
         let subject = LiveCoresPackage::new(Route { hops: vec![] }, CryptData::new(&[]));
 
         let result = subject.to_expired(IpAddr::from_str("1.2.3.4").unwrap(), cryptde());
 
-        assert_eq!(result, Err(CryptdecError::EmptyData));
+        assert_eq!(result, Err(format!("{:?}", CryptdecError::EmptyData)));
+    }
+
+    #[test]
+    fn to_expired_complains_about_bad_route() {
+        let subject = LiveCoresPackage::new(
+            Route { hops: vec![] },
+            CryptData::new(&cryptde().private_key().data[..]),
+        );
+
+        let result = subject.to_expired(IpAddr::from_str("1.2.3.4").unwrap(), cryptde());
+
+        assert_eq!(result, Err(format!("{:?}", RouteError::EmptyRoute)));
     }
 
     #[test]

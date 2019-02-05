@@ -3,6 +3,7 @@ use actix::Recipient;
 use actix::Syn;
 use std::net::SocketAddr;
 use std::sync::mpsc::Sender;
+use sub_lib::accountant::ReportExitServiceMessage;
 use sub_lib::cryptde::Key;
 use sub_lib::cryptde::PlainData;
 use sub_lib::framer::Framer;
@@ -16,12 +17,15 @@ use sub_lib::stream_key::StreamKey;
 use sub_lib::tokio_wrappers::ReadHalfWrapper;
 use sub_lib::utils::indicates_dead_stream;
 use sub_lib::utils::to_string;
+use sub_lib::wallet::Wallet;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 
 pub struct StreamReader {
     stream_key: StreamKey,
+    consuming_wallet: Option<Wallet>,
     hopper_sub: Recipient<Syn, IncipientCoresPackage>,
+    accountant_sub: Recipient<Syn, ReportExitServiceMessage>,
     stream: Box<ReadHalfWrapper>,
     stream_killer: Sender<StreamKey>,
     peer_addr: SocketAddr,
@@ -82,7 +86,9 @@ impl Future for StreamReader {
 impl StreamReader {
     pub fn new(
         stream_key: StreamKey,
+        consuming_wallet: Option<Wallet>,
         hopper_sub: Recipient<Syn, IncipientCoresPackage>,
+        accountant_sub: Recipient<Syn, ReportExitServiceMessage>,
         stream: Box<ReadHalfWrapper>,
         stream_killer: Sender<StreamKey>,
         peer_addr: SocketAddr,
@@ -92,7 +98,9 @@ impl StreamReader {
     ) -> StreamReader {
         StreamReader {
             stream_key,
+            consuming_wallet,
             hopper_sub,
+            accountant_sub,
             stream,
             stream_killer,
             peer_addr,
@@ -108,6 +116,7 @@ impl StreamReader {
         let stream_key = self.stream_key.clone();
         self.send_cores_response(stream_key, PlainData::new(&[]), true);
         self.stream_killer.send(self.stream_key).is_ok();
+        self.report_exit_service(0);
     }
 
     fn send_frames_loop(&mut self) {
@@ -125,11 +134,13 @@ impl StreamReader {
                         to_string(&response_chunk.chunk)
                     ));
                     let stream_key = self.stream_key.clone();
+                    let payload_size = response_chunk.chunk.len() as u32;
                     self.send_cores_response(
                         stream_key,
                         PlainData::new(&response_chunk.chunk[..]),
                         response_chunk.last_chunk,
                     );
+                    self.report_exit_service(payload_size);
                     if response_chunk.last_chunk {
                         // FIXME no production framer sets this to true...
                         self.stream_killer.send(self.stream_key).is_ok();
@@ -169,6 +180,22 @@ impl StreamReader {
             .try_send(incipient_cores_package)
             .expect("Hopper is dead");
     }
+
+    fn report_exit_service(&self, payload_size: u32) {
+        match self.consuming_wallet.as_ref() {
+            Some(wallet) => self
+                .accountant_sub
+                .try_send(ReportExitServiceMessage {
+                    consuming_wallet: wallet.clone(),
+                    payload_size,
+                })
+                .expect("Accountant is dead"),
+            None => self.logger.debug(format!(
+                "Relayed {}-byte response without consuming wallet for free",
+                payload_size
+            )),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -182,13 +209,14 @@ mod tests {
     use std::str::FromStr;
     use std::sync::mpsc;
     use std::thread;
+    use sub_lib::accountant::ReportExitServiceMessage;
     use sub_lib::framer::FramedChunk;
     use sub_lib::http_packet_framer::HttpPacketFramer;
     use sub_lib::http_response_start_finder::HttpResponseStartFinder;
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
-    use test_utils::recorder;
-    use test_utils::recorder::Recorder;
+    use test_utils::recorder::make_peer_actors_from;
+    use test_utils::recorder::make_recorder;
     use test_utils::test_utils;
     use test_utils::test_utils::make_meaningless_stream_key;
     use test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
@@ -207,9 +235,8 @@ mod tests {
 
     #[test]
     fn stream_reader_assigns_a_sequence_to_client_response_payloads() {
-        let hopper = Recorder::new();
-        let awaiter = hopper.get_awaiter();
-        let hopper_recording_arc = hopper.get_recording();
+        let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
+        let (accountant, _, _) = make_recorder();
 
         let read_results = vec![
             b"HTTP/1.1 200".to_vec(),
@@ -238,19 +265,24 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             let system = System::new("test");
-            let hopper_sub =
-                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None, None)
-                    .hopper
-                    .from_hopper_client;
-            tx.send(hopper_sub).is_ok();
+            let peer_actors =
+                make_peer_actors_from(None, None, Some(hopper), None, None, Some(accountant), None);
+
+            tx.send((
+                peer_actors.hopper.from_hopper_client,
+                peer_actors.accountant.report_exit_service,
+            ))
+            .is_ok();
             system.run();
         });
 
-        let hopper_sub = rx.recv().unwrap();
+        let (hopper_sub, accountant_sub) = rx.recv().unwrap();
         let (stream_killer, stream_killer_params) = mpsc::channel();
         let mut subject = StreamReader {
             stream_key: make_meaningless_stream_key(),
+            consuming_wallet: Some(Wallet::new("consuming")),
             hopper_sub,
+            accountant_sub,
             stream,
             stream_killer,
             peer_addr: SocketAddr::from_str("8.7.4.3:50").unwrap(),
@@ -263,7 +295,7 @@ mod tests {
 
         let _res = subject.poll();
 
-        awaiter.await_message_count(4);
+        hopper_awaiter.await_message_count(4);
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(0),
@@ -332,9 +364,8 @@ mod tests {
     #[test]
     fn when_framer_identifies_last_chunk_stream_reader_takes_down_connection_properly() {
         let stream_key = make_meaningless_stream_key();
-        let hopper = Recorder::new();
-        let recording = hopper.get_recording();
-        let awaiter = hopper.get_awaiter();
+        let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
+        let (accountant, _, _) = make_recorder();
         let mut stream = Box::new(ReadHalfWrapperMock::new());
         stream.poll_read_results = vec![
             (vec![4], Ok(Async::Ready(1))),
@@ -349,18 +380,23 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             let system = System::new("test");
-            let hopper_sub =
-                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None, None)
-                    .hopper
-                    .from_hopper_client;
-            tx.send(hopper_sub).is_ok();
+            let peer_actors =
+                make_peer_actors_from(None, None, Some(hopper), None, None, Some(accountant), None);
+
+            tx.send((
+                peer_actors.hopper.from_hopper_client,
+                peer_actors.accountant.report_exit_service,
+            ))
+            .is_ok();
             system.run();
         });
 
-        let hopper_sub = rx.recv().unwrap();
+        let (hopper_sub, accountant_sub) = rx.recv().unwrap();
         let mut subject = StreamReader {
             stream_key,
+            consuming_wallet: Some(Wallet::new("consuming")),
             hopper_sub,
+            accountant_sub,
             stream,
             stream_killer,
             peer_addr: SocketAddr::from_str("4.3.6.5:574").unwrap(),
@@ -374,10 +410,10 @@ mod tests {
         let result = subject.poll();
 
         assert_eq!(result, Ok(Async::NotReady));
-        awaiter.await_message_count(1);
+        hopper_awaiter.await_message_count(1);
         let kill_stream_key = stream_killer_params.try_recv().unwrap();
         assert_eq!(kill_stream_key, stream_key.clone());
-        let recording = recording.lock().unwrap();
+        let recording = hopper_recording_arc.lock().unwrap();
         let record = recording.get_record::<IncipientCoresPackage>(0);
         assert_eq!(
             *record,
@@ -400,10 +436,10 @@ mod tests {
     }
 
     #[test]
-    fn stream_reader_can_handle_multiple_packets_followed_by_dropped_stream() {
-        let hopper = Recorder::new();
-        let awaiter = hopper.get_awaiter();
-        let hopper_recording_arc = hopper.get_recording();
+    fn stream_reader_can_handle_multiple_packets_followed_by_dropped_stream_with_consuming_wallet()
+    {
+        let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
+        let (accountant, accountant_awaiter, accountant_recording_arc) = make_recorder();
         let mut stream = ReadHalfWrapperMock::new();
         stream.poll_read_results = vec![
             (
@@ -425,19 +461,23 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             let system = System::new("test");
-            let hopper_sub =
-                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None, None)
-                    .hopper
-                    .from_hopper_client;
-            tx.send(hopper_sub).is_ok();
+            let peer_actors =
+                make_peer_actors_from(None, None, Some(hopper), None, None, Some(accountant), None);
+            tx.send((
+                peer_actors.hopper.from_hopper_client,
+                peer_actors.accountant.report_exit_service,
+            ))
+            .is_ok();
 
             system.run();
         });
-        let hopper_sub = rx.recv().unwrap();
+        let (hopper_sub, accountant_sub) = rx.recv().unwrap();
         let (stream_killer, stream_killer_params) = mpsc::channel();
         let mut subject = StreamReader {
             stream_key: make_meaningless_stream_key(),
+            consuming_wallet: Some(Wallet::new("consuming")),
             hopper_sub,
+            accountant_sub,
             stream: Box::new(stream),
             stream_killer,
             peer_addr: SocketAddr::from_str("5.7.9.0:95").unwrap(),
@@ -451,7 +491,7 @@ mod tests {
         let result = subject.poll();
 
         assert_eq!(result, Err(()));
-        awaiter.await_message_count(4);
+        hopper_awaiter.await_message_count(4);
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(0),
@@ -513,6 +553,30 @@ mod tests {
                 &Key::new(&b"abcd"[..]),
             )
         );
+        accountant_awaiter.await_message_count(3);
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        assert_eq!(
+            accountant_recording.get_record::<ReportExitServiceMessage>(0),
+            &ReportExitServiceMessage {
+                consuming_wallet: Wallet::new("consuming"),
+                payload_size: 19,
+            }
+        );
+        assert_eq!(
+            accountant_recording.get_record::<ReportExitServiceMessage>(1),
+            &ReportExitServiceMessage {
+                consuming_wallet: Wallet::new("consuming"),
+                payload_size: 31,
+            }
+        );
+        assert_eq!(
+            accountant_recording.get_record::<ReportExitServiceMessage>(2),
+            &ReportExitServiceMessage {
+                consuming_wallet: Wallet::new("consuming"),
+                payload_size: 29,
+            }
+        );
+
         let kill_stream_msg = stream_killer_params
             .try_recv()
             .expect("stream was not killed");
@@ -521,11 +585,63 @@ mod tests {
     }
 
     #[test]
+    fn stream_reader_can_handle_a_packet_followed_by_dropped_stream_without_consuming_wallet() {
+        init_test_logging();
+        let (hopper, _, _) = make_recorder();
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let mut stream = ReadHalfWrapperMock::new();
+        stream.poll_read_results = vec![
+            (
+                Vec::from(&b"HTTP/1.1 200 OK\r\n\r\n"[..]),
+                Ok(Async::Ready(b"HTTP/1.1 200 OK\r\n\r\n".len())),
+            ),
+            (vec![], Err(Error::from(ErrorKind::BrokenPipe))),
+        ];
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let system = System::new("test");
+            let peer_actors =
+                make_peer_actors_from(None, None, Some(hopper), None, None, Some(accountant), None);
+            tx.send((
+                peer_actors.hopper.from_hopper_client,
+                peer_actors.accountant.report_exit_service,
+            ))
+            .is_ok();
+
+            system.run();
+        });
+        let (hopper_sub, accountant_sub) = rx.recv().unwrap();
+        let (stream_killer, _) = mpsc::channel();
+        let mut subject = StreamReader {
+            stream_key: make_meaningless_stream_key(),
+            consuming_wallet: None,
+            hopper_sub,
+            accountant_sub,
+            stream: Box::new(stream),
+            stream_killer,
+            peer_addr: SocketAddr::from_str("5.7.9.0:95").unwrap(),
+            remaining_route: test_utils::make_meaningless_route(),
+            framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
+            originator_public_key: Key::new(&b"abcd"[..]),
+            logger: Logger::new("test"),
+            sequencer: Sequencer::new(),
+        };
+
+        subject.poll().is_ok();
+
+        TestLogHandler::new().await_log_containing(
+            "DEBUG: test: Relayed 19-byte response without consuming wallet for free",
+            1000,
+        );
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        assert_eq!(accountant_recording.len(), 0);
+    }
+
+    #[test]
     fn receiving_0_bytes_sends_empty_cores_response_and_kills_stream() {
         init_test_logging();
-        let hopper = Recorder::new();
-        let awaiter = hopper.get_awaiter();
-        let hopper_recording_arc = hopper.get_recording();
+        let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
+        let (accountant, accountant_awaiter, accountant_recording_arc) = make_recorder();
         let stream_key = make_meaningless_stream_key();
         let (stream_killer, kill_stream_params) = mpsc::channel();
         let mut stream = ReadHalfWrapperMock::new();
@@ -535,19 +651,23 @@ mod tests {
         thread::spawn(move || {
             let system =
                 System::new("receiving_0_bytes_sends_empty_cores_response_and_kills_stream");
-            let hopper_sub =
-                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None, None)
-                    .hopper
-                    .from_hopper_client;
+            let peer_actors =
+                make_peer_actors_from(None, None, Some(hopper), None, None, Some(accountant), None);
 
-            tx.send(hopper_sub).is_ok();
+            tx.send((
+                peer_actors.hopper.from_hopper_client,
+                peer_actors.accountant.report_exit_service,
+            ))
+            .is_ok();
             system.run();
         });
 
-        let hopper_sub = rx.recv().unwrap();
+        let (hopper_sub, accountant_sub) = rx.recv().unwrap();
         let mut subject = StreamReader {
             stream_key,
+            consuming_wallet: Some(Wallet::new("consuming")),
             hopper_sub,
+            accountant_sub,
             stream: Box::new(stream),
             stream_killer,
             peer_addr: SocketAddr::from_str("5.3.4.3:654").unwrap(),
@@ -561,7 +681,7 @@ mod tests {
         let result = subject.poll();
 
         assert_eq!(result, Ok(Async::Ready(())));
-        awaiter.await_message_count(1);
+        hopper_awaiter.await_message_count(1);
         assert_eq!(kill_stream_params.try_recv().unwrap(), stream_key);
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(
@@ -581,14 +701,22 @@ mod tests {
         );
         TestLogHandler::new()
             .exists_log_containing("Stream from 5.3.4.3:654 was closed: (0-byte read)");
+        accountant_awaiter.await_message_count(1);
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        assert_eq!(
+            accountant_recording.get_record::<ReportExitServiceMessage>(0),
+            &ReportExitServiceMessage {
+                consuming_wallet: Wallet::new("consuming"),
+                payload_size: 0,
+            }
+        );
     }
 
     #[test]
     fn non_dead_stream_read_errors_log_but_do_not_shut_down() {
         init_test_logging();
-        let hopper = Recorder::new();
-        let awaiter = hopper.get_awaiter();
-        let hopper_recording_arc = hopper.get_recording();
+        let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
+        let (accountant, _, _) = make_recorder();
         let stream_key = make_meaningless_stream_key();
         let (stream_killer, _) = mpsc::channel();
         let mut stream = ReadHalfWrapperMock::new();
@@ -605,19 +733,23 @@ mod tests {
 
         thread::spawn(move || {
             let system = System::new("non_dead_stream_read_errors_log_but_do_not_shut_down");
-            let hopper_sub =
-                recorder::make_peer_actors_from(None, None, Some(hopper), None, None, None, None)
-                    .hopper
-                    .from_hopper_client;
+            let peer_actors =
+                make_peer_actors_from(None, None, Some(hopper), None, None, Some(accountant), None);
 
-            tx.send(hopper_sub).is_ok();
+            tx.send((
+                peer_actors.hopper.from_hopper_client,
+                peer_actors.accountant.report_exit_service,
+            ))
+            .is_ok();
             system.run();
         });
 
-        let hopper_sub = rx.recv().unwrap();
+        let (hopper_sub, accountant_sub) = rx.recv().unwrap();
         let mut subject = StreamReader {
             stream_key,
+            consuming_wallet: Some(Wallet::new("consuming")),
             hopper_sub,
+            accountant_sub,
             stream: Box::new(stream),
             stream_killer,
             peer_addr: SocketAddr::from_str("6.5.4.1:8325").unwrap(),
@@ -631,7 +763,7 @@ mod tests {
         let result = subject.poll();
 
         assert_eq!(result, Err(()));
-        awaiter.await_message_count(1);
+        hopper_awaiter.await_message_count(1);
         TestLogHandler::new().exists_log_containing(
             "WARN: test: Continuing after read error on stream from 6.5.4.1:8325: other os error",
         );

@@ -72,9 +72,10 @@ impl StreamWriter {
                 }
                 Ok(Async::Ready(None)) => return Ok(Async::Ready(())),
                 Ok(Async::NotReady) => return Ok(Async::NotReady),
-                Err(_) => {
-                    panic!("got an error from an unbounded channel which cannot return error")
-                }
+                Err(e) => panic!(
+                    "got an error from an unbounded channel which cannot return error: {:?}",
+                    e
+                ),
             };
         }
     }

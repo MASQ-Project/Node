@@ -10,6 +10,7 @@ use serde::de::Deserialize;
 use serde::ser::Serialize;
 use serde_cbor;
 use std::net::IpAddr;
+use wallet::Wallet;
 
 /// New CORES package about to be sent to the Hopper and thence put on the Substratum Network
 #[derive(Clone, Debug, PartialEq, Message)]
@@ -38,6 +39,7 @@ impl IncipientCoresPackage {
 #[derive(Clone, Debug, PartialEq, Message)]
 pub struct ExpiredCoresPackage {
     pub immediate_neighbor_ip: IpAddr,
+    pub consuming_wallet: Option<Wallet>,
     pub remaining_route: Route, // This is topped by the hop that brought the package here, not the next hop
     pub payload: PlainData,
 }
@@ -45,11 +47,13 @@ pub struct ExpiredCoresPackage {
 impl ExpiredCoresPackage {
     pub fn new(
         immediate_neighbor_ip: IpAddr,
+        consuming_wallet: Option<Wallet>,
         remaining_route: Route,
         payload: PlainData,
     ) -> ExpiredCoresPackage {
         ExpiredCoresPackage {
             immediate_neighbor_ip,
+            consuming_wallet,
             remaining_route,
             payload,
         }
@@ -86,7 +90,6 @@ mod tests {
     use route::RouteSegment;
     use std::str::FromStr;
     use test_utils::test_utils::PayloadMock;
-    use wallet::Wallet;
 
     #[test]
     fn incipient_cores_package_is_created_correctly() {
@@ -134,11 +137,13 @@ mod tests {
 
         let subject = ExpiredCoresPackage::new(
             immediate_neighbor_ip,
+            Some(consuming_wallet),
             route.clone(),
             PlainData::new(&payload[..]),
         );
 
         assert_eq!(subject.immediate_neighbor_ip, immediate_neighbor_ip);
+        assert_eq!(subject.consuming_wallet, Some(Wallet::new("wallet")));
         assert_eq!(subject.remaining_route, route);
         assert_eq!(
             subject.payload::<PayloadMock>().unwrap(),

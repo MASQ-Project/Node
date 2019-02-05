@@ -25,6 +25,7 @@ use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use sub_lib::accountant;
+use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::Key;
 use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::dispatcher::Component;
@@ -139,15 +140,12 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test() {
     let (_, _, package) = mock_standard
         .wait_for_package(&masquerader, Duration::from_millis(1000))
         .unwrap();
-    let incoming_cores_package = package
-        .to_expired(
-            IpAddr::from_str("1.2.3.4").unwrap(),
-            &CryptDENull::from(&ne1_noderef.public_key),
-        )
+    let request_payload_ser = CryptDENull::from(&ne1_noderef.public_key)
+        .decode(&package.payload)
         .unwrap();
-    let request_payload = incoming_cores_package
-        .payload::<ClientRequestPayload>()
-        .unwrap();
+    let request_payload =
+        serde_cbor::de::from_slice::<ClientRequestPayload>(&request_payload_ser.data[..]).unwrap();
+
     assert_eq!(request_payload.sequenced_packet.last_data, false);
     assert_eq!(request_payload.sequenced_packet.sequence_number, 0);
     assert_eq!(
@@ -304,24 +302,18 @@ fn cores_package_to_http_request_and_http_response_to_cores_package_test() {
     let (_, _, package) = mock_standard
         .wait_for_package(&masquerader, Duration::from_millis(1000))
         .unwrap();
-    let incoming_cores_package = package
-        .to_expired(
-            IpAddr::from_str("1.2.3.4").unwrap(),
-            &CryptDENull::from(&ne1_noderef.public_key),
-        )
+    let response_payload_ser = CryptDENull::from(&ne1_noderef.public_key)
+        .decode(&package.payload)
         .unwrap();
-    let client_response_payload = incoming_cores_package
-        .payload::<ClientResponsePayload>()
-        .unwrap();
-    assert_eq!(
-        client_response_payload.stream_key,
-        make_meaningless_stream_key()
-    );
-    assert_eq!(client_response_payload.sequenced_packet.last_data, false);
-    assert_eq!(client_response_payload.sequenced_packet.sequence_number, 0);
+    let response_payload =
+        serde_cbor::de::from_slice::<ClientResponsePayload>(&response_payload_ser.data[..])
+            .unwrap();
+    assert_eq!(response_payload.stream_key, make_meaningless_stream_key());
+    assert_eq!(response_payload.sequenced_packet.last_data, false);
+    assert_eq!(response_payload.sequenced_packet.sequence_number, 0);
     assert_eq!(
         index_of(
-            &client_response_payload.sequenced_packet.data,
+            &response_payload.sequenced_packet.data,
             &b"This domain is established to be used for illustrative examples in documents."[..]
         )
         .is_some(),

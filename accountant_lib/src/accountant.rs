@@ -6,6 +6,7 @@ use actix::Handler;
 use actix::Syn;
 use sub_lib::accountant::AccountantConfig;
 use sub_lib::accountant::AccountantSubs;
+use sub_lib::accountant::ReportExitServiceMessage;
 use sub_lib::accountant::ReportRoutingServiceMessage;
 use sub_lib::logger::Logger;
 use sub_lib::peer_actors::BindMessage;
@@ -43,6 +44,18 @@ impl Handler<ReportRoutingServiceMessage> for Accountant {
     }
 }
 
+impl Handler<ReportExitServiceMessage> for Accountant {
+    type Result = ();
+
+    fn handle(&mut self, msg: ReportExitServiceMessage, _ctx: &mut Self::Context) -> Self::Result {
+        self.logger.info(format!(
+            "Charging exit service for {} bytes to wallet {}",
+            msg.payload_size, msg.consuming_wallet.address
+        ));
+        ()
+    }
+}
+
 impl Accountant {
     pub fn new(_config: AccountantConfig) -> Accountant {
         Accountant {
@@ -54,6 +67,7 @@ impl Accountant {
         AccountantSubs {
             bind: addr.clone().recipient::<BindMessage>(),
             report_routing_service: addr.clone().recipient::<ReportRoutingServiceMessage>(),
+            report_exit_service: addr.clone().recipient::<ReportExitServiceMessage>(),
         }
     }
 }
@@ -112,6 +126,32 @@ mod tests {
         system.run();
         TestLogHandler::new().exists_log_containing(
             "INFO: Accountant: Charging routing of 1234 bytes to wallet booga",
+        );
+    }
+
+    #[test]
+    fn report_exit_service_message_is_received() {
+        init_test_logging();
+        // TODO: This test can be removed once behavior dependent on the reception of the ReportExitServiceMessage
+        // is driven in
+        let config = AccountantConfig {
+            replace_me: String::new(),
+        };
+        let system = System::new("report_routing_service_message_is_received");
+        let subject = Accountant::new(config);
+        let subject_addr: Addr<Syn, Accountant> = subject.start();
+
+        subject_addr
+            .try_send(ReportExitServiceMessage {
+                consuming_wallet: Wallet::new("booga"),
+                payload_size: 1234,
+            })
+            .unwrap();
+
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        system.run();
+        TestLogHandler::new().exists_log_containing(
+            "INFO: Accountant: Charging exit service for 1234 bytes to wallet booga",
         );
     }
 }

@@ -299,6 +299,7 @@ mod tests {
     use std::time::Duration;
     use stream_messages::AddStreamMsg;
     use stream_messages::RemoveStreamMsg;
+    use sub_lib::accountant::ReportExitServiceMessage;
     use sub_lib::accountant::ReportRoutingServiceMessage;
     use sub_lib::crash_point::CrashPoint;
     use sub_lib::cryptde::PlainData;
@@ -411,6 +412,7 @@ mod tests {
             AccountantSubs {
                 bind: addr.clone().recipient::<BindMessage>(),
                 report_routing_service: addr.clone().recipient::<ReportRoutingServiceMessage>(),
+                report_exit_service: addr.clone().recipient::<ReportExitServiceMessage>(),
             }
         }
 

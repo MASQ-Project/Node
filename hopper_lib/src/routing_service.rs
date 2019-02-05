@@ -824,7 +824,7 @@ mod tests {
         subject.route(inbound_client_data);
 
         TestLogHandler::new().exists_log_containing(
-            "ERROR: RoutingService: Couldn't expire CORES package with 0-byte payload: EmptyData",
+            "ERROR: RoutingService: Couldn't expire CORES package with 0-byte payload: \"EmptyData\"",
         );
     }
 }

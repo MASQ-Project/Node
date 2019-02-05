@@ -24,7 +24,7 @@ pub struct ConnectionInfo {
     pub peer_addr: SocketAddr,
 }
 
-pub trait StreamConnector {
+pub trait StreamConnector: Send {
     fn connect(&self, socket_addr: SocketAddr, logger: &Logger) -> ConnectionInfoFuture;
     fn connect_one(
         &self,
@@ -37,6 +37,7 @@ pub trait StreamConnector {
     fn split_stream_fut(&self, stream: TcpStream, logger: &Logger) -> ConnectionInfoFuture;
 }
 
+#[derive(Clone)]
 pub struct StreamConnectorReal {}
 
 impl StreamConnector for StreamConnectorReal {

@@ -21,10 +21,17 @@ pub struct AccountantConfig {
 pub struct AccountantSubs {
     pub bind: Recipient<Syn, BindMessage>,
     pub report_routing_service: Recipient<Syn, ReportRoutingServiceMessage>,
+    pub report_exit_service: Recipient<Syn, ReportExitServiceMessage>,
 }
 
 #[derive(Clone, PartialEq, Debug, Message)]
 pub struct ReportRoutingServiceMessage {
+    pub consuming_wallet: Wallet,
+    pub payload_size: u32,
+}
+
+#[derive(Clone, PartialEq, Debug, Message)]
+pub struct ReportExitServiceMessage {
     pub consuming_wallet: Wallet,
     pub payload_size: u32,
 }

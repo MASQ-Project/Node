@@ -61,6 +61,7 @@ impl Handler<BindMessage> for ProxyClient {
             resolver,
             self._cryptde,
             msg.peer_actors.hopper.from_hopper_client,
+            msg.peer_actors.accountant.report_exit_service,
         ));
         ()
     }
@@ -81,9 +82,10 @@ impl Handler<ExpiredCoresPackage> for ProxyClient {
                 return ();
             }
         };
-        let return_route = msg.remaining_route;
         let pool = self.pool.as_mut().expect("StreamHandlerPool unbound");
-        pool.process_package(payload, return_route);
+        let consuming_wallet = msg.consuming_wallet;
+        let return_route = msg.remaining_route;
+        pool.process_package(payload, consuming_wallet, return_route);
         self.logger.debug(format!("ExpiredCoresPackage handled"));
         ()
     }
@@ -132,12 +134,14 @@ mod tests {
     use std::sync::Mutex;
     use stream_handler_pool::StreamHandlerPool;
     use stream_handler_pool::StreamHandlerPoolFactory;
+    use sub_lib::accountant::ReportExitServiceMessage;
     use sub_lib::cryptde::Key;
     use sub_lib::cryptde::PlainData;
     use sub_lib::proxy_server::ClientRequestPayload;
     use sub_lib::proxy_server::ProxyProtocol;
     use sub_lib::route::Route;
     use sub_lib::sequence_buffer::SequencedPacket;
+    use sub_lib::wallet::Wallet;
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
     use test_utils::recorder::make_peer_actors;
@@ -152,15 +156,21 @@ mod tests {
     }
 
     pub struct StreamHandlerPoolMock {
-        process_package_parameters: Arc<Mutex<Vec<(ClientRequestPayload, Route)>>>,
+        process_package_parameters: Arc<Mutex<Vec<(ClientRequestPayload, Option<Wallet>, Route)>>>,
     }
 
     impl StreamHandlerPool for StreamHandlerPoolMock {
-        fn process_package(&mut self, payload: ClientRequestPayload, route: Route) {
-            self.process_package_parameters
-                .lock()
-                .unwrap()
-                .push((payload, route));
+        fn process_package(
+            &self,
+            payload: ClientRequestPayload,
+            consuming_wallet: Option<Wallet>,
+            route: Route,
+        ) {
+            self.process_package_parameters.lock().unwrap().push((
+                payload,
+                consuming_wallet,
+                route,
+            ));
         }
     }
 
@@ -173,7 +183,7 @@ mod tests {
 
         pub fn process_package_parameters(
             self,
-            parameters: &mut Arc<Mutex<Vec<(ClientRequestPayload, Route)>>>,
+            parameters: &mut Arc<Mutex<Vec<(ClientRequestPayload, Option<Wallet>, Route)>>>,
         ) -> StreamHandlerPoolMock {
             *parameters = self.process_package_parameters.clone();
             self
@@ -187,6 +197,7 @@ mod tests {
                     Box<ResolverWrapper>,
                     &'static CryptDE,
                     Recipient<Syn, IncipientCoresPackage>,
+                    Recipient<Syn, ReportExitServiceMessage>,
                 )>,
             >,
         >,
@@ -199,11 +210,14 @@ mod tests {
             resolver: Box<ResolverWrapper>,
             cryptde: &'static CryptDE,
             hopper_sub: Recipient<Syn, IncipientCoresPackage>,
+            accountant_sub: Recipient<Syn, ReportExitServiceMessage>,
         ) -> Box<StreamHandlerPool> {
-            self.make_parameters
-                .lock()
-                .unwrap()
-                .push((resolver, cryptde, hopper_sub));
+            self.make_parameters.lock().unwrap().push((
+                resolver,
+                cryptde,
+                hopper_sub,
+                accountant_sub,
+            ));
             self.make_results.borrow_mut().remove(0)
         }
     }
@@ -224,6 +238,7 @@ mod tests {
                         Box<ResolverWrapper>,
                         &'static CryptDE,
                         Recipient<Syn, IncipientCoresPackage>,
+                        Recipient<Syn, ReportExitServiceMessage>,
                     )>,
                 >,
             >,
@@ -250,10 +265,11 @@ mod tests {
     fn bind_operates_properly() {
         let system = System::new("bind_initializes_resolver_wrapper_properly");
         let resolver_wrapper = ResolverWrapperMock::new();
-        let mut new_parameters: Arc<Mutex<Vec<(ResolverConfig, ResolverOpts)>>> =
-            Arc::new(Mutex::new(vec![]));
+        let mut resolver_wrapper_new_parameters_arc: Arc<
+            Mutex<Vec<(ResolverConfig, ResolverOpts)>>,
+        > = Arc::new(Mutex::new(vec![]));
         let resolver_wrapper_factory = ResolverWrapperFactoryMock::new()
-            .new_parameters(&mut new_parameters)
+            .new_parameters(&mut resolver_wrapper_new_parameters_arc)
             .new_result(Box::new(resolver_wrapper));
         let pool = StreamHandlerPoolMock::new();
         let mut pool_factory_make_parameters = Arc::new(Mutex::new(vec![]));
@@ -277,8 +293,9 @@ mod tests {
         Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
         system.run();
 
-        let mut new_parameters_guard = new_parameters.lock().unwrap();
-        let (config, opts) = new_parameters_guard.remove(0);
+        let mut resolver_wrapper_new_parameters =
+            resolver_wrapper_new_parameters_arc.lock().unwrap();
+        let (config, opts) = resolver_wrapper_new_parameters.remove(0);
         assert_eq!(config.domain(), None);
         assert_eq!(config.search(), &[]);
         assert_eq!(
@@ -297,7 +314,7 @@ mod tests {
             ]
         );
         assert_eq!(opts, ResolverOpts::default());
-        assert_eq!(new_parameters_guard.is_empty(), true);
+        assert_eq!(resolver_wrapper_new_parameters.is_empty(), true);
     }
 
     #[test]
@@ -318,6 +335,7 @@ mod tests {
         let cryptde = cryptde();
         let package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
+            Some(Wallet::new("consuming")),
             test_utils::route_to_proxy_client(&cryptde.public_key(), cryptde),
             PlainData::new(&serde_cbor::ser::to_vec(&request.clone()).unwrap()[..]),
         );
@@ -336,6 +354,7 @@ mod tests {
         init_test_logging();
         let package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
+            Some(Wallet::new("consuming")),
             test_utils::make_meaningless_route(),
             PlainData::new(&b"invalid"[..]),
         );
@@ -368,6 +387,7 @@ mod tests {
         };
         let package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
+            Some(Wallet::new("consuming")),
             test_utils::make_meaningless_route(),
             PlainData::new(&serde_cbor::ser::to_vec(&request.clone()).unwrap()[..]),
         );
@@ -395,6 +415,13 @@ mod tests {
         Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
         system.run();
         let parameter = process_package_parameters.lock().unwrap().remove(0);
-        assert_eq!(parameter, (request, test_utils::make_meaningless_route()));
+        assert_eq!(
+            parameter,
+            (
+                request,
+                Some(Wallet::new("consuming")),
+                test_utils::make_meaningless_route()
+            )
+        );
     }
 }

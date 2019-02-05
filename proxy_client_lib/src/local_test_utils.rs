@@ -18,15 +18,12 @@ use trust_dns_resolver::lookup::Lookup;
 
 pub struct ResolverWrapperMock {
     lookup_ip_results: RefCell<Vec<Box<WrappedLookupIpFuture>>>,
-    lookup_ip_parameters: Arc<Mutex<Vec<String>>>,
+    lookup_ip_parameters: Arc<Mutex<Vec<Option<String>>>>,
 }
 
 impl ResolverWrapper for ResolverWrapperMock {
-    fn lookup_ip(&self, host: &str) -> Box<WrappedLookupIpFuture> {
-        self.lookup_ip_parameters
-            .lock()
-            .unwrap()
-            .push(String::from(host));
+    fn lookup_ip(&self, host_opt: Option<String>) -> Box<WrappedLookupIpFuture> {
+        self.lookup_ip_parameters.lock().unwrap().push(host_opt);
         self.lookup_ip_results.borrow_mut().remove(0)
     }
 }
@@ -63,7 +60,7 @@ impl ResolverWrapperMock {
 
     pub fn lookup_ip_parameters(
         mut self,
-        parameters: &Arc<Mutex<Vec<String>>>,
+        parameters: &Arc<Mutex<Vec<Option<String>>>>,
     ) -> ResolverWrapperMock {
         self.lookup_ip_parameters = parameters.clone();
         self

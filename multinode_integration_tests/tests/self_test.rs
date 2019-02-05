@@ -83,10 +83,6 @@ fn dropping_node_and_cluster_cleans_up() {
         cluster.start_mock_node(vec![1234]);
     }
 
-    wait_for(None, None, || !node_is_running(real_ip_addr, 80));
-    wait_for(None, None, || {
-        !node_is_running(mock_ip_addr, CONTROL_STREAM_PORT)
-    });
     wait_for(None, None, || !network_is_running());
 }
 

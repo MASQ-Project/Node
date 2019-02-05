@@ -26,7 +26,6 @@ impl Route {
         let mut pending_recipient: Option<Component> = None;
         for segment_index in 0..route_segments.len() {
             let route_segment = &route_segments[segment_index];
-            // TODO each route segment must have at least 2 keys, unless we keep Zero-Hop Routes
             if route_segment.keys.len() < 1 {
                 return Err(RouteError::TooFewKeysInRouteSegment);
             }

@@ -1,4 +1,5 @@
 use futures::sync::mpsc::SendError;
+use std::cell::RefCell;
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -47,16 +48,16 @@ impl<T> ReceiverWrapperMock<T> {
 pub struct SenderWrapperMock<T> {
     pub peer_addr: SocketAddr,
     pub unbounded_send_params: Arc<Mutex<Vec<T>>>,
-    pub unbounded_send_results: Vec<Result<(), SendError<T>>>,
+    pub unbounded_send_results: RefCell<Vec<Result<(), SendError<T>>>>,
 }
 
 impl<T: 'static + Clone + Debug + Send> SenderWrapper<T> for SenderWrapperMock<T> {
-    fn unbounded_send(&mut self, data: T) -> Result<(), SendError<T>> {
+    fn unbounded_send(&self, data: T) -> Result<(), SendError<T>> {
         self.unbounded_send_params.lock().unwrap().push(data);
-        if self.unbounded_send_results.is_empty() {
+        if self.unbounded_send_results.borrow().is_empty() {
             Ok(())
         } else {
-            self.unbounded_send_results.remove(0)
+            self.unbounded_send_results.borrow_mut().remove(0)
         }
     }
 
@@ -78,7 +79,7 @@ impl<T> SenderWrapperMock<T> {
         SenderWrapperMock {
             peer_addr,
             unbounded_send_params: Arc::new(Mutex::new(vec![])),
-            unbounded_send_results: vec![],
+            unbounded_send_results: RefCell::new(vec![]),
         }
     }
 }

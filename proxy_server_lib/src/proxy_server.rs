@@ -993,6 +993,7 @@ mod tests {
             IncipientCoresPackage::new(remaining_route.clone(), client_response_payload, &key);
         let first_expired_cores_package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
+            Some(Wallet::new("consuming")),
             remaining_route,
             incipient_cores_package.payload,
         );
@@ -1046,6 +1047,7 @@ mod tests {
             IncipientCoresPackage::new(remaining_route.clone(), client_response_payload, &key);
         let first_expired_cores_package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
+            Some(Wallet::new("consuming")),
             remaining_route,
             incipient_cores_package.payload,
         );
@@ -1100,6 +1102,7 @@ mod tests {
             IncipientCoresPackage::new(remaining_route.clone(), client_response_payload, &key);
         let expired_cores_package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
+            Some(Wallet::new("consuming")),
             remaining_route,
             incipient_cores_package.payload,
         );

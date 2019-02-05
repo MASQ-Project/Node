@@ -12,6 +12,7 @@ use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 use sub_lib::accountant::AccountantSubs;
+use sub_lib::accountant::ReportExitServiceMessage;
 use sub_lib::accountant::ReportRoutingServiceMessage;
 use sub_lib::dispatcher::DispatcherSubs;
 use sub_lib::dispatcher::InboundClientData;
@@ -183,6 +184,14 @@ impl Handler<ReportRoutingServiceMessage> for Recorder {
     }
 }
 
+impl Handler<ReportExitServiceMessage> for Recorder {
+    type Result = ();
+
+    fn handle(&mut self, msg: ReportExitServiceMessage, _ctx: &mut Self::Context) {
+        self.record(msg);
+    }
+}
+
 fn extract_response<T>(responses: &mut Vec<T>, err_msg: &str) -> T
 where
     T: Clone,
@@ -346,6 +355,7 @@ pub fn make_accountant_subs_from(addr: &Addr<Syn, Recorder>) -> AccountantSubs {
     AccountantSubs {
         bind: addr.clone().recipient::<BindMessage>(),
         report_routing_service: addr.clone().recipient::<ReportRoutingServiceMessage>(),
+        report_exit_service: addr.clone().recipient::<ReportExitServiceMessage>(),
     }
 }
 
