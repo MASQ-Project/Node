@@ -1304,6 +1304,6 @@ mod tests {
         );
 
         let hopper_recording = hopper_recording_arc.lock().unwrap();
-        assert_eq! (hopper_recording.len(), 0);
+        assert_eq!(hopper_recording.len(), 0);
     }
 }
