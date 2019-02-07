@@ -5,16 +5,19 @@ use std::io::ErrorKind;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::net::TcpStream as StdTcpStream;
+use std::time::Duration;
 use tokio::io;
 use tokio::io::AsyncRead;
 use tokio::net::TcpStream;
 use tokio::prelude::Future;
 use tokio::reactor::Handle;
+use tokio::timer::Timeout;
 use tokio_wrappers::ReadHalfWrapper;
 use tokio_wrappers::ReadHalfWrapperReal;
 use tokio_wrappers::WriteHalfWrapper;
 use tokio_wrappers::WriteHalfWrapperReal;
 
+pub const CONNECT_TIMEOUT_MS: u64 = 5000;
 pub type ConnectionInfoFuture = Box<Future<Item = ConnectionInfo, Error = io::Error> + Send>;
 
 pub struct ConnectionInfo {
@@ -44,26 +47,34 @@ impl StreamConnector for StreamConnectorReal {
     fn connect(&self, socket_addr: SocketAddr, logger: &Logger) -> ConnectionInfoFuture {
         let future_logger = logger.clone();
         Box::new(
-            TcpStream::connect(&socket_addr).then(move |result| match result {
-                Ok(stream) => {
-                    let local_addr = stream
-                        .local_addr()
-                        .expect("Connected stream has no local_addr");
-                    let peer_addr = stream
-                        .peer_addr()
-                        .expect("Connected stream has no peer_addr");
-                    let (read_half, write_half) = stream.split();
-                    Ok(ConnectionInfo {
-                        reader: Box::new(ReadHalfWrapperReal::new(read_half)),
-                        writer: Box::new(WriteHalfWrapperReal::new(write_half)),
-                        local_addr,
-                        peer_addr,
-                    })
-                }
-                Err(e) => {
-                    future_logger.error(format!("Could not connect TCP stream to {}", socket_addr));
-                    Err(e)
-                }
+            Timeout::new(
+                TcpStream::connect(&socket_addr).then(move |result| match result {
+                    Ok(stream) => {
+                        let local_addr = stream
+                            .local_addr()
+                            .expect("Connected stream has no local_addr");
+                        let peer_addr = stream
+                            .peer_addr()
+                            .expect("Connected stream has no peer_addr");
+                        let (read_half, write_half) = stream.split();
+                        Ok(ConnectionInfo {
+                            reader: Box::new(ReadHalfWrapperReal::new(read_half)),
+                            writer: Box::new(WriteHalfWrapperReal::new(write_half)),
+                            local_addr,
+                            peer_addr,
+                        })
+                    }
+                    Err(e) => {
+                        future_logger
+                            .error(format!("Could not connect TCP stream to {}", socket_addr));
+                        Err(e)
+                    }
+                }),
+                Duration::from_millis(CONNECT_TIMEOUT_MS),
+            )
+            .map_err(|wrapped_error| match wrapped_error.into_inner() {
+                Some(error) => error,
+                None => io::Error::from(ErrorKind::TimedOut),
             }),
         )
     }
@@ -163,7 +174,14 @@ mod tests {
         let future = subject.connect(socket_addr, &logger);
 
         FutureAsserter::new(future).assert(move |result| {
-            assert_eq!(result.err().unwrap().kind(), ErrorKind::ConnectionRefused);
+            let actual = result.err().unwrap().kind();
+            assert_eq!(
+                actual,
+                ErrorKind::ConnectionRefused,
+                "Expected {:?}, got {:?}",
+                ErrorKind::ConnectionRefused,
+                actual
+            );
             success()
         });
         TestLogHandler::new().exists_log_containing(&format!(
