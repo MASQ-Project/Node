@@ -9,7 +9,7 @@ use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use sub_lib::accountant;
-use sub_lib::cryptde::Key;
+use sub_lib::cryptde::PublicKey;
 use sub_lib::neighborhood::sentinel_ip_addr;
 use sub_lib::node_addr::NodeAddr;
 use sub_lib::wallet::Wallet;
@@ -228,7 +228,7 @@ impl SubstratumNode for SubstratumRealNode {
         self.guts.node_reference.clone()
     }
 
-    fn public_key(&self) -> Key {
+    fn public_key(&self) -> PublicKey {
         self.node_reference().public_key.clone()
     }
 
@@ -426,10 +426,10 @@ mod tests {
     #[test]
     fn node_startup_config_builder_settings() {
         let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
-        let one_neighbor_key = Key::new(&[1, 2, 3, 4]);
+        let one_neighbor_key = PublicKey::new(&[1, 2, 3, 4]);
         let one_neighbor_ip_addr = IpAddr::from_str("4.5.6.7").unwrap();
         let one_neighbor_ports = vec![1234, 2345];
-        let another_neighbor_key = Key::new(&[2, 3, 4, 5]);
+        let another_neighbor_key = PublicKey::new(&[2, 3, 4, 5]);
         let another_neighbor_ip_addr = IpAddr::from_str("5.6.7.8").unwrap();
         let another_neighbor_ports = vec![3456, 4567];
         let dns_servers = vec![
@@ -476,7 +476,7 @@ mod tests {
             ip: IpAddr::from_str("255.255.255.255").unwrap(),
             dns_servers: vec![IpAddr::from_str("255.255.255.255").unwrap()],
             neighbors: vec![NodeReference::new(
-                Key::new(&[255]),
+                PublicKey::new(&[255]),
                 IpAddr::from_str("255.255.255.255").unwrap(),
                 vec![255],
             )],
@@ -487,10 +487,10 @@ mod tests {
             earning_wallet: Wallet::new("booga"),
         };
         let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
-        let one_neighbor_key = Key::new(&[1, 2, 3, 4]);
+        let one_neighbor_key = PublicKey::new(&[1, 2, 3, 4]);
         let one_neighbor_ip_addr = IpAddr::from_str("4.5.6.7").unwrap();
         let one_neighbor_ports = vec![1234, 2345];
-        let another_neighbor_key = Key::new(&[2, 3, 4, 5]);
+        let another_neighbor_key = PublicKey::new(&[2, 3, 4, 5]);
         let another_neighbor_ip_addr = IpAddr::from_str("5.6.7.8").unwrap();
         let another_neighbor_ports = vec![3456, 4567];
         let dns_servers = vec![
@@ -534,12 +534,12 @@ mod tests {
     #[test]
     fn can_make_args() {
         let one_neighbor = NodeReference::new(
-            Key::new(&[1, 2, 3, 4]),
+            PublicKey::new(&[1, 2, 3, 4]),
             IpAddr::from_str("4.5.6.7").unwrap(),
             vec![1234, 2345],
         );
         let another_neighbor = NodeReference::new(
-            Key::new(&[2, 3, 4, 5]),
+            PublicKey::new(&[2, 3, 4, 5]),
             IpAddr::from_str("5.6.7.8").unwrap(),
             vec![3456, 4567],
         );

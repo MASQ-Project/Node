@@ -20,7 +20,7 @@ use stream_writer_unsorted::StreamWriterUnsorted;
 use sub_lib::channel_wrappers::FuturesChannelFactory;
 use sub_lib::channel_wrappers::FuturesChannelFactoryReal;
 use sub_lib::channel_wrappers::SenderWrapper;
-use sub_lib::cryptde::Key;
+use sub_lib::cryptde::PublicKey;
 use sub_lib::dispatcher;
 use sub_lib::dispatcher::DispatcherSubs;
 use sub_lib::dispatcher::Endpoint;
@@ -157,7 +157,7 @@ impl Handler<TransmitDataMsg> for StreamHandlerPool {
                 node_query_response_recipient
                     .try_send(DispatcherNodeQueryResponse {
                         result: Some(NodeDescriptor::new(
-                            Key::new(&[]),
+                            PublicKey::new(&[]),
                             Some(NodeAddr::from(&socket_addr)),
                         )),
                         context: msg,
@@ -458,7 +458,6 @@ mod tests {
     use std::sync::Mutex;
     use std::thread;
     use sub_lib::cryptde::CryptDE;
-    use sub_lib::cryptde::Key;
     use sub_lib::cryptde_null::CryptDENull;
     use sub_lib::dispatcher::InboundClientData;
     use sub_lib::neighborhood::NodeDescriptor;
@@ -845,9 +844,7 @@ mod tests {
     fn when_stream_handler_pool_fails_to_create_nonexistent_stream_for_write_then_it_logs_and_notifies_neighborhood(
     ) {
         init_test_logging();
-        let public_key = Key {
-            data: vec![0, 1, 2, 3],
-        };
+        let public_key = PublicKey::from(vec![0, 1, 2, 3]);
         let expected_key = public_key.clone();
         let connect_pair_params_arc = Arc::new(Mutex::new(vec![]));
         let connect_pair_params_arc_a = connect_pair_params_arc.clone();
@@ -911,9 +908,7 @@ mod tests {
 
     #[test]
     fn stream_handler_pool_creates_nonexistent_stream_for_reading_and_writing() {
-        let public_key = Key {
-            data: vec![0, 1, 2, 3],
-        };
+        let public_key = PublicKey::from(vec![0, 1, 2, 3]);
         let masquerader = JsonMasquerader::new();
         let incoming_unmasked = b"Incoming data".to_vec();
         let incoming_masked = masquerader.mask(&incoming_unmasked).unwrap();

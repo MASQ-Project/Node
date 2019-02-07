@@ -8,8 +8,8 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::CryptData;
-use sub_lib::cryptde::Key;
 use sub_lib::cryptde::PlainData;
+use sub_lib::cryptde::PublicKey;
 use sub_lib::dispatcher::Endpoint;
 use sub_lib::dispatcher::InboundClientData;
 use sub_lib::hopper::IncipientCoresPackage;
@@ -43,7 +43,7 @@ impl ConsumingService {
     pub fn consume(&self, incipient_cores_package: IncipientCoresPackage) {
         self.logger.debug(format!(
             "Received IncipientCoresPackage with {}-byte payload",
-            incipient_cores_package.payload.data.len()
+            incipient_cores_package.payload.len()
         ));
         match LiveCoresPackage::from_incipient(incipient_cores_package, self.cryptde.borrow()) {
             Ok((live_package, next_node_key)) => {
@@ -67,7 +67,7 @@ impl ConsumingService {
     fn serialize_and_encrypt_lcp(
         &self,
         live_package: LiveCoresPackage,
-        next_node_key: &Key,
+        next_node_key: &PublicKey,
     ) -> Result<CryptData, ()> {
         let serialized_package = match serde_cbor::ser::to_vec(&live_package) {
             Ok(package) => package,
@@ -92,7 +92,7 @@ impl ConsumingService {
         Ok(encrypted_package)
     }
 
-    fn launch_lcp(&self, encrypted_package: CryptData, next_node_key: Key) {
+    fn launch_lcp(&self, encrypted_package: CryptData, next_node_key: PublicKey) {
         if self.cryptde.public_key() == next_node_key {
             self.launch_zero_hop_lcp(encrypted_package);
         } else {
@@ -108,7 +108,7 @@ impl ConsumingService {
             last_data: false,     // irrelevant
             sequence_number: None,
             is_clandestine: true,
-            data: encrypted_package.data,
+            data: encrypted_package.into(),
         };
         self.logger.debug(format!(
             "Sending InboundClientData with {}-byte payload to Hopper",
@@ -119,11 +119,11 @@ impl ConsumingService {
             .expect("Hopper is dead");
     }
 
-    fn launch_conventional_lcp(&self, encrypted_package: CryptData, next_node_key: Key) {
+    fn launch_conventional_lcp(&self, encrypted_package: CryptData, next_node_key: PublicKey) {
         let transmit_msg = TransmitDataMsg {
             endpoint: Endpoint::Key(next_node_key),
             last_data: false, // Hopper-to-Hopper streams are never remotely killed
-            data: encrypted_package.data,
+            data: encrypted_package.into(),
             sequence_number: None,
         };
 
@@ -169,7 +169,7 @@ mod tests {
         let dispatcher = Recorder::new();
         let dispatcher_recording_arc = dispatcher.get_recording();
         let dispatcher_awaiter = dispatcher.get_awaiter();
-        let destination_key = Key::new(&[65, 65, 65]);
+        let destination_key = PublicKey::new(&[65, 65, 65]);
         let route = Route::new(
             vec![RouteSegment::new(
                 vec![&cryptde.public_key(), &destination_key.clone()],
@@ -209,7 +209,7 @@ mod tests {
                 endpoint: Endpoint::Key(destination_key.clone()),
                 last_data: false,
                 sequence_number: None,
-                data: expected_lcp_enc.data,
+                data: expected_lcp_enc.into(),
             }
         );
     }
@@ -262,7 +262,7 @@ mod tests {
         subject.consume(IncipientCoresPackage::new(
             Route { hops: vec![] },
             CryptData::new(&[]),
-            &Key::new(&[1, 2]),
+            &PublicKey::new(&[1, 2]),
         ));
 
         TestLogHandler::new().exists_log_containing(

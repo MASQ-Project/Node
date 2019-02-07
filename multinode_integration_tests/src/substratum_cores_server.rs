@@ -22,7 +22,8 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::CryptData;
-use sub_lib::cryptde::Key;
+use sub_lib::cryptde::PrivateKey;
+use sub_lib::cryptde::PublicKey;
 use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::node_addr::NodeAddr;
 use substratum_node::NodeReference;
@@ -140,7 +141,7 @@ impl SubstratumCoresServer {
         &self.cryptde
     }
 
-    pub fn public_key(&self) -> Key {
+    pub fn public_key(&self) -> PublicKey {
         self.node_reference().public_key.clone()
     }
 
@@ -148,8 +149,8 @@ impl SubstratumCoresServer {
         self.node_reference().node_addr.clone()
     }
 
-    pub fn private_key(&self) -> Key {
-        self.cryptde().private_key().clone()
+    pub fn private_key(&self) -> PrivateKey {
+        self.cryptde().private_key()
     }
 
     pub fn wait_for_package(&self, timeout: Duration) -> LiveCoresPackage {
@@ -158,7 +159,7 @@ impl SubstratumCoresServer {
             .cryptde
             .decode(&CryptData::new(&chunk.chunk[..]))
             .unwrap();
-        serde_cbor::de::from_slice::<LiveCoresPackage>(&decoded_chunk.data)
+        serde_cbor::de::from_slice::<LiveCoresPackage>(decoded_chunk.as_slice())
             .expect(format!("Error deserializing LCP from {:?}", chunk.chunk).as_str())
     }
 

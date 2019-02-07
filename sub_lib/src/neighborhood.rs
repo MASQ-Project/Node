@@ -2,7 +2,7 @@
 use actix::Message;
 use actix::Recipient;
 use actix::Syn;
-use cryptde::Key;
+use cryptde::PublicKey;
 use dispatcher::Component;
 use hopper::ExpiredCoresPackage;
 use node_addr::NodeAddr;
@@ -27,7 +27,7 @@ pub fn sentinel_ip_addr() -> IpAddr {
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct NeighborhoodConfig {
-    pub neighbor_configs: Vec<(Key, NodeAddr)>,
+    pub neighbor_configs: Vec<(PublicKey, NodeAddr)>,
     pub is_bootstrap_node: bool,
     pub local_ip_addr: IpAddr,
     pub clandestine_port_list: Vec<u16>,
@@ -56,12 +56,12 @@ pub struct NeighborhoodSubs {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NodeDescriptor {
-    pub public_key: Key,
+    pub public_key: PublicKey,
     pub node_addr_opt: Option<NodeAddr>,
 }
 
 impl NodeDescriptor {
-    pub fn new(public_key: Key, node_addr_opt: Option<NodeAddr>) -> NodeDescriptor {
+    pub fn new(public_key: PublicKey, node_addr_opt: Option<NodeAddr>) -> NodeDescriptor {
         NodeDescriptor {
             public_key,
             node_addr_opt,
@@ -75,7 +75,7 @@ pub struct BootstrapNeighborhoodNowMessage {}
 #[derive(Debug, PartialEq, Clone)]
 pub enum NodeQueryMessage {
     IpAddress(IpAddr),
-    PublicKey(Key),
+    PublicKey(PublicKey),
 }
 
 impl Message for NodeQueryMessage {
@@ -105,7 +105,7 @@ pub enum TargetType {
 pub struct RouteQueryMessage {
     pub route_type: RouteType,
     pub target_type: TargetType,
-    pub target_key_opt: Option<Key>,
+    pub target_key_opt: Option<PublicKey>,
     pub target_component: Component,
     pub minimum_hop_count: usize,
     pub return_component_opt: Option<Component>,
@@ -117,7 +117,7 @@ impl Message for RouteQueryMessage {
 
 impl RouteQueryMessage {
     pub fn gossip_route_request(
-        target_key_ref: &Key,
+        target_key_ref: &PublicKey,
         minimum_hop_count: usize,
     ) -> RouteQueryMessage {
         RouteQueryMessage {
@@ -145,12 +145,12 @@ impl RouteQueryMessage {
 #[derive(PartialEq, Debug, Clone)]
 pub struct RouteQueryResponse {
     pub route: Route,
-    pub segment_endpoints: Vec<Key>,
+    pub segment_endpoints: Vec<PublicKey>,
 }
 
 #[derive(PartialEq, Debug, Message, Clone)]
 pub struct RemoveNeighborMessage {
-    pub public_key: Key,
+    pub public_key: PublicKey,
 }
 
 #[cfg(test)]
@@ -160,7 +160,7 @@ mod tests {
 
     #[test]
     fn gossip_route_request() {
-        let target = Key::new(&b"booga"[..]);
+        let target = PublicKey::new(&b"booga"[..]);
 
         let result = RouteQueryMessage::gossip_route_request(&target, 2);
 
@@ -214,7 +214,7 @@ mod tests {
     fn neighborhood_config_is_not_decentralized_if_the_sentinel_ip_address_is_used() {
         let subject = NeighborhoodConfig {
             neighbor_configs: vec![(
-                Key::new(&b"key"[..]),
+                PublicKey::new(&b"key"[..]),
                 NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]),
             )],
             earning_wallet: Wallet::new("router"),
@@ -233,7 +233,7 @@ mod tests {
     fn neighborhood_config_is_not_decentralized_if_there_are_no_clandestine_ports() {
         let subject = NeighborhoodConfig {
             neighbor_configs: vec![(
-                Key::new(&b"key"[..]),
+                PublicKey::new(&b"key"[..]),
                 NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]),
             )],
             earning_wallet: Wallet::new("router"),
@@ -253,7 +253,7 @@ mod tests {
     ) {
         let subject = NeighborhoodConfig {
             neighbor_configs: vec![(
-                Key::new(&b"key"[..]),
+                PublicKey::new(&b"key"[..]),
                 NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]),
             )],
             earning_wallet: Wallet::new("router"),

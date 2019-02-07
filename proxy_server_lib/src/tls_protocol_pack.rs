@@ -23,11 +23,11 @@ impl ProtocolPack for TlsProtocolPack {
 
 impl TlsProtocolPack {
     fn is_handshake(data: &PlainData) -> bool {
-        data.data.first() == Some(&0x16)
+        data.as_slice().first() == Some(&0x16)
     }
 
     fn is_client_hello(data: &PlainData) -> bool {
-        data.data[5] == 0x01
+        data.as_slice()[5] == 0x01
     }
 
     fn find_host_name(data: &PlainData) -> Option<String> {
@@ -70,7 +70,7 @@ impl TlsProtocolPack {
         let server_name_length = TlsProtocolPack::u16_from(data, offset + 1);
         let server_name_offset = offset + 3;
         match String::from_utf8(Vec::from(
-            &data.data[(server_name_offset)..(server_name_offset + server_name_length)],
+            &data.as_slice()[(server_name_offset)..(server_name_offset + server_name_length)],
         )) {
             Ok(hostname) => Some(hostname),
             Err(_) => None,
@@ -78,7 +78,7 @@ impl TlsProtocolPack {
     }
 
     fn advance_past(data: &PlainData, length_offset: usize, length_length: usize) -> Option<usize> {
-        if length_offset + length_length > data.data.len() {
+        if length_offset + length_length > data.len() {
             return None;
         }
         let length = if length_length == 1 {
@@ -90,7 +90,7 @@ impl TlsProtocolPack {
     }
 
     fn u8_from(data: &PlainData, offset: usize) -> usize {
-        data.data[offset] as usize
+        data.as_slice()[offset] as usize
     }
 
     fn u16_from(data: &PlainData, offset: usize) -> usize {

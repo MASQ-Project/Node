@@ -4,13 +4,13 @@ use gossip::Gossip;
 use gossip::GossipBuilder;
 use neighborhood_database::NeighborhoodDatabase;
 use neighborhood_database::NodeRecord;
-use sub_lib::cryptde::Key;
+use sub_lib::cryptde::PublicKey;
 use sub_lib::logger::Logger;
 
 static MINIMUM_NEIGHBORS: usize = 3;
 
 pub trait GossipProducer {
-    fn produce(&self, database: &NeighborhoodDatabase, target: &Key) -> Gossip;
+    fn produce(&self, database: &NeighborhoodDatabase, target: &PublicKey) -> Gossip;
 }
 
 pub struct GossipProducerReal {
@@ -30,7 +30,7 @@ impl GossipProducer for GossipProducerReal {
         returns:
             a Gossip message representing the current neighborhood for a target node
     */
-    fn produce(&self, database: &NeighborhoodDatabase, target: &Key) -> Gossip {
+    fn produce(&self, database: &NeighborhoodDatabase, target: &PublicKey) -> Gossip {
         let target_node_ref = match database.node_by_key(target) {
             Some(node_ref) => node_ref,
             None => panic!("Target node {:?} not in NeighborhoodDatabase", target),
@@ -69,7 +69,7 @@ impl GossipProducerReal {
         &self,
         database: &'a NeighborhoodDatabase,
         target: &NodeRecord,
-    ) -> Vec<&'a Key> {
+    ) -> Vec<&'a PublicKey> {
         let target_standard_neighbors = target
             .neighbors()
             .iter()
@@ -83,7 +83,7 @@ impl GossipProducerReal {
             && database.root().neighbors().contains(target.public_key())
             && target_standard_neighbors < MINIMUM_NEIGHBORS
         {
-            let mut possible_introducees: Vec<&Key> = database
+            let mut possible_introducees: Vec<&PublicKey> = database
                 .root()
                 .neighbors()
                 .iter()

@@ -3,7 +3,7 @@ use neighborhood_lib::gossip::GossipNodeRecord;
 use neighborhood_lib::neighborhood_database::NodeRecordInner;
 use neighborhood_lib::neighborhood_database::NodeSignatures;
 use sub_lib::cryptde::CryptDE;
-use sub_lib::cryptde::Key;
+use sub_lib::cryptde::PublicKey;
 use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::dispatcher::Component;
 use sub_lib::hopper::IncipientCoresPackage;
@@ -15,7 +15,7 @@ use substratum_node::SubstratumNode;
 pub struct GossipBuilder {
     consuming_wallet: Option<Wallet>,
     node_info: Vec<GossipBuilderNodeInfo>,
-    connection_pairs: Vec<(Key, Key)>,
+    connection_pairs: Vec<(PublicKey, PublicKey)>,
 }
 
 impl GossipBuilder {
@@ -55,7 +55,7 @@ impl GossipBuilder {
         self
     }
 
-    pub fn add_connection(mut self, from_key: &Key, to_key: &Key) -> Self {
+    pub fn add_connection(mut self, from_key: &PublicKey, to_key: &PublicKey) -> Self {
         self.connection_pairs
             .push((from_key.clone(), to_key.clone()));
         self
@@ -90,7 +90,7 @@ impl GossipBuilder {
         Gossip { node_records }
     }
 
-    pub fn build_cores_package(self, from: &Key, to: &Key) -> IncipientCoresPackage {
+    pub fn build_cores_package(self, from: &PublicKey, to: &PublicKey) -> IncipientCoresPackage {
         let consuming_wallet = self.consuming_wallet.clone();
         let gossip = self.build();
         IncipientCoresPackage::new(

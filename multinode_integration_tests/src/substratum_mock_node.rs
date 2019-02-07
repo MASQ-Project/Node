@@ -21,8 +21,8 @@ use std::thread;
 use std::time::Duration;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::CryptData;
-use sub_lib::cryptde::Key;
 use sub_lib::cryptde::PlainData;
+use sub_lib::cryptde::PublicKey;
 use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::dispatcher::Component;
 use sub_lib::framer::Framer;
@@ -67,7 +67,7 @@ impl SubstratumNode for SubstratumMockNode {
         )
     }
 
-    fn public_key(&self) -> Key {
+    fn public_key(&self) -> PublicKey {
         self.cryptde().public_key()
     }
 
@@ -179,7 +179,7 @@ impl SubstratumMockNode {
         transmit_port: u16,
         package: IncipientCoresPackage,
         masquerader: &Masquerader,
-        target_key: &Key,
+        target_key: &PublicKey,
         target_addr: SocketAddr,
     ) -> Result<(), io::Error> {
         let (lcp, _) = LiveCoresPackage::from_incipient(package, self.cryptde()).unwrap();
@@ -188,7 +188,7 @@ impl SubstratumMockNode {
             .cryptde()
             .encode(target_key, &PlainData::new(&lcp_data[..]))
             .unwrap();
-        let masked_data = masquerader.mask(&encrypted_data.data[..]).unwrap();
+        let masked_data = masquerader.mask(encrypted_data.as_slice()).unwrap();
         let data_hunk = DataHunk::new(
             SocketAddr::new(self.ip_address(), transmit_port),
             target_addr,
@@ -235,7 +235,7 @@ impl SubstratumMockNode {
             .decode(&CryptData::new(&unmasked_data[..]))
             .unwrap();
         let live_cores_package =
-            serde_cbor::de::from_slice::<LiveCoresPackage>(&decrypted_data.data[..]).unwrap();
+            serde_cbor::de::from_slice::<LiveCoresPackage>(decrypted_data.as_slice()).unwrap();
         Ok((data_hunk.from, data_hunk.to, live_cores_package))
     }
 

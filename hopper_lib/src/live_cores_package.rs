@@ -3,7 +3,7 @@
 use std::net::IpAddr;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::CryptData;
-use sub_lib::cryptde::Key;
+use sub_lib::cryptde::PublicKey;
 use sub_lib::hop::LiveHop;
 use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::hopper::IncipientCoresPackage;
@@ -33,7 +33,7 @@ impl LiveCoresPackage {
     pub fn from_incipient(
         incipient: IncipientCoresPackage,
         cryptde: &CryptDE, // must be the CryptDE of the Node to which the top hop is encrypted
-    ) -> Result<(LiveCoresPackage, Key), String> {
+    ) -> Result<(LiveCoresPackage, PublicKey), String> {
         let encrypted_payload =
             match cryptde.encode(&incipient.payload_destination_key, &incipient.payload) {
                 Ok(p) => p,
@@ -78,7 +78,6 @@ mod tests {
     use super::*;
     use std::str::FromStr;
     use sub_lib::cryptde::CryptdecError;
-    use sub_lib::cryptde::Key;
     use sub_lib::cryptde::PlainData;
     use sub_lib::cryptde_null::CryptDENull;
     use sub_lib::dispatcher::Component;
@@ -97,7 +96,7 @@ mod tests {
         let consuming_wallet = Wallet::new("wallet");
         let route = Route::new(
             vec![RouteSegment::new(
-                vec![&Key::new(&[1, 2]), &Key::new(&[3, 4])],
+                vec![&PublicKey::new(&[1, 2]), &PublicKey::new(&[3, 4])],
                 Component::Neighborhood,
             )],
             cryptde,
@@ -114,9 +113,9 @@ mod tests {
     #[test]
     fn live_cores_package_can_be_produced_from_older_live_cores_package() {
         let payload = PayloadMock::new();
-        let destination_key = Key::new(&[3, 4]);
+        let destination_key = PublicKey::new(&[3, 4]);
         let destination_cryptde = CryptDENull::from(&destination_key);
-        let relay_key = Key::new(&[1, 2]);
+        let relay_key = PublicKey::new(&[1, 2]);
         let relay_cryptde = CryptDENull::from(&relay_key);
         let cryptde = cryptde();
         let serialized_payload = serde_cbor::ser::to_vec(&payload).unwrap();
@@ -150,12 +149,15 @@ mod tests {
         assert_eq!(
             route.shift(&destination_cryptde).unwrap(),
             LiveHop::new(
-                &Key::new(&[]),
+                &PublicKey::new(&[]),
                 Some(Wallet::new("wallet")),
                 Component::Neighborhood
             )
         );
-        assert_eq!(&route.hops[0].data[..8], &[52, 52, 52, 52, 52, 52, 52, 52]); // garbage
+        assert_eq!(
+            &route.hops[0].as_slice()[..8],
+            &[52, 52, 52, 52, 52, 52, 52, 52]
+        ); // garbage
     }
 
     #[test]
@@ -172,8 +174,8 @@ mod tests {
         let cryptde = cryptde();
         let consuming_wallet = Wallet::new("wallet");
         let key12 = cryptde.public_key();
-        let key34 = Key::new(&[3, 4]);
-        let key56 = Key::new(&[5, 6]);
+        let key34 = PublicKey::new(&[3, 4]);
+        let key56 = PublicKey::new(&[5, 6]);
         let mut route = Route::new(
             vec![RouteSegment::new(
                 vec![&key12, &key34, &key56],
@@ -204,8 +206,11 @@ mod tests {
 
     #[test]
     fn from_incipient_complains_about_problems_encrypting_payload() {
-        let incipient =
-            IncipientCoresPackage::new(Route { hops: vec![] }, CryptData::new(&[]), &Key::new(&[]));
+        let incipient = IncipientCoresPackage::new(
+            Route { hops: vec![] },
+            CryptData::new(&[]),
+            &PublicKey::new(&[]),
+        );
 
         let result = LiveCoresPackage::from_incipient(incipient, cryptde());
 
@@ -220,7 +225,7 @@ mod tests {
         let incipient = IncipientCoresPackage::new(
             Route { hops: vec![] },
             String::from("booga"),
-            &Key::new(&[3, 4]),
+            &PublicKey::new(&[3, 4]),
         );
 
         let result = LiveCoresPackage::from_incipient(incipient, cryptde());
@@ -235,11 +240,11 @@ mod tests {
     fn expired_cores_package_can_be_constructed_from_live_cores_package() {
         let immediate_neighbor_ip = IpAddr::from_str("1.2.3.4").unwrap();
         let payload = PayloadMock::new();
-        let first_stop_key = Key::new(&[3, 4]);
+        let first_stop_key = PublicKey::new(&[3, 4]);
         let first_stop_cryptde = CryptDENull::from(&first_stop_key);
-        let relay_key = Key::new(&[1, 2]);
+        let relay_key = PublicKey::new(&[1, 2]);
         let relay_cryptde = CryptDENull::from(&relay_key);
-        let second_stop_key = Key::new(&[5, 6]);
+        let second_stop_key = PublicKey::new(&[5, 6]);
         let second_stop_cryptde = CryptDENull::from(&second_stop_key);
         let cryptde = cryptde();
         let serialized_payload = serde_cbor::ser::to_vec(&payload).unwrap();
@@ -292,12 +297,15 @@ mod tests {
         assert_eq!(
             route.shift(&second_stop_cryptde).unwrap(),
             LiveHop::new(
-                &Key::new(&[]),
+                &PublicKey::new(&[]),
                 Some(Wallet::new("wallet")),
                 Component::ProxyServer
             )
         );
-        assert_eq!(&route.hops[0].data[..8], &[52, 52, 52, 52, 52, 52, 52, 52]); // garbage
+        assert_eq!(
+            &route.hops[0].as_slice()[..8],
+            &[52, 52, 52, 52, 52, 52, 52, 52]
+        ); // garbage
     }
 
     #[test]
@@ -313,7 +321,7 @@ mod tests {
     fn to_expired_complains_about_bad_route() {
         let subject = LiveCoresPackage::new(
             Route { hops: vec![] },
-            CryptData::new(&cryptde().private_key().data[..]),
+            CryptData::new(cryptde().private_key().as_slice()),
         );
 
         let result = subject.to_expired(IpAddr::from_str("1.2.3.4").unwrap(), cryptde());

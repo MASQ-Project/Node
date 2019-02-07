@@ -99,7 +99,7 @@ mod tests {
             sequence_number: Some(1),
             last_data: false,
             is_clandestine: false,
-            data: data.data.clone(),
+            data: data.clone().into(),
         };
         let cryptde = CryptDENull::new();
         let logger = Logger::new("test");
@@ -112,7 +112,7 @@ mod tests {
             Some(ClientRequestPayload {
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
-                    data: data.data,
+                    data: data.into(),
                     sequence_number: 1,
                     last_data: false
                 },
@@ -153,7 +153,7 @@ mod tests {
             reception_port: Some(443),
             last_data: false,
             is_clandestine: false,
-            data: data.data.clone(),
+            data: data.clone().into(),
         };
         let cryptde = CryptDENull::new();
         let logger = Logger::new("test");
@@ -166,7 +166,7 @@ mod tests {
             Some(ClientRequestPayload {
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
-                    data: data.data,
+                    data: data.into(),
                     sequence_number: 0,
                     last_data: false
                 },
@@ -200,7 +200,7 @@ mod tests {
             last_data: true,
             is_clandestine: false,
             sequence_number: Some(0),
-            data: data.data.clone(),
+            data: data.clone().into(),
         };
         let cryptde = CryptDENull::new();
         let logger = Logger::new("test");
@@ -213,7 +213,7 @@ mod tests {
             Some(ClientRequestPayload {
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
-                    data: data.data,
+                    data: data.into(),
                     sequence_number: 0,
                     last_data: true
                 },

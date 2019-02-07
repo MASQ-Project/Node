@@ -4,8 +4,8 @@ use actix::Syn;
 use std::net::SocketAddr;
 use std::sync::mpsc::Sender;
 use sub_lib::accountant::ReportExitServiceMessage;
-use sub_lib::cryptde::Key;
 use sub_lib::cryptde::PlainData;
+use sub_lib::cryptde::PublicKey;
 use sub_lib::framer::Framer;
 use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::logger::Logger;
@@ -31,7 +31,7 @@ pub struct StreamReader {
     peer_addr: SocketAddr,
     remaining_route: Route,
     framer: Box<Framer>,
-    originator_public_key: Key,
+    originator_public_key: PublicKey,
     logger: Logger,
     sequencer: Sequencer,
 }
@@ -94,7 +94,7 @@ impl StreamReader {
         peer_addr: SocketAddr,
         remaining_route: Route,
         framer: Box<Framer>,
-        originator_public_key: Key,
+        originator_public_key: PublicKey,
     ) -> StreamReader {
         StreamReader {
             stream_key,
@@ -161,7 +161,7 @@ impl StreamReader {
         let response_payload = ClientResponsePayload {
             stream_key,
             sequenced_packet: SequencedPacket {
-                data: response_data.data,
+                data: response_data.into(),
                 sequence_number: self.sequencer.next_sequence_number(),
                 last_data: last_response,
             },
@@ -288,7 +288,7 @@ mod tests {
             peer_addr: SocketAddr::from_str("8.7.4.3:50").unwrap(),
             remaining_route: test_utils::make_meaningless_route(),
             framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
-            originator_public_key: Key::new(&b"abcd"[..]),
+            originator_public_key: PublicKey::new(&b"abcd"[..]),
             logger: Logger::new("test"),
             sequencer: Sequencer::new(),
         };
@@ -309,7 +309,7 @@ mod tests {
                         last_data: false
                     },
                 },
-                &Key::new(&b"abcd"[..]),
+                &PublicKey::new(&b"abcd"[..]),
             )
         );
         assert_eq!(
@@ -324,7 +324,7 @@ mod tests {
                         last_data: false
                     },
                 },
-                &Key::new(&b"abcd"[..]),
+                &PublicKey::new(&b"abcd"[..]),
             )
         );
         assert_eq!(
@@ -339,7 +339,7 @@ mod tests {
                         last_data: false
                     },
                 },
-                &Key::new(&b"abcd"[..]),
+                &PublicKey::new(&b"abcd"[..]),
             )
         );
         assert_eq!(
@@ -354,7 +354,7 @@ mod tests {
                         last_data: true
                     },
                 },
-                &Key::new(&b"abcd"[..]),
+                &PublicKey::new(&b"abcd"[..]),
             )
         );
         let stream_killer_parameters = stream_killer_params.try_recv().unwrap();
@@ -374,7 +374,7 @@ mod tests {
         let (stream_killer, stream_killer_params) = mpsc::channel();
         let remaining_route = test_utils::make_meaningless_route();
         let framer = Box::new(StreamEndingFramer {});
-        let originator_public_key = Key::new(&b"men's souls"[..]);
+        let originator_public_key = PublicKey::new(&b"men's souls"[..]);
         let logger = Logger::new("test");
 
         let (tx, rx) = mpsc::channel();
@@ -430,7 +430,7 @@ mod tests {
                     })
                     .unwrap()[..]
                 ),
-                payload_destination_key: Key::new(&b"men's souls"[..]),
+                payload_destination_key: PublicKey::new(&b"men's souls"[..]),
             }
         );
     }
@@ -483,7 +483,7 @@ mod tests {
             peer_addr: SocketAddr::from_str("5.7.9.0:95").unwrap(),
             remaining_route: test_utils::make_meaningless_route(),
             framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
-            originator_public_key: Key::new(&b"abcd"[..]),
+            originator_public_key: PublicKey::new(&b"abcd"[..]),
             logger: Logger::new("test"),
             sequencer: Sequencer::new(),
         };
@@ -505,7 +505,7 @@ mod tests {
                         last_data: false
                     },
                 },
-                &Key::new(&b"abcd"[..]),
+                &PublicKey::new(&b"abcd"[..]),
             )
         );
         assert_eq!(
@@ -520,7 +520,7 @@ mod tests {
                         last_data: false
                     },
                 },
-                &Key::new(&b"abcd"[..]),
+                &PublicKey::new(&b"abcd"[..]),
             )
         );
         assert_eq!(
@@ -535,7 +535,7 @@ mod tests {
                         last_data: false
                     },
                 },
-                &Key::new(&b"abcd"[..]),
+                &PublicKey::new(&b"abcd"[..]),
             )
         );
         assert_eq!(
@@ -550,7 +550,7 @@ mod tests {
                         last_data: true
                     },
                 },
-                &Key::new(&b"abcd"[..]),
+                &PublicKey::new(&b"abcd"[..]),
             )
         );
         accountant_awaiter.await_message_count(3);
@@ -622,7 +622,7 @@ mod tests {
             peer_addr: SocketAddr::from_str("5.7.9.0:95").unwrap(),
             remaining_route: test_utils::make_meaningless_route(),
             framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
-            originator_public_key: Key::new(&b"abcd"[..]),
+            originator_public_key: PublicKey::new(&b"abcd"[..]),
             logger: Logger::new("test"),
             sequencer: Sequencer::new(),
         };
@@ -673,7 +673,7 @@ mod tests {
             peer_addr: SocketAddr::from_str("5.3.4.3:654").unwrap(),
             remaining_route: test_utils::make_meaningless_route(),
             framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
-            originator_public_key: Key::new(&b"abcd"[..]),
+            originator_public_key: PublicKey::new(&b"abcd"[..]),
             logger: Logger::new("test"),
             sequencer: Sequencer::new(),
         };
@@ -696,7 +696,7 @@ mod tests {
                         last_data: true
                     },
                 },
-                &Key::new(&b"abcd"[..]),
+                &PublicKey::new(&b"abcd"[..]),
             )
         );
         TestLogHandler::new()
@@ -755,7 +755,7 @@ mod tests {
             peer_addr: SocketAddr::from_str("6.5.4.1:8325").unwrap(),
             remaining_route: test_utils::make_meaningless_route(),
             framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
-            originator_public_key: Key::new(&b"abcd"[..]),
+            originator_public_key: PublicKey::new(&b"abcd"[..]),
             logger: Logger::new("test"),
             sequencer: Sequencer::new(),
         };
@@ -780,7 +780,7 @@ mod tests {
                         last_data: false
                     },
                 },
-                &Key::new(&b"abcd"[..]),
+                &PublicKey::new(&b"abcd"[..]),
             )
         );
     }

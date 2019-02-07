@@ -3,7 +3,7 @@ use neighborhood_database::NodeRecord;
 use neighborhood_database::NodeRecordInner;
 use neighborhood_database::NodeSignatures;
 use std::collections::HashSet;
-use sub_lib::cryptde::Key;
+use sub_lib::cryptde::PublicKey;
 
 use std::fmt::Debug;
 use std::fmt::Error;
@@ -102,7 +102,7 @@ impl GossipNodeRecord {
         human_readable
     }
 
-    pub fn public_key(&self) -> Key {
+    pub fn public_key(&self) -> PublicKey {
         self.inner.public_key.clone()
     }
 }
@@ -112,7 +112,7 @@ pub struct Gossip {
     pub node_records: Vec<GossipNodeRecord>,
 }
 
-pub fn to_dot_graph(gossip: Gossip, target: &Key, source: Key) -> String {
+pub fn to_dot_graph(gossip: Gossip, target: &PublicKey, source: PublicKey) -> String {
     let mut bootstrap_keys = vec![];
     for item in gossip.node_records.clone() {
         if item.inner.is_bootstrap_node {
@@ -155,7 +155,7 @@ pub fn to_dot_graph(gossip: Gossip, target: &Key, source: Key) -> String {
 
 pub struct GossipBuilder {
     gossip: Gossip,
-    keys_so_far: HashSet<Key>,
+    keys_so_far: HashSet<PublicKey>,
 }
 
 impl GossipBuilder {
@@ -275,7 +275,7 @@ mod tests {
         let builder = GossipBuilder::new();
 
         let node = NodeRecord::new(
-            &Key::new(&[5, 4, 3, 2]),
+            &PublicKey::new(&[5, 4, 3, 2]),
             Some(&NodeAddr::new(
                 &IpAddr::from_str("1.2.3.4").unwrap(),
                 &vec![1234],
@@ -296,7 +296,7 @@ mod tests {
     #[should_panic(expected = "Attempted to create Gossip about an unsigned NodeRecord")]
     fn gossip_node_record_cannot_be_created_from_node_with_missing_signatures() {
         let node = NodeRecord::new(
-            &Key::new(&[5, 4, 3, 2]),
+            &PublicKey::new(&[5, 4, 3, 2]),
             Some(&NodeAddr::new(
                 &IpAddr::from_str("1.2.3.4").unwrap(),
                 &vec![1234],
@@ -331,8 +331,8 @@ mod tests {
     fn to_dot_graph_returns_gossip_in_dotgraph_format() {
         let mut target_node = make_node_record(1234, true, false);
         let mut source_node = make_node_record(2345, true, true);
-        target_node.neighbors_mut().push(Key::new(b"9876"));
-        source_node.neighbors_mut().push(Key::new(b"1793"));
+        target_node.neighbors_mut().push(PublicKey::new(b"9876"));
+        source_node.neighbors_mut().push(PublicKey::new(b"1793"));
 
         let builder = GossipBuilder::new();
         let gossip = builder

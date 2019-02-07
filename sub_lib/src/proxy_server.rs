@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use actix::Recipient;
 use actix::Syn;
-use cryptde::Key;
+use cryptde::PublicKey;
 use dispatcher::InboundClientData;
 use hopper::ExpiredCoresPackage;
 use peer_actors::BindMessage;
@@ -24,7 +24,7 @@ pub struct ClientRequestPayload {
     pub target_hostname: Option<String>,
     pub target_port: u16,
     pub protocol: ProxyProtocol,
-    pub originator_public_key: Key,
+    pub originator_public_key: PublicKey,
 }
 
 #[derive(Clone)]

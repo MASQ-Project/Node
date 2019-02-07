@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::hash::Hash;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
-use sub_lib::cryptde::Key;
+use sub_lib::cryptde::PublicKey;
 use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::node_addr::NodeAddr;
 use sub_lib::wallet::Wallet;
@@ -16,7 +16,7 @@ pub fn make_node_record(n: u16, has_ip: bool, is_bootstrap_node: bool) -> NodeRe
     let b = ((n / 100) % 10) as u8;
     let c = ((n / 10) % 10) as u8;
     let d = (n % 10) as u8;
-    let key = Key::new(&[a, b, c, d]);
+    let key = PublicKey::new(&[a, b, c, d]);
     let ip_addr = IpAddr::V4(Ipv4Addr::new(a, b, c, d));
     let node_addr = NodeAddr::new(&ip_addr, &vec![n % 10000]);
 
@@ -38,24 +38,24 @@ where
 pub fn neighbor_keys_of<'a>(
     database_ref: &'a NeighborhoodDatabase,
     node_record: &NodeRecord,
-) -> Vec<&'a Key> {
+) -> Vec<&'a PublicKey> {
     let public_key_ref = node_record.public_key();
     let node_ref = database_ref.node_by_key(public_key_ref).unwrap();
     node_ref.neighbors().iter().map(|key_ref| key_ref).collect()
 }
 
 impl NodeRecord {
-    pub fn earning_wallet_from_key(public_key: &Key) -> Wallet {
+    pub fn earning_wallet_from_key(public_key: &PublicKey) -> Wallet {
         let mut result = String::from("0x");
-        for i in &public_key.data {
+        for i in public_key.as_slice() {
             result.push_str(&format!("{:x}", i));
         }
         Wallet { address: result }
     }
 
-    pub fn consuming_wallet_from_key(public_key: &Key) -> Option<Wallet> {
+    pub fn consuming_wallet_from_key(public_key: &PublicKey) -> Option<Wallet> {
         let mut result = String::from("0x");
-        let mut reversed_public_key_data = public_key.data.clone();
+        let mut reversed_public_key_data = Vec::from(public_key.as_slice());
         reversed_public_key_data.reverse();
         for i in &reversed_public_key_data {
             result.push_str(&format!("{:x}", i));
@@ -64,7 +64,7 @@ impl NodeRecord {
     }
 
     pub fn new_for_tests(
-        public_key: &Key,
+        public_key: &PublicKey,
         node_addr_opt: Option<&NodeAddr>,
         is_bootstrap_node: bool,
     ) -> NodeRecord {

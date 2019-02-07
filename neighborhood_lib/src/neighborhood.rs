@@ -16,7 +16,7 @@ use neighborhood_database::NeighborhoodDatabase;
 use neighborhood_database::NodeRecord;
 use sub_lib::accountant;
 use sub_lib::cryptde::CryptDE;
-use sub_lib::cryptde::Key;
+use sub_lib::cryptde::PublicKey;
 use sub_lib::dispatcher::Component;
 use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::hopper::IncipientCoresPackage;
@@ -238,7 +238,7 @@ impl Handler<ExpiredCoresPackage> for Neighborhood {
                     .node_by_ip(&msg.immediate_neighbor_ip)
                 {
                     Some(node) => node.public_key().clone(),
-                    None => Key::new(&[]),
+                    None => PublicKey::new(&[]),
                 }
             )
         ));
@@ -314,7 +314,7 @@ impl Neighborhood {
         );
 
         let add_node = |neighborhood_database: &mut NeighborhoodDatabase,
-                        neighbor: &(Key, NodeAddr),
+                        neighbor: &(PublicKey, NodeAddr),
                         is_bootstrap_node: bool| {
             let (key, node_addr) = neighbor;
             let root_key_ref = &neighborhood_database.root().public_key().clone();
@@ -359,7 +359,7 @@ impl Neighborhood {
         self.gossip_to(self.neighborhood_database.root().neighbors());
     }
 
-    fn gossip_to(&self, neighbors: &Vec<Key>) {
+    fn gossip_to(&self, neighbors: &Vec<PublicKey>) {
         neighbors.iter().for_each(|neighbor| {
             let gossip = self
                 .gossip_producer
@@ -391,7 +391,7 @@ impl Neighborhood {
         }
     }
 
-    fn create_single_hop_route(&self, destination: &Key) -> Route {
+    fn create_single_hop_route(&self, destination: &PublicKey) -> Route {
         // TODO While the database is forced linear, the route sought here doesn't exist in the database and has to be hacked up here.
         Route::new(
             vec![RouteSegment::new(
@@ -467,7 +467,7 @@ impl Neighborhood {
         } else {
             TargetType::Standard
         };
-        let mut segment_endpoints: Vec<Key> = vec![];
+        let mut segment_endpoints: Vec<PublicKey> = vec![];
         if let Some(over) = self.make_route_segment(
             &self.cryptde.public_key(),
             msg.target_key_opt.as_ref(),
@@ -515,8 +515,8 @@ impl Neighborhood {
 
     fn make_route_segment(
         &self,
-        origin: &Key,
-        target: Option<&Key>,
+        origin: &PublicKey,
+        target: Option<&PublicKey>,
         target_type: TargetType,
         minimum_hop_count: usize,
         target_component: Component,
@@ -537,7 +537,7 @@ impl Neighborhood {
     fn last_key_qualifies(
         &self,
         last_node_ref: &NodeRecord,
-        target_key_ref_opt: Option<&Key>,
+        target_key_ref_opt: Option<&PublicKey>,
     ) -> bool {
         match target_key_ref_opt {
             Some(target_key_ref) => last_node_ref.public_key() == target_key_ref,
@@ -557,11 +557,11 @@ impl Neighborhood {
     // If the return value is empty, no qualifying route was found.
     fn complete_routes<'a>(
         &'a self,
-        prefix: Vec<&'a Key>,
-        target: Option<&'a Key>,
+        prefix: Vec<&'a PublicKey>,
+        target: Option<&'a PublicKey>,
         target_type: TargetType,
         hops_remaining: usize,
-    ) -> Vec<Vec<&'a Key>> {
+    ) -> Vec<Vec<&'a PublicKey>> {
         let last_node_ref = self
             .neighborhood_database
             .node_by_key(prefix.last().expect("Empty prefix"))
@@ -903,7 +903,7 @@ mod tests {
         let addr: Addr<Syn, Neighborhood> = subject.start();
         let sub: Recipient<Syn, NodeQueryMessage> = addr.recipient::<NodeQueryMessage>();
 
-        let future = sub.send(NodeQueryMessage::PublicKey(Key::new(&b"booga"[..])));
+        let future = sub.send(NodeQueryMessage::PublicKey(PublicKey::new(&b"booga"[..])));
 
         Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
         system.run();
@@ -921,7 +921,7 @@ mod tests {
             cryptde,
             NeighborhoodConfig {
                 neighbor_configs: vec![(
-                    Key::new(&b"booga"[..]),
+                    PublicKey::new(&b"booga"[..]),
                     NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234, 2345]),
                 )],
                 is_bootstrap_node: false,
@@ -934,7 +934,7 @@ mod tests {
         let addr: Addr<Syn, Neighborhood> = subject.start();
         let sub: Recipient<Syn, NodeQueryMessage> = addr.recipient::<NodeQueryMessage>();
 
-        let future = sub.send(NodeQueryMessage::PublicKey(Key::new(&b"blah"[..])));
+        let future = sub.send(NodeQueryMessage::PublicKey(PublicKey::new(&b"blah"[..])));
 
         Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
         system.run();
@@ -993,7 +993,7 @@ mod tests {
             cryptde,
             NeighborhoodConfig {
                 neighbor_configs: vec![(
-                    Key::new(&b"booga"[..]),
+                    PublicKey::new(&b"booga"[..]),
                     NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234, 2345]),
                 )],
                 is_bootstrap_node: false,
@@ -1490,8 +1490,8 @@ mod tests {
             dual_edge(s, r);
         }
 
-        let contains = |routes: &Vec<Vec<&Key>>, expected_nodes: Vec<&NodeRecord>| {
-            let expected_keys: Vec<&Key> =
+        let contains = |routes: &Vec<Vec<&PublicKey>>, expected_nodes: Vec<&NodeRecord>| {
+            let expected_keys: Vec<&PublicKey> =
                 expected_nodes.into_iter().map(|n| n.public_key()).collect();
             assert_contains(&routes, &expected_keys);
         };
@@ -1673,7 +1673,7 @@ mod tests {
         hopper_awaiter.await_message_count(1);
         let locked_recording = hopper_recording.lock().unwrap();
         let package: &IncipientCoresPackage = locked_recording.get_record(0);
-        let gossip: Gossip = serde_cbor::de::from_slice(&package.payload.data[..]).unwrap();
+        let gossip: Gossip = serde_cbor::de::from_slice(package.payload.as_slice()).unwrap();
         let the_node_record = gossip
             .node_records
             .iter()
@@ -1759,7 +1759,7 @@ mod tests {
             &package.payload_destination_key,
             gossip_neighbor.public_key()
         );
-        let gossip: Gossip = serde_cbor::de::from_slice(&package.payload.data[..]).unwrap();
+        let gossip: Gossip = serde_cbor::de::from_slice(package.payload.as_slice()).unwrap();
         assert_eq!(gossip.node_records.len(), 2);
         let gossip_node_records = gossip.node_records;
         assert_contains(
@@ -1815,7 +1815,7 @@ mod tests {
             &package_ref.payload_destination_key,
             bootstrap_node.public_key()
         );
-        let gossip: Gossip = serde_cbor::de::from_slice(&package_ref.payload.data[..]).unwrap();
+        let gossip: Gossip = serde_cbor::de::from_slice(package_ref.payload.as_slice()).unwrap();
         let mut this_node = NodeRecord::new_for_tests(
             &cryptde.public_key(),
             Some(&NodeAddr::new(
@@ -1925,20 +1925,20 @@ mod tests {
         assert_eq!(None, failed_ip_address_query.wait().unwrap());
     }
 
-    fn node_record_to_pair(node_record_ref: &NodeRecord) -> (Key, NodeAddr) {
+    fn node_record_to_pair(node_record_ref: &NodeRecord) -> (PublicKey, NodeAddr) {
         (
             node_record_ref.public_key().clone(),
             node_record_ref.node_addr_opt().unwrap().clone(),
         )
     }
 
-    fn find_package_target(package: &IncipientCoresPackage) -> Key {
+    fn find_package_target(package: &IncipientCoresPackage) -> PublicKey {
         let mut route = package.route.clone();
         let hop = route.shift(cryptde()).unwrap();
         hop.public_key
     }
 
-    fn check_direct_route_to(route: &Route, destination: &Key) {
+    fn check_direct_route_to(route: &Route, destination: &PublicKey) {
         let mut route = route.clone();
         let hop = route.shift(cryptde()).unwrap();
         assert_eq!(&hop.public_key, destination);
@@ -1985,7 +1985,7 @@ mod tests {
                 addr.recipient::<DispatcherNodeQueryMessage>();
 
             sub.try_send(DispatcherNodeQueryMessage {
-                query: NodeQueryMessage::PublicKey(Key::new(&b"booga"[..])),
+                query: NodeQueryMessage::PublicKey(PublicKey::new(&b"booga"[..])),
                 context: TransmitDataMsg {
                     endpoint: Endpoint::Key(cryptde.public_key()),
                     last_data: false,
@@ -2023,7 +2023,7 @@ mod tests {
                 cryptde,
                 NeighborhoodConfig {
                     neighbor_configs: vec![(
-                        Key::new(&b"booga"[..]),
+                        PublicKey::new(&b"booga"[..]),
                         NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234, 2345]),
                     )],
                     is_bootstrap_node: false,
@@ -2038,7 +2038,7 @@ mod tests {
                 addr.recipient::<DispatcherNodeQueryMessage>();
 
             sub.try_send(DispatcherNodeQueryMessage {
-                query: NodeQueryMessage::PublicKey(Key::new(&b"blah"[..])),
+                query: NodeQueryMessage::PublicKey(PublicKey::new(&b"blah"[..])),
                 context: TransmitDataMsg {
                     endpoint: Endpoint::Key(cryptde.public_key()),
                     last_data: false,
@@ -2135,7 +2135,7 @@ mod tests {
                 cryptde,
                 NeighborhoodConfig {
                     neighbor_configs: vec![(
-                        Key::new(&b"booga"[..]),
+                        PublicKey::new(&b"booga"[..]),
                         NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234, 2345]),
                     )],
                     is_bootstrap_node: false,
@@ -2634,7 +2634,7 @@ mod tests {
         hopper_awaiter.await_message_count(1);
         let locked_recording = hopper_recording.lock().unwrap();
         let package: &IncipientCoresPackage = locked_recording.get_record(0);
-        let gossip: Gossip = serde_cbor::de::from_slice(&package.payload.data[..]).unwrap();
+        let gossip: Gossip = serde_cbor::de::from_slice(package.payload.as_slice()).unwrap();
         let the_node_record = gossip
             .node_records
             .iter()

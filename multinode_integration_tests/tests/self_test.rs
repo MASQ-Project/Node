@@ -24,7 +24,7 @@ use std::net::SocketAddr;
 use std::net::TcpStream;
 use std::str::FromStr;
 use std::time::Duration;
-use sub_lib::cryptde::Key;
+use sub_lib::cryptde::PublicKey;
 use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::dispatcher::Component;
 use sub_lib::hopper::IncipientCoresPackage;
@@ -45,7 +45,7 @@ fn establishes_substratum_node_cluster_from_nothing() {
     cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .neighbor(NodeReference::new(
-                Key::new(&[1]),
+                PublicKey::new(&[1]),
                 sentinel_ip_addr(),
                 vec![1234],
             ))
@@ -112,7 +112,7 @@ fn server_relays_cores_package() {
     route.shift(cryptde).unwrap();
     assert_eq!(expired.remaining_route, route);
     assert_eq!(
-        serde_cbor::de::from_slice::<String>(&expired.payload.data[..]).unwrap(),
+        serde_cbor::de::from_slice::<String>(expired.payload.as_slice()).unwrap(),
         String::from("Booga booga!")
     );
 }

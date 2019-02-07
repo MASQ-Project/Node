@@ -77,7 +77,7 @@ impl Handler<ExpiredCoresPackage> for ProxyClient {
                 self.logger.error(format!(
                     "Error ('{}') interpreting payload for transmission: {:?}",
                     e,
-                    msg.payload_data().data
+                    msg.payload_data().as_slice()
                 ));
                 return ();
             }
@@ -135,8 +135,8 @@ mod tests {
     use stream_handler_pool::StreamHandlerPool;
     use stream_handler_pool::StreamHandlerPoolFactory;
     use sub_lib::accountant::ReportExitServiceMessage;
-    use sub_lib::cryptde::Key;
     use sub_lib::cryptde::PlainData;
+    use sub_lib::cryptde::PublicKey;
     use sub_lib::proxy_server::ClientRequestPayload;
     use sub_lib::proxy_server::ProxyProtocol;
     use sub_lib::route::Route;
@@ -330,7 +330,7 @@ mod tests {
             target_hostname: Some(String::from("target.hostname.com")),
             target_port: 1234,
             protocol: ProxyProtocol::HTTP,
-            originator_public_key: Key::new(&b"originator_public_key"[..]),
+            originator_public_key: PublicKey::new(&b"originator_public_key"[..]),
         };
         let cryptde = cryptde();
         let package = ExpiredCoresPackage::new(
@@ -383,7 +383,7 @@ mod tests {
             target_hostname: None,
             target_port: 0,
             protocol: ProxyProtocol::HTTP,
-            originator_public_key: Key::new(&b"originator"[..]),
+            originator_public_key: PublicKey::new(&b"originator"[..]),
         };
         let package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),

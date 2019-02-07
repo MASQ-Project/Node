@@ -26,7 +26,7 @@ use std::thread;
 use std::time::Duration;
 use sub_lib::accountant;
 use sub_lib::cryptde::CryptDE;
-use sub_lib::cryptde::Key;
+use sub_lib::cryptde::PublicKey;
 use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::dispatcher::Component;
 use sub_lib::hopper::IncipientCoresPackage;
@@ -89,12 +89,12 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test() {
     );
 
     let ne1_noderef = NodeReference::new(
-        Key::new(&b"ne1"[..]),
+        PublicKey::new(&b"ne1"[..]),
         IpAddr::from_str("100.100.100.001").unwrap(),
         vec![5561],
     );
     let ne2_noderef = NodeReference::new(
-        Key::new(&b"ne2"[..]),
+        PublicKey::new(&b"ne2"[..]),
         IpAddr::from_str("100.100.100.002").unwrap(),
         vec![5562],
     );
@@ -144,7 +144,7 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test() {
         .decode(&package.payload)
         .unwrap();
     let request_payload =
-        serde_cbor::de::from_slice::<ClientRequestPayload>(&request_payload_ser.data[..]).unwrap();
+        serde_cbor::de::from_slice::<ClientRequestPayload>(request_payload_ser.as_slice()).unwrap();
 
     assert_eq!(request_payload.sequenced_packet.last_data, false);
     assert_eq!(request_payload.sequenced_packet.sequence_number, 0);
@@ -209,17 +209,17 @@ fn cores_package_to_http_request_and_http_response_to_cores_package_test() {
         .unwrap();
 
     let ne1_noderef = NodeReference::new(
-        Key::new(&b"ne1"[..]),
+        PublicKey::new(&b"ne1"[..]),
         IpAddr::from_str("100.100.100.001").unwrap(),
         vec![5561],
     );
     let ne2_noderef = NodeReference::new(
-        Key::new(&b"ne2"[..]),
+        PublicKey::new(&b"ne2"[..]),
         IpAddr::from_str("100.100.100.002").unwrap(),
         vec![5562],
     );
     let ne3_noderef = NodeReference::new(
-        Key::new(&b"ne3"[..]),
+        PublicKey::new(&b"ne3"[..]),
         IpAddr::from_str("100.100.100.003").unwrap(),
         vec![5563],
     );
@@ -306,7 +306,7 @@ fn cores_package_to_http_request_and_http_response_to_cores_package_test() {
         .decode(&package.payload)
         .unwrap();
     let response_payload =
-        serde_cbor::de::from_slice::<ClientResponsePayload>(&response_payload_ser.data[..])
+        serde_cbor::de::from_slice::<ClientResponsePayload>(response_payload_ser.as_slice())
             .unwrap();
     assert_eq!(response_payload.stream_key, make_meaningless_stream_key());
     assert_eq!(response_payload.sequenced_packet.last_data, false);

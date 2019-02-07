@@ -129,7 +129,7 @@ impl RoutingService {
         consuming_wallet_opt: Option<Wallet>,
         last_data: bool,
     ) {
-        let payload_size = live_package.payload.data.len() as u32;
+        let payload_size = live_package.payload.len() as u32;
         match consuming_wallet_opt {
             Some(consuming_wallet) => self
                 .to_accountant_routing
@@ -188,7 +188,7 @@ impl RoutingService {
         Ok(TransmitDataMsg {
             endpoint: Endpoint::Key(next_hop.public_key),
             last_data,
-            data: next_live_package_enc.data,
+            data: next_live_package_enc.into(),
             sequence_number: None,
         })
     }
@@ -214,7 +214,7 @@ impl RoutingService {
         live_package: LiveCoresPackage,
         immediate_neighbor_ip: IpAddr,
     ) {
-        let data_len = live_package.payload.data.len();
+        let data_len = live_package.payload.len();
         let expired_package =
             match live_package.to_expired(immediate_neighbor_ip, self.cryptde.borrow()) {
                 Ok(pkg) => pkg,
@@ -248,7 +248,7 @@ impl RoutingService {
             }
         };
         let live_package =
-            match serde_cbor::de::from_slice::<LiveCoresPackage>(&decrypted_package.data[..]) {
+            match serde_cbor::de::from_slice::<LiveCoresPackage>(decrypted_package.as_slice()) {
                 Ok(package) => package,
                 Err(e) => {
                     self.logger
@@ -273,7 +273,7 @@ mod tests {
     use std::str::FromStr;
     use std::thread;
     use sub_lib::accountant::ReportRoutingServiceMessage;
-    use sub_lib::cryptde::Key;
+    use sub_lib::cryptde::PublicKey;
     use sub_lib::cryptde_null::CryptDENull;
     use sub_lib::hopper::IncipientCoresPackage;
     use sub_lib::peer_actors::BindMessage;
@@ -312,7 +312,7 @@ mod tests {
             sequence_number: None,
             last_data: false,
             is_clandestine: false,
-            data: data_enc.data,
+            data: data_enc.into(),
         };
         thread::spawn(move || {
             let system = System::new("converts_live_message_to_expired_for_proxy_client");
@@ -356,7 +356,7 @@ mod tests {
             last_data: false,
             is_clandestine: false,
             sequence_number: None,
-            data: data_enc.data,
+            data: data_enc.into(),
         };
         thread::spawn(move || {
             let system = System::new("converts_live_message_to_expired_for_proxy_server");
@@ -397,7 +397,7 @@ mod tests {
             last_data: false,
             is_clandestine: false,
             sequence_number: None,
-            data: data_enc.data,
+            data: data_enc.into(),
         };
         let system = System::new("refuses_data_for_proxy_client_if_is_bootstrap_node");
         let subject = Hopper::new(cryptde, true);
@@ -432,7 +432,7 @@ mod tests {
             sequence_number: None,
             last_data: false,
             is_clandestine: false,
-            data: data_enc.data,
+            data: data_enc.into(),
         };
         let system = System::new("refuses_data_for_proxy_server_if_is_bootstrap_node");
         let subject = Hopper::new(cryptde, true);
@@ -476,7 +476,7 @@ mod tests {
             last_data: false,
             is_clandestine: true,
             sequence_number: None,
-            data: data_enc.data,
+            data: data_enc.into(),
         };
         let system = System::new("refuses_data_for_hopper_if_is_bootstrap_node");
         let subject = Hopper::new(cryptde, true);
@@ -521,7 +521,7 @@ mod tests {
             last_data: false,
             is_clandestine: true,
             sequence_number: None,
-            data: data_enc.data,
+            data: data_enc.into(),
         };
         let system = System::new("accepts_data_for_neighborhood_if_is_bootstrap_node");
         let subject = Hopper::new(cryptde, true);
@@ -575,7 +575,7 @@ mod tests {
             last_data: false,
             is_clandestine: true,
             sequence_number: None,
-            data: data_enc.data,
+            data: data_enc.into(),
         };
         let system =
             System::new("rejects_data_for_non_neighborhood_component_if_is_bootstrap_node");
@@ -603,7 +603,7 @@ mod tests {
         let consuming_wallet = Wallet::new("wallet");
         let (dispatcher, dispatcher_awaiter, dispatcher_recording_arc) = make_recorder();
         let (accountant, accountant_awaiter, accountant_recording_arc) = make_recorder();
-        let next_key = Key::new(&[65, 65, 65]);
+        let next_key = PublicKey::new(&[65, 65, 65]);
         let route = Route::new(
             vec![RouteSegment::new(
                 vec![&cryptde.public_key(), &next_key],
@@ -624,7 +624,7 @@ mod tests {
             last_data: true,
             is_clandestine: false,
             sequence_number: None,
-            data: data_enc.data,
+            data: data_enc.into(),
         };
         thread::spawn(move || {
             let system = System::new("converts_live_message_to_expired_for_proxy_server");
@@ -657,7 +657,7 @@ mod tests {
                 endpoint: Endpoint::Key(next_key.clone()),
                 last_data: true,
                 sequence_number: None,
-                data: expected_lcp_enc.data,
+                data: expected_lcp_enc.into(),
             }
         );
         accountant_awaiter.await_message_count(1);
@@ -667,7 +667,7 @@ mod tests {
             *message,
             ReportRoutingServiceMessage {
                 consuming_wallet,
-                payload_size: lcp.payload.data.len() as u32
+                payload_size: lcp.payload.len() as u32
             }
         )
     }
@@ -676,9 +676,9 @@ mod tests {
     fn route_logs_and_ignores_cores_package_that_demands_routing_without_consuming_wallet() {
         init_test_logging();
         let cryptde = cryptde();
-        let origin_key = Key::new(&[1, 2]);
+        let origin_key = PublicKey::new(&[1, 2]);
         let origin_cryptde = CryptDENull::from(&origin_key);
-        let destination_key = Key::new(&[3, 4]);
+        let destination_key = PublicKey::new(&[3, 4]);
         let payload = PayloadMock::new();
         let route = Route::new(
             vec![RouteSegment::new(
@@ -699,7 +699,7 @@ mod tests {
             last_data: true,
             is_clandestine: true,
             sequence_number: None,
-            data: data_enc.data,
+            data: data_enc.into(),
         };
         let _system = System::new(
             "route_logs_and_ignores_cores_package_that_demands_routing_without_consuming_wallet",
@@ -765,7 +765,7 @@ mod tests {
             last_data: true,
             is_clandestine: true,
             sequence_number: None,
-            data: data_enc.data,
+            data: data_enc.into(),
         };
         let _system = System::new("consume_logs_error_when_given_bad_input_data");
         let peer_actors = make_peer_actors();
@@ -807,7 +807,7 @@ mod tests {
             last_data: true,
             is_clandestine: true,
             sequence_number: None,
-            data: data_enc.data,
+            data: data_enc.into(),
         };
         let _system = System::new("consume_logs_error_when_given_bad_input_data");
         let peer_actors = make_peer_actors();

@@ -6,7 +6,7 @@ use neighborhood_database::NeighborhoodDatabaseError;
 use neighborhood_database::NodeRecord;
 use std::collections::HashSet;
 use std::net::SocketAddr;
-use sub_lib::cryptde::Key;
+use sub_lib::cryptde::PublicKey;
 use sub_lib::logger::Logger;
 use sub_lib::tcp_wrappers::TcpStreamWrapperFactory;
 use sub_lib::tcp_wrappers::TcpStreamWrapperFactoryReal;
@@ -126,8 +126,8 @@ impl GossipAcceptorReal {
     }
 
     fn is_not_invalid(&self, gnr: &GossipNodeRecord) -> bool {
-        let empty_key = Key::new(&[]);
-        if gnr.inner.public_key.data.is_empty() {
+        let empty_key = PublicKey::new(&[]);
+        if gnr.inner.public_key.is_empty() {
             self.logger
                 .error(format!("Rejecting GossipNodeRecord with blank public key"));
             false
@@ -169,8 +169,8 @@ impl GossipAcceptorReal {
 
     fn update_neighbors(&self, gnr_ref: &GossipNodeRecord, node_record: &mut NodeRecord) -> bool {
         let unchanged = {
-            let existing_neighbors: HashSet<&Key> = gnr_ref.inner.neighbors.iter().collect();
-            let incoming_neighbors: HashSet<&Key> = node_record.neighbors().iter().collect();
+            let existing_neighbors: HashSet<&PublicKey> = gnr_ref.inner.neighbors.iter().collect();
+            let incoming_neighbors: HashSet<&PublicKey> = node_record.neighbors().iter().collect();
             existing_neighbors == incoming_neighbors
         };
         if unchanged {
@@ -222,7 +222,7 @@ mod tests {
     use std::net::Ipv4Addr;
     use std::str::FromStr;
     use sub_lib::cryptde::CryptData;
-    use sub_lib::cryptde::Key;
+    use sub_lib::cryptde::PublicKey;
     use sub_lib::node_addr::NodeAddr;
     use sub_lib::wallet::Wallet;
     use test_utils::logging::init_test_logging;
@@ -249,7 +249,7 @@ mod tests {
         let subject = GossipAcceptorReal::new_for_tests(1);
 
         let this_addr = NodeAddr::new(&IpAddr::from_str("5.7.3.4").unwrap(), &vec![13]);
-        let root_key = &Key::new(b"scrud");
+        let root_key = &PublicKey::new(b"scrud");
         let mut db = NeighborhoodDatabase::new(
             root_key,
             &this_addr,
@@ -280,7 +280,7 @@ mod tests {
 
         let this_addr = NodeAddr::new(&IpAddr::from_str("5.7.3.4").unwrap(), &vec![13]);
         let mut db = NeighborhoodDatabase::new(
-            &Key::new(b"scrud"),
+            &PublicKey::new(b"scrud"),
             &this_addr,
             Wallet::new("earning"),
             Some(Wallet::new("consuming")),
@@ -313,7 +313,7 @@ mod tests {
 
         let this_addr = NodeAddr::new(&IpAddr::from_str("5.7.3.4").unwrap(), &vec![13]);
         let mut db = NeighborhoodDatabase::new(
-            &Key::new(b"scrud"),
+            &PublicKey::new(b"scrud"),
             &this_addr,
             Wallet::new("earning"),
             Some(Wallet::new("consuming")),
@@ -350,7 +350,7 @@ mod tests {
         let mut incoming_near_right = make_node_record(4657, true, false);
         let mut incoming_far_right = make_node_record(5678, false, false);
         let mut bad_record_with_blank_key = NodeRecord::new(
-            &Key::new(&[]),
+            &PublicKey::new(&[]),
             None,
             Wallet::new("earning"),
             Some(Wallet::new("consuming")),
@@ -406,7 +406,7 @@ mod tests {
                 incoming_near_right.public_key()
             ))
         );
-        let empty_neighbors: Vec<&Key> = vec![];
+        let empty_neighbors: Vec<&PublicKey> = vec![];
         assert_eq!(
             neighbor_keys_of(&database, &incoming_far_left),
             empty_neighbors
@@ -561,7 +561,7 @@ mod tests {
         let mut existing_neighbor = make_node_record(2345, true, false);
         existing_neighbor
             .neighbors_mut()
-            .push(Key::new(&[5, 6, 7, 8]));
+            .push(PublicKey::new(&[5, 6, 7, 8]));
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
@@ -581,7 +581,9 @@ mod tests {
         invalid_record
             .neighbors_mut()
             .push(invalid_record_public_key);
-        invalid_record.neighbors_mut().push(Key::new(&[6, 7, 8, 9]));
+        invalid_record
+            .neighbors_mut()
+            .push(PublicKey::new(&[6, 7, 8, 9]));
 
         let gossip = Gossip {
             node_records: vec![GossipNodeRecord::from(&invalid_record, true)],
@@ -596,7 +598,7 @@ mod tests {
                 .node_by_key(existing_neighbor.public_key())
                 .unwrap()
                 .neighbors(),
-            &vec!(Key::new(&[5, 6, 7, 8]))
+            &vec!(PublicKey::new(&[5, 6, 7, 8]))
         );
         let tlh = TestLogHandler::new();
         tlh.assert_logs_contain_in_order(vec!("ERROR: GossipAcceptorReal: Gossip attempted to make node AgMEBQ neighbor to itself: ignoring"));
@@ -606,7 +608,7 @@ mod tests {
     fn handle_returns_true_when_an_existing_node_record_updates_signatures() {
         let this_node = make_node_record(1234, true, false);
         let neighbor = NodeRecord::new(
-            &Key::new(&[2, 3, 4, 5]),
+            &PublicKey::new(&[2, 3, 4, 5]),
             Some(&NodeAddr::new(
                 &IpAddr::V4(Ipv4Addr::new(2, 3, 4, 5)),
                 &vec![1337],

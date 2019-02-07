@@ -14,7 +14,7 @@ use stream_establisher::StreamEstablisherFactoryReal;
 use sub_lib::accountant::ReportExitServiceMessage;
 use sub_lib::channel_wrappers::SenderWrapper;
 use sub_lib::cryptde::CryptDE;
-use sub_lib::cryptde::Key;
+use sub_lib::cryptde::PublicKey;
 use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::logger::Logger;
 use sub_lib::proxy_client::ClientResponsePayload;
@@ -159,7 +159,7 @@ impl StreamHandlerPoolReal {
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
         stream_key: &StreamKey,
         return_route: &Route,
-        originator_public_key: &Key,
+        originator_public_key: &PublicKey,
         error: String,
     ) {
         let mut inner = inner_arc.lock().expect("Stream handler pool was poisoned");
@@ -290,7 +290,7 @@ impl StreamHandlerPoolReal {
     fn send_terminating_package(
         return_route: &Route,
         stream_key: &StreamKey,
-        originator_public_key: &Key,
+        originator_public_key: &PublicKey,
         hopper_sub: &Recipient<Syn, IncipientCoresPackage>,
     ) {
         let response = ClientResponsePayload::make_terminating_payload(stream_key.clone());
@@ -401,7 +401,6 @@ mod tests {
     use sub_lib::accountant::ReportExitServiceMessage;
     use sub_lib::channel_wrappers::FuturesChannelFactoryReal;
     use sub_lib::channel_wrappers::SenderWrapperReal;
-    use sub_lib::cryptde::Key;
     use sub_lib::cryptde::PlainData;
     use sub_lib::hopper::ExpiredCoresPackage;
     use sub_lib::proxy_server::ProxyProtocol;
@@ -478,7 +477,7 @@ mod tests {
             target_hostname: None,
             target_port: 80,
             protocol: ProxyProtocol::HTTP,
-            originator_public_key: Key::new(&b"men's souls"[..]),
+            originator_public_key: PublicKey::new(&b"men's souls"[..]),
         };
         let mut tx_to_write = Box::new(SenderWrapperMock::new(
             SocketAddr::from_str("1.2.3.4:5678").unwrap(),
@@ -555,7 +554,7 @@ mod tests {
             target_hostname: None,
             target_port: 80,
             protocol: ProxyProtocol::HTTP,
-            originator_public_key: Key::new(&b"men's souls"[..]),
+            originator_public_key: PublicKey::new(&b"men's souls"[..]),
         };
         let mut tx_to_write = Box::new(SenderWrapperMock::new(
             SocketAddr::from_str("1.2.3.4:5678").unwrap(),
@@ -623,7 +622,7 @@ mod tests {
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
                 protocol: ProxyProtocol::HTTP,
-                originator_public_key: Key::new(&b"men's souls"[..]),
+                originator_public_key: PublicKey::new(&b"men's souls"[..]),
             };
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
@@ -667,7 +666,8 @@ mod tests {
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let package = hopper_recording.get_record::<IncipientCoresPackage>(0);
         let payload =
-            serde_cbor::de::from_slice::<ClientResponsePayload>(&package.payload.data[..]).unwrap();
+            serde_cbor::de::from_slice::<ClientResponsePayload>(package.payload.as_slice())
+                .unwrap();
         assert_eq!(payload.sequenced_packet.last_data, true);
     }
 
@@ -690,7 +690,7 @@ mod tests {
                 target_hostname: None,
                 target_port: 80,
                 protocol: ProxyProtocol::HTTP,
-                originator_public_key: Key::new(&b"men's souls"[..]),
+                originator_public_key: PublicKey::new(&b"men's souls"[..]),
             };
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
@@ -720,7 +720,8 @@ mod tests {
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let package = hopper_recording.get_record::<IncipientCoresPackage>(0);
         let payload =
-            serde_cbor::de::from_slice::<ClientResponsePayload>(&package.payload.data[..]).unwrap();
+            serde_cbor::de::from_slice::<ClientResponsePayload>(package.payload.as_slice())
+                .unwrap();
         assert_eq!(payload.sequenced_packet.last_data, true);
         TestLogHandler::new().exists_log_containing(
             format!(
@@ -753,7 +754,7 @@ mod tests {
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
                 protocol: ProxyProtocol::HTTP,
-                originator_public_key: Key::new(&b"men's souls"[..]),
+                originator_public_key: PublicKey::new(&b"men's souls"[..]),
             };
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
@@ -842,7 +843,7 @@ mod tests {
                         last_data: false
                     },
                 },
-                &Key::new(&b"men's souls"[..]),
+                &PublicKey::new(&b"men's souls"[..]),
             )
         );
     }
@@ -867,7 +868,7 @@ mod tests {
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
                 protocol: ProxyProtocol::HTTP,
-                originator_public_key: Key::new(&b"men's souls"[..]),
+                originator_public_key: PublicKey::new(&b"men's souls"[..]),
             };
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
@@ -923,7 +924,7 @@ mod tests {
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let record = hopper_recording.get_record::<IncipientCoresPackage>(0);
         let client_response_payload =
-            serde_cbor::de::from_slice::<ClientResponsePayload>(&record.payload.data[..]).unwrap();
+            serde_cbor::de::from_slice::<ClientResponsePayload>(record.payload.as_slice()).unwrap();
         assert_eq!(
             client_response_payload,
             ClientResponsePayload::make_terminating_payload(stream_key)
@@ -953,7 +954,7 @@ mod tests {
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
                 protocol: ProxyProtocol::HTTP,
-                originator_public_key: Key::new(&b"men's souls"[..]),
+                originator_public_key: PublicKey::new(&b"men's souls"[..]),
             };
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
@@ -1034,7 +1035,7 @@ mod tests {
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let record = hopper_recording.get_record::<IncipientCoresPackage>(0);
         let client_response_payload =
-            serde_cbor::de::from_slice::<ClientResponsePayload>(&record.payload.data[..]).unwrap();
+            serde_cbor::de::from_slice::<ClientResponsePayload>(record.payload.as_slice()).unwrap();
         assert_eq!(
             client_response_payload,
             ClientResponsePayload::make_terminating_payload(stream_key)
@@ -1058,7 +1059,7 @@ mod tests {
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
                 protocol: ProxyProtocol::HTTP,
-                originator_public_key: Key::new(&b"men's souls"[..]),
+                originator_public_key: PublicKey::new(&b"men's souls"[..]),
             };
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
@@ -1095,7 +1096,7 @@ mod tests {
         let recording = hopper_recording_arc.lock().unwrap();
         let record = recording.get_record::<IncipientCoresPackage>(0);
         let client_response_payload =
-            serde_cbor::de::from_slice::<ClientResponsePayload>(&record.payload.data[..]).unwrap();
+            serde_cbor::de::from_slice::<ClientResponsePayload>(record.payload.as_slice()).unwrap();
         assert_eq!(
             client_response_payload,
             ClientResponsePayload::make_terminating_payload(stream_key)
@@ -1121,7 +1122,7 @@ mod tests {
             target_hostname: Some(String::from("that.try")),
             target_port: 80,
             protocol: ProxyProtocol::HTTP,
-            originator_public_key: Key::new(&b"men's souls"[..]),
+            originator_public_key: PublicKey::new(&b"men's souls"[..]),
         };
         let package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
@@ -1196,7 +1197,7 @@ mod tests {
             target_hostname: Some(String::from("that.try")),
             target_port: 80,
             protocol: ProxyProtocol::HTTP,
-            originator_public_key: Key::new(&b"men's souls"[..]),
+            originator_public_key: PublicKey::new(&b"men's souls"[..]),
         };
         let package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
@@ -1264,7 +1265,7 @@ mod tests {
                 target_hostname: None,
                 target_port: 80,
                 protocol: ProxyProtocol::HTTP,
-                originator_public_key: Key::new(&b"men's souls"[..]),
+                originator_public_key: PublicKey::new(&b"men's souls"[..]),
             };
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),

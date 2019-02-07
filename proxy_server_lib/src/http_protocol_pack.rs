@@ -12,11 +12,11 @@ impl ProtocolPack for HttpProtocolPack {
     }
 
     fn find_host_name(&self, data: &PlainData) -> Option<String> {
-        match HttpProtocolPack::find_header_host_name(&data.data[..]) {
+        match HttpProtocolPack::find_header_host_name(data.as_slice()) {
             Some(string) => return Some(string),
             None => (),
         }
-        HttpProtocolPack::find_url_host_name(&data.data[..])
+        HttpProtocolPack::find_url_host_name(data.as_slice())
     }
 }
 

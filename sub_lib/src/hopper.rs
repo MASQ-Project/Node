@@ -1,8 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use actix::Recipient;
 use actix::Syn;
-use cryptde::Key;
 use cryptde::PlainData;
+use cryptde::PublicKey;
 use dispatcher::InboundClientData;
 use peer_actors::BindMessage;
 use route::Route;
@@ -17,11 +17,15 @@ use wallet::Wallet;
 pub struct IncipientCoresPackage {
     pub route: Route,
     pub payload: PlainData,
-    pub payload_destination_key: Key,
+    pub payload_destination_key: PublicKey,
 }
 
 impl IncipientCoresPackage {
-    pub fn new<T>(route: Route, payload: T, payload_destination_key: &Key) -> IncipientCoresPackage
+    pub fn new<T>(
+        route: Route,
+        payload: T,
+        payload_destination_key: &PublicKey,
+    ) -> IncipientCoresPackage
     where
         T: Serialize,
     {
@@ -66,7 +70,7 @@ impl ExpiredCoresPackage {
     where
         T: Deserialize<'a>,
     {
-        serde_cbor::de::from_slice(&self.payload.data[..])
+        serde_cbor::de::from_slice(&self.payload.as_slice())
     }
 
     pub fn payload_data(self) -> PlainData {
@@ -94,7 +98,7 @@ mod tests {
     #[test]
     fn incipient_cores_package_is_created_correctly() {
         let consuming_wallet = Wallet::new("wallet");
-        let route_key = Key::new(&[1]);
+        let route_key = PublicKey::new(&[1]);
         let route = Route::new(
             vec![
                 RouteSegment::new(vec![&route_key], Component::ProxyClient),
@@ -105,22 +109,22 @@ mod tests {
         )
         .unwrap();
         let payload = PayloadMock::new();
-        let key = Key::new(&[5, 6]);
+        let key = PublicKey::new(&[5, 6]);
 
         let subject = IncipientCoresPackage::new(route.clone(), payload.clone(), &key);
 
         assert_eq!(subject.route, route);
         assert_eq!(subject.payload_destination_key, key);
         let actual_payload: PayloadMock =
-            serde_cbor::de::from_slice(&subject.payload.data[..]).unwrap();
+            serde_cbor::de::from_slice(subject.payload.as_slice()).unwrap();
         assert_eq!(actual_payload, payload);
     }
 
     #[test]
     fn expired_cores_package_is_created_correctly() {
         let immediate_neighbor_ip = IpAddr::from_str("1.2.3.4").unwrap();
-        let a_key = Key::new(&[65, 65, 65]);
-        let b_key = Key::new(&[66, 66, 66]);
+        let a_key = PublicKey::new(&[65, 65, 65]);
+        let b_key = PublicKey::new(&[66, 66, 66]);
         let cryptde = CryptDENull::new();
         let consuming_wallet = Wallet::new("wallet");
         let route = Route::new(

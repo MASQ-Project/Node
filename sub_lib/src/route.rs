@@ -2,7 +2,7 @@
 use cryptde::CryptDE;
 use cryptde::CryptData;
 use cryptde::CryptdecError;
-use cryptde::Key;
+use cryptde::PublicKey;
 use dispatcher::Component;
 use hop::LiveHop;
 use std::iter;
@@ -51,7 +51,7 @@ impl Route {
         }
         // crashpoint - should not be possible, can we restructure to remove the Option?
         hops.push(LiveHop::new(
-            &Key::new(b""),
+            &PublicKey::new(b""),
             consuming_wallet,
             pending_recipient.expect("Route segment without recipient"),
         ));
@@ -71,7 +71,7 @@ impl Route {
             return Err(RouteError::EmptyRoute);
         }
         let top_hop = self.hops.remove(0);
-        let top_hop_len = top_hop.data.len();
+        let top_hop_len = top_hop.len();
         let next_hop = Route::decode_hop(cryptde, &top_hop)?;
 
         let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(top_hop_len).collect();
@@ -90,7 +90,7 @@ impl Route {
 
     fn hops_to_route(
         hops: Vec<LiveHop>,
-        top_hop_key: &Key,
+        top_hop_key: &PublicKey,
         cryptde: &CryptDE,
     ) -> Result<Route, RouteError> {
         let mut hops_enc: Vec<CryptData> = Vec::new();
@@ -110,12 +110,12 @@ impl Route {
 
 #[derive(Debug)]
 pub struct RouteSegment {
-    pub keys: Vec<Key>,
+    pub keys: Vec<PublicKey>,
     pub recipient: Component,
 }
 
 impl RouteSegment {
-    pub fn new(keys: Vec<&Key>, recipient: Component) -> RouteSegment {
+    pub fn new(keys: Vec<&PublicKey>, recipient: Component) -> RouteSegment {
         RouteSegment {
             keys: keys.iter().map(|k| (*k).clone()).collect(),
             recipient,
@@ -166,10 +166,10 @@ mod tests {
 
     #[test]
     fn new_does_not_like_route_segments_that_start_where_the_previous_segment_didnt_end() {
-        let a_key = Key::new(&[65, 65, 65]);
-        let b_key = Key::new(&[66, 66, 66]);
-        let c_key = Key::new(&[67, 67, 67]);
-        let d_key = Key::new(&[68, 68, 68]);
+        let a_key = PublicKey::new(&[65, 65, 65]);
+        let b_key = PublicKey::new(&[66, 66, 66]);
+        let c_key = PublicKey::new(&[67, 67, 67]);
+        let d_key = PublicKey::new(&[68, 68, 68]);
         let mut cryptde = CryptDENull::new();
         let consuming_wallet = Wallet::new("wallet");
         cryptde.generate_key_pair();
@@ -190,12 +190,12 @@ mod tests {
 
     #[test]
     fn new_can_make_long_multistop_route() {
-        let a_key = Key::new(&[65, 65, 65]);
-        let b_key = Key::new(&[66, 66, 66]);
-        let c_key = Key::new(&[67, 67, 67]);
-        let d_key = Key::new(&[68, 68, 68]);
-        let e_key = Key::new(&[69, 69, 69]);
-        let f_key = Key::new(&[70, 70, 70]);
+        let a_key = PublicKey::new(&[65, 65, 65]);
+        let b_key = PublicKey::new(&[66, 66, 66]);
+        let c_key = PublicKey::new(&[67, 67, 67]);
+        let d_key = PublicKey::new(&[68, 68, 68]);
+        let e_key = PublicKey::new(&[69, 69, 69]);
+        let f_key = PublicKey::new(&[70, 70, 70]);
         let mut cryptde = CryptDENull::new();
         cryptde.generate_key_pair();
         let consuming_wallet = Wallet::new("wallet");
@@ -236,7 +236,7 @@ mod tests {
                     .encode(&f_key, &cryptde)
                     .unwrap(),
                 LiveHop::new(
-                    &Key::new(b""),
+                    &PublicKey::new(b""),
                     Some(consuming_wallet.clone()),
                     Component::ProxyServer
                 )
@@ -248,8 +248,8 @@ mod tests {
 
     #[test]
     fn new_can_make_short_single_stop_route() {
-        let a_key = Key::new(&[65, 65, 65]);
-        let b_key = Key::new(&[66, 66, 66]);
+        let a_key = PublicKey::new(&[65, 65, 65]);
+        let b_key = PublicKey::new(&[66, 66, 66]);
         let mut cryptde = CryptDENull::new();
         cryptde.generate_key_pair();
         let consuming_wallet = Wallet::new("wallet");
@@ -271,7 +271,7 @@ mod tests {
                     .encode(&a_key, &cryptde)
                     .unwrap(),
                 LiveHop::new(
-                    &Key::new(b""),
+                    &PublicKey::new(b""),
                     Some(consuming_wallet.clone()),
                     Component::Neighborhood
                 )
@@ -287,8 +287,8 @@ mod tests {
         cryptde.generate_key_pair();
         let consuming_wallet = Wallet::new("wallet");
         let key12 = cryptde.public_key();
-        let key34 = Key::new(&[3, 4]);
-        let key56 = Key::new(&[5, 6]);
+        let key34 = PublicKey::new(&[3, 4]);
+        let key56 = PublicKey::new(&[5, 6]);
         let subject = Route::new(
             vec![RouteSegment::new(
                 vec![&key12, &key34, &key56],
@@ -308,7 +308,7 @@ mod tests {
                     .encode(&key34, &cryptde)
                     .unwrap(),
                 LiveHop::new(
-                    &Key::new(b""),
+                    &PublicKey::new(b""),
                     Some(consuming_wallet.clone()),
                     Component::Neighborhood
                 )
@@ -333,7 +333,7 @@ mod tests {
                     .encode(&key34, &cryptde)
                     .unwrap(),
                 LiveHop::new(
-                    &Key::new(b""),
+                    &PublicKey::new(b""),
                     Some(consuming_wallet.clone()),
                     Component::Neighborhood
                 )
@@ -349,8 +349,8 @@ mod tests {
         cryptde.generate_key_pair();
         let consuming_wallet = Wallet::new("wallet");
         let key12 = cryptde.public_key();
-        let key34 = Key::new(&[3, 4]);
-        let key56 = Key::new(&[5, 6]);
+        let key34 = PublicKey::new(&[3, 4]);
+        let key56 = PublicKey::new(&[5, 6]);
         let mut subject = Route::new(
             vec![RouteSegment::new(
                 vec![&key12, &key34, &key56],
@@ -370,7 +370,7 @@ mod tests {
                     .encode(&key34, &cryptde)
                     .unwrap(),
                 LiveHop::new(
-                    &Key::new(b""),
+                    &PublicKey::new(b""),
                     Some(consuming_wallet.clone()),
                     Component::Neighborhood
                 )
@@ -378,7 +378,7 @@ mod tests {
                 .unwrap()
             )
         );
-        let top_hop_len = subject.hops.first().unwrap().data.len();
+        let top_hop_len = subject.hops.first().unwrap().len();
 
         let next_hop = subject.shift(&cryptde).unwrap();
 
@@ -395,7 +395,7 @@ mod tests {
                     .encode(&key34, &cryptde)
                     .unwrap(),
                 LiveHop::new(
-                    &Key::new(b""),
+                    &PublicKey::new(b""),
                     Some(consuming_wallet.clone()),
                     Component::Neighborhood
                 )
@@ -430,8 +430,8 @@ mod tests {
 
     #[test]
     fn route_serialization_deserialization() {
-        let key1 = Key::new(&[1, 2, 3, 4]);
-        let key2 = Key::new(&[4, 3, 2, 1]);
+        let key1 = PublicKey::new(&[1, 2, 3, 4]);
+        let key2 = PublicKey::new(&[4, 3, 2, 1]);
         let cryptde = CryptDENull::new();
         let consuming_wallet = Wallet::new("wallet");
         let original = Route::new(

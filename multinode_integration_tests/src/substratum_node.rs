@@ -17,14 +17,14 @@ use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-use sub_lib::cryptde::Key;
+use sub_lib::cryptde::PublicKey;
 use sub_lib::node_addr::NodeAddr;
 use sub_lib::wallet::Wallet;
 use substratum_client::SubstratumNodeClient;
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct NodeReference {
-    pub public_key: Key,
+    pub public_key: PublicKey,
     pub node_addr: NodeAddr,
 }
 
@@ -45,7 +45,7 @@ impl FromStr for NodeReference {
 
 impl fmt::Display for NodeReference {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let public_key_string = base64::encode_config(&self.public_key.data, STANDARD_NO_PAD);
+        let public_key_string = base64::encode_config(&self.public_key.as_slice(), STANDARD_NO_PAD);
         let ip_addr_string = format!("{}", self.node_addr.ip_addr());
         let port_list_string = self
             .node_addr
@@ -65,16 +65,16 @@ impl fmt::Display for NodeReference {
 }
 
 impl NodeReference {
-    pub fn new(public_key: Key, ip_addr: IpAddr, ports: Vec<u16>) -> NodeReference {
+    pub fn new(public_key: PublicKey, ip_addr: IpAddr, ports: Vec<u16>) -> NodeReference {
         NodeReference {
             public_key,
             node_addr: NodeAddr::new(&ip_addr, &ports),
         }
     }
 
-    fn extract_public_key(slice: &str) -> Result<Key, String> {
+    fn extract_public_key(slice: &str) -> Result<PublicKey, String> {
         match base64::decode(slice) {
-            Ok (data) => Ok (Key::new (&data[..])),
+            Ok (data) => Ok (PublicKey::new (&data[..])),
             Err (_) => return Err (format!("The public key of a NodeReference must be represented as a valid Base64 string, not '{}'", slice))
         }
     }
@@ -132,7 +132,7 @@ pub trait SubstratumNode: Any {
     fn name(&self) -> &str;
     // This is the NodeReference stated by the Node in the console. Its IP address won't be accurate if it's a zero-hop Node.
     fn node_reference(&self) -> NodeReference;
-    fn public_key(&self) -> Key;
+    fn public_key(&self) -> PublicKey;
     // This is the IP address of the container in which the Node is running.
     fn ip_address(&self) -> IpAddr;
     fn port_list(&self) -> Vec<u16>;
@@ -249,7 +249,7 @@ mod tests {
 
     #[test]
     fn node_reference_from_string_fails_if_ip_address_is_not_valid() {
-        let key = Key::new(&b"Booga"[..]);
+        let key = PublicKey::new(&b"Booga"[..]);
         let string = format!("{}:blippy:1234,2345", key);
 
         let result = NodeReference::from_str(string.as_str());
@@ -264,7 +264,7 @@ mod tests {
 
     #[test]
     fn node_reference_from_string_fails_if_a_port_number_is_not_valid() {
-        let key = Key::new(&b"Booga"[..]);
+        let key = PublicKey::new(&b"Booga"[..]);
         let string = format!("{}:12.34.56.78:weeble,frud", key);
 
         let result = NodeReference::from_str(string.as_str());
@@ -274,7 +274,7 @@ mod tests {
 
     #[test]
     fn node_reference_from_string_fails_if_a_port_number_is_too_big() {
-        let key = Key::new(&b"Booga"[..]);
+        let key = PublicKey::new(&b"Booga"[..]);
         let string = format!("{}:12.34.56.78:1234,65536", key);
 
         let result = NodeReference::from_str(string.as_str());
@@ -289,7 +289,7 @@ mod tests {
 
     #[test]
     fn node_reference_from_string_happy() {
-        let key = Key::new(&b"Booga"[..]);
+        let key = PublicKey::new(&b"Booga"[..]);
         let string = format!("{}:12.34.56.78:1234,2345", key);
 
         let result = NodeReference::from_str(string.as_str()).unwrap();
@@ -303,7 +303,7 @@ mod tests {
 
     #[test]
     fn node_reference_from_string_works_if_there_are_no_ports() {
-        let key = Key::new(&b"Booga"[..]);
+        let key = PublicKey::new(&b"Booga"[..]);
         let string = format!("{}:12.34.56.78:", key);
 
         let result = NodeReference::from_str(string.as_str()).unwrap();
@@ -318,7 +318,7 @@ mod tests {
     #[test]
     fn node_reference_can_display_itself() {
         let subject = NodeReference::new(
-            Key::new(&b"Booga"[..]),
+            PublicKey::new(&b"Booga"[..]),
             IpAddr::from_str("12.34.56.78").unwrap(),
             vec![1234, 5678],
         );

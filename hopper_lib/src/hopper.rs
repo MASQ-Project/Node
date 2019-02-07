@@ -103,8 +103,8 @@ mod tests {
     use live_cores_package::LiveCoresPackage;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use sub_lib::cryptde::Key;
     use sub_lib::cryptde::PlainData;
+    use sub_lib::cryptde::PublicKey;
     use sub_lib::dispatcher::Component;
     use sub_lib::hopper::IncipientCoresPackage;
     use sub_lib::route::Route;
@@ -132,7 +132,7 @@ mod tests {
         let encrypted_package = cryptde
             .encode(&cryptde.public_key(), &live_data)
             .unwrap()
-            .data;
+            .into();
 
         let inbound_client_data = InboundClientData {
             peer_addr,
@@ -157,7 +157,7 @@ mod tests {
     fn panics_if_consuming_service_is_unbound() {
         let cryptde = cryptde();
         let consuming_wallet = Wallet::new("wallet");
-        let next_key = Key::new(&[65, 65, 65]);
+        let next_key = PublicKey::new(&[65, 65, 65]);
         let route = Route::new(
             vec![RouteSegment::new(
                 vec![&cryptde.public_key(), &next_key],

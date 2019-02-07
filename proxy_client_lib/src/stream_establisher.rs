@@ -195,7 +195,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::mpsc;
     use std::thread;
-    use sub_lib::cryptde::Key;
+    use sub_lib::cryptde::PublicKey;
     use sub_lib::proxy_client::ClientResponsePayload;
     use sub_lib::proxy_server::ProxyProtocol;
     use test_utils::recorder::make_peer_actors_from;
@@ -259,7 +259,7 @@ mod tests {
                         target_hostname: Some("blah".to_string()),
                         target_port: 0,
                         protocol: ProxyProtocol::HTTP,
-                        originator_public_key: Key::new(&[]),
+                        originator_public_key: PublicKey::new(&[]),
                     },
                     Some(Wallet::new("consuming")),
                     read_stream,
@@ -271,7 +271,7 @@ mod tests {
             let hopper_recording = hopper_recording_arc.lock().unwrap();
             let record = hopper_recording.get_record::<IncipientCoresPackage>(0);
             let response =
-                serde_cbor::de::from_slice::<ClientResponsePayload>(&record.payload.data[..])
+                serde_cbor::de::from_slice::<ClientResponsePayload>(record.payload.as_slice())
                     .unwrap();
             response_tx.send(response).unwrap();
             return Ok(());
@@ -343,7 +343,7 @@ mod tests {
                         target_hostname: None,
                         target_port: 0,
                         protocol: ProxyProtocol::TLS,
-                        originator_public_key: Key::new(&[]),
+                        originator_public_key: PublicKey::new(&[]),
                     },
                     Some(Wallet::new("consuming")),
                     read_stream,
@@ -354,7 +354,7 @@ mod tests {
             let hopper_recording = hopper_recording_arc.lock().unwrap();
             let record = hopper_recording.get_record::<IncipientCoresPackage>(0);
             let response =
-                serde_cbor::de::from_slice::<ClientResponsePayload>(&record.payload.data[..])
+                serde_cbor::de::from_slice::<ClientResponsePayload>(record.payload.as_slice())
                     .unwrap();
 
             response_tx.send(response).unwrap();

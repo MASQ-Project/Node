@@ -10,19 +10,19 @@ use std::fmt::Formatter;
 use std::net::IpAddr;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::CryptData;
-use sub_lib::cryptde::Key;
 use sub_lib::cryptde::PlainData;
+use sub_lib::cryptde::PublicKey;
 use sub_lib::node_addr::NodeAddr;
 use sub_lib::wallet::Wallet;
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub struct NodeRecordInner {
-    pub public_key: Key,
+    pub public_key: PublicKey,
     pub node_addr_opt: Option<NodeAddr>,
     pub earning_wallet: Wallet,
     pub consuming_wallet: Option<Wallet>,
     pub is_bootstrap_node: bool,
-    pub neighbors: Vec<Key>,
+    pub neighbors: Vec<PublicKey>,
     pub version: u32,
 }
 
@@ -94,7 +94,7 @@ pub struct NodeRecord {
 
 impl NodeRecord {
     pub fn new(
-        public_key: &Key,
+        public_key: &PublicKey,
         node_addr_opt: Option<&NodeAddr>,
         earning_wallet: Wallet,
         consuming_wallet: Option<Wallet>,
@@ -119,7 +119,7 @@ impl NodeRecord {
         }
     }
 
-    pub fn public_key(&self) -> &Key {
+    pub fn public_key(&self) -> &PublicKey {
         &self.inner.public_key
     }
 
@@ -162,15 +162,15 @@ impl NodeRecord {
         }
     }
 
-    pub fn neighbors(&self) -> &Vec<Key> {
+    pub fn neighbors(&self) -> &Vec<PublicKey> {
         &self.inner.neighbors
     }
 
-    pub fn neighbors_mut(&mut self) -> &mut Vec<Key> {
+    pub fn neighbors_mut(&mut self) -> &mut Vec<PublicKey> {
         &mut self.inner.neighbors
     }
 
-    pub fn remove_neighbor(&mut self, public_key: &Key) -> bool {
+    pub fn remove_neighbor(&mut self, public_key: &PublicKey) -> bool {
         // TODO: use the following when remove_item is in stable rust
         //        self.inner.neighbors.remove_item(public_key).is_some()
         let pos = self.inner.neighbors.iter().position(|x| *x == *public_key);
@@ -183,7 +183,7 @@ impl NodeRecord {
         }
     }
 
-    pub fn has_neighbor(&self, public_key: &Key) -> bool {
+    pub fn has_neighbor(&self, public_key: &PublicKey) -> bool {
         self.inner.neighbors.contains(public_key)
     }
 
@@ -246,9 +246,9 @@ impl NodeRecord {
 }
 
 pub struct NeighborhoodDatabase {
-    this_node: Key,
-    by_public_key: HashMap<Key, NodeRecord>,
-    by_ip_addr: HashMap<IpAddr, Key>,
+    this_node: PublicKey,
+    by_public_key: HashMap<PublicKey, NodeRecord>,
+    by_ip_addr: HashMap<IpAddr, PublicKey>,
 }
 
 impl Debug for NeighborhoodDatabase {
@@ -259,7 +259,7 @@ impl Debug for NeighborhoodDatabase {
 
 impl NeighborhoodDatabase {
     pub fn new(
-        public_key: &Key,
+        public_key: &PublicKey,
         node_addr: &NodeAddr,
         earning_wallet: Wallet,
         consuming_wallet: Option<Wallet>,
@@ -297,15 +297,15 @@ impl NeighborhoodDatabase {
         self.node_by_key_mut(root_key).expect("Internal error")
     }
 
-    pub fn keys(&self) -> HashSet<&Key> {
+    pub fn keys(&self) -> HashSet<&PublicKey> {
         self.by_public_key.keys().into_iter().collect()
     }
 
-    pub fn node_by_key(&self, public_key: &Key) -> Option<&NodeRecord> {
+    pub fn node_by_key(&self, public_key: &PublicKey) -> Option<&NodeRecord> {
         self.by_public_key.get(public_key)
     }
 
-    pub fn node_by_key_mut(&mut self, public_key: &Key) -> Option<&mut NodeRecord> {
+    pub fn node_by_key_mut(&mut self, public_key: &PublicKey) -> Option<&mut NodeRecord> {
         self.by_public_key.get_mut(public_key)
     }
 
@@ -316,7 +316,7 @@ impl NeighborhoodDatabase {
         }
     }
 
-    pub fn has_neighbor(&self, from: &Key, to: &Key) -> bool {
+    pub fn has_neighbor(&self, from: &PublicKey, to: &PublicKey) -> bool {
         match self.node_by_key(from) {
             Some(f) => f.has_neighbor(to),
             None => false,
@@ -341,7 +341,7 @@ impl NeighborhoodDatabase {
         Ok(())
     }
 
-    pub fn remove_neighbor(&mut self, node_key: &Key) -> Result<bool, String> {
+    pub fn remove_neighbor(&mut self, node_key: &PublicKey) -> Result<bool, String> {
         let ip_addr: Option<IpAddr>;
         {
             let to_remove = match self.node_by_key_mut(node_key) {
@@ -371,8 +371,8 @@ impl NeighborhoodDatabase {
 
     pub fn add_neighbor(
         &mut self,
-        node_key: &Key,
-        new_neighbor: &Key,
+        node_key: &PublicKey,
+        new_neighbor: &PublicKey,
     ) -> Result<bool, NeighborhoodDatabaseError> {
         if !self.keys().contains(new_neighbor) {
             return Err(NodeKeyNotFound(new_neighbor.clone()));
@@ -431,8 +431,8 @@ impl NeighborhoodDatabase {
 
 #[derive(Debug, PartialEq)]
 pub enum NeighborhoodDatabaseError {
-    NodeKeyNotFound(Key),
-    NodeKeyCollision(Key),
+    NodeKeyNotFound(PublicKey),
+    NodeKeyCollision(PublicKey),
     NodeAddrAlreadySet(NodeAddr),
     NodeSignaturesAlreadySet(NodeSignatures),
 }
@@ -839,7 +839,7 @@ mod tests {
     #[test]
     fn node_signatures_can_be_created_from_node_record_inner() {
         let to_be_signed = NodeRecordInner {
-            public_key: Key::new(&[1, 2, 3, 4]),
+            public_key: PublicKey::new(&[1, 2, 3, 4]),
             node_addr_opt: Some(NodeAddr::new(
                 &IpAddr::from_str("1.2.3.4").unwrap(),
                 &vec![1234],
@@ -873,7 +873,7 @@ mod tests {
         let earning_wallet = Wallet::new("wallet");
         let consuming_wallet = Wallet::new("wallet");
         let exemplar = NodeRecord::new(
-            &Key::new(&b"poke"[..]),
+            &PublicKey::new(&b"poke"[..]),
             node_addr_opt.clone(),
             earning_wallet.clone(),
             Some(consuming_wallet.clone()),
@@ -882,7 +882,7 @@ mod tests {
             0,
         );
         let duplicate = NodeRecord::new(
-            &Key::new(&b"poke"[..]),
+            &PublicKey::new(&b"poke"[..]),
             node_addr_opt.clone(),
             earning_wallet.clone(),
             Some(consuming_wallet.clone()),
@@ -891,7 +891,7 @@ mod tests {
             0,
         );
         let mut with_neighbor = NodeRecord::new(
-            &Key::new(&b"poke"[..]),
+            &PublicKey::new(&b"poke"[..]),
             node_addr_opt.clone(),
             earning_wallet.clone(),
             Some(consuming_wallet.clone()),
@@ -900,7 +900,7 @@ mod tests {
             0,
         );
         let mod_key = NodeRecord::new(
-            &Key::new(&b"kope"[..]),
+            &PublicKey::new(&b"kope"[..]),
             node_addr_opt.clone(),
             earning_wallet.clone(),
             Some(consuming_wallet.clone()),
@@ -909,7 +909,7 @@ mod tests {
             0,
         );
         let mod_node_addr = NodeRecord::new(
-            &Key::new(&b"poke"[..]),
+            &PublicKey::new(&b"poke"[..]),
             Some(&NodeAddr::new(
                 &IpAddr::from_str("1.2.3.5").unwrap(),
                 &vec![1234],
@@ -921,7 +921,7 @@ mod tests {
             0,
         );
         let mod_earning_wallet = NodeRecord::new(
-            &Key::new(&b"poke"[..]),
+            &PublicKey::new(&b"poke"[..]),
             node_addr_opt.clone(),
             Wallet::new("booga"),
             Some(consuming_wallet.clone()),
@@ -930,7 +930,7 @@ mod tests {
             0,
         );
         let mod_consuming_wallet = NodeRecord::new(
-            &Key::new(&b"poke"[..]),
+            &PublicKey::new(&b"poke"[..]),
             node_addr_opt.clone(),
             earning_wallet.clone(),
             Some(Wallet::new("booga")),
@@ -939,7 +939,7 @@ mod tests {
             0,
         );
         let mod_is_bootstrap = NodeRecord::new(
-            &Key::new(&b"poke"[..]),
+            &PublicKey::new(&b"poke"[..]),
             node_addr_opt.clone(),
             earning_wallet.clone(),
             Some(consuming_wallet.clone()),
@@ -948,7 +948,7 @@ mod tests {
             0,
         );
         let mod_signatures = NodeRecord::new(
-            &Key::new(&b"poke"[..]),
+            &PublicKey::new(&b"poke"[..]),
             node_addr_opt.clone(),
             earning_wallet.clone(),
             Some(consuming_wallet.clone()),
@@ -1141,7 +1141,7 @@ mod tests {
             false,
             &CryptDENull::from(this_node.public_key()),
         );
-        let nonexistent_key = &Key::new(b"nonexistent");
+        let nonexistent_key = &PublicKey::new(b"nonexistent");
 
         let result = subject.remove_neighbor(nonexistent_key);
 

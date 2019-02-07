@@ -2,8 +2,8 @@
 use cryptde::CryptDE;
 use cryptde::CryptData;
 use cryptde::CryptdecError;
-use cryptde::Key;
 use cryptde::PlainData;
+use cryptde::PublicKey;
 use dispatcher::Component;
 use serde_cbor;
 use wallet::Wallet;
@@ -13,13 +13,13 @@ use wallet::Wallet;
 // remember Routes while they're in use.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct LiveHop {
-    pub public_key: Key,
+    pub public_key: PublicKey,
     pub consuming_wallet: Option<Wallet>,
     pub component: Component,
 }
 
 impl LiveHop {
-    pub fn new(key: &Key, consuming_wallet: Option<Wallet>, component: Component) -> Self {
+    pub fn new(key: &PublicKey, consuming_wallet: Option<Wallet>, component: Component) -> Self {
         LiveHop {
             public_key: key.clone(),
             consuming_wallet: consuming_wallet.clone(),
@@ -29,14 +29,18 @@ impl LiveHop {
 
     pub fn decode(cryptde: &CryptDE, crypt_data: &CryptData) -> Result<Self, CryptdecError> {
         let plain_data = cryptde.decode(crypt_data)?;
-        match serde_cbor::de::from_slice::<LiveHop>(&plain_data.data[..]) {
+        match serde_cbor::de::from_slice::<LiveHop>(plain_data.as_slice()) {
             Ok(hop) => Ok(hop),
             // crashpoint - need to figure out how to return deserialize error
             Err(_) => unimplemented!("failed to deserialize hop"),
         }
     }
 
-    pub fn encode(&self, public_key: &Key, cryptde: &CryptDE) -> Result<CryptData, CryptdecError> {
+    pub fn encode(
+        &self,
+        public_key: &PublicKey,
+        cryptde: &CryptDE,
+    ) -> Result<CryptData, CryptdecError> {
         let plain_data = match serde_cbor::ser::to_vec(&self) {
             Ok(data) => PlainData::new(&data[..]),
             // crashpoint - need to figure out how to return serialize error
@@ -54,12 +58,12 @@ mod tests {
     #[test]
     fn can_construct_hop() {
         let subject = LiveHop::new(
-            &Key::new("key".as_bytes()),
+            &PublicKey::new("key".as_bytes()),
             Some(Wallet::new("wallet")),
             Component::Neighborhood,
         );
 
-        assert_eq!(subject.public_key, Key::new("key".as_bytes()));
+        assert_eq!(subject.public_key, PublicKey::new("key".as_bytes()));
         assert_eq!(subject.component, Component::Neighborhood);
     }
 
@@ -69,27 +73,27 @@ mod tests {
         let consuming_wallet = Wallet::new("wallet");
         let encode_key = cryptde.public_key();
         let hopper_hop = LiveHop::new(
-            &&Key::new(&[4, 3, 2, 1]),
+            &&PublicKey::new(&[4, 3, 2, 1]),
             Some(consuming_wallet.clone()),
             Component::Hopper,
         );
         let neighborhood_hop = LiveHop::new(
-            &Key::new(&[1, 2, 3, 4]),
+            &PublicKey::new(&[1, 2, 3, 4]),
             Some(consuming_wallet.clone()),
             Component::Neighborhood,
         );
         let proxy_server_hop = LiveHop::new(
-            &Key::new(&[127, 128]),
+            &PublicKey::new(&[127, 128]),
             Some(consuming_wallet.clone()),
             Component::ProxyServer,
         );
         let proxy_client_hop = LiveHop::new(
-            &Key::new(&[253, 254, 255]),
+            &PublicKey::new(&[253, 254, 255]),
             Some(consuming_wallet.clone()),
             Component::ProxyClient,
         );
         let relay_hop = LiveHop::new(
-            &Key::new(&[123]),
+            &PublicKey::new(&[123]),
             Some(consuming_wallet.clone()),
             Component::Hopper,
         );

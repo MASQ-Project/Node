@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use base64;
-use cryptde::Key;
+use cryptde::PublicKey;
 use sha1;
 use std::fmt;
 use std::net::IpAddr;
@@ -20,7 +20,7 @@ impl fmt::Debug for StreamKey {
 }
 
 impl StreamKey {
-    pub fn new(public_key: Key, peer_addr: SocketAddr) -> StreamKey {
+    pub fn new(public_key: PublicKey, peer_addr: SocketAddr) -> StreamKey {
         let mut hash = sha1::Sha1::new();
         match peer_addr.ip() {
             IpAddr::V4(ipv4) => hash.update(&ipv4.octets()),
@@ -30,7 +30,7 @@ impl StreamKey {
             (peer_addr.port() >> 8) as u8,
             (peer_addr.port() & 0xFF) as u8,
         ]);
-        hash.update(&public_key.data[..]);
+        hash.update(&public_key.as_slice());
         StreamKey {
             hash: hash.digest().bytes(),
         }
@@ -46,7 +46,7 @@ mod tests {
 
     #[test]
     fn matching_keys_and_matching_addrs_make_matching_stream_keys() {
-        let key = Key::new(&b"These are the times"[..]);
+        let key = PublicKey::new(&b"These are the times"[..]);
         let addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
 
         let one = StreamKey::new(key.clone(), addr);
@@ -57,7 +57,7 @@ mod tests {
 
     #[test]
     fn matching_keys_and_mismatched_addrs_make_mismatched_stream_keys() {
-        let key = Key::new(&b"These are the times"[..]);
+        let key = PublicKey::new(&b"These are the times"[..]);
         let one_addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
         let another_addr = SocketAddr::from_str("3.4.5.6:6789").unwrap();
 
@@ -69,7 +69,7 @@ mod tests {
 
     #[test]
     fn matching_keys_and_mismatched_port_numbers_make_mismatched_stream_keys() {
-        let key = Key::new(&b"These are the times"[..]);
+        let key = PublicKey::new(&b"These are the times"[..]);
         let one_addr = SocketAddr::from_str("3.4.5.6:6789").unwrap();
         let another_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
 
@@ -81,8 +81,8 @@ mod tests {
 
     #[test]
     fn mismatched_keys_and_matching_addrs_make_mismatched_stream_keys() {
-        let one_key = Key::new(&b"These are the times"[..]);
-        let another_key = Key::new(&b"that try men's souls"[..]);
+        let one_key = PublicKey::new(&b"These are the times"[..]);
+        let another_key = PublicKey::new(&b"that try men's souls"[..]);
         let addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
 
         let one = StreamKey::new(one_key.clone(), addr);
@@ -93,7 +93,7 @@ mod tests {
 
     #[test]
     fn debug_implementation() {
-        let key = Key::new(&b"These are the times"[..]);
+        let key = PublicKey::new(&b"These are the times"[..]);
         let addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
         let subject = StreamKey::new(key, addr);
 

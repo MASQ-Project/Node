@@ -21,7 +21,7 @@ use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 use sub_lib::cryptde::CryptDE;
-use sub_lib::cryptde::Key;
+use sub_lib::cryptde::PublicKey;
 use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::dispatcher::Component;
 use sub_lib::main_tools::StdStreams;
@@ -199,13 +199,19 @@ impl PayloadMock {
 }
 
 pub fn make_meaningless_stream_key() -> StreamKey {
-    StreamKey::new(Key::new(&[]), SocketAddr::from_str("4.3.2.1:8765").unwrap())
+    StreamKey::new(
+        PublicKey::new(&[]),
+        SocketAddr::from_str("4.3.2.1:8765").unwrap(),
+    )
 }
 
 pub fn make_meaningless_route() -> Route {
     Route::new(
         vec![RouteSegment::new(
-            vec![&Key::new(&b"ooga"[..]), &Key::new(&b"booga"[..])],
+            vec![
+                &PublicKey::new(&b"ooga"[..]),
+                &PublicKey::new(&b"booga"[..]),
+            ],
             Component::ProxyClient,
         )],
         &CryptDENull::new(),
@@ -214,20 +220,20 @@ pub fn make_meaningless_route() -> Route {
     .unwrap()
 }
 
-pub fn route_to_proxy_client(key: &Key, cryptde: &CryptDE) -> Route {
+pub fn route_to_proxy_client(key: &PublicKey, cryptde: &CryptDE) -> Route {
     shift_one_hop(zero_hop_route_response(key, cryptde).route, cryptde)
 }
 
-pub fn route_from_proxy_client(key: &Key, cryptde: &CryptDE) -> Route {
+pub fn route_from_proxy_client(key: &PublicKey, cryptde: &CryptDE) -> Route {
     // Happens to be the same
     route_to_proxy_client(key, cryptde)
 }
 
-pub fn route_to_proxy_server(key: &Key, cryptde: &CryptDE) -> Route {
+pub fn route_to_proxy_server(key: &PublicKey, cryptde: &CryptDE) -> Route {
     shift_one_hop(route_from_proxy_client(key, cryptde), cryptde)
 }
 
-pub fn zero_hop_route_response(public_key: &Key, cryptde: &CryptDE) -> RouteQueryResponse {
+pub fn zero_hop_route_response(public_key: &PublicKey, cryptde: &CryptDE) -> RouteQueryResponse {
     RouteQueryResponse {
         route: Route::new(
             vec![
@@ -344,7 +350,7 @@ mod tests {
                 LiveHop::new(&key, None, Component::ProxyClient)
                     .encode(&key, &cryptde)
                     .unwrap(),
-                LiveHop::new(&Key::new(b""), None, Component::ProxyServer)
+                LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
                     .encode(&key, &cryptde)
                     .unwrap(),
             )
@@ -367,7 +373,7 @@ mod tests {
                 LiveHop::new(&key, None, Component::ProxyClient)
                     .encode(&key, &cryptde)
                     .unwrap(),
-                LiveHop::new(&Key::new(b""), None, Component::ProxyServer)
+                LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
                     .encode(&key, &cryptde)
                     .unwrap(),
                 CryptData::new(&garbage_can[..])
@@ -390,7 +396,7 @@ mod tests {
                 LiveHop::new(&key, None, Component::ProxyClient)
                     .encode(&key, &cryptde)
                     .unwrap(),
-                LiveHop::new(&Key::new(b""), None, Component::ProxyServer)
+                LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
                     .encode(&key, &cryptde)
                     .unwrap(),
                 CryptData::new(&garbage_can[..])
@@ -410,7 +416,7 @@ mod tests {
         assert_eq!(
             subject.hops,
             vec!(
-                LiveHop::new(&Key::new(b""), None, Component::ProxyServer)
+                LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
                     .encode(&key, &cryptde)
                     .unwrap(),
                 CryptData::new(&garbage_can[..]),

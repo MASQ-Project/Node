@@ -19,7 +19,7 @@ use sub_lib::accountant;
 use sub_lib::accountant::AccountantConfig;
 use sub_lib::crash_point::CrashPoint;
 use sub_lib::cryptde::CryptDE;
-use sub_lib::cryptde::Key;
+use sub_lib::cryptde::PublicKey;
 use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::logger::Logger;
 use sub_lib::main_tools::StdStreams;
@@ -285,7 +285,7 @@ impl Bootstrapper {
     fn parse_neighbor_configs(
         finder: &ParameterFinder,
         parameter_tag: &str,
-    ) -> Vec<(Key, NodeAddr)> {
+    ) -> Vec<(PublicKey, NodeAddr)> {
         let usage = &format!(
             "{} <public key>:<IP address>:<port>,<port>,...",
             parameter_tag
@@ -297,7 +297,7 @@ impl Bootstrapper {
             .collect()
     }
 
-    fn parse_neighbor_config(input: String, parameter_tag: &str) -> (Key, NodeAddr) {
+    fn parse_neighbor_config(input: String, parameter_tag: &str) -> (PublicKey, NodeAddr) {
         let pieces: Vec<&str> = input.splitn(2, ":").collect();
         if pieces.len() != 2 {
             panic!(
@@ -305,7 +305,7 @@ impl Bootstrapper {
                 parameter_tag, parameter_tag, input
             )
         }
-        let public_key = Key::new(
+        let public_key = PublicKey::new(
             &base64::decode(pieces[0]).expect(
                 format!(
                     "Invalid Base64 for {} <public key>: '{}'",
@@ -314,7 +314,7 @@ impl Bootstrapper {
                 .as_str(),
             )[..],
         );
-        if public_key.data.is_empty() {
+        if public_key.is_empty() {
             panic!("Blank public key for --neighbor {}", input)
         }
         let node_addr = NodeAddr::from_str(&pieces[1]).expect(
@@ -364,14 +364,14 @@ impl Bootstrapper {
         writeln!(
             streams.stdout,
             "SubstratumNode local descriptor: {}:{}:{}",
-            base64::encode_config(&cryptde.public_key().data, base64::STANDARD_NO_PAD),
+            base64::encode_config(&cryptde.public_key().as_slice(), base64::STANDARD_NO_PAD),
             ip_addr,
             port_list
         )
         .expect("Internal error");
         Logger::new("Bootstrapper").log(format!(
             "SubstratumNode local descriptor: {}:{}:{}",
-            base64::encode_config(&cryptde.public_key().data, base64::STANDARD_NO_PAD),
+            base64::encode_config(&cryptde.public_key().as_slice(), base64::STANDARD_NO_PAD),
             ip_addr,
             port_list
         ));
@@ -729,14 +729,14 @@ mod tests {
             result,
             vec!(
                 (
-                    Key::new(b"GoodKey"),
+                    PublicKey::new(b"GoodKey"),
                     NodeAddr::new(
                         &IpAddr::from_str("1.2.3.4").unwrap(),
                         &vec!(1234, 2345, 3456)
                     )
                 ),
                 (
-                    Key::new(b"AnotherGoodKey"),
+                    PublicKey::new(b"AnotherGoodKey"),
                     NodeAddr::new(
                         &IpAddr::from_str("2.3.4.5").unwrap(),
                         &vec!(4567, 5678, 6789)
@@ -936,11 +936,11 @@ mod tests {
             config.neighborhood_config.neighbor_configs,
             vec!(
                 (
-                    Key::new(b"Bill"),
+                    PublicKey::new(b"Bill"),
                     NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec!(1234, 2345))
                 ),
                 (
-                    Key::new(b"Ted"),
+                    PublicKey::new(b"Ted"),
                     NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec!(3456, 4567))
                 ),
             )
@@ -1174,11 +1174,14 @@ mod tests {
 
             cryptde_ref
         };
-        assert_ne!(cryptde_ref.private_key().data, b"uninitialized".to_vec());
+        assert_ne!(cryptde_ref.private_key().as_slice(), &b"uninitialized"[..]);
         let stdout_dump = holder.stdout.get_string();
         let expected_descriptor = format!(
             "{}:2.3.4.5:3456,4567",
-            base64::encode_config(&cryptde_ref.public_key().data, base64::STANDARD_NO_PAD)
+            base64::encode_config(
+                &cryptde_ref.public_key().as_slice(),
+                base64::STANDARD_NO_PAD
+            )
         );
         let regex = Regex::new(r"SubstratumNode local descriptor: (.+?)\n").unwrap();
         let captured_descriptor = regex

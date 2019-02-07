@@ -2,51 +2,53 @@
 use cryptde::CryptDE;
 use cryptde::CryptData;
 use cryptde::CryptdecError;
-use cryptde::Key;
 use cryptde::PlainData;
+use cryptde::PrivateKey;
+use cryptde::PublicKey;
 use rand::prelude::*;
 
 pub struct CryptDENull {
-    private_key: Key,
-    public_key: Key,
+    private_key: PrivateKey,
+    public_key: PublicKey,
 }
 
 impl CryptDE for CryptDENull {
     fn generate_key_pair(&mut self) {
-        self.private_key = Key::new(&[0; 32]);
+        let mut private_key = [0; 32];
         let mut rng = thread_rng();
         for idx in 0..32 {
-            self.private_key.data[idx] = rng.gen();
+            private_key[idx] = rng.gen();
         }
-        self.public_key = CryptDENull::other_key(&self.private_key())
+        self.private_key = PrivateKey::from(&private_key[..]);
+        self.public_key = CryptDENull::public_from_private(&self.private_key())
     }
 
-    fn encode(&self, public_key: &Key, data: &PlainData) -> Result<CryptData, CryptdecError> {
-        if public_key.data.is_empty() {
+    fn encode(&self, public_key: &PublicKey, data: &PlainData) -> Result<CryptData, CryptdecError> {
+        if public_key.is_empty() {
             Err(CryptdecError::EmptyKey)
-        } else if data.data.is_empty() {
+        } else if data.is_empty() {
             Err(CryptdecError::EmptyData)
         } else {
-            let other_key = CryptDENull::other_key(public_key);
+            let other_key = CryptDENull::private_from_public(public_key);
             Ok(CryptData::new(
-                &[&other_key.data[..], &data.data[..]].concat()[..],
+                &[&other_key.as_slice(), data.as_slice()].concat()[..],
             ))
         }
     }
 
     fn decode(&self, data: &CryptData) -> Result<PlainData, CryptdecError> {
-        if self.private_key.data.is_empty() {
+        if self.private_key.is_empty() {
             Err(CryptdecError::EmptyKey)
-        } else if data.data.is_empty() {
+        } else if data.is_empty() {
             Err(CryptdecError::EmptyData)
-        } else if self.private_key.data.len() > data.data.len() {
+        } else if self.private_key.len() > data.len() {
             Err(CryptdecError::InvalidKey(CryptDENull::invalid_key_message(
                 &self.private_key,
                 data,
             )))
         } else {
-            let (k, d) = data.data.split_at(self.private_key.data.len());
-            if k != &self.private_key.data[..] {
+            let (k, d) = data.as_slice().split_at(self.private_key.len());
+            if k != self.private_key.as_slice() {
                 Err(CryptdecError::InvalidKey(CryptDENull::invalid_key_message(
                     &self.private_key,
                     data,
@@ -63,11 +65,11 @@ impl CryptDE for CryptDENull {
         }
     }
 
-    fn private_key(&self) -> Key {
+    fn private_key(&self) -> PrivateKey {
         self.private_key.clone()
     }
 
-    fn public_key(&self) -> Key {
+    fn public_key(&self) -> PublicKey {
         self.public_key.clone()
     }
 
@@ -87,7 +89,7 @@ impl CryptDE for CryptDENull {
         &self,
         _data: &PlainData,
         _signature: &CryptData,
-        _public_key: &Key,
+        _public_key: &PublicKey,
     ) -> bool {
         true
     }
@@ -95,34 +97,49 @@ impl CryptDE for CryptDENull {
 
 impl CryptDENull {
     pub fn new() -> CryptDENull {
-        let key = Key::new(b"uninitialized");
+        let key = PrivateKey::new(b"uninitialized");
         CryptDENull {
             private_key: key.clone(),
-            public_key: CryptDENull::other_key(&key),
+            public_key: CryptDENull::public_from_private(&key),
         }
     }
 
-    pub fn from(public_key: &Key) -> CryptDENull {
+    pub fn from(public_key: &PublicKey) -> CryptDENull {
         let mut result = CryptDENull::new();
         result.set_key_pair(public_key);
         result
     }
 
-    pub fn set_key_pair(&mut self, public_key: &Key) {
+    pub fn set_key_pair(&mut self, public_key: &PublicKey) {
         self.public_key = public_key.clone();
-        self.private_key = CryptDENull::other_key(public_key);
+        self.private_key = CryptDENull::private_from_public(public_key);
     }
 
-    pub fn other_key(in_key: &Key) -> Key {
-        let out_key_data: Vec<u8> = in_key.data.iter().map(|b| (*b).wrapping_add(128)).collect();
-        Key::new(&out_key_data[..])
+    pub fn private_from_public(in_key: &PublicKey) -> PrivateKey {
+        let out_key_data: Vec<u8> = in_key
+            .as_slice()
+            .iter()
+            .map(|b| (*b).wrapping_add(128))
+            .collect();
+        PrivateKey::new(&out_key_data[..])
     }
 
-    fn invalid_key_message(key: &Key, data: &CryptData) -> String {
-        let data_to_print: Vec<u8> = data.clone().data.into_iter().take(key.data.len()).collect();
+    pub fn public_from_private(in_key: &PrivateKey) -> PublicKey {
+        let out_key_data: Vec<u8> = in_key
+            .as_slice()
+            .iter()
+            .map(|b| (*b).wrapping_add(128))
+            .collect();
+        PublicKey::new(&out_key_data[..])
+    }
+
+    fn invalid_key_message(key: &PrivateKey, data: &CryptData) -> String {
+        let prefix_len = std::cmp::min(key.len(), data.len());
+        let vec = Vec::from(&data.as_slice()[0..prefix_len]);
         format!(
             "Could not decrypt with {:?} data beginning with {:?}",
-            key.data, data_to_print
+            key.as_slice(),
+            vec
         )
     }
 }
@@ -135,7 +152,7 @@ mod tests {
     fn encode_with_empty_key() {
         let subject = CryptDENull::new();
 
-        let result = subject.encode(&Key::new(b""), &PlainData::new(b"data"));
+        let result = subject.encode(&PublicKey::new(b""), &PlainData::new(b"data"));
 
         assert_eq!(result.err().unwrap(), CryptdecError::EmptyKey);
     }
@@ -144,7 +161,7 @@ mod tests {
     fn encode_with_empty_data() {
         let subject = CryptDENull::new();
 
-        let result = subject.encode(&Key::new(b"key"), &PlainData::new(b""));
+        let result = subject.encode(&PublicKey::new(b"key"), &PlainData::new(b""));
 
         assert_eq!(result.err().unwrap(), CryptdecError::EmptyData);
     }
@@ -153,9 +170,9 @@ mod tests {
     fn encode_with_key_and_data() {
         let subject = CryptDENull::new();
 
-        let result = subject.encode(&Key::new(b"key"), &PlainData::new(b"data"));
+        let result = subject.encode(&PublicKey::new(b"key"), &PlainData::new(b"data"));
 
-        let mut data = CryptDENull::other_key(&Key::new(b"key")).data;
+        let mut data: Vec<u8> = CryptDENull::private_from_public(&PublicKey::new(b"key")).into();
         data.extend(b"data".iter());
         assert_eq!(result.ok().unwrap(), CryptData::new(&data[..]));
     }
@@ -163,7 +180,7 @@ mod tests {
     #[test]
     fn decode_with_empty_key() {
         let mut subject = CryptDENull::new();
-        subject.private_key = Key::new(b"");
+        subject.private_key = PrivateKey::new(b"");
 
         let result = subject.decode(&CryptData::new(b"keydata"));
 
@@ -173,7 +190,7 @@ mod tests {
     #[test]
     fn decode_with_empty_data() {
         let mut subject = CryptDENull::new();
-        subject.private_key = Key::new(b"key");
+        subject.private_key = PrivateKey::new(b"key");
 
         let result = subject.decode(&CryptData::new(b""));
 
@@ -183,7 +200,7 @@ mod tests {
     #[test]
     fn decode_with_key_and_data() {
         let mut subject = CryptDENull::new();
-        subject.private_key = Key::new(b"key");
+        subject.private_key = PrivateKey::new(b"key");
 
         let result = subject.decode(&CryptData::new(b"keydata"));
 
@@ -193,9 +210,9 @@ mod tests {
     #[test]
     fn decode_with_invalid_key_and_data() {
         let mut subject = CryptDENull::new();
-        subject.private_key = Key::new(b"badKey");
+        subject.private_key = PrivateKey::new(b"badKey");
 
-        let result = subject.decode(&CryptData::new(b"keydata"));
+        let result = subject.decode(&CryptData::new(b"keydataxyz"));
 
         assert_eq!(result.err().unwrap(), CryptdecError::InvalidKey (String::from ("Could not decrypt with [98, 97, 100, 75, 101, 121] data beginning with [107, 101, 121, 100, 97, 116]")));
     }
@@ -203,7 +220,7 @@ mod tests {
     #[test]
     fn decode_with_key_exceeding_data_length() {
         let mut subject = CryptDENull::new();
-        subject.private_key = Key::new(b"invalidkey");
+        subject.private_key = PrivateKey::new(b"invalidkey");
 
         let result = subject.decode(&CryptData::new(b"keydata"));
 
@@ -222,7 +239,7 @@ mod tests {
 
     #[test]
     fn private_key_before_generation() {
-        let expected = Key::new(b"uninitialized");
+        let expected = PrivateKey::new(b"uninitialized");
         let subject = CryptDENull::new();
 
         let result = subject.private_key();
@@ -233,7 +250,7 @@ mod tests {
     #[test]
     fn public_key_before_generation() {
         let subject = CryptDENull::new();
-        let expected = CryptDENull::other_key(&Key::new(b"uninitialized"));
+        let expected = CryptDENull::public_from_private(&PrivateKey::new(b"uninitialized"));
 
         let result = subject.public_key();
 
@@ -271,18 +288,19 @@ mod tests {
     }
 
     #[test]
-    fn other_key_works() {
-        let one_key = Key::new(b"The quick brown fox jumps over the lazy dog");
+    fn private_and_public_keys_are_different_and_derivable_from_each_other() {
+        let original_private_key = PrivateKey::new(b"The quick brown fox jumps over the lazy dog");
 
-        let another_key = CryptDENull::other_key(&one_key);
+        let public_key = CryptDENull::public_from_private(&original_private_key);
+        let resulting_private_key = CryptDENull::private_from_public(&public_key);
 
-        assert_ne!(one_key, another_key);
-        assert_eq!(CryptDENull::other_key(&another_key), one_key);
+        assert_ne!(original_private_key.as_slice(), public_key.as_slice());
+        assert_eq!(resulting_private_key, original_private_key);
     }
 
     #[test]
     fn from_and_setting_key_pair_works() {
-        let public_key = Key::new(b"The quick brown fox jumps over the lazy dog");
+        let public_key = PublicKey::new(b"The quick brown fox jumps over the lazy dog");
 
         let subject = CryptDENull::from(&public_key);
 

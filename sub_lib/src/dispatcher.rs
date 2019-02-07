@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use actix::Recipient;
 use actix::Syn;
-use cryptde::Key;
+use cryptde::PublicKey;
 use peer_actors::BindMessage;
 use serde;
 use serde::de::Visitor;
@@ -76,7 +76,7 @@ impl<'a> Visitor<'a> for ComponentVisitor {
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum Endpoint {
-    Key(Key),
+    Key(PublicKey),
     Ip(IpAddr),
     Socket(SocketAddr),
 }
@@ -84,7 +84,7 @@ pub enum Endpoint {
 impl fmt::Debug for Endpoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            &Endpoint::Key(ref key) => write!(f, "Key({})", key),
+            &Endpoint::Key(ref key) => write!(f, "PublicKey({})", key),
             &Endpoint::Ip(ref ip_addr) => write!(f, "Ip({})", *ip_addr),
             &Endpoint::Socket(ref socket_addr) => write!(f, "Socket({})", *socket_addr),
         }
@@ -156,20 +156,20 @@ mod tests {
 
     #[test]
     fn debug_string_for_endpoint_with_utf8_key() {
-        let subject = Endpoint::Key(Key::new(b"blah"));
+        let subject = Endpoint::Key(PublicKey::new(b"blah"));
 
         let result = format!("{:?}", subject);
 
-        assert_eq!(result, String::from("Key(YmxhaA)"))
+        assert_eq!(result, String::from("PublicKey(YmxhaA)"))
     }
 
     #[test]
     fn debug_string_for_endpoint_with_non_utf8_key() {
-        let subject = Endpoint::Key(Key::new(&[192, 193]));
+        let subject = Endpoint::Key(PublicKey::new(&[192, 193]));
 
         let result = format!("{:?}", subject);
 
-        assert_eq!(result, String::from("Key(wME)"))
+        assert_eq!(result, String::from("PublicKey(wME)"))
     }
 
     #[test]

@@ -10,7 +10,7 @@ use client_request_payload_factory::ClientRequestPayloadFactory;
 use std::net::SocketAddr;
 use sub_lib::bidi_hashmap::BidiHashMap;
 use sub_lib::cryptde::CryptDE;
-use sub_lib::cryptde::Key;
+use sub_lib::cryptde::PublicKey;
 use sub_lib::dispatcher::Endpoint;
 use sub_lib::dispatcher::InboundClientData;
 use sub_lib::hopper::ExpiredCoresPackage;
@@ -266,13 +266,13 @@ impl ProxyServer {
 }
 
 trait StreamKeyFactory: Send {
-    fn make(&self, public_key: &Key, peer_addr: SocketAddr) -> StreamKey;
+    fn make(&self, public_key: &PublicKey, peer_addr: SocketAddr) -> StreamKey;
 }
 
 struct StreamKeyFactoryReal {}
 
 impl StreamKeyFactory for StreamKeyFactoryReal {
-    fn make(&self, public_key: &Key, peer_addr: SocketAddr) -> StreamKey {
+    fn make(&self, public_key: &PublicKey, peer_addr: SocketAddr) -> StreamKey {
         // TODO: Replace this implementation
         StreamKey::new(public_key.clone(), peer_addr)
     }
@@ -291,7 +291,6 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
-    use sub_lib::cryptde::Key;
     use sub_lib::cryptde::PlainData;
     use sub_lib::dispatcher::Component;
     use sub_lib::hopper::ExpiredCoresPackage;
@@ -314,12 +313,12 @@ mod tests {
     use test_utils::test_utils::zero_hop_route_response;
 
     struct StreamKeyFactoryMock {
-        make_parameters: Arc<Mutex<Vec<(Key, SocketAddr)>>>,
+        make_parameters: Arc<Mutex<Vec<(PublicKey, SocketAddr)>>>,
         make_results: RefCell<Vec<StreamKey>>,
     }
 
     impl StreamKeyFactory for StreamKeyFactoryMock {
-        fn make(&self, key: &Key, peer_addr: SocketAddr) -> StreamKey {
+        fn make(&self, key: &PublicKey, peer_addr: SocketAddr) -> StreamKey {
             self.make_parameters
                 .lock()
                 .unwrap()
@@ -338,7 +337,7 @@ mod tests {
 
         fn make_parameters(
             mut self,
-            params: &Arc<Mutex<Vec<(Key, SocketAddr)>>>,
+            params: &Arc<Mutex<Vec<(PublicKey, SocketAddr)>>>,
         ) -> StreamKeyFactoryMock {
             self.make_parameters = params.clone();
             self
@@ -379,7 +378,7 @@ mod tests {
         let expected_payload = ClientRequestPayload {
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
-                data: expected_http_request.data.clone(),
+                data: expected_http_request.into(),
                 sequence_number: 0,
                 last_data: true,
             },
@@ -458,7 +457,7 @@ mod tests {
         let expected_payload = ClientRequestPayload {
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
-                data: expected_http_request.data.clone(),
+                data: expected_http_request.into(),
                 sequence_number: 0,
                 last_data: true,
             },
@@ -507,14 +506,14 @@ mod tests {
         let hopper_mock = Recorder::new();
         let hopper_log_arc = hopper_mock.get_recording();
         let hopper_awaiter = hopper_mock.get_awaiter();
-        let payload_destination_key = Key::new(&[3]);
+        let payload_destination_key = PublicKey::new(&[3]);
         let route = Route::new(
             vec![
                 RouteSegment::new(
                     vec![
                         &cryptde.public_key(),
-                        &Key::new(&[1]),
-                        &Key::new(&[2]),
+                        &PublicKey::new(&[1]),
+                        &PublicKey::new(&[2]),
                         &payload_destination_key,
                     ],
                     Component::ProxyClient,
@@ -522,8 +521,8 @@ mod tests {
                 RouteSegment::new(
                     vec![
                         &payload_destination_key,
-                        &Key::new(&[2]),
-                        &Key::new(&[1]),
+                        &PublicKey::new(&[2]),
+                        &PublicKey::new(&[1]),
                         &cryptde.public_key(),
                     ],
                     Component::ProxyServer,
@@ -536,7 +535,7 @@ mod tests {
         let (neighborhood_mock, _, neighborhood_recording_arc) = make_recorder();
         let neighborhood_mock = neighborhood_mock.route_query_response(Some(RouteQueryResponse {
             route: route.clone(),
-            segment_endpoints: vec![Key::new(&[3]), cryptde.public_key()],
+            segment_endpoints: vec![PublicKey::new(&[3]), cryptde.public_key()],
         }));
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let stream_key = make_meaningless_stream_key();
@@ -554,7 +553,7 @@ mod tests {
         let expected_payload = ClientRequestPayload {
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
-                data: expected_http_request.data.clone(),
+                data: expected_http_request.into(),
                 sequence_number: 0,
                 last_data: true,
             },
@@ -712,7 +711,7 @@ mod tests {
         let expected_payload = ClientRequestPayload {
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
-                data: expected_tls_request.data.clone(),
+                data: expected_tls_request.into(),
                 sequence_number: 0,
                 last_data: false,
             },
@@ -784,7 +783,7 @@ mod tests {
         let expected_payload = ClientRequestPayload {
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
-                data: expected_tls_request.data.clone(),
+                data: expected_tls_request.into(),
                 sequence_number: 0,
                 last_data: false,
             },
@@ -854,7 +853,7 @@ mod tests {
         let expected_payload = ClientRequestPayload {
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
-                data: expected_tls_request.data.clone(),
+                data: expected_tls_request.into(),
                 sequence_number: 0,
                 last_data: true,
             },
