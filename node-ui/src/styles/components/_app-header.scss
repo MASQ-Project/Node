@@ -1,0 +1,26 @@
+// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+
+.app-header {
+    background: color('background', 'medium');
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    height: 55px;
+    border-bottom: 1px solid color('background', 'light');
+
+    &__settings-icon {
+        position: absolute;
+        right: 16px;
+        transition: all 200ms;
+        opacity: .5;
+        
+        &:hover {
+            opacity: 1;
+        }
+
+        &:focus {
+            outline: none;
+        }
+    }
+}

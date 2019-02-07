@@ -1,0 +1,7 @@
+// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+
+@function rem($size, $base:$base-font-size)
+{
+	$remSize: $size/$base;
+	@return #{$remSize}rem;
+}
