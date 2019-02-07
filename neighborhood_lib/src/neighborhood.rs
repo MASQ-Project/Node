@@ -2305,7 +2305,7 @@ mod tests {
             system.run();
         });
         TestLogHandler::new()
-            .await_log_containing(&format!("Finished processing Gossip about 1 Nodes"), 500);
+            .await_log_containing(&format!("Finished processing Gossip about 1 Nodes"), 5000);
         let locked_recording = hopper_recording.lock().unwrap();
         assert_eq!(0, locked_recording.len());
     }
@@ -2381,7 +2381,7 @@ mod tests {
             system.run();
         });
         TestLogHandler::new()
-            .await_log_containing(&format!("Finished processing Gossip about 2 Nodes"), 500);
+            .await_log_containing(&format!("Finished processing Gossip about 2 Nodes"), 5000);
         hopper_awaiter.await_message_count(1);
         let locked_recording = hopper_recording.lock().unwrap();
         assert_eq!(1, locked_recording.len());
@@ -2464,14 +2464,14 @@ mod tests {
 
             system.run();
         });
-        TestLogHandler::new()
-            .await_log_containing(&format!("Finished processing Gossip about 1 Nodes"), 1500);
-        TestLogHandler::new().await_log_containing(
+        let tlh = TestLogHandler::new();
+        tlh.await_log_containing(&format!("Finished processing Gossip about 1 Nodes"), 5000);
+        tlh.await_log_containing(
             &format!(
                 "Relaying Gossip about 3 nodes to {:?}",
                 neighborless_node.public_key()
             ),
-            1500,
+            5000,
         );
         hopper_awaiter.await_message_count(1);
         let locked_recording = hopper_recording.lock().unwrap();
@@ -2553,7 +2553,7 @@ mod tests {
             system.run();
         });
         TestLogHandler::new()
-            .await_log_containing(&format!("Finished processing Gossip about 3 Nodes"), 1000);
+            .await_log_containing(&format!("Finished processing Gossip about 3 Nodes"), 5000);
 
         TestLogHandler::new().exists_log_containing("Received Gossip: digraph db { ");
         TestLogHandler::new().exists_log_containing("\"AQIDBA\" [label=\"AQIDBA\"];");
