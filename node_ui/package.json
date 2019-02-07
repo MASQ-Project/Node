@@ -1,0 +1,77 @@
+{
+  "name": "SubstratumNode",
+  "version": "0.4.2",
+  "description": "SubstratumNode user interface",
+  "main": "main.js",
+  "homepage": "https://substratum.net",
+  "repository": "https://github.com/SubstratumNetwork/SubstratumNode",
+  "author": "Substratum LLC <support@substratum.net>",
+  "copyright": "Copyright (c) 2017-2019 Substratum LLC (${homepage}) and/or its affiliates. All rights reserved.",
+  "license": "GPL-3.0",
+  "build": {
+    "appId": "net.substratum.node",
+    "asar": false,
+    "mac": {
+      "icon": "build/icons/icon.icns",
+      "forceCodeSigning": true,
+      "identity": "Substratum Services, Inc. (TKDGR66924)",
+      "target": "dmg",
+      "type": "distribution",
+      "files": [
+        "!ci/*",
+        "!test/*",
+        "!*.iml"
+      ]
+    },
+    "win": {
+      "icon": "build/icons/icon.ico",
+      "files": [
+        "!ci/*",
+        "!test/*",
+        "!*.iml"
+      ]
+    },
+    "linux": {
+      "icon": "build/icons",
+      "files": [
+        "!ci/*",
+        "!test/*",
+        "!*.iml"
+      ]
+    }
+  },
+  "dmg": {
+    "title": "${productName}-${version}",
+    "artifactName": "${productName}-${version}.${ext}"
+  },
+  "scripts": {
+    "dev": "./node_modules/.bin/node-sass assets/styles/main.scss assets/styles/main.css -w -r --output-style compact & electron .",
+    "start": "electron .",
+    "lint": "standard --fix",
+    "test": "jasmine",
+    "unit": "jasmine test/*_test.js",
+    "spec": "jasmine test/*_spec.js",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "devtron": "^1.4.0",
+    "electron": "^2.0.6",
+    "electron-builder": "^20.13.3",
+    "electron-reload": "^1.2.5",
+    "jasmine": "^3.3.1",
+    "node-sass": "^4.5.0",
+    "spectron": "^4.0.0",
+    "standard": "^11.0.1",
+    "testdouble": "^3.8.0"
+  },
+  "dependencies": {
+    "electron-log": "^2.2.17",
+    "isomorphic-ws": "^4.0.1",
+    "node-cmd": "^3.0.0",
+    "ps-list": "^5.0.0",
+    "sudo-prompt": "^8.2.0",
+    "tree-kill": "^1.2.0",
+    "ws": "^6.1.2"
+  }
+}
