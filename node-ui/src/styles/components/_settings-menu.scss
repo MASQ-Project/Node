@@ -1,0 +1,39 @@
+// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+.settings-menu {
+    background: color('white');
+    border-radius: $border-radius;
+    box-shadow: 0 0 10px 0 rgba(0,0,0,.3);
+    position: absolute;
+    top: 40px;
+    right: 10px;
+    font-size: rem(13px);
+    color: color('text','dark');
+    overflow: hidden;
+ 
+    &__menu-item {
+        color: color('text','dark');
+        padding: 10px 18px;
+
+        &:hover {
+            background-color: color('primary');
+            color: color('white');
+            border-color: rgba(color('background','xlight'), 0);
+        }
+        
+        &:first-child {
+            border-bottom: 1px solid color('background','xlight');
+        }
+
+        &:last-child {
+            border-top: 1px solid color('background','xlight');
+        }
+    }
+
+    &--inactive {
+        display: none;
+    }
+
+    &--active {
+        display: block;
+    }
+}

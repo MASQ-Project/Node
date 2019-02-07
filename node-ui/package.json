@@ -1,0 +1,105 @@
+{
+  "name": "node-ui",
+  "description": "SubstratumNode user interface",
+  "version": "0.4.2",
+  "homepage": "https://substratum.net",
+  "repository": "https://github.com/SubstratumNetwork/SubstratumNode",
+  "author": "Substratum LLC <support@substratum.net>",
+  "copyright": "Copyright (c) 2017-2019 Substratum LLC (${homepage}) and/or its affiliates. All rights reserved.",
+  "license": "GPL-3.0",
+  "main": "main.js",
+  "build": {
+    "appId": "net.substratum.node",
+    "asar": false,
+    "productName": "SubstratumNode",
+    "directories": {
+      "output": "electron-builder-out"
+    },
+    "files": [
+      "!ci/*",
+      "!test/*",
+      "!*.iml",
+      "!src/*",
+      "!e2e/*"
+    ],
+    "mac": {
+      "icon": "icons/icon.icns",
+      "forceCodeSigning": true,
+      "identity": "Substratum Services, Inc. (TKDGR66924)",
+      "target": "dmg",
+      "type": "distribution"
+    },
+    "win": {
+      "icon": "icons/icon.ico"
+    },
+    "linux": {
+      "icon": "icons",
+      "category": "Network"
+    }
+  },
+  "dmg": {
+    "title": "${productName}-${version}",
+    "artifactName": "${productName}-${version}.${ext}"
+  },
+  "scripts": {
+    "ng": "ng",
+    "serve": "ng serve",
+    "start": "electron .",
+    "build": "ng build --base-href ./",
+    "test": "ng test",
+    "lint": "ng lint",
+    "e2e": "ng e2e",
+    "unit": "jasmine test/*_test.js",
+    "spec": "jasmine test/*_spec.js",
+    "dist": "electron-builder"
+  },
+  "private": true,
+  "dependencies": {
+    "@angular/animations": "~7.2.0",
+    "@angular/common": "~7.2.0",
+    "@angular/compiler": "~7.2.0",
+    "@angular/core": "~7.2.0",
+    "@angular/forms": "~7.2.0",
+    "@angular/platform-browser": "~7.2.0",
+    "@angular/platform-browser-dynamic": "~7.2.0",
+    "@angular/router": "~7.2.0",
+    "core-js": "^2.5.4",
+    "electron-log": "^2.2.17",
+    "isomorphic-ws": "^4.0.1",
+    "node-cmd": "^3.0.0",
+    "rxjs": "~6.3.3",
+    "sudo-prompt": "^8.2.5",
+    "tree-kill": "^1.2.1",
+    "tslib": "^1.9.0",
+    "zone.js": "~0.8.26"
+  },
+  "devDependencies": {
+    "@angular-devkit/build-angular": "~0.12.0",
+    "@angular/cli": "~7.2.3",
+    "@angular/compiler-cli": "~7.2.0",
+    "@angular/language-service": "~7.2.0",
+    "@types/jasmine": "~2.8.8",
+    "@types/jasminewd2": "~2.0.3",
+    "@types/node": "~8.9.4",
+    "codelyzer": "~4.5.0",
+    "electron": "^4.0.3",
+    "electron-builder": "^20.38.5",
+    "jasmine-core": "~2.99.1",
+    "jasmine-spec-reporter": "~4.2.1",
+    "karma": "~3.1.1",
+    "karma-chrome-launcher": "~2.2.0",
+    "karma-coverage-istanbul-reporter": "~2.0.1",
+    "karma-jasmine": "~1.1.2",
+    "karma-jasmine-html-reporter": "^0.2.2",
+    "mocha": "^5.2.0",
+    "protractor": "~5.4.0",
+    "ps-list": "^5.0.0",
+    "spectron": "^5.0.0",
+    "standard": "^12.0.1",
+    "testdouble": "^3.9.3",
+    "ts-node": "~7.0.0",
+    "tslint": "~5.11.0",
+    "typescript": "~3.2.2",
+    "ws": "^6.1.2"
+  }
+}

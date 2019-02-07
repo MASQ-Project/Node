@@ -25,7 +25,7 @@ cargo clean
 "${GPG_EXECUTABLE}" --verify target/release/$NODE_EXECUTABLE.sig target/release/$NODE_EXECUTABLE
 
 # gui
-cd "$CI_DIR/../node_ui"
+cd "$CI_DIR/../node-ui"
 "ci/release.sh"
 
 cd "$CI_DIR/../"
@@ -33,15 +33,15 @@ cd "$CI_DIR/../"
 case "$OSTYPE" in
    linux*)
         zip -j SubstratumNode-Linux64-binary.zip dns_utility/target/release/$DNS_EXECUTABLE node/target/release/$NODE_EXECUTABLE node/target/release/$NODE_EXECUTABLE.sig
-        zip -j SubstratumNode-Linux64-deb.zip node_ui/dist/SubstratumNode*.deb
+        zip -j SubstratumNode-Linux64-deb.zip node-ui/dist/SubstratumNode*.deb
         ;;
    darwin*)
         zip -j SubstratumNode-macOS-binary.zip dns_utility/target/release/$DNS_EXECUTABLE node/target/release/$NODE_EXECUTABLE node/target/release/$NODE_EXECUTABLE.sig
-        zip -j SubstratumNode-macOS.dmg.zip node_ui/dist/SubstratumNode*.dmg
+        zip -j SubstratumNode-macOS.dmg.zip node-ui/dist/SubstratumNode*.dmg
         ;;
    msys)
         zip -j SubstratumNode-Windows-binary.zip dns_utility/target/release/$DNS_EXECUTABLE node/target/release/$NODE_EXECUTABLE node/target/release/$NODE_EXECUTABLE.sig
-        zip -j SubstratumNode-Windows.exe.zip node_ui/dist/SubstratumNode*.exe
+        zip -j SubstratumNode-Windows.exe.zip node-ui/dist/SubstratumNode*.exe
         ;;
    *)
         echo "unsupported operating system detected."; exit 1
