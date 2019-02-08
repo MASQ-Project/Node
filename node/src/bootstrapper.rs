@@ -361,20 +361,14 @@ impl Bootstrapper {
     ) {
         let port_strings: Vec<String> = ports.iter().map(|n| format!("{}", n)).collect();
         let port_list = port_strings.join(",");
-        writeln!(
-            streams.stdout,
+        let descriptor_msg = format!(
             "SubstratumNode local descriptor: {}:{}:{}",
             base64::encode_config(&cryptde.public_key().as_slice(), base64::STANDARD_NO_PAD),
             ip_addr,
             port_list
-        )
-        .expect("Internal error");
-        Logger::new("Bootstrapper").log(format!(
-            "SubstratumNode local descriptor: {}:{}:{}",
-            base64::encode_config(&cryptde.public_key().as_slice(), base64::STANDARD_NO_PAD),
-            ip_addr,
-            port_list
-        ));
+        );
+        writeln!(streams.stdout, "{}", descriptor_msg).expect("Internal error");
+        Logger::new("Bootstrapper").info(descriptor_msg);
     }
 }
 
@@ -477,7 +471,7 @@ mod tests {
 
         fn bind_subs(&mut self, add_stream_sub: Recipient<Syn, AddStreamMsg>) {
             let logger = Logger::new("ListenerHandler");
-            logger.log(format!("bind_subscribers (add_stream_sub)"));
+            logger.error(format!("bind_subscribers (add_stream_sub)"));
 
             self.add_stream_sub = Some(add_stream_sub);
         }
@@ -1163,6 +1157,7 @@ mod tests {
 
     #[test]
     fn initialize_cryptde_and_report_local_descriptor() {
+        init_test_logging();
         let ip_addr = IpAddr::from_str("2.3.4.5").unwrap();
         let ports = vec![3456u16, 4567u16];
         let mut holder = FakeStreamHolder::new();
@@ -1191,6 +1186,13 @@ mod tests {
             .unwrap()
             .as_str();
         assert_eq!(captured_descriptor, expected_descriptor);
+        TestLogHandler::new().exists_log_containing(
+            format!(
+                "INFO: Bootstrapper: SubstratumNode local descriptor: {}",
+                expected_descriptor
+            )
+            .as_str(),
+        );
 
         let expected_data = PlainData::new(b"ho'q ;iaerh;frjhvs;lkjerre");
         let crypt_data = cryptde_ref

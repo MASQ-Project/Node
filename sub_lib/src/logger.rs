@@ -20,10 +20,6 @@ impl Logger {
         }
     }
 
-    pub fn log(&self, string: String) {
-        self.error(string);
-    }
-
     pub fn debug(&self, string: String) {
         self.generic_log(Level::Debug, string);
     }
@@ -88,8 +84,8 @@ mod tests {
         let another_logger = Logger::new("logger_format_is_correct_another");
 
         let before = SystemTime::now();
-        one_logger.log(String::from("one log"));
-        another_logger.log(String::from("another log"));
+        one_logger.error(String::from("one log"));
+        another_logger.error(String::from("another log"));
         let after = SystemTime::now();
 
         let tlh = TestLogHandler::new();
