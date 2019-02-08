@@ -12,8 +12,6 @@ function start_not_windows {
     sudo -E PATH="$PATH:$NODE_DIR" SUDO_UID=$SUDO_UID SUDO_GID=$SUDO_GID "$CI_DIR/run_integration_tests.sh"
 }
 
-"$CI_DIR/link_binaries.sh"
-
 case "$OSTYPE" in
     msys)
         echo "Windows"
