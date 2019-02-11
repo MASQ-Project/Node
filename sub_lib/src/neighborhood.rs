@@ -90,12 +90,6 @@ pub struct DispatcherNodeQueryMessage {
 }
 
 #[derive(PartialEq, Clone, Debug, Copy)]
-pub enum RouteType {
-    OneWay,
-    RoundTrip,
-}
-
-#[derive(PartialEq, Clone, Debug, Copy)]
 pub enum TargetType {
     Bootstrap,
     Standard,
@@ -103,7 +97,6 @@ pub enum TargetType {
 
 #[derive(PartialEq, Debug)]
 pub struct RouteQueryMessage {
-    pub route_type: RouteType,
     pub target_type: TargetType,
     pub target_key_opt: Option<PublicKey>,
     pub target_component: Component,
@@ -116,23 +109,8 @@ impl Message for RouteQueryMessage {
 }
 
 impl RouteQueryMessage {
-    pub fn gossip_route_request(
-        target_key_ref: &PublicKey,
-        minimum_hop_count: usize,
-    ) -> RouteQueryMessage {
-        RouteQueryMessage {
-            route_type: RouteType::OneWay,
-            target_type: TargetType::Bootstrap,
-            target_key_opt: Some(target_key_ref.clone()),
-            target_component: Component::Neighborhood,
-            minimum_hop_count,
-            return_component_opt: None,
-        }
-    }
-
     pub fn data_indefinite_route_request(minimum_hop_count: usize) -> RouteQueryMessage {
         RouteQueryMessage {
-            route_type: RouteType::RoundTrip,
             target_type: TargetType::Standard,
             target_key_opt: None,
             target_component: Component::ProxyClient,
@@ -143,9 +121,23 @@ impl RouteQueryMessage {
 }
 
 #[derive(PartialEq, Debug, Clone)]
+pub enum ExpectedService {
+    Routing,
+    Exit,
+    Nothing,
+}
+
+#[derive(PartialEq, Debug, Clone)]
+pub struct HopMetadata {
+    pub public_key: PublicKey,
+    pub earning_wallet: Wallet,
+    pub expected_service: ExpectedService,
+}
+
+#[derive(PartialEq, Debug, Clone)]
 pub struct RouteQueryResponse {
     pub route: Route,
-    pub segment_endpoints: Vec<PublicKey>,
+    pub route_metadata: Vec<HopMetadata>,
 }
 
 #[derive(PartialEq, Debug, Message, Clone)]
@@ -159,32 +151,12 @@ mod tests {
     use std::str::FromStr;
 
     #[test]
-    fn gossip_route_request() {
-        let target = PublicKey::new(&b"booga"[..]);
-
-        let result = RouteQueryMessage::gossip_route_request(&target, 2);
-
-        assert_eq!(
-            result,
-            RouteQueryMessage {
-                route_type: RouteType::OneWay,
-                target_type: TargetType::Bootstrap,
-                target_key_opt: Some(target),
-                target_component: Component::Neighborhood,
-                minimum_hop_count: 2,
-                return_component_opt: None,
-            }
-        );
-    }
-
-    #[test]
     fn data_indefinite_route_request() {
         let result = RouteQueryMessage::data_indefinite_route_request(2);
 
         assert_eq!(
             result,
             RouteQueryMessage {
-                route_type: RouteType::RoundTrip,
                 target_type: TargetType::Standard,
                 target_key_opt: None,
                 target_component: Component::ProxyClient,

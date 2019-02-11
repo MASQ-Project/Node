@@ -25,6 +25,8 @@ use sub_lib::cryptde::PublicKey;
 use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::dispatcher::Component;
 use sub_lib::main_tools::StdStreams;
+use sub_lib::neighborhood::ExpectedService;
+use sub_lib::neighborhood::HopMetadata;
 use sub_lib::neighborhood::RouteQueryResponse;
 use sub_lib::route::Route;
 use sub_lib::route::RouteSegment;
@@ -244,7 +246,13 @@ pub fn zero_hop_route_response(public_key: &PublicKey, cryptde: &CryptDE) -> Rou
             None,
         )
         .unwrap(),
-        segment_endpoints: vec![public_key.clone(), public_key.clone()],
+        route_metadata: (1..4)
+            .map(|_| HopMetadata {
+                public_key: public_key.clone(),
+                earning_wallet: Wallet::new("earning wallet"),
+                expected_service: ExpectedService::Nothing,
+            })
+            .collect(),
     }
 }
 
@@ -355,7 +363,26 @@ mod tests {
                     .unwrap(),
             )
         );
-        assert_eq!(subject.segment_endpoints, vec!(key.clone(), key));
+        assert_eq!(
+            subject.route_metadata,
+            vec![
+                HopMetadata {
+                    public_key: key.clone(),
+                    earning_wallet: Wallet::new("earning wallet"),
+                    expected_service: ExpectedService::Nothing
+                },
+                HopMetadata {
+                    public_key: key.clone(),
+                    earning_wallet: Wallet::new("earning wallet"),
+                    expected_service: ExpectedService::Nothing
+                },
+                HopMetadata {
+                    public_key: key.clone(),
+                    earning_wallet: Wallet::new("earning wallet"),
+                    expected_service: ExpectedService::Nothing
+                },
+            ]
+        );
     }
 
     #[test]

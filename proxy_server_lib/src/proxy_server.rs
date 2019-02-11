@@ -17,6 +17,7 @@ use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::http_server_impersonator;
 use sub_lib::logger::Logger;
+use sub_lib::neighborhood::ExpectedService;
 use sub_lib::neighborhood::RouteQueryMessage;
 use sub_lib::neighborhood::RouteQueryResponse;
 use sub_lib::peer_actors::BindMessage;
@@ -208,18 +209,17 @@ impl ProxyServer {
     ) -> Result<(), ()> {
         match route_result {
             Ok(Some(response)) => {
-                let payload_destination_key = response
-                    .segment_endpoints
-                    .first()
-                    .expect("no segment endpoints");
-                let pkg =
-                    IncipientCoresPackage::new(response.route, payload, &payload_destination_key);
-                hopper.try_send(pkg).expect("Hopper is dead");
+                ProxyServer::transmit_to_hopper(
+                    hopper,
+                    payload,
+                    response,
+                    &logger,
+                    source_addr,
+                    dispatcher,
+                );
             }
             Ok(None) => {
-                let target_hostname = ProxyServer::hostname(&payload);
-                ProxyServer::send_route_failure(payload, source_addr, dispatcher);
-                logger.error(format!("Failed to find route to {}", target_hostname));
+                ProxyServer::handle_route_failure(payload, &logger, source_addr, dispatcher);
             }
             Err(e) => {
                 let msg = format!("Neighborhood refused to answer route request: {}", e);
@@ -227,6 +227,53 @@ impl ProxyServer {
             }
         };
         Ok(())
+    }
+
+    fn transmit_to_hopper(
+        hopper: Recipient<Syn, IncipientCoresPackage>,
+        payload: ClientRequestPayload,
+        response: RouteQueryResponse,
+        logger: &Logger,
+        source_addr: SocketAddr,
+        dispatcher: Recipient<Syn, TransmitDataMsg>,
+    ) {
+        let endpoint = if response
+            .route_metadata
+            .iter()
+            .all(|hop| hop.expected_service == ExpectedService::Nothing)
+        {
+            response.route_metadata.first()
+        } else {
+            response
+                .route_metadata
+                .iter()
+                .find(|r| r.expected_service == ExpectedService::Exit)
+        };
+
+        match endpoint {
+            None => ProxyServer::handle_route_failure(payload, &logger, source_addr, dispatcher),
+            Some(first_endpoint) => {
+                let payload_destination_key = first_endpoint.public_key.clone();
+                logger.debug(format!(
+                    "transmit to hopper with destination key {:?}",
+                    payload_destination_key
+                ));
+                let pkg =
+                    IncipientCoresPackage::new(response.route, payload, &payload_destination_key);
+                hopper.try_send(pkg).expect("Hopper is dead");
+            }
+        }
+    }
+
+    fn handle_route_failure(
+        payload: ClientRequestPayload,
+        logger: &Logger,
+        source_addr: SocketAddr,
+        dispatcher: Recipient<Syn, TransmitDataMsg>,
+    ) {
+        let target_hostname = ProxyServer::hostname(&payload);
+        ProxyServer::send_route_failure(payload, source_addr, dispatcher);
+        logger.error(format!("Failed to find route to {}", target_hostname));
     }
 
     fn send_route_failure(
@@ -295,6 +342,8 @@ mod tests {
     use sub_lib::dispatcher::Component;
     use sub_lib::hopper::ExpiredCoresPackage;
     use sub_lib::http_server_impersonator;
+    use sub_lib::neighborhood::ExpectedService;
+    use sub_lib::neighborhood::HopMetadata;
     use sub_lib::proxy_client::ClientResponsePayload;
     use sub_lib::proxy_server::ClientRequestPayload;
     use sub_lib::proxy_server::ProxyProtocol;
@@ -501,7 +550,8 @@ mod tests {
     fn proxy_server_receives_http_request_from_dispatcher_then_sends_multihop_cores_package_to_hopper(
     ) {
         let cryptde = cryptde();
-        let consuming_wallet = Wallet::new("wallet");
+        let consuming_wallet = Wallet::new("consuming wallet");
+        let earning_wallet = Wallet::new("earning wallet");
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let hopper_mock = Recorder::new();
         let hopper_log_arc = hopper_mock.get_recording();
@@ -535,7 +585,18 @@ mod tests {
         let (neighborhood_mock, _, neighborhood_recording_arc) = make_recorder();
         let neighborhood_mock = neighborhood_mock.route_query_response(Some(RouteQueryResponse {
             route: route.clone(),
-            segment_endpoints: vec![PublicKey::new(&[3]), cryptde.public_key()],
+            route_metadata: vec![
+                HopMetadata {
+                    public_key: PublicKey::new(&[3]),
+                    earning_wallet: earning_wallet.clone(),
+                    expected_service: ExpectedService::Exit,
+                },
+                HopMetadata {
+                    public_key: cryptde.public_key().clone(),
+                    earning_wallet: earning_wallet.clone(),
+                    expected_service: ExpectedService::Nothing,
+                },
+            ],
         }));
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let stream_key = make_meaningless_stream_key();
@@ -603,6 +664,85 @@ mod tests {
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let (neighborhood_mock, _, neighborhood_recording_arc) = make_recorder();
         let neighborhood_mock = neighborhood_mock.route_query_response(None);
+        let dispatcher = Recorder::new();
+        let dispatcher_awaiter = dispatcher.get_awaiter();
+        let dispatcher_recording_arc = dispatcher.get_recording();
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let expected_data = http_request.to_vec();
+        let msg_from_dispatcher = InboundClientData {
+            peer_addr: socket_addr.clone(),
+            reception_port: Some(80),
+            sequence_number: Some(0),
+            last_data: true,
+            data: expected_data.clone(),
+            is_clandestine: false,
+        };
+        thread::spawn(move || {
+            let system = System::new("proxy_server_receives_http_request_from_dispatcher_but_neighborhood_cant_make_route");
+            let subject = ProxyServer::new(cryptde, true);
+            let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+            let mut peer_actors = make_peer_actors_from(
+                None,
+                Some(dispatcher),
+                None,
+                None,
+                Some(neighborhood_mock),
+                None,
+                None,
+            );
+            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+            subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+            subject_addr.try_send(msg_from_dispatcher).unwrap();
+
+            system.run();
+        });
+
+        dispatcher_awaiter.await_message_count(1);
+        let recording = dispatcher_recording_arc.lock().unwrap();
+        let record = recording.get_record::<TransmitDataMsg>(0);
+        let expected_msg = TransmitDataMsg {
+            endpoint: Endpoint::Socket(SocketAddr::from_str("1.2.3.4:5678").unwrap()),
+            last_data: true,
+            sequence_number: Some(0),
+            data: http_server_impersonator::make_error_response(
+                503,
+                "Routing Problem",
+                "Can't find a route to nowhere.com",
+                "Substratum can't find a route through the Network yet to a Node that knows \
+                 where to find nowhere.com. Maybe later enough will be known about the Network to \
+                 find that Node, but we can't guarantee it. We're sorry.",
+            ),
+        };
+        assert_eq!(record, &expected_msg);
+        let recording = neighborhood_recording_arc.lock().unwrap();
+        let record = recording.get_record::<RouteQueryMessage>(0);
+        assert_eq!(record, &RouteQueryMessage::data_indefinite_route_request(2));
+        TestLogHandler::new()
+            .exists_log_containing("ERROR: Proxy Server: Failed to find route to nowhere.com");
+    }
+
+    #[test]
+    fn proxy_server_receives_http_request_from_dispatcher_but_neighborhood_cant_make_route_with_no_route_metadata(
+    ) {
+        init_test_logging();
+        let cryptde = cryptde();
+        let public_key = &cryptde.public_key();
+        let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
+        let (neighborhood_mock, _, neighborhood_recording_arc) = make_recorder();
+        let route_query_response = RouteQueryResponse {
+            route: Route::new(
+                vec![
+                    RouteSegment::new(vec![public_key, public_key], Component::ProxyClient),
+                    RouteSegment::new(vec![public_key, public_key], Component::ProxyServer),
+                ],
+                cryptde,
+                None,
+            )
+            .unwrap(),
+            route_metadata: vec![],
+        };
+        let neighborhood_mock = neighborhood_mock.route_query_response(Some(route_query_response));
         let dispatcher = Recorder::new();
         let dispatcher_awaiter = dispatcher.get_awaiter();
         let dispatcher_recording_arc = dispatcher.get_recording();
