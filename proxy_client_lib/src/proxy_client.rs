@@ -61,7 +61,7 @@ impl Handler<BindMessage> for ProxyClient {
             resolver,
             self._cryptde,
             msg.peer_actors.hopper.from_hopper_client,
-            msg.peer_actors.accountant.report_exit_service,
+            msg.peer_actors.accountant.report_exit_service_provided,
         ));
         ()
     }
@@ -134,7 +134,7 @@ mod tests {
     use std::sync::Mutex;
     use stream_handler_pool::StreamHandlerPool;
     use stream_handler_pool::StreamHandlerPoolFactory;
-    use sub_lib::accountant::ReportExitServiceMessage;
+    use sub_lib::accountant::ReportExitServiceProvidedMessage;
     use sub_lib::cryptde::PlainData;
     use sub_lib::cryptde::PublicKey;
     use sub_lib::proxy_server::ClientRequestPayload;
@@ -197,7 +197,7 @@ mod tests {
                     Box<ResolverWrapper>,
                     &'static CryptDE,
                     Recipient<Syn, IncipientCoresPackage>,
-                    Recipient<Syn, ReportExitServiceMessage>,
+                    Recipient<Syn, ReportExitServiceProvidedMessage>,
                 )>,
             >,
         >,
@@ -210,7 +210,7 @@ mod tests {
             resolver: Box<ResolverWrapper>,
             cryptde: &'static CryptDE,
             hopper_sub: Recipient<Syn, IncipientCoresPackage>,
-            accountant_sub: Recipient<Syn, ReportExitServiceMessage>,
+            accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
         ) -> Box<StreamHandlerPool> {
             self.make_parameters.lock().unwrap().push((
                 resolver,
@@ -238,7 +238,7 @@ mod tests {
                         Box<ResolverWrapper>,
                         &'static CryptDE,
                         Recipient<Syn, IncipientCoresPackage>,
-                        Recipient<Syn, ReportExitServiceMessage>,
+                        Recipient<Syn, ReportExitServiceProvidedMessage>,
                     )>,
                 >,
             >,

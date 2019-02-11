@@ -20,18 +20,31 @@ pub struct AccountantConfig {
 #[derive(Clone)]
 pub struct AccountantSubs {
     pub bind: Recipient<Syn, BindMessage>,
-    pub report_routing_service: Recipient<Syn, ReportRoutingServiceMessage>,
-    pub report_exit_service: Recipient<Syn, ReportExitServiceMessage>,
+    pub report_routing_service_provided: Recipient<Syn, ReportRoutingServiceProvidedMessage>,
+    pub report_exit_service_provided: Recipient<Syn, ReportExitServiceProvidedMessage>,
+    pub report_exit_service_consumed: Recipient<Syn, ReportExitServiceConsumedMessage>,
 }
 
 #[derive(Clone, PartialEq, Debug, Message)]
-pub struct ReportRoutingServiceMessage {
+pub struct ReportRoutingServiceProvidedMessage {
     pub consuming_wallet: Wallet,
     pub payload_size: u32,
+    pub service_rate: u64,
+    pub byte_rate: u64,
 }
 
 #[derive(Clone, PartialEq, Debug, Message)]
-pub struct ReportExitServiceMessage {
+pub struct ReportExitServiceProvidedMessage {
     pub consuming_wallet: Wallet,
     pub payload_size: u32,
+    pub service_rate: u64,
+    pub byte_rate: u64,
+}
+
+#[derive(Clone, PartialEq, Debug, Message)]
+pub struct ReportExitServiceConsumedMessage {
+    pub earning_wallet: Wallet,
+    pub payload_size: u32,
+    pub service_rate: u64,
+    pub byte_rate: u64,
 }

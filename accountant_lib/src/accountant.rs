@@ -6,8 +6,9 @@ use actix::Handler;
 use actix::Syn;
 use sub_lib::accountant::AccountantConfig;
 use sub_lib::accountant::AccountantSubs;
-use sub_lib::accountant::ReportExitServiceMessage;
-use sub_lib::accountant::ReportRoutingServiceMessage;
+use sub_lib::accountant::ReportExitServiceConsumedMessage;
+use sub_lib::accountant::ReportExitServiceProvidedMessage;
+use sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use sub_lib::logger::Logger;
 use sub_lib::peer_actors::BindMessage;
 
@@ -28,12 +29,12 @@ impl Handler<BindMessage> for Accountant {
     }
 }
 
-impl Handler<ReportRoutingServiceMessage> for Accountant {
+impl Handler<ReportRoutingServiceProvidedMessage> for Accountant {
     type Result = ();
 
     fn handle(
         &mut self,
-        msg: ReportRoutingServiceMessage,
+        msg: ReportRoutingServiceProvidedMessage,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         self.logger.info(format!(
@@ -44,15 +45,31 @@ impl Handler<ReportRoutingServiceMessage> for Accountant {
     }
 }
 
-impl Handler<ReportExitServiceMessage> for Accountant {
+impl Handler<ReportExitServiceProvidedMessage> for Accountant {
     type Result = ();
 
-    fn handle(&mut self, msg: ReportExitServiceMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: ReportExitServiceProvidedMessage,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
         self.logger.info(format!(
             "Charging exit service for {} bytes to wallet {}",
             msg.payload_size, msg.consuming_wallet.address
         ));
         ()
+    }
+}
+
+impl Handler<ReportExitServiceConsumedMessage> for Accountant {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        _msg: ReportExitServiceConsumedMessage,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        unimplemented!()
     }
 }
 
@@ -66,8 +83,15 @@ impl Accountant {
     pub fn make_subs_from(addr: &Addr<Syn, Accountant>) -> AccountantSubs {
         AccountantSubs {
             bind: addr.clone().recipient::<BindMessage>(),
-            report_routing_service: addr.clone().recipient::<ReportRoutingServiceMessage>(),
-            report_exit_service: addr.clone().recipient::<ReportExitServiceMessage>(),
+            report_routing_service_provided: addr
+                .clone()
+                .recipient::<ReportRoutingServiceProvidedMessage>(),
+            report_exit_service_provided: addr
+                .clone()
+                .recipient::<ReportExitServiceProvidedMessage>(),
+            report_exit_service_consumed: addr
+                .clone()
+                .recipient::<ReportExitServiceConsumedMessage>(),
         }
     }
 }
@@ -116,9 +140,11 @@ mod tests {
         let subject_addr: Addr<Syn, Accountant> = subject.start();
 
         subject_addr
-            .try_send(ReportRoutingServiceMessage {
+            .try_send(ReportRoutingServiceProvidedMessage {
                 consuming_wallet: Wallet::new("booga"),
                 payload_size: 1234,
+                service_rate: 1,
+                byte_rate: 1,
             })
             .unwrap();
 
@@ -142,9 +168,11 @@ mod tests {
         let subject_addr: Addr<Syn, Accountant> = subject.start();
 
         subject_addr
-            .try_send(ReportExitServiceMessage {
+            .try_send(ReportExitServiceProvidedMessage {
                 consuming_wallet: Wallet::new("booga"),
                 payload_size: 1234,
+                service_rate: 1,
+                byte_rate: 1,
             })
             .unwrap();
 

@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use stream_establisher::StreamEstablisherFactory;
 use stream_establisher::StreamEstablisherFactoryReal;
-use sub_lib::accountant::ReportExitServiceMessage;
+use sub_lib::accountant::ReportExitServiceProvidedMessage;
 use sub_lib::channel_wrappers::SenderWrapper;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::PublicKey;
@@ -44,7 +44,7 @@ pub struct StreamHandlerPoolReal {
 
 struct StreamHandlerPoolRealInner {
     hopper_sub: Recipient<Syn, IncipientCoresPackage>,
-    accountant_sub: Recipient<Syn, ReportExitServiceMessage>,
+    accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
     stream_writer_channels: HashMap<StreamKey, Box<SenderWrapper<SequencedPacket>>>,
     resolver: Box<ResolverWrapper>,
     logger: Logger,
@@ -80,7 +80,7 @@ impl StreamHandlerPoolReal {
         resolver: Box<ResolverWrapper>,
         cryptde: &'static CryptDE,
         hopper_sub: Recipient<Syn, IncipientCoresPackage>,
-        accountant_sub: Recipient<Syn, ReportExitServiceMessage>,
+        accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
     ) -> StreamHandlerPoolReal {
         let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
         let (stream_adder_tx, stream_adder_rx) = mpsc::channel();
@@ -199,9 +199,11 @@ impl StreamHandlerPoolReal {
             match consuming_wallet {
                 Some(wallet) => inner
                     .accountant_sub
-                    .try_send(ReportExitServiceMessage {
+                    .try_send(ReportExitServiceProvidedMessage {
                         consuming_wallet: wallet,
                         payload_size,
+                        service_rate: 1,
+                        byte_rate: 1,
                     })
                     .expect("Accountant is dead"),
                 // This log is here mostly for testing, to prove that no Accountant message is sent in the no-wallet case
@@ -349,7 +351,7 @@ pub trait StreamHandlerPoolFactory {
         resolver: Box<ResolverWrapper>,
         cryptde: &'static CryptDE,
         hopper_sub: Recipient<Syn, IncipientCoresPackage>,
-        accountant_sub: Recipient<Syn, ReportExitServiceMessage>,
+        accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
     ) -> Box<StreamHandlerPool>;
 }
 
@@ -361,7 +363,7 @@ impl StreamHandlerPoolFactory for StreamHandlerPoolFactoryReal {
         resolver: Box<ResolverWrapper>,
         cryptde: &'static CryptDE,
         hopper_sub: Recipient<Syn, IncipientCoresPackage>,
-        accountant_sub: Recipient<Syn, ReportExitServiceMessage>,
+        accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
     ) -> Box<StreamHandlerPool> {
         Box::new(StreamHandlerPoolReal::new(
             resolver,
@@ -398,7 +400,6 @@ mod tests {
     use std::thread;
     use std::time::Duration;
     use stream_establisher::StreamEstablisher;
-    use sub_lib::accountant::ReportExitServiceMessage;
     use sub_lib::channel_wrappers::FuturesChannelFactoryReal;
     use sub_lib::channel_wrappers::SenderWrapperReal;
     use sub_lib::cryptde::PlainData;
@@ -503,7 +504,7 @@ mod tests {
                 Box::new(ResolverWrapperMock::new()),
                 cryptde(),
                 peer_actors.hopper.from_hopper_client.clone(),
-                peer_actors.accountant.report_exit_service.clone(),
+                peer_actors.accountant.report_exit_service_provided.clone(),
             );
             subject
                 .inner
@@ -530,12 +531,14 @@ mod tests {
 
         accountant_awaiter.await_message_count(1);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        let message = accountant_recording.get_record::<ReportExitServiceMessage>(0);
+        let message = accountant_recording.get_record::<ReportExitServiceProvidedMessage>(0);
         assert_eq!(
             message,
-            &ReportExitServiceMessage {
+            &ReportExitServiceProvidedMessage {
                 consuming_wallet: package_a.consuming_wallet.clone().unwrap(),
                 payload_size: client_request_payload.sequenced_packet.data.len() as u32,
+                service_rate: 1,
+                byte_rate: 1
             }
         );
     }
@@ -577,7 +580,7 @@ mod tests {
                 Box::new(ResolverWrapperMock::new()),
                 cryptde(),
                 peer_actors.hopper.from_hopper_client.clone(),
-                peer_actors.accountant.report_exit_service.clone(),
+                peer_actors.accountant.report_exit_service_provided.clone(),
             );
             subject
                 .inner
@@ -645,7 +648,7 @@ mod tests {
                 Box::new(resolver),
                 cryptde(),
                 peer_actors.hopper.from_hopper_client.clone(),
-                peer_actors.accountant.report_exit_service.clone(),
+                peer_actors.accountant.report_exit_service_provided.clone(),
             );
             subject
                 .inner
@@ -704,7 +707,7 @@ mod tests {
                 Box::new(resolver),
                 cryptde(),
                 peer_actors.hopper.from_hopper_client.clone(),
-                peer_actors.accountant.report_exit_service.clone(),
+                peer_actors.accountant.report_exit_service_provided.clone(),
             );
 
             let test_actor = TestActor { subject };
@@ -784,7 +787,7 @@ mod tests {
                 Box::new(resolver),
                 cryptde(),
                 peer_actors.hopper.from_hopper_client.clone(),
-                peer_actors.accountant.report_exit_service.clone(),
+                peer_actors.accountant.report_exit_service_provided.clone(),
             );
             let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
             subject.stream_killer_rx = stream_killer_rx;
@@ -883,7 +886,7 @@ mod tests {
                     IpAddr::from_str("3.4.5.6").unwrap(),
                 ]);
             let hopper_sub = peer_actors.hopper.from_hopper_client.clone();
-            let accountant_sub = peer_actors.accountant.report_exit_service.clone();
+            let accountant_sub = peer_actors.accountant.report_exit_service_provided.clone();
             let mut subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
                 cryptde(),
@@ -984,7 +987,7 @@ mod tests {
                 Box::new(resolver),
                 cryptde(),
                 peer_actors.hopper.from_hopper_client.clone(),
-                peer_actors.accountant.report_exit_service.clone(),
+                peer_actors.accountant.report_exit_service_provided.clone(),
             );
             let disconnected_sender = Box::new(SenderWrapperMock {
                 peer_addr,
@@ -1078,7 +1081,7 @@ mod tests {
                 Box::new(resolver),
                 cryptde(),
                 peer_actors.hopper.from_hopper_client.clone(),
-                peer_actors.accountant.report_exit_service.clone(),
+                peer_actors.accountant.report_exit_service_provided.clone(),
             );
             let test_actor = TestActor { subject };
             let addr: Addr<Syn, TestActor> = test_actor.start();
@@ -1140,7 +1143,7 @@ mod tests {
                 Box::new(resolver),
                 cryptde(),
                 peer_actors.hopper.from_hopper_client.clone(),
-                peer_actors.accountant.report_exit_service.clone(),
+                peer_actors.accountant.report_exit_service_provided.clone(),
             );
             subject.inner.lock().unwrap().stream_writer_channels.insert(
                 stream_key,
@@ -1220,7 +1223,7 @@ mod tests {
                 Box::new(resolver),
                 cryptde(),
                 peer_actors.hopper.from_hopper_client.clone(),
-                peer_actors.accountant.report_exit_service.clone(),
+                peer_actors.accountant.report_exit_service_provided.clone(),
             );
             subject
                 .inner
@@ -1278,7 +1281,7 @@ mod tests {
                 Box::new(resolver),
                 cryptde(),
                 peer_actors.hopper.from_hopper_client.clone(),
-                peer_actors.accountant.report_exit_service.clone(),
+                peer_actors.accountant.report_exit_service_provided.clone(),
             );
 
             subject.inner.lock().unwrap().establisher_factory =

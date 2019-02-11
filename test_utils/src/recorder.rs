@@ -12,8 +12,9 @@ use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 use sub_lib::accountant::AccountantSubs;
-use sub_lib::accountant::ReportExitServiceMessage;
-use sub_lib::accountant::ReportRoutingServiceMessage;
+use sub_lib::accountant::ReportExitServiceConsumedMessage;
+use sub_lib::accountant::ReportExitServiceProvidedMessage;
+use sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use sub_lib::dispatcher::DispatcherSubs;
 use sub_lib::dispatcher::InboundClientData;
 use sub_lib::hopper::ExpiredCoresPackage;
@@ -176,18 +177,26 @@ impl Handler<FromUiMessage> for Recorder {
     }
 }
 
-impl Handler<ReportRoutingServiceMessage> for Recorder {
+impl Handler<ReportRoutingServiceProvidedMessage> for Recorder {
     type Result = ();
 
-    fn handle(&mut self, msg: ReportRoutingServiceMessage, _ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: ReportRoutingServiceProvidedMessage, _ctx: &mut Self::Context) {
         self.record(msg);
     }
 }
 
-impl Handler<ReportExitServiceMessage> for Recorder {
+impl Handler<ReportExitServiceProvidedMessage> for Recorder {
     type Result = ();
 
-    fn handle(&mut self, msg: ReportExitServiceMessage, _ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: ReportExitServiceProvidedMessage, _ctx: &mut Self::Context) {
+        self.record(msg);
+    }
+}
+
+impl Handler<ReportExitServiceConsumedMessage> for Recorder {
+    type Result = ();
+
+    fn handle(&mut self, msg: ReportExitServiceConsumedMessage, _ctx: &mut Self::Context) {
         self.record(msg);
     }
 }
@@ -354,8 +363,11 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Syn, Recorder>) -> NeighborhoodSu
 pub fn make_accountant_subs_from(addr: &Addr<Syn, Recorder>) -> AccountantSubs {
     AccountantSubs {
         bind: addr.clone().recipient::<BindMessage>(),
-        report_routing_service: addr.clone().recipient::<ReportRoutingServiceMessage>(),
-        report_exit_service: addr.clone().recipient::<ReportExitServiceMessage>(),
+        report_routing_service_provided: addr
+            .clone()
+            .recipient::<ReportRoutingServiceProvidedMessage>(),
+        report_exit_service_provided: addr.clone().recipient::<ReportExitServiceProvidedMessage>(),
+        report_exit_service_consumed: addr.clone().recipient::<ReportExitServiceConsumedMessage>(),
     }
 }
 

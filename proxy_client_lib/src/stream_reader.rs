@@ -3,7 +3,7 @@ use actix::Recipient;
 use actix::Syn;
 use std::net::SocketAddr;
 use std::sync::mpsc::Sender;
-use sub_lib::accountant::ReportExitServiceMessage;
+use sub_lib::accountant::ReportExitServiceProvidedMessage;
 use sub_lib::cryptde::PlainData;
 use sub_lib::cryptde::PublicKey;
 use sub_lib::framer::Framer;
@@ -25,7 +25,7 @@ pub struct StreamReader {
     stream_key: StreamKey,
     consuming_wallet: Option<Wallet>,
     hopper_sub: Recipient<Syn, IncipientCoresPackage>,
-    accountant_sub: Recipient<Syn, ReportExitServiceMessage>,
+    accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
     stream: Box<ReadHalfWrapper>,
     stream_killer: Sender<StreamKey>,
     peer_addr: SocketAddr,
@@ -88,7 +88,7 @@ impl StreamReader {
         stream_key: StreamKey,
         consuming_wallet: Option<Wallet>,
         hopper_sub: Recipient<Syn, IncipientCoresPackage>,
-        accountant_sub: Recipient<Syn, ReportExitServiceMessage>,
+        accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
         stream: Box<ReadHalfWrapper>,
         stream_killer: Sender<StreamKey>,
         peer_addr: SocketAddr,
@@ -185,9 +185,11 @@ impl StreamReader {
         match self.consuming_wallet.as_ref() {
             Some(wallet) => self
                 .accountant_sub
-                .try_send(ReportExitServiceMessage {
+                .try_send(ReportExitServiceProvidedMessage {
                     consuming_wallet: wallet.clone(),
                     payload_size,
+                    service_rate: 1,
+                    byte_rate: 1,
                 })
                 .expect("Accountant is dead"),
             None => self.logger.debug(format!(
@@ -209,7 +211,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::mpsc;
     use std::thread;
-    use sub_lib::accountant::ReportExitServiceMessage;
+    use sub_lib::accountant::ReportExitServiceProvidedMessage;
     use sub_lib::framer::FramedChunk;
     use sub_lib::http_packet_framer::HttpPacketFramer;
     use sub_lib::http_response_start_finder::HttpResponseStartFinder;
@@ -270,7 +272,7 @@ mod tests {
 
             tx.send((
                 peer_actors.hopper.from_hopper_client,
-                peer_actors.accountant.report_exit_service,
+                peer_actors.accountant.report_exit_service_provided,
             ))
             .is_ok();
             system.run();
@@ -385,7 +387,7 @@ mod tests {
 
             tx.send((
                 peer_actors.hopper.from_hopper_client,
-                peer_actors.accountant.report_exit_service,
+                peer_actors.accountant.report_exit_service_provided,
             ))
             .is_ok();
             system.run();
@@ -465,7 +467,7 @@ mod tests {
                 make_peer_actors_from(None, None, Some(hopper), None, None, Some(accountant), None);
             tx.send((
                 peer_actors.hopper.from_hopper_client,
-                peer_actors.accountant.report_exit_service,
+                peer_actors.accountant.report_exit_service_provided,
             ))
             .is_ok();
 
@@ -556,24 +558,30 @@ mod tests {
         accountant_awaiter.await_message_count(3);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(
-            accountant_recording.get_record::<ReportExitServiceMessage>(0),
-            &ReportExitServiceMessage {
+            accountant_recording.get_record::<ReportExitServiceProvidedMessage>(0),
+            &ReportExitServiceProvidedMessage {
                 consuming_wallet: Wallet::new("consuming"),
                 payload_size: 19,
+                service_rate: 1,
+                byte_rate: 1
             }
         );
         assert_eq!(
-            accountant_recording.get_record::<ReportExitServiceMessage>(1),
-            &ReportExitServiceMessage {
+            accountant_recording.get_record::<ReportExitServiceProvidedMessage>(1),
+            &ReportExitServiceProvidedMessage {
                 consuming_wallet: Wallet::new("consuming"),
                 payload_size: 31,
+                service_rate: 1,
+                byte_rate: 1
             }
         );
         assert_eq!(
-            accountant_recording.get_record::<ReportExitServiceMessage>(2),
-            &ReportExitServiceMessage {
+            accountant_recording.get_record::<ReportExitServiceProvidedMessage>(2),
+            &ReportExitServiceProvidedMessage {
                 consuming_wallet: Wallet::new("consuming"),
                 payload_size: 29,
+                service_rate: 1,
+                byte_rate: 1
             }
         );
 
@@ -604,7 +612,7 @@ mod tests {
                 make_peer_actors_from(None, None, Some(hopper), None, None, Some(accountant), None);
             tx.send((
                 peer_actors.hopper.from_hopper_client,
-                peer_actors.accountant.report_exit_service,
+                peer_actors.accountant.report_exit_service_provided,
             ))
             .is_ok();
 
@@ -656,7 +664,7 @@ mod tests {
 
             tx.send((
                 peer_actors.hopper.from_hopper_client,
-                peer_actors.accountant.report_exit_service,
+                peer_actors.accountant.report_exit_service_provided,
             ))
             .is_ok();
             system.run();
@@ -704,10 +712,12 @@ mod tests {
         accountant_awaiter.await_message_count(1);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(
-            accountant_recording.get_record::<ReportExitServiceMessage>(0),
-            &ReportExitServiceMessage {
+            accountant_recording.get_record::<ReportExitServiceProvidedMessage>(0),
+            &ReportExitServiceProvidedMessage {
                 consuming_wallet: Wallet::new("consuming"),
                 payload_size: 0,
+                service_rate: 1,
+                byte_rate: 1
             }
         );
     }
@@ -738,7 +748,7 @@ mod tests {
 
             tx.send((
                 peer_actors.hopper.from_hopper_client,
-                peer_actors.accountant.report_exit_service,
+                peer_actors.accountant.report_exit_service_provided,
             ))
             .is_ok();
             system.run();

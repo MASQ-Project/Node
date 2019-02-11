@@ -5,7 +5,7 @@ use actix::Syn;
 use live_cores_package::LiveCoresPackage;
 use std::borrow::Borrow;
 use std::net::IpAddr;
-use sub_lib::accountant::ReportRoutingServiceMessage;
+use sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::CryptData;
 use sub_lib::cryptde::CryptdecError;
@@ -26,7 +26,7 @@ pub struct RoutingService {
     to_proxy_server: Recipient<Syn, ExpiredCoresPackage>,
     to_neighborhood: Recipient<Syn, ExpiredCoresPackage>,
     to_dispatcher: Recipient<Syn, TransmitDataMsg>,
-    to_accountant_routing: Recipient<Syn, ReportRoutingServiceMessage>,
+    to_accountant_routing: Recipient<Syn, ReportRoutingServiceProvidedMessage>,
     logger: Logger,
 }
 
@@ -38,7 +38,7 @@ impl RoutingService {
         to_proxy_server: Recipient<Syn, ExpiredCoresPackage>,
         to_neighborhood: Recipient<Syn, ExpiredCoresPackage>,
         to_dispatcher: Recipient<Syn, TransmitDataMsg>,
-        to_accountant_routing: Recipient<Syn, ReportRoutingServiceMessage>,
+        to_accountant_routing: Recipient<Syn, ReportRoutingServiceProvidedMessage>,
     ) -> RoutingService {
         RoutingService {
             cryptde,
@@ -133,9 +133,11 @@ impl RoutingService {
         match consuming_wallet_opt {
             Some(consuming_wallet) => self
                 .to_accountant_routing
-                .try_send(ReportRoutingServiceMessage {
+                .try_send(ReportRoutingServiceProvidedMessage {
                     consuming_wallet,
                     payload_size,
+                    service_rate: 1,
+                    byte_rate: 1,
                 })
                 .expect("Accountant is dead"),
             None => {
@@ -272,7 +274,7 @@ mod tests {
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::thread;
-    use sub_lib::accountant::ReportRoutingServiceMessage;
+    use sub_lib::accountant::ReportRoutingServiceProvidedMessage;
     use sub_lib::cryptde::PublicKey;
     use sub_lib::cryptde_null::CryptDENull;
     use sub_lib::hopper::IncipientCoresPackage;
@@ -662,12 +664,14 @@ mod tests {
         );
         accountant_awaiter.await_message_count(1);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        let message = accountant_recording.get_record::<ReportRoutingServiceMessage>(0);
+        let message = accountant_recording.get_record::<ReportRoutingServiceProvidedMessage>(0);
         assert_eq!(
             *message,
-            ReportRoutingServiceMessage {
+            ReportRoutingServiceProvidedMessage {
                 consuming_wallet,
-                payload_size: lcp.payload.len() as u32
+                payload_size: lcp.payload.len() as u32,
+                service_rate: 1,
+                byte_rate: 1
             }
         )
     }
@@ -712,7 +716,7 @@ mod tests {
             peer_actors.proxy_server.from_hopper,
             peer_actors.neighborhood.from_hopper,
             peer_actors.dispatcher.from_dispatcher_client,
-            peer_actors.accountant.report_routing_service,
+            peer_actors.accountant.report_routing_service_provided,
         );
 
         subject.route(inbound_client_data);
@@ -742,7 +746,7 @@ mod tests {
             peer_actors.proxy_server.from_hopper,
             peer_actors.neighborhood.from_hopper,
             peer_actors.dispatcher.from_dispatcher_client,
-            peer_actors.accountant.report_routing_service,
+            peer_actors.accountant.report_routing_service_provided,
         );
 
         subject.route(inbound_client_data);
@@ -776,7 +780,7 @@ mod tests {
             peer_actors.proxy_server.from_hopper,
             peer_actors.neighborhood.from_hopper,
             peer_actors.dispatcher.from_dispatcher_client,
-            peer_actors.accountant.report_routing_service,
+            peer_actors.accountant.report_routing_service_provided,
         );
 
         subject.route(inbound_client_data);
@@ -818,7 +822,7 @@ mod tests {
             peer_actors.proxy_server.from_hopper,
             peer_actors.neighborhood.from_hopper,
             peer_actors.dispatcher.from_dispatcher_client,
-            peer_actors.accountant.report_routing_service,
+            peer_actors.accountant.report_routing_service_provided,
         );
 
         subject.route(inbound_client_data);

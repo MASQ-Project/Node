@@ -299,8 +299,9 @@ mod tests {
     use std::time::Duration;
     use stream_messages::AddStreamMsg;
     use stream_messages::RemoveStreamMsg;
-    use sub_lib::accountant::ReportExitServiceMessage;
-    use sub_lib::accountant::ReportRoutingServiceMessage;
+    use sub_lib::accountant::ReportExitServiceConsumedMessage;
+    use sub_lib::accountant::ReportExitServiceProvidedMessage;
+    use sub_lib::accountant::ReportRoutingServiceProvidedMessage;
     use sub_lib::crash_point::CrashPoint;
     use sub_lib::cryptde::PlainData;
     use sub_lib::dispatcher::InboundClientData;
@@ -411,8 +412,15 @@ mod tests {
             let addr: Addr<Syn, Recorder> = ActorFactoryMock::start_recorder(&self.accountant);
             AccountantSubs {
                 bind: addr.clone().recipient::<BindMessage>(),
-                report_routing_service: addr.clone().recipient::<ReportRoutingServiceMessage>(),
-                report_exit_service: addr.clone().recipient::<ReportExitServiceMessage>(),
+                report_routing_service_provided: addr
+                    .clone()
+                    .recipient::<ReportRoutingServiceProvidedMessage>(),
+                report_exit_service_provided: addr
+                    .clone()
+                    .recipient::<ReportExitServiceProvidedMessage>(),
+                report_exit_service_consumed: addr
+                    .clone()
+                    .recipient::<ReportExitServiceConsumedMessage>(),
             }
         }
 

@@ -10,7 +10,7 @@ use std::net::SocketAddr;
 use std::sync::mpsc::Sender;
 use stream_reader::StreamReader;
 use stream_writer::StreamWriter;
-use sub_lib::accountant::ReportExitServiceMessage;
+use sub_lib::accountant::ReportExitServiceProvidedMessage;
 use sub_lib::channel_wrappers::FuturesChannelFactory;
 use sub_lib::channel_wrappers::FuturesChannelFactoryReal;
 use sub_lib::channel_wrappers::SenderWrapper;
@@ -38,7 +38,7 @@ pub struct StreamEstablisher {
     pub stream_killer_tx: Sender<StreamKey>,
     pub stream_connector: Box<StreamConnector>,
     pub hopper_sub: Recipient<Syn, IncipientCoresPackage>,
-    pub accountant_sub: Recipient<Syn, ReportExitServiceMessage>,
+    pub accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
     pub logger: Logger,
     pub channel_factory: Box<FuturesChannelFactory<SequencedPacket>>,
 }
@@ -166,7 +166,7 @@ pub struct StreamEstablisherFactoryReal {
     pub stream_adder_tx: Sender<(StreamKey, Box<SenderWrapper<SequencedPacket>>)>,
     pub stream_killer_tx: Sender<StreamKey>,
     pub hopper_sub: Recipient<Syn, IncipientCoresPackage>,
-    pub accountant_sub: Recipient<Syn, ReportExitServiceMessage>,
+    pub accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
     pub logger: Logger,
 }
 
@@ -218,7 +218,7 @@ mod tests {
             sub_tx
                 .send((
                     peer_actors.hopper.from_hopper_client,
-                    peer_actors.accountant.report_exit_service,
+                    peer_actors.accountant.report_exit_service_provided,
                 ))
                 .is_ok();
             system.run();
@@ -302,7 +302,7 @@ mod tests {
             sub_tx
                 .send((
                     peer_actors.hopper.from_hopper_client.clone(),
-                    peer_actors.accountant.report_exit_service.clone(),
+                    peer_actors.accountant.report_exit_service_provided.clone(),
                 ))
                 .is_ok();
             system.run();
