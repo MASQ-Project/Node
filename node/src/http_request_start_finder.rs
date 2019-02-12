@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use discriminator::Discriminator;
-use discriminator::DiscriminatorFactory;
-use null_masquerader::NullMasquerader;
+use crate::discriminator::Discriminator;
+use crate::discriminator::DiscriminatorFactory;
+use crate::null_masquerader::NullMasquerader;
 use sub_lib::http_packet_framer::HttpFramerState;
 use sub_lib::http_packet_framer::HttpPacketFramer;
 use sub_lib::http_packet_framer::HttpPacketStartFinder;
@@ -58,7 +58,7 @@ impl DiscriminatorFactory for HttpRequestDiscriminatorFactory {
         )
     }
 
-    fn duplicate(&self) -> Box<DiscriminatorFactory> {
+    fn duplicate(&self) -> Box<dyn DiscriminatorFactory> {
         Box::new(HttpRequestDiscriminatorFactory {})
     }
 }
@@ -72,7 +72,7 @@ impl HttpRequestDiscriminatorFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use discriminator::UnmaskedChunk;
+    use crate::discriminator::UnmaskedChunk;
     use sub_lib::http_packet_framer::ChunkExistenceState;
     use sub_lib::http_packet_framer::ChunkProgressState;
     use sub_lib::http_packet_framer::PacketProgressState;

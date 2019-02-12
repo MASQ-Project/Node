@@ -24,12 +24,12 @@ pub trait TcpStreamWrapper: Send + Read + Write {
     fn ttl(&self) -> io::Result<u32>;
     fn take_error(&self) -> io::Result<Option<io::Error>>;
     fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()>;
-    fn try_clone(&self) -> io::Result<Box<TcpStreamWrapper>>;
+    fn try_clone(&self) -> io::Result<Box<dyn TcpStreamWrapper>>;
 }
 
 pub trait TcpStreamWrapperFactory: Send {
-    fn make(&self) -> Box<TcpStreamWrapper>;
-    fn dup(&self) -> Box<TcpStreamWrapperFactory>;
+    fn make(&self) -> Box<dyn TcpStreamWrapper>;
+    fn dup(&self) -> Box<dyn TcpStreamWrapperFactory>;
 }
 
 pub struct TcpStreamWrapperReal {
@@ -106,7 +106,7 @@ impl TcpStreamWrapper for TcpStreamWrapperReal {
         self.delegate().set_nonblocking(nonblocking)
     }
 
-    fn try_clone(&self) -> io::Result<Box<TcpStreamWrapper>> {
+    fn try_clone(&self) -> io::Result<Box<dyn TcpStreamWrapper>> {
         match self.delegate().try_clone() {
             Ok(c) => Ok(Box::new(TcpStreamWrapperReal { delegate: Some(c) })),
             Err(e) => Err(e),
@@ -131,10 +131,10 @@ impl Write for TcpStreamWrapperReal {
 }
 
 impl TcpStreamWrapperFactory for TcpStreamWrapperFactoryReal {
-    fn make(&self) -> Box<TcpStreamWrapper> {
+    fn make(&self) -> Box<dyn TcpStreamWrapper> {
         Box::new(TcpStreamWrapperReal { delegate: None })
     }
-    fn dup(&self) -> Box<TcpStreamWrapperFactory> {
+    fn dup(&self) -> Box<dyn TcpStreamWrapperFactory> {
         Box::new(self.clone())
     }
 }

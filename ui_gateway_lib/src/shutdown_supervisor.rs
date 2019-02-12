@@ -23,7 +23,7 @@ pub trait ShutdownSupervisor {
 }
 
 pub struct ShutdownSupervisorReal {
-    signaler: Box<Signaler>,
+    signaler: Box<dyn Signaler>,
 }
 
 impl ShutdownSupervisor for ShutdownSupervisorReal {

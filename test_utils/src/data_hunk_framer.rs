@@ -62,7 +62,7 @@ impl DataHunkFramer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use data_hunk::DataHunk;
+    use crate::data_hunk::DataHunk;
     use std::net::SocketAddr;
     use std::str::FromStr;
 

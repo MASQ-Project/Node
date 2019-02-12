@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-extern crate regex;
-extern crate sub_lib;
+use regex;
+use sub_lib;
 
 use std::env;
 use std::fs::File;
@@ -15,7 +15,7 @@ use std::time::Instant;
 use sub_lib::crash_point::CrashPoint;
 
 pub struct SubstratumNode {
-    logfile_stream: Box<Read>,
+    logfile_stream: Box<dyn Read>,
     logfile_contents: String,
     child: Child,
 }
@@ -101,7 +101,7 @@ impl SubstratumNode {
     }
 
     #[allow(dead_code)]
-    fn update_string(stream: &mut Read, mut buf: &mut [u8], stream_string: &mut String) {
+    fn update_string(stream: &mut dyn Read, mut buf: &mut [u8], stream_string: &mut String) {
         let len = stream.read(&mut buf).unwrap();
         let increment = String::from_utf8(Vec::from(&buf[0..len])).unwrap();
         print!("{}", increment);
@@ -168,7 +168,7 @@ impl SubstratumNode {
 }
 
 #[allow(dead_code)]
-pub fn read_until_timeout(stream: &mut Read) -> Vec<u8> {
+pub fn read_until_timeout(stream: &mut dyn Read) -> Vec<u8> {
     let mut buf = [0u8; 16384];
     let mut begin_opt: Option<Instant> = None;
     let mut offset: usize = 0;

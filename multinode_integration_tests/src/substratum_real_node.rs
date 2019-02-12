@@ -1,5 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use command::Command;
+use crate::command::Command;
+use crate::substratum_client::SubstratumNodeClient;
+use crate::substratum_node::NodeReference;
+use crate::substratum_node::PortSelector;
+use crate::substratum_node::SubstratumNode;
+use crate::substratum_node::SubstratumNodeUtils;
 use regex::Regex;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -13,11 +18,6 @@ use sub_lib::cryptde::PublicKey;
 use sub_lib::neighborhood::sentinel_ip_addr;
 use sub_lib::node_addr::NodeAddr;
 use sub_lib::wallet::Wallet;
-use substratum_client::SubstratumNodeClient;
-use substratum_node::NodeReference;
-use substratum_node::PortSelector;
-use substratum_node::SubstratumNode;
-use substratum_node::SubstratumNodeUtils;
 
 #[derive(PartialEq, Clone, Debug, Copy)]
 pub enum NodeType {

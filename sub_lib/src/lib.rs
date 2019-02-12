@@ -1,27 +1,4 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-#[macro_use]
-extern crate actix;
-extern crate base64;
-extern crate chrono;
-extern crate futures;
-extern crate log;
-extern crate rand;
-extern crate regex;
-extern crate serde;
-extern crate serde_cbor;
-#[macro_use]
-extern crate serde_derive;
-extern crate sha1;
-extern crate tokio;
-#[macro_use]
-extern crate lazy_static;
-
-#[cfg(test)]
-extern crate test_utils;
-
-#[cfg(unix)]
-extern crate daemonize;
-
 pub mod accountant;
 pub mod bidi_hashmap;
 pub mod channel_wrappers;

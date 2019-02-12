@@ -8,8 +8,8 @@ use tokio::prelude::Async;
 use tokio::prelude::Future;
 
 pub struct StreamWriterUnsorted {
-    stream: Box<WriteHalfWrapper>,
-    rx_to_write: Box<ReceiverWrapper<SequencedPacket>>,
+    stream: Box<dyn WriteHalfWrapper>,
+    rx_to_write: Box<dyn ReceiverWrapper<SequencedPacket>>,
     logger: Logger,
     buf: Option<SequencedPacket>,
 }
@@ -83,9 +83,9 @@ impl Future for StreamWriterUnsorted {
 
 impl StreamWriterUnsorted {
     pub fn new(
-        stream: Box<WriteHalfWrapper>,
+        stream: Box<dyn WriteHalfWrapper>,
         peer_addr: SocketAddr,
-        rx_to_write: Box<ReceiverWrapper<SequencedPacket>>,
+        rx_to_write: Box<dyn ReceiverWrapper<SequencedPacket>>,
     ) -> StreamWriterUnsorted {
         let name = format!("StreamWriter for {}", peer_addr);
         let logger = Logger::new(&name[..]);

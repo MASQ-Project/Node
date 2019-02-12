@@ -16,7 +16,7 @@ const ERROR: usize = 2;
 const NONE: usize = 0;
 
 impl Display for CrashPoint {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let numeric = match self {
             CrashPoint::Panic => PANIC,
             CrashPoint::Error => ERROR,

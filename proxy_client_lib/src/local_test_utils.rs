@@ -1,11 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use crate::resolver_wrapper::ResolverWrapper;
+use crate::resolver_wrapper::ResolverWrapperFactory;
+use crate::resolver_wrapper::WrappedLookupIpFuture;
 use futures::future;
 use futures::sync::mpsc::unbounded;
 use futures::sync::mpsc::SendError;
-use resolver_wrapper::ResolverWrapper;
-use resolver_wrapper::ResolverWrapperFactory;
-use resolver_wrapper::WrappedLookupIpFuture;
 use std::cell::RefCell;
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -68,12 +68,12 @@ impl ResolverWrapperMock {
 }
 
 pub struct ResolverWrapperFactoryMock {
-    factory_results: RefCell<Vec<Box<ResolverWrapper>>>,
+    factory_results: RefCell<Vec<Box<dyn ResolverWrapper>>>,
     factory_parameters: RefCell<Arc<Mutex<Vec<(ResolverConfig, ResolverOpts)>>>>,
 }
 
 impl ResolverWrapperFactory for ResolverWrapperFactoryMock {
-    fn make(&self, config: ResolverConfig, options: ResolverOpts) -> Box<ResolverWrapper> {
+    fn make(&self, config: ResolverConfig, options: ResolverOpts) -> Box<dyn ResolverWrapper> {
         let parameters_ref_mut = self.factory_parameters.borrow_mut();
         let mut parameters_guard = parameters_ref_mut.lock().unwrap();
         parameters_guard.push((config, options));
@@ -89,7 +89,7 @@ impl ResolverWrapperFactoryMock {
         }
     }
 
-    pub fn new_result(self, result: Box<ResolverWrapper>) -> ResolverWrapperFactoryMock {
+    pub fn new_result(self, result: Box<dyn ResolverWrapper>) -> ResolverWrapperFactoryMock {
         self.factory_results.borrow_mut().push(result);
         self
     }

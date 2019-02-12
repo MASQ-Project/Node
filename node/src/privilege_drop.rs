@@ -78,8 +78,8 @@ pub trait PrivilegeDropper: Send {
 }
 
 pub struct PrivilegeDropperReal {
-    id_wrapper: Box<IdWrapper>,
-    environment_wrapper: Box<EnvironmentWrapper>,
+    id_wrapper: Box<dyn IdWrapper>,
+    environment_wrapper: Box<dyn EnvironmentWrapper>,
 }
 
 impl PrivilegeDropper for PrivilegeDropperReal {

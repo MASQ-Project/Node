@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use discriminator::UnmaskedChunk;
-use masquerader::MasqueradeError;
-use masquerader::Masquerader;
+use crate::discriminator::UnmaskedChunk;
+use crate::masquerader::MasqueradeError;
+use crate::masquerader::Masquerader;
 
 pub struct NullMasquerader {}
 

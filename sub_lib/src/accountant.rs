@@ -1,8 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::peer_actors::BindMessage;
+use crate::wallet::Wallet;
+use actix::Message;
 use actix::Recipient;
 use actix::Syn;
-use peer_actors::BindMessage;
-use wallet::Wallet;
+use lazy_static::lazy_static;
 
 lazy_static! {
     // TODO: This is not a real wallet address. We need a Substratum wallet to accept default payments.

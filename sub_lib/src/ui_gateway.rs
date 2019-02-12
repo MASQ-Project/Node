@@ -1,8 +1,8 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::peer_actors::BindMessage;
 use actix::Message;
 use actix::Recipient;
 use actix::Syn;
-use peer_actors::BindMessage;
 
 pub const DEFAULT_UI_PORT: u16 = 5333;
 

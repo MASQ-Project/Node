@@ -1,13 +1,13 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::configuration::PortConfiguration;
+use crate::stream_messages::AddStreamMsg;
 use actix::Recipient;
 use actix::Syn;
-use configuration::PortConfiguration;
 use std::io;
 use std::marker::Send;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
-use stream_messages::AddStreamMsg;
 use sub_lib::logger::Logger;
 use sub_lib::stream_connector::StreamConnector;
 use sub_lib::stream_connector::StreamConnectorReal;
@@ -26,13 +26,13 @@ pub trait ListenerHandler: Send + Future {
 }
 
 pub trait ListenerHandlerFactory: Send {
-    fn make(&self) -> Box<ListenerHandler<Item = (), Error = ()>>;
+    fn make(&self) -> Box<dyn ListenerHandler<Item = (), Error = ()>>;
 }
 
 pub struct ListenerHandlerReal {
     port: Option<u16>,
     port_configuration: Option<PortConfiguration>,
-    listener: Box<TokioListenerWrapper>,
+    listener: Box<dyn TokioListenerWrapper>,
     add_stream_sub: Option<Recipient<Syn, AddStreamMsg>>,
     logger: Logger,
 }
@@ -104,7 +104,7 @@ impl ListenerHandlerReal {
 pub struct ListenerHandlerFactoryReal {}
 
 impl ListenerHandlerFactory for ListenerHandlerFactoryReal {
-    fn make(&self) -> Box<ListenerHandler<Item = (), Error = ()>> {
+    fn make(&self) -> Box<dyn ListenerHandler<Item = (), Error = ()>> {
         Box::new(ListenerHandlerReal::new())
     }
 }
@@ -118,11 +118,11 @@ impl ListenerHandlerFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::configuration::PortConfiguration;
+    use crate::node_test_utils::NullDiscriminatorFactory;
     use actix::Actor;
     use actix::Addr;
     use actix::System;
-    use configuration::PortConfiguration;
-    use node_test_utils::NullDiscriminatorFactory;
     use std::cell::RefCell;
     use std::io::Error;
     use std::io::ErrorKind;

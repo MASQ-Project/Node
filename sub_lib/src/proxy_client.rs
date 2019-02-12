@@ -1,10 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::hopper::ExpiredCoresPackage;
+use crate::peer_actors::BindMessage;
+use crate::sequence_buffer::SequencedPacket;
+use crate::stream_key::StreamKey;
 use actix::Recipient;
 use actix::Syn;
-use hopper::ExpiredCoresPackage;
-use peer_actors::BindMessage;
-use sequence_buffer::SequencedPacket;
-use stream_key::StreamKey;
+use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct ClientResponsePayload {
@@ -34,7 +35,7 @@ impl ClientResponsePayload {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use utils::tests::make_meaningless_stream_key;
+    use crate::utils::tests::make_meaningless_stream_key;
 
     #[test]
     fn make_terminating_payload_makes_terminating_payload() {

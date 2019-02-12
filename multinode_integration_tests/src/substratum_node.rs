@@ -1,7 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::command::Command;
+use crate::substratum_client::SubstratumNodeClient;
 use base64;
 use base64::STANDARD_NO_PAD;
-use command::Command;
 use std::any::Any;
 use std::env;
 use std::ffi::OsStr;
@@ -20,7 +21,6 @@ use std::time::Instant;
 use sub_lib::cryptde::PublicKey;
 use sub_lib::node_addr::NodeAddr;
 use sub_lib::wallet::Wallet;
-use substratum_client::SubstratumNodeClient;
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct NodeReference {
@@ -44,7 +44,7 @@ impl FromStr for NodeReference {
 }
 
 impl fmt::Display for NodeReference {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let public_key_string = base64::encode_config(&self.public_key.as_slice(), STANDARD_NO_PAD);
         let ip_addr_string = format!("{}", self.node_addr.ip_addr());
         let port_list_string = self

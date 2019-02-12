@@ -1,22 +1,22 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::configuration::PortConfiguration;
+use crate::discriminator::DiscriminatorFactory;
+use crate::json_masquerader::JsonMasquerader;
+use crate::masquerader::Masquerader;
+use crate::stream_messages::*;
+use crate::stream_reader::StreamReaderReal;
+use crate::stream_writer_sorted::StreamWriterSorted;
+use crate::stream_writer_unsorted::StreamWriterUnsorted;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
 use actix::Syn;
-use configuration::PortConfiguration;
-use discriminator::DiscriminatorFactory;
-use json_masquerader::JsonMasquerader;
-use masquerader::Masquerader;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::thread;
 use std::time::Duration;
-use stream_messages::*;
-use stream_reader::StreamReaderReal;
-use stream_writer_sorted::StreamWriterSorted;
-use stream_writer_unsorted::StreamWriterUnsorted;
 use sub_lib::channel_wrappers::FuturesChannelFactory;
 use sub_lib::channel_wrappers::FuturesChannelFactoryReal;
 use sub_lib::channel_wrappers::SenderWrapper;
@@ -68,16 +68,16 @@ impl Clone for StreamHandlerPoolSubs {
 }
 
 pub struct StreamHandlerPool {
-    stream_writers: HashMap<SocketAddr, Option<Box<SenderWrapper<SequencedPacket>>>>,
+    stream_writers: HashMap<SocketAddr, Option<Box<dyn SenderWrapper<SequencedPacket>>>>,
     dispatcher_subs: Option<DispatcherSubs>,
     self_subs: Option<StreamHandlerPoolSubs>,
     ask_neighborhood: Option<Recipient<Syn, DispatcherNodeQueryMessage>>,
     tell_neighborhood: Option<Recipient<Syn, RemoveNeighborMessage>>,
     logger: Logger,
-    stream_connector: Box<StreamConnector>,
-    channel_factory: Box<FuturesChannelFactory<SequencedPacket>>,
-    clandestine_discriminator_factories: Vec<Box<DiscriminatorFactory>>,
-    traffic_analyzer: Box<TrafficAnalyzer>,
+    stream_connector: Box<dyn StreamConnector>,
+    channel_factory: Box<dyn FuturesChannelFactory<SequencedPacket>>,
+    clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
+    traffic_analyzer: Box<dyn TrafficAnalyzer>,
 }
 
 impl Actor for StreamHandlerPool {
@@ -345,7 +345,7 @@ impl Handler<PoolBindMessage> for StreamHandlerPool {
 
 impl StreamHandlerPool {
     pub fn new(
-        clandestine_discriminator_factories: Vec<Box<DiscriminatorFactory>>,
+        clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
     ) -> StreamHandlerPool {
         StreamHandlerPool {
             stream_writers: HashMap::new(),
@@ -373,7 +373,7 @@ impl StreamHandlerPool {
 
     fn set_up_stream_reader(
         &mut self,
-        read_stream: Box<ReadHalfWrapper>,
+        read_stream: Box<dyn ReadHalfWrapper>,
         origin_port: Option<u16>,
         port_configuration: PortConfiguration,
         peer_addr: SocketAddr,
@@ -406,7 +406,7 @@ impl StreamHandlerPool {
 
     fn set_up_stream_writer(
         &mut self,
-        write_stream: Box<WriteHalfWrapper>,
+        write_stream: Box<dyn WriteHalfWrapper>,
         peer_addr: SocketAddr,
         is_clandestine: bool,
     ) {
@@ -422,13 +422,13 @@ impl StreamHandlerPool {
 }
 
 trait TrafficAnalyzer {
-    fn get_masquerader(&self) -> Box<Masquerader>;
+    fn get_masquerader(&self) -> Box<dyn Masquerader>;
 }
 
 struct TrafficAnalyzerReal {}
 
 impl TrafficAnalyzer for TrafficAnalyzerReal {
-    fn get_masquerader(&self) -> Box<Masquerader> {
+    fn get_masquerader(&self) -> Box<dyn Masquerader> {
         Box::new(JsonMasquerader::new())
     }
 }
@@ -438,15 +438,15 @@ impl TrafficAnalyzerReal {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
+    use crate::json_discriminator_factory::JsonDiscriminatorFactory;
+    use crate::json_masquerader::JsonMasquerader;
+    use crate::masquerader::Masquerader;
+    use crate::node_test_utils::FailingMasquerader;
     use actix::Actor;
     use actix::Addr;
     use actix::Syn;
     use actix::System;
-    use http_request_start_finder::HttpRequestDiscriminatorFactory;
-    use json_discriminator_factory::JsonDiscriminatorFactory;
-    use json_masquerader::JsonMasquerader;
-    use masquerader::Masquerader;
-    use node_test_utils::FailingMasquerader;
     use std::io::Error;
     use std::io::ErrorKind;
     use std::net::IpAddr;
@@ -478,7 +478,7 @@ mod tests {
     struct TrafficAnalyzerMock {}
 
     impl TrafficAnalyzer for TrafficAnalyzerMock {
-        fn get_masquerader(&self) -> Box<Masquerader> {
+        fn get_masquerader(&self) -> Box<dyn Masquerader> {
             Box::new(FailingMasquerader {})
         }
     }

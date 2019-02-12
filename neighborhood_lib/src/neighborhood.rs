@@ -1,4 +1,12 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::gossip::to_dot_graph;
+use crate::gossip::Gossip;
+use crate::gossip_acceptor::GossipAcceptor;
+use crate::gossip_acceptor::GossipAcceptorReal;
+use crate::gossip_producer::GossipProducer;
+use crate::gossip_producer::GossipProducerReal;
+use crate::neighborhood_database::NeighborhoodDatabase;
+use crate::neighborhood_database::NodeRecord;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
@@ -6,14 +14,6 @@ use actix::Handler;
 use actix::MessageResult;
 use actix::Recipient;
 use actix::Syn;
-use gossip::to_dot_graph;
-use gossip::Gossip;
-use gossip_acceptor::GossipAcceptor;
-use gossip_acceptor::GossipAcceptorReal;
-use gossip_producer::GossipProducer;
-use gossip_producer::GossipProducerReal;
-use neighborhood_database::NeighborhoodDatabase;
-use neighborhood_database::NodeRecord;
 use sub_lib::accountant;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::PublicKey;
@@ -43,10 +43,10 @@ use sub_lib::utils::plus;
 use sub_lib::utils::NODE_MAILBOX_CAPACITY;
 
 pub struct Neighborhood {
-    cryptde: &'static CryptDE,
+    cryptde: &'static dyn CryptDE,
     hopper: Option<Recipient<Syn, IncipientCoresPackage>>,
-    gossip_acceptor: Box<GossipAcceptor>,
-    gossip_producer: Box<GossipProducer>,
+    gossip_acceptor: Box<dyn GossipAcceptor>,
+    gossip_producer: Box<dyn GossipProducer>,
     neighborhood_database: NeighborhoodDatabase,
     logger: Logger,
 }
@@ -292,7 +292,7 @@ impl Handler<RemoveNeighborMessage> for Neighborhood {
 }
 
 impl Neighborhood {
-    pub fn new(cryptde: &'static CryptDE, config: NeighborhoodConfig) -> Self {
+    pub fn new(cryptde: &'static dyn CryptDE, config: NeighborhoodConfig) -> Self {
         if config.local_ip_addr == sentinel_ip_addr() {
             if !config.neighbor_configs.is_empty() {
                 panic! ("A SubstratumNode without an --ip setting is not decentralized and cannot have any --neighbor settings")
@@ -308,7 +308,7 @@ impl Neighborhood {
         {
             panic! ("An --ip setting indicates that you want to decentralize, but you also need at least one --neighbor setting or --node_type bootstrap for that, and a --port_count greater than 0")
         }
-        let gossip_acceptor: Box<GossipAcceptor> = Box::new(GossipAcceptorReal::new());
+        let gossip_acceptor: Box<dyn GossipAcceptor> = Box::new(GossipAcceptorReal::new());
         let gossip_producer = Box::new(GossipProducerReal::new());
         let local_node_addr = NodeAddr::new(&config.local_ip_addr, &config.clandestine_port_list);
         let mut neighborhood_database = NeighborhoodDatabase::new(
@@ -636,13 +636,13 @@ impl Neighborhood {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gossip::GossipBuilder;
+    use crate::gossip::GossipNodeRecord;
+    use crate::neighborhood_test_utils::make_node_record;
     use actix::msgs;
     use actix::Arbiter;
     use actix::Recipient;
     use actix::System;
-    use gossip::GossipBuilder;
-    use gossip::GossipNodeRecord;
-    use neighborhood_test_utils::make_node_record;
     use serde_cbor;
     use std::net::IpAddr;
     use std::str::FromStr;

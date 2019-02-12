@@ -1,12 +1,13 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use bootstrapper::Bootstrapper;
+use crate::bootstrapper::Bootstrapper;
+use crate::privilege_drop::PrivilegeDropper;
+use crate::privilege_drop::PrivilegeDropperReal;
 use entry_dns_lib::dns_socket_server::new_dns_socket_server;
 use flexi_logger::Duplicate;
 use flexi_logger::LevelFilter;
 use flexi_logger::LogSpecification;
 use flexi_logger::Logger;
-use privilege_drop::PrivilegeDropper;
-use privilege_drop::PrivilegeDropperReal;
+use futures::try_ready;
 use std::env::temp_dir;
 use std::str::FromStr;
 use sub_lib::main_tools::Command;
@@ -20,17 +21,17 @@ pub struct ServerInitializer<P>
 where
     P: PrivilegeDropper,
 {
-    dns_socket_server: Box<SocketServer<Item = (), Error = ()>>,
-    bootstrapper: Box<SocketServer<Item = (), Error = ()>>,
+    dns_socket_server: Box<dyn SocketServer<Item = (), Error = ()>>,
+    bootstrapper: Box<dyn SocketServer<Item = (), Error = ()>>,
     privilege_dropper: P,
-    logger_initializer_wrapper: Box<LoggerInitializerWrapper>,
+    logger_initializer_wrapper: Box<dyn LoggerInitializerWrapper>,
 }
 
 impl<P> Command for ServerInitializer<P>
 where
     P: PrivilegeDropper,
 {
-    fn go(&mut self, streams: &mut StdStreams, args: &Vec<String>) -> u8 {
+    fn go(&mut self, streams: &mut StdStreams<'_>, args: &Vec<String>) -> u8 {
         self.logger_initializer_wrapper.init(args);
 
         self.dns_socket_server
@@ -119,7 +120,7 @@ impl LoggerInitializerWrapperReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crash_test_dummy::CrashTestDummy;
+    use crate::crash_test_dummy::CrashTestDummy;
     use std::sync::Arc;
     use std::sync::Mutex;
     use sub_lib::crash_point::CrashPoint;
@@ -132,7 +133,8 @@ mod tests {
             String::from("crash test SocketServer")
         }
 
-        fn initialize_as_privileged(&mut self, _args: &Vec<String>, _streams: &mut StdStreams) {}
+        fn initialize_as_privileged(&mut self, _args: &Vec<String>, _streams: &mut StdStreams<'_>) {
+        }
 
         fn initialize_as_unprivileged(&mut self) {}
     }

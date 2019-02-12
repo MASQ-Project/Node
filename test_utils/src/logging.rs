@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::test_utils::to_millis;
 use log::set_logger;
 use log::Log;
 use log::Metadata;
@@ -11,7 +12,6 @@ use std::sync::MutexGuard;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-use test_utils::to_millis;
 
 static mut TEST_LOGS_ARC: Option<Arc<Mutex<Vec<String>>>> = None;
 static TEST_LOGGER: TestLogger = TestLogger {};
@@ -169,7 +169,7 @@ impl TestLogHandler {
         unsafe { TEST_LOGS_ARC = Some(Arc::new(Mutex::new(vec![]))) }
     }
 
-    fn get_logs(&self) -> MutexGuard<Vec<String>> {
+    fn get_logs(&self) -> MutexGuard<'_, Vec<String>> {
         unsafe {
             TEST_LOGS_ARC
                 .as_ref()
@@ -263,11 +263,11 @@ pub fn init_test_logging() -> bool {
 pub struct TestLogger {}
 
 impl Log for TestLogger {
-    fn enabled(&self, _metadata: &Metadata) -> bool {
+    fn enabled(&self, _metadata: &Metadata<'_>) -> bool {
         true
     }
 
-    fn log(&self, record: &Record) {
+    fn log(&self, record: &Record<'_>) {
         let string = format!("{}", record.args());
         TestLogHandler::new().add_log(string);
     }

@@ -1,5 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use crate::substratum_node::NodeReference;
+use crate::substratum_node_cluster::SubstratumNodeCluster;
 use hopper_lib::live_cores_package::LiveCoresPackage;
 use node_lib::discriminator::Discriminator;
 use node_lib::discriminator::DiscriminatorFactory;
@@ -26,8 +28,6 @@ use sub_lib::cryptde::PrivateKey;
 use sub_lib::cryptde::PublicKey;
 use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::node_addr::NodeAddr;
-use substratum_node::NodeReference;
-use substratum_node_cluster::SubstratumNodeCluster;
 use test_utils::test_utils::find_free_port;
 
 // TODO: Cover this with tests and put it in the production tree.
@@ -36,7 +36,7 @@ pub struct DiscriminatorCluster {
 }
 
 impl DiscriminatorCluster {
-    pub fn new(factories: Vec<Box<DiscriminatorFactory>>) -> DiscriminatorCluster {
+    pub fn new(factories: Vec<Box<dyn DiscriminatorFactory>>) -> DiscriminatorCluster {
         DiscriminatorCluster {
             discriminators: factories.into_iter().map(|x| x.make()).collect(),
         }
@@ -137,7 +137,7 @@ impl SubstratumCoresServer {
         }
     }
 
-    pub fn cryptde<'a>(&'a self) -> &'a CryptDE {
+    pub fn cryptde<'a>(&'a self) -> &'a dyn CryptDE {
         &self.cryptde
     }
 
@@ -163,7 +163,7 @@ impl SubstratumCoresServer {
             .expect(format!("Error deserializing LCP from {:?}", chunk.chunk).as_str())
     }
 
-    fn default_factories() -> Vec<Box<DiscriminatorFactory>> {
+    fn default_factories() -> Vec<Box<dyn DiscriminatorFactory>> {
         vec![
             Box::new(JsonDiscriminatorFactory::new()),
             Box::new(HttpRequestDiscriminatorFactory::new()),

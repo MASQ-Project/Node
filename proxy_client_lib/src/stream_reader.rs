@@ -26,11 +26,11 @@ pub struct StreamReader {
     consuming_wallet: Option<Wallet>,
     hopper_sub: Recipient<Syn, IncipientCoresPackage>,
     accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
-    stream: Box<ReadHalfWrapper>,
+    stream: Box<dyn ReadHalfWrapper>,
     stream_killer: Sender<StreamKey>,
     peer_addr: SocketAddr,
     remaining_route: Route,
-    framer: Box<Framer>,
+    framer: Box<dyn Framer>,
     originator_public_key: PublicKey,
     logger: Logger,
     sequencer: Sequencer,
@@ -89,11 +89,11 @@ impl StreamReader {
         consuming_wallet: Option<Wallet>,
         hopper_sub: Recipient<Syn, IncipientCoresPackage>,
         accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
-        stream: Box<ReadHalfWrapper>,
+        stream: Box<dyn ReadHalfWrapper>,
         stream_killer: Sender<StreamKey>,
         peer_addr: SocketAddr,
         remaining_route: Route,
-        framer: Box<Framer>,
+        framer: Box<dyn Framer>,
         originator_public_key: PublicKey,
     ) -> StreamReader {
         StreamReader {
@@ -219,7 +219,7 @@ mod tests {
     use test_utils::logging::TestLogHandler;
     use test_utils::recorder::make_peer_actors_from;
     use test_utils::recorder::make_recorder;
-    use test_utils::test_utils;
+    use test_utils::test_utils::make_meaningless_route;
     use test_utils::test_utils::make_meaningless_stream_key;
     use test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
 
@@ -288,7 +288,7 @@ mod tests {
             stream,
             stream_killer,
             peer_addr: SocketAddr::from_str("8.7.4.3:50").unwrap(),
-            remaining_route: test_utils::make_meaningless_route(),
+            remaining_route: make_meaningless_route(),
             framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
             originator_public_key: PublicKey::new(&b"abcd"[..]),
             logger: Logger::new("test"),
@@ -302,7 +302,7 @@ mod tests {
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(0),
             &IncipientCoresPackage::new(
-                test_utils::make_meaningless_route(),
+                make_meaningless_route(),
                 ClientResponsePayload {
                     stream_key: make_meaningless_stream_key(),
                     sequenced_packet: SequencedPacket {
@@ -317,7 +317,7 @@ mod tests {
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(1),
             &IncipientCoresPackage::new(
-                test_utils::make_meaningless_route(),
+                make_meaningless_route(),
                 ClientResponsePayload {
                     stream_key: make_meaningless_stream_key(),
                     sequenced_packet: SequencedPacket {
@@ -332,7 +332,7 @@ mod tests {
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(2),
             &IncipientCoresPackage::new(
-                test_utils::make_meaningless_route(),
+                make_meaningless_route(),
                 ClientResponsePayload {
                     stream_key: make_meaningless_stream_key(),
                     sequenced_packet: SequencedPacket {
@@ -347,7 +347,7 @@ mod tests {
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(3),
             &IncipientCoresPackage::new(
-                test_utils::make_meaningless_route(),
+                make_meaningless_route(),
                 ClientResponsePayload {
                     stream_key: make_meaningless_stream_key(),
                     sequenced_packet: SequencedPacket {
@@ -374,7 +374,7 @@ mod tests {
             (vec![], Ok(Async::NotReady)),
         ];
         let (stream_killer, stream_killer_params) = mpsc::channel();
-        let remaining_route = test_utils::make_meaningless_route();
+        let remaining_route = make_meaningless_route();
         let framer = Box::new(StreamEndingFramer {});
         let originator_public_key = PublicKey::new(&b"men's souls"[..]);
         let logger = Logger::new("test");
@@ -420,7 +420,7 @@ mod tests {
         assert_eq!(
             *record,
             IncipientCoresPackage {
-                route: test_utils::make_meaningless_route(),
+                route: make_meaningless_route(),
                 payload: PlainData::new(
                     &serde_cbor::ser::to_vec(&ClientResponsePayload {
                         stream_key,
@@ -483,7 +483,7 @@ mod tests {
             stream: Box::new(stream),
             stream_killer,
             peer_addr: SocketAddr::from_str("5.7.9.0:95").unwrap(),
-            remaining_route: test_utils::make_meaningless_route(),
+            remaining_route: make_meaningless_route(),
             framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
             originator_public_key: PublicKey::new(&b"abcd"[..]),
             logger: Logger::new("test"),
@@ -498,7 +498,7 @@ mod tests {
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(0),
             &IncipientCoresPackage::new(
-                test_utils::make_meaningless_route(),
+                make_meaningless_route(),
                 ClientResponsePayload {
                     stream_key: make_meaningless_stream_key(),
                     sequenced_packet: SequencedPacket {
@@ -513,7 +513,7 @@ mod tests {
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(1),
             &IncipientCoresPackage::new(
-                test_utils::make_meaningless_route(),
+                make_meaningless_route(),
                 ClientResponsePayload {
                     stream_key: make_meaningless_stream_key(),
                     sequenced_packet: SequencedPacket {
@@ -528,7 +528,7 @@ mod tests {
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(2),
             &IncipientCoresPackage::new(
-                test_utils::make_meaningless_route(),
+                make_meaningless_route(),
                 ClientResponsePayload {
                     stream_key: make_meaningless_stream_key(),
                     sequenced_packet: SequencedPacket {
@@ -543,7 +543,7 @@ mod tests {
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(3),
             &IncipientCoresPackage::new(
-                test_utils::make_meaningless_route(),
+                make_meaningless_route(),
                 ClientResponsePayload {
                     stream_key: make_meaningless_stream_key(),
                     sequenced_packet: SequencedPacket {
@@ -628,7 +628,7 @@ mod tests {
             stream: Box::new(stream),
             stream_killer,
             peer_addr: SocketAddr::from_str("5.7.9.0:95").unwrap(),
-            remaining_route: test_utils::make_meaningless_route(),
+            remaining_route: make_meaningless_route(),
             framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
             originator_public_key: PublicKey::new(&b"abcd"[..]),
             logger: Logger::new("test"),
@@ -679,7 +679,7 @@ mod tests {
             stream: Box::new(stream),
             stream_killer,
             peer_addr: SocketAddr::from_str("5.3.4.3:654").unwrap(),
-            remaining_route: test_utils::make_meaningless_route(),
+            remaining_route: make_meaningless_route(),
             framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
             originator_public_key: PublicKey::new(&b"abcd"[..]),
             logger: Logger::new("test"),
@@ -695,7 +695,7 @@ mod tests {
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(0),
             &IncipientCoresPackage::new(
-                test_utils::make_meaningless_route(),
+                make_meaningless_route(),
                 ClientResponsePayload {
                     stream_key: make_meaningless_stream_key(),
                     sequenced_packet: SequencedPacket {
@@ -763,7 +763,7 @@ mod tests {
             stream: Box::new(stream),
             stream_killer,
             peer_addr: SocketAddr::from_str("6.5.4.1:8325").unwrap(),
-            remaining_route: test_utils::make_meaningless_route(),
+            remaining_route: make_meaningless_route(),
             framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
             originator_public_key: PublicKey::new(&b"abcd"[..]),
             logger: Logger::new("test"),
@@ -781,7 +781,7 @@ mod tests {
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(0),
             &IncipientCoresPackage::new(
-                test_utils::make_meaningless_route(),
+                make_meaningless_route(),
                 ClientResponsePayload {
                     stream_key: make_meaningless_stream_key(),
                     sequenced_packet: SequencedPacket {

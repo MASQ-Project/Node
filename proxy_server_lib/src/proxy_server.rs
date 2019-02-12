@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::client_request_payload_factory::ClientRequestPayloadFactory;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
@@ -6,7 +7,6 @@ use actix::Handler;
 use actix::MailboxError;
 use actix::Recipient;
 use actix::Syn;
-use client_request_payload_factory::ClientRequestPayloadFactory;
 use std::net::SocketAddr;
 use sub_lib::bidi_hashmap::BidiHashMap;
 use sub_lib::cryptde::CryptDE;
@@ -36,10 +36,10 @@ pub struct ProxyServer {
     hopper: Option<Recipient<Syn, IncipientCoresPackage>>,
     route_source: Option<Recipient<Syn, RouteQueryMessage>>,
     client_request_payload_factory: ClientRequestPayloadFactory,
-    stream_key_factory: Box<StreamKeyFactory>,
+    stream_key_factory: Box<dyn StreamKeyFactory>,
     keys_and_addrs: BidiHashMap<StreamKey, SocketAddr>,
     is_decentralized: bool, // TODO: This should be replaced by something more general and configurable.
-    cryptde: &'static CryptDE,
+    cryptde: &'static dyn CryptDE,
     logger: Logger,
 }
 
@@ -152,7 +152,7 @@ impl Handler<ExpiredCoresPackage> for ProxyServer {
 }
 
 impl ProxyServer {
-    pub fn new(cryptde: &'static CryptDE, is_decentralized: bool) -> ProxyServer {
+    pub fn new(cryptde: &'static dyn CryptDE, is_decentralized: bool) -> ProxyServer {
         ProxyServer {
             dispatcher: None,
             hopper: None,

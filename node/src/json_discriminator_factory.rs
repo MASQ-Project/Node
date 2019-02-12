@@ -1,8 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use discriminator::Discriminator;
-use discriminator::DiscriminatorFactory;
-use json_framer::JsonFramer;
-use json_masquerader::JsonMasquerader;
+use crate::discriminator::Discriminator;
+use crate::discriminator::DiscriminatorFactory;
+use crate::json_framer::JsonFramer;
+use crate::json_masquerader::JsonMasquerader;
 
 pub struct JsonDiscriminatorFactory {}
 
@@ -14,7 +14,7 @@ impl DiscriminatorFactory for JsonDiscriminatorFactory {
         )
     }
 
-    fn duplicate(&self) -> Box<DiscriminatorFactory> {
+    fn duplicate(&self) -> Box<dyn DiscriminatorFactory> {
         Box::new(JsonDiscriminatorFactory {})
     }
 }
@@ -28,8 +28,8 @@ impl JsonDiscriminatorFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use discriminator::UnmaskedChunk;
-    use masquerader::Masquerader;
+    use crate::discriminator::UnmaskedChunk;
+    use crate::masquerader::Masquerader;
 
     #[test]
     fn discriminator_factory_duplicate_works() {

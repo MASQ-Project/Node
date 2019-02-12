@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use packet_facade::PacketFacade;
-use packet_facade::Query;
-use packet_facade::ResourceRecord;
+use crate::packet_facade::PacketFacade;
+use crate::packet_facade::Query;
+use crate::packet_facade::ResourceRecord;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::time::Instant;
@@ -86,7 +86,7 @@ impl ProcessorTrait for ProcessorReal {
 }
 
 impl ProcessorReal {
-    fn make_format_error(facade: &mut PacketFacade) -> usize {
+    fn make_format_error(facade: &mut PacketFacade<'_>) -> usize {
         facade.set_query(false);
         facade.set_authoritative_answer(false);
         facade.set_truncated(false);
@@ -98,7 +98,7 @@ impl ProcessorReal {
         return 12;
     }
 
-    fn make_not_implemented_error(facade: &mut PacketFacade) -> usize {
+    fn make_not_implemented_error(facade: &mut PacketFacade<'_>) -> usize {
         facade.set_query(false);
         facade.set_authoritative_answer(false);
         facade.set_truncated(false);
@@ -153,13 +153,13 @@ struct ResponseRecord {
 
 #[cfg(test)]
 mod tests {
-    use packet_facade::PacketFacade;
-    use packet_facade::Query;
-    use packet_facade::ResourceRecord;
-    use processor::ProcessorReal;
-    use processor::ProcessorTrait;
-    use processor::RequestRecord;
-    use processor::ResponseRecord;
+    use crate::packet_facade::PacketFacade;
+    use crate::packet_facade::Query;
+    use crate::packet_facade::ResourceRecord;
+    use crate::processor::ProcessorReal;
+    use crate::processor::ProcessorTrait;
+    use crate::processor::RequestRecord;
+    use crate::processor::ResponseRecord;
     use std::net::IpAddr;
     use std::net::Ipv4Addr;
     use std::net::SocketAddr;

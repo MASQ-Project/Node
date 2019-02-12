@@ -1,5 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use crate::stream_reader::StreamReader;
+use crate::stream_writer::StreamWriter;
 use actix::Recipient;
 use actix::Syn;
 use std::io;
@@ -8,8 +10,6 @@ use std::io::ErrorKind;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::sync::mpsc::Sender;
-use stream_reader::StreamReader;
-use stream_writer::StreamWriter;
 use sub_lib::accountant::ReportExitServiceProvidedMessage;
 use sub_lib::channel_wrappers::FuturesChannelFactory;
 use sub_lib::channel_wrappers::FuturesChannelFactoryReal;
@@ -34,13 +34,13 @@ use trust_dns_resolver::error::ResolveError;
 use trust_dns_resolver::lookup_ip::LookupIp;
 
 pub struct StreamEstablisher {
-    pub stream_adder_tx: Sender<(StreamKey, Box<SenderWrapper<SequencedPacket>>)>,
+    pub stream_adder_tx: Sender<(StreamKey, Box<dyn SenderWrapper<SequencedPacket>>)>,
     pub stream_killer_tx: Sender<StreamKey>,
-    pub stream_connector: Box<StreamConnector>,
+    pub stream_connector: Box<dyn StreamConnector>,
     pub hopper_sub: Recipient<Syn, IncipientCoresPackage>,
     pub accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
     pub logger: Logger,
-    pub channel_factory: Box<FuturesChannelFactory<SequencedPacket>>,
+    pub channel_factory: Box<dyn FuturesChannelFactory<SequencedPacket>>,
 }
 
 impl Clone for StreamEstablisher {
@@ -64,7 +64,7 @@ impl StreamEstablisher {
         consuming_wallet: Option<Wallet>,
         return_route: &Route,
         lookup_result: Result<LookupIp, ResolveError>,
-    ) -> io::Result<Box<SenderWrapper<SequencedPacket>>> {
+    ) -> io::Result<Box<dyn SenderWrapper<SequencedPacket>>> {
         let target_hostname = match &payload.target_hostname {
             Some(target_hostname) => target_hostname.clone(),
             None => {
@@ -125,7 +125,7 @@ impl StreamEstablisher {
         return_route: &Route,
         payload: &ClientRequestPayload,
         consuming_wallet: Option<Wallet>,
-        read_stream: Box<ReadHalfWrapper>,
+        read_stream: Box<dyn ReadHalfWrapper>,
         peer_addr: SocketAddr,
     ) -> io::Result<()> {
         let framer = Self::framer_from_protocol(payload.protocol);
@@ -148,7 +148,7 @@ impl StreamEstablisher {
         Ok(())
     }
 
-    pub fn framer_from_protocol(protocol: ProxyProtocol) -> Box<Framer> {
+    pub fn framer_from_protocol(protocol: ProxyProtocol) -> Box<dyn Framer> {
         match protocol {
             ProxyProtocol::HTTP => {
                 Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {})))
@@ -163,7 +163,7 @@ pub trait StreamEstablisherFactory: Send {
 }
 
 pub struct StreamEstablisherFactoryReal {
-    pub stream_adder_tx: Sender<(StreamKey, Box<SenderWrapper<SequencedPacket>>)>,
+    pub stream_adder_tx: Sender<(StreamKey, Box<dyn SenderWrapper<SequencedPacket>>)>,
     pub stream_killer_tx: Sender<StreamKey>,
     pub hopper_sub: Recipient<Syn, IncipientCoresPackage>,
     pub accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
@@ -201,7 +201,7 @@ mod tests {
     use test_utils::recorder::make_peer_actors_from;
     use test_utils::recorder::make_recorder;
     use test_utils::stream_connector_mock::StreamConnectorMock;
-    use test_utils::test_utils;
+    use test_utils::test_utils::make_meaningless_route;
     use test_utils::test_utils::make_meaningless_stream_key;
     use test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use tokio::prelude::Async;
@@ -248,7 +248,7 @@ mod tests {
             };
             subject
                 .spawn_stream_reader(
-                    &test_utils::make_meaningless_route(),
+                    &make_meaningless_route(),
                     &ClientRequestPayload {
                         stream_key: make_meaningless_stream_key(),
                         sequenced_packet: SequencedPacket {
@@ -332,7 +332,7 @@ mod tests {
 
             subject
                 .spawn_stream_reader(
-                    &test_utils::make_meaningless_route(),
+                    &make_meaningless_route(),
                     &ClientRequestPayload {
                         stream_key: make_meaningless_stream_key(),
                         sequenced_packet: SequencedPacket {

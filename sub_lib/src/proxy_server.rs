@@ -1,12 +1,13 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::cryptde::PublicKey;
+use crate::dispatcher::InboundClientData;
+use crate::hopper::ExpiredCoresPackage;
+use crate::peer_actors::BindMessage;
+use crate::sequence_buffer::SequencedPacket;
+use crate::stream_key::StreamKey;
 use actix::Recipient;
 use actix::Syn;
-use cryptde::PublicKey;
-use dispatcher::InboundClientData;
-use hopper::ExpiredCoresPackage;
-use peer_actors::BindMessage;
-use sequence_buffer::SequencedPacket;
-use stream_key::StreamKey;
+use serde_derive::{Deserialize, Serialize};
 
 #[derive(Copy, Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum ProxyProtocol {

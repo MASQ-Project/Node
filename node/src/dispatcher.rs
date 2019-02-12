@@ -1,11 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::stream_messages::PoolBindMessage;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
 use actix::Syn;
-use stream_messages::PoolBindMessage;
 use sub_lib::dispatcher::DispatcherSubs;
 use sub_lib::dispatcher::InboundClientData;
 use sub_lib::logger::Logger;
@@ -101,11 +101,11 @@ impl Dispatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::node_test_utils::make_stream_handler_pool_subs_from;
     use actix::msgs;
     use actix::Addr;
     use actix::Arbiter;
     use actix::System;
-    use node_test_utils::make_stream_handler_pool_subs_from;
     use std::net::SocketAddr;
     use std::str::FromStr;
     use sub_lib::dispatcher::Endpoint;

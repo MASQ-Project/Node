@@ -17,11 +17,11 @@ pub struct TcpStreamWrapperFactoryMock {
 }
 
 impl TcpStreamWrapperFactory for TcpStreamWrapperFactoryMock {
-    fn make(&self) -> Box<TcpStreamWrapper> {
+    fn make(&self) -> Box<dyn TcpStreamWrapper> {
         Box::new(self.tcp_stream_wrappers.lock().unwrap().remove(0))
     }
 
-    fn dup(&self) -> Box<TcpStreamWrapperFactory> {
+    fn dup(&self) -> Box<dyn TcpStreamWrapperFactory> {
         Box::new(TcpStreamWrapperFactoryMock {
             tcp_stream_wrappers: self.tcp_stream_wrappers.clone(),
         })
@@ -49,7 +49,7 @@ impl TcpStreamWrapperFactoryMock {
 
 struct TcpStreamWrapperMockResults {
     connect_results: Vec<io::Result<()>>,
-    try_clone_results: Vec<io::Result<Box<TcpStreamWrapper>>>,
+    try_clone_results: Vec<io::Result<Box<dyn TcpStreamWrapper>>>,
     peer_addr_result: io::Result<SocketAddr>,
     write_results: Vec<io::Result<usize>>,
     read_buffers: Vec<Vec<u8>>,
@@ -101,7 +101,7 @@ impl TcpStreamWrapper for TcpStreamWrapperMock {
             .remove(0)
     }
 
-    fn try_clone(&self) -> io::Result<Box<TcpStreamWrapper>> {
+    fn try_clone(&self) -> io::Result<Box<dyn TcpStreamWrapper>> {
         if self.mocked_try_clone {
             let mut guts = self.results.lock().unwrap();
             guts.try_clone_results.remove(0)
@@ -277,7 +277,7 @@ impl TcpStreamWrapperMock {
 
     pub fn try_clone_result(
         self,
-        result: io::Result<Box<TcpStreamWrapper>>,
+        result: io::Result<Box<dyn TcpStreamWrapper>>,
     ) -> TcpStreamWrapperMock {
         self.results.lock().unwrap().try_clone_results.push(result);
         self

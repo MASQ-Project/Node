@@ -1,7 +1,4 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-extern crate entry_dns_lib;
-extern crate sub_lib;
-
 mod utils;
 
 use entry_dns_lib::packet_facade::PacketFacade;

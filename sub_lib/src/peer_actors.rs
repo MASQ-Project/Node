@@ -1,14 +1,15 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use accountant::AccountantSubs;
-use dispatcher::DispatcherSubs;
-use hopper::HopperSubs;
-use neighborhood::NeighborhoodSubs;
-use proxy_client::ProxyClientSubs;
-use proxy_server::ProxyServerSubs;
+use crate::accountant::AccountantSubs;
+use crate::dispatcher::DispatcherSubs;
+use crate::hopper::HopperSubs;
+use crate::neighborhood::NeighborhoodSubs;
+use crate::proxy_client::ProxyClientSubs;
+use crate::proxy_server::ProxyServerSubs;
+use crate::ui_gateway::UiGatewaySubs;
+use actix::Message;
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
-use ui_gateway::UiGatewaySubs;
 
 #[derive(Clone)]
 pub struct PeerActors {
@@ -22,7 +23,7 @@ pub struct PeerActors {
 }
 
 impl Debug for PeerActors {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "PeerActors")
     }
 }

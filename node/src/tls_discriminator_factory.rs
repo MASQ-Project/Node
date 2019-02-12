@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use discriminator::Discriminator;
-use discriminator::DiscriminatorFactory;
-use null_masquerader::NullMasquerader;
+use crate::discriminator::Discriminator;
+use crate::discriminator::DiscriminatorFactory;
+use crate::null_masquerader::NullMasquerader;
 use sub_lib::tls_framer::TlsFramer;
 
 pub struct TlsDiscriminatorFactory {}
@@ -14,7 +14,7 @@ impl DiscriminatorFactory for TlsDiscriminatorFactory {
         )
     }
 
-    fn duplicate(&self) -> Box<DiscriminatorFactory> {
+    fn duplicate(&self) -> Box<dyn DiscriminatorFactory> {
         Box::new(TlsDiscriminatorFactory {})
     }
 }
@@ -28,7 +28,7 @@ impl TlsDiscriminatorFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use discriminator::UnmaskedChunk;
+    use crate::discriminator::UnmaskedChunk;
 
     #[test]
     fn discriminator_factory_duplicate_works() {

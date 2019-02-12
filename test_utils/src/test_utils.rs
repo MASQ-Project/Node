@@ -1,5 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use lazy_static::lazy_static;
 use regex::Regex;
+use serde_derive::{Deserialize, Serialize};
 use std::cmp::min;
 use std::fmt::Debug;
 use std::io;
@@ -125,7 +127,7 @@ impl FakeStreamHolder {
         }
     }
 
-    pub fn streams(&mut self) -> StdStreams {
+    pub fn streams(&mut self) -> StdStreams<'_> {
         StdStreams {
             stdin: &mut self.stdin,
             stdout: &mut self.stdout,
@@ -222,20 +224,23 @@ pub fn make_meaningless_route() -> Route {
     .unwrap()
 }
 
-pub fn route_to_proxy_client(key: &PublicKey, cryptde: &CryptDE) -> Route {
+pub fn route_to_proxy_client(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {
     shift_one_hop(zero_hop_route_response(key, cryptde).route, cryptde)
 }
 
-pub fn route_from_proxy_client(key: &PublicKey, cryptde: &CryptDE) -> Route {
+pub fn route_from_proxy_client(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {
     // Happens to be the same
     route_to_proxy_client(key, cryptde)
 }
 
-pub fn route_to_proxy_server(key: &PublicKey, cryptde: &CryptDE) -> Route {
+pub fn route_to_proxy_server(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {
     shift_one_hop(route_from_proxy_client(key, cryptde), cryptde)
 }
 
-pub fn zero_hop_route_response(public_key: &PublicKey, cryptde: &CryptDE) -> RouteQueryResponse {
+pub fn zero_hop_route_response(
+    public_key: &PublicKey,
+    cryptde: &dyn CryptDE,
+) -> RouteQueryResponse {
     RouteQueryResponse {
         route: Route::new(
             vec![
@@ -256,7 +261,7 @@ pub fn zero_hop_route_response(public_key: &PublicKey, cryptde: &CryptDE) -> Rou
     }
 }
 
-fn shift_one_hop(mut route: Route, cryptde: &CryptDE) -> Route {
+fn shift_one_hop(mut route: Route, cryptde: &dyn CryptDE) -> Route {
     route.shift(cryptde).unwrap();
     route
 }

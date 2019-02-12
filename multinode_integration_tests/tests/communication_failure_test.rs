@@ -1,13 +1,4 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-extern crate base64;
-extern crate hopper_lib;
-extern crate multinode_integration_tests_lib;
-extern crate neighborhood_lib;
-extern crate node_lib;
-extern crate regex;
-extern crate serde_cbor;
-extern crate sub_lib;
-extern crate test_utils;
 
 use multinode_integration_tests_lib::gossip_builder::GossipBuilder;
 use multinode_integration_tests_lib::substratum_node::PortSelector;

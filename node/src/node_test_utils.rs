@@ -1,15 +1,17 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 #![cfg (test)]
+use crate::discriminator::Discriminator;
+use crate::discriminator::DiscriminatorFactory;
+use crate::discriminator::UnmaskedChunk;
+use crate::masquerader::MasqueradeError;
+use crate::masquerader::Masquerader;
+use crate::null_masquerader::NullMasquerader;
+use crate::stream_handler_pool::StreamHandlerPoolSubs;
+use crate::stream_messages::*;
 use actix::Actor;
 use actix::Addr;
 use actix::Handler;
 use actix::Syn;
-use discriminator::Discriminator;
-use discriminator::DiscriminatorFactory;
-use discriminator::UnmaskedChunk;
-use masquerader::MasqueradeError;
-use masquerader::Masquerader;
-use null_masquerader::NullMasquerader;
 use std::cell::RefCell;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -17,8 +19,6 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 use std::time::SystemTime;
-use stream_handler_pool::StreamHandlerPoolSubs;
-use stream_messages::*;
 use sub_lib::framer::FramedChunk;
 use sub_lib::framer::Framer;
 use sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
@@ -141,7 +141,7 @@ impl DiscriminatorFactory for NullDiscriminatorFactory {
         make_null_discriminator(data)
     }
 
-    fn duplicate(&self) -> Box<DiscriminatorFactory> {
+    fn duplicate(&self) -> Box<dyn DiscriminatorFactory> {
         Box::new(NullDiscriminatorFactory {
             discriminator_natures: self.discriminator_natures.clone(),
         })

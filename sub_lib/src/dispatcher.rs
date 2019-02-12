@@ -1,8 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::cryptde::PublicKey;
+use crate::peer_actors::BindMessage;
+use crate::stream_handler_pool::TransmitDataMsg;
+use actix::Message;
 use actix::Recipient;
 use actix::Syn;
-use cryptde::PublicKey;
-use peer_actors::BindMessage;
 use serde;
 use serde::de::Visitor;
 use serde::Deserialize;
@@ -14,7 +16,6 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::net::IpAddr;
 use std::net::SocketAddr;
-use stream_handler_pool::TransmitDataMsg;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum Component {
@@ -53,7 +54,7 @@ struct ComponentVisitor;
 impl<'a> Visitor<'a> for ComponentVisitor {
     type Value = Component;
 
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("a Component enum")
     }
 
@@ -82,7 +83,7 @@ pub enum Endpoint {
 }
 
 impl fmt::Debug for Endpoint {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             &Endpoint::Key(ref key) => write!(f, "PublicKey({})", key),
             &Endpoint::Ip(ref ip_addr) => write!(f, "Ip({})", *ip_addr),
@@ -122,7 +123,7 @@ pub struct InboundClientData {
 }
 
 impl Debug for InboundClientData {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let data_string = match String::from_utf8(self.data.clone()) {
             Ok(string) => string,
             Err(_) => format!("{:?}", &self.data[..]),

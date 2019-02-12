@@ -1,7 +1,12 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use command::Command;
+use crate::command::Command;
+use crate::main::CONTROL_STREAM_PORT;
+use crate::substratum_client::SubstratumNodeClient;
+use crate::substratum_node::NodeReference;
+use crate::substratum_node::PortSelector;
+use crate::substratum_node::SubstratumNode;
+use crate::substratum_node::SubstratumNodeUtils;
 use hopper_lib::live_cores_package::LiveCoresPackage;
-use main::CONTROL_STREAM_PORT;
 use neighborhood_lib::gossip::Gossip;
 use neighborhood_lib::gossip::GossipBuilder;
 use neighborhood_lib::neighborhood_database::NodeRecord;
@@ -32,11 +37,6 @@ use sub_lib::route::Route;
 use sub_lib::route::RouteSegment;
 use sub_lib::utils::indicates_dead_stream;
 use sub_lib::wallet::Wallet;
-use substratum_client::SubstratumNodeClient;
-use substratum_node::NodeReference;
-use substratum_node::PortSelector;
-use substratum_node::SubstratumNode;
-use substratum_node::SubstratumNodeUtils;
 use test_utils::data_hunk::DataHunk;
 use test_utils::data_hunk_framer::DataHunkFramer;
 
@@ -131,7 +131,7 @@ impl SubstratumMockNode {
         }
     }
 
-    pub fn bootstrap_from(&self, node: &SubstratumNode) {
+    pub fn bootstrap_from(&self, node: &dyn SubstratumNode) {
         let masquerader = JsonMasquerader::new();
         let mut node_record = NodeRecord::new(
             &self.public_key(),
@@ -178,7 +178,7 @@ impl SubstratumMockNode {
         &self,
         transmit_port: u16,
         package: IncipientCoresPackage,
-        masquerader: &Masquerader,
+        masquerader: &dyn Masquerader,
         target_key: &PublicKey,
         target_addr: SocketAddr,
     ) -> Result<(), io::Error> {
@@ -225,7 +225,7 @@ impl SubstratumMockNode {
 
     pub fn wait_for_package(
         &self,
-        masquerader: &Masquerader,
+        masquerader: &dyn Masquerader,
         timeout: Duration,
     ) -> Result<(SocketAddr, SocketAddr, LiveCoresPackage), io::Error> {
         let data_hunk = self.wait_for_data(timeout)?;
@@ -250,7 +250,7 @@ impl SubstratumMockNode {
         }
     }
 
-    pub fn cryptde(&self) -> &CryptDE {
+    pub fn cryptde(&self) -> &dyn CryptDE {
         self.guts.cryptde.as_ref()
     }
 
@@ -321,7 +321,7 @@ struct SubstratumMockNodeGuts {
     node_addr: NodeAddr,
     earning_wallet: Wallet,
     consuming_wallet: Option<Wallet>,
-    cryptde: Box<CryptDE>,
+    cryptde: Box<dyn CryptDE>,
     framer: RefCell<DataHunkFramer>,
 }
 

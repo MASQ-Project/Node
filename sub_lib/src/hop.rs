@@ -1,12 +1,13 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use cryptde::CryptDE;
-use cryptde::CryptData;
-use cryptde::CryptdecError;
-use cryptde::PlainData;
-use cryptde::PublicKey;
-use dispatcher::Component;
+use crate::cryptde::CryptDE;
+use crate::cryptde::CryptData;
+use crate::cryptde::CryptdecError;
+use crate::cryptde::PlainData;
+use crate::cryptde::PublicKey;
+use crate::dispatcher::Component;
+use crate::wallet::Wallet;
 use serde_cbor;
-use wallet::Wallet;
+use serde_derive::{Deserialize, Serialize};
 
 // This structure is the one that will travel from Node to Node in a CORES package.
 // There may soon be another version that always stays on the Node and is used to
@@ -27,7 +28,7 @@ impl LiveHop {
         }
     }
 
-    pub fn decode(cryptde: &CryptDE, crypt_data: &CryptData) -> Result<Self, CryptdecError> {
+    pub fn decode(cryptde: &dyn CryptDE, crypt_data: &CryptData) -> Result<Self, CryptdecError> {
         let plain_data = cryptde.decode(crypt_data)?;
         match serde_cbor::de::from_slice::<LiveHop>(plain_data.as_slice()) {
             Ok(hop) => Ok(hop),
@@ -39,7 +40,7 @@ impl LiveHop {
     pub fn encode(
         &self,
         public_key: &PublicKey,
-        cryptde: &CryptDE,
+        cryptde: &dyn CryptDE,
     ) -> Result<CryptData, CryptdecError> {
         let plain_data = match serde_cbor::ser::to_vec(&self) {
             Ok(data) => PlainData::new(&data[..]),
@@ -53,7 +54,7 @@ impl LiveHop {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cryptde_null::CryptDENull;
+    use crate::cryptde_null::CryptDENull;
 
     #[test]
     fn can_construct_hop() {

@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use neighborhood_database::NeighborhoodDatabase;
-use neighborhood_database::NodeRecord;
+use crate::neighborhood_database::NeighborhoodDatabase;
+use crate::neighborhood_database::NodeRecord;
 use std::collections::HashSet;
 use std::hash::Hash;
 use std::net::IpAddr;

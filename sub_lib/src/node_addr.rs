@@ -1,4 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::utils::plus;
+use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Display;
@@ -6,7 +8,6 @@ use std::fmt::Formatter;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::str::FromStr;
-use utils::plus;
 
 #[derive(Eq, PartialEq, Hash, Deserialize, Serialize)]
 pub struct NodeAddr {
@@ -57,13 +58,13 @@ impl Clone for NodeAddr {
 }
 
 impl Debug for NodeAddr {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}:{:?}", self.ip_addr(), self.ports())
     }
 }
 
 impl Display for NodeAddr {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let port_list = self
             .ports
             .iter()

@@ -1,22 +1,22 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::shutdown_supervisor::ShutdownSupervisor;
+use crate::shutdown_supervisor::ShutdownSupervisorReal;
+use crate::ui_traffic_converter::UiTrafficConverter;
+use crate::ui_traffic_converter::UiTrafficConverterReal;
+use crate::websocket_supervisor::WebSocketSupervisor;
+use crate::websocket_supervisor::WebSocketSupervisorReal;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
 use actix::Syn;
-use shutdown_supervisor::ShutdownSupervisor;
-use shutdown_supervisor::ShutdownSupervisorReal;
 use sub_lib::logger::Logger;
 use sub_lib::peer_actors::BindMessage;
 use sub_lib::ui_gateway::FromUiMessage;
 use sub_lib::ui_gateway::UiGatewayConfig;
 use sub_lib::ui_gateway::UiGatewaySubs;
 use sub_lib::ui_gateway::UiMessage;
-use ui_traffic_converter::UiTrafficConverter;
-use ui_traffic_converter::UiTrafficConverterReal;
-use websocket_supervisor::WebSocketSupervisor;
-use websocket_supervisor::WebSocketSupervisorReal;
 
 pub struct UiGateway {
     port: u16,

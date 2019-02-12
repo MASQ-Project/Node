@@ -1,16 +1,13 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-extern crate entry_dns_lib;
-extern crate regex;
-extern crate sub_lib;
 
 mod utils;
 
+use crate::utils::read_until_timeout;
 use std::io::Write;
 use std::net::SocketAddr;
 use std::net::TcpStream;
 use std::str::FromStr;
 use std::time::Duration;
-use utils::read_until_timeout;
 
 #[test]
 #[allow(unused_variables)] // 'node' below must not become '_' or disappear, or the

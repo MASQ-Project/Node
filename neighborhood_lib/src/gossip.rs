@@ -1,13 +1,13 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use neighborhood_database::NodeRecord;
-use neighborhood_database::NodeRecordInner;
-use neighborhood_database::NodeSignatures;
+use crate::neighborhood_database::NodeRecord;
+use crate::neighborhood_database::NodeRecordInner;
+use crate::neighborhood_database::NodeSignatures;
+use serde_derive::{Deserialize, Serialize};
 use std::collections::HashSet;
-use sub_lib::cryptde::PublicKey;
-
 use std::fmt::Debug;
 use std::fmt::Error;
 use std::fmt::Formatter;
+use sub_lib::cryptde::PublicKey;
 
 #[derive(Clone, PartialEq, Hash, Eq, Serialize, Deserialize)]
 pub struct GossipNodeRecord {
@@ -16,7 +16,7 @@ pub struct GossipNodeRecord {
 }
 
 impl Debug for GossipNodeRecord {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         f.write_str(self.to_human_readable().as_str())
     }
 }
@@ -191,8 +191,8 @@ impl GossipBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gossip::GossipBuilder;
-    use neighborhood_test_utils::make_node_record;
+    use crate::gossip::GossipBuilder;
+    use crate::neighborhood_test_utils::make_node_record;
     use std::net::IpAddr;
     use std::str::FromStr;
     use sub_lib::node_addr::NodeAddr;

@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use serde_derive::{Deserialize, Serialize};
 use std::net::IpAddr;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::CryptData;
@@ -23,7 +24,7 @@ impl LiveCoresPackage {
 
     pub fn to_next_live(
         mut self,
-        cryptde: &CryptDE, // must be the CryptDE of the Node to which the top hop is encrypted
+        cryptde: &dyn CryptDE, // must be the CryptDE of the Node to which the top hop is encrypted
     ) -> Result<(LiveHop, LiveCoresPackage), RouteError> {
         let next_hop = self.route.shift(cryptde)?;
         let next_live = LiveCoresPackage::new(self.route, self.payload);
@@ -32,7 +33,7 @@ impl LiveCoresPackage {
 
     pub fn from_incipient(
         incipient: IncipientCoresPackage,
-        cryptde: &CryptDE, // must be the CryptDE of the Node to which the top hop is encrypted
+        cryptde: &dyn CryptDE, // must be the CryptDE of the Node to which the top hop is encrypted
     ) -> Result<(LiveCoresPackage, PublicKey), String> {
         let encrypted_payload =
             match cryptde.encode(&incipient.payload_destination_key, &incipient.payload) {
@@ -54,7 +55,7 @@ impl LiveCoresPackage {
     pub fn to_expired(
         self,
         immediate_neighbor_ip: IpAddr,
-        cryptde: &CryptDE, // Must be the CryptDE of the Node for which the payload is intended.
+        cryptde: &dyn CryptDE, // Must be the CryptDE of the Node for which the payload is intended.
     ) -> Result<ExpiredCoresPackage, String> {
         let payload = match cryptde.decode(&self.payload) {
             Ok(p) => p,

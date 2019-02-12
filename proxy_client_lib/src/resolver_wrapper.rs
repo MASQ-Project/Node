@@ -6,14 +6,14 @@ use trust_dns_resolver::error::ResolveError;
 use trust_dns_resolver::lookup_ip::LookupIp;
 use trust_dns_resolver::ResolverFuture;
 
-pub type WrappedLookupIpFuture = Future<Item = LookupIp, Error = ResolveError> + Send;
+pub type WrappedLookupIpFuture = dyn Future<Item = LookupIp, Error = ResolveError> + Send;
 
 pub trait ResolverWrapper: Send {
     fn lookup_ip(&self, host: Option<String>) -> Box<WrappedLookupIpFuture>;
 }
 
 pub trait ResolverWrapperFactory {
-    fn make(&self, config: ResolverConfig, options: ResolverOpts) -> Box<ResolverWrapper>;
+    fn make(&self, config: ResolverConfig, options: ResolverOpts) -> Box<dyn ResolverWrapper>;
 }
 
 pub struct ResolverWrapperReal {
@@ -30,7 +30,7 @@ impl ResolverWrapper for ResolverWrapperReal {
 
 pub struct ResolverWrapperFactoryReal;
 impl ResolverWrapperFactory for ResolverWrapperFactoryReal {
-    fn make(&self, config: ResolverConfig, options: ResolverOpts) -> Box<ResolverWrapper> {
+    fn make(&self, config: ResolverConfig, options: ResolverOpts) -> Box<dyn ResolverWrapper> {
         // THIS HAPPENS ONLY ONCE AT STARTUP during ProxyClient bind. So don't worry about the `wait()`.
         let delegate = Box::new(
             ResolverFuture::new(config, options)

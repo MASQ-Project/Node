@@ -1,16 +1,16 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 #![allow(proc_macro_derive_resolution_fallback)]
+use crate::resolver_wrapper::ResolverWrapper;
+use crate::stream_establisher::StreamEstablisherFactory;
+use crate::stream_establisher::StreamEstablisherFactoryReal;
 use actix::Recipient;
 use actix::Syn;
 use futures::future::Future;
-use resolver_wrapper::ResolverWrapper;
 use std::collections::HashMap;
 use std::sync::mpsc;
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use std::sync::Mutex;
-use stream_establisher::StreamEstablisherFactory;
-use stream_establisher::StreamEstablisherFactoryReal;
 use sub_lib::accountant::ReportExitServiceProvidedMessage;
 use sub_lib::channel_wrappers::SenderWrapper;
 use sub_lib::cryptde::CryptDE;
@@ -37,18 +37,18 @@ pub trait StreamHandlerPool {
 
 pub struct StreamHandlerPoolReal {
     inner: Arc<Mutex<StreamHandlerPoolRealInner>>,
-    stream_adder_rx: Receiver<(StreamKey, Box<SenderWrapper<SequencedPacket>>)>,
+    stream_adder_rx: Receiver<(StreamKey, Box<dyn SenderWrapper<SequencedPacket>>)>,
     stream_killer_rx: Receiver<StreamKey>,
-    _cryptde: &'static CryptDE, // This is not used now, but a version of it may be used in the future when ser/de and en/decrypt are combined.
+    _cryptde: &'static dyn CryptDE, // This is not used now, but a version of it may be used in the future when ser/de and en/decrypt are combined.
 }
 
 struct StreamHandlerPoolRealInner {
     hopper_sub: Recipient<Syn, IncipientCoresPackage>,
     accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
-    stream_writer_channels: HashMap<StreamKey, Box<SenderWrapper<SequencedPacket>>>,
-    resolver: Box<ResolverWrapper>,
+    stream_writer_channels: HashMap<StreamKey, Box<dyn SenderWrapper<SequencedPacket>>>,
+    resolver: Box<dyn ResolverWrapper>,
     logger: Logger,
-    establisher_factory: Box<StreamEstablisherFactory>,
+    establisher_factory: Box<dyn StreamEstablisherFactory>,
 }
 
 impl StreamHandlerPool for StreamHandlerPoolReal {
@@ -77,8 +77,8 @@ impl StreamHandlerPool for StreamHandlerPoolReal {
 
 impl StreamHandlerPoolReal {
     pub fn new(
-        resolver: Box<ResolverWrapper>,
-        cryptde: &'static CryptDE,
+        resolver: Box<dyn ResolverWrapper>,
+        cryptde: &'static dyn CryptDE,
         hopper_sub: Recipient<Syn, IncipientCoresPackage>,
         accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
     ) -> StreamHandlerPoolReal {
@@ -182,7 +182,7 @@ impl StreamHandlerPoolReal {
     }
 
     fn write_and_tend(
-        sender_wrapper: Box<SenderWrapper<SequencedPacket>>,
+        sender_wrapper: Box<dyn SenderWrapper<SequencedPacket>>,
         payload: ClientRequestPayload,
         consuming_wallet: Option<Wallet>,
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
@@ -221,7 +221,7 @@ impl StreamHandlerPoolReal {
         consuming_wallet: Option<Wallet>,
         return_route: Route,
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
-    ) -> impl Future<Item = Box<SenderWrapper<SequencedPacket> + 'static>, Error = String> {
+    ) -> impl Future<Item = Box<dyn SenderWrapper<SequencedPacket> + 'static>, Error = String> {
         // TODO: Figure out what to do if a flurry of requests for a particular stream key
         // come flooding in so densely that several of them arrive in the time it takes to
         // resolve the first one and add it to the stream_writers map.
@@ -265,7 +265,7 @@ impl StreamHandlerPoolReal {
     fn find_stream_with_key(
         stream_key: &StreamKey,
         inner_arc: &Arc<Mutex<StreamHandlerPoolRealInner>>,
-    ) -> Option<Box<SenderWrapper<SequencedPacket>>> {
+    ) -> Option<Box<dyn SenderWrapper<SequencedPacket>>> {
         let inner = inner_arc.lock().expect("Stream handler pool is poisoned");
         let sender_wrapper_opt = inner.stream_writer_channels.get(&stream_key);
         match sender_wrapper_opt {
@@ -281,7 +281,7 @@ impl StreamHandlerPoolReal {
 
     fn perform_write(
         sequenced_packet: SequencedPacket,
-        sender_wrapper: Box<SenderWrapper<SequencedPacket>>,
+        sender_wrapper: Box<dyn SenderWrapper<SequencedPacket>>,
     ) -> FutureResult<(), String> {
         match sender_wrapper.unbounded_send(sequenced_packet) {
             Ok(_) => ok::<(), String>(()),
@@ -348,11 +348,11 @@ impl StreamHandlerPoolReal {
 pub trait StreamHandlerPoolFactory {
     fn make(
         &self,
-        resolver: Box<ResolverWrapper>,
-        cryptde: &'static CryptDE,
+        resolver: Box<dyn ResolverWrapper>,
+        cryptde: &'static dyn CryptDE,
         hopper_sub: Recipient<Syn, IncipientCoresPackage>,
         accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
-    ) -> Box<StreamHandlerPool>;
+    ) -> Box<dyn StreamHandlerPool>;
 }
 
 pub struct StreamHandlerPoolFactoryReal {}
@@ -360,11 +360,11 @@ pub struct StreamHandlerPoolFactoryReal {}
 impl StreamHandlerPoolFactory for StreamHandlerPoolFactoryReal {
     fn make(
         &self,
-        resolver: Box<ResolverWrapper>,
-        cryptde: &'static CryptDE,
+        resolver: Box<dyn ResolverWrapper>,
+        cryptde: &'static dyn CryptDE,
         hopper_sub: Recipient<Syn, IncipientCoresPackage>,
         accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
-    ) -> Box<StreamHandlerPool> {
+    ) -> Box<dyn StreamHandlerPool> {
         Box::new(StreamHandlerPoolReal::new(
             resolver,
             cryptde,
@@ -377,16 +377,18 @@ impl StreamHandlerPoolFactory for StreamHandlerPoolFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::local_test_utils::make_send_error;
+    use crate::local_test_utils::ResolverWrapperMock;
+    use crate::stream_establisher::StreamEstablisher;
     use actix::Actor;
     use actix::Addr;
     use actix::Context;
     use actix::Handler;
+    use actix::Message;
     use actix::System;
     use futures::lazy;
     use futures::sync::mpsc::unbounded;
     use futures::Stream;
-    use local_test_utils::make_send_error;
-    use local_test_utils::ResolverWrapperMock;
     use serde_cbor;
     use std::cell::RefCell;
     use std::io::Error;
@@ -399,7 +401,6 @@ mod tests {
     use std::sync::Mutex;
     use std::thread;
     use std::time::Duration;
-    use stream_establisher::StreamEstablisher;
     use sub_lib::channel_wrappers::FuturesChannelFactoryReal;
     use sub_lib::channel_wrappers::SenderWrapperReal;
     use sub_lib::cryptde::PlainData;
@@ -414,9 +415,9 @@ mod tests {
     use test_utils::recorder::make_peer_actors_from;
     use test_utils::recorder::make_recorder;
     use test_utils::stream_connector_mock::StreamConnectorMock;
-    use test_utils::test_utils;
     use test_utils::test_utils::await_messages;
     use test_utils::test_utils::cryptde;
+    use test_utils::test_utils::make_meaningless_route;
     use test_utils::test_utils::make_meaningless_stream_key;
     use test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
@@ -488,7 +489,7 @@ mod tests {
         let package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
             Some(Wallet::new("consuming")),
-            test_utils::make_meaningless_route(),
+            make_meaningless_route(),
             PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
         );
         let package_a = package.clone();
@@ -566,7 +567,7 @@ mod tests {
         let package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
             None,
-            test_utils::make_meaningless_route(),
+            make_meaningless_route(),
             PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
         );
         let (hopper, _, _) = make_recorder();
@@ -630,7 +631,7 @@ mod tests {
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
                 Some(Wallet::new("consuming")),
-                test_utils::make_meaningless_route(),
+                make_meaningless_route(),
                 PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
             );
             let system = System::new("test");
@@ -698,7 +699,7 @@ mod tests {
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
                 Some(Wallet::new("consuming")),
-                test_utils::make_meaningless_route(),
+                make_meaningless_route(),
                 PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
             );
             let resolver = ResolverWrapperMock::new()
@@ -762,7 +763,7 @@ mod tests {
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
                 Some(Wallet::new("consuming")),
-                test_utils::make_meaningless_route(),
+                make_meaningless_route(),
                 PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
             );
             let resolver = ResolverWrapperMock::new()
@@ -837,7 +838,7 @@ mod tests {
         assert_eq!(
             *record,
             IncipientCoresPackage::new(
-                test_utils::make_meaningless_route(),
+                make_meaningless_route(),
                 ClientResponsePayload {
                     stream_key: make_meaningless_stream_key(),
                     sequenced_packet: SequencedPacket {
@@ -876,7 +877,7 @@ mod tests {
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
                 Some(Wallet::new("consuming")),
-                test_utils::make_meaningless_route(),
+                make_meaningless_route(),
                 PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
             );
             let resolver = ResolverWrapperMock::new()
@@ -962,7 +963,7 @@ mod tests {
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
                 Some(Wallet::new("consuming")),
-                test_utils::make_meaningless_route(),
+                make_meaningless_route(),
                 PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
             );
             let resolver = ResolverWrapperMock::new()
@@ -1067,7 +1068,7 @@ mod tests {
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
                 Some(Wallet::new("consuming")),
-                test_utils::make_meaningless_route(),
+                make_meaningless_route(),
                 PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
             );
             let system = System::new("test");
@@ -1130,7 +1131,7 @@ mod tests {
         let package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
             Some(Wallet::new("consuming")),
-            test_utils::make_meaningless_route(),
+            make_meaningless_route(),
             PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
         );
         let (tx, rx) = mpsc::channel();
@@ -1205,7 +1206,7 @@ mod tests {
         let package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
             Some(Wallet::new("consuming")),
-            test_utils::make_meaningless_route(),
+            make_meaningless_route(),
             PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
         );
         let mut sender_wrapper =
@@ -1273,7 +1274,7 @@ mod tests {
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
                 Some(Wallet::new("consuming")),
-                test_utils::make_meaningless_route(),
+                make_meaningless_route(),
                 PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
             );
             let resolver = ResolverWrapperMock::new();

@@ -1,11 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-extern crate entry_dns_lib;
-extern crate sub_lib;
+
+use sub_lib;
 
 mod utils;
 
+use crate::utils::CommandConfig;
 use sub_lib::crash_point::CrashPoint;
-use utils::CommandConfig;
 
 #[cfg(unix)]
 #[test]

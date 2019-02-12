@@ -1,7 +1,4 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-extern crate node_lib;
-extern crate sub_lib;
-extern crate test_utils;
 
 use self::sub_lib::utils::indicates_dead_stream;
 use std::borrow::BorrowMut;
@@ -20,10 +17,12 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
 use std::thread;
+use sub_lib;
 use sub_lib::framer::Framer;
 use sub_lib::main_tools::Command;
 use sub_lib::main_tools::StdStreams;
 use sub_lib::node_addr::NodeAddr;
+use test_utils;
 use test_utils::data_hunk::DataHunk;
 use test_utils::data_hunk_framer::DataHunkFramer;
 
@@ -31,13 +30,13 @@ pub const CONTROL_STREAM_PORT: u16 = 42511;
 
 #[allow(dead_code)] // Lint says this isn't used. I say fooey.
 pub fn main() {
-    let mut streams: StdStreams = StdStreams {
+    let mut streams: StdStreams<'_> = StdStreams {
         stdin: &mut io::stdin(),
         stdout: &mut io::stdout(),
         stderr: &mut io::stderr(),
     };
     let mut command = MockNode::new();
-    let streams_ref: &mut StdStreams = &mut streams;
+    let streams_ref: &mut StdStreams<'_> = &mut streams;
     let exit_code = command.go(streams_ref, &env::args().collect());
     process::exit(exit_code as i32);
 }
@@ -55,7 +54,7 @@ struct MockNode {
 }
 
 impl Command for MockNode {
-    fn go(&mut self, streams: &mut StdStreams, args: &Vec<String>) -> u8 {
+    fn go(&mut self, streams: &mut StdStreams<'_>, args: &Vec<String>) -> u8 {
         let node_addr = match Self::interpret_args(args, streams.stderr) {
             Ok(p) => p,
             Err(msg) => {
@@ -120,7 +119,7 @@ impl MockNode {
         &mut self.guts_mut().read_control_stream
     }
 
-    pub fn write_control_stream(&self) -> MutexGuard<TcpStream> {
+    pub fn write_control_stream(&self) -> MutexGuard<'_, TcpStream> {
         self.guts()
             .write_control_stream_arc
             .lock()
@@ -131,14 +130,14 @@ impl MockNode {
         self.guts().write_control_stream_arc.clone()
     }
 
-    pub fn write_streams(&self) -> MutexGuard<HashMap<SocketAddr, TcpStream>> {
+    pub fn write_streams(&self) -> MutexGuard<'_, HashMap<SocketAddr, TcpStream>> {
         self.guts()
             .write_streams_arc
             .lock()
             .expect("Write streams poisoned")
     }
 
-    fn initialize(&mut self, stderr: &mut Write) -> u8 {
+    fn initialize(&mut self, stderr: &mut dyn Write) -> u8 {
         let open_err_msgs = self
             .node_addr()
             .ports()
@@ -163,7 +162,7 @@ impl MockNode {
                         let data_hunk: DataHunk = chunk.chunk.into();
                         let mut write_streams = self.write_streams();
                         if !write_streams.contains_key(&data_hunk.to) {
-                            let mut stream = match TcpStream::connect(data_hunk.to) {
+                            let stream = match TcpStream::connect(data_hunk.to) {
                                 Err(e) => {
                                     writeln!(
                                         stderr,
@@ -182,7 +181,7 @@ impl MockNode {
                                 data_hunk.to,
                             );
                         }
-                        let mut write_stream = write_streams.get_mut(&data_hunk.to).unwrap();
+                        let write_stream = write_streams.get_mut(&data_hunk.to).unwrap();
                         if !Self::write_with_retry(write_stream, &data_hunk.data[..], data_hunk.to)
                         {
                             return 1;
@@ -213,12 +212,12 @@ impl MockNode {
         self.guts.as_mut().expect("MockNode uninitialized")
     }
 
-    fn usage(stderr: &mut Write) -> u8 {
+    fn usage(stderr: &mut dyn Write) -> u8 {
         writeln! (stderr, "Usage: MockNode <IP address>:<port>,[<port>,...] where <IP address> is the address MockNode is running on and <port> is between 1024 and 65535").unwrap ();
         return 1;
     }
 
-    fn interpret_args(args: &Vec<String>, stderr: &mut Write) -> Result<NodeAddr, String> {
+    fn interpret_args(args: &Vec<String>, stderr: &mut dyn Write) -> Result<NodeAddr, String> {
         if args.len() != 2 {
             Self::usage(stderr);
             return Err(String::new());
@@ -369,7 +368,7 @@ mod tests {
         thread::spawn(move || {
             let mut subject = MockNode::new();
             subject.control_stream_port = control_stream_port;
-            let mut streams: StdStreams = StdStreams {
+            let mut streams: StdStreams<'_> = StdStreams {
                 stdin: &mut io::stdin(),
                 stdout: &mut io::stdout(),
                 stderr: &mut io::stderr(),
@@ -412,7 +411,7 @@ mod tests {
         thread::spawn(move || {
             let mut subject = MockNode::new();
             subject.control_stream_port = control_stream_port;
-            let mut streams: StdStreams = StdStreams {
+            let mut streams: StdStreams<'_> = StdStreams {
                 stdin: &mut io::stdin(),
                 stdout: &mut io::stdout(),
                 stderr: &mut io::stderr(),

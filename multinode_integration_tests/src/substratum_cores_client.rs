@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::substratum_client::SubstratumNodeClient;
 use hopper_lib::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::Masquerader;
@@ -8,15 +9,14 @@ use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::PlainData;
 use sub_lib::cryptde::PublicKey;
 use sub_lib::hopper::IncipientCoresPackage;
-use substratum_client::SubstratumNodeClient;
 
 pub struct SubstratumCoresClient<'a> {
-    cryptde: &'a CryptDE,
+    cryptde: &'a dyn CryptDE,
     delegate: SubstratumNodeClient,
 }
 
 impl<'a> SubstratumCoresClient<'a> {
-    pub fn new(socket_addr: SocketAddr, cryptde: &'a CryptDE) -> SubstratumCoresClient<'a> {
+    pub fn new(socket_addr: SocketAddr, cryptde: &'a dyn CryptDE) -> SubstratumCoresClient<'a> {
         SubstratumCoresClient {
             cryptde,
             delegate: SubstratumNodeClient::new(socket_addr),

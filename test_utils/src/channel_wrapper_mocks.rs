@@ -10,11 +10,14 @@ use sub_lib::channel_wrappers::SenderWrapper;
 use tokio::prelude::Async;
 
 pub struct FuturesChannelFactoryMock<T> {
-    pub results: Vec<(Box<SenderWrapper<T>>, Box<ReceiverWrapper<T>>)>,
+    pub results: Vec<(Box<dyn SenderWrapper<T>>, Box<dyn ReceiverWrapper<T>>)>,
 }
 
 impl<T: 'static + Clone + Debug + Send> FuturesChannelFactory<T> for FuturesChannelFactoryMock<T> {
-    fn make(&mut self, peer_addr: SocketAddr) -> (Box<SenderWrapper<T>>, Box<ReceiverWrapper<T>>) {
+    fn make(
+        &mut self,
+        peer_addr: SocketAddr,
+    ) -> (Box<dyn SenderWrapper<T>>, Box<dyn ReceiverWrapper<T>>) {
         if self.results.is_empty() {
             (
                 Box::new(SenderWrapperMock::new(peer_addr)),
@@ -65,7 +68,7 @@ impl<T: 'static + Clone + Debug + Send> SenderWrapper<T> for SenderWrapperMock<T
         self.peer_addr
     }
 
-    fn clone(&self) -> Box<SenderWrapper<T>> {
+    fn clone(&self) -> Box<dyn SenderWrapper<T>> {
         Box::new(SenderWrapperMock {
             peer_addr: self.peer_addr,
             unbounded_send_params: self.unbounded_send_params.clone(),

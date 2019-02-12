@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use http_protocol_pack::HttpProtocolPack;
-use protocol_pack::ProtocolPack;
+use crate::http_protocol_pack::HttpProtocolPack;
+use crate::protocol_pack::ProtocolPack;
+use crate::tls_protocol_pack::TlsProtocolPack;
 use std::collections::HashMap;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::PlainData;
@@ -9,15 +10,14 @@ use sub_lib::logger::Logger;
 use sub_lib::proxy_server::ClientRequestPayload;
 use sub_lib::sequence_buffer::SequencedPacket;
 use sub_lib::stream_key::StreamKey;
-use tls_protocol_pack::TlsProtocolPack;
 
 pub struct ClientRequestPayloadFactory {
-    protocol_packs: HashMap<u16, Box<ProtocolPack>>,
+    protocol_packs: HashMap<u16, Box<dyn ProtocolPack>>,
 }
 
 impl ClientRequestPayloadFactory {
     pub fn new() -> ClientRequestPayloadFactory {
-        let mut protocol_packs: HashMap<u16, Box<ProtocolPack>> = HashMap::new();
+        let mut protocol_packs: HashMap<u16, Box<dyn ProtocolPack>> = HashMap::new();
         protocol_packs.insert(80, Box::new(HttpProtocolPack {}));
         protocol_packs.insert(443, Box::new(TlsProtocolPack {}));
         ClientRequestPayloadFactory { protocol_packs }
@@ -27,7 +27,7 @@ impl ClientRequestPayloadFactory {
         &self,
         ibcd: &InboundClientData,
         stream_key: StreamKey,
-        cryptde: &CryptDE,
+        cryptde: &dyn CryptDE,
         logger: &Logger,
     ) -> Option<ClientRequestPayload> {
         let origin_port = match ibcd.reception_port {

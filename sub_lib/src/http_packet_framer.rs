@@ -1,16 +1,16 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use framer::FramedChunk;
-use framer::Framer;
-use framer_utils;
-use logger::Logger;
+use crate::framer::FramedChunk;
+use crate::framer::Framer;
+use crate::framer_utils;
+use crate::logger::Logger;
+use crate::utils::index_of;
+use crate::utils::index_of_from;
+use crate::utils::to_string;
 use regex::Regex;
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::usize;
-use utils::index_of;
-use utils::index_of_from;
-use utils::to_string;
 
 #[derive(Debug, PartialEq)]
 pub enum PacketProgressState {
@@ -46,7 +46,7 @@ pub struct HttpFramerState {
 }
 
 impl Debug for HttpFramerState {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(f, "HttpFramerState {{")?;
         writeln!(f, "  data_so_far: {}", to_string(&self.data_so_far))?;
         writeln!(f, "  state: {:?}", self.packet_progress_state)?;
@@ -73,7 +73,7 @@ pub trait HttpPacketStartFinder: Send {
 
 pub struct HttpPacketFramer {
     framer_state: HttpFramerState,
-    start_finder: Box<HttpPacketStartFinder>,
+    start_finder: Box<dyn HttpPacketStartFinder>,
     logger: Logger,
 }
 
@@ -92,7 +92,7 @@ impl Framer for HttpPacketFramer {
 }
 
 impl HttpPacketFramer {
-    pub fn new(start_finder: Box<HttpPacketStartFinder>) -> HttpPacketFramer {
+    pub fn new(start_finder: Box<dyn HttpPacketStartFinder>) -> HttpPacketFramer {
         HttpPacketFramer {
             framer_state: HttpFramerState {
                 data_so_far: Vec::new(),
@@ -386,9 +386,9 @@ pub fn summarize_http_packet(request: &Vec<u8>) -> String {
 #[cfg(test)]
 mod framer_tests {
     use super::*;
-    use http_response_start_finder::HttpResponseStartFinder;
-    use utils::to_string;
-    use utils::to_string_s;
+    use crate::http_response_start_finder::HttpResponseStartFinder;
+    use crate::utils::to_string;
+    use crate::utils::to_string_s;
 
     const GOOD_FIRST_LINE: [u8; 15] = *b"GOOD_FIRST_LINE";
 

@@ -1,10 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::discriminator::Discriminator;
+use crate::discriminator::DiscriminatorFactory;
+use crate::stream_messages::*;
 use actix::Recipient;
 use actix::Syn;
-use discriminator::Discriminator;
-use discriminator::DiscriminatorFactory;
 use std::net::SocketAddr;
-use stream_messages::*;
 use sub_lib::dispatcher;
 use sub_lib::dispatcher::InboundClientData;
 use sub_lib::logger::Logger;
@@ -15,7 +15,7 @@ use tokio::prelude::Async;
 use tokio::prelude::Future;
 
 pub struct StreamReaderReal {
-    stream: Box<ReadHalfWrapper>,
+    stream: Box<dyn ReadHalfWrapper>,
     local_addr: SocketAddr,
     peer_addr: SocketAddr,
     reception_port: Option<u16>,
@@ -73,11 +73,11 @@ impl Future for StreamReaderReal {
 
 impl StreamReaderReal {
     pub fn new(
-        stream: Box<ReadHalfWrapper>,
+        stream: Box<dyn ReadHalfWrapper>,
         reception_port: Option<u16>,
         ibcd_sub: Recipient<Syn, dispatcher::InboundClientData>,
         remove_sub: Recipient<Syn, RemoveStreamMsg>,
-        discriminator_factories: Vec<Box<DiscriminatorFactory>>,
+        discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
         is_clandestine: bool,
         peer_addr: SocketAddr,
         local_addr: SocketAddr,
@@ -170,23 +170,23 @@ impl StreamReaderReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
+    use crate::json_discriminator_factory::JsonDiscriminatorFactory;
+    use crate::json_masquerader::JsonMasquerader;
+    use crate::masquerader::Masquerader;
+    use crate::node_test_utils::make_stream_handler_pool_subs_from;
+    use crate::stream_handler_pool::StreamHandlerPoolSubs;
     use actix::msgs;
     use actix::Actor;
     use actix::Addr;
     use actix::Arbiter;
     use actix::System;
-    use http_request_start_finder::HttpRequestDiscriminatorFactory;
-    use json_discriminator_factory::JsonDiscriminatorFactory;
-    use json_masquerader::JsonMasquerader;
-    use masquerader::Masquerader;
-    use node_test_utils::make_stream_handler_pool_subs_from;
     use std::io;
     use std::io::ErrorKind;
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::sync::Arc;
     use std::sync::Mutex;
-    use stream_handler_pool::StreamHandlerPoolSubs;
     use sub_lib::dispatcher::DispatcherSubs;
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
@@ -222,7 +222,7 @@ mod tests {
         let (d_awaiter, d_recording_arc, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
-        let discriminator_factories: Vec<Box<DiscriminatorFactory>> =
+        let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
             vec![Box::new(HttpRequestDiscriminatorFactory::new())];
         let reader = ReadHalfWrapperMock {
             poll_read_results: vec![(vec![], Ok(Async::Ready(0)))],
@@ -281,7 +281,7 @@ mod tests {
         let (d_awaiter, d_recording_arc, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
-        let discriminator_factories: Vec<Box<DiscriminatorFactory>> =
+        let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
             vec![Box::new(HttpRequestDiscriminatorFactory::new())];
         let reader = ReadHalfWrapperMock {
             poll_read_results: vec![(vec![], Err(io::Error::from(ErrorKind::BrokenPipe)))],
@@ -340,7 +340,7 @@ mod tests {
         let (_d_awaiter, d_recording_arc, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
-        let discriminator_factories: Vec<Box<DiscriminatorFactory>> =
+        let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
             vec![Box::new(HttpRequestDiscriminatorFactory::new())];
         let reader = ReadHalfWrapperMock {
             poll_read_results: vec![(vec![], Ok(Async::NotReady))],
@@ -380,7 +380,7 @@ mod tests {
         let (_d_awaiter, d_recording_arc, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
-        let discriminator_factories: Vec<Box<DiscriminatorFactory>> =
+        let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
             vec![Box::new(HttpRequestDiscriminatorFactory::new())];
         let reader = ReadHalfWrapperMock {
             poll_read_results: vec![
@@ -424,7 +424,7 @@ mod tests {
         let (_d_awaiter, _d_recording_arc, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
-        let discriminator_factories: Vec<Box<DiscriminatorFactory>> = vec![];
+        let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> = vec![];
         let reader = ReadHalfWrapperMock {
             poll_read_results: vec![(vec![], Ok(Async::Ready(5)))],
         };
@@ -450,7 +450,7 @@ mod tests {
         let (d_awaiter, d_recording_arc, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
-        let discriminator_factories: Vec<Box<DiscriminatorFactory>> =
+        let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
             vec![Box::new(HttpRequestDiscriminatorFactory::new())];
         let partial_request = Vec::from("GET http://her".as_bytes());
         let remaining_request = Vec::from("e.com HTTP/1.1\r\n\r\n".as_bytes());
@@ -510,7 +510,7 @@ mod tests {
         let (d_awaiter, d_recording_arc, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
-        let discriminator_factories: Vec<Box<DiscriminatorFactory>> =
+        let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
             vec![Box::new(HttpRequestDiscriminatorFactory::new())];
         let request1 = Vec::from("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes());
         let request2 = Vec::from("GET http://example.com HTTP/1.1\r\n\r\n".as_bytes());
@@ -576,7 +576,7 @@ mod tests {
         let (d_awaiter, d_recording_arc, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
-        let discriminator_factories: Vec<Box<DiscriminatorFactory>> =
+        let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
             vec![Box::new(JsonDiscriminatorFactory::new())];
         let json_masquerader = JsonMasquerader::new();
         let request = Vec::from(

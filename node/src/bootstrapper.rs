@@ -1,14 +1,15 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use actor_system_factory::ActorFactoryReal;
-use actor_system_factory::ActorSystemFactory;
-use actor_system_factory::ActorSystemFactoryReal;
+use crate::actor_system_factory::ActorFactoryReal;
+use crate::actor_system_factory::ActorSystemFactory;
+use crate::actor_system_factory::ActorSystemFactoryReal;
+use crate::configuration::Configuration;
+use crate::crash_test_dummy::CrashTestDummy;
+use crate::discriminator::DiscriminatorFactory;
+use crate::listener_handler::ListenerHandler;
+use crate::listener_handler::ListenerHandlerFactory;
+use crate::listener_handler::ListenerHandlerFactoryReal;
 use base64;
-use configuration::Configuration;
-use crash_test_dummy::CrashTestDummy;
-use discriminator::DiscriminatorFactory;
-use listener_handler::ListenerHandler;
-use listener_handler::ListenerHandlerFactory;
-use listener_handler::ListenerHandlerFactoryReal;
+use futures::try_ready;
 use regex::Regex;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -44,7 +45,7 @@ pub struct BootstrapperConfig {
     pub neighborhood_config: NeighborhoodConfig,
     pub accountant_config: AccountantConfig,
     pub crash_point: CrashPoint,
-    pub clandestine_discriminator_factories: Vec<Box<DiscriminatorFactory>>,
+    pub clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
     pub ui_gateway_config: UiGatewayConfig,
 }
 
@@ -74,9 +75,9 @@ impl BootstrapperConfig {
 
 // TODO: Consider splitting this into a piece that's meant for being root and a piece that's not.
 pub struct Bootstrapper {
-    listener_handler_factory: Box<ListenerHandlerFactory>,
-    listener_handlers: FuturesUnordered<Box<ListenerHandler<Item = (), Error = ()>>>,
-    actor_system_factory: Box<ActorSystemFactory>,
+    listener_handler_factory: Box<dyn ListenerHandlerFactory>,
+    listener_handlers: FuturesUnordered<Box<dyn ListenerHandler<Item = (), Error = ()>>>,
+    actor_system_factory: Box<dyn ActorSystemFactory>,
     config: Option<BootstrapperConfig>,
 }
 
@@ -99,7 +100,7 @@ impl SocketServer for Bootstrapper {
         String::from("Dispatcher")
     }
 
-    fn initialize_as_privileged(&mut self, args: &Vec<String>, streams: &mut StdStreams) {
+    fn initialize_as_privileged(&mut self, args: &Vec<String>, streams: &mut StdStreams<'_>) {
         let mut configuration = Configuration::new();
         configuration.establish(args);
         let cryptde_ref = Bootstrapper::initialize_cryptde();
@@ -114,7 +115,7 @@ impl SocketServer for Bootstrapper {
         );
         self.config = Some(config);
         self.listener_handlers =
-            FuturesUnordered::<Box<ListenerHandler<Item = (), Error = ()>>>::new();
+            FuturesUnordered::<Box<dyn ListenerHandler<Item = (), Error = ()>>>::new();
 
         configuration
             .port_configurations
@@ -153,8 +154,8 @@ impl Bootstrapper {
     pub fn new() -> Bootstrapper {
         Bootstrapper {
             listener_handler_factory: Box::new(ListenerHandlerFactoryReal::new()),
-            listener_handlers: FuturesUnordered::<Box<ListenerHandler<Item = (), Error = ()>>>::new(
-            ),
+            listener_handlers:
+                FuturesUnordered::<Box<dyn ListenerHandler<Item = (), Error = ()>>>::new(),
             actor_system_factory: Box::new(ActorSystemFactoryReal {}),
             config: None,
         }
@@ -343,7 +344,7 @@ impl Bootstrapper {
         config.neighborhood_config.clandestine_port_list = clandestine_ports;
     }
 
-    fn initialize_cryptde() -> &'static CryptDE {
+    fn initialize_cryptde() -> &'static dyn CryptDE {
         let mut exemplar = CryptDENull::new();
         exemplar.generate_key_pair();
         let cryptde: &'static CryptDENull = unsafe {
@@ -354,10 +355,10 @@ impl Bootstrapper {
     }
 
     fn report_local_descriptor(
-        cryptde: &CryptDE,
+        cryptde: &dyn CryptDE,
         ip_addr: IpAddr,
         ports: Vec<u16>,
-        streams: &mut StdStreams,
+        streams: &mut StdStreams<'_>,
     ) {
         let port_strings: Vec<String> = ports.iter().map(|n| format!("{}", n)).collect();
         let port_list = port_strings.join(",");
@@ -375,16 +376,18 @@ impl Bootstrapper {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::actor_system_factory::ActorFactory;
+    use crate::configuration::PortConfiguration;
+    use crate::discriminator::Discriminator;
+    use crate::discriminator::UnmaskedChunk;
+    use crate::node_test_utils::extract_log;
+    use crate::node_test_utils::make_stream_handler_pool_subs_from;
+    use crate::node_test_utils::TestLogOwner;
+    use crate::stream_handler_pool::StreamHandlerPoolSubs;
+    use crate::stream_messages::AddStreamMsg;
     use actix::Recipient;
     use actix::Syn;
     use actix::System;
-    use actor_system_factory::ActorFactory;
-    use configuration::PortConfiguration;
-    use discriminator::Discriminator;
-    use discriminator::UnmaskedChunk;
-    use node_test_utils::extract_log;
-    use node_test_utils::make_stream_handler_pool_subs_from;
-    use node_test_utils::TestLogOwner;
     use regex::Regex;
     use std::cell::RefCell;
     use std::io;
@@ -399,8 +402,6 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
-    use stream_handler_pool::StreamHandlerPoolSubs;
-    use stream_messages::AddStreamMsg;
     use sub_lib::cryptde::PlainData;
     use sub_lib::parameter_finder::ParameterFinder;
     use sub_lib::stream_connector::ConnectionInfo;
@@ -419,13 +420,13 @@ mod tests {
 
     struct ListenerHandlerFactoryMock {
         log: TestLog,
-        mocks: RefCell<Vec<Box<ListenerHandler<Item = (), Error = ()>>>>,
+        mocks: RefCell<Vec<Box<dyn ListenerHandler<Item = (), Error = ()>>>>,
     }
 
     unsafe impl Sync for ListenerHandlerFactoryMock {}
 
     impl ListenerHandlerFactory for ListenerHandlerFactoryMock {
-        fn make(&self) -> Box<ListenerHandler<Item = (), Error = ()>> {
+        fn make(&self) -> Box<dyn ListenerHandler<Item = (), Error = ()>> {
             self.log.log(format!("make ()"));
             self.mocks.borrow_mut().remove(0)
         }
@@ -439,7 +440,7 @@ mod tests {
             }
         }
 
-        fn add(&mut self, mock: Box<ListenerHandler<Item = (), Error = ()>>) {
+        fn add(&mut self, mock: Box<dyn ListenerHandler<Item = (), Error = ()>>) {
             self.mocks.borrow_mut().push(mock)
         }
     }
@@ -450,7 +451,7 @@ mod tests {
         port_configuration_parameter: Option<PortConfiguration>,
         add_stream_sub: Option<Recipient<Syn, AddStreamMsg>>,
         add_stream_msgs: Arc<Mutex<Vec<AddStreamMsg>>>,
-        _listen_results: Vec<Box<ListenerHandler<Item = (), Error = ()>>>,
+        _listen_results: Vec<Box<dyn ListenerHandler<Item = (), Error = ()>>>,
     }
 
     impl ListenerHandler for ListenerHandlerNull {
@@ -1367,7 +1368,7 @@ mod tests {
         fn make_and_start_actors(
             &self,
             config: BootstrapperConfig,
-            _actor_factory: Box<ActorFactory>,
+            _actor_factory: Box<dyn ActorFactory>,
         ) -> StreamHandlerPoolSubs {
             let mut parameter_guard = self.dnss.lock().unwrap();
             let parameter_ref = parameter_guard.deref_mut();
@@ -1405,7 +1406,7 @@ mod tests {
 
     struct BootstrapperBuilder {
         configuration: Option<Configuration>,
-        actor_system_factory: Box<ActorSystemFactory>,
+        actor_system_factory: Box<dyn ActorSystemFactory>,
         listener_handler_factory: ListenerHandlerFactoryMock,
     }
 
@@ -1427,7 +1428,7 @@ mod tests {
 
         fn actor_system_factory(
             mut self,
-            actor_system_factory: Box<ActorSystemFactory>,
+            actor_system_factory: Box<dyn ActorSystemFactory>,
         ) -> BootstrapperBuilder {
             self.actor_system_factory = actor_system_factory;
             self
@@ -1435,7 +1436,7 @@ mod tests {
 
         fn add_listener_handler(
             mut self,
-            listener_handler: Box<ListenerHandler<Item = (), Error = ()>>,
+            listener_handler: Box<dyn ListenerHandler<Item = (), Error = ()>>,
         ) -> BootstrapperBuilder {
             self.listener_handler_factory.add(listener_handler);
             self
@@ -1445,8 +1446,9 @@ mod tests {
             Bootstrapper {
                 actor_system_factory: self.actor_system_factory,
                 listener_handler_factory: Box::new(self.listener_handler_factory),
-                listener_handlers:
-                    FuturesUnordered::<Box<ListenerHandler<Item = (), Error = ()>>>::new(),
+                listener_handlers: FuturesUnordered::<
+                    Box<dyn ListenerHandler<Item = (), Error = ()>>,
+                >::new(),
                 config: None,
             }
         }

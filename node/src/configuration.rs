@@ -1,14 +1,14 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use discriminator::DiscriminatorFactory;
-use http_request_start_finder::HttpRequestDiscriminatorFactory;
-use json_discriminator_factory::JsonDiscriminatorFactory;
+use crate::discriminator::DiscriminatorFactory;
+use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
+use crate::json_discriminator_factory::JsonDiscriminatorFactory;
+use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::net::UdpSocket;
 use sub_lib::parameter_finder::ParameterFinder;
-use tls_discriminator_factory::TlsDiscriminatorFactory;
 
 // TODO: This should be subsumed into BootstrapperConfig
 pub struct Configuration {
@@ -82,13 +82,13 @@ impl Configuration {
 
 #[derive(Clone)]
 pub struct PortConfiguration {
-    pub discriminator_factories: Vec<Box<DiscriminatorFactory>>,
+    pub discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
     pub is_clandestine: bool,
 }
 
 impl PortConfiguration {
     pub fn new(
-        discriminator_factories: Vec<Box<DiscriminatorFactory>>,
+        discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
         is_clandestine: bool,
     ) -> PortConfiguration {
         PortConfiguration {
@@ -101,8 +101,8 @@ impl PortConfiguration {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use discriminator::UnmaskedChunk;
-    use node_test_utils::NullDiscriminatorFactory;
+    use crate::discriminator::UnmaskedChunk;
+    use crate::node_test_utils::NullDiscriminatorFactory;
     use test_utils::test_utils::assert_contains;
 
     #[test]

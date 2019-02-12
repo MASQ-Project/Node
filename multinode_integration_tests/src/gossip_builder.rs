@@ -1,3 +1,5 @@
+// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::substratum_node::SubstratumNode;
 use neighborhood_lib::gossip::Gossip;
 use neighborhood_lib::gossip::GossipNodeRecord;
 use neighborhood_lib::neighborhood_database::NodeRecordInner;
@@ -10,7 +12,6 @@ use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::route::Route;
 use sub_lib::route::RouteSegment;
 use sub_lib::wallet::Wallet;
-use substratum_node::SubstratumNode;
 
 pub struct GossipBuilder {
     consuming_wallet: Option<Wallet>,
@@ -27,7 +28,12 @@ impl GossipBuilder {
         }
     }
 
-    pub fn add_node(mut self, node: &SubstratumNode, is_bootstrap: bool, include_ip: bool) -> Self {
+    pub fn add_node(
+        mut self,
+        node: &dyn SubstratumNode,
+        is_bootstrap: bool,
+        include_ip: bool,
+    ) -> Self {
         self.node_info.push(GossipBuilderNodeInfo {
             node_record_inner: NodeRecordInner {
                 public_key: node.public_key(),
@@ -108,5 +114,5 @@ impl GossipBuilder {
 
 struct GossipBuilderNodeInfo {
     node_record_inner: NodeRecordInner,
-    cryptde: Box<CryptDE>,
+    cryptde: Box<dyn CryptDE>,
 }

@@ -14,7 +14,7 @@ pub struct PrivateKey {
 }
 
 impl fmt::Display for PrivateKey {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
             "{}",
@@ -24,7 +24,7 @@ impl fmt::Display for PrivateKey {
 }
 
 impl fmt::Debug for PrivateKey {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
             "{}",
@@ -97,7 +97,7 @@ impl<'de> Deserialize<'de> for PublicKey {
 }
 
 impl fmt::Display for PublicKey {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
             "{}",
@@ -107,7 +107,7 @@ impl fmt::Display for PublicKey {
 }
 
 impl fmt::Debug for PublicKey {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
             "{}",
@@ -159,7 +159,7 @@ struct KeyVisitor;
 impl<'a> Visitor<'a> for KeyVisitor {
     type Value = PublicKey;
 
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("a PublicKey struct")
     }
 
@@ -237,7 +237,7 @@ struct CryptDataVisitor;
 impl<'a> Visitor<'a> for CryptDataVisitor {
     type Value = CryptData;
 
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("a CryptData struct")
     }
 
@@ -315,7 +315,7 @@ struct PlainDataVisitor;
 impl<'a> Visitor<'a> for PlainDataVisitor {
     type Value = PlainData;
 
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("a PlainData struct")
     }
 
@@ -343,7 +343,7 @@ pub trait CryptDE: Send + Sync {
     fn private_key(&self) -> PrivateKey;
     fn public_key(&self) -> PublicKey;
     // This is dup instead of clone because making a trait Clone has unpleasant consequences.
-    fn dup(&self) -> Box<CryptDE>;
+    fn dup(&self) -> Box<dyn CryptDE>;
     fn sign(&self, data: &PlainData) -> Result<CryptData, CryptdecError>;
     fn verify_signature(
         &self,

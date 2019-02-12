@@ -1,4 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::tokio_wrapper_mocks::ReadHalfWrapperMock;
+use crate::tokio_wrapper_mocks::WriteHalfWrapperMock;
 use futures::future::result;
 use std::cell::RefCell;
 use std::io;
@@ -12,8 +14,6 @@ use sub_lib::stream_connector::ConnectionInfoFuture;
 use sub_lib::stream_connector::StreamConnector;
 use tokio::net::TcpStream;
 use tokio::prelude::Async;
-use tokio_wrapper_mocks::ReadHalfWrapperMock;
-use tokio_wrapper_mocks::WriteHalfWrapperMock;
 
 pub struct StreamConnectorMock {
     connect_pair_params: Arc<Mutex<Vec<SocketAddr>>>,

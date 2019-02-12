@@ -1,14 +1,17 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::bootstrapper;
+use crate::bootstrapper::BootstrapperConfig;
+use crate::discriminator::DiscriminatorFactory;
+use crate::dispatcher::Dispatcher;
+use crate::stream_handler_pool::StreamHandlerPool;
+use crate::stream_handler_pool::StreamHandlerPoolSubs;
+use crate::stream_messages::PoolBindMessage;
 use accountant_lib::accountant::Accountant;
 use actix::Actor;
 use actix::Addr;
 use actix::Recipient;
 use actix::Syn;
 use actix::System;
-use bootstrapper;
-use bootstrapper::BootstrapperConfig;
-use discriminator::DiscriminatorFactory;
-use dispatcher::Dispatcher;
 use hopper_lib::hopper::Hopper;
 use neighborhood_lib::neighborhood::Neighborhood;
 use proxy_client_lib::proxy_client::ProxyClient;
@@ -17,9 +20,6 @@ use std::net::SocketAddr;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 use std::thread;
-use stream_handler_pool::StreamHandlerPool;
-use stream_handler_pool::StreamHandlerPoolSubs;
-use stream_messages::PoolBindMessage;
 use sub_lib::accountant::AccountantConfig;
 use sub_lib::accountant::AccountantSubs;
 use sub_lib::cryptde::CryptDE;
@@ -41,7 +41,7 @@ pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(
         &self,
         config: BootstrapperConfig,
-        actor_factory: Box<ActorFactory>,
+        actor_factory: Box<dyn ActorFactory>,
     ) -> StreamHandlerPoolSubs;
 }
 
@@ -51,7 +51,7 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
     fn make_and_start_actors(
         &self,
         config: BootstrapperConfig,
-        actor_factory: Box<ActorFactory>,
+        actor_factory: Box<dyn ActorFactory>,
     ) -> StreamHandlerPoolSubs {
         let cryptde: &'static CryptDENull =
             unsafe { bootstrapper::CRYPT_DE_OPT.as_ref().expect("Internal error") };
@@ -74,9 +74,9 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
 
 impl ActorSystemFactoryReal {
     fn prepare_initial_messages(
-        cryptde: &'static CryptDE,
+        cryptde: &'static dyn CryptDE,
         config: BootstrapperConfig,
-        actor_factory: Box<ActorFactory>,
+        actor_factory: Box<dyn ActorFactory>,
         tx: Sender<StreamHandlerPoolSubs>,
     ) {
         // make all the actors
@@ -185,28 +185,28 @@ pub trait ActorFactory: Send {
     fn make_and_start_dispatcher(&self) -> (DispatcherSubs, Recipient<Syn, PoolBindMessage>);
     fn make_and_start_proxy_server(
         &self,
-        cryptde: &'static CryptDE,
+        cryptde: &'static dyn CryptDE,
         is_decentralized: bool,
     ) -> ProxyServerSubs;
     fn make_and_start_hopper(
         &self,
-        cryptde: &'static CryptDE,
+        cryptde: &'static dyn CryptDE,
         is_bootstrap_node: bool,
     ) -> HopperSubs;
     fn make_and_start_neighborhood(
         &self,
-        cryptde: &'static CryptDE,
+        cryptde: &'static dyn CryptDE,
         config: NeighborhoodConfig,
     ) -> NeighborhoodSubs;
     fn make_and_start_accountant(&self, config: AccountantConfig) -> AccountantSubs;
     fn make_and_start_ui_gateway(&self, config: UiGatewayConfig) -> UiGatewaySubs;
     fn make_and_start_stream_handler_pool(
         &self,
-        clandestine_discriminator_factories: Vec<Box<DiscriminatorFactory>>,
+        clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
     ) -> StreamHandlerPoolSubs;
     fn make_and_start_proxy_client(
         &self,
-        cryptde: &'static CryptDE,
+        cryptde: &'static dyn CryptDE,
         dns_servers: Vec<SocketAddr>,
     ) -> ProxyClientSubs;
 }
@@ -225,7 +225,7 @@ impl ActorFactory for ActorFactoryReal {
 
     fn make_and_start_proxy_server(
         &self,
-        cryptde: &'static CryptDE,
+        cryptde: &'static dyn CryptDE,
         is_decentralized: bool,
     ) -> ProxyServerSubs {
         let proxy_server = ProxyServer::new(cryptde, is_decentralized);
@@ -235,7 +235,7 @@ impl ActorFactory for ActorFactoryReal {
 
     fn make_and_start_hopper(
         &self,
-        cryptde: &'static CryptDE,
+        cryptde: &'static dyn CryptDE,
         is_bootstrap_node: bool,
     ) -> HopperSubs {
         let hopper = Hopper::new(cryptde, is_bootstrap_node);
@@ -245,7 +245,7 @@ impl ActorFactory for ActorFactoryReal {
 
     fn make_and_start_neighborhood(
         &self,
-        cryptde: &'static CryptDE,
+        cryptde: &'static dyn CryptDE,
         config: NeighborhoodConfig,
     ) -> NeighborhoodSubs {
         let neighborhood = Neighborhood::new(cryptde, config);
@@ -267,7 +267,7 @@ impl ActorFactory for ActorFactoryReal {
 
     fn make_and_start_stream_handler_pool(
         &self,
-        clandestine_discriminator_factories: Vec<Box<DiscriminatorFactory>>,
+        clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
     ) -> StreamHandlerPoolSubs {
         let pool = StreamHandlerPool::new(clandestine_discriminator_factories);
         let addr: Addr<Syn, StreamHandlerPool> = pool.start();
@@ -276,7 +276,7 @@ impl ActorFactory for ActorFactoryReal {
 
     fn make_and_start_proxy_client(
         &self,
-        cryptde: &'static CryptDE,
+        cryptde: &'static dyn CryptDE,
         dns_servers: Vec<SocketAddr>,
     ) -> ProxyClientSubs {
         let proxy_client = ProxyClient::new(cryptde, dns_servers);
@@ -288,17 +288,17 @@ impl ActorFactory for ActorFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrapper::CRYPT_DE_OPT;
+    use crate::stream_messages::AddStreamMsg;
+    use crate::stream_messages::RemoveStreamMsg;
     use actix::msgs;
     use actix::Arbiter;
-    use bootstrapper::CRYPT_DE_OPT;
     use std::cell::RefCell;
     use std::net::IpAddr;
     use std::net::Ipv4Addr;
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::time::Duration;
-    use stream_messages::AddStreamMsg;
-    use stream_messages::RemoveStreamMsg;
     use sub_lib::accountant::ReportExitServiceConsumedMessage;
     use sub_lib::accountant::ReportExitServiceProvidedMessage;
     use sub_lib::accountant::ReportRoutingServiceProvidedMessage;
@@ -347,7 +347,7 @@ mod tests {
 
         fn make_and_start_proxy_server(
             &self,
-            cryptde: &'a CryptDE,
+            cryptde: &'a dyn CryptDE,
             is_decentralized: bool,
         ) -> ProxyServerSubs {
             self.parameters
@@ -365,7 +365,7 @@ mod tests {
 
         fn make_and_start_hopper(
             &self,
-            cryptde: &'a CryptDE,
+            cryptde: &'a dyn CryptDE,
             is_bootstrap_node: bool,
         ) -> HopperSubs {
             self.parameters
@@ -383,7 +383,7 @@ mod tests {
 
         fn make_and_start_neighborhood(
             &self,
-            cryptde: &'a CryptDE,
+            cryptde: &'a dyn CryptDE,
             config: NeighborhoodConfig,
         ) -> NeighborhoodSubs {
             self.parameters
@@ -440,7 +440,7 @@ mod tests {
 
         fn make_and_start_stream_handler_pool(
             &self,
-            _: Vec<Box<DiscriminatorFactory>>,
+            _: Vec<Box<dyn DiscriminatorFactory>>,
         ) -> StreamHandlerPoolSubs {
             let addr: Addr<Syn, Recorder> =
                 ActorFactoryMock::start_recorder(&self.stream_handler_pool);
@@ -455,7 +455,7 @@ mod tests {
 
         fn make_and_start_proxy_client(
             &self,
-            cryptde: &'a CryptDE,
+            cryptde: &'a dyn CryptDE,
             dns_servers: Vec<SocketAddr>,
         ) -> ProxyClientSubs {
             self.parameters
@@ -484,10 +484,10 @@ mod tests {
 
     #[derive(Clone)]
     struct Parameters<'a> {
-        proxy_client_params: Arc<Mutex<Option<(&'a CryptDE, Vec<SocketAddr>)>>>,
-        proxy_server_params: Arc<Mutex<Option<(&'a CryptDE, bool)>>>,
-        hopper_params: Arc<Mutex<Option<(&'a CryptDE, bool)>>>,
-        neighborhood_params: Arc<Mutex<Option<(&'a CryptDE, NeighborhoodConfig)>>>,
+        proxy_client_params: Arc<Mutex<Option<(&'a dyn CryptDE, Vec<SocketAddr>)>>>,
+        proxy_server_params: Arc<Mutex<Option<(&'a dyn CryptDE, bool)>>>,
+        hopper_params: Arc<Mutex<Option<(&'a dyn CryptDE, bool)>>>,
+        neighborhood_params: Arc<Mutex<Option<(&'a dyn CryptDE, NeighborhoodConfig)>>>,
         accountant_params: Arc<Mutex<Option<AccountantConfig>>>,
         ui_gateway_params: Arc<Mutex<Option<UiGatewayConfig>>>,
     }
@@ -658,7 +658,7 @@ mod tests {
         // more...more...what? How to check contents of _peer_actors?
     }
 
-    fn check_cryptde(candidate: &CryptDE) {
+    fn check_cryptde(candidate: &dyn CryptDE) {
         let plain_data = PlainData::new(&b"booga"[..]);
         let crypt_data = candidate
             .encode(&candidate.public_key(), &plain_data)

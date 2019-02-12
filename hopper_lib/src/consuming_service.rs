@@ -1,8 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use crate::live_cores_package::LiveCoresPackage;
 use actix::Recipient;
 use actix::Syn;
-use live_cores_package::LiveCoresPackage;
 use std::borrow::Borrow;
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -17,7 +17,7 @@ use sub_lib::logger::Logger;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
 
 pub struct ConsumingService {
-    cryptde: &'static CryptDE,
+    cryptde: &'static dyn CryptDE,
     _is_bootstrap_node: bool, // TODO: Remember to check this and refuse to consume if set
     to_dispatcher: Recipient<Syn, TransmitDataMsg>,
     to_hopper: Recipient<Syn, InboundClientData>,
@@ -26,7 +26,7 @@ pub struct ConsumingService {
 
 impl ConsumingService {
     pub fn new(
-        cryptde: &'static CryptDE,
+        cryptde: &'static dyn CryptDE,
         is_bootstrap_node: bool,
         to_dispatcher: Recipient<Syn, TransmitDataMsg>,
         to_hopper: Recipient<Syn, InboundClientData>,
@@ -140,10 +140,10 @@ impl ConsumingService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hopper::Hopper;
     use actix::Actor;
     use actix::Addr;
     use actix::System;
-    use hopper::Hopper;
     use std::net::IpAddr;
     use std::str::FromStr;
     use std::thread;

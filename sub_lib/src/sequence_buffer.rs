@@ -1,10 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use logger::Logger;
+use crate::logger::Logger;
+use crate::stream_handler_pool::TransmitDataMsg;
+use crate::utils;
+use serde_derive::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
-use stream_handler_pool::TransmitDataMsg;
-use utils;
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct SequencedPacket {
@@ -132,10 +133,10 @@ impl SequenceBuffer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dispatcher::Endpoint;
+    use crate::dispatcher::Endpoint;
+    use crate::stream_handler_pool::TransmitDataMsg;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use stream_handler_pool::TransmitDataMsg;
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
 

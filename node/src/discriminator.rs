@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use masquerader::Masquerader;
+use crate::masquerader::Masquerader;
 use sub_lib::framer::Framer;
 use sub_lib::logger::Logger;
 
@@ -22,23 +22,23 @@ impl UnmaskedChunk {
 
 pub trait DiscriminatorFactory: Send {
     fn make(&self) -> Discriminator;
-    fn duplicate(&self) -> Box<DiscriminatorFactory>;
+    fn duplicate(&self) -> Box<dyn DiscriminatorFactory>;
 }
 
-impl Clone for Box<DiscriminatorFactory> {
-    fn clone(&self) -> Box<DiscriminatorFactory> {
+impl Clone for Box<dyn DiscriminatorFactory> {
+    fn clone(&self) -> Box<dyn DiscriminatorFactory> {
         self.duplicate()
     }
 }
 
 pub struct Discriminator {
-    framer: Box<Framer>,
-    masqueraders: Vec<Box<Masquerader>>,
+    framer: Box<dyn Framer>,
+    masqueraders: Vec<Box<dyn Masquerader>>,
     _logger: Logger,
 }
 
 impl Discriminator {
-    pub fn new(framer: Box<Framer>, masqueraders: Vec<Box<Masquerader>>) -> Discriminator {
+    pub fn new(framer: Box<dyn Framer>, masqueraders: Vec<Box<dyn Masquerader>>) -> Discriminator {
         if masqueraders.is_empty() {
             panic!("Discriminator must be given at least one Masquerader");
         }
@@ -71,7 +71,7 @@ impl Discriminator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use masquerader::MasqueradeError;
+    use crate::masquerader::MasqueradeError;
     use std::cell::RefCell;
     use std::ops::DerefMut;
     use std::sync::Arc;

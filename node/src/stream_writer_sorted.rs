@@ -10,9 +10,9 @@ use tokio::prelude::Async;
 use tokio::prelude::Future;
 
 pub struct StreamWriterSorted {
-    stream: Box<WriteHalfWrapper>,
+    stream: Box<dyn WriteHalfWrapper>,
     peer_addr: SocketAddr,
-    rx_to_write: Box<ReceiverWrapper<SequencedPacket>>,
+    rx_to_write: Box<dyn ReceiverWrapper<SequencedPacket>>,
     logger: Logger,
     sequence_buffer: SequenceBuffer,
     shutting_down: bool,
@@ -46,9 +46,9 @@ impl Future for StreamWriterSorted {
 
 impl StreamWriterSorted {
     pub fn new(
-        stream: Box<WriteHalfWrapper>,
+        stream: Box<dyn WriteHalfWrapper>,
         peer_addr: SocketAddr,
-        rx_to_write: Box<ReceiverWrapper<SequencedPacket>>,
+        rx_to_write: Box<dyn ReceiverWrapper<SequencedPacket>>,
     ) -> StreamWriterSorted {
         let name = format!("StreamWriter for {}", peer_addr);
         let logger = Logger::new(&name[..]);

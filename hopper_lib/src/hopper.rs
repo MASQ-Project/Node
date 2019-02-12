@@ -1,11 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::consuming_service::ConsumingService;
+use crate::routing_service::RoutingService;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Syn;
-use consuming_service::ConsumingService;
-use routing_service::RoutingService;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::dispatcher::InboundClientData;
 use sub_lib::hopper::HopperSubs;
@@ -14,7 +14,7 @@ use sub_lib::peer_actors::BindMessage;
 use sub_lib::utils::NODE_MAILBOX_CAPACITY;
 
 pub struct Hopper {
-    cryptde: &'static CryptDE,
+    cryptde: &'static dyn CryptDE,
     is_bootstrap_node: bool,
     consuming_service: Option<ConsumingService>,
     routing_service: Option<RoutingService>,
@@ -75,7 +75,7 @@ impl Handler<InboundClientData> for Hopper {
 }
 
 impl Hopper {
-    pub fn new(cryptde: &'static CryptDE, is_bootstrap_node: bool) -> Hopper {
+    pub fn new(cryptde: &'static dyn CryptDE, is_bootstrap_node: bool) -> Hopper {
         Hopper {
             cryptde,
             is_bootstrap_node,
@@ -96,11 +96,11 @@ impl Hopper {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::live_cores_package::LiveCoresPackage;
     use actix::msgs;
     use actix::Actor;
     use actix::Arbiter;
     use actix::System;
-    use live_cores_package::LiveCoresPackage;
     use std::net::SocketAddr;
     use std::str::FromStr;
     use sub_lib::cryptde::PlainData;

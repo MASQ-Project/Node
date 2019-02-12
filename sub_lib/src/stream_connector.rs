@@ -1,6 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::logger::Logger;
+use crate::tokio_wrappers::ReadHalfWrapper;
+use crate::tokio_wrappers::ReadHalfWrapperReal;
+use crate::tokio_wrappers::WriteHalfWrapper;
+use crate::tokio_wrappers::WriteHalfWrapperReal;
 use futures::future::ok;
-use logger::Logger;
 use std::io::ErrorKind;
 use std::net::IpAddr;
 use std::net::SocketAddr;
@@ -12,17 +16,13 @@ use tokio::net::TcpStream;
 use tokio::prelude::Future;
 use tokio::reactor::Handle;
 use tokio::timer::Timeout;
-use tokio_wrappers::ReadHalfWrapper;
-use tokio_wrappers::ReadHalfWrapperReal;
-use tokio_wrappers::WriteHalfWrapper;
-use tokio_wrappers::WriteHalfWrapperReal;
 
 pub const CONNECT_TIMEOUT_MS: u64 = 5000;
-pub type ConnectionInfoFuture = Box<Future<Item = ConnectionInfo, Error = io::Error> + Send>;
+pub type ConnectionInfoFuture = Box<dyn Future<Item = ConnectionInfo, Error = io::Error> + Send>;
 
 pub struct ConnectionInfo {
-    pub reader: Box<ReadHalfWrapper>,
-    pub writer: Box<WriteHalfWrapper>,
+    pub reader: Box<dyn ReadHalfWrapper>,
+    pub writer: Box<dyn WriteHalfWrapper>,
     pub local_addr: SocketAddr,
     pub peer_addr: SocketAddr,
 }
@@ -334,7 +334,7 @@ mod tests {
     }
 
     struct FutureAsserter<I: 'static, E: 'static> {
-        future: Box<Future<Item = I, Error = E> + Send>,
+        future: Box<dyn Future<Item = I, Error = E> + Send>,
     }
 
     impl<I: 'static, E: 'static> FutureAsserter<I, E> {
@@ -346,7 +346,7 @@ mod tests {
 
         fn assert<A: 'static>(self, assertions: A)
         where
-            A: Send + FnOnce(Result<I, E>) -> Box<Future<Item = (), Error = ()>>,
+            A: Send + FnOnce(Result<I, E>) -> Box<dyn Future<Item = (), Error = ()>>,
         {
             let success = Arc::new(Mutex::new(false));
             let inner_success = Arc::clone(&success);
@@ -365,7 +365,7 @@ mod tests {
         }
     }
 
-    fn success() -> Box<Future<Item = (), Error = ()>> {
+    fn success() -> Box<dyn Future<Item = (), Error = ()>> {
         Box::new(ok(()))
     }
 

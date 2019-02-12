@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::test_utils::to_millis;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
@@ -37,7 +38,6 @@ use sub_lib::stream_handler_pool::TransmitDataMsg;
 use sub_lib::ui_gateway::FromUiMessage;
 use sub_lib::ui_gateway::UiGatewaySubs;
 use sub_lib::ui_gateway::UiMessage;
-use test_utils::to_millis;
 
 pub struct Recorder {
     recording: Arc<Mutex<Recording>>,
@@ -46,7 +46,7 @@ pub struct Recorder {
 }
 
 pub struct Recording {
-    messages: Vec<Box<Any + Send>>,
+    messages: Vec<Box<dyn Any + Send>>,
 }
 
 pub struct RecordAwaiter {
@@ -226,7 +226,7 @@ impl Recorder {
         T: Any + Send,
     {
         let mut recording = self.recording.lock().unwrap();
-        let messages: &mut Vec<Box<Any + Send>> = &mut recording.messages;
+        let messages: &mut Vec<Box<dyn Any + Send>> = &mut recording.messages;
         let item_box = Box::new(item);
         messages.push(item_box);
     }
@@ -454,6 +454,7 @@ mod tests {
     use super::*;
     use actix::msgs;
     use actix::Arbiter;
+    use actix::Message;
     use actix::System;
 
     #[derive(Debug, PartialEq, Message)]

@@ -1,10 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use cryptde::CryptDE;
-use cryptde::CryptData;
-use cryptde::CryptdecError;
-use cryptde::PlainData;
-use cryptde::PrivateKey;
-use cryptde::PublicKey;
+use crate::cryptde::CryptDE;
+use crate::cryptde::CryptData;
+use crate::cryptde::CryptdecError;
+use crate::cryptde::PlainData;
+use crate::cryptde::PrivateKey;
+use crate::cryptde::PublicKey;
 use rand::prelude::*;
 
 pub struct CryptDENull {
@@ -74,7 +74,7 @@ impl CryptDE for CryptDENull {
     }
 
     // This is dup instead of clone because it returns a Box<CryptDE> instead of a CryptDENull.
-    fn dup(&self) -> Box<CryptDE> {
+    fn dup(&self) -> Box<dyn CryptDE> {
         Box::new(CryptDENull {
             private_key: self.private_key.clone(),
             public_key: self.public_key.clone(),

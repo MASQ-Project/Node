@@ -1,8 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::discriminator::UnmaskedChunk;
+use crate::masquerader::MasqueradeError;
+use crate::masquerader::Masquerader;
 use base64;
-use discriminator::UnmaskedChunk;
-use masquerader::MasqueradeError;
-use masquerader::Masquerader;
+use serde_derive::{Deserialize, Serialize};
 use serde_json;
 use sub_lib::logger::Logger;
 

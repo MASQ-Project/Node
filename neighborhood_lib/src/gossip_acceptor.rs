@@ -1,9 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use gossip::Gossip;
-use gossip::GossipNodeRecord;
-use neighborhood_database::NeighborhoodDatabase;
-use neighborhood_database::NeighborhoodDatabaseError;
-use neighborhood_database::NodeRecord;
+use crate::gossip::Gossip;
+use crate::gossip::GossipNodeRecord;
+use crate::neighborhood_database::NeighborhoodDatabase;
+use crate::neighborhood_database::NeighborhoodDatabaseError;
+use crate::neighborhood_database::NodeRecord;
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use sub_lib::cryptde::PublicKey;
@@ -21,7 +21,7 @@ pub trait GossipAcceptor {
 
 pub struct GossipAcceptorReal {
     pub logger: Logger,
-    pub tcp_stream_factory: Box<TcpStreamWrapperFactory>,
+    pub tcp_stream_factory: Box<dyn TcpStreamWrapperFactory>,
 }
 
 impl GossipAcceptor for GossipAcceptorReal {
@@ -211,12 +211,12 @@ impl GossipAcceptorReal {
 mod tests {
     use super::*;
 
-    use gossip::GossipBuilder;
-    use gossip::GossipNodeRecord;
-    use neighborhood_database::NodeRecord;
-    use neighborhood_database::NodeSignatures;
-    use neighborhood_test_utils::make_node_record;
-    use neighborhood_test_utils::*;
+    use crate::gossip::GossipBuilder;
+    use crate::gossip::GossipNodeRecord;
+    use crate::neighborhood_database::NodeRecord;
+    use crate::neighborhood_database::NodeSignatures;
+    use crate::neighborhood_test_utils::make_node_record;
+    use crate::neighborhood_test_utils::*;
     use std::io;
     use std::net::IpAddr;
     use std::net::Ipv4Addr;

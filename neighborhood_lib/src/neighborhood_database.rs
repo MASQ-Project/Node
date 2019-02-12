@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use neighborhood_database::NeighborhoodDatabaseError::NodeKeyNotFound;
+use crate::neighborhood_database::NeighborhoodDatabaseError::NodeKeyNotFound;
 use serde_cbor;
+use serde_derive::{Deserialize, Serialize};
 use sha1;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -30,7 +31,7 @@ impl NodeRecordInner {
     // TODO fail gracefully
     // For now, this is only called at initialization time (NeighborhoodDatabase) and in tests, so panicking is OK.
     // When we start signing NodeRecords at other times, we should probably not panic
-    pub fn generate_signature(&self, cryptde: &CryptDE) -> CryptData {
+    pub fn generate_signature(&self, cryptde: &dyn CryptDE) -> CryptData {
         let serialized = match serde_cbor::ser::to_vec(&self) {
             Ok(inner) => inner,
             Err(_) => panic!("NodeRecord content {:?} could not be serialized", &self),
@@ -59,7 +60,7 @@ impl NodeSignatures {
         NodeSignatures { complete, obscured }
     }
 
-    pub fn from(cryptde: &CryptDE, node_record_inner: &NodeRecordInner) -> Self {
+    pub fn from(cryptde: &dyn CryptDE, node_record_inner: &NodeRecordInner) -> Self {
         let complete_signature = node_record_inner.generate_signature(cryptde);
 
         let obscured_inner = NodeRecordInner {
@@ -191,7 +192,7 @@ impl NodeRecord {
         self.signatures.clone()
     }
 
-    pub fn sign(&mut self, cryptde: &CryptDE) {
+    pub fn sign(&mut self, cryptde: &dyn CryptDE) {
         self.signatures = Some(NodeSignatures::from(cryptde, &self.inner))
     }
 
@@ -252,7 +253,7 @@ pub struct NeighborhoodDatabase {
 }
 
 impl Debug for NeighborhoodDatabase {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         f.write_str(self.to_dot_graph().as_str())
     }
 }
@@ -264,7 +265,7 @@ impl NeighborhoodDatabase {
         earning_wallet: Wallet,
         consuming_wallet: Option<Wallet>,
         is_bootstrap_node: bool,
-        cryptde: &CryptDE,
+        cryptde: &dyn CryptDE,
     ) -> NeighborhoodDatabase {
         let mut result = NeighborhoodDatabase {
             this_node: public_key.clone(),
@@ -440,7 +441,7 @@ pub enum NeighborhoodDatabaseError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use neighborhood_test_utils::make_node_record;
+    use crate::neighborhood_test_utils::make_node_record;
     use std::iter::FromIterator;
     use std::str::FromStr;
     use sub_lib::cryptde_null::CryptDENull;

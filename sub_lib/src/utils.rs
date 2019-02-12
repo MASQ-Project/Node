@@ -120,10 +120,10 @@ pub fn plus<T>(mut source: Vec<T>, item: T) -> Vec<T> {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use cryptde::PublicKey;
+    use crate::cryptde::PublicKey;
+    use crate::stream_key::StreamKey;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use stream_key::StreamKey;
 
     pub fn make_meaningless_stream_key() -> StreamKey {
         StreamKey::new(

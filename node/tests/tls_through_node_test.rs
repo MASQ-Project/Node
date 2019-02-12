@@ -1,12 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-extern crate entry_dns_lib;
-extern crate regex;
-extern crate sub_lib;
-extern crate tls_api;
-extern crate tls_api_native_tls;
 
 mod utils;
 
+use crate::utils::read_until_timeout;
 use std::io::Write;
 use std::net::Shutdown;
 use std::net::SocketAddr;
@@ -19,7 +15,6 @@ use tls_api::TlsConnector as TlsConnectorBase;
 use tls_api::TlsConnectorBuilder as TlsConnectorBuilderBase;
 use tls_api::TlsStream;
 use tls_api_native_tls::TlsConnector;
-use utils::read_until_timeout;
 
 #[test]
 #[allow(unused_variables)] // 'node' below must not become '_' or disappear, or the

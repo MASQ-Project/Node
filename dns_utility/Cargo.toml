@@ -5,6 +5,7 @@ license = "GPL-3.0-only"
 authors = ["Substratum Services"]
 copyright = "Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved."
 description = "Command-line utility to turn DNS subversion on and off"
+edition = "2018"
 
 [dependencies]
 regex = "1.0.5"

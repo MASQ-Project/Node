@@ -1,16 +1,16 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::resolver_wrapper::ResolverWrapperFactory;
+use crate::resolver_wrapper::ResolverWrapperFactoryReal;
+use crate::stream_handler_pool::StreamHandlerPool;
+use crate::stream_handler_pool::StreamHandlerPoolFactory;
+use crate::stream_handler_pool::StreamHandlerPoolFactoryReal;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
 use actix::Syn;
-use resolver_wrapper::ResolverWrapperFactory;
-use resolver_wrapper::ResolverWrapperFactoryReal;
 use std::net::SocketAddr;
-use stream_handler_pool::StreamHandlerPool;
-use stream_handler_pool::StreamHandlerPoolFactory;
-use stream_handler_pool::StreamHandlerPoolFactoryReal;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::hopper::IncipientCoresPackage;
@@ -26,11 +26,11 @@ use trust_dns_resolver::config::ResolverOpts;
 
 pub struct ProxyClient {
     dns_servers: Vec<SocketAddr>,
-    resolver_wrapper_factory: Box<ResolverWrapperFactory>,
-    stream_handler_pool_factory: Box<StreamHandlerPoolFactory>,
-    _cryptde: &'static CryptDE, // This is not used now, but a version of it may be used in the future when ser/de and en/decrypt are combined.
+    resolver_wrapper_factory: Box<dyn ResolverWrapperFactory>,
+    stream_handler_pool_factory: Box<dyn StreamHandlerPoolFactory>,
+    _cryptde: &'static dyn CryptDE, // This is not used now, but a version of it may be used in the future when ser/de and en/decrypt are combined.
     to_hopper: Option<Recipient<Syn, IncipientCoresPackage>>,
-    pool: Option<Box<StreamHandlerPool>>,
+    pool: Option<Box<dyn StreamHandlerPool>>,
     logger: Logger,
 }
 
@@ -92,7 +92,7 @@ impl Handler<ExpiredCoresPackage> for ProxyClient {
 }
 
 impl ProxyClient {
-    pub fn new(cryptde: &'static CryptDE, dns_servers: Vec<SocketAddr>) -> ProxyClient {
+    pub fn new(cryptde: &'static dyn CryptDE, dns_servers: Vec<SocketAddr>) -> ProxyClient {
         if dns_servers.is_empty() {
             panic! ("Proxy Client requires at least one DNS server IP address after the --dns_servers parameter")
         }
@@ -118,13 +118,15 @@ impl ProxyClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::local_test_utils::ResolverWrapperFactoryMock;
+    use crate::local_test_utils::ResolverWrapperMock;
+    use crate::resolver_wrapper::ResolverWrapper;
+    use crate::stream_handler_pool::StreamHandlerPool;
+    use crate::stream_handler_pool::StreamHandlerPoolFactory;
     use actix::msgs;
     use actix::Arbiter;
     use actix::Recipient;
     use actix::System;
-    use local_test_utils::ResolverWrapperFactoryMock;
-    use local_test_utils::ResolverWrapperMock;
-    use resolver_wrapper::ResolverWrapper;
     use serde_cbor;
     use std::cell::RefCell;
     use std::net::IpAddr;
@@ -132,8 +134,6 @@ mod tests {
     use std::str::FromStr;
     use std::sync::Arc;
     use std::sync::Mutex;
-    use stream_handler_pool::StreamHandlerPool;
-    use stream_handler_pool::StreamHandlerPoolFactory;
     use sub_lib::accountant::ReportExitServiceProvidedMessage;
     use sub_lib::cryptde::PlainData;
     use sub_lib::cryptde::PublicKey;
@@ -147,9 +147,10 @@ mod tests {
     use test_utils::recorder::make_peer_actors;
     use test_utils::recorder::make_peer_actors_from;
     use test_utils::recorder::Recorder;
-    use test_utils::test_utils;
     use test_utils::test_utils::cryptde;
+    use test_utils::test_utils::make_meaningless_route;
     use test_utils::test_utils::make_meaningless_stream_key;
+    use test_utils::test_utils::route_to_proxy_client;
 
     fn dnss() -> Vec<SocketAddr> {
         vec![SocketAddr::from_str("8.8.8.8:53").unwrap()]
@@ -194,24 +195,24 @@ mod tests {
         make_parameters: Arc<
             Mutex<
                 Vec<(
-                    Box<ResolverWrapper>,
-                    &'static CryptDE,
+                    Box<dyn ResolverWrapper>,
+                    &'static dyn CryptDE,
                     Recipient<Syn, IncipientCoresPackage>,
                     Recipient<Syn, ReportExitServiceProvidedMessage>,
                 )>,
             >,
         >,
-        make_results: RefCell<Vec<Box<StreamHandlerPool>>>,
+        make_results: RefCell<Vec<Box<dyn StreamHandlerPool>>>,
     }
 
     impl StreamHandlerPoolFactory for StreamHandlerPoolFactoryMock {
         fn make(
             &self,
-            resolver: Box<ResolverWrapper>,
-            cryptde: &'static CryptDE,
+            resolver: Box<dyn ResolverWrapper>,
+            cryptde: &'static dyn CryptDE,
             hopper_sub: Recipient<Syn, IncipientCoresPackage>,
             accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
-        ) -> Box<StreamHandlerPool> {
+        ) -> Box<dyn StreamHandlerPool> {
             self.make_parameters.lock().unwrap().push((
                 resolver,
                 cryptde,
@@ -235,8 +236,8 @@ mod tests {
             parameters: &mut Arc<
                 Mutex<
                     Vec<(
-                        Box<ResolverWrapper>,
-                        &'static CryptDE,
+                        Box<dyn ResolverWrapper>,
+                        &'static dyn CryptDE,
                         Recipient<Syn, IncipientCoresPackage>,
                         Recipient<Syn, ReportExitServiceProvidedMessage>,
                     )>,
@@ -247,7 +248,10 @@ mod tests {
             self
         }
 
-        pub fn make_result(self, result: Box<StreamHandlerPool>) -> StreamHandlerPoolFactoryMock {
+        pub fn make_result(
+            self,
+            result: Box<dyn StreamHandlerPool>,
+        ) -> StreamHandlerPoolFactoryMock {
             self.make_results.borrow_mut().push(result);
             self
         }
@@ -336,7 +340,7 @@ mod tests {
         let package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
             Some(Wallet::new("consuming")),
-            test_utils::route_to_proxy_client(&cryptde.public_key(), cryptde),
+            route_to_proxy_client(&cryptde.public_key(), cryptde),
             PlainData::new(&serde_cbor::ser::to_vec(&request.clone()).unwrap()[..]),
         );
         let system = System::new("panics_if_hopper_is_unbound");
@@ -355,7 +359,7 @@ mod tests {
         let package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
             Some(Wallet::new("consuming")),
-            test_utils::make_meaningless_route(),
+            make_meaningless_route(),
             PlainData::new(&b"invalid"[..]),
         );
         let system = System::new("invalid_package_is_logged_and_discarded");
@@ -388,7 +392,7 @@ mod tests {
         let package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
             Some(Wallet::new("consuming")),
-            test_utils::make_meaningless_route(),
+            make_meaningless_route(),
             PlainData::new(&serde_cbor::ser::to_vec(&request.clone()).unwrap()[..]),
         );
         let hopper = Recorder::new();
@@ -420,7 +424,7 @@ mod tests {
             (
                 request,
                 Some(Wallet::new("consuming")),
-                test_utils::make_meaningless_route()
+                make_meaningless_route()
             )
         );
     }

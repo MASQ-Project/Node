@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use processor::ProcessorReal;
-use processor::ProcessorTrait;
+use crate::processor::ProcessorReal;
+use crate::processor::ProcessorTrait;
 use std::borrow::BorrowMut;
 use std::net::IpAddr;
 use std::net::IpAddr::V4;
@@ -17,8 +17,8 @@ use tokio::prelude::Future;
 
 pub struct DnsSocketServer {
     dns_target: Option<IpAddr>,
-    socket_wrapper: Box<UdpSocketWrapperTrait>,
-    processor: Option<Box<ProcessorTrait>>,
+    socket_wrapper: Box<dyn UdpSocketWrapperTrait>,
+    processor: Option<Box<dyn ProcessorTrait>>,
     buf: Option<[u8; 65536]>,
 }
 
@@ -68,7 +68,7 @@ impl SocketServer for DnsSocketServer {
         String::from("EntryDnsServer")
     }
 
-    fn initialize_as_privileged(&mut self, args: &Vec<String>, _streams: &mut StdStreams) {
+    fn initialize_as_privileged(&mut self, args: &Vec<String>, _streams: &mut StdStreams<'_>) {
         self.dns_target = Some(get_dns_target(args));
         let socket_addr = SocketAddr::new(V4(Ipv4Addr::from(0)), get_dns_port(args));
         // The following expect() will cause an appropriate panic if the port can't be opened
@@ -166,7 +166,7 @@ impl<'a> ParameterFinder<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use packet_facade::PacketFacade;
+    use crate::packet_facade::PacketFacade;
     use std::borrow::Borrow;
     use std::borrow::BorrowMut;
     use std::clone::Clone;

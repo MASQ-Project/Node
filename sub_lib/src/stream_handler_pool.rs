@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use dispatcher::Endpoint;
-use neighborhood::NodeDescriptor;
+use crate::dispatcher::Endpoint;
+use crate::neighborhood::NodeDescriptor;
+use actix::Message;
 
 #[derive(PartialEq, Debug, Message, Clone)]
 pub struct TransmitDataMsg {

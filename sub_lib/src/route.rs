@@ -1,12 +1,13 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use cryptde::CryptDE;
-use cryptde::CryptData;
-use cryptde::CryptdecError;
-use cryptde::PublicKey;
-use dispatcher::Component;
-use hop::LiveHop;
+use crate::cryptde::CryptDE;
+use crate::cryptde::CryptData;
+use crate::cryptde::CryptdecError;
+use crate::cryptde::PublicKey;
+use crate::dispatcher::Component;
+use crate::hop::LiveHop;
+use crate::wallet::Wallet;
+use serde_derive::{Deserialize, Serialize};
 use std::iter;
-use wallet::Wallet;
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct Route {
@@ -16,7 +17,7 @@ pub struct Route {
 impl Route {
     pub fn new(
         route_segments: Vec<RouteSegment>,
-        cryptde: &CryptDE, // Any CryptDE can go here; it's only used to encrypt to public keys.
+        cryptde: &dyn CryptDE, // Any CryptDE can go here; it's only used to encrypt to public keys.
         consuming_wallet: Option<Wallet>,
     ) -> Result<Route, RouteError> {
         if route_segments.is_empty() {
@@ -59,14 +60,14 @@ impl Route {
     }
 
     // This cryptde must be the CryptDE of the next hop to come off the Route.
-    pub fn next_hop(&self, cryptde: &CryptDE) -> Result<LiveHop, RouteError> {
+    pub fn next_hop(&self, cryptde: &dyn CryptDE) -> Result<LiveHop, RouteError> {
         match self.hops.first() {
             None => Err(RouteError::EmptyRoute),
             Some(first) => Route::decode_hop(cryptde, &first.clone()),
         }
     }
 
-    pub fn shift(&mut self, cryptde: &CryptDE) -> Result<LiveHop, RouteError> {
+    pub fn shift(&mut self, cryptde: &dyn CryptDE) -> Result<LiveHop, RouteError> {
         if self.hops.is_empty() {
             return Err(RouteError::EmptyRoute);
         }
@@ -81,7 +82,7 @@ impl Route {
         return Ok(next_hop);
     }
 
-    fn decode_hop(cryptde: &CryptDE, hop_enc: &CryptData) -> Result<LiveHop, RouteError> {
+    fn decode_hop(cryptde: &dyn CryptDE, hop_enc: &CryptData) -> Result<LiveHop, RouteError> {
         match LiveHop::decode(cryptde, hop_enc) {
             Err(e) => Err(RouteError::HopDecodeProblem(e)),
             Ok(h) => Ok(h),
@@ -91,7 +92,7 @@ impl Route {
     fn hops_to_route(
         hops: Vec<LiveHop>,
         top_hop_key: &PublicKey,
-        cryptde: &CryptDE,
+        cryptde: &dyn CryptDE,
     ) -> Result<Route, RouteError> {
         let mut hops_enc: Vec<CryptData> = Vec::new();
         let mut hop_key = top_hop_key;
@@ -135,7 +136,7 @@ pub enum RouteError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cryptde_null::CryptDENull;
+    use crate::cryptde_null::CryptDENull;
     use serde_cbor;
 
     #[test]

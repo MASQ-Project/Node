@@ -176,7 +176,7 @@ pub struct PacketFacade<'a> {
 
 #[allow(dead_code)]
 impl<'a> PacketFacade<'a> {
-    pub fn new(buf: &mut [u8], length: usize) -> PacketFacade {
+    pub fn new(buf: &mut [u8], length: usize) -> PacketFacade<'_> {
         PacketFacade {
             buf,
             length: length,
@@ -508,7 +508,7 @@ impl<'a> PacketFacade<'a> {
 
     fn req_len_flg<F>(&mut self, length: usize, mut closure: F) -> bool
     where
-        F: FnMut(&mut PacketFacade) -> (),
+        F: FnMut(&mut PacketFacade<'_>) -> (),
     {
         if (self.length < length) || (self.buf.len() < length) {
             false
@@ -644,9 +644,9 @@ impl<'a> PacketFacade<'a> {
 
 #[cfg(test)]
 mod tests {
-    use packet_facade::PacketFacade;
-    use packet_facade::Query;
-    use packet_facade::ResourceRecord;
+    use crate::packet_facade::PacketFacade;
+    use crate::packet_facade::Query;
+    use crate::packet_facade::ResourceRecord;
 
     #[test]
     fn query_complains_when_name_length_busts_length_limit() {

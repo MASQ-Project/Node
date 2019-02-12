@@ -1,10 +1,4 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-extern crate multinode_integration_tests_lib;
-extern crate node_lib;
-extern crate regex;
-extern crate serde_cbor;
-extern crate sub_lib;
-extern crate test_utils;
 
 use multinode_integration_tests_lib::command::Command;
 use multinode_integration_tests_lib::main::CONTROL_STREAM_PORT;
@@ -16,6 +10,7 @@ use multinode_integration_tests_lib::substratum_node::SubstratumNode;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
 use node_lib::json_masquerader::JsonMasquerader;
+use serde_cbor;
 use std::collections::HashSet;
 use std::io::ErrorKind;
 use std::net::IpAddr;

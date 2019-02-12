@@ -1,11 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use http_packet_framer::ChunkExistenceState;
-use http_packet_framer::ChunkProgressState;
-use http_packet_framer::HttpFramerState;
-use http_packet_framer::HttpPacketStartFinder;
-use http_packet_framer::PacketProgressState;
+use crate::http_packet_framer::ChunkExistenceState;
+use crate::http_packet_framer::ChunkProgressState;
+use crate::http_packet_framer::HttpFramerState;
+use crate::http_packet_framer::HttpPacketStartFinder;
+use crate::http_packet_framer::PacketProgressState;
+use crate::utils::index_of;
 use regex::Regex;
-use utils::index_of;
 
 const LONGEST_PREFIX_LEN: usize = 13;
 
@@ -81,7 +81,7 @@ impl HttpResponseStartFinder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use http_packet_framer::ChunkProgressState;
+    use crate::http_packet_framer::ChunkProgressState;
 
     #[test]
     fn returns_none_if_no_http() {

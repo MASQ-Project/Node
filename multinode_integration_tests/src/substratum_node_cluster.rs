@@ -1,12 +1,12 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use command::Command;
+use crate::command::Command;
+use crate::substratum_mock_node::SubstratumMockNode;
+use crate::substratum_node::SubstratumNode;
+use crate::substratum_real_node::NodeStartupConfig;
+use crate::substratum_real_node::SubstratumRealNode;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
-use substratum_mock_node::SubstratumMockNode;
-use substratum_node::SubstratumNode;
-use substratum_real_node::NodeStartupConfig;
-use substratum_real_node::SubstratumRealNode;
 
 pub struct SubstratumNodeCluster {
     real_nodes: HashMap<String, SubstratumRealNode>,
@@ -105,7 +105,7 @@ impl SubstratumNodeCluster {
         }
     }
 
-    pub fn get_node(&self, name: &str) -> Option<Box<SubstratumNode>> {
+    pub fn get_node(&self, name: &str) -> Option<Box<dyn SubstratumNode>> {
         match self.real_nodes.get(name) {
             Some(node_ref) => Some(Box::new(node_ref.clone())),
             None => match self.mock_nodes.get(name) {

@@ -1,16 +1,17 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::cryptde::PlainData;
+use crate::cryptde::PublicKey;
+use crate::dispatcher::InboundClientData;
+use crate::peer_actors::BindMessage;
+use crate::route::Route;
+use crate::wallet::Wallet;
+use actix::Message;
 use actix::Recipient;
 use actix::Syn;
-use cryptde::PlainData;
-use cryptde::PublicKey;
-use dispatcher::InboundClientData;
-use peer_actors::BindMessage;
-use route::Route;
 use serde::de::Deserialize;
 use serde::ser::Serialize;
 use serde_cbor;
 use std::net::IpAddr;
-use wallet::Wallet;
 
 /// New CORES package about to be sent to the Hopper and thence put on the Substratum Network
 #[derive(Clone, Debug, PartialEq, Message)]
@@ -88,10 +89,10 @@ pub struct HopperSubs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cryptde::PlainData;
-    use cryptde_null::CryptDENull;
-    use dispatcher::Component;
-    use route::RouteSegment;
+    use crate::cryptde::PlainData;
+    use crate::cryptde_null::CryptDENull;
+    use crate::dispatcher::Component;
+    use crate::route::RouteSegment;
     use std::str::FromStr;
     use test_utils::test_utils::PayloadMock;
 

@@ -22,7 +22,7 @@ pub trait ReadHalfWrapper: Send + AsyncRead {}
 pub trait WriteHalfWrapper: Send + AsyncWrite {}
 
 pub trait TokioListenerWrapperFactory {
-    fn make(&self) -> Box<TokioListenerWrapper>;
+    fn make(&self) -> Box<dyn TokioListenerWrapper>;
 }
 
 pub struct TokioListenerWrapperReal {
@@ -104,7 +104,7 @@ impl WriteHalfWrapperReal {
 }
 
 impl TokioListenerWrapperFactory for TokioListenerWrapperFactoryReal {
-    fn make(&self) -> Box<TokioListenerWrapper> {
+    fn make(&self) -> Box<dyn TokioListenerWrapper> {
         Box::new(TokioListenerWrapperReal { delegate: None })
     }
 }

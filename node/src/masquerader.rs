@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use discriminator::UnmaskedChunk;
+use crate::discriminator::UnmaskedChunk;
 use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -14,7 +14,7 @@ pub enum MasqueradeError {
 }
 
 impl Display for MasqueradeError {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let (prefix, payload) = match self {
             &MasqueradeError::LowLevelDataError(ref s) => ("Low-level data error", s),
             &MasqueradeError::MidLevelDataError(ref s) => ("Mid-level data error", s),

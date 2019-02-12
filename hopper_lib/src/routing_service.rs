@@ -1,8 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use crate::live_cores_package::LiveCoresPackage;
 use actix::Recipient;
 use actix::Syn;
-use live_cores_package::LiveCoresPackage;
 use std::borrow::Borrow;
 use std::net::IpAddr;
 use sub_lib::accountant::ReportRoutingServiceProvidedMessage;
@@ -20,7 +20,7 @@ use sub_lib::stream_handler_pool::TransmitDataMsg;
 use sub_lib::wallet::Wallet;
 
 pub struct RoutingService {
-    cryptde: &'static CryptDE,
+    cryptde: &'static dyn CryptDE,
     is_bootstrap_node: bool,
     to_proxy_client: Recipient<Syn, ExpiredCoresPackage>,
     to_proxy_server: Recipient<Syn, ExpiredCoresPackage>,
@@ -32,7 +32,7 @@ pub struct RoutingService {
 
 impl RoutingService {
     pub fn new(
-        cryptde: &'static CryptDE,
+        cryptde: &'static dyn CryptDE,
         is_bootstrap_node: bool,
         to_proxy_client: Recipient<Syn, ExpiredCoresPackage>,
         to_proxy_server: Recipient<Syn, ExpiredCoresPackage>,
@@ -265,12 +265,12 @@ impl RoutingService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hopper::Hopper;
     use actix::msgs;
     use actix::Actor;
     use actix::Addr;
     use actix::Arbiter;
     use actix::System;
-    use hopper::Hopper;
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::thread;

@@ -1,7 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use crate::cryptde::PublicKey;
 use base64;
-use cryptde::PublicKey;
+use serde_derive::{Deserialize, Serialize};
 use sha1;
 use std::fmt;
 use std::net::IpAddr;
@@ -13,7 +14,7 @@ pub struct StreamKey {
 }
 
 impl fmt::Debug for StreamKey {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let string = base64::encode_config(&self.hash, base64::STANDARD_NO_PAD);
         write!(f, "{}", string)
     }
