@@ -8,6 +8,7 @@ use actix::MailboxError;
 use actix::Recipient;
 use actix::Syn;
 use std::net::SocketAddr;
+use sub_lib::accountant::ReportExitServiceConsumedMessage;
 use sub_lib::bidi_hashmap::BidiHashMap;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::PublicKey;
@@ -34,6 +35,7 @@ use tokio::prelude::Future;
 pub struct ProxyServer {
     dispatcher: Option<Recipient<Syn, TransmitDataMsg>>,
     hopper: Option<Recipient<Syn, IncipientCoresPackage>>,
+    accountant: Option<Recipient<Syn, ReportExitServiceConsumedMessage>>,
     route_source: Option<Recipient<Syn, RouteQueryMessage>>,
     client_request_payload_factory: ClientRequestPayloadFactory,
     stream_key_factory: Box<dyn StreamKeyFactory>,
@@ -54,6 +56,7 @@ impl Handler<BindMessage> for ProxyServer {
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.dispatcher = Some(msg.peer_actors.dispatcher.from_dispatcher_client);
         self.hopper = Some(msg.peer_actors.hopper.from_hopper_client);
+        self.accountant = Some(msg.peer_actors.accountant.report_exit_service_consumed);
         self.route_source = Some(msg.peer_actors.neighborhood.route_query);
         ()
     }
@@ -72,6 +75,11 @@ impl Handler<InboundClientData> for ProxyServer {
             .hopper
             .as_ref()
             .expect("Hopper unbound in ProxyServer")
+            .clone();
+        let accountant = self
+            .accountant
+            .as_ref()
+            .expect("Accountant unbound in ProxyServer")
             .clone();
         let dispatcher = self
             .dispatcher
@@ -98,6 +106,7 @@ impl Handler<InboundClientData> for ProxyServer {
                         logger,
                         source_addr,
                         dispatcher,
+                        accountant,
                     )
                 }),
         );
@@ -156,6 +165,7 @@ impl ProxyServer {
         ProxyServer {
             dispatcher: None,
             hopper: None,
+            accountant: None,
             route_source: None,
             client_request_payload_factory: ClientRequestPayloadFactory::new(),
             stream_key_factory: Box::new(StreamKeyFactoryReal {}),
@@ -206,9 +216,11 @@ impl ProxyServer {
         logger: Logger,
         source_addr: SocketAddr,
         dispatcher: Recipient<Syn, TransmitDataMsg>,
+        accountant: Recipient<Syn, ReportExitServiceConsumedMessage>,
     ) -> Result<(), ()> {
         match route_result {
             Ok(Some(response)) => {
+                ProxyServer::report_exit_service(accountant, &response, &payload, &logger);
                 ProxyServer::transmit_to_hopper(
                     hopper,
                     payload,
@@ -227,6 +239,33 @@ impl ProxyServer {
             }
         };
         Ok(())
+    }
+
+    fn report_exit_service(
+        accountant: Recipient<Syn, ReportExitServiceConsumedMessage>,
+        response: &RouteQueryResponse,
+        payload: &ClientRequestPayload,
+        logger: &Logger,
+    ) {
+        match response
+            .route_metadata
+            .iter()
+            .find(|hop_metadata| hop_metadata.expected_service == ExpectedService::Exit)
+        {
+            Some(hop_metadata) => {
+                let payload_size = payload.sequenced_packet.data.len() as u32;
+                let report_exit_service_consumed_message = ReportExitServiceConsumedMessage {
+                    earning_wallet: hop_metadata.earning_wallet.clone(),
+                    payload_size,
+                    service_rate: 1,
+                    byte_rate: 1,
+                };
+                accountant
+                    .try_send(report_exit_service_consumed_message)
+                    .expect("Accountant is dead");
+            }
+            None => logger.debug("No exit service requested.".to_string()),
+        };
     }
 
     fn transmit_to_hopper(
@@ -338,6 +377,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
+    use sub_lib::accountant::ReportExitServiceConsumedMessage;
     use sub_lib::cryptde::PlainData;
     use sub_lib::dispatcher::Component;
     use sub_lib::hopper::ExpiredCoresPackage;
@@ -357,6 +397,7 @@ mod tests {
     use test_utils::recorder::make_recorder;
     use test_utils::recorder::Recorder;
     use test_utils::test_utils::cryptde;
+    use test_utils::test_utils::make_meaningless_route;
     use test_utils::test_utils::make_meaningless_stream_key;
     use test_utils::test_utils::route_to_proxy_server;
     use test_utils::test_utils::zero_hop_route_response;
@@ -655,6 +696,124 @@ mod tests {
         let recording = neighborhood_recording_arc.lock().unwrap();
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(record, &RouteQueryMessage::data_indefinite_route_request(2));
+    }
+
+    #[test]
+    fn proxy_server_sends_message_to_accountant_for_exit_service_consumed() {
+        let cryptde = cryptde();
+        let earning_wallet = Wallet::new("earning wallet");
+        let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
+        let (accountant_mock, accountant_awaiter, accountant_log_arc) = make_recorder();
+        let (neighborhood_mock, _, _) = make_recorder();
+        let neighborhood_mock = neighborhood_mock.route_query_response(Some(RouteQueryResponse {
+            route: make_meaningless_route(),
+            route_metadata: vec![
+                HopMetadata {
+                    public_key: cryptde.public_key().clone(),
+                    earning_wallet: Wallet::new("our earning wallet"),
+                    expected_service: ExpectedService::Nothing,
+                },
+                HopMetadata {
+                    public_key: PublicKey::new(&[3]),
+                    earning_wallet: earning_wallet.clone(),
+                    expected_service: ExpectedService::Exit,
+                },
+            ],
+        }));
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let stream_key = make_meaningless_stream_key();
+        let expected_data = http_request.to_vec();
+        let msg_from_dispatcher = InboundClientData {
+            peer_addr: socket_addr.clone(),
+            reception_port: Some(80),
+            sequence_number: Some(0),
+            last_data: true,
+            is_clandestine: false,
+            data: expected_data.clone(),
+        };
+        thread::spawn(move || {
+            let stream_key_factory = StreamKeyFactoryMock::new().make_result(stream_key);
+            let system =
+                System::new("proxy_server_sends_message_to_accountant_for_exit_service_consumed");
+            let mut subject = ProxyServer::new(cryptde, true);
+            subject.stream_key_factory = Box::new(stream_key_factory);
+            let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+            let mut peer_actors = make_peer_actors_from(
+                None,
+                None,
+                None,
+                None,
+                Some(neighborhood_mock),
+                Some(accountant_mock),
+                None,
+            );
+            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+            subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+            subject_addr.try_send(msg_from_dispatcher).unwrap();
+            system.run();
+        });
+
+        accountant_awaiter.await_message_count(1);
+        let recording = accountant_log_arc.lock().unwrap();
+        let record = recording.get_record::<ReportExitServiceConsumedMessage>(0);
+        assert_eq!(
+            record,
+            &ReportExitServiceConsumedMessage {
+                earning_wallet,
+                payload_size: expected_data.len() as u32,
+                service_rate: 1,
+                byte_rate: 1
+            }
+        );
+    }
+
+    #[test]
+    fn proxy_server_logs_message_when_exit_services_are_not_requested() {
+        init_test_logging();
+        let cryptde = cryptde();
+        let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
+        let (accountant_mock, _, accountant_log_arc) = make_recorder();
+        let (neighborhood_mock, _, _) = make_recorder();
+        let zero_hop_route_reponse = zero_hop_route_response(&cryptde.public_key(), cryptde);
+        let neighborhood_mock =
+            neighborhood_mock.route_query_response(Some(zero_hop_route_reponse.clone()));
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let stream_key = make_meaningless_stream_key();
+        let expected_data = http_request.to_vec();
+        let msg_from_dispatcher = InboundClientData {
+            peer_addr: socket_addr.clone(),
+            reception_port: Some(80),
+            sequence_number: Some(0),
+            last_data: true,
+            is_clandestine: false,
+            data: expected_data.clone(),
+        };
+        thread::spawn(move || {
+            let stream_key_factory = StreamKeyFactoryMock::new().make_result(stream_key);
+            let system =
+                System::new("proxy_server_logs_message_when_exit_services_are_not_consumed");
+            let mut subject = ProxyServer::new(cryptde, true);
+            subject.stream_key_factory = Box::new(stream_key_factory);
+            let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+            let mut peer_actors = make_peer_actors_from(
+                None,
+                None,
+                None,
+                None,
+                Some(neighborhood_mock),
+                Some(accountant_mock),
+                None,
+            );
+            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+            subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+            subject_addr.try_send(msg_from_dispatcher).unwrap();
+            system.run();
+        });
+
+        TestLogHandler::new()
+            .await_log_containing("DEBUG: Proxy Server: No exit service requested.", 500);
+
+        assert_eq!(accountant_log_arc.lock().unwrap().len(), 0);
     }
 
     #[test]

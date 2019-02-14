@@ -66,10 +66,13 @@ impl Handler<ReportExitServiceConsumedMessage> for Accountant {
 
     fn handle(
         &mut self,
-        _msg: ReportExitServiceConsumedMessage,
+        msg: ReportExitServiceConsumedMessage,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        unimplemented!()
+        self.logger.info(format!(
+            "Accruing debt to wallet {} for consuming exit service {} bytes",
+            msg.earning_wallet.address, msg.payload_size
+        ))
     }
 }
 

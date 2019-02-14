@@ -3,6 +3,7 @@ use crate::command::Command;
 use crate::substratum_client::SubstratumNodeClient;
 use base64;
 use base64::STANDARD_NO_PAD;
+use regex::Regex;
 use std::any::Any;
 use std::env;
 use std::ffi::OsStr;
@@ -183,20 +184,21 @@ impl SubstratumNodeUtils {
         SocketAddr::new(node_addr.ip_addr(), port_list[idx])
     }
 
-    pub fn wrote_log_containing(name: &str, substring: &str, timeout: Duration) {
+    pub fn wrote_log_containing(name: &str, pattern: &str, timeout: Duration) {
         let time_limit = Instant::now() + timeout;
         let mut entire_log = String::new();
         while Instant::now() < time_limit {
             entire_log = SubstratumNodeUtils::retrieve_logs(name);
-            if entire_log.contains(substring) {
+            let regex = Regex::new(pattern).unwrap();
+            if regex.is_match(&entire_log) {
                 return;
             } else {
                 thread::sleep(Duration::from_millis(250))
             }
         }
         panic!(
-            "After {:?}, this substring\n\n{}\n\ndid not appear in this log:\n\n{}",
-            timeout, substring, entire_log
+            "After {:?}, this pattern\n\n{}\n\ndid not match anything in this log:\n\n{}",
+            timeout, pattern, entire_log
         );
     }
 
