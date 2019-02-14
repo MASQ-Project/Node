@@ -569,7 +569,7 @@ mod tests {
                 consuming_wallet: Some(Wallet::new("consumer")),
             },
             accountant_config: AccountantConfig {
-                replace_me: String::new(),
+                home_directory: String::new(),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
@@ -610,7 +610,7 @@ mod tests {
                 consuming_wallet: Some(Wallet::new("consumer")),
             },
             accountant_config: AccountantConfig {
-                replace_me: String::new(),
+                home_directory: String::new(),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },

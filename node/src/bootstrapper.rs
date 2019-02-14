@@ -18,6 +18,7 @@ use std::str::FromStr;
 use std::vec::Vec;
 use sub_lib::accountant;
 use sub_lib::accountant::AccountantConfig;
+use sub_lib::accountant::DEFAULT_HOME_DIRECTORY;
 use sub_lib::crash_point::CrashPoint;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::PublicKey;
@@ -62,7 +63,7 @@ impl BootstrapperConfig {
                 consuming_wallet: None,
             },
             accountant_config: AccountantConfig {
-                replace_me: String::new(),
+                home_directory: String::new(),
             },
             crash_point: CrashPoint::None,
             clandestine_discriminator_factories: vec![],
@@ -171,6 +172,7 @@ impl Bootstrapper {
         config.neighborhood_config.is_bootstrap_node = Bootstrapper::parse_node_type(&finder);
         config.neighborhood_config.local_ip_addr = local_ip_addr;
         config.ui_gateway_config.ui_port = Bootstrapper::parse_ui_port(&finder);
+        config.accountant_config.home_directory = Bootstrapper::parse_home(&finder);
         config.neighborhood_config.earning_wallet = Bootstrapper::parse_wallet_address(&finder)
             .unwrap_or(accountant::DEFAULT_EARNING_WALLET.clone());
         // TODO: In real life this should come from a command-line parameter
@@ -243,6 +245,14 @@ impl Bootstrapper {
                 ),
             },
             None => DEFAULT_UI_PORT,
+        }
+    }
+
+    fn parse_home(finder: &ParameterFinder) -> String {
+        let usage = "--home <directory>";
+        match finder.find_value_for("--home", usage) {
+            Some(home_directory) => home_directory,
+            None => String::from(DEFAULT_HOME_DIRECTORY),
         }
     }
 
@@ -402,6 +412,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
+    use sub_lib::accountant::DEFAULT_HOME_DIRECTORY;
     use sub_lib::cryptde::PlainData;
     use sub_lib::parameter_finder::ParameterFinder;
     use sub_lib::stream_connector::ConnectionInfo;
@@ -886,6 +897,29 @@ mod tests {
     }
 
     #[test]
+    fn parse_home_works() {
+        let finder = ParameterFinder::new(
+            vec!["--home", "~/.booga"]
+                .into_iter()
+                .map(String::from)
+                .collect(),
+        );
+
+        let result = Bootstrapper::parse_home(&finder);
+
+        assert_eq!(result, String::from("~/.booga"))
+    }
+
+    #[test]
+    fn parse_home_defaults() {
+        let finder = ParameterFinder::new(vec![]);
+
+        let result = Bootstrapper::parse_home(&finder);
+
+        assert_eq!(result, String::from(DEFAULT_HOME_DIRECTORY));
+    }
+
+    #[test]
     fn parse_args_creates_configurations() {
         let args: Vec<String> = vec![
             "--irrelevant",
@@ -910,6 +944,8 @@ mod tests {
             "irrelevant",
             "--wallet_address",
             "0xbDfeFf9A1f4A1bdF483d680046344316019C58CF",
+            "--home",
+            "~/.booga",
         ]
         .into_iter()
         .map(String::from)
@@ -949,6 +985,10 @@ mod tests {
         assert_eq!(
             config.neighborhood_config.earning_wallet,
             Wallet::new("0xbDfeFf9A1f4A1bdF483d680046344316019C58CF")
+        );
+        assert_eq!(
+            config.accountant_config.home_directory,
+            String::from("~/.booga")
         );
     }
 

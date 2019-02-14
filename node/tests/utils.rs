@@ -177,6 +177,8 @@ pub fn read_until_timeout(stream: &mut dyn Read) -> Vec<u8> {
             Err(e) => {
                 if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) {
                     ()
+                } else if (e.kind() == ErrorKind::ConnectionReset) && (offset > 0) {
+                    break;
                 } else {
                     panic!("Read error: {}", e);
                 }

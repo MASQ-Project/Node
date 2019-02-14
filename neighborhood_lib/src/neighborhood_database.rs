@@ -51,8 +51,8 @@ impl NodeRecordInner {
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct NodeSignatures {
-    complete: CryptData,
-    obscured: CryptData,
+    pub complete: CryptData,
+    pub obscured: CryptData,
 }
 
 impl NodeSignatures {

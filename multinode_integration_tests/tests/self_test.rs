@@ -27,7 +27,6 @@ use sub_lib::neighborhood::sentinel_ip_addr;
 use sub_lib::route::Route;
 use sub_lib::route::RouteSegment;
 use sub_lib::wallet::Wallet;
-use test_utils::test_utils::wait_for;
 
 #[test]
 fn establishes_substratum_node_cluster_from_nothing() {
@@ -69,17 +68,6 @@ fn establishes_substratum_node_cluster_from_nothing() {
 }
 
 #[test]
-fn dropping_node_and_cluster_cleans_up() {
-    {
-        let mut cluster = SubstratumNodeCluster::start().unwrap();
-        cluster.start_real_node(NodeStartupConfigBuilder::bootstrap().build());
-        cluster.start_mock_node(vec![1234]);
-    }
-
-    wait_for(None, None, || !network_is_running());
-}
-
-#[test]
 fn server_relays_cores_package() {
     let _cluster = SubstratumNodeCluster::start().unwrap();
     let masquerader = JsonMasquerader::new();
@@ -118,8 +106,8 @@ fn one_mock_node_talks_to_another() {
     let mut cluster = SubstratumNodeCluster::start().unwrap();
     cluster.start_mock_node(vec![5550]);
     cluster.start_mock_node(vec![5551]);
-    let mock_node_1 = cluster.get_mock_node("mock_node_1").unwrap();
-    let mock_node_2 = cluster.get_mock_node("mock_node_2").unwrap();
+    let mock_node_1 = cluster.get_mock_node_by_name("mock_node_1").unwrap();
+    let mock_node_2 = cluster.get_mock_node_by_name("mock_node_2").unwrap();
     let cryptde = CryptDENull::new();
     let route = Route::new(
         vec![RouteSegment::new(
@@ -157,7 +145,7 @@ fn one_mock_node_talks_to_another() {
 
 fn check_node(cluster: &SubstratumNodeCluster, name: &str, ip_address: &str, port: u16) {
     let node = cluster
-        .get_node(name)
+        .get_node_by_name(name)
         .expect(format!("Couldn't find node {} to check", name).as_str());
     assert_eq!(node.name(), name);
     assert_eq!(

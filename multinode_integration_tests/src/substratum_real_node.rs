@@ -5,6 +5,9 @@ use crate::substratum_node::NodeReference;
 use crate::substratum_node::PortSelector;
 use crate::substratum_node::SubstratumNode;
 use crate::substratum_node::SubstratumNodeUtils;
+use accountant_lib::db_initializer::Daos;
+use accountant_lib::db_initializer::DbInitializer;
+use accountant_lib::db_initializer::DbInitializerReal;
 use regex::Regex;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -14,6 +17,7 @@ use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use sub_lib::accountant;
+use sub_lib::accountant::TEMPORARY_CONSUMING_WALLET;
 use sub_lib::cryptde::PublicKey;
 use sub_lib::neighborhood::sentinel_ip_addr;
 use sub_lib::node_addr::NodeAddr;
@@ -79,6 +83,8 @@ impl NodeStartupConfig {
         args.push(format!("{}", self.dns_port));
         args.push("--log_level".to_string());
         args.push("trace".to_string());
+        args.push("--home".to_string());
+        args.push("/node_root/home".to_string());
         args
     }
 
@@ -278,34 +284,90 @@ impl SubstratumRealNode {
                 .ip(ip_addr)
                 .build(),
         };
-        Self::do_docker_run(&real_startup_config, host_node_parent_dir, ip_addr, &name).unwrap();
+        let root_dir = match host_node_parent_dir {
+            Some(dir) => dir,
+            None => SubstratumNodeUtils::find_project_root(),
+        };
+        Self::do_docker_run(&real_startup_config, &root_dir, ip_addr, &name).unwrap();
         let node_reference = SubstratumRealNode::extract_node_reference(&name).unwrap();
         let guts = Rc::new(SubstratumRealNodeGuts {
             name,
             container_ip: ip_addr,
             node_reference,
             earning_wallet,
-            consuming_wallet: None,
+            consuming_wallet: Some(TEMPORARY_CONSUMING_WALLET.clone()),
+            root_dir,
         });
         SubstratumRealNode { guts }
     }
 
+    pub fn root_dir(&self) -> String {
+        self.guts.root_dir.clone()
+    }
+
+    pub fn node_home_dir(root_dir: &String, name: &String) -> String {
+        format!("{}/generated/node_homes/{}", root_dir, name)
+    }
+
+    pub fn home_dir(&self) -> String {
+        Self::node_home_dir(&self.root_dir(), &String::from(self.name()))
+    }
+
+    pub fn daos(&self) -> Daos {
+        let initializer = DbInitializerReal::new();
+        initializer
+            .initialize(&std::path::PathBuf::from(Self::node_home_dir(
+                &SubstratumNodeUtils::find_project_root(),
+                &self.name().to_string(),
+            )))
+            .unwrap()
+    }
+
     fn do_docker_run(
         startup_config: &NodeStartupConfig,
-        host_node_parent_dir: Option<String>,
+        root_dir: &String,
         ip_addr: IpAddr,
         name: &String,
     ) -> Result<(), String> {
-        let root = match host_node_parent_dir {
-            Some(dir) => dir,
-            None => SubstratumNodeUtils::find_project_root(),
-        };
-        let node_command_dir = format!("{}/node/target/release", root);
+        let name_string = name.clone();
+        let node_command_dir = format!("{}/node/target/release", root_dir);
+        let host_node_home_dir = Self::node_home_dir(root_dir, name);
+        let test_runner_node_home_dir =
+            Self::node_home_dir(&SubstratumNodeUtils::find_project_root(), name);
+        Command::new(
+            "rm",
+            Command::strings(vec!["-r", test_runner_node_home_dir.as_str()]),
+        )
+        .wait_for_exit();
+        match Command::new(
+            "mkdir",
+            Command::strings(vec!["-p", test_runner_node_home_dir.as_str()]),
+        )
+        .wait_for_exit()
+        {
+            0 => (),
+            _ => panic!(
+                "Couldn't create home directory for node {} at {}",
+                name_string, test_runner_node_home_dir
+            ),
+        }
+        match Command::new(
+            "chmod",
+            Command::strings(vec!["777", test_runner_node_home_dir.as_str()]),
+        )
+        .wait_for_exit()
+        {
+            0 => (),
+            _ => panic!(
+                "Couldn't chmod 777 home directory for node {} at {}",
+                name_string, test_runner_node_home_dir
+            ),
+        }
         let node_args = startup_config.make_args();
         let docker_command = "docker";
         let ip_addr_string = format!("{}", ip_addr);
-        let name_string = name.clone();
-        let v_param = format!("{}:/node_root/node", node_command_dir);
+        let binary_v_param = format!("{}:/node_root/node", node_command_dir);
+        let home_v_param = format!("{}:/node_root/home", host_node_home_dir);
         let mut docker_args = Command::strings(vec![
             "run",
             "--detach",
@@ -318,7 +380,9 @@ impl SubstratumRealNode {
             "--net",
             "integration_net",
             "-v",
-            v_param.as_str(),
+            binary_v_param.as_str(),
+            "-v",
+            home_v_param.as_str(),
             "-e",
             "RUST_BACKTRACE=full",
             "test_node_image",
@@ -363,6 +427,7 @@ struct SubstratumRealNodeGuts {
     node_reference: NodeReference,
     earning_wallet: Wallet,
     consuming_wallet: Option<Wallet>,
+    root_dir: String,
 }
 
 impl Drop for SubstratumRealNodeGuts {
@@ -573,7 +638,9 @@ mod tests {
                 "--dns_port",
                 "53",
                 "--log_level",
-                "trace"
+                "trace",
+                "--home",
+                "/node_root/home",
             ))
         );
     }

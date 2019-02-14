@@ -10,6 +10,8 @@ use sub_lib::framer::Framer;
 use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::logger::Logger;
 use sub_lib::proxy_client::ClientResponsePayload;
+use sub_lib::proxy_client::TEMPORARY_PER_BYTE_RATE;
+use sub_lib::proxy_client::TEMPORARY_PER_EXIT_RATE;
 use sub_lib::route::Route;
 use sub_lib::sequence_buffer::SequencedPacket;
 use sub_lib::sequencer::Sequencer;
@@ -188,8 +190,8 @@ impl StreamReader {
                 .try_send(ReportExitServiceProvidedMessage {
                     consuming_wallet: wallet.clone(),
                     payload_size,
-                    service_rate: 1,
-                    byte_rate: 1,
+                    service_rate: TEMPORARY_PER_EXIT_RATE,
+                    byte_rate: TEMPORARY_PER_BYTE_RATE,
                 })
                 .expect("Accountant is dead"),
             None => self.logger.debug(format!(
@@ -562,8 +564,8 @@ mod tests {
             &ReportExitServiceProvidedMessage {
                 consuming_wallet: Wallet::new("consuming"),
                 payload_size: 19,
-                service_rate: 1,
-                byte_rate: 1
+                service_rate: TEMPORARY_PER_EXIT_RATE,
+                byte_rate: TEMPORARY_PER_BYTE_RATE
             }
         );
         assert_eq!(
@@ -571,8 +573,8 @@ mod tests {
             &ReportExitServiceProvidedMessage {
                 consuming_wallet: Wallet::new("consuming"),
                 payload_size: 31,
-                service_rate: 1,
-                byte_rate: 1
+                service_rate: TEMPORARY_PER_EXIT_RATE,
+                byte_rate: TEMPORARY_PER_BYTE_RATE
             }
         );
         assert_eq!(
@@ -580,8 +582,8 @@ mod tests {
             &ReportExitServiceProvidedMessage {
                 consuming_wallet: Wallet::new("consuming"),
                 payload_size: 29,
-                service_rate: 1,
-                byte_rate: 1
+                service_rate: TEMPORARY_PER_EXIT_RATE,
+                byte_rate: TEMPORARY_PER_BYTE_RATE
             }
         );
 
@@ -716,8 +718,8 @@ mod tests {
             &ReportExitServiceProvidedMessage {
                 consuming_wallet: Wallet::new("consuming"),
                 payload_size: 0,
-                service_rate: 1,
-                byte_rate: 1
+                service_rate: TEMPORARY_PER_EXIT_RATE,
+                byte_rate: TEMPORARY_PER_BYTE_RATE
             }
         );
     }

@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::command::Command;
+use crate::mock_bootstrap_node::MockBootstrapNode;
 use crate::substratum_mock_node::SubstratumMockNode;
 use crate::substratum_node::SubstratumNode;
 use crate::substratum_real_node::NodeStartupConfig;
@@ -7,20 +8,14 @@ use crate::substratum_real_node::SubstratumRealNode;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
+use sub_lib::cryptde::PublicKey;
 
 pub struct SubstratumNodeCluster {
     real_nodes: HashMap<String, SubstratumRealNode>,
     mock_nodes: HashMap<String, SubstratumMockNode>,
+    mock_bootstrap_nodes: HashMap<String, MockBootstrapNode>,
     host_node_parent_dir: Option<String>,
     next_index: usize,
-}
-
-impl Drop for SubstratumNodeCluster {
-    fn drop(&mut self) {
-        self.real_nodes.clear();
-        self.mock_nodes.clear();
-        Self::cleanup().unwrap();
-    }
 }
 
 impl SubstratumNodeCluster {
@@ -37,6 +32,7 @@ impl SubstratumNodeCluster {
         Ok(SubstratumNodeCluster {
             real_nodes: HashMap::new(),
             mock_nodes: HashMap::new(),
+            mock_bootstrap_nodes: HashMap::new(),
             host_node_parent_dir,
             next_index: 1,
         })
@@ -60,6 +56,15 @@ impl SubstratumNodeCluster {
         self.mock_nodes.get(&name).unwrap().clone()
     }
 
+    pub fn start_mock_bootstrap_node(&mut self, ports: Vec<u16>) -> MockBootstrapNode {
+        let index = self.next_index;
+        self.next_index += 1;
+        let node = MockBootstrapNode::start(ports, index, self.host_node_parent_dir.clone());
+        let name = node.name().to_string();
+        self.mock_bootstrap_nodes.insert(name.clone(), node);
+        self.mock_bootstrap_nodes.get(&name).unwrap().clone()
+    }
+
     pub fn stop(self) {
         SubstratumNodeCluster::cleanup().unwrap()
     }
@@ -75,42 +80,48 @@ impl SubstratumNodeCluster {
     }
 
     pub fn running_node_names(&self) -> HashSet<String> {
-        let real_node_names: HashSet<String> = self
-            .real_nodes
-            .keys()
-            .map(|key_ref| key_ref.clone())
-            .collect();
-        let mock_node_names: HashSet<String> = self
-            .mock_nodes
-            .keys()
-            .map(|key_ref| key_ref.clone())
-            .collect();
-        real_node_names
-            .union(&mock_node_names)
-            .map(|key_ref| key_ref.clone())
-            .collect::<HashSet<String>>()
+        let mut node_name_refs = vec![];
+        node_name_refs.extend(self.real_nodes.keys());
+        node_name_refs.extend(self.mock_nodes.keys());
+        node_name_refs.extend(self.mock_bootstrap_nodes.keys());
+        node_name_refs.into_iter().map(|x| x.clone()).collect()
     }
 
-    pub fn get_real_node(&self, name: &str) -> Option<SubstratumRealNode> {
+    pub fn get_real_node_by_name(&self, name: &str) -> Option<SubstratumRealNode> {
         match self.real_nodes.get(name) {
             Some(node_ref) => Some(node_ref.clone()),
             None => None,
         }
     }
 
-    pub fn get_mock_node(&self, name: &str) -> Option<SubstratumMockNode> {
+    pub fn get_real_node_by_key(&self, key: &PublicKey) -> Option<SubstratumRealNode> {
+        match self
+            .real_nodes
+            .values()
+            .into_iter()
+            .find(|node| node.public_key() == *key)
+        {
+            Some(node_ref) => Some(node_ref.clone()),
+            None => None,
+        }
+    }
+
+    pub fn get_mock_node_by_name(&self, name: &str) -> Option<SubstratumMockNode> {
         match self.mock_nodes.get(name) {
             Some(node_ref) => Some(node_ref.clone()),
             None => None,
         }
     }
 
-    pub fn get_node(&self, name: &str) -> Option<Box<dyn SubstratumNode>> {
+    pub fn get_node_by_name(&self, name: &str) -> Option<Box<dyn SubstratumNode>> {
         match self.real_nodes.get(name) {
             Some(node_ref) => Some(Box::new(node_ref.clone())),
             None => match self.mock_nodes.get(name) {
                 Some(node_ref) => Some(Box::new(node_ref.clone())),
-                None => None,
+                None => match self.mock_bootstrap_nodes.get(name) {
+                    Some(node_ref) => Some(Box::new(node_ref.clone())),
+                    None => None,
+                },
             },
         }
     }
@@ -134,13 +145,7 @@ impl SubstratumNodeCluster {
     fn stop_running_nodes() -> Result<(), String> {
         let mut command = Command::new(
             "docker",
-            Command::strings(vec![
-                "ps",
-                "-a",
-                "-q",
-                "--filter",
-                "ancestor=\"test_node_image\"",
-            ]),
+            Command::strings(vec!["ps", "-q", "--filter", "ancestor=test_node_image"]),
         );
         if command.wait_for_exit() != 0 {
             return Err(format!(
@@ -148,20 +153,20 @@ impl SubstratumNodeCluster {
                 command.stderr_as_string()
             ));
         }
-        let results: Vec<String> = command
-            .stdout_as_string()
+        let output = command.stdout_as_string();
+        let results: Vec<String> = output
             .split("\n")
             .filter(|result| !result.is_empty())
-            .map(|node_name| {
+            .map(|container_id| {
                 let mut command = Command::new(
                     "docker",
-                    Command::strings(vec!["stop", "-t", "0", node_name]),
+                    Command::strings(vec!["stop", "-t", "0", container_id]),
                 );
                 match command.wait_for_exit() {
                     0 => Ok(()),
                     _ => Err(format!(
                         "Could not stop node '{}': {}",
-                        node_name,
+                        container_id,
                         command.stderr_as_string()
                     )),
                 }

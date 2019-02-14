@@ -18,6 +18,8 @@ use sub_lib::cryptde::PublicKey;
 use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::logger::Logger;
 use sub_lib::proxy_client::ClientResponsePayload;
+use sub_lib::proxy_client::TEMPORARY_PER_BYTE_RATE;
+use sub_lib::proxy_client::TEMPORARY_PER_EXIT_RATE;
 use sub_lib::proxy_server::ClientRequestPayload;
 use sub_lib::route::Route;
 use sub_lib::sequence_buffer::SequencedPacket;
@@ -202,8 +204,8 @@ impl StreamHandlerPoolReal {
                     .try_send(ReportExitServiceProvidedMessage {
                         consuming_wallet: wallet,
                         payload_size,
-                        service_rate: 1,
-                        byte_rate: 1,
+                        service_rate: TEMPORARY_PER_EXIT_RATE,
+                        byte_rate: TEMPORARY_PER_BYTE_RATE,
                     })
                     .expect("Accountant is dead"),
                 // This log is here mostly for testing, to prove that no Accountant message is sent in the no-wallet case
@@ -538,8 +540,8 @@ mod tests {
             &ReportExitServiceProvidedMessage {
                 consuming_wallet: package_a.consuming_wallet.clone().unwrap(),
                 payload_size: client_request_payload.sequenced_packet.data.len() as u32,
-                service_rate: 1,
-                byte_rate: 1
+                service_rate: TEMPORARY_PER_EXIT_RATE,
+                byte_rate: TEMPORARY_PER_BYTE_RATE,
             }
         );
     }

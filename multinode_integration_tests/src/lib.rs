@@ -3,6 +3,7 @@
 pub mod command;
 pub mod gossip_builder;
 pub mod main;
+pub mod mock_bootstrap_node;
 pub mod substratum_client;
 pub mod substratum_cores_client;
 pub mod substratum_cores_server;

@@ -52,6 +52,22 @@ impl GossipBuilder {
         self
     }
 
+    pub fn add_gnr(mut self, gnr: &GossipNodeRecord) -> Self {
+        self.node_info.push(GossipBuilderNodeInfo {
+            node_record_inner: NodeRecordInner {
+                public_key: gnr.public_key(),
+                node_addr_opt: gnr.inner.node_addr_opt.clone(),
+                is_bootstrap_node: gnr.inner.is_bootstrap_node,
+                earning_wallet: gnr.inner.earning_wallet.clone(),
+                consuming_wallet: gnr.inner.consuming_wallet.clone(),
+                neighbors: vec![],
+                version: gnr.inner.version,
+            },
+            cryptde: Box::new(CryptDENull::from(&gnr.public_key())),
+        });
+        self
+    }
+
     pub fn add_fictional_node(mut self, node_record: NodeRecordInner) -> Self {
         let key = node_record.public_key.clone();
         self.node_info.push(GossipBuilderNodeInfo {

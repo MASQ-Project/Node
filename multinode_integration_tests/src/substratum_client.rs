@@ -55,8 +55,8 @@ impl SubstratumNodeClient {
                     begin = Instant::now();
                     output.extend(buf.iter())
                 }
-                Ok(_) => {
-                    output.extend(buf.iter());
+                Ok(n) => {
+                    output.extend(buf[0..n].iter());
                     return output;
                 }
                 Err(ref e) if e.kind() == ErrorKind::WouldBlock => {

@@ -275,6 +275,7 @@ impl MockNode {
                     Ok(0) => {
                         eprintln!("{} shut down stream", peer_addr);
                         stream.shutdown(Shutdown::Both).is_ok();
+                        break;
                     }
                     Ok(len) => {
                         let data_hunk = DataHunk::new(
@@ -363,7 +364,7 @@ mod tests {
 
     #[test]
     fn opens_mentioned_port() {
-        let control_stream_port = 42512;
+        let control_stream_port = find_free_port();
         let clandestine_port = find_free_port();
         thread::spawn(move || {
             let mut subject = MockNode::new();
@@ -406,8 +407,8 @@ mod tests {
 
     #[test]
     fn can_instruct_transmission_of_data() {
+        let control_stream_port = find_free_port();
         let clandestine_port = find_free_port();
-        let control_stream_port = 42514;
         thread::spawn(move || {
             let mut subject = MockNode::new();
             subject.control_stream_port = control_stream_port;

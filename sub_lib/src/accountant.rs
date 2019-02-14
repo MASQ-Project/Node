@@ -6,6 +6,8 @@ use actix::Recipient;
 use actix::Syn;
 use lazy_static::lazy_static;
 
+pub const DEFAULT_HOME_DIRECTORY: &str = ".";
+
 lazy_static! {
     // TODO: This is not a real wallet address. We need a Substratum wallet to accept default payments.
     pub static ref DEFAULT_EARNING_WALLET: Wallet = Wallet::new("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
@@ -16,7 +18,7 @@ lazy_static! {
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct AccountantConfig {
-    pub replace_me: String,
+    pub home_directory: String,
 }
 
 #[derive(Clone)]

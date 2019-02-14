@@ -12,6 +12,10 @@ workspace = "../node"
 actix = "= 0.5.7" # upgrading causes flakiness
 sub_lib = { path = "../sub_lib" }
 
+[dependencies.rusqlite]
+version = "0.16.0"
+features = ["bundled"]
+
 [dev-dependencies]
 test_utils = { path = "../test_utils" }
 
