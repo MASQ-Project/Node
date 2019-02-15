@@ -16,8 +16,6 @@ use sub_lib::dispatcher::InboundClientData;
 use sub_lib::hop::LiveHop;
 use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::hopper::TEMPORARY_PER_ROUTING_BYTE_RATE;
-use sub_lib::hopper::TEMPORARY_PER_ROUTING_BYTE_RATE;
-use sub_lib::hopper::TEMPORARY_PER_ROUTING_RATE;
 use sub_lib::hopper::TEMPORARY_PER_ROUTING_RATE;
 use sub_lib::logger::Logger;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
