@@ -20,9 +20,10 @@ use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 use sub_lib::cryptde::PublicKey;
+use sub_lib::cryptde_null::CryptDENull;
+use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::node_addr::NodeAddr;
 use sub_lib::wallet::Wallet;
-use sub_lib::cryptde_null::CryptDENull;
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct NodeReference {

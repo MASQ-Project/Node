@@ -19,10 +19,10 @@ use std::time::Duration;
 use sub_lib::accountant;
 use sub_lib::accountant::TEMPORARY_CONSUMING_WALLET;
 use sub_lib::cryptde::PublicKey;
+use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::neighborhood::sentinel_ip_addr;
 use sub_lib::node_addr::NodeAddr;
 use sub_lib::wallet::Wallet;
-use sub_lib::cryptde_null::CryptDENull;
 
 #[derive(PartialEq, Clone, Debug, Copy)]
 pub enum NodeType {
@@ -239,7 +239,9 @@ impl SubstratumNode for SubstratumRealNode {
         self.node_reference().public_key.clone()
     }
 
-    fn cryptde(&self) -> CryptDENull {CryptDENull::from (&self.public_key())}
+    fn cryptde(&self) -> CryptDENull {
+        CryptDENull::from(&self.public_key())
+    }
 
     fn ip_address(&self) -> IpAddr {
         self.guts.container_ip
