@@ -23,7 +23,7 @@ use sub_lib::neighborhood::RouteQueryMessage;
 use sub_lib::neighborhood::RouteQueryResponse;
 use sub_lib::peer_actors::BindMessage;
 use sub_lib::proxy_client::ClientResponsePayload;
-use sub_lib::proxy_client::TEMPORARY_PER_BYTE_RATE;
+use sub_lib::proxy_client::TEMPORARY_PER_EXIT_BYTE_RATE;
 use sub_lib::proxy_client::TEMPORARY_PER_EXIT_RATE;
 use sub_lib::proxy_server::ClientRequestPayload;
 use sub_lib::proxy_server::ProxyProtocol;
@@ -260,7 +260,7 @@ impl ProxyServer {
                     earning_wallet: hop_metadata.earning_wallet.clone(),
                     payload_size,
                     service_rate: TEMPORARY_PER_EXIT_RATE,
-                    byte_rate: TEMPORARY_PER_BYTE_RATE,
+                    byte_rate: TEMPORARY_PER_EXIT_BYTE_RATE,
                 };
                 accountant
                     .try_send(report_exit_service_consumed_message)
@@ -387,7 +387,7 @@ mod tests {
     use sub_lib::neighborhood::ExpectedService;
     use sub_lib::neighborhood::HopMetadata;
     use sub_lib::proxy_client::ClientResponsePayload;
-    use sub_lib::proxy_client::TEMPORARY_PER_BYTE_RATE;
+    use sub_lib::proxy_client::TEMPORARY_PER_EXIT_BYTE_RATE;
     use sub_lib::proxy_client::TEMPORARY_PER_EXIT_RATE;
     use sub_lib::proxy_server::ClientRequestPayload;
     use sub_lib::proxy_server::ProxyProtocol;
@@ -766,7 +766,7 @@ mod tests {
                 earning_wallet,
                 payload_size: expected_data.len() as u32,
                 service_rate: TEMPORARY_PER_EXIT_RATE,
-                byte_rate: TEMPORARY_PER_BYTE_RATE,
+                byte_rate: TEMPORARY_PER_EXIT_BYTE_RATE,
             }
         );
     }

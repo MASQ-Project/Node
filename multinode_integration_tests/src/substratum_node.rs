@@ -22,6 +22,7 @@ use std::time::Instant;
 use sub_lib::cryptde::PublicKey;
 use sub_lib::node_addr::NodeAddr;
 use sub_lib::wallet::Wallet;
+use sub_lib::cryptde_null::CryptDENull;
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct NodeReference {
@@ -133,6 +134,7 @@ pub trait SubstratumNode: Any {
     fn name(&self) -> &str;
     // This is the NodeReference stated by the Node in the console. Its IP address won't be accurate if it's a zero-hop Node.
     fn node_reference(&self) -> NodeReference;
+    fn cryptde(&self) -> CryptDENull;
     fn public_key(&self) -> PublicKey;
     // This is the IP address of the container in which the Node is running.
     fn ip_address(&self) -> IpAddr;

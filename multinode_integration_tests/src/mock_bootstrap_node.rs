@@ -22,6 +22,7 @@ use sub_lib::cryptde::PublicKey;
 use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::node_addr::NodeAddr;
 use sub_lib::wallet::Wallet;
+use sub_lib::cryptde_null::CryptDENull;
 
 #[derive(Clone)]
 pub struct MockBootstrapNode {
@@ -42,6 +43,8 @@ impl SubstratumNode for MockBootstrapNode {
     fn public_key(&self) -> PublicKey {
         self.node_reference.public_key.clone()
     }
+
+    fn cryptde(&self) -> CryptDENull {CryptDENull::from (&self.public_key())}
 
     fn ip_address(&self) -> IpAddr {
         self.node_reference.node_addr.ip_addr()

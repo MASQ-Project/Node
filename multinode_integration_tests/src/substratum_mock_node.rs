@@ -71,6 +71,8 @@ impl SubstratumNode for SubstratumMockNode {
         self.cryptde().public_key()
     }
 
+    fn cryptde(&self) -> CryptDENull {CryptDENull::from (&self.public_key())}
+
     fn ip_address(&self) -> IpAddr {
         self.guts.node_addr.ip_addr()
     }

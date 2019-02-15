@@ -6,8 +6,14 @@ use crate::utils;
 use serde_derive::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
+use serde::de::Visitor;
+use std::fmt;
+use serde::Serialize;
+use serde::Deserialize;
+use serde::Serializer;
+use serde::Deserializer;
 
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SequencedPacket {
     pub data: Vec<u8>,
     pub sequence_number: u64,
@@ -39,6 +45,26 @@ impl<'a> From<&'a TransmitDataMsg> for SequencedPacket {
     }
 }
 
+impl Serialize for SequencedPacket {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where
+        S: Serializer {
+        let mut bytes = vec![0; self.data.len () + 9];
+        bytes[0] = if self.last_data {1} else {0};
+        SequencedPacketVisitor::u64_to (self.sequence_number, &mut bytes[1..9])?;
+        bytes[9..(self.data.len () + 9)].copy_from_slice(&self.data);
+        serializer.serialize_bytes (&bytes)
+    }
+}
+
+impl<'de> Deserialize<'de> for SequencedPacket {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>
+    {
+        deserializer.deserialize_bytes(SequencedPacketVisitor)
+    }
+}
+
 impl SequencedPacket {
     pub fn new(data: Vec<u8>, sequence_number: u64, last_data: bool) -> SequencedPacket {
         SequencedPacket {
@@ -46,6 +72,56 @@ impl SequencedPacket {
             sequence_number,
             last_data,
         }
+    }
+}
+
+struct SequencedPacketVisitor;
+
+impl<'a> Visitor<'a> for SequencedPacketVisitor {
+    type Value = SequencedPacket;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a SequencedPacket struct")
+    }
+
+    fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+    {
+        let last_data = match &v[0] {
+            0 => false,
+            1 => true,
+            _ => return Err (serde::de::Error::custom(format!("can't deserialize a bool from {}", v[0]))),
+        };
+        let sequence_number = Self::u64_from (&v[1..9])?;
+        Ok(SequencedPacket::new (
+            Vec::from (&v[9..]), sequence_number, last_data
+        ))
+    }
+}
+
+impl SequencedPacketVisitor {
+    fn u64_from<E> (bytes: &[u8]) -> Result<u64, E> where E: serde::de::Error {
+        if bytes.len () != 8 {
+            return Err (E::custom(format!("can't make a u64 from {} bytes", bytes.len ())))
+        }
+        let mut result = 0u64;
+        for byte in bytes {
+            result = (result << 8) + (*byte as u64)
+        }
+        Ok (result)
+    }
+
+    fn u64_to<E> (value: u64, buf: &mut [u8]) -> Result<(), E> where E: serde::ser::Error {
+        if buf.len () != 8 {
+            return Err (E::custom(format!("can't serialize a u64 into {} bytes", buf.len ())))
+        }
+        let mut remaining = value;
+        for idx in 0usize..8usize {
+            buf[7 - idx] = (remaining & 0xFF) as u8;
+            remaining = remaining >> 8
+        }
+        Ok (())
     }
 }
 
@@ -367,5 +443,20 @@ mod tests {
 
         subject.push(c.clone());
         assert_eq!(subject.poll(), Some(c));
+    }
+
+    #[test]
+    fn serialization_and_deserialization_can_talk () {
+        let subject_f = SequencedPacket::new (vec![1, 2, 3, 4], 0xFEDBCA9876543210, false);
+        let subject_t = SequencedPacket::new (vec![4, 3, 2, 1], 0x0123456789ABCDEF, true);
+
+        let serial_f = serde_cbor::ser::to_vec (&subject_f).unwrap ();
+        let serial_t = serde_cbor::ser::to_vec (&subject_t).unwrap ();
+
+        let result_f = serde_cbor::de::from_slice::<SequencedPacket> (serial_f.as_slice()).unwrap ();
+        let result_t = serde_cbor::de::from_slice::<SequencedPacket> (serial_t.as_slice()).unwrap ();
+
+        assert_eq! (result_f, subject_f);
+        assert_eq! (result_t, subject_t);
     }
 }

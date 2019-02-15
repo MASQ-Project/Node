@@ -7,7 +7,7 @@ use actix::Recipient;
 use actix::Syn;
 use serde_derive::{Deserialize, Serialize};
 
-pub const TEMPORARY_PER_BYTE_RATE: u64 = 2;
+pub const TEMPORARY_PER_EXIT_BYTE_RATE: u64 = 2;
 pub const TEMPORARY_PER_EXIT_RATE: u64 = 1;
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]

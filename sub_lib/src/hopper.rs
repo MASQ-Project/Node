@@ -13,6 +13,9 @@ use serde::ser::Serialize;
 use serde_cbor;
 use std::net::IpAddr;
 
+pub const TEMPORARY_PER_ROUTING_BYTE_RATE: u64 = 4;
+pub const TEMPORARY_PER_ROUTING_RATE: u64 = 3;
+
 /// New CORES package about to be sent to the Hopper and thence put on the Substratum Network
 #[derive(Clone, Debug, PartialEq, Message)]
 pub struct IncipientCoresPackage {

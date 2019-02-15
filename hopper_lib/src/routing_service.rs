@@ -18,6 +18,8 @@ use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::logger::Logger;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
 use sub_lib::wallet::Wallet;
+use sub_lib::hopper::TEMPORARY_PER_ROUTING_RATE;
+use sub_lib::hopper::TEMPORARY_PER_ROUTING_BYTE_RATE;
 
 pub struct RoutingService {
     cryptde: &'static dyn CryptDE,
@@ -136,8 +138,8 @@ impl RoutingService {
                 .try_send(ReportRoutingServiceProvidedMessage {
                     consuming_wallet,
                     payload_size,
-                    service_rate: 1,
-                    byte_rate: 1,
+                    service_rate: TEMPORARY_PER_ROUTING_RATE,
+                    byte_rate: TEMPORARY_PER_ROUTING_BYTE_RATE,
                 })
                 .expect("Accountant is dead"),
             None => {
@@ -670,8 +672,8 @@ mod tests {
             ReportRoutingServiceProvidedMessage {
                 consuming_wallet,
                 payload_size: lcp.payload.len() as u32,
-                service_rate: 1,
-                byte_rate: 1
+                service_rate: TEMPORARY_PER_ROUTING_RATE,
+                byte_rate: TEMPORARY_PER_ROUTING_BYTE_RATE
             }
         )
     }
