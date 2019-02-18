@@ -15,6 +15,7 @@ use sub_lib::accountant::AccountantConfig;
 use sub_lib::accountant::AccountantSubs;
 use sub_lib::accountant::ReportExitServiceConsumedMessage;
 use sub_lib::accountant::ReportExitServiceProvidedMessage;
+use sub_lib::accountant::ReportRoutingServiceConsumedMessage;
 use sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use sub_lib::logger::Logger;
 use sub_lib::peer_actors::BindMessage;
@@ -86,6 +87,28 @@ impl Handler<ReportExitServiceProvidedMessage> for Accountant {
     }
 }
 
+impl Handler<ReportRoutingServiceConsumedMessage> for Accountant {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: ReportRoutingServiceConsumedMessage,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        self.logger.debug(format!(
+            "Accruing debt to wallet {} for consuming routing service {} bytes",
+            msg.earning_wallet.address, msg.payload_size
+        ));
+        self.record_service_consumed(
+            msg.service_rate,
+            msg.byte_rate,
+            msg.payload_size,
+            &msg.earning_wallet,
+        );
+        ()
+    }
+}
+
 impl Handler<ReportExitServiceConsumedMessage> for Accountant {
     type Result = ();
 
@@ -97,7 +120,14 @@ impl Handler<ReportExitServiceConsumedMessage> for Accountant {
         self.logger.debug(format!(
             "Accruing debt to wallet {} for consuming exit service {} bytes",
             msg.earning_wallet.address, msg.payload_size
-        ))
+        ));
+        self.record_service_consumed(
+            msg.service_rate,
+            msg.byte_rate,
+            msg.payload_size,
+            &msg.earning_wallet,
+        );
+        ()
     }
 }
 
@@ -121,6 +151,9 @@ impl Accountant {
             report_exit_service_provided: addr
                 .clone()
                 .recipient::<ReportExitServiceProvidedMessage>(),
+            report_routing_service_consumed: addr
+                .clone()
+                .recipient::<ReportRoutingServiceConsumedMessage>(),
             report_exit_service_consumed: addr
                 .clone()
                 .recipient::<ReportExitServiceConsumedMessage>(),
@@ -162,7 +195,22 @@ impl Accountant {
         self.receivable_dao
             .as_ref()
             .expect("Accountant not bound")
-            .more_money_owed(wallet, total_charge);
+            .more_money_receivable(wallet, total_charge);
+    }
+
+    fn record_service_consumed(
+        &self,
+        service_rate: u64,
+        byte_rate: u64,
+        payload_size: u32,
+        wallet: &Wallet,
+    ) {
+        let byte_charge = byte_rate * (payload_size as u64);
+        let total_charge = service_rate + byte_charge;
+        self.payable_dao
+            .as_ref()
+            .expect("Accountant not bound")
+            .more_money_payable(wallet, total_charge);
     }
 }
 
@@ -171,6 +219,7 @@ pub mod tests {
     use super::*;
     use crate::db_initializer::Daos;
     use crate::db_initializer::InitializationError;
+    use crate::payable_dao::PayableAccount;
     use crate::receivable_dao;
     use actix::msgs;
     use actix::Arbiter;
@@ -183,6 +232,7 @@ pub mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::time::SystemTime;
+    use sub_lib::accountant::ReportRoutingServiceConsumedMessage;
     use sub_lib::wallet::Wallet;
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
@@ -228,11 +278,16 @@ pub mod tests {
     }
 
     #[derive(Debug)]
-    struct PayableDaoMock {}
+    struct PayableDaoMock {
+        more_money_payable_parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
+    }
 
     impl PayableDao for PayableDaoMock {
-        fn more_money_owed(&self, _wallet_address: &Wallet, _amount: u64) {
-            unimplemented!()
+        fn more_money_payable(&self, wallet_address: &Wallet, amount: u64) {
+            self.more_money_payable_parameters
+                .lock()
+                .unwrap()
+                .push((wallet_address.clone(), amount));
         }
 
         fn payment_sent(&self, _wallet_address: &Wallet, _pending_payment_transaction: &str) {
@@ -247,23 +302,37 @@ pub mod tests {
         ) {
             unimplemented!()
         }
+
+        fn account_status(&self, _wallet_address: &Wallet) -> Option<PayableAccount> {
+            unimplemented!()
+        }
     }
 
     impl PayableDaoMock {
         fn new() -> PayableDaoMock {
-            PayableDaoMock {}
+            PayableDaoMock {
+                more_money_payable_parameters: Arc::new(Mutex::new(vec![])),
+            }
+        }
+
+        fn more_money_payable_parameters(
+            mut self,
+            parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
+        ) -> Self {
+            self.more_money_payable_parameters = parameters;
+            self
         }
     }
 
     #[derive(Debug)]
     struct ReceivableDaoMock {
-        more_money_owed_parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
+        more_money_receivable_parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
         more_money_received_parameters: Arc<Mutex<Vec<(Wallet, u64, SystemTime)>>>,
     }
 
     impl ReceivableDao for ReceivableDaoMock {
-        fn more_money_owed(&self, wallet_address: &Wallet, amount: u64) {
-            self.more_money_owed_parameters
+        fn more_money_receivable(&self, wallet_address: &Wallet, amount: u64) {
+            self.more_money_receivable_parameters
                 .lock()
                 .unwrap()
                 .push((wallet_address.clone(), amount));
@@ -282,7 +351,10 @@ pub mod tests {
             ));
         }
 
-        fn account_status(&self, _wallet_address: &Wallet) -> Option<receivable_dao::Account> {
+        fn account_status(
+            &self,
+            _wallet_address: &Wallet,
+        ) -> Option<receivable_dao::ReceivableAccount> {
             unimplemented!()
         }
     }
@@ -290,16 +362,16 @@ pub mod tests {
     impl ReceivableDaoMock {
         fn new() -> ReceivableDaoMock {
             ReceivableDaoMock {
-                more_money_owed_parameters: Arc::new(Mutex::new(vec![])),
+                more_money_receivable_parameters: Arc::new(Mutex::new(vec![])),
                 more_money_received_parameters: Arc::new(Mutex::new(vec![])),
             }
         }
 
-        fn more_money_owed_parameters(
+        fn more_money_receivable_parameters(
             mut self,
             parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
         ) -> Self {
-            self.more_money_owed_parameters = parameters;
+            self.more_money_receivable_parameters = parameters;
             self
         }
 
@@ -323,12 +395,12 @@ pub mod tests {
             home_directory: home_dir.clone(),
         };
         let dbi_initialize_parameters_arc = Arc::new(Mutex::new(vec![]));
-        let more_money_owed_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let daos = Daos {
             payable: Box::new(PayableDaoMock::new()),
             receivable: Box::new(
                 ReceivableDaoMock::new()
-                    .more_money_owed_parameters(more_money_owed_parameters_arc.clone()),
+                    .more_money_receivable_parameters(more_money_receivable_parameters_arc.clone()),
             ),
         };
         let db_initializer = DbInitializerMock::new()
@@ -357,13 +429,68 @@ pub mod tests {
         system.run();
         let dbi_initialize_parameters = dbi_initialize_parameters_arc.lock().unwrap();
         assert_eq!(dbi_initialize_parameters[0], PathBuf::from(home_dir));
-        let more_money_owed_parameters = more_money_owed_parameters_arc.lock().unwrap();
+        let more_money_receivable_parameters = more_money_receivable_parameters_arc.lock().unwrap();
         assert_eq!(
-            more_money_owed_parameters[0],
+            more_money_receivable_parameters[0],
             (Wallet::new("booga"), (1 * 42) + (1234 * 24))
         );
         TestLogHandler::new().exists_log_containing(
             "DEBUG: Accountant: Charging routing of 1234 bytes to wallet booga",
+        );
+    }
+
+    #[test]
+    fn report_routing_service_consumed_message_is_received() {
+        init_test_logging();
+        let home_dir = format!(
+            "{}/report_routing_service_consumed_message_is_received/home",
+            BASE_TEST_DIR
+        );
+        let config = AccountantConfig {
+            home_directory: home_dir.clone(),
+        };
+        let dbi_initialize_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let daos = Daos {
+            payable: Box::new(
+                PayableDaoMock::new()
+                    .more_money_payable_parameters(more_money_payable_parameters_arc.clone()),
+            ),
+            receivable: Box::new(ReceivableDaoMock::new()),
+        };
+        let db_initializer = DbInitializerMock::new()
+            .initialize_parameters(dbi_initialize_parameters_arc.clone())
+            .initialize_result(Ok(daos));
+        let mut subject = Accountant::new(config);
+        subject.db_initializer = Box::new(db_initializer);
+        let system = System::new("report_routing_service_consumed_message_is_received");
+        let subject_addr: Addr<Syn, Accountant> = subject.start();
+        subject_addr
+            .try_send(BindMessage {
+                peer_actors: make_peer_actors(),
+            })
+            .unwrap();
+
+        subject_addr
+            .try_send(ReportRoutingServiceConsumedMessage {
+                earning_wallet: Wallet::new("booga"),
+                payload_size: 1234,
+                service_rate: 42,
+                byte_rate: 24,
+            })
+            .unwrap();
+
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        system.run();
+        let dbi_initialize_parameters = dbi_initialize_parameters_arc.lock().unwrap();
+        assert_eq!(dbi_initialize_parameters[0], PathBuf::from(home_dir));
+        let more_money_payable_parameters = more_money_payable_parameters_arc.lock().unwrap();
+        assert_eq!(
+            more_money_payable_parameters[0],
+            (Wallet::new("booga"), (1 * 42) + (1234 * 24))
+        );
+        TestLogHandler::new().exists_log_containing(
+            "DEBUG: Accountant: Accruing debt to wallet booga for consuming routing service 1234 bytes",
         );
     }
 
@@ -373,12 +500,12 @@ pub mod tests {
         let config = AccountantConfig {
             home_directory: String::new(),
         };
-        let more_money_owed_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let daos = Daos {
             payable: Box::new(PayableDaoMock::new()),
             receivable: Box::new(
                 ReceivableDaoMock::new()
-                    .more_money_owed_parameters(more_money_owed_parameters_arc.clone()),
+                    .more_money_receivable_parameters(more_money_receivable_parameters_arc.clone()),
             ),
         };
         let db_initializer = DbInitializerMock::new().initialize_result(Ok(daos));
@@ -403,13 +530,68 @@ pub mod tests {
 
         Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
         system.run();
-        let more_money_owed_parameters = more_money_owed_parameters_arc.lock().unwrap();
+        let more_money_receivable_parameters = more_money_receivable_parameters_arc.lock().unwrap();
         assert_eq!(
-            more_money_owed_parameters[0],
+            more_money_receivable_parameters[0],
             (Wallet::new("booga"), (1 * 42) + (1234 * 24))
         );
         TestLogHandler::new().exists_log_containing(
             "DEBUG: Accountant: Charging exit service for 1234 bytes to wallet booga",
+        );
+    }
+
+    #[test]
+    fn report_exit_service_consumed_message_is_received() {
+        init_test_logging();
+        let home_dir = format!(
+            "{}/report_exit_service_consumed_message_is_received/home",
+            BASE_TEST_DIR
+        );
+        let config = AccountantConfig {
+            home_directory: home_dir.clone(),
+        };
+        let dbi_initialize_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let daos = Daos {
+            payable: Box::new(
+                PayableDaoMock::new()
+                    .more_money_payable_parameters(more_money_payable_parameters_arc.clone()),
+            ),
+            receivable: Box::new(ReceivableDaoMock::new()),
+        };
+        let db_initializer = DbInitializerMock::new()
+            .initialize_parameters(dbi_initialize_parameters_arc.clone())
+            .initialize_result(Ok(daos));
+        let mut subject = Accountant::new(config);
+        subject.db_initializer = Box::new(db_initializer);
+        let system = System::new("report_exit_service_consumed_message_is_received");
+        let subject_addr: Addr<Syn, Accountant> = subject.start();
+        subject_addr
+            .try_send(BindMessage {
+                peer_actors: make_peer_actors(),
+            })
+            .unwrap();
+
+        subject_addr
+            .try_send(ReportExitServiceConsumedMessage {
+                earning_wallet: Wallet::new("booga"),
+                payload_size: 1234,
+                service_rate: 42,
+                byte_rate: 24,
+            })
+            .unwrap();
+
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        system.run();
+        let dbi_initialize_parameters = dbi_initialize_parameters_arc.lock().unwrap();
+        assert_eq!(dbi_initialize_parameters[0], PathBuf::from(home_dir));
+        let more_money_payable_parameters = more_money_payable_parameters_arc.lock().unwrap();
+        assert_eq!(
+            more_money_payable_parameters[0],
+            (Wallet::new("booga"), (1 * 42) + (1234 * 24))
+        );
+        TestLogHandler::new().exists_log_containing(
+            "DEBUG: Accountant: Accruing debt to wallet booga for consuming exit service 1234 bytes",
         );
     }
 

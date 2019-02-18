@@ -1,3 +1,4 @@
+// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::payable_dao::PayableDao;
 use crate::payable_dao::PayableDaoReal;
 use crate::receivable_dao::ReceivableDao;
@@ -172,18 +173,12 @@ impl DbInitializerReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::local_test_utils::ensure_node_home_directory_exists;
     use rusqlite::OpenFlags;
-    use std::fs;
-    use std::path::PathBuf;
-
-    pub const BASE_TEST_DIR: &str = "generated/test";
 
     #[test]
     fn nonexistent_database_is_created() {
-        let home_dir_string = format!("{}/nonexistent_database_is_created/home", BASE_TEST_DIR);
-        let home_dir = PathBuf::from(home_dir_string.as_str());
-        fs::remove_dir_all(&home_dir).is_ok();
-        fs::create_dir_all(&home_dir).is_ok();
+        let home_dir = ensure_node_home_directory_exists("nonexistent_database_is_created");
         let subject = DbInitializerReal::new();
 
         subject.initialize(&home_dir).unwrap();
@@ -215,13 +210,8 @@ mod tests {
 
     #[test]
     fn existing_database_with_correct_version_is_accepted_without_changes() {
-        let home_dir_string = format!(
-            "{}/existing_database_with_version_is_accepted/home",
-            BASE_TEST_DIR
-        );
-        let home_dir = PathBuf::from(home_dir_string.as_str());
-        fs::remove_dir_all(&home_dir).is_ok();
-        fs::create_dir_all(&home_dir).is_ok();
+        let home_dir =
+            ensure_node_home_directory_exists("existing_database_with_version_is_accepted");
         let subject = DbInitializerReal::new();
         {
             DbInitializerReal::new().initialize(&home_dir).unwrap();
@@ -261,13 +251,8 @@ mod tests {
 
     #[test]
     fn existing_database_with_no_version_is_rejected() {
-        let home_dir_string = format!(
-            "{}/existing_database_with_no_version_is_rejected/home",
-            BASE_TEST_DIR
-        );
-        let home_dir = PathBuf::from(home_dir_string.as_str());
-        fs::remove_dir_all(&home_dir).is_ok();
-        fs::create_dir_all(&home_dir).is_ok();
+        let home_dir =
+            ensure_node_home_directory_exists("existing_database_with_no_version_is_rejected");
         {
             DbInitializerReal::new().initialize(&home_dir).unwrap();
             let mut flags = OpenFlags::empty();
@@ -291,13 +276,9 @@ mod tests {
 
     #[test]
     fn existing_database_with_the_wrong_version_is_rejected() {
-        let home_dir_string = format!(
-            "{}/existing_database_with_the_wrong_version_is_rejected/home",
-            BASE_TEST_DIR
+        let home_dir = ensure_node_home_directory_exists(
+            "existing_database_with_the_wrong_version_is_rejected",
         );
-        let home_dir = PathBuf::from(home_dir_string.as_str());
-        fs::remove_dir_all(&home_dir).is_ok();
-        fs::create_dir_all(&home_dir).is_ok();
         {
             DbInitializerReal::new().initialize(&home_dir).unwrap();
             let mut flags = OpenFlags::empty();

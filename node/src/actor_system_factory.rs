@@ -301,6 +301,7 @@ mod tests {
     use std::time::Duration;
     use sub_lib::accountant::ReportExitServiceConsumedMessage;
     use sub_lib::accountant::ReportExitServiceProvidedMessage;
+    use sub_lib::accountant::ReportRoutingServiceConsumedMessage;
     use sub_lib::accountant::ReportRoutingServiceProvidedMessage;
     use sub_lib::crash_point::CrashPoint;
     use sub_lib::cryptde::PlainData;
@@ -418,6 +419,9 @@ mod tests {
                 report_exit_service_provided: addr
                     .clone()
                     .recipient::<ReportExitServiceProvidedMessage>(),
+                report_routing_service_consumed: addr
+                    .clone()
+                    .recipient::<ReportRoutingServiceConsumedMessage>(),
                 report_exit_service_consumed: addr
                     .clone()
                     .recipient::<ReportExitServiceConsumedMessage>(),

@@ -1,3 +1,4 @@
+// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::dao_utils;
 use rusqlite::types::ToSql;
 use rusqlite::Connection;
@@ -7,18 +8,18 @@ use std::time::SystemTime;
 use sub_lib::wallet::Wallet;
 
 #[derive(Debug, PartialEq)]
-pub struct Account {
+pub struct ReceivableAccount {
     pub wallet_address: Wallet,
     pub balance: i64,
     pub last_received_timestamp: SystemTime,
 }
 
 pub trait ReceivableDao: Debug {
-    fn more_money_owed(&self, wallet_address: &Wallet, amount: u64);
+    fn more_money_receivable(&self, wallet_address: &Wallet, amount: u64);
 
     fn more_money_received(&self, wallet_address: &Wallet, amount: u64, timestamp: &SystemTime);
 
-    fn account_status(&self, wallet_address: &Wallet) -> Option<Account>;
+    fn account_status(&self, wallet_address: &Wallet) -> Option<ReceivableAccount>;
 }
 
 #[derive(Debug)]
@@ -27,7 +28,7 @@ pub struct ReceivableDaoReal {
 }
 
 impl ReceivableDao for ReceivableDaoReal {
-    fn more_money_owed(&self, wallet_address: &Wallet, amount: u64) {
+    fn more_money_receivable(&self, wallet_address: &Wallet, amount: u64) {
         match self.try_update(wallet_address, amount) {
             Ok(true) => (),
             Ok(false) => match self.try_insert(wallet_address, amount) {
@@ -42,7 +43,7 @@ impl ReceivableDao for ReceivableDaoReal {
         unimplemented!()
     }
 
-    fn account_status(&self, wallet_address: &Wallet) -> Option<Account> {
+    fn account_status(&self, wallet_address: &Wallet) -> Option<ReceivableAccount> {
         let mut stmt = self
             .conn
             .prepare(
@@ -55,7 +56,7 @@ impl ReceivableDao for ReceivableDaoReal {
             })
             .optional()
         {
-            Ok(Some((Some(balance), Some(timestamp)))) => Some(Account {
+            Ok(Some((Some(balance), Some(timestamp)))) => Some(ReceivableAccount {
                 wallet_address: wallet_address.clone(),
                 balance,
                 last_received_timestamp: dao_utils::from_time_t(timestamp),
@@ -103,24 +104,17 @@ impl ReceivableDaoReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::tests::BASE_TEST_DIR;
     use crate::db_initializer;
     use crate::db_initializer::DbInitializer;
     use crate::db_initializer::DbInitializerReal;
+    use crate::local_test_utils::*;
     use rusqlite::OpenFlags;
     use rusqlite::NO_PARAMS;
-    use std::fs;
-    use std::path::PathBuf;
 
     #[test]
-    fn more_money_owed_works_for_new_address() {
-        let home_dir_string = format!(
-            "{}/more_money_owed_works_for_new_address/home",
-            BASE_TEST_DIR
-        );
-        let home_dir = PathBuf::from(home_dir_string.as_str());
-        fs::remove_dir_all(&home_dir).is_ok();
-        fs::create_dir_all(&home_dir).is_ok();
+    fn more_money_receivable_works_for_new_address() {
+        let home_dir =
+            ensure_node_home_directory_exists("more_money_receivable_works_for_new_address");
         let before = dao_utils::to_time_t(&SystemTime::now());
         let wallet = Wallet::new("booga");
         let status = {
@@ -129,7 +123,7 @@ mod tests {
                 .unwrap()
                 .receivable;
 
-            subject.more_money_owed(&wallet, 1234);
+            subject.more_money_receivable(&wallet, 1234);
             subject.account_status(&wallet).unwrap()
         };
 
@@ -152,21 +146,16 @@ mod tests {
     }
 
     #[test]
-    fn more_money_owed_works_for_existing_address() {
-        let home_dir_string = format!(
-            "{}/more_money_owed_works_for_existing_address/home",
-            BASE_TEST_DIR
-        );
-        let home_dir = PathBuf::from(home_dir_string.as_str());
-        fs::remove_dir_all(&home_dir).is_ok();
-        fs::create_dir_all(&home_dir).is_ok();
+    fn more_money_receivable_works_for_existing_address() {
+        let home_dir =
+            ensure_node_home_directory_exists("more_money_receivable_works_for_existing_address");
         let wallet = Wallet::new("booga");
         let subject = {
             let subject = DbInitializerReal::new()
                 .initialize(&home_dir)
                 .unwrap()
                 .receivable;
-            subject.more_money_owed(&wallet, 1234);
+            subject.more_money_receivable(&wallet, 1234);
             let mut flags = OpenFlags::empty();
             flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
             let conn =
@@ -181,7 +170,7 @@ mod tests {
         };
 
         let status = {
-            subject.more_money_owed(&wallet, 2345);
+            subject.more_money_receivable(&wallet, 2345);
             subject.account_status(&wallet).unwrap()
         };
 
@@ -191,14 +180,10 @@ mod tests {
     }
 
     #[test]
-    fn account_status_works_when_account_doesnt_exist() {
-        let home_dir_string = format!(
-            "{}/account_status_works_when_account_doesnt_exist/home",
-            BASE_TEST_DIR
+    fn receivable_account_status_works_when_account_doesnt_exist() {
+        let home_dir = ensure_node_home_directory_exists(
+            "receivable_account_status_works_when_account_doesnt_exist",
         );
-        let home_dir = PathBuf::from(home_dir_string.as_str());
-        fs::remove_dir_all(&home_dir).is_ok();
-        fs::create_dir_all(&home_dir).is_ok();
         let wallet = Wallet::new("booga");
         let subject = DbInitializerReal::new()
             .initialize(&home_dir)

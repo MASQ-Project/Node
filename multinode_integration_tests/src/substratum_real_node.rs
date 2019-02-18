@@ -221,7 +221,7 @@ impl NodeStartupConfigBuilder {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SubstratumRealNode {
     guts: Rc<SubstratumRealNodeGuts>,
 }
@@ -426,6 +426,7 @@ impl SubstratumRealNode {
     }
 }
 
+#[derive(Debug)]
 struct SubstratumRealNodeGuts {
     name: String,
     container_ip: IpAddr,

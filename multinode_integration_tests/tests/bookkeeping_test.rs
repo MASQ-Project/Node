@@ -12,7 +12,8 @@ extern crate sub_lib;
 extern crate test_utils;
 
 use accountant_lib::dao_utils;
-use accountant_lib::receivable_dao::Account;
+use accountant_lib::payable_dao::PayableAccount;
+use accountant_lib::receivable_dao::ReceivableAccount;
 use multinode_integration_tests_lib::substratum_node::SubstratumNode;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
@@ -36,16 +37,17 @@ use sub_lib::stream_key::StreamKey;
 use sub_lib::wallet::Wallet;
 
 #[test]
-fn provided_services_are_recorded_in_accounts_receivable() {
+fn provided_and_consumed_services_are_recorded_in_databases() {
     let mut cluster = SubstratumNodeCluster::start().unwrap();
 
     let bootstrap = cluster.start_mock_bootstrap_node(vec![5550]);
 
     let _nodes = (0..3)
-        .map(|_| {
+        .map(|idx| {
             cluster.start_real_node(
                 NodeStartupConfigBuilder::standard()
                     .neighbor(bootstrap.node_reference())
+                    .earning_wallet(make_wallet_from(idx))
                     .build(),
             )
         })
@@ -61,18 +63,6 @@ fn provided_services_are_recorded_in_accounts_receivable() {
 
     client.send_chunk(Vec::from(request));
     let response = client.wait_for_chunk();
-
-    let param_block = ParamBlock {
-        before,
-        after: SystemTime::now(),
-        request_len: request.len(),
-        response_len: response.len(),
-        consuming_wallet: originating_node
-            .consuming_wallet()
-            .as_ref()
-            .unwrap()
-            .clone(),
-    };
     let originating_node = cluster
         .get_real_node_by_key(&bootstrap.originating_node_key())
         .unwrap();
@@ -82,14 +72,20 @@ fn provided_services_are_recorded_in_accounts_receivable() {
     let exit_node = cluster
         .get_real_node_by_key(&bootstrap.exit_node_key())
         .unwrap();
-    check_originating_charges(&originating_node, &param_block);
-    check_routing_charges(
-        routing_node,
-        &param_block,
-        &originating_node.cryptde(),
-        &exit_node.cryptde(),
-    );
-    check_exit_charges(exit_node, &param_block);
+
+    let param_block = ParamBlock {
+        before,
+        after: SystemTime::now(),
+        request_len: request.len(),
+        response_len: response.len(),
+        originating_node: originating_node.clone(),
+        routing_node: routing_node.clone(),
+        exit_node: exit_node.clone(),
+    };
+
+    check_originating_charges(&param_block);
+    check_routing_charges(&param_block);
+    check_exit_charges(&param_block);
 }
 
 #[derive(Debug)]
@@ -98,61 +94,146 @@ struct ParamBlock {
     after: SystemTime,
     request_len: usize,
     response_len: usize,
-    consuming_wallet: Wallet,
-}
-
-fn check_originating_charges(originating_node: &SubstratumRealNode, param_block: &ParamBlock) {
-    let account_status = account_status(&originating_node, &param_block.consuming_wallet);
-
-    assert_eq!(account_status, None);
-}
-
-fn check_routing_charges(
+    originating_node: SubstratumRealNode,
     routing_node: SubstratumRealNode,
-    param_block: &ParamBlock,
-    originating_cryptde: &CryptDE,
-    exit_cryptde: &CryptDE,
-) {
-    let account_status = account_status(&routing_node, &param_block.consuming_wallet).unwrap();
+    exit_node: SubstratumRealNode,
+}
+
+fn check_originating_charges(param_block: &ParamBlock) {
+    let receivable_account = receivable_account_status(
+        &param_block.originating_node,
+        &param_block.originating_node.consuming_wallet().unwrap(),
+    );
+    //    let payable_routing_account = payable_account_status(
+    //        &param_block.originating_node,
+    //        &param_block.routing_node.earning_wallet ()
+    //    ).unwrap ();
+    //    let payable_exit_account = payable_account_status(
+    //        &param_block.originating_node,
+    //        &param_block.exit_node.earning_wallet ()
+    //    ).unwrap ();
+
+    assert_eq!(receivable_account, None);
+    //    let (cores_request_bytes, expected_request_routing_charge) = cores_payload_request_routing_charges(&param_block);
+    //    let expected_request_exit_charge = calculate_exit_charge (param_block.request_len);
+    //    let (cores_response_bytes, expected_response_routing_charge) = cores_payload_response_routing_charges(&param_block);
+    //    let expected_response_exit_charge = 0; //calculate_exit_charge (param_block.response_len);
+    //    assert_eq! (
+    //        payable_routing_account.balance as u64,
+    //        expected_request_routing_charge + expected_response_routing_charge,
+    //        "Balance should be calculated for 2 routing services and {} + {} bytes",
+    //        cores_request_bytes, cores_response_bytes
+    //    );
+    //    assert_eq! (payable_routing_account.pending_payment_transaction, None);
+    //    timestamp_between(
+    //        &param_block.before,
+    //        &payable_routing_account.last_paid_timestamp,
+    //        &param_block.after,
+    //    );
+    //    assert_eq! (
+    //        payable_exit_account.balance as u64,
+    //        expected_request_exit_charge + expected_response_exit_charge,
+    //        "Balance should be calculated for 2 exit services and {} + {} bytes",
+    //        cores_request_bytes, cores_response_bytes
+    //    );
+    //    assert_eq! (payable_exit_account.pending_payment_transaction, None);
+    //    timestamp_between(
+    //        &param_block.before,
+    //        &payable_exit_account.last_paid_timestamp,
+    //        &param_block.after,
+    //    );
+}
+
+//fn cores_payload_request_routing_charges(param_block: &ParamBlock) -> (usize, u64) {
+//    calculate_request_routing_charge (param_block.request_len, &param_block.exit_node.cryptde())
+//}
+//
+//fn cores_payload_response_routing_charges(param_block: &ParamBlock) -> (usize, u64) {
+//     calculate_response_routing_charge (param_block.response_len, &param_block.exit_node.cryptde())
+//}
+
+fn check_routing_charges(param_block: &ParamBlock) {
+    let receivable_account = receivable_account_status(
+        &param_block.routing_node,
+        &param_block.originating_node.consuming_wallet().unwrap(),
+    )
+    .unwrap();
+    let payable_originating_account = payable_account_status(
+        &param_block.routing_node,
+        &param_block.originating_node.earning_wallet(),
+    );
+    let payable_exit_account = payable_account_status(
+        &param_block.routing_node,
+        &param_block.exit_node.earning_wallet(),
+    );
 
     let (request_bytes, expected_request_charge) =
-        calculate_request_routing_charge(param_block.request_len, exit_cryptde);
-    let (response_bytes, expected_response_charge) =
-        calculate_response_routing_charge(param_block.response_len, originating_cryptde);
+        calculate_request_routing_charge(param_block.request_len, &param_block.exit_node.cryptde());
+    let (response_bytes, expected_response_charge) = calculate_response_routing_charge(
+        param_block.response_len,
+        &param_block.originating_node.cryptde(),
+    );
     assert_eq!(
-        account_status.balance as u64,
+        receivable_account.balance as u64,
         expected_request_charge + expected_response_charge,
         "Balance should be calculated for 2 routing services and {} + {} bytes",
         request_bytes,
         response_bytes
     );
-    timestamp_between(
+    assert_timestamp_between(
         &param_block.before,
-        &account_status.last_received_timestamp,
+        &receivable_account.last_received_timestamp,
         &param_block.after,
     );
+    assert_eq!(payable_originating_account, None);
+    assert_eq!(payable_exit_account, None);
 }
 
-fn check_exit_charges(exit_node: SubstratumRealNode, param_block: &ParamBlock) {
-    let account_status = account_status(&exit_node, &param_block.consuming_wallet).unwrap();
+fn check_exit_charges(param_block: &ParamBlock) {
+    let receivable_account = receivable_account_status(
+        &param_block.exit_node,
+        &param_block.originating_node.consuming_wallet().unwrap(),
+    )
+    .unwrap();
+    let payable_originating_account = payable_account_status(
+        &param_block.exit_node,
+        &param_block.originating_node.earning_wallet(),
+    );
+    let payable_routing_account = payable_account_status(
+        &param_block.exit_node,
+        &param_block.routing_node.earning_wallet(),
+    );
 
     let expected_request_charge = calculate_exit_charge(param_block.request_len);
     let expected_response_charge = calculate_exit_charge(param_block.response_len);
     assert_eq!(
-        account_status.balance as u64,
+        receivable_account.balance as u64,
         expected_request_charge + expected_response_charge,
         "Balance should be calculated for 2 exit services and {} + {} bytes",
         param_block.request_len,
         param_block.response_len
     );
-    timestamp_between(
+    assert_timestamp_between(
         &param_block.before,
-        &account_status.last_received_timestamp,
+        &receivable_account.last_received_timestamp,
         &param_block.after,
     );
+    assert_eq!(payable_originating_account, None);
+    assert_eq!(payable_routing_account, None);
 }
 
-fn account_status(node: &SubstratumRealNode, consuming_wallet: &Wallet) -> Option<Account> {
+fn payable_account_status(
+    node: &SubstratumRealNode,
+    earning_wallet: &Wallet,
+) -> Option<PayableAccount> {
+    let payable_dao = node.daos().payable;
+    payable_dao.account_status(earning_wallet)
+}
+
+fn receivable_account_status(
+    node: &SubstratumRealNode,
+    consuming_wallet: &Wallet,
+) -> Option<ReceivableAccount> {
     let receivable_dao = node.daos().receivable;
     receivable_dao.account_status(consuming_wallet)
 }
@@ -187,7 +268,7 @@ fn calculate_exit_charge(bytes: usize) -> u64 {
     TEMPORARY_PER_EXIT_RATE + (TEMPORARY_PER_EXIT_BYTE_RATE * bytes as u64)
 }
 
-fn timestamp_between(before: &SystemTime, timestamp: &SystemTime, after: &SystemTime) {
+fn assert_timestamp_between(before: &SystemTime, timestamp: &SystemTime, after: &SystemTime) {
     let before_t = dao_utils::to_time_t(before);
     let timestamp_t = dao_utils::to_time_t(timestamp);
     let after_t = dao_utils::to_time_t(after);
@@ -227,6 +308,14 @@ fn make_response_payload(bytes: usize, cryptde: &CryptDE) -> ClientResponsePaylo
         ),
         sequenced_packet: SequencedPacket::new(make_garbage_data(bytes), 0, true),
     }
+}
+
+fn make_wallet_from(n: usize) -> Wallet {
+    let mut address = String::from("0x");
+    for _ in 0..40 {
+        address.push(((n + '0' as usize) as u8) as char);
+    }
+    Wallet::new(address.as_str())
 }
 
 fn make_garbage_data(bytes: usize) -> Vec<u8> {

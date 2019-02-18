@@ -15,6 +15,7 @@ use std::time::Instant;
 use sub_lib::accountant::AccountantSubs;
 use sub_lib::accountant::ReportExitServiceConsumedMessage;
 use sub_lib::accountant::ReportExitServiceProvidedMessage;
+use sub_lib::accountant::ReportRoutingServiceConsumedMessage;
 use sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use sub_lib::dispatcher::DispatcherSubs;
 use sub_lib::dispatcher::InboundClientData;
@@ -193,6 +194,14 @@ impl Handler<ReportExitServiceProvidedMessage> for Recorder {
     }
 }
 
+impl Handler<ReportRoutingServiceConsumedMessage> for Recorder {
+    type Result = ();
+
+    fn handle(&mut self, msg: ReportRoutingServiceConsumedMessage, _ctx: &mut Self::Context) {
+        self.record(msg);
+    }
+}
+
 impl Handler<ReportExitServiceConsumedMessage> for Recorder {
     type Result = ();
 
@@ -367,6 +376,9 @@ pub fn make_accountant_subs_from(addr: &Addr<Syn, Recorder>) -> AccountantSubs {
             .clone()
             .recipient::<ReportRoutingServiceProvidedMessage>(),
         report_exit_service_provided: addr.clone().recipient::<ReportExitServiceProvidedMessage>(),
+        report_routing_service_consumed: addr
+            .clone()
+            .recipient::<ReportRoutingServiceConsumedMessage>(),
         report_exit_service_consumed: addr.clone().recipient::<ReportExitServiceConsumedMessage>(),
     }
 }
