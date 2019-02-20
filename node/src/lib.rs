@@ -6,6 +6,7 @@ mod configuration;
 mod crash_test_dummy;
 pub mod discriminator;
 mod dispatcher;
+pub mod entry_dns;
 pub mod http_request_start_finder;
 pub mod json_discriminator_factory;
 pub mod json_framer;

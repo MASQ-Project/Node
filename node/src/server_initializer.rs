@@ -1,8 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::bootstrapper::Bootstrapper;
-use crate::privilege_drop::PrivilegeDropper;
-use crate::privilege_drop::PrivilegeDropperReal;
-use entry_dns_lib::dns_socket_server::new_dns_socket_server;
+use super::bootstrapper::Bootstrapper;
+use super::entry_dns::new_dns_socket_server;
+use super::privilege_drop::PrivilegeDropper;
+use super::privilege_drop::PrivilegeDropperReal;
 use flexi_logger::Duplicate;
 use flexi_logger::LevelFilter;
 use flexi_logger::LogSpecification;

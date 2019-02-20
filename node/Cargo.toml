@@ -8,7 +8,7 @@ description = ""
 edition = "2018"
 
 [workspace]
-members = ["../sub_lib", "../test_utils", "../entry_dns_lib", "../hopper_lib", "../neighborhood_lib", "../proxy_client_lib", "../proxy_server_lib", "../accountant_lib", "../ui_gateway_lib", "../multinode_integration_tests"]
+members = ["../sub_lib", "../test_utils", "../hopper_lib", "../neighborhood_lib", "../proxy_client_lib", "../proxy_server_lib", "../accountant_lib", "../ui_gateway_lib", "../multinode_integration_tests"]
 
 [dependencies]
 actix = "= 0.5.7" # upgrading causes flakiness
@@ -24,7 +24,6 @@ serde_json = "1.0.32"
 serde_cbor = "0.9.0"
 tokio = "0.1.15"
 sub_lib = { path = "../sub_lib" }
-entry_dns_lib = { path = "../entry_dns_lib" }
 hopper_lib = { path = "../hopper_lib" }
 neighborhood_lib = { path = "../neighborhood_lib" }
 proxy_client_lib = { path = "../proxy_client_lib" }

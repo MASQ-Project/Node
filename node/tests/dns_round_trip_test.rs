@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 mod utils;
 
-use entry_dns_lib::packet_facade::PacketFacade;
+use node_lib::entry_dns::packet_facade::PacketFacade;
 use std::net::UdpSocket;
 use std::time::Duration;
 

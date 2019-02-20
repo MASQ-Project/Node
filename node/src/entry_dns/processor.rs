@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::packet_facade::PacketFacade;
-use crate::packet_facade::Query;
-use crate::packet_facade::ResourceRecord;
+use super::packet_facade::PacketFacade;
+use super::packet_facade::Query;
+use super::packet_facade::ResourceRecord;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::time::Instant;
@@ -153,13 +153,7 @@ struct ResponseRecord {
 
 #[cfg(test)]
 mod tests {
-    use crate::packet_facade::PacketFacade;
-    use crate::packet_facade::Query;
-    use crate::packet_facade::ResourceRecord;
-    use crate::processor::ProcessorReal;
-    use crate::processor::ProcessorTrait;
-    use crate::processor::RequestRecord;
-    use crate::processor::ResponseRecord;
+    use super::*;
     use std::net::IpAddr;
     use std::net::Ipv4Addr;
     use std::net::SocketAddr;

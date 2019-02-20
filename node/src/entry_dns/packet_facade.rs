@@ -644,9 +644,7 @@ impl<'a> PacketFacade<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::packet_facade::PacketFacade;
-    use crate::packet_facade::Query;
-    use crate::packet_facade::ResourceRecord;
+    use super::*;
 
     #[test]
     fn query_complains_when_name_length_busts_length_limit() {
