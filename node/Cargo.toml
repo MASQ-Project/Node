@@ -8,7 +8,7 @@ description = ""
 edition = "2018"
 
 [workspace]
-members = ["../sub_lib", "../test_utils", "../hopper_lib", "../neighborhood_lib", "../proxy_client_lib", "../proxy_server_lib", "../accountant_lib", "../ui_gateway_lib", "../multinode_integration_tests"]
+members = ["../sub_lib", "../test_utils", "../hopper_lib", "../neighborhood_lib", "../proxy_client_lib", "../proxy_server_lib", "../ui_gateway_lib", "../multinode_integration_tests"]
 
 [dependencies]
 actix = "= 0.5.7" # upgrading causes flakiness
@@ -16,6 +16,7 @@ base64 = "0.10.0"
 chrono = "0.4.6"
 flexi_logger = "0.10.0"
 futures = "0.1.25"
+lazy_static = "1.1.0"
 log = "0.4.6"
 regex = "1.0.5"
 serde = "1.0.80"
@@ -28,8 +29,11 @@ hopper_lib = { path = "../hopper_lib" }
 neighborhood_lib = { path = "../neighborhood_lib" }
 proxy_client_lib = { path = "../proxy_client_lib" }
 proxy_server_lib = { path = "../proxy_server_lib" }
-accountant_lib = { path = "../accountant_lib"}
 ui_gateway_lib = { path = "../ui_gateway_lib" }
+
+[dependencies.rusqlite]
+version = "0.16.0"
+features = ["bundled"]
 
 [dev-dependencies]
 tls-api = "0.1.20"

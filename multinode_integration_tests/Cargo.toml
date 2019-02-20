@@ -18,7 +18,6 @@ sub_lib = { path = "../sub_lib" }
 hopper_lib = { path = "../hopper_lib" }
 neighborhood_lib = { path = "../neighborhood_lib" }
 proxy_client_lib = { path = "../proxy_client_lib" }
-accountant_lib = { path = "../accountant_lib" }
 node = { path = "../node" }
 test_utils = { path = "../test_utils" }
 

@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::accountant::accountant::Accountant;
 use crate::bootstrapper;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::discriminator::DiscriminatorFactory;
@@ -6,7 +7,6 @@ use crate::dispatcher::Dispatcher;
 use crate::stream_handler_pool::StreamHandlerPool;
 use crate::stream_handler_pool::StreamHandlerPoolSubs;
 use crate::stream_messages::PoolBindMessage;
-use accountant_lib::accountant::Accountant;
 use actix::Actor;
 use actix::Addr;
 use actix::Recipient;

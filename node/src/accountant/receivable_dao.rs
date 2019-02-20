@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::dao_utils;
+use super::dao_utils;
 use rusqlite::types::ToSql;
 use rusqlite::Connection;
 use rusqlite::OptionalExtension;
@@ -103,11 +103,11 @@ impl ReceivableDaoReal {
 
 #[cfg(test)]
 mod tests {
+    use super::super::db_initializer;
+    use super::super::db_initializer::DbInitializer;
+    use super::super::db_initializer::DbInitializerReal;
+    use super::super::local_test_utils::*;
     use super::*;
-    use crate::db_initializer;
-    use crate::db_initializer::DbInitializer;
-    use crate::db_initializer::DbInitializerReal;
-    use crate::local_test_utils::*;
     use rusqlite::OpenFlags;
     use rusqlite::NO_PARAMS;
 

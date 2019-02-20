@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+pub mod accountant;
 mod actor_system_factory;
 mod bootstrapper;
 mod configuration;

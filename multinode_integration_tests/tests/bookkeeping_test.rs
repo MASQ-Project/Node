@@ -1,5 +1,4 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-extern crate accountant_lib;
 extern crate base64;
 extern crate hopper_lib;
 extern crate multinode_integration_tests_lib;
@@ -11,13 +10,13 @@ extern crate serde_cbor;
 extern crate sub_lib;
 extern crate test_utils;
 
-use accountant_lib::dao_utils;
-use accountant_lib::payable_dao::PayableAccount;
-use accountant_lib::receivable_dao::ReceivableAccount;
 use multinode_integration_tests_lib::substratum_node::SubstratumNode;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
 use multinode_integration_tests_lib::substratum_real_node::SubstratumRealNode;
+use node_lib::accountant::dao_utils;
+use node_lib::accountant::payable_dao::PayableAccount;
+use node_lib::accountant::receivable_dao::ReceivableAccount;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::thread;

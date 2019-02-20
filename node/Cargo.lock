@@ -1,14 +1,4 @@
 [[package]]
-name = "accountant_lib"
-version = "0.4.2"
-dependencies = [
- "actix 0.5.7 (registry+https://github.com/rust-lang/crates.io-index)",
- "rusqlite 0.16.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "sub_lib 0.4.2",
- "test_utils 0.4.2",
-]
-
-[[package]]
 name = "actix"
 version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -638,7 +628,6 @@ dependencies = [
 name = "multinode_integration_tests"
 version = "0.4.2"
 dependencies = [
- "accountant_lib 0.4.2",
  "base64 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "hopper_lib 0.4.2",
  "neighborhood_lib 0.4.2",
@@ -696,7 +685,6 @@ dependencies = [
 name = "node"
 version = "0.4.2"
 dependencies = [
- "accountant_lib 0.4.2",
  "actix 0.5.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "base64 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -704,11 +692,13 @@ dependencies = [
  "flexi_logger 0.10.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
  "hopper_lib 0.4.2",
+ "lazy_static 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "neighborhood_lib 0.4.2",
  "proxy_client_lib 0.4.2",
  "proxy_server_lib 0.4.2",
  "regex 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rusqlite 0.16.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.85 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_cbor 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.85 (registry+https://github.com/rust-lang/crates.io-index)",

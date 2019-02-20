@@ -1,8 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::payable_dao::PayableDao;
-use crate::payable_dao::PayableDaoReal;
-use crate::receivable_dao::ReceivableDao;
-use crate::receivable_dao::ReceivableDaoReal;
+use super::payable_dao::PayableDao;
+use super::payable_dao::PayableDaoReal;
+use super::receivable_dao::ReceivableDao;
+use super::receivable_dao::ReceivableDaoReal;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
 use rusqlite::NO_PARAMS;
@@ -14,7 +14,6 @@ pub const CURRENT_SCHEMA_VERSION: &str = "0.0.1";
 
 #[derive(Debug, PartialEq)]
 pub enum InitializationError {
-    PermissionDenied,
     IncompatibleVersion,
 }
 
@@ -172,8 +171,8 @@ impl DbInitializerReal {
 
 #[cfg(test)]
 mod tests {
+    use super::super::local_test_utils::ensure_node_home_directory_exists;
     use super::*;
-    use crate::local_test_utils::ensure_node_home_directory_exists;
     use rusqlite::OpenFlags;
 
     #[test]

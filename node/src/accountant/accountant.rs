@@ -1,8 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::db_initializer::DbInitializer;
-use crate::db_initializer::DbInitializerReal;
-use crate::payable_dao::PayableDao;
-use crate::receivable_dao::ReceivableDao;
+use super::db_initializer::DbInitializer;
+use super::db_initializer::DbInitializerReal;
+use super::payable_dao::PayableDao;
+use super::receivable_dao::ReceivableDao;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
@@ -216,11 +216,12 @@ impl Accountant {
 
 #[cfg(test)]
 pub mod tests {
+    use super::super::db_initializer::Daos;
+    use super::super::db_initializer::InitializationError;
+    use super::super::local_test_utils::BASE_TEST_DIR;
+    use super::super::payable_dao::PayableAccount;
+    use super::super::receivable_dao;
     use super::*;
-    use crate::db_initializer::Daos;
-    use crate::db_initializer::InitializationError;
-    use crate::payable_dao::PayableAccount;
-    use crate::receivable_dao;
     use actix::msgs;
     use actix::Arbiter;
     use actix::System;
@@ -237,8 +238,6 @@ pub mod tests {
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
     use test_utils::recorder::make_peer_actors;
-
-    pub const BASE_TEST_DIR: &str = "generated/test";
 
     struct DbInitializerMock {
         initialize_parameters: Arc<Mutex<Vec<PathBuf>>>,
@@ -638,14 +637,18 @@ pub mod tests {
     #[test]
     #[should_panic(expected = "Could not initialize database")]
     fn failed_initialization_produces_panic() {
+        let home_dir = format!(
+            "{}/failed_initialization_produces_panic/home",
+            BASE_TEST_DIR
+        );
         let config = AccountantConfig {
-            home_directory: String::from("irrelevant"),
+            home_directory: home_dir,
         };
         let mut subject = Accountant::new(config);
         let db_initializer = DbInitializerMock::new()
             .initialize_result(Err(InitializationError::IncompatibleVersion));
         subject.db_initializer = Box::new(db_initializer);
-        let system = System::new("report_exit_service_provided_message_is_received");
+        let system = System::new("failed_initialization_produces_panic");
         let subject_addr: Addr<Syn, Accountant> = subject.start();
 
         subject_addr
