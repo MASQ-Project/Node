@@ -23,6 +23,7 @@ mod stream_reader;
 mod stream_writer_sorted;
 mod stream_writer_unsorted;
 pub mod tls_discriminator_factory;
+mod ui_gateway;
 
 #[cfg(test)]
 mod node_test_utils;

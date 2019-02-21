@@ -1,10 +1,10 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::shutdown_supervisor::ShutdownSupervisor;
-use crate::shutdown_supervisor::ShutdownSupervisorReal;
-use crate::ui_traffic_converter::UiTrafficConverter;
-use crate::ui_traffic_converter::UiTrafficConverterReal;
-use crate::websocket_supervisor::WebSocketSupervisor;
-use crate::websocket_supervisor::WebSocketSupervisorReal;
+use crate::ui_gateway::shutdown_supervisor::ShutdownSupervisor;
+use crate::ui_gateway::shutdown_supervisor::ShutdownSupervisorReal;
+use crate::ui_gateway::ui_traffic_converter::UiTrafficConverter;
+use crate::ui_gateway::ui_traffic_converter::UiTrafficConverterReal;
+use crate::ui_gateway::websocket_supervisor::WebSocketSupervisor;
+use crate::ui_gateway::websocket_supervisor::WebSocketSupervisorReal;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;

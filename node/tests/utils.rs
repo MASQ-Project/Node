@@ -169,35 +169,29 @@ impl SubstratumNode {
 
 #[allow(dead_code)]
 pub fn read_until_timeout(stream: &mut dyn Read) -> Vec<u8> {
+    let mut response: Vec<u8> = vec![];
     let mut buf = [0u8; 16384];
-    let mut begin_opt: Option<Instant> = None;
-    let mut offset: usize = 0;
+    let mut last_data_at = Instant::now();
     loop {
-        match stream.read(&mut buf[offset..]) {
-            Err(e) => {
-                if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) {
-                    ()
-                } else if (e.kind() == ErrorKind::ConnectionReset) && (offset > 0) {
-                    break;
-                } else {
-                    panic!("Read error: {}", e);
-                }
+        match stream.read(&mut buf) {
+            Err(ref e)
+                if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) =>
+            {
+                thread::sleep(Duration::from_millis(100));
             }
+            Err(ref e) if (e.kind() == ErrorKind::ConnectionReset) && (response.len() > 0) => break,
+            Err(e) => panic!("Read error: {}", e),
             Ok(len) => {
-                offset += len;
-                begin_opt = Some(Instant::now())
+                response.extend(&buf[..len]);
+                last_data_at = Instant::now()
             }
         }
-        match begin_opt {
-            None => (),
-            Some(begin) => {
-                if Instant::now().duration_since(begin).as_secs() > 1 {
-                    break;
-                }
-            }
+        let now = Instant::now();
+        if now.duration_since(last_data_at).subsec_millis() > 500 {
+            break;
         }
     }
-    buf[..offset].to_vec()
+    response
 }
 
 fn get_command_config(config_opt: Option<CommandConfig>) -> CommandConfig {

@@ -7,6 +7,7 @@ use crate::dispatcher::Dispatcher;
 use crate::stream_handler_pool::StreamHandlerPool;
 use crate::stream_handler_pool::StreamHandlerPoolSubs;
 use crate::stream_messages::PoolBindMessage;
+use crate::ui_gateway::ui_gateway::UiGateway;
 use actix::Actor;
 use actix::Addr;
 use actix::Recipient;
@@ -35,7 +36,6 @@ use sub_lib::proxy_client::ProxyClientSubs;
 use sub_lib::proxy_server::ProxyServerSubs;
 use sub_lib::ui_gateway::UiGatewayConfig;
 use sub_lib::ui_gateway::UiGatewaySubs;
-use ui_gateway_lib::ui_gateway::UiGateway;
 
 pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(

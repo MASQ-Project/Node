@@ -45,6 +45,6 @@ pub struct FromUiMessage {
 //        "shutdown"
 //    }
 //}
-//// TODO: This can move into ui_gateway_lib because it's never used anywhere but there
+//// TODO: This can move into ui_gateway because it's never used anywhere but there
 //#[derive(Debug, PartialEq)]
 //pub struct ShutdownMessage;
