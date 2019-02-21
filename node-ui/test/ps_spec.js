@@ -8,7 +8,7 @@ describe('ps', () => {
   let subject, results
 
   beforeEach(async () => {
-    subject = require('../src/command-process/ps')
+    subject = require('../src/main-process/ps')
 
     results = await subject()
   })

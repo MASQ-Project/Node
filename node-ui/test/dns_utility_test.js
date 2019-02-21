@@ -22,7 +22,7 @@ describe('DNS Utility', () => {
     sudoPrompt = td.replace('sudo-prompt')
     mockConsole = td.replace('../src/wrappers/console_wrapper')
 
-    subject = require('../src/command-process/dns_utility')
+    subject = require('../src/main-process/dns_utility')
   })
 
   afterEach(() => {

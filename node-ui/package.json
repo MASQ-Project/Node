@@ -1,5 +1,5 @@
 {
-  "name": "node-ui",
+  "name": "SubstratumNode",
   "description": "SubstratumNode user interface",
   "version": "0.4.2",
   "homepage": "https://substratum.net",
@@ -19,8 +19,7 @@
       "!ci/*",
       "!test/*",
       "!*.iml",
-      "!src/*",
-      "!e2e/*"
+      "!src/*"
     ],
     "mac": {
       "icon": "icons/icon.icns",
@@ -46,10 +45,10 @@
     "serve": "ng serve",
     "start": "electron .",
     "build": "ng build --base-href ./",
+    "build-prod": "ng build --base-href ./ --prod",
     "test": "ng test",
     "lint": "ng lint",
-    "e2e": "ng e2e",
-    "unit": "jasmine test/*_test.js",
+    "unit": "jasmine test/*_test.js && ng test --no-watch --browsers=ChromeHeadlessNoSandbox",
     "spec": "jasmine test/*_spec.js",
     "dist": "electron-builder"
   },
@@ -82,7 +81,7 @@
     "@types/jasminewd2": "~2.0.3",
     "@types/node": "~8.9.4",
     "codelyzer": "~4.5.0",
-    "electron": "^4.0.3",
+    "electron": "^4.0.5",
     "electron-builder": "^20.38.5",
     "jasmine-core": "~2.99.1",
     "jasmine-spec-reporter": "~4.2.1",
@@ -91,7 +90,6 @@
     "karma-coverage-istanbul-reporter": "~2.0.1",
     "karma-jasmine": "~1.1.2",
     "karma-jasmine-html-reporter": "^0.2.2",
-    "mocha": "^5.2.0",
     "protractor": "~5.4.0",
     "ps-list": "^5.0.0",
     "spectron": "^5.0.0",

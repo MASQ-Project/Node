@@ -52,27 +52,27 @@ function def (options = {}) {
   const flags = (options.all === false ? '' : 'a') + 'wwxo'
 
   return Promise.all(['comm', 'args'].map(cmd => {
-      return new Promise((resolve, reject) =>
-        childProcess.execFile('ps', [flags, `pid,${cmd}`], (error, stdout) => {
-          if (error) {
-            reject(error)
-          } else {
-            for (let line of stdout.trim().split('\n').slice(1)) {
-              line = line.trim()
-              const [pid] = line.split(' ', 1)
-              const val = line.slice(pid.length + 1).trim()
+    return new Promise((resolve, reject) =>
+      childProcess.execFile('ps', [flags, `pid,${cmd}`], (error, stdout) => {
+        if (error) {
+          reject(error)
+        } else {
+          for (let line of stdout.trim().split('\n').slice(1)) {
+            line = line.trim()
+            const [pid] = line.split(' ', 1)
+            const val = line.slice(pid.length + 1).trim()
 
-              if (ret[pid] === undefined) {
-                ret[pid] = {}
-              }
-
-              ret[pid][cmd] = val
+            if (ret[pid] === undefined) {
+              ret[pid] = {}
             }
-            resolve()
+
+            ret[pid][cmd] = val
           }
-        })
-      )
-    }
+          resolve()
+        }
+      })
+    )
+  }
   )).then(() => {
     return Object.keys(ret).filter(x => ret[x].comm && ret[x].args).map(x => {
       return {

@@ -53,6 +53,11 @@ module.exports = (() => {
     })
   }
 
+  /**
+   * tries to connect to the websocket. if it fails other than by timeout it returns true
+   * @param timeoutMillis
+   * @returns {Promise<boolean>}
+   */
   async function verifyNodeDown (timeoutMillis) {
     return new Promise((resolve) => {
       if (timeoutMillis <= 0) {
@@ -80,7 +85,7 @@ module.exports = (() => {
   }
 
   function shutdown () {
-    webSocket.send(JSON.stringify({message_type: 'shutdown'}))
+    webSocket.send(JSON.stringify({ message_type: 'shutdown' }))
     webSocket.close()
     webSocket = null
   }

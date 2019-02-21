@@ -10,7 +10,7 @@ describe('Given a mock WebSocket', () => {
   let uiInterface
   beforeEach(() => {
     mockWebSocketWrapper = td.replace('../src/wrappers/websocket_wrapper')
-    uiInterface = require('../src/render-process/ui_interface')
+    uiInterface = require('../src/main-process/ui_interface')
   })
 
   afterEach(() => {

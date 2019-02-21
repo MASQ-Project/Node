@@ -24,7 +24,7 @@ module.exports = (() => {
   }
 
   function getCommand () {
-    let command = scriptPath + ' ' + binaryPath + ' '
+    let command = `${scriptPath} ${binaryPath} `
     runtimeArgs.forEach(function (value) {
       command += value + ' '
     })

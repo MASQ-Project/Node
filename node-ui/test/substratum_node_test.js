@@ -10,9 +10,9 @@ describe('SubstratumNode', () => {
   beforeEach(() => {
     console = td.replace('../src/wrappers/console_wrapper')
     process = td.replace('../src/wrappers/process_wrapper')
-    commandHelper = td.replace('../src/command-process/command_helper')
+    commandHelper = td.replace('../src/main-process/command_helper')
 
-    subject = require('../src/command-process/substratum_node')
+    subject = require('../src/main-process/substratum_node')
   })
 
   afterEach(() => {

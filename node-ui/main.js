@@ -1,15 +1,19 @@
-const { app, BrowserWindow } = require('electron')
+const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
 const url = require('url')
 
-let win
+const NodeActuator = require('./src/main-process/node_actuator')
+
+let mainWindow
+let nodeActuator
 
 function createWindow () {
-  win = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 320,
     height: 260,
     show: true,
     frame: true,
+    backgroundColor: '#383839',
     fullscreenable: false,
     resizable: false,
     transparent: false,
@@ -19,35 +23,47 @@ function createWindow () {
   })
 
   // load the dist folder from Angular
-    win.loadURL(
-      url.format({
-        pathname: path.join(__dirname, `/dist/index.html`),
-        protocol: 'file:',
-        slashes: true
-      })
-    )
-  // win.openDevTools({mode: 'detach'})
+  mainWindow.loadURL(
+    url.format({
+      pathname: path.join(__dirname, `/dist/index.html`),
+      protocol: 'file:',
+      slashes: true
+    })
+  )
+
+  nodeActuator = new NodeActuator(mainWindow.webContents)
 
   // The following is optional and will open the DevTools:
-  // win.webContents.openDevTools()
+  // mainWindow.webContents.openDevTools({ mode: 'detach' })
 
-  win.on('closed', () => {
-    win = null
+  mainWindow.on('close', async () => {
+    await nodeActuator.shutdown()
+  })
+
+  mainWindow.on('closed', () => {
+    mainWindow = null
   })
 }
 
 app.on('ready', createWindow)
 
-// on macOS, closing the window doesn't quit the app
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
+  app.quit()
 })
 
 // initialize the app's main window
 app.on('activate', () => {
-  if (win === null) {
+  if (mainWindow === null) {
     createWindow()
+  }
+})
+
+ipcMain.on('change-node-state', async (event, arg) => {
+  if (arg === 'turn-off') {
+    event.returnValue = await nodeActuator.offClick()
+  } else if (arg === 'serve') {
+    event.returnValue = await nodeActuator.servingClick()
+  } else if (arg === 'consume') {
+    event.returnValue = await nodeActuator.consumingClick()
   }
 })

@@ -102,3 +102,6 @@ Thumbs.db
 *.iml
 
 electron-builder-out
+
+src/static/binaries/SubstratumNode
+src/static/binaries/dns_utility

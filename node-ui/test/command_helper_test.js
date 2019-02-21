@@ -30,7 +30,7 @@ describe('CommandHelper', () => {
       td.when(process.getuid()).thenReturn('os-uid')
       td.when(process.getgid()).thenReturn('os-gid')
 
-      subject = require('../src/command-process/command_helper')
+      subject = require('../src/main-process/command_helper')
     })
 
     describe('starting', () => {
@@ -51,7 +51,7 @@ describe('CommandHelper', () => {
 
         beforeEach(() => {
           process.env = {SUDO_UID: 'env-uid', SUDO_GID: 'env-gid'}
-          subject = require('../src/command-process/command_helper')
+          subject = require('../src/main-process/command_helper')
 
           subject.startSubstratumNode('callback')
         })
@@ -110,7 +110,7 @@ describe('CommandHelper', () => {
     beforeEach(() => {
       process.platform = 'win32'
 
-      subject = require('../src/command-process/command_helper')
+      subject = require('../src/main-process/command_helper')
     })
 
     describe('starting', () => {

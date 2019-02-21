@@ -9,7 +9,7 @@ describe('ps_wrapper', () => {
   let subject, mockPs, mockPath, mockTreeKill
 
   beforeEach(() => {
-    mockPs = td.replace('../src/command-process/ps')
+    mockPs = td.replace('../src/main-process/ps')
     mockPath = td.replace('path')
     mockTreeKill = td.replace('tree-kill')
 
@@ -29,7 +29,7 @@ describe('ps_wrapper', () => {
       }])
       mockPath.sep = '/'
       await subject.killNodeProcess()
-      td.verify(mockTreeKill(td.matchers.anything()), {times: 0})
+      td.verify(mockTreeKill(td.matchers.anything()), { times: 0 })
     })
 
     it('kills with *nix path', async () => {
@@ -40,7 +40,7 @@ describe('ps_wrapper', () => {
       }])
       mockPath.sep = '/'
       await subject.killNodeProcess()
-      td.verify(mockTreeKill('1234'), {times: 1})
+      td.verify(mockTreeKill('1234'), { times: 1 })
     })
 
     it('kills with Windows path', async () => {
@@ -51,7 +51,7 @@ describe('ps_wrapper', () => {
       }])
       mockPath.sep = '\\'
       await subject.killNodeProcess()
-      td.verify(mockTreeKill('1234'), {times: 1})
+      td.verify(mockTreeKill('1234'), { times: 1 })
     })
   })
 
@@ -62,10 +62,7 @@ describe('ps_wrapper', () => {
         cmd: 'users/SubstratumNode --dns_servers 8.8.8.8'
       }])
       mockPath.sep = '/'
-      let result = []
-      await subject.findNodeProcess(processList => {
-        result = processList
-      })
+      let result = await subject.findNodeProcess()
       assert.strictEqual(result.length, 0)
     })
 
@@ -75,10 +72,7 @@ describe('ps_wrapper', () => {
         cmd: 'users/static/binaries/SubstratumNode --dns_servers 8.8.8.8'
       }])
       mockPath.sep = '/'
-      let result = []
-      await subject.findNodeProcess(processList => {
-        result = processList
-      })
+      let result =  await subject.findNodeProcess()
       assert.strictEqual(result.length, 1)
       assert.strictEqual(result[0].name, 'SubstratumNode')
     })
@@ -89,10 +83,7 @@ describe('ps_wrapper', () => {
         cmd: 'users\\static\\binaries\\SubstratumNode --dns_servers 8.8.8.8'
       }])
       mockPath.sep = '\\'
-      let result = []
-      await subject.findNodeProcess(processList => {
-        result = processList
-      })
+      let result = await subject.findNodeProcess()
       assert.strictEqual(result.length, 1)
       assert.strictEqual(result[0].name, 'SubstratumNode')
     })
