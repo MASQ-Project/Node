@@ -78,6 +78,7 @@ fn neighborhood_notified_of_missing_node_when_connection_refused() {
     cluster.stop_node(&disappearing_node_name);
 
     let cores_package = IncipientCoresPackage::new(
+        &subject.cryptde(),
         Route::new(
             vec![RouteSegment::new(
                 vec![
@@ -93,7 +94,8 @@ fn neighborhood_notified_of_missing_node_when_connection_refused() {
         .unwrap(),
         String::from("Meaningless payload"),
         &disappearing_node_key,
-    );
+    )
+    .unwrap();
     mock_bootstrap
         .transmit_package(
             5550,

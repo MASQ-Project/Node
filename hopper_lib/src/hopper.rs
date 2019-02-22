@@ -168,7 +168,8 @@ mod tests {
         )
         .unwrap();
         let incipient_package =
-            IncipientCoresPackage::new(route, PayloadMock::new(), &cryptde.public_key());
+            IncipientCoresPackage::new(cryptde, route, PayloadMock::new(), &cryptde.public_key())
+                .unwrap();
         let system = System::new("panics_if_consuming_service_is_unbound");
         let subject = Hopper::new(cryptde, false);
         let subject_addr: Addr<Syn, Hopper> = subject.start();

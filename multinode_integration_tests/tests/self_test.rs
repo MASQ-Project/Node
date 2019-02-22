@@ -84,7 +84,8 @@ fn server_relays_cores_package() {
     )
     .unwrap();
     let payload = String::from("Booga booga!");
-    let incipient = IncipientCoresPackage::new(route.clone(), payload, &cryptde.public_key());
+    let incipient =
+        IncipientCoresPackage::new(cryptde, route.clone(), payload, &cryptde.public_key()).unwrap();
 
     client.transmit_package(incipient, &masquerader, cryptde.public_key());
     let package = server.wait_for_package(Duration::from_millis(1000));
@@ -118,8 +119,13 @@ fn one_mock_node_talks_to_another() {
         Some(Wallet::new("consuming")),
     )
     .unwrap();
-    let incipient_cores_package =
-        IncipientCoresPackage::new(route, String::from("payload"), &mock_node_2.public_key());
+    let incipient_cores_package = IncipientCoresPackage::new(
+        &cryptde,
+        route,
+        String::from("payload"),
+        &mock_node_2.public_key(),
+    )
+    .unwrap();
 
     mock_node_1
         .transmit_package(

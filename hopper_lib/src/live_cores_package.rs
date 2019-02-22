@@ -35,19 +35,13 @@ impl LiveCoresPackage {
         incipient: IncipientCoresPackage,
         cryptde: &dyn CryptDE, // must be the CryptDE of the Node to which the top hop is encrypted
     ) -> Result<(LiveCoresPackage, PublicKey), String> {
-        let encrypted_payload =
-            match cryptde.encode(&incipient.payload_destination_key, &incipient.payload) {
-                Ok(p) => p,
-                Err(e) => return Err(format!("Could not encrypt payload: {:?}", e)),
-            };
         let mut route = incipient.route.clone();
         let next_hop = match route.shift(cryptde) {
             Ok(h) => h,
             Err(e) => return Err(format!("Could not decrypt next hop: {:?}", e)),
         };
-
         Ok((
-            LiveCoresPackage::new(route, encrypted_payload),
+            LiveCoresPackage::new(route, incipient.payload),
             next_hop.public_key,
         ))
     }
@@ -187,12 +181,14 @@ mod tests {
         )
         .unwrap();
         let payload = PayloadMock::new();
-        let incipient = IncipientCoresPackage::new(route.clone(), payload.clone(), &key56);
 
+        let incipient =
+            IncipientCoresPackage::new(cryptde, route.clone(), payload.clone(), &key56).unwrap();
         let (subject, next_stop) = LiveCoresPackage::from_incipient(incipient, cryptde).unwrap();
 
         assert_eq!(next_stop, key34);
         route.shift(cryptde).unwrap();
+
         assert_eq!(subject.route, route);
         assert_eq!(
             subject.payload,
@@ -206,30 +202,16 @@ mod tests {
     }
 
     #[test]
-    fn from_incipient_complains_about_problems_encrypting_payload() {
-        let incipient = IncipientCoresPackage::new(
-            Route { hops: vec![] },
-            CryptData::new(&[]),
-            &PublicKey::new(&[]),
-        );
-
-        let result = LiveCoresPackage::from_incipient(incipient, cryptde());
-
-        assert_eq!(
-            result,
-            Err(String::from("Could not encrypt payload: EmptyKey"))
-        );
-    }
-
-    #[test]
     fn from_incipient_complains_about_problems_decrypting_next_hop() {
+        let cryptde = cryptde();
         let incipient = IncipientCoresPackage::new(
+            cryptde,
             Route { hops: vec![] },
-            String::from("booga"),
+            PayloadMock::new(),
             &PublicKey::new(&[3, 4]),
-        );
-
-        let result = LiveCoresPackage::from_incipient(incipient, cryptde());
+        )
+        .unwrap();
+        let result = LiveCoresPackage::from_incipient(incipient, cryptde);
 
         assert_eq!(
             result,

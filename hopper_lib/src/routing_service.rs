@@ -695,7 +695,8 @@ mod tests {
             None,
         )
         .unwrap();
-        let icp = IncipientCoresPackage::new(route, payload, &destination_key);
+        let icp =
+            IncipientCoresPackage::new(&origin_cryptde, route, payload, &destination_key).unwrap();
         let (lcp, _) = LiveCoresPackage::from_incipient(icp, &origin_cryptde).unwrap();
         let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
         let data_enc = cryptde.encode(&cryptde.public_key(), &data_ser).unwrap();

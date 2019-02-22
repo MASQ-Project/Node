@@ -105,8 +105,13 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test() {
         Some(Wallet::new("0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE")),
     )
     .unwrap();
-    let outgoing_package =
-        IncipientCoresPackage::new(route, outgoing_gossip, &subject.public_key());
+    let outgoing_package = IncipientCoresPackage::new(
+        &subject.cryptde(),
+        route,
+        outgoing_gossip,
+        &subject.public_key(),
+    )
+    .unwrap();
     mock_bootstrap
         .transmit_package(
             5551,
@@ -165,8 +170,13 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test() {
         stream_key: request_payload.stream_key,
         sequenced_packet: SequencedPacket {data: b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 21\r\n\r\nOoh! Do you work out?".to_vec (), sequence_number: 0, last_data: false},
     };
-    let outgoing_package =
-        IncipientCoresPackage::new(route, response_payload, &subject.public_key());
+    let outgoing_package = IncipientCoresPackage::new(
+        &subject.cryptde(),
+        route,
+        response_payload,
+        &subject.public_key(),
+    )
+    .unwrap();
     mock_standard
         .transmit_package(
             5551,
@@ -230,8 +240,13 @@ fn cores_package_to_http_request_and_http_response_to_cores_package_test() {
         Some(Wallet::new("consuming")),
     )
     .unwrap();
-    let outgoing_package =
-        IncipientCoresPackage::new(route, outgoing_gossip, &subject.public_key());
+    let outgoing_package = IncipientCoresPackage::new(
+        &subject.cryptde(),
+        route,
+        outgoing_gossip,
+        &subject.public_key(),
+    )
+    .unwrap();
     mock_bootstrap
         .transmit_package(
             5551,
@@ -279,8 +294,13 @@ fn cores_package_to_http_request_and_http_response_to_cores_package_test() {
         Some(Wallet::new("consuming")),
     )
     .unwrap();
-    let outgoing_package =
-        IncipientCoresPackage::new(route, client_request_payload, &subject.public_key());
+    let outgoing_package = IncipientCoresPackage::new(
+        &subject.cryptde(),
+        route,
+        client_request_payload,
+        &subject.public_key(),
+    )
+    .unwrap();
     mock_standard
         .transmit_package(
             5551,

@@ -181,7 +181,7 @@ mod tests {
         .unwrap();
         let payload = PlainData::new(&b"abcd"[..]);
         let incipient_cores_package =
-            IncipientCoresPackage::new(route.clone(), payload, &destination_key);
+            IncipientCoresPackage::new(cryptde, route.clone(), payload, &destination_key).unwrap();
         let incipient_cores_package_a = incipient_cores_package.clone();
         thread::spawn(move || {
             let system = System::new("converts_incipient_message_to_live_and_sends_to_dispatcher");
@@ -222,7 +222,8 @@ mod tests {
         let destination_key = cryptde.public_key();
         let route = zero_hop_route_response(&cryptde.public_key(), cryptde).route;
         let payload = PlainData::new(&b"abcd"[..]);
-        let incipient_cores_package = IncipientCoresPackage::new(route, payload, &destination_key);
+        let incipient_cores_package =
+            IncipientCoresPackage::new(cryptde, route, payload, &destination_key).unwrap();
         let incipient_cores_package_a = incipient_cores_package.clone();
         let (lcp, _key) =
             LiveCoresPackage::from_incipient(incipient_cores_package_a, cryptde).unwrap();
@@ -259,11 +260,15 @@ mod tests {
 
         let subject = ConsumingService::new(cryptde(), false, to_dispatcher, to_hopper);
 
-        subject.consume(IncipientCoresPackage::new(
-            Route { hops: vec![] },
-            CryptData::new(&[]),
-            &PublicKey::new(&[1, 2]),
-        ));
+        subject.consume(
+            IncipientCoresPackage::new(
+                cryptde(),
+                Route { hops: vec![] },
+                CryptData::new(&[]),
+                &PublicKey::new(&[1, 2]),
+            )
+            .unwrap(),
+        );
 
         TestLogHandler::new().exists_log_containing(
             "ERROR: ConsumingService: Could not decrypt next hop: EmptyRoute",

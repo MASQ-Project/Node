@@ -4,6 +4,7 @@ use actix::Syn;
 use std::net::SocketAddr;
 use std::sync::mpsc::Sender;
 use sub_lib::accountant::ReportExitServiceProvidedMessage;
+use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::PlainData;
 use sub_lib::cryptde::PublicKey;
 use sub_lib::framer::Framer;
@@ -24,6 +25,7 @@ use tokio::prelude::Async;
 use tokio::prelude::Future;
 
 pub struct StreamReader {
+    cryptde: &'static dyn CryptDE,
     stream_key: StreamKey,
     consuming_wallet: Option<Wallet>,
     hopper_sub: Recipient<Syn, IncipientCoresPackage>,
@@ -87,6 +89,7 @@ impl Future for StreamReader {
 
 impl StreamReader {
     pub fn new(
+        cryptde: &'static dyn CryptDE,
         stream_key: StreamKey,
         consuming_wallet: Option<Wallet>,
         hopper_sub: Recipient<Syn, IncipientCoresPackage>,
@@ -99,6 +102,7 @@ impl StreamReader {
         originator_public_key: PublicKey,
     ) -> StreamReader {
         StreamReader {
+            cryptde,
             stream_key,
             consuming_wallet,
             hopper_sub,
@@ -174,10 +178,12 @@ impl StreamReader {
             response_payload.sequenced_packet.sequence_number
         ));
         let incipient_cores_package = IncipientCoresPackage::new(
+            self.cryptde,
             self.remaining_route.clone(),
             response_payload,
             &self.originator_public_key,
-        );
+        )
+        .expect("Key magically disappeared");
         self.hopper_sub
             .try_send(incipient_cores_package)
             .expect("Hopper is dead");
@@ -206,7 +212,6 @@ impl StreamReader {
 mod tests {
     use super::*;
     use actix::System;
-    use serde_cbor;
     use std::io::Error;
     use std::io::ErrorKind;
     use std::net::SocketAddr;
@@ -221,6 +226,7 @@ mod tests {
     use test_utils::logging::TestLogHandler;
     use test_utils::recorder::make_peer_actors_from;
     use test_utils::recorder::make_recorder;
+    use test_utils::test_utils::cryptde;
     use test_utils::test_utils::make_meaningless_route;
     use test_utils::test_utils::make_meaningless_stream_key;
     use test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
@@ -283,6 +289,7 @@ mod tests {
         let (hopper_sub, accountant_sub) = rx.recv().unwrap();
         let (stream_killer, stream_killer_params) = mpsc::channel();
         let mut subject = StreamReader {
+            cryptde: cryptde(),
             stream_key: make_meaningless_stream_key(),
             consuming_wallet: Some(Wallet::new("consuming")),
             hopper_sub,
@@ -304,6 +311,7 @@ mod tests {
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(0),
             &IncipientCoresPackage::new(
+                cryptde(),
                 make_meaningless_route(),
                 ClientResponsePayload {
                     stream_key: make_meaningless_stream_key(),
@@ -315,10 +323,12 @@ mod tests {
                 },
                 &PublicKey::new(&b"abcd"[..]),
             )
+            .unwrap()
         );
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(1),
             &IncipientCoresPackage::new(
+                cryptde(),
                 make_meaningless_route(),
                 ClientResponsePayload {
                     stream_key: make_meaningless_stream_key(),
@@ -330,10 +340,12 @@ mod tests {
                 },
                 &PublicKey::new(&b"abcd"[..]),
             )
+            .unwrap()
         );
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(2),
             &IncipientCoresPackage::new(
+                cryptde(),
                 make_meaningless_route(),
                 ClientResponsePayload {
                     stream_key: make_meaningless_stream_key(),
@@ -345,10 +357,12 @@ mod tests {
                 },
                 &PublicKey::new(&b"abcd"[..]),
             )
+            .unwrap()
         );
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(3),
             &IncipientCoresPackage::new(
+                cryptde(),
                 make_meaningless_route(),
                 ClientResponsePayload {
                     stream_key: make_meaningless_stream_key(),
@@ -360,6 +374,7 @@ mod tests {
                 },
                 &PublicKey::new(&b"abcd"[..]),
             )
+            .unwrap()
         );
         let stream_killer_parameters = stream_killer_params.try_recv().unwrap();
         assert_eq!(stream_killer_parameters, make_meaningless_stream_key());
@@ -396,7 +411,9 @@ mod tests {
         });
 
         let (hopper_sub, accountant_sub) = rx.recv().unwrap();
+        let cryptde = cryptde();
         let mut subject = StreamReader {
+            cryptde,
             stream_key,
             consuming_wallet: Some(Wallet::new("consuming")),
             hopper_sub,
@@ -419,22 +436,23 @@ mod tests {
         assert_eq!(kill_stream_key, stream_key.clone());
         let recording = hopper_recording_arc.lock().unwrap();
         let record = recording.get_record::<IncipientCoresPackage>(0);
+        let destination_key = PublicKey::new(&b"men's souls"[..]);
+        let expected_payload = PlainData::new(
+            &serde_cbor::ser::to_vec(&ClientResponsePayload {
+                stream_key,
+                sequenced_packet: SequencedPacket {
+                    data: vec![],
+                    sequence_number: 0,
+                    last_data: true,
+                },
+            })
+            .unwrap()[..],
+        );
         assert_eq!(
             *record,
             IncipientCoresPackage {
                 route: make_meaningless_route(),
-                payload: PlainData::new(
-                    &serde_cbor::ser::to_vec(&ClientResponsePayload {
-                        stream_key,
-                        sequenced_packet: SequencedPacket {
-                            data: vec!(),
-                            sequence_number: 0,
-                            last_data: true
-                        },
-                    })
-                    .unwrap()[..]
-                ),
-                payload_destination_key: PublicKey::new(&b"men's souls"[..]),
+                payload: cryptde.encode(&destination_key, &expected_payload).unwrap(),
             }
         );
     }
@@ -477,7 +495,9 @@ mod tests {
         });
         let (hopper_sub, accountant_sub) = rx.recv().unwrap();
         let (stream_killer, stream_killer_params) = mpsc::channel();
+        let cryptde = cryptde();
         let mut subject = StreamReader {
+            cryptde,
             stream_key: make_meaningless_stream_key(),
             consuming_wallet: Some(Wallet::new("consuming")),
             hopper_sub,
@@ -500,6 +520,7 @@ mod tests {
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(0),
             &IncipientCoresPackage::new(
+                cryptde.clone(),
                 make_meaningless_route(),
                 ClientResponsePayload {
                     stream_key: make_meaningless_stream_key(),
@@ -511,10 +532,12 @@ mod tests {
                 },
                 &PublicKey::new(&b"abcd"[..]),
             )
+            .unwrap()
         );
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(1),
             &IncipientCoresPackage::new(
+                cryptde.clone(),
                 make_meaningless_route(),
                 ClientResponsePayload {
                     stream_key: make_meaningless_stream_key(),
@@ -526,10 +549,12 @@ mod tests {
                 },
                 &PublicKey::new(&b"abcd"[..]),
             )
+            .unwrap()
         );
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(2),
             &IncipientCoresPackage::new(
+                cryptde.clone(),
                 make_meaningless_route(),
                 ClientResponsePayload {
                     stream_key: make_meaningless_stream_key(),
@@ -541,10 +566,12 @@ mod tests {
                 },
                 &PublicKey::new(&b"abcd"[..]),
             )
+            .unwrap()
         );
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(3),
             &IncipientCoresPackage::new(
+                cryptde.clone(),
                 make_meaningless_route(),
                 ClientResponsePayload {
                     stream_key: make_meaningless_stream_key(),
@@ -556,6 +583,7 @@ mod tests {
                 },
                 &PublicKey::new(&b"abcd"[..]),
             )
+            .unwrap()
         );
         accountant_awaiter.await_message_count(3);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
@@ -622,7 +650,9 @@ mod tests {
         });
         let (hopper_sub, accountant_sub) = rx.recv().unwrap();
         let (stream_killer, _) = mpsc::channel();
+        let cryptde = cryptde();
         let mut subject = StreamReader {
+            cryptde,
             stream_key: make_meaningless_stream_key(),
             consuming_wallet: None,
             hopper_sub,
@@ -673,7 +703,9 @@ mod tests {
         });
 
         let (hopper_sub, accountant_sub) = rx.recv().unwrap();
+        let cryptde = cryptde();
         let mut subject = StreamReader {
+            cryptde,
             stream_key,
             consuming_wallet: Some(Wallet::new("consuming")),
             hopper_sub,
@@ -697,6 +729,7 @@ mod tests {
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(0),
             &IncipientCoresPackage::new(
+                cryptde,
                 make_meaningless_route(),
                 ClientResponsePayload {
                     stream_key: make_meaningless_stream_key(),
@@ -708,6 +741,7 @@ mod tests {
                 },
                 &PublicKey::new(&b"abcd"[..]),
             )
+            .unwrap()
         );
         TestLogHandler::new()
             .exists_log_containing("Stream from 5.3.4.3:654 was closed: (0-byte read)");
@@ -758,6 +792,7 @@ mod tests {
 
         let (hopper_sub, accountant_sub) = rx.recv().unwrap();
         let mut subject = StreamReader {
+            cryptde: cryptde(),
             stream_key,
             consuming_wallet: Some(Wallet::new("consuming")),
             hopper_sub,
@@ -783,6 +818,7 @@ mod tests {
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(0),
             &IncipientCoresPackage::new(
+                cryptde(),
                 make_meaningless_route(),
                 ClientResponsePayload {
                     stream_key: make_meaningless_stream_key(),
@@ -794,6 +830,7 @@ mod tests {
                 },
                 &PublicKey::new(&b"abcd"[..]),
             )
+            .unwrap()
         );
     }
 }

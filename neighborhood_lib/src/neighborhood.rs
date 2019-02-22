@@ -25,7 +25,6 @@ use sub_lib::neighborhood::sentinel_ip_addr;
 use sub_lib::neighborhood::BootstrapNeighborhoodNowMessage;
 use sub_lib::neighborhood::DispatcherNodeQueryMessage;
 use sub_lib::neighborhood::ExpectedService;
-use sub_lib::neighborhood::HopMetadata;
 use sub_lib::neighborhood::NeighborhoodConfig;
 use sub_lib::neighborhood::NeighborhoodSubs;
 use sub_lib::neighborhood::NodeDescriptor;
@@ -109,8 +108,14 @@ impl Handler<BootstrapNeighborhoodNowMessage> for Neighborhood {
                     .gossip_producer
                     .produce(&self.neighborhood_database, &bootstrap_node_key);
                 let route = self.create_single_hop_route(&bootstrap_node_key);
-                let package =
-                    IncipientCoresPackage::new(route, gossip.clone(), &bootstrap_node_key);
+                let package = IncipientCoresPackage::new(
+                    self.cryptde,
+                    route,
+                    gossip.clone(),
+                    &bootstrap_node_key,
+                )
+                .expect("Key magically disappeared");
+
                 self.logger.info(format!(
                     "Sending initial Gossip about {} nodes to bootstrap Node at {}:{}",
                     gossip.node_records.len(),
@@ -373,7 +378,8 @@ impl Neighborhood {
                 .produce(&self.neighborhood_database, neighbor);
             let gossip_len = gossip.node_records.len();
             let route = self.create_single_hop_route(neighbor);
-            let package = IncipientCoresPackage::new(route, gossip, neighbor);
+            let package = IncipientCoresPackage::new(self.cryptde, route, gossip, neighbor)
+                .expect("Key magically disappeared");
             self.logger.info(format!(
                 "Relaying Gossip about {} nodes to {}",
                 gossip_len, neighbor
@@ -426,14 +432,9 @@ impl Neighborhood {
             None,
         )
         .expect("Couldn't create route");
-        let hop_metadata = HopMetadata {
-            public_key: self.cryptde.public_key(),
-            earning_wallet: self.neighborhood_database.root().earning_wallet(),
-            expected_service: ExpectedService::Nothing,
-        };
         RouteQueryResponse {
             route,
-            route_metadata: vec![hop_metadata.clone(), hop_metadata],
+            expected_services: vec![ExpectedService::Nothing, ExpectedService::Nothing],
         }
     }
 
@@ -474,32 +475,6 @@ impl Neighborhood {
             return Err("Cannot make multi-hop route without segment keys".to_string());
         }
 
-        let route_metadata: Result<Vec<HopMetadata>, String> = segments
-            .iter()
-            .flat_map(|segment| {
-                let hop_metadata: Vec<Result<HopMetadata, String>> = segment
-                    .keys
-                    .iter()
-                    .map(|key| {
-                        let calculated_service =
-                            self.calculate_expected_service(&key, &segment.keys);
-                        let node_by_key = self.neighborhood_database.node_by_key(&key);
-                        match (calculated_service, node_by_key) {
-                            (Ok(expected_service), Some(record)) => Ok(HopMetadata {
-                                public_key: key.clone(),
-                                earning_wallet: record.earning_wallet(),
-                                expected_service,
-                            }),
-                            (_, None) => {
-                                Err("Cannot make multi_hop with unknown neighbor".to_string())
-                            }
-                            _ => unreachable!("Can only error on empty segment keys.  But if the segment is empty this map will not execute on anything."),
-                        }
-                    })
-                    .collect();
-                hop_metadata
-            })
-            .collect();
         let consuming_wallet_opt = self.neighborhood_database.root().consuming_wallet();
         let has_long_segment = segments
             .iter()
@@ -509,30 +484,12 @@ impl Neighborhood {
             return Err("Cannot make multi-hop route segment without consuming wallet".to_string());
         }
 
-        route_metadata.map(|route_metadata| RouteQueryResponse {
+        let expected_routing_services = self.make_expected_services(&segments);
+        expected_routing_services.map(|expected_services| RouteQueryResponse {
             route: Route::new(segments, self.cryptde, consuming_wallet_opt)
                 .expect("Internal error: bad route"),
-            route_metadata,
+            expected_services,
         })
-    }
-
-    fn calculate_expected_service(
-        &self,
-        key: &PublicKey,
-        keys: &[PublicKey],
-    ) -> Result<ExpectedService, String> {
-        if key == self.neighborhood_database.root().public_key() {
-            Ok(ExpectedService::Nothing)
-        } else {
-            match (keys.first(), keys.last()) {
-                (Some(a), Some(b)) if key == a || key == b => Ok(ExpectedService::Exit),
-                (Some(_), Some(_)) => Ok(ExpectedService::Routing),
-                _ => Err(
-                    "cannot calculate expected service, no keys provided in route segment"
-                        .to_string(),
-                ),
-            }
-        }
     }
 
     fn make_route_segment(
@@ -558,6 +515,64 @@ impl Neighborhood {
         } else {
             let chosen_node_seq = node_seqs.remove(0);
             Ok(RouteSegment::new(chosen_node_seq, target_component))
+        }
+    }
+
+    fn make_expected_services(
+        &self,
+        segments: &Vec<RouteSegment>,
+    ) -> Result<Vec<ExpectedService>, String> {
+        let request_segment_keys = match segments.first() {
+            Some(segment) => segment.keys.clone(),
+            None => return Err("Cannot make multi-hop route without segments".to_string()),
+        };
+        let expected_services: Result<Vec<ExpectedService>, String> = request_segment_keys
+            .iter()
+            .map(|ref key| {
+                self.calculate_expected_routing_service(
+                    key,
+                    request_segment_keys.first(),
+                    request_segment_keys.last(),
+                )
+            })
+            .collect();
+
+        expected_services
+    }
+
+    fn calculate_expected_routing_service(
+        &self,
+        route_segment_key: &PublicKey,
+        originator_key: Option<&PublicKey>,
+        exit_key: Option<&PublicKey>,
+    ) -> Result<ExpectedService, String> {
+        match self.neighborhood_database.node_by_key(route_segment_key) {
+            Some(node) => {
+                if route_segment_key == self.neighborhood_database.root().public_key() {
+                    Ok(ExpectedService::Nothing)
+                } else {
+                    match (originator_key, exit_key) {
+                        (Some(originator_key), Some(exit_key))
+                            if route_segment_key == originator_key
+                                || route_segment_key == exit_key =>
+                        {
+                            Ok(ExpectedService::Exit(
+                                route_segment_key.clone(),
+                                node.earning_wallet(),
+                            ))
+                        }
+                        (Some(_), Some(_)) => Ok(ExpectedService::Routing(
+                            route_segment_key.clone(),
+                            node.earning_wallet(),
+                        )),
+                        _ => Err(
+                            "cannot calculate expected service, no keys provided in route segment"
+                                .to_string(),
+                        ),
+                    }
+                }
+            }
+            None => Err("Cannot make multi_hop with unknown neighbor".to_string()),
         }
     }
 
@@ -1204,27 +1219,9 @@ mod tests {
                 None,
             )
             .unwrap(),
-            route_metadata: vec![
-                HopMetadata {
-                    public_key: b.public_key().clone(),
-                    earning_wallet: b.earning_wallet(),
-                    expected_service: ExpectedService::Nothing,
-                },
-                HopMetadata {
-                    public_key: a.public_key().clone(),
-                    earning_wallet: a.earning_wallet(),
-                    expected_service: ExpectedService::Exit,
-                },
-                HopMetadata {
-                    public_key: a.public_key().clone(),
-                    earning_wallet: a.earning_wallet(),
-                    expected_service: ExpectedService::Exit,
-                },
-                HopMetadata {
-                    public_key: b.public_key().clone(),
-                    earning_wallet: b.earning_wallet(),
-                    expected_service: ExpectedService::Nothing,
-                },
+            expected_services: vec![
+                ExpectedService::Nothing,
+                ExpectedService::Exit(a.public_key().clone(), a.earning_wallet()),
             ],
         };
         assert_eq!(result, expected_response);
@@ -1341,18 +1338,7 @@ mod tests {
                 None,
             )
             .unwrap(),
-            route_metadata: vec![
-                HopMetadata {
-                    public_key: cryptde.public_key().clone(),
-                    earning_wallet: earning_wallet.clone(),
-                    expected_service: ExpectedService::Nothing,
-                },
-                HopMetadata {
-                    public_key: cryptde.public_key().clone(),
-                    earning_wallet: earning_wallet.clone(),
-                    expected_service: ExpectedService::Nothing,
-                },
-            ],
+            expected_services: vec![ExpectedService::Nothing, ExpectedService::Nothing],
         };
         assert_eq!(result, expected_response);
     }
@@ -1430,40 +1416,40 @@ mod tests {
                 consuming_wallet,
             )
             .unwrap(),
-            route_metadata: vec![
-                HopMetadata {
-                    public_key: p.public_key().clone(),
-                    earning_wallet: p.earning_wallet(),
-                    expected_service: ExpectedService::Nothing,
-                },
-                HopMetadata {
-                    public_key: q.public_key().clone(),
-                    earning_wallet: q.earning_wallet(),
-                    expected_service: ExpectedService::Routing,
-                },
-                HopMetadata {
-                    public_key: r.public_key().clone(),
-                    earning_wallet: r.earning_wallet(),
-                    expected_service: ExpectedService::Exit,
-                },
-                HopMetadata {
-                    public_key: r.public_key().clone(),
-                    earning_wallet: r.earning_wallet(),
-                    expected_service: ExpectedService::Exit,
-                },
-                HopMetadata {
-                    public_key: q.public_key().clone(),
-                    earning_wallet: q.earning_wallet(),
-                    expected_service: ExpectedService::Routing,
-                },
-                HopMetadata {
-                    public_key: p.public_key().clone(),
-                    earning_wallet: p.earning_wallet(),
-                    expected_service: ExpectedService::Nothing,
-                },
+            expected_services: vec![
+                ExpectedService::Nothing,
+                ExpectedService::Routing(q.public_key().clone(), q.earning_wallet()),
+                ExpectedService::Exit(r.public_key().clone(), r.earning_wallet()),
             ],
         };
         assert_eq!(result, expected_response);
+    }
+
+    #[test]
+    fn compose_route_query_response_returns_an_error_when_route_segment_is_empty() {
+        let cryptde = cryptde();
+        let earning_wallet = Wallet::new("earning");
+        let consuming_wallet = Some(Wallet::new("consuming"));
+        let subject = Neighborhood::new(
+            cryptde,
+            NeighborhoodConfig {
+                neighbor_configs: vec![],
+                is_bootstrap_node: false,
+                local_ip_addr: sentinel_ip_addr(),
+                clandestine_port_list: vec![],
+                earning_wallet: earning_wallet.clone(),
+                consuming_wallet: consuming_wallet.clone(),
+            },
+        );
+
+        let result: Result<RouteQueryResponse, String> =
+            subject.compose_route_query_response(vec![]);
+        assert!(result.is_err());
+        let error_expectation: String = result.expect_err("Expected an Err but got:");
+        assert_eq!(
+            error_expectation,
+            "Cannot make multi-hop route without segments"
+        );
     }
 
     #[test]
@@ -1576,10 +1562,10 @@ mod tests {
     }
 
     #[test]
-    fn calculate_expected_service_returns_error_when_given_empty_segment() {
+    fn calculate_expected_routing_service_returns_error_when_given_empty_segment() {
         let cryptde = cryptde();
         let consuming_wallet = Some(Wallet::new("consuming"));
-        let subject = Neighborhood::new(
+        let mut subject = Neighborhood::new(
             cryptde,
             NeighborhoodConfig {
                 neighbor_configs: vec![],
@@ -1591,7 +1577,11 @@ mod tests {
             },
         );
 
-        let result = subject.calculate_expected_service(&PublicKey::new(&[1, 3, 2]), &vec![]);
+        let a = &make_node_record(3456, true, false);
+        let db = &mut subject.neighborhood_database;
+        db.add_node(a).unwrap();
+
+        let result = subject.calculate_expected_routing_service(a.public_key(), None, None);
         assert!(result.is_err());
         assert_eq!(
             result.unwrap_err(),
@@ -1781,6 +1771,8 @@ mod tests {
         let this_node_inside = this_node.clone();
         let removed_neighbor = make_node_record(2345, true, false);
         let removed_neighbor_inside = removed_neighbor.clone();
+        let other_neighbor = make_node_record(3456, true, false);
+        let other_neighbor_inside = other_neighbor.clone();
 
         thread::spawn(move || {
             let system = System::new("gossips_after_removing_a_neighbor");
@@ -1796,14 +1788,13 @@ mod tests {
                 },
             );
 
-            let other_neighbor = make_node_record(3456, true, false);
             subject
                 .neighborhood_database
                 .add_node(&removed_neighbor_inside)
                 .unwrap();
             subject
                 .neighborhood_database
-                .add_node(&other_neighbor)
+                .add_node(&other_neighbor_inside)
                 .unwrap();
             subject
                 .neighborhood_database
@@ -1811,7 +1802,7 @@ mod tests {
                 .unwrap();
             subject
                 .neighborhood_database
-                .add_neighbor(&cryptde.public_key(), other_neighbor.public_key())
+                .add_neighbor(&cryptde.public_key(), other_neighbor_inside.public_key())
                 .unwrap();
 
             let addr: Addr<Syn, Neighborhood> = subject.start();
@@ -1829,10 +1820,12 @@ mod tests {
             system.run();
         });
 
+        let other_neighbor_cryptde = CryptDENull::from(other_neighbor.public_key());
         hopper_awaiter.await_message_count(1);
         let locked_recording = hopper_recording.lock().unwrap();
         let package: &IncipientCoresPackage = locked_recording.get_record(0);
-        let gossip: Gossip = serde_cbor::de::from_slice(package.payload.as_slice()).unwrap();
+        let decrypted_payload = other_neighbor_cryptde.decode(&package.payload).unwrap();
+        let gossip: Gossip = serde_cbor::de::from_slice(decrypted_payload.as_slice()).unwrap();
         let the_node_record = gossip
             .node_records
             .iter()
@@ -1914,11 +1907,9 @@ mod tests {
 
         assert_eq!(&find_package_target(package), gossip_neighbor.public_key());
         check_direct_route_to(&package.route, gossip_neighbor.public_key());
-        assert_eq!(
-            &package.payload_destination_key,
-            gossip_neighbor.public_key()
-        );
-        let gossip: Gossip = serde_cbor::de::from_slice(package.payload.as_slice()).unwrap();
+        let gossip_neighbor_cryptde = CryptDENull::from(gossip_neighbor.public_key());
+        let decrypted_payload = gossip_neighbor_cryptde.decode(&package.payload).unwrap();
+        let gossip: Gossip = serde_cbor::de::from_slice(decrypted_payload.as_slice()).unwrap();
         assert_eq!(gossip.node_records.len(), 2);
         let gossip_node_records = gossip.node_records;
         assert_contains(
@@ -1970,11 +1961,9 @@ mod tests {
         let locked_recording = hopper_recording.lock().unwrap();
         let package_ref: &IncipientCoresPackage = locked_recording.get_record(0);
         check_direct_route_to(&package_ref.route, bootstrap_node.public_key());
-        assert_eq!(
-            &package_ref.payload_destination_key,
-            bootstrap_node.public_key()
-        );
-        let gossip: Gossip = serde_cbor::de::from_slice(package_ref.payload.as_slice()).unwrap();
+        let bootstrap_node_cryptde = CryptDENull::from(bootstrap_node.public_key());
+        let decrypted_payload = bootstrap_node_cryptde.decode(&package_ref.payload).unwrap();
+        let gossip: Gossip = serde_cbor::de::from_slice(decrypted_payload.as_slice()).unwrap();
         let mut this_node = NodeRecord::new_for_tests(
             &cryptde.public_key(),
             Some(&NodeAddr::new(
@@ -2741,6 +2730,8 @@ mod tests {
         let this_node_inside = this_node.clone();
         let removed_neighbor = make_node_record(2345, true, false);
         let removed_neighbor_inside = removed_neighbor.clone();
+        let other_neighbor = make_node_record(3456, true, false);
+        let other_neighbor_inside = other_neighbor.clone();
 
         thread::spawn(move || {
             let system = System::new("gossips_after_removing_a_neighbor");
@@ -2756,14 +2747,13 @@ mod tests {
                 },
             );
 
-            let other_neighbor = make_node_record(3456, true, false);
             subject
                 .neighborhood_database
                 .add_node(&removed_neighbor_inside)
                 .unwrap();
             subject
                 .neighborhood_database
-                .add_node(&other_neighbor)
+                .add_node(&other_neighbor_inside)
                 .unwrap();
             subject
                 .neighborhood_database
@@ -2771,7 +2761,7 @@ mod tests {
                 .unwrap();
             subject
                 .neighborhood_database
-                .add_neighbor(&cryptde.public_key(), other_neighbor.public_key())
+                .add_neighbor(&cryptde.public_key(), other_neighbor_inside.public_key())
                 .unwrap();
 
             let addr: Addr<Syn, Neighborhood> = subject.start();
@@ -2789,10 +2779,12 @@ mod tests {
             system.run();
         });
 
+        let other_neighbor_cryptde = CryptDENull::from(other_neighbor.public_key());
         hopper_awaiter.await_message_count(1);
         let locked_recording = hopper_recording.lock().unwrap();
         let package: &IncipientCoresPackage = locked_recording.get_record(0);
-        let gossip: Gossip = serde_cbor::de::from_slice(package.payload.as_slice()).unwrap();
+        let decrypted_payload = other_neighbor_cryptde.decode(&package.payload).unwrap();
+        let gossip: Gossip = serde_cbor::de::from_slice(decrypted_payload.as_slice()).unwrap();
         let the_node_record = gossip
             .node_records
             .iter()

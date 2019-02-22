@@ -1,4 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::cryptde::CryptDE;
+use crate::cryptde::CryptData;
 use crate::cryptde::PlainData;
 use crate::cryptde::PublicKey;
 use crate::dispatcher::InboundClientData;
@@ -20,26 +22,33 @@ pub const TEMPORARY_PER_ROUTING_RATE: u64 = 3;
 #[derive(Clone, Debug, PartialEq, Message)]
 pub struct IncipientCoresPackage {
     pub route: Route,
-    pub payload: PlainData,
-    pub payload_destination_key: PublicKey,
+    pub payload: CryptData,
 }
 
 impl IncipientCoresPackage {
     pub fn new<T>(
+        cryptde: &dyn CryptDE, // must be the CryptDE of the Node to which the top hop is encrypted
         route: Route,
         payload: T,
         payload_destination_key: &PublicKey,
-    ) -> IncipientCoresPackage
+    ) -> Result<IncipientCoresPackage, String>
     where
         T: Serialize,
     {
         // crashpoint - TODO: Figure out how to log this serialization failure rather than letting data crash the Node.
         let serialized_payload = serde_cbor::ser::to_vec(&payload).expect("Serialization failure");
-        IncipientCoresPackage {
+        let encrypted_payload = match cryptde.encode(
+            &payload_destination_key,
+            &PlainData::new(&serialized_payload[..]),
+        ) {
+            Ok(p) => p,
+            Err(e) => return Err(format!("Could not encrypt payload: {:?}", e)),
+        };
+
+        Ok(IncipientCoresPackage {
             route,
-            payload: PlainData::new(&serialized_payload[..]),
-            payload_destination_key: payload_destination_key.clone(),
-        }
+            payload: encrypted_payload,
+        })
     }
 }
 
@@ -101,27 +110,51 @@ mod tests {
 
     #[test]
     fn incipient_cores_package_is_created_correctly() {
+        let cryptde = CryptDENull::new();
         let consuming_wallet = Wallet::new("wallet");
-        let route_key = PublicKey::new(&[1]);
+        let key12 = cryptde.public_key();
+        let key34 = PublicKey::new(&[3, 4]);
+        let key56 = PublicKey::new(&[5, 6]);
         let route = Route::new(
-            vec![
-                RouteSegment::new(vec![&route_key], Component::ProxyClient),
-                RouteSegment::new(vec![&route_key, &route_key], Component::ProxyServer),
-            ],
-            &CryptDENull::new(),
-            Some(consuming_wallet.clone()),
+            vec![RouteSegment::new(
+                vec![&key12, &key34, &key56],
+                Component::ProxyClient,
+            )],
+            &cryptde,
+            Some(consuming_wallet),
         )
         .unwrap();
         let payload = PayloadMock::new();
-        let key = PublicKey::new(&[5, 6]);
 
-        let subject = IncipientCoresPackage::new(route.clone(), payload.clone(), &key);
+        let result = IncipientCoresPackage::new(&cryptde, route.clone(), payload.clone(), &key56);
+        let subject = result.unwrap();
 
         assert_eq!(subject.route, route);
-        assert_eq!(subject.payload_destination_key, key);
-        let actual_payload: PayloadMock =
-            serde_cbor::de::from_slice(subject.payload.as_slice()).unwrap();
-        assert_eq!(actual_payload, payload);
+        assert_eq!(
+            subject.payload,
+            cryptde
+                .encode(
+                    &key56,
+                    &PlainData::new(&serde_cbor::ser::to_vec(&payload).unwrap())
+                )
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn incipient_cores_package_new_complains_about_problems_encrypting_payload() {
+        let cryptde = CryptDENull::new();
+        let result = IncipientCoresPackage::new(
+            &cryptde,
+            Route { hops: vec![] },
+            CryptData::new(&[]),
+            &PublicKey::new(&[]),
+        );
+
+        assert_eq!(
+            result,
+            Err(String::from("Could not encrypt payload: EmptyKey"))
+        );
     }
 
     #[test]

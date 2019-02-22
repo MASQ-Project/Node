@@ -103,53 +103,63 @@ fn check_originating_charges(param_block: &ParamBlock) {
         &param_block.originating_node,
         &param_block.originating_node.consuming_wallet().unwrap(),
     );
-    //    let payable_routing_account = payable_account_status(
-    //        &param_block.originating_node,
-    //        &param_block.routing_node.earning_wallet ()
-    //    ).unwrap ();
-    //    let payable_exit_account = payable_account_status(
-    //        &param_block.originating_node,
-    //        &param_block.exit_node.earning_wallet ()
-    //    ).unwrap ();
+    let payable_routing_account = payable_account_status(
+        &param_block.originating_node,
+        &param_block.routing_node.earning_wallet(),
+    )
+    .unwrap();
+    let payable_exit_account = payable_account_status(
+        &param_block.originating_node,
+        &param_block.exit_node.earning_wallet(),
+    )
+    .unwrap();
 
     assert_eq!(receivable_account, None);
-    //    let (cores_request_bytes, expected_request_routing_charge) = cores_payload_request_routing_charges(&param_block);
-    //    let expected_request_exit_charge = calculate_exit_charge (param_block.request_len);
-    //    let (cores_response_bytes, expected_response_routing_charge) = cores_payload_response_routing_charges(&param_block);
-    //    let expected_response_exit_charge = 0; //calculate_exit_charge (param_block.response_len);
-    //    assert_eq! (
-    //        payable_routing_account.balance as u64,
-    //        expected_request_routing_charge + expected_response_routing_charge,
-    //        "Balance should be calculated for 2 routing services and {} + {} bytes",
-    //        cores_request_bytes, cores_response_bytes
-    //    );
-    //    assert_eq! (payable_routing_account.pending_payment_transaction, None);
-    //    timestamp_between(
-    //        &param_block.before,
-    //        &payable_routing_account.last_paid_timestamp,
-    //        &param_block.after,
-    //    );
-    //    assert_eq! (
-    //        payable_exit_account.balance as u64,
-    //        expected_request_exit_charge + expected_response_exit_charge,
-    //        "Balance should be calculated for 2 exit services and {} + {} bytes",
-    //        cores_request_bytes, cores_response_bytes
-    //    );
-    //    assert_eq! (payable_exit_account.pending_payment_transaction, None);
-    //    timestamp_between(
-    //        &param_block.before,
-    //        &payable_exit_account.last_paid_timestamp,
-    //        &param_block.after,
-    //    );
+    let (cores_request_bytes, expected_request_routing_charge) =
+        cores_payload_request_routing_charges(&param_block);
+    let expected_request_exit_charge = calculate_exit_charge(param_block.request_len);
+    let (cores_response_bytes, expected_response_routing_charge) =
+        cores_payload_response_routing_charges(&param_block);
+    let expected_response_exit_charge = 0; //calculate_exit_charge (param_block.response_len);
+    println!(
+        "request_routing_charge: {}, response_routing_charge: {}",
+        expected_request_routing_charge, expected_response_routing_charge
+    );
+    assert_eq!(
+        payable_routing_account.balance as u64,
+        expected_request_routing_charge, // + expected_response_routing_charge,
+        "Balance should be calculated for 2 routing services and {} + {} bytes",
+        cores_request_bytes,
+        cores_response_bytes
+    );
+    assert_eq!(payable_routing_account.pending_payment_transaction, None);
+    assert_timestamp_between(
+        &param_block.before,
+        &payable_routing_account.last_paid_timestamp,
+        &param_block.after,
+    );
+    assert_eq!(
+        payable_exit_account.balance as u64,
+        expected_request_exit_charge + expected_response_exit_charge,
+        "Balance should be calculated for 2 exit services and {} + {} bytes",
+        cores_request_bytes,
+        cores_response_bytes
+    );
+    assert_eq!(payable_exit_account.pending_payment_transaction, None);
+    assert_timestamp_between(
+        &param_block.before,
+        &payable_exit_account.last_paid_timestamp,
+        &param_block.after,
+    );
 }
 
-//fn cores_payload_request_routing_charges(param_block: &ParamBlock) -> (usize, u64) {
-//    calculate_request_routing_charge (param_block.request_len, &param_block.exit_node.cryptde())
-//}
-//
-//fn cores_payload_response_routing_charges(param_block: &ParamBlock) -> (usize, u64) {
-//     calculate_response_routing_charge (param_block.response_len, &param_block.exit_node.cryptde())
-//}
+fn cores_payload_request_routing_charges(param_block: &ParamBlock) -> (usize, u64) {
+    calculate_request_routing_charge(param_block.request_len, &param_block.exit_node.cryptde())
+}
+
+fn cores_payload_response_routing_charges(param_block: &ParamBlock) -> (usize, u64) {
+    calculate_response_routing_charge(param_block.response_len, &param_block.exit_node.cryptde())
+}
 
 fn check_routing_charges(param_block: &ParamBlock) {
     let receivable_account = receivable_account_status(

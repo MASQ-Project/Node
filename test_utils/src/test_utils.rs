@@ -28,7 +28,6 @@ use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::dispatcher::Component;
 use sub_lib::main_tools::StdStreams;
 use sub_lib::neighborhood::ExpectedService;
-use sub_lib::neighborhood::HopMetadata;
 use sub_lib::neighborhood::RouteQueryResponse;
 use sub_lib::route::Route;
 use sub_lib::route::RouteSegment;
@@ -251,13 +250,8 @@ pub fn zero_hop_route_response(
             None,
         )
         .unwrap(),
-        route_metadata: (1..4)
-            .map(|_| HopMetadata {
-                public_key: public_key.clone(),
-                earning_wallet: Wallet::new("earning wallet"),
-                expected_service: ExpectedService::Nothing,
-            })
-            .collect(),
+        // TODO: temporarily limited to 2, increase back to 4 when we do response payables
+        expected_services: (0..2).map(|_| ExpectedService::Nothing).collect(),
     }
 }
 
@@ -346,6 +340,7 @@ mod tests {
     use sub_lib::cryptde::CryptData;
     use sub_lib::cryptde_null::CryptDENull;
     use sub_lib::hop::LiveHop;
+    use sub_lib::neighborhood::ExpectedService;
 
     #[test]
     fn characterize_zero_hop_route() {
@@ -369,24 +364,8 @@ mod tests {
             )
         );
         assert_eq!(
-            subject.route_metadata,
-            vec![
-                HopMetadata {
-                    public_key: key.clone(),
-                    earning_wallet: Wallet::new("earning wallet"),
-                    expected_service: ExpectedService::Nothing
-                },
-                HopMetadata {
-                    public_key: key.clone(),
-                    earning_wallet: Wallet::new("earning wallet"),
-                    expected_service: ExpectedService::Nothing
-                },
-                HopMetadata {
-                    public_key: key.clone(),
-                    earning_wallet: Wallet::new("earning wallet"),
-                    expected_service: ExpectedService::Nothing
-                },
-            ]
+            subject.expected_services,
+            vec![ExpectedService::Nothing, ExpectedService::Nothing,]
         );
     }
 

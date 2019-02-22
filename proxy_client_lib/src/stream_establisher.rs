@@ -14,6 +14,7 @@ use sub_lib::accountant::ReportExitServiceProvidedMessage;
 use sub_lib::channel_wrappers::FuturesChannelFactory;
 use sub_lib::channel_wrappers::FuturesChannelFactoryReal;
 use sub_lib::channel_wrappers::SenderWrapper;
+use sub_lib::cryptde::CryptDE;
 use sub_lib::framer::Framer;
 use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::http_packet_framer::HttpPacketFramer;
@@ -34,6 +35,7 @@ use trust_dns_resolver::error::ResolveError;
 use trust_dns_resolver::lookup_ip::LookupIp;
 
 pub struct StreamEstablisher {
+    pub cryptde: &'static dyn CryptDE,
     pub stream_adder_tx: Sender<(StreamKey, Box<dyn SenderWrapper<SequencedPacket>>)>,
     pub stream_killer_tx: Sender<StreamKey>,
     pub stream_connector: Box<dyn StreamConnector>,
@@ -46,6 +48,7 @@ pub struct StreamEstablisher {
 impl Clone for StreamEstablisher {
     fn clone(&self) -> Self {
         StreamEstablisher {
+            cryptde: self.cryptde.clone(),
             stream_adder_tx: self.stream_adder_tx.clone(),
             stream_killer_tx: self.stream_killer_tx.clone(),
             stream_connector: Box::new(StreamConnectorReal {}),
@@ -98,6 +101,7 @@ impl StreamEstablisher {
         )?;
 
         self.spawn_stream_reader(
+            self.cryptde,
             return_route,
             &payload.clone(),
             consuming_wallet,
@@ -122,6 +126,7 @@ impl StreamEstablisher {
 
     fn spawn_stream_reader(
         &self,
+        cryptde: &'static dyn CryptDE,
         return_route: &Route,
         payload: &ClientRequestPayload,
         consuming_wallet: Option<Wallet>,
@@ -131,6 +136,7 @@ impl StreamEstablisher {
         let framer = Self::framer_from_protocol(payload.protocol);
 
         let stream_reader = StreamReader::new(
+            cryptde,
             payload.stream_key,
             consuming_wallet,
             self.hopper_sub.clone(),
@@ -163,6 +169,7 @@ pub trait StreamEstablisherFactory: Send {
 }
 
 pub struct StreamEstablisherFactoryReal {
+    pub cryptde: &'static dyn CryptDE,
     pub stream_adder_tx: Sender<(StreamKey, Box<dyn SenderWrapper<SequencedPacket>>)>,
     pub stream_killer_tx: Sender<StreamKey>,
     pub hopper_sub: Recipient<Syn, IncipientCoresPackage>,
@@ -173,6 +180,7 @@ pub struct StreamEstablisherFactoryReal {
 impl StreamEstablisherFactory for StreamEstablisherFactoryReal {
     fn make(&self) -> StreamEstablisher {
         StreamEstablisher {
+            cryptde: self.cryptde.clone(),
             stream_adder_tx: self.stream_adder_tx.clone(),
             stream_killer_tx: self.stream_killer_tx.clone(),
             stream_connector: Box::new(StreamConnectorReal {}),
@@ -195,12 +203,12 @@ mod tests {
     use std::str::FromStr;
     use std::sync::mpsc;
     use std::thread;
-    use sub_lib::cryptde::PublicKey;
     use sub_lib::proxy_client::ClientResponsePayload;
     use sub_lib::proxy_server::ProxyProtocol;
     use test_utils::recorder::make_peer_actors_from;
     use test_utils::recorder::make_recorder;
     use test_utils::stream_connector_mock::StreamConnectorMock;
+    use test_utils::test_utils::cryptde;
     use test_utils::test_utils::make_meaningless_route;
     use test_utils::test_utils::make_meaningless_stream_key;
     use test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
@@ -238,6 +246,7 @@ mod tests {
             ];
 
             let subject = StreamEstablisher {
+                cryptde: cryptde(),
                 stream_adder_tx,
                 stream_killer_tx,
                 stream_connector: Box::new(StreamConnectorMock::new()), // only used in "establish_stream"
@@ -248,6 +257,7 @@ mod tests {
             };
             subject
                 .spawn_stream_reader(
+                    cryptde(),
                     &make_meaningless_route(),
                     &ClientRequestPayload {
                         stream_key: make_meaningless_stream_key(),
@@ -259,7 +269,7 @@ mod tests {
                         target_hostname: Some("blah".to_string()),
                         target_port: 0,
                         protocol: ProxyProtocol::HTTP,
-                        originator_public_key: PublicKey::new(&[]),
+                        originator_public_key: subject.cryptde.public_key(),
                     },
                     Some(Wallet::new("consuming")),
                     read_stream,
@@ -270,8 +280,9 @@ mod tests {
             hopper_awaiter.await_message_count(1);
             let hopper_recording = hopper_recording_arc.lock().unwrap();
             let record = hopper_recording.get_record::<IncipientCoresPackage>(0);
+            let decrypted_payload = subject.cryptde.decode(&record.payload).unwrap();
             let response =
-                serde_cbor::de::from_slice::<ClientResponsePayload>(record.payload.as_slice())
+                serde_cbor::de::from_slice::<ClientResponsePayload>(decrypted_payload.as_slice())
                     .unwrap();
             response_tx.send(response).unwrap();
             return Ok(());
@@ -321,6 +332,7 @@ mod tests {
             let (stream_killer_tx, _) = mpsc::channel();
 
             let subject = StreamEstablisher {
+                cryptde: cryptde(),
                 stream_adder_tx,
                 stream_killer_tx,
                 stream_connector: Box::new(StreamConnectorMock::new()), // only used in "establish_stream"
@@ -332,6 +344,7 @@ mod tests {
 
             subject
                 .spawn_stream_reader(
+                    cryptde(),
                     &make_meaningless_route(),
                     &ClientRequestPayload {
                         stream_key: make_meaningless_stream_key(),
@@ -343,7 +356,7 @@ mod tests {
                         target_hostname: None,
                         target_port: 0,
                         protocol: ProxyProtocol::TLS,
-                        originator_public_key: PublicKey::new(&[]),
+                        originator_public_key: subject.cryptde.public_key(),
                     },
                     Some(Wallet::new("consuming")),
                     read_stream,
@@ -353,8 +366,9 @@ mod tests {
             hopper_awaiter.await_message_count(1);
             let hopper_recording = hopper_recording_arc.lock().unwrap();
             let record = hopper_recording.get_record::<IncipientCoresPackage>(0);
+            let decrypted_payload = subject.cryptde.decode(&record.payload).unwrap();
             let response =
-                serde_cbor::de::from_slice::<ClientResponsePayload>(record.payload.as_slice())
+                serde_cbor::de::from_slice::<ClientResponsePayload>(decrypted_payload.as_slice())
                     .unwrap();
 
             response_tx.send(response).unwrap();

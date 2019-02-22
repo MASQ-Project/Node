@@ -158,7 +158,8 @@ impl SubstratumMockNode {
             node.consuming_wallet().clone(),
         )
         .unwrap();
-        let package = IncipientCoresPackage::new(route, gossip, &node.public_key());
+        let package =
+            IncipientCoresPackage::new(self.cryptde(), route, gossip, &node.public_key()).unwrap();
 
         self.transmit_package(
             *node.port_list().first().unwrap(),

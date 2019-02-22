@@ -120,24 +120,17 @@ impl RouteQueryMessage {
     }
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum ExpectedService {
-    Routing,
-    Exit,
+    Routing(PublicKey, Wallet),
+    Exit(PublicKey, Wallet),
     Nothing,
-}
-
-#[derive(PartialEq, Debug, Clone)]
-pub struct HopMetadata {
-    pub public_key: PublicKey,
-    pub earning_wallet: Wallet,
-    pub expected_service: ExpectedService,
 }
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct RouteQueryResponse {
     pub route: Route,
-    pub route_metadata: Vec<HopMetadata>,
+    pub expected_services: Vec<ExpectedService>,
 }
 
 #[derive(PartialEq, Debug, Message, Clone)]

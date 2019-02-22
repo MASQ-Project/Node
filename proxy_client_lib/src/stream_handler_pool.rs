@@ -41,7 +41,7 @@ pub struct StreamHandlerPoolReal {
     inner: Arc<Mutex<StreamHandlerPoolRealInner>>,
     stream_adder_rx: Receiver<(StreamKey, Box<dyn SenderWrapper<SequencedPacket>>)>,
     stream_killer_rx: Receiver<StreamKey>,
-    _cryptde: &'static dyn CryptDE, // This is not used now, but a version of it may be used in the future when ser/de and en/decrypt are combined.
+    cryptde: &'static dyn CryptDE,
 }
 
 struct StreamHandlerPoolRealInner {
@@ -72,7 +72,13 @@ impl StreamHandlerPool for StreamHandlerPoolReal {
                 payload.stream_key
             ));
         } else {
-            Self::process_package(payload, consuming_wallet, return_route, self.inner.clone())
+            Self::process_package(
+                self.cryptde.clone(),
+                payload,
+                consuming_wallet,
+                return_route,
+                self.inner.clone(),
+            )
         }
     }
 }
@@ -89,6 +95,7 @@ impl StreamHandlerPoolReal {
         StreamHandlerPoolReal {
             inner: Arc::new(Mutex::new(StreamHandlerPoolRealInner {
                 establisher_factory: Box::new(StreamEstablisherFactoryReal {
+                    cryptde,
                     stream_adder_tx,
                     stream_killer_tx,
                     hopper_sub: hopper_sub.clone(),
@@ -103,11 +110,12 @@ impl StreamHandlerPoolReal {
             })),
             stream_adder_rx,
             stream_killer_rx,
-            _cryptde: cryptde,
+            cryptde,
         }
     }
 
     fn process_package(
+        cryptde: &'static dyn CryptDE,
         payload: ClientRequestPayload,
         consuming_wallet: Option<Wallet>,
         return_route: Route,
@@ -122,6 +130,7 @@ impl StreamHandlerPoolReal {
                     Self::write_and_tend(sender_wrapper, payload, consuming_wallet, inner_arc)
                         .map_err(move |error| {
                             Self::clean_up_bad_stream(
+                                cryptde,
                                 inner_arc_1,
                                 &stream_key,
                                 &return_route,
@@ -144,6 +153,7 @@ impl StreamHandlerPoolReal {
                 })
                 .map_err(move |error| {
                     Self::clean_up_bad_stream(
+                        cryptde,
                         inner_arc_1,
                         &stream_key,
                         &return_route,
@@ -158,6 +168,7 @@ impl StreamHandlerPoolReal {
     }
 
     fn clean_up_bad_stream(
+        cryptde: &'static dyn CryptDE,
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
         stream_key: &StreamKey,
         return_route: &Route,
@@ -176,6 +187,7 @@ impl StreamHandlerPoolReal {
             ));
         }
         Self::send_terminating_package(
+            cryptde,
             return_route,
             stream_key,
             originator_public_key,
@@ -292,14 +304,20 @@ impl StreamHandlerPoolReal {
     }
 
     fn send_terminating_package(
+        cryptde: &'static dyn CryptDE,
         return_route: &Route,
         stream_key: &StreamKey,
         originator_public_key: &PublicKey,
         hopper_sub: &Recipient<Syn, IncipientCoresPackage>,
     ) {
         let response = ClientResponsePayload::make_terminating_payload(stream_key.clone());
-        let package =
-            IncipientCoresPackage::new(return_route.clone(), response, &originator_public_key);
+        let package = IncipientCoresPackage::new(
+            cryptde,
+            return_route.clone(),
+            response,
+            &originator_public_key,
+        )
+        .expect("Key magically disappeared");
         hopper_sub.try_send(package).expect("Hopper died");
     }
 
@@ -406,6 +424,7 @@ mod tests {
     use sub_lib::channel_wrappers::FuturesChannelFactoryReal;
     use sub_lib::channel_wrappers::SenderWrapperReal;
     use sub_lib::cryptde::PlainData;
+    use sub_lib::cryptde_null::CryptDENull;
     use sub_lib::hopper::ExpiredCoresPackage;
     use sub_lib::proxy_server::ProxyProtocol;
     use sub_lib::wallet::Wallet;
@@ -617,6 +636,8 @@ mod tests {
         init_test_logging();
         let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
         let (accountant, _, _) = make_recorder();
+        let originator_key = PublicKey::new(&b"men's souls"[..]);
+        let originator_cryptde = CryptDENull::from(&originator_key);
         thread::spawn(move || {
             let client_request_payload = ClientRequestPayload {
                 stream_key: make_meaningless_stream_key(),
@@ -628,7 +649,7 @@ mod tests {
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
                 protocol: ProxyProtocol::HTTP,
-                originator_public_key: PublicKey::new(&b"men's souls"[..]),
+                originator_public_key: originator_key,
             };
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
@@ -671,8 +692,9 @@ mod tests {
         hopper_awaiter.await_message_count(1);
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let package = hopper_recording.get_record::<IncipientCoresPackage>(0);
+        let decrypted_payload = originator_cryptde.decode(&package.payload).unwrap();
         let payload =
-            serde_cbor::de::from_slice::<ClientResponsePayload>(package.payload.as_slice())
+            serde_cbor::de::from_slice::<ClientResponsePayload>(decrypted_payload.as_slice())
                 .unwrap();
         assert_eq!(payload.sequenced_packet.last_data, true);
     }
@@ -682,6 +704,8 @@ mod tests {
         init_test_logging();
         let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
         let (accountant, _, _) = make_recorder();
+        let originator_key = PublicKey::new(&b"men's souls"[..]);
+        let originator_cryptde = CryptDENull::from(&originator_key);
         thread::spawn(move || {
             let system = System::new("test");
             let peer_actors =
@@ -696,7 +720,7 @@ mod tests {
                 target_hostname: None,
                 target_port: 80,
                 protocol: ProxyProtocol::HTTP,
-                originator_public_key: PublicKey::new(&b"men's souls"[..]),
+                originator_public_key: originator_key,
             };
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
@@ -725,8 +749,9 @@ mod tests {
         hopper_awaiter.await_message_count(1);
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let package = hopper_recording.get_record::<IncipientCoresPackage>(0);
+        let decrypted_payload = originator_cryptde.decode(&package.payload).unwrap();
         let payload =
-            serde_cbor::de::from_slice::<ClientResponsePayload>(package.payload.as_slice())
+            serde_cbor::de::from_slice::<ClientResponsePayload>(decrypted_payload.as_slice())
                 .unwrap();
         assert_eq!(payload.sequenced_packet.last_data, true);
         TestLogHandler::new().exists_log_containing(
@@ -797,7 +822,9 @@ mod tests {
             let (stream_adder_tx, _stream_adder_rx) = mpsc::channel();
             {
                 let mut inner = subject.inner.lock().unwrap();
+                let cryptde = cryptde();
                 let establisher = StreamEstablisher {
+                    cryptde,
                     stream_adder_tx,
                     stream_killer_tx,
                     stream_connector: Box::new(StreamConnectorMock::new().with_connection(
@@ -840,6 +867,7 @@ mod tests {
         assert_eq!(
             *record,
             IncipientCoresPackage::new(
+                cryptde(),
                 make_meaningless_route(),
                 ClientResponsePayload {
                     stream_key: make_meaningless_stream_key(),
@@ -851,6 +879,7 @@ mod tests {
                 },
                 &PublicKey::new(&b"men's souls"[..]),
             )
+            .unwrap()
         );
     }
 
@@ -860,6 +889,8 @@ mod tests {
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
         let (accountant, _, _) = make_recorder();
+        let originator_key = PublicKey::new(&b"men's souls"[..]);
+        let originator_cryptde = CryptDENull::from(&originator_key);
         thread::spawn(move || {
             let system = System::new("test");
             let peer_actors =
@@ -874,7 +905,7 @@ mod tests {
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
                 protocol: ProxyProtocol::HTTP,
-                originator_public_key: PublicKey::new(&b"men's souls"[..]),
+                originator_public_key: originator_key,
             };
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
@@ -899,7 +930,9 @@ mod tests {
             let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
             subject.stream_killer_rx = stream_killer_rx;
             let (stream_adder_tx, _stream_adder_rx) = mpsc::channel();
+            let cryptde = cryptde();
             let establisher = StreamEstablisher {
+                cryptde,
                 stream_adder_tx,
                 stream_killer_tx,
                 stream_connector: Box::new(
@@ -929,8 +962,10 @@ mod tests {
         hopper_awaiter.await_message_count(1);
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let record = hopper_recording.get_record::<IncipientCoresPackage>(0);
+        let decrypted_payload = originator_cryptde.decode(&record.payload).unwrap();
         let client_response_payload =
-            serde_cbor::de::from_slice::<ClientResponsePayload>(record.payload.as_slice()).unwrap();
+            serde_cbor::de::from_slice::<ClientResponsePayload>(decrypted_payload.as_slice())
+                .unwrap();
         assert_eq!(
             client_response_payload,
             ClientResponsePayload::make_terminating_payload(stream_key)
@@ -944,6 +979,8 @@ mod tests {
         let write_parameters = Arc::new(Mutex::new(vec![]));
         let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
         let (accountant, _, _) = make_recorder();
+        let originator_key = PublicKey::new(&b"men's souls"[..]);
+        let originator_cryptde = CryptDENull::from(&originator_key);
         thread::spawn(move || {
             let system = System::new("test");
             let peer_actors =
@@ -960,7 +997,7 @@ mod tests {
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
                 protocol: ProxyProtocol::HTTP,
-                originator_public_key: PublicKey::new(&b"men's souls"[..]),
+                originator_public_key: originator_key,
             };
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
@@ -1002,7 +1039,9 @@ mod tests {
             let (stream_adder_tx, _stream_adder_rx) = mpsc::channel();
             {
                 let mut inner = subject.inner.lock().unwrap();
+                let cryptde = cryptde();
                 let establisher = StreamEstablisher {
+                    cryptde,
                     stream_adder_tx,
                     stream_killer_tx,
                     stream_connector: Box::new(StreamConnectorMock::new().with_connection(
@@ -1040,8 +1079,10 @@ mod tests {
         hopper_awaiter.await_message_count(1);
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let record = hopper_recording.get_record::<IncipientCoresPackage>(0);
+        let decrypted_payload = originator_cryptde.decode(&record.payload).unwrap();
         let client_response_payload =
-            serde_cbor::de::from_slice::<ClientResponsePayload>(record.payload.as_slice()).unwrap();
+            serde_cbor::de::from_slice::<ClientResponsePayload>(decrypted_payload.as_slice())
+                .unwrap();
         assert_eq!(
             client_response_payload,
             ClientResponsePayload::make_terminating_payload(stream_key)
@@ -1054,6 +1095,8 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
         let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
         let (accountant, _, _) = make_recorder();
+        let originator_key = PublicKey::new(&b"men's souls"[..]);
+        let originator_cryptde = CryptDENull::from(&originator_key);
         thread::spawn(move || {
             let client_request_payload = ClientRequestPayload {
                 stream_key,
@@ -1065,7 +1108,7 @@ mod tests {
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
                 protocol: ProxyProtocol::HTTP,
-                originator_public_key: PublicKey::new(&b"men's souls"[..]),
+                originator_public_key: originator_key,
             };
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
@@ -1101,8 +1144,10 @@ mod tests {
         hopper_awaiter.await_message_count(1);
         let recording = hopper_recording_arc.lock().unwrap();
         let record = recording.get_record::<IncipientCoresPackage>(0);
+        let decrypted_payload = originator_cryptde.decode(&record.payload).unwrap();
         let client_response_payload =
-            serde_cbor::de::from_slice::<ClientResponsePayload>(record.payload.as_slice()).unwrap();
+            serde_cbor::de::from_slice::<ClientResponsePayload>(decrypted_payload.as_slice())
+                .unwrap();
         assert_eq!(
             client_response_payload,
             ClientResponsePayload::make_terminating_payload(stream_key)
