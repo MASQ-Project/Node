@@ -9,11 +9,11 @@ describe('ps_wrapper', () => {
   let subject, mockPs, mockPath, mockTreeKill
 
   beforeEach(() => {
-    mockPs = td.replace('../src/main-process/ps')
+    mockPs = td.replace('../main-process/ps')
     mockPath = td.replace('path')
     mockTreeKill = td.replace('tree-kill')
 
-    subject = require('../src/wrappers/ps_wrapper')
+    subject = require('../main-process/wrappers/ps_wrapper')
   })
 
   afterEach(() => {

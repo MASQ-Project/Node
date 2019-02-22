@@ -19,7 +19,13 @@
       "!ci/*",
       "!test/*",
       "!*.iml",
-      "!src/*"
+      "!src/*",
+      "!coverage/*",
+      "!README.md",
+      "!icons/*",
+      "!angular.json",
+      "!tsconfig.json",
+      "!tslint.json"
     ],
     "mac": {
       "icon": "icons/icon.icns",
@@ -70,6 +76,7 @@
     "sudo-prompt": "^8.2.5",
     "tree-kill": "^1.2.1",
     "tslib": "^1.9.0",
+    "ws": "^6.1.4",
     "zone.js": "~0.8.26"
   },
   "devDependencies": {
@@ -97,7 +104,6 @@
     "testdouble": "^3.9.3",
     "ts-node": "~7.0.0",
     "tslint": "~5.11.0",
-    "typescript": "~3.2.2",
-    "ws": "^6.1.2"
+    "typescript": "~3.2.2"
   }
 }

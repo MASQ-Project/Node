@@ -1,15 +1,15 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 module.exports = (() => {
-  const path = require('../wrappers/path_wrapper')
-  const process = require('../wrappers/process_wrapper')
-  const consoleWrapper = require('../wrappers/console_wrapper')
+  const path = require('./wrappers/path_wrapper')
+  const process = require('./wrappers/process_wrapper')
+  const consoleWrapper = require('./wrappers/console_wrapper')
   const cmd = require('node-cmd')
   const sudoPrompt = require('sudo-prompt')
   const treeKill = require('tree-kill')
 
-  const binaryBasePath = '../static/binaries/'
-  const scriptBasePath = '../static/scripts/'
+  const binaryBasePath = '../dist/static/binaries/'
+  const scriptBasePath = '../dist/static/scripts/'
   const binaryFilename = 'SubstratumNode'
   const runtimeArgs = ['--dns_servers', '1.0.0.1,1.1.1.1,9.9.9.9,8.8.8.8']
 

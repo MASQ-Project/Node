@@ -3,9 +3,9 @@ const { dialog } = require('electron')
 
 const childProcess = require('child_process')
 const path = require('path')
-const consoleWrapper = require('../wrappers/console_wrapper')
+const consoleWrapper = require('./wrappers/console_wrapper')
 const dnsUtility = require('./dns_utility')
-const psWrapper = require('../wrappers/ps_wrapper')
+const psWrapper = require('./wrappers/ps_wrapper')
 const uiInterface = require('./ui_interface')
 const NODE_STARTUP_TIMEOUT = 60000
 const NODE_SHUTDOWN_TIMEOUT = 5000

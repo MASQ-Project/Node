@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 module.exports = (() => {
-  const ps = require('../main-process/ps')
+  const ps = require('../ps')
   const treeKill = require('tree-kill')
   const path = require('path')
 

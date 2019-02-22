@@ -4,7 +4,7 @@
 
 const assert = require('assert')
 const path = require('path')
-const pathWrapper = require('../src/wrappers/path_wrapper')
+const pathWrapper = require('../main-process/wrappers/path_wrapper')
 
 const unwrappedPath = 'path with spaces'
 const unwrappedFilename = 'filename.txt'

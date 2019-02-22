@@ -13,16 +13,16 @@ describe('DNS Utility', () => {
   let result
   let mockConsole
 
-  let dnsUtilityPath = path.resolve(__dirname, '.', '../src/static/binaries/dns_utility')
+  let dnsUtilityPath = path.resolve(__dirname, '.', '../dist/static/binaries/dns_utility')
   let dnsUtilityPathQuoted = '"' + dnsUtilityPath + '"'
   let dnsUtilityArgs = ['status']
 
   beforeEach(() => {
     childProcess = td.replace('child_process')
     sudoPrompt = td.replace('sudo-prompt')
-    mockConsole = td.replace('../src/wrappers/console_wrapper')
+    mockConsole = td.replace('../main-process/wrappers/console_wrapper')
 
-    subject = require('../src/main-process/dns_utility')
+    subject = require('../main-process/dns_utility')
   })
 
   afterEach(() => {

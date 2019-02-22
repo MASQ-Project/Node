@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
 const url = require('url')
 
-const NodeActuator = require('./src/main-process/node_actuator')
+const NodeActuator = require('./main-process/node_actuator')
 
 let mainWindow
 let nodeActuator

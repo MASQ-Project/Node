@@ -28,10 +28,10 @@ describe('NodeActuator', () => {
     td.replace('electron', { dialog: mockDialog })
     mockChildProcess = td.replace('child_process')
     mockSudoPrompt = td.replace('sudo-prompt')
-    mockConsole = td.replace('../src/wrappers/console_wrapper')
-    mockDnsUtility = td.replace('../src/main-process/dns_utility')
-    mockPsWrapper = td.replace('../src/wrappers/ps_wrapper')
-    mockUiInterface = td.replace('../src/main-process/ui_interface')
+    mockConsole = td.replace('../main-process/wrappers/console_wrapper')
+    mockDnsUtility = td.replace('../main-process/dns_utility')
+    mockPsWrapper = td.replace('../main-process/wrappers/ps_wrapper')
+    mockUiInterface = td.replace('../main-process/ui_interface')
 
     mockSubstratumNodeProcess = new EventEmitter()
     mockSubstratumNodeProcess.send = td.function()
@@ -48,7 +48,7 @@ describe('NodeActuator', () => {
     td.when(mockDnsUtility.subvert()).thenResolve('')
 
     mockWebContents = td.object(['send'])
-    const NodeActuator = require('../src/main-process/node_actuator')
+    const NodeActuator = require('../main-process/node_actuator')
     subject = new NodeActuator(mockWebContents)
   })
 
@@ -77,7 +77,7 @@ describe('NodeActuator', () => {
       beforeEach(async () => {
         td.when(mockUiInterface.verifyNodeUp(td.matchers.anything())).thenResolve(true)
         let substratumNodeProcess = 'truthy'
-        td.when(mockPsWrapper.findNodeProcess()).thenReturn([ substratumNodeProcess ])
+        td.when(mockPsWrapper.findNodeProcess()).thenReturn([substratumNodeProcess])
         await subject.setStatus()
         await subject.servingClick()
       })
@@ -341,7 +341,7 @@ describe('NodeActuator', () => {
   describe('serving with already running node process', () => {
     beforeEach(async () => {
       td.when(mockPsWrapper.findNodeProcess()).thenReturn([
-        { name: 'SubstratumNode', pid: 1234, cmd: 'static/binaries/SubstratumNode' }
+        { name: 'SubstratumNode', pid: 1234, cmd: 'dist/static/binaries/SubstratumNode' }
       ])
       await subject.setStatus()
       await subject.servingClick()
@@ -595,7 +595,10 @@ describe('NodeActuator', () => {
       })
 
       it('does not show the alert', () => {
-        td.verify(mockDialog.showErrorBox(td.matchers.anything(), td.matchers.anything()), { times: 0, ignoreExtraArgs: true })
+        td.verify(mockDialog.showErrorBox(td.matchers.anything(), td.matchers.anything()), {
+          times: 0,
+          ignoreExtraArgs: true
+        })
       })
     })
   })

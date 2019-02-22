@@ -8,11 +8,11 @@ describe('SubstratumNode', () => {
   let commandHelper, console, process, subject
 
   beforeEach(() => {
-    console = td.replace('../src/wrappers/console_wrapper')
-    process = td.replace('../src/wrappers/process_wrapper')
-    commandHelper = td.replace('../src/main-process/command_helper')
+    console = td.replace('../main-process/wrappers/console_wrapper')
+    process = td.replace('../main-process/wrappers/process_wrapper')
+    commandHelper = td.replace('../main-process/command_helper')
 
-    subject = require('../src/main-process/substratum_node')
+    subject = require('../main-process/substratum_node')
   })
 
   afterEach(() => {

@@ -2,8 +2,8 @@
 
 module.exports = (() => {
   const commandHelper = require('./command_helper')
-  const process = require('../wrappers/process_wrapper')
-  const console = require('../wrappers/console_wrapper')
+  const process = require('./wrappers/process_wrapper')
+  const console = require('./wrappers/console_wrapper')
 
   function bindEvents () {
     process.on('message', function (message) {

@@ -9,7 +9,7 @@ describe('CommandHelper', () => {
   let process, nodeCmd, sudoPrompt, treeKill, subject
 
   beforeEach(() => {
-    process = td.replace('../src/wrappers/process_wrapper')
+    process = td.replace('../main-process/wrappers/process_wrapper')
     nodeCmd = td.replace('node-cmd')
     sudoPrompt = td.replace('sudo-prompt')
     treeKill = td.replace('tree-kill')
@@ -30,7 +30,7 @@ describe('CommandHelper', () => {
       td.when(process.getuid()).thenReturn('os-uid')
       td.when(process.getgid()).thenReturn('os-gid')
 
-      subject = require('../src/main-process/command_helper')
+      subject = require('../main-process/command_helper')
     })
 
     describe('starting', () => {
@@ -51,7 +51,7 @@ describe('CommandHelper', () => {
 
         beforeEach(() => {
           process.env = {SUDO_UID: 'env-uid', SUDO_GID: 'env-gid'}
-          subject = require('../src/main-process/command_helper')
+          subject = require('../main-process/command_helper')
 
           subject.startSubstratumNode('callback')
         })
@@ -110,7 +110,7 @@ describe('CommandHelper', () => {
     beforeEach(() => {
       process.platform = 'win32'
 
-      subject = require('../src/main-process/command_helper')
+      subject = require('../main-process/command_helper')
     })
 
     describe('starting', () => {

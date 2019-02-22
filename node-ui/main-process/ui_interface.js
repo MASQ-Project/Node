@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-const webSocketWrapper = require('../wrappers/websocket_wrapper.js')
+const webSocketWrapper = require('./wrappers/websocket_wrapper.js')
 
 module.exports = (() => {
   const DEFAULT_UI_PORT = 5333
