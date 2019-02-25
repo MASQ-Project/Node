@@ -13,7 +13,6 @@ futures = "0.1.25"
 serde_cbor = "0.9.0"
 tokio = "0.1.15"
 sub_lib = { path = "../sub_lib" }
-neighborhood_lib = { path = "../neighborhood_lib" }
 
 [dev-dependencies]
 test_utils = { path = "../test_utils" }

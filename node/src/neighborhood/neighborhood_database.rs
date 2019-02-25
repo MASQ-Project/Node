@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::neighborhood_database::NeighborhoodDatabaseError::NodeKeyNotFound;
+use super::neighborhood_database::NeighborhoodDatabaseError::NodeKeyNotFound;
 use serde_cbor;
 use serde_derive::{Deserialize, Serialize};
 use sha1;
@@ -435,13 +435,12 @@ pub enum NeighborhoodDatabaseError {
     NodeKeyNotFound(PublicKey),
     NodeKeyCollision(PublicKey),
     NodeAddrAlreadySet(NodeAddr),
-    NodeSignaturesAlreadySet(NodeSignatures),
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::neighborhood_test_utils::make_node_record;
     use super::*;
-    use crate::neighborhood_test_utils::make_node_record;
     use std::iter::FromIterator;
     use std::str::FromStr;
     use sub_lib::cryptde_null::CryptDENull;

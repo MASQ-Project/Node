@@ -2,10 +2,10 @@
 
 use crate::substratum_node::NodeReference;
 use crate::substratum_node_cluster::SubstratumNodeCluster;
-use hopper_lib::live_cores_package::LiveCoresPackage;
 use node_lib::discriminator::Discriminator;
 use node_lib::discriminator::DiscriminatorFactory;
 use node_lib::discriminator::UnmaskedChunk;
+use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::http_request_start_finder::HttpRequestDiscriminatorFactory;
 use node_lib::json_discriminator_factory::JsonDiscriminatorFactory;
 use node_lib::tls_discriminator_factory::TlsDiscriminatorFactory;

@@ -1,9 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::substratum_node::SubstratumNode;
-use neighborhood_lib::gossip::Gossip;
-use neighborhood_lib::gossip::GossipNodeRecord;
-use neighborhood_lib::neighborhood_database::NodeRecordInner;
-use neighborhood_lib::neighborhood_database::NodeSignatures;
+use node_lib::neighborhood::gossip::Gossip;
+use node_lib::neighborhood::gossip::GossipNodeRecord;
+use node_lib::neighborhood::neighborhood_database::NodeRecordInner;
+use node_lib::neighborhood::neighborhood_database::NodeSignatures;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::PublicKey;
 use sub_lib::cryptde_null::CryptDENull;

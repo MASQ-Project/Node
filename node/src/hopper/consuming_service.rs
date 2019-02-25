@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::live_cores_package::LiveCoresPackage;
+use super::live_cores_package::LiveCoresPackage;
 use actix::Recipient;
 use actix::Syn;
 use std::borrow::Borrow;
@@ -139,8 +139,8 @@ impl ConsumingService {
 
 #[cfg(test)]
 mod tests {
+    use super::super::hopper::Hopper;
     use super::*;
-    use crate::hopper::Hopper;
     use actix::Actor;
     use actix::Addr;
     use actix::System;

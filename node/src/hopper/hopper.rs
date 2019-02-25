@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::consuming_service::ConsumingService;
-use crate::routing_service::RoutingService;
+use super::consuming_service::ConsumingService;
+use super::routing_service::RoutingService;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
@@ -95,8 +95,8 @@ impl Hopper {
 
 #[cfg(test)]
 mod tests {
+    use super::super::live_cores_package::LiveCoresPackage;
     use super::*;
-    use crate::live_cores_package::LiveCoresPackage;
     use actix::msgs;
     use actix::Actor;
     use actix::Arbiter;

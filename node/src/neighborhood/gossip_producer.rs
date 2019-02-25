@@ -1,9 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::gossip::to_dot_graph;
-use crate::gossip::Gossip;
-use crate::gossip::GossipBuilder;
-use crate::neighborhood_database::NeighborhoodDatabase;
-use crate::neighborhood_database::NodeRecord;
+use super::gossip::to_dot_graph;
+use super::gossip::Gossip;
+use super::gossip::GossipBuilder;
+use super::neighborhood_database::NeighborhoodDatabase;
+use super::neighborhood_database::NodeRecord;
 use sub_lib::cryptde::PublicKey;
 use sub_lib::logger::Logger;
 
@@ -124,9 +124,9 @@ impl GossipProducerReal {
 
 #[cfg(test)]
 mod tests {
+    use super::super::gossip::GossipNodeRecord;
+    use super::super::neighborhood_test_utils::*;
     use super::*;
-    use crate::gossip::GossipNodeRecord;
-    use crate::neighborhood_test_utils::*;
     use sub_lib::cryptde_null::CryptDENull;
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;

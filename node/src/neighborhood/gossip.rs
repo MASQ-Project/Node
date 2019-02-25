@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::neighborhood_database::NodeRecord;
-use crate::neighborhood_database::NodeRecordInner;
-use crate::neighborhood_database::NodeSignatures;
+use super::neighborhood_database::NodeRecord;
+use super::neighborhood_database::NodeRecordInner;
+use super::neighborhood_database::NodeSignatures;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -190,9 +190,9 @@ impl GossipBuilder {
 
 #[cfg(test)]
 mod tests {
+    use super::super::gossip::GossipBuilder;
+    use super::super::neighborhood_test_utils::make_node_record;
     use super::*;
-    use crate::gossip::GossipBuilder;
-    use crate::neighborhood_test_utils::make_node_record;
     use std::net::IpAddr;
     use std::str::FromStr;
     use sub_lib::node_addr::NodeAddr;

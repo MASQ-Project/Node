@@ -1,8 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 extern crate base64;
-extern crate hopper_lib;
 extern crate multinode_integration_tests_lib;
-extern crate neighborhood_lib;
 extern crate node_lib;
 extern crate proxy_client_lib;
 extern crate regex;

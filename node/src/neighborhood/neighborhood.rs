@@ -1,12 +1,12 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::gossip::to_dot_graph;
-use crate::gossip::Gossip;
-use crate::gossip_acceptor::GossipAcceptor;
-use crate::gossip_acceptor::GossipAcceptorReal;
-use crate::gossip_producer::GossipProducer;
-use crate::gossip_producer::GossipProducerReal;
-use crate::neighborhood_database::NeighborhoodDatabase;
-use crate::neighborhood_database::NodeRecord;
+use super::gossip::to_dot_graph;
+use super::gossip::Gossip;
+use super::gossip_acceptor::GossipAcceptor;
+use super::gossip_acceptor::GossipAcceptorReal;
+use super::gossip_producer::GossipProducer;
+use super::gossip_producer::GossipProducerReal;
+use super::neighborhood_database::NeighborhoodDatabase;
+use super::neighborhood_database::NodeRecord;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
@@ -669,10 +669,10 @@ impl Neighborhood {
 
 #[cfg(test)]
 mod tests {
+    use super::super::gossip::GossipBuilder;
+    use super::super::gossip::GossipNodeRecord;
+    use super::super::neighborhood_test_utils::make_node_record;
     use super::*;
-    use crate::gossip::GossipBuilder;
-    use crate::gossip::GossipNodeRecord;
-    use crate::neighborhood_test_utils::make_node_record;
     use actix::msgs;
     use actix::Arbiter;
     use actix::Recipient;
