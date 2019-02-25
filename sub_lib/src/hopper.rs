@@ -115,11 +115,8 @@ mod tests {
         let key12 = cryptde.public_key();
         let key34 = PublicKey::new(&[3, 4]);
         let key56 = PublicKey::new(&[5, 6]);
-        let route = Route::new(
-            vec![RouteSegment::new(
-                vec![&key12, &key34, &key56],
-                Component::ProxyClient,
-            )],
+        let route = Route::one_way(
+            RouteSegment::new(vec![&key12, &key34, &key56], Component::ProxyClient),
             &cryptde,
             Some(consuming_wallet),
         )
@@ -164,11 +161,8 @@ mod tests {
         let b_key = PublicKey::new(&[66, 66, 66]);
         let cryptde = CryptDENull::new();
         let consuming_wallet = Wallet::new("wallet");
-        let route = Route::new(
-            vec![RouteSegment::new(
-                vec![&a_key, &b_key],
-                Component::Neighborhood,
-            )],
+        let route = Route::one_way(
+            RouteSegment::new(vec![&a_key, &b_key], Component::Neighborhood),
             &cryptde,
             Some(consuming_wallet.clone()),
         )

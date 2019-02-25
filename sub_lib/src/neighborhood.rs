@@ -131,6 +131,7 @@ pub enum ExpectedService {
 pub struct RouteQueryResponse {
     pub route: Route,
     pub expected_services: Vec<ExpectedService>,
+    pub return_route_id: u32,
 }
 
 #[derive(PartialEq, Debug, Message, Clone)]

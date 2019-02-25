@@ -96,11 +96,11 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test() {
         (&ne1_noderef, false),
         (&ne2_noderef, false),
     ]);
-    let route = Route::new(
-        vec![RouteSegment::new(
+    let route = Route::one_way(
+        RouteSegment::new(
             vec![&mock_bootstrap.public_key(), &subject.public_key()],
             Component::Neighborhood,
-        )],
+        ),
         mock_bootstrap.cryptde(),
         Some(Wallet::new("0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE")),
     )
@@ -157,11 +157,11 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test() {
     assert_eq!(request_payload.protocol, ProxyProtocol::HTTP);
     assert_eq!(request_payload.originator_public_key, subject.public_key());
 
-    let route = Route::new(
-        vec![RouteSegment::new(
+    let route = Route::one_way(
+        RouteSegment::new(
             vec![&mock_standard.public_key(), &subject.public_key()],
             Component::ProxyServer,
-        )],
+        ),
         mock_standard.cryptde(),
         Some(Wallet::new("consuming")),
     )
@@ -231,11 +231,11 @@ fn cores_package_to_http_request_and_http_response_to_cores_package_test() {
         (&ne3_noderef, false),
         (&mock_standard.node_reference(), true),
     ]);
-    let route = Route::new(
-        vec![RouteSegment::new(
+    let route = Route::one_way(
+        RouteSegment::new(
             vec![&mock_bootstrap.public_key(), &subject.public_key()],
             Component::Neighborhood,
-        )],
+        ),
         mock_bootstrap.cryptde(),
         Some(Wallet::new("consuming")),
     )
@@ -273,25 +273,24 @@ fn cores_package_to_http_request_and_http_response_to_cores_package_test() {
         protocol: ProxyProtocol::HTTP,
         originator_public_key: ne1_noderef.public_key.clone(),
     };
-    let route = Route::new(
-        vec![
-            RouteSegment::new(
-                vec![&mock_standard.public_key(), &subject.public_key()],
-                Component::ProxyClient,
-            ),
-            RouteSegment::new(
-                vec![
-                    &subject.public_key(),
-                    &mock_standard.public_key(),
-                    &ne3_noderef.public_key,
-                    &ne2_noderef.public_key,
-                    &ne1_noderef.public_key,
-                ],
-                Component::ProxyServer,
-            ),
-        ],
+    let route = Route::round_trip(
+        RouteSegment::new(
+            vec![&mock_standard.public_key(), &subject.public_key()],
+            Component::ProxyClient,
+        ),
+        RouteSegment::new(
+            vec![
+                &subject.public_key(),
+                &mock_standard.public_key(),
+                &ne3_noderef.public_key,
+                &ne2_noderef.public_key,
+                &ne1_noderef.public_key,
+            ],
+            Component::ProxyServer,
+        ),
         mock_standard.cryptde(),
         Some(Wallet::new("consuming")),
+        0,
     )
     .unwrap();
     let outgoing_package = IncipientCoresPackage::new(

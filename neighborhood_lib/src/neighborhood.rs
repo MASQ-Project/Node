@@ -47,6 +47,7 @@ pub struct Neighborhood {
     gossip_acceptor: Box<dyn GossipAcceptor>,
     gossip_producer: Box<dyn GossipProducer>,
     neighborhood_database: NeighborhoodDatabase,
+    next_return_route_id: u32,
     logger: Logger,
 }
 
@@ -363,6 +364,7 @@ impl Neighborhood {
             gossip_acceptor,
             gossip_producer,
             neighborhood_database,
+            next_return_route_id: 0,
             logger: Logger::new("Neighborhood"),
         }
     }
@@ -405,40 +407,44 @@ impl Neighborhood {
     }
 
     fn create_single_hop_route(&self, destination: &PublicKey) -> Route {
-        Route::new(
-            vec![RouteSegment::new(
+        Route::one_way(
+            RouteSegment::new(
                 vec![&self.cryptde.public_key(), destination],
                 Component::Neighborhood,
-            )],
+            ),
             self.cryptde,
             None,
         )
         .expect("route creation error")
     }
 
-    fn zero_hop_route_response(&self) -> RouteQueryResponse {
-        let route = Route::new(
-            vec![
-                RouteSegment::new(
-                    vec![&self.cryptde.public_key(), &self.cryptde.public_key()],
-                    Component::ProxyClient,
-                ),
-                RouteSegment::new(
-                    vec![&self.cryptde.public_key(), &self.cryptde.public_key()],
-                    Component::ProxyServer,
-                ),
-            ],
+    fn zero_hop_route_response(&mut self) -> RouteQueryResponse {
+        let return_route_id = self.advance_return_route_id();
+        let route = Route::round_trip(
+            RouteSegment::new(
+                vec![&self.cryptde.public_key(), &self.cryptde.public_key()],
+                Component::ProxyClient,
+            ),
+            RouteSegment::new(
+                vec![&self.cryptde.public_key(), &self.cryptde.public_key()],
+                Component::ProxyServer,
+            ),
             self.cryptde,
             None,
+            return_route_id,
         )
         .expect("Couldn't create route");
         RouteQueryResponse {
             route,
             expected_services: vec![ExpectedService::Nothing, ExpectedService::Nothing],
+            return_route_id: return_route_id,
         }
     }
 
-    fn make_round_trip_route(&self, msg: RouteQueryMessage) -> Result<RouteQueryResponse, String> {
+    fn make_round_trip_route(
+        &mut self,
+        msg: RouteQueryMessage,
+    ) -> Result<RouteQueryResponse, String> {
         let local_target_type = if self.neighborhood_database.root().is_bootstrap_node() {
             TargetType::Bootstrap
         } else {
@@ -460,16 +466,15 @@ impl Neighborhood {
             msg.return_component_opt.expect("No return component"),
         )?;
         self.logger.debug(format!("Route back: {:?}", back));
-        self.compose_route_query_response(vec![over, back])
+        self.compose_route_query_response(over, back)
     }
 
     fn compose_route_query_response(
-        &self,
-        segments: Vec<RouteSegment>,
+        &mut self,
+        over: RouteSegment,
+        back: RouteSegment,
     ) -> Result<RouteQueryResponse, String> {
-        if segments.len() > 2 {
-            return Err("Cannot make multi-hop route with more than two segments".to_string());
-        }
+        let mut segments = vec![over, back];
 
         if segments.iter().any(|rs| rs.keys.is_empty()) {
             return Err("Cannot make multi-hop route without segment keys".to_string());
@@ -483,12 +488,20 @@ impl Neighborhood {
         if consuming_wallet_opt.is_none() && has_long_segment {
             return Err("Cannot make multi-hop route segment without consuming wallet".to_string());
         }
+        let return_route_id = self.advance_return_route_id();
 
         let expected_routing_services = self.make_expected_services(&segments);
         expected_routing_services.map(|expected_services| RouteQueryResponse {
-            route: Route::new(segments, self.cryptde, consuming_wallet_opt)
-                .expect("Internal error: bad route"),
+            route: Route::round_trip(
+                segments.remove(0),
+                segments.remove(0),
+                self.cryptde,
+                consuming_wallet_opt,
+                return_route_id,
+            )
+            .expect("Internal error: bad route"),
             expected_services,
+            return_route_id,
         })
     }
 
@@ -593,6 +606,12 @@ impl Neighborhood {
 
     fn last_type_qualifies(&self, last_node_ref: &NodeRecord, target_type: TargetType) -> bool {
         (target_type == TargetType::Bootstrap) == last_node_ref.is_bootstrap_node()
+    }
+
+    fn advance_return_route_id(&mut self) -> u32 {
+        let return_route_id = self.next_return_route_id;
+        self.next_return_route_id = return_route_id.wrapping_add(1);
+        return_route_id
     }
 
     // Main recursive routing engine. Supply origin key as single-element vector in prefix,
@@ -1210,19 +1229,19 @@ mod tests {
         };
         let result = future.wait().unwrap().unwrap();
         let expected_response = RouteQueryResponse {
-            route: Route::new(
-                vec![
-                    segment(vec![b, a], Component::ProxyClient),
-                    segment(vec![a, b], Component::ProxyServer),
-                ],
+            route: Route::round_trip(
+                segment(vec![b, a], Component::ProxyClient),
+                segment(vec![a, b], Component::ProxyServer),
                 cryptde,
                 None,
+                0,
             )
             .unwrap(),
             expected_services: vec![
                 ExpectedService::Nothing,
                 ExpectedService::Exit(a.public_key().clone(), a.earning_wallet()),
             ],
+            return_route_id: 0,
         };
         assert_eq!(result, expected_response);
     }
@@ -1323,24 +1342,47 @@ mod tests {
         system.run();
         let result = future.wait().unwrap().unwrap();
         let expected_response = RouteQueryResponse {
-            route: Route::new(
-                vec![
-                    RouteSegment::new(
-                        vec![&cryptde.public_key(), &cryptde.public_key()],
-                        Component::ProxyClient,
-                    ),
-                    RouteSegment::new(
-                        vec![&cryptde.public_key(), &cryptde.public_key()],
-                        Component::ProxyServer,
-                    ),
-                ],
+            route: Route::round_trip(
+                RouteSegment::new(
+                    vec![&cryptde.public_key(), &cryptde.public_key()],
+                    Component::ProxyClient,
+                ),
+                RouteSegment::new(
+                    vec![&cryptde.public_key(), &cryptde.public_key()],
+                    Component::ProxyServer,
+                ),
                 cryptde,
                 None,
+                0,
             )
             .unwrap(),
             expected_services: vec![ExpectedService::Nothing, ExpectedService::Nothing],
+            return_route_id: 0,
         };
         assert_eq!(result, expected_response);
+    }
+
+    #[test]
+    fn zero_hop_routing_handles_return_route_id_properly() {
+        let cryptde = cryptde();
+        let earning_wallet = Wallet::new("earning");
+        let mut subject = Neighborhood::new(
+            cryptde,
+            NeighborhoodConfig {
+                neighbor_configs: vec![],
+                is_bootstrap_node: false,
+                local_ip_addr: sentinel_ip_addr(),
+                clandestine_port_list: vec![],
+                earning_wallet: earning_wallet.clone(),
+                consuming_wallet: None,
+            },
+        );
+
+        let result0 = subject.zero_hop_route_response();
+        let result1 = subject.zero_hop_route_response();
+
+        assert_eq!(result0.return_route_id, 0);
+        assert_eq!(result1.return_route_id, 1);
     }
 
     /*
@@ -1358,7 +1400,7 @@ mod tests {
         let cryptde = cryptde();
         let earning_wallet = Wallet::new("earning");
         let consuming_wallet = Some(Wallet::new("consuming"));
-        let system = System::new("two_hops_from_p");
+        let system = System::new("route_query_messages");
         let mut subject = Neighborhood::new(
             cryptde,
             NeighborhoodConfig {
@@ -1407,13 +1449,12 @@ mod tests {
 
         let result = data_route.wait().unwrap().unwrap();
         let expected_response = RouteQueryResponse {
-            route: Route::new(
-                vec![
-                    segment(vec![p, q, r], Component::ProxyClient),
-                    segment(vec![r, q, p], Component::ProxyServer),
-                ],
+            route: Route::round_trip(
+                segment(vec![p, q, r], Component::ProxyClient),
+                segment(vec![r, q, p], Component::ProxyServer),
                 cryptde,
                 consuming_wallet,
+                0,
             )
             .unwrap(),
             expected_services: vec![
@@ -1421,66 +1462,13 @@ mod tests {
                 ExpectedService::Routing(q.public_key().clone(), q.earning_wallet()),
                 ExpectedService::Exit(r.public_key().clone(), r.earning_wallet()),
             ],
+            return_route_id: 0,
         };
         assert_eq!(result, expected_response);
     }
 
     #[test]
     fn compose_route_query_response_returns_an_error_when_route_segment_is_empty() {
-        let cryptde = cryptde();
-        let earning_wallet = Wallet::new("earning");
-        let consuming_wallet = Some(Wallet::new("consuming"));
-        let subject = Neighborhood::new(
-            cryptde,
-            NeighborhoodConfig {
-                neighbor_configs: vec![],
-                is_bootstrap_node: false,
-                local_ip_addr: sentinel_ip_addr(),
-                clandestine_port_list: vec![],
-                earning_wallet: earning_wallet.clone(),
-                consuming_wallet: consuming_wallet.clone(),
-            },
-        );
-
-        let result: Result<RouteQueryResponse, String> =
-            subject.compose_route_query_response(vec![]);
-        assert!(result.is_err());
-        let error_expectation: String = result.expect_err("Expected an Err but got:");
-        assert_eq!(
-            error_expectation,
-            "Cannot make multi-hop route without segments"
-        );
-    }
-
-    #[test]
-    fn compose_route_query_response_returns_an_error_when_route_segment_keys_is_empty() {
-        let cryptde = cryptde();
-        let earning_wallet = Wallet::new("earning");
-        let consuming_wallet = Some(Wallet::new("consuming"));
-        let subject = Neighborhood::new(
-            cryptde,
-            NeighborhoodConfig {
-                neighbor_configs: vec![],
-                is_bootstrap_node: false,
-                local_ip_addr: sentinel_ip_addr(),
-                clandestine_port_list: vec![],
-                earning_wallet: earning_wallet.clone(),
-                consuming_wallet: consuming_wallet.clone(),
-            },
-        );
-
-        let result: Result<RouteQueryResponse, String> = subject
-            .compose_route_query_response(vec![RouteSegment::new(vec![], Component::ProxyServer)]);
-        assert!(result.is_err());
-        let error_expectation: String = result.expect_err("Expected an Err but got:");
-        assert_eq!(
-            error_expectation,
-            "Cannot make multi-hop route without segment keys"
-        );
-    }
-
-    #[test]
-    fn compose_route_query_response_returns_error_when_there_are_too_many_segments() {
         let cryptde = cryptde();
         let earning_wallet = Wallet::new("earning");
         let consuming_wallet = Some(Wallet::new("consuming"));
@@ -1496,39 +1484,128 @@ mod tests {
             },
         );
 
-        let us = &subject.neighborhood_database.root().clone();
-        let neighbor_a = &make_node_record(5678, false, false);
-        let neighbor_b = &make_node_record(4385, false, false);
-        {
-            let db = &mut subject.neighborhood_database;
-            db.add_node(neighbor_a).unwrap();
-            db.add_node(neighbor_b).unwrap();
-            let mut dual_edge = |a: &NodeRecord, b: &NodeRecord| dual_edge_func(db, a, b);
-            dual_edge(neighbor_a, us);
-            dual_edge(neighbor_b, us);
-            dual_edge(neighbor_a, neighbor_b);
-        }
-
-        let result: Result<RouteQueryResponse, String> =
-            subject.compose_route_query_response(vec![
-                RouteSegment::new(
-                    vec![us.public_key(), neighbor_a.public_key()],
-                    Component::ProxyServer,
-                ),
-                RouteSegment::new(
-                    vec![neighbor_a.public_key(), neighbor_b.public_key()],
-                    Component::ProxyServer,
-                ),
-                RouteSegment::new(
-                    vec![neighbor_b.public_key(), us.public_key()],
-                    Component::ProxyServer,
-                ),
-            ]);
+        let result: Result<RouteQueryResponse, String> = subject.compose_route_query_response(
+            RouteSegment::new(vec![], Component::Neighborhood),
+            RouteSegment::new(vec![], Component::Neighborhood),
+        );
         assert!(result.is_err());
         let error_expectation: String = result.expect_err("Expected an Err but got:");
         assert_eq!(
             error_expectation,
-            "Cannot make multi-hop route with more than two segments"
+            "Cannot make multi-hop route without segment keys"
+        );
+    }
+
+    #[test]
+    fn next_return_route_id_wraps_around() {
+        let cryptde = cryptde();
+        let earning_wallet = Wallet::new("earning");
+        let mut subject = Neighborhood::new(
+            cryptde,
+            NeighborhoodConfig {
+                neighbor_configs: vec![],
+                is_bootstrap_node: false,
+                local_ip_addr: sentinel_ip_addr(),
+                clandestine_port_list: vec![],
+                earning_wallet: earning_wallet.clone(),
+                consuming_wallet: None,
+            },
+        );
+        subject.next_return_route_id = 0xFFFFFFFF;
+
+        let end = subject.advance_return_route_id();
+        let beginning = subject.advance_return_route_id();
+
+        assert_eq!(end, 0xFFFFFFFF);
+        assert_eq!(beginning, 0x00000000);
+    }
+
+    /*
+            Database, where there is no bootstrap:
+
+                 O---R---E
+
+            Tests will be written from the viewpoint of O.
+    */
+
+    #[test]
+    fn return_route_ids_increase() {
+        let cryptde = cryptde();
+        let earning_wallet = Wallet::new("earning");
+        let consuming_wallet = Some(Wallet::new("consuming"));
+        let system = System::new("return_route_ids_increase");
+        let mut subject = Neighborhood::new(
+            cryptde,
+            NeighborhoodConfig {
+                neighbor_configs: vec![],
+                is_bootstrap_node: false,
+                local_ip_addr: sentinel_ip_addr(),
+                clandestine_port_list: vec![],
+                earning_wallet: earning_wallet.clone(),
+                consuming_wallet: consuming_wallet.clone(),
+            },
+        );
+        let o = &subject.neighborhood_database.root().clone();
+        let r = &make_node_record(4567, false, false);
+        let e = &make_node_record(5678, false, false);
+        {
+            let db = &mut subject.neighborhood_database;
+            db.add_node(r).unwrap();
+            db.add_node(e).unwrap();
+            let mut dual_edge = |a: &NodeRecord, b: &NodeRecord| dual_edge_func(db, a, b);
+            dual_edge(o, r);
+            dual_edge(r, e);
+        }
+
+        let addr: Addr<Syn, Neighborhood> = subject.start();
+        let sub: Recipient<Syn, RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
+
+        let data_route_0 = sub.send(RouteQueryMessage::data_indefinite_route_request(2));
+        let data_route_1 = sub.send(RouteQueryMessage::data_indefinite_route_request(2));
+
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        system.run();
+
+        let result_0 = data_route_0.wait().unwrap().unwrap();
+        let result_1 = data_route_1.wait().unwrap().unwrap();
+        let juicy_parts = |result: RouteQueryResponse| {
+            let last_element = result.route.hops.last().unwrap();
+            let last_element_dec = cryptde.decode(last_element).unwrap();
+            let network_return_route_id: u32 =
+                serde_cbor::de::from_slice(last_element_dec.as_slice()).unwrap();
+            let metadata_return_route_id = result.return_route_id;
+            (network_return_route_id, metadata_return_route_id)
+        };
+        assert_eq!(juicy_parts(result_0), (0, 0));
+        assert_eq!(juicy_parts(result_1), (1, 1));
+    }
+
+    #[test]
+    fn compose_route_query_response_returns_an_error_when_route_segment_keys_is_empty() {
+        let cryptde = cryptde();
+        let earning_wallet = Wallet::new("earning");
+        let consuming_wallet = Some(Wallet::new("consuming"));
+        let mut subject = Neighborhood::new(
+            cryptde,
+            NeighborhoodConfig {
+                neighbor_configs: vec![],
+                is_bootstrap_node: false,
+                local_ip_addr: sentinel_ip_addr(),
+                clandestine_port_list: vec![],
+                earning_wallet: earning_wallet.clone(),
+                consuming_wallet: consuming_wallet.clone(),
+            },
+        );
+
+        let result: Result<RouteQueryResponse, String> = subject.compose_route_query_response(
+            RouteSegment::new(vec![], Component::ProxyClient),
+            RouteSegment::new(vec![], Component::ProxyServer),
+        );
+        assert!(result.is_err());
+        let error_expectation: String = result.expect_err("Expected an Err but got:");
+        assert_eq!(
+            error_expectation,
+            "Cannot make multi-hop route without segment keys"
         );
     }
 
@@ -1536,7 +1613,7 @@ mod tests {
     fn compose_route_query_response_returns_an_error_when_the_neighbor_is_none() {
         let cryptde = cryptde();
         let consuming_wallet = Some(Wallet::new("consuming"));
-        let subject = Neighborhood::new(
+        let mut subject = Neighborhood::new(
             cryptde,
             NeighborhoodConfig {
                 neighbor_configs: vec![],
@@ -1548,11 +1625,10 @@ mod tests {
             },
         );
 
-        let result: Result<RouteQueryResponse, String> =
-            subject.compose_route_query_response(vec![RouteSegment::new(
-                vec![&PublicKey::new(&[3, 3, 8])],
-                Component::ProxyServer,
-            )]);
+        let result: Result<RouteQueryResponse, String> = subject.compose_route_query_response(
+            RouteSegment::new(vec![&PublicKey::new(&[3, 3, 8])], Component::ProxyClient),
+            RouteSegment::new(vec![&PublicKey::new(&[8, 3, 3])], Component::ProxyServer),
+        );
         assert!(result.is_err());
         let error_expectation: String = result.expect_err("Expected an Err but got:");
         assert_eq!(

@@ -23,6 +23,8 @@ use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 use sub_lib::cryptde::CryptDE;
+use sub_lib::cryptde::CryptData;
+use sub_lib::cryptde::PlainData;
 use sub_lib::cryptde::PublicKey;
 use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::dispatcher::Component;
@@ -209,14 +211,14 @@ pub fn make_meaningless_stream_key() -> StreamKey {
 }
 
 pub fn make_meaningless_route() -> Route {
-    Route::new(
-        vec![RouteSegment::new(
+    Route::one_way(
+        RouteSegment::new(
             vec![
                 &PublicKey::new(&b"ooga"[..]),
                 &PublicKey::new(&b"booga"[..]),
             ],
             Component::ProxyClient,
-        )],
+        ),
         &CryptDENull::new(),
         Some(Wallet::new("irrelevant")),
     )
@@ -241,23 +243,30 @@ pub fn zero_hop_route_response(
     cryptde: &dyn CryptDE,
 ) -> RouteQueryResponse {
     RouteQueryResponse {
-        route: Route::new(
-            vec![
-                RouteSegment::new(vec![public_key, public_key], Component::ProxyClient),
-                RouteSegment::new(vec![public_key, public_key], Component::ProxyServer),
-            ],
+        route: Route::round_trip(
+            RouteSegment::new(vec![public_key, public_key], Component::ProxyClient),
+            RouteSegment::new(vec![public_key, public_key], Component::ProxyServer),
             cryptde,
             None,
+            0,
         )
         .unwrap(),
         // TODO: temporarily limited to 2, increase back to 4 when we do response payables
         expected_services: (0..2).map(|_| ExpectedService::Nothing).collect(),
+        return_route_id: 0,
     }
 }
 
 fn shift_one_hop(mut route: Route, cryptde: &dyn CryptDE) -> Route {
     route.shift(cryptde).unwrap();
     route
+}
+
+pub fn encrypt_return_route_id(return_route_id: u32, cryptde: &CryptDE) -> CryptData {
+    let return_route_id_ser = serde_cbor::ser::to_vec(&return_route_id).unwrap();
+    cryptde
+        .encode(&cryptde.public_key(), &PlainData::from(return_route_id_ser))
+        .unwrap()
 }
 
 pub fn find_free_port() -> u16 {
@@ -361,6 +370,7 @@ mod tests {
                 LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
                     .encode(&key, &cryptde)
                     .unwrap(),
+                encrypt_return_route_id(0, &cryptde),
             )
         );
         assert_eq!(
@@ -387,6 +397,7 @@ mod tests {
                 LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
                     .encode(&key, &cryptde)
                     .unwrap(),
+                encrypt_return_route_id(0, &cryptde),
                 CryptData::new(&garbage_can[..])
             )
         );
@@ -410,6 +421,7 @@ mod tests {
                 LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
                     .encode(&key, &cryptde)
                     .unwrap(),
+                encrypt_return_route_id(0, &cryptde),
                 CryptData::new(&garbage_can[..])
             )
         );
@@ -430,6 +442,7 @@ mod tests {
                 LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
                     .encode(&key, &cryptde)
                     .unwrap(),
+                encrypt_return_route_id(0, &cryptde),
                 CryptData::new(&garbage_can[..]),
                 CryptData::new(&garbage_can[..]),
             )

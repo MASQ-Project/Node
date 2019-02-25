@@ -458,11 +458,11 @@ mod tests {
         init_test_logging();
         let cryptde = cryptde();
         let consuming_wallet = Wallet::new("wallet");
-        let route = Route::new(
-            vec![RouteSegment::new(
+        let route = Route::one_way(
+            RouteSegment::new(
                 vec![&cryptde.public_key(), &cryptde.public_key()],
                 Component::Hopper,
-            )],
+            ),
             cryptde,
             Some(consuming_wallet),
         )
@@ -502,11 +502,11 @@ mod tests {
         init_test_logging();
         let cryptde = cryptde();
         let consuming_wallet = Wallet::new("wallet");
-        let mut route = Route::new(
-            vec![RouteSegment::new(
+        let mut route = Route::one_way(
+            RouteSegment::new(
                 vec![&cryptde.public_key(), &cryptde.public_key()],
                 Component::Neighborhood,
-            )],
+            ),
             cryptde,
             Some(consuming_wallet),
         )
@@ -556,11 +556,11 @@ mod tests {
         init_test_logging();
         let cryptde = cryptde();
         let consuming_wallet = Wallet::new("wallet");
-        let mut route = Route::new(
-            vec![RouteSegment::new(
+        let mut route = Route::one_way(
+            RouteSegment::new(
                 vec![&cryptde.public_key(), &cryptde.public_key()],
                 Component::ProxyClient,
-            )],
+            ),
             cryptde,
             Some(consuming_wallet),
         )
@@ -608,11 +608,11 @@ mod tests {
         let (dispatcher, dispatcher_awaiter, dispatcher_recording_arc) = make_recorder();
         let (accountant, accountant_awaiter, accountant_recording_arc) = make_recorder();
         let next_key = PublicKey::new(&[65, 65, 65]);
-        let route = Route::new(
-            vec![RouteSegment::new(
+        let route = Route::one_way(
+            RouteSegment::new(
                 vec![&cryptde.public_key(), &next_key],
                 Component::Neighborhood,
-            )],
+            ),
             cryptde,
             Some(consuming_wallet.clone()),
         )
@@ -686,11 +686,11 @@ mod tests {
         let origin_cryptde = CryptDENull::from(&origin_key);
         let destination_key = PublicKey::new(&[3, 4]);
         let payload = PayloadMock::new();
-        let route = Route::new(
-            vec![RouteSegment::new(
+        let route = Route::one_way(
+            RouteSegment::new(
                 vec![&origin_key, &cryptde.public_key(), &destination_key],
                 Component::ProxyClient,
-            )],
+            ),
             &origin_cryptde,
             None,
         )

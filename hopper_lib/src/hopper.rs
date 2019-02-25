@@ -158,11 +158,11 @@ mod tests {
         let cryptde = cryptde();
         let consuming_wallet = Wallet::new("wallet");
         let next_key = PublicKey::new(&[65, 65, 65]);
-        let route = Route::new(
-            vec![RouteSegment::new(
+        let route = Route::one_way(
+            RouteSegment::new(
                 vec![&cryptde.public_key(), &next_key],
                 Component::Neighborhood,
-            )],
+            ),
             cryptde,
             Some(consuming_wallet),
         )

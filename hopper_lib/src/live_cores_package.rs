@@ -89,11 +89,11 @@ mod tests {
         let payload = CryptData::new(&[5, 6]);
         let cryptde = cryptde();
         let consuming_wallet = Wallet::new("wallet");
-        let route = Route::new(
-            vec![RouteSegment::new(
+        let route = Route::one_way(
+            RouteSegment::new(
                 vec![&PublicKey::new(&[1, 2]), &PublicKey::new(&[3, 4])],
                 Component::Neighborhood,
-            )],
+            ),
             cryptde,
             Some(consuming_wallet),
         )
@@ -118,11 +118,8 @@ mod tests {
             .encode(&destination_key, &PlainData::new(&serialized_payload))
             .unwrap();
         let consuming_wallet = Wallet::new("wallet");
-        let route = Route::new(
-            vec![RouteSegment::new(
-                vec![&relay_key, &destination_key],
-                Component::Neighborhood,
-            )],
+        let route = Route::one_way(
+            RouteSegment::new(vec![&relay_key, &destination_key], Component::Neighborhood),
             cryptde,
             Some(consuming_wallet),
         )
@@ -171,11 +168,8 @@ mod tests {
         let key12 = cryptde.public_key();
         let key34 = PublicKey::new(&[3, 4]);
         let key56 = PublicKey::new(&[5, 6]);
-        let mut route = Route::new(
-            vec![RouteSegment::new(
-                vec![&key12, &key34, &key56],
-                Component::Neighborhood,
-            )],
+        let mut route = Route::one_way(
+            RouteSegment::new(vec![&key12, &key34, &key56], Component::Neighborhood),
             cryptde,
             Some(consuming_wallet),
         )
@@ -235,16 +229,15 @@ mod tests {
             .encode(&first_stop_key, &PlainData::new(&serialized_payload))
             .unwrap();
         let consuming_wallet = Wallet::new("wallet");
-        let mut route = Route::new(
-            vec![
-                RouteSegment::new(vec![&relay_key, &first_stop_key], Component::Neighborhood),
-                RouteSegment::new(
-                    vec![&first_stop_key, &relay_key, &second_stop_key],
-                    Component::ProxyServer,
-                ),
-            ],
+        let mut route = Route::round_trip(
+            RouteSegment::new(vec![&relay_key, &first_stop_key], Component::Neighborhood),
+            RouteSegment::new(
+                vec![&first_stop_key, &relay_key, &second_stop_key],
+                Component::ProxyServer,
+            ),
             cryptde,
             Some(consuming_wallet),
+            1234,
         )
         .unwrap();
         route.shift(&relay_cryptde).unwrap();
@@ -285,6 +278,11 @@ mod tests {
                 Component::ProxyServer
             )
         );
+        assert_eq!(
+            route.hops[0],
+            test_utils::test_utils::encrypt_return_route_id(1234, cryptde),
+        );
+        route.hops.remove(0);
         assert_eq!(
             &route.hops[0].as_slice()[..8],
             &[52, 52, 52, 52, 52, 52, 52, 52]

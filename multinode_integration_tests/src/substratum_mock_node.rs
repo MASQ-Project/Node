@@ -149,11 +149,11 @@ impl SubstratumMockNode {
         node_record.sign(self.cryptde());
 
         let gossip = GossipBuilder::new().node(&node_record, true).build();
-        let route = Route::new(
-            vec![RouteSegment::new(
+        let route = Route::one_way(
+            RouteSegment::new(
                 vec![&self.public_key(), &node.public_key()],
                 Component::Neighborhood,
-            )],
+            ),
             self.cryptde(),
             node.consuming_wallet().clone(),
         )

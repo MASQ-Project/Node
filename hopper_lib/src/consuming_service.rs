@@ -170,11 +170,11 @@ mod tests {
         let dispatcher_recording_arc = dispatcher.get_recording();
         let dispatcher_awaiter = dispatcher.get_awaiter();
         let destination_key = PublicKey::new(&[65, 65, 65]);
-        let route = Route::new(
-            vec![RouteSegment::new(
+        let route = Route::one_way(
+            RouteSegment::new(
                 vec![&cryptde.public_key(), &destination_key.clone()],
                 Component::Neighborhood,
-            )],
+            ),
             cryptde,
             Some(consuming_wallet),
         )

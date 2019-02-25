@@ -79,15 +79,15 @@ fn neighborhood_notified_of_missing_node_when_connection_refused() {
 
     let cores_package = IncipientCoresPackage::new(
         &subject.cryptde(),
-        Route::new(
-            vec![RouteSegment::new(
+        Route::one_way(
+            RouteSegment::new(
                 vec![
                     &mock_bootstrap.public_key(),
                     &subject.public_key(),
                     &disappearing_node_key,
                 ],
                 Component::ProxyClient,
-            )],
+            ),
             mock_bootstrap.cryptde(),
             Some(Wallet::new("consuming")),
         )

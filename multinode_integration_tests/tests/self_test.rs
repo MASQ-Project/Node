@@ -74,11 +74,11 @@ fn server_relays_cores_package() {
     let server = SubstratumCoresServer::new();
     let cryptde = server.cryptde();
     let mut client = SubstratumCoresClient::new(server.local_addr(), cryptde);
-    let mut route = Route::new(
-        vec![RouteSegment::new(
+    let mut route = Route::one_way(
+        RouteSegment::new(
             vec![&cryptde.public_key(), &cryptde.public_key()],
             Component::Neighborhood,
-        )],
+        ),
         cryptde,
         Some(Wallet::new("consuming")),
     )
@@ -110,11 +110,11 @@ fn one_mock_node_talks_to_another() {
     let mock_node_1 = cluster.get_mock_node_by_name("mock_node_1").unwrap();
     let mock_node_2 = cluster.get_mock_node_by_name("mock_node_2").unwrap();
     let cryptde = CryptDENull::new();
-    let route = Route::new(
-        vec![RouteSegment::new(
+    let route = Route::one_way(
+        RouteSegment::new(
             vec![&mock_node_1.public_key(), &mock_node_2.public_key()],
             Component::Hopper,
-        )],
+        ),
         &cryptde,
         Some(Wallet::new("consuming")),
     )

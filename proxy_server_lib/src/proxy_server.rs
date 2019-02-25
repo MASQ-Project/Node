@@ -668,29 +668,28 @@ mod tests {
         let hopper_log_arc = hopper_mock.get_recording();
         let hopper_awaiter = hopper_mock.get_awaiter();
         let payload_destination_key = PublicKey::new(&[3]);
-        let route = Route::new(
-            vec![
-                RouteSegment::new(
-                    vec![
-                        &cryptde.public_key(),
-                        &PublicKey::new(&[1]),
-                        &PublicKey::new(&[2]),
-                        &payload_destination_key,
-                    ],
-                    Component::ProxyClient,
-                ),
-                RouteSegment::new(
-                    vec![
-                        &payload_destination_key,
-                        &PublicKey::new(&[2]),
-                        &PublicKey::new(&[1]),
-                        &cryptde.public_key(),
-                    ],
-                    Component::ProxyServer,
-                ),
-            ],
+        let route = Route::round_trip(
+            RouteSegment::new(
+                vec![
+                    &cryptde.public_key(),
+                    &PublicKey::new(&[1]),
+                    &PublicKey::new(&[2]),
+                    &payload_destination_key,
+                ],
+                Component::ProxyClient,
+            ),
+            RouteSegment::new(
+                vec![
+                    &payload_destination_key,
+                    &PublicKey::new(&[2]),
+                    &PublicKey::new(&[1]),
+                    &cryptde.public_key(),
+                ],
+                Component::ProxyServer,
+            ),
             cryptde,
             Some(consuming_wallet),
+            1234,
         )
         .unwrap();
         let (neighborhood_mock, _, neighborhood_recording_arc) = make_recorder();
@@ -700,6 +699,7 @@ mod tests {
                 ExpectedService::Exit(PublicKey::new(&[3]), earning_wallet),
                 ExpectedService::Nothing,
             ],
+            return_route_id: 1234,
         }));
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let stream_key = make_meaningless_stream_key();
@@ -782,6 +782,7 @@ mod tests {
                 ExpectedService::Routing(PublicKey::new(&[2]), route_2_earning_wallet.clone()),
                 ExpectedService::Exit(PublicKey::new(&[3]), exit_earning_wallet.clone()),
             ],
+            return_route_id: 0,
         }));
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let stream_key = make_meaningless_stream_key();
@@ -915,6 +916,7 @@ mod tests {
                 ExpectedService::Nothing,
                 ExpectedService::Exit(PublicKey::new(&[3]), earning_wallet.clone()),
             ],
+            return_route_id: 0,
         }));
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let stream_key = make_meaningless_stream_key();
@@ -1086,16 +1088,16 @@ mod tests {
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let (neighborhood_mock, _, neighborhood_recording_arc) = make_recorder();
         let route_query_response = RouteQueryResponse {
-            route: Route::new(
-                vec![
-                    RouteSegment::new(vec![public_key, public_key], Component::ProxyClient),
-                    RouteSegment::new(vec![public_key, public_key], Component::ProxyServer),
-                ],
+            route: Route::round_trip(
+                RouteSegment::new(vec![public_key, public_key], Component::ProxyClient),
+                RouteSegment::new(vec![public_key, public_key], Component::ProxyServer),
                 cryptde,
                 None,
+                1234,
             )
             .unwrap(),
             expected_services: vec![],
+            return_route_id: 1234,
         };
         let neighborhood_mock = neighborhood_mock.route_query_response(Some(route_query_response));
         let dispatcher = Recorder::new();

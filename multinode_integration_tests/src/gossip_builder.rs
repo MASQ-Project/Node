@@ -117,8 +117,8 @@ impl GossipBuilder {
         let gossip = self.build();
         IncipientCoresPackage::new(
             &CryptDENull::new(),
-            Route::new(
-                vec![RouteSegment::new(vec![from, to], Component::Neighborhood)],
+            Route::one_way(
+                RouteSegment::new(vec![from, to], Component::Neighborhood),
                 &CryptDENull::from(from),
                 consuming_wallet,
             )
