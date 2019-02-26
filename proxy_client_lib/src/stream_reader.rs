@@ -224,12 +224,12 @@ mod tests {
     use sub_lib::http_response_start_finder::HttpResponseStartFinder;
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
-    use test_utils::recorder::make_peer_actors_from;
     use test_utils::recorder::make_recorder;
     use test_utils::test_utils::cryptde;
     use test_utils::test_utils::make_meaningless_route;
     use test_utils::test_utils::make_meaningless_stream_key;
     use test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
+    use test_utils::recorder::peer_actors_builder;
 
     struct StreamEndingFramer {}
 
@@ -275,8 +275,7 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             let system = System::new("test");
-            let peer_actors =
-                make_peer_actors_from(None, None, Some(hopper), None, None, Some(accountant), None);
+            let peer_actors = peer_actors_builder().hopper (hopper).accountant(accountant).build ();
 
             tx.send((
                 peer_actors.hopper.from_hopper_client,
@@ -399,8 +398,7 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             let system = System::new("test");
-            let peer_actors =
-                make_peer_actors_from(None, None, Some(hopper), None, None, Some(accountant), None);
+            let peer_actors = peer_actors_builder().hopper (hopper).accountant(accountant).build ();
 
             tx.send((
                 peer_actors.hopper.from_hopper_client,
@@ -483,8 +481,7 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             let system = System::new("test");
-            let peer_actors =
-                make_peer_actors_from(None, None, Some(hopper), None, None, Some(accountant), None);
+            let peer_actors = peer_actors_builder().hopper (hopper).accountant(accountant).build ();
             tx.send((
                 peer_actors.hopper.from_hopper_client,
                 peer_actors.accountant.report_exit_service_provided,
@@ -638,8 +635,7 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             let system = System::new("test");
-            let peer_actors =
-                make_peer_actors_from(None, None, Some(hopper), None, None, Some(accountant), None);
+            let peer_actors = peer_actors_builder ().hopper (hopper).accountant (accountant).build ();
             tx.send((
                 peer_actors.hopper.from_hopper_client,
                 peer_actors.accountant.report_exit_service_provided,
@@ -691,8 +687,7 @@ mod tests {
         thread::spawn(move || {
             let system =
                 System::new("receiving_0_bytes_sends_empty_cores_response_and_kills_stream");
-            let peer_actors =
-                make_peer_actors_from(None, None, Some(hopper), None, None, Some(accountant), None);
+            let peer_actors = peer_actors_builder ().hopper (hopper).accountant (accountant).build ();
 
             tx.send((
                 peer_actors.hopper.from_hopper_client,
@@ -779,8 +774,7 @@ mod tests {
 
         thread::spawn(move || {
             let system = System::new("non_dead_stream_read_errors_log_but_do_not_shut_down");
-            let peer_actors =
-                make_peer_actors_from(None, None, Some(hopper), None, None, Some(accountant), None);
+            let peer_actors = peer_actors_builder ().hopper (hopper).accountant (accountant).build ();
 
             tx.send((
                 peer_actors.hopper.from_hopper_client,

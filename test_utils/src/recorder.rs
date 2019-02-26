@@ -391,49 +391,11 @@ pub fn make_ui_gateway_subs_from(addr: &Addr<Syn, Recorder>) -> UiGatewaySubs {
     }
 }
 
-// This must be called after System.new and before System.run
-pub fn make_peer_actors_from(
-    proxy_server: Option<Recorder>,
-    dispatcher: Option<Recorder>,
-    hopper: Option<Recorder>,
-    proxy_client: Option<Recorder>,
-    neighborhood: Option<Recorder>,
-    accountant: Option<Recorder>,
-    ui_gateway: Option<Recorder>,
-) -> PeerActors {
-    let proxy_server = proxy_server.unwrap_or(Recorder::new());
-    let dispatcher = dispatcher.unwrap_or(Recorder::new());
-    let hopper = hopper.unwrap_or(Recorder::new());
-    let proxy_client = proxy_client.unwrap_or(Recorder::new());
-    let neighborhood = neighborhood.unwrap_or(Recorder::new());
-    let accountant = accountant.unwrap_or(Recorder::new());
-    let ui_gateway = ui_gateway.unwrap_or(Recorder::new());
-
-    make_peer_actors_from_recorders(
-        proxy_server,
-        dispatcher,
-        hopper,
-        proxy_client,
-        neighborhood,
-        accountant,
-        ui_gateway,
-    )
+pub fn peer_actors_builder () -> PeerActorsBuilder {
+    PeerActorsBuilder::new ()
 }
 
-// This must be called after System.new and before System.run
-pub fn make_peer_actors() -> PeerActors {
-    make_peer_actors_from_recorders(
-        Recorder::new(),
-        Recorder::new(),
-        Recorder::new(),
-        Recorder::new(),
-        Recorder::new(),
-        Recorder::new(),
-        Recorder::new(),
-    )
-}
-
-fn make_peer_actors_from_recorders(
+pub struct PeerActorsBuilder {
     proxy_server: Recorder,
     dispatcher: Recorder,
     hopper: Recorder,
@@ -441,23 +403,75 @@ fn make_peer_actors_from_recorders(
     neighborhood: Recorder,
     accountant: Recorder,
     ui_gateway: Recorder,
-) -> PeerActors {
-    let proxy_server_addr = proxy_server.start();
-    let dispatcher_addr = dispatcher.start();
-    let hopper_addr = hopper.start();
-    let proxy_client_addr = proxy_client.start();
-    let neighborhood_addr = neighborhood.start();
-    let accountant_addr = accountant.start();
-    let ui_gateway_addr = ui_gateway.start();
+}
 
-    PeerActors {
-        proxy_server: make_proxy_server_subs_from(&proxy_server_addr),
-        dispatcher: make_dispatcher_subs_from(&dispatcher_addr),
-        hopper: make_hopper_subs_from(&hopper_addr),
-        proxy_client: make_proxy_client_subs_from(&proxy_client_addr),
-        neighborhood: make_neighborhood_subs_from(&neighborhood_addr),
-        accountant: make_accountant_subs_from(&accountant_addr),
-        ui_gateway: make_ui_gateway_subs_from(&ui_gateway_addr),
+impl PeerActorsBuilder {
+    pub fn new () -> PeerActorsBuilder {
+        PeerActorsBuilder {
+            proxy_server: Recorder::new (),
+            dispatcher: Recorder::new (),
+            hopper: Recorder::new (),
+            proxy_client: Recorder::new (),
+            neighborhood: Recorder::new (),
+            accountant: Recorder::new (),
+            ui_gateway: Recorder::new(),
+        }
+    }
+
+    pub fn proxy_server(mut self, recorder: Recorder) -> PeerActorsBuilder {
+        self.proxy_server = recorder;
+        self
+    }
+
+    pub fn dispatcher(mut self, recorder: Recorder) -> PeerActorsBuilder {
+        self.dispatcher = recorder;
+        self
+    }
+
+    pub fn hopper(mut self, recorder: Recorder) -> PeerActorsBuilder {
+        self.hopper = recorder;
+        self
+    }
+
+    pub fn proxy_client(mut self, recorder: Recorder) -> PeerActorsBuilder {
+        self.proxy_client = recorder;
+        self
+    }
+
+    pub fn neighborhood(mut self, recorder: Recorder) -> PeerActorsBuilder {
+        self.neighborhood = recorder;
+        self
+    }
+
+    pub fn accountant(mut self, recorder: Recorder) -> PeerActorsBuilder {
+        self.accountant = recorder;
+        self
+    }
+
+    pub fn ui_gateway(mut self, recorder: Recorder) -> PeerActorsBuilder {
+        self.ui_gateway = recorder;
+        self
+    }
+
+    // This must be called after System.new and before System.run
+    pub fn build (self) -> PeerActors {
+        let proxy_server_addr = self.proxy_server.start();
+        let dispatcher_addr = self.dispatcher.start();
+        let hopper_addr = self.hopper.start();
+        let proxy_client_addr = self.proxy_client.start();
+        let neighborhood_addr = self.neighborhood.start();
+        let accountant_addr = self.accountant.start();
+        let ui_gateway_addr = self.ui_gateway.start();
+
+        PeerActors {
+            proxy_server: make_proxy_server_subs_from(&proxy_server_addr),
+            dispatcher: make_dispatcher_subs_from(&dispatcher_addr),
+            hopper: make_hopper_subs_from(&hopper_addr),
+            proxy_client: make_proxy_client_subs_from(&proxy_client_addr),
+            neighborhood: make_neighborhood_subs_from(&neighborhood_addr),
+            accountant: make_accountant_subs_from(&accountant_addr),
+            ui_gateway: make_ui_gateway_subs_from(&ui_gateway_addr),
+        }
     }
 }
 

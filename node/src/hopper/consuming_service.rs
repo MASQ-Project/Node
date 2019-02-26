@@ -155,12 +155,11 @@ mod tests {
     use sub_lib::wallet::Wallet;
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
-    use test_utils::recorder::make_peer_actors;
-    use test_utils::recorder::make_peer_actors_from;
     use test_utils::recorder::make_recorder;
     use test_utils::recorder::Recorder;
     use test_utils::test_utils::cryptde;
     use test_utils::test_utils::zero_hop_route_response;
+    use test_utils::recorder::peer_actors_builder;
 
     #[test] // TODO: Rewrite test so that subject is ConsumingService rather than Hopper
     fn converts_incipient_message_to_live_and_sends_to_dispatcher() {
@@ -185,8 +184,7 @@ mod tests {
         let incipient_cores_package_a = incipient_cores_package.clone();
         thread::spawn(move || {
             let system = System::new("converts_incipient_message_to_live_and_sends_to_dispatcher");
-            let peer_actors =
-                make_peer_actors_from(None, Some(dispatcher), None, None, None, None, None);
+            let peer_actors = peer_actors_builder().dispatcher(dispatcher).build ();
             let subject = Hopper::new(cryptde, false);
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -229,8 +227,7 @@ mod tests {
             LiveCoresPackage::from_incipient(incipient_cores_package_a, cryptde).unwrap();
         thread::spawn(move || {
             let system = System::new ("hopper_sends_incipient_cores_package_to_recipient_component_when_next_hop_key_is_the_same_as_the_public_key_of_this_node");
-            let mut peer_actors =
-                make_peer_actors_from(None, None, None, Some(component), None, None, None);
+            let mut peer_actors = peer_actors_builder().proxy_client(component).build();
             let subject = Hopper::new(cryptde, false);
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             let subject_subs = Hopper::make_subs_from(&subject_addr);
@@ -254,7 +251,7 @@ mod tests {
     fn consume_logs_error_when_given_bad_input_data() {
         init_test_logging();
         let _system = System::new("consume_logs_error_when_given_bad_input_data");
-        let peer_actors = make_peer_actors();
+        let peer_actors = peer_actors_builder().build();
         let to_dispatcher = peer_actors.dispatcher.from_dispatcher_client;
         let to_hopper = peer_actors.hopper.from_dispatcher;
 

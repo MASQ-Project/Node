@@ -144,13 +144,12 @@ mod tests {
     use sub_lib::wallet::Wallet;
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
-    use test_utils::recorder::make_peer_actors;
-    use test_utils::recorder::make_peer_actors_from;
     use test_utils::recorder::Recorder;
     use test_utils::test_utils::cryptde;
     use test_utils::test_utils::make_meaningless_route;
     use test_utils::test_utils::make_meaningless_stream_key;
     use test_utils::test_utils::route_to_proxy_client;
+    use test_utils::recorder::peer_actors_builder;
 
     fn dnss() -> Vec<SocketAddr> {
         vec![SocketAddr::from_str("8.8.8.8:53").unwrap()]
@@ -280,7 +279,7 @@ mod tests {
         let pool_factory = StreamHandlerPoolFactoryMock::new()
             .make_parameters(&mut pool_factory_make_parameters)
             .make_result(Box::new(pool));
-        let peer_actors = make_peer_actors();
+        let peer_actors = peer_actors_builder().build();
         let mut subject = ProxyClient::new(
             cryptde(),
             vec![
@@ -365,7 +364,7 @@ mod tests {
         let system = System::new("invalid_package_is_logged_and_discarded");
         let subject = ProxyClient::new(cryptde(), dnss());
         let addr: Addr<Syn, ProxyClient> = subject.start();
-        let peer_actors = make_peer_actors_from(None, None, None, None, None, None, None);
+        let peer_actors = peer_actors_builder().build ();
         addr.try_send(BindMessage { peer_actors }).unwrap();
 
         addr.try_send(package).unwrap();
@@ -398,7 +397,7 @@ mod tests {
         let hopper = Recorder::new();
 
         let system = System::new("unparseable_request_results_in_log_and_no_response");
-        let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None, None, None);
+        let peer_actors = peer_actors_builder ().hopper (hopper).build ();
         let mut process_package_parameters = Arc::new(Mutex::new(vec![]));
         let pool = Box::new(
             StreamHandlerPoolMock::new()

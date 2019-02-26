@@ -690,7 +690,6 @@ mod tests {
     use sub_lib::wallet::Wallet;
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
-    use test_utils::recorder::make_peer_actors_from;
     use test_utils::recorder::make_recorder;
     use test_utils::recorder::Recorder;
     use test_utils::recorder::Recording;
@@ -700,6 +699,7 @@ mod tests {
     use test_utils::test_utils::cryptde;
     use test_utils::test_utils::make_meaningless_route;
     use tokio::prelude::Future;
+    use test_utils::recorder::peer_actors_builder;
 
     #[test]
     #[should_panic(
@@ -869,7 +869,7 @@ mod tests {
         let sub: Recipient<Syn, BootstrapNeighborhoodNowMessage> =
             addr.clone().recipient::<BootstrapNeighborhoodNowMessage>();
         let (hopper, _, hopper_recording_arc) = make_recorder();
-        let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None, None, None);
+        let peer_actors = peer_actors_builder ().hopper (hopper).build ();
         addr.try_send(BindMessage { peer_actors }).unwrap();
 
         sub.try_send(BootstrapNeighborhoodNowMessage {}).unwrap();
@@ -1882,8 +1882,7 @@ mod tests {
                 .unwrap();
 
             let addr: Addr<Syn, Neighborhood> = subject.start();
-            let peer_actors =
-                make_peer_actors_from(None, None, Some(hopper), None, None, None, None);
+            let peer_actors = peer_actors_builder ().hopper (hopper).build ();
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
             let sub: Recipient<Syn, RemoveNeighborMessage> =
@@ -1962,8 +1961,7 @@ mod tests {
             subject.gossip_acceptor = Box::new(gossip_acceptor);
 
             let addr: Addr<Syn, Neighborhood> = subject.start();
-            let peer_actors =
-                make_peer_actors_from(None, None, Some(hopper), None, None, None, None);
+            let peer_actors = peer_actors_builder ().hopper (hopper).build ();
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
             let sub: Recipient<Syn, ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
@@ -2023,8 +2021,7 @@ mod tests {
                 },
             );
             let addr: Addr<Syn, Neighborhood> = subject.start();
-            let peer_actors =
-                make_peer_actors_from(None, None, Some(hopper), None, None, None, None);
+            let peer_actors = peer_actors_builder ().hopper (hopper).build ();
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
             let sub: Recipient<Syn, BootstrapNeighborhoodNowMessage> =
@@ -2117,7 +2114,7 @@ mod tests {
         }
 
         let addr: Addr<Syn, Neighborhood> = subject.start();
-        let peer_actors = make_peer_actors_from(None, None, Some(hopper), None, None, None, None);
+        let peer_actors = peer_actors_builder ().hopper (hopper).build ();
         addr.try_send(BindMessage { peer_actors }).unwrap();
 
         addr.try_send(RemoveNeighborMessage {
@@ -2518,8 +2515,7 @@ mod tests {
                 .add_neighbor(this_node.public_key(), one_neighbor.public_key())
                 .unwrap();
             let addr: Addr<Syn, Neighborhood> = subject.start();
-            let peer_actors =
-                make_peer_actors_from(None, None, Some(hopper), None, None, None, None);
+            let peer_actors = peer_actors_builder ().hopper (hopper).build ();
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
             let sub: Recipient<Syn, ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
@@ -2594,8 +2590,7 @@ mod tests {
             subject.gossip_acceptor = Box::new(gossip_acceptor);
 
             let addr: Addr<Syn, Neighborhood> = subject.start();
-            let peer_actors =
-                make_peer_actors_from(None, None, Some(hopper), None, None, None, None);
+            let peer_actors = peer_actors_builder ().hopper (hopper).build ();
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
             let sub: Recipient<Syn, ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
@@ -2678,8 +2673,7 @@ mod tests {
                 )
                 .expect("should be able to add a neighbor");
             let addr: Addr<Syn, Neighborhood> = subject.start();
-            let peer_actors =
-                make_peer_actors_from(None, None, Some(hopper), None, None, None, None);
+            let peer_actors = peer_actors_builder ().hopper (hopper).build ();
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
             let sub: Recipient<Syn, ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
@@ -2766,8 +2760,7 @@ mod tests {
             subject.gossip_acceptor = Box::new(gossip_acceptor);
 
             let addr: Addr<Syn, Neighborhood> = subject.start();
-            let peer_actors =
-                make_peer_actors_from(None, None, Some(hopper), None, None, None, None);
+            let peer_actors = peer_actors_builder ().hopper (hopper).build ();
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
             let sub: Recipient<Syn, ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
@@ -2841,8 +2834,7 @@ mod tests {
                 .unwrap();
 
             let addr: Addr<Syn, Neighborhood> = subject.start();
-            let peer_actors =
-                make_peer_actors_from(None, None, Some(hopper), None, None, None, None);
+            let peer_actors = peer_actors_builder ().hopper (hopper).build ();
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
             let sub: Recipient<Syn, RemoveNeighborMessage> =

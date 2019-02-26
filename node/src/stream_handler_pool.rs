@@ -464,8 +464,6 @@ mod tests {
     use sub_lib::stream_connector::ConnectionInfo;
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
-    use test_utils::recorder::make_peer_actors;
-    use test_utils::recorder::make_peer_actors_from;
     use test_utils::recorder::make_recorder;
     use test_utils::recorder::Recorder;
     use test_utils::recorder::Recording;
@@ -474,6 +472,7 @@ mod tests {
     use test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use tokio::prelude::Async;
+    use test_utils::recorder::peer_actors_builder;
 
     struct TrafficAnalyzerMock {}
 
@@ -510,8 +509,7 @@ mod tests {
             subject.stream_connector = Box::new(StreamConnectorMock::new());
             let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors =
-                make_peer_actors_from(None, Some(dispatcher), None, None, None, None, None);
+            let peer_actors = peer_actors_builder ().dispatcher(dispatcher).build();
 
             subject_subs
                 .bind
@@ -621,7 +619,7 @@ mod tests {
 
             let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = make_peer_actors();
+            let peer_actors = peer_actors_builder ().build();
             subject_subs
                 .bind
                 .try_send(PoolBindMessage {
@@ -688,7 +686,7 @@ mod tests {
             );
             let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = make_peer_actors();
+            let peer_actors = peer_actors_builder ().build();
             subject_subs
                 .bind
                 .try_send(PoolBindMessage {
@@ -787,7 +785,7 @@ mod tests {
             ));
             let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = make_peer_actors();
+            let peer_actors = peer_actors_builder ().build();
             subject_subs
                 .bind
                 .try_send(PoolBindMessage {
@@ -859,8 +857,7 @@ mod tests {
             );
             let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors =
-                make_peer_actors_from(None, None, None, None, Some(neighborhood), None, None);
+            let peer_actors = peer_actors_builder ().neighborhood(neighborhood).build();
             subject_subs
                 .bind
                 .try_send(PoolBindMessage {
@@ -945,15 +942,7 @@ mod tests {
             );
             let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = make_peer_actors_from(
-                None,
-                Some(dispatcher),
-                None,
-                None,
-                Some(neighborhood),
-                None,
-                None,
-            );
+            let peer_actors = peer_actors_builder ().dispatcher (dispatcher).neighborhood(neighborhood).build();
             subject_subs
                 .bind
                 .try_send(PoolBindMessage {
@@ -1042,8 +1031,7 @@ mod tests {
 
             let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors =
-                make_peer_actors_from(None, None, None, None, Some(neighborhood), None, None);
+            let peer_actors = peer_actors_builder ().neighborhood(neighborhood).build();
             subject_subs
                 .bind
                 .try_send(PoolBindMessage {
@@ -1120,7 +1108,7 @@ mod tests {
 
             let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = make_peer_actors();
+            let peer_actors = peer_actors_builder ().build();
             subject_subs
                 .bind
                 .try_send(PoolBindMessage {
@@ -1168,7 +1156,7 @@ mod tests {
 
             let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = make_peer_actors();
+            let peer_actors = peer_actors_builder ().build();
             subject_subs
                 .bind
                 .try_send(PoolBindMessage {
@@ -1228,7 +1216,7 @@ mod tests {
             subject.stream_writers.insert(peer_addr.clone(), None);
             let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = make_peer_actors();
+            let peer_actors = peer_actors_builder ().build();
             subject_subs
                 .bind
                 .try_send(PoolBindMessage {
@@ -1352,7 +1340,7 @@ mod tests {
                 vec![Box::new(HttpRequestDiscriminatorFactory::new())];
             let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = make_peer_actors();
+            let peer_actors = peer_actors_builder ().build();
             subject_subs
                 .bind
                 .try_send(PoolBindMessage {
@@ -1419,7 +1407,7 @@ mod tests {
         let subject = StreamHandlerPool::new(vec![]);
         let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
         let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-        let peer_actors = make_peer_actors();
+        let peer_actors = peer_actors_builder ().build();
         subject_subs
             .bind
             .try_send(PoolBindMessage {
@@ -1467,7 +1455,7 @@ mod tests {
 
             let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = make_peer_actors();
+            let peer_actors = peer_actors_builder ().build();
             subject_subs
                 .bind
                 .try_send(PoolBindMessage {
@@ -1541,7 +1529,7 @@ mod tests {
 
             let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = make_peer_actors();
+            let peer_actors = peer_actors_builder ().build();
             subject_subs
                 .bind
                 .try_send(PoolBindMessage {
@@ -1601,7 +1589,7 @@ mod tests {
             subject.stream_connector = Box::new(StreamConnectorMock::new()); // this will panic if a connection is attempted
             let subject_addr: Addr<Syn, StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = make_peer_actors();
+            let peer_actors = peer_actors_builder ().build();
             subject_subs
                 .bind
                 .try_send(PoolBindMessage {

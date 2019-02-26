@@ -109,8 +109,8 @@ mod tests {
     use std::net::SocketAddr;
     use std::str::FromStr;
     use sub_lib::dispatcher::Endpoint;
-    use test_utils::recorder::make_peer_actors_from;
     use test_utils::recorder::Recorder;
+    use test_utils::recorder::peer_actors_builder;
 
     #[test]
     fn sends_inbound_data_for_proxy_server_to_proxy_server() {
@@ -132,8 +132,7 @@ mod tests {
             is_clandestine: false,
             data: data.clone(),
         };
-        let mut peer_actors =
-            make_peer_actors_from(Some(proxy_server), None, None, None, None, None, None);
+        let mut peer_actors = peer_actors_builder().proxy_server (proxy_server).build();
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
@@ -177,8 +176,7 @@ mod tests {
             sequence_number: None,
             data: data.clone(),
         };
-        let mut peer_actors =
-            make_peer_actors_from(None, None, Some(hopper), None, None, None, None);
+        let mut peer_actors = peer_actors_builder().hopper (hopper).build();
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
@@ -291,7 +289,7 @@ mod tests {
             sequence_number: None,
             data: data.clone(),
         };
-        let mut peer_actors = make_peer_actors_from(None, None, None, None, None, None, None);
+        let mut peer_actors = peer_actors_builder().build();
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         let stream_handler_pool_subs =
             make_stream_handler_pool_subs_from(Some(stream_handler_pool));

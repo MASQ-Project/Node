@@ -237,7 +237,7 @@ pub mod tests {
     use sub_lib::wallet::Wallet;
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
-    use test_utils::recorder::make_peer_actors;
+    use test_utils::recorder::peer_actors_builder;
 
     struct DbInitializerMock {
         initialize_parameters: Arc<Mutex<Vec<PathBuf>>>,
@@ -411,7 +411,7 @@ pub mod tests {
         let subject_addr: Addr<Syn, Accountant> = subject.start();
         subject_addr
             .try_send(BindMessage {
-                peer_actors: make_peer_actors(),
+                peer_actors: peer_actors_builder().build (),
             })
             .unwrap();
 
@@ -466,7 +466,7 @@ pub mod tests {
         let subject_addr: Addr<Syn, Accountant> = subject.start();
         subject_addr
             .try_send(BindMessage {
-                peer_actors: make_peer_actors(),
+                peer_actors: peer_actors_builder().build(),
             })
             .unwrap();
 
@@ -514,7 +514,7 @@ pub mod tests {
         let subject_addr: Addr<Syn, Accountant> = subject.start();
         subject_addr
             .try_send(BindMessage {
-                peer_actors: make_peer_actors(),
+                peer_actors: peer_actors_builder().build (),
             })
             .unwrap();
 
@@ -567,7 +567,7 @@ pub mod tests {
         let subject_addr: Addr<Syn, Accountant> = subject.start();
         subject_addr
             .try_send(BindMessage {
-                peer_actors: make_peer_actors(),
+                peer_actors: peer_actors_builder().build(),
             })
             .unwrap();
 
@@ -653,7 +653,7 @@ pub mod tests {
 
         subject_addr
             .try_send(BindMessage {
-                peer_actors: make_peer_actors(),
+                peer_actors: peer_actors_builder ().build (),
             })
             .unwrap();
 

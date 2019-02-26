@@ -286,14 +286,13 @@ mod tests {
     use sub_lib::wallet::Wallet;
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
-    use test_utils::recorder::make_peer_actors;
-    use test_utils::recorder::make_peer_actors_from;
     use test_utils::recorder::make_recorder;
     use test_utils::recorder::Recorder;
     use test_utils::test_utils::cryptde;
     use test_utils::test_utils::route_to_proxy_client;
     use test_utils::test_utils::route_to_proxy_server;
     use test_utils::test_utils::PayloadMock;
+    use test_utils::recorder::peer_actors_builder;
 
     #[test] // TODO: Rewrite test so that subject is RoutingService rather than Hopper
     fn converts_live_message_to_expired_for_proxy_client() {
@@ -320,8 +319,7 @@ mod tests {
         };
         thread::spawn(move || {
             let system = System::new("converts_live_message_to_expired_for_proxy_client");
-            let peer_actors =
-                make_peer_actors_from(None, None, None, Some(component), None, None, None);
+            let peer_actors = peer_actors_builder().proxy_client(component).build();
             let subject = Hopper::new(cryptde, false);
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -364,8 +362,7 @@ mod tests {
         };
         thread::spawn(move || {
             let system = System::new("converts_live_message_to_expired_for_proxy_server");
-            let peer_actors =
-                make_peer_actors_from(Some(component), None, None, None, None, None, None);
+            let peer_actors = peer_actors_builder().proxy_server(component).build();
             let subject = Hopper::new(cryptde, false);
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -406,7 +403,7 @@ mod tests {
         let system = System::new("refuses_data_for_proxy_client_if_is_bootstrap_node");
         let subject = Hopper::new(cryptde, true);
         let subject_addr: Addr<Syn, Hopper> = subject.start();
-        let peer_actors = make_peer_actors();
+        let peer_actors = peer_actors_builder().build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(inbound_client_data).unwrap();
@@ -441,7 +438,7 @@ mod tests {
         let system = System::new("refuses_data_for_proxy_server_if_is_bootstrap_node");
         let subject = Hopper::new(cryptde, true);
         let subject_addr: Addr<Syn, Hopper> = subject.start();
-        let peer_actors = make_peer_actors();
+        let peer_actors = peer_actors_builder().build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(inbound_client_data).unwrap();
@@ -485,7 +482,7 @@ mod tests {
         let system = System::new("refuses_data_for_hopper_if_is_bootstrap_node");
         let subject = Hopper::new(cryptde, true);
         let subject_addr: Addr<Syn, Hopper> = subject.start();
-        let peer_actors = make_peer_actors();
+        let peer_actors = peer_actors_builder().build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(inbound_client_data).unwrap();
@@ -531,8 +528,7 @@ mod tests {
         let subject = Hopper::new(cryptde, true);
         let subject_addr: Addr<Syn, Hopper> = subject.start();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
-        let peer_actors =
-            make_peer_actors_from(None, None, None, None, Some(neighborhood), None, None);
+        let peer_actors = peer_actors_builder().neighborhood(neighborhood).build ();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(inbound_client_data.clone()).unwrap();
@@ -586,8 +582,7 @@ mod tests {
         let subject = Hopper::new(cryptde, true);
         let subject_addr: Addr<Syn, Hopper> = subject.start();
         let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
-        let peer_actors =
-            make_peer_actors_from(None, None, None, Some(proxy_client), None, None, None);
+        let peer_actors = peer_actors_builder().proxy_client(proxy_client).build ();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(inbound_client_data.clone()).unwrap();
@@ -632,15 +627,7 @@ mod tests {
         };
         thread::spawn(move || {
             let system = System::new("converts_live_message_to_expired_for_proxy_server");
-            let peer_actors = make_peer_actors_from(
-                None,
-                Some(dispatcher),
-                None,
-                None,
-                None,
-                Some(accountant),
-                None,
-            );
+            let peer_actors = peer_actors_builder().dispatcher (dispatcher).accountant(accountant).build ();
             let subject = Hopper::new(cryptde, false);
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -711,7 +698,7 @@ mod tests {
         let _system = System::new(
             "route_logs_and_ignores_cores_package_that_demands_routing_without_consuming_wallet",
         );
-        let peer_actors = make_peer_actors();
+        let peer_actors = peer_actors_builder().build();
         let subject = RoutingService::new(
             cryptde,
             false,
@@ -741,7 +728,7 @@ mod tests {
             data: vec![],
         };
         let _system = System::new("consume_logs_error_when_given_bad_input_data");
-        let peer_actors = make_peer_actors();
+        let peer_actors = peer_actors_builder().build();
         let subject = RoutingService::new(
             cryptde(),
             false,
@@ -775,7 +762,7 @@ mod tests {
             data: data_enc.into(),
         };
         let _system = System::new("consume_logs_error_when_given_bad_input_data");
-        let peer_actors = make_peer_actors();
+        let peer_actors = peer_actors_builder ().build ();
         let subject = RoutingService::new(
             cryptde,
             false,
@@ -817,7 +804,7 @@ mod tests {
             data: data_enc.into(),
         };
         let _system = System::new("consume_logs_error_when_given_bad_input_data");
-        let peer_actors = make_peer_actors();
+        let peer_actors = peer_actors_builder ().build ();
         let subject = RoutingService::new(
             cryptde,
             false,

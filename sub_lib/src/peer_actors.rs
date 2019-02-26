@@ -36,12 +36,12 @@ pub struct BindMessage {
 #[cfg(test)]
 mod tests {
     use actix::System;
-    use test_utils::recorder::make_peer_actors;
+    use test_utils::recorder::peer_actors_builder;
 
     #[test]
     fn peer_actors_debug() {
         let _ = System::new("test");
-        let subject = make_peer_actors();
+        let subject = peer_actors_builder ().build ();
 
         let result = format!("{:?}", subject);
 

@@ -54,14 +54,14 @@ mod tests {
     use super::*;
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
     use actix::System;
-    use test_utils::recorder::make_peer_actors;
+    use test_utils::recorder::peer_actors_builder;
 
     #[test]
     fn pool_bind_message_is_debug() {
         let _system = System::new("test");
-        let dispatcher_subs = make_peer_actors().dispatcher;
+        let dispatcher_subs = peer_actors_builder().build ().dispatcher;
         let stream_handler_pool_subs = make_stream_handler_pool_subs_from(None);
-        let neighborhood_subs = make_peer_actors().neighborhood;
+        let neighborhood_subs = peer_actors_builder ().build ().neighborhood;
         let subject = PoolBindMessage {
             dispatcher_subs,
             stream_handler_pool_subs,
