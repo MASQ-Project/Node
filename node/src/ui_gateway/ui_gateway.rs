@@ -111,9 +111,9 @@ mod tests {
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
     use test_utils::recorder::make_recorder;
+    use test_utils::recorder::peer_actors_builder;
     use test_utils::test_utils::find_free_port;
     use test_utils::test_utils::wait_for;
-    use test_utils::recorder::peer_actors_builder;
 
     pub struct UiTrafficConverterMock {
         marshal_parameters: Arc<Mutex<Vec<UiMessage>>>,
@@ -240,7 +240,7 @@ mod tests {
             let system =
                 System::new("receiving_a_shutdown_message_triggers_the_shutdown_supervisor");
             let addr: Addr<Syn, UiGateway> = subject.start();
-            let mut peer_actors = peer_actors_builder ().build ();
+            let mut peer_actors = peer_actors_builder().build();
             peer_actors.ui_gateway = UiGateway::make_subs_from(&addr);
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
@@ -266,7 +266,7 @@ mod tests {
             subject.converter = Box::new(handler);
             let system = System::new("good_from_ui_message_is_unmarshalled_and_resent");
             let addr: Addr<Syn, UiGateway> = subject.start();
-            let peer_actors = peer_actors_builder ().ui_gateway (ui_gateway).build ();
+            let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
             addr.try_send(FromUiMessage {
@@ -304,7 +304,7 @@ mod tests {
             subject.converter = Box::new(handler);
             let system = System::new("bad_from_ui_message_is_logged_and_ignored");
             let addr: Addr<Syn, UiGateway> = subject.start();
-            let peer_actors = peer_actors_builder ().ui_gateway (ui_gateway).build ();
+            let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
             addr.try_send(FromUiMessage {

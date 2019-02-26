@@ -156,10 +156,10 @@ mod tests {
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
     use test_utils::recorder::make_recorder;
+    use test_utils::recorder::peer_actors_builder;
     use test_utils::recorder::Recorder;
     use test_utils::test_utils::cryptde;
     use test_utils::test_utils::zero_hop_route_response;
-    use test_utils::recorder::peer_actors_builder;
 
     #[test] // TODO: Rewrite test so that subject is ConsumingService rather than Hopper
     fn converts_incipient_message_to_live_and_sends_to_dispatcher() {
@@ -184,7 +184,7 @@ mod tests {
         let incipient_cores_package_a = incipient_cores_package.clone();
         thread::spawn(move || {
             let system = System::new("converts_incipient_message_to_live_and_sends_to_dispatcher");
-            let peer_actors = peer_actors_builder().dispatcher(dispatcher).build ();
+            let peer_actors = peer_actors_builder().dispatcher(dispatcher).build();
             let subject = Hopper::new(cryptde, false);
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();

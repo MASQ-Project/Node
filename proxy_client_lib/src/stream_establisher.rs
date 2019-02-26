@@ -206,13 +206,13 @@ mod tests {
     use sub_lib::proxy_client::ClientResponsePayload;
     use sub_lib::proxy_server::ProxyProtocol;
     use test_utils::recorder::make_recorder;
+    use test_utils::recorder::peer_actors_builder;
     use test_utils::stream_connector_mock::StreamConnectorMock;
     use test_utils::test_utils::cryptde;
     use test_utils::test_utils::make_meaningless_route;
     use test_utils::test_utils::make_meaningless_stream_key;
     use test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use tokio::prelude::Async;
-    use test_utils::recorder::peer_actors_builder;
 
     #[test]
     fn spawn_stream_reader_handles_http() {
@@ -221,7 +221,10 @@ mod tests {
         let (sub_tx, sub_rx) = mpsc::channel();
         thread::spawn(move || {
             let system = System::new("test");
-            let peer_actors = peer_actors_builder().hopper (hopper).accountant(accountant).build ();
+            let peer_actors = peer_actors_builder()
+                .hopper(hopper)
+                .accountant(accountant)
+                .build();
             sub_tx
                 .send((
                     peer_actors.hopper.from_hopper_client,
@@ -307,7 +310,10 @@ mod tests {
         let (sub_tx, sub_rx) = mpsc::channel();
         thread::spawn(move || {
             let system = System::new("test");
-            let peer_actors = peer_actors_builder().hopper (hopper).accountant(accountant).build ();
+            let peer_actors = peer_actors_builder()
+                .hopper(hopper)
+                .accountant(accountant)
+                .build();
             sub_tx
                 .send((
                     peer_actors.hopper.from_hopper_client.clone(),

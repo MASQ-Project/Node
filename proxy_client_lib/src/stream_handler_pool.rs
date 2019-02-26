@@ -434,6 +434,7 @@ mod tests {
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
     use test_utils::recorder::make_recorder;
+    use test_utils::recorder::peer_actors_builder;
     use test_utils::stream_connector_mock::StreamConnectorMock;
     use test_utils::test_utils::await_messages;
     use test_utils::test_utils::cryptde;
@@ -445,7 +446,6 @@ mod tests {
     use tokio::prelude::Async;
     use trust_dns_resolver::error::ResolveError;
     use trust_dns_resolver::error::ResolveErrorKind;
-    use test_utils::recorder::peer_actors_builder;
 
     #[derive(Message)]
     struct TriggerSubject {
@@ -520,7 +520,10 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("test");
 
-            let peer_actors = peer_actors_builder().hopper (hopper).accountant(accountant).build ();
+            let peer_actors = peer_actors_builder()
+                .hopper(hopper)
+                .accountant(accountant)
+                .build();
             let subject = StreamHandlerPoolReal::new(
                 Box::new(ResolverWrapperMock::new()),
                 cryptde(),
@@ -595,7 +598,10 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("test");
 
-            let peer_actors = peer_actors_builder().hopper (hopper).accountant(accountant).build ();
+            let peer_actors = peer_actors_builder()
+                .hopper(hopper)
+                .accountant(accountant)
+                .build();
             let subject = StreamHandlerPoolReal::new(
                 Box::new(ResolverWrapperMock::new()),
                 cryptde(),
@@ -656,7 +662,10 @@ mod tests {
                 PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
             );
             let system = System::new("test");
-            let peer_actors = peer_actors_builder().hopper (hopper).accountant(accountant).build ();
+            let peer_actors = peer_actors_builder()
+                .hopper(hopper)
+                .accountant(accountant)
+                .build();
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_success(vec![IpAddr::from_str("2.3.4.5").unwrap()]);
             let mut tx_to_write: SenderWrapperMock<SequencedPacket> =
@@ -705,7 +714,10 @@ mod tests {
         let originator_cryptde = CryptDENull::from(&originator_key);
         thread::spawn(move || {
             let system = System::new("test");
-            let peer_actors = peer_actors_builder().hopper (hopper).accountant(accountant).build ();
+            let peer_actors = peer_actors_builder()
+                .hopper(hopper)
+                .accountant(accountant)
+                .build();
             let client_request_payload = ClientRequestPayload {
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
@@ -769,7 +781,10 @@ mod tests {
         let (accountant, _, _) = make_recorder();
         thread::spawn(move || {
             let system = System::new("test");
-            let peer_actors = peer_actors_builder().hopper (hopper).accountant(accountant).build ();
+            let peer_actors = peer_actors_builder()
+                .hopper(hopper)
+                .accountant(accountant)
+                .build();
             let client_request_payload = ClientRequestPayload {
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
@@ -888,7 +903,10 @@ mod tests {
         let originator_cryptde = CryptDENull::from(&originator_key);
         thread::spawn(move || {
             let system = System::new("test");
-            let peer_actors = peer_actors_builder().hopper (hopper).accountant(accountant).build ();
+            let peer_actors = peer_actors_builder()
+                .hopper(hopper)
+                .accountant(accountant)
+                .build();
             let client_request_payload = ClientRequestPayload {
                 stream_key,
                 sequenced_packet: SequencedPacket {
@@ -977,7 +995,10 @@ mod tests {
         let originator_cryptde = CryptDENull::from(&originator_key);
         thread::spawn(move || {
             let system = System::new("test");
-            let peer_actors = peer_actors_builder().hopper (hopper).accountant(accountant).build ();
+            let peer_actors = peer_actors_builder()
+                .hopper(hopper)
+                .accountant(accountant)
+                .build();
             let sequenced_packet = SequencedPacket {
                 data: b"These are the times".to_vec(),
                 sequence_number: 0,
@@ -1110,7 +1131,10 @@ mod tests {
                 PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
             );
             let system = System::new("test");
-            let peer_actors = peer_actors_builder().hopper (hopper).accountant(accountant).build ();
+            let peer_actors = peer_actors_builder()
+                .hopper(hopper)
+                .accountant(accountant)
+                .build();
             let mut lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_parameters(&mut lookup_ip_parameters)
@@ -1176,7 +1200,10 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             let system = System::new("test");
-            let peer_actors = peer_actors_builder().hopper (hopper).accountant(accountant).build ();
+            let peer_actors = peer_actors_builder()
+                .hopper(hopper)
+                .accountant(accountant)
+                .build();
             let resolver = ResolverWrapperMock::new();
             let subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
@@ -1255,7 +1282,10 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("test");
             let resolver = ResolverWrapperMock::new();
-            let peer_actors = peer_actors_builder().hopper (hopper).accountant(accountant).build ();
+            let peer_actors = peer_actors_builder()
+                .hopper(hopper)
+                .accountant(accountant)
+                .build();
 
             let subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
@@ -1283,7 +1313,7 @@ mod tests {
         assert_eq!(*send_params.lock().unwrap(), vec!(sequenced_packet));
 
         let tlh = TestLogHandler::new();
-        tlh.exists_log_containing("Removing stream writer for 1.2.3.4:5678");
+        tlh.await_log_containing("Removing stream writer for 1.2.3.4:5678", 1000);
     }
 
     #[test]
@@ -1294,7 +1324,10 @@ mod tests {
         let (accountant, _, _) = make_recorder();
         thread::spawn(move || {
             let system = System::new("test");
-            let peer_actors = peer_actors_builder().hopper (hopper).accountant(accountant).build ();
+            let peer_actors = peer_actors_builder()
+                .hopper(hopper)
+                .accountant(accountant)
+                .build();
             let client_request_payload = ClientRequestPayload {
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {

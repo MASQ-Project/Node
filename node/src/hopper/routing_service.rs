@@ -287,12 +287,12 @@ mod tests {
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
     use test_utils::recorder::make_recorder;
+    use test_utils::recorder::peer_actors_builder;
     use test_utils::recorder::Recorder;
     use test_utils::test_utils::cryptde;
     use test_utils::test_utils::route_to_proxy_client;
     use test_utils::test_utils::route_to_proxy_server;
     use test_utils::test_utils::PayloadMock;
-    use test_utils::recorder::peer_actors_builder;
 
     #[test] // TODO: Rewrite test so that subject is RoutingService rather than Hopper
     fn converts_live_message_to_expired_for_proxy_client() {
@@ -528,7 +528,7 @@ mod tests {
         let subject = Hopper::new(cryptde, true);
         let subject_addr: Addr<Syn, Hopper> = subject.start();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
-        let peer_actors = peer_actors_builder().neighborhood(neighborhood).build ();
+        let peer_actors = peer_actors_builder().neighborhood(neighborhood).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(inbound_client_data.clone()).unwrap();
@@ -582,7 +582,7 @@ mod tests {
         let subject = Hopper::new(cryptde, true);
         let subject_addr: Addr<Syn, Hopper> = subject.start();
         let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
-        let peer_actors = peer_actors_builder().proxy_client(proxy_client).build ();
+        let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(inbound_client_data.clone()).unwrap();
@@ -627,7 +627,10 @@ mod tests {
         };
         thread::spawn(move || {
             let system = System::new("converts_live_message_to_expired_for_proxy_server");
-            let peer_actors = peer_actors_builder().dispatcher (dispatcher).accountant(accountant).build ();
+            let peer_actors = peer_actors_builder()
+                .dispatcher(dispatcher)
+                .accountant(accountant)
+                .build();
             let subject = Hopper::new(cryptde, false);
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -762,7 +765,7 @@ mod tests {
             data: data_enc.into(),
         };
         let _system = System::new("consume_logs_error_when_given_bad_input_data");
-        let peer_actors = peer_actors_builder ().build ();
+        let peer_actors = peer_actors_builder().build();
         let subject = RoutingService::new(
             cryptde,
             false,
@@ -804,7 +807,7 @@ mod tests {
             data: data_enc.into(),
         };
         let _system = System::new("consume_logs_error_when_given_bad_input_data");
-        let peer_actors = peer_actors_builder ().build ();
+        let peer_actors = peer_actors_builder().build();
         let subject = RoutingService::new(
             cryptde,
             false,

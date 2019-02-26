@@ -109,8 +109,8 @@ mod tests {
     use std::net::SocketAddr;
     use std::str::FromStr;
     use sub_lib::dispatcher::Endpoint;
-    use test_utils::recorder::Recorder;
     use test_utils::recorder::peer_actors_builder;
+    use test_utils::recorder::Recorder;
 
     #[test]
     fn sends_inbound_data_for_proxy_server_to_proxy_server() {
@@ -132,7 +132,7 @@ mod tests {
             is_clandestine: false,
             data: data.clone(),
         };
-        let mut peer_actors = peer_actors_builder().proxy_server (proxy_server).build();
+        let mut peer_actors = peer_actors_builder().proxy_server(proxy_server).build();
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
@@ -176,7 +176,7 @@ mod tests {
             sequence_number: None,
             data: data.clone(),
         };
-        let mut peer_actors = peer_actors_builder().hopper (hopper).build();
+        let mut peer_actors = peer_actors_builder().hopper(hopper).build();
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 

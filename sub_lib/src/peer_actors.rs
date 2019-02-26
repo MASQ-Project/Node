@@ -41,7 +41,7 @@ mod tests {
     #[test]
     fn peer_actors_debug() {
         let _ = System::new("test");
-        let subject = peer_actors_builder ().build ();
+        let subject = peer_actors_builder().build();
 
         let result = format!("{:?}", subject);
 

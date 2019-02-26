@@ -411,7 +411,7 @@ pub mod tests {
         let subject_addr: Addr<Syn, Accountant> = subject.start();
         subject_addr
             .try_send(BindMessage {
-                peer_actors: peer_actors_builder().build (),
+                peer_actors: peer_actors_builder().build(),
             })
             .unwrap();
 
@@ -514,7 +514,7 @@ pub mod tests {
         let subject_addr: Addr<Syn, Accountant> = subject.start();
         subject_addr
             .try_send(BindMessage {
-                peer_actors: peer_actors_builder().build (),
+                peer_actors: peer_actors_builder().build(),
             })
             .unwrap();
 
@@ -653,7 +653,7 @@ pub mod tests {
 
         subject_addr
             .try_send(BindMessage {
-                peer_actors: peer_actors_builder ().build (),
+                peer_actors: peer_actors_builder().build(),
             })
             .unwrap();
 

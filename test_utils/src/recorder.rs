@@ -391,8 +391,8 @@ pub fn make_ui_gateway_subs_from(addr: &Addr<Syn, Recorder>) -> UiGatewaySubs {
     }
 }
 
-pub fn peer_actors_builder () -> PeerActorsBuilder {
-    PeerActorsBuilder::new ()
+pub fn peer_actors_builder() -> PeerActorsBuilder {
+    PeerActorsBuilder::new()
 }
 
 pub struct PeerActorsBuilder {
@@ -406,14 +406,14 @@ pub struct PeerActorsBuilder {
 }
 
 impl PeerActorsBuilder {
-    pub fn new () -> PeerActorsBuilder {
+    pub fn new() -> PeerActorsBuilder {
         PeerActorsBuilder {
-            proxy_server: Recorder::new (),
-            dispatcher: Recorder::new (),
-            hopper: Recorder::new (),
-            proxy_client: Recorder::new (),
-            neighborhood: Recorder::new (),
-            accountant: Recorder::new (),
+            proxy_server: Recorder::new(),
+            dispatcher: Recorder::new(),
+            hopper: Recorder::new(),
+            proxy_client: Recorder::new(),
+            neighborhood: Recorder::new(),
+            accountant: Recorder::new(),
             ui_gateway: Recorder::new(),
         }
     }
@@ -454,7 +454,7 @@ impl PeerActorsBuilder {
     }
 
     // This must be called after System.new and before System.run
-    pub fn build (self) -> PeerActors {
+    pub fn build(self) -> PeerActors {
         let proxy_server_addr = self.proxy_server.start();
         let dispatcher_addr = self.dispatcher.start();
         let hopper_addr = self.hopper.start();
