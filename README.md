@@ -23,6 +23,10 @@ SubstratumNode software is written in Rust.
 We use `rustup` to install what we need (e.g. `rustc`, `cargo`, etc). If you don't already have it, you can get it from
 [the `rustup` installation page](https://www.rustup.rs/).
 
+To keep our source code consistently formatted, we use `rustfmt`, which is a plugin for `cargo`. If you want to use our
+build scripts to build the code, you'll need to [install this plugin in your Rust environment](https://github.com/rust-lang/rustfmt).
+(We use the stable version, not the nightly version.)
+
 Some Linux distributions (notably Ubuntu ≥16.04 Desktop) have an incompatibility with SubstratumNode. If you think
 you might be affected, see 
 [The Port 53 Problem](https://github.com/SubstratumNetwork/SubstratumNode/tree/master/node/docs/PORT_53.md) 
