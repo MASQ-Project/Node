@@ -1506,9 +1506,7 @@ mod tests {
     fn proxy_server_receives_terminal_response_from_hopper() {
         init_test_logging();
         let system = System::new("proxy_server_receives_response_from_hopper");
-        let dispatcher_mock = Recorder::new();
-        let dispatcher_log_arc = dispatcher_mock.get_recording();
-        let dispatcher_awaiter = dispatcher_mock.get_awaiter();
+        let (dispatcher_mock, _, dispatcher_log_arc) = make_recorder();
         let cryptde = cryptde();
         let mut subject = ProxyServer::new(cryptde, false);
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -1552,8 +1550,6 @@ mod tests {
         Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
         system.run();
 
-        dispatcher_awaiter.await_message_count(1);
-
         let recording = dispatcher_log_arc.lock().unwrap();
         let record = recording.get_record::<TransmitDataMsg>(0);
         assert_eq!(record.endpoint, Endpoint::Socket(socket_addr));
@@ -1565,9 +1561,7 @@ mod tests {
     #[test]
     fn proxy_server_receives_nonterminal_response_from_hopper() {
         let system = System::new("proxy_server_receives_response_from_hopper");
-        let dispatcher_mock = Recorder::new();
-        let dispatcher_log_arc = dispatcher_mock.get_recording();
-        let dispatcher_awaiter = dispatcher_mock.get_awaiter();
+        let (dispatcher_mock, _, dispatcher_log_arc) = make_recorder();
         let cryptde = cryptde();
         let mut subject = ProxyServer::new(cryptde, false);
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -1610,8 +1604,6 @@ mod tests {
 
         Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
         system.run();
-
-        dispatcher_awaiter.await_message_count(2);
 
         let recording = dispatcher_log_arc.lock().unwrap();
         let record = recording.get_record::<TransmitDataMsg>(0);

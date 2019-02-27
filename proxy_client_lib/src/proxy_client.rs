@@ -10,15 +10,26 @@ use actix::Context;
 use actix::Handler;
 use actix::Recipient;
 use actix::Syn;
+use std::collections::HashMap;
 use std::net::SocketAddr;
+use sub_lib::accountant::ReportExitServiceProvidedMessage;
 use sub_lib::cryptde::CryptDE;
+use sub_lib::cryptde::PublicKey;
 use sub_lib::hopper::ExpiredCoresPackage;
 use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::logger::Logger;
 use sub_lib::peer_actors::BindMessage;
+use sub_lib::proxy_client::ClientResponsePayload;
+use sub_lib::proxy_client::InboundServerData;
 use sub_lib::proxy_client::ProxyClientSubs;
+use sub_lib::proxy_client::TEMPORARY_PER_EXIT_BYTE_RATE;
+use sub_lib::proxy_client::TEMPORARY_PER_EXIT_RATE;
 use sub_lib::proxy_server::ClientRequestPayload;
+use sub_lib::route::Route;
+use sub_lib::sequence_buffer::SequencedPacket;
+use sub_lib::stream_key::StreamKey;
 use sub_lib::utils::NODE_MAILBOX_CAPACITY;
+use sub_lib::wallet::Wallet;
 use trust_dns_resolver::config::NameServerConfig;
 use trust_dns_resolver::config::Protocol;
 use trust_dns_resolver::config::ResolverConfig;
@@ -28,9 +39,11 @@ pub struct ProxyClient {
     dns_servers: Vec<SocketAddr>,
     resolver_wrapper_factory: Box<dyn ResolverWrapperFactory>,
     stream_handler_pool_factory: Box<dyn StreamHandlerPoolFactory>,
-    _cryptde: &'static dyn CryptDE, // This is not used now, but a version of it may be used in the future when ser/de and en/decrypt are combined.
+    cryptde: &'static dyn CryptDE,
     to_hopper: Option<Recipient<Syn, IncipientCoresPackage>>,
+    to_accountant: Option<Recipient<Syn, ReportExitServiceProvidedMessage>>,
     pool: Option<Box<dyn StreamHandlerPool>>,
+    stream_contexts: HashMap<StreamKey, StreamContext>,
     logger: Logger,
 }
 
@@ -44,7 +57,8 @@ impl Handler<BindMessage> for ProxyClient {
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
         self.logger.debug(format!("Handling BindMessage"));
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
-        self.to_hopper = Some(msg.peer_actors.hopper.from_hopper_client.clone());
+        self.to_hopper = Some(msg.peer_actors.hopper.from_hopper_client);
+        self.to_accountant = Some(msg.peer_actors.accountant.report_exit_service_provided);
         let mut config = ResolverConfig::new();
         for dns_server_ref in &self.dns_servers {
             self.logger
@@ -59,9 +73,9 @@ impl Handler<BindMessage> for ProxyClient {
         let resolver = self.resolver_wrapper_factory.make(config, opts);
         self.pool = Some(self.stream_handler_pool_factory.make(
             resolver,
-            self._cryptde,
-            msg.peer_actors.hopper.from_hopper_client,
-            msg.peer_actors.accountant.report_exit_service_provided,
+            self.cryptde,
+            self.to_accountant.clone().expect("Accountant is unbound"),
+            msg.peer_actors.proxy_client.inbound_server_data,
         ));
         ()
     }
@@ -85,8 +99,45 @@ impl Handler<ExpiredCoresPackage> for ProxyClient {
         let pool = self.pool.as_mut().expect("StreamHandlerPool unbound");
         let consuming_wallet = msg.consuming_wallet;
         let return_route = msg.remaining_route;
-        pool.process_package(payload, consuming_wallet, return_route);
+        let latest_stream_context = StreamContext {
+            return_route,
+            payload_destination_key: payload.originator_public_key.clone(),
+            consuming_wallet: consuming_wallet.clone(),
+        };
+        self.stream_contexts
+            .insert(payload.stream_key.clone(), latest_stream_context);
+        pool.process_package(payload, consuming_wallet);
         self.logger.debug(format!("ExpiredCoresPackage handled"));
+        ()
+    }
+}
+
+impl Handler<InboundServerData> for ProxyClient {
+    type Result = ();
+
+    fn handle(&mut self, msg: InboundServerData, _ctx: &mut Self::Context) -> Self::Result {
+        let msg_data_len = msg.data.len();
+        let msg_source = msg.source;
+        let msg_sequence_number = msg.sequence_number;
+        let msg_last_data = msg.last_data;
+        let msg_stream_key = msg.stream_key.clone();
+        let stream_context = match self.stream_contexts.get(&msg.stream_key) {
+            Some(sc) => sc,
+            None => {
+                self.logger.error(format!(
+                    "Received unsolicited {}-byte response from {}, seq {}: ignoring",
+                    msg_data_len, msg_source, msg_sequence_number
+                ));
+                return ();
+            }
+        };
+        if self.send_response_to_hopper(msg, &stream_context).is_err() {
+            return ();
+        };
+        self.report_response_exit_to_accountant(&stream_context, msg_data_len);
+        if msg_last_data {
+            self.stream_contexts.remove(&msg_stream_key).is_some();
+        }
         ()
     }
 }
@@ -100,9 +151,11 @@ impl ProxyClient {
             dns_servers,
             resolver_wrapper_factory: Box::new(ResolverWrapperFactoryReal {}),
             stream_handler_pool_factory: Box::new(StreamHandlerPoolFactoryReal {}),
-            _cryptde: cryptde,
+            cryptde,
             to_hopper: None,
+            to_accountant: None,
             pool: None,
+            stream_contexts: HashMap::new(),
             logger: Logger::new("Proxy Client"),
         }
     }
@@ -111,8 +164,76 @@ impl ProxyClient {
         ProxyClientSubs {
             bind: addr.clone().recipient::<BindMessage>(),
             from_hopper: addr.clone().recipient::<ExpiredCoresPackage>(),
+            inbound_server_data: addr.clone().recipient::<InboundServerData>(),
         }
     }
+
+    fn send_response_to_hopper(
+        &self,
+        msg: InboundServerData,
+        stream_context: &StreamContext,
+    ) -> Result<(), ()> {
+        let msg_data_len = msg.data.len() as u32;
+        let msg_source = msg.source;
+        let msg_sequence_number = msg.sequence_number;
+        let payload = ClientResponsePayload {
+            stream_key: msg.stream_key,
+            sequenced_packet: SequencedPacket {
+                data: msg.data,
+                sequence_number: msg.sequence_number,
+                last_data: msg.last_data,
+            },
+        };
+        let icp = match IncipientCoresPackage::new(
+            self.cryptde,
+            stream_context.return_route.clone(),
+            payload,
+            &stream_context.payload_destination_key,
+        ) {
+            Ok(icp) => icp,
+            Err(err) => {
+                self.logger.error (format! ("Could not create CORES package for {}-byte response from {}, seq {}: {} - ignoring", msg_data_len, msg_source, msg_sequence_number, err));
+                return Err(());
+            }
+        };
+        self.to_hopper
+            .as_ref()
+            .expect("Hopper unbound")
+            .try_send(icp)
+            .expect("Hopper is dead");
+        Ok(())
+    }
+
+    fn report_response_exit_to_accountant(
+        &self,
+        stream_context: &StreamContext,
+        msg_data_len: usize,
+    ) {
+        if let Some(consuming_wallet) = stream_context.consuming_wallet.clone() {
+            let exit_report = ReportExitServiceProvidedMessage {
+                consuming_wallet,
+                payload_size: msg_data_len,
+                service_rate: TEMPORARY_PER_EXIT_RATE,
+                byte_rate: TEMPORARY_PER_EXIT_BYTE_RATE,
+            };
+            self.to_accountant
+                .as_ref()
+                .expect("Accountant unbound")
+                .try_send(exit_report)
+                .expect("Accountant is dead");
+        } else {
+            self.logger.debug(format!(
+                "Relayed {}-byte response without consuming wallet for free",
+                msg_data_len
+            ));
+        }
+    }
+}
+
+struct StreamContext {
+    return_route: Route,
+    payload_destination_key: PublicKey,
+    consuming_wallet: Option<Wallet>,
 }
 
 #[cfg(test)]
@@ -125,7 +246,6 @@ mod tests {
     use crate::stream_handler_pool::StreamHandlerPoolFactory;
     use actix::msgs;
     use actix::Arbiter;
-    use actix::Recipient;
     use actix::System;
     use serde_cbor;
     use std::cell::RefCell;
@@ -135,8 +255,12 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
     use sub_lib::accountant::ReportExitServiceProvidedMessage;
+    use sub_lib::cryptde::CryptData;
     use sub_lib::cryptde::PlainData;
     use sub_lib::cryptde::PublicKey;
+    use sub_lib::proxy_client::ClientResponsePayload;
+    use sub_lib::proxy_client::TEMPORARY_PER_EXIT_BYTE_RATE;
+    use sub_lib::proxy_client::TEMPORARY_PER_EXIT_RATE;
     use sub_lib::proxy_server::ClientRequestPayload;
     use sub_lib::proxy_server::ProxyProtocol;
     use sub_lib::route::Route;
@@ -144,6 +268,7 @@ mod tests {
     use sub_lib::wallet::Wallet;
     use test_utils::logging::init_test_logging;
     use test_utils::logging::TestLogHandler;
+    use test_utils::recorder::make_recorder;
     use test_utils::recorder::peer_actors_builder;
     use test_utils::recorder::Recorder;
     use test_utils::test_utils::cryptde;
@@ -156,21 +281,15 @@ mod tests {
     }
 
     pub struct StreamHandlerPoolMock {
-        process_package_parameters: Arc<Mutex<Vec<(ClientRequestPayload, Option<Wallet>, Route)>>>,
+        process_package_parameters: Arc<Mutex<Vec<(ClientRequestPayload, Option<Wallet>)>>>,
     }
 
     impl StreamHandlerPool for StreamHandlerPoolMock {
-        fn process_package(
-            &self,
-            payload: ClientRequestPayload,
-            consuming_wallet: Option<Wallet>,
-            route: Route,
-        ) {
-            self.process_package_parameters.lock().unwrap().push((
-                payload,
-                consuming_wallet,
-                route,
-            ));
+        fn process_package(&self, payload: ClientRequestPayload, consuming_wallet: Option<Wallet>) {
+            self.process_package_parameters
+                .lock()
+                .unwrap()
+                .push((payload, consuming_wallet));
         }
     }
 
@@ -183,7 +302,7 @@ mod tests {
 
         pub fn process_package_parameters(
             self,
-            parameters: &mut Arc<Mutex<Vec<(ClientRequestPayload, Option<Wallet>, Route)>>>,
+            parameters: &mut Arc<Mutex<Vec<(ClientRequestPayload, Option<Wallet>)>>>,
         ) -> StreamHandlerPoolMock {
             *parameters = self.process_package_parameters.clone();
             self
@@ -196,8 +315,8 @@ mod tests {
                 Vec<(
                     Box<dyn ResolverWrapper>,
                     &'static dyn CryptDE,
-                    Recipient<Syn, IncipientCoresPackage>,
                     Recipient<Syn, ReportExitServiceProvidedMessage>,
+                    Recipient<Syn, InboundServerData>,
                 )>,
             >,
         >,
@@ -209,14 +328,14 @@ mod tests {
             &self,
             resolver: Box<dyn ResolverWrapper>,
             cryptde: &'static dyn CryptDE,
-            hopper_sub: Recipient<Syn, IncipientCoresPackage>,
             accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
+            proxy_client_sub: Recipient<Syn, InboundServerData>,
         ) -> Box<dyn StreamHandlerPool> {
             self.make_parameters.lock().unwrap().push((
                 resolver,
                 cryptde,
-                hopper_sub,
                 accountant_sub,
+                proxy_client_sub,
             ));
             self.make_results.borrow_mut().remove(0)
         }
@@ -237,8 +356,8 @@ mod tests {
                     Vec<(
                         Box<dyn ResolverWrapper>,
                         &'static dyn CryptDE,
-                        Recipient<Syn, IncipientCoresPackage>,
                         Recipient<Syn, ReportExitServiceProvidedMessage>,
+                        Recipient<Syn, InboundServerData>,
                     )>,
                 >,
             >,
@@ -418,13 +537,321 @@ mod tests {
         Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
         system.run();
         let parameter = process_package_parameters.lock().unwrap().remove(0);
-        assert_eq!(
-            parameter,
-            (
-                request,
-                Some(Wallet::new("consuming")),
-                make_meaningless_route()
-            )
+        assert_eq!(parameter, (request, Some(Wallet::new("consuming")),));
+    }
+
+    #[test]
+    fn inbound_server_data_is_translated_to_cores_packages() {
+        init_test_logging();
+        let (hopper, _, hopper_recording_arc) = make_recorder();
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let stream_key = make_meaningless_stream_key();
+        let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
+        let system = System::new("inbound_server_data_is_translated_to_cores_packages");
+        let mut subject = ProxyClient::new(
+            cryptde(),
+            vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
         );
+        subject.stream_contexts.insert(
+            stream_key.clone(),
+            StreamContext {
+                return_route: make_meaningless_route(),
+                payload_destination_key: PublicKey::new(&b"abcd"[..]),
+                consuming_wallet: Some(Wallet::new("consuming")),
+            },
+        );
+        let subject_addr: Addr<Syn, ProxyClient> = subject.start();
+        let peer_actors = peer_actors_builder()
+            .hopper(hopper)
+            .accountant(accountant)
+            .build();
+
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(InboundServerData {
+                stream_key: stream_key.clone(),
+                last_data: false,
+                sequence_number: 1234,
+                source: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+                data: Vec::from(data),
+            })
+            .unwrap();
+        subject_addr
+            .try_send(InboundServerData {
+                stream_key: stream_key.clone(),
+                last_data: true,
+                sequence_number: 1235,
+                source: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+                data: Vec::from(data),
+            })
+            .unwrap();
+        subject_addr
+            .try_send(InboundServerData {
+                stream_key: stream_key.clone(),
+                last_data: false,
+                sequence_number: 1236,
+                source: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+                data: Vec::from(data),
+            })
+            .unwrap();
+
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        system.run();
+        let hopper_recording = hopper_recording_arc.lock().unwrap();
+        assert_eq!(
+            hopper_recording.get_record::<IncipientCoresPackage>(0),
+            &IncipientCoresPackage::new(
+                cryptde(),
+                make_meaningless_route(),
+                ClientResponsePayload {
+                    stream_key: stream_key.clone(),
+                    sequenced_packet: SequencedPacket {
+                        data: Vec::from(data),
+                        sequence_number: 1234,
+                        last_data: false
+                    },
+                },
+                &PublicKey::new(&b"abcd"[..]),
+            )
+            .unwrap()
+        );
+        assert_eq!(
+            hopper_recording.get_record::<IncipientCoresPackage>(1),
+            &IncipientCoresPackage::new(
+                cryptde(),
+                make_meaningless_route(),
+                ClientResponsePayload {
+                    stream_key: stream_key.clone(),
+                    sequenced_packet: SequencedPacket {
+                        data: Vec::from(data),
+                        sequence_number: 1235,
+                        last_data: true
+                    },
+                },
+                &PublicKey::new(&b"abcd"[..]),
+            )
+            .unwrap()
+        );
+        assert_eq!(hopper_recording.len(), 2);
+
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        assert_eq!(
+            accountant_recording.get_record::<ReportExitServiceProvidedMessage>(0),
+            &ReportExitServiceProvidedMessage {
+                consuming_wallet: Wallet::new("consuming"),
+                payload_size: data.len(),
+                service_rate: TEMPORARY_PER_EXIT_RATE,
+                byte_rate: TEMPORARY_PER_EXIT_BYTE_RATE
+            }
+        );
+        assert_eq!(
+            accountant_recording.get_record::<ReportExitServiceProvidedMessage>(1),
+            &ReportExitServiceProvidedMessage {
+                consuming_wallet: Wallet::new("consuming"),
+                payload_size: data.len(),
+                service_rate: TEMPORARY_PER_EXIT_RATE,
+                byte_rate: TEMPORARY_PER_EXIT_BYTE_RATE
+            }
+        );
+        assert_eq!(accountant_recording.len(), 2);
+        TestLogHandler::new ().exists_log_containing(format!("ERROR: Proxy Client: Received unsolicited {}-byte response from 1.2.3.4:5678, seq 1236: ignoring", data.len ()).as_str ());
+    }
+
+    #[test]
+    fn inbound_server_data_without_consuming_wallet_does_not_report_exit_service() {
+        init_test_logging();
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let stream_key = make_meaningless_stream_key();
+        let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
+        let system = System::new("inbound_server_data_is_translated_to_cores_packages");
+        let mut subject = ProxyClient::new(
+            cryptde(),
+            vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
+        );
+        subject.stream_contexts.insert(
+            stream_key.clone(),
+            StreamContext {
+                return_route: make_meaningless_route(),
+                payload_destination_key: PublicKey::new(&b"abcd"[..]),
+                consuming_wallet: None,
+            },
+        );
+        let subject_addr: Addr<Syn, ProxyClient> = subject.start();
+        let peer_actors = peer_actors_builder().accountant(accountant).build();
+
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(InboundServerData {
+                stream_key: stream_key.clone(),
+                last_data: false,
+                sequence_number: 1234,
+                source: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+                data: Vec::from(data),
+            })
+            .unwrap();
+
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        system.run();
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        assert_eq!(accountant_recording.len(), 0);
+        TestLogHandler::new().exists_log_containing(
+            format!(
+                "DEBUG: Proxy Client: Relayed {}-byte response without consuming wallet for free",
+                data.len()
+            )
+            .as_str(),
+        );
+    }
+
+    #[test]
+    fn error_creating_incipient_cores_package_is_logged_and_dropped() {
+        init_test_logging();
+        let (hopper, _, hopper_recording_arc) = make_recorder();
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let stream_key = make_meaningless_stream_key();
+        let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
+        let system = System::new("inbound_server_data_is_translated_to_cores_packages");
+        let mut subject = ProxyClient::new(
+            cryptde(),
+            vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
+        );
+        subject.stream_contexts.insert(
+            stream_key.clone(),
+            StreamContext {
+                return_route: make_meaningless_route(),
+                payload_destination_key: PublicKey::new(&[]),
+                consuming_wallet: Some(Wallet::new("consuming")),
+            },
+        );
+        let subject_addr: Addr<Syn, ProxyClient> = subject.start();
+        let peer_actors = peer_actors_builder()
+            .hopper(hopper)
+            .accountant(accountant)
+            .build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(InboundServerData {
+                stream_key: stream_key.clone(),
+                last_data: false,
+                sequence_number: 1234,
+                source: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+                data: Vec::from(data),
+            })
+            .unwrap();
+
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        system.run();
+        let hopper_recording = hopper_recording_arc.lock().unwrap();
+        assert_eq!(hopper_recording.len(), 0);
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        assert_eq!(accountant_recording.len(), 0);
+        TestLogHandler::new ().exists_log_containing(format!("ERROR: Proxy Client: Could not create CORES package for {}-byte response from 1.2.3.4:5678, seq 1234: Could not encrypt payload: EmptyKey - ignoring", data.len ()).as_str ());
+    }
+
+    #[test]
+    fn new_return_route_overwrites_existing_return_route() {
+        let (hopper, _, hopper_recording_arc) = make_recorder();
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let stream_key = make_meaningless_stream_key();
+        let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
+        let system = System::new("new_return_route_overwrites_existing_return_route");
+        let mut subject = ProxyClient::new(
+            cryptde(),
+            vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
+        );
+        let mut process_package_params_arc = Arc::new(Mutex::new(vec![]));
+        let pool = StreamHandlerPoolMock::new()
+            .process_package_parameters(&mut process_package_params_arc);
+        let pool_factory = StreamHandlerPoolFactoryMock::new().make_result(Box::new(pool));
+        let old_return_route = Route {
+            hops: vec![CryptData::new(&[1, 2, 3, 4])],
+        };
+        let new_return_route = make_meaningless_route();
+        let originator_public_key = PublicKey::new(&[4, 3, 2, 1]);
+        subject.stream_contexts.insert(
+            stream_key.clone(),
+            StreamContext {
+                return_route: old_return_route,
+                payload_destination_key: originator_public_key.clone(),
+                consuming_wallet: Some(Wallet::new("consuming")),
+            },
+        );
+        subject.stream_handler_pool_factory = Box::new(pool_factory);
+        let subject_addr: Addr<Syn, ProxyClient> = subject.start();
+        let peer_actors = peer_actors_builder()
+            .hopper(hopper)
+            .accountant(accountant)
+            .build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        let payload = ClientRequestPayload {
+            stream_key: stream_key.clone(),
+            sequenced_packet: SequencedPacket {
+                data: vec![],
+                sequence_number: 0,
+                last_data: false,
+            },
+            target_hostname: None,
+            target_port: 0,
+            protocol: ProxyProtocol::HTTP,
+            originator_public_key: originator_public_key.clone(),
+        };
+
+        subject_addr
+            .try_send(ExpiredCoresPackage::new(
+                IpAddr::from_str("2.3.4.5").unwrap(),
+                Some(Wallet::new("gnimusnoc")),
+                new_return_route.clone(),
+                PlainData::from(serde_cbor::ser::to_vec(&payload).unwrap()),
+            ))
+            .unwrap();
+
+        subject_addr
+            .try_send(InboundServerData {
+                stream_key: stream_key.clone(),
+                last_data: false,
+                sequence_number: 1234,
+                source: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+                data: Vec::from(data.clone()),
+            })
+            .unwrap();
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        system.run();
+        let mut process_package_params = process_package_params_arc.lock().unwrap();
+        let (actual_payload, consuming_wallet_opt) = process_package_params.remove(0);
+        assert_eq!(actual_payload, payload);
+        assert_eq!(consuming_wallet_opt, Some(Wallet::new("gnimusnoc")));
+        let hopper_recording = hopper_recording_arc.lock().unwrap();
+        let expected_icp = IncipientCoresPackage::new(
+            cryptde(),
+            new_return_route,
+            ClientResponsePayload {
+                stream_key,
+                sequenced_packet: SequencedPacket {
+                    data: Vec::from(data.clone()),
+                    sequence_number: 1234,
+                    last_data: false,
+                },
+            },
+            &originator_public_key,
+        )
+        .unwrap();
+
+        assert_eq!(
+            hopper_recording.get_record::<IncipientCoresPackage>(0),
+            &expected_icp.clone()
+        );
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        assert_eq!(
+            accountant_recording.get_record::<ReportExitServiceProvidedMessage>(0),
+            &ReportExitServiceProvidedMessage {
+                consuming_wallet: Wallet::new("gnimusnoc"),
+                payload_size: data.len(),
+                service_rate: TEMPORARY_PER_EXIT_RATE,
+                byte_rate: TEMPORARY_PER_EXIT_BYTE_RATE,
+            }
+        )
     }
 }

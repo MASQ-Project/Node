@@ -312,6 +312,7 @@ mod tests {
     use sub_lib::neighborhood::NodeQueryMessage;
     use sub_lib::neighborhood::RemoveNeighborMessage;
     use sub_lib::neighborhood::RouteQueryMessage;
+    use sub_lib::proxy_client::InboundServerData;
     use sub_lib::proxy_server::AddReturnRouteMessage;
     use sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
     use sub_lib::stream_handler_pool::TransmitDataMsg;
@@ -473,6 +474,7 @@ mod tests {
             ProxyClientSubs {
                 bind: addr.clone().recipient::<BindMessage>(),
                 from_hopper: addr.clone().recipient::<ExpiredCoresPackage>(),
+                inbound_server_data: addr.clone().recipient::<InboundServerData>(),
             }
         }
     }

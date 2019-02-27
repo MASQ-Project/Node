@@ -3,12 +3,20 @@ use crate::hopper::ExpiredCoresPackage;
 use crate::peer_actors::BindMessage;
 use crate::sequence_buffer::SequencedPacket;
 use crate::stream_key::StreamKey;
+use actix::Message;
 use actix::Recipient;
 use actix::Syn;
 use serde_derive::{Deserialize, Serialize};
+use std::net::Ipv4Addr;
+use std::net::SocketAddr;
+use std::net::SocketAddrV4;
 
 pub const TEMPORARY_PER_EXIT_BYTE_RATE: u64 = 2;
 pub const TEMPORARY_PER_EXIT_RATE: u64 = 1;
+
+pub fn error_socket_addr() -> SocketAddr {
+    SocketAddr::from(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0))
+}
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct ClientResponsePayload {
@@ -20,6 +28,7 @@ pub struct ClientResponsePayload {
 pub struct ProxyClientSubs {
     pub bind: Recipient<Syn, BindMessage>,
     pub from_hopper: Recipient<Syn, ExpiredCoresPackage>,
+    pub inbound_server_data: Recipient<Syn, InboundServerData>,
 }
 
 impl ClientResponsePayload {
@@ -33,6 +42,15 @@ impl ClientResponsePayload {
             },
         }
     }
+}
+
+#[derive(PartialEq, Clone, Message, Debug)]
+pub struct InboundServerData {
+    pub stream_key: StreamKey,
+    pub last_data: bool,
+    pub sequence_number: u64,
+    pub source: SocketAddr,
+    pub data: Vec<u8>,
 }
 
 #[cfg(test)]

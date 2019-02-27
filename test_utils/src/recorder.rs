@@ -32,6 +32,7 @@ use sub_lib::neighborhood::RouteQueryMessage;
 use sub_lib::neighborhood::RouteQueryResponse;
 use sub_lib::peer_actors::BindMessage;
 use sub_lib::peer_actors::PeerActors;
+use sub_lib::proxy_client::InboundServerData;
 use sub_lib::proxy_client::ProxyClientSubs;
 use sub_lib::proxy_server::AddReturnRouteMessage;
 use sub_lib::proxy_server::ProxyServerSubs;
@@ -103,6 +104,14 @@ impl Handler<InboundClientData> for Recorder {
     type Result = ();
 
     fn handle(&mut self, msg: InboundClientData, _ctx: &mut Self::Context) {
+        self.record(msg)
+    }
+}
+
+impl Handler<InboundServerData> for Recorder {
+    type Result = ();
+
+    fn handle(&mut self, msg: InboundServerData, _ctx: &mut Self::Context) {
         self.record(msg)
     }
 }
@@ -364,6 +373,7 @@ pub fn make_proxy_client_subs_from(addr: &Addr<Syn, Recorder>) -> ProxyClientSub
     ProxyClientSubs {
         bind: addr.clone().recipient::<BindMessage>(),
         from_hopper: addr.clone().recipient::<ExpiredCoresPackage>(),
+        inbound_server_data: addr.clone().recipient::<InboundServerData>(),
     }
 }
 

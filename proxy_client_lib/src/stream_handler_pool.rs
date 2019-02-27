@@ -7,6 +7,7 @@ use actix::Recipient;
 use actix::Syn;
 use futures::future::Future;
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::mpsc;
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
@@ -14,14 +15,12 @@ use std::sync::Mutex;
 use sub_lib::accountant::ReportExitServiceProvidedMessage;
 use sub_lib::channel_wrappers::SenderWrapper;
 use sub_lib::cryptde::CryptDE;
-use sub_lib::cryptde::PublicKey;
-use sub_lib::hopper::IncipientCoresPackage;
 use sub_lib::logger::Logger;
-use sub_lib::proxy_client::ClientResponsePayload;
+use sub_lib::proxy_client::error_socket_addr;
+use sub_lib::proxy_client::InboundServerData;
 use sub_lib::proxy_client::TEMPORARY_PER_EXIT_BYTE_RATE;
 use sub_lib::proxy_client::TEMPORARY_PER_EXIT_RATE;
 use sub_lib::proxy_server::ClientRequestPayload;
-use sub_lib::route::Route;
 use sub_lib::sequence_buffer::SequencedPacket;
 use sub_lib::stream_key::StreamKey;
 use sub_lib::wallet::Wallet;
@@ -29,24 +28,18 @@ use tokio::prelude::future::FutureResult;
 use tokio::prelude::future::{err, ok};
 
 pub trait StreamHandlerPool {
-    fn process_package(
-        &self,
-        payload: ClientRequestPayload,
-        consuming_wallet: Option<Wallet>,
-        route: Route,
-    );
+    fn process_package(&self, payload: ClientRequestPayload, consuming_wallet: Option<Wallet>);
 }
 
 pub struct StreamHandlerPoolReal {
     inner: Arc<Mutex<StreamHandlerPoolRealInner>>,
     stream_adder_rx: Receiver<(StreamKey, Box<dyn SenderWrapper<SequencedPacket>>)>,
     stream_killer_rx: Receiver<StreamKey>,
-    cryptde: &'static dyn CryptDE,
 }
 
 struct StreamHandlerPoolRealInner {
-    hopper_sub: Recipient<Syn, IncipientCoresPackage>,
     accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
+    proxy_client_sub: Recipient<Syn, InboundServerData>,
     stream_writer_channels: HashMap<StreamKey, Box<dyn SenderWrapper<SequencedPacket>>>,
     resolver: Box<dyn ResolverWrapper>,
     logger: Logger,
@@ -54,12 +47,7 @@ struct StreamHandlerPoolRealInner {
 }
 
 impl StreamHandlerPool for StreamHandlerPoolReal {
-    fn process_package(
-        &self,
-        payload: ClientRequestPayload,
-        consuming_wallet: Option<Wallet>,
-        return_route: Route,
-    ) {
+    fn process_package(&self, payload: ClientRequestPayload, consuming_wallet: Option<Wallet>) {
         self.do_housekeeping();
 
         if payload.sequenced_packet.last_data
@@ -72,13 +60,7 @@ impl StreamHandlerPool for StreamHandlerPoolReal {
                 payload.stream_key
             ));
         } else {
-            Self::process_package(
-                self.cryptde.clone(),
-                payload,
-                consuming_wallet,
-                return_route,
-                self.inner.clone(),
-            )
+            Self::process_package(payload, consuming_wallet, self.inner.clone())
         }
     }
 }
@@ -87,8 +69,8 @@ impl StreamHandlerPoolReal {
     pub fn new(
         resolver: Box<dyn ResolverWrapper>,
         cryptde: &'static dyn CryptDE,
-        hopper_sub: Recipient<Syn, IncipientCoresPackage>,
         accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
+        proxy_client_sub: Recipient<Syn, InboundServerData>,
     ) -> StreamHandlerPoolReal {
         let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
         let (stream_adder_tx, stream_adder_rx) = mpsc::channel();
@@ -98,81 +80,61 @@ impl StreamHandlerPoolReal {
                     cryptde,
                     stream_adder_tx,
                     stream_killer_tx,
-                    hopper_sub: hopper_sub.clone(),
-                    accountant_sub: accountant_sub.clone(),
+                    proxy_client_sub: proxy_client_sub.clone(),
                     logger: Logger::new("Proxy Client"),
                 }),
-                hopper_sub,
                 accountant_sub,
+                proxy_client_sub,
                 stream_writer_channels: HashMap::new(),
                 resolver,
                 logger: Logger::new("Proxy Client"),
             })),
             stream_adder_rx,
             stream_killer_rx,
-            cryptde,
         }
     }
 
     fn process_package(
-        cryptde: &'static dyn CryptDE,
         payload: ClientRequestPayload,
         consuming_wallet: Option<Wallet>,
-        return_route: Route,
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
     ) {
         let stream_key = payload.stream_key;
-        let originator_public_key = payload.originator_public_key.clone();
         let inner_arc_1 = inner_arc.clone();
         match Self::find_stream_with_key(&stream_key, &inner_arc) {
             Some(sender_wrapper) => {
+                let source = sender_wrapper.peer_addr();
                 let future =
                     Self::write_and_tend(sender_wrapper, payload, consuming_wallet, inner_arc)
                         .map_err(move |error| {
-                            Self::clean_up_bad_stream(
-                                cryptde,
-                                inner_arc_1,
-                                &stream_key,
-                                &return_route,
-                                &originator_public_key,
-                                error,
-                            );
+                            Self::clean_up_bad_stream(inner_arc_1, &stream_key, source, error);
                             ()
                         });
                 tokio::spawn(future);
             }
             None => {
-                let future = Self::make_stream_with_key(
-                    &payload,
-                    consuming_wallet.clone(),
-                    return_route.clone(),
-                    inner_arc_1.clone(),
-                )
-                .and_then(move |sender_wrapper| {
-                    Self::write_and_tend(sender_wrapper, payload, consuming_wallet, inner_arc)
-                })
-                .map_err(move |error| {
-                    Self::clean_up_bad_stream(
-                        cryptde,
-                        inner_arc_1,
-                        &stream_key,
-                        &return_route,
-                        &originator_public_key,
-                        error,
-                    );
-                    ()
-                });
+                let future = Self::make_stream_with_key(&payload, inner_arc_1.clone())
+                    .and_then(move |sender_wrapper| {
+                        Self::write_and_tend(sender_wrapper, payload, consuming_wallet, inner_arc)
+                    })
+                    .map_err(move |error| {
+                        Self::clean_up_bad_stream(
+                            inner_arc_1,
+                            &stream_key,
+                            error_socket_addr(),
+                            error,
+                        );
+                        ()
+                    });
                 tokio::spawn(future);
             }
         };
     }
 
     fn clean_up_bad_stream(
-        cryptde: &'static dyn CryptDE,
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
         stream_key: &StreamKey,
-        return_route: &Route,
-        originator_public_key: &PublicKey,
+        source: SocketAddr,
         error: String,
     ) {
         let mut inner = inner_arc.lock().expect("Stream handler pool was poisoned");
@@ -186,13 +148,7 @@ impl StreamHandlerPoolReal {
                 sender_wrapper.peer_addr()
             ));
         }
-        Self::send_terminating_package(
-            cryptde,
-            return_route,
-            stream_key,
-            originator_public_key,
-            &inner.hopper_sub,
-        );
+        Self::send_terminating_package(stream_key, source, &inner.proxy_client_sub);
     }
 
     fn write_and_tend(
@@ -232,8 +188,6 @@ impl StreamHandlerPoolReal {
 
     fn make_stream_with_key(
         payload: &ClientRequestPayload,
-        consuming_wallet: Option<Wallet>,
-        return_route: Route,
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
     ) -> impl Future<Item = Box<dyn SenderWrapper<SequencedPacket> + 'static>, Error = String> {
         // TODO: Figure out what to do if a flurry of requests for a particular stream key
@@ -257,12 +211,7 @@ impl StreamHandlerPoolReal {
             .resolver
             .lookup_ip(fqdn_opt)
             .then(move |lookup_result| {
-                let result = establisher.establish_stream(
-                    &payload_clone,
-                    consuming_wallet,
-                    &return_route,
-                    lookup_result,
-                );
+                let result = establisher.establish_stream(&payload_clone, lookup_result);
                 result
             })
             .map_err(|io_error| format!("Could not establish stream: {:?}", io_error))
@@ -304,21 +253,19 @@ impl StreamHandlerPoolReal {
     }
 
     fn send_terminating_package(
-        cryptde: &'static dyn CryptDE,
-        return_route: &Route,
         stream_key: &StreamKey,
-        originator_public_key: &PublicKey,
-        hopper_sub: &Recipient<Syn, IncipientCoresPackage>,
+        source: SocketAddr,
+        proxy_client_sub: &Recipient<Syn, InboundServerData>,
     ) {
-        let response = ClientResponsePayload::make_terminating_payload(stream_key.clone());
-        let package = IncipientCoresPackage::new(
-            cryptde,
-            return_route.clone(),
-            response,
-            &originator_public_key,
-        )
-        .expect("Key magically disappeared");
-        hopper_sub.try_send(package).expect("Hopper died");
+        proxy_client_sub
+            .try_send(InboundServerData {
+                stream_key: stream_key.clone(),
+                last_data: true,
+                sequence_number: 0,
+                source,
+                data: vec![],
+            })
+            .expect("Proxy Client is dead");
     }
 
     fn do_housekeeping(&self) {
@@ -370,8 +317,8 @@ pub trait StreamHandlerPoolFactory {
         &self,
         resolver: Box<dyn ResolverWrapper>,
         cryptde: &'static dyn CryptDE,
-        hopper_sub: Recipient<Syn, IncipientCoresPackage>,
         accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
+        proxy_client_sub: Recipient<Syn, InboundServerData>,
     ) -> Box<dyn StreamHandlerPool>;
 }
 
@@ -382,14 +329,14 @@ impl StreamHandlerPoolFactory for StreamHandlerPoolFactoryReal {
         &self,
         resolver: Box<dyn ResolverWrapper>,
         cryptde: &'static dyn CryptDE,
-        hopper_sub: Recipient<Syn, IncipientCoresPackage>,
         accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
+        proxy_client_sub: Recipient<Syn, InboundServerData>,
     ) -> Box<dyn StreamHandlerPool> {
         Box::new(StreamHandlerPoolReal::new(
             resolver,
             cryptde,
-            hopper_sub,
             accountant_sub,
+            proxy_client_sub,
         ))
     }
 }
@@ -424,7 +371,7 @@ mod tests {
     use sub_lib::channel_wrappers::FuturesChannelFactoryReal;
     use sub_lib::channel_wrappers::SenderWrapperReal;
     use sub_lib::cryptde::PlainData;
-    use sub_lib::cryptde_null::CryptDENull;
+    use sub_lib::cryptde::PublicKey;
     use sub_lib::hopper::ExpiredCoresPackage;
     use sub_lib::proxy_server::ProxyProtocol;
     use sub_lib::wallet::Wallet;
@@ -470,9 +417,7 @@ mod tests {
         ) -> <Self as Handler<TriggerSubject>>::Result {
             let payload = msg.package.payload::<ClientRequestPayload>().unwrap();
             let consuming_wallet = msg.package.consuming_wallet;
-            let route = msg.package.remaining_route;
-            self.subject
-                .process_package(payload, consuming_wallet, route);
+            self.subject.process_package(payload, consuming_wallet);
             ()
         }
     }
@@ -513,22 +458,16 @@ mod tests {
             make_meaningless_route(),
             PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
         );
-        let package_a = package.clone();
-        let (hopper, _, _) = make_recorder();
-        let (accountant, accountant_awaiter, accountant_recording_arc) = make_recorder();
 
         thread::spawn(move || {
             let system = System::new("test");
 
-            let peer_actors = peer_actors_builder()
-                .hopper(hopper)
-                .accountant(accountant)
-                .build();
+            let peer_actors = peer_actors_builder().build();
             let subject = StreamHandlerPoolReal::new(
                 Box::new(ResolverWrapperMock::new()),
                 cryptde(),
-                peer_actors.hopper.from_hopper_client.clone(),
                 peer_actors.accountant.report_exit_service_provided.clone(),
+                peer_actors.proxy_client.inbound_server_data.clone(),
             );
             subject
                 .inner
@@ -552,96 +491,13 @@ mod tests {
             write_parameters.lock().unwrap().remove(0),
             client_request_payload.sequenced_packet
         );
-
-        accountant_awaiter.await_message_count(1);
-        let accountant_recording = accountant_recording_arc.lock().unwrap();
-        let message = accountant_recording.get_record::<ReportExitServiceProvidedMessage>(0);
-        assert_eq!(
-            message,
-            &ReportExitServiceProvidedMessage {
-                consuming_wallet: package_a.consuming_wallet.clone().unwrap(),
-                payload_size: client_request_payload.sequenced_packet.data.len(),
-                service_rate: TEMPORARY_PER_EXIT_RATE,
-                byte_rate: TEMPORARY_PER_EXIT_BYTE_RATE,
-            }
-        );
-    }
-
-    #[test]
-    fn when_no_consumer_wallet_is_specified_the_accountant_is_not_notified() {
-        init_test_logging();
-        let stream_key = make_meaningless_stream_key();
-        let client_request_payload = ClientRequestPayload {
-            stream_key: stream_key.clone(),
-            sequenced_packet: SequencedPacket {
-                data: b"These are the times".to_vec(),
-                sequence_number: 0,
-                last_data: false,
-            },
-            target_hostname: None,
-            target_port: 80,
-            protocol: ProxyProtocol::HTTP,
-            originator_public_key: PublicKey::new(&b"men's souls"[..]),
-        };
-        let mut tx_to_write = Box::new(SenderWrapperMock::new(
-            SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-        ));
-        tx_to_write.unbounded_send_results = RefCell::new(vec![Ok(())]);
-        let package = ExpiredCoresPackage::new(
-            IpAddr::from_str("1.2.3.4").unwrap(),
-            None,
-            make_meaningless_route(),
-            PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
-        );
-        let (hopper, _, _) = make_recorder();
-        let (accountant, _, accountant_recording_arc) = make_recorder();
-        thread::spawn(move || {
-            let system = System::new("test");
-
-            let peer_actors = peer_actors_builder()
-                .hopper(hopper)
-                .accountant(accountant)
-                .build();
-            let subject = StreamHandlerPoolReal::new(
-                Box::new(ResolverWrapperMock::new()),
-                cryptde(),
-                peer_actors.hopper.from_hopper_client.clone(),
-                peer_actors.accountant.report_exit_service_provided.clone(),
-            );
-            subject
-                .inner
-                .lock()
-                .unwrap()
-                .stream_writer_channels
-                .insert(stream_key, tx_to_write);
-
-            let test_actor = TestActor { subject };
-            let addr: Addr<Syn, TestActor> = test_actor.start();
-            let test_trigger: Recipient<Syn, TriggerSubject> =
-                addr.clone().recipient::<TriggerSubject>();
-            test_trigger.try_send(TriggerSubject { package }).is_ok();
-            system.run();
-        });
-        TestLogHandler::new().await_log_containing(
-            format!(
-                "DEBUG: Proxy Client: Sent {}-byte request without consuming wallet for free",
-                client_request_payload.sequenced_packet.data.len()
-            )
-            .as_str(),
-            1000,
-        );
-
-        let accountant_recording = accountant_recording_arc.lock().unwrap();
-        assert_eq!(accountant_recording.len(), 0);
     }
 
     #[test]
     fn write_failure_for_nonexistent_stream_generates_termination_message() {
         init_test_logging();
-        let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
-        let (accountant, _, _) = make_recorder();
+        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
-        let originator_cryptde = CryptDENull::from(&originator_key);
         thread::spawn(move || {
             let client_request_payload = ClientRequestPayload {
                 stream_key: make_meaningless_stream_key(),
@@ -662,10 +518,7 @@ mod tests {
                 PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
             );
             let system = System::new("test");
-            let peer_actors = peer_actors_builder()
-                .hopper(hopper)
-                .accountant(accountant)
-                .build();
+            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_success(vec![IpAddr::from_str("2.3.4.5").unwrap()]);
             let mut tx_to_write: SenderWrapperMock<SequencedPacket> =
@@ -677,8 +530,8 @@ mod tests {
             let subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
                 cryptde(),
-                peer_actors.hopper.from_hopper_client.clone(),
                 peer_actors.accountant.report_exit_service_provided.clone(),
+                peer_actors.proxy_client.inbound_server_data.clone(),
             );
             subject
                 .inner
@@ -695,29 +548,28 @@ mod tests {
 
             system.run();
         });
-        hopper_awaiter.await_message_count(1);
-        let hopper_recording = hopper_recording_arc.lock().unwrap();
-        let package = hopper_recording.get_record::<IncipientCoresPackage>(0);
-        let decrypted_payload = originator_cryptde.decode(&package.payload).unwrap();
-        let payload =
-            serde_cbor::de::from_slice::<ClientResponsePayload>(decrypted_payload.as_slice())
-                .unwrap();
-        assert_eq!(payload.sequenced_packet.last_data, true);
+        proxy_client_awaiter.await_message_count(1);
+        let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
+        assert_eq!(
+            proxy_client_recording.get_record::<InboundServerData>(0),
+            &InboundServerData {
+                stream_key: make_meaningless_stream_key(),
+                last_data: true,
+                sequence_number: 0,
+                source: SocketAddr::from_str("2.3.4.5:80").unwrap(),
+                data: vec![]
+            }
+        );
     }
 
     #[test]
     fn missing_hostname_for_nonexistent_stream_generates_log_and_termination_message() {
         init_test_logging();
-        let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
-        let (accountant, _, _) = make_recorder();
+        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
-        let originator_cryptde = CryptDENull::from(&originator_key);
         thread::spawn(move || {
             let system = System::new("test");
-            let peer_actors = peer_actors_builder()
-                .hopper(hopper)
-                .accountant(accountant)
-                .build();
+            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let client_request_payload = ClientRequestPayload {
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
@@ -741,8 +593,8 @@ mod tests {
             let subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
                 cryptde(),
-                peer_actors.hopper.from_hopper_client.clone(),
                 peer_actors.accountant.report_exit_service_provided.clone(),
+                peer_actors.proxy_client.inbound_server_data.clone(),
             );
 
             let test_actor = TestActor { subject };
@@ -754,14 +606,18 @@ mod tests {
             system.run();
         });
 
-        hopper_awaiter.await_message_count(1);
-        let hopper_recording = hopper_recording_arc.lock().unwrap();
-        let package = hopper_recording.get_record::<IncipientCoresPackage>(0);
-        let decrypted_payload = originator_cryptde.decode(&package.payload).unwrap();
-        let payload =
-            serde_cbor::de::from_slice::<ClientResponsePayload>(decrypted_payload.as_slice())
-                .unwrap();
-        assert_eq!(payload.sequenced_packet.last_data, true);
+        proxy_client_awaiter.await_message_count(1);
+        let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
+        assert_eq!(
+            proxy_client_recording.get_record::<InboundServerData>(0),
+            &InboundServerData {
+                stream_key: make_meaningless_stream_key(),
+                last_data: true,
+                sequence_number: 0,
+                source: error_socket_addr(),
+                data: vec![]
+            }
+        );
         TestLogHandler::new().exists_log_containing(
             format!(
                 "ERROR: Proxy Client: Cannot open new stream with key {:?}: no hostname supplied",
@@ -777,14 +633,10 @@ mod tests {
         let expected_lookup_ip_parameters = lookup_ip_parameters.clone();
         let write_parameters = Arc::new(Mutex::new(vec![]));
         let expected_write_parameters = write_parameters.clone();
-        let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
-        let (accountant, _, _) = make_recorder();
+        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         thread::spawn(move || {
             let system = System::new("test");
-            let peer_actors = peer_actors_builder()
-                .hopper(hopper)
-                .accountant(accountant)
-                .build();
+            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let client_request_payload = ClientRequestPayload {
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
@@ -824,8 +676,8 @@ mod tests {
             let mut subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
                 cryptde(),
-                peer_actors.hopper.from_hopper_client.clone(),
                 peer_actors.accountant.report_exit_service_provided.clone(),
+                peer_actors.proxy_client.inbound_server_data.clone(),
             );
             let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
             subject.stream_killer_rx = stream_killer_rx;
@@ -843,8 +695,7 @@ mod tests {
                         reader,
                         writer,
                     )),
-                    hopper_sub: inner.hopper_sub.clone(),
-                    accountant_sub: inner.accountant_sub.clone(),
+                    proxy_client_sub: inner.proxy_client_sub.clone(),
                     logger: inner.logger.clone(),
                     channel_factory: Box::new(FuturesChannelFactoryReal {}),
                 };
@@ -863,7 +714,7 @@ mod tests {
             system.run();
         });
 
-        hopper_awaiter.await_message_count(1);
+        proxy_client_awaiter.await_message_count(1);
         assert_eq!(
             expected_lookup_ip_parameters.lock().unwrap().deref(),
             &vec!(Some(String::from("that.try.")))
@@ -872,24 +723,16 @@ mod tests {
             expected_write_parameters.lock().unwrap().remove(0),
             b"These are the times".to_vec()
         );
-        let hopper_recording = hopper_recording_arc.lock().unwrap();
-        let record = hopper_recording.get_record::<IncipientCoresPackage>(0);
+        let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(
-            *record,
-            IncipientCoresPackage::new(
-                cryptde(),
-                make_meaningless_route(),
-                ClientResponsePayload {
-                    stream_key: make_meaningless_stream_key(),
-                    sequenced_packet: SequencedPacket {
-                        data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
-                        sequence_number: 0,
-                        last_data: false
-                    },
-                },
-                &PublicKey::new(&b"men's souls"[..]),
-            )
-            .unwrap()
+            proxy_client_recording.get_record::<InboundServerData>(0),
+            &InboundServerData {
+                stream_key: make_meaningless_stream_key(),
+                last_data: false,
+                sequence_number: 0,
+                source: SocketAddr::from_str("3.4.5.6:80").unwrap(),
+                data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec()
+            }
         );
     }
 
@@ -897,16 +740,11 @@ mod tests {
     fn failing_to_make_a_connection_sends_an_error_response() {
         let stream_key = make_meaningless_stream_key();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
-        let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
-        let (accountant, _, _) = make_recorder();
+        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
-        let originator_cryptde = CryptDENull::from(&originator_key);
         thread::spawn(move || {
             let system = System::new("test");
-            let peer_actors = peer_actors_builder()
-                .hopper(hopper)
-                .accountant(accountant)
-                .build();
+            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let client_request_payload = ClientRequestPayload {
                 stream_key,
                 sequenced_packet: SequencedPacket {
@@ -931,13 +769,12 @@ mod tests {
                     IpAddr::from_str("2.3.4.5").unwrap(),
                     IpAddr::from_str("3.4.5.6").unwrap(),
                 ]);
-            let hopper_sub = peer_actors.hopper.from_hopper_client.clone();
-            let accountant_sub = peer_actors.accountant.report_exit_service_provided.clone();
+            let proxy_client_sub = peer_actors.proxy_client.inbound_server_data.clone();
             let mut subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
                 cryptde(),
-                hopper_sub.clone(),
-                accountant_sub.clone(),
+                peer_actors.accountant.report_exit_service_provided.clone(),
+                proxy_client_sub.clone(),
             );
             let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
             subject.stream_killer_rx = stream_killer_rx;
@@ -951,8 +788,7 @@ mod tests {
                     StreamConnectorMock::new()
                         .connect_pair_result(Err(Error::from(ErrorKind::Other))),
                 ),
-                hopper_sub,
-                accountant_sub,
+                proxy_client_sub,
                 logger: subject.inner.lock().unwrap().logger.clone(),
                 channel_factory: Box::new(FuturesChannelFactoryReal {}),
             };
@@ -971,16 +807,17 @@ mod tests {
             system.run();
         });
 
-        hopper_awaiter.await_message_count(1);
-        let hopper_recording = hopper_recording_arc.lock().unwrap();
-        let record = hopper_recording.get_record::<IncipientCoresPackage>(0);
-        let decrypted_payload = originator_cryptde.decode(&record.payload).unwrap();
-        let client_response_payload =
-            serde_cbor::de::from_slice::<ClientResponsePayload>(decrypted_payload.as_slice())
-                .unwrap();
+        proxy_client_awaiter.await_message_count(1);
+        let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(
-            client_response_payload,
-            ClientResponsePayload::make_terminating_payload(stream_key)
+            proxy_client_recording.get_record::<InboundServerData>(0),
+            &InboundServerData {
+                stream_key,
+                last_data: true,
+                sequence_number: 0,
+                source: error_socket_addr(),
+                data: vec![]
+            }
         );
     }
 
@@ -989,16 +826,11 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let write_parameters = Arc::new(Mutex::new(vec![]));
-        let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
-        let (accountant, _, _) = make_recorder();
+        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
-        let originator_cryptde = CryptDENull::from(&originator_key);
         thread::spawn(move || {
             let system = System::new("test");
-            let peer_actors = peer_actors_builder()
-                .hopper(hopper)
-                .accountant(accountant)
-                .build();
+            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let sequenced_packet = SequencedPacket {
                 data: b"These are the times".to_vec(),
                 sequence_number: 0,
@@ -1040,8 +872,8 @@ mod tests {
             let mut subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
                 cryptde(),
-                peer_actors.hopper.from_hopper_client.clone(),
                 peer_actors.accountant.report_exit_service_provided.clone(),
+                peer_actors.proxy_client.inbound_server_data.clone(),
             );
             let disconnected_sender = Box::new(SenderWrapperMock {
                 peer_addr,
@@ -1064,8 +896,7 @@ mod tests {
                         reader,
                         writer,
                     )),
-                    hopper_sub: inner.hopper_sub.clone(),
-                    accountant_sub: inner.accountant_sub.clone(),
+                    proxy_client_sub: inner.proxy_client_sub.clone(),
                     logger: inner.logger.clone(),
                     channel_factory: Box::new(FuturesChannelFactoryMock {
                         results: vec![(
@@ -1090,16 +921,17 @@ mod tests {
             system.run();
         });
 
-        hopper_awaiter.await_message_count(1);
-        let hopper_recording = hopper_recording_arc.lock().unwrap();
-        let record = hopper_recording.get_record::<IncipientCoresPackage>(0);
-        let decrypted_payload = originator_cryptde.decode(&record.payload).unwrap();
-        let client_response_payload =
-            serde_cbor::de::from_slice::<ClientResponsePayload>(decrypted_payload.as_slice())
-                .unwrap();
+        proxy_client_awaiter.await_message_count(1);
+        let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(
-            client_response_payload,
-            ClientResponsePayload::make_terminating_payload(stream_key)
+            proxy_client_recording.get_record::<InboundServerData>(0),
+            &InboundServerData {
+                stream_key,
+                last_data: true,
+                sequence_number: 0,
+                source: error_socket_addr(),
+                data: vec![]
+            }
         );
     }
 
@@ -1107,10 +939,8 @@ mod tests {
     fn bad_dns_lookup_produces_log_and_sends_error_response() {
         init_test_logging();
         let stream_key = make_meaningless_stream_key();
-        let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
-        let (accountant, _, _) = make_recorder();
+        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
-        let originator_cryptde = CryptDENull::from(&originator_key);
         thread::spawn(move || {
             let client_request_payload = ClientRequestPayload {
                 stream_key,
@@ -1131,10 +961,7 @@ mod tests {
                 PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
             );
             let system = System::new("test");
-            let peer_actors = peer_actors_builder()
-                .hopper(hopper)
-                .accountant(accountant)
-                .build();
+            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let mut lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_parameters(&mut lookup_ip_parameters)
@@ -1142,8 +969,8 @@ mod tests {
             let subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
                 cryptde(),
-                peer_actors.hopper.from_hopper_client.clone(),
                 peer_actors.accountant.report_exit_service_provided.clone(),
+                peer_actors.proxy_client.inbound_server_data.clone(),
             );
             let test_actor = TestActor { subject };
             let addr: Addr<Syn, TestActor> = test_actor.start();
@@ -1157,16 +984,17 @@ mod tests {
             "ERROR: Proxy Client: Could not find IP address for host that.try: io error",
             1000,
         );
-        hopper_awaiter.await_message_count(1);
-        let recording = hopper_recording_arc.lock().unwrap();
-        let record = recording.get_record::<IncipientCoresPackage>(0);
-        let decrypted_payload = originator_cryptde.decode(&record.payload).unwrap();
-        let client_response_payload =
-            serde_cbor::de::from_slice::<ClientResponsePayload>(decrypted_payload.as_slice())
-                .unwrap();
+        proxy_client_awaiter.await_message_count(1);
+        let recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(
-            client_response_payload,
-            ClientResponsePayload::make_terminating_payload(stream_key)
+            recording.get_record::<InboundServerData>(0),
+            &InboundServerData {
+                stream_key,
+                last_data: true,
+                sequence_number: 0,
+                source: error_socket_addr(),
+                data: vec![]
+            }
         );
     }
 
@@ -1175,8 +1003,7 @@ mod tests {
     fn after_writing_last_data_the_stream_should_close() {
         init_test_logging();
         let stream_key = make_meaningless_stream_key();
-        let (hopper, _, _) = make_recorder();
-        let (accountant, _, _) = make_recorder();
+        let (proxy_client, _, _) = make_recorder();
         let (tx_to_write, mut rx_to_write) = unbounded();
         let sequenced_packet = SequencedPacket {
             data: b"These are the times".to_vec(),
@@ -1200,16 +1027,13 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             let system = System::new("test");
-            let peer_actors = peer_actors_builder()
-                .hopper(hopper)
-                .accountant(accountant)
-                .build();
+            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let resolver = ResolverWrapperMock::new();
             let subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
                 cryptde(),
-                peer_actors.hopper.from_hopper_client.clone(),
                 peer_actors.accountant.report_exit_service_provided.clone(),
+                peer_actors.proxy_client.inbound_server_data.clone(),
             );
             subject.inner.lock().unwrap().stream_writer_channels.insert(
                 stream_key,
@@ -1253,6 +1077,7 @@ mod tests {
     fn error_from_tx_to_writer_removes_stream() {
         init_test_logging();
         let stream_key = make_meaningless_stream_key();
+        let (proxy_client, _, _) = make_recorder();
         let (hopper, _, _) = make_recorder();
         let (accountant, _, _) = make_recorder();
         let sequenced_packet = SequencedPacket {
@@ -1285,13 +1110,14 @@ mod tests {
             let peer_actors = peer_actors_builder()
                 .hopper(hopper)
                 .accountant(accountant)
+                .proxy_client(proxy_client)
                 .build();
 
             let subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
                 cryptde(),
-                peer_actors.hopper.from_hopper_client.clone(),
                 peer_actors.accountant.report_exit_service_provided.clone(),
+                peer_actors.proxy_client.inbound_server_data.clone(),
             );
             subject
                 .inner
@@ -1320,6 +1146,7 @@ mod tests {
     fn process_package_does_not_create_new_connection_for_last_data_message_with_no_data_and_sends_no_response(
     ) {
         init_test_logging();
+        let (proxy_client, _, _) = make_recorder();
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let (accountant, _, _) = make_recorder();
         thread::spawn(move || {
@@ -1327,6 +1154,7 @@ mod tests {
             let peer_actors = peer_actors_builder()
                 .hopper(hopper)
                 .accountant(accountant)
+                .proxy_client(proxy_client)
                 .build();
             let client_request_payload = ClientRequestPayload {
                 stream_key: make_meaningless_stream_key(),
@@ -1350,8 +1178,8 @@ mod tests {
             let subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
                 cryptde(),
-                peer_actors.hopper.from_hopper_client.clone(),
                 peer_actors.accountant.report_exit_service_provided.clone(),
+                peer_actors.proxy_client.inbound_server_data.clone(),
             );
 
             subject.inner.lock().unwrap().establisher_factory =
