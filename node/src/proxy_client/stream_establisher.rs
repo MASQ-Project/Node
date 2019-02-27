@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::stream_reader::StreamReader;
-use crate::stream_writer::StreamWriter;
+use crate::proxy_client::stream_reader::StreamReader;
+use crate::proxy_client::stream_writer::StreamWriter;
 use actix::Recipient;
 use actix::Syn;
 use std::io;

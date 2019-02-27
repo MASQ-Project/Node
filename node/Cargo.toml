@@ -8,7 +8,7 @@ description = ""
 edition = "2018"
 
 [workspace]
-members = ["../sub_lib", "../test_utils", "../proxy_client_lib", "../proxy_server_lib", "../multinode_integration_tests"]
+members = ["../sub_lib", "../test_utils", "../proxy_server_lib", "../multinode_integration_tests"]
 
 [dependencies]
 actix = "= 0.5.7" # upgrading causes flakiness
@@ -26,8 +26,9 @@ serde_json = "1.0.32"
 serde_cbor = "0.9.0"
 sha1 = "0.6.0"
 tokio = "0.1.15"
+tokio-core = "0.1.12"
+trust-dns-resolver = "0.9.1"
 sub_lib = { path = "../sub_lib" }
-proxy_client_lib = { path = "../proxy_client_lib" }
 proxy_server_lib = { path = "../proxy_server_lib" }
 
 [dependencies.rusqlite]
@@ -42,6 +43,7 @@ features = ["async", "sync"]
 [dev-dependencies]
 tls-api = "0.1.20"
 tls-api-native-tls = "0.1.20"
+trust-dns-proto = "0.4.0"
 test_utils = { path = "../test_utils" }
 
 [target.'cfg(unix)'.dependencies]

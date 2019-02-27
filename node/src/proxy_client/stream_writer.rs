@@ -206,7 +206,8 @@ mod tests {
         assert_eq!(write_params[0], packet_a);
         assert_eq!(write_params[1], packet_b);
         assert_eq!(write_params[2], packet_c);
-        assert_eq!(write_params[3], vec!());
+        let empty_packet: Vec<u8> = vec![];
+        assert_eq!(write_params[3], empty_packet);
 
         let tlh = TestLogHandler::new();
         tlh.assert_logs_contain_in_order(vec![

@@ -18,6 +18,7 @@ pub mod masquerader;
 pub mod neighborhood;
 mod null_masquerader;
 mod privilege_drop;
+mod proxy_client;
 pub mod server_initializer;
 mod stream_handler_pool;
 mod stream_messages;

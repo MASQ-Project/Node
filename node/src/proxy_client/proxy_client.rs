@@ -1,9 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::resolver_wrapper::ResolverWrapperFactory;
-use crate::resolver_wrapper::ResolverWrapperFactoryReal;
-use crate::stream_handler_pool::StreamHandlerPool;
-use crate::stream_handler_pool::StreamHandlerPoolFactory;
-use crate::stream_handler_pool::StreamHandlerPoolFactoryReal;
+use crate::proxy_client::resolver_wrapper::ResolverWrapperFactory;
+use crate::proxy_client::resolver_wrapper::ResolverWrapperFactoryReal;
+use crate::proxy_client::stream_handler_pool::StreamHandlerPool;
+use crate::proxy_client::stream_handler_pool::StreamHandlerPoolFactory;
+use crate::proxy_client::stream_handler_pool::StreamHandlerPoolFactoryReal;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
@@ -239,11 +239,11 @@ struct StreamContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::local_test_utils::ResolverWrapperFactoryMock;
-    use crate::local_test_utils::ResolverWrapperMock;
-    use crate::resolver_wrapper::ResolverWrapper;
-    use crate::stream_handler_pool::StreamHandlerPool;
-    use crate::stream_handler_pool::StreamHandlerPoolFactory;
+    use crate::proxy_client::local_test_utils::ResolverWrapperFactoryMock;
+    use crate::proxy_client::local_test_utils::ResolverWrapperMock;
+    use crate::proxy_client::resolver_wrapper::ResolverWrapper;
+    use crate::proxy_client::stream_handler_pool::StreamHandlerPool;
+    use crate::proxy_client::stream_handler_pool::StreamHandlerPoolFactory;
     use actix::msgs;
     use actix::Arbiter;
     use actix::System;

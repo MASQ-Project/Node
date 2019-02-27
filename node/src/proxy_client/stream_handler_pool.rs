@@ -1,8 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 #![allow(proc_macro_derive_resolution_fallback)]
-use crate::resolver_wrapper::ResolverWrapper;
-use crate::stream_establisher::StreamEstablisherFactory;
-use crate::stream_establisher::StreamEstablisherFactoryReal;
+use crate::proxy_client::resolver_wrapper::ResolverWrapper;
+use crate::proxy_client::stream_establisher::StreamEstablisherFactory;
+use crate::proxy_client::stream_establisher::StreamEstablisherFactoryReal;
 use actix::Recipient;
 use actix::Syn;
 use futures::future::Future;
@@ -344,9 +344,9 @@ impl StreamHandlerPoolFactory for StreamHandlerPoolFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::local_test_utils::make_send_error;
-    use crate::local_test_utils::ResolverWrapperMock;
-    use crate::stream_establisher::StreamEstablisher;
+    use crate::proxy_client::local_test_utils::make_send_error;
+    use crate::proxy_client::local_test_utils::ResolverWrapperMock;
+    use crate::proxy_client::stream_establisher::StreamEstablisher;
     use actix::Actor;
     use actix::Addr;
     use actix::Context;

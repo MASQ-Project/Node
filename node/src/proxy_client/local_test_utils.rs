@@ -1,8 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::resolver_wrapper::ResolverWrapper;
-use crate::resolver_wrapper::ResolverWrapperFactory;
-use crate::resolver_wrapper::WrappedLookupIpFuture;
+use crate::proxy_client::resolver_wrapper::ResolverWrapper;
+use crate::proxy_client::resolver_wrapper::ResolverWrapperFactory;
+use crate::proxy_client::resolver_wrapper::WrappedLookupIpFuture;
 use futures::future;
 use futures::sync::mpsc::unbounded;
 use futures::sync::mpsc::SendError;

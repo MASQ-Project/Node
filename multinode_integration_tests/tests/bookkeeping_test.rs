@@ -2,7 +2,6 @@
 extern crate base64;
 extern crate multinode_integration_tests_lib;
 extern crate node_lib;
-extern crate proxy_client_lib;
 extern crate regex;
 extern crate serde_cbor;
 extern crate sub_lib;
