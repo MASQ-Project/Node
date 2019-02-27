@@ -131,7 +131,7 @@ impl RoutingService {
         consuming_wallet_opt: Option<Wallet>,
         last_data: bool,
     ) {
-        let payload_size = live_package.payload.len() as u32;
+        let payload_size = live_package.payload.len();
         match consuming_wallet_opt {
             Some(consuming_wallet) => self
                 .to_accountant_routing
@@ -661,7 +661,7 @@ mod tests {
             *message,
             ReportRoutingServiceProvidedMessage {
                 consuming_wallet,
-                payload_size: lcp.payload.len() as u32,
+                payload_size: lcp.payload.len(),
                 service_rate: TEMPORARY_PER_ROUTING_RATE,
                 byte_rate: TEMPORARY_PER_ROUTING_BYTE_RATE
             }

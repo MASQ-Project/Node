@@ -203,7 +203,7 @@ impl StreamHandlerPoolReal {
     ) -> impl Future<Item = (), Error = String> {
         let stream_key = payload.stream_key.clone();
         let last_data = payload.sequenced_packet.last_data;
-        let payload_size = payload.sequenced_packet.data.len() as u32;
+        let payload_size = payload.sequenced_packet.data.len();
 
         Self::perform_write(payload.sequenced_packet, sender_wrapper.clone()).and_then(move |_| {
             let mut inner = inner_arc.lock().expect("Stream handler pool is poisoned");
@@ -560,7 +560,7 @@ mod tests {
             message,
             &ReportExitServiceProvidedMessage {
                 consuming_wallet: package_a.consuming_wallet.clone().unwrap(),
-                payload_size: client_request_payload.sequenced_packet.data.len() as u32,
+                payload_size: client_request_payload.sequenced_packet.data.len(),
                 service_rate: TEMPORARY_PER_EXIT_RATE,
                 byte_rate: TEMPORARY_PER_EXIT_BYTE_RATE,
             }

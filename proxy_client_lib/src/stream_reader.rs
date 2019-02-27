@@ -140,7 +140,7 @@ impl StreamReader {
                         to_string(&response_chunk.chunk)
                     ));
                     let stream_key = self.stream_key.clone();
-                    let payload_size = response_chunk.chunk.len() as u32;
+                    let payload_size = response_chunk.chunk.len();
                     self.send_cores_response(
                         stream_key,
                         PlainData::new(&response_chunk.chunk[..]),
@@ -189,7 +189,7 @@ impl StreamReader {
             .expect("Hopper is dead");
     }
 
-    fn report_exit_service(&self, payload_size: u32) {
+    fn report_exit_service(&self, payload_size: usize) {
         match self.consuming_wallet.as_ref() {
             Some(wallet) => self
                 .accountant_sub

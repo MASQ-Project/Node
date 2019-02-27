@@ -265,7 +265,7 @@ impl ProxyServer {
     fn report_routing_service(
         accountant_routing_sub: Recipient<Syn, ReportRoutingServiceConsumedMessage>,
         response: &RouteQueryResponse,
-        payload_size: u32,
+        payload_size: usize,
         logger: &Logger,
     ) {
         let earning_wallets: Vec<&Wallet> = response
@@ -305,7 +305,7 @@ impl ProxyServer {
             },
         ) {
             Some(earning_wallet) => {
-                let payload_size = payload.sequenced_packet.data.len() as u32;
+                let payload_size = payload.sequenced_packet.data.len();
                 let report_exit_service_consumed_message = ReportExitServiceConsumedMessage {
                     earning_wallet: earning_wallet.clone(),
                     payload_size,
@@ -366,7 +366,7 @@ impl ProxyServer {
                 ProxyServer::report_routing_service(
                     accountant_routing_sub,
                     &response,
-                    pkg.payload.len() as u32,
+                    pkg.payload.len(),
                     &logger,
                 );
                 hopper.try_send(pkg).expect("Hopper is dead");
@@ -817,7 +817,7 @@ mod tests {
             record,
             &ReportRoutingServiceConsumedMessage {
                 earning_wallet: route_1_earning_wallet,
-                payload_size: payload_enc.len() as u32,
+                payload_size: payload_enc.len(),
                 service_rate: TEMPORARY_PER_ROUTING_RATE,
                 byte_rate: TEMPORARY_PER_ROUTING_BYTE_RATE,
             }
@@ -827,7 +827,7 @@ mod tests {
             record,
             &ReportRoutingServiceConsumedMessage {
                 earning_wallet: route_2_earning_wallet,
-                payload_size: payload_enc.len() as u32,
+                payload_size: payload_enc.len(),
                 service_rate: TEMPORARY_PER_ROUTING_RATE,
                 byte_rate: TEMPORARY_PER_ROUTING_BYTE_RATE,
             }
@@ -928,7 +928,7 @@ mod tests {
             record,
             &ReportExitServiceConsumedMessage {
                 earning_wallet,
-                payload_size: expected_data.len() as u32,
+                payload_size: expected_data.len(),
                 service_rate: TEMPORARY_PER_EXIT_RATE,
                 byte_rate: TEMPORARY_PER_EXIT_BYTE_RATE,
             }

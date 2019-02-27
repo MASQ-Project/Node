@@ -33,7 +33,7 @@ pub struct AccountantSubs {
 #[derive(Clone, PartialEq, Debug, Message)]
 pub struct ReportRoutingServiceProvidedMessage {
     pub consuming_wallet: Wallet,
-    pub payload_size: u32,
+    pub payload_size: usize,
     pub service_rate: u64,
     pub byte_rate: u64,
 }
@@ -41,7 +41,7 @@ pub struct ReportRoutingServiceProvidedMessage {
 #[derive(Clone, PartialEq, Debug, Message)]
 pub struct ReportExitServiceProvidedMessage {
     pub consuming_wallet: Wallet,
-    pub payload_size: u32,
+    pub payload_size: usize,
     pub service_rate: u64,
     pub byte_rate: u64,
 }
@@ -49,7 +49,7 @@ pub struct ReportExitServiceProvidedMessage {
 #[derive(Clone, PartialEq, Debug, Message)]
 pub struct ReportRoutingServiceConsumedMessage {
     pub earning_wallet: Wallet,
-    pub payload_size: u32,
+    pub payload_size: usize,
     pub service_rate: u64,
     pub byte_rate: u64,
 }
@@ -57,7 +57,7 @@ pub struct ReportRoutingServiceConsumedMessage {
 #[derive(Clone, PartialEq, Debug, Message)]
 pub struct ReportExitServiceConsumedMessage {
     pub earning_wallet: Wallet,
-    pub payload_size: u32,
+    pub payload_size: usize,
     pub service_rate: u64,
     pub byte_rate: u64,
 }

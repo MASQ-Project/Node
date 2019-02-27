@@ -187,7 +187,7 @@ impl Accountant {
         &self,
         service_rate: u64,
         byte_rate: u64,
-        payload_size: u32,
+        payload_size: usize,
         wallet: &Wallet,
     ) {
         let byte_charge = byte_rate * (payload_size as u64);
@@ -202,7 +202,7 @@ impl Accountant {
         &self,
         service_rate: u64,
         byte_rate: u64,
-        payload_size: u32,
+        payload_size: usize,
         wallet: &Wallet,
     ) {
         let byte_charge = byte_rate * (payload_size as u64);
