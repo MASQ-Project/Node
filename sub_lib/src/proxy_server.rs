@@ -2,9 +2,11 @@
 use crate::cryptde::PublicKey;
 use crate::dispatcher::InboundClientData;
 use crate::hopper::ExpiredCoresPackage;
+use crate::neighborhood::ExpectedService;
 use crate::peer_actors::BindMessage;
 use crate::sequence_buffer::SequencedPacket;
 use crate::stream_key::StreamKey;
+use actix::Message;
 use actix::Recipient;
 use actix::Syn;
 use serde_derive::{Deserialize, Serialize};
@@ -28,10 +30,17 @@ pub struct ClientRequestPayload {
     pub originator_public_key: PublicKey,
 }
 
+#[derive(Message)]
+pub struct AddReturnRouteMessage {
+    pub return_route_id: u32,
+    pub expected_services: Vec<ExpectedService>,
+}
+
 #[derive(Clone)]
 pub struct ProxyServerSubs {
     // ProxyServer will handle these messages:
     pub bind: Recipient<Syn, BindMessage>,
     pub from_dispatcher: Recipient<Syn, InboundClientData>,
     pub from_hopper: Recipient<Syn, ExpiredCoresPackage>,
+    pub add_return_route: Recipient<Syn, AddReturnRouteMessage>,
 }

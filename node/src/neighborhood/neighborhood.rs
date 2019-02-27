@@ -25,6 +25,7 @@ use sub_lib::neighborhood::sentinel_ip_addr;
 use sub_lib::neighborhood::BootstrapNeighborhoodNowMessage;
 use sub_lib::neighborhood::DispatcherNodeQueryMessage;
 use sub_lib::neighborhood::ExpectedService;
+use sub_lib::neighborhood::ExpectedServices;
 use sub_lib::neighborhood::NeighborhoodConfig;
 use sub_lib::neighborhood::NeighborhoodSubs;
 use sub_lib::neighborhood::NodeDescriptor;
@@ -436,8 +437,11 @@ impl Neighborhood {
         .expect("Couldn't create route");
         RouteQueryResponse {
             route,
-            expected_services: vec![ExpectedService::Nothing, ExpectedService::Nothing],
-            return_route_id: return_route_id,
+            expected_services: ExpectedServices::RoundTrip(
+                vec![ExpectedService::Nothing, ExpectedService::Nothing],
+                vec![ExpectedService::Nothing, ExpectedService::Nothing],
+                return_route_id,
+            ),
         }
     }
 
@@ -474,7 +478,7 @@ impl Neighborhood {
         over: RouteSegment,
         back: RouteSegment,
     ) -> Result<RouteQueryResponse, String> {
-        let mut segments = vec![over, back];
+        let segments = vec![&over, &back];
 
         if segments.iter().any(|rs| rs.keys.is_empty()) {
             return Err("Cannot make multi-hop route without segment keys".to_string());
@@ -488,20 +492,32 @@ impl Neighborhood {
         if consuming_wallet_opt.is_none() && has_long_segment {
             return Err("Cannot make multi-hop route segment without consuming wallet".to_string());
         }
-        let return_route_id = self.advance_return_route_id();
 
-        let expected_routing_services = self.make_expected_services(&segments);
-        expected_routing_services.map(|expected_services| RouteQueryResponse {
+        let expected_request_services = match self.make_expected_services(&over) {
+            Ok(services) => services,
+            Err(e) => return Err(e),
+        };
+
+        let expected_response_services = match self.make_expected_services(&back) {
+            Ok(services) => services,
+            Err(e) => return Err(e),
+        };
+
+        let return_route_id = self.advance_return_route_id();
+        Ok(RouteQueryResponse {
             route: Route::round_trip(
-                segments.remove(0),
-                segments.remove(0),
+                over,
+                back,
                 self.cryptde,
                 consuming_wallet_opt,
                 return_route_id,
             )
             .expect("Internal error: bad route"),
-            expected_services,
-            return_route_id,
+            expected_services: ExpectedServices::RoundTrip(
+                expected_request_services,
+                expected_response_services,
+                return_route_id,
+            ),
         })
     }
 
@@ -533,27 +549,18 @@ impl Neighborhood {
 
     fn make_expected_services(
         &self,
-        segments: &Vec<RouteSegment>,
+        segment: &RouteSegment,
     ) -> Result<Vec<ExpectedService>, String> {
-        let request_segment_keys = match segments.first() {
-            Some(segment) => segment.keys.clone(),
-            None => return Err("Cannot make multi-hop route without segments".to_string()),
-        };
-        let expected_services: Result<Vec<ExpectedService>, String> = request_segment_keys
+        segment
+            .keys
             .iter()
             .map(|ref key| {
-                self.calculate_expected_routing_service(
-                    key,
-                    request_segment_keys.first(),
-                    request_segment_keys.last(),
-                )
+                self.calculate_expected_service(key, segment.keys.first(), segment.keys.last())
             })
-            .collect();
-
-        expected_services
+            .collect()
     }
 
-    fn calculate_expected_routing_service(
+    fn calculate_expected_service(
         &self,
         route_segment_key: &PublicKey,
         originator_key: Option<&PublicKey>,
@@ -686,6 +693,7 @@ mod tests {
     use sub_lib::dispatcher::Endpoint;
     use sub_lib::hopper::ExpiredCoresPackage;
     use sub_lib::neighborhood::sentinel_ip_addr;
+    use sub_lib::neighborhood::ExpectedServices;
     use sub_lib::stream_handler_pool::TransmitDataMsg;
     use sub_lib::wallet::Wallet;
     use test_utils::logging::init_test_logging;
@@ -1237,11 +1245,17 @@ mod tests {
                 0,
             )
             .unwrap(),
-            expected_services: vec![
-                ExpectedService::Nothing,
-                ExpectedService::Exit(a.public_key().clone(), a.earning_wallet()),
-            ],
-            return_route_id: 0,
+            expected_services: ExpectedServices::RoundTrip(
+                vec![
+                    ExpectedService::Nothing,
+                    ExpectedService::Exit(a.public_key().clone(), a.earning_wallet()),
+                ],
+                vec![
+                    ExpectedService::Exit(a.public_key().clone(), a.earning_wallet()),
+                    ExpectedService::Nothing,
+                ],
+                0,
+            ),
         };
         assert_eq!(result, expected_response);
     }
@@ -1356,8 +1370,11 @@ mod tests {
                 0,
             )
             .unwrap(),
-            expected_services: vec![ExpectedService::Nothing, ExpectedService::Nothing],
-            return_route_id: 0,
+            expected_services: ExpectedServices::RoundTrip(
+                vec![ExpectedService::Nothing, ExpectedService::Nothing],
+                vec![ExpectedService::Nothing, ExpectedService::Nothing],
+                0,
+            ),
         };
         assert_eq!(result, expected_response);
     }
@@ -1381,8 +1398,18 @@ mod tests {
         let result0 = subject.zero_hop_route_response();
         let result1 = subject.zero_hop_route_response();
 
-        assert_eq!(result0.return_route_id, 0);
-        assert_eq!(result1.return_route_id, 1);
+        let return_route_id_0 = match result0.expected_services {
+            ExpectedServices::RoundTrip(_, _, id) => id,
+            _ => panic!("expected RoundTrip got OneWay"),
+        };
+
+        let return_route_id_1 = match result1.expected_services {
+            ExpectedServices::RoundTrip(_, _, id) => id,
+            _ => panic!("expected RoundTrip got OneWay"),
+        };
+
+        assert_eq!(return_route_id_0, 0);
+        assert_eq!(return_route_id_1, 1);
     }
 
     /*
@@ -1457,12 +1484,19 @@ mod tests {
                 0,
             )
             .unwrap(),
-            expected_services: vec![
-                ExpectedService::Nothing,
-                ExpectedService::Routing(q.public_key().clone(), q.earning_wallet()),
-                ExpectedService::Exit(r.public_key().clone(), r.earning_wallet()),
-            ],
-            return_route_id: 0,
+            expected_services: ExpectedServices::RoundTrip(
+                vec![
+                    ExpectedService::Nothing,
+                    ExpectedService::Routing(q.public_key().clone(), q.earning_wallet()),
+                    ExpectedService::Exit(r.public_key().clone(), r.earning_wallet()),
+                ],
+                vec![
+                    ExpectedService::Exit(r.public_key().clone(), r.earning_wallet()),
+                    ExpectedService::Routing(q.public_key().clone(), q.earning_wallet()),
+                    ExpectedService::Nothing,
+                ],
+                0,
+            ),
         };
         assert_eq!(result, expected_response);
     }
@@ -1573,7 +1607,10 @@ mod tests {
             let last_element_dec = cryptde.decode(last_element).unwrap();
             let network_return_route_id: u32 =
                 serde_cbor::de::from_slice(last_element_dec.as_slice()).unwrap();
-            let metadata_return_route_id = result.return_route_id;
+            let metadata_return_route_id = match result.expected_services {
+                ExpectedServices::RoundTrip(_, _, id) => id,
+                _ => panic!("expected RoundTrip got OneWay"),
+            };
             (network_return_route_id, metadata_return_route_id)
         };
         assert_eq!(juicy_parts(result_0), (0, 0));
@@ -1635,10 +1672,11 @@ mod tests {
             error_expectation,
             "Cannot make multi_hop with unknown neighbor"
         );
+        assert_eq!(subject.next_return_route_id, 0);
     }
 
     #[test]
-    fn calculate_expected_routing_service_returns_error_when_given_empty_segment() {
+    fn calculate_expected_service_returns_error_when_given_empty_segment() {
         let cryptde = cryptde();
         let consuming_wallet = Some(Wallet::new("consuming"));
         let mut subject = Neighborhood::new(
@@ -1657,7 +1695,7 @@ mod tests {
         let db = &mut subject.neighborhood_database;
         db.add_node(a).unwrap();
 
-        let result = subject.calculate_expected_routing_service(a.public_key(), None, None);
+        let result = subject.calculate_expected_service(a.public_key(), None, None);
         assert!(result.is_err());
         assert_eq!(
             result.unwrap_err(),

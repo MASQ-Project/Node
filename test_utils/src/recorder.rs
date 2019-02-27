@@ -33,6 +33,7 @@ use sub_lib::neighborhood::RouteQueryResponse;
 use sub_lib::peer_actors::BindMessage;
 use sub_lib::peer_actors::PeerActors;
 use sub_lib::proxy_client::ProxyClientSubs;
+use sub_lib::proxy_server::AddReturnRouteMessage;
 use sub_lib::proxy_server::ProxyServerSubs;
 use sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use sub_lib::stream_handler_pool::TransmitDataMsg;
@@ -56,6 +57,14 @@ pub struct RecordAwaiter {
 
 impl Actor for Recorder {
     type Context = Context<Self>;
+}
+
+impl Handler<AddReturnRouteMessage> for Recorder {
+    type Result = ();
+
+    fn handle(&mut self, msg: AddReturnRouteMessage, _ctx: &mut Self::Context) {
+        self.record(msg);
+    }
 }
 
 impl Handler<TransmitDataMsg> for Recorder {
@@ -331,6 +340,7 @@ pub fn make_proxy_server_subs_from(addr: &Addr<Syn, Recorder>) -> ProxyServerSub
         bind: addr.clone().recipient::<BindMessage>(),
         from_dispatcher: addr.clone().recipient::<InboundClientData>(),
         from_hopper: addr.clone().recipient::<ExpiredCoresPackage>(),
+        add_return_route: addr.clone().recipient::<AddReturnRouteMessage>(),
     }
 }
 

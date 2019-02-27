@@ -312,6 +312,7 @@ mod tests {
     use sub_lib::neighborhood::NodeQueryMessage;
     use sub_lib::neighborhood::RemoveNeighborMessage;
     use sub_lib::neighborhood::RouteQueryMessage;
+    use sub_lib::proxy_server::AddReturnRouteMessage;
     use sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
     use sub_lib::stream_handler_pool::TransmitDataMsg;
     use sub_lib::ui_gateway::FromUiMessage;
@@ -361,6 +362,7 @@ mod tests {
                 bind: addr.clone().recipient::<BindMessage>(),
                 from_dispatcher: addr.clone().recipient::<InboundClientData>(),
                 from_hopper: addr.clone().recipient::<ExpiredCoresPackage>(),
+                add_return_route: addr.clone().recipient::<AddReturnRouteMessage>(),
             }
         }
 

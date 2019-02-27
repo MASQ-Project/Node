@@ -30,6 +30,7 @@ use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::dispatcher::Component;
 use sub_lib::main_tools::StdStreams;
 use sub_lib::neighborhood::ExpectedService;
+use sub_lib::neighborhood::ExpectedServices;
 use sub_lib::neighborhood::RouteQueryResponse;
 use sub_lib::route::Route;
 use sub_lib::route::RouteSegment;
@@ -251,9 +252,11 @@ pub fn zero_hop_route_response(
             0,
         )
         .unwrap(),
-        // TODO: temporarily limited to 2, increase back to 4 when we do response payables
-        expected_services: (0..2).map(|_| ExpectedService::Nothing).collect(),
-        return_route_id: 0,
+        expected_services: ExpectedServices::RoundTrip(
+            vec![ExpectedService::Nothing, ExpectedService::Nothing],
+            vec![ExpectedService::Nothing, ExpectedService::Nothing],
+            0,
+        ),
     }
 }
 
@@ -375,7 +378,11 @@ mod tests {
         );
         assert_eq!(
             subject.expected_services,
-            vec![ExpectedService::Nothing, ExpectedService::Nothing,]
+            ExpectedServices::RoundTrip(
+                vec![ExpectedService::Nothing, ExpectedService::Nothing,],
+                vec![ExpectedService::Nothing, ExpectedService::Nothing,],
+                0
+            )
         );
     }
 

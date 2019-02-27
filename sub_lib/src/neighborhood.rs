@@ -128,10 +128,15 @@ pub enum ExpectedService {
 }
 
 #[derive(PartialEq, Debug, Clone)]
+pub enum ExpectedServices {
+    OneWay(Vec<ExpectedService>),
+    RoundTrip(Vec<ExpectedService>, Vec<ExpectedService>, u32),
+}
+
+#[derive(PartialEq, Debug, Clone)]
 pub struct RouteQueryResponse {
     pub route: Route,
-    pub expected_services: Vec<ExpectedService>,
-    pub return_route_id: u32,
+    pub expected_services: ExpectedServices,
 }
 
 #[derive(PartialEq, Debug, Message, Clone)]
