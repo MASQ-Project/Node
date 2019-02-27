@@ -1055,10 +1055,14 @@ mod tests {
             .await_log_containing("\"BAUGBw\" [label=\"BAUGBw\"] [shape=box];", 1000);
         TestLogHandler::new()
             .await_log_containing("\"AgMEBQ\" [label=\"AgMEBQ\\n2.3.4.5:2345\"];", 1000);
-        TestLogHandler::new().await_log_containing("\"AgMEBQ\" -> \"AQIDBA\" [style=dashed];", 1000);
-        TestLogHandler::new().await_log_containing("\"BAUGBw\" -> \"AQIDBA\" [style=dashed];", 1000);
+        TestLogHandler::new()
+            .await_log_containing("\"AgMEBQ\" -> \"AQIDBA\" [style=dashed];", 1000);
+        TestLogHandler::new()
+            .await_log_containing("\"BAUGBw\" -> \"AQIDBA\" [style=dashed];", 1000);
         TestLogHandler::new().await_log_containing("\"BAUGBw\" -> \"AgMEBQ\";", 1000);
-        TestLogHandler::new().await_log_containing("\"AQIDBA\" -> \"AgMEBQ\" [style=dashed];", 1000);
-        TestLogHandler::new().await_log_containing("\"AQIDBA\" -> \"BAUGBw\" [style=dashed];", 1000);
+        TestLogHandler::new()
+            .await_log_containing("\"AQIDBA\" -> \"AgMEBQ\" [style=dashed];", 1000);
+        TestLogHandler::new()
+            .await_log_containing("\"AQIDBA\" -> \"BAUGBw\" [style=dashed];", 1000);
     }
 }
