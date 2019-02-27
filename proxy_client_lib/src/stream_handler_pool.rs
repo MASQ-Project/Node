@@ -1202,7 +1202,7 @@ mod tests {
                 "Empty last_data message received for nonexistent stream {:?} - ignoring",
                 make_meaningless_stream_key()
             )[..],
-            500,
+            2000,
         );
 
         let hopper_recording = hopper_recording_arc.lock().unwrap();

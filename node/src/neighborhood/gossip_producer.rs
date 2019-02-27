@@ -1046,19 +1046,19 @@ mod tests {
 
         let _result = subject.produce(&database, target.public_key());
 
-        TestLogHandler::new().await_log_containing("Created Gossip: digraph db { ", 500);
+        TestLogHandler::new().await_log_containing("Created Gossip: digraph db { ", 1000);
         TestLogHandler::new().await_log_containing(
             "\"AQIDBA\" [label=\"AQIDBA\\n1.2.3.4:1234\\nbootstrap\"] [style=filled];",
             500,
         );
         TestLogHandler::new()
-            .await_log_containing("\"BAUGBw\" [label=\"BAUGBw\"] [shape=box];", 500);
+            .await_log_containing("\"BAUGBw\" [label=\"BAUGBw\"] [shape=box];", 1000);
         TestLogHandler::new()
-            .await_log_containing("\"AgMEBQ\" [label=\"AgMEBQ\\n2.3.4.5:2345\"];", 500);
-        TestLogHandler::new().await_log_containing("\"AgMEBQ\" -> \"AQIDBA\" [style=dashed];", 500);
-        TestLogHandler::new().await_log_containing("\"BAUGBw\" -> \"AQIDBA\" [style=dashed];", 500);
-        TestLogHandler::new().await_log_containing("\"BAUGBw\" -> \"AgMEBQ\";", 500);
-        TestLogHandler::new().await_log_containing("\"AQIDBA\" -> \"AgMEBQ\" [style=dashed];", 500);
-        TestLogHandler::new().await_log_containing("\"AQIDBA\" -> \"BAUGBw\" [style=dashed];", 500);
+            .await_log_containing("\"AgMEBQ\" [label=\"AgMEBQ\\n2.3.4.5:2345\"];", 1000);
+        TestLogHandler::new().await_log_containing("\"AgMEBQ\" -> \"AQIDBA\" [style=dashed];", 1000);
+        TestLogHandler::new().await_log_containing("\"BAUGBw\" -> \"AQIDBA\" [style=dashed];", 1000);
+        TestLogHandler::new().await_log_containing("\"BAUGBw\" -> \"AgMEBQ\";", 1000);
+        TestLogHandler::new().await_log_containing("\"AQIDBA\" -> \"AgMEBQ\" [style=dashed];", 1000);
+        TestLogHandler::new().await_log_containing("\"AQIDBA\" -> \"BAUGBw\" [style=dashed];", 1000);
     }
 }

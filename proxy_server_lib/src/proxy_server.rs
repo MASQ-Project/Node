@@ -926,7 +926,7 @@ mod tests {
         });
 
         TestLogHandler::new()
-            .await_log_containing("DEBUG: Proxy Server: No routing services requested.", 500);
+            .await_log_containing("DEBUG: Proxy Server: No routing services requested.", 1000);
 
         assert_eq!(accountant_log_arc.lock().unwrap().len(), 0);
     }
@@ -1033,7 +1033,7 @@ mod tests {
         });
 
         TestLogHandler::new()
-            .await_log_containing("DEBUG: Proxy Server: No exit service requested.", 500);
+            .await_log_containing("DEBUG: Proxy Server: No exit service requested.", 1000);
 
         assert_eq!(accountant_log_arc.lock().unwrap().len(), 0);
     }
