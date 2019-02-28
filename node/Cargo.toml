@@ -41,8 +41,7 @@ default-features = false
 features = ["async", "sync"]
 
 [dev-dependencies]
-tls-api = "0.1.20"
-tls-api-native-tls = "0.1.20"
+native-tls = "0.2.2"
 trust-dns-proto = "0.4.0"
 test_utils = { path = "../test_utils" }
 

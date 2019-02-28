@@ -738,14 +738,14 @@ mod tests {
                     PublicKey::new(b"GoodKey"),
                     NodeAddr::new(
                         &IpAddr::from_str("1.2.3.4").unwrap(),
-                        &vec!(1234, 2345, 3456)
+                        &vec!(1234, 2345, 3456),
                     )
                 ),
                 (
                     PublicKey::new(b"AnotherGoodKey"),
                     NodeAddr::new(
                         &IpAddr::from_str("2.3.4.5").unwrap(),
-                        &vec!(4567, 5678, 6789)
+                        &vec!(4567, 5678, 6789),
                     )
                 )
             )
@@ -1103,7 +1103,7 @@ mod tests {
             Some(UnmaskedChunk {
                 chunk: b"Booga".to_vec(),
                 last_chunk: true,
-                sequenced: false
+                sequenced: false,
             })
         ); // TODO: Where is this 'true' coming from?  Is it a problem?
         assert_eq!(clandestine_discriminators.len(), 0);
@@ -1216,7 +1216,7 @@ mod tests {
             "{}:2.3.4.5:3456,4567",
             base64::encode_config(
                 &cryptde_ref.public_key().as_slice(),
-                base64::STANDARD_NO_PAD
+                base64::STANDARD_NO_PAD,
             )
         );
         let regex = Regex::new(r"SubstratumNode local descriptor: (.+?)\n").unwrap();

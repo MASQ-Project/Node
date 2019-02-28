@@ -3,6 +3,9 @@
 mod utils;
 
 use crate::utils::read_until_timeout;
+use native_tls::HandshakeError;
+use native_tls::TlsConnector;
+use native_tls::TlsStream;
 use std::io::Write;
 use std::net::Shutdown;
 use std::net::SocketAddr;
@@ -10,11 +13,6 @@ use std::net::TcpStream;
 use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
-use tls_api::HandshakeError;
-use tls_api::TlsConnector as TlsConnectorBase;
-use tls_api::TlsConnectorBuilder as TlsConnectorBuilderBase;
-use tls_api::TlsStream;
-use tls_api_native_tls::TlsConnector;
 
 #[test]
 #[allow(unused_variables)] // 'node' below must not become '_' or disappear, or the
@@ -28,10 +26,7 @@ fn tls_through_node_integration() {
         stream
             .set_read_timeout(Some(Duration::from_millis(200)))
             .expect("Could not set read timeout to 200ms");
-        let connector = TlsConnector::builder()
-            .expect("Could not construct TlsConnectorBuilder")
-            .build()
-            .expect("Could not build TlsConnector");
+        let connector = TlsConnector::new().expect("Could not build TlsConnector");
         match connector.connect(
             "example.com",
             stream.try_clone().expect("Couldn't clone TcpStream"),
@@ -39,7 +34,7 @@ fn tls_through_node_integration() {
             Ok(s) => {
                 tls_stream = Some(s);
             }
-            Err(HandshakeError::Interrupted(interrupted_stream)) => {
+            Err(HandshakeError::WouldBlock(interrupted_stream)) => {
                 thread::sleep(Duration::from_millis(100));
                 match interrupted_stream.handshake() {
                     Ok(stream) => tls_stream = Some(stream),
