@@ -56,7 +56,9 @@ fn http_request_to_cores_package_and_cores_package_to_http_response_test() {
             mock_bootstrap.cryptde(),
         )
         .unwrap();
-    let incoming_gossip = incoming_cores_package.payload::<Gossip>().unwrap();
+    let incoming_gossip = incoming_cores_package
+        .payload::<Gossip>(mock_bootstrap.cryptde())
+        .unwrap();
     let inner = NodeRecordInner {
         public_key: subject.public_key(),
         node_addr_opt: Some(subject.node_addr()),

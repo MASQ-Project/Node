@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::cryptde::decodex;
 use crate::cryptde::CryptDE;
 use crate::cryptde::CryptData;
 use crate::cryptde::PlainData;
@@ -58,7 +59,7 @@ pub struct ExpiredCoresPackage {
     pub immediate_neighbor_ip: IpAddr,
     pub consuming_wallet: Option<Wallet>,
     pub remaining_route: Route, // This is topped by the hop that brought the package here, not the next hop
-    pub payload: PlainData,
+    pub payload: CryptData,
 }
 
 impl ExpiredCoresPackage {
@@ -66,7 +67,7 @@ impl ExpiredCoresPackage {
         immediate_neighbor_ip: IpAddr,
         consuming_wallet: Option<Wallet>,
         remaining_route: Route,
-        payload: PlainData,
+        payload: CryptData,
     ) -> ExpiredCoresPackage {
         ExpiredCoresPackage {
             immediate_neighbor_ip,
@@ -76,17 +77,14 @@ impl ExpiredCoresPackage {
         }
     }
 
-    /// This method is exquisitely dangerous: hacked data might be deserialized to anything. In
-    /// production code, the result of this method must be assiduously checked for malice before
-    /// being used.  These checks should be driven by tests using raw CBOR.
-    pub fn payload<'a, T>(&'a self) -> serde_cbor::error::Result<T>
+    pub fn payload<T>(&self, cryptde: &CryptDE) -> Result<T, String>
     where
-        T: Deserialize<'a>,
+        for<'de> T: Deserialize<'de>,
     {
-        serde_cbor::de::from_slice(&self.payload.as_slice())
+        decodex::<T>(cryptde, &self.payload)
     }
 
-    pub fn payload_data(self) -> PlainData {
+    pub fn payload_data(self) -> CryptData {
         self.payload
     }
 }
@@ -168,20 +166,21 @@ mod tests {
         )
         .unwrap();
         let deserialized_payload = PayloadMock::new();
-        let payload = serde_cbor::ser::to_vec(&deserialized_payload).unwrap();
+        let payload = PlainData::from(serde_cbor::ser::to_vec(&deserialized_payload).unwrap());
+        let encrypted_payload = cryptde.encode(&cryptde.public_key(), &payload).unwrap();
 
         let subject = ExpiredCoresPackage::new(
             immediate_neighbor_ip,
             Some(consuming_wallet),
             route.clone(),
-            PlainData::new(&payload[..]),
+            encrypted_payload,
         );
 
         assert_eq!(subject.immediate_neighbor_ip, immediate_neighbor_ip);
         assert_eq!(subject.consuming_wallet, Some(Wallet::new("wallet")));
         assert_eq!(subject.remaining_route, route);
         assert_eq!(
-            subject.payload::<PayloadMock>().unwrap(),
+            subject.payload::<PayloadMock>(&cryptde).unwrap(),
             deserialized_payload
         );
     }

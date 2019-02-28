@@ -509,11 +509,8 @@ mod tests {
         )
         .unwrap();
         route.shift(cryptde).unwrap();
-        let payload = PlainData::new(&b"abcd"[..]);
-        let lcp = LiveCoresPackage::new(
-            route,
-            cryptde.encode(&cryptde.public_key(), &payload).unwrap(),
-        );
+        let payload = CryptData::new(&b"abcd"[..]);
+        let lcp = LiveCoresPackage::new(route, payload.clone());
         let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
         let data_enc = cryptde.encode(&cryptde.public_key(), &data_ser).unwrap();
         let inbound_client_data = InboundClientData {
@@ -698,10 +695,19 @@ mod tests {
             sequence_number: None,
             data: data_enc.into(),
         };
-        let _system = System::new(
+        let system = System::new(
             "route_logs_and_ignores_cores_package_that_demands_routing_without_consuming_wallet",
         );
-        let peer_actors = peer_actors_builder().build();
+        let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
+        let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
+        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
+        let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
+        let peer_actors = peer_actors_builder()
+            .proxy_client(proxy_client)
+            .proxy_server(proxy_server)
+            .neighborhood(neighborhood)
+            .dispatcher(dispatcher)
+            .build();
         let subject = RoutingService::new(
             cryptde,
             false,
@@ -714,9 +720,15 @@ mod tests {
 
         subject.route(inbound_client_data);
 
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        system.run();
         TestLogHandler::new().exists_log_containing(
             "ERROR: RoutingService: Refusing to route CORES package with 23-byte payload without consuming wallet",
         );
+        assert_eq!(proxy_client_recording_arc.lock().unwrap().len(), 0);
+        assert_eq!(proxy_server_recording_arc.lock().unwrap().len(), 0);
+        assert_eq!(neighborhood_recording_arc.lock().unwrap().len(), 0);
+        assert_eq!(dispatcher_recording_arc.lock().unwrap().len(), 0);
     }
 
     #[test]
@@ -730,8 +742,17 @@ mod tests {
             sequence_number: None,
             data: vec![],
         };
-        let _system = System::new("consume_logs_error_when_given_bad_input_data");
-        let peer_actors = peer_actors_builder().build();
+        let system = System::new("consume_logs_error_when_given_bad_input_data");
+        let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
+        let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
+        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
+        let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
+        let peer_actors = peer_actors_builder()
+            .proxy_client(proxy_client)
+            .proxy_server(proxy_server)
+            .neighborhood(neighborhood)
+            .dispatcher(dispatcher)
+            .build();
         let subject = RoutingService::new(
             cryptde(),
             false,
@@ -744,9 +765,15 @@ mod tests {
 
         subject.route(inbound_client_data);
 
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        system.run();
         TestLogHandler::new().exists_log_containing(
             "ERROR: RoutingService: Couldn't decrypt CORES package from 0-byte buffer: EmptyData",
         );
+        assert_eq!(proxy_client_recording_arc.lock().unwrap().len(), 0);
+        assert_eq!(proxy_server_recording_arc.lock().unwrap().len(), 0);
+        assert_eq!(neighborhood_recording_arc.lock().unwrap().len(), 0);
+        assert_eq!(dispatcher_recording_arc.lock().unwrap().len(), 0);
     }
 
     #[test]
@@ -764,8 +791,17 @@ mod tests {
             sequence_number: None,
             data: data_enc.into(),
         };
-        let _system = System::new("consume_logs_error_when_given_bad_input_data");
-        let peer_actors = peer_actors_builder().build();
+        let system = System::new("consume_logs_error_when_given_bad_input_data");
+        let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
+        let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
+        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
+        let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
+        let peer_actors = peer_actors_builder()
+            .proxy_client(proxy_client)
+            .proxy_server(proxy_server)
+            .neighborhood(neighborhood)
+            .dispatcher(dispatcher)
+            .build();
         let subject = RoutingService::new(
             cryptde,
             false,
@@ -778,50 +814,14 @@ mod tests {
 
         subject.route(inbound_client_data);
 
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        system.run();
         TestLogHandler::new().exists_log_containing(
             "ERROR: RoutingService: Invalid 36-byte CORES package: EmptyRoute",
         );
-    }
-
-    #[test]
-    fn route_logs_and_ignores_incoming_cores_package_that_cant_be_properly_expired() {
-        init_test_logging();
-        let cryptde = cryptde();
-        let hop = LiveHop::new(&cryptde.public_key(), None, Component::Neighborhood);
-        let hop_ser = PlainData::new(&serde_cbor::ser::to_vec(&hop).unwrap()[..]);
-        let hop_enc = cryptde.encode(&cryptde.public_key(), &hop_ser).unwrap();
-        let lcp = LiveCoresPackage::new(
-            Route {
-                hops: vec![hop_enc],
-            },
-            CryptData::new(&[]),
-        );
-        let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
-        let data_enc = cryptde.encode(&cryptde.public_key(), &data_ser).unwrap();
-        let inbound_client_data = InboundClientData {
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            reception_port: None,
-            last_data: true,
-            is_clandestine: true,
-            sequence_number: None,
-            data: data_enc.into(),
-        };
-        let _system = System::new("consume_logs_error_when_given_bad_input_data");
-        let peer_actors = peer_actors_builder().build();
-        let subject = RoutingService::new(
-            cryptde,
-            false,
-            peer_actors.proxy_client.from_hopper,
-            peer_actors.proxy_server.from_hopper,
-            peer_actors.neighborhood.from_hopper,
-            peer_actors.dispatcher.from_dispatcher_client,
-            peer_actors.accountant.report_routing_service_provided,
-        );
-
-        subject.route(inbound_client_data);
-
-        TestLogHandler::new().exists_log_containing(
-            "ERROR: RoutingService: Couldn't expire CORES package with 0-byte payload: \"EmptyData\"",
-        );
+        assert_eq!(proxy_client_recording_arc.lock().unwrap().len(), 0);
+        assert_eq!(proxy_server_recording_arc.lock().unwrap().len(), 0);
+        assert_eq!(neighborhood_recording_arc.lock().unwrap().len(), 0);
+        assert_eq!(dispatcher_recording_arc.lock().unwrap().len(), 0);
     }
 }

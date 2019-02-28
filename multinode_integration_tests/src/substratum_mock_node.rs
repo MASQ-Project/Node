@@ -249,7 +249,9 @@ impl SubstratumMockNode {
         match self.wait_for_package(&masquerader, timeout) {
             Ok((from, _, package)) => {
                 let incoming_cores_package = package.to_expired(from.ip(), self.cryptde()).unwrap();
-                incoming_cores_package.payload::<Gossip>().ok()
+                incoming_cores_package
+                    .payload::<Gossip>(self.cryptde())
+                    .ok()
             }
             Err(_) => None,
         }

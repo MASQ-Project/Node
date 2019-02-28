@@ -6,6 +6,7 @@ use serde::Deserialize;
 use serde::Deserializer;
 use serde::Serialize;
 use serde::Serializer;
+use serde_cbor;
 use std::fmt;
 
 #[derive(Clone, PartialEq)]
@@ -353,10 +354,42 @@ pub trait CryptDE: Send + Sync {
     ) -> bool;
 }
 
+pub fn encodex<T>(cryptde: &CryptDE, public_key: &PublicKey, item: &T) -> Result<CryptData, String>
+where
+    T: Serialize,
+{
+    let serialized = match serde_cbor::ser::to_vec(item) {
+        Ok(s) => s,
+        Err(e) => return Err(format!("Serialization error: {:?}", e)),
+    };
+    match cryptde.encode(public_key, &PlainData::from(serialized)) {
+        Ok(c) => Ok(c),
+        Err(e) => Err(format!("Encryption error: {:?}", e)),
+    }
+}
+
+pub fn decodex<T>(cryptde: &CryptDE, data: &CryptData) -> Result<T, String>
+where
+    for<'de> T: Deserialize<'de>,
+{
+    let decrypted = match cryptde.decode(data) {
+        Ok(d) => d,
+        Err(e) => return Err(format!("Decryption error: {:?}", e)),
+    };
+    match serde_cbor::de::from_slice(decrypted.as_slice()) {
+        Ok(t) => Ok(t),
+        Err(e) => Err(format!("Deserialization error: {:?}", e)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cryptde_null::CryptDENull;
+    use serde::de;
+    use serde::ser;
     use serde_cbor;
+    use serde_derive::{Deserialize, Serialize};
 
     #[test]
     fn private_key_constructor_works_as_expected() {
@@ -627,5 +660,132 @@ mod tests {
         let result = format!("{} {:?}", subject, subject);
 
         assert_eq! (result, String::from ("Tm93IGlzIHRoZSB0aW1lIGZvciBhbGwgZ29vZCBtZW4 Tm93IGlzIHRoZSB0aW1lIGZvciBhbGwgZ29vZCBtZW4"));
+    }
+
+    #[derive(PartialEq, Debug, Serialize, Deserialize)]
+    struct TestStruct {
+        string: String,
+        number: u32,
+        flag: bool,
+    }
+    impl TestStruct {
+        pub fn make() -> TestStruct {
+            TestStruct {
+                string: String::from("booga"),
+                number: 42,
+                flag: true,
+            }
+        }
+    }
+
+    #[test]
+    fn encodex_and_decodex_communicate() {
+        let cryptde = CryptDENull::new();
+        let start = TestStruct::make();
+
+        let intermediate = encodex(&cryptde, &cryptde.public_key(), &start).unwrap();
+        let end = decodex::<TestStruct>(&cryptde, &intermediate).unwrap();
+
+        assert_eq!(end, start);
+    }
+
+    #[test]
+    fn encodex_produces_expected_data() {
+        let cryptde = CryptDENull::new();
+        let start = TestStruct::make();
+
+        let intermediate = super::encodex(&cryptde, &cryptde.public_key(), &start).unwrap();
+
+        let decrypted = cryptde.decode(&intermediate).unwrap();
+        let deserialized: TestStruct = serde_cbor::de::from_slice(decrypted.as_slice()).unwrap();
+
+        assert_eq!(deserialized, start);
+    }
+
+    #[test]
+    fn decodex_produces_expected_structure() {
+        let cryptde = CryptDENull::new();
+        let serialized = serde_cbor::ser::to_vec(&TestStruct::make()).unwrap();
+        let encrypted = cryptde
+            .encode(&cryptde.public_key(), &PlainData::from(serialized))
+            .unwrap();
+
+        let end = super::decodex::<TestStruct>(&cryptde, &encrypted).unwrap();
+
+        assert_eq!(end, TestStruct::make());
+    }
+
+    #[test]
+    fn encodex_handles_encryption_error() {
+        let cryptde = CryptDENull::new();
+        let item = TestStruct::make();
+
+        let result = encodex(&cryptde, &PublicKey::new(&[]), &item);
+
+        assert_eq!(result, Err(String::from("Encryption error: EmptyKey")));
+    }
+
+    #[test]
+    fn decodex_handles_decryption_error() {
+        let mut cryptde = CryptDENull::new();
+        cryptde.set_key_pair(&PublicKey::new(&[]));
+        let data = CryptData::new(&b"booga"[..]);
+
+        let result = decodex::<TestStruct>(&cryptde, &data);
+
+        assert_eq!(result, Err(String::from("Decryption error: EmptyKey")));
+    }
+
+    #[derive(PartialEq, Debug)]
+    struct BadSerStruct {
+        flag: bool,
+    }
+    impl serde::Serialize for BadSerStruct {
+        fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            Err(ser::Error::custom("booga"))
+        }
+    }
+    impl<'de> serde::Deserialize<'de> for BadSerStruct {
+        fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            Err(de::Error::custom("booga"))
+        }
+    }
+
+    #[test]
+    fn encodex_handles_serialization_error() {
+        let cryptde = CryptDENull::new();
+        let item = BadSerStruct { flag: true };
+
+        let result = encodex(&cryptde, &cryptde.public_key(), &item);
+
+        assert_eq!(
+            result,
+            Err(String::from(
+                "Serialization error: ErrorImpl { code: Message(\"booga\"), offset: 0 }"
+            ))
+        );
+    }
+
+    #[test]
+    fn decodex_handles_deserialization_error() {
+        let cryptde = CryptDENull::new();
+        let data = cryptde
+            .encode(&cryptde.public_key(), &PlainData::new(b"whompem"))
+            .unwrap();
+
+        let result = decodex::<BadSerStruct>(&cryptde, &data);
+
+        assert_eq!(
+            result,
+            Err(String::from(
+                "Deserialization error: ErrorImpl { code: Message(\"booga\"), offset: 0 }"
+            ))
+        );
     }
 }

@@ -85,7 +85,7 @@ impl Handler<ExpiredCoresPackage> for ProxyClient {
     type Result = ();
 
     fn handle(&mut self, msg: ExpiredCoresPackage, _ctx: &mut Self::Context) -> Self::Result {
-        let payload = match msg.payload::<ClientRequestPayload>() {
+        let payload = match msg.payload::<ClientRequestPayload>(self.cryptde) {
             Ok(payload) => payload,
             Err(e) => {
                 self.logger.error(format!(
@@ -247,7 +247,6 @@ mod tests {
     use actix::msgs;
     use actix::Arbiter;
     use actix::System;
-    use serde_cbor;
     use std::cell::RefCell;
     use std::net::IpAddr;
     use std::net::SocketAddr;
@@ -255,8 +254,8 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
     use sub_lib::accountant::ReportExitServiceProvidedMessage;
+    use sub_lib::cryptde::encodex;
     use sub_lib::cryptde::CryptData;
-    use sub_lib::cryptde::PlainData;
     use sub_lib::cryptde::PublicKey;
     use sub_lib::proxy_client::ClientResponsePayload;
     use sub_lib::proxy_client::TEMPORARY_PER_EXIT_BYTE_RATE;
@@ -459,7 +458,7 @@ mod tests {
             IpAddr::from_str("1.2.3.4").unwrap(),
             Some(Wallet::new("consuming")),
             route_to_proxy_client(&cryptde.public_key(), cryptde),
-            PlainData::new(&serde_cbor::ser::to_vec(&request.clone()).unwrap()[..]),
+            encodex(cryptde, &cryptde.public_key(), &request).unwrap(),
         );
         let system = System::new("panics_if_hopper_is_unbound");
         let subject = ProxyClient::new(cryptde, dnss());
@@ -478,7 +477,7 @@ mod tests {
             IpAddr::from_str("1.2.3.4").unwrap(),
             Some(Wallet::new("consuming")),
             make_meaningless_route(),
-            PlainData::new(&b"invalid"[..]),
+            CryptData::new(&b"invalid"[..]),
         );
         let system = System::new("invalid_package_is_logged_and_discarded");
         let subject = ProxyClient::new(cryptde(), dnss());
@@ -490,11 +489,13 @@ mod tests {
 
         Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
         system.run();
-        TestLogHandler::new ().await_log_containing("ERROR: Proxy Client: Error ('EOF while parsing a value at offset 7') interpreting payload for transmission: [105, 110, 118, 97, 108, 105, 100]", 1000);
+        TestLogHandler::new()
+            .exists_log_containing("ERROR: Proxy Client: Error ('Decryption error: InvalidKey");
     }
 
     #[test]
     fn data_from_hopper_is_relayed_to_stream_handler_pool() {
+        let cryptde = cryptde();
         let request = ClientRequestPayload {
             stream_key: make_meaningless_stream_key(),
             sequenced_packet: SequencedPacket {
@@ -511,7 +512,7 @@ mod tests {
             IpAddr::from_str("1.2.3.4").unwrap(),
             Some(Wallet::new("consuming")),
             make_meaningless_route(),
-            PlainData::new(&serde_cbor::ser::to_vec(&request.clone()).unwrap()[..]),
+            encodex(cryptde, &cryptde.public_key(), &request).unwrap(),
         );
         let hopper = Recorder::new();
 
@@ -526,7 +527,7 @@ mod tests {
         let resolver = ResolverWrapperMock::new()
             .lookup_ip_success(vec![IpAddr::from_str("4.3.2.1").unwrap()]);
         let resolver_factory = ResolverWrapperFactoryMock::new().new_result(Box::new(resolver));
-        let mut subject = ProxyClient::new(cryptde(), dnss());
+        let mut subject = ProxyClient::new(cryptde, dnss());
         subject.resolver_wrapper_factory = Box::new(resolver_factory);
         subject.stream_handler_pool_factory = Box::new(pool_factory);
         let subject_addr: Addr<Syn, ProxyClient> = subject.start();
@@ -753,15 +754,14 @@ mod tests {
 
     #[test]
     fn new_return_route_overwrites_existing_return_route() {
+        let cryptde = cryptde();
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let stream_key = make_meaningless_stream_key();
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
         let system = System::new("new_return_route_overwrites_existing_return_route");
-        let mut subject = ProxyClient::new(
-            cryptde(),
-            vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
-        );
+        let mut subject =
+            ProxyClient::new(cryptde, vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()]);
         let mut process_package_params_arc = Arc::new(Mutex::new(vec![]));
         let pool = StreamHandlerPoolMock::new()
             .process_package_parameters(&mut process_package_params_arc);
@@ -804,7 +804,7 @@ mod tests {
                 IpAddr::from_str("2.3.4.5").unwrap(),
                 Some(Wallet::new("gnimusnoc")),
                 new_return_route.clone(),
-                PlainData::from(serde_cbor::ser::to_vec(&payload).unwrap()),
+                encodex(cryptde, &cryptde.public_key(), &payload).unwrap(),
             ))
             .unwrap();
 
@@ -825,7 +825,7 @@ mod tests {
         assert_eq!(consuming_wallet_opt, Some(Wallet::new("gnimusnoc")));
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let expected_icp = IncipientCoresPackage::new(
-            cryptde(),
+            cryptde,
             new_return_route,
             ClientResponsePayload {
                 stream_key,

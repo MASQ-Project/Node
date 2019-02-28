@@ -234,7 +234,7 @@ impl Handler<ExpiredCoresPackage> for Neighborhood {
     type Result = ();
 
     fn handle(&mut self, msg: ExpiredCoresPackage, _ctx: &mut Self::Context) -> Self::Result {
-        let incoming_gossip: Gossip = match msg.payload() {
+        let incoming_gossip: Gossip = match msg.payload(self.cryptde) {
             Ok(p) => p,
             Err(_) => {
                 self.logger
@@ -688,7 +688,8 @@ mod tests {
     use std::net::IpAddr;
     use std::str::FromStr;
     use std::thread;
-    use sub_lib::cryptde::PlainData;
+    use sub_lib::cryptde::encodex;
+    use sub_lib::cryptde::CryptData;
     use sub_lib::cryptde_null::CryptDENull;
     use sub_lib::dispatcher::Endpoint;
     use sub_lib::hopper::ExpiredCoresPackage;
@@ -1840,7 +1841,7 @@ mod tests {
             immediate_neighbor_ip: IpAddr::from_str("1.2.3.4").unwrap(),
             consuming_wallet: Some(Wallet::new("consuming")),
             remaining_route: make_meaningless_route(),
-            payload: PlainData::new(&b"booga"[..]),
+            payload: CryptData::new(&b"booga"[..]),
         };
         let system = System::new("");
         let subject = Neighborhood::new(
@@ -1966,12 +1967,11 @@ mod tests {
             .neighbors_mut()
             .push(this_node.public_key().clone());
         let gossip = GossipBuilder::new().node(&gossip_neighbor, true).build();
-        let serialized_gossip = PlainData::new(&serde_cbor::ser::to_vec(&gossip).unwrap()[..]);
         let cores_package = ExpiredCoresPackage {
             immediate_neighbor_ip: IpAddr::from_str("1.2.3.4").unwrap(),
             consuming_wallet: Some(Wallet::new("consuming")),
             remaining_route: make_meaningless_route(),
-            payload: serialized_gossip,
+            payload: encodex(cryptde, &cryptde.public_key(), &gossip).unwrap(),
         };
         let hopper = Recorder::new();
         let hopper_awaiter = hopper.get_awaiter();
@@ -2519,12 +2519,11 @@ mod tests {
             .neighbors_mut()
             .push(this_node.public_key().clone());
         let gossip = GossipBuilder::new().node(&one_neighbor, true).build();
-        let serialized_gossip = PlainData::new(&serde_cbor::ser::to_vec(&gossip).unwrap()[..]);
         let cores_package = ExpiredCoresPackage {
             immediate_neighbor_ip: IpAddr::from_str("1.2.3.4").unwrap(),
             consuming_wallet: Some(Wallet::new("consuming")),
             remaining_route: make_meaningless_route(),
-            payload: serialized_gossip,
+            payload: encodex(cryptde, &cryptde.public_key(), &gossip).unwrap(),
         };
         let hopper = Recorder::new();
         let hopper_recording = hopper.get_recording();
@@ -2595,12 +2594,11 @@ mod tests {
             .node(&gossip_neighbor, true)
             .node(&far_neighbor, false)
             .build();
-        let serialized_gossip = PlainData::new(&serde_cbor::ser::to_vec(&gossip).unwrap()[..]);
         let cores_package = ExpiredCoresPackage {
             immediate_neighbor_ip: IpAddr::from_str("1.2.3.4").unwrap(),
             consuming_wallet: Some(Wallet::new("consuming")),
             remaining_route: make_meaningless_route(),
-            payload: serialized_gossip,
+            payload: encodex(cryptde, &cryptde.public_key(), &gossip).unwrap(),
         };
         let hopper = Recorder::new();
         let hopper_recording = hopper.get_recording();
@@ -2666,12 +2664,11 @@ mod tests {
             .push(bootstrap_node.public_key().clone());
 
         let gossip = GossipBuilder::new().node(&neighborless_node, true).build();
-        let serialized_gossip = PlainData::new(&serde_cbor::ser::to_vec(&gossip).unwrap()[..]);
         let cores_package = ExpiredCoresPackage {
             immediate_neighbor_ip: neighborless_node.node_addr_opt().unwrap().ip_addr(),
             consuming_wallet: Some(Wallet::new("consuming")),
             remaining_route: make_meaningless_route(),
-            payload: serialized_gossip,
+            payload: encodex(cryptde, &cryptde.public_key(), &gossip).unwrap(),
         };
         let hopper = Recorder::new();
         let hopper_recording = hopper.get_recording();
@@ -2767,12 +2764,11 @@ mod tests {
             .node(&this_node, true)
             .node(&far_neighbor, false)
             .build();
-        let serialized_gossip = PlainData::new(&serde_cbor::ser::to_vec(&gossip).unwrap()[..]);
         let cores_package = ExpiredCoresPackage {
             immediate_neighbor_ip: IpAddr::from_str("1.2.3.4").unwrap(),
             consuming_wallet: Some(Wallet::new("consuming")),
             remaining_route: make_meaningless_route(),
-            payload: serialized_gossip,
+            payload: encodex(cryptde, &cryptde.public_key(), &gossip).unwrap(),
         };
         let hopper = Recorder::new();
         let this_node_inside = this_node.clone();

@@ -356,7 +356,6 @@ mod tests {
     use futures::lazy;
     use futures::sync::mpsc::unbounded;
     use futures::Stream;
-    use serde_cbor;
     use std::cell::RefCell;
     use std::io::Error;
     use std::io::ErrorKind;
@@ -370,8 +369,9 @@ mod tests {
     use std::time::Duration;
     use sub_lib::channel_wrappers::FuturesChannelFactoryReal;
     use sub_lib::channel_wrappers::SenderWrapperReal;
-    use sub_lib::cryptde::PlainData;
+    use sub_lib::cryptde::encodex;
     use sub_lib::cryptde::PublicKey;
+    use sub_lib::cryptde_null::CryptDENull;
     use sub_lib::hopper::ExpiredCoresPackage;
     use sub_lib::proxy_server::ProxyProtocol;
     use sub_lib::wallet::Wallet;
@@ -400,6 +400,7 @@ mod tests {
     }
 
     struct TestActor {
+        cryptde: CryptDENull,
         subject: StreamHandlerPoolReal,
     }
 
@@ -415,10 +416,22 @@ mod tests {
             msg: TriggerSubject,
             _ctx: &mut Self::Context,
         ) -> <Self as Handler<TriggerSubject>>::Result {
-            let payload = msg.package.payload::<ClientRequestPayload>().unwrap();
+            let payload = msg
+                .package
+                .payload::<ClientRequestPayload>(&self.cryptde)
+                .unwrap();
             let consuming_wallet = msg.package.consuming_wallet;
             self.subject.process_package(payload, consuming_wallet);
             ()
+        }
+    }
+
+    impl TestActor {
+        pub fn new(subject: StreamHandlerPoolReal) -> TestActor {
+            TestActor {
+                cryptde: CryptDENull::new(),
+                subject,
+            }
         }
     }
 
@@ -434,6 +447,7 @@ mod tests {
 
     #[test]
     fn non_terminal_payload_can_be_sent_over_existing_connection() {
+        let cryptde = cryptde();
         let stream_key = make_meaningless_stream_key();
         let client_request_payload = ClientRequestPayload {
             stream_key: stream_key.clone(),
@@ -456,7 +470,7 @@ mod tests {
             IpAddr::from_str("1.2.3.4").unwrap(),
             Some(Wallet::new("consuming")),
             make_meaningless_route(),
-            PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
+            encodex(cryptde, &cryptde.public_key(), &client_request_payload).unwrap(),
         );
 
         thread::spawn(move || {
@@ -465,7 +479,7 @@ mod tests {
             let peer_actors = peer_actors_builder().build();
             let subject = StreamHandlerPoolReal::new(
                 Box::new(ResolverWrapperMock::new()),
-                cryptde(),
+                cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
                 peer_actors.proxy_client.inbound_server_data.clone(),
             );
@@ -476,7 +490,7 @@ mod tests {
                 .stream_writer_channels
                 .insert(stream_key, tx_to_write);
 
-            let test_actor = TestActor { subject };
+            let test_actor = TestActor::new(subject);
             let addr: Addr<Syn, TestActor> = test_actor.start();
             let test_trigger: Recipient<Syn, TriggerSubject> =
                 addr.clone().recipient::<TriggerSubject>();
@@ -496,6 +510,7 @@ mod tests {
     #[test]
     fn write_failure_for_nonexistent_stream_generates_termination_message() {
         init_test_logging();
+        let cryptde = cryptde();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
         thread::spawn(move || {
@@ -515,7 +530,7 @@ mod tests {
                 IpAddr::from_str("1.2.3.4").unwrap(),
                 Some(Wallet::new("consuming")),
                 make_meaningless_route(),
-                PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
+                encodex(cryptde, &cryptde.public_key(), &client_request_payload).unwrap(),
             );
             let system = System::new("test");
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
@@ -529,7 +544,7 @@ mod tests {
 
             let subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
-                cryptde(),
+                cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
                 peer_actors.proxy_client.inbound_server_data.clone(),
             );
@@ -540,7 +555,7 @@ mod tests {
                 .stream_writer_channels
                 .insert(client_request_payload.stream_key, Box::new(tx_to_write));
 
-            let test_actor = TestActor { subject };
+            let test_actor = TestActor::new(subject);
             let addr: Addr<Syn, TestActor> = test_actor.start();
             let test_trigger: Recipient<Syn, TriggerSubject> =
                 addr.clone().recipient::<TriggerSubject>();
@@ -565,6 +580,7 @@ mod tests {
     #[test]
     fn missing_hostname_for_nonexistent_stream_generates_log_and_termination_message() {
         init_test_logging();
+        let cryptde = cryptde();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
         thread::spawn(move || {
@@ -586,18 +602,18 @@ mod tests {
                 IpAddr::from_str("1.2.3.4").unwrap(),
                 Some(Wallet::new("consuming")),
                 make_meaningless_route(),
-                PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
+                encodex(cryptde, &cryptde.public_key(), &client_request_payload).unwrap(),
             );
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_failure(ResolveError::from(ResolveErrorKind::Io));
             let subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
-                cryptde(),
+                cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
                 peer_actors.proxy_client.inbound_server_data.clone(),
             );
 
-            let test_actor = TestActor { subject };
+            let test_actor = TestActor::new(subject);
             let addr: Addr<Syn, TestActor> = test_actor.start();
             let test_trigger: Recipient<Syn, TriggerSubject> =
                 addr.clone().recipient::<TriggerSubject>();
@@ -629,6 +645,7 @@ mod tests {
 
     #[test]
     fn nonexistent_connection_springs_into_being_and_is_persisted_to_handle_transaction() {
+        let cryptde = cryptde();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let expected_lookup_ip_parameters = lookup_ip_parameters.clone();
         let write_parameters = Arc::new(Mutex::new(vec![]));
@@ -653,7 +670,7 @@ mod tests {
                 IpAddr::from_str("1.2.3.4").unwrap(),
                 Some(Wallet::new("consuming")),
                 make_meaningless_route(),
-                PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
+                encodex(cryptde, &cryptde.public_key(), &client_request_payload).unwrap(),
             );
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_parameters(&lookup_ip_parameters)
@@ -675,7 +692,7 @@ mod tests {
             };
             let mut subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
-                cryptde(),
+                cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
                 peer_actors.proxy_client.inbound_server_data.clone(),
             );
@@ -684,7 +701,6 @@ mod tests {
             let (stream_adder_tx, _stream_adder_rx) = mpsc::channel();
             {
                 let mut inner = subject.inner.lock().unwrap();
-                let cryptde = cryptde();
                 let establisher = StreamEstablisher {
                     cryptde,
                     stream_adder_tx,
@@ -705,7 +721,7 @@ mod tests {
                 });
             }
 
-            let test_actor = TestActor { subject };
+            let test_actor = TestActor::new(subject);
             let addr: Addr<Syn, TestActor> = test_actor.start();
             let test_trigger: Recipient<Syn, TriggerSubject> =
                 addr.clone().recipient::<TriggerSubject>();
@@ -738,6 +754,7 @@ mod tests {
 
     #[test]
     fn failing_to_make_a_connection_sends_an_error_response() {
+        let cryptde = cryptde();
         let stream_key = make_meaningless_stream_key();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
@@ -761,7 +778,7 @@ mod tests {
                 IpAddr::from_str("1.2.3.4").unwrap(),
                 Some(Wallet::new("consuming")),
                 make_meaningless_route(),
-                PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
+                encodex(cryptde, &cryptde.public_key(), &client_request_payload).unwrap(),
             );
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_parameters(&lookup_ip_parameters)
@@ -772,14 +789,13 @@ mod tests {
             let proxy_client_sub = peer_actors.proxy_client.inbound_server_data.clone();
             let mut subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
-                cryptde(),
+                cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
                 proxy_client_sub.clone(),
             );
             let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
             subject.stream_killer_rx = stream_killer_rx;
             let (stream_adder_tx, _stream_adder_rx) = mpsc::channel();
-            let cryptde = cryptde();
             let establisher = StreamEstablisher {
                 cryptde,
                 stream_adder_tx,
@@ -798,7 +814,7 @@ mod tests {
                     make_results: RefCell::new(vec![establisher]),
                 });
 
-            let test_actor = TestActor { subject };
+            let test_actor = TestActor::new(subject);
             let addr: Addr<Syn, TestActor> = test_actor.start();
             let test_trigger: Recipient<Syn, TriggerSubject> =
                 addr.clone().recipient::<TriggerSubject>();
@@ -823,6 +839,7 @@ mod tests {
 
     #[test]
     fn trying_to_write_to_disconnected_stream_writer_sends_an_error_response() {
+        let cryptde = cryptde();
         let stream_key = make_meaningless_stream_key();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let write_parameters = Arc::new(Mutex::new(vec![]));
@@ -849,7 +866,7 @@ mod tests {
                 IpAddr::from_str("1.2.3.4").unwrap(),
                 Some(Wallet::new("consuming")),
                 make_meaningless_route(),
-                PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
+                encodex(cryptde, &cryptde.public_key(), &client_request_payload).unwrap(),
             );
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_parameters(&lookup_ip_parameters)
@@ -871,7 +888,7 @@ mod tests {
             };
             let mut subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
-                cryptde(),
+                cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
                 peer_actors.proxy_client.inbound_server_data.clone(),
             );
@@ -885,7 +902,6 @@ mod tests {
             let (stream_adder_tx, _stream_adder_rx) = mpsc::channel();
             {
                 let mut inner = subject.inner.lock().unwrap();
-                let cryptde = cryptde();
                 let establisher = StreamEstablisher {
                     cryptde,
                     stream_adder_tx,
@@ -913,7 +929,7 @@ mod tests {
                 });
             }
 
-            let test_actor = TestActor { subject };
+            let test_actor = TestActor::new(subject);
             let addr: Addr<Syn, TestActor> = test_actor.start();
             let test_trigger: Recipient<Syn, TriggerSubject> =
                 addr.clone().recipient::<TriggerSubject>();
@@ -938,6 +954,7 @@ mod tests {
     #[test]
     fn bad_dns_lookup_produces_log_and_sends_error_response() {
         init_test_logging();
+        let cryptde = cryptde();
         let stream_key = make_meaningless_stream_key();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
@@ -958,7 +975,7 @@ mod tests {
                 IpAddr::from_str("1.2.3.4").unwrap(),
                 Some(Wallet::new("consuming")),
                 make_meaningless_route(),
-                PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
+                encodex(cryptde, &cryptde.public_key(), &client_request_payload).unwrap(),
             );
             let system = System::new("test");
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
@@ -968,11 +985,11 @@ mod tests {
                 .lookup_ip_failure(ResolveError::from(ResolveErrorKind::Io));
             let subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
-                cryptde(),
+                cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
                 peer_actors.proxy_client.inbound_server_data.clone(),
             );
-            let test_actor = TestActor { subject };
+            let test_actor = TestActor::new(subject);
             let addr: Addr<Syn, TestActor> = test_actor.start();
             let test_trigger: Recipient<Syn, TriggerSubject> =
                 addr.clone().recipient::<TriggerSubject>();
@@ -1002,6 +1019,7 @@ mod tests {
     #[ignore] // TODO: Play SC-696 card to re-write this test -- it is flaky
     fn after_writing_last_data_the_stream_should_close() {
         init_test_logging();
+        let cryptde = cryptde();
         let stream_key = make_meaningless_stream_key();
         let (proxy_client, _, _) = make_recorder();
         let (tx_to_write, mut rx_to_write) = unbounded();
@@ -1022,7 +1040,7 @@ mod tests {
             IpAddr::from_str("1.2.3.4").unwrap(),
             Some(Wallet::new("consuming")),
             make_meaningless_route(),
-            PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
+            encodex(cryptde, &cryptde.public_key(), &client_request_payload).unwrap(),
         );
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
@@ -1031,7 +1049,7 @@ mod tests {
             let resolver = ResolverWrapperMock::new();
             let subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
-                cryptde(),
+                cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
                 peer_actors.proxy_client.inbound_server_data.clone(),
             );
@@ -1043,7 +1061,7 @@ mod tests {
                 )),
             );
 
-            let test_actor = TestActor { subject };
+            let test_actor = TestActor::new(subject);
             let addr: Addr<Syn, TestActor> = test_actor.start();
             let test_trigger: Recipient<Syn, TriggerSubject> =
                 addr.clone().recipient::<TriggerSubject>();
@@ -1076,6 +1094,7 @@ mod tests {
     #[test]
     fn error_from_tx_to_writer_removes_stream() {
         init_test_logging();
+        let cryptde = cryptde();
         let stream_key = make_meaningless_stream_key();
         let (proxy_client, _, _) = make_recorder();
         let (hopper, _, _) = make_recorder();
@@ -1097,7 +1116,7 @@ mod tests {
             IpAddr::from_str("1.2.3.4").unwrap(),
             Some(Wallet::new("consuming")),
             make_meaningless_route(),
-            PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
+            encodex(cryptde, &cryptde.public_key(), &client_request_payload).unwrap(),
         );
         let mut sender_wrapper =
             SenderWrapperMock::new(SocketAddr::from_str("1.2.3.4:5678").unwrap());
@@ -1115,7 +1134,7 @@ mod tests {
 
             let subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
-                cryptde(),
+                cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
                 peer_actors.proxy_client.inbound_server_data.clone(),
             );
@@ -1126,7 +1145,7 @@ mod tests {
                 .stream_writer_channels
                 .insert(stream_key, Box::new(sender_wrapper));
 
-            let test_actor = TestActor { subject };
+            let test_actor = TestActor::new(subject);
             let addr: Addr<Syn, TestActor> = test_actor.start();
             let test_trigger: Recipient<Syn, TriggerSubject> =
                 addr.clone().recipient::<TriggerSubject>();
@@ -1146,6 +1165,7 @@ mod tests {
     fn process_package_does_not_create_new_connection_for_last_data_message_with_no_data_and_sends_no_response(
     ) {
         init_test_logging();
+        let cryptde = cryptde();
         let (proxy_client, _, _) = make_recorder();
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let (accountant, _, _) = make_recorder();
@@ -1172,12 +1192,12 @@ mod tests {
                 IpAddr::from_str("1.2.3.4").unwrap(),
                 Some(Wallet::new("consuming")),
                 make_meaningless_route(),
-                PlainData::new(&(serde_cbor::ser::to_vec(&client_request_payload).unwrap())[..]),
+                encodex(cryptde, &cryptde.public_key(), &client_request_payload).unwrap(),
             );
             let resolver = ResolverWrapperMock::new();
             let subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
-                cryptde(),
+                cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
                 peer_actors.proxy_client.inbound_server_data.clone(),
             );
@@ -1187,7 +1207,7 @@ mod tests {
                     make_results: RefCell::new(vec![]),
                 });
 
-            let test_actor = TestActor { subject };
+            let test_actor = TestActor::new(subject);
             let addr: Addr<Syn, TestActor> = test_actor.start();
             let test_trigger: Recipient<Syn, TriggerSubject> =
                 addr.clone().recipient::<TriggerSubject>();

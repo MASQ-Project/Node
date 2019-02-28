@@ -10,7 +10,6 @@ use multinode_integration_tests_lib::substratum_node::SubstratumNode;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
 use node_lib::json_masquerader::JsonMasquerader;
-use serde_cbor;
 use std::collections::HashSet;
 use std::io::ErrorKind;
 use std::net::IpAddr;
@@ -19,6 +18,7 @@ use std::net::SocketAddr;
 use std::net::TcpStream;
 use std::str::FromStr;
 use std::time::Duration;
+use sub_lib::cryptde::decodex;
 use sub_lib::cryptde::PublicKey;
 use sub_lib::cryptde_null::CryptDENull;
 use sub_lib::dispatcher::Component;
@@ -95,10 +95,8 @@ fn server_relays_cores_package() {
 
     route.shift(cryptde).unwrap();
     assert_eq!(expired.remaining_route, route);
-    assert_eq!(
-        serde_cbor::de::from_slice::<String>(expired.payload.as_slice()).unwrap(),
-        String::from("Booga booga!")
-    );
+    let decrypted_payload: String = decodex(server.cryptde(), &expired.payload).unwrap();
+    assert_eq!(decrypted_payload, String::from("Booga booga!"));
 }
 
 #[test]
@@ -145,7 +143,9 @@ fn one_mock_node_talks_to_another() {
 
     assert_eq!(package_from.ip(), mock_node_1.ip_address());
     assert_eq!(package_to, mock_node_2.socket_addr(PortSelector::First));
-    let actual_payload: String = expired_cores_package.payload().unwrap();
+    let actual_payload: String = expired_cores_package
+        .payload(mock_node_2.cryptde())
+        .unwrap();
     assert_eq!(actual_payload, String::from("payload"));
 }
 

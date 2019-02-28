@@ -4,10 +4,7 @@
     <modules>
       <module fileurl="file://$PROJECT_DIR$/ci/ci.iml" filepath="$PROJECT_DIR$/ci/ci.iml" />
       <module fileurl="file://$PROJECT_DIR$/dns_utility/dns_utility.iml" filepath="$PROJECT_DIR$/dns_utility/dns_utility.iml" />
-      <module fileurl="file://$PROJECT_DIR$/entry_dns_lib/entry_dns_lib.iml" filepath="$PROJECT_DIR$/entry_dns_lib/entry_dns_lib.iml" />
-      <module fileurl="file://$PROJECT_DIR$/hopper_lib/hopper_lib.iml" filepath="$PROJECT_DIR$/hopper_lib/hopper_lib.iml" />
       <module fileurl="file://$PROJECT_DIR$/multinode_integration_tests/multinode_integration_tests.iml" filepath="$PROJECT_DIR$/multinode_integration_tests/multinode_integration_tests.iml" />
-      <module fileurl="file://$PROJECT_DIR$/neighborhood_lib/neighborhood_lib.iml" filepath="$PROJECT_DIR$/neighborhood_lib/neighborhood_lib.iml" />
       <module fileurl="file://$PROJECT_DIR$/node/node.iml" filepath="$PROJECT_DIR$/node/node.iml" />
       <module fileurl="file://$PROJECT_DIR$/node-ui/node-ui.iml" filepath="$PROJECT_DIR$/node-ui/node-ui.iml" />
       <module fileurl="file://$PROJECT_DIR$/proxy_server_lib/proxy_server_lib.iml" filepath="$PROJECT_DIR$/proxy_server_lib/proxy_server_lib.iml" />

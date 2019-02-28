@@ -157,7 +157,7 @@ impl Handler<ExpiredCoresPackage> for ProxyServer {
     type Result = ();
 
     fn handle(&mut self, msg: ExpiredCoresPackage, _ctx: &mut Self::Context) -> Self::Result {
-        match msg.payload::<ClientResponsePayload>() {
+        match msg.payload::<ClientResponsePayload>(self.cryptde) {
             Ok(payload) => {
                 self.logger.debug(format!(
                     "Relaying {}-byte ExpiredCoresPackage payload from Hopper to Dispatcher",
@@ -1532,12 +1532,11 @@ mod tests {
             &key,
         )
         .unwrap();
-        let decrypted_payload = cryptde.decode(&incipient_cores_package.payload).unwrap();
         let first_expired_cores_package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
             Some(Wallet::new("consuming")),
             remaining_route,
-            decrypted_payload,
+            incipient_cores_package.payload,
         );
         let second_expired_cores_package = first_expired_cores_package.clone();
         let mut peer_actors = peer_actors_builder().dispatcher(dispatcher_mock).build();
@@ -1587,12 +1586,11 @@ mod tests {
             &key,
         )
         .unwrap();
-        let decrypted_payload = cryptde.decode(&incipient_cores_package.payload).unwrap();
         let first_expired_cores_package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
             Some(Wallet::new("consuming")),
             remaining_route,
-            decrypted_payload,
+            incipient_cores_package.payload,
         );
         let second_expired_cores_package = first_expired_cores_package.clone();
         let mut peer_actors = peer_actors_builder().dispatcher(dispatcher_mock).build();
@@ -1645,12 +1643,11 @@ mod tests {
             &key,
         )
         .unwrap();
-        let decrypted_payload = cryptde.decode(&incipient_cores_package.payload).unwrap();
         let expired_cores_package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
             Some(Wallet::new("consuming")),
             remaining_route,
-            decrypted_payload,
+            incipient_cores_package.payload,
         );
 
         subject_addr.try_send(expired_cores_package).unwrap();
