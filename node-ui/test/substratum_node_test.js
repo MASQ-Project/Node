@@ -22,7 +22,7 @@ describe('SubstratumNode', () => {
   describe('starting', () => {
     describe('when there is an error', () => {
       beforeEach(() => {
-        td.when(commandHelper.startSubstratumNode(td.callback)).thenCallback(new Error('the error'))
+        td.when(commandHelper.startSubstratumNode(td.matchers.anything(), td.callback)).thenCallback(new Error('the error'))
 
         subject.start()
       })
@@ -38,7 +38,7 @@ describe('SubstratumNode', () => {
 
     describe('when there is an stderror', () => {
       beforeEach(() => {
-        td.when(commandHelper.startSubstratumNode(td.callback)).thenCallback(undefined, undefined, 'the stderror')
+        td.when(commandHelper.startSubstratumNode(td.matchers.anything(), td.callback)).thenCallback(undefined, undefined, 'the stderror')
 
         subject.start()
       })
@@ -54,7 +54,7 @@ describe('SubstratumNode', () => {
 
     describe('when there is stdout', () => {
       beforeEach(() => {
-        td.when(commandHelper.startSubstratumNode(td.callback)).thenCallback(undefined, 'the stdout')
+        td.when(commandHelper.startSubstratumNode(td.matchers.anything(), td.callback)).thenCallback(undefined, 'the stdout')
 
         subject.start()
       })

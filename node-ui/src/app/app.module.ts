@@ -8,17 +8,22 @@ import {IndexComponent} from './index/index.component';
 import {HeaderComponent} from './header/header.component';
 import {FooterComponent} from './footer/footer.component';
 import {ElectronService} from './electron.service';
+import {NodeConfigurationComponent} from './node-configuration/node-configuration.component';
+import {FormsModule, ReactiveFormsModule} from '@angular/forms';
 
 @NgModule({
   declarations: [
     AppComponent,
     IndexComponent,
     HeaderComponent,
-    FooterComponent
+    FooterComponent,
+    NodeConfigurationComponent
   ],
   imports: [
     BrowserModule,
-    AppRoutingModule
+    AppRoutingModule,
+    FormsModule,
+    ReactiveFormsModule
   ],
   providers: [ElectronService],
   bootstrap: [AppComponent]

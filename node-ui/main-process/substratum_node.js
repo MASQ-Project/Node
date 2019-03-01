@@ -8,14 +8,14 @@ module.exports = (() => {
   function bindEvents () {
     process.on('message', function (message) {
       console.log('substratum_node process received message: ', message)
-      if (message === 'start') { start() }
+      if (message.type === 'start') { start(message.arguments) }
       if (message === 'stop') { stop() }
     })
   }
 
-  function start () {
+  function start (additionalArgs) {
     console.log('start initiated')
-    commandHelper.startSubstratumNode(handleCommandResult)
+    commandHelper.startSubstratumNode(additionalArgs, handleCommandResult)
   }
 
   function stop () {

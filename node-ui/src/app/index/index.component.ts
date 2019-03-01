@@ -15,6 +15,7 @@ export class IndexComponent {
   status: NodeStatus = NodeStatus.Off;
 
   constructor(private mainService: MainService, private app: ApplicationRef) {
+    window.resizeTo(320, 260);
     mainService.nodeStatus.subscribe((newStatus) => {
       this.status = newStatus;
       // TODO - is there a nicer way to accomplish this? Forces UI to update right away after change

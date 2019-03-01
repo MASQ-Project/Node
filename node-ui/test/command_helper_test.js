@@ -38,7 +38,7 @@ describe('CommandHelper', () => {
         const command = /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" os-uid os-gid ".*[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns_servers \d.*/
 
         beforeEach(() => {
-          subject.startSubstratumNode('callback')
+          subject.startSubstratumNode({}, 'callback')
         })
 
         it('executes the command via sudo prompt', () => {
@@ -50,10 +50,10 @@ describe('CommandHelper', () => {
         const command = /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" env-uid env-gid ".*[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns_servers \d.*/
 
         beforeEach(() => {
-          process.env = {SUDO_UID: 'env-uid', SUDO_GID: 'env-gid'}
+          process.env = { SUDO_UID: 'env-uid', SUDO_GID: 'env-gid' }
           subject = require('../main-process/command_helper')
 
-          subject.startSubstratumNode('callback')
+          subject.startSubstratumNode({}, 'callback')
         })
 
         it('executes the command via sudo prompt', () => {
@@ -117,7 +117,7 @@ describe('CommandHelper', () => {
       const command = /[/\\]static[/\\]scripts[/\\]substratum_node\.cmd" ".*[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns_servers \d.*/
 
       beforeEach(() => {
-        subject.startSubstratumNode('callback')
+        subject.startSubstratumNode({}, 'callback')
       })
 
       it('executes the command via node cmd', () => {
@@ -132,6 +132,57 @@ describe('CommandHelper', () => {
 
       it('kills the process', () => {
         td.verify(treeKill(1234, 'callback'))
+      })
+    })
+
+    describe('getCommand', () => {
+
+      describe('when ip and neighbor are both provided', () => {
+        beforeEach(() => {
+          subject.startSubstratumNode({ ip: 'abc', neighbor: 'hidelyho' }, 'callback')
+        })
+
+        it('provides them as command line arguments', () => {
+          td.verify(nodeCmd.get(td.matchers.contains(/--ip abc\s+--neighbor hidelyho/), 'callback'))
+        })
+
+        it('provides port_count command line argument', () => {
+          td.verify(nodeCmd.get(td.matchers.contains('--port_count 1'), 'callback'))
+        })
+      })
+
+      describe('when neighbor is provided but ip is not', () => {
+        beforeEach(() => {
+          subject.startSubstratumNode({ neighbor: 'hidelyho' }, 'callback')
+        })
+
+        it('uses neither as command line arguments', () => {
+          td.verify(nodeCmd.get(td.matchers.argThat((args) => {
+            return !args.includes('--ip') && !args.includes('--neighbor')
+          }), 'callback'))
+        })
+      })
+
+      describe('when ip is provided but neighbor is not', () => {
+        beforeEach(() => {
+          subject.startSubstratumNode({ ip: 'abc' }, 'callback')
+        })
+
+        it('uses neither as command line arguments', () => {
+          td.verify(nodeCmd.get(td.matchers.argThat((args) => {
+            return !args.includes('--ip') && !args.includes('--neighbor')
+          }), 'callback'))
+        })
+      })
+
+      describe('when wallet address is provided', () => {
+        beforeEach(() => {
+          subject.startSubstratumNode({ walletAddress: 'bazinga' }, 'callback')
+        })
+
+        it('provides wallet address command line argument', () => {
+          td.verify(nodeCmd.get(td.matchers.contains('--wallet_address bazinga'), 'callback'))
+        })
       })
     })
   })

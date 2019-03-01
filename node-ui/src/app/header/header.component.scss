@@ -35,7 +35,7 @@
   position: absolute;
   top: 40px;
   right: 10px;
-  font-size: rem(13px);
+  font-size: fontSize('base');
   color: color('text','dark');
   overflow: hidden;
   z-index: 1;

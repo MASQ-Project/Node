@@ -75,25 +75,27 @@ module.exports = class NodeActuator {
     }
   }
 
-  async startNode () {
+  async startNode (additionalArguments) {
     if (this.substratumNodeProcess) {
       await uiInterface.connect()
-      return
-    }
-
-    const worker = path.resolve(__dirname, '.', './substratum_node.js')
-    this.substratumNodeProcess = childProcess.fork(worker, [], {
-      silent: true,
-      stdio: [0, 1, 2, 'ipc'],
-      detached: true
-    })
-    this.bindProcessEvents()
-    this.substratumNodeProcess.send('start')
-
-    if (await uiInterface.verifyNodeUp(NODE_STARTUP_TIMEOUT)) {
-      await uiInterface.connect()
     } else {
-      dialog.showErrorBox('Error', `Node was started but didn't come up within ${NODE_STARTUP_TIMEOUT}ms!`)
+      const worker = path.resolve(__dirname, '.', './substratum_node.js')
+      this.substratumNodeProcess = childProcess.fork(worker, [], {
+        silent: true,
+        stdio: [0, 1, 2, 'ipc'],
+        detached: true
+      })
+      this.bindProcessEvents()
+      this.substratumNodeProcess.send({
+        type: 'start',
+        arguments: additionalArguments
+      })
+
+      if (await uiInterface.verifyNodeUp(NODE_STARTUP_TIMEOUT)) {
+        await uiInterface.connect()
+      } else {
+        dialog.showErrorBox('Error', `Node was started but didn't come up within ${NODE_STARTUP_TIMEOUT}ms!`)
+      }
     }
   }
 
@@ -127,8 +129,8 @@ module.exports = class NodeActuator {
     }
   }
 
-  async servingClick () {
-    await this.startNode()
+  async servingClick (additionalArgs) {
+    await this.startNode(additionalArgs)
     try {
       await dnsUtility.revert()
       return await this.getStatus()

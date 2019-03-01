@@ -1,0 +1,73 @@
+<!--Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.-->
+
+<div class="node-config">
+  <form [formGroup]="nodeConfig" (ngSubmit)="onSubmit()">
+
+    <div class="node-config__display">
+      <label for="ip" class="node-config__display-label">My External IP Address</label>
+    </div>
+    <div class="node-config__actions">
+      <input type="text" id="ip" formControlName="ip">
+    </div>
+
+    <div class="node-config__display">
+      <label for="node-descriptor" class="node-config__display-label">Neighbor Node Descriptor </label>
+      <img (click)="toggleTooltip()" id="node-descriptor-help-icon" #tooltipIcon class="question"
+           src="assets/images/questionmark_encircled.svg" height="16"
+           width="16">
+
+      <p *ngIf="tooltipShown" id="node-descriptor-tooltip" class="node-config__clippy">
+        Copy and paste your neighbor's descriptor into this input to join the Substratum Network.
+      </p>
+    </div>
+    <div class="node-config__actions">
+      <input type="text" id="node-descriptor" formControlName="neighbor">
+    </div>
+
+    <div class="node-config__actions">
+      <!--
+         <button #consuming
+                 [class.button-active]="isActive(consuming.value)"
+                 class="btn toggle-button"
+                 (click)="walletToggle(consuming.value)"
+                 id="consuming-wallet"
+                 type="button"
+                 value="Consuming">
+           Consuming Wallet
+         </button>
+         -->
+      <button #earning
+              [class.button-active]="isActive(earning.value)"
+              class="btn toggle-button"
+              (click)="walletToggle(earning.value)"
+              id="earning-wallet"
+              type="button"
+              value="Earning">
+        Earning Wallet
+      </button>
+    </div>
+
+    <div class="node-config__display">
+      <label for="wallet-address" class="node-config__display-label">Wallet Address</label>
+    </div>
+    <div class="node-config__actions">
+      <input id="wallet-address" name="wallet-address" type="text" formControlName="walletAddress">
+    </div>
+
+
+    <div *ngIf="walletType == 'Consuming'">
+      <div class="node-config__display">
+        <label for="private-key" class="node-config__display-label">Private Key</label>
+      </div>
+      <div class="node-config__actions">
+        <input id="private-key" name="private-key" type="text" formControlName="privateKey">
+      </div>
+    </div>
+
+    <div class="node-config__actions node-config__inset">
+      <div class="node-config__empty-flex"></div>
+      <button id="save-config" class="node-config__to-action" type="submit">Save</button>
+      <div class="node-config__empty-flex"></div>
+    </div>
+  </form>
+</div>

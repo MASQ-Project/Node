@@ -18,6 +18,7 @@ export class HeaderComponent {
   documentClick(event: MouseEvent) {
     this.hideSettings(event);
   }
+
   constructor(private electron: ElectronService) {
   }
 

@@ -370,7 +370,7 @@ describe('NodeActuator', () => {
     describe('receiving an error message from child process', () => {
       describe('while serving', () => {
         beforeEach(async () => {
-          await subject.servingClick()
+          await subject.servingClick({})
 
           await mockSubstratumNodeProcess.emit('message', 'Command returned error: blooga')
         })
@@ -386,7 +386,7 @@ describe('NodeActuator', () => {
 
         describe('serve', () => {
           beforeEach(async () => {
-            await subject.servingClick()
+            await subject.servingClick({})
           })
 
           it('starts the node again', () => {
@@ -609,7 +609,10 @@ describe('NodeActuator', () => {
       stdio: [0, 1, 2, 'ipc'],
       detached: true
     }), { times: times })
-    td.verify(mockSubstratumNodeProcess.send('start'), { times: times, ignoreExtraArgs: times === 0 })
+    td.verify(mockSubstratumNodeProcess.send(td.matchers.argThat((arg) => arg.type === 'start')), {
+      times: times,
+      ignoreExtraArgs: times === 0
+    })
   }
 
   function assertNodeStoppedByUi () {

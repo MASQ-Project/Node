@@ -47,25 +47,32 @@ describe('Application launch', function () {
     }
   })
 
-  it('shows initial state', () => {
+  it('shows configuration', () => {
     let client = this.app.client
     return client.waitUntilWindowLoaded()
       .then(() => {
-        return client.element('div.node-status__actions')
-      })
-      .then(function (slider) {
-        assert.notStrictEqual(slider.type, 'NoSuchElement')
-      })
-      .then(() => {
-        return client.getText('div.node-status__actions button.button-active')
-      })
-      .then(function (activeButtonText) {
+        let nodeConfigComponent = client.element('div.node-config')
+        assert.notStrictEqual(nodeConfigComponent.type, 'NoSuchElement')
+        let activeButtonText = client.getText('div.node-config button.button-active')
         assert.ok(activeButtonText)
+        let saveButton = client.element('#save-config')
+        assert.notStrictEqual(saveButton.type, 'NoSuchElement')
+      })
+  })
+
+  it('shows index component after configuration is saved', () => {
+    let client = this.app.client
+    return client.waitUntilWindowLoaded()
+      .then(async () => {
+        client.element('#save-config').click()
+        await client.waitUntilWindowLoaded()
       })
       .then(() => {
-        return client.element('.settings-menu--inactive')
-      })
-      .then(function (settingButton) {
+        let slider = client.element('div.node-status__actions')
+        assert.notStrictEqual(slider.type, 'NoSuchElement')
+        let activeButtonText = client.getText('div.node-status__actions button.button-active')
+        assert.ok(activeButtonText)
+        let settingButton = client.element('.settings-menu--inactive')
         assert.notStrictEqual(settingButton.type, 'NoSuchElement')
       })
   })

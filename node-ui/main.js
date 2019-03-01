@@ -58,12 +58,12 @@ app.on('activate', () => {
   }
 })
 
-ipcMain.on('change-node-state', async (event, arg) => {
-  if (arg === 'turn-off') {
+ipcMain.on('change-node-state', async (event, command, arguments) => {
+  if (command === 'turn-off') {
     event.returnValue = await nodeActuator.offClick()
-  } else if (arg === 'serve') {
-    event.returnValue = await nodeActuator.servingClick()
-  } else if (arg === 'consume') {
-    event.returnValue = await nodeActuator.consumingClick()
+  } else if (command === 'serve') {
+    event.returnValue = await nodeActuator.servingClick(arguments)
+  } else if (command === 'consume') {
+    event.returnValue = await nodeActuator.consumingClick(arguments)
   }
 })
