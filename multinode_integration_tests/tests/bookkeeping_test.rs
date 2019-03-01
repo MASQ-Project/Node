@@ -117,14 +117,14 @@ fn check_originating_charges(param_block: &ParamBlock) {
     let expected_request_exit_charge = calculate_exit_charge(param_block.request_len);
     let (cores_response_bytes, expected_response_routing_charge) =
         cores_payload_response_routing_charges(&param_block);
-    let expected_response_exit_charge = 0; //calculate_exit_charge (param_block.response_len);
+    let expected_response_exit_charge = calculate_exit_charge(param_block.response_len);
     println!(
         "request_routing_charge: {}, response_routing_charge: {}",
         expected_request_routing_charge, expected_response_routing_charge
     );
     assert_eq!(
         payable_routing_account.balance as u64,
-        expected_request_routing_charge, // + expected_response_routing_charge,
+        expected_request_routing_charge + expected_response_routing_charge,
         "Balance should be calculated for 2 routing services and {} + {} bytes",
         cores_request_bytes,
         cores_response_bytes

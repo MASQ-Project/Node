@@ -1,8 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::cryptde::decodex;
+use crate::cryptde::encodex;
 use crate::cryptde::CryptDE;
 use crate::cryptde::CryptData;
-use crate::cryptde::CryptdecError;
-use crate::cryptde::PlainData;
 use crate::cryptde::PublicKey;
 use crate::dispatcher::Component;
 use crate::hop::LiveHop;
@@ -37,6 +37,14 @@ impl Route {
             consuming_wallet,
             Some(return_route_id),
         )
+    }
+
+    pub fn id(&self, cryptde: &dyn CryptDE) -> Result<u32, String> {
+        if let Some(first) = self.hops.first() {
+            decodex(cryptde, first)
+        } else {
+            return Err("Response route did not contain a return route ID".to_string());
+        }
     }
 
     // This cryptde must be the CryptDE of the next hop to come off the Route.
@@ -143,11 +151,8 @@ impl Route {
     }
 
     fn encrypt_return_route_id(return_route_id: u32, cryptde: &CryptDE) -> CryptData {
-        let return_route_id_ser =
-            serde_cbor::ser::to_vec(&return_route_id).expect("serde_cbor couldn't serialize a u32");
-        cryptde
-            .encode(&cryptde.public_key(), &PlainData::from(return_route_id_ser))
-            .expect("CryptDE couldn't encrypt four bytes")
+        encodex(cryptde, &cryptde.public_key(), &return_route_id)
+            .expect("Internal error encrypting u32 return_route_id")
     }
 }
 
@@ -168,7 +173,7 @@ impl RouteSegment {
 
 #[derive(Debug, PartialEq)]
 pub enum RouteError {
-    HopDecodeProblem(CryptdecError),
+    HopDecodeProblem(String),
     EmptyRoute,
     NoRouteSegments,
     TooFewKeysInRouteSegment,
@@ -180,6 +185,43 @@ mod tests {
     use super::*;
     use crate::cryptde_null::CryptDENull;
     use serde_cbor;
+
+    #[test]
+    fn id_decodes_return_route_id() {
+        let mut cryptde = CryptDENull::new();
+        cryptde.generate_key_pair();
+
+        let subject = Route {
+            hops: vec![Route::encrypt_return_route_id(42, &cryptde)],
+        };
+
+        assert_eq!(subject.id(&cryptde), Ok(42));
+    }
+
+    #[test]
+    fn id_returns_empty_route_error_when_the_route_is_empty() {
+        let mut cryptde = CryptDENull::new();
+        cryptde.generate_key_pair();
+
+        let subject = Route { hops: vec![] };
+
+        assert_eq!(
+            subject.id(&cryptde),
+            Err("Response route did not contain a return route ID".to_string())
+        );
+    }
+
+    #[test]
+    fn id_returns_error_when_the_id_fails_to_decrypt() {
+        let cryptde1 = CryptDENull::from(&PublicKey::new(b"key a"));
+        let cryptde2 = CryptDENull::from(&PublicKey::new(b"key b"));
+
+        let subject = Route {
+            hops: vec![Route::encrypt_return_route_id(42, &cryptde1)],
+        };
+
+        assert_eq!(subject.id(&cryptde2), Err("Decryption error: InvalidKey(\"Could not decrypt with [235, 229, 249, 160, 226] data beginning with [235, 229, 249, 160, 225]\")".to_string()));
+    }
 
     #[test]
     fn construct_does_not_like_route_segments_with_too_few_keys() {

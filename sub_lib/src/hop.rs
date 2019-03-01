@@ -1,12 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::cryptde::decodex;
+use crate::cryptde::encodex;
 use crate::cryptde::CryptDE;
 use crate::cryptde::CryptData;
-use crate::cryptde::CryptdecError;
-use crate::cryptde::PlainData;
 use crate::cryptde::PublicKey;
 use crate::dispatcher::Component;
 use crate::wallet::Wallet;
-use serde_cbor;
 use serde_derive::{Deserialize, Serialize};
 
 // This structure is the one that will travel from Node to Node in a CORES package.
@@ -28,26 +27,16 @@ impl LiveHop {
         }
     }
 
-    pub fn decode(cryptde: &dyn CryptDE, crypt_data: &CryptData) -> Result<Self, CryptdecError> {
-        let plain_data = cryptde.decode(crypt_data)?;
-        match serde_cbor::de::from_slice::<LiveHop>(plain_data.as_slice()) {
-            Ok(hop) => Ok(hop),
-            // crashpoint - need to figure out how to return deserialize error
-            Err(_) => unimplemented!("failed to deserialize hop"),
-        }
+    pub fn decode(cryptde: &dyn CryptDE, crypt_data: &CryptData) -> Result<Self, String> {
+        decodex::<LiveHop>(cryptde, crypt_data)
     }
 
     pub fn encode(
         &self,
         public_key: &PublicKey,
         cryptde: &dyn CryptDE,
-    ) -> Result<CryptData, CryptdecError> {
-        let plain_data = match serde_cbor::ser::to_vec(&self) {
-            Ok(data) => PlainData::new(&data[..]),
-            // crashpoint - need to figure out how to return serialize error
-            Err(_) => unimplemented!(),
-        };
-        cryptde.encode(public_key, &plain_data)
+    ) -> Result<CryptData, String> {
+        encodex(cryptde, public_key, &self)
     }
 }
 
@@ -66,6 +55,22 @@ mod tests {
 
         assert_eq!(subject.public_key, PublicKey::new("key".as_bytes()));
         assert_eq!(subject.component, Component::Neighborhood);
+    }
+
+    #[test]
+    fn decode_can_handle_errors() {
+        let cryptde = CryptDENull::new();
+        let encrypted = CryptData::new(&[0]);
+
+        let result = LiveHop::decode(&cryptde, &encrypted);
+
+        assert_eq!(
+            result
+                .err()
+                .unwrap()
+                .contains("Decryption error: InvalidKey"),
+            true
+        );
     }
 
     #[test]
