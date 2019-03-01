@@ -141,15 +141,15 @@ mod tests {
 
     #[test]
     fn ttl_hashmap_get_preserves_otherwise_expired_entry() {
-        let mut subject = TtlHashMap::new(Duration::from_millis(10));
+        let mut subject = TtlHashMap::new(Duration::from_millis(100));
 
         subject.insert(42u32, "Hello");
 
-        thread::sleep(Duration::from_millis(5));
+        thread::sleep(Duration::from_millis(50));
         subject.get(&42u32).is_none();
-        thread::sleep(Duration::from_millis(5));
+        thread::sleep(Duration::from_millis(50));
         subject.get(&42u32).is_none();
-        thread::sleep(Duration::from_millis(5));
+        thread::sleep(Duration::from_millis(50));
         subject.get(&42u32).is_none();
 
         assert_eq!(subject.get(&42u32).unwrap().as_ref(), &"Hello");
