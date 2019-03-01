@@ -146,11 +146,11 @@ mod tests {
         subject.insert(42u32, "Hello");
 
         thread::sleep(Duration::from_millis(50));
-        subject.get(&42u32).is_none();
+        subject.get(&42u32).unwrap();
         thread::sleep(Duration::from_millis(50));
-        subject.get(&42u32).is_none();
+        subject.get(&42u32).unwrap();
         thread::sleep(Duration::from_millis(50));
-        subject.get(&42u32).is_none();
+        subject.get(&42u32).unwrap();
 
         assert_eq!(subject.get(&42u32).unwrap().as_ref(), &"Hello");
     }
