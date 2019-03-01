@@ -141,17 +141,39 @@ mod tests {
 
     #[test]
     fn ttl_hashmap_get_preserves_otherwise_expired_entry() {
-        let mut subject = TtlHashMap::new(Duration::from_millis(100));
+        // Note: You may think that these delays are far too long for unit tests, and that you can
+        // reduce them proportionally and get faster test execution. Before you do, though, be sure the
+        // reduced test runs reliably on the Mac. We were seeing granularities of 200ms (that is, if you
+        // order a 5ms sleep, you get 200ms) in early March 2019.
+        let mut subject = TtlHashMap::new(Duration::from_millis(500));
 
         subject.insert(42u32, "Hello");
 
-        thread::sleep(Duration::from_millis(50));
-        subject.get(&42u32).unwrap();
-        thread::sleep(Duration::from_millis(50));
-        subject.get(&42u32).unwrap();
-        thread::sleep(Duration::from_millis(50));
-        subject.get(&42u32).unwrap();
+        let timestamp = Instant::now();
+        thread::sleep(Duration::from_millis(250));
+        subject
+            .get(&42u32)
+            .expect(time_since_msg(timestamp, 250).as_str());
+        thread::sleep(Duration::from_millis(250));
+        subject
+            .get(&42u32)
+            .expect(time_since_msg(timestamp, 500).as_str());
+        thread::sleep(Duration::from_millis(250));
 
-        assert_eq!(subject.get(&42u32).unwrap().as_ref(), &"Hello");
+        assert_eq!(
+            subject
+                .get(&42u32)
+                .expect(time_since_msg(timestamp, 750).as_str())
+                .as_ref(),
+            &"Hello"
+        );
+    }
+
+    fn time_since_msg(timestamp: Instant, nominal: u64) -> String {
+        format!(
+            "Should still be there after nominal {}ms, actual {}ms",
+            nominal,
+            Instant::now().duration_since(timestamp).subsec_millis()
+        )
     }
 }
