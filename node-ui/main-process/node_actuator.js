@@ -117,7 +117,7 @@ module.exports = class NodeActuator {
     }
   }
 
-  async offClick () {
+  async off () {
     try {
       await dnsUtility.revert()
       await this.stopNode()
@@ -128,7 +128,7 @@ module.exports = class NodeActuator {
     }
   }
 
-  async servingClick (additionalArgs) {
+  async serving (additionalArgs) {
     await this.startNode(additionalArgs)
     try {
       await dnsUtility.revert()
@@ -139,8 +139,8 @@ module.exports = class NodeActuator {
     }
   }
 
-  async consumingClick () {
-    await this.startNode()
+  async consuming (additionalArgs) {
+    await this.startNode(additionalArgs)
     try {
       await dnsUtility.subvert()
       return await this.getStatus()

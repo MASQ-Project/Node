@@ -58,7 +58,7 @@ describe('NodeActuator', () => {
 
   describe('off', () => {
     beforeEach(async () => {
-      await subject.offClick()
+      await subject.off()
     })
 
     it('does nothing', () => {
@@ -67,7 +67,7 @@ describe('NodeActuator', () => {
 
     describe('to off', () => {
       it('does nothing', async () => {
-        await subject.offClick()
+        await subject.off()
 
         assertNodeStarted(0)
       })
@@ -79,7 +79,7 @@ describe('NodeActuator', () => {
         let substratumNodeProcess = 'truthy'
         td.when(mockPsWrapper.findNodeProcess()).thenReturn([substratumNodeProcess])
         await subject.setStatus()
-        await subject.servingClick()
+        await subject.serving()
       })
 
       it('does not revert the dns', () => {
@@ -99,7 +99,7 @@ describe('NodeActuator', () => {
       beforeEach(async () => {
         td.when(mockUiInterface.verifyNodeUp(td.matchers.anything())).thenResolve(true)
 
-        await subject.servingClick()
+        await subject.serving()
       })
 
       it('does not revert the dns', () => {
@@ -116,17 +116,18 @@ describe('NodeActuator', () => {
     })
 
     describe('to serving, where the UI interface is unable to verify that the Node is up', () => {
+      let args = { walletAddress: '0xBB' }
       beforeEach(async () => {
         td.when(mockUiInterface.verifyNodeUp(td.matchers.anything())).thenResolve(false)
-        await subject.servingClick()
+        await subject.serving(args)
       })
 
       it('does not revert the dns', () => {
         assertDNSNotReverted()
       })
 
-      it('starts the node', () => {
-        assertNodeStarted()
+      it('starts the node with arguments', () => {
+        assertNodeStartedWithArguments(args)
       })
 
       it('does not connect the WebSocket', () => {
@@ -139,30 +140,31 @@ describe('NodeActuator', () => {
     })
 
     describe('to consuming', () => {
+      let args = { walletAddress: '0xC0' }
       beforeEach(async () => {
-        await subject.consumingClick()
+        await subject.consuming(args)
       })
 
       it('subverts the dns', () => {
         verifyDNSSubverted()
       })
 
-      it('starts the node', () => {
-        assertNodeStarted()
+      it('starts the node with arguments', () => {
+        assertNodeStartedWithArguments(args)
       })
     })
   })
 
   describe('serving', () => {
     beforeEach(async () => {
-      await subject.servingClick()
+      await subject.serving()
     })
 
     it('does not revert the dns', () => {
       assertDNSNotReverted()
     })
 
-    it('starts the node', () => {
+    it('starts the node with arguments', () => {
       assertNodeStarted()
     })
 
@@ -170,7 +172,7 @@ describe('NodeActuator', () => {
       beforeEach(async () => {
         td.when(mockUiInterface.isConnected()).thenReturn(true)
         td.when(mockUiInterface.verifyNodeDown(5000)).thenResolve(true)
-        await subject.offClick()
+        await subject.off()
       })
 
       it('does not revert dns', () => {
@@ -188,7 +190,7 @@ describe('NodeActuator', () => {
         td.when(mockUiInterface.verifyNodeDown(td.matchers.anything())).thenResolve(false)
         mockSubstratumNodeProcess.cmd = 'truthy'
 
-        await subject.offClick()
+        await subject.off()
       })
 
       it('does not revert dns', () => {
@@ -202,7 +204,7 @@ describe('NodeActuator', () => {
 
     describe('to serving', () => {
       beforeEach(async () => {
-        await subject.servingClick()
+        await subject.serving()
       })
 
       it('does not try to start node again', () => {
@@ -213,7 +215,7 @@ describe('NodeActuator', () => {
 
     describe('to consuming', () => {
       beforeEach(async () => {
-        await subject.consumingClick()
+        await subject.consuming()
       })
 
       it('does not start the node', () => {
@@ -228,7 +230,7 @@ describe('NodeActuator', () => {
 
   describe('consuming', () => {
     beforeEach(async () => {
-      await subject.consumingClick()
+      await subject.consuming()
     })
 
     it('subverts dns', () => {
@@ -244,7 +246,7 @@ describe('NodeActuator', () => {
         td.when(mockUiInterface.isConnected()).thenReturn(true)
         td.when(mockUiInterface.verifyNodeDown(td.matchers.anything())).thenResolve(true)
 
-        await subject.offClick()
+        await subject.off()
       })
 
       it('reverts the dns', () => {
@@ -262,7 +264,7 @@ describe('NodeActuator', () => {
         td.when(mockUiInterface.verifyNodeDown(td.matchers.anything())).thenResolve(false)
         mockSubstratumNodeProcess.cmd = 'truthy'
 
-        await subject.offClick()
+        await subject.off()
       })
 
       it('reverts the dns', () => {
@@ -276,7 +278,7 @@ describe('NodeActuator', () => {
 
     describe('to serving', () => {
       beforeEach(async () => {
-        await subject.servingClick()
+        await subject.serving()
       })
 
       it('does not start the node', () => {
@@ -290,7 +292,7 @@ describe('NodeActuator', () => {
 
     describe('to consuming', () => {
       beforeEach(async () => {
-        await subject.consumingClick()
+        await subject.consuming()
       })
 
       it('does nothing', () => {
@@ -305,7 +307,7 @@ describe('NodeActuator', () => {
       beforeEach(async () => {
         td.when(mockDnsUtility.revert()).thenReject(new Error('booga'))
 
-        await subject.offClick()
+        await subject.off()
       })
 
       it('shows a dialog', () => {
@@ -317,7 +319,7 @@ describe('NodeActuator', () => {
       beforeEach(async () => {
         td.when(mockDnsUtility.revert()).thenReject(new Error('borf'))
 
-        await subject.servingClick()
+        await subject.serving()
       })
 
       it('shows a dialog', () => {
@@ -329,7 +331,7 @@ describe('NodeActuator', () => {
       beforeEach(async () => {
         td.when(mockDnsUtility.subvert()).thenReject(new Error('snarf'))
 
-        await subject.consumingClick()
+        await subject.consuming()
       })
 
       it('shows a dialog', () => {
@@ -344,7 +346,7 @@ describe('NodeActuator', () => {
         { name: 'SubstratumNode', pid: 1234, cmd: 'dist/static/binaries/SubstratumNode' }
       ])
       await subject.setStatus()
-      await subject.servingClick()
+      await subject.serving()
     })
 
     it('does not start node', () => {
@@ -354,7 +356,7 @@ describe('NodeActuator', () => {
 
   describe('childProcess messages', () => {
     beforeEach(async () => {
-      await subject.servingClick()
+      await subject.serving()
     })
 
     describe('receiving a message from child process', () => {
@@ -370,7 +372,7 @@ describe('NodeActuator', () => {
     describe('receiving an error message from child process', () => {
       describe('while serving', () => {
         beforeEach(async () => {
-          await subject.servingClick({})
+          await subject.serving()
 
           await mockSubstratumNodeProcess.emit('message', 'Command returned error: blooga')
         })
@@ -385,7 +387,7 @@ describe('NodeActuator', () => {
 
         describe('serve', () => {
           beforeEach(async () => {
-            await subject.servingClick({})
+            await subject.serving()
           })
 
           it('starts the node again', () => {
@@ -397,7 +399,7 @@ describe('NodeActuator', () => {
       describe('while consuming', () => {
         describe('dns revert succeeds', () => {
           beforeEach(async () => {
-            await subject.consumingClick()
+            await subject.consuming()
 
             await mockSubstratumNodeProcess.emit('message', 'Command returned error: blooga')
           })
@@ -420,7 +422,7 @@ describe('NodeActuator', () => {
     describe('receiving error from child process', () => {
       describe('while serving', () => {
         beforeEach(async () => {
-          await subject.servingClick()
+          await subject.serving()
 
           await mockSubstratumNodeProcess.emit('error', new Error('blooga'))
         })
@@ -433,7 +435,7 @@ describe('NodeActuator', () => {
       describe('while consuming', () => {
         describe('dns revert succeeds', () => {
           beforeEach(async () => {
-            await subject.consumingClick()
+            await subject.consuming()
 
             await mockSubstratumNodeProcess.emit('error', new Error('blooga'))
           })
@@ -452,7 +454,7 @@ describe('NodeActuator', () => {
     describe('receiving exit from child process', () => {
       describe('while serving', () => {
         beforeEach(async () => {
-          await subject.servingClick()
+          await subject.serving()
 
           let error = { message: 'blablabla' }
           let stdout = false
@@ -476,7 +478,7 @@ describe('NodeActuator', () => {
       describe('while consuming', () => {
         describe('dns revert succeeds', () => {
           beforeEach(async () => {
-            await subject.consumingClick()
+            await subject.consuming()
             td.when(mockDnsUtility.getStatus()).thenReturn('subverted')
             td.when(mockPsWrapper.findNodeProcess()).thenCallback([])
 
@@ -500,7 +502,7 @@ describe('NodeActuator', () => {
       td.when(mockUiInterface.isConnected()).thenReturn(true)
       td.when(mockUiInterface.verifyNodeDown(td.matchers.anything())).thenResolve(true)
 
-      await subject.servingClick()
+      await subject.serving()
       await subject.shutdown()
     })
 
@@ -517,7 +519,7 @@ describe('NodeActuator', () => {
     beforeEach(async () => {
       td.when(mockDnsUtility.revert()).thenReject(new Error('booga'))
 
-      await subject.servingClick()
+      await subject.serving()
       await subject.shutdown()
     })
 
@@ -567,7 +569,7 @@ describe('NodeActuator', () => {
       td.when(mockUiInterface.isConnected()).thenReturn(true)
       td.when(mockUiInterface.verifyNodeUp(td.matchers.anything())).thenResolve(true)
 
-      await subject.servingClick()
+      await subject.serving()
       await subject.shutdown()
     })
 
@@ -578,7 +580,7 @@ describe('NodeActuator', () => {
     describe('then an error message comes from the process', () => {
       beforeEach(async () => {
         await mockSubstratumNodeProcess.emit('message', 'Command returned error: borf')
-        await subject.servingClick()
+        await subject.serving()
         await subject.shutdown()
       })
 
@@ -602,12 +604,16 @@ describe('NodeActuator', () => {
   })
 
   function assertNodeStarted (times = 1) {
+    assertNodeStartedWithArguments(undefined, times)
+  }
+
+  function assertNodeStartedWithArguments (args, times = 1) {
     td.verify(mockChildProcess.fork(td.matchers.contains('substratum_node.js'), [], {
       silent: true,
       stdio: [0, 1, 2, 'ipc'],
       detached: true
     }), { times: times })
-    td.verify(mockSubstratumNodeProcess.send(td.matchers.argThat((arg) => arg.type === 'start')), {
+    td.verify(mockSubstratumNodeProcess.send(td.matchers.argThat((arg) => arg.type === 'start' && arg.arguments === args)), {
       times: times,
       ignoreExtraArgs: times === 0
     })

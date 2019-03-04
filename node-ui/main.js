@@ -60,10 +60,10 @@ app.on('activate', () => {
 
 ipcMain.on('change-node-state', async (event, command, arguments) => {
   if (command === 'turn-off') {
-    event.returnValue = await nodeActuator.offClick()
+    event.returnValue = await nodeActuator.off()
   } else if (command === 'serve') {
-    event.returnValue = await nodeActuator.servingClick(arguments)
+    event.returnValue = await nodeActuator.serving(arguments)
   } else if (command === 'consume') {
-    event.returnValue = await nodeActuator.consumingClick(arguments)
+    event.returnValue = await nodeActuator.consuming(arguments)
   }
 })
