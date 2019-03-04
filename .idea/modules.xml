@@ -7,7 +7,6 @@
       <module fileurl="file://$PROJECT_DIR$/multinode_integration_tests/multinode_integration_tests.iml" filepath="$PROJECT_DIR$/multinode_integration_tests/multinode_integration_tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/node/node.iml" filepath="$PROJECT_DIR$/node/node.iml" />
       <module fileurl="file://$PROJECT_DIR$/node-ui/node-ui.iml" filepath="$PROJECT_DIR$/node-ui/node-ui.iml" />
-      <module fileurl="file://$PROJECT_DIR$/proxy_server_lib/proxy_server_lib.iml" filepath="$PROJECT_DIR$/proxy_server_lib/proxy_server_lib.iml" />
       <module fileurl="file://$PROJECT_DIR$/sub_lib/sub_lib.iml" filepath="$PROJECT_DIR$/sub_lib/sub_lib.iml" />
       <module fileurl="file://$PROJECT_DIR$/test_utils/test_utils.iml" filepath="$PROJECT_DIR$/test_utils/test_utils.iml" />
     </modules>

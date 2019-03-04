@@ -8,7 +8,7 @@ description = ""
 edition = "2018"
 
 [workspace]
-members = ["../sub_lib", "../test_utils", "../proxy_server_lib", "../multinode_integration_tests"]
+members = ["../sub_lib", "../test_utils", "../multinode_integration_tests"]
 
 [dependencies]
 actix = "= 0.5.7" # upgrading causes flakiness
@@ -29,7 +29,6 @@ tokio = "0.1.15"
 tokio-core = "0.1.12"
 trust-dns-resolver = "0.9.1"
 sub_lib = { path = "../sub_lib" }
-proxy_server_lib = { path = "../proxy_server_lib" }
 
 [dependencies.rusqlite]
 version = "0.16.0"

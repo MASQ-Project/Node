@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::client_request_payload_factory::ClientRequestPayloadFactory;
+use crate::proxy_server::client_request_payload_factory::ClientRequestPayloadFactory;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;

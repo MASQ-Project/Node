@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::http_protocol_pack::HttpProtocolPack;
-use crate::protocol_pack::ProtocolPack;
-use crate::tls_protocol_pack::TlsProtocolPack;
+use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
+use crate::proxy_server::protocol_pack::ProtocolPack;
+use crate::proxy_server::tls_protocol_pack::TlsProtocolPack;
 use std::collections::HashMap;
 use sub_lib::cryptde::CryptDE;
 use sub_lib::cryptde::PlainData;
