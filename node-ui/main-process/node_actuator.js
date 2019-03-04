@@ -26,8 +26,7 @@ module.exports = class NodeActuator {
     this.substratumNodeProcess.on('message', message => {
       consoleWrapper.log('substratum_node process received message: ', message)
       if (message.startsWith('Command returned error: ')) {
-        // TODO: SC-680 says to make Node terminations stop triggering this line and uncomment it.
-        // if (substratumNodeProcess) { dialog.showErrorBox('Error', message) }
+        if (this.substratumNodeProcess) { dialog.showErrorBox('Error', message) }
         return this.setStatusToOffThenRevert()
       } else {
         return Promise.resolve(null)

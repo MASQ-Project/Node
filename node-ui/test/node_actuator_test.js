@@ -379,10 +379,9 @@ describe('NodeActuator', () => {
           td.verify(mockConsole.log('substratum_node process received message: ', 'Command returned error: blooga'))
         })
 
-        // TODO SC-680
-        // it('shows a dialog describing the error', () => {
-        //   td.verify(mockDialog.showErrorBox('Error', 'Command returned error: blooga'))
-        // })
+        it('shows a dialog describing the error', () => {
+          td.verify(mockDialog.showErrorBox('Error', 'Command returned error: blooga'))
+        })
 
         describe('serve', () => {
           beforeEach(async () => {
@@ -411,10 +410,9 @@ describe('NodeActuator', () => {
             td.verify(mockConsole.log('substratum_node process received message: ', 'Command returned error: blooga'))
           })
 
-          // TODO SC-680
-          // it('shows a dialog describing the error', () => {
-          //   td.verify(mockDialog.showErrorBox('Error', 'Command returned error: blooga'))
-          // })
+          it('shows a dialog describing the error', () => {
+            td.verify(mockDialog.showErrorBox('Error', 'Command returned error: blooga'))
+          })
         })
       })
     })
