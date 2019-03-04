@@ -1,6 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::configuration::PortConfiguration;
 use crate::stream_messages::AddStreamMsg;
+use crate::sub_lib::logger::Logger;
+use crate::sub_lib::stream_connector::StreamConnector;
+use crate::sub_lib::stream_connector::StreamConnectorReal;
+use crate::sub_lib::tokio_wrappers::TokioListenerWrapper;
+use crate::sub_lib::tokio_wrappers::TokioListenerWrapperReal;
 use actix::Recipient;
 use actix::Syn;
 use std::io;
@@ -8,11 +13,6 @@ use std::marker::Send;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
-use sub_lib::logger::Logger;
-use sub_lib::stream_connector::StreamConnector;
-use sub_lib::stream_connector::StreamConnectorReal;
-use sub_lib::tokio_wrappers::TokioListenerWrapper;
-use sub_lib::tokio_wrappers::TokioListenerWrapperReal;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 
@@ -120,6 +120,12 @@ mod tests {
     use super::*;
     use crate::configuration::PortConfiguration;
     use crate::node_test_utils::NullDiscriminatorFactory;
+    use crate::test_utils::logging::init_test_logging;
+    use crate::test_utils::logging::TestLog;
+    use crate::test_utils::logging::TestLogHandler;
+    use crate::test_utils::recorder::make_recorder;
+    use crate::test_utils::recorder::Recorder;
+    use crate::test_utils::test_utils::find_free_port;
     use actix::Actor;
     use actix::Addr;
     use actix::System;
@@ -133,12 +139,6 @@ mod tests {
     use std::sync::Arc;
     use std::thread;
     use std::time::Duration;
-    use test_utils::logging::init_test_logging;
-    use test_utils::logging::TestLog;
-    use test_utils::logging::TestLogHandler;
-    use test_utils::recorder::make_recorder;
-    use test_utils::recorder::Recorder;
-    use test_utils::test_utils::find_free_port;
     use tokio;
     use tokio::net::TcpStream;
 

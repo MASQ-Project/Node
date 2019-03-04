@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use regex;
-use sub_lib;
 
+use node_lib::sub_lib::crash_point::CrashPoint;
 use std::env;
 use std::fs::File;
 use std::io::ErrorKind;
@@ -12,7 +12,6 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-use sub_lib::crash_point::CrashPoint;
 
 pub struct SubstratumNode {
     logfile_stream: Box<dyn Read>,

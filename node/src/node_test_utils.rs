@@ -8,6 +8,12 @@ use crate::masquerader::Masquerader;
 use crate::null_masquerader::NullMasquerader;
 use crate::stream_handler_pool::StreamHandlerPoolSubs;
 use crate::stream_messages::*;
+use crate::sub_lib::framer::FramedChunk;
+use crate::sub_lib::framer::Framer;
+use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
+use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
+use crate::test_utils::logging::TestLog;
+use crate::test_utils::recorder::Recorder;
 use actix::Actor;
 use actix::Addr;
 use actix::Handler;
@@ -19,12 +25,6 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 use std::time::SystemTime;
-use sub_lib::framer::FramedChunk;
-use sub_lib::framer::Framer;
-use sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
-use sub_lib::stream_handler_pool::TransmitDataMsg;
-use test_utils::logging::TestLog;
-use test_utils::recorder::Recorder;
 
 pub trait TestLogOwner {
     fn get_test_log(&self) -> Arc<Mutex<TestLog>>;

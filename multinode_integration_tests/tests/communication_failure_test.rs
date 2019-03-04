@@ -6,12 +6,12 @@ use multinode_integration_tests_lib::substratum_node::SubstratumNode;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
 use node_lib::json_masquerader::JsonMasquerader;
+use node_lib::sub_lib::dispatcher::Component;
+use node_lib::sub_lib::hopper::IncipientCoresPackage;
+use node_lib::sub_lib::route::Route;
+use node_lib::sub_lib::route::RouteSegment;
+use node_lib::sub_lib::wallet::Wallet;
 use std::time::Duration;
-use sub_lib::dispatcher::Component;
-use sub_lib::hopper::IncipientCoresPackage;
-use sub_lib::route::Route;
-use sub_lib::route::RouteSegment;
-use sub_lib::wallet::Wallet;
 
 #[test]
 fn neighborhood_notified_of_missing_node_when_connection_refused() {

@@ -1,15 +1,15 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use crate::sub_lib::cryptde::CryptDE;
+use crate::sub_lib::cryptde::CryptData;
+use crate::sub_lib::cryptde::PublicKey;
+use crate::sub_lib::hop::LiveHop;
+use crate::sub_lib::hopper::ExpiredCoresPackage;
+use crate::sub_lib::hopper::IncipientCoresPackage;
+use crate::sub_lib::route::Route;
+use crate::sub_lib::route::RouteError;
 use serde_derive::{Deserialize, Serialize};
 use std::net::IpAddr;
-use sub_lib::cryptde::CryptDE;
-use sub_lib::cryptde::CryptData;
-use sub_lib::cryptde::PublicKey;
-use sub_lib::hop::LiveHop;
-use sub_lib::hopper::ExpiredCoresPackage;
-use sub_lib::hopper::IncipientCoresPackage;
-use sub_lib::route::Route;
-use sub_lib::route::RouteError;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LiveCoresPackage {
@@ -67,18 +67,18 @@ impl LiveCoresPackage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sub_lib::cryptde::encodex;
+    use crate::sub_lib::cryptde::PlainData;
+    use crate::sub_lib::cryptde_null::CryptDENull;
+    use crate::sub_lib::dispatcher::Component;
+    use crate::sub_lib::hopper::IncipientCoresPackage;
+    use crate::sub_lib::route::Route;
+    use crate::sub_lib::route::RouteSegment;
+    use crate::sub_lib::wallet::Wallet;
+    use crate::test_utils::test_utils::cryptde;
+    use crate::test_utils::test_utils::make_meaningless_route;
+    use crate::test_utils::test_utils::PayloadMock;
     use std::str::FromStr;
-    use sub_lib::cryptde::encodex;
-    use sub_lib::cryptde::PlainData;
-    use sub_lib::cryptde_null::CryptDENull;
-    use sub_lib::dispatcher::Component;
-    use sub_lib::hopper::IncipientCoresPackage;
-    use sub_lib::route::Route;
-    use sub_lib::route::RouteSegment;
-    use sub_lib::wallet::Wallet;
-    use test_utils::test_utils::cryptde;
-    use test_utils::test_utils::make_meaningless_route;
-    use test_utils::test_utils::PayloadMock;
 
     #[test]
     fn live_cores_package_can_be_constructed_from_scratch() {
@@ -270,7 +270,7 @@ mod tests {
         );
         assert_eq!(
             route.hops[0],
-            test_utils::test_utils::encrypt_return_route_id(1234, cryptde),
+            crate::test_utils::test_utils::encrypt_return_route_id(1234, cryptde),
         );
         route.hops.remove(0);
         assert_eq!(

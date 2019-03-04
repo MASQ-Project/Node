@@ -2,12 +2,12 @@
 use super::neighborhood_database::NodeRecord;
 use super::neighborhood_database::NodeRecordInner;
 use super::neighborhood_database::NodeSignatures;
+use crate::sub_lib::cryptde::PublicKey;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::fmt::Error;
 use std::fmt::Formatter;
-use sub_lib::cryptde::PublicKey;
 
 #[derive(Clone, PartialEq, Hash, Eq, Serialize, Deserialize)]
 pub struct GossipNodeRecord {
@@ -193,10 +193,10 @@ mod tests {
     use super::super::gossip::GossipBuilder;
     use super::super::neighborhood_test_utils::make_node_record;
     use super::*;
+    use crate::sub_lib::node_addr::NodeAddr;
+    use crate::sub_lib::wallet::Wallet;
     use std::net::IpAddr;
     use std::str::FromStr;
-    use sub_lib::node_addr::NodeAddr;
-    use sub_lib::wallet::Wallet;
 
     #[test]
     fn can_create_a_node_record() {

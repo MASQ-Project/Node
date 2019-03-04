@@ -1,7 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 #![cfg(target_os = "macos")]
 extern crate dns_utility_lib;
-extern crate sub_lib;
 
 mod utils;
 

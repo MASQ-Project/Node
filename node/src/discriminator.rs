@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::masquerader::Masquerader;
-use sub_lib::framer::Framer;
-use sub_lib::logger::Logger;
+use crate::sub_lib::framer::Framer;
+use crate::sub_lib::logger::Logger;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct UnmaskedChunk {
@@ -72,11 +72,11 @@ impl Discriminator {
 mod tests {
     use super::*;
     use crate::masquerader::MasqueradeError;
+    use crate::sub_lib::framer::FramedChunk;
     use std::cell::RefCell;
     use std::ops::DerefMut;
     use std::sync::Arc;
     use std::sync::Mutex;
-    use sub_lib::framer::FramedChunk;
 
     pub struct FramerMock {
         data: Vec<Vec<u8>>,

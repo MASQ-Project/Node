@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use sub_lib::ui_gateway::UiMessage;
+use crate::sub_lib::ui_gateway::UiMessage;
 
 #[allow(dead_code)]
 pub const BROADCAST: u64 = 0xFFFFFFFFFFFFFFFF;

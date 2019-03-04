@@ -1,16 +1,16 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::sub_lib::framer::Framer;
+use crate::sub_lib::logger::Logger;
+use crate::sub_lib::proxy_client::InboundServerData;
+use crate::sub_lib::sequencer::Sequencer;
+use crate::sub_lib::stream_key::StreamKey;
+use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
+use crate::sub_lib::utils::indicates_dead_stream;
+use crate::sub_lib::utils::to_string;
 use actix::Recipient;
 use actix::Syn;
 use std::net::SocketAddr;
 use std::sync::mpsc::Sender;
-use sub_lib::framer::Framer;
-use sub_lib::logger::Logger;
-use sub_lib::proxy_client::InboundServerData;
-use sub_lib::sequencer::Sequencer;
-use sub_lib::stream_key::StreamKey;
-use sub_lib::tokio_wrappers::ReadHalfWrapper;
-use sub_lib::utils::indicates_dead_stream;
-use sub_lib::utils::to_string;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 
@@ -146,6 +146,15 @@ impl StreamReader {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sub_lib::framer::FramedChunk;
+    use crate::sub_lib::http_packet_framer::HttpPacketFramer;
+    use crate::sub_lib::http_response_start_finder::HttpResponseStartFinder;
+    use crate::test_utils::logging::init_test_logging;
+    use crate::test_utils::logging::TestLogHandler;
+    use crate::test_utils::recorder::make_recorder;
+    use crate::test_utils::recorder::peer_actors_builder;
+    use crate::test_utils::test_utils::make_meaningless_stream_key;
+    use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use actix::System;
     use std::io::Error;
     use std::io::ErrorKind;
@@ -153,15 +162,6 @@ mod tests {
     use std::str::FromStr;
     use std::sync::mpsc;
     use std::thread;
-    use sub_lib::framer::FramedChunk;
-    use sub_lib::http_packet_framer::HttpPacketFramer;
-    use sub_lib::http_response_start_finder::HttpResponseStartFinder;
-    use test_utils::logging::init_test_logging;
-    use test_utils::logging::TestLogHandler;
-    use test_utils::recorder::make_recorder;
-    use test_utils::recorder::peer_actors_builder;
-    use test_utils::test_utils::make_meaningless_stream_key;
-    use test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
 
     struct StreamEndingFramer {}
 

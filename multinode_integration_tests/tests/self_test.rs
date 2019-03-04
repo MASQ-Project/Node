@@ -10,6 +10,15 @@ use multinode_integration_tests_lib::substratum_node::SubstratumNode;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
 use node_lib::json_masquerader::JsonMasquerader;
+use node_lib::sub_lib::cryptde::decodex;
+use node_lib::sub_lib::cryptde::PublicKey;
+use node_lib::sub_lib::cryptde_null::CryptDENull;
+use node_lib::sub_lib::dispatcher::Component;
+use node_lib::sub_lib::hopper::IncipientCoresPackage;
+use node_lib::sub_lib::neighborhood::sentinel_ip_addr;
+use node_lib::sub_lib::route::Route;
+use node_lib::sub_lib::route::RouteSegment;
+use node_lib::sub_lib::wallet::Wallet;
 use std::collections::HashSet;
 use std::io::ErrorKind;
 use std::net::IpAddr;
@@ -18,15 +27,6 @@ use std::net::SocketAddr;
 use std::net::TcpStream;
 use std::str::FromStr;
 use std::time::Duration;
-use sub_lib::cryptde::decodex;
-use sub_lib::cryptde::PublicKey;
-use sub_lib::cryptde_null::CryptDENull;
-use sub_lib::dispatcher::Component;
-use sub_lib::hopper::IncipientCoresPackage;
-use sub_lib::neighborhood::sentinel_ip_addr;
-use sub_lib::route::Route;
-use sub_lib::route::RouteSegment;
-use sub_lib::wallet::Wallet;
 
 #[test]
 fn establishes_substratum_node_cluster_from_nothing() {

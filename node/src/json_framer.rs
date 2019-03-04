@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use sub_lib::framer::FramedChunk;
-use sub_lib::framer::Framer;
-use sub_lib::logger::Logger;
+use crate::sub_lib::framer::FramedChunk;
+use crate::sub_lib::framer::Framer;
+use crate::sub_lib::logger::Logger;
 
 pub struct JsonFramer {
     possible_start: Option<usize>,

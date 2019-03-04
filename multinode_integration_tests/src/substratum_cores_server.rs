@@ -8,6 +8,13 @@ use node_lib::discriminator::UnmaskedChunk;
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::http_request_start_finder::HttpRequestDiscriminatorFactory;
 use node_lib::json_discriminator_factory::JsonDiscriminatorFactory;
+use node_lib::sub_lib::cryptde::CryptDE;
+use node_lib::sub_lib::cryptde::CryptData;
+use node_lib::sub_lib::cryptde::PrivateKey;
+use node_lib::sub_lib::cryptde::PublicKey;
+use node_lib::sub_lib::cryptde_null::CryptDENull;
+use node_lib::sub_lib::node_addr::NodeAddr;
+use node_lib::test_utils::test_utils::find_free_port;
 use node_lib::tls_discriminator_factory::TlsDiscriminatorFactory;
 use serde_cbor;
 use std::cell::RefCell;
@@ -22,13 +29,6 @@ use std::sync::mpsc::Receiver;
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
-use sub_lib::cryptde::CryptDE;
-use sub_lib::cryptde::CryptData;
-use sub_lib::cryptde::PrivateKey;
-use sub_lib::cryptde::PublicKey;
-use sub_lib::cryptde_null::CryptDENull;
-use sub_lib::node_addr::NodeAddr;
-use test_utils::test_utils::find_free_port;
 
 // TODO: Cover this with tests and put it in the production tree.
 pub struct DiscriminatorCluster {

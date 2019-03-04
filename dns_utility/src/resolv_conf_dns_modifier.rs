@@ -283,7 +283,7 @@ mod tests {
     use std::fs;
     use std::io::Write;
     use std::os::unix::fs::PermissionsExt;
-    use test_utils::test_utils::FakeStreamHolder;
+    use crate::fake_stream_holder::FakeStreamHolder;
 
     #[test]
     #[should_panic(expected = "Badly formatted nameserver line: booga-booga")]

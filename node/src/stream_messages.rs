@@ -1,14 +1,14 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::configuration::PortConfiguration;
 use crate::stream_handler_pool::StreamHandlerPoolSubs;
+use crate::sub_lib::dispatcher::DispatcherSubs;
+use crate::sub_lib::neighborhood::NeighborhoodSubs;
+use crate::sub_lib::stream_connector::ConnectionInfo;
 use actix::Message;
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::net::SocketAddr;
-use sub_lib::dispatcher::DispatcherSubs;
-use sub_lib::neighborhood::NeighborhoodSubs;
-use sub_lib::stream_connector::ConnectionInfo;
 
 #[derive(Message)]
 pub struct AddStreamMsg {
@@ -53,8 +53,8 @@ impl Debug for PoolBindMessage {
 mod tests {
     use super::*;
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
+    use crate::test_utils::recorder::peer_actors_builder;
     use actix::System;
-    use test_utils::recorder::peer_actors_builder;
 
     #[test]
     fn pool_bind_message_is_debug() {

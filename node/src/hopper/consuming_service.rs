@@ -1,20 +1,20 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use super::live_cores_package::LiveCoresPackage;
+use crate::sub_lib::cryptde::CryptDE;
+use crate::sub_lib::cryptde::CryptData;
+use crate::sub_lib::cryptde::PlainData;
+use crate::sub_lib::cryptde::PublicKey;
+use crate::sub_lib::dispatcher::Endpoint;
+use crate::sub_lib::dispatcher::InboundClientData;
+use crate::sub_lib::hopper::IncipientCoresPackage;
+use crate::sub_lib::logger::Logger;
+use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use actix::Recipient;
 use actix::Syn;
 use std::borrow::Borrow;
 use std::net::SocketAddr;
 use std::str::FromStr;
-use sub_lib::cryptde::CryptDE;
-use sub_lib::cryptde::CryptData;
-use sub_lib::cryptde::PlainData;
-use sub_lib::cryptde::PublicKey;
-use sub_lib::dispatcher::Endpoint;
-use sub_lib::dispatcher::InboundClientData;
-use sub_lib::hopper::IncipientCoresPackage;
-use sub_lib::logger::Logger;
-use sub_lib::stream_handler_pool::TransmitDataMsg;
 
 pub struct ConsumingService {
     cryptde: &'static dyn CryptDE,
@@ -141,25 +141,25 @@ impl ConsumingService {
 mod tests {
     use super::super::hopper::Hopper;
     use super::*;
+    use crate::sub_lib::dispatcher::Component;
+    use crate::sub_lib::hopper::ExpiredCoresPackage;
+    use crate::sub_lib::peer_actors::BindMessage;
+    use crate::sub_lib::route::Route;
+    use crate::sub_lib::route::RouteSegment;
+    use crate::sub_lib::wallet::Wallet;
+    use crate::test_utils::logging::init_test_logging;
+    use crate::test_utils::logging::TestLogHandler;
+    use crate::test_utils::recorder::make_recorder;
+    use crate::test_utils::recorder::peer_actors_builder;
+    use crate::test_utils::recorder::Recorder;
+    use crate::test_utils::test_utils::cryptde;
+    use crate::test_utils::test_utils::zero_hop_route_response;
     use actix::Actor;
     use actix::Addr;
     use actix::System;
     use std::net::IpAddr;
     use std::str::FromStr;
     use std::thread;
-    use sub_lib::dispatcher::Component;
-    use sub_lib::hopper::ExpiredCoresPackage;
-    use sub_lib::peer_actors::BindMessage;
-    use sub_lib::route::Route;
-    use sub_lib::route::RouteSegment;
-    use sub_lib::wallet::Wallet;
-    use test_utils::logging::init_test_logging;
-    use test_utils::logging::TestLogHandler;
-    use test_utils::recorder::make_recorder;
-    use test_utils::recorder::peer_actors_builder;
-    use test_utils::recorder::Recorder;
-    use test_utils::test_utils::cryptde;
-    use test_utils::test_utils::zero_hop_route_response;
 
     #[test] // TODO: Rewrite test so that subject is ConsumingService rather than Hopper
     fn converts_incipient_message_to_live_and_sends_to_dispatcher() {

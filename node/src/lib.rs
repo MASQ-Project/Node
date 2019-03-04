@@ -26,6 +26,8 @@ mod stream_messages;
 mod stream_reader;
 mod stream_writer_sorted;
 mod stream_writer_unsorted;
+pub mod sub_lib;
+pub mod test_utils;
 pub mod tls_discriminator_factory;
 mod ui_gateway;
 

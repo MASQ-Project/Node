@@ -8,7 +8,7 @@ description = ""
 edition = "2018"
 
 [workspace]
-members = ["../sub_lib", "../test_utils", "../multinode_integration_tests"]
+members = ["../multinode_integration_tests"]
 
 [dependencies]
 actix = "= 0.5.7" # upgrading causes flakiness
@@ -19,6 +19,7 @@ flexi_logger = "0.10.0"
 futures = "0.1.25"
 lazy_static = "1.2.0"
 log = "0.4.6"
+rand = "0.5.5"
 regex = "1.0.5"
 serde = "1.0.80"
 serde_derive = "1.0.80"
@@ -28,7 +29,6 @@ sha1 = "0.6.0"
 tokio = "0.1.15"
 tokio-core = "0.1.12"
 trust-dns-resolver = "0.9.1"
-sub_lib = { path = "../sub_lib" }
 
 [dependencies.rusqlite]
 version = "0.16.0"
@@ -42,7 +42,6 @@ features = ["async", "sync"]
 [dev-dependencies]
 native-tls = "0.2.2"
 trust-dns-proto = "0.4.0"
-test_utils = { path = "../test_utils" }
 
 [target.'cfg(unix)'.dependencies]
 daemonize = "0.3.0"

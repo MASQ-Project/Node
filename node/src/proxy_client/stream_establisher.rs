@@ -2,6 +2,23 @@
 
 use crate::proxy_client::stream_reader::StreamReader;
 use crate::proxy_client::stream_writer::StreamWriter;
+use crate::sub_lib::channel_wrappers::FuturesChannelFactory;
+use crate::sub_lib::channel_wrappers::FuturesChannelFactoryReal;
+use crate::sub_lib::channel_wrappers::SenderWrapper;
+use crate::sub_lib::cryptde::CryptDE;
+use crate::sub_lib::framer::Framer;
+use crate::sub_lib::http_packet_framer::HttpPacketFramer;
+use crate::sub_lib::http_response_start_finder::HttpResponseStartFinder;
+use crate::sub_lib::logger::Logger;
+use crate::sub_lib::proxy_client::InboundServerData;
+use crate::sub_lib::proxy_server::ClientRequestPayload;
+use crate::sub_lib::proxy_server::ProxyProtocol;
+use crate::sub_lib::sequence_buffer::SequencedPacket;
+use crate::sub_lib::stream_connector::StreamConnector;
+use crate::sub_lib::stream_connector::StreamConnectorReal;
+use crate::sub_lib::stream_key::StreamKey;
+use crate::sub_lib::tls_framer::TlsFramer;
+use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use actix::Recipient;
 use actix::Syn;
 use std::io;
@@ -10,23 +27,6 @@ use std::io::ErrorKind;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::sync::mpsc::Sender;
-use sub_lib::channel_wrappers::FuturesChannelFactory;
-use sub_lib::channel_wrappers::FuturesChannelFactoryReal;
-use sub_lib::channel_wrappers::SenderWrapper;
-use sub_lib::cryptde::CryptDE;
-use sub_lib::framer::Framer;
-use sub_lib::http_packet_framer::HttpPacketFramer;
-use sub_lib::http_response_start_finder::HttpResponseStartFinder;
-use sub_lib::logger::Logger;
-use sub_lib::proxy_client::InboundServerData;
-use sub_lib::proxy_server::ClientRequestPayload;
-use sub_lib::proxy_server::ProxyProtocol;
-use sub_lib::sequence_buffer::SequencedPacket;
-use sub_lib::stream_connector::StreamConnector;
-use sub_lib::stream_connector::StreamConnectorReal;
-use sub_lib::stream_key::StreamKey;
-use sub_lib::tls_framer::TlsFramer;
-use sub_lib::tokio_wrappers::ReadHalfWrapper;
 use tokio;
 use trust_dns_resolver::error::ResolveError;
 use trust_dns_resolver::lookup_ip::LookupIp;
@@ -175,6 +175,13 @@ impl StreamEstablisherFactory for StreamEstablisherFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sub_lib::proxy_server::ProxyProtocol;
+    use crate::test_utils::recorder::make_recorder;
+    use crate::test_utils::recorder::peer_actors_builder;
+    use crate::test_utils::stream_connector_mock::StreamConnectorMock;
+    use crate::test_utils::test_utils::cryptde;
+    use crate::test_utils::test_utils::make_meaningless_stream_key;
+    use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use actix::System;
     use futures::future::lazy;
     use std::io::ErrorKind;
@@ -182,13 +189,6 @@ mod tests {
     use std::str::FromStr;
     use std::sync::mpsc;
     use std::thread;
-    use sub_lib::proxy_server::ProxyProtocol;
-    use test_utils::recorder::make_recorder;
-    use test_utils::recorder::peer_actors_builder;
-    use test_utils::stream_connector_mock::StreamConnectorMock;
-    use test_utils::test_utils::cryptde;
-    use test_utils::test_utils::make_meaningless_stream_key;
-    use test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use tokio::prelude::Async;
 
     #[test]

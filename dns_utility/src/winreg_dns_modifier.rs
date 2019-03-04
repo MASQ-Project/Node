@@ -443,7 +443,7 @@ mod tests {
     use std::io::Error;
     use std::sync::Arc;
     use std::sync::Mutex;
-    use test_utils::test_utils::FakeStreamHolder;
+    use crate::fake_stream_holder::FakeStreamHolder;
 
     #[derive(Debug)]
     struct RegKeyMock {

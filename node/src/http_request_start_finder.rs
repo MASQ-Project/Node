@@ -2,11 +2,11 @@
 use crate::discriminator::Discriminator;
 use crate::discriminator::DiscriminatorFactory;
 use crate::null_masquerader::NullMasquerader;
-use sub_lib::http_packet_framer::HttpFramerState;
-use sub_lib::http_packet_framer::HttpPacketFramer;
-use sub_lib::http_packet_framer::HttpPacketStartFinder;
-use sub_lib::http_packet_framer::PacketProgressState;
-use sub_lib::utils::index_of;
+use crate::sub_lib::http_packet_framer::HttpFramerState;
+use crate::sub_lib::http_packet_framer::HttpPacketFramer;
+use crate::sub_lib::http_packet_framer::HttpPacketStartFinder;
+use crate::sub_lib::http_packet_framer::PacketProgressState;
+use crate::sub_lib::utils::index_of;
 
 const METHODS: &[&[u8]] = &[
     b"GET", b"HEAD", b"POST", b"PUT", b"DELETE", b"CONNECT", b"OPTIONS", b"TRACE", b"PATCH",
@@ -73,9 +73,9 @@ impl HttpRequestDiscriminatorFactory {
 mod tests {
     use super::*;
     use crate::discriminator::UnmaskedChunk;
-    use sub_lib::http_packet_framer::ChunkExistenceState;
-    use sub_lib::http_packet_framer::ChunkProgressState;
-    use sub_lib::http_packet_framer::PacketProgressState;
+    use crate::sub_lib::http_packet_framer::ChunkExistenceState;
+    use crate::sub_lib::http_packet_framer::ChunkProgressState;
+    use crate::sub_lib::http_packet_framer::PacketProgressState;
 
     #[test]
     fn discriminator_factory_duplicate_works() {

@@ -1,12 +1,4 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-extern crate base64;
-extern crate multinode_integration_tests_lib;
-extern crate node_lib;
-extern crate regex;
-extern crate serde_cbor;
-extern crate sub_lib;
-extern crate test_utils;
-
 use multinode_integration_tests_lib::substratum_node::SubstratumNode;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
@@ -14,23 +6,23 @@ use multinode_integration_tests_lib::substratum_real_node::SubstratumRealNode;
 use node_lib::accountant::dao_utils;
 use node_lib::accountant::payable_dao::PayableAccount;
 use node_lib::accountant::receivable_dao::ReceivableAccount;
+use node_lib::sub_lib::cryptde::CryptDE;
+use node_lib::sub_lib::cryptde::PlainData;
+use node_lib::sub_lib::hopper::TEMPORARY_PER_ROUTING_BYTE_RATE;
+use node_lib::sub_lib::hopper::TEMPORARY_PER_ROUTING_RATE;
+use node_lib::sub_lib::proxy_client::ClientResponsePayload;
+use node_lib::sub_lib::proxy_client::TEMPORARY_PER_EXIT_BYTE_RATE;
+use node_lib::sub_lib::proxy_client::TEMPORARY_PER_EXIT_RATE;
+use node_lib::sub_lib::proxy_server::ClientRequestPayload;
+use node_lib::sub_lib::proxy_server::ProxyProtocol;
+use node_lib::sub_lib::sequence_buffer::SequencedPacket;
+use node_lib::sub_lib::stream_key::StreamKey;
+use node_lib::sub_lib::wallet::Wallet;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use std::time::SystemTime;
-use sub_lib::cryptde::CryptDE;
-use sub_lib::cryptde::PlainData;
-use sub_lib::hopper::TEMPORARY_PER_ROUTING_BYTE_RATE;
-use sub_lib::hopper::TEMPORARY_PER_ROUTING_RATE;
-use sub_lib::proxy_client::ClientResponsePayload;
-use sub_lib::proxy_client::TEMPORARY_PER_EXIT_BYTE_RATE;
-use sub_lib::proxy_client::TEMPORARY_PER_EXIT_RATE;
-use sub_lib::proxy_server::ClientRequestPayload;
-use sub_lib::proxy_server::ProxyProtocol;
-use sub_lib::sequence_buffer::SequencedPacket;
-use sub_lib::stream_key::StreamKey;
-use sub_lib::wallet::Wallet;
 
 #[test]
 fn provided_and_consumed_services_are_recorded_in_databases() {

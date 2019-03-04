@@ -3,6 +3,10 @@ use crate::command::Command;
 use crate::substratum_client::SubstratumNodeClient;
 use base64;
 use base64::STANDARD_NO_PAD;
+use node_lib::sub_lib::cryptde::PublicKey;
+use node_lib::sub_lib::cryptde_null::CryptDENull;
+use node_lib::sub_lib::node_addr::NodeAddr;
+use node_lib::sub_lib::wallet::Wallet;
 use regex::Regex;
 use std::any::Any;
 use std::env;
@@ -19,10 +23,6 @@ use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-use sub_lib::cryptde::PublicKey;
-use sub_lib::cryptde_null::CryptDENull;
-use sub_lib::node_addr::NodeAddr;
-use sub_lib::wallet::Wallet;
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct NodeReference {

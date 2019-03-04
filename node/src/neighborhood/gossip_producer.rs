@@ -4,8 +4,8 @@ use super::gossip::Gossip;
 use super::gossip::GossipBuilder;
 use super::neighborhood_database::NeighborhoodDatabase;
 use super::neighborhood_database::NodeRecord;
-use sub_lib::cryptde::PublicKey;
-use sub_lib::logger::Logger;
+use crate::sub_lib::cryptde::PublicKey;
+use crate::sub_lib::logger::Logger;
 
 static MINIMUM_NEIGHBORS: usize = 3;
 
@@ -127,11 +127,11 @@ mod tests {
     use super::super::gossip::GossipNodeRecord;
     use super::super::neighborhood_test_utils::*;
     use super::*;
-    use sub_lib::cryptde_null::CryptDENull;
-    use test_utils::logging::init_test_logging;
-    use test_utils::logging::TestLogHandler;
-    use test_utils::test_utils::assert_contains;
-    use test_utils::test_utils::cryptde;
+    use crate::sub_lib::cryptde_null::CryptDENull;
+    use crate::test_utils::logging::init_test_logging;
+    use crate::test_utils::logging::TestLogHandler;
+    use crate::test_utils::test_utils::assert_contains;
+    use crate::test_utils::test_utils::cryptde;
 
     #[test]
     #[should_panic(expected = "Target node AgMEBQ not in NeighborhoodDatabase")]

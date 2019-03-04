@@ -5,9 +5,9 @@ use tokio;
 
 use futures::future::lazy;
 use node_lib::server_initializer::ServerInitializer;
+use node_lib::sub_lib::main_tools::Command;
+use node_lib::sub_lib::main_tools::StdStreams;
 use std::io;
-use sub_lib::main_tools::Command;
-use sub_lib::main_tools::StdStreams;
 
 pub fn main() {
     let main_fn = move || {

@@ -2,15 +2,15 @@
 use crate::discriminator::Discriminator;
 use crate::discriminator::DiscriminatorFactory;
 use crate::stream_messages::*;
+use crate::sub_lib::dispatcher;
+use crate::sub_lib::dispatcher::InboundClientData;
+use crate::sub_lib::logger::Logger;
+use crate::sub_lib::sequencer::Sequencer;
+use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
+use crate::sub_lib::utils::indicates_dead_stream;
 use actix::Recipient;
 use actix::Syn;
 use std::net::SocketAddr;
-use sub_lib::dispatcher;
-use sub_lib::dispatcher::InboundClientData;
-use sub_lib::logger::Logger;
-use sub_lib::sequencer::Sequencer;
-use sub_lib::tokio_wrappers::ReadHalfWrapper;
-use sub_lib::utils::indicates_dead_stream;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 
@@ -176,6 +176,15 @@ mod tests {
     use crate::masquerader::Masquerader;
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
     use crate::stream_handler_pool::StreamHandlerPoolSubs;
+    use crate::sub_lib::dispatcher::DispatcherSubs;
+    use crate::test_utils::logging::init_test_logging;
+    use crate::test_utils::logging::TestLogHandler;
+    use crate::test_utils::recorder::make_dispatcher_subs_from;
+    use crate::test_utils::recorder::make_recorder;
+    use crate::test_utils::recorder::RecordAwaiter;
+    use crate::test_utils::recorder::Recorder;
+    use crate::test_utils::recorder::Recording;
+    use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use actix::msgs;
     use actix::Actor;
     use actix::Addr;
@@ -187,15 +196,6 @@ mod tests {
     use std::str::FromStr;
     use std::sync::Arc;
     use std::sync::Mutex;
-    use sub_lib::dispatcher::DispatcherSubs;
-    use test_utils::logging::init_test_logging;
-    use test_utils::logging::TestLogHandler;
-    use test_utils::recorder::make_dispatcher_subs_from;
-    use test_utils::recorder::make_recorder;
-    use test_utils::recorder::RecordAwaiter;
-    use test_utils::recorder::Recorder;
-    use test_utils::recorder::Recording;
-    use test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
 
     fn stream_handler_pool_stuff() -> (RecordAwaiter, Arc<Mutex<Recording>>, StreamHandlerPoolSubs)
     {

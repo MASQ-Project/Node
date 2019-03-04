@@ -1,4 +1,10 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::sub_lib::logger::Logger;
+use crate::sub_lib::peer_actors::BindMessage;
+use crate::sub_lib::ui_gateway::FromUiMessage;
+use crate::sub_lib::ui_gateway::UiGatewayConfig;
+use crate::sub_lib::ui_gateway::UiGatewaySubs;
+use crate::sub_lib::ui_gateway::UiMessage;
 use crate::ui_gateway::shutdown_supervisor::ShutdownSupervisor;
 use crate::ui_gateway::shutdown_supervisor::ShutdownSupervisorReal;
 use crate::ui_gateway::ui_traffic_converter::UiTrafficConverter;
@@ -11,12 +17,6 @@ use actix::Context;
 use actix::Handler;
 use actix::Recipient;
 use actix::Syn;
-use sub_lib::logger::Logger;
-use sub_lib::peer_actors::BindMessage;
-use sub_lib::ui_gateway::FromUiMessage;
-use sub_lib::ui_gateway::UiGatewayConfig;
-use sub_lib::ui_gateway::UiGatewaySubs;
-use sub_lib::ui_gateway::UiMessage;
 
 pub struct UiGateway {
     port: u16,
@@ -102,18 +102,18 @@ impl Handler<FromUiMessage> for UiGateway {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sub_lib::ui_gateway::DEFAULT_UI_PORT;
+    use crate::test_utils::logging::init_test_logging;
+    use crate::test_utils::logging::TestLogHandler;
+    use crate::test_utils::recorder::make_recorder;
+    use crate::test_utils::recorder::peer_actors_builder;
+    use crate::test_utils::test_utils::find_free_port;
+    use crate::test_utils::test_utils::wait_for;
     use actix::System;
     use std::cell::RefCell;
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
-    use sub_lib::ui_gateway::DEFAULT_UI_PORT;
-    use test_utils::logging::init_test_logging;
-    use test_utils::logging::TestLogHandler;
-    use test_utils::recorder::make_recorder;
-    use test_utils::recorder::peer_actors_builder;
-    use test_utils::test_utils::find_free_port;
-    use test_utils::test_utils::wait_for;
 
     pub struct UiTrafficConverterMock {
         marshal_parameters: Arc<Mutex<Vec<UiMessage>>>,

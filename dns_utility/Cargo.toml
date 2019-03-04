@@ -9,7 +9,6 @@ edition = "2018"
 
 [dependencies]
 regex = "1.0.5"
-sub_lib = { path = "../sub_lib" }
 libc = "0.2.43"
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -20,7 +19,6 @@ core-foundation = "0.5.1"
 winreg = "0.5.1"
 
 [dev-dependencies]
-test_utils = {path = "../test_utils" }
 
 [[bin]]
 name = "dns_utility"

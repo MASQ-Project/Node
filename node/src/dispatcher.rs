@@ -1,17 +1,17 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::stream_messages::PoolBindMessage;
+use crate::sub_lib::dispatcher::DispatcherSubs;
+use crate::sub_lib::dispatcher::InboundClientData;
+use crate::sub_lib::logger::Logger;
+use crate::sub_lib::peer_actors::BindMessage;
+use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
+use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
 use actix::Syn;
-use sub_lib::dispatcher::DispatcherSubs;
-use sub_lib::dispatcher::InboundClientData;
-use sub_lib::logger::Logger;
-use sub_lib::peer_actors::BindMessage;
-use sub_lib::stream_handler_pool::TransmitDataMsg;
-use sub_lib::utils::NODE_MAILBOX_CAPACITY;
 
 pub struct Dispatcher {
     to_proxy_server: Option<Recipient<Syn, InboundClientData>>,
@@ -102,15 +102,15 @@ impl Dispatcher {
 mod tests {
     use super::*;
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
+    use crate::sub_lib::dispatcher::Endpoint;
+    use crate::test_utils::recorder::peer_actors_builder;
+    use crate::test_utils::recorder::Recorder;
     use actix::msgs;
     use actix::Addr;
     use actix::Arbiter;
     use actix::System;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use sub_lib::dispatcher::Endpoint;
-    use test_utils::recorder::peer_actors_builder;
-    use test_utils::recorder::Recorder;
 
     #[test]
     fn sends_inbound_data_for_proxy_server_to_proxy_server() {

@@ -1,11 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use super::dao_utils;
+use crate::sub_lib::wallet::Wallet;
 use rusqlite::types::ToSql;
 use rusqlite::Connection;
 use rusqlite::OptionalExtension;
 use std::fmt::Debug;
 use std::time::SystemTime;
-use sub_lib::wallet::Wallet;
 
 #[derive(Debug, PartialEq)]
 pub struct PayableAccount {

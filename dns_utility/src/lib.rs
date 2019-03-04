@@ -15,3 +15,7 @@ pub mod dynamic_store_dns_modifier;
 pub mod resolv_conf_dns_modifier;
 pub mod utils;
 pub mod winreg_dns_modifier;
+pub mod main_tools;
+
+#[cfg(test)]
+pub mod fake_stream_holder;

@@ -10,6 +10,12 @@ use node_lib::masquerader::Masquerader;
 use node_lib::neighborhood::gossip::GossipNodeRecord;
 use node_lib::neighborhood::neighborhood_database::NodeRecordInner;
 use node_lib::neighborhood::neighborhood_database::NodeSignatures;
+use node_lib::sub_lib::cryptde::CryptData;
+use node_lib::sub_lib::cryptde::PublicKey;
+use node_lib::sub_lib::cryptde_null::CryptDENull;
+use node_lib::sub_lib::hopper::IncipientCoresPackage;
+use node_lib::sub_lib::node_addr::NodeAddr;
+use node_lib::sub_lib::wallet::Wallet;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::sync::mpsc;
@@ -17,12 +23,6 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
-use sub_lib::cryptde::CryptData;
-use sub_lib::cryptde::PublicKey;
-use sub_lib::cryptde_null::CryptDENull;
-use sub_lib::hopper::IncipientCoresPackage;
-use sub_lib::node_addr::NodeAddr;
-use sub_lib::wallet::Wallet;
 
 #[derive(Clone)]
 pub struct MockBootstrapNode {

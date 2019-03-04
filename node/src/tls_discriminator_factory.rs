@@ -2,7 +2,7 @@
 use crate::discriminator::Discriminator;
 use crate::discriminator::DiscriminatorFactory;
 use crate::null_masquerader::NullMasquerader;
-use sub_lib::tls_framer::TlsFramer;
+use crate::sub_lib::tls_framer::TlsFramer;
 
 pub struct TlsDiscriminatorFactory {}
 

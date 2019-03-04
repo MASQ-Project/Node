@@ -2,7 +2,7 @@
 
 mod utils;
 
-use sub_lib::ui_gateway::DEFAULT_UI_PORT;
+use node_lib::sub_lib::ui_gateway::DEFAULT_UI_PORT;
 use websocket::ClientBuilder;
 use websocket::OwnedMessage;
 

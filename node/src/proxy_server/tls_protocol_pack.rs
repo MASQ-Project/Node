@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::proxy_server::protocol_pack::ProtocolPack;
-use sub_lib::cryptde::PlainData;
-use sub_lib::proxy_server::ProxyProtocol;
+use crate::sub_lib::cryptde::PlainData;
+use crate::sub_lib::proxy_server::ProxyProtocol;
 
 pub struct TlsProtocolPack {}
 

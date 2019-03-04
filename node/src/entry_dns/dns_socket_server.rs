@@ -1,15 +1,15 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use super::processor::ProcessorReal;
 use super::DnsSocketServer;
+use crate::sub_lib::logger::Logger;
+use crate::sub_lib::main_tools::StdStreams;
+use crate::sub_lib::socket_server::SocketServer;
 use std::borrow::BorrowMut;
 use std::net::IpAddr;
 use std::net::IpAddr::V4;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::str::FromStr;
-use sub_lib::logger::Logger;
-use sub_lib::main_tools::StdStreams;
-use sub_lib::socket_server::SocketServer;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 
@@ -149,6 +149,10 @@ mod tests {
     use super::super::new_dns_socket_server;
     use super::super::packet_facade::PacketFacade;
     use super::*;
+    use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
+    use crate::test_utils::logging::init_test_logging;
+    use crate::test_utils::logging::TestLogHandler;
+    use crate::test_utils::test_utils::FakeStreamHolder;
     use std::borrow::Borrow;
     use std::borrow::BorrowMut;
     use std::clone::Clone;
@@ -159,10 +163,6 @@ mod tests {
     use std::ops::DerefMut;
     use std::sync::Arc;
     use std::sync::Mutex;
-    use sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
-    use test_utils::logging::init_test_logging;
-    use test_utils::logging::TestLogHandler;
-    use test_utils::test_utils::FakeStreamHolder;
     use tokio;
 
     struct UdpSocketWrapperMockGuts {

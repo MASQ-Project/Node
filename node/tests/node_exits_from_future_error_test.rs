@@ -3,7 +3,7 @@
 mod utils;
 
 use crate::utils::CommandConfig;
-use sub_lib::crash_point::CrashPoint;
+use node_lib::sub_lib::crash_point::CrashPoint;
 
 #[cfg(unix)]
 #[test]

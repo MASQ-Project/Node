@@ -2,8 +2,8 @@
 
 use dns_utility_lib::dns_utility::DnsUtility;
 use std::io;
-use sub_lib::main_tools::Command;
-use sub_lib::main_tools::StdStreams;
+use dns_utility_lib::main_tools::Command;
+use dns_utility_lib::main_tools::StdStreams;
 
 pub fn main() {
     let mut streams: StdStreams<'_> = StdStreams {

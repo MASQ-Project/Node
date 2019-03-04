@@ -2,14 +2,14 @@
 
 use super::neighborhood_database::NeighborhoodDatabase;
 use super::neighborhood_database::NodeRecord;
+use crate::sub_lib::cryptde::PublicKey;
+use crate::sub_lib::cryptde_null::CryptDENull;
+use crate::sub_lib::node_addr::NodeAddr;
+use crate::sub_lib::wallet::Wallet;
 use std::collections::HashSet;
 use std::hash::Hash;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
-use sub_lib::cryptde::PublicKey;
-use sub_lib::cryptde_null::CryptDENull;
-use sub_lib::node_addr::NodeAddr;
-use sub_lib::wallet::Wallet;
 
 pub fn make_node_record(n: u16, has_ip: bool, is_bootstrap_node: bool) -> NodeRecord {
     let a = ((n / 1000) % 10) as u8;

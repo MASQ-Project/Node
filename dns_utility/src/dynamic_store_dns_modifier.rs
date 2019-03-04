@@ -412,7 +412,7 @@ mod tests {
     use std::cell::RefCell;
     use std::sync::Arc;
     use std::sync::Mutex;
-    use test_utils::test_utils::FakeStreamHolder;
+    use crate::fake_stream_holder::FakeStreamHolder;
 
     struct StoreWrapperMock {
         get_dictionary_string_cfpl_parameters: Arc<Mutex<Vec<String>>>,

@@ -4,14 +4,14 @@ use node_lib::neighborhood::gossip::Gossip;
 use node_lib::neighborhood::gossip::GossipNodeRecord;
 use node_lib::neighborhood::neighborhood_database::NodeRecordInner;
 use node_lib::neighborhood::neighborhood_database::NodeSignatures;
-use sub_lib::cryptde::CryptDE;
-use sub_lib::cryptde::PublicKey;
-use sub_lib::cryptde_null::CryptDENull;
-use sub_lib::dispatcher::Component;
-use sub_lib::hopper::IncipientCoresPackage;
-use sub_lib::route::Route;
-use sub_lib::route::RouteSegment;
-use sub_lib::wallet::Wallet;
+use node_lib::sub_lib::cryptde::CryptDE;
+use node_lib::sub_lib::cryptde::PublicKey;
+use node_lib::sub_lib::cryptde_null::CryptDENull;
+use node_lib::sub_lib::dispatcher::Component;
+use node_lib::sub_lib::hopper::IncipientCoresPackage;
+use node_lib::sub_lib::route::Route;
+use node_lib::sub_lib::route::RouteSegment;
+use node_lib::sub_lib::wallet::Wallet;
 
 pub struct GossipBuilder {
     consuming_wallet: Option<Wallet>,

@@ -5,10 +5,10 @@ use crate::substratum_mock_node::SubstratumMockNode;
 use crate::substratum_node::SubstratumNode;
 use crate::substratum_real_node::NodeStartupConfig;
 use crate::substratum_real_node::SubstratumRealNode;
+use node_lib::sub_lib::cryptde::PublicKey;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
-use sub_lib::cryptde::PublicKey;
 
 pub struct SubstratumNodeCluster {
     real_nodes: HashMap<String, SubstratumRealNode>,

@@ -9,13 +9,13 @@ use node_lib::neighborhood::gossip::GossipNodeRecord;
 use node_lib::neighborhood::neighborhood_database::NodeRecord;
 use node_lib::neighborhood::neighborhood_database::NodeRecordInner;
 use node_lib::neighborhood::neighborhood_database::NodeSignatures;
+use node_lib::sub_lib::accountant;
+use node_lib::sub_lib::cryptde_null::CryptDENull;
+use node_lib::test_utils::test_utils::assert_contains;
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
-use sub_lib::accountant;
-use sub_lib::cryptde_null::CryptDENull;
-use test_utils::test_utils::assert_contains;
 
 #[test]
 fn when_bootstrapping_from_a_node_then_the_node_sends_gossip_upon_startup() {

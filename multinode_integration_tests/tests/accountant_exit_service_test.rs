@@ -7,8 +7,8 @@ use multinode_integration_tests_lib::substratum_node::SubstratumNodeUtils;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
 use node_lib::json_masquerader::JsonMasquerader;
+use node_lib::sub_lib::wallet::Wallet;
 use std::time::Duration;
-use sub_lib::wallet::Wallet;
 
 #[test]
 fn accountant_notified_of_accruing_debt_for_requested_exit_service() {

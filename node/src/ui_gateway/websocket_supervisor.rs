@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::sub_lib::logger::Logger;
 use actix::Recipient;
 use actix::Syn;
 use bytes::BytesMut;
@@ -15,10 +16,9 @@ use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::Mutex;
-use sub_lib::logger::Logger;
 use tokio::reactor::Handle;
 // The following r# notation is a way to get around the fact that 'async' is now a keyword in Rust
-use sub_lib::ui_gateway::FromUiMessage;
+use crate::sub_lib::ui_gateway::FromUiMessage;
 use websocket::client::r#async::Framed;
 use websocket::r#async::MessageCodec;
 use websocket::r#async::TcpStream;
@@ -286,6 +286,13 @@ impl WebSocketSupervisorReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sub_lib::ui_gateway::FromUiMessage;
+    use crate::test_utils::logging::init_test_logging;
+    use crate::test_utils::logging::TestLogHandler;
+    use crate::test_utils::recorder::make_recorder;
+    use crate::test_utils::recorder::Recorder;
+    use crate::test_utils::test_utils::find_free_port;
+    use crate::test_utils::test_utils::wait_for;
     use actix::Actor;
     use actix::Addr;
     use actix::Arbiter;
@@ -295,13 +302,6 @@ mod tests {
     use std::net::Shutdown;
     use std::thread;
     use std::time::Duration;
-    use sub_lib::ui_gateway::FromUiMessage;
-    use test_utils::logging::init_test_logging;
-    use test_utils::logging::TestLogHandler;
-    use test_utils::recorder::make_recorder;
-    use test_utils::recorder::Recorder;
-    use test_utils::test_utils::find_free_port;
-    use test_utils::test_utils::wait_for;
     use websocket::client::sync::Client;
     use websocket::stream::sync::TcpStream;
     use websocket::ClientBuilder;

@@ -4,12 +4,12 @@ use super::gossip::GossipNodeRecord;
 use super::neighborhood_database::NeighborhoodDatabase;
 use super::neighborhood_database::NeighborhoodDatabaseError;
 use super::neighborhood_database::NodeRecord;
+use crate::sub_lib::cryptde::PublicKey;
+use crate::sub_lib::logger::Logger;
+use crate::sub_lib::tcp_wrappers::TcpStreamWrapperFactory;
+use crate::sub_lib::tcp_wrappers::TcpStreamWrapperFactoryReal;
 use std::collections::HashSet;
 use std::net::SocketAddr;
-use sub_lib::cryptde::PublicKey;
-use sub_lib::logger::Logger;
-use sub_lib::tcp_wrappers::TcpStreamWrapperFactory;
-use sub_lib::tcp_wrappers::TcpStreamWrapperFactoryReal;
 
 pub trait GossipAcceptor {
     // Philosophy of handling Gossip messages that are malformed: Don't spend effort on rejecting
@@ -217,19 +217,19 @@ mod tests {
     use super::super::neighborhood_database::NodeSignatures;
     use super::super::neighborhood_test_utils::make_node_record;
     use super::super::neighborhood_test_utils::*;
+    use crate::sub_lib::cryptde::CryptData;
+    use crate::sub_lib::cryptde::PublicKey;
+    use crate::sub_lib::node_addr::NodeAddr;
+    use crate::sub_lib::wallet::Wallet;
+    use crate::test_utils::logging::init_test_logging;
+    use crate::test_utils::logging::TestLogHandler;
+    use crate::test_utils::tcp_wrapper_mocks::TcpStreamWrapperFactoryMock;
+    use crate::test_utils::tcp_wrapper_mocks::TcpStreamWrapperMock;
+    use crate::test_utils::test_utils::cryptde;
     use std::io;
     use std::net::IpAddr;
     use std::net::Ipv4Addr;
     use std::str::FromStr;
-    use sub_lib::cryptde::CryptData;
-    use sub_lib::cryptde::PublicKey;
-    use sub_lib::node_addr::NodeAddr;
-    use sub_lib::wallet::Wallet;
-    use test_utils::logging::init_test_logging;
-    use test_utils::logging::TestLogHandler;
-    use test_utils::tcp_wrapper_mocks::TcpStreamWrapperFactoryMock;
-    use test_utils::tcp_wrapper_mocks::TcpStreamWrapperMock;
-    use test_utils::test_utils::cryptde;
 
     impl GossipAcceptorReal {
         fn new_for_tests(count: u32) -> GossipAcceptorReal {

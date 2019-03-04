@@ -6,9 +6,9 @@ mod dns_socket_server;
 mod processor;
 
 use self::processor::ProcessorTrait;
+use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperReal;
+use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
 use std::net::IpAddr;
-use sub_lib::udp_socket_wrapper::UdpSocketWrapperReal;
-use sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
 
 pub struct DnsSocketServer {
     dns_target: Option<IpAddr>,

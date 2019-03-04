@@ -2,13 +2,13 @@
 use crate::discriminator::DiscriminatorFactory;
 use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
 use crate::json_discriminator_factory::JsonDiscriminatorFactory;
+use crate::sub_lib::parameter_finder::ParameterFinder;
 use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::net::UdpSocket;
-use sub_lib::parameter_finder::ParameterFinder;
 
 // TODO: This should be subsumed into BootstrapperConfig
 pub struct Configuration {
@@ -103,7 +103,7 @@ mod tests {
     use super::*;
     use crate::discriminator::UnmaskedChunk;
     use crate::node_test_utils::NullDiscriminatorFactory;
-    use test_utils::test_utils::assert_contains;
+    use crate::test_utils::test_utils::assert_contains;
 
     #[test]
     fn find_free_port_works_ten_times() {

@@ -3,6 +3,15 @@ use super::db_initializer::DbInitializer;
 use super::db_initializer::DbInitializerReal;
 use super::payable_dao::PayableDao;
 use super::receivable_dao::ReceivableDao;
+use crate::sub_lib::accountant::AccountantConfig;
+use crate::sub_lib::accountant::AccountantSubs;
+use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
+use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
+use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
+use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
+use crate::sub_lib::logger::Logger;
+use crate::sub_lib::peer_actors::BindMessage;
+use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
@@ -11,15 +20,6 @@ use actix::Syn;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
-use sub_lib::accountant::AccountantConfig;
-use sub_lib::accountant::AccountantSubs;
-use sub_lib::accountant::ReportExitServiceConsumedMessage;
-use sub_lib::accountant::ReportExitServiceProvidedMessage;
-use sub_lib::accountant::ReportRoutingServiceConsumedMessage;
-use sub_lib::accountant::ReportRoutingServiceProvidedMessage;
-use sub_lib::logger::Logger;
-use sub_lib::peer_actors::BindMessage;
-use sub_lib::wallet::Wallet;
 
 pub struct Accountant {
     config: AccountantConfig,
@@ -222,6 +222,11 @@ pub mod tests {
     use super::super::payable_dao::PayableAccount;
     use super::super::receivable_dao;
     use super::*;
+    use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
+    use crate::sub_lib::wallet::Wallet;
+    use crate::test_utils::logging::init_test_logging;
+    use crate::test_utils::logging::TestLogHandler;
+    use crate::test_utils::recorder::peer_actors_builder;
     use actix::msgs;
     use actix::Arbiter;
     use actix::System;
@@ -233,11 +238,6 @@ pub mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::time::SystemTime;
-    use sub_lib::accountant::ReportRoutingServiceConsumedMessage;
-    use sub_lib::wallet::Wallet;
-    use test_utils::logging::init_test_logging;
-    use test_utils::logging::TestLogHandler;
-    use test_utils::recorder::peer_actors_builder;
 
     struct DbInitializerMock {
         initialize_parameters: Arc<Mutex<Vec<PathBuf>>>,

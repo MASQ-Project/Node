@@ -1,11 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::sub_lib::channel_wrappers::ReceiverWrapper;
+use crate::sub_lib::logger::Logger;
+use crate::sub_lib::sequence_buffer::SequenceBuffer;
+use crate::sub_lib::sequence_buffer::SequencedPacket;
+use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
+use crate::sub_lib::utils::indicates_dead_stream;
 use std::net::SocketAddr;
-use sub_lib::channel_wrappers::ReceiverWrapper;
-use sub_lib::logger::Logger;
-use sub_lib::sequence_buffer::SequenceBuffer;
-use sub_lib::sequence_buffer::SequencedPacket;
-use sub_lib::tokio_wrappers::WriteHalfWrapper;
-use sub_lib::utils::indicates_dead_stream;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 
@@ -160,17 +160,17 @@ enum WriteBufferStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sub_lib::sequence_buffer::SequencedPacket;
+    use crate::test_utils::channel_wrapper_mocks::ReceiverWrapperMock;
+    use crate::test_utils::logging::init_test_logging;
+    use crate::test_utils::logging::TestLogHandler;
+    use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use std::io;
     use std::io::ErrorKind;
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::sync::Arc;
     use std::sync::Mutex;
-    use sub_lib::sequence_buffer::SequencedPacket;
-    use test_utils::channel_wrapper_mocks::ReceiverWrapperMock;
-    use test_utils::logging::init_test_logging;
-    use test_utils::logging::TestLogHandler;
-    use test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
 
     #[test]
     fn stream_writer_returns_not_ready_when_the_stream_is_not_ready() {

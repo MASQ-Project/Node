@@ -2,10 +2,10 @@
 use crate::discriminator::UnmaskedChunk;
 use crate::masquerader::MasqueradeError;
 use crate::masquerader::Masquerader;
+use crate::sub_lib::logger::Logger;
 use base64;
 use serde_derive::{Deserialize, Serialize};
 use serde_json;
-use sub_lib::logger::Logger;
 
 pub struct JsonMasquerader {
     logger: Logger,
@@ -131,8 +131,8 @@ struct JsonMasqueraderUnmaskStructure {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use test_utils::logging::init_test_logging;
-    use test_utils::logging::TestLogHandler;
+    use crate::test_utils::logging::init_test_logging;
+    use crate::test_utils::logging::TestLogHandler;
 
     #[test]
     fn json_masquerader_can_mask_and_unmask_bodytext() {

@@ -1,6 +1,13 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use self::sub_lib::utils::indicates_dead_stream;
+use node_lib::sub_lib;
+use node_lib::sub_lib::framer::Framer;
+use node_lib::sub_lib::main_tools::Command;
+use node_lib::sub_lib::main_tools::StdStreams;
+use node_lib::sub_lib::node_addr::NodeAddr;
+use node_lib::test_utils::data_hunk::DataHunk;
+use node_lib::test_utils::data_hunk_framer::DataHunkFramer;
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::env;
@@ -17,14 +24,6 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
 use std::thread;
-use sub_lib;
-use sub_lib::framer::Framer;
-use sub_lib::main_tools::Command;
-use sub_lib::main_tools::StdStreams;
-use sub_lib::node_addr::NodeAddr;
-use test_utils;
-use test_utils::data_hunk::DataHunk;
-use test_utils::data_hunk_framer::DataHunkFramer;
 
 pub const CONTROL_STREAM_PORT: u16 = 42511;
 
@@ -320,6 +319,8 @@ impl MockNode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use node_lib::test_utils::test_utils::find_free_port;
+    use node_lib::test_utils::test_utils::FakeStreamHolder;
     use std::io::Read;
     use std::io::Write;
     use std::net::IpAddr;
@@ -327,8 +328,6 @@ mod tests {
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::time::Duration;
-    use test_utils::test_utils::find_free_port;
-    use test_utils::test_utils::FakeStreamHolder;
 
     #[test]
     fn cant_start_with_no_node_ref() {

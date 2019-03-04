@@ -3,6 +3,10 @@ use super::bootstrapper::Bootstrapper;
 use super::entry_dns::new_dns_socket_server;
 use super::privilege_drop::PrivilegeDropper;
 use super::privilege_drop::PrivilegeDropperReal;
+use crate::sub_lib::main_tools::Command;
+use crate::sub_lib::main_tools::StdStreams;
+use crate::sub_lib::parameter_finder::ParameterFinder;
+use crate::sub_lib::socket_server::SocketServer;
 use flexi_logger::Duplicate;
 use flexi_logger::LevelFilter;
 use flexi_logger::LogSpecification;
@@ -10,10 +14,6 @@ use flexi_logger::Logger;
 use futures::try_ready;
 use std::env::temp_dir;
 use std::str::FromStr;
-use sub_lib::main_tools::Command;
-use sub_lib::main_tools::StdStreams;
-use sub_lib::parameter_finder::ParameterFinder;
-use sub_lib::socket_server::SocketServer;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 
@@ -121,12 +121,12 @@ impl LoggerInitializerWrapperReal {
 mod tests {
     use super::*;
     use crate::crash_test_dummy::CrashTestDummy;
+    use crate::sub_lib::crash_point::CrashPoint;
+    use crate::test_utils::logging::init_test_logging;
+    use crate::test_utils::test_utils::ByteArrayReader;
+    use crate::test_utils::test_utils::ByteArrayWriter;
     use std::sync::Arc;
     use std::sync::Mutex;
-    use sub_lib::crash_point::CrashPoint;
-    use test_utils::logging::init_test_logging;
-    use test_utils::test_utils::ByteArrayReader;
-    use test_utils::test_utils::ByteArrayWriter;
 
     impl SocketServer for CrashTestDummy {
         fn name(&self) -> String {

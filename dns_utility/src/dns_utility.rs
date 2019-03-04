@@ -3,8 +3,8 @@ use crate::dns_modifier::DnsModifier;
 use crate::dns_modifier_factory::DnsModifierFactory;
 use crate::dns_modifier_factory::DnsModifierFactoryReal;
 use std::io::Write;
-use sub_lib::main_tools::Command;
-use sub_lib::main_tools::StdStreams;
+use crate::main_tools::Command;
+use crate::main_tools::StdStreams;
 
 pub struct DnsUtility {
     factory: Box<dyn DnsModifierFactory>,
@@ -106,7 +106,7 @@ mod tests {
     use crate::dns_modifier::DnsModifier;
     use std::cell::RefCell;
     use std::io;
-    use test_utils::test_utils::FakeStreamHolder;
+    use crate::fake_stream_holder::FakeStreamHolder;
 
     pub struct DnsModifierMock {
         subvert_results: RefCell<Vec<Result<(), String>>>,

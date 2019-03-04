@@ -1,5 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use super::neighborhood_database::NeighborhoodDatabaseError::NodeKeyNotFound;
+use crate::sub_lib::cryptde::CryptDE;
+use crate::sub_lib::cryptde::CryptData;
+use crate::sub_lib::cryptde::PlainData;
+use crate::sub_lib::cryptde::PublicKey;
+use crate::sub_lib::node_addr::NodeAddr;
+use crate::sub_lib::wallet::Wallet;
 use serde_cbor;
 use serde_derive::{Deserialize, Serialize};
 use sha1;
@@ -9,12 +15,6 @@ use std::fmt::Debug;
 use std::fmt::Error;
 use std::fmt::Formatter;
 use std::net::IpAddr;
-use sub_lib::cryptde::CryptDE;
-use sub_lib::cryptde::CryptData;
-use sub_lib::cryptde::PlainData;
-use sub_lib::cryptde::PublicKey;
-use sub_lib::node_addr::NodeAddr;
-use sub_lib::wallet::Wallet;
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub struct NodeRecordInner {
@@ -441,9 +441,9 @@ pub enum NeighborhoodDatabaseError {
 mod tests {
     use super::super::neighborhood_test_utils::make_node_record;
     use super::*;
+    use crate::sub_lib::cryptde_null::CryptDENull;
     use std::iter::FromIterator;
     use std::str::FromStr;
-    use sub_lib::cryptde_null::CryptDENull;
 
     #[test]
     fn a_brand_new_database_has_the_expected_contents() {

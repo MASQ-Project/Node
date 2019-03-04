@@ -2,10 +2,10 @@
 use super::packet_facade::PacketFacade;
 use super::packet_facade::Query;
 use super::packet_facade::ResourceRecord;
+use crate::sub_lib::logger::Logger;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::time::Instant;
-use sub_lib::logger::Logger;
 
 pub trait ProcessorTrait: Send + Sync {
     fn process(&self, buf: &mut [u8], length: usize, addr: &SocketAddr, logger: &Logger) -> usize;
@@ -154,15 +154,15 @@ struct ResponseRecord {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sub_lib::logger::Logger;
+    use crate::test_utils::logging::init_test_logging;
+    use crate::test_utils::logging::TestLogHandler;
     use std::net::IpAddr;
     use std::net::Ipv4Addr;
     use std::net::SocketAddr;
     use std::net::SocketAddrV4;
     use std::str::FromStr;
     use std::time::Instant;
-    use sub_lib::logger::Logger;
-    use test_utils::logging::init_test_logging;
-    use test_utils::logging::TestLogHandler;
 
     #[test]
     fn returns_format_error_if_queries_overrun() {

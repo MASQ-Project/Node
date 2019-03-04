@@ -1,11 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use sub_lib;
-
 mod utils;
 
 use crate::utils::CommandConfig;
-use sub_lib::crash_point::CrashPoint;
+use node_lib::sub_lib::crash_point::CrashPoint;
 
 #[cfg(unix)]
 #[test]

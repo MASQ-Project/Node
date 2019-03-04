@@ -1,17 +1,17 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use super::consuming_service::ConsumingService;
 use super::routing_service::RoutingService;
+use crate::sub_lib::cryptde::CryptDE;
+use crate::sub_lib::dispatcher::InboundClientData;
+use crate::sub_lib::hopper::HopperSubs;
+use crate::sub_lib::hopper::IncipientCoresPackage;
+use crate::sub_lib::peer_actors::BindMessage;
+use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Syn;
-use sub_lib::cryptde::CryptDE;
-use sub_lib::dispatcher::InboundClientData;
-use sub_lib::hopper::HopperSubs;
-use sub_lib::hopper::IncipientCoresPackage;
-use sub_lib::peer_actors::BindMessage;
-use sub_lib::utils::NODE_MAILBOX_CAPACITY;
 
 pub struct Hopper {
     cryptde: &'static dyn CryptDE,
@@ -97,22 +97,22 @@ impl Hopper {
 mod tests {
     use super::super::live_cores_package::LiveCoresPackage;
     use super::*;
+    use crate::sub_lib::cryptde::PlainData;
+    use crate::sub_lib::cryptde::PublicKey;
+    use crate::sub_lib::dispatcher::Component;
+    use crate::sub_lib::hopper::IncipientCoresPackage;
+    use crate::sub_lib::route::Route;
+    use crate::sub_lib::route::RouteSegment;
+    use crate::sub_lib::wallet::Wallet;
+    use crate::test_utils::test_utils::cryptde;
+    use crate::test_utils::test_utils::route_to_proxy_client;
+    use crate::test_utils::test_utils::PayloadMock;
     use actix::msgs;
     use actix::Actor;
     use actix::Arbiter;
     use actix::System;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use sub_lib::cryptde::PlainData;
-    use sub_lib::cryptde::PublicKey;
-    use sub_lib::dispatcher::Component;
-    use sub_lib::hopper::IncipientCoresPackage;
-    use sub_lib::route::Route;
-    use sub_lib::route::RouteSegment;
-    use sub_lib::wallet::Wallet;
-    use test_utils::test_utils::cryptde;
-    use test_utils::test_utils::route_to_proxy_client;
-    use test_utils::test_utils::PayloadMock;
 
     #[test]
     #[should_panic(expected = "Hopper unbound: no RoutingService")]

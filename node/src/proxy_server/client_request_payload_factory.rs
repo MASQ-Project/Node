@@ -2,14 +2,14 @@
 use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
 use crate::proxy_server::protocol_pack::ProtocolPack;
 use crate::proxy_server::tls_protocol_pack::TlsProtocolPack;
+use crate::sub_lib::cryptde::CryptDE;
+use crate::sub_lib::cryptde::PlainData;
+use crate::sub_lib::dispatcher::InboundClientData;
+use crate::sub_lib::logger::Logger;
+use crate::sub_lib::proxy_server::ClientRequestPayload;
+use crate::sub_lib::sequence_buffer::SequencedPacket;
+use crate::sub_lib::stream_key::StreamKey;
 use std::collections::HashMap;
-use sub_lib::cryptde::CryptDE;
-use sub_lib::cryptde::PlainData;
-use sub_lib::dispatcher::InboundClientData;
-use sub_lib::logger::Logger;
-use sub_lib::proxy_server::ClientRequestPayload;
-use sub_lib::sequence_buffer::SequencedPacket;
-use sub_lib::stream_key::StreamKey;
 
 pub struct ClientRequestPayloadFactory {
     protocol_packs: HashMap<u16, Box<dyn ProtocolPack>>,
@@ -82,13 +82,13 @@ impl ClientRequestPayloadFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sub_lib::cryptde_null::CryptDENull;
+    use crate::sub_lib::proxy_server::ProxyProtocol;
+    use crate::test_utils::logging::init_test_logging;
+    use crate::test_utils::logging::TestLogHandler;
+    use crate::test_utils::test_utils::make_meaningless_stream_key;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use sub_lib::cryptde_null::CryptDENull;
-    use sub_lib::proxy_server::ProxyProtocol;
-    use test_utils::logging::init_test_logging;
-    use test_utils::logging::TestLogHandler;
-    use test_utils::test_utils::make_meaningless_stream_key;
 
     #[test]
     fn handles_http() {
