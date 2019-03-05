@@ -187,19 +187,19 @@ mod tests {
         database.add_node(&second_neighbor).unwrap();
         database.add_node(&target).unwrap();
         database
-            .add_neighbor(this_node.public_key(), first_neighbor.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), first_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(this_node.public_key(), second_neighbor.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), second_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(first_neighbor.public_key(), second_neighbor.public_key())
+            .add_arbitrary_neighbor(first_neighbor.public_key(), second_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(first_neighbor.public_key(), target.public_key())
+            .add_arbitrary_neighbor(first_neighbor.public_key(), target.public_key())
             .unwrap();
         database
-            .add_neighbor(target.public_key(), second_neighbor.public_key())
+            .add_arbitrary_neighbor(target.public_key(), second_neighbor.public_key())
             .unwrap();
         let subject = GossipProducerReal::new();
 
@@ -251,13 +251,13 @@ mod tests {
         database.add_node(&second_neighbor).unwrap();
         database.add_node(&target).unwrap();
         database
-            .add_neighbor(this_node.public_key(), first_neighbor.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), first_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(this_node.public_key(), second_neighbor.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), second_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(first_neighbor.public_key(), second_neighbor.public_key())
+            .add_arbitrary_neighbor(first_neighbor.public_key(), second_neighbor.public_key())
             .unwrap();
         let subject = GossipProducerReal::new();
 
@@ -304,13 +304,13 @@ mod tests {
         database.add_node(&bootstrap).unwrap();
         database.add_node(&target).unwrap();
         database
-            .add_neighbor(this_node.public_key(), bootstrap.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), bootstrap.public_key())
             .unwrap();
         database
-            .add_neighbor(target.public_key(), bootstrap.public_key())
+            .add_arbitrary_neighbor(target.public_key(), bootstrap.public_key())
             .unwrap();
         database
-            .add_neighbor(bootstrap.public_key(), target.public_key())
+            .add_arbitrary_neighbor(bootstrap.public_key(), target.public_key())
             .unwrap();
         let subject = GossipProducerReal::new();
 
@@ -364,19 +364,19 @@ mod tests {
         database.add_node(&second_neighbor).unwrap();
         database.add_node(&target).unwrap();
         database
-            .add_neighbor(this_node.public_key(), first_neighbor.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), first_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(this_node.public_key(), second_neighbor.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), second_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(first_neighbor.public_key(), second_neighbor.public_key())
+            .add_arbitrary_neighbor(first_neighbor.public_key(), second_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(first_neighbor.public_key(), target.public_key())
+            .add_arbitrary_neighbor(first_neighbor.public_key(), target.public_key())
             .unwrap();
         database
-            .add_neighbor(target.public_key(), second_neighbor.public_key())
+            .add_arbitrary_neighbor(target.public_key(), second_neighbor.public_key())
             .unwrap();
         let subject = GossipProducerReal::new();
 
@@ -439,28 +439,28 @@ mod tests {
         database.add_node(&second_neighbor).unwrap();
         database.add_node(&target).unwrap();
         database
-            .add_neighbor(this_node.public_key(), first_neighbor.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), first_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(first_neighbor.public_key(), this_node.public_key())
+            .add_arbitrary_neighbor(first_neighbor.public_key(), this_node.public_key())
             .unwrap();
         database
-            .add_neighbor(this_node.public_key(), second_neighbor.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), second_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(second_neighbor.public_key(), this_node.public_key())
+            .add_arbitrary_neighbor(second_neighbor.public_key(), this_node.public_key())
             .unwrap();
         database
-            .add_neighbor(first_neighbor.public_key(), second_neighbor.public_key())
+            .add_arbitrary_neighbor(first_neighbor.public_key(), second_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(second_neighbor.public_key(), first_neighbor.public_key())
+            .add_arbitrary_neighbor(second_neighbor.public_key(), first_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(this_node.public_key(), target.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), target.public_key())
             .unwrap();
         database
-            .add_neighbor(target.public_key(), this_node.public_key())
+            .add_arbitrary_neighbor(target.public_key(), this_node.public_key())
             .unwrap();
 
         let subject = GossipProducerReal::new();
@@ -524,28 +524,28 @@ mod tests {
         database.add_node(&second_neighbor).unwrap();
         database.add_node(&target).unwrap();
         database
-            .add_neighbor(this_node.public_key(), first_neighbor.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), first_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(first_neighbor.public_key(), this_node.public_key())
+            .add_arbitrary_neighbor(first_neighbor.public_key(), this_node.public_key())
             .unwrap();
         database
-            .add_neighbor(this_node.public_key(), second_neighbor.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), second_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(second_neighbor.public_key(), this_node.public_key())
+            .add_arbitrary_neighbor(second_neighbor.public_key(), this_node.public_key())
             .unwrap();
         database
-            .add_neighbor(first_neighbor.public_key(), second_neighbor.public_key())
+            .add_arbitrary_neighbor(first_neighbor.public_key(), second_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(second_neighbor.public_key(), first_neighbor.public_key())
+            .add_arbitrary_neighbor(second_neighbor.public_key(), first_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(this_node.public_key(), target.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), target.public_key())
             .unwrap();
         database
-            .add_neighbor(target.public_key(), this_node.public_key())
+            .add_arbitrary_neighbor(target.public_key(), this_node.public_key())
             .unwrap();
 
         let subject = GossipProducerReal::new();
@@ -625,37 +625,37 @@ mod tests {
         database.add_node(&second_bootstrap).unwrap();
         database.add_node(&third_bootstrap).unwrap();
         database
-            .add_neighbor(this_node.public_key(), first_neighbor.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), first_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(first_neighbor.public_key(), this_node.public_key())
+            .add_arbitrary_neighbor(first_neighbor.public_key(), this_node.public_key())
             .unwrap();
         database
-            .add_neighbor(this_node.public_key(), second_neighbor.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), second_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(second_neighbor.public_key(), this_node.public_key())
+            .add_arbitrary_neighbor(second_neighbor.public_key(), this_node.public_key())
             .unwrap();
         database
-            .add_neighbor(first_neighbor.public_key(), second_neighbor.public_key())
+            .add_arbitrary_neighbor(first_neighbor.public_key(), second_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(second_neighbor.public_key(), first_neighbor.public_key())
+            .add_arbitrary_neighbor(second_neighbor.public_key(), first_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(this_node.public_key(), target.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), target.public_key())
             .unwrap();
         database
-            .add_neighbor(target.public_key(), this_node.public_key())
+            .add_arbitrary_neighbor(target.public_key(), this_node.public_key())
             .unwrap();
         database
-            .add_neighbor(target.public_key(), first_bootstrap.public_key())
+            .add_arbitrary_neighbor(target.public_key(), first_bootstrap.public_key())
             .unwrap();
         database
-            .add_neighbor(target.public_key(), second_bootstrap.public_key())
+            .add_arbitrary_neighbor(target.public_key(), second_bootstrap.public_key())
             .unwrap();
         database
-            .add_neighbor(target.public_key(), third_bootstrap.public_key())
+            .add_arbitrary_neighbor(target.public_key(), third_bootstrap.public_key())
             .unwrap();
 
         let subject = GossipProducerReal::new();
@@ -743,37 +743,37 @@ mod tests {
         database.add_node(&target).unwrap();
         database.add_node(&target_neighbor).unwrap();
         database
-            .add_neighbor(this_node.public_key(), first_neighbor.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), first_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(this_node.public_key(), target_neighbor.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), target_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(first_neighbor.public_key(), this_node.public_key())
+            .add_arbitrary_neighbor(first_neighbor.public_key(), this_node.public_key())
             .unwrap();
         database
-            .add_neighbor(first_neighbor.public_key(), target_neighbor.public_key())
+            .add_arbitrary_neighbor(first_neighbor.public_key(), target_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(this_node.public_key(), second_neighbor.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), second_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(second_neighbor.public_key(), this_node.public_key())
+            .add_arbitrary_neighbor(second_neighbor.public_key(), this_node.public_key())
             .unwrap();
         database
-            .add_neighbor(first_neighbor.public_key(), second_neighbor.public_key())
+            .add_arbitrary_neighbor(first_neighbor.public_key(), second_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(second_neighbor.public_key(), first_neighbor.public_key())
+            .add_arbitrary_neighbor(second_neighbor.public_key(), first_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(this_node.public_key(), target.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), target.public_key())
             .unwrap();
         database
-            .add_neighbor(target.public_key(), this_node.public_key())
+            .add_arbitrary_neighbor(target.public_key(), this_node.public_key())
             .unwrap();
         database
-            .add_neighbor(target.public_key(), target_neighbor.public_key())
+            .add_arbitrary_neighbor(target.public_key(), target_neighbor.public_key())
             .unwrap();
 
         let subject = GossipProducerReal::new();
@@ -841,28 +841,28 @@ mod tests {
         database.add_node(&second_neighbor).unwrap();
         database.add_node(&target).unwrap();
         database
-            .add_neighbor(this_node.public_key(), first_neighbor.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), first_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(first_neighbor.public_key(), this_node.public_key())
+            .add_arbitrary_neighbor(first_neighbor.public_key(), this_node.public_key())
             .unwrap();
         database
-            .add_neighbor(this_node.public_key(), second_neighbor.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), second_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(second_neighbor.public_key(), this_node.public_key())
+            .add_arbitrary_neighbor(second_neighbor.public_key(), this_node.public_key())
             .unwrap();
         database
-            .add_neighbor(first_neighbor.public_key(), second_neighbor.public_key())
+            .add_arbitrary_neighbor(first_neighbor.public_key(), second_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(second_neighbor.public_key(), first_neighbor.public_key())
+            .add_arbitrary_neighbor(second_neighbor.public_key(), first_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(this_node.public_key(), target.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), target.public_key())
             .unwrap();
         database
-            .add_neighbor(target.public_key(), this_node.public_key())
+            .add_arbitrary_neighbor(target.public_key(), this_node.public_key())
             .unwrap();
 
         let subject = GossipProducerReal::new();
@@ -934,34 +934,34 @@ mod tests {
         database.add_node(&target).unwrap();
         database.add_node(&target_neighbor).unwrap();
         database
-            .add_neighbor(this_node.public_key(), first_neighbor.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), first_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(first_neighbor.public_key(), this_node.public_key())
+            .add_arbitrary_neighbor(first_neighbor.public_key(), this_node.public_key())
             .unwrap();
         database
-            .add_neighbor(this_node.public_key(), second_neighbor.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), second_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(second_neighbor.public_key(), this_node.public_key())
+            .add_arbitrary_neighbor(second_neighbor.public_key(), this_node.public_key())
             .unwrap();
         database
-            .add_neighbor(this_node.public_key(), target_neighbor.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), target_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(first_neighbor.public_key(), second_neighbor.public_key())
+            .add_arbitrary_neighbor(first_neighbor.public_key(), second_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(second_neighbor.public_key(), first_neighbor.public_key())
+            .add_arbitrary_neighbor(second_neighbor.public_key(), first_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(this_node.public_key(), target.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), target.public_key())
             .unwrap();
         database
-            .add_neighbor(target.public_key(), this_node.public_key())
+            .add_arbitrary_neighbor(target.public_key(), this_node.public_key())
             .unwrap();
         database
-            .add_neighbor(target.public_key(), target_neighbor.public_key())
+            .add_arbitrary_neighbor(target.public_key(), target_neighbor.public_key())
             .unwrap();
 
         let subject = GossipProducerReal::new();
@@ -1004,7 +1004,7 @@ mod tests {
     }
 
     // TODO test about assuming that unknown target neighbors are not bootstrap when deciding how many introductions to make
-    // ^^^ (not possible to set up yet because we can't add_neighbor a key for target that we don't already have in the DB as a NodeRecord)
+    // ^^^ (not possible to set up yet because we can't add_arbitrary_neighbor a key for target that we don't already have in the DB as a NodeRecord)
     // This test will drive out the unimplemented!() in choose_introducees
 
     #[test]
@@ -1024,22 +1024,22 @@ mod tests {
         database.add_node(&first_neighbor).unwrap();
         database.add_node(&target).unwrap();
         database
-            .add_neighbor(this_node.public_key(), first_neighbor.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), first_neighbor.public_key())
             .unwrap();
         database
-            .add_neighbor(first_neighbor.public_key(), this_node.public_key())
+            .add_arbitrary_neighbor(first_neighbor.public_key(), this_node.public_key())
             .unwrap();
         database
-            .add_neighbor(first_neighbor.public_key(), target.public_key())
+            .add_arbitrary_neighbor(first_neighbor.public_key(), target.public_key())
             .unwrap();
         database
-            .add_neighbor(this_node.public_key(), target.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), target.public_key())
             .unwrap();
         database
-            .add_neighbor(target.public_key(), this_node.public_key())
+            .add_arbitrary_neighbor(target.public_key(), this_node.public_key())
             .unwrap();
         database
-            .add_neighbor(target.public_key(), first_neighbor.public_key())
+            .add_arbitrary_neighbor(target.public_key(), first_neighbor.public_key())
             .unwrap();
 
         let subject = GossipProducerReal::new();

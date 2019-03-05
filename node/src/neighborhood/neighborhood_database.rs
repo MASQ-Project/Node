@@ -342,6 +342,28 @@ impl NeighborhoodDatabase {
         Ok(())
     }
 
+    // This method cannot be used to add neighbors to any node but the local node. This is deliberate. If you
+    // need it to do something else, reevaluate why you need it, because you're probably wrong.
+    pub fn add_neighbor(
+        &mut self,
+        new_neighbor: &PublicKey,
+    ) -> Result<bool, NeighborhoodDatabaseError> {
+        if !self.keys().contains(new_neighbor) {
+            return Err(NodeKeyNotFound(new_neighbor.clone()));
+        };
+        let node_key = &self.this_node.clone();
+        if self.has_neighbor(node_key, new_neighbor) {
+            return Ok(false);
+        }
+        match self.node_by_key_mut(node_key) {
+            Some(node) => {
+                node.neighbors_mut().push(new_neighbor.clone());
+                Ok(true)
+            }
+            None => Err(NodeKeyNotFound(node_key.clone())),
+        }
+    }
+
     pub fn remove_neighbor(&mut self, node_key: &PublicKey) -> Result<bool, String> {
         let ip_addr: Option<IpAddr>;
         {
@@ -368,26 +390,6 @@ impl NeighborhoodDatabase {
         };
 
         Ok(self.root_mut().remove_neighbor(node_key))
-    }
-
-    pub fn add_neighbor(
-        &mut self,
-        node_key: &PublicKey,
-        new_neighbor: &PublicKey,
-    ) -> Result<bool, NeighborhoodDatabaseError> {
-        if !self.keys().contains(new_neighbor) {
-            return Err(NodeKeyNotFound(new_neighbor.clone()));
-        };
-        if self.has_neighbor(node_key, new_neighbor) {
-            return Ok(false);
-        }
-        match self.node_by_key_mut(node_key) {
-            Some(node) => {
-                node.neighbors_mut().push(new_neighbor.clone());
-                Ok(true)
-            }
-            None => Err(NodeKeyNotFound(node_key.clone())),
-        }
     }
 
     pub fn to_dot_graph(&self) -> String {
@@ -623,54 +625,38 @@ mod tests {
         );
         subject.add_node(&one_node).unwrap();
         subject.add_node(&another_node).unwrap();
-
         subject
-            .add_neighbor(&one_node.inner.public_key, &this_node.inner.public_key)
+            .add_arbitrary_neighbor(&one_node.inner.public_key, &another_node.inner.public_key)
             .unwrap();
         subject
-            .add_neighbor(&one_node.inner.public_key, &another_node.inner.public_key)
-            .unwrap();
-        subject
-            .add_neighbor(&another_node.inner.public_key, &this_node.inner.public_key)
-            .unwrap();
-        subject
-            .add_neighbor(&another_node.inner.public_key, &one_node.inner.public_key)
+            .add_arbitrary_neighbor(&another_node.inner.public_key, &one_node.inner.public_key)
             .unwrap();
 
-        assert_eq!(
-            subject
-                .node_by_key(&this_node.inner.public_key)
-                .unwrap()
-                .has_neighbor(&this_node.inner.public_key),
-            false
-        );
+        subject
+            .add_neighbor(&another_node.inner.public_key)
+            .unwrap();
+        subject.add_neighbor(&one_node.inner.public_key).unwrap();
+
         assert_eq!(
             subject
                 .node_by_key(&this_node.inner.public_key)
                 .unwrap()
                 .has_neighbor(&one_node.inner.public_key),
-            false
+            true
         );
         assert_eq!(
             subject
                 .node_by_key(&this_node.inner.public_key)
                 .unwrap()
                 .has_neighbor(&another_node.inner.public_key),
-            false
-        );
-        assert_eq!(
-            subject
-                .node_by_key(&one_node.inner.public_key)
-                .unwrap()
-                .has_neighbor(&this_node.inner.public_key),
             true
         );
         assert_eq!(
             subject
-                .node_by_key(&one_node.inner.public_key)
+                .node_by_key(&another_node.inner.public_key)
                 .unwrap()
                 .has_neighbor(&one_node.inner.public_key),
-            false
+            true
         );
         assert_eq!(
             subject
@@ -681,17 +667,31 @@ mod tests {
         );
         assert_eq!(
             subject
-                .node_by_key(&another_node.inner.public_key)
+                .node_by_key(&this_node.inner.public_key)
                 .unwrap()
                 .has_neighbor(&this_node.inner.public_key),
-            true
+            false
+        );
+        assert_eq!(
+            subject
+                .node_by_key(&one_node.inner.public_key)
+                .unwrap()
+                .has_neighbor(&this_node.inner.public_key),
+            false
+        );
+        assert_eq!(
+            subject
+                .node_by_key(&one_node.inner.public_key)
+                .unwrap()
+                .has_neighbor(&one_node.inner.public_key),
+            false
         );
         assert_eq!(
             subject
                 .node_by_key(&another_node.inner.public_key)
                 .unwrap()
-                .has_neighbor(&one_node.inner.public_key),
-            true
+                .has_neighbor(&this_node.inner.public_key),
+            false
         );
         assert_eq!(
             subject
@@ -714,29 +714,6 @@ mod tests {
     }
 
     #[test]
-    fn add_neighbor_complains_if_from_node_doesnt_exist() {
-        let this_node = make_node_record(1234, true, false);
-        let nonexistent_node = make_node_record(2345, true, false);
-        let mut subject = NeighborhoodDatabase::new(
-            &this_node.inner.public_key,
-            this_node.inner.node_addr_opt.as_ref().unwrap(),
-            Wallet::new("0x1234"),
-            Some(Wallet::new("0x2345")),
-            false,
-            &CryptDENull::from(this_node.public_key()),
-        );
-
-        let result = subject.add_neighbor(nonexistent_node.public_key(), this_node.public_key());
-
-        assert_eq!(
-            result,
-            Err(NeighborhoodDatabaseError::NodeKeyNotFound(
-                nonexistent_node.public_key().clone()
-            ))
-        )
-    }
-
-    #[test]
     fn add_neighbor_complains_if_to_node_doesnt_exist() {
         let this_node = make_node_record(1234, true, false);
         let nonexistent_node = make_node_record(2345, true, false);
@@ -749,7 +726,7 @@ mod tests {
             &CryptDENull::from(this_node.public_key()),
         );
 
-        let result = subject.add_neighbor(this_node.public_key(), nonexistent_node.public_key());
+        let result = subject.add_neighbor(nonexistent_node.public_key());
 
         assert_eq!(
             result,
@@ -988,9 +965,10 @@ mod tests {
         );
         subject.add_node(&other_node).unwrap();
 
-        let result = subject.add_neighbor(this_node.public_key(), other_node.public_key());
+        let result =
+            subject.add_arbitrary_neighbor(this_node.public_key(), other_node.public_key());
 
-        assert!(result.unwrap(), "add_neighbor done goofed");
+        assert!(result.unwrap(), "add_arbitrary_neighbor done goofed");
     }
 
     #[test]
@@ -1007,12 +985,13 @@ mod tests {
         );
         subject.add_node(&other_node).unwrap();
         subject
-            .add_neighbor(this_node.public_key(), other_node.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), other_node.public_key())
             .unwrap();
 
-        let result = subject.add_neighbor(this_node.public_key(), other_node.public_key());
+        let result =
+            subject.add_arbitrary_neighbor(this_node.public_key(), other_node.public_key());
 
-        assert!(!result.unwrap(), "add_neighbor done goofed");
+        assert!(!result.unwrap(), "add_arbitrary_neighbor done goofed");
     }
 
     #[test]
@@ -1037,30 +1016,30 @@ mod tests {
         subject.add_node(&node_three).unwrap();
 
         subject
-            .add_neighbor(&this_node.public_key(), &node_one.public_key())
+            .add_arbitrary_neighbor(&this_node.public_key(), &node_one.public_key())
             .unwrap();
         subject
-            .add_neighbor(&node_one.public_key(), &this_node.public_key())
-            .unwrap();
-
-        subject
-            .add_neighbor(&node_one.public_key(), &node_two.public_key())
-            .unwrap();
-        subject
-            .add_neighbor(&node_two.public_key(), &node_one.public_key())
-            .unwrap();
-        subject
-            .add_neighbor(&node_two.public_key(), &this_node.public_key())
+            .add_arbitrary_neighbor(&node_one.public_key(), &this_node.public_key())
             .unwrap();
 
         subject
-            .add_neighbor(&node_two.public_key(), &node_three.public_key())
+            .add_arbitrary_neighbor(&node_one.public_key(), &node_two.public_key())
             .unwrap();
         subject
-            .add_neighbor(&node_three.public_key(), &node_two.public_key())
+            .add_arbitrary_neighbor(&node_two.public_key(), &node_one.public_key())
             .unwrap();
         subject
-            .add_neighbor(&node_three.public_key(), &this_node.public_key())
+            .add_arbitrary_neighbor(&node_two.public_key(), &this_node.public_key())
+            .unwrap();
+
+        subject
+            .add_arbitrary_neighbor(&node_two.public_key(), &node_three.public_key())
+            .unwrap();
+        subject
+            .add_arbitrary_neighbor(&node_three.public_key(), &node_two.public_key())
+            .unwrap();
+        subject
+            .add_arbitrary_neighbor(&node_three.public_key(), &this_node.public_key())
             .unwrap();
 
         let result = subject.to_dot_graph();
@@ -1166,7 +1145,7 @@ mod tests {
         let other_node = make_node_record(2345, true, false);
         subject.add_node(&other_node).unwrap();
         subject
-            .add_neighbor(&this_node.public_key(), &other_node.public_key())
+            .add_arbitrary_neighbor(&this_node.public_key(), &other_node.public_key())
             .unwrap();
 
         let result = subject.remove_neighbor(other_node.public_key());

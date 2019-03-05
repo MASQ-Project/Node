@@ -2,6 +2,8 @@
 
 use super::neighborhood_database::NeighborhoodDatabase;
 use super::neighborhood_database::NodeRecord;
+use crate::neighborhood::neighborhood_database::NeighborhoodDatabaseError;
+use crate::neighborhood::neighborhood_database::NeighborhoodDatabaseError::NodeKeyNotFound;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::node_addr::NodeAddr;
@@ -79,5 +81,28 @@ impl NodeRecord {
         );
         node_record.sign(&CryptDENull::from(&public_key));
         node_record
+    }
+}
+
+impl NeighborhoodDatabase {
+    // This method is intended for use only in tests. Do not use it in production code.
+    pub fn add_arbitrary_neighbor(
+        &mut self,
+        node_key: &PublicKey,
+        new_neighbor: &PublicKey,
+    ) -> Result<bool, NeighborhoodDatabaseError> {
+        if !self.keys().contains(new_neighbor) {
+            return Err(NodeKeyNotFound(new_neighbor.clone()));
+        };
+        if self.has_neighbor(node_key, new_neighbor) {
+            return Ok(false);
+        }
+        match self.node_by_key_mut(node_key) {
+            Some(node) => {
+                node.neighbors_mut().push(new_neighbor.clone());
+                Ok(true)
+            }
+            None => Err(NodeKeyNotFound(node_key.clone())),
+        }
     }
 }

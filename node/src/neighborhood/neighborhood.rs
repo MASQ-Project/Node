@@ -331,7 +331,6 @@ impl Neighborhood {
                         neighbor: &(PublicKey, NodeAddr),
                         is_bootstrap_node: bool| {
             let (key, node_addr) = neighbor;
-            let root_key_ref = &neighborhood_database.root().public_key().clone();
             neighborhood_database
                 .add_node(&NodeRecord::new(
                     &key,
@@ -344,7 +343,7 @@ impl Neighborhood {
                 ))
                 .expect(&format!("Database already contains node {:?}", key));
             neighborhood_database
-                .add_neighbor(root_key_ref, &key)
+                .add_neighbor(&key)
                 .expect("internal error");
         };
 
@@ -1913,11 +1912,11 @@ mod tests {
                 .unwrap();
             subject
                 .neighborhood_database
-                .add_neighbor(&cryptde.public_key(), removed_neighbor_inside.public_key())
+                .add_arbitrary_neighbor(&cryptde.public_key(), removed_neighbor_inside.public_key())
                 .unwrap();
             subject
                 .neighborhood_database
-                .add_neighbor(&cryptde.public_key(), other_neighbor_inside.public_key())
+                .add_arbitrary_neighbor(&cryptde.public_key(), other_neighbor_inside.public_key())
                 .unwrap();
 
             let addr: Addr<Syn, Neighborhood> = subject.start();
@@ -2206,12 +2205,15 @@ mod tests {
     }
 
     fn dual_edge_func(db: &mut NeighborhoodDatabase, a: &NodeRecord, b: &NodeRecord) {
-        db.add_neighbor(a.public_key(), b.public_key()).unwrap();
-        db.add_neighbor(b.public_key(), a.public_key()).unwrap();
+        db.add_arbitrary_neighbor(a.public_key(), b.public_key())
+            .unwrap();
+        db.add_arbitrary_neighbor(b.public_key(), a.public_key())
+            .unwrap();
     }
 
     fn single_edge_func(db: &mut NeighborhoodDatabase, a: &NodeRecord, b: &NodeRecord) {
-        db.add_neighbor(a.public_key(), b.public_key()).unwrap();
+        db.add_arbitrary_neighbor(a.public_key(), b.public_key())
+            .unwrap();
     }
 
     #[test]
@@ -2549,7 +2551,7 @@ mod tests {
                 .unwrap();
             subject
                 .neighborhood_database
-                .add_neighbor(this_node.public_key(), one_neighbor.public_key())
+                .add_arbitrary_neighbor(this_node.public_key(), one_neighbor.public_key())
                 .unwrap();
             let addr: Addr<Syn, Neighborhood> = subject.start();
             let peer_actors = peer_actors_builder().hopper(hopper).build();
@@ -2702,7 +2704,7 @@ mod tests {
                 .expect("should be able to add a node");
             subject
                 .neighborhood_database
-                .add_neighbor(
+                .add_arbitrary_neighbor(
                     bootstrap_node.public_key(),
                     other_neighbor_inside.public_key(),
                 )
@@ -2860,11 +2862,11 @@ mod tests {
                 .unwrap();
             subject
                 .neighborhood_database
-                .add_neighbor(&cryptde.public_key(), removed_neighbor_inside.public_key())
+                .add_arbitrary_neighbor(&cryptde.public_key(), removed_neighbor_inside.public_key())
                 .unwrap();
             subject
                 .neighborhood_database
-                .add_neighbor(&cryptde.public_key(), other_neighbor_inside.public_key())
+                .add_arbitrary_neighbor(&cryptde.public_key(), other_neighbor_inside.public_key())
                 .unwrap();
 
             let addr: Addr<Syn, Neighborhood> = subject.start();

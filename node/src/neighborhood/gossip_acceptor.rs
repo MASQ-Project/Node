@@ -112,7 +112,7 @@ impl GossipAcceptorReal {
                         .connect(*addr_vec.get(0).expect("SocketAddr magically disappeared."));
                     if connection_result.is_ok() {
                         changed = database
-                            .add_neighbor(&root_key_ref, &gnr_key)
+                            .add_neighbor(&gnr_key)
                             .expect("Node magically disappeared")
                             || changed;
                     }
@@ -263,7 +263,8 @@ mod tests {
         let other_node_gossip = GossipNodeRecord::from(&other_node, true);
 
         db.add_node(&other_node).unwrap();
-        db.add_neighbor(root_key, other_node.public_key()).unwrap();
+        db.add_arbitrary_neighbor(root_key, other_node.public_key())
+            .unwrap();
 
         let gossip = Gossip {
             node_records: vec![other_node_gossip],
@@ -496,7 +497,7 @@ mod tests {
         );
         database.add_node(&existing_node).unwrap();
         database
-            .add_neighbor(this_node.public_key(), existing_node.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), existing_node.public_key())
             .unwrap();
         let new_node = NodeRecord::new_for_tests(
             existing_node.public_key(),
@@ -572,7 +573,7 @@ mod tests {
         );
         database.add_node(&existing_neighbor).unwrap();
         database
-            .add_neighbor(this_node.public_key(), existing_neighbor.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), existing_neighbor.public_key())
             .unwrap();
 
         // Now node 2345 claims a completely different neighbors list including itself: 2345 and 6789.
@@ -630,7 +631,7 @@ mod tests {
 
         database.add_node(&neighbor).unwrap();
         database
-            .add_neighbor(this_node.public_key(), neighbor.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), neighbor.public_key())
             .unwrap();
 
         let mut signed_neighbor = neighbor.clone();
@@ -790,7 +791,7 @@ mod tests {
         );
         database.add_node(&existing_node).unwrap();
         database
-            .add_neighbor(this_node.public_key(), existing_node.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), existing_node.public_key())
             .unwrap();
 
         let gossip = GossipBuilder::new().node(&existing_node, true).build();
@@ -826,7 +827,7 @@ mod tests {
 
         database.add_node(&neighbor).unwrap();
         database
-            .add_neighbor(this_node.public_key(), neighbor.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), neighbor.public_key())
             .unwrap();
 
         let gossip = GossipBuilder::new().node(&neighbor, true).build();
@@ -893,11 +894,11 @@ mod tests {
         );
         database.add_node(&existing_node).unwrap();
         database
-            .add_neighbor(this_node.public_key(), existing_node.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), existing_node.public_key())
             .unwrap();
 
         database
-            .add_neighbor(existing_node.public_key(), this_node.public_key())
+            .add_arbitrary_neighbor(existing_node.public_key(), this_node.public_key())
             .unwrap();
 
         let gossip = GossipBuilder::new().node(&older_version, true).build();
@@ -937,10 +938,10 @@ mod tests {
         );
         database.add_node(&existing_node).unwrap();
         database
-            .add_neighbor(this_node.public_key(), existing_node.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), existing_node.public_key())
             .unwrap();
         database
-            .add_neighbor(existing_node.public_key(), this_node.public_key())
+            .add_arbitrary_neighbor(existing_node.public_key(), this_node.public_key())
             .unwrap();
 
         let gossip = GossipBuilder::new().node(&newer_version, true).build();
@@ -982,10 +983,10 @@ mod tests {
         );
         database.add_node(&existing_node).unwrap();
         database
-            .add_neighbor(this_node.public_key(), existing_node.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), existing_node.public_key())
             .unwrap();
         database
-            .add_neighbor(existing_node.public_key(), this_node.public_key())
+            .add_arbitrary_neighbor(existing_node.public_key(), this_node.public_key())
             .unwrap();
 
         let gossip = GossipBuilder::new().node(&newer_version, true).build();
@@ -1020,10 +1021,10 @@ mod tests {
         );
         database.add_node(&existing_node).unwrap();
         database
-            .add_neighbor(this_node.public_key(), existing_node.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), existing_node.public_key())
             .unwrap();
         database
-            .add_neighbor(existing_node.public_key(), this_node.public_key())
+            .add_arbitrary_neighbor(existing_node.public_key(), this_node.public_key())
             .unwrap();
 
         let gossip = GossipBuilder::new().node(&newer_version, true).build();
@@ -1061,10 +1062,10 @@ mod tests {
         );
         database.add_node(&existing_node).unwrap();
         database
-            .add_neighbor(this_node.public_key(), existing_node.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), existing_node.public_key())
             .unwrap();
         database
-            .add_neighbor(existing_node.public_key(), this_node.public_key())
+            .add_arbitrary_neighbor(existing_node.public_key(), this_node.public_key())
             .unwrap();
 
         let gossip = GossipBuilder::new().node(&newer_version, true).build();
@@ -1100,10 +1101,10 @@ mod tests {
         );
         database.add_node(&existing_node).unwrap();
         database
-            .add_neighbor(this_node.public_key(), existing_node.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), existing_node.public_key())
             .unwrap();
         database
-            .add_neighbor(existing_node.public_key(), this_node.public_key())
+            .add_arbitrary_neighbor(existing_node.public_key(), this_node.public_key())
             .unwrap();
 
         let gossip = GossipBuilder::new().node(&newer_version, true).build();
@@ -1145,10 +1146,10 @@ mod tests {
         );
         database.add_node(&existing_node).unwrap();
         database
-            .add_neighbor(this_node.public_key(), existing_node.public_key())
+            .add_arbitrary_neighbor(this_node.public_key(), existing_node.public_key())
             .unwrap();
         database
-            .add_neighbor(existing_node.public_key(), this_node.public_key())
+            .add_arbitrary_neighbor(existing_node.public_key(), this_node.public_key())
             .unwrap();
 
         let gossip = GossipBuilder::new().node(&newer_version, true).build();
