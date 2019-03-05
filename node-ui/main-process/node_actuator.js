@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-const { dialog } = require('electron')
+const { app, dialog } = require('electron')
 
 const childProcess = require('child_process')
 const path = require('path')
@@ -79,7 +79,7 @@ module.exports = class NodeActuator {
       await uiInterface.connect()
     } else {
       const worker = path.resolve(__dirname, '.', './substratum_node.js')
-      this.substratumNodeProcess = childProcess.fork(worker, [], {
+      this.substratumNodeProcess = childProcess.fork(worker, [app.getPath('home')], {
         silent: true,
         stdio: [0, 1, 2, 'ipc'],
         detached: true

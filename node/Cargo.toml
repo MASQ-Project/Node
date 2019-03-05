@@ -15,6 +15,7 @@ actix = "= 0.5.7" # upgrading causes flakiness
 base64 = "0.10.0"
 bytes = "0.4.11"
 chrono = "0.4.6"
+dirs = "1.0.5"
 flexi_logger = "0.10.0"
 futures = "0.1.25"
 lazy_static = "1.2.0"

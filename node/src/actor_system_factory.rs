@@ -320,6 +320,7 @@ mod tests {
     use std::cell::RefCell;
     use std::net::IpAddr;
     use std::net::Ipv4Addr;
+    use std::path::PathBuf;
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::time::Duration;
@@ -577,7 +578,7 @@ mod tests {
                 consuming_wallet: Some(Wallet::new("consumer")),
             },
             accountant_config: AccountantConfig {
-                home_directory: String::new(),
+                data_directory: PathBuf::new(),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
@@ -618,7 +619,7 @@ mod tests {
                 consuming_wallet: Some(Wallet::new("consumer")),
             },
             accountant_config: AccountantConfig {
-                home_directory: String::new(),
+                data_directory: PathBuf::new(),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },

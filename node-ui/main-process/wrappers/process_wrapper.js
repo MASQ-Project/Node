@@ -4,6 +4,7 @@ module.exports = (() => {
   let pid = process.pid
   let platform = process.platform
   let env = process.env
+  let argv = process.argv
 
   function getuid () {
     return process.getuid()
@@ -26,6 +27,7 @@ module.exports = (() => {
   }
 
   return {
+    argv: argv,
     pid: pid,
     platform: platform,
     env: env,

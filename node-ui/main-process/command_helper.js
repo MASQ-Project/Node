@@ -15,6 +15,7 @@ module.exports = (() => {
   const treeKill = require('tree-kill')
 
   const binaryFilename = 'SubstratumNode'
+  const homePath = process.argv[2]
 
   let startSubstratumNode, stopSubstratumNode, binaryPath, scriptPath
 
@@ -73,6 +74,10 @@ module.exports = (() => {
     callback(error)
   }
 
+  if (process.platform === 'linux') {
+    runtimeArgs.push('--data_directory')
+    runtimeArgs.push(homePath + '/.local/share/')
+  }
   if (process.platform === 'win32') {
     binaryPath = getBinaryPath()
     scriptPath = getScriptPath('cmd')

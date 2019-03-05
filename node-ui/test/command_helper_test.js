@@ -29,40 +29,94 @@ describe('CommandHelper', () => {
       process.platform = 'linux'
       td.when(process.getuid()).thenReturn('os-uid')
       td.when(process.getgid()).thenReturn('os-gid')
-
-      subject = require('../main-process/command_helper')
     })
 
-    describe('starting', () => {
-      describe('when the environment variables SUDO_UID and SUDO_GID are missing', () => {
-        const command = /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" os-uid os-gid ".*[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns_servers \d.*/
+    describe('Linux', () => {
+      beforeEach(() => {
+        process.argv = ['one', 'two', '/mock-home-dir']
 
-        beforeEach(() => {
-          subject.startSubstratumNode({}, 'callback')
-        })
-
-        it('executes the command via sudo prompt', () => {
-          td.verify(sudoPrompt.exec(td.matchers.contains(command), { name: 'Substratum Node' }, 'callback'))
-        })
+        subject = require('../main-process/command_helper')
       })
 
-      describe('when the environment variables SUDO_UID and SUDO_GID are populated', () => {
-        const command = /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" env-uid env-gid ".*[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns_servers \d.*/
+      describe('starting', () => {
+        describe('when the environment variables SUDO_UID and SUDO_GID are missing', () => {
+          beforeEach(() => {
+            subject.startSubstratumNode({}, 'callback')
+          })
 
-        beforeEach(() => {
-          process.env = { SUDO_UID: 'env-uid', SUDO_GID: 'env-gid' }
-          subject = require('../main-process/command_helper')
-
-          subject.startSubstratumNode({}, 'callback')
+          it('executes the command via sudo prompt', () => {
+            td.verify(sudoPrompt.exec(td.matchers.argThat(arg => {
+              return /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" os-uid os-gid "/.test(arg) &&
+                /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns_servers \d{1,3}\./.test(arg) &&
+                /--data_directory [/\\]mock-home-dir[/\\]\.local[/\\]share[/\\]/.test(arg)
+            }), {name: 'Substratum Node'}, 'callback'))
+          })
         })
 
-        it('executes the command via sudo prompt', () => {
-          td.verify(sudoPrompt.exec(td.matchers.contains(command), { name: 'Substratum Node' }, 'callback'))
+        describe('when the environment variables SUDO_UID and SUDO_GID are populated', () => {
+          beforeEach(() => {
+            process.env = {SUDO_UID: 'env-uid', SUDO_GID: 'env-gid'}
+            subject = require('../main-process/command_helper')
+
+            subject.startSubstratumNode({}, 'callback')
+          })
+
+          it('executes the command via sudo prompt', () => {
+            td.verify(sudoPrompt.exec(td.matchers.argThat(arg => {
+              return /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" env-uid env-gid "/.test(arg) &&
+                /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns_servers \d{1,3}\./.test(arg) &&
+                /--data_directory [/\\]mock-home-dir[/\\]\.local[/\\]share[/\\]/.test(arg)
+            }), {name: 'Substratum Node'}, 'callback'))
+          })
+        })
+      })
+    })
+
+    describe('MacOS', () => {
+      beforeEach(() => {
+        process.platform = 'darwin'
+
+        subject = require('../main-process/command_helper')
+      })
+
+      describe('starting', () => {
+        describe('when the environment variables SUDO_UID and SUDO_GID are missing', () => {
+          beforeEach(() => {
+            subject.startSubstratumNode({}, 'callback')
+          })
+          it('executes the command via sudo prompt', () => {
+            td.verify(sudoPrompt.exec(td.matchers.argThat(arg => {
+              return /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" os-uid os-gid "/.test(arg) &&
+                /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns_servers \d{1,3}\./.test(arg) &&
+                !arg.includes('--data_directory')
+            }), {name: 'Substratum Node'}, 'callback'))
+          })
+        })
+
+        describe('when the environment variables SUDO_UID and SUDO_GID are populated', () => {
+          beforeEach(() => {
+            process.env = { SUDO_UID: 'env-uid', SUDO_GID: 'env-gid' }
+            subject = require('../main-process/command_helper')
+
+            subject.startSubstratumNode({}, 'callback')
+          })
+
+          it('executes the command via sudo prompt', () => {
+            td.verify(sudoPrompt.exec(td.matchers.argThat(arg => {
+              return /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" env-uid env-gid "/.test(arg) &&
+                /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns_servers \d{1,3}\./.test(arg) &&
+                !arg.includes('--data_directory')
+            }), {name: 'Substratum Node'}, 'callback'))
+          })
         })
       })
     })
 
     describe('stopping', () => {
+      beforeEach(() => {
+        subject = require('../main-process/command_helper')
+      })
+
       describe('successfully', () => {
         let error, wasCalled
 
@@ -101,6 +155,60 @@ describe('CommandHelper', () => {
         it('executes the callback', () => {
           assert.strictEqual(wasCalled, true)
           assert.strictEqual(error, 'whoa!')
+        })
+      })
+    })
+
+    describe('getCommand', () => {
+      beforeEach(() => {
+        subject = require('../main-process/command_helper')
+      })
+
+      describe('when ip and neighbor are both provided', () => {
+        beforeEach(() => {
+          subject.startSubstratumNode({ ip: 'abc', neighbor: 'hidelyho' }, 'callback')
+        })
+
+        it('provides them as command line arguments', () => {
+          td.verify(sudoPrompt.exec(td.matchers.contains(/--ip abc\s+--neighbor hidelyho/), { name: 'Substratum Node' }, 'callback'))
+        })
+
+        it('provides port_count command line argument', () => {
+          td.verify(sudoPrompt.exec(td.matchers.contains('--port_count 1'), { name: 'Substratum Node' }, 'callback'))
+        })
+      })
+
+      describe('when neighbor is provided but ip is not', () => {
+        beforeEach(() => {
+          subject.startSubstratumNode({ neighbor: 'hidelyho' }, 'callback')
+        })
+
+        it('uses neither as command line arguments', () => {
+          td.verify(sudoPrompt.exec(td.matchers.argThat((args) => {
+            return !args.includes('--ip') && !args.includes('--neighbor')
+          }), { name: 'Substratum Node' }, 'callback'))
+        })
+      })
+
+      describe('when ip is provided but neighbor is not', () => {
+        beforeEach(() => {
+          subject.startSubstratumNode({ ip: 'abc' }, 'callback')
+        })
+
+        it('uses neither as command line arguments', () => {
+          td.verify(sudoPrompt.exec(td.matchers.argThat((args) => {
+            return !args.includes('--ip') && !args.includes('--neighbor')
+          }), { name: 'Substratum Node' }, 'callback'))
+        })
+      })
+
+      describe('when wallet address is provided', () => {
+        beforeEach(() => {
+          subject.startSubstratumNode({ walletAddress: 'bazinga' }, 'callback')
+        })
+
+        it('provides wallet address command line argument', () => {
+          td.verify(sudoPrompt.exec(td.matchers.contains('--wallet_address bazinga'), { name: 'Substratum Node' }, 'callback'))
         })
       })
     })

@@ -167,12 +167,13 @@ This is how you tell the node which port it should listen on for local WebSocket
 the node to be controlled and inspected by other programs, such as the Substratum Node UI. The default port is 5333; in most
 cases, this will not need to be changed.
 
-* `--home <directory>`
+* `--data_directory <directory>`
 This is the directory in which Node will keep the state that needs to persist from run to run. If it's not specified, the
-default is the current directory. If it is specified but doesn't exist, Node will try to create the directory and abort if
-it fails. If persistent state exists in the directory, but it was created by a version of Node that is incompatible with
-the version you're trying to start, Node will abort. If this is the case, either remove the existing state and restart Node,
-or specify a different `--home` directory.
+default is `$XDG_DATA_HOME` or `$HOME/.local/share` on Linux, `{FOLDERID_RoamingAppData}` on Windows, and 
+`$HOME/Library/Application Support` on MacOS. If it is specified but doesn't exist, Node will try to create the directory
+and abort if it fails. If persistent state exists in the directory, but it was created by a version of Node that is
+incompatible with the version you're trying to start, Node will abort. If this is the case, either remove the existing
+state and restart Node, or specify a different `--data_directory` directory.
 
 If you try to start your SubstratumNode decentralized, you will quickly discover that these parameters have
 a great deal of interdependence on each other.  Some are required, some are optional, some are optional only if others

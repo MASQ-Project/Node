@@ -10,7 +10,6 @@ use crate::listener_handler::ListenerHandlerFactory;
 use crate::listener_handler::ListenerHandlerFactoryReal;
 use crate::sub_lib::accountant;
 use crate::sub_lib::accountant::AccountantConfig;
-use crate::sub_lib::accountant::DEFAULT_HOME_DIRECTORY;
 use crate::sub_lib::crash_point::CrashPoint;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::PublicKey;
@@ -26,11 +25,13 @@ use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::ui_gateway::DEFAULT_UI_PORT;
 use crate::sub_lib::wallet::Wallet;
 use base64;
+use dirs::data_dir;
 use futures::try_ready;
 use regex::Regex;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::vec::Vec;
 use tokio::prelude::stream::futures_unordered::FuturesUnordered;
@@ -63,7 +64,7 @@ impl BootstrapperConfig {
                 consuming_wallet: None,
             },
             accountant_config: AccountantConfig {
-                home_directory: String::new(),
+                data_directory: PathBuf::new(),
             },
             crash_point: CrashPoint::None,
             clandestine_discriminator_factories: vec![],
@@ -172,7 +173,8 @@ impl Bootstrapper {
         config.neighborhood_config.is_bootstrap_node = Bootstrapper::parse_node_type(&finder);
         config.neighborhood_config.local_ip_addr = local_ip_addr;
         config.ui_gateway_config.ui_port = Bootstrapper::parse_ui_port(&finder);
-        config.accountant_config.home_directory = Bootstrapper::parse_home(&finder);
+        config.accountant_config.data_directory =
+            Bootstrapper::parse_data_dir(&finder, &RealDirsWrapper {});
         config.neighborhood_config.earning_wallet = Bootstrapper::parse_wallet_address(&finder)
             .unwrap_or(accountant::DEFAULT_EARNING_WALLET.clone());
         // TODO: In real life this should come from a command-line parameter
@@ -248,11 +250,11 @@ impl Bootstrapper {
         }
     }
 
-    fn parse_home(finder: &ParameterFinder) -> String {
-        let usage = "--home <directory>";
-        match finder.find_value_for("--home", usage) {
-            Some(home_directory) => home_directory,
-            None => String::from(DEFAULT_HOME_DIRECTORY),
+    fn parse_data_dir(finder: &ParameterFinder, dirs_wrapper: &DirsWrapper) -> PathBuf {
+        let usage = "--data_directory <directory>";
+        match finder.find_value_for("--data_directory", usage) {
+            Some(data_directory) => PathBuf::from(data_directory),
+            None => dirs_wrapper.data_dir().expect("Could not provide a default data directory, please specify one with --data_directory")
         }
     }
 
@@ -383,6 +385,18 @@ impl Bootstrapper {
     }
 }
 
+struct RealDirsWrapper {}
+
+trait DirsWrapper {
+    fn data_dir(&self) -> Option<PathBuf>;
+}
+
+impl DirsWrapper for RealDirsWrapper {
+    fn data_dir(&self) -> Option<PathBuf> {
+        data_dir()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -395,7 +409,6 @@ mod tests {
     use crate::node_test_utils::TestLogOwner;
     use crate::stream_handler_pool::StreamHandlerPoolSubs;
     use crate::stream_messages::AddStreamMsg;
-    use crate::sub_lib::accountant::DEFAULT_HOME_DIRECTORY;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::parameter_finder::ParameterFinder;
     use crate::sub_lib::stream_connector::ConnectionInfo;
@@ -428,6 +441,22 @@ mod tests {
     use std::thread;
     use tokio;
     use tokio::prelude::Async;
+
+    struct MockDirsWrapper {}
+
+    impl DirsWrapper for MockDirsWrapper {
+        fn data_dir(&self) -> Option<PathBuf> {
+            Some(PathBuf::from("mocked/path"))
+        }
+    }
+
+    struct BadMockDirsWrapper {}
+
+    impl DirsWrapper for BadMockDirsWrapper {
+        fn data_dir(&self) -> Option<PathBuf> {
+            None
+        }
+    }
 
     struct ListenerHandlerFactoryMock {
         log: TestLog,
@@ -897,26 +926,39 @@ mod tests {
     }
 
     #[test]
-    fn parse_home_works() {
+    fn parse_data_directory_works() {
         let finder = ParameterFinder::new(
-            vec!["--home", "~/.booga"]
+            vec!["--data_directory", "~/.booga"]
                 .into_iter()
                 .map(String::from)
                 .collect(),
         );
+        let mock_dirs_wrapper = MockDirsWrapper {};
 
-        let result = Bootstrapper::parse_home(&finder);
+        let result = Bootstrapper::parse_data_dir(&finder, &mock_dirs_wrapper);
 
-        assert_eq!(result, String::from("~/.booga"))
+        assert_eq!(result, PathBuf::from("~/.booga"))
     }
 
     #[test]
-    fn parse_home_defaults() {
+    fn parse_data_directory_defaults() {
         let finder = ParameterFinder::new(vec![]);
+        let mock_dirs_wrapper = MockDirsWrapper {};
 
-        let result = Bootstrapper::parse_home(&finder);
+        let result = Bootstrapper::parse_data_dir(&finder, &mock_dirs_wrapper);
 
-        assert_eq!(result, String::from(DEFAULT_HOME_DIRECTORY));
+        assert_eq!(result, PathBuf::from("mocked/path"));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Could not provide a default data directory, please specify one with --data_directory"
+    )]
+    fn parse_data_directory_panics_when_none() {
+        let finder = ParameterFinder::new(vec![]);
+        let bad_mock_dirs_wrapper = BadMockDirsWrapper {};
+
+        let _ = Bootstrapper::parse_data_dir(&finder, &bad_mock_dirs_wrapper);
     }
 
     #[test]
@@ -944,7 +986,7 @@ mod tests {
             "irrelevant",
             "--wallet_address",
             "0xbDfeFf9A1f4A1bdF483d680046344316019C58CF",
-            "--home",
+            "--data_directory",
             "~/.booga",
         ]
         .into_iter()
@@ -987,8 +1029,8 @@ mod tests {
             Wallet::new("0xbDfeFf9A1f4A1bdF483d680046344316019C58CF")
         );
         assert_eq!(
-            config.accountant_config.home_directory,
-            String::from("~/.booga")
+            config.accountant_config.data_directory,
+            PathBuf::from("~/.booga")
         );
     }
 

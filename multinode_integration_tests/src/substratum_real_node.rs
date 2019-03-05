@@ -84,7 +84,7 @@ impl NodeStartupConfig {
         args.push(format!("{}", self.dns_port));
         args.push("--log_level".to_string());
         args.push("trace".to_string());
-        args.push("--home".to_string());
+        args.push("--data_directory".to_string());
         args.push("/node_root/home".to_string());
         args
     }
@@ -645,7 +645,7 @@ mod tests {
                 "53",
                 "--log_level",
                 "trace",
-                "--home",
+                "--data_directory",
                 "/node_root/home",
             ))
         );

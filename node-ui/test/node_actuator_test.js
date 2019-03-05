@@ -10,6 +10,7 @@ td.config({
 })
 
 describe('NodeActuator', () => {
+  let mockApp
   let mockDialog
   let mockChildProcess
   let mockSudoPrompt
@@ -25,7 +26,9 @@ describe('NodeActuator', () => {
 
   beforeEach(() => {
     mockDialog = td.object(['showErrorBox'])
-    td.replace('electron', { dialog: mockDialog })
+    mockApp = td.object(['getPath'])
+    td.when(mockApp.getPath('home')).thenReturn('/mock-home-dir')
+    td.replace('electron', { app: mockApp, dialog: mockDialog })
     mockChildProcess = td.replace('child_process')
     mockSudoPrompt = td.replace('sudo-prompt')
     mockConsole = td.replace('../main-process/wrappers/console_wrapper')
@@ -37,7 +40,7 @@ describe('NodeActuator', () => {
     mockSubstratumNodeProcess.send = td.function()
     td.when(mockSudoPrompt.exec(td.matchers.anything(), td.matchers.anything()))
       .thenCallback(false, 'success!', false)
-    td.when(mockChildProcess.fork(td.matchers.contains('substratum_node.js'), [], {
+    td.when(mockChildProcess.fork(td.matchers.contains('substratum_node.js'), ['/mock-home-dir'], {
       silent: true,
       stdio: [0, 1, 2, 'ipc'],
       detached: true
@@ -608,7 +611,7 @@ describe('NodeActuator', () => {
   }
 
   function assertNodeStartedWithArguments (args, times = 1) {
-    td.verify(mockChildProcess.fork(td.matchers.contains('substratum_node.js'), [], {
+    td.verify(mockChildProcess.fork(td.matchers.contains('substratum_node.js'), ['/mock-home-dir'], {
       silent: true,
       stdio: [0, 1, 2, 'ipc'],
       detached: true

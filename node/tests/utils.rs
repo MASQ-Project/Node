@@ -161,6 +161,8 @@ impl SubstratumNode {
             &crash_point,
             "--log_level",
             "trace",
+            "--data_directory",
+            ".",
         ]);
         command
     }

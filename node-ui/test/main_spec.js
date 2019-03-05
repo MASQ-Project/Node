@@ -80,6 +80,8 @@ describe('Application launch', function () {
   xit('toggles substratum node from off to serving back to off', async () => {
     let client = this.app.client
     await client.waitUntilWindowLoaded()
+    client.element('#save-config').click()
+    await client.waitUntilWindowLoaded()
 
     await client.element('div.node-status__actions button#serving').click()
 
@@ -99,7 +101,7 @@ describe('Application launch', function () {
       // TODO: Fix this for ci under jenkins. See SC-709.
       consoleWrapper.log('SC-709 is still not done to fix this jenkins CI issue.')
     } else {
-      assert.strictEqual(actual, true)
+      assert.strictEqual(nodeUp, true)
     }
 
     await client.element('div.node-status__actions button#off').click()

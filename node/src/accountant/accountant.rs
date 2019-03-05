@@ -18,8 +18,6 @@ use actix::Context;
 use actix::Handler;
 use actix::Syn;
 use std::fs;
-use std::path::Path;
-use std::path::PathBuf;
 
 pub struct Accountant {
     config: AccountantConfig,
@@ -37,7 +35,7 @@ impl Handler<BindMessage> for Accountant {
     type Result = ();
 
     fn handle(&mut self, _msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
-        self.establish_home();
+        self.establish_data_directory();
         self.logger.info(String::from("Accountant bound"));
         ()
     }
@@ -160,23 +158,23 @@ impl Accountant {
         }
     }
 
-    fn establish_home(&mut self) {
-        self.create_home_directory_if_necessary();
+    fn establish_data_directory(&mut self) {
+        self.create_data_directory_if_necessary();
         let daos = self
             .db_initializer
-            .initialize(&PathBuf::from(self.config.home_directory.as_str()))
+            .initialize(&self.config.data_directory)
             .expect("Could not initialize database");
         self.payable_dao = Some(daos.payable);
         self.receivable_dao = Some(daos.receivable);
     }
 
-    fn create_home_directory_if_necessary(&self) {
-        match fs::read_dir(&self.config.home_directory) {
+    fn create_data_directory_if_necessary(&self) {
+        match fs::read_dir(&self.config.data_directory) {
             Ok(_) => (),
-            Err(_) => fs::create_dir_all(Path::new(self.config.home_directory.as_str())).expect(
+            Err(_) => fs::create_dir_all(&self.config.data_directory).expect(
                 format!(
-                    "Cannot create specified home directory at {}",
-                    self.config.home_directory
+                    "Cannot create specified data directory at {:?}",
+                    self.config.data_directory
                 )
                 .as_str(),
             ),
@@ -386,12 +384,12 @@ pub mod tests {
     #[test]
     fn report_routing_service_provided_message_is_received() {
         init_test_logging();
-        let home_dir = format!(
+        let data_dir = PathBuf::from(format!(
             "{}/report_routing_service_provided_message_is_received/home",
             BASE_TEST_DIR
-        );
+        ));
         let config = AccountantConfig {
-            home_directory: home_dir.clone(),
+            data_directory: data_dir.clone(),
         };
         let dbi_initialize_parameters_arc = Arc::new(Mutex::new(vec![]));
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
@@ -427,7 +425,7 @@ pub mod tests {
         Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
         system.run();
         let dbi_initialize_parameters = dbi_initialize_parameters_arc.lock().unwrap();
-        assert_eq!(dbi_initialize_parameters[0], PathBuf::from(home_dir));
+        assert_eq!(dbi_initialize_parameters[0], data_dir);
         let more_money_receivable_parameters = more_money_receivable_parameters_arc.lock().unwrap();
         assert_eq!(
             more_money_receivable_parameters[0],
@@ -441,12 +439,12 @@ pub mod tests {
     #[test]
     fn report_routing_service_consumed_message_is_received() {
         init_test_logging();
-        let home_dir = format!(
+        let data_dir = PathBuf::from(format!(
             "{}/report_routing_service_consumed_message_is_received/home",
             BASE_TEST_DIR
-        );
+        ));
         let config = AccountantConfig {
-            home_directory: home_dir.clone(),
+            data_directory: data_dir.clone(),
         };
         let dbi_initialize_parameters_arc = Arc::new(Mutex::new(vec![]));
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
@@ -482,7 +480,7 @@ pub mod tests {
         Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
         system.run();
         let dbi_initialize_parameters = dbi_initialize_parameters_arc.lock().unwrap();
-        assert_eq!(dbi_initialize_parameters[0], PathBuf::from(home_dir));
+        assert_eq!(dbi_initialize_parameters[0], data_dir);
         let more_money_payable_parameters = more_money_payable_parameters_arc.lock().unwrap();
         assert_eq!(
             more_money_payable_parameters[0],
@@ -497,7 +495,7 @@ pub mod tests {
     fn report_exit_service_provided_message_is_received() {
         init_test_logging();
         let config = AccountantConfig {
-            home_directory: String::new(),
+            data_directory: PathBuf::new(),
         };
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let daos = Daos {
@@ -542,12 +540,12 @@ pub mod tests {
     #[test]
     fn report_exit_service_consumed_message_is_received() {
         init_test_logging();
-        let home_dir = format!(
+        let data_dir = PathBuf::from(format!(
             "{}/report_exit_service_consumed_message_is_received/home",
             BASE_TEST_DIR
-        );
+        ));
         let config = AccountantConfig {
-            home_directory: home_dir.clone(),
+            data_directory: data_dir.clone(),
         };
         let dbi_initialize_parameters_arc = Arc::new(Mutex::new(vec![]));
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
@@ -583,7 +581,7 @@ pub mod tests {
         Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
         system.run();
         let dbi_initialize_parameters = dbi_initialize_parameters_arc.lock().unwrap();
-        assert_eq!(dbi_initialize_parameters[0], PathBuf::from(home_dir));
+        assert_eq!(dbi_initialize_parameters[0], PathBuf::from(data_dir));
         let more_money_payable_parameters = more_money_payable_parameters_arc.lock().unwrap();
         assert_eq!(
             more_money_payable_parameters[0],
@@ -596,39 +594,42 @@ pub mod tests {
 
     #[test]
     fn nonexistent_directory_is_created_when_possible() {
-        let home_dir = format!(
+        let data_dir = PathBuf::from(format!(
             "{}/nonexistent_directory_is_created_when_possible/home",
             BASE_TEST_DIR
-        );
-        fs::remove_dir_all(&home_dir).is_ok();
+        ));
+        fs::remove_dir_all(&data_dir).is_ok();
         let config = AccountantConfig {
-            home_directory: home_dir.clone(),
+            data_directory: data_dir.clone(),
         };
         let subject = Accountant::new(config);
 
-        subject.create_home_directory_if_necessary();
+        subject.create_data_directory_if_necessary();
 
         // If .unwrap() succeeds, test passes! (If not, it gives a better failure message than .is_ok())
-        fs::read_dir(home_dir).unwrap();
+        fs::read_dir(data_dir).unwrap();
     }
 
     #[test]
     fn directory_is_unmolested_if_present() {
-        let home_dir = format!("{}/directory_is_unmolested_if_present/home", BASE_TEST_DIR);
-        fs::remove_dir_all(&home_dir).is_ok();
-        fs::create_dir_all(&home_dir).is_ok();
+        let data_dir = PathBuf::from(format!(
+            "{}/directory_is_unmolested_if_present/home",
+            BASE_TEST_DIR
+        ));
+        fs::remove_dir_all(&data_dir).is_ok();
+        fs::create_dir_all(&data_dir).is_ok();
         {
-            let mut file = File::create(format!("{}/{}", home_dir, "booga.txt")).unwrap();
+            let mut file = File::create(data_dir.join("booga.txt")).unwrap();
             file.write(b"unmolested").unwrap();
         }
         let config = AccountantConfig {
-            home_directory: home_dir.clone(),
+            data_directory: data_dir.clone(),
         };
         let subject = Accountant::new(config);
 
-        subject.create_home_directory_if_necessary();
+        subject.create_data_directory_if_necessary();
 
-        let mut file = File::open(format!("{}/{}", home_dir, "booga.txt")).unwrap();
+        let mut file = File::open(data_dir.join("booga.txt")).unwrap();
         let mut contents = String::new();
         file.read_to_string(&mut contents).unwrap();
         assert_eq!(contents, String::from("unmolested"));
@@ -637,12 +638,12 @@ pub mod tests {
     #[test]
     #[should_panic(expected = "Could not initialize database")]
     fn failed_initialization_produces_panic() {
-        let home_dir = format!(
+        let data_dir = PathBuf::from(format!(
             "{}/failed_initialization_produces_panic/home",
             BASE_TEST_DIR
-        );
+        ));
         let config = AccountantConfig {
-            home_directory: home_dir,
+            data_directory: data_dir,
         };
         let mut subject = Accountant::new(config);
         let db_initializer = DbInitializerMock::new()
@@ -691,21 +692,20 @@ pub mod tests {
 
     fn panic_if_directory_is_nonexistent_and_cant_be_created(base_path: &PathBuf) {
         let config = AccountantConfig {
-            home_directory: String::from(base_path.join("home").to_str().unwrap()),
+            data_directory: base_path.join("home"),
         };
         let subject = Accountant::new(config);
 
-        subject.create_home_directory_if_necessary();
+        subject.create_data_directory_if_necessary();
     }
 
     #[cfg(not(target_os = "windows"))]
     fn create_read_only_directory() -> PathBuf {
-        let home_dir_string = format!(
+        let data_dir = PathBuf::from(format!(
             "{}/panic_if_directory_is_nonexistent_and_cant_be_created/home",
             BASE_TEST_DIR
-        );
-        let home_dir = Path::new(home_dir_string.as_str());
-        let parent_dir = home_dir.parent().unwrap();
+        ));
+        let parent_dir = data_dir.parent().unwrap();
         match fs::metadata(parent_dir) {
             Err(_) => (),
             Ok(metadata) => {
@@ -714,7 +714,7 @@ pub mod tests {
                 fs::set_permissions(parent_dir, permissions).unwrap();
             }
         }
-        fs::remove_dir_all(&home_dir).is_ok();
+        fs::remove_dir_all(&data_dir).is_ok();
         fs::create_dir_all(parent_dir).unwrap();
         let mut permissions = fs::metadata(parent_dir).unwrap().permissions();
         permissions.set_readonly(true);
