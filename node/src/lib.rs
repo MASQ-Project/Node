@@ -2,6 +2,7 @@
 
 pub mod accountant;
 mod actor_system_factory;
+mod blockchain_bridge;
 mod bootstrapper;
 mod configuration;
 mod crash_test_dummy;

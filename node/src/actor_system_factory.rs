@@ -12,8 +12,11 @@ use super::stream_handler_pool::StreamHandlerPool;
 use super::stream_handler_pool::StreamHandlerPoolSubs;
 use super::stream_messages::PoolBindMessage;
 use super::ui_gateway::ui_gateway::UiGateway;
+use crate::blockchain_bridge::blockchain_bridge::BlockchainBridge;
 use crate::sub_lib::accountant::AccountantConfig;
 use crate::sub_lib::accountant::AccountantSubs;
+use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
+use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::dispatcher::DispatcherSubs;
@@ -93,6 +96,8 @@ impl ActorSystemFactoryReal {
         let ui_gateway_subs = actor_factory.make_and_start_ui_gateway(config.ui_gateway_config);
         let stream_handler_pool_subs = actor_factory
             .make_and_start_stream_handler_pool(config.clandestine_discriminator_factories);
+        let blockchain_bridge_subs =
+            actor_factory.make_and_start_blockchain_bridge(config.blockchain_bridge_config);
 
         // collect all the subs
         let peer_actors = PeerActors {
@@ -103,6 +108,7 @@ impl ActorSystemFactoryReal {
             neighborhood: neighborhood_subs.clone(),
             accountant: accountant_subs.clone(),
             ui_gateway: ui_gateway_subs.clone(),
+            blockchain_bridge: blockchain_bridge_subs.clone(),
         };
 
         //bind all the actors
@@ -155,6 +161,13 @@ impl ActorSystemFactoryReal {
                 peer_actors: peer_actors.clone(),
             })
             .expect("UiGateway is dead");
+        peer_actors
+            .blockchain_bridge
+            .bind
+            .try_send(BindMessage {
+                peer_actors: peer_actors.clone(),
+            })
+            .expect("BlockchainBridge is dead");
         stream_handler_pool_subs
             .bind
             .try_send(PoolBindMessage {
@@ -209,6 +222,10 @@ pub trait ActorFactory: Send {
         cryptde: &'static dyn CryptDE,
         dns_servers: Vec<SocketAddr>,
     ) -> ProxyClientSubs;
+    fn make_and_start_blockchain_bridge(
+        &self,
+        config: BlockchainBridgeConfig,
+    ) -> BlockchainBridgeSubs;
 }
 
 pub struct ActorFactoryReal {}
@@ -283,6 +300,15 @@ impl ActorFactory for ActorFactoryReal {
         let addr: Addr<Syn, ProxyClient> = proxy_client.start();
         ProxyClient::make_subs_from(&addr)
     }
+
+    fn make_and_start_blockchain_bridge(
+        &self,
+        config: BlockchainBridgeConfig,
+    ) -> BlockchainBridgeSubs {
+        let blockchain_bridge = BlockchainBridge::new(config);
+        let addr: Addr<Syn, BlockchainBridge> = blockchain_bridge.start();
+        BlockchainBridge::make_subs_from(&addr)
+    }
 }
 
 #[cfg(test)]
@@ -334,6 +360,7 @@ mod tests {
         accountant: RefCell<Option<Recorder>>,
         stream_handler_pool: RefCell<Option<Recorder>>,
         ui_gateway: RefCell<Option<Recorder>>,
+        blockchain_bridge: RefCell<Option<Recorder>>,
 
         parameters: Parameters<'a>,
     }
@@ -478,6 +505,22 @@ mod tests {
                 inbound_server_data: addr.clone().recipient::<InboundServerData>(),
             }
         }
+
+        fn make_and_start_blockchain_bridge(
+            &self,
+            config: BlockchainBridgeConfig,
+        ) -> BlockchainBridgeSubs {
+            self.parameters
+                .blockchain_bridge_params
+                .lock()
+                .unwrap()
+                .get_or_insert(config);
+            let addr: Addr<Syn, Recorder> =
+                ActorFactoryMock::start_recorder(&self.blockchain_bridge);
+            BlockchainBridgeSubs {
+                bind: addr.clone().recipient::<BindMessage>(),
+            }
+        }
     }
 
     struct Recordings {
@@ -489,6 +532,7 @@ mod tests {
         accountant: Arc<Mutex<Recording>>,
         stream_handler_pool: Arc<Mutex<Recording>>,
         ui_gateway: Arc<Mutex<Recording>>,
+        blockchain_bridge: Arc<Mutex<Recording>>,
     }
 
     #[derive(Clone)]
@@ -499,6 +543,7 @@ mod tests {
         neighborhood_params: Arc<Mutex<Option<(&'a dyn CryptDE, NeighborhoodConfig)>>>,
         accountant_params: Arc<Mutex<Option<AccountantConfig>>>,
         ui_gateway_params: Arc<Mutex<Option<UiGatewayConfig>>>,
+        blockchain_bridge_params: Arc<Mutex<Option<BlockchainBridgeConfig>>>,
     }
 
     impl<'a> Parameters<'a> {
@@ -510,6 +555,7 @@ mod tests {
                 neighborhood_params: Arc::new(Mutex::new(None)),
                 accountant_params: Arc::new(Mutex::new(None)),
                 ui_gateway_params: Arc::new(Mutex::new(None)),
+                blockchain_bridge_params: Arc::new(Mutex::new(None)),
             }
         }
 
@@ -530,6 +576,7 @@ mod tests {
                 accountant: RefCell::new(Some(Recorder::new())),
                 stream_handler_pool: RefCell::new(Some(Recorder::new())),
                 ui_gateway: RefCell::new(Some(Recorder::new())),
+                blockchain_bridge: RefCell::new(Some(Recorder::new())),
 
                 parameters: Parameters::new(),
             }
@@ -550,6 +597,12 @@ mod tests {
                     .unwrap()
                     .get_recording(),
                 ui_gateway: self.ui_gateway.borrow().as_ref().unwrap().get_recording(),
+                blockchain_bridge: self
+                    .blockchain_bridge
+                    .borrow()
+                    .as_ref()
+                    .unwrap()
+                    .get_recording(),
             }
         }
 
@@ -582,6 +635,7 @@ mod tests {
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
+            blockchain_bridge_config: BlockchainBridgeConfig {},
         };
         let subject = ActorSystemFactoryReal {};
         unsafe {
@@ -598,6 +652,7 @@ mod tests {
         Recording::get::<BindMessage>(&recordings.neighborhood, 0);
         Recording::get::<BindMessage>(&recordings.accountant, 0);
         Recording::get::<BindMessage>(&recordings.ui_gateway, 0);
+        Recording::get::<BindMessage>(&recordings.blockchain_bridge, 0);
         Recording::get::<PoolBindMessage>(&recordings.stream_handler_pool, 0);
         Recording::get::<BootstrapNeighborhoodNowMessage>(&recordings.neighborhood, 1);
     }
@@ -623,6 +678,7 @@ mod tests {
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
+            blockchain_bridge_config: BlockchainBridgeConfig {},
         };
         let (tx, rx) = mpsc::channel();
         let system = System::new("SubstratumNode");
@@ -657,6 +713,8 @@ mod tests {
         assert_eq!(neighborhood_config, config.neighborhood_config);
         let ui_gateway_config = Parameters::get(parameters.ui_gateway_params);
         assert_eq!(ui_gateway_config.ui_port, 5335);
+        let blockchain_bridge_config = Parameters::get(parameters.blockchain_bridge_params);
+        assert_eq!(blockchain_bridge_config, BlockchainBridgeConfig {});
         let _stream_handler_pool_subs = rx.recv().unwrap();
         // more...more...what? How to check contents of _stream_handler_pool_subs?
     }

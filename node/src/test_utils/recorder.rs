@@ -4,6 +4,7 @@ use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
+use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::dispatcher::DispatcherSubs;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::hopper::ExpiredCoresPackage;
@@ -411,6 +412,12 @@ pub fn make_ui_gateway_subs_from(addr: &Addr<Syn, Recorder>) -> UiGatewaySubs {
     }
 }
 
+pub fn make_blockchain_bridge_subs_from(addr: &Addr<Syn, Recorder>) -> BlockchainBridgeSubs {
+    BlockchainBridgeSubs {
+        bind: addr.clone().recipient::<BindMessage>(),
+    }
+}
+
 pub fn peer_actors_builder() -> PeerActorsBuilder {
     PeerActorsBuilder::new()
 }
@@ -423,6 +430,7 @@ pub struct PeerActorsBuilder {
     neighborhood: Recorder,
     accountant: Recorder,
     ui_gateway: Recorder,
+    blockchain_bridge: Recorder,
 }
 
 impl PeerActorsBuilder {
@@ -435,6 +443,7 @@ impl PeerActorsBuilder {
             neighborhood: Recorder::new(),
             accountant: Recorder::new(),
             ui_gateway: Recorder::new(),
+            blockchain_bridge: Recorder::new(),
         }
     }
 
@@ -473,6 +482,11 @@ impl PeerActorsBuilder {
         self
     }
 
+    pub fn blockchain_bridge(mut self, recorder: Recorder) -> PeerActorsBuilder {
+        self.blockchain_bridge = recorder;
+        self
+    }
+
     // This must be called after System.new and before System.run
     pub fn build(self) -> PeerActors {
         let proxy_server_addr = self.proxy_server.start();
@@ -482,6 +496,7 @@ impl PeerActorsBuilder {
         let neighborhood_addr = self.neighborhood.start();
         let accountant_addr = self.accountant.start();
         let ui_gateway_addr = self.ui_gateway.start();
+        let blockchain_bridge_addr = self.blockchain_bridge.start();
 
         PeerActors {
             proxy_server: make_proxy_server_subs_from(&proxy_server_addr),
@@ -491,6 +506,7 @@ impl PeerActorsBuilder {
             neighborhood: make_neighborhood_subs_from(&neighborhood_addr),
             accountant: make_accountant_subs_from(&accountant_addr),
             ui_gateway: make_ui_gateway_subs_from(&ui_gateway_addr),
+            blockchain_bridge: make_blockchain_bridge_subs_from(&blockchain_bridge_addr),
         }
     }
 }

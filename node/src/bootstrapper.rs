@@ -10,6 +10,7 @@ use crate::listener_handler::ListenerHandlerFactory;
 use crate::listener_handler::ListenerHandlerFactoryReal;
 use crate::sub_lib::accountant;
 use crate::sub_lib::accountant::AccountantConfig;
+use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
 use crate::sub_lib::crash_point::CrashPoint;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::PublicKey;
@@ -49,6 +50,7 @@ pub struct BootstrapperConfig {
     pub crash_point: CrashPoint,
     pub clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
     pub ui_gateway_config: UiGatewayConfig,
+    pub blockchain_bridge_config: BlockchainBridgeConfig,
 }
 
 impl BootstrapperConfig {
@@ -71,6 +73,7 @@ impl BootstrapperConfig {
             ui_gateway_config: UiGatewayConfig {
                 ui_port: DEFAULT_UI_PORT,
             },
+            blockchain_bridge_config: BlockchainBridgeConfig {},
         }
     }
 }
