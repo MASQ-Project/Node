@@ -96,18 +96,26 @@ impl Handler<ExpiredCoresPackage> for ProxyClient {
                 return ();
             }
         };
-        let pool = self.pool.as_mut().expect("StreamHandlerPool unbound");
         let consuming_wallet = msg.consuming_wallet;
-        let return_route = msg.remaining_route;
-        let latest_stream_context = StreamContext {
-            return_route,
-            payload_destination_key: payload.originator_public_key.clone(),
-            consuming_wallet: consuming_wallet.clone(),
-        };
-        self.stream_contexts
-            .insert(payload.stream_key.clone(), latest_stream_context);
-        pool.process_package(payload, consuming_wallet);
-        self.logger.debug(format!("ExpiredCoresPackage handled"));
+        if consuming_wallet.is_some() || payload.originator_public_key == self.cryptde.public_key()
+        {
+            let pool = self.pool.as_mut().expect("StreamHandlerPool unbound");
+            let return_route = msg.remaining_route;
+            let latest_stream_context = StreamContext {
+                return_route,
+                payload_destination_key: payload.originator_public_key.clone(),
+                consuming_wallet: consuming_wallet.clone(),
+            };
+            self.stream_contexts
+                .insert(payload.stream_key.clone(), latest_stream_context);
+            pool.process_package(payload, consuming_wallet);
+            self.logger.debug(format!("ExpiredCoresPackage handled"));
+        } else {
+            self.logger.error(format!(
+                "Refusing to provide exit services for CORES package with {}-byte payload without consuming wallet",
+                payload.sequenced_packet.data.len()
+            ));
+        }
         ()
     }
 }
@@ -539,6 +547,103 @@ mod tests {
         system.run();
         let parameter = process_package_parameters.lock().unwrap().remove(0);
         assert_eq!(parameter, (request, Some(Wallet::new("consuming")),));
+    }
+
+    #[test]
+    fn refuse_to_provide_exit_services_with_no_consuming_wallet() {
+        init_test_logging();
+        let cryptde = cryptde();
+        let request = ClientRequestPayload {
+            stream_key: make_meaningless_stream_key(),
+            sequenced_packet: SequencedPacket {
+                data: b"inbound data".to_vec(),
+                sequence_number: 0,
+                last_data: false,
+            },
+            target_hostname: None,
+            target_port: 0,
+            protocol: ProxyProtocol::HTTP,
+            originator_public_key: PublicKey::new(&b"originator"[..]),
+        };
+        let package = ExpiredCoresPackage::new(
+            IpAddr::from_str("1.2.3.4").unwrap(),
+            None,
+            make_meaningless_route(),
+            encodex(cryptde, &cryptde.public_key(), &request).unwrap(),
+        );
+        let hopper = Recorder::new();
+
+        let system = System::new("unparseable_request_results_in_log_and_no_response");
+        let peer_actors = peer_actors_builder().hopper(hopper).build();
+        let mut process_package_parameters = Arc::new(Mutex::new(vec![]));
+        let pool = Box::new(
+            StreamHandlerPoolMock::new()
+                .process_package_parameters(&mut process_package_parameters),
+        );
+        let pool_factory = StreamHandlerPoolFactoryMock::new().make_result(pool);
+        let resolver = ResolverWrapperMock::new()
+            .lookup_ip_success(vec![IpAddr::from_str("4.3.2.1").unwrap()]);
+        let resolver_factory = ResolverWrapperFactoryMock::new().new_result(Box::new(resolver));
+        let mut subject = ProxyClient::new(cryptde, dnss());
+        subject.resolver_wrapper_factory = Box::new(resolver_factory);
+        subject.stream_handler_pool_factory = Box::new(pool_factory);
+        let subject_addr: Addr<Syn, ProxyClient> = subject.start();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr.try_send(package).unwrap();
+
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        system.run();
+        assert_eq!(0, process_package_parameters.lock().unwrap().len());
+        TestLogHandler::new().exists_log_containing(format!("Refusing to provide exit services for CORES package with 12-byte payload without consuming wallet").as_str());
+    }
+
+    #[test]
+    fn does_provide_zero_hop_exit_services_with_no_consuming_wallet() {
+        let cryptde = cryptde();
+        let request = ClientRequestPayload {
+            stream_key: make_meaningless_stream_key(),
+            sequenced_packet: SequencedPacket {
+                data: b"inbound data".to_vec(),
+                sequence_number: 0,
+                last_data: false,
+            },
+            target_hostname: None,
+            target_port: 0,
+            protocol: ProxyProtocol::HTTP,
+            originator_public_key: cryptde.public_key(),
+        };
+        let package = ExpiredCoresPackage::new(
+            IpAddr::from_str("1.2.3.4").unwrap(),
+            None,
+            make_meaningless_route(),
+            encodex(cryptde, &cryptde.public_key(), &request).unwrap(),
+        );
+        let hopper = Recorder::new();
+
+        let system = System::new("unparseable_request_results_in_log_and_no_response");
+        let peer_actors = peer_actors_builder().hopper(hopper).build();
+        let mut process_package_parameters = Arc::new(Mutex::new(vec![]));
+        let pool = Box::new(
+            StreamHandlerPoolMock::new()
+                .process_package_parameters(&mut process_package_parameters),
+        );
+        let pool_factory = StreamHandlerPoolFactoryMock::new().make_result(pool);
+        let resolver = ResolverWrapperMock::new()
+            .lookup_ip_success(vec![IpAddr::from_str("4.3.2.1").unwrap()]);
+        let resolver_factory = ResolverWrapperFactoryMock::new().new_result(Box::new(resolver));
+        let mut subject = ProxyClient::new(cryptde, dnss());
+        subject.resolver_wrapper_factory = Box::new(resolver_factory);
+        subject.stream_handler_pool_factory = Box::new(pool_factory);
+        let subject_addr: Addr<Syn, ProxyClient> = subject.start();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr.try_send(package).unwrap();
+
+        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        system.run();
+        let parameter = process_package_parameters.lock().unwrap().remove(0);
+        assert_eq!(parameter, (request, None,));
     }
 
     #[test]
