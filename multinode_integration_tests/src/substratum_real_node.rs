@@ -40,6 +40,7 @@ pub struct NodeStartupConfig {
     pub dns_target: IpAddr,
     pub dns_port: u16,
     pub earning_wallet: Wallet,
+    pub consuming_private_key: Option<String>,
 }
 
 impl NodeStartupConfig {
@@ -53,6 +54,9 @@ impl NodeStartupConfig {
             dns_target: sentinel_ip_addr(),
             dns_port: 0,
             earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
+            consuming_private_key: Some(String::from(
+                "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+            )),
         }
     }
 
@@ -107,6 +111,7 @@ pub struct NodeStartupConfigBuilder {
     dns_target: IpAddr,
     dns_port: u16,
     earning_wallet: Wallet,
+    consuming_private_key: Option<String>,
 }
 
 impl NodeStartupConfigBuilder {
@@ -120,6 +125,7 @@ impl NodeStartupConfigBuilder {
             dns_target: IpAddr::from_str("127.0.0.1").unwrap(),
             dns_port: 53,
             earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
+            consuming_private_key: None,
         }
     }
 
@@ -133,6 +139,9 @@ impl NodeStartupConfigBuilder {
             dns_target: IpAddr::from_str("127.0.0.1").unwrap(),
             dns_port: 53,
             earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
+            consuming_private_key: Some(String::from(
+                "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+            )),
         }
     }
 
@@ -146,6 +155,7 @@ impl NodeStartupConfigBuilder {
             dns_target: IpAddr::from_str("127.0.0.1").unwrap(),
             dns_port: 53,
             earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
+            consuming_private_key: None,
         }
     }
 
@@ -159,6 +169,7 @@ impl NodeStartupConfigBuilder {
             dns_target: config.dns_target.clone(),
             dns_port: config.dns_port,
             earning_wallet: config.earning_wallet.clone(),
+            consuming_private_key: config.consuming_private_key.clone(),
         }
     }
 
@@ -207,6 +218,11 @@ impl NodeStartupConfigBuilder {
         self
     }
 
+    pub fn consuming_private_key(mut self, value: &str) -> NodeStartupConfigBuilder {
+        self.consuming_private_key = Some(String::from(value));
+        self
+    }
+
     pub fn build(self) -> NodeStartupConfig {
         NodeStartupConfig {
             ip: self.ip,
@@ -217,6 +233,7 @@ impl NodeStartupConfigBuilder {
             dns_target: self.dns_target,
             dns_port: self.dns_port,
             earning_wallet: self.earning_wallet,
+            consuming_private_key: self.consuming_private_key,
         }
     }
 }
@@ -373,7 +390,8 @@ impl SubstratumRealNode {
         let ip_addr_string = format!("{}", ip_addr);
         let binary_v_param = format!("{}:/node_root/node", node_command_dir);
         let home_v_param = format!("{}:/node_root/home", host_node_home_dir);
-        let mut docker_args = Command::strings(vec![
+
+        let mut args = vec![
             "run",
             "--detach",
             "--ip",
@@ -390,9 +408,20 @@ impl SubstratumRealNode {
             home_v_param.as_str(),
             "-e",
             "RUST_BACKTRACE=full",
-            "test_node_image",
-            "/node_root/node/SubstratumNode",
-        ]);
+        ];
+
+        let maybe_key = match startup_config.consuming_private_key.clone() {
+            Some(key) => format!("CONSUMING_PRIVATE_KEY={}", key),
+            None => "".to_string(),
+        };
+        if startup_config.consuming_private_key.is_some() {
+            args.push("-e");
+            args.push(&maybe_key)
+        }
+
+        args.extend_from_slice(&["test_node_image", "/node_root/node/SubstratumNode"]);
+
+        let mut docker_args = Command::strings(args);
         docker_args.extend(node_args);
         let mut command = Command::new(docker_command, docker_args);
         command.stdout_or_stderr()?;
@@ -556,6 +585,9 @@ mod tests {
             dns_target: IpAddr::from_str("255.255.255.255").unwrap(),
             dns_port: 54,
             earning_wallet: Wallet::new("booga"),
+            consuming_private_key: Some(String::from(
+                "ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD",
+            )),
         };
         let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
         let one_neighbor_key = PublicKey::new(&[1, 2, 3, 4]);
@@ -600,6 +632,10 @@ mod tests {
         assert_eq!(result.dns_target, dns_target);
         assert_eq!(result.dns_port, 35);
         assert_eq!(result.earning_wallet, Wallet::new("booga"));
+        assert_eq!(
+            result.consuming_private_key,
+            Some("ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD".to_string())
+        );
     }
 
     #[test]

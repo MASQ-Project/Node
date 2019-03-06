@@ -5,7 +5,9 @@ use actix::Recipient;
 use actix::Syn;
 
 #[derive(Clone, PartialEq, Debug)]
-pub struct BlockchainBridgeConfig {}
+pub struct BlockchainBridgeConfig {
+    pub consuming_private_key: Option<String>,
+}
 
 #[derive(Clone)]
 pub struct BlockchainBridgeSubs {

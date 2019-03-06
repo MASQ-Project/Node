@@ -45,6 +45,12 @@ pub fn cryptde() -> &'static CryptDENull {
     &CRYPT_DE_NULL
 }
 
+pub fn sha1_hash(data: &[u8]) -> String {
+    let mut hash = sha1::Sha1::new();
+    hash.update(data);
+    hash.digest().to_string()
+}
+
 pub struct ByteArrayWriter {
     pub byte_array: Vec<u8>,
     pub next_error: Option<Error>,

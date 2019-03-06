@@ -635,7 +635,9 @@ mod tests {
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
-            blockchain_bridge_config: BlockchainBridgeConfig {},
+            blockchain_bridge_config: BlockchainBridgeConfig {
+                consuming_private_key: None,
+            },
         };
         let subject = ActorSystemFactoryReal {};
         unsafe {
@@ -678,7 +680,9 @@ mod tests {
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
-            blockchain_bridge_config: BlockchainBridgeConfig {},
+            blockchain_bridge_config: BlockchainBridgeConfig {
+                consuming_private_key: None,
+            },
         };
         let (tx, rx) = mpsc::channel();
         let system = System::new("SubstratumNode");
@@ -714,7 +718,12 @@ mod tests {
         let ui_gateway_config = Parameters::get(parameters.ui_gateway_params);
         assert_eq!(ui_gateway_config.ui_port, 5335);
         let blockchain_bridge_config = Parameters::get(parameters.blockchain_bridge_params);
-        assert_eq!(blockchain_bridge_config, BlockchainBridgeConfig {});
+        assert_eq!(
+            blockchain_bridge_config,
+            BlockchainBridgeConfig {
+                consuming_private_key: None
+            }
+        );
         let _stream_handler_pool_subs = rx.recv().unwrap();
         // more...more...what? How to check contents of _stream_handler_pool_subs?
     }

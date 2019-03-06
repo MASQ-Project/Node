@@ -29,6 +29,7 @@ use base64;
 use dirs::data_dir;
 use futures::try_ready;
 use regex::Regex;
+use std::env;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
@@ -73,7 +74,9 @@ impl BootstrapperConfig {
             ui_gateway_config: UiGatewayConfig {
                 ui_port: DEFAULT_UI_PORT,
             },
-            blockchain_bridge_config: BlockchainBridgeConfig {},
+            blockchain_bridge_config: BlockchainBridgeConfig {
+                consuming_private_key: None,
+            },
         }
     }
 }
@@ -111,6 +114,7 @@ impl SocketServer for Bootstrapper {
         let cryptde_ref = Bootstrapper::initialize_cryptde();
         let mut config = BootstrapperConfig::new();
         Bootstrapper::parse_args(args, &mut config);
+        Bootstrapper::parse_environment_variables(&mut config);
         Bootstrapper::add_clandestine_port_info(&configuration, &mut config);
         Bootstrapper::report_local_descriptor(
             cryptde_ref,
@@ -185,6 +189,16 @@ impl Bootstrapper {
             Some(accountant::TEMPORARY_CONSUMING_WALLET.clone());
     }
 
+    fn parse_environment_variables(config: &mut BootstrapperConfig) {
+        config.blockchain_bridge_config.consuming_private_key =
+            match env::var("CONSUMING_PRIVATE_KEY") {
+                Ok(key) => Bootstrapper::parse_private_key(key),
+                Err(_) => None,
+            };
+
+        env::remove_var("CONSUMING_PRIVATE_KEY");
+    }
+
     fn parse_crash_point(finder: &ParameterFinder) -> CrashPoint {
         // TODO FIXME implement crash point values as string instead of numbers
         match finder.find_value_for(
@@ -197,6 +211,19 @@ impl Bootstrapper {
                 Err(_) => panic!("--crash_point needs a number, not '{}'", crash_point_str),
             },
         }
+    }
+
+    fn is_valid_private_key(key: &str) -> bool {
+        Regex::new("^[0-9a-fA-F]{64}$")
+            .expect("Failed to compile regular expression")
+            .is_match(key)
+    }
+
+    fn parse_private_key(key: String) -> Option<String> {
+        if !Bootstrapper::is_valid_private_key(&key) {
+            panic!("CONSUMING_PRIVATE_KEY requires a valid Ethereum private key");
+        }
+        Some(key)
     }
 
     fn is_valid_ethereum_address(address: &str) -> bool {
@@ -428,8 +455,12 @@ mod tests {
     use actix::Recipient;
     use actix::Syn;
     use actix::System;
+    use lazy_static::lazy_static;
     use regex::Regex;
     use std::cell::RefCell;
+    use std::env;
+    use std::env::VarError;
+    use std::ffi::OsStr;
     use std::io;
     use std::io::Error;
     use std::io::ErrorKind;
@@ -444,6 +475,26 @@ mod tests {
     use std::thread;
     use tokio;
     use tokio::prelude::Async;
+
+    lazy_static! {
+        static ref ENVIRONMENT: Mutex<Environment> = Mutex::new(Environment {});
+    }
+
+    struct Environment {}
+
+    impl Environment {
+        pub fn remove_var<K: AsRef<OsStr>>(&self, key: K) {
+            env::remove_var(key);
+        }
+
+        pub fn set_var<K: AsRef<OsStr>, V: AsRef<OsStr>>(&self, key: K, value: V) {
+            env::set_var(key, value);
+        }
+
+        pub fn var<K: AsRef<OsStr>>(&self, key: K) -> Result<String, VarError> {
+            env::var(key)
+        }
+    }
 
     struct MockDirsWrapper {}
 
@@ -579,6 +630,72 @@ mod tests {
         let result = subject.name();
 
         assert_eq!(result, String::from("Dispatcher"));
+    }
+
+    #[test]
+    fn parse_environment_variables_sets_consuming_private_key_to_none_when_not_specified() {
+        let mut config = BootstrapperConfig::new();
+
+        ENVIRONMENT
+            .lock()
+            .unwrap()
+            .remove_var("CONSUMING_PRIVATE_KEY");
+
+        Bootstrapper::parse_environment_variables(&mut config);
+
+        assert_eq!(config.blockchain_bridge_config.consuming_private_key, None);
+    }
+
+    #[test]
+    fn parse_environment_variables_reads_consuming_private_key_when_specified() {
+        let mut config = BootstrapperConfig::new();
+
+        ENVIRONMENT.lock().unwrap().set_var(
+            "CONSUMING_PRIVATE_KEY",
+            "cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9",
+        );
+
+        Bootstrapper::parse_environment_variables(&mut config);
+
+        ENVIRONMENT
+            .lock()
+            .unwrap()
+            .remove_var("CONSUMING_PRIVATE_KEY");
+
+        assert_eq!(
+            config.blockchain_bridge_config.consuming_private_key,
+            Some(String::from(
+                "cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9"
+            ))
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "CONSUMING_PRIVATE_KEY requires a valid Ethereum private key")]
+    fn parse_private_key_requires_a_key_that_is_64_characters_long() {
+        Bootstrapper::parse_private_key(String::from("42"));
+    }
+
+    #[test]
+    #[should_panic(expected = "CONSUMING_PRIVATE_KEY requires a valid Ethereum private key")]
+    fn parse_private_key_must_contain_only_hex_characters() {
+        Bootstrapper::parse_private_key(String::from(
+            "cc46befe8d169b89db447bd725fc2368b12542113555302598430cinvalidhex",
+        ));
+    }
+
+    #[test]
+    fn parse_private_key_handles_happy_path() {
+        let result = Bootstrapper::parse_private_key(String::from(
+            "cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9",
+        ));
+
+        assert_eq!(
+            result,
+            Some(String::from(
+                "cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9"
+            ))
+        );
     }
 
     #[test]
@@ -1088,6 +1205,43 @@ mod tests {
             all_calls
         );
         assert_eq!(all_calls.len(), 2, "{:?}", all_calls);
+    }
+
+    #[test]
+    fn initialize_as_root_reads_environment_variables() {
+        let mut subject = BootstrapperBuilder::new()
+            .add_listener_handler(Box::new(
+                ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())),
+            ))
+            .add_listener_handler(Box::new(
+                ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())),
+            ))
+            .build();
+
+        ENVIRONMENT.lock().unwrap().set_var(
+            "CONSUMING_PRIVATE_KEY",
+            "9bc385849a4f9019a0acf7699da91422fdd0a3eb55ff4407e450f2c65e69a9f9",
+        );
+
+        subject.initialize_as_privileged(
+            &make_default_cli_params(),
+            &mut FakeStreamHolder::new().streams(),
+        );
+
+        let config = subject.config.unwrap();
+        assert_eq!(
+            config.blockchain_bridge_config.consuming_private_key,
+            Some("9bc385849a4f9019a0acf7699da91422fdd0a3eb55ff4407e450f2c65e69a9f9".to_string())
+        );
+
+        assert!(
+            ENVIRONMENT
+                .lock()
+                .unwrap()
+                .var("CONSUMING_PRIVATE_KEY")
+                .is_err(),
+            "CONSUMING_PRIVATE_KEY not cleared"
+        );
     }
 
     #[test]
