@@ -2,7 +2,6 @@
 use crate::sub_lib::peer_actors::BindMessage;
 use actix::Message;
 use actix::Recipient;
-use actix::Syn;
 
 pub const DEFAULT_UI_PORT: u16 = 5333;
 
@@ -13,9 +12,9 @@ pub struct UiGatewayConfig {
 
 #[derive(Clone)]
 pub struct UiGatewaySubs {
-    pub bind: Recipient<Syn, BindMessage>,
-    pub ui_message_sub: Recipient<Syn, UiMessage>,
-    pub from_ui_message_sub: Recipient<Syn, FromUiMessage>,
+    pub bind: Recipient<BindMessage>,
+    pub ui_message_sub: Recipient<UiMessage>,
+    pub from_ui_message_sub: Recipient<FromUiMessage>,
 }
 
 // TODO: Needs client_id

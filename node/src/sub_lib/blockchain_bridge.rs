@@ -2,7 +2,6 @@
 
 use crate::sub_lib::peer_actors::BindMessage;
 use actix::Recipient;
-use actix::Syn;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct BlockchainBridgeConfig {
@@ -11,5 +10,5 @@ pub struct BlockchainBridgeConfig {
 
 #[derive(Clone)]
 pub struct BlockchainBridgeSubs {
-    pub bind: Recipient<Syn, BindMessage>,
+    pub bind: Recipient<BindMessage>,
 }

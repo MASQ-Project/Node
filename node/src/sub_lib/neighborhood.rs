@@ -10,7 +10,6 @@ use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
-use actix::Syn;
 use serde_derive::{Deserialize, Serialize};
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -61,13 +60,13 @@ impl NeighborhoodConfig {
 
 #[derive(Clone)]
 pub struct NeighborhoodSubs {
-    pub bind: Recipient<Syn, BindMessage>,
-    pub bootstrap: Recipient<Syn, BootstrapNeighborhoodNowMessage>,
-    pub node_query: Recipient<Syn, NodeQueryMessage>,
-    pub route_query: Recipient<Syn, RouteQueryMessage>,
-    pub from_hopper: Recipient<Syn, ExpiredCoresPackage>,
-    pub dispatcher_node_query: Recipient<Syn, DispatcherNodeQueryMessage>,
-    pub remove_neighbor: Recipient<Syn, RemoveNeighborMessage>,
+    pub bind: Recipient<BindMessage>,
+    pub bootstrap: Recipient<BootstrapNeighborhoodNowMessage>,
+    pub node_query: Recipient<NodeQueryMessage>,
+    pub route_query: Recipient<RouteQueryMessage>,
+    pub from_hopper: Recipient<ExpiredCoresPackage>,
+    pub dispatcher_node_query: Recipient<DispatcherNodeQueryMessage>,
+    pub remove_neighbor: Recipient<RemoveNeighborMessage>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -108,7 +107,7 @@ impl Message for NodeQueryMessage {
 pub struct DispatcherNodeQueryMessage {
     pub query: NodeQueryMessage,
     pub context: TransmitDataMsg,
-    pub recipient: Recipient<Syn, DispatcherNodeQueryResponse>,
+    pub recipient: Recipient<DispatcherNodeQueryResponse>,
 }
 
 #[derive(PartialEq, Clone, Debug, Copy)]

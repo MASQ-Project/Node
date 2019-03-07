@@ -10,7 +10,6 @@ use crate::sub_lib::route::Route;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
-use actix::Syn;
 use serde::de::Deserialize;
 use serde::ser::Serialize;
 use serde_cbor;
@@ -74,7 +73,7 @@ impl ExpiredCoresPackage {
         }
     }
 
-    pub fn payload<T>(&self, cryptde: &CryptDE) -> Result<T, String>
+    pub fn decoded_payload<T>(&self, cryptde: &CryptDE) -> Result<T, String>
     where
         for<'de> T: Deserialize<'de>,
     {
@@ -96,9 +95,9 @@ pub struct HopperConfig {
 
 #[derive(Clone)]
 pub struct HopperSubs {
-    pub bind: Recipient<Syn, BindMessage>,
-    pub from_hopper_client: Recipient<Syn, IncipientCoresPackage>,
-    pub from_dispatcher: Recipient<Syn, InboundClientData>,
+    pub bind: Recipient<BindMessage>,
+    pub from_hopper_client: Recipient<IncipientCoresPackage>,
+    pub from_dispatcher: Recipient<InboundClientData>,
 }
 
 #[cfg(test)]
@@ -185,7 +184,7 @@ mod tests {
         assert_eq!(subject.consuming_wallet, Some(Wallet::new("wallet")));
         assert_eq!(subject.remaining_route, route);
         assert_eq!(
-            subject.payload::<PayloadMock>(&cryptde).unwrap(),
+            subject.decoded_payload::<PayloadMock>(&cryptde).unwrap(),
             deserialized_payload
         );
     }

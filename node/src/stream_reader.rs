@@ -9,7 +9,6 @@ use crate::sub_lib::sequencer::Sequencer;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::utils::indicates_dead_stream;
 use actix::Recipient;
-use actix::Syn;
 use std::net::SocketAddr;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
@@ -19,8 +18,8 @@ pub struct StreamReaderReal {
     local_addr: SocketAddr,
     peer_addr: SocketAddr,
     reception_port: Option<u16>,
-    ibcd_sub: Recipient<Syn, dispatcher::InboundClientData>,
-    remove_sub: Recipient<Syn, RemoveStreamMsg>,
+    ibcd_sub: Recipient<dispatcher::InboundClientData>,
+    remove_sub: Recipient<RemoveStreamMsg>,
     discriminators: Vec<Discriminator>,
     is_clandestine: bool,
     logger: Logger,
@@ -75,8 +74,8 @@ impl StreamReaderReal {
     pub fn new(
         stream: Box<dyn ReadHalfWrapper>,
         reception_port: Option<u16>,
-        ibcd_sub: Recipient<Syn, dispatcher::InboundClientData>,
-        remove_sub: Recipient<Syn, RemoveStreamMsg>,
+        ibcd_sub: Recipient<dispatcher::InboundClientData>,
+        remove_sub: Recipient<RemoveStreamMsg>,
         discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
         is_clandestine: bool,
         peer_addr: SocketAddr,
@@ -185,10 +184,8 @@ mod tests {
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
-    use actix::msgs;
     use actix::Actor;
     use actix::Addr;
-    use actix::Arbiter;
     use actix::System;
     use std::io;
     use std::io::ErrorKind;
@@ -209,7 +206,7 @@ mod tests {
 
     fn dispatcher_stuff() -> (RecordAwaiter, Arc<Mutex<Recording>>, DispatcherSubs) {
         let (dispatcher, awaiter, recording) = make_recorder();
-        let addr: Addr<Syn, Recorder> = dispatcher.start();
+        let addr: Addr<Recorder> = dispatcher.start();
         (awaiter, recording, make_dispatcher_subs_from(&addr))
     }
 
@@ -241,7 +238,7 @@ mod tests {
 
         let result = subject.poll();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
 
         shp_awaiter.await_message_count(1);
@@ -300,7 +297,7 @@ mod tests {
 
         let result = subject.poll();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
 
         shp_awaiter.await_message_count(1);
@@ -359,7 +356,7 @@ mod tests {
 
         let result = subject.poll();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
 
         assert_eq!(result, Ok(Async::NotReady));
@@ -402,7 +399,7 @@ mod tests {
 
         let _result = subject.poll();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
 
         TestLogHandler::new ().await_log_matching("ThreadId\\(\\d+\\): WARN: StreamReader for 1\\.2\\.3\\.4:5678: Continuing after read error on port 6789: other os error", 1000);
@@ -481,7 +478,7 @@ mod tests {
 
         subject.poll().err();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
 
         d_awaiter.await_message_count(1);
@@ -537,7 +534,7 @@ mod tests {
         let _result = subject.poll();
         let _result = subject.poll();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
 
         d_awaiter.await_message_count(2);
@@ -604,7 +601,7 @@ mod tests {
 
         let _result = subject.poll();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
 
         d_awaiter.await_message_count(1);
@@ -612,7 +609,7 @@ mod tests {
         assert_eq!(
             d_recording.get_record::<dispatcher::InboundClientData>(0),
             &dispatcher::InboundClientData {
-                peer_addr: peer_addr,
+                peer_addr,
                 reception_port: Some(1234 as u16),
                 last_data: false,
                 is_clandestine: true,

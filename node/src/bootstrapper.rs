@@ -455,7 +455,6 @@ mod tests {
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use actix::Recipient;
-    use actix::Syn;
     use actix::System;
     use lazy_static::lazy_static;
     use regex::Regex;
@@ -545,7 +544,7 @@ mod tests {
         log: Arc<Mutex<TestLog>>,
         bind_port_and_discriminator_factories_result: Option<io::Result<()>>,
         port_configuration_parameter: Option<PortConfiguration>,
-        add_stream_sub: Option<Recipient<Syn, AddStreamMsg>>,
+        add_stream_sub: Option<Recipient<AddStreamMsg>>,
         add_stream_msgs: Arc<Mutex<Vec<AddStreamMsg>>>,
         _listen_results: Vec<Box<dyn ListenerHandler<Item = (), Error = ()>>>,
     }
@@ -566,7 +565,7 @@ mod tests {
                 .unwrap()
         }
 
-        fn bind_subs(&mut self, add_stream_sub: Recipient<Syn, AddStreamMsg>) {
+        fn bind_subs(&mut self, add_stream_sub: Recipient<AddStreamMsg>) {
             let logger = Logger::new("ListenerHandler");
             logger.error(format!("bind_subscribers (add_stream_sub)"));
 

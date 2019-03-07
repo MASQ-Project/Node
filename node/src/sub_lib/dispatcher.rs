@@ -4,7 +4,6 @@ use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use actix::Message;
 use actix::Recipient;
-use actix::Syn;
 use serde;
 use serde::de::Visitor;
 use serde::Deserialize;
@@ -134,9 +133,9 @@ impl Debug for InboundClientData {
 }
 
 pub struct DispatcherSubs {
-    pub ibcd_sub: Recipient<Syn, InboundClientData>,
-    pub bind: Recipient<Syn, BindMessage>,
-    pub from_dispatcher_client: Recipient<Syn, TransmitDataMsg>,
+    pub ibcd_sub: Recipient<InboundClientData>,
+    pub bind: Recipient<BindMessage>,
+    pub from_dispatcher_client: Recipient<TransmitDataMsg>,
 }
 
 impl Clone for DispatcherSubs {

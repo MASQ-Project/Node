@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::sub_lib::logger::Logger;
+use crate::sub_lib::ui_gateway::FromUiMessage;
 use actix::Recipient;
-use actix::Syn;
 use bytes::BytesMut;
 use futures::future::FutureResult;
 use futures::future::{err, ok};
@@ -17,8 +17,6 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::reactor::Handle;
-// The following r# notation is a way to get around the fact that 'async' is now a keyword in Rust
-use crate::sub_lib::ui_gateway::FromUiMessage;
 use websocket::client::r#async::Framed;
 use websocket::r#async::MessageCodec;
 use websocket::r#async::TcpStream;
@@ -44,16 +42,13 @@ impl WebSocketSupervisor for WebSocketSupervisorReal {
 
 struct WebSocketSupervisorInner {
     next_client_id: u64,
-    from_ui_message: Recipient<Syn, FromUiMessage>,
+    from_ui_message: Recipient<FromUiMessage>,
     client_id_by_socket_addr: HashMap<SocketAddr, u64>,
     client_by_id: HashMap<u64, Wait<SplitSink<Framed<TcpStream, MessageCodec<OwnedMessage>>>>>,
 }
 
 impl WebSocketSupervisorReal {
-    pub fn new(
-        port: u16,
-        from_ui_message: Recipient<Syn, FromUiMessage>,
-    ) -> WebSocketSupervisorReal {
+    pub fn new(port: u16, from_ui_message: Recipient<FromUiMessage>) -> WebSocketSupervisorReal {
         let inner = Arc::new(Mutex::new(WebSocketSupervisorInner {
             next_client_id: 0,
             from_ui_message,
@@ -267,7 +262,7 @@ impl WebSocketSupervisorReal {
         socket_addr: SocketAddr,
         logger: &Logger,
     ) {
-        let client = match locked_inner.client_by_id.get_mut (&client_id) {
+        let client = match locked_inner.client_by_id.get_mut(&client_id) {
             None => panic!("WebSocketSupervisor got a disconnect from a client that has disappeared from the stable!"),
             Some(client) => client,
         };
@@ -353,14 +348,14 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("logs_pre_upgrade_connection_errors");
             let from_ui_message = {
-                let addr: Addr<Syn, Recorder> = ui_gateway.start();
+                let addr: Addr<Recorder> = ui_gateway.start();
                 addr.recipient::<FromUiMessage>()
             };
             let subject = lazy(move || {
                 let _subject = WebSocketSupervisorReal::new(port, from_ui_message);
                 Ok(())
             });
-            Arbiter::handle().spawn(subject);
+            Arbiter::spawn(subject);
             system.run();
         });
         wait_for_server(port);
@@ -378,14 +373,14 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("rejects_connection_attempt_with_improper_protocol_name");
             let from_ui_message = {
-                let addr: Addr<Syn, Recorder> = ui_gateway.start();
+                let addr: Addr<Recorder> = ui_gateway.start();
                 addr.recipient::<FromUiMessage>()
             };
             let subject = lazy(move || {
                 let _subject = WebSocketSupervisorReal::new(port, from_ui_message);
                 Ok(())
             });
-            Arbiter::handle().spawn(subject);
+            Arbiter::spawn(subject);
             system.run();
         });
         wait_for_server(port);
@@ -408,14 +403,14 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("logs_unexpected_binary_ping_pong_websocket_messages");
             let from_ui_message = {
-                let addr: Addr<Syn, Recorder> = ui_gateway.start();
+                let addr: Addr<Recorder> = ui_gateway.start();
                 addr.recipient::<FromUiMessage>()
             };
             let subject = lazy(move || {
                 let _subject = WebSocketSupervisorReal::new(port, from_ui_message);
                 Ok(())
             });
-            Arbiter::handle().spawn(subject);
+            Arbiter::spawn(subject);
             system.run();
         });
 
@@ -455,14 +450,14 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("can_connect_two_clients_and_receive_messages_from_them");
             let from_ui_message = {
-                let addr: Addr<Syn, Recorder> = ui_gateway.start();
+                let addr: Addr<Recorder> = ui_gateway.start();
                 addr.recipient::<FromUiMessage>()
             };
             let subject = lazy(move || {
                 let _subject = WebSocketSupervisorReal::new(port, from_ui_message);
                 Ok(())
             });
-            Arbiter::handle().spawn(subject);
+            Arbiter::spawn(subject);
             system.run();
         });
 
@@ -515,14 +510,14 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("once_a_client_sends_a_close_no_more_data_is_accepted");
             let from_ui_message = {
-                let addr: Addr<Syn, Recorder> = ui_gateway.start();
+                let addr: Addr<Recorder> = ui_gateway.start();
                 addr.recipient::<FromUiMessage>()
             };
             let subject = lazy(move || {
                 let _subject = WebSocketSupervisorReal::new(port, from_ui_message);
                 Ok(())
             });
-            Arbiter::handle().spawn(subject);
+            Arbiter::spawn(subject);
             system.run();
         });
 
@@ -553,14 +548,14 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("a_client_that_violates_the_protocol_is_terminated");
             let from_ui_message = {
-                let addr: Addr<Syn, Recorder> = ui_gateway.start();
+                let addr: Addr<Recorder> = ui_gateway.start();
                 addr.recipient::<FromUiMessage>()
             };
             let subject = lazy(move || {
                 let _subject = WebSocketSupervisorReal::new(port, from_ui_message);
                 Ok(())
             });
-            Arbiter::handle().spawn(subject);
+            Arbiter::spawn(subject);
             system.run();
         });
         let mut client = wait_for_client(port, "SubstratumNode-UI");

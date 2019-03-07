@@ -144,7 +144,7 @@ fn one_mock_node_talks_to_another() {
     assert_eq!(package_from.ip(), mock_node_1.ip_address());
     assert_eq!(package_to, mock_node_2.socket_addr(PortSelector::First));
     let actual_payload: String = expired_cores_package
-        .payload(mock_node_2.cryptde())
+        .decoded_payload(mock_node_2.cryptde())
         .unwrap();
     assert_eq!(actual_payload, String::from("payload"));
 }

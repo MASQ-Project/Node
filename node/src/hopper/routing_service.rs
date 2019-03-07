@@ -15,18 +15,17 @@ use crate::sub_lib::logger::Logger;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
-use actix::Syn;
 use std::borrow::Borrow;
 use std::net::IpAddr;
 
 pub struct RoutingService {
     cryptde: &'static dyn CryptDE,
     is_bootstrap_node: bool,
-    to_proxy_client: Recipient<Syn, ExpiredCoresPackage>,
-    to_proxy_server: Recipient<Syn, ExpiredCoresPackage>,
-    to_neighborhood: Recipient<Syn, ExpiredCoresPackage>,
-    to_dispatcher: Recipient<Syn, TransmitDataMsg>,
-    to_accountant_routing: Recipient<Syn, ReportRoutingServiceProvidedMessage>,
+    to_proxy_client: Recipient<ExpiredCoresPackage>,
+    to_proxy_server: Recipient<ExpiredCoresPackage>,
+    to_neighborhood: Recipient<ExpiredCoresPackage>,
+    to_dispatcher: Recipient<TransmitDataMsg>,
+    to_accountant_routing: Recipient<ReportRoutingServiceProvidedMessage>,
     per_routing_service: u64,
     per_routing_byte: u64,
     logger: Logger,
@@ -36,11 +35,11 @@ impl RoutingService {
     pub fn new(
         cryptde: &'static dyn CryptDE,
         is_bootstrap_node: bool,
-        to_proxy_client: Recipient<Syn, ExpiredCoresPackage>,
-        to_proxy_server: Recipient<Syn, ExpiredCoresPackage>,
-        to_neighborhood: Recipient<Syn, ExpiredCoresPackage>,
-        to_dispatcher: Recipient<Syn, TransmitDataMsg>,
-        to_accountant_routing: Recipient<Syn, ReportRoutingServiceProvidedMessage>,
+        to_proxy_client: Recipient<ExpiredCoresPackage>,
+        to_proxy_server: Recipient<ExpiredCoresPackage>,
+        to_neighborhood: Recipient<ExpiredCoresPackage>,
+        to_dispatcher: Recipient<TransmitDataMsg>,
+        to_accountant_routing: Recipient<ReportRoutingServiceProvidedMessage>,
         per_routing_service: u64,
         per_routing_byte: u64,
     ) -> RoutingService {
@@ -219,7 +218,7 @@ impl RoutingService {
     fn handle_endpoint(
         &self,
         component: Component,
-        recipient: &Recipient<Syn, ExpiredCoresPackage>,
+        recipient: &Recipient<ExpiredCoresPackage>,
         live_package: LiveCoresPackage,
         immediate_neighbor_ip: IpAddr,
     ) {
@@ -293,10 +292,8 @@ mod tests {
     use crate::test_utils::test_utils::route_to_proxy_client;
     use crate::test_utils::test_utils::route_to_proxy_server;
     use crate::test_utils::test_utils::PayloadMock;
-    use actix::msgs;
     use actix::Actor;
     use actix::Addr;
-    use actix::Arbiter;
     use actix::System;
     use std::net::SocketAddr;
     use std::str::FromStr;
@@ -334,7 +331,7 @@ mod tests {
                 per_routing_service: rate_pack_routing(103),
                 per_routing_byte: rate_pack_routing_byte(103),
             });
-            let subject_addr: Addr<Syn, Hopper> = subject.start();
+            let subject_addr: Addr<Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
             subject_addr.try_send(inbound_client_data).unwrap();
@@ -382,7 +379,7 @@ mod tests {
                 per_routing_service: rate_pack_routing(103),
                 per_routing_byte: rate_pack_routing_byte(103),
             });
-            let subject_addr: Addr<Syn, Hopper> = subject.start();
+            let subject_addr: Addr<Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
             subject_addr.try_send(inbound_client_data).unwrap();
@@ -425,13 +422,13 @@ mod tests {
             per_routing_service: rate_pack_routing(103),
             per_routing_byte: rate_pack_routing_byte(103),
         });
-        let subject_addr: Addr<Syn, Hopper> = subject.start();
+        let subject_addr: Addr<Hopper> = subject.start();
         let peer_actors = peer_actors_builder().build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(inbound_client_data).unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         TestLogHandler::new().exists_log_containing(
             "ERROR: RoutingService: Request for Bootstrap Node to route data to ProxyClient: rejected",
@@ -465,13 +462,13 @@ mod tests {
             per_routing_service: rate_pack_routing(103),
             per_routing_byte: rate_pack_routing_byte(103),
         });
-        let subject_addr: Addr<Syn, Hopper> = subject.start();
+        let subject_addr: Addr<Hopper> = subject.start();
         let peer_actors = peer_actors_builder().build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(inbound_client_data).unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         TestLogHandler::new().exists_log_containing(
             "ERROR: RoutingService: Request for Bootstrap Node to route data to ProxyServer: rejected",
@@ -514,13 +511,13 @@ mod tests {
             per_routing_service: rate_pack_routing(103),
             per_routing_byte: rate_pack_routing_byte(103),
         });
-        let subject_addr: Addr<Syn, Hopper> = subject.start();
+        let subject_addr: Addr<Hopper> = subject.start();
         let peer_actors = peer_actors_builder().build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(inbound_client_data).unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         TestLogHandler::new().exists_log_containing(
             "ERROR: RoutingService: Request for Bootstrap Node to route data to Hopper: rejected",
@@ -561,14 +558,14 @@ mod tests {
             per_routing_service: rate_pack_routing(103),
             per_routing_byte: rate_pack_routing_byte(103),
         });
-        let subject_addr: Addr<Syn, Hopper> = subject.start();
+        let subject_addr: Addr<Hopper> = subject.start();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().neighborhood(neighborhood).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(inbound_client_data.clone()).unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
         let message: &ExpiredCoresPackage = neighborhood_recording.get_record(0);
@@ -620,14 +617,14 @@ mod tests {
             per_routing_service: rate_pack_routing(103),
             per_routing_byte: rate_pack_routing_byte(103),
         });
-        let subject_addr: Addr<Syn, Hopper> = subject.start();
+        let subject_addr: Addr<Hopper> = subject.start();
         let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(inbound_client_data.clone()).unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(proxy_client_recording.len(), 0);
@@ -677,7 +674,7 @@ mod tests {
                 per_routing_service: rate_pack_routing(103),
                 per_routing_byte: rate_pack_routing_byte(103),
             });
-            let subject_addr: Addr<Syn, Hopper> = subject.start();
+            let subject_addr: Addr<Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
             subject_addr.try_send(inbound_client_data).unwrap();
@@ -770,7 +767,7 @@ mod tests {
 
         subject.route(inbound_client_data);
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         TestLogHandler::new().exists_log_containing(
             "ERROR: RoutingService: Refusing to route CORES package with 23-byte payload without consuming wallet",
@@ -817,7 +814,7 @@ mod tests {
 
         subject.route(inbound_client_data);
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         TestLogHandler::new().exists_log_containing(
             "ERROR: RoutingService: Couldn't decrypt CORES package from 0-byte buffer: EmptyData",
@@ -868,7 +865,7 @@ mod tests {
 
         subject.route(inbound_client_data);
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         TestLogHandler::new().exists_log_containing(
             "ERROR: RoutingService: Invalid 36-byte CORES package: EmptyRoute",

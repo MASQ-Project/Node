@@ -41,11 +41,10 @@ use actix::Context;
 use actix::Handler;
 use actix::MessageResult;
 use actix::Recipient;
-use actix::Syn;
 
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
-    hopper: Option<Recipient<Syn, IncipientCoresPackage>>,
+    hopper: Option<Recipient<IncipientCoresPackage>>,
     gossip_acceptor: Box<dyn GossipAcceptor>,
     gossip_producer: Box<dyn GossipProducer>,
     neighborhood_database: NeighborhoodDatabase,
@@ -237,7 +236,7 @@ impl Handler<ExpiredCoresPackage> for Neighborhood {
     type Result = ();
 
     fn handle(&mut self, msg: ExpiredCoresPackage, _ctx: &mut Self::Context) -> Self::Result {
-        let incoming_gossip: Gossip = match msg.payload(self.cryptde) {
+        let incoming_gossip: Gossip = match msg.decoded_payload(self.cryptde) {
             Ok(p) => p,
             Err(_) => {
                 self.logger
@@ -400,7 +399,7 @@ impl Neighborhood {
         });
     }
 
-    pub fn make_subs_from(addr: &Addr<Syn, Neighborhood>) -> NeighborhoodSubs {
+    pub fn make_subs_from(addr: &Addr<Neighborhood>) -> NeighborhoodSubs {
         NeighborhoodSubs {
             bind: addr.clone().recipient::<BindMessage>(),
             bootstrap: addr.clone().recipient::<BootstrapNeighborhoodNowMessage>(),
@@ -708,8 +707,6 @@ mod tests {
     use crate::test_utils::test_utils::cryptde;
     use crate::test_utils::test_utils::make_meaningless_route;
     use crate::test_utils::test_utils::rate_pack;
-    use actix::msgs;
-    use actix::Arbiter;
     use actix::Recipient;
     use actix::System;
     use serde_cbor;
@@ -889,8 +886,8 @@ mod tests {
                 rate_pack: rate_pack(100),
             },
         );
-        let addr: Addr<Syn, Neighborhood> = subject.start();
-        let sub: Recipient<Syn, BootstrapNeighborhoodNowMessage> =
+        let addr: Addr<Neighborhood> = subject.start();
+        let sub: Recipient<BootstrapNeighborhoodNowMessage> =
             addr.clone().recipient::<BootstrapNeighborhoodNowMessage>();
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
@@ -898,7 +895,7 @@ mod tests {
 
         sub.try_send(BootstrapNeighborhoodNowMessage {}).unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         let recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
@@ -991,12 +988,12 @@ mod tests {
                 rate_pack: rate_pack(100),
             },
         );
-        let addr: Addr<Syn, Neighborhood> = subject.start();
-        let sub: Recipient<Syn, NodeQueryMessage> = addr.recipient::<NodeQueryMessage>();
+        let addr: Addr<Neighborhood> = subject.start();
+        let sub: Recipient<NodeQueryMessage> = addr.recipient::<NodeQueryMessage>();
 
         let future = sub.send(NodeQueryMessage::PublicKey(PublicKey::new(&b"booga"[..])));
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         let result = future.wait().unwrap();
         assert_eq!(result.is_none(), true);
@@ -1024,12 +1021,12 @@ mod tests {
                 rate_pack: rate_pack(100),
             },
         );
-        let addr: Addr<Syn, Neighborhood> = subject.start();
-        let sub: Recipient<Syn, NodeQueryMessage> = addr.recipient::<NodeQueryMessage>();
+        let addr: Addr<Neighborhood> = subject.start();
+        let sub: Recipient<NodeQueryMessage> = addr.recipient::<NodeQueryMessage>();
 
         let future = sub.send(NodeQueryMessage::PublicKey(PublicKey::new(&b"blah"[..])));
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         let result = future.wait().unwrap();
         assert_eq!(result.is_none(), true);
@@ -1060,14 +1057,14 @@ mod tests {
             .neighborhood_database
             .add_node(&another_neighbor)
             .unwrap();
-        let addr: Addr<Syn, Neighborhood> = subject.start();
-        let sub: Recipient<Syn, NodeQueryMessage> = addr.recipient::<NodeQueryMessage>();
+        let addr: Addr<Neighborhood> = subject.start();
+        let sub: Recipient<NodeQueryMessage> = addr.recipient::<NodeQueryMessage>();
 
         let future = sub.send(NodeQueryMessage::PublicKey(
             another_neighbor.public_key().clone(),
         ));
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         let result = future.wait().unwrap();
         assert_eq!(
@@ -1103,14 +1100,14 @@ mod tests {
                 rate_pack: rate_pack(100),
             },
         );
-        let addr: Addr<Syn, Neighborhood> = subject.start();
-        let sub: Recipient<Syn, NodeQueryMessage> = addr.recipient::<NodeQueryMessage>();
+        let addr: Addr<Neighborhood> = subject.start();
+        let sub: Recipient<NodeQueryMessage> = addr.recipient::<NodeQueryMessage>();
 
         let future = sub.send(NodeQueryMessage::IpAddress(
             IpAddr::from_str("2.3.4.5").unwrap(),
         ));
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         let result = future.wait().unwrap();
         assert_eq!(result.is_none(), true);
@@ -1148,14 +1145,14 @@ mod tests {
             .neighborhood_database
             .add_node(&another_node_record)
             .unwrap();
-        let addr: Addr<Syn, Neighborhood> = subject.start();
-        let sub: Recipient<Syn, NodeQueryMessage> = addr.recipient::<NodeQueryMessage>();
+        let addr: Addr<Neighborhood> = subject.start();
+        let sub: Recipient<NodeQueryMessage> = addr.recipient::<NodeQueryMessage>();
 
         let future = sub.send(NodeQueryMessage::IpAddress(
             IpAddr::from_str("2.3.4.5").unwrap(),
         ));
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         let result = future.wait().unwrap();
         assert_eq!(
@@ -1187,12 +1184,12 @@ mod tests {
                 rate_pack: rate_pack(100),
             },
         );
-        let addr: Addr<Syn, Neighborhood> = subject.start();
-        let sub: Recipient<Syn, RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
+        let addr: Addr<Neighborhood> = subject.start();
+        let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
         let future = sub.send(RouteQueryMessage::data_indefinite_route_request(5));
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         let result = future.wait().unwrap();
         assert_eq!(result, None);
@@ -1216,12 +1213,12 @@ mod tests {
                 rate_pack: rate_pack(100),
             },
         );
-        let addr: Addr<Syn, Neighborhood> = subject.start();
-        let sub: Recipient<Syn, RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
+        let addr: Addr<Neighborhood> = subject.start();
+        let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
         let future = sub.send(RouteQueryMessage::data_indefinite_route_request(2));
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         let result = future.wait().unwrap();
         assert_eq!(result, None);
@@ -1254,13 +1251,13 @@ mod tests {
             let mut dual_edge = |a: &NodeRecord, b: &NodeRecord| dual_edge_func(db, a, b);
             dual_edge(a, b);
         }
-        let addr: Addr<Syn, Neighborhood> = subject.start();
-        let sub: Recipient<Syn, RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
+        let addr: Addr<Neighborhood> = subject.start();
+        let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
         let msg = RouteQueryMessage::data_indefinite_route_request(1);
 
         let future = sub.send(msg);
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         let segment = |nodes: Vec<&NodeRecord>, component: Component| {
             RouteSegment::new(
@@ -1331,13 +1328,13 @@ mod tests {
             single_edge(b, c);
             single_edge(c, a);
         }
-        let addr: Addr<Syn, Neighborhood> = subject.start();
-        let sub: Recipient<Syn, RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
+        let addr: Addr<Neighborhood> = subject.start();
+        let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
         let msg = RouteQueryMessage::data_indefinite_route_request(1);
 
         let future = sub.send(msg);
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         let result = future.wait().unwrap();
         assert_eq!(result, None);
@@ -1361,13 +1358,13 @@ mod tests {
                 rate_pack: rate_pack(100),
             },
         );
-        let addr: Addr<Syn, Neighborhood> = subject.start();
-        let sub: Recipient<Syn, RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
+        let addr: Addr<Neighborhood> = subject.start();
+        let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
         let msg = RouteQueryMessage::data_indefinite_route_request(2);
 
         let future = sub.send(msg);
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         let result = future.wait().unwrap();
         assert_eq!(result, None);
@@ -1391,12 +1388,12 @@ mod tests {
                 rate_pack: rate_pack(100),
             },
         );
-        let addr: Addr<Syn, Neighborhood> = subject.start();
-        let sub: Recipient<Syn, RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
+        let addr: Addr<Neighborhood> = subject.start();
+        let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
         let future = sub.send(RouteQueryMessage::data_indefinite_route_request(0));
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         let result = future.wait().unwrap().unwrap();
         let expected_response = RouteQueryResponse {
@@ -1506,12 +1503,12 @@ mod tests {
             dual_edge(r, s);
         }
 
-        let addr: Addr<Syn, Neighborhood> = subject.start();
-        let sub: Recipient<Syn, RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
+        let addr: Addr<Neighborhood> = subject.start();
+        let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
         let data_route = sub.send(RouteQueryMessage::data_indefinite_route_request(2));
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         let segment = |nodes: Vec<&NodeRecord>, component: Component| {
             RouteSegment::new(
@@ -1656,13 +1653,13 @@ mod tests {
             dual_edge(r, e);
         }
 
-        let addr: Addr<Syn, Neighborhood> = subject.start();
-        let sub: Recipient<Syn, RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
+        let addr: Addr<Neighborhood> = subject.start();
+        let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
         let data_route_0 = sub.send(RouteQueryMessage::data_indefinite_route_request(2));
         let data_route_1 = sub.send(RouteQueryMessage::data_indefinite_route_request(2));
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
 
         let result_0 = data_route_0.wait().unwrap().unwrap();
@@ -1924,12 +1921,12 @@ mod tests {
                 rate_pack: rate_pack(100),
             },
         );
-        let addr: Addr<Syn, Neighborhood> = subject.start();
-        let sub: Recipient<Syn, ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
+        let addr: Addr<Neighborhood> = subject.start();
+        let sub: Recipient<ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
 
         sub.try_send(cores_package).unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         TestLogHandler::new().exists_log_containing(
             "ERROR: Neighborhood: Unintelligible Gossip message received: ignoring",
@@ -1991,12 +1988,11 @@ mod tests {
                 .add_arbitrary_neighbor(&cryptde.public_key(), other_neighbor_inside.public_key())
                 .unwrap();
 
-            let addr: Addr<Syn, Neighborhood> = subject.start();
+            let addr: Addr<Neighborhood> = subject.start();
             let peer_actors = peer_actors_builder().hopper(hopper).build();
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            let sub: Recipient<Syn, RemoveNeighborMessage> =
-                addr.recipient::<RemoveNeighborMessage>();
+            let sub: Recipient<RemoveNeighborMessage> = addr.recipient::<RemoveNeighborMessage>();
             sub.try_send(RemoveNeighborMessage {
                 public_key: removed_neighbor_inside.public_key().clone(),
             })
@@ -2071,11 +2067,11 @@ mod tests {
             );
             subject.gossip_acceptor = Box::new(gossip_acceptor);
 
-            let addr: Addr<Syn, Neighborhood> = subject.start();
+            let addr: Addr<Neighborhood> = subject.start();
             let peer_actors = peer_actors_builder().hopper(hopper).build();
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            let sub: Recipient<Syn, ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
+            let sub: Recipient<ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
             sub.try_send(cores_package).unwrap();
 
             system.run();
@@ -2132,11 +2128,11 @@ mod tests {
                     rate_pack: rate_pack(100),
                 },
             );
-            let addr: Addr<Syn, Neighborhood> = subject.start();
+            let addr: Addr<Neighborhood> = subject.start();
             let peer_actors = peer_actors_builder().hopper(hopper).build();
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            let sub: Recipient<Syn, BootstrapNeighborhoodNowMessage> =
+            let sub: Recipient<BootstrapNeighborhoodNowMessage> =
                 addr.recipient::<BootstrapNeighborhoodNowMessage>();
             sub.try_send(BootstrapNeighborhoodNowMessage {}).unwrap();
 
@@ -2227,7 +2223,7 @@ mod tests {
             edge(c, b);
         }
 
-        let addr: Addr<Syn, Neighborhood> = subject.start();
+        let addr: Addr<Neighborhood> = subject.start();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
 
@@ -2248,7 +2244,7 @@ mod tests {
         let failed_ip_address_query = addr.send(NodeQueryMessage::IpAddress(
             a.node_addr_opt().unwrap().ip_addr(),
         ));
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
 
         system.run();
         assert_eq!(None, unsuccessful_three_hop_route.wait().unwrap());
@@ -2302,8 +2298,8 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("responds_with_none_when_initially_configured_with_no_data");
 
-            let addr: Addr<Syn, Recorder> = recorder.start();
-            let recipient: Recipient<Syn, DispatcherNodeQueryResponse> =
+            let addr: Addr<Recorder> = recorder.start();
+            let recipient: Recipient<DispatcherNodeQueryResponse> =
                 addr.recipient::<DispatcherNodeQueryResponse>();
 
             let subject = Neighborhood::new(
@@ -2318,8 +2314,8 @@ mod tests {
                     rate_pack: rate_pack(100),
                 },
             );
-            let addr: Addr<Syn, Neighborhood> = subject.start();
-            let sub: Recipient<Syn, DispatcherNodeQueryMessage> =
+            let addr: Addr<Neighborhood> = subject.start();
+            let sub: Recipient<DispatcherNodeQueryMessage> =
                 addr.recipient::<DispatcherNodeQueryMessage>();
 
             sub.try_send(DispatcherNodeQueryMessage {
@@ -2353,8 +2349,8 @@ mod tests {
         let (recorder, awaiter, recording_arc) = make_recorder();
         thread::spawn(move || {
             let system = System::new ("neighborhood_sends_node_query_response_with_none_when_key_query_matches_no_configured_data");
-            let addr: Addr<Syn, Recorder> = recorder.start();
-            let recipient: Recipient<Syn, DispatcherNodeQueryResponse> =
+            let addr: Addr<Recorder> = recorder.start();
+            let recipient: Recipient<DispatcherNodeQueryResponse> =
                 addr.recipient::<DispatcherNodeQueryResponse>();
 
             let subject = Neighborhood::new(
@@ -2372,8 +2368,8 @@ mod tests {
                     rate_pack: rate_pack(100),
                 },
             );
-            let addr: Addr<Syn, Neighborhood> = subject.start();
-            let sub: Recipient<Syn, DispatcherNodeQueryMessage> =
+            let addr: Addr<Neighborhood> = subject.start();
+            let sub: Recipient<DispatcherNodeQueryMessage> =
                 addr.recipient::<DispatcherNodeQueryMessage>();
 
             sub.try_send(DispatcherNodeQueryMessage {
@@ -2416,7 +2412,7 @@ mod tests {
         let context_a = context.clone();
         thread::spawn(move || {
             let system = System::new("neighborhood_sends_node_query_response_with_result_when_key_query_matches_configured_data");
-            let addr: Addr<Syn, Recorder> = recorder.start();
+            let addr: Addr<Recorder> = recorder.start();
             let recipient = addr.recipient::<DispatcherNodeQueryResponse>();
             let mut subject = Neighborhood::new(
                 cryptde,
@@ -2434,8 +2430,8 @@ mod tests {
                 .neighborhood_database
                 .add_node(&another_neighbor)
                 .unwrap();
-            let addr: Addr<Syn, Neighborhood> = subject.start();
-            let sub: Recipient<Syn, DispatcherNodeQueryMessage> =
+            let addr: Addr<Neighborhood> = subject.start();
+            let sub: Recipient<DispatcherNodeQueryMessage> =
                 addr.recipient::<DispatcherNodeQueryMessage>();
 
             sub.try_send(DispatcherNodeQueryMessage {
@@ -2470,8 +2466,8 @@ mod tests {
         let (recorder, awaiter, recording_arc) = make_recorder();
         thread::spawn(move || {
             let system = System::new("neighborhood_sends_node_query_response_with_none_when_ip_address_query_matches_no_configured_data");
-            let addr: Addr<Syn, Recorder> = recorder.start();
-            let recipient: Recipient<Syn, DispatcherNodeQueryResponse> =
+            let addr: Addr<Recorder> = recorder.start();
+            let recipient: Recipient<DispatcherNodeQueryResponse> =
                 addr.recipient::<DispatcherNodeQueryResponse>();
             let subject = Neighborhood::new(
                 cryptde,
@@ -2488,8 +2484,8 @@ mod tests {
                     rate_pack: rate_pack(100),
                 },
             );
-            let addr: Addr<Syn, Neighborhood> = subject.start();
-            let sub: Recipient<Syn, DispatcherNodeQueryMessage> =
+            let addr: Addr<Neighborhood> = subject.start();
+            let sub: Recipient<DispatcherNodeQueryMessage> =
                 addr.recipient::<DispatcherNodeQueryMessage>();
 
             sub.try_send(DispatcherNodeQueryMessage {
@@ -2531,8 +2527,8 @@ mod tests {
         let context_a = context.clone();
         thread::spawn(move || {
             let system = System::new("neighborhood_sends_node_query_response_with_result_when_ip_address_query_matches_configured_data");
-            let addr: Addr<Syn, Recorder> = recorder.start();
-            let recipient: Recipient<Syn, DispatcherNodeQueryResponse> =
+            let addr: Addr<Recorder> = recorder.start();
+            let recipient: Recipient<DispatcherNodeQueryResponse> =
                 addr.recipient::<DispatcherNodeQueryResponse>();
             let mut subject = Neighborhood::new(
                 cryptde,
@@ -2558,8 +2554,8 @@ mod tests {
                 .neighborhood_database
                 .add_node(&another_node_record_a)
                 .unwrap();
-            let addr: Addr<Syn, Neighborhood> = subject.start();
-            let sub: Recipient<Syn, DispatcherNodeQueryMessage> =
+            let addr: Addr<Neighborhood> = subject.start();
+            let sub: Recipient<DispatcherNodeQueryMessage> =
                 addr.recipient::<DispatcherNodeQueryMessage>();
 
             sub.try_send(DispatcherNodeQueryMessage {
@@ -2638,11 +2634,11 @@ mod tests {
                 .neighborhood_database
                 .add_arbitrary_neighbor(this_node.public_key(), one_neighbor.public_key())
                 .unwrap();
-            let addr: Addr<Syn, Neighborhood> = subject.start();
+            let addr: Addr<Neighborhood> = subject.start();
             let peer_actors = peer_actors_builder().hopper(hopper).build();
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            let sub: Recipient<Syn, ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
+            let sub: Recipient<ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
             sub.try_send(cores_package).unwrap();
 
             system.run();
@@ -2714,11 +2710,11 @@ mod tests {
             );
             subject.gossip_acceptor = Box::new(gossip_acceptor);
 
-            let addr: Addr<Syn, Neighborhood> = subject.start();
+            let addr: Addr<Neighborhood> = subject.start();
             let peer_actors = peer_actors_builder().hopper(hopper).build();
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            let sub: Recipient<Syn, ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
+            let sub: Recipient<ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
             sub.try_send(cores_package).unwrap();
 
             system.run();
@@ -2798,11 +2794,11 @@ mod tests {
                     other_neighbor_inside.public_key(),
                 )
                 .expect("should be able to add a neighbor");
-            let addr: Addr<Syn, Neighborhood> = subject.start();
+            let addr: Addr<Neighborhood> = subject.start();
             let peer_actors = peer_actors_builder().hopper(hopper).build();
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            let sub: Recipient<Syn, ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
+            let sub: Recipient<ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
             sub.try_send(cores_package).unwrap();
 
             system.run();
@@ -2886,11 +2882,11 @@ mod tests {
             );
             subject.gossip_acceptor = Box::new(gossip_acceptor);
 
-            let addr: Addr<Syn, Neighborhood> = subject.start();
+            let addr: Addr<Neighborhood> = subject.start();
             let peer_actors = peer_actors_builder().hopper(hopper).build();
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            let sub: Recipient<Syn, ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
+            let sub: Recipient<ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
             sub.try_send(cores_package).unwrap();
 
             system.run();
@@ -2962,12 +2958,11 @@ mod tests {
                 .add_arbitrary_neighbor(&cryptde.public_key(), other_neighbor_inside.public_key())
                 .unwrap();
 
-            let addr: Addr<Syn, Neighborhood> = subject.start();
+            let addr: Addr<Neighborhood> = subject.start();
             let peer_actors = peer_actors_builder().hopper(hopper).build();
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            let sub: Recipient<Syn, RemoveNeighborMessage> =
-                addr.recipient::<RemoveNeighborMessage>();
+            let sub: Recipient<RemoveNeighborMessage> = addr.recipient::<RemoveNeighborMessage>();
             sub.try_send(RemoveNeighborMessage {
                 public_key: removed_neighbor_inside.public_key().clone(),
             })

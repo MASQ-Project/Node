@@ -6,7 +6,6 @@ use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use actix::Message;
 use actix::Recipient;
-use actix::Syn;
 use serde_derive::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
@@ -32,9 +31,9 @@ pub struct ClientResponsePayload {
 
 #[derive(Clone)]
 pub struct ProxyClientSubs {
-    pub bind: Recipient<Syn, BindMessage>,
-    pub from_hopper: Recipient<Syn, ExpiredCoresPackage>,
-    pub inbound_server_data: Recipient<Syn, InboundServerData>,
+    pub bind: Recipient<BindMessage>,
+    pub from_hopper: Recipient<ExpiredCoresPackage>,
+    pub inbound_server_data: Recipient<InboundServerData>,
 }
 
 impl ClientResponsePayload {

@@ -8,7 +8,6 @@ use actix::Actor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
-use actix::Syn;
 use sha1::Sha1;
 
 pub struct BlockchainBridge {
@@ -49,7 +48,7 @@ impl BlockchainBridge {
         }
     }
 
-    pub fn make_subs_from(addr: &Addr<Syn, BlockchainBridge>) -> BlockchainBridgeSubs {
+    pub fn make_subs_from(addr: &Addr<BlockchainBridge>) -> BlockchainBridgeSubs {
         BlockchainBridgeSubs {
             bind: addr.clone().recipient::<BindMessage>(),
         }
@@ -63,10 +62,7 @@ mod tests {
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::test_utils::sha1_hash;
-    use actix::msgs;
     use actix::Addr;
-    use actix::Arbiter;
-    use actix::Syn;
     use actix::System;
 
     #[test]
@@ -80,14 +76,14 @@ mod tests {
         });
 
         let system = System::new("blockchain_bridge_receives_bind_message");
-        let addr: Addr<Syn, BlockchainBridge> = subject.start();
+        let addr: Addr<BlockchainBridge> = subject.start();
 
         addr.try_send(BindMessage {
             peer_actors: peer_actors_builder().build(),
         })
         .unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop();
         system.run();
         TestLogHandler::new()
             .exists_log_containing(&format!("DEBUG: BlockchainBridge: Received BindMessage; consuming private key that hashes to {}", sha1_hash(consuming_private_key.as_bytes())));
@@ -102,14 +98,14 @@ mod tests {
         });
 
         let system = System::new("blockchain_bridge_receives_bind_message");
-        let addr: Addr<Syn, BlockchainBridge> = subject.start();
+        let addr: Addr<BlockchainBridge> = subject.start();
 
         addr.try_send(BindMessage {
             peer_actors: peer_actors_builder().build(),
         })
         .unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop();
         system.run();
         TestLogHandler::new().exists_log_containing(
             "DEBUG: BlockchainBridge: Received BindMessage; no consuming private key specified",

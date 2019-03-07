@@ -11,7 +11,6 @@ use crate::sub_lib::hopper::IncipientCoresPackage;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use actix::Recipient;
-use actix::Syn;
 use std::borrow::Borrow;
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -19,8 +18,8 @@ use std::str::FromStr;
 pub struct ConsumingService {
     cryptde: &'static dyn CryptDE,
     _is_bootstrap_node: bool, // TODO: Remember to check this and refuse to consume if set
-    to_dispatcher: Recipient<Syn, TransmitDataMsg>,
-    to_hopper: Recipient<Syn, InboundClientData>,
+    to_dispatcher: Recipient<TransmitDataMsg>,
+    to_hopper: Recipient<InboundClientData>,
     logger: Logger,
 }
 
@@ -28,8 +27,8 @@ impl ConsumingService {
     pub fn new(
         cryptde: &'static dyn CryptDE,
         is_bootstrap_node: bool,
-        to_dispatcher: Recipient<Syn, TransmitDataMsg>,
-        to_hopper: Recipient<Syn, InboundClientData>,
+        to_dispatcher: Recipient<TransmitDataMsg>,
+        to_hopper: Recipient<InboundClientData>,
     ) -> ConsumingService {
         ConsumingService {
             cryptde,
@@ -192,7 +191,7 @@ mod tests {
                 per_routing_service: 100,
                 per_routing_byte: 200,
             });
-            let subject_addr: Addr<Syn, Hopper> = subject.start();
+            let subject_addr: Addr<Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
             subject_addr.try_send(incipient_cores_package).unwrap();
@@ -240,7 +239,7 @@ mod tests {
                 per_routing_service: 100,
                 per_routing_byte: 200,
             });
-            let subject_addr: Addr<Syn, Hopper> = subject.start();
+            let subject_addr: Addr<Hopper> = subject.start();
             let subject_subs = Hopper::make_subs_from(&subject_addr);
             peer_actors.hopper = subject_subs;
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();

@@ -20,7 +20,6 @@ use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::tls_framer::TlsFramer;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use actix::Recipient;
-use actix::Syn;
 use std::io;
 use std::io::Error;
 use std::io::ErrorKind;
@@ -36,7 +35,7 @@ pub struct StreamEstablisher {
     pub stream_adder_tx: Sender<(StreamKey, Box<dyn SenderWrapper<SequencedPacket>>)>,
     pub stream_killer_tx: Sender<StreamKey>,
     pub stream_connector: Box<dyn StreamConnector>,
-    pub proxy_client_sub: Recipient<Syn, InboundServerData>,
+    pub proxy_client_sub: Recipient<InboundServerData>,
     pub logger: Logger,
     pub channel_factory: Box<dyn FuturesChannelFactory<SequencedPacket>>,
 }
@@ -154,7 +153,7 @@ pub struct StreamEstablisherFactoryReal {
     pub cryptde: &'static dyn CryptDE,
     pub stream_adder_tx: Sender<(StreamKey, Box<dyn SenderWrapper<SequencedPacket>>)>,
     pub stream_killer_tx: Sender<StreamKey>,
-    pub proxy_client_sub: Recipient<Syn, InboundServerData>,
+    pub proxy_client_sub: Recipient<InboundServerData>,
     pub logger: Logger,
 }
 

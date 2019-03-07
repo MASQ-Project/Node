@@ -35,7 +35,6 @@ use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::MessageResult;
-use actix::Syn;
 use std::any::Any;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -345,7 +344,7 @@ pub fn make_recorder() -> (Recorder, RecordAwaiter, Arc<Mutex<Recording>>) {
     (recorder, awaiter, recording)
 }
 
-pub fn make_proxy_server_subs_from(addr: &Addr<Syn, Recorder>) -> ProxyServerSubs {
+pub fn make_proxy_server_subs_from(addr: &Addr<Recorder>) -> ProxyServerSubs {
     ProxyServerSubs {
         bind: addr.clone().recipient::<BindMessage>(),
         from_dispatcher: addr.clone().recipient::<InboundClientData>(),
@@ -354,7 +353,7 @@ pub fn make_proxy_server_subs_from(addr: &Addr<Syn, Recorder>) -> ProxyServerSub
     }
 }
 
-pub fn make_dispatcher_subs_from(addr: &Addr<Syn, Recorder>) -> DispatcherSubs {
+pub fn make_dispatcher_subs_from(addr: &Addr<Recorder>) -> DispatcherSubs {
     DispatcherSubs {
         ibcd_sub: addr.clone().recipient::<InboundClientData>(),
         bind: addr.clone().recipient::<BindMessage>(),
@@ -362,7 +361,7 @@ pub fn make_dispatcher_subs_from(addr: &Addr<Syn, Recorder>) -> DispatcherSubs {
     }
 }
 
-pub fn make_hopper_subs_from(addr: &Addr<Syn, Recorder>) -> HopperSubs {
+pub fn make_hopper_subs_from(addr: &Addr<Recorder>) -> HopperSubs {
     HopperSubs {
         bind: addr.clone().recipient::<BindMessage>(),
         from_hopper_client: addr.clone().recipient::<IncipientCoresPackage>(),
@@ -370,7 +369,7 @@ pub fn make_hopper_subs_from(addr: &Addr<Syn, Recorder>) -> HopperSubs {
     }
 }
 
-pub fn make_proxy_client_subs_from(addr: &Addr<Syn, Recorder>) -> ProxyClientSubs {
+pub fn make_proxy_client_subs_from(addr: &Addr<Recorder>) -> ProxyClientSubs {
     ProxyClientSubs {
         bind: addr.clone().recipient::<BindMessage>(),
         from_hopper: addr.clone().recipient::<ExpiredCoresPackage>(),
@@ -378,7 +377,7 @@ pub fn make_proxy_client_subs_from(addr: &Addr<Syn, Recorder>) -> ProxyClientSub
     }
 }
 
-pub fn make_neighborhood_subs_from(addr: &Addr<Syn, Recorder>) -> NeighborhoodSubs {
+pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
     NeighborhoodSubs {
         bind: addr.clone().recipient::<BindMessage>(),
         bootstrap: addr.clone().recipient::<BootstrapNeighborhoodNowMessage>(),
@@ -390,7 +389,7 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Syn, Recorder>) -> NeighborhoodSu
     }
 }
 
-pub fn make_accountant_subs_from(addr: &Addr<Syn, Recorder>) -> AccountantSubs {
+pub fn make_accountant_subs_from(addr: &Addr<Recorder>) -> AccountantSubs {
     AccountantSubs {
         bind: addr.clone().recipient::<BindMessage>(),
         report_routing_service_provided: addr
@@ -404,7 +403,7 @@ pub fn make_accountant_subs_from(addr: &Addr<Syn, Recorder>) -> AccountantSubs {
     }
 }
 
-pub fn make_ui_gateway_subs_from(addr: &Addr<Syn, Recorder>) -> UiGatewaySubs {
+pub fn make_ui_gateway_subs_from(addr: &Addr<Recorder>) -> UiGatewaySubs {
     UiGatewaySubs {
         bind: addr.clone().recipient::<BindMessage>(),
         ui_message_sub: addr.clone().recipient::<UiMessage>(),
@@ -412,7 +411,7 @@ pub fn make_ui_gateway_subs_from(addr: &Addr<Syn, Recorder>) -> UiGatewaySubs {
     }
 }
 
-pub fn make_blockchain_bridge_subs_from(addr: &Addr<Syn, Recorder>) -> BlockchainBridgeSubs {
+pub fn make_blockchain_bridge_subs_from(addr: &Addr<Recorder>) -> BlockchainBridgeSubs {
     BlockchainBridgeSubs {
         bind: addr.clone().recipient::<BindMessage>(),
     }
@@ -514,8 +513,6 @@ impl PeerActorsBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix::msgs;
-    use actix::Arbiter;
     use actix::Message;
     use actix::System;
 
@@ -552,7 +549,7 @@ mod tests {
         let recorder = Recorder::new();
         let recording_arc = recorder.get_recording();
 
-        let rec_addr: Addr<Syn, Recorder> = recorder.start();
+        let rec_addr: Addr<Recorder> = recorder.start();
 
         rec_addr
             .try_send(FirstMessageType {
@@ -565,7 +562,7 @@ mod tests {
                 flag: false,
             })
             .unwrap();
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
 
         system.run();
 

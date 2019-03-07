@@ -257,7 +257,7 @@ impl SubstratumMockNode {
             Ok((from, _, package)) => {
                 let incoming_cores_package = package.to_expired(from.ip(), self.cryptde()).unwrap();
                 incoming_cores_package
-                    .payload::<Gossip>(self.cryptde())
+                    .decoded_payload::<Gossip>(self.cryptde())
                     .ok()
             }
             Err(_) => None,

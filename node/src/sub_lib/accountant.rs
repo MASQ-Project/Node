@@ -3,7 +3,6 @@ use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
-use actix::Syn;
 use lazy_static::lazy_static;
 use std::path::PathBuf;
 
@@ -22,11 +21,11 @@ pub struct AccountantConfig {
 
 #[derive(Clone)]
 pub struct AccountantSubs {
-    pub bind: Recipient<Syn, BindMessage>,
-    pub report_routing_service_provided: Recipient<Syn, ReportRoutingServiceProvidedMessage>,
-    pub report_exit_service_provided: Recipient<Syn, ReportExitServiceProvidedMessage>,
-    pub report_routing_service_consumed: Recipient<Syn, ReportRoutingServiceConsumedMessage>,
-    pub report_exit_service_consumed: Recipient<Syn, ReportExitServiceConsumedMessage>,
+    pub bind: Recipient<BindMessage>,
+    pub report_routing_service_provided: Recipient<ReportRoutingServiceProvidedMessage>,
+    pub report_exit_service_provided: Recipient<ReportExitServiceProvidedMessage>,
+    pub report_routing_service_consumed: Recipient<ReportRoutingServiceConsumedMessage>,
+    pub report_exit_service_consumed: Recipient<ReportExitServiceConsumedMessage>,
 }
 
 #[derive(Clone, PartialEq, Debug, Message)]

@@ -16,12 +16,11 @@ use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
-use actix::Syn;
 
 pub struct UiGateway {
     port: u16,
     converter: Box<dyn UiTrafficConverter>,
-    ui_message_sub: Option<Recipient<Syn, UiMessage>>,
+    ui_message_sub: Option<Recipient<UiMessage>>,
     websocket_supervisor: Option<Box<dyn WebSocketSupervisor>>,
     shutdown_supervisor: Box<dyn ShutdownSupervisor>,
     logger: Logger,
@@ -39,7 +38,7 @@ impl UiGateway {
         }
     }
 
-    pub fn make_subs_from(addr: &Addr<Syn, UiGateway>) -> UiGatewaySubs {
+    pub fn make_subs_from(addr: &Addr<UiGateway>) -> UiGatewaySubs {
         UiGatewaySubs {
             bind: addr.clone().recipient::<BindMessage>(),
             ui_message_sub: addr.clone().recipient::<UiMessage>(),
@@ -239,7 +238,7 @@ mod tests {
             subject.shutdown_supervisor = Box::new(supervisor);
             let system =
                 System::new("receiving_a_shutdown_message_triggers_the_shutdown_supervisor");
-            let addr: Addr<Syn, UiGateway> = subject.start();
+            let addr: Addr<UiGateway> = subject.start();
             let mut peer_actors = peer_actors_builder().build();
             peer_actors.ui_gateway = UiGateway::make_subs_from(&addr);
             addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -265,7 +264,7 @@ mod tests {
             });
             subject.converter = Box::new(handler);
             let system = System::new("good_from_ui_message_is_unmarshalled_and_resent");
-            let addr: Addr<Syn, UiGateway> = subject.start();
+            let addr: Addr<UiGateway> = subject.start();
             let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
@@ -303,7 +302,7 @@ mod tests {
             });
             subject.converter = Box::new(handler);
             let system = System::new("bad_from_ui_message_is_logged_and_ignored");
-            let addr: Addr<Syn, UiGateway> = subject.start();
+            let addr: Addr<UiGateway> = subject.start();
             let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
             addr.try_send(BindMessage { peer_actors }).unwrap();
 

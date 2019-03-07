@@ -405,6 +405,7 @@ impl StoreWrapperReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fake_stream_holder::FakeStreamHolder;
     use crate::utils::get_parameters_from;
     use core_foundation::boolean::CFBoolean;
     use core_foundation::propertylist::CFPropertyListSubClass;
@@ -412,7 +413,6 @@ mod tests {
     use std::cell::RefCell;
     use std::sync::Arc;
     use std::sync::Mutex;
-    use crate::fake_stream_holder::FakeStreamHolder;
 
     struct StoreWrapperMock {
         get_dictionary_string_cfpl_parameters: Arc<Mutex<Vec<String>>>,

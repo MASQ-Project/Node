@@ -8,7 +8,6 @@ use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use actix::Message;
 use actix::Recipient;
-use actix::Syn;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Copy, Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -39,8 +38,8 @@ pub struct AddReturnRouteMessage {
 #[derive(Clone)]
 pub struct ProxyServerSubs {
     // ProxyServer will handle these messages:
-    pub bind: Recipient<Syn, BindMessage>,
-    pub from_dispatcher: Recipient<Syn, InboundClientData>,
-    pub from_hopper: Recipient<Syn, ExpiredCoresPackage>,
-    pub add_return_route: Recipient<Syn, AddReturnRouteMessage>,
+    pub bind: Recipient<BindMessage>,
+    pub from_dispatcher: Recipient<InboundClientData>,
+    pub from_hopper: Recipient<ExpiredCoresPackage>,
+    pub add_return_route: Recipient<AddReturnRouteMessage>,
 }

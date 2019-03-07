@@ -437,13 +437,13 @@ impl RegKeyReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fake_stream_holder::FakeStreamHolder;
     use crate::utils::get_parameters_from;
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::io::Error;
     use std::sync::Arc;
     use std::sync::Mutex;
-    use crate::fake_stream_holder::FakeStreamHolder;
 
     #[derive(Debug)]
     struct RegKeyMock {

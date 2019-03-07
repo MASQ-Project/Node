@@ -34,7 +34,7 @@ fn when_bootstrapping_from_a_node_then_the_node_sends_gossip_upon_startup() {
     let cores_package = package
         .to_expired(IpAddr::from_str("1.2.3.4").unwrap(), server.cryptde())
         .unwrap();
-    let gossip: Gossip = cores_package.payload(server.cryptde()).unwrap();
+    let gossip: Gossip = cores_package.decoded_payload(server.cryptde()).unwrap();
     let node_ref = subject.node_reference();
     let inner = NodeRecordInner {
         public_key: node_ref.public_key.clone(),

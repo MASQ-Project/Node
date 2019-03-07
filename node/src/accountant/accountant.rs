@@ -16,7 +16,6 @@ use actix::Actor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
-use actix::Syn;
 use std::fs;
 
 pub struct Accountant {
@@ -140,7 +139,7 @@ impl Accountant {
         }
     }
 
-    pub fn make_subs_from(addr: &Addr<Syn, Accountant>) -> AccountantSubs {
+    pub fn make_subs_from(addr: &Addr<Accountant>) -> AccountantSubs {
         AccountantSubs {
             bind: addr.clone().recipient::<BindMessage>(),
             report_routing_service_provided: addr
@@ -225,8 +224,6 @@ pub mod tests {
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::peer_actors_builder;
-    use actix::msgs;
-    use actix::Arbiter;
     use actix::System;
     use std::cell::RefCell;
     use std::fs::File;
@@ -406,7 +403,7 @@ pub mod tests {
         let mut subject = Accountant::new(config);
         subject.db_initializer = Box::new(db_initializer);
         let system = System::new("report_routing_service_message_is_received");
-        let subject_addr: Addr<Syn, Accountant> = subject.start();
+        let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
             .try_send(BindMessage {
                 peer_actors: peer_actors_builder().build(),
@@ -422,7 +419,7 @@ pub mod tests {
             })
             .unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         let dbi_initialize_parameters = dbi_initialize_parameters_arc.lock().unwrap();
         assert_eq!(dbi_initialize_parameters[0], data_dir);
@@ -461,7 +458,7 @@ pub mod tests {
         let mut subject = Accountant::new(config);
         subject.db_initializer = Box::new(db_initializer);
         let system = System::new("report_routing_service_consumed_message_is_received");
-        let subject_addr: Addr<Syn, Accountant> = subject.start();
+        let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
             .try_send(BindMessage {
                 peer_actors: peer_actors_builder().build(),
@@ -477,7 +474,7 @@ pub mod tests {
             })
             .unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         let dbi_initialize_parameters = dbi_initialize_parameters_arc.lock().unwrap();
         assert_eq!(dbi_initialize_parameters[0], data_dir);
@@ -509,7 +506,7 @@ pub mod tests {
         let mut subject = Accountant::new(config);
         subject.db_initializer = Box::new(db_initializer);
         let system = System::new("report_exit_service_provided_message_is_received");
-        let subject_addr: Addr<Syn, Accountant> = subject.start();
+        let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
             .try_send(BindMessage {
                 peer_actors: peer_actors_builder().build(),
@@ -525,7 +522,7 @@ pub mod tests {
             })
             .unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         let more_money_receivable_parameters = more_money_receivable_parameters_arc.lock().unwrap();
         assert_eq!(
@@ -562,7 +559,7 @@ pub mod tests {
         let mut subject = Accountant::new(config);
         subject.db_initializer = Box::new(db_initializer);
         let system = System::new("report_exit_service_consumed_message_is_received");
-        let subject_addr: Addr<Syn, Accountant> = subject.start();
+        let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
             .try_send(BindMessage {
                 peer_actors: peer_actors_builder().build(),
@@ -578,7 +575,7 @@ pub mod tests {
             })
             .unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         let dbi_initialize_parameters = dbi_initialize_parameters_arc.lock().unwrap();
         assert_eq!(dbi_initialize_parameters[0], PathBuf::from(data_dir));
@@ -650,7 +647,7 @@ pub mod tests {
             .initialize_result(Err(InitializationError::IncompatibleVersion));
         subject.db_initializer = Box::new(db_initializer);
         let system = System::new("failed_initialization_produces_panic");
-        let subject_addr: Addr<Syn, Accountant> = subject.start();
+        let subject_addr: Addr<Accountant> = subject.start();
 
         subject_addr
             .try_send(BindMessage {
@@ -658,7 +655,7 @@ pub mod tests {
             })
             .unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
     }
 

@@ -26,7 +26,6 @@ use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
-use actix::Syn;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use trust_dns_resolver::config::NameServerConfig;
@@ -39,8 +38,8 @@ pub struct ProxyClient {
     resolver_wrapper_factory: Box<dyn ResolverWrapperFactory>,
     stream_handler_pool_factory: Box<dyn StreamHandlerPoolFactory>,
     cryptde: &'static dyn CryptDE,
-    to_hopper: Option<Recipient<Syn, IncipientCoresPackage>>,
-    to_accountant: Option<Recipient<Syn, ReportExitServiceProvidedMessage>>,
+    to_hopper: Option<Recipient<IncipientCoresPackage>>,
+    to_accountant: Option<Recipient<ReportExitServiceProvidedMessage>>,
     pool: Option<Box<dyn StreamHandlerPool>>,
     stream_contexts: HashMap<StreamKey, StreamContext>,
     exit_service_rate: u64,
@@ -88,7 +87,7 @@ impl Handler<ExpiredCoresPackage> for ProxyClient {
     type Result = ();
 
     fn handle(&mut self, msg: ExpiredCoresPackage, _ctx: &mut Self::Context) -> Self::Result {
-        let payload = match msg.payload::<ClientRequestPayload>(self.cryptde) {
+        let payload = match msg.decoded_payload::<ClientRequestPayload>(self.cryptde) {
             Ok(payload) => payload,
             Err(e) => {
                 self.logger.error(format!(
@@ -173,7 +172,7 @@ impl ProxyClient {
         }
     }
 
-    pub fn make_subs_from(addr: &Addr<Syn, ProxyClient>) -> ProxyClientSubs {
+    pub fn make_subs_from(addr: &Addr<ProxyClient>) -> ProxyClientSubs {
         ProxyClientSubs {
             bind: addr.clone().recipient::<BindMessage>(),
             from_hopper: addr.clone().recipient::<ExpiredCoresPackage>(),
@@ -278,8 +277,6 @@ mod tests {
     use crate::test_utils::test_utils::rate_pack_exit;
     use crate::test_utils::test_utils::rate_pack_exit_byte;
     use crate::test_utils::test_utils::route_to_proxy_client;
-    use actix::msgs;
-    use actix::Arbiter;
     use actix::System;
     use std::cell::RefCell;
     use std::net::IpAddr;
@@ -327,8 +324,8 @@ mod tests {
                 Vec<(
                     Box<dyn ResolverWrapper>,
                     &'static dyn CryptDE,
-                    Recipient<Syn, ReportExitServiceProvidedMessage>,
-                    Recipient<Syn, InboundServerData>,
+                    Recipient<ReportExitServiceProvidedMessage>,
+                    Recipient<InboundServerData>,
                     u64,
                     u64,
                 )>,
@@ -342,8 +339,8 @@ mod tests {
             &self,
             resolver: Box<dyn ResolverWrapper>,
             cryptde: &'static dyn CryptDE,
-            accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
-            proxy_client_sub: Recipient<Syn, InboundServerData>,
+            accountant_sub: Recipient<ReportExitServiceProvidedMessage>,
+            proxy_client_sub: Recipient<InboundServerData>,
             exit_service_rate: u64,
             exit_byte_rate: u64,
         ) -> Box<dyn StreamHandlerPool> {
@@ -374,8 +371,8 @@ mod tests {
                     Vec<(
                         Box<dyn ResolverWrapper>,
                         &'static dyn CryptDE,
-                        Recipient<Syn, ReportExitServiceProvidedMessage>,
-                        Recipient<Syn, InboundServerData>,
+                        Recipient<ReportExitServiceProvidedMessage>,
+                        Recipient<InboundServerData>,
                         u64,
                         u64,
                     )>,
@@ -435,11 +432,11 @@ mod tests {
         });
         subject.resolver_wrapper_factory = Box::new(resolver_wrapper_factory);
         subject.stream_handler_pool_factory = Box::new(pool_factory);
-        let subject_addr: Addr<Syn, ProxyClient> = subject.start();
+        let subject_addr: Addr<ProxyClient> = subject.start();
 
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
 
         let mut resolver_wrapper_new_parameters =
@@ -495,11 +492,11 @@ mod tests {
             exit_service_rate: 100,
             exit_byte_rate: 200,
         });
-        let subject_addr: Addr<Syn, ProxyClient> = subject.start();
+        let subject_addr: Addr<ProxyClient> = subject.start();
 
         subject_addr.try_send(package).unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
     }
 
@@ -519,13 +516,13 @@ mod tests {
             exit_service_rate: 100,
             exit_byte_rate: 200,
         });
-        let addr: Addr<Syn, ProxyClient> = subject.start();
+        let addr: Addr<ProxyClient> = subject.start();
         let peer_actors = peer_actors_builder().build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
 
         addr.try_send(package).unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         TestLogHandler::new()
             .exists_log_containing("ERROR: Proxy Client: Error ('Decryption error: InvalidKey");
@@ -573,12 +570,12 @@ mod tests {
         });
         subject.resolver_wrapper_factory = Box::new(resolver_factory);
         subject.stream_handler_pool_factory = Box::new(pool_factory);
-        let subject_addr: Addr<Syn, ProxyClient> = subject.start();
+        let subject_addr: Addr<ProxyClient> = subject.start();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(package).unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         let parameter = process_package_parameters.lock().unwrap().remove(0);
         assert_eq!(parameter, (request, Some(Wallet::new("consuming")),));
@@ -627,12 +624,12 @@ mod tests {
         });
         subject.resolver_wrapper_factory = Box::new(resolver_factory);
         subject.stream_handler_pool_factory = Box::new(pool_factory);
-        let subject_addr: Addr<Syn, ProxyClient> = subject.start();
+        let subject_addr: Addr<ProxyClient> = subject.start();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(package).unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop();
         system.run();
         assert_eq!(0, process_package_parameters.lock().unwrap().len());
         TestLogHandler::new().exists_log_containing(format!("Refusing to provide exit services for CORES package with 12-byte payload without consuming wallet").as_str());
@@ -680,12 +677,12 @@ mod tests {
         });
         subject.resolver_wrapper_factory = Box::new(resolver_factory);
         subject.stream_handler_pool_factory = Box::new(pool_factory);
-        let subject_addr: Addr<Syn, ProxyClient> = subject.start();
+        let subject_addr: Addr<ProxyClient> = subject.start();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(package).unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop();
         system.run();
         let parameter = process_package_parameters.lock().unwrap().remove(0);
         assert_eq!(parameter, (request, None,));
@@ -713,7 +710,7 @@ mod tests {
                 consuming_wallet: Some(Wallet::new("consuming")),
             },
         );
-        let subject_addr: Addr<Syn, ProxyClient> = subject.start();
+        let subject_addr: Addr<ProxyClient> = subject.start();
         let peer_actors = peer_actors_builder()
             .hopper(hopper)
             .accountant(accountant)
@@ -749,7 +746,7 @@ mod tests {
             })
             .unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(
@@ -832,7 +829,7 @@ mod tests {
                 consuming_wallet: None,
             },
         );
-        let subject_addr: Addr<Syn, ProxyClient> = subject.start();
+        let subject_addr: Addr<ProxyClient> = subject.start();
         let peer_actors = peer_actors_builder().accountant(accountant).build();
 
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -847,7 +844,7 @@ mod tests {
             })
             .unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0);
@@ -882,7 +879,7 @@ mod tests {
                 consuming_wallet: Some(Wallet::new("consuming")),
             },
         );
-        let subject_addr: Addr<Syn, ProxyClient> = subject.start();
+        let subject_addr: Addr<ProxyClient> = subject.start();
         let peer_actors = peer_actors_builder()
             .hopper(hopper)
             .accountant(accountant)
@@ -899,7 +896,7 @@ mod tests {
             })
             .unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(hopper_recording.len(), 0);
@@ -940,7 +937,7 @@ mod tests {
             },
         );
         subject.stream_handler_pool_factory = Box::new(pool_factory);
-        let subject_addr: Addr<Syn, ProxyClient> = subject.start();
+        let subject_addr: Addr<ProxyClient> = subject.start();
         let peer_actors = peer_actors_builder()
             .hopper(hopper)
             .accountant(accountant)
@@ -977,7 +974,7 @@ mod tests {
                 data: Vec::from(data.clone()),
             })
             .unwrap();
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         let mut process_package_params = process_package_params_arc.lock().unwrap();
         let (actual_payload, consuming_wallet_opt) = process_package_params.remove(0);

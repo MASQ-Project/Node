@@ -35,7 +35,6 @@ use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use actix::Actor;
 use actix::Addr;
 use actix::Recipient;
-use actix::Syn;
 use actix::System;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
@@ -204,7 +203,7 @@ impl ActorSystemFactoryReal {
 }
 
 pub trait ActorFactory: Send {
-    fn make_and_start_dispatcher(&self) -> (DispatcherSubs, Recipient<Syn, PoolBindMessage>);
+    fn make_and_start_dispatcher(&self) -> (DispatcherSubs, Recipient<PoolBindMessage>);
     fn make_and_start_proxy_server(
         &self,
         cryptde: &'static dyn CryptDE,
@@ -232,9 +231,9 @@ pub trait ActorFactory: Send {
 pub struct ActorFactoryReal {}
 
 impl ActorFactory for ActorFactoryReal {
-    fn make_and_start_dispatcher(&self) -> (DispatcherSubs, Recipient<Syn, PoolBindMessage>) {
+    fn make_and_start_dispatcher(&self) -> (DispatcherSubs, Recipient<PoolBindMessage>) {
         let dispatcher = Dispatcher::new();
-        let addr: Addr<Syn, Dispatcher> = dispatcher.start();
+        let addr: Addr<Dispatcher> = dispatcher.start();
         (
             Dispatcher::make_subs_from(&addr),
             addr.recipient::<PoolBindMessage>(),
@@ -247,13 +246,13 @@ impl ActorFactory for ActorFactoryReal {
         is_decentralized: bool,
     ) -> ProxyServerSubs {
         let proxy_server = ProxyServer::new(cryptde, is_decentralized);
-        let addr: Addr<Syn, ProxyServer> = proxy_server.start();
+        let addr: Addr<ProxyServer> = proxy_server.start();
         ProxyServer::make_subs_from(&addr)
     }
 
     fn make_and_start_hopper(&self, config: HopperConfig) -> HopperSubs {
         let hopper = Hopper::new(config);
-        let addr: Addr<Syn, Hopper> = hopper.start();
+        let addr: Addr<Hopper> = hopper.start();
         Hopper::make_subs_from(&addr)
     }
 
@@ -263,19 +262,19 @@ impl ActorFactory for ActorFactoryReal {
         config: NeighborhoodConfig,
     ) -> NeighborhoodSubs {
         let neighborhood = Neighborhood::new(cryptde, config);
-        let addr: Addr<Syn, Neighborhood> = neighborhood.start();
+        let addr: Addr<Neighborhood> = neighborhood.start();
         Neighborhood::make_subs_from(&addr)
     }
 
     fn make_and_start_accountant(&self, config: AccountantConfig) -> AccountantSubs {
         let accountant = Accountant::new(config);
-        let addr: Addr<Syn, Accountant> = accountant.start();
+        let addr: Addr<Accountant> = accountant.start();
         Accountant::make_subs_from(&addr)
     }
 
     fn make_and_start_ui_gateway(&self, config: UiGatewayConfig) -> UiGatewaySubs {
         let ui_gateway = UiGateway::new(&config);
-        let addr: Addr<Syn, UiGateway> = ui_gateway.start();
+        let addr: Addr<UiGateway> = ui_gateway.start();
         UiGateway::make_subs_from(&addr)
     }
 
@@ -284,13 +283,13 @@ impl ActorFactory for ActorFactoryReal {
         clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
     ) -> StreamHandlerPoolSubs {
         let pool = StreamHandlerPool::new(clandestine_discriminator_factories);
-        let addr: Addr<Syn, StreamHandlerPool> = pool.start();
+        let addr: Addr<StreamHandlerPool> = pool.start();
         StreamHandlerPool::make_subs_from(&addr)
     }
 
     fn make_and_start_proxy_client(&self, config: ProxyClientConfig) -> ProxyClientSubs {
         let proxy_client = ProxyClient::new(config);
-        let addr: Addr<Syn, ProxyClient> = proxy_client.start();
+        let addr: Addr<ProxyClient> = proxy_client.start();
         ProxyClient::make_subs_from(&addr)
     }
 
@@ -299,7 +298,7 @@ impl ActorFactory for ActorFactoryReal {
         config: BlockchainBridgeConfig,
     ) -> BlockchainBridgeSubs {
         let blockchain_bridge = BlockchainBridge::new(config);
-        let addr: Addr<Syn, BlockchainBridge> = blockchain_bridge.start();
+        let addr: Addr<BlockchainBridge> = blockchain_bridge.start();
         BlockchainBridge::make_subs_from(&addr)
     }
 }
@@ -339,8 +338,6 @@ mod tests {
     use crate::test_utils::test_utils::rate_pack_exit_byte;
     use crate::test_utils::test_utils::rate_pack_routing;
     use crate::test_utils::test_utils::rate_pack_routing_byte;
-    use actix::msgs;
-    use actix::Arbiter;
     use std::cell::RefCell;
     use std::net::IpAddr;
     use std::net::Ipv4Addr;
@@ -364,8 +361,8 @@ mod tests {
     }
 
     impl<'a> ActorFactory for ActorFactoryMock<'a> {
-        fn make_and_start_dispatcher(&self) -> (DispatcherSubs, Recipient<Syn, PoolBindMessage>) {
-            let addr: Addr<Syn, Recorder> = ActorFactoryMock::start_recorder(&self.dispatcher);
+        fn make_and_start_dispatcher(&self) -> (DispatcherSubs, Recipient<PoolBindMessage>) {
+            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.dispatcher);
             let dispatcher_subs = DispatcherSubs {
                 ibcd_sub: addr.clone().recipient::<InboundClientData>(),
                 bind: addr.clone().recipient::<BindMessage>(),
@@ -384,7 +381,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert((cryptde, is_decentralized));
-            let addr: Addr<Syn, Recorder> = ActorFactoryMock::start_recorder(&self.proxy_server);
+            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.proxy_server);
             ProxyServerSubs {
                 bind: addr.clone().recipient::<BindMessage>(),
                 from_dispatcher: addr.clone().recipient::<InboundClientData>(),
@@ -399,7 +396,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert(config);
-            let addr: Addr<Syn, Recorder> = ActorFactoryMock::start_recorder(&self.hopper);
+            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.hopper);
             HopperSubs {
                 bind: addr.clone().recipient::<BindMessage>(),
                 from_hopper_client: addr.clone().recipient::<IncipientCoresPackage>(),
@@ -417,7 +414,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert((cryptde, config));
-            let addr: Addr<Syn, Recorder> = ActorFactoryMock::start_recorder(&self.neighborhood);
+            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.neighborhood);
             NeighborhoodSubs {
                 bind: addr.clone().recipient::<BindMessage>(),
                 bootstrap: addr.clone().recipient::<BootstrapNeighborhoodNowMessage>(),
@@ -435,7 +432,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert(config);
-            let addr: Addr<Syn, Recorder> = ActorFactoryMock::start_recorder(&self.accountant);
+            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.accountant);
             AccountantSubs {
                 bind: addr.clone().recipient::<BindMessage>(),
                 report_routing_service_provided: addr
@@ -459,7 +456,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert(config);
-            let addr: Addr<Syn, Recorder> = ActorFactoryMock::start_recorder(&self.ui_gateway);
+            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.ui_gateway);
             UiGatewaySubs {
                 bind: addr.clone().recipient::<BindMessage>(),
                 ui_message_sub: addr.clone().recipient::<UiMessage>(),
@@ -471,8 +468,7 @@ mod tests {
             &self,
             _: Vec<Box<dyn DiscriminatorFactory>>,
         ) -> StreamHandlerPoolSubs {
-            let addr: Addr<Syn, Recorder> =
-                ActorFactoryMock::start_recorder(&self.stream_handler_pool);
+            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.stream_handler_pool);
             StreamHandlerPoolSubs {
                 add_sub: addr.clone().recipient::<AddStreamMsg>(),
                 transmit_sub: addr.clone().recipient::<TransmitDataMsg>(),
@@ -488,7 +484,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert(config);
-            let addr: Addr<Syn, Recorder> = ActorFactoryMock::start_recorder(&self.proxy_client);
+            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.proxy_client);
             ProxyClientSubs {
                 bind: addr.clone().recipient::<BindMessage>(),
                 from_hopper: addr.clone().recipient::<ExpiredCoresPackage>(),
@@ -505,8 +501,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert(config);
-            let addr: Addr<Syn, Recorder> =
-                ActorFactoryMock::start_recorder(&self.blockchain_bridge);
+            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.blockchain_bridge);
             BlockchainBridgeSubs {
                 bind: addr.clone().recipient::<BindMessage>(),
             }
@@ -600,7 +595,7 @@ mod tests {
             self.parameters.clone()
         }
 
-        fn start_recorder(recorder: &RefCell<Option<Recorder>>) -> Addr<Syn, Recorder> {
+        fn start_recorder(recorder: &RefCell<Option<Recorder>>) -> Addr<Recorder> {
             recorder.borrow_mut().take().unwrap().start()
         }
     }
@@ -686,7 +681,7 @@ mod tests {
             tx,
         );
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         check_bind_message(&recordings.dispatcher);
         check_bind_message(&recordings.hopper);

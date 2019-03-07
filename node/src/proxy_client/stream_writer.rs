@@ -110,20 +110,25 @@ impl StreamWriter {
                             self.sequence_buffer.repush(packet);
                             return Ok(Async::NotReady);
                         }
-                        Ok(Async::Ready(len)) => {
+                        Ok(Async::Ready(bytes_written_count)) => {
                             self.logger.debug(format!(
                                 "Wrote {}/{} bytes of clear data (#{})",
-                                len,
+                                bytes_written_count,
                                 &packet.data.len(),
                                 &packet.sequence_number
                             ));
-                            if len != packet.data.len() {
+                            if bytes_written_count != packet.data.len() {
                                 self.logger.debug(format!(
                                     "rescheduling {} bytes",
-                                    &packet.data.len() - len
+                                    &packet.data.len() - bytes_written_count
                                 ));
                                 self.sequence_buffer.repush(SequencedPacket::new(
-                                    packet.data.iter().skip(len).map(|p| p.clone()).collect(),
+                                    packet
+                                        .data
+                                        .iter()
+                                        .skip(bytes_written_count)
+                                        .map(|p| p.clone())
+                                        .collect(),
                                     packet.sequence_number,
                                     packet.last_data,
                                 ));

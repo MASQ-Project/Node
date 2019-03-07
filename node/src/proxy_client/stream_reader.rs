@@ -8,7 +8,6 @@ use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::utils::indicates_dead_stream;
 use crate::sub_lib::utils::to_string;
 use actix::Recipient;
-use actix::Syn;
 use std::net::SocketAddr;
 use std::sync::mpsc::Sender;
 use tokio::prelude::Async;
@@ -16,7 +15,7 @@ use tokio::prelude::Future;
 
 pub struct StreamReader {
     stream_key: StreamKey,
-    proxy_client_sub: Recipient<Syn, InboundServerData>,
+    proxy_client_sub: Recipient<InboundServerData>,
     stream: Box<dyn ReadHalfWrapper>,
     stream_killer: Sender<StreamKey>,
     peer_addr: SocketAddr,
@@ -75,7 +74,7 @@ impl Future for StreamReader {
 impl StreamReader {
     pub fn new(
         stream_key: StreamKey,
-        proxy_client_sub: Recipient<Syn, InboundServerData>,
+        proxy_client_sub: Recipient<InboundServerData>,
         stream: Box<dyn ReadHalfWrapper>,
         stream_killer: Sender<StreamKey>,
         peer_addr: SocketAddr,

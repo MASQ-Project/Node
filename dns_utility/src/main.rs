@@ -1,9 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use dns_utility_lib::dns_utility::DnsUtility;
-use std::io;
 use dns_utility_lib::main_tools::Command;
 use dns_utility_lib::main_tools::StdStreams;
+use std::io;
 
 pub fn main() {
     let mut streams: StdStreams<'_> = StdStreams {

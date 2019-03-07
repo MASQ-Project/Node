@@ -279,11 +279,11 @@ impl ResolvConfDnsModifier {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fake_stream_holder::FakeStreamHolder;
     use std::env;
     use std::fs;
     use std::io::Write;
     use std::os::unix::fs::PermissionsExt;
-    use crate::fake_stream_holder::FakeStreamHolder;
 
     #[test]
     #[should_panic(expected = "Badly formatted nameserver line: booga-booga")]

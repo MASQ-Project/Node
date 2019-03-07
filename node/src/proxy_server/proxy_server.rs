@@ -34,7 +34,6 @@ use actix::Context;
 use actix::Handler;
 use actix::MailboxError;
 use actix::Recipient;
-use actix::Syn;
 use std::net::SocketAddr;
 use std::time::Duration;
 use tokio;
@@ -43,12 +42,12 @@ use tokio::prelude::Future;
 pub const RETURN_ROUTE_TTL: Duration = Duration::from_secs(120);
 
 pub struct ProxyServer {
-    dispatcher: Option<Recipient<Syn, TransmitDataMsg>>,
-    hopper: Option<Recipient<Syn, IncipientCoresPackage>>,
-    accountant_exit: Option<Recipient<Syn, ReportExitServiceConsumedMessage>>,
-    accountant_routing: Option<Recipient<Syn, ReportRoutingServiceConsumedMessage>>,
-    route_source: Option<Recipient<Syn, RouteQueryMessage>>,
-    add_return_route: Option<Recipient<Syn, AddReturnRouteMessage>>,
+    dispatcher: Option<Recipient<TransmitDataMsg>>,
+    hopper: Option<Recipient<IncipientCoresPackage>>,
+    accountant_exit: Option<Recipient<ReportExitServiceConsumedMessage>>,
+    accountant_routing: Option<Recipient<ReportRoutingServiceConsumedMessage>>,
+    route_source: Option<Recipient<RouteQueryMessage>>,
+    add_return_route: Option<Recipient<AddReturnRouteMessage>>,
     client_request_payload_factory: ClientRequestPayloadFactory,
     stream_key_factory: Box<dyn StreamKeyFactory>,
     keys_and_addrs: BidiHashMap<StreamKey, SocketAddr>,
@@ -158,7 +157,7 @@ impl Handler<ExpiredCoresPackage> for ProxyServer {
 
     fn handle(&mut self, msg: ExpiredCoresPackage, _ctx: &mut Self::Context) -> Self::Result {
         let payload_data_len = msg.payload.len();
-        match msg.payload::<ClientResponsePayload>(self.cryptde) {
+        match msg.decoded_payload::<ClientResponsePayload>(self.cryptde) {
             Ok(payload) => {
                 self.logger.debug(format!(
                     "Relaying {}-byte ExpiredCoresPackage payload from Hopper to Dispatcher",
@@ -236,7 +235,7 @@ impl ProxyServer {
         }
     }
 
-    pub fn make_subs_from(addr: &Addr<Syn, ProxyServer>) -> ProxyServerSubs {
+    pub fn make_subs_from(addr: &Addr<ProxyServer>) -> ProxyServerSubs {
         ProxyServerSubs {
             bind: addr.clone().recipient::<BindMessage>(),
             from_dispatcher: addr.clone().recipient::<InboundClientData>(),
@@ -272,15 +271,15 @@ impl ProxyServer {
 
     fn try_transmit_to_hopper(
         cryptde: &'static dyn CryptDE,
-        hopper: Recipient<Syn, IncipientCoresPackage>,
+        hopper: Recipient<IncipientCoresPackage>,
         route_result: Result<Option<RouteQueryResponse>, MailboxError>,
         payload: ClientRequestPayload,
         logger: Logger,
         source_addr: SocketAddr,
-        dispatcher: Recipient<Syn, TransmitDataMsg>,
-        accountant_exit_sub: Recipient<Syn, ReportExitServiceConsumedMessage>,
-        accountant_routing_sub: Recipient<Syn, ReportRoutingServiceConsumedMessage>,
-        add_return_route_sub: Recipient<Syn, AddReturnRouteMessage>,
+        dispatcher: Recipient<TransmitDataMsg>,
+        accountant_exit_sub: Recipient<ReportExitServiceConsumedMessage>,
+        accountant_routing_sub: Recipient<ReportRoutingServiceConsumedMessage>,
+        add_return_route_sub: Recipient<AddReturnRouteMessage>,
     ) -> Result<(), ()> {
         match route_result {
             Ok(Some(route_query_response)) => match route_query_response.expected_services {
@@ -323,7 +322,7 @@ impl ProxyServer {
     }
 
     fn report_routing_service(
-        accountant_routing_sub: Recipient<Syn, ReportRoutingServiceConsumedMessage>,
+        accountant_routing_sub: Recipient<ReportRoutingServiceConsumedMessage>,
         expected_services: Vec<ExpectedService>,
         payload_size: usize,
         logger: &Logger,
@@ -356,7 +355,7 @@ impl ProxyServer {
     }
 
     fn report_exit_service(
-        accountant_exit_sub: Recipient<Syn, ReportExitServiceConsumedMessage>,
+        accountant_exit_sub: Recipient<ReportExitServiceConsumedMessage>,
         expected_services: Vec<ExpectedService>,
         payload: &ClientRequestPayload,
         logger: &Logger,
@@ -387,14 +386,14 @@ impl ProxyServer {
 
     fn transmit_to_hopper(
         cryptde: &'static dyn CryptDE,
-        hopper: Recipient<Syn, IncipientCoresPackage>,
+        hopper: Recipient<IncipientCoresPackage>,
         payload: ClientRequestPayload,
         route: &Route,
         expected_services: Vec<ExpectedService>,
         logger: &Logger,
         source_addr: SocketAddr,
-        dispatcher: Recipient<Syn, TransmitDataMsg>,
-        accountant_routing_sub: Recipient<Syn, ReportRoutingServiceConsumedMessage>,
+        dispatcher: Recipient<TransmitDataMsg>,
+        accountant_routing_sub: Recipient<ReportRoutingServiceConsumedMessage>,
     ) {
         let destination_key_opt = if !expected_services.is_empty()
             && expected_services
@@ -440,7 +439,7 @@ impl ProxyServer {
         payload: ClientRequestPayload,
         logger: &Logger,
         source_addr: SocketAddr,
-        dispatcher: Recipient<Syn, TransmitDataMsg>,
+        dispatcher: Recipient<TransmitDataMsg>,
     ) {
         let target_hostname = ProxyServer::hostname(&payload);
         ProxyServer::send_route_failure(payload, source_addr, dispatcher);
@@ -450,7 +449,7 @@ impl ProxyServer {
     fn send_route_failure(
         payload: ClientRequestPayload,
         source_addr: SocketAddr,
-        dispatcher: Recipient<Syn, TransmitDataMsg>,
+        dispatcher: Recipient<TransmitDataMsg>,
     ) {
         let data = match payload.protocol {
             ProxyProtocol::HTTP => {
@@ -599,8 +598,6 @@ mod tests {
     use crate::test_utils::test_utils::rate_pack_routing;
     use crate::test_utils::test_utils::rate_pack_routing_byte;
     use crate::test_utils::test_utils::zero_hop_route_response;
-    use actix::msgs;
-    use actix::Arbiter;
     use actix::System;
     use std::cell::RefCell;
     use std::net::IpAddr;
@@ -760,7 +757,7 @@ mod tests {
             let system = System::new("proxy_server_receives_http_request_from_dispatcher_then_sends_cores_package_to_hopper");
             let mut subject = ProxyServer::new(cryptde, false);
             subject.stream_key_factory = Box::new(stream_key_factory);
-            let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+            let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
                 .hopper(hopper_mock)
                 .neighborhood(neighborhood_mock)
@@ -832,7 +829,7 @@ mod tests {
             let mut subject = ProxyServer::new(cryptde, false);
             subject.stream_key_factory = Box::new(stream_key_factory);
             subject.keys_and_addrs.insert(stream_key, socket_addr);
-            let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+            let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
                 .hopper(hopper_mock)
                 .neighborhood(neighborhood_mock)
@@ -942,7 +939,7 @@ mod tests {
             let system = System::new("proxy_server_receives_http_request_from_dispatcher_then_sends_cores_package_to_hopper");
             let mut subject = ProxyServer::new(cryptde, true);
             subject.stream_key_factory = Box::new(stream_key_factory);
-            let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+            let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
                 .hopper(hopper_mock)
                 .neighborhood(neighborhood_mock)
@@ -1033,7 +1030,7 @@ mod tests {
             );
             let mut subject = ProxyServer::new(cryptde, true);
             subject.stream_key_factory = Box::new(stream_key_factory);
-            let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+            let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
                 .accountant(accountant_mock)
                 .neighborhood(neighborhood_mock)
@@ -1107,7 +1104,7 @@ mod tests {
                 System::new("proxy_server_logs_messages_when_routing_services_are_not_requested");
             let mut subject = ProxyServer::new(cryptde, true);
             subject.stream_key_factory = Box::new(stream_key_factory);
-            let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+            let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
                 .accountant(accountant_mock)
                 .neighborhood(neighborhood_mock)
@@ -1170,7 +1167,7 @@ mod tests {
                 System::new("proxy_server_sends_message_to_accountant_for_exit_service_consumed");
             let mut subject = ProxyServer::new(cryptde, true);
             subject.stream_key_factory = Box::new(stream_key_factory);
-            let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+            let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
                 .accountant(accountant_mock)
                 .neighborhood(neighborhood_mock)
@@ -1222,7 +1219,7 @@ mod tests {
                 System::new("proxy_server_logs_message_when_exit_services_are_not_consumed");
             let mut subject = ProxyServer::new(cryptde, true);
             subject.stream_key_factory = Box::new(stream_key_factory);
-            let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+            let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
                 .accountant(accountant_mock)
                 .neighborhood(neighborhood_mock)
@@ -1262,7 +1259,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("proxy_server_receives_http_request_from_dispatcher_but_neighborhood_cant_make_route");
             let subject = ProxyServer::new(cryptde, true);
-            let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+            let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
                 .dispatcher(dispatcher)
                 .neighborhood(neighborhood_mock)
@@ -1393,7 +1390,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("proxy_server_receives_http_request_from_dispatcher_but_neighborhood_cant_make_route");
             let subject = ProxyServer::new(cryptde, true);
-            let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+            let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
                 .dispatcher(dispatcher)
                 .neighborhood(neighborhood_mock)
@@ -1493,7 +1490,7 @@ mod tests {
             subject.stream_key_factory =
                 Box::new(StreamKeyFactoryMock::new().make_result(stream_key.clone()));
             let system = System::new("proxy_server_receives_tls_client_hello_from_dispatcher_then_sends_cores_package_to_hopper");
-            let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+            let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
                 .hopper(hopper_mock)
                 .neighborhood(neighborhood_mock)
@@ -1561,7 +1558,7 @@ mod tests {
             subject.stream_key_factory =
                 Box::new(StreamKeyFactoryMock::new().make_result(stream_key.clone()));
             let system = System::new("proxy_server_receives_tls_client_hello_from_dispatcher_then_sends_cores_package_to_hopper");
-            let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+            let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
                 .hopper(hopper_mock)
                 .neighborhood(neighborhood_mock)
@@ -1627,7 +1624,7 @@ mod tests {
             subject.stream_key_factory =
                 Box::new(StreamKeyFactoryMock::new().make_result(stream_key.clone()));
             let system = System::new("proxy_server_receives_tls_client_hello_from_dispatcher_then_sends_cores_package_to_hopper");
-            let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+            let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
                 .hopper(hopper_mock)
                 .neighborhood(neighborhood_mock)
@@ -1688,7 +1685,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("proxy_server_receives_tls_client_hello_from_dispatcher_but_neighborhood_cant_make_route");
             let subject = ProxyServer::new(cryptde, false);
-            let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+            let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
                 .dispatcher(dispatcher)
                 .neighborhood(neighborhood)
@@ -1730,7 +1727,7 @@ mod tests {
         subject
             .route_ids_to_services
             .insert(1234, vec![ExpectedService::Nothing]);
-        let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+        let subject_addr: Addr<ProxyServer> = subject.start();
         let remaining_route = return_route_with_id(cryptde, 1234);
         let client_response_payload = ClientResponsePayload {
             stream_key: stream_key.clone(),
@@ -1754,7 +1751,7 @@ mod tests {
         subject_addr.try_send(first_expired_cores_package).unwrap();
         subject_addr.try_send(second_expired_cores_package).unwrap(); // should generate log because stream key is now unknown
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
 
         let recording = dispatcher_log_arc.lock().unwrap();
@@ -1826,7 +1823,7 @@ mod tests {
                 ExpectedService::Nothing,
             ],
         );
-        let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+        let subject_addr: Addr<ProxyServer> = subject.start();
         let first_client_response_payload = ClientResponsePayload {
             stream_key,
             sequenced_packet: SequencedPacket {
@@ -1879,7 +1876,7 @@ mod tests {
             .try_send(second_expired_cores_package.clone())
             .unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
 
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
@@ -1956,7 +1953,7 @@ mod tests {
         subject
             .route_ids_to_services
             .insert(4321, vec![ExpectedService::Nothing]);
-        let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+        let subject_addr: Addr<ProxyServer> = subject.start();
 
         let client_response_payload = ClientResponsePayload {
             stream_key,
@@ -1975,7 +1972,7 @@ mod tests {
 
         subject_addr.try_send(expired_cores_package).unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
     }
 
@@ -1995,11 +1992,11 @@ mod tests {
             is_clandestine: false,
             data: expected_data.clone(),
         };
-        let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+        let subject_addr: Addr<ProxyServer> = subject.start();
 
         subject_addr.try_send(msg_from_dispatcher).unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
     }
 
@@ -2016,7 +2013,7 @@ mod tests {
         subject
             .keys_and_addrs
             .insert(stream_key, SocketAddr::from_str("1.2.3.4:5678").unwrap());
-        let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+        let subject_addr: Addr<ProxyServer> = subject.start();
         let mut peer_actors = peer_actors_builder()
             .dispatcher(dispatcher)
             .accountant(accountant)
@@ -2040,7 +2037,7 @@ mod tests {
 
         subject_addr.try_send(expired_cores_package).unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         TestLogHandler::new().exists_log_containing("ERROR: Proxy Server: Can't report services consumed: return route ID 1234 is not recognized");
         assert_eq!(dispatcher_recording_arc.lock().unwrap().len(), 0);
@@ -2060,7 +2057,7 @@ mod tests {
         subject
             .keys_and_addrs
             .insert(stream_key, SocketAddr::from_str("1.2.3.4:5678").unwrap());
-        let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+        let subject_addr: Addr<ProxyServer> = subject.start();
         let mut peer_actors = peer_actors_builder()
             .dispatcher(dispatcher)
             .accountant(accountant)
@@ -2086,7 +2083,7 @@ mod tests {
 
         subject_addr.try_send(expired_cores_package).unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         TestLogHandler::new().exists_log_containing(
             "ERROR: Proxy Server: Can't report services consumed: return route ID is unspecified",
@@ -2108,7 +2105,7 @@ mod tests {
         subject
             .keys_and_addrs
             .insert(stream_key, SocketAddr::from_str("1.2.3.4:5678").unwrap());
-        let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+        let subject_addr: Addr<ProxyServer> = subject.start();
         let mut peer_actors = peer_actors_builder()
             .dispatcher(dispatcher)
             .accountant(accountant)
@@ -2134,7 +2131,7 @@ mod tests {
 
         subject_addr.try_send(expired_cores_package).unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
         TestLogHandler::new().exists_log_containing(
             "ERROR: Proxy Server: Can't report services consumed: return route ID is unreadable",
@@ -2158,7 +2155,7 @@ mod tests {
                 .keys_and_addrs
                 .insert(stream_key, SocketAddr::from_str("1.2.3.4:5678").unwrap());
             subject.route_ids_to_services.insert(1234, vec![]);
-            let subject_addr: Addr<Syn, ProxyServer> = subject.start();
+            let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder().build();
             peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();

@@ -11,12 +11,11 @@ use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
-use actix::Syn;
 
 pub struct Dispatcher {
-    to_proxy_server: Option<Recipient<Syn, InboundClientData>>,
-    to_hopper: Option<Recipient<Syn, InboundClientData>>,
-    to_stream: Option<Recipient<Syn, TransmitDataMsg>>,
+    to_proxy_server: Option<Recipient<InboundClientData>>,
+    to_hopper: Option<Recipient<InboundClientData>>,
+    to_stream: Option<Recipient<TransmitDataMsg>>,
     logger: Logger,
 }
 
@@ -89,7 +88,7 @@ impl Dispatcher {
         }
     }
 
-    pub fn make_subs_from(addr: &Addr<Syn, Dispatcher>) -> DispatcherSubs {
+    pub fn make_subs_from(addr: &Addr<Dispatcher>) -> DispatcherSubs {
         DispatcherSubs {
             ibcd_sub: addr.clone().recipient::<InboundClientData>(),
             bind: addr.clone().recipient::<BindMessage>(),
@@ -105,9 +104,7 @@ mod tests {
     use crate::sub_lib::dispatcher::Endpoint;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
-    use actix::msgs;
     use actix::Addr;
-    use actix::Arbiter;
     use actix::System;
     use std::net::SocketAddr;
     use std::str::FromStr;
@@ -116,7 +113,7 @@ mod tests {
     fn sends_inbound_data_for_proxy_server_to_proxy_server() {
         let system = System::new("test");
         let subject = Dispatcher::new();
-        let subject_addr: Addr<Syn, Dispatcher> = subject.start();
+        let subject_addr: Addr<Dispatcher> = subject.start();
         let subject_ibcd = subject_addr.clone().recipient::<InboundClientData>();
         let proxy_server = Recorder::new();
         let recording_arc = proxy_server.get_recording();
@@ -138,7 +135,7 @@ mod tests {
 
         subject_ibcd.try_send(ibcd_in).unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
 
         awaiter.await_message_count(1);
@@ -160,7 +157,7 @@ mod tests {
     fn sends_inbound_data_for_hopper_to_hopper() {
         let system = System::new("test");
         let subject = Dispatcher::new();
-        let subject_addr: Addr<Syn, Dispatcher> = subject.start();
+        let subject_addr: Addr<Dispatcher> = subject.start();
         let subject_ibcd = subject_addr.clone().recipient::<InboundClientData>();
         let hopper = Recorder::new();
         let recording_arc = hopper.get_recording();
@@ -182,7 +179,7 @@ mod tests {
 
         subject_ibcd.try_send(ibcd_in).unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
 
         awaiter.await_message_count(1);
@@ -205,7 +202,7 @@ mod tests {
     fn inbound_client_data_handler_panics_when_proxy_server_is_unbound() {
         let system = System::new("test");
         let subject = Dispatcher::new();
-        let subject_addr: Addr<Syn, Dispatcher> = subject.start();
+        let subject_addr: Addr<Dispatcher> = subject.start();
         let subject_ibcd = subject_addr.recipient::<InboundClientData>();
         let peer_addr = SocketAddr::from_str("1.2.3.4:8765").unwrap();
         let reception_port = Some(1234);
@@ -221,7 +218,7 @@ mod tests {
 
         subject_ibcd.try_send(ibcd_in).unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
     }
 
@@ -230,7 +227,7 @@ mod tests {
     fn inbound_client_data_handler_panics_when_hopper_is_unbound() {
         let system = System::new("test");
         let subject = Dispatcher::new();
-        let subject_addr: Addr<Syn, Dispatcher> = subject.start();
+        let subject_addr: Addr<Dispatcher> = subject.start();
         let subject_ibcd = subject_addr.recipient::<InboundClientData>();
         let peer_addr = SocketAddr::from_str("1.2.3.4:8765").unwrap();
         let reception_port = Some(1234);
@@ -246,7 +243,7 @@ mod tests {
 
         subject_ibcd.try_send(ibcd_in).unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
     }
 
@@ -255,7 +252,7 @@ mod tests {
     fn panics_when_stream_handler_pool_is_unbound() {
         let system = System::new("test");
         let subject = Dispatcher::new();
-        let subject_addr: Addr<Syn, Dispatcher> = subject.start();
+        let subject_addr: Addr<Dispatcher> = subject.start();
         let subject_obcd = subject_addr.recipient::<TransmitDataMsg>();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let data: Vec<u8> = vec![9, 10, 11];
@@ -268,7 +265,7 @@ mod tests {
 
         subject_obcd.try_send(obcd).unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
     }
 
@@ -276,7 +273,7 @@ mod tests {
     fn forwards_outbound_data_to_stream_handler_pool() {
         let system = System::new("test");
         let subject = Dispatcher::new();
-        let subject_addr: Addr<Syn, Dispatcher> = subject.start();
+        let subject_addr: Addr<Dispatcher> = subject.start();
         let subject_obcd = subject_addr.clone().recipient::<TransmitDataMsg>();
         let stream_handler_pool = Recorder::new();
         let recording_arc = stream_handler_pool.get_recording();
@@ -304,7 +301,7 @@ mod tests {
 
         subject_obcd.try_send(obcd).unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
 
         awaiter.await_message_count(1);

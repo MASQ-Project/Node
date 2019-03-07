@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-#![cfg (test)]
+#![cfg(test)]
+
 use crate::discriminator::Discriminator;
 use crate::discriminator::DiscriminatorFactory;
 use crate::discriminator::UnmaskedChunk;
@@ -17,7 +18,6 @@ use crate::test_utils::recorder::Recorder;
 use actix::Actor;
 use actix::Addr;
 use actix::Handler;
-use actix::Syn;
 use std::cell::RefCell;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -193,7 +193,7 @@ pub fn make_stream_handler_pool_subs_from(
         None => Recorder::new(),
     };
 
-    let addr: Addr<Syn, Recorder> = stream_handler_pool.start();
+    let addr: Addr<Recorder> = stream_handler_pool.start();
 
     StreamHandlerPoolSubs {
         add_sub: addr.clone().recipient::<AddStreamMsg>(),

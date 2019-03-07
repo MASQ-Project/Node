@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 #![allow(proc_macro_derive_resolution_fallback)]
+
 use crate::proxy_client::resolver_wrapper::ResolverWrapper;
 use crate::proxy_client::stream_establisher::StreamEstablisherFactory;
 use crate::proxy_client::stream_establisher::StreamEstablisherFactoryReal;
@@ -14,7 +15,6 @@ use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
-use actix::Syn;
 use futures::future::Future;
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -36,8 +36,8 @@ pub struct StreamHandlerPoolReal {
 }
 
 struct StreamHandlerPoolRealInner {
-    accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
-    proxy_client_sub: Recipient<Syn, InboundServerData>,
+    accountant_sub: Recipient<ReportExitServiceProvidedMessage>,
+    proxy_client_sub: Recipient<InboundServerData>,
     stream_writer_channels: HashMap<StreamKey, Box<dyn SenderWrapper<SequencedPacket>>>,
     resolver: Box<dyn ResolverWrapper>,
     logger: Logger,
@@ -69,8 +69,8 @@ impl StreamHandlerPoolReal {
     pub fn new(
         resolver: Box<dyn ResolverWrapper>,
         cryptde: &'static dyn CryptDE,
-        accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
-        proxy_client_sub: Recipient<Syn, InboundServerData>,
+        accountant_sub: Recipient<ReportExitServiceProvidedMessage>,
+        proxy_client_sub: Recipient<InboundServerData>,
         exit_service_rate: u64,
         exit_byte_rate: u64,
     ) -> StreamHandlerPoolReal {
@@ -114,7 +114,7 @@ impl StreamHandlerPoolReal {
                             Self::clean_up_bad_stream(inner_arc_1, &stream_key, source, error);
                             ()
                         });
-                tokio::spawn(future);
+                actix::spawn(future);
             }
             None => {
                 let future = Self::make_stream_with_key(&payload, inner_arc_1.clone())
@@ -128,9 +128,8 @@ impl StreamHandlerPoolReal {
                             error_socket_addr(),
                             error,
                         );
-                        ()
                     });
-                tokio::spawn(future);
+                actix::spawn(future);
             }
         };
     }
@@ -199,7 +198,9 @@ impl StreamHandlerPoolReal {
         // resolve the first one and add it to the stream_writers map.
         let logger = Self::make_logger_copy(&inner_arc);
         let mut establisher = {
-            let inner = inner_arc.lock().expect("Stream handler pool is poisoned");
+            let inner = inner_arc
+                .lock()
+                .unwrap_or_else(|_| panic!("Stream handler pool is poisoned"));
             inner.establisher_factory.make()
         };
         logger.debug(format!(
@@ -259,7 +260,7 @@ impl StreamHandlerPoolReal {
     fn send_terminating_package(
         stream_key: &StreamKey,
         source: SocketAddr,
-        proxy_client_sub: &Recipient<Syn, InboundServerData>,
+        proxy_client_sub: &Recipient<InboundServerData>,
     ) {
         proxy_client_sub
             .try_send(InboundServerData {
@@ -321,8 +322,8 @@ pub trait StreamHandlerPoolFactory {
         &self,
         resolver: Box<dyn ResolverWrapper>,
         cryptde: &'static dyn CryptDE,
-        accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
-        proxy_client_sub: Recipient<Syn, InboundServerData>,
+        accountant_sub: Recipient<ReportExitServiceProvidedMessage>,
+        proxy_client_sub: Recipient<InboundServerData>,
         exit_service_rate: u64,
         exit_byte_rate: u64,
     ) -> Box<dyn StreamHandlerPool>;
@@ -335,8 +336,8 @@ impl StreamHandlerPoolFactory for StreamHandlerPoolFactoryReal {
         &self,
         resolver: Box<dyn ResolverWrapper>,
         cryptde: &'static dyn CryptDE,
-        accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
-        proxy_client_sub: Recipient<Syn, InboundServerData>,
+        accountant_sub: Recipient<ReportExitServiceProvidedMessage>,
+        proxy_client_sub: Recipient<InboundServerData>,
         exit_service_rate: u64,
         exit_byte_rate: u64,
     ) -> Box<dyn StreamHandlerPool> {
@@ -361,7 +362,6 @@ mod tests {
     use crate::sub_lib::channel_wrappers::SenderWrapperReal;
     use crate::sub_lib::cryptde::encodex;
     use crate::sub_lib::cryptde::PublicKey;
-    use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::hopper::ExpiredCoresPackage;
     use crate::sub_lib::proxy_server::ProxyProtocol;
     use crate::sub_lib::wallet::Wallet;
@@ -379,12 +379,6 @@ mod tests {
     use crate::test_utils::test_utils::make_meaningless_stream_key;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
-    use actix::Actor;
-    use actix::Addr;
-    use actix::Context;
-    use actix::Handler;
-    use actix::Message;
-    use actix::System;
     use futures::lazy;
     use futures::sync::mpsc::unbounded;
     use futures::Stream;
@@ -404,47 +398,6 @@ mod tests {
     use trust_dns_resolver::error::ResolveError;
     use trust_dns_resolver::error::ResolveErrorKind;
 
-    #[derive(Message)]
-    struct TriggerSubject {
-        package: ExpiredCoresPackage,
-    }
-
-    struct TestActor {
-        cryptde: CryptDENull,
-        subject: StreamHandlerPoolReal,
-    }
-
-    impl Actor for TestActor {
-        type Context = Context<Self>;
-    }
-
-    impl Handler<TriggerSubject> for TestActor {
-        type Result = ();
-
-        fn handle(
-            &mut self,
-            msg: TriggerSubject,
-            _ctx: &mut Self::Context,
-        ) -> <Self as Handler<TriggerSubject>>::Result {
-            let payload = msg
-                .package
-                .payload::<ClientRequestPayload>(&self.cryptde)
-                .unwrap();
-            let consuming_wallet = msg.package.consuming_wallet;
-            self.subject.process_package(payload, consuming_wallet);
-            ()
-        }
-    }
-
-    impl TestActor {
-        pub fn new(subject: StreamHandlerPoolReal) -> TestActor {
-            TestActor {
-                cryptde: CryptDENull::new(),
-                subject,
-            }
-        }
-    }
-
     struct StreamEstablisherFactoryMock {
         make_results: RefCell<Vec<StreamEstablisher>>,
     }
@@ -453,6 +406,21 @@ mod tests {
         fn make(&self) -> StreamEstablisher {
             self.make_results.borrow_mut().remove(0)
         }
+    }
+
+    fn run_process_package_in_actix(
+        subject: StreamHandlerPoolReal,
+        package: ExpiredCoresPackage,
+        cryptde: &dyn CryptDE,
+    ) {
+        actix::run(move || {
+            let payload = package
+                .decoded_payload::<ClientRequestPayload>(cryptde)
+                .expect("unable to decrypt payload in test, you know the one");
+            let consuming_wallet = package.consuming_wallet;
+            subject.process_package(payload, consuming_wallet);
+            ok(())
+        })
     }
 
     #[test]
@@ -484,8 +452,6 @@ mod tests {
         );
 
         thread::spawn(move || {
-            let system = System::new("test");
-
             let peer_actors = peer_actors_builder().build();
             let subject = StreamHandlerPoolReal::new(
                 Box::new(ResolverWrapperMock::new()),
@@ -502,13 +468,7 @@ mod tests {
                 .stream_writer_channels
                 .insert(stream_key, tx_to_write);
 
-            let test_actor = TestActor::new(subject);
-            let addr: Addr<Syn, TestActor> = test_actor.start();
-            let test_trigger: Recipient<Syn, TriggerSubject> =
-                addr.clone().recipient::<TriggerSubject>();
-            test_trigger.try_send(TriggerSubject { package }).is_ok();
-
-            system.run();
+            run_process_package_in_actix(subject, package, cryptde);
         });
 
         await_messages(1, &write_parameters);
@@ -544,7 +504,6 @@ mod tests {
                 make_meaningless_route(),
                 encodex(cryptde, &cryptde.public_key(), &client_request_payload).unwrap(),
             );
-            let system = System::new("test");
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_success(vec![IpAddr::from_str("2.3.4.5").unwrap()]);
@@ -569,13 +528,7 @@ mod tests {
                 .stream_writer_channels
                 .insert(client_request_payload.stream_key, Box::new(tx_to_write));
 
-            let test_actor = TestActor::new(subject);
-            let addr: Addr<Syn, TestActor> = test_actor.start();
-            let test_trigger: Recipient<Syn, TriggerSubject> =
-                addr.clone().recipient::<TriggerSubject>();
-            test_trigger.try_send(TriggerSubject { package }).is_ok();
-
-            system.run();
+            run_process_package_in_actix(subject, package, cryptde);
         });
         proxy_client_awaiter.await_message_count(1);
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
@@ -586,7 +539,7 @@ mod tests {
                 last_data: true,
                 sequence_number: 0,
                 source: SocketAddr::from_str("2.3.4.5:80").unwrap(),
-                data: vec![]
+                data: vec![],
             }
         );
     }
@@ -598,7 +551,6 @@ mod tests {
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
         thread::spawn(move || {
-            let system = System::new("test");
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let client_request_payload = ClientRequestPayload {
                 stream_key: make_meaningless_stream_key(),
@@ -629,13 +581,7 @@ mod tests {
                 200,
             );
 
-            let test_actor = TestActor::new(subject);
-            let addr: Addr<Syn, TestActor> = test_actor.start();
-            let test_trigger: Recipient<Syn, TriggerSubject> =
-                addr.clone().recipient::<TriggerSubject>();
-            test_trigger.try_send(TriggerSubject { package }).is_ok();
-
-            system.run();
+            run_process_package_in_actix(subject, package, cryptde);
         });
 
         proxy_client_awaiter.await_message_count(1);
@@ -647,7 +593,7 @@ mod tests {
                 last_data: true,
                 sequence_number: 0,
                 source: error_socket_addr(),
-                data: vec![]
+                data: vec![],
             }
         );
         TestLogHandler::new().exists_log_containing(
@@ -668,7 +614,6 @@ mod tests {
         let expected_write_parameters = write_parameters.clone();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         thread::spawn(move || {
-            let system = System::new("test");
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let client_request_payload = ClientRequestPayload {
                 stream_key: make_meaningless_stream_key(),
@@ -695,15 +640,19 @@ mod tests {
                     IpAddr::from_str("3.4.5.6").unwrap(),
                 ]);
             let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
+            let first_read_result = b"HTTP/1.1 200 OK\r\n\r\n";
             let reader = ReadHalfWrapperMock {
                 poll_read_results: vec![
-                    (b"HTTP/1.1 200 OK\r\n\r\n".to_vec(), Ok(Async::Ready(19))),
+                    (
+                        first_read_result.to_vec(),
+                        Ok(Async::Ready(first_read_result.len())),
+                    ),
                     (vec![], Err(Error::from(ErrorKind::ConnectionAborted))),
                 ],
             };
             let writer = WriteHalfWrapperMock {
                 poll_write_params: write_parameters,
-                poll_write_results: vec![Ok(Async::Ready(123))],
+                poll_write_results: vec![Ok(Async::Ready(first_read_result.len()))],
                 shutdown_results: Arc::new(Mutex::new(vec![])),
             };
             let mut subject = StreamHandlerPoolReal::new(
@@ -739,13 +688,7 @@ mod tests {
                 });
             }
 
-            let test_actor = TestActor::new(subject);
-            let addr: Addr<Syn, TestActor> = test_actor.start();
-            let test_trigger: Recipient<Syn, TriggerSubject> =
-                addr.clone().recipient::<TriggerSubject>();
-            test_trigger.try_send(TriggerSubject { package }).is_ok();
-
-            system.run();
+            run_process_package_in_actix(subject, package, cryptde);
         });
 
         proxy_client_awaiter.await_message_count(1);
@@ -765,7 +708,7 @@ mod tests {
                 last_data: false,
                 sequence_number: 0,
                 source: SocketAddr::from_str("3.4.5.6:80").unwrap(),
-                data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec()
+                data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
             }
         );
     }
@@ -778,7 +721,6 @@ mod tests {
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
         thread::spawn(move || {
-            let system = System::new("test");
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let client_request_payload = ClientRequestPayload {
                 stream_key,
@@ -834,13 +776,7 @@ mod tests {
                     make_results: RefCell::new(vec![establisher]),
                 });
 
-            let test_actor = TestActor::new(subject);
-            let addr: Addr<Syn, TestActor> = test_actor.start();
-            let test_trigger: Recipient<Syn, TriggerSubject> =
-                addr.clone().recipient::<TriggerSubject>();
-            test_trigger.try_send(TriggerSubject { package }).is_ok();
-
-            system.run();
+            run_process_package_in_actix(subject, package, cryptde);
         });
 
         proxy_client_awaiter.await_message_count(1);
@@ -852,7 +788,7 @@ mod tests {
                 last_data: true,
                 sequence_number: 0,
                 source: error_socket_addr(),
-                data: vec![]
+                data: vec![],
             }
         );
     }
@@ -864,10 +800,11 @@ mod tests {
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let write_parameters = Arc::new(Mutex::new(vec![]));
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
-        let originator_key = PublicKey::new(&b"men's souls"[..]);
+        let (stream_adder_tx, _stream_adder_rx) = mpsc::channel();
+
         thread::spawn(move || {
-            let system = System::new("test");
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+
             let sequenced_packet = SequencedPacket {
                 data: b"These are the times".to_vec(),
                 sequence_number: 0,
@@ -880,21 +817,23 @@ mod tests {
                 target_hostname: Some(String::from("that.try")),
                 target_port: 80,
                 protocol: ProxyProtocol::HTTP,
-                originator_public_key: originator_key,
+                originator_public_key: PublicKey::new(&b"men's souls"[..]),
             };
+
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
                 Some(Wallet::new("consuming")),
                 make_meaningless_route(),
                 encodex(cryptde, &cryptde.public_key(), &client_request_payload).unwrap(),
             );
+
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_parameters(&lookup_ip_parameters)
                 .lookup_ip_success(vec![
                     IpAddr::from_str("2.3.4.5").unwrap(),
                     IpAddr::from_str("3.4.5.6").unwrap(),
                 ]);
-            let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
+
             let reader = ReadHalfWrapperMock {
                 poll_read_results: vec![
                     (vec![], Ok(Async::NotReady)),
@@ -906,6 +845,7 @@ mod tests {
                 poll_write_results: vec![Ok(Async::NotReady)],
                 shutdown_results: Arc::new(Mutex::new(vec![])),
             };
+
             let mut subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
                 cryptde,
@@ -914,33 +854,34 @@ mod tests {
                 100,
                 200,
             );
+
+            let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
             let disconnected_sender = Box::new(SenderWrapperMock {
                 peer_addr,
                 unbounded_send_params: Arc::new(Mutex::new(vec![])),
                 unbounded_send_results: RefCell::new(vec![make_send_error(sequenced_packet)]),
             });
+
             let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
             subject.stream_killer_rx = stream_killer_rx;
-            let (stream_adder_tx, _stream_adder_rx) = mpsc::channel();
+
             {
                 let mut inner = subject.inner.lock().unwrap();
                 let establisher = StreamEstablisher {
                     cryptde,
                     stream_adder_tx,
                     stream_killer_tx,
-                    stream_connector: Box::new(StreamConnectorMock::new().with_connection(
-                        peer_addr.clone(),
-                        peer_addr.clone(),
-                        reader,
-                        writer,
-                    )),
-                    proxy_client_sub: inner.proxy_client_sub.clone(),
+                    stream_connector: Box::new(
+                        StreamConnectorMock::new()
+                            .with_connection(peer_addr, peer_addr, reader, writer),
+                    ),
+                    proxy_client_sub: peer_actors.proxy_client.inbound_server_data.clone(),
                     logger: inner.logger.clone(),
                     channel_factory: Box::new(FuturesChannelFactoryMock {
                         results: vec![(
                             disconnected_sender,
                             Box::new(ReceiverWrapperMock {
-                                poll_results: vec![],
+                                poll_results: vec![Ok(Async::Ready(None))],
                             }),
                         )],
                     }),
@@ -950,13 +891,7 @@ mod tests {
                     make_results: RefCell::new(vec![establisher]),
                 });
             }
-
-            let test_actor = TestActor::new(subject);
-            let addr: Addr<Syn, TestActor> = test_actor.start();
-            let test_trigger: Recipient<Syn, TriggerSubject> =
-                addr.clone().recipient::<TriggerSubject>();
-            test_trigger.try_send(TriggerSubject { package }).is_ok();
-            system.run();
+            run_process_package_in_actix(subject, package, cryptde);
         });
 
         proxy_client_awaiter.await_message_count(1);
@@ -968,7 +903,7 @@ mod tests {
                 last_data: true,
                 sequence_number: 0,
                 source: error_socket_addr(),
-                data: vec![]
+                data: vec![],
             }
         );
     }
@@ -999,7 +934,6 @@ mod tests {
                 make_meaningless_route(),
                 encodex(cryptde, &cryptde.public_key(), &client_request_payload).unwrap(),
             );
-            let system = System::new("test");
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let mut lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
             let resolver = ResolverWrapperMock::new()
@@ -1013,13 +947,7 @@ mod tests {
                 100,
                 200,
             );
-            let test_actor = TestActor::new(subject);
-            let addr: Addr<Syn, TestActor> = test_actor.start();
-            let test_trigger: Recipient<Syn, TriggerSubject> =
-                addr.clone().recipient::<TriggerSubject>();
-            test_trigger.try_send(TriggerSubject { package }).is_ok();
-
-            system.run();
+            run_process_package_in_actix(subject, package, cryptde);
         });
         TestLogHandler::new().await_log_containing(
             "ERROR: Proxy Client: Could not find IP address for host that.try: io error",
@@ -1034,7 +962,7 @@ mod tests {
                 last_data: true,
                 sequence_number: 0,
                 source: error_socket_addr(),
-                data: vec![]
+                data: vec![],
             }
         );
     }
@@ -1068,7 +996,6 @@ mod tests {
         );
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
-            let system = System::new("test");
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let resolver = ResolverWrapperMock::new();
             let subject = StreamHandlerPoolReal::new(
@@ -1087,13 +1014,7 @@ mod tests {
                 )),
             );
 
-            let test_actor = TestActor::new(subject);
-            let addr: Addr<Syn, TestActor> = test_actor.start();
-            let test_trigger: Recipient<Syn, TriggerSubject> =
-                addr.clone().recipient::<TriggerSubject>();
-            test_trigger.try_send(TriggerSubject { package }).is_ok();
-
-            system.run();
+            run_process_package_in_actix(subject, package, cryptde);
         });
 
         let test_future = lazy(move || {
@@ -1150,7 +1071,6 @@ mod tests {
             RefCell::new(vec![make_send_error(sequenced_packet.clone())]);
         let send_params = sender_wrapper.unbounded_send_params.clone();
         thread::spawn(move || {
-            let system = System::new("test");
             let resolver = ResolverWrapperMock::new();
             let peer_actors = peer_actors_builder()
                 .hopper(hopper)
@@ -1173,13 +1093,7 @@ mod tests {
                 .stream_writer_channels
                 .insert(stream_key, Box::new(sender_wrapper));
 
-            let test_actor = TestActor::new(subject);
-            let addr: Addr<Syn, TestActor> = test_actor.start();
-            let test_trigger: Recipient<Syn, TriggerSubject> =
-                addr.clone().recipient::<TriggerSubject>();
-            test_trigger.try_send(TriggerSubject { package }).is_ok();
-
-            system.run();
+            run_process_package_in_actix(subject, package, cryptde);
         });
 
         await_messages(1, &send_params);
@@ -1198,7 +1112,6 @@ mod tests {
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let (accountant, _, _) = make_recorder();
         thread::spawn(move || {
-            let system = System::new("test");
             let peer_actors = peer_actors_builder()
                 .hopper(hopper)
                 .accountant(accountant)
@@ -1237,13 +1150,7 @@ mod tests {
                     make_results: RefCell::new(vec![]),
                 });
 
-            let test_actor = TestActor::new(subject);
-            let addr: Addr<Syn, TestActor> = test_actor.start();
-            let test_trigger: Recipient<Syn, TriggerSubject> =
-                addr.clone().recipient::<TriggerSubject>();
-            test_trigger.try_send(TriggerSubject { package }).is_ok();
-
-            system.run();
+            run_process_package_in_actix(subject, package, cryptde);
         });
 
         let tlh = TestLogHandler::new();

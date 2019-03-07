@@ -7,7 +7,6 @@ use crate::sub_lib::stream_connector::StreamConnectorReal;
 use crate::sub_lib::tokio_wrappers::TokioListenerWrapper;
 use crate::sub_lib::tokio_wrappers::TokioListenerWrapperReal;
 use actix::Recipient;
-use actix::Syn;
 use std::io;
 use std::marker::Send;
 use std::net::IpAddr;
@@ -22,7 +21,7 @@ pub trait ListenerHandler: Send + Future {
         port: u16,
         port_configuration: PortConfiguration,
     ) -> io::Result<()>;
-    fn bind_subs(&mut self, add_stream_sub: Recipient<Syn, AddStreamMsg>);
+    fn bind_subs(&mut self, add_stream_sub: Recipient<AddStreamMsg>);
 }
 
 pub trait ListenerHandlerFactory: Send {
@@ -33,7 +32,7 @@ pub struct ListenerHandlerReal {
     port: Option<u16>,
     port_configuration: Option<PortConfiguration>,
     listener: Box<dyn TokioListenerWrapper>,
-    add_stream_sub: Option<Recipient<Syn, AddStreamMsg>>,
+    add_stream_sub: Option<Recipient<AddStreamMsg>>,
     logger: Logger,
 }
 
@@ -50,7 +49,7 @@ impl ListenerHandler for ListenerHandlerReal {
             .bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::from(0)), port))
     }
 
-    fn bind_subs(&mut self, add_stream_sub: Recipient<Syn, AddStreamMsg>) {
+    fn bind_subs(&mut self, add_stream_sub: Recipient<AddStreamMsg>) {
         self.add_stream_sub = Some(add_stream_sub);
     }
 }
@@ -349,8 +348,8 @@ mod tests {
         assert_eq!(recording.len(), 3);
     }
 
-    fn start_recorder(recorder: Recorder) -> Recipient<Syn, AddStreamMsg> {
-        let recorder_addr: Addr<Syn, Recorder> = recorder.start();
+    fn start_recorder(recorder: Recorder) -> Recipient<AddStreamMsg> {
+        let recorder_addr: Addr<Recorder> = recorder.start();
         recorder_addr.recipient::<AddStreamMsg>()
     }
 }

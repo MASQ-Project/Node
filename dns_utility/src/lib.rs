@@ -12,10 +12,10 @@ pub mod dns_modifier;
 pub mod dns_modifier_factory;
 pub mod dns_utility;
 pub mod dynamic_store_dns_modifier;
+pub mod main_tools;
 pub mod resolv_conf_dns_modifier;
 pub mod utils;
 pub mod winreg_dns_modifier;
-pub mod main_tools;
 
 #[cfg(test)]
 pub mod fake_stream_holder;

@@ -1,11 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use crate::main_tools::StdStreams;
 use std::cmp::min;
 use std::io;
 use std::io::Error;
 use std::io::Read;
 use std::io::Write;
-use crate::main_tools::StdStreams;
 
 pub struct ByteArrayWriter {
     pub byte_array: Vec<u8>,

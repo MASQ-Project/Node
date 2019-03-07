@@ -35,7 +35,11 @@ pub struct ReceiverWrapperMock<T> {
 
 impl<T: Send> ReceiverWrapper<T> for ReceiverWrapperMock<T> {
     fn poll(&mut self) -> Result<Async<Option<T>>, ()> {
-        self.poll_results.remove(0)
+        if !self.poll_results.is_empty() {
+            self.poll_results.remove(0)
+        } else {
+            panic!("ReceiverWrapper tried to remove from pull_results but there were none");
+        }
     }
 }
 

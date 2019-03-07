@@ -12,7 +12,6 @@ use actix::Actor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
-use actix::Syn;
 
 pub struct Hopper {
     cryptde: &'static dyn CryptDE,
@@ -91,7 +90,7 @@ impl Hopper {
         }
     }
 
-    pub fn make_subs_from(addr: &Addr<Syn, Hopper>) -> HopperSubs {
+    pub fn make_subs_from(addr: &Addr<Hopper>) -> HopperSubs {
         HopperSubs {
             bind: addr.clone().recipient::<BindMessage>(),
             from_hopper_client: addr.clone().recipient::<IncipientCoresPackage>(),
@@ -114,9 +113,7 @@ mod tests {
     use crate::test_utils::test_utils::cryptde;
     use crate::test_utils::test_utils::route_to_proxy_client;
     use crate::test_utils::test_utils::PayloadMock;
-    use actix::msgs;
     use actix::Actor;
-    use actix::Arbiter;
     use actix::System;
     use std::net::SocketAddr;
     use std::str::FromStr;
@@ -156,11 +153,11 @@ mod tests {
             per_routing_service: 100,
             per_routing_byte: 200,
         });
-        let subject_addr: Addr<Syn, Hopper> = subject.start();
+        let subject_addr: Addr<Hopper> = subject.start();
 
         subject_addr.try_send(inbound_client_data).unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
     }
 
@@ -189,11 +186,11 @@ mod tests {
             per_routing_service: 100,
             per_routing_byte: 200,
         });
-        let subject_addr: Addr<Syn, Hopper> = subject.start();
+        let subject_addr: Addr<Hopper> = subject.start();
 
         subject_addr.try_send(incipient_package).unwrap();
 
-        Arbiter::system().try_send(msgs::SystemExit(0)).unwrap();
+        System::current().stop_with_code(0);
         system.run();
     }
 }
