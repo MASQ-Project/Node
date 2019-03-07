@@ -11,8 +11,8 @@ use node_lib::neighborhood::neighborhood_database::NodeRecordInner;
 use node_lib::neighborhood::neighborhood_database::NodeSignatures;
 use node_lib::sub_lib::accountant;
 use node_lib::sub_lib::cryptde_null::CryptDENull;
+use node_lib::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use node_lib::test_utils::test_utils::assert_contains;
-use node_lib::test_utils::test_utils::rate_pack;
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::thread;
@@ -42,7 +42,7 @@ fn when_bootstrapping_from_a_node_then_the_node_sends_gossip_upon_startup() {
         is_bootstrap_node: false,
         earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
         consuming_wallet: Some(accountant::TEMPORARY_CONSUMING_WALLET.clone()),
-        rate_pack: rate_pack(100),
+        rate_pack: DEFAULT_RATE_PACK,
         neighbors: vec![bootstrap_node_ref.public_key.clone()],
         version: 0,
     };
@@ -52,7 +52,7 @@ fn when_bootstrapping_from_a_node_then_the_node_sends_gossip_upon_startup() {
             Some(&node_ref.node_addr),
             inner.earning_wallet.clone(),
             inner.consuming_wallet.clone(),
-            rate_pack(100),
+            DEFAULT_RATE_PACK,
             false,
             None,
             0,
