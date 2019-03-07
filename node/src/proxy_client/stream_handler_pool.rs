@@ -9,8 +9,6 @@ use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::proxy_client::error_socket_addr;
 use crate::sub_lib::proxy_client::InboundServerData;
-use crate::sub_lib::proxy_client::TEMPORARY_PER_EXIT_BYTE_RATE;
-use crate::sub_lib::proxy_client::TEMPORARY_PER_EXIT_RATE;
 use crate::sub_lib::proxy_server::ClientRequestPayload;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
@@ -44,6 +42,8 @@ struct StreamHandlerPoolRealInner {
     resolver: Box<dyn ResolverWrapper>,
     logger: Logger,
     establisher_factory: Box<dyn StreamEstablisherFactory>,
+    exit_service_rate: u64,
+    exit_byte_rate: u64,
 }
 
 impl StreamHandlerPool for StreamHandlerPoolReal {
@@ -71,6 +71,8 @@ impl StreamHandlerPoolReal {
         cryptde: &'static dyn CryptDE,
         accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
         proxy_client_sub: Recipient<Syn, InboundServerData>,
+        exit_service_rate: u64,
+        exit_byte_rate: u64,
     ) -> StreamHandlerPoolReal {
         let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
         let (stream_adder_tx, stream_adder_rx) = mpsc::channel();
@@ -88,6 +90,8 @@ impl StreamHandlerPoolReal {
                 stream_writer_channels: HashMap::new(),
                 resolver,
                 logger: Logger::new("Proxy Client"),
+                exit_service_rate,
+                exit_byte_rate,
             })),
             stream_adder_rx,
             stream_killer_rx,
@@ -172,8 +176,8 @@ impl StreamHandlerPoolReal {
                     .try_send(ReportExitServiceProvidedMessage {
                         consuming_wallet: wallet,
                         payload_size,
-                        service_rate: TEMPORARY_PER_EXIT_RATE,
-                        byte_rate: TEMPORARY_PER_EXIT_BYTE_RATE,
+                        service_rate: inner.exit_service_rate,
+                        byte_rate: inner.exit_byte_rate,
                     })
                     .expect("Accountant is dead"),
                 // This log is here mostly for testing, to prove that no Accountant message is sent in the no-wallet case
@@ -319,6 +323,8 @@ pub trait StreamHandlerPoolFactory {
         cryptde: &'static dyn CryptDE,
         accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
         proxy_client_sub: Recipient<Syn, InboundServerData>,
+        exit_service_rate: u64,
+        exit_byte_rate: u64,
     ) -> Box<dyn StreamHandlerPool>;
 }
 
@@ -331,12 +337,16 @@ impl StreamHandlerPoolFactory for StreamHandlerPoolFactoryReal {
         cryptde: &'static dyn CryptDE,
         accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
         proxy_client_sub: Recipient<Syn, InboundServerData>,
+        exit_service_rate: u64,
+        exit_byte_rate: u64,
     ) -> Box<dyn StreamHandlerPool> {
         Box::new(StreamHandlerPoolReal::new(
             resolver,
             cryptde,
             accountant_sub,
             proxy_client_sub,
+            exit_service_rate,
+            exit_byte_rate,
         ))
     }
 }
@@ -482,6 +492,8 @@ mod tests {
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
                 peer_actors.proxy_client.inbound_server_data.clone(),
+                100,
+                200,
             );
             subject
                 .inner
@@ -547,6 +559,8 @@ mod tests {
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
                 peer_actors.proxy_client.inbound_server_data.clone(),
+                100,
+                200,
             );
             subject
                 .inner
@@ -611,6 +625,8 @@ mod tests {
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
                 peer_actors.proxy_client.inbound_server_data.clone(),
+                100,
+                200,
             );
 
             let test_actor = TestActor::new(subject);
@@ -695,6 +711,8 @@ mod tests {
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
                 peer_actors.proxy_client.inbound_server_data.clone(),
+                100,
+                200,
             );
             let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
             subject.stream_killer_rx = stream_killer_rx;
@@ -792,6 +810,8 @@ mod tests {
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
                 proxy_client_sub.clone(),
+                100,
+                200,
             );
             let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
             subject.stream_killer_rx = stream_killer_rx;
@@ -891,6 +911,8 @@ mod tests {
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
                 peer_actors.proxy_client.inbound_server_data.clone(),
+                100,
+                200,
             );
             let disconnected_sender = Box::new(SenderWrapperMock {
                 peer_addr,
@@ -988,6 +1010,8 @@ mod tests {
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
                 peer_actors.proxy_client.inbound_server_data.clone(),
+                100,
+                200,
             );
             let test_actor = TestActor::new(subject);
             let addr: Addr<Syn, TestActor> = test_actor.start();
@@ -1052,6 +1076,8 @@ mod tests {
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
                 peer_actors.proxy_client.inbound_server_data.clone(),
+                100,
+                200,
             );
             subject.inner.lock().unwrap().stream_writer_channels.insert(
                 stream_key,
@@ -1137,6 +1163,8 @@ mod tests {
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
                 peer_actors.proxy_client.inbound_server_data.clone(),
+                100,
+                200,
             );
             subject
                 .inner
@@ -1200,6 +1228,8 @@ mod tests {
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
                 peer_actors.proxy_client.inbound_server_data.clone(),
+                100,
+                200,
             );
 
             subject.inner.lock().unwrap().establisher_factory =

@@ -8,11 +8,8 @@ use node_lib::accountant::payable_dao::PayableAccount;
 use node_lib::accountant::receivable_dao::ReceivableAccount;
 use node_lib::sub_lib::cryptde::CryptDE;
 use node_lib::sub_lib::cryptde::PlainData;
-use node_lib::sub_lib::hopper::TEMPORARY_PER_ROUTING_BYTE_RATE;
-use node_lib::sub_lib::hopper::TEMPORARY_PER_ROUTING_RATE;
+use node_lib::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use node_lib::sub_lib::proxy_client::ClientResponsePayload;
-use node_lib::sub_lib::proxy_client::TEMPORARY_PER_EXIT_BYTE_RATE;
-use node_lib::sub_lib::proxy_client::TEMPORARY_PER_EXIT_RATE;
 use node_lib::sub_lib::proxy_server::ClientRequestPayload;
 use node_lib::sub_lib::proxy_server::ProxyProtocol;
 use node_lib::sub_lib::sequence_buffer::SequencedPacket;
@@ -245,7 +242,8 @@ fn calculate_request_routing_charge(bytes: usize, exit_cryptde: &CryptDE) -> (us
     let payload_len = payload_enc.len();
     (
         payload_len,
-        TEMPORARY_PER_ROUTING_RATE + (TEMPORARY_PER_ROUTING_BYTE_RATE * payload_len as u64),
+        DEFAULT_RATE_PACK.routing_service_rate
+            + (DEFAULT_RATE_PACK.routing_byte_rate * payload_len as u64),
     )
 }
 
@@ -258,12 +256,13 @@ fn calculate_response_routing_charge(bytes: usize, originating_cryptde: &CryptDE
     let payload_len = payload_enc.len();
     (
         payload_len,
-        TEMPORARY_PER_ROUTING_RATE + (TEMPORARY_PER_ROUTING_BYTE_RATE * payload_len as u64),
+        DEFAULT_RATE_PACK.routing_service_rate
+            + (DEFAULT_RATE_PACK.routing_byte_rate * payload_len as u64),
     )
 }
 
 fn calculate_exit_charge(bytes: usize) -> u64 {
-    TEMPORARY_PER_EXIT_RATE + (TEMPORARY_PER_EXIT_BYTE_RATE * bytes as u64)
+    DEFAULT_RATE_PACK.exit_service_rate + (DEFAULT_RATE_PACK.exit_byte_rate * bytes as u64)
 }
 
 fn assert_timestamp_between(before: &SystemTime, timestamp: &SystemTime, after: &SystemTime) {

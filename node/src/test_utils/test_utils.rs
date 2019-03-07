@@ -8,6 +8,7 @@ use crate::sub_lib::dispatcher::Component;
 use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::neighborhood::ExpectedService;
 use crate::sub_lib::neighborhood::ExpectedServices;
+use crate::sub_lib::neighborhood::RatePack;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
@@ -276,6 +277,28 @@ pub fn encrypt_return_route_id(return_route_id: u32, cryptde: &CryptDE) -> Crypt
     cryptde
         .encode(&cryptde.public_key(), &PlainData::from(return_route_id_ser))
         .unwrap()
+}
+
+pub fn rate_pack_routing_byte(base_rate: u64) -> u64 {
+    base_rate + 1
+}
+pub fn rate_pack_routing(base_rate: u64) -> u64 {
+    base_rate + 2
+}
+pub fn rate_pack_exit_byte(base_rate: u64) -> u64 {
+    base_rate + 3
+}
+pub fn rate_pack_exit(base_rate: u64) -> u64 {
+    base_rate + 4
+}
+
+pub fn rate_pack(base_rate: u64) -> RatePack {
+    RatePack {
+        routing_byte_rate: rate_pack_routing_byte(base_rate),
+        routing_service_rate: rate_pack_routing(base_rate),
+        exit_byte_rate: rate_pack_exit_byte(base_rate),
+        exit_service_rate: rate_pack_exit(base_rate),
+    }
 }
 
 pub fn find_free_port() -> u16 {

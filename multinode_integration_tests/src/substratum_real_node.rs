@@ -13,6 +13,9 @@ use node_lib::sub_lib::accountant::TEMPORARY_CONSUMING_WALLET;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::neighborhood::sentinel_ip_addr;
+use node_lib::sub_lib::neighborhood::RatePack;
+use node_lib::sub_lib::neighborhood::DEFAULT_RATE_PACK;
+use node_lib::sub_lib::neighborhood::ZERO_RATE_PACK;
 use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::sub_lib::wallet::Wallet;
 use regex::Regex;
@@ -40,6 +43,7 @@ pub struct NodeStartupConfig {
     pub dns_target: IpAddr,
     pub dns_port: u16,
     pub earning_wallet: Wallet,
+    pub rate_pack: RatePack,
     pub consuming_private_key: Option<String>,
 }
 
@@ -54,6 +58,7 @@ impl NodeStartupConfig {
             dns_target: sentinel_ip_addr(),
             dns_port: 0,
             earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
+            rate_pack: DEFAULT_RATE_PACK,
             consuming_private_key: Some(String::from(
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
             )),
@@ -111,6 +116,7 @@ pub struct NodeStartupConfigBuilder {
     dns_target: IpAddr,
     dns_port: u16,
     earning_wallet: Wallet,
+    rate_pack: RatePack,
     consuming_private_key: Option<String>,
 }
 
@@ -125,6 +131,7 @@ impl NodeStartupConfigBuilder {
             dns_target: IpAddr::from_str("127.0.0.1").unwrap(),
             dns_port: 53,
             earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
+            rate_pack: ZERO_RATE_PACK.clone(),
             consuming_private_key: None,
         }
     }
@@ -139,6 +146,7 @@ impl NodeStartupConfigBuilder {
             dns_target: IpAddr::from_str("127.0.0.1").unwrap(),
             dns_port: 53,
             earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
+            rate_pack: DEFAULT_RATE_PACK.clone(),
             consuming_private_key: Some(String::from(
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
             )),
@@ -155,6 +163,7 @@ impl NodeStartupConfigBuilder {
             dns_target: IpAddr::from_str("127.0.0.1").unwrap(),
             dns_port: 53,
             earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
+            rate_pack: ZERO_RATE_PACK,
             consuming_private_key: None,
         }
     }
@@ -169,6 +178,7 @@ impl NodeStartupConfigBuilder {
             dns_target: config.dns_target.clone(),
             dns_port: config.dns_port,
             earning_wallet: config.earning_wallet.clone(),
+            rate_pack: config.rate_pack.clone(),
             consuming_private_key: config.consuming_private_key.clone(),
         }
     }
@@ -223,6 +233,11 @@ impl NodeStartupConfigBuilder {
         self
     }
 
+    pub fn rate_pack(mut self, value: RatePack) -> NodeStartupConfigBuilder {
+        self.rate_pack = value;
+        self
+    }
+
     pub fn build(self) -> NodeStartupConfig {
         NodeStartupConfig {
             ip: self.ip,
@@ -233,6 +248,7 @@ impl NodeStartupConfigBuilder {
             dns_target: self.dns_target,
             dns_port: self.dns_port,
             earning_wallet: self.earning_wallet,
+            rate_pack: self.rate_pack,
             consuming_private_key: self.consuming_private_key,
         }
     }
@@ -284,6 +300,10 @@ impl SubstratumNode for SubstratumRealNode {
         self.guts.consuming_wallet.clone()
     }
 
+    fn rate_pack(&self) -> RatePack {
+        self.guts.rate_pack.clone()
+    }
+
     fn make_client(&self, port: u16) -> SubstratumNodeClient {
         let socket_addr = SocketAddr::new(self.ip_address(), port);
         SubstratumNodeClient::new(socket_addr)
@@ -299,6 +319,7 @@ impl SubstratumRealNode {
         let ip_addr = IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8));
         let name = format!("test_node_{}", index);
         let earning_wallet = startup_config.earning_wallet.clone();
+        let rate_pack = startup_config.rate_pack.clone();
         SubstratumNodeUtils::clean_up_existing_container(&name[..]);
         let real_startup_config = match startup_config.port_count {
             0 => startup_config,
@@ -318,6 +339,7 @@ impl SubstratumRealNode {
             node_reference,
             earning_wallet,
             consuming_wallet: Some(TEMPORARY_CONSUMING_WALLET.clone()),
+            rate_pack,
             root_dir,
         });
         SubstratumRealNode { guts }
@@ -462,6 +484,7 @@ struct SubstratumRealNodeGuts {
     node_reference: NodeReference,
     earning_wallet: Wallet,
     consuming_wallet: Option<Wallet>,
+    rate_pack: RatePack,
     root_dir: String,
 }
 
@@ -585,6 +608,12 @@ mod tests {
             dns_target: IpAddr::from_str("255.255.255.255").unwrap(),
             dns_port: 54,
             earning_wallet: Wallet::new("booga"),
+            rate_pack: RatePack {
+                routing_byte_rate: 10,
+                routing_service_rate: 20,
+                exit_byte_rate: 30,
+                exit_service_rate: 40,
+            },
             consuming_private_key: Some(String::from(
                 "ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD",
             )),

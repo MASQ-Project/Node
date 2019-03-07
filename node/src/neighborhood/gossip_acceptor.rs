@@ -226,6 +226,7 @@ mod tests {
     use crate::test_utils::tcp_wrapper_mocks::TcpStreamWrapperFactoryMock;
     use crate::test_utils::tcp_wrapper_mocks::TcpStreamWrapperMock;
     use crate::test_utils::test_utils::cryptde;
+    use crate::test_utils::test_utils::rate_pack;
     use std::io;
     use std::net::IpAddr;
     use std::net::Ipv4Addr;
@@ -255,11 +256,12 @@ mod tests {
             &this_addr,
             Wallet::new("earning"),
             Some(Wallet::new("consuming")),
+            rate_pack(100),
             false,
             cryptde(),
         );
 
-        let other_node = make_node_record(3333, true, false);
+        let other_node = make_node_record(3333, true, 100, false);
         let other_node_gossip = GossipNodeRecord::from(&other_node, true);
 
         db.add_node(&other_node).unwrap();
@@ -285,11 +287,12 @@ mod tests {
             &this_addr,
             Wallet::new("earning"),
             Some(Wallet::new("consuming")),
+            rate_pack(100),
             false,
             cryptde(),
         );
 
-        let other_node = make_node_record(3333, false, false);
+        let other_node = make_node_record(3333, false, 100, false);
         let other_node_gossip = GossipNodeRecord::from(&other_node, true);
 
         let gossip = Gossip {
@@ -318,11 +321,12 @@ mod tests {
             &this_addr,
             Wallet::new("earning"),
             Some(Wallet::new("consuming")),
+            rate_pack(100),
             false,
             cryptde(),
         );
 
-        let other_node = make_node_record(3333, true, false);
+        let other_node = make_node_record(3333, true, 100, false);
         let other_node_gossip = GossipNodeRecord::from(&other_node, true);
 
         let gossip = Gossip {
@@ -337,24 +341,26 @@ mod tests {
     #[test]
     fn gossip_is_copied_into_single_node_database() {
         init_test_logging();
-        let mut existing_node = make_node_record(1234, true, false);
+        let mut existing_node = make_node_record(1234, true, 100, false);
         let mut database = NeighborhoodDatabase::new(
             existing_node.public_key(),
             existing_node.node_addr_opt().as_ref().unwrap(),
             existing_node.earning_wallet(),
             existing_node.consuming_wallet(),
+            rate_pack(100),
             existing_node.is_bootstrap_node(),
             cryptde(),
         );
-        let incoming_far_left = make_node_record(2345, false, false);
-        let mut incoming_near_left = make_node_record(3456, true, false);
-        let mut incoming_near_right = make_node_record(4657, true, false);
-        let mut incoming_far_right = make_node_record(5678, false, false);
+        let incoming_far_left = make_node_record(2345, false, 100, false);
+        let mut incoming_near_left = make_node_record(3456, true, 100, false);
+        let mut incoming_near_right = make_node_record(4657, true, 100, false);
+        let mut incoming_far_right = make_node_record(5678, false, 100, false);
         let mut bad_record_with_blank_key = NodeRecord::new(
             &PublicKey::new(&[]),
             None,
             Wallet::new("earning"),
             Some(Wallet::new("consuming")),
+            rate_pack(100),
             false,
             Some(NodeSignatures::new(
                 CryptData::new(b"hello"),
@@ -436,19 +442,20 @@ mod tests {
 
     #[test]
     fn gossip_generates_neighbors_from_provided_ip_addresses_with_standard_gossip_acceptor() {
-        let existing_node = make_node_record(1234, true, false);
+        let existing_node = make_node_record(1234, true, 100, false);
         let mut database = NeighborhoodDatabase::new(
             existing_node.public_key(),
             existing_node.node_addr_opt().as_ref().unwrap(),
             existing_node.earning_wallet(),
             existing_node.consuming_wallet(),
+            rate_pack(100),
             existing_node.is_bootstrap_node(),
             cryptde(),
         );
-        let neighbor_one = make_node_record(4657, true, false);
-        let neighbor_two = make_node_record(5678, true, false);
-        let not_a_neighbor_one = make_node_record(2345, false, false);
-        let not_a_neighbor_two = make_node_record(3456, false, false);
+        let neighbor_one = make_node_record(4657, true, 100, false);
+        let neighbor_two = make_node_record(5678, true, 100, false);
+        let not_a_neighbor_one = make_node_record(2345, false, 100, false);
+        let not_a_neighbor_two = make_node_record(3456, false, 100, false);
         let gossip = GossipBuilder::new()
             .node(&neighbor_one, true)
             .node(&neighbor_two, true)
@@ -485,13 +492,14 @@ mod tests {
     #[test]
     fn gossip_that_would_change_existing_node_ip_is_rejected() {
         init_test_logging();
-        let this_node = make_node_record(1234, true, false);
-        let existing_node = make_node_record(2345, true, false);
+        let this_node = make_node_record(1234, true, 100, false);
+        let existing_node = make_node_record(2345, true, 100, false);
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -505,6 +513,7 @@ mod tests {
                 &IpAddr::V4(Ipv4Addr::new(3, 4, 5, 6)),
                 &vec![12345],
             )),
+            100,
             false,
         );
         let gossip = GossipBuilder::new().node(&new_node, true).build();
@@ -524,14 +533,15 @@ mod tests {
 
     #[test]
     fn gossip_that_would_add_new_ip_for_existing_node_is_accepted() {
-        let this_node = make_node_record(1234, true, false);
-        let existing_node = make_node_record(2345, false, false);
-        let incoming_node = make_node_record(2345, true, false);
+        let this_node = make_node_record(1234, true, 100, false);
+        let existing_node = make_node_record(2345, false, 100, false);
+        let incoming_node = make_node_record(2345, true, 100, false);
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -557,9 +567,9 @@ mod tests {
     #[test]
     fn handle_neighbor_pairs_complains_about_gossip_records_that_neighbor_themselves() {
         init_test_logging();
-        let this_node = make_node_record(1234, true, false);
+        let this_node = make_node_record(1234, true, 100, false);
         // existing_neighbor (2345) has a neighbor of its own: 5678.
-        let mut existing_neighbor = make_node_record(2345, true, false);
+        let mut existing_neighbor = make_node_record(2345, true, 100, false);
         existing_neighbor
             .neighbors_mut()
             .push(PublicKey::new(&[5, 6, 7, 8]));
@@ -568,6 +578,7 @@ mod tests {
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -577,7 +588,7 @@ mod tests {
             .unwrap();
 
         // Now node 2345 claims a completely different neighbors list including itself: 2345 and 6789.
-        let mut invalid_record = make_node_record(2345, true, false);
+        let mut invalid_record = make_node_record(2345, true, 100, false);
         let invalid_record_public_key = invalid_record.public_key().clone();
         invalid_record
             .neighbors_mut()
@@ -607,7 +618,7 @@ mod tests {
 
     #[test]
     fn handle_returns_true_when_an_existing_node_record_updates_signatures() {
-        let this_node = make_node_record(1234, true, false);
+        let this_node = make_node_record(1234, true, 100, false);
         let neighbor = NodeRecord::new(
             &PublicKey::new(&[2, 3, 4, 5]),
             Some(&NodeAddr::new(
@@ -616,6 +627,7 @@ mod tests {
             )),
             Wallet::new("earning"),
             Some(Wallet::new("consuming")),
+            rate_pack(100),
             false,
             None,
             0,
@@ -625,6 +637,7 @@ mod tests {
             &this_node.node_addr_opt().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -653,13 +666,14 @@ mod tests {
 
     #[test]
     fn handle_returns_true_when_a_new_node_record_is_added_without_a_node_addr_or_new_edges() {
-        let this_node = make_node_record(1234, true, false);
-        let incoming_node = make_node_record(2345, false, false);
+        let this_node = make_node_record(1234, true, 100, false);
+        let incoming_node = make_node_record(2345, false, 100, false);
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -679,16 +693,17 @@ mod tests {
 
     #[test]
     fn handle_returns_true_when_a_new_edge_is_created_between_already_known_nodes() {
-        let this_node = make_node_record(1234, true, false);
+        let this_node = make_node_record(1234, true, 100, false);
 
-        let existing_node_with_ip = make_node_record(2345, true, false);
-        let existing_node_without_ip = make_node_record(2345, false, false);
+        let existing_node_with_ip = make_node_record(2345, true, 100, false);
+        let existing_node_without_ip = make_node_record(2345, false, 100, false);
 
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -720,15 +735,16 @@ mod tests {
 
     #[test]
     fn handle_returns_true_when_a_new_node_record_includes_a_node_addr() {
-        let this_node = make_node_record(1234, true, false);
+        let this_node = make_node_record(1234, true, 100, false);
 
-        let incoming_node = make_node_record(2345, true, false);
+        let incoming_node = make_node_record(2345, true, 100, false);
 
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -751,13 +767,14 @@ mod tests {
     #[test]
     fn handle_returns_false_when_gossip_results_in_no_changes_for_existing_node_with_no_node_addr()
     {
-        let this_node = make_node_record(1234, true, false);
-        let existing_node = make_node_record(2345, false, false);
+        let this_node = make_node_record(1234, true, 100, false);
+        let existing_node = make_node_record(2345, false, 100, false);
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -776,8 +793,8 @@ mod tests {
 
     #[test]
     fn handle_returns_false_when_gossip_results_in_no_changes_for_existing_node_with_node_addr() {
-        let this_node = make_node_record(1234, true, false);
-        let mut existing_node = make_node_record(2345, true, false);
+        let this_node = make_node_record(1234, true, 100, false);
+        let mut existing_node = make_node_record(2345, true, 100, false);
         existing_node
             .neighbors_mut()
             .push(this_node.public_key().clone());
@@ -786,6 +803,7 @@ mod tests {
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -814,13 +832,14 @@ mod tests {
     #[test]
     fn handle_does_not_complain_when_gossip_contains_an_existing_signature() {
         init_test_logging();
-        let this_node = make_node_record(1234, true, false);
-        let neighbor = make_node_record(9876, true, false);
+        let this_node = make_node_record(1234, true, 100, false);
+        let neighbor = make_node_record(9876, true, 100, false);
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             &this_node.node_addr_opt().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -840,15 +859,16 @@ mod tests {
 
     #[test]
     fn handle_updates_root_node_record_version_number_when_gossip_includes_a_new_introduction() {
-        let this_node = make_node_record(1234, true, false);
+        let this_node = make_node_record(1234, true, 100, false);
 
-        let incoming_node = make_node_record(2345, true, false);
+        let incoming_node = make_node_record(2345, true, 100, false);
 
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -878,8 +898,8 @@ mod tests {
 
     #[test]
     fn handle_ignores_node_records_for_which_we_have_a_newer_version() {
-        let this_node = make_node_record(1234, true, false);
-        let mut existing_node = make_node_record(2345, true, false);
+        let this_node = make_node_record(1234, true, 100, false);
+        let mut existing_node = make_node_record(2345, true, 100, false);
         let older_version = existing_node.clone();
 
         existing_node.increment_version();
@@ -889,6 +909,7 @@ mod tests {
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -918,8 +939,8 @@ mod tests {
     #[test]
     fn handle_updates_version_number_of_other_nodes_when_a_newer_version_is_received_but_does_not_gossip_about_it_as_a_db_change(
     ) {
-        let this_node = make_node_record(1234, true, false);
-        let existing_node = make_node_record(2345, true, false);
+        let this_node = make_node_record(1234, true, 100, false);
+        let existing_node = make_node_record(2345, true, 100, false);
         let mut newer_version = existing_node.clone();
         newer_version.increment_version();
         newer_version.increment_version();
@@ -933,6 +954,7 @@ mod tests {
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -964,8 +986,8 @@ mod tests {
 
     #[test]
     fn handle_updates_wallet_when_a_newer_version_is_received_and_returns_true() {
-        let this_node = make_node_record(1234, true, false);
-        let existing_node = make_node_record(2345, true, false);
+        let this_node = make_node_record(1234, true, 100, false);
+        let existing_node = make_node_record(2345, true, 100, false);
         let mut newer_version = existing_node.clone();
         newer_version.set_wallets(Wallet::new("0xaBcD3F"), Some(Wallet::new("0xD3FcBa")));
         newer_version
@@ -978,6 +1000,7 @@ mod tests {
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -1002,8 +1025,8 @@ mod tests {
 
     #[test]
     fn handle_returns_false_when_gossip_results_in_no_change_to_an_existing_node_wallet() {
-        let this_node = make_node_record(1234, true, false);
-        let existing_node = make_node_record(2345, true, false);
+        let this_node = make_node_record(1234, true, 100, false);
+        let existing_node = make_node_record(2345, true, 100, false);
         let mut newer_version = existing_node.clone();
         newer_version.set_wallets(Wallet::new("0x2345"), Some(Wallet::new("0x5432")));
         newer_version
@@ -1016,6 +1039,7 @@ mod tests {
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -1040,9 +1064,9 @@ mod tests {
 
     #[test]
     fn handle_updates_is_bootstrap_node_when_a_newer_version_is_received_and_returns_true() {
-        let this_node = make_node_record(1234, true, false);
+        let this_node = make_node_record(1234, true, 100, false);
         let original_is_bootstrap = false;
-        let existing_node = make_node_record(2345, true, original_is_bootstrap);
+        let existing_node = make_node_record(2345, true, 100, original_is_bootstrap);
 
         let new_is_bootstrap = true;
         let mut newer_version = existing_node.clone();
@@ -1057,6 +1081,7 @@ mod tests {
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -1081,9 +1106,9 @@ mod tests {
 
     #[test]
     fn handle_returns_false_when_gossip_results_in_no_change_to_is_bootstrap_node() {
-        let this_node = make_node_record(1234, true, false);
+        let this_node = make_node_record(1234, true, 100, false);
         let is_bootstrap = true;
-        let existing_node = make_node_record(2345, true, is_bootstrap);
+        let existing_node = make_node_record(2345, true, 100, is_bootstrap);
 
         let mut newer_version = existing_node.clone();
         newer_version
@@ -1096,6 +1121,7 @@ mod tests {
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -1123,9 +1149,9 @@ mod tests {
 
     #[test]
     fn handle_updates_multiple_changes_when_a_newer_version_is_received_and_returns_true() {
-        let this_node = make_node_record(1234, true, false);
+        let this_node = make_node_record(1234, true, 100, false);
         let original_is_bootstrap = false;
-        let existing_node = make_node_record(2345, true, original_is_bootstrap);
+        let existing_node = make_node_record(2345, true, 100, original_is_bootstrap);
 
         let new_is_bootstrap = true;
         let mut newer_version = existing_node.clone();
@@ -1141,6 +1167,7 @@ mod tests {
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             cryptde(),
         );

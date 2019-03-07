@@ -20,12 +20,14 @@ use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::dispatcher::DispatcherSubs;
+use crate::sub_lib::hopper::HopperConfig;
 use crate::sub_lib::hopper::HopperSubs;
 use crate::sub_lib::neighborhood::BootstrapNeighborhoodNowMessage;
 use crate::sub_lib::neighborhood::NeighborhoodConfig;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::peer_actors::PeerActors;
+use crate::sub_lib::proxy_client::ProxyClientConfig;
 use crate::sub_lib::proxy_client::ProxyClientSubs;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
@@ -35,7 +37,6 @@ use actix::Addr;
 use actix::Recipient;
 use actix::Syn;
 use actix::System;
-use std::net::SocketAddr;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 use std::thread;
@@ -86,10 +87,18 @@ impl ActorSystemFactoryReal {
         let (dispatcher_subs, pool_bind_sub) = actor_factory.make_and_start_dispatcher();
         let proxy_server_subs = actor_factory
             .make_and_start_proxy_server(cryptde, config.neighborhood_config.is_decentralized());
-        let proxy_client_subs =
-            actor_factory.make_and_start_proxy_client(cryptde, config.dns_servers);
-        let hopper_subs = actor_factory
-            .make_and_start_hopper(cryptde, config.neighborhood_config.is_bootstrap_node);
+        let proxy_client_subs = actor_factory.make_and_start_proxy_client(ProxyClientConfig {
+            cryptde,
+            dns_servers: config.dns_servers,
+            exit_service_rate: config.neighborhood_config.rate_pack.exit_service_rate,
+            exit_byte_rate: config.neighborhood_config.rate_pack.exit_byte_rate,
+        });
+        let hopper_subs = actor_factory.make_and_start_hopper(HopperConfig {
+            cryptde,
+            is_bootstrap_node: config.neighborhood_config.is_bootstrap_node,
+            per_routing_service: config.neighborhood_config.rate_pack.routing_service_rate,
+            per_routing_byte: config.neighborhood_config.rate_pack.routing_byte_rate,
+        });
         let neighborhood_subs =
             actor_factory.make_and_start_neighborhood(cryptde, config.neighborhood_config);
         let accountant_subs = actor_factory.make_and_start_accountant(config.accountant_config);
@@ -201,11 +210,7 @@ pub trait ActorFactory: Send {
         cryptde: &'static dyn CryptDE,
         is_decentralized: bool,
     ) -> ProxyServerSubs;
-    fn make_and_start_hopper(
-        &self,
-        cryptde: &'static dyn CryptDE,
-        is_bootstrap_node: bool,
-    ) -> HopperSubs;
+    fn make_and_start_hopper(&self, config: HopperConfig) -> HopperSubs;
     fn make_and_start_neighborhood(
         &self,
         cryptde: &'static dyn CryptDE,
@@ -217,11 +222,7 @@ pub trait ActorFactory: Send {
         &self,
         clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
     ) -> StreamHandlerPoolSubs;
-    fn make_and_start_proxy_client(
-        &self,
-        cryptde: &'static dyn CryptDE,
-        dns_servers: Vec<SocketAddr>,
-    ) -> ProxyClientSubs;
+    fn make_and_start_proxy_client(&self, config: ProxyClientConfig) -> ProxyClientSubs;
     fn make_and_start_blockchain_bridge(
         &self,
         config: BlockchainBridgeConfig,
@@ -250,12 +251,8 @@ impl ActorFactory for ActorFactoryReal {
         ProxyServer::make_subs_from(&addr)
     }
 
-    fn make_and_start_hopper(
-        &self,
-        cryptde: &'static dyn CryptDE,
-        is_bootstrap_node: bool,
-    ) -> HopperSubs {
-        let hopper = Hopper::new(cryptde, is_bootstrap_node);
+    fn make_and_start_hopper(&self, config: HopperConfig) -> HopperSubs {
+        let hopper = Hopper::new(config);
         let addr: Addr<Syn, Hopper> = hopper.start();
         Hopper::make_subs_from(&addr)
     }
@@ -291,12 +288,8 @@ impl ActorFactory for ActorFactoryReal {
         StreamHandlerPool::make_subs_from(&addr)
     }
 
-    fn make_and_start_proxy_client(
-        &self,
-        cryptde: &'static dyn CryptDE,
-        dns_servers: Vec<SocketAddr>,
-    ) -> ProxyClientSubs {
-        let proxy_client = ProxyClient::new(cryptde, dns_servers);
+    fn make_and_start_proxy_client(&self, config: ProxyClientConfig) -> ProxyClientSubs {
+        let proxy_client = ProxyClient::new(config);
         let addr: Addr<Syn, ProxyClient> = proxy_client.start();
         ProxyClient::make_subs_from(&addr)
     }
@@ -341,6 +334,11 @@ mod tests {
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::test_utils::cryptde;
+    use crate::test_utils::test_utils::rate_pack;
+    use crate::test_utils::test_utils::rate_pack_exit;
+    use crate::test_utils::test_utils::rate_pack_exit_byte;
+    use crate::test_utils::test_utils::rate_pack_routing;
+    use crate::test_utils::test_utils::rate_pack_routing_byte;
     use actix::msgs;
     use actix::Arbiter;
     use std::cell::RefCell;
@@ -395,16 +393,12 @@ mod tests {
             }
         }
 
-        fn make_and_start_hopper(
-            &self,
-            cryptde: &'a dyn CryptDE,
-            is_bootstrap_node: bool,
-        ) -> HopperSubs {
+        fn make_and_start_hopper(&self, config: HopperConfig) -> HopperSubs {
             self.parameters
                 .hopper_params
                 .lock()
                 .unwrap()
-                .get_or_insert((cryptde, is_bootstrap_node));
+                .get_or_insert(config);
             let addr: Addr<Syn, Recorder> = ActorFactoryMock::start_recorder(&self.hopper);
             HopperSubs {
                 bind: addr.clone().recipient::<BindMessage>(),
@@ -488,16 +482,12 @@ mod tests {
             }
         }
 
-        fn make_and_start_proxy_client(
-            &self,
-            cryptde: &'a dyn CryptDE,
-            dns_servers: Vec<SocketAddr>,
-        ) -> ProxyClientSubs {
+        fn make_and_start_proxy_client(&self, config: ProxyClientConfig) -> ProxyClientSubs {
             self.parameters
                 .proxy_client_params
                 .lock()
                 .unwrap()
-                .get_or_insert((cryptde, dns_servers));
+                .get_or_insert(config);
             let addr: Addr<Syn, Recorder> = ActorFactoryMock::start_recorder(&self.proxy_client);
             ProxyClientSubs {
                 bind: addr.clone().recipient::<BindMessage>(),
@@ -537,9 +527,9 @@ mod tests {
 
     #[derive(Clone)]
     struct Parameters<'a> {
-        proxy_client_params: Arc<Mutex<Option<(&'a dyn CryptDE, Vec<SocketAddr>)>>>,
+        proxy_client_params: Arc<Mutex<Option<(ProxyClientConfig)>>>,
         proxy_server_params: Arc<Mutex<Option<(&'a dyn CryptDE, bool)>>>,
-        hopper_params: Arc<Mutex<Option<(&'a dyn CryptDE, bool)>>>,
+        hopper_params: Arc<Mutex<Option<HopperConfig>>>,
         neighborhood_params: Arc<Mutex<Option<(&'a dyn CryptDE, NeighborhoodConfig)>>>,
         accountant_params: Arc<Mutex<Option<AccountantConfig>>>,
         ui_gateway_params: Arc<Mutex<Option<UiGatewayConfig>>>,
@@ -629,6 +619,7 @@ mod tests {
                 clandestine_port_list: vec![],
                 earning_wallet: Wallet::new("router"),
                 consuming_wallet: Some(Wallet::new("consumer")),
+                rate_pack: rate_pack(100),
             },
             accountant_config: AccountantConfig {
                 data_directory: PathBuf::new(),
@@ -674,6 +665,7 @@ mod tests {
                 clandestine_port_list: vec![],
                 earning_wallet: Wallet::new("router"),
                 consuming_wallet: Some(Wallet::new("consumer")),
+                rate_pack: rate_pack(100),
             },
             accountant_config: AccountantConfig {
                 data_directory: PathBuf::new(),
@@ -702,12 +694,16 @@ mod tests {
         check_bind_message(&recordings.proxy_server);
         check_bind_message(&recordings.neighborhood);
         check_bind_message(&recordings.ui_gateway);
-        let (cryptde, is_bootstrap_node) = Parameters::get(parameters.hopper_params);
-        check_cryptde(cryptde);
-        assert_eq!(is_bootstrap_node, false);
-        let (cryptde, dns_servers) = Parameters::get(parameters.proxy_client_params);
-        check_cryptde(cryptde);
-        assert_eq!(dns_servers, config.dns_servers);
+        let hopper_config = Parameters::get(parameters.hopper_params);
+        check_cryptde(hopper_config.cryptde);
+        assert_eq!(hopper_config.is_bootstrap_node, false);
+        assert_eq!(hopper_config.per_routing_service, rate_pack_routing(100));
+        assert_eq!(hopper_config.per_routing_byte, rate_pack_routing_byte(100));
+        let proxy_client_config = Parameters::get(parameters.proxy_client_params);
+        check_cryptde(proxy_client_config.cryptde);
+        assert_eq!(proxy_client_config.exit_service_rate, rate_pack_exit(100),);
+        assert_eq!(proxy_client_config.exit_byte_rate, rate_pack_exit_byte(100),);
+        assert_eq!(proxy_client_config.dns_servers, config.dns_servers);
         let (actual_cryptde, actual_is_decentralized) =
             Parameters::get(parameters.proxy_server_params);
         check_cryptde(actual_cryptde);

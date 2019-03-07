@@ -13,9 +13,8 @@ use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::ClientResponsePayload;
 use crate::sub_lib::proxy_client::InboundServerData;
+use crate::sub_lib::proxy_client::ProxyClientConfig;
 use crate::sub_lib::proxy_client::ProxyClientSubs;
-use crate::sub_lib::proxy_client::TEMPORARY_PER_EXIT_BYTE_RATE;
-use crate::sub_lib::proxy_client::TEMPORARY_PER_EXIT_RATE;
 use crate::sub_lib::proxy_server::ClientRequestPayload;
 use crate::sub_lib::route::Route;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
@@ -44,6 +43,8 @@ pub struct ProxyClient {
     to_accountant: Option<Recipient<Syn, ReportExitServiceProvidedMessage>>,
     pool: Option<Box<dyn StreamHandlerPool>>,
     stream_contexts: HashMap<StreamKey, StreamContext>,
+    exit_service_rate: u64,
+    exit_byte_rate: u64,
     logger: Logger,
 }
 
@@ -76,6 +77,8 @@ impl Handler<BindMessage> for ProxyClient {
             self.cryptde,
             self.to_accountant.clone().expect("Accountant is unbound"),
             msg.peer_actors.proxy_client.inbound_server_data,
+            self.exit_service_rate,
+            self.exit_byte_rate,
         ));
         ()
     }
@@ -151,19 +154,21 @@ impl Handler<InboundServerData> for ProxyClient {
 }
 
 impl ProxyClient {
-    pub fn new(cryptde: &'static dyn CryptDE, dns_servers: Vec<SocketAddr>) -> ProxyClient {
-        if dns_servers.is_empty() {
+    pub fn new(config: ProxyClientConfig) -> ProxyClient {
+        if config.dns_servers.is_empty() {
             panic! ("Proxy Client requires at least one DNS server IP address after the --dns_servers parameter")
         }
         ProxyClient {
-            dns_servers,
+            dns_servers: config.dns_servers,
             resolver_wrapper_factory: Box::new(ResolverWrapperFactoryReal {}),
             stream_handler_pool_factory: Box::new(StreamHandlerPoolFactoryReal {}),
-            cryptde,
+            cryptde: config.cryptde,
             to_hopper: None,
             to_accountant: None,
             pool: None,
             stream_contexts: HashMap::new(),
+            exit_service_rate: config.exit_service_rate,
+            exit_byte_rate: config.exit_byte_rate,
             logger: Logger::new("Proxy Client"),
         }
     }
@@ -221,8 +226,8 @@ impl ProxyClient {
             let exit_report = ReportExitServiceProvidedMessage {
                 consuming_wallet,
                 payload_size: msg_data_len,
-                service_rate: TEMPORARY_PER_EXIT_RATE,
-                byte_rate: TEMPORARY_PER_EXIT_BYTE_RATE,
+                service_rate: self.exit_service_rate,
+                byte_rate: self.exit_byte_rate,
             };
             self.to_accountant
                 .as_ref()
@@ -257,8 +262,6 @@ mod tests {
     use crate::sub_lib::cryptde::CryptData;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::proxy_client::ClientResponsePayload;
-    use crate::sub_lib::proxy_client::TEMPORARY_PER_EXIT_BYTE_RATE;
-    use crate::sub_lib::proxy_client::TEMPORARY_PER_EXIT_RATE;
     use crate::sub_lib::proxy_server::ClientRequestPayload;
     use crate::sub_lib::proxy_server::ProxyProtocol;
     use crate::sub_lib::route::Route;
@@ -272,6 +275,8 @@ mod tests {
     use crate::test_utils::test_utils::cryptde;
     use crate::test_utils::test_utils::make_meaningless_route;
     use crate::test_utils::test_utils::make_meaningless_stream_key;
+    use crate::test_utils::test_utils::rate_pack_exit;
+    use crate::test_utils::test_utils::rate_pack_exit_byte;
     use crate::test_utils::test_utils::route_to_proxy_client;
     use actix::msgs;
     use actix::Arbiter;
@@ -324,6 +329,8 @@ mod tests {
                     &'static dyn CryptDE,
                     Recipient<Syn, ReportExitServiceProvidedMessage>,
                     Recipient<Syn, InboundServerData>,
+                    u64,
+                    u64,
                 )>,
             >,
         >,
@@ -337,12 +344,16 @@ mod tests {
             cryptde: &'static dyn CryptDE,
             accountant_sub: Recipient<Syn, ReportExitServiceProvidedMessage>,
             proxy_client_sub: Recipient<Syn, InboundServerData>,
+            exit_service_rate: u64,
+            exit_byte_rate: u64,
         ) -> Box<dyn StreamHandlerPool> {
             self.make_parameters.lock().unwrap().push((
                 resolver,
                 cryptde,
                 accountant_sub,
                 proxy_client_sub,
+                exit_service_rate,
+                exit_byte_rate,
             ));
             self.make_results.borrow_mut().remove(0)
         }
@@ -365,6 +376,8 @@ mod tests {
                         &'static dyn CryptDE,
                         Recipient<Syn, ReportExitServiceProvidedMessage>,
                         Recipient<Syn, InboundServerData>,
+                        u64,
+                        u64,
                     )>,
                 >,
             >,
@@ -387,7 +400,12 @@ mod tests {
         expected = "Proxy Client requires at least one DNS server IP address after the --dns_servers parameter"
     )]
     fn at_least_one_dns_server_must_be_provided() {
-        ProxyClient::new(cryptde(), vec![]);
+        ProxyClient::new(ProxyClientConfig {
+            cryptde: cryptde(),
+            dns_servers: vec![],
+            exit_service_rate: 100,
+            exit_byte_rate: 200,
+        });
     }
 
     #[test]
@@ -406,13 +424,15 @@ mod tests {
             .make_parameters(&mut pool_factory_make_parameters)
             .make_result(Box::new(pool));
         let peer_actors = peer_actors_builder().build();
-        let mut subject = ProxyClient::new(
-            cryptde(),
-            vec![
+        let mut subject = ProxyClient::new(ProxyClientConfig {
+            cryptde: cryptde(),
+            dns_servers: vec![
                 SocketAddr::from_str("4.3.2.1:4321").unwrap(),
                 SocketAddr::from_str("5.4.3.2:5432").unwrap(),
             ],
-        );
+            exit_service_rate: 100,
+            exit_byte_rate: 200,
+        });
         subject.resolver_wrapper_factory = Box::new(resolver_wrapper_factory);
         subject.stream_handler_pool_factory = Box::new(pool_factory);
         let subject_addr: Addr<Syn, ProxyClient> = subject.start();
@@ -469,7 +489,12 @@ mod tests {
             encodex(cryptde, &cryptde.public_key(), &request).unwrap(),
         );
         let system = System::new("panics_if_hopper_is_unbound");
-        let subject = ProxyClient::new(cryptde, dnss());
+        let subject = ProxyClient::new(ProxyClientConfig {
+            cryptde,
+            dns_servers: dnss(),
+            exit_service_rate: 100,
+            exit_byte_rate: 200,
+        });
         let subject_addr: Addr<Syn, ProxyClient> = subject.start();
 
         subject_addr.try_send(package).unwrap();
@@ -488,7 +513,12 @@ mod tests {
             CryptData::new(&b"invalid"[..]),
         );
         let system = System::new("invalid_package_is_logged_and_discarded");
-        let subject = ProxyClient::new(cryptde(), dnss());
+        let subject = ProxyClient::new(ProxyClientConfig {
+            cryptde: cryptde(),
+            dns_servers: dnss(),
+            exit_service_rate: 100,
+            exit_byte_rate: 200,
+        });
         let addr: Addr<Syn, ProxyClient> = subject.start();
         let peer_actors = peer_actors_builder().build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -524,7 +554,7 @@ mod tests {
         );
         let hopper = Recorder::new();
 
-        let system = System::new("unparseable_request_results_in_log_and_no_response");
+        let system = System::new("data_from_hopper_is_relayed_to_stream_handler_pool");
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let mut process_package_parameters = Arc::new(Mutex::new(vec![]));
         let pool = Box::new(
@@ -535,7 +565,12 @@ mod tests {
         let resolver = ResolverWrapperMock::new()
             .lookup_ip_success(vec![IpAddr::from_str("4.3.2.1").unwrap()]);
         let resolver_factory = ResolverWrapperFactoryMock::new().new_result(Box::new(resolver));
-        let mut subject = ProxyClient::new(cryptde, dnss());
+        let mut subject = ProxyClient::new(ProxyClientConfig {
+            cryptde,
+            dns_servers: dnss(),
+            exit_service_rate: 100,
+            exit_byte_rate: 200,
+        });
         subject.resolver_wrapper_factory = Box::new(resolver_factory);
         subject.stream_handler_pool_factory = Box::new(pool_factory);
         let subject_addr: Addr<Syn, ProxyClient> = subject.start();
@@ -573,7 +608,7 @@ mod tests {
         );
         let hopper = Recorder::new();
 
-        let system = System::new("unparseable_request_results_in_log_and_no_response");
+        let system = System::new("refuse_to_provide_exit_services_with_no_consuming_wallet");
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let mut process_package_parameters = Arc::new(Mutex::new(vec![]));
         let pool = Box::new(
@@ -584,7 +619,12 @@ mod tests {
         let resolver = ResolverWrapperMock::new()
             .lookup_ip_success(vec![IpAddr::from_str("4.3.2.1").unwrap()]);
         let resolver_factory = ResolverWrapperFactoryMock::new().new_result(Box::new(resolver));
-        let mut subject = ProxyClient::new(cryptde, dnss());
+        let mut subject = ProxyClient::new(ProxyClientConfig {
+            cryptde,
+            dns_servers: dnss(),
+            exit_service_rate: rate_pack_exit(100),
+            exit_byte_rate: rate_pack_exit_byte(100),
+        });
         subject.resolver_wrapper_factory = Box::new(resolver_factory);
         subject.stream_handler_pool_factory = Box::new(pool_factory);
         let subject_addr: Addr<Syn, ProxyClient> = subject.start();
@@ -632,7 +672,12 @@ mod tests {
         let resolver = ResolverWrapperMock::new()
             .lookup_ip_success(vec![IpAddr::from_str("4.3.2.1").unwrap()]);
         let resolver_factory = ResolverWrapperFactoryMock::new().new_result(Box::new(resolver));
-        let mut subject = ProxyClient::new(cryptde, dnss());
+        let mut subject = ProxyClient::new(ProxyClientConfig {
+            cryptde,
+            dns_servers: dnss(),
+            exit_service_rate: rate_pack_exit(100),
+            exit_byte_rate: rate_pack_exit_byte(100),
+        });
         subject.resolver_wrapper_factory = Box::new(resolver_factory);
         subject.stream_handler_pool_factory = Box::new(pool_factory);
         let subject_addr: Addr<Syn, ProxyClient> = subject.start();
@@ -654,10 +699,12 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
         let system = System::new("inbound_server_data_is_translated_to_cores_packages");
-        let mut subject = ProxyClient::new(
-            cryptde(),
-            vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
-        );
+        let mut subject = ProxyClient::new(ProxyClientConfig {
+            cryptde: cryptde(),
+            dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
+            exit_service_rate: 100,
+            exit_byte_rate: 200,
+        });
         subject.stream_contexts.insert(
             stream_key.clone(),
             StreamContext {
@@ -747,8 +794,8 @@ mod tests {
             &ReportExitServiceProvidedMessage {
                 consuming_wallet: Wallet::new("consuming"),
                 payload_size: data.len(),
-                service_rate: TEMPORARY_PER_EXIT_RATE,
-                byte_rate: TEMPORARY_PER_EXIT_BYTE_RATE
+                service_rate: 100,
+                byte_rate: 200
             }
         );
         assert_eq!(
@@ -756,8 +803,8 @@ mod tests {
             &ReportExitServiceProvidedMessage {
                 consuming_wallet: Wallet::new("consuming"),
                 payload_size: data.len(),
-                service_rate: TEMPORARY_PER_EXIT_RATE,
-                byte_rate: TEMPORARY_PER_EXIT_BYTE_RATE
+                service_rate: 100,
+                byte_rate: 200
             }
         );
         assert_eq!(accountant_recording.len(), 2);
@@ -771,10 +818,12 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
         let system = System::new("inbound_server_data_is_translated_to_cores_packages");
-        let mut subject = ProxyClient::new(
-            cryptde(),
-            vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
-        );
+        let mut subject = ProxyClient::new(ProxyClientConfig {
+            cryptde: cryptde(),
+            dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
+            exit_service_rate: 100,
+            exit_byte_rate: 200,
+        });
         subject.stream_contexts.insert(
             stream_key.clone(),
             StreamContext {
@@ -819,10 +868,12 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
         let system = System::new("inbound_server_data_is_translated_to_cores_packages");
-        let mut subject = ProxyClient::new(
-            cryptde(),
-            vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
-        );
+        let mut subject = ProxyClient::new(ProxyClientConfig {
+            cryptde: cryptde(),
+            dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
+            exit_service_rate: 100,
+            exit_byte_rate: 200,
+        });
         subject.stream_contexts.insert(
             stream_key.clone(),
             StreamContext {
@@ -865,8 +916,12 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
         let system = System::new("new_return_route_overwrites_existing_return_route");
-        let mut subject =
-            ProxyClient::new(cryptde, vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()]);
+        let mut subject = ProxyClient::new(ProxyClientConfig {
+            cryptde,
+            dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
+            exit_service_rate: 100,
+            exit_byte_rate: 200,
+        });
         let mut process_package_params_arc = Arc::new(Mutex::new(vec![]));
         let pool = StreamHandlerPoolMock::new()
             .process_package_parameters(&mut process_package_params_arc);
@@ -954,8 +1009,8 @@ mod tests {
             &ReportExitServiceProvidedMessage {
                 consuming_wallet: Wallet::new("gnimusnoc"),
                 payload_size: data.len(),
-                service_rate: TEMPORARY_PER_EXIT_RATE,
-                byte_rate: TEMPORARY_PER_EXIT_BYTE_RATE,
+                service_rate: 100,
+                byte_rate: 200,
             }
         )
     }

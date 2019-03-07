@@ -143,6 +143,7 @@ mod tests {
     use super::*;
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::hopper::ExpiredCoresPackage;
+    use crate::sub_lib::hopper::HopperConfig;
     use crate::sub_lib::peer_actors::BindMessage;
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
@@ -185,7 +186,12 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("converts_incipient_message_to_live_and_sends_to_dispatcher");
             let peer_actors = peer_actors_builder().dispatcher(dispatcher).build();
-            let subject = Hopper::new(cryptde, false);
+            let subject = Hopper::new(HopperConfig {
+                cryptde,
+                is_bootstrap_node: false,
+                per_routing_service: 100,
+                per_routing_byte: 200,
+            });
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
@@ -228,7 +234,12 @@ mod tests {
         thread::spawn(move || {
             let system = System::new ("hopper_sends_incipient_cores_package_to_recipient_component_when_next_hop_key_is_the_same_as_the_public_key_of_this_node");
             let mut peer_actors = peer_actors_builder().proxy_client(component).build();
-            let subject = Hopper::new(cryptde, false);
+            let subject = Hopper::new(HopperConfig {
+                cryptde,
+                is_bootstrap_node: false,
+                per_routing_service: 100,
+                per_routing_byte: 200,
+            });
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             let subject_subs = Hopper::make_subs_from(&subject_addr);
             peer_actors.hopper = subject_subs;

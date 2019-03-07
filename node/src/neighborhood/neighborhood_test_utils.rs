@@ -8,12 +8,18 @@ use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
+use crate::test_utils::test_utils::rate_pack;
 use std::collections::HashSet;
 use std::hash::Hash;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 
-pub fn make_node_record(n: u16, has_ip: bool, is_bootstrap_node: bool) -> NodeRecord {
+pub fn make_node_record(
+    n: u16,
+    has_ip: bool,
+    base_rate: u64,
+    is_bootstrap_node: bool,
+) -> NodeRecord {
     let a = ((n / 1000) % 10) as u8;
     let b = ((n / 100) % 10) as u8;
     let c = ((n / 10) % 10) as u8;
@@ -25,6 +31,7 @@ pub fn make_node_record(n: u16, has_ip: bool, is_bootstrap_node: bool) -> NodeRe
     NodeRecord::new_for_tests(
         &key,
         if has_ip { Some(&node_addr) } else { None },
+        base_rate,
         is_bootstrap_node,
     )
 }
@@ -68,6 +75,7 @@ impl NodeRecord {
     pub fn new_for_tests(
         public_key: &PublicKey,
         node_addr_opt: Option<&NodeAddr>,
+        base_rate: u64,
         is_bootstrap_node: bool,
     ) -> NodeRecord {
         let mut node_record = NodeRecord::new(
@@ -75,6 +83,7 @@ impl NodeRecord {
             node_addr_opt,
             NodeRecord::earning_wallet_from_key(public_key),
             NodeRecord::consuming_wallet_from_key(public_key),
+            rate_pack(base_rate),
             is_bootstrap_node,
             None,
             0,

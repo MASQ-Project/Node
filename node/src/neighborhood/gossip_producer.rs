@@ -132,17 +132,19 @@ mod tests {
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::test_utils::assert_contains;
     use crate::test_utils::test_utils::cryptde;
+    use crate::test_utils::test_utils::rate_pack;
 
     #[test]
     #[should_panic(expected = "Target node AgMEBQ not in NeighborhoodDatabase")]
     fn produce_fails_for_target_not_in_database() {
-        let this_node = make_node_record(1234, true, false);
-        let target_node = make_node_record(2345, true, false);
+        let this_node = make_node_record(1234, true, 100, false);
+        let target_node = make_node_record(2345, true, 100, false);
         let database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             cryptde(),
         );
@@ -154,10 +156,10 @@ mod tests {
 
     #[test]
     fn database_produces_gossip_with_standard_gossip_handler_and_well_connected_target() {
-        let mut this_node = make_node_record(1234, true, false);
-        let mut first_neighbor = make_node_record(2345, true, false);
-        let second_neighbor = make_node_record(3456, true, true);
-        let mut target = make_node_record(4567, false, false);
+        let mut this_node = make_node_record(1234, true, 100, false);
+        let mut first_neighbor = make_node_record(2345, true, 100, false);
+        let second_neighbor = make_node_record(3456, true, 100, true);
+        let mut target = make_node_record(4567, false, 100, false);
         this_node
             .neighbors_mut()
             .push(first_neighbor.public_key().clone());
@@ -179,6 +181,7 @@ mod tests {
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             &CryptDENull::from(this_node.public_key()),
         );
@@ -226,10 +229,10 @@ mod tests {
 
     #[test]
     fn database_produces_gossip_with_badly_connected_target() {
-        let mut this_node = make_node_record(1234, true, false);
-        let mut first_neighbor = make_node_record(2345, true, false);
-        let second_neighbor = make_node_record(3456, true, true);
-        let target = make_node_record(4567, false, false);
+        let mut this_node = make_node_record(1234, true, 100, false);
+        let mut first_neighbor = make_node_record(2345, true, 100, false);
+        let second_neighbor = make_node_record(3456, true, 100, true);
+        let target = make_node_record(4567, false, 100, false);
         this_node
             .neighbors_mut()
             .push(first_neighbor.public_key().clone());
@@ -244,6 +247,7 @@ mod tests {
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             &CryptDENull::from(this_node.public_key()),
         );
@@ -285,9 +289,9 @@ mod tests {
     #[test]
     fn gossip_producer_filters_out_target_connections_to_bootstrap_nodes() {
         //but keeps target connections from bootstrap nodes
-        let mut this_node = make_node_record(1234, true, false);
-        let mut bootstrap = make_node_record(3456, true, true);
-        let mut target = make_node_record(4567, false, false);
+        let mut this_node = make_node_record(1234, true, 100, false);
+        let mut bootstrap = make_node_record(3456, true, 100, true);
+        let mut target = make_node_record(4567, false, 100, false);
         this_node
             .neighbors_mut()
             .push(bootstrap.public_key().clone());
@@ -298,6 +302,7 @@ mod tests {
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             &CryptDENull::from(this_node.public_key()),
         );
@@ -333,10 +338,10 @@ mod tests {
 
     #[test]
     fn gossip_producer_masks_ip_addrs_for_nodes_not_directly_connected_to_target() {
-        let mut this_node = make_node_record(1234, true, false);
-        let mut first_neighbor = make_node_record(2345, true, false);
-        let second_neighbor = make_node_record(3456, true, false);
-        let mut target = make_node_record(4567, false, false);
+        let mut this_node = make_node_record(1234, true, 100, false);
+        let mut first_neighbor = make_node_record(2345, true, 100, false);
+        let second_neighbor = make_node_record(3456, true, 100, false);
+        let mut target = make_node_record(4567, false, 100, false);
         this_node
             .neighbors_mut()
             .push(first_neighbor.public_key().clone());
@@ -357,6 +362,7 @@ mod tests {
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             &CryptDENull::from(this_node.public_key()),
         );
@@ -403,10 +409,10 @@ mod tests {
 
     #[test]
     fn gossip_producer_reveals_ip_addr_to_introduce_target_to_more_nodes() {
-        let mut this_node = make_node_record(1234, true, false);
-        let mut first_neighbor = make_node_record(2345, true, false);
-        let mut second_neighbor = make_node_record(3456, true, false);
-        let mut target = make_node_record(4567, true, false);
+        let mut this_node = make_node_record(1234, true, 100, false);
+        let mut first_neighbor = make_node_record(2345, true, 100, false);
+        let mut second_neighbor = make_node_record(3456, true, 100, false);
+        let mut target = make_node_record(4567, true, 100, false);
         this_node
             .neighbors_mut()
             .push(first_neighbor.public_key().clone());
@@ -432,6 +438,7 @@ mod tests {
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             &CryptDENull::from(this_node.public_key()),
         );
@@ -488,10 +495,10 @@ mod tests {
 
     #[test]
     fn gossip_producer_does_not_introduce_bootstrap_target_to_more_nodes() {
-        let mut this_node = make_node_record(1234, true, false);
-        let mut first_neighbor = make_node_record(2345, true, false);
-        let mut second_neighbor = make_node_record(3456, true, false);
-        let mut target = make_node_record(4567, true, true);
+        let mut this_node = make_node_record(1234, true, 100, false);
+        let mut first_neighbor = make_node_record(2345, true, 100, false);
+        let mut second_neighbor = make_node_record(3456, true, 100, false);
+        let mut target = make_node_record(4567, true, 100, true);
         this_node
             .neighbors_mut()
             .push(first_neighbor.public_key().clone());
@@ -517,6 +524,7 @@ mod tests {
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             &CryptDENull::from(this_node.public_key()),
         );
@@ -574,13 +582,13 @@ mod tests {
     #[test]
     fn gossip_producer_makes_introductions_based_on_targets_number_of_connections_to_standard_nodes_only(
     ) {
-        let mut this_node = make_node_record(1234, true, false);
-        let mut first_neighbor = make_node_record(2345, true, false);
-        let mut second_neighbor = make_node_record(3456, true, false);
-        let first_bootstrap = make_node_record(5678, false, true);
-        let second_bootstrap = make_node_record(6789, false, true);
-        let third_bootstrap = make_node_record(7890, false, true);
-        let mut target = make_node_record(4567, true, false);
+        let mut this_node = make_node_record(1234, true, 100, false);
+        let mut first_neighbor = make_node_record(2345, true, 100, false);
+        let mut second_neighbor = make_node_record(3456, true, 100, false);
+        let first_bootstrap = make_node_record(5678, false, 100, true);
+        let second_bootstrap = make_node_record(6789, false, 100, true);
+        let third_bootstrap = make_node_record(7890, false, 100, true);
+        let mut target = make_node_record(4567, true, 100, false);
         this_node
             .neighbors_mut()
             .push(first_neighbor.public_key().clone());
@@ -615,6 +623,7 @@ mod tests {
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             &CryptDENull::from(this_node.public_key()),
         );
@@ -695,11 +704,11 @@ mod tests {
 
     #[test]
     fn gossip_producer_introduces_target_to_less_connected_neighbors() {
-        let mut this_node = make_node_record(1234, true, false);
-        let mut first_neighbor = make_node_record(2345, true, false);
-        let mut second_neighbor = make_node_record(3456, true, false);
-        let mut target = make_node_record(4567, true, false);
-        let target_neighbor = make_node_record(5678, true, false);
+        let mut this_node = make_node_record(1234, true, 100, false);
+        let mut first_neighbor = make_node_record(2345, true, 100, false);
+        let mut second_neighbor = make_node_record(3456, true, 100, false);
+        let mut target = make_node_record(4567, true, 100, false);
+        let target_neighbor = make_node_record(5678, true, 100, false);
         this_node
             .neighbors_mut()
             .push(first_neighbor.public_key().clone());
@@ -735,6 +744,7 @@ mod tests {
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             &CryptDENull::from(this_node.public_key()),
         );
@@ -805,10 +815,10 @@ mod tests {
 
     #[test]
     fn gossip_producer_does_not_introduce_target_to_bootstrap_nodes() {
-        let mut this_node = make_node_record(1234, true, false);
-        let mut first_neighbor = make_node_record(2345, true, false);
-        let mut second_neighbor = make_node_record(3456, true, true);
-        let mut target = make_node_record(4567, true, false);
+        let mut this_node = make_node_record(1234, true, 100, false);
+        let mut first_neighbor = make_node_record(2345, true, 100, false);
+        let mut second_neighbor = make_node_record(3456, true, 100, true);
+        let mut target = make_node_record(4567, true, 100, false);
         this_node
             .neighbors_mut()
             .push(first_neighbor.public_key().clone());
@@ -834,6 +844,7 @@ mod tests {
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             &CryptDENull::from(this_node.public_key()),
         );
@@ -890,11 +901,11 @@ mod tests {
 
     #[test]
     fn gossip_producer_does_not_introduce_target_to_more_nodes_than_it_needs() {
-        let mut this_node = make_node_record(1234, true, false);
-        let mut first_neighbor = make_node_record(2345, true, false);
-        let mut second_neighbor = make_node_record(3456, true, false);
-        let mut target = make_node_record(4567, true, false);
-        let target_neighbor = make_node_record(5678, true, false);
+        let mut this_node = make_node_record(1234, true, 100, false);
+        let mut first_neighbor = make_node_record(2345, true, 100, false);
+        let mut second_neighbor = make_node_record(3456, true, 100, false);
+        let mut target = make_node_record(4567, true, 100, false);
+        let target_neighbor = make_node_record(5678, true, 100, false);
         this_node
             .neighbors_mut()
             .push(first_neighbor.public_key().clone());
@@ -926,6 +937,7 @@ mod tests {
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             &CryptDENull::from(this_node.public_key()),
         );
@@ -1010,14 +1022,15 @@ mod tests {
     #[test]
     fn produce_logs_about_the_resulting_gossip() {
         init_test_logging();
-        let this_node = make_node_record(1234, true, true);
-        let first_neighbor = make_node_record(2345, true, false);
-        let target = make_node_record(4567, true, false);
+        let this_node = make_node_record(1234, true, 100, true);
+        let first_neighbor = make_node_record(2345, true, 100, false);
+        let target = make_node_record(4567, true, 100, false);
         let mut database = NeighborhoodDatabase::new(
             this_node.public_key(),
             this_node.node_addr_opt().as_ref().unwrap(),
             this_node.earning_wallet(),
             this_node.consuming_wallet(),
+            rate_pack(100),
             this_node.is_bootstrap_node(),
             &CryptDENull::from(this_node.public_key()),
         );

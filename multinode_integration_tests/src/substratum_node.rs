@@ -5,6 +5,7 @@ use base64;
 use base64::STANDARD_NO_PAD;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::cryptde_null::CryptDENull;
+use node_lib::sub_lib::neighborhood::RatePack;
 use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::sub_lib::wallet::Wallet;
 use regex::Regex;
@@ -147,6 +148,7 @@ pub trait SubstratumNode: Any {
     fn earning_wallet(&self) -> Wallet;
     // This is the wallet address from which this Node expects to pay bills, or None if the Node is earn-only.
     fn consuming_wallet(&self) -> Option<Wallet>;
+    fn rate_pack(&self) -> RatePack;
 
     fn make_client(&self, port: u16) -> SubstratumNodeClient;
 }

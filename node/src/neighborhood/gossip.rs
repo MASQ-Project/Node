@@ -36,6 +36,7 @@ impl GossipNodeRecord {
                 },
                 earning_wallet: node_record_ref.earning_wallet(),
                 consuming_wallet: node_record_ref.consuming_wallet(),
+                rate_pack: node_record_ref.rate_pack().clone(),
                 is_bootstrap_node: node_record_ref.is_bootstrap_node(),
                 neighbors: node_record_ref.neighbors().clone(),
                 version: node_record_ref.version(),
@@ -53,6 +54,7 @@ impl GossipNodeRecord {
             self.inner.node_addr_opt.as_ref(),
             self.inner.earning_wallet.clone(),
             self.inner.consuming_wallet.clone(),
+            self.inner.rate_pack.clone(),
             self.inner.is_bootstrap_node,
             Some(self.signatures.clone()),
             self.inner.version,
@@ -85,6 +87,7 @@ impl GossipNodeRecord {
             "\n\t\tconsuming_wallet: {:?},",
             self.inner.consuming_wallet
         ));
+        human_readable.push_str(&format!("\n\t\trate_pack: {:?},", self.inner.rate_pack));
         human_readable.push_str(&format!("\n\t\tneighbors: {:?},", self.inner.neighbors));
         human_readable.push_str(&format!("\n\t\tversion: {:?},", self.inner.version));
         human_readable.push_str("\n\t},");
@@ -195,12 +198,13 @@ mod tests {
     use super::*;
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
+    use crate::test_utils::test_utils::rate_pack;
     use std::net::IpAddr;
     use std::str::FromStr;
 
     #[test]
     fn can_create_a_node_record() {
-        let mut expected_node_record = make_node_record(1234, true, true);
+        let mut expected_node_record = make_node_record(1234, true, 100, true);
         expected_node_record.set_version(6);
         let builder = GossipBuilder::new().node(&expected_node_record, true);
 
@@ -217,7 +221,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "GossipBuilder cannot add a node more than once")]
     fn adding_node_twice_to_gossip_builder_causes_panic() {
-        let node = make_node_record(1234, true, true);
+        let node = make_node_record(1234, true, 100, true);
         let builder = GossipBuilder::new().node(&node, true);
 
         builder.node(&node, true);
@@ -225,7 +229,7 @@ mod tests {
 
     #[test]
     fn adding_node_with_addr_and_reveal_results_in_node_with_addr() {
-        let node = make_node_record(1234, true, false);
+        let node = make_node_record(1234, true, 100, false);
         let builder = GossipBuilder::new();
 
         let builder = builder.node(&node, true);
@@ -239,7 +243,7 @@ mod tests {
 
     #[test]
     fn adding_node_with_addr_and_no_reveal_results_in_node_with_no_addr() {
-        let node = make_node_record(1234, true, false);
+        let node = make_node_record(1234, true, 100, false);
         let builder = GossipBuilder::new();
 
         let builder = builder.node(&node, false);
@@ -250,7 +254,7 @@ mod tests {
 
     #[test]
     fn adding_node_with_no_addr_and_reveal_results_in_node_with_no_addr() {
-        let node = make_node_record(1234, false, false);
+        let node = make_node_record(1234, false, 100, false);
         let builder = GossipBuilder::new();
 
         let builder = builder.node(&node, true);
@@ -261,7 +265,7 @@ mod tests {
 
     #[test]
     fn adding_node_with_no_addr_and_no_reveal_results_in_node_with_no_addr() {
-        let node = make_node_record(1234, false, false);
+        let node = make_node_record(1234, false, 100, false);
         let builder = GossipBuilder::new();
 
         let builder = builder.node(&node, false);
@@ -282,6 +286,7 @@ mod tests {
             )),
             Wallet::new("earning"),
             Some(Wallet::new("consuming")),
+            rate_pack(101),
             false,
             None,
             0,
@@ -303,6 +308,7 @@ mod tests {
             )),
             Wallet::new("earning"),
             Some(Wallet::new("consuming")),
+            rate_pack(102),
             false,
             None,
             0,
@@ -313,14 +319,14 @@ mod tests {
 
     #[test]
     fn gossip_node_record_is_debug_formatted_to_be_human_readable() {
-        let node = make_node_record(1234, true, false);
+        let node = make_node_record(1234, true, 100, false);
 
         let gossip = GossipNodeRecord::from(&node, true);
 
         let result = format!("{:?}", gossip);
         let expected = format!(
             "\nGossipNodeRecord {{{}{}\n}}",
-            "\n\tinner: NodeRecordInner {\n\t\tpublic_key: AQIDBA,\n\t\tnode_addr_opt: Some(1.2.3.4:[1234]),\n\t\tis_bootstrap_node: false,\n\t\tearning_wallet: Wallet { address: \"0x1234\" },\n\t\tconsuming_wallet: Some(Wallet { address: \"0x4321\" }),\n\t\tneighbors: [],\n\t\tversion: 0,\n\t},",
+            "\n\tinner: NodeRecordInner {\n\t\tpublic_key: AQIDBA,\n\t\tnode_addr_opt: Some(1.2.3.4:[1234]),\n\t\tis_bootstrap_node: false,\n\t\tearning_wallet: Wallet { address: \"0x1234\" },\n\t\tconsuming_wallet: Some(Wallet { address: \"0x4321\" }),\n\t\trate_pack: RatePack { routing_byte_rate: 101, routing_service_rate: 102, exit_byte_rate: 103, exit_service_rate: 104 },\n\t\tneighbors: [],\n\t\tversion: 0,\n\t},",
             "\n\tsignatures: Signatures {\n\t\tcomplete: CryptData { data: [115, 105, 103, 110, 101, 100] },\n\t\tobscured: CryptData { data: [115, 105, 103, 110, 101, 100] },\n\t},"
         );
 
@@ -329,8 +335,8 @@ mod tests {
 
     #[test]
     fn to_dot_graph_returns_gossip_in_dotgraph_format() {
-        let mut target_node = make_node_record(1234, true, false);
-        let mut source_node = make_node_record(2345, true, true);
+        let mut target_node = make_node_record(1234, true, 100, false);
+        let mut source_node = make_node_record(2345, true, 100, true);
         target_node.neighbors_mut().push(PublicKey::new(b"9876"));
         source_node.neighbors_mut().push(PublicKey::new(b"1793"));
 

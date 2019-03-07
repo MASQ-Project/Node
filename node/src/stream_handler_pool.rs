@@ -19,6 +19,7 @@ use crate::sub_lib::neighborhood::DispatcherNodeQueryMessage;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::NodeQueryMessage;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
+use crate::sub_lib::neighborhood::ZERO_RATE_PACK;
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_connector::StreamConnector;
@@ -159,6 +160,7 @@ impl Handler<TransmitDataMsg> for StreamHandlerPool {
                         result: Some(NodeDescriptor::new(
                             PublicKey::new(&[]),
                             Some(NodeAddr::from(&socket_addr)),
+                            ZERO_RATE_PACK.clone(),
                         )),
                         context: msg,
                     })
@@ -456,6 +458,7 @@ mod tests {
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::stream_connector_mock::StreamConnectorMock;
     use crate::test_utils::test_utils::await_messages;
+    use crate::test_utils::test_utils::rate_pack;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use actix::Actor;
@@ -876,6 +879,7 @@ mod tests {
                             &IpAddr::V4(Ipv4Addr::new(1, 2, 3, 5)),
                             &vec![7000],
                         )),
+                        rate_pack(100),
                     )),
                     context: TransmitDataMsg {
                         endpoint: Endpoint::Key(public_key),
@@ -984,6 +988,7 @@ mod tests {
                         &IpAddr::V4(Ipv4Addr::new(1, 2, 3, 5)),
                         &vec![7000],
                     )),
+                    rate_pack(100),
                 )),
                 context: node_query_msg.context,
             })
@@ -1088,6 +1093,7 @@ mod tests {
                         &IpAddr::V4(Ipv4Addr::new(1, 2, 3, 5)),
                         &vec![6789],
                     )),
+                    rate_pack(100),
                 )),
                 context: node_query_msg.context,
             })
@@ -1172,7 +1178,7 @@ mod tests {
             subject_subs
                 .node_query_response
                 .try_send(DispatcherNodeQueryResponse {
-                    result: Some(NodeDescriptor::new(key.clone(), None)),
+                    result: Some(NodeDescriptor::new(key.clone(), None, rate_pack(100))),
                     context: TransmitDataMsg {
                         endpoint: Endpoint::Key(key),
                         last_data: true,
@@ -1235,6 +1241,7 @@ mod tests {
                     result: Some(NodeDescriptor::new(
                         key,
                         Some(NodeAddr::new(&peer_addr.ip(), &vec![peer_addr.port()])),
+                        rate_pack(100),
                     )),
                     context: msg,
                 })
@@ -1359,6 +1366,7 @@ mod tests {
                     result: Some(NodeDescriptor::new(
                         key,
                         Some(NodeAddr::new(&peer_addr.ip(), &vec![peer_addr.port()])),
+                        rate_pack(100),
                     )),
                     context: msg,
                 })
@@ -1377,6 +1385,7 @@ mod tests {
                 result: Some(NodeDescriptor::new(
                     cryptde.public_key(),
                     Some(NodeAddr::new(&peer_addr.ip(), &vec![peer_addr.port()])),
+                    rate_pack(100),
                 )),
                 context: msg_a,
             })
@@ -1426,6 +1435,7 @@ mod tests {
                 result: Some(NodeDescriptor::new(
                     key,
                     Some(NodeAddr::new(&peer_addr.ip(), &vec![])),
+                    rate_pack(100),
                 )),
                 context: msg,
             })

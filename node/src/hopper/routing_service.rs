@@ -11,8 +11,6 @@ use crate::sub_lib::dispatcher::Endpoint;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::hop::LiveHop;
 use crate::sub_lib::hopper::ExpiredCoresPackage;
-use crate::sub_lib::hopper::TEMPORARY_PER_ROUTING_BYTE_RATE;
-use crate::sub_lib::hopper::TEMPORARY_PER_ROUTING_RATE;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::wallet::Wallet;
@@ -29,6 +27,8 @@ pub struct RoutingService {
     to_neighborhood: Recipient<Syn, ExpiredCoresPackage>,
     to_dispatcher: Recipient<Syn, TransmitDataMsg>,
     to_accountant_routing: Recipient<Syn, ReportRoutingServiceProvidedMessage>,
+    per_routing_service: u64,
+    per_routing_byte: u64,
     logger: Logger,
 }
 
@@ -41,6 +41,8 @@ impl RoutingService {
         to_neighborhood: Recipient<Syn, ExpiredCoresPackage>,
         to_dispatcher: Recipient<Syn, TransmitDataMsg>,
         to_accountant_routing: Recipient<Syn, ReportRoutingServiceProvidedMessage>,
+        per_routing_service: u64,
+        per_routing_byte: u64,
     ) -> RoutingService {
         RoutingService {
             cryptde,
@@ -50,6 +52,8 @@ impl RoutingService {
             to_neighborhood,
             to_dispatcher,
             to_accountant_routing,
+            per_routing_service,
+            per_routing_byte,
             logger: Logger::new("RoutingService"),
         }
     }
@@ -133,15 +137,16 @@ impl RoutingService {
     ) {
         let payload_size = live_package.payload.len();
         match consuming_wallet_opt {
-            Some(consuming_wallet) => self
-                .to_accountant_routing
-                .try_send(ReportRoutingServiceProvidedMessage {
-                    consuming_wallet,
-                    payload_size,
-                    service_rate: TEMPORARY_PER_ROUTING_RATE,
-                    byte_rate: TEMPORARY_PER_ROUTING_BYTE_RATE,
-                })
-                .expect("Accountant is dead"),
+            Some(consuming_wallet) => {
+                self.to_accountant_routing
+                    .try_send(ReportRoutingServiceProvidedMessage {
+                        consuming_wallet,
+                        payload_size,
+                        service_rate: self.per_routing_service,
+                        byte_rate: self.per_routing_byte,
+                    })
+                    .expect("Accountant is dead");
+            }
             None => {
                 self.logger.error(format!(
                     "Refusing to route CORES package with {}-byte payload without consuming wallet",
@@ -271,6 +276,7 @@ mod tests {
     use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::cryptde_null::CryptDENull;
+    use crate::sub_lib::hopper::HopperConfig;
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::peer_actors::BindMessage;
     use crate::sub_lib::route::Route;
@@ -282,6 +288,8 @@ mod tests {
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::test_utils::cryptde;
+    use crate::test_utils::test_utils::rate_pack_routing;
+    use crate::test_utils::test_utils::rate_pack_routing_byte;
     use crate::test_utils::test_utils::route_to_proxy_client;
     use crate::test_utils::test_utils::route_to_proxy_server;
     use crate::test_utils::test_utils::PayloadMock;
@@ -320,7 +328,12 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("converts_live_message_to_expired_for_proxy_client");
             let peer_actors = peer_actors_builder().proxy_client(component).build();
-            let subject = Hopper::new(cryptde, false);
+            let subject = Hopper::new(HopperConfig {
+                cryptde,
+                is_bootstrap_node: false,
+                per_routing_service: rate_pack_routing(103),
+                per_routing_byte: rate_pack_routing_byte(103),
+            });
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
@@ -363,7 +376,12 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("converts_live_message_to_expired_for_proxy_server");
             let peer_actors = peer_actors_builder().proxy_server(component).build();
-            let subject = Hopper::new(cryptde, false);
+            let subject = Hopper::new(HopperConfig {
+                cryptde,
+                is_bootstrap_node: false,
+                per_routing_service: rate_pack_routing(103),
+                per_routing_byte: rate_pack_routing_byte(103),
+            });
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
@@ -401,7 +419,12 @@ mod tests {
             data: data_enc.into(),
         };
         let system = System::new("refuses_data_for_proxy_client_if_is_bootstrap_node");
-        let subject = Hopper::new(cryptde, true);
+        let subject = Hopper::new(HopperConfig {
+            cryptde,
+            is_bootstrap_node: true,
+            per_routing_service: rate_pack_routing(103),
+            per_routing_byte: rate_pack_routing_byte(103),
+        });
         let subject_addr: Addr<Syn, Hopper> = subject.start();
         let peer_actors = peer_actors_builder().build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -436,7 +459,12 @@ mod tests {
             data: data_enc.into(),
         };
         let system = System::new("refuses_data_for_proxy_server_if_is_bootstrap_node");
-        let subject = Hopper::new(cryptde, true);
+        let subject = Hopper::new(HopperConfig {
+            cryptde,
+            is_bootstrap_node: true,
+            per_routing_service: rate_pack_routing(103),
+            per_routing_byte: rate_pack_routing_byte(103),
+        });
         let subject_addr: Addr<Syn, Hopper> = subject.start();
         let peer_actors = peer_actors_builder().build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -480,7 +508,12 @@ mod tests {
             data: data_enc.into(),
         };
         let system = System::new("refuses_data_for_hopper_if_is_bootstrap_node");
-        let subject = Hopper::new(cryptde, true);
+        let subject = Hopper::new(HopperConfig {
+            cryptde,
+            is_bootstrap_node: true,
+            per_routing_service: rate_pack_routing(103),
+            per_routing_byte: rate_pack_routing_byte(103),
+        });
         let subject_addr: Addr<Syn, Hopper> = subject.start();
         let peer_actors = peer_actors_builder().build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -522,7 +555,12 @@ mod tests {
             data: data_enc.into(),
         };
         let system = System::new("accepts_data_for_neighborhood_if_is_bootstrap_node");
-        let subject = Hopper::new(cryptde, true);
+        let subject = Hopper::new(HopperConfig {
+            cryptde,
+            is_bootstrap_node: true,
+            per_routing_service: rate_pack_routing(103),
+            per_routing_byte: rate_pack_routing_byte(103),
+        });
         let subject_addr: Addr<Syn, Hopper> = subject.start();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().neighborhood(neighborhood).build();
@@ -576,7 +614,12 @@ mod tests {
         };
         let system =
             System::new("rejects_data_for_non_neighborhood_component_if_is_bootstrap_node");
-        let subject = Hopper::new(cryptde, true);
+        let subject = Hopper::new(HopperConfig {
+            cryptde,
+            is_bootstrap_node: true,
+            per_routing_service: rate_pack_routing(103),
+            per_routing_byte: rate_pack_routing_byte(103),
+        });
         let subject_addr: Addr<Syn, Hopper> = subject.start();
         let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
@@ -623,12 +666,17 @@ mod tests {
             data: data_enc.into(),
         };
         thread::spawn(move || {
-            let system = System::new("converts_live_message_to_expired_for_proxy_server");
+            let system = System::new("passes_on_inbound_client_data_not_meant_for_this_node");
             let peer_actors = peer_actors_builder()
                 .dispatcher(dispatcher)
                 .accountant(accountant)
                 .build();
-            let subject = Hopper::new(cryptde, false);
+            let subject = Hopper::new(HopperConfig {
+                cryptde,
+                is_bootstrap_node: false,
+                per_routing_service: rate_pack_routing(103),
+                per_routing_byte: rate_pack_routing_byte(103),
+            });
             let subject_addr: Addr<Syn, Hopper> = subject.start();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
@@ -659,8 +707,8 @@ mod tests {
             ReportRoutingServiceProvidedMessage {
                 consuming_wallet,
                 payload_size: lcp.payload.len(),
-                service_rate: TEMPORARY_PER_ROUTING_RATE,
-                byte_rate: TEMPORARY_PER_ROUTING_BYTE_RATE
+                service_rate: rate_pack_routing(103),
+                byte_rate: rate_pack_routing_byte(103)
             }
         )
     }
@@ -716,6 +764,8 @@ mod tests {
             peer_actors.neighborhood.from_hopper,
             peer_actors.dispatcher.from_dispatcher_client,
             peer_actors.accountant.report_routing_service_provided,
+            100,
+            200,
         );
 
         subject.route(inbound_client_data);
@@ -761,6 +811,8 @@ mod tests {
             peer_actors.neighborhood.from_hopper,
             peer_actors.dispatcher.from_dispatcher_client,
             peer_actors.accountant.report_routing_service_provided,
+            100,
+            200,
         );
 
         subject.route(inbound_client_data);
@@ -810,6 +862,8 @@ mod tests {
             peer_actors.neighborhood.from_hopper,
             peer_actors.dispatcher.from_dispatcher_client,
             peer_actors.accountant.report_routing_service_provided,
+            100,
+            200,
         );
 
         subject.route(inbound_client_data);

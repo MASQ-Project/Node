@@ -20,6 +20,8 @@ use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::dispatcher::Component;
 use node_lib::sub_lib::framer::Framer;
 use node_lib::sub_lib::hopper::IncipientCoresPackage;
+use node_lib::sub_lib::neighborhood::{RatePack, ZERO_RATE_PACK};
+use node_lib::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::sub_lib::route::Route;
 use node_lib::sub_lib::route::RouteSegment;
@@ -99,6 +101,10 @@ impl SubstratumNode for SubstratumMockNode {
         self.guts.consuming_wallet.clone()
     }
 
+    fn rate_pack(&self) -> RatePack {
+        ZERO_RATE_PACK.clone()
+    }
+
     fn make_client(&self, _port: u16) -> SubstratumNodeClient {
         unimplemented!()
     }
@@ -142,6 +148,7 @@ impl SubstratumMockNode {
             Some(&self.node_addr()),
             node.earning_wallet(),
             node.consuming_wallet(),
+            DEFAULT_RATE_PACK.clone(),
             false,
             None,
             0,

@@ -14,6 +14,8 @@ use node_lib::sub_lib::cryptde::CryptData;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::hopper::IncipientCoresPackage;
+use node_lib::sub_lib::neighborhood::RatePack;
+use node_lib::sub_lib::neighborhood::ZERO_RATE_PACK;
 use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::sub_lib::wallet::Wallet;
 use std::net::IpAddr;
@@ -70,6 +72,10 @@ impl SubstratumNode for MockBootstrapNode {
 
     fn consuming_wallet(&self) -> Option<Wallet> {
         panic!("Bootstrap nodes (even mock ones) can't have consuming wallets")
+    }
+
+    fn rate_pack(&self) -> RatePack {
+        ZERO_RATE_PACK.clone()
     }
 
     fn make_client(&self, _port: u16) -> SubstratumNodeClient {
@@ -210,6 +216,7 @@ impl MockBootstrapNode {
                 node_addr_opt: None,
                 earning_wallet: node.inner.earning_wallet.clone(),
                 consuming_wallet: node.inner.consuming_wallet.clone(),
+                rate_pack: node.inner.rate_pack.clone(),
                 is_bootstrap_node: node.inner.is_bootstrap_node,
                 neighbors: vec![],
                 version: node.inner.version,

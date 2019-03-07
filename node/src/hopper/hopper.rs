@@ -3,6 +3,7 @@ use super::consuming_service::ConsumingService;
 use super::routing_service::RoutingService;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::dispatcher::InboundClientData;
+use crate::sub_lib::hopper::HopperConfig;
 use crate::sub_lib::hopper::HopperSubs;
 use crate::sub_lib::hopper::IncipientCoresPackage;
 use crate::sub_lib::peer_actors::BindMessage;
@@ -18,6 +19,8 @@ pub struct Hopper {
     is_bootstrap_node: bool,
     consuming_service: Option<ConsumingService>,
     routing_service: Option<RoutingService>,
+    per_routing_service: u64,
+    per_routing_byte: u64,
 }
 
 impl Actor for Hopper {
@@ -43,6 +46,8 @@ impl Handler<BindMessage> for Hopper {
             msg.peer_actors.neighborhood.from_hopper,
             msg.peer_actors.dispatcher.from_dispatcher_client,
             msg.peer_actors.accountant.report_routing_service_provided,
+            self.per_routing_service,
+            self.per_routing_byte,
         ));
         ()
     }
@@ -75,12 +80,14 @@ impl Handler<InboundClientData> for Hopper {
 }
 
 impl Hopper {
-    pub fn new(cryptde: &'static dyn CryptDE, is_bootstrap_node: bool) -> Hopper {
+    pub fn new(config: HopperConfig) -> Hopper {
         Hopper {
-            cryptde,
-            is_bootstrap_node,
+            cryptde: config.cryptde,
+            is_bootstrap_node: config.is_bootstrap_node,
             consuming_service: None,
             routing_service: None,
+            per_routing_service: config.per_routing_service,
+            per_routing_byte: config.per_routing_byte,
         }
     }
 
@@ -143,7 +150,12 @@ mod tests {
             data: encrypted_package,
         };
         let system = System::new("panics_if_routing_service_is_unbound");
-        let subject = Hopper::new(cryptde, false);
+        let subject = Hopper::new(HopperConfig {
+            cryptde,
+            is_bootstrap_node: false,
+            per_routing_service: 100,
+            per_routing_byte: 200,
+        });
         let subject_addr: Addr<Syn, Hopper> = subject.start();
 
         subject_addr.try_send(inbound_client_data).unwrap();
@@ -171,7 +183,12 @@ mod tests {
             IncipientCoresPackage::new(cryptde, route, PayloadMock::new(), &cryptde.public_key())
                 .unwrap();
         let system = System::new("panics_if_consuming_service_is_unbound");
-        let subject = Hopper::new(cryptde, false);
+        let subject = Hopper::new(HopperConfig {
+            cryptde,
+            is_bootstrap_node: false,
+            per_routing_service: 100,
+            per_routing_byte: 200,
+        });
         let subject_addr: Addr<Syn, Hopper> = subject.start();
 
         subject_addr.try_send(incipient_package).unwrap();

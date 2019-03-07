@@ -17,6 +17,7 @@ use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::dispatcher::Component;
 use node_lib::sub_lib::hopper::IncipientCoresPackage;
 use node_lib::sub_lib::http_server_impersonator;
+use node_lib::sub_lib::neighborhood::ZERO_RATE_PACK;
 use node_lib::sub_lib::proxy_client::ClientResponsePayload;
 use node_lib::sub_lib::proxy_server::ClientRequestPayload;
 use node_lib::sub_lib::proxy_server::ProxyProtocol;
@@ -326,6 +327,7 @@ fn make_gossip(pairs: Vec<(&NodeReference, bool)>) -> Gossip {
             is_bootstrap_node: false,
             earning_wallet: Wallet::new("earning"),
             consuming_wallet: Some(Wallet::new("consuming")),
+            rate_pack: ZERO_RATE_PACK,
             neighbors: vec![],
             version: 0,
         };
@@ -335,6 +337,7 @@ fn make_gossip(pairs: Vec<(&NodeReference, bool)>) -> Gossip {
                 Some(&node_ref_ref.node_addr),
                 inner.earning_wallet.clone(),
                 inner.consuming_wallet.clone(),
+                ZERO_RATE_PACK,
                 false,
                 None,
                 0,

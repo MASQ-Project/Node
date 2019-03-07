@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::hopper::ExpiredCoresPackage;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
@@ -11,11 +12,16 @@ use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::net::SocketAddrV4;
 
-pub const TEMPORARY_PER_EXIT_BYTE_RATE: u64 = 2;
-pub const TEMPORARY_PER_EXIT_RATE: u64 = 1;
-
 pub fn error_socket_addr() -> SocketAddr {
     SocketAddr::from(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0))
+}
+
+#[derive(Clone)]
+pub struct ProxyClientConfig {
+    pub cryptde: &'static dyn CryptDE,
+    pub dns_servers: Vec<SocketAddr>,
+    pub exit_service_rate: u64,
+    pub exit_byte_rate: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]

@@ -19,6 +19,7 @@ use crate::sub_lib::logger::Logger;
 use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::neighborhood::sentinel_ip_addr;
 use crate::sub_lib::neighborhood::NeighborhoodConfig;
+use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::parameter_finder::ParameterFinder;
 use crate::sub_lib::socket_server::SocketServer;
@@ -65,6 +66,7 @@ impl BootstrapperConfig {
                 clandestine_port_list: vec![],
                 earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
                 consuming_wallet: None,
+                rate_pack: DEFAULT_RATE_PACK.clone(),
             },
             accountant_config: AccountantConfig {
                 data_directory: PathBuf::new(),

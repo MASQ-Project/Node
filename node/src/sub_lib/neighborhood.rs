@@ -11,10 +11,25 @@ use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
 use actix::Syn;
+use serde_derive::{Deserialize, Serialize};
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 
 pub const SENTINEL_IP_OCTETS: [u8; 4] = [255, 255, 255, 255];
+
+pub const DEFAULT_RATE_PACK: RatePack = RatePack {
+    routing_byte_rate: 100,
+    routing_service_rate: 10000,
+    exit_byte_rate: 101,
+    exit_service_rate: 10001,
+};
+
+pub const ZERO_RATE_PACK: RatePack = RatePack {
+    routing_byte_rate: 0,
+    routing_service_rate: 0,
+    exit_byte_rate: 0,
+    exit_service_rate: 0,
+};
 
 pub fn sentinel_ip_addr() -> IpAddr {
     IpAddr::V4(Ipv4Addr::new(
@@ -33,6 +48,7 @@ pub struct NeighborhoodConfig {
     pub clandestine_port_list: Vec<u16>,
     pub earning_wallet: Wallet,
     pub consuming_wallet: Option<Wallet>,
+    pub rate_pack: RatePack,
 }
 
 impl NeighborhoodConfig {
@@ -58,13 +74,19 @@ pub struct NeighborhoodSubs {
 pub struct NodeDescriptor {
     pub public_key: PublicKey,
     pub node_addr_opt: Option<NodeAddr>,
+    pub rate_pack: RatePack,
 }
 
 impl NodeDescriptor {
-    pub fn new(public_key: PublicKey, node_addr_opt: Option<NodeAddr>) -> NodeDescriptor {
+    pub fn new(
+        public_key: PublicKey,
+        node_addr_opt: Option<NodeAddr>,
+        rate_pack: RatePack,
+    ) -> NodeDescriptor {
         NodeDescriptor {
             public_key,
             node_addr_opt,
+            rate_pack,
         }
     }
 }
@@ -122,8 +144,8 @@ impl RouteQueryMessage {
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum ExpectedService {
-    Routing(PublicKey, Wallet),
-    Exit(PublicKey, Wallet),
+    Routing(PublicKey, Wallet, RatePack),
+    Exit(PublicKey, Wallet, RatePack),
     Nothing,
 }
 
@@ -144,10 +166,27 @@ pub struct RemoveNeighborMessage {
     pub public_key: PublicKey,
 }
 
+#[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+pub struct RatePack {
+    pub routing_byte_rate: u64,
+    pub routing_service_rate: u64,
+    pub exit_byte_rate: u64,
+    pub exit_service_rate: u64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::str::FromStr;
+
+    pub fn rate_pack(base_rate: u64) -> RatePack {
+        RatePack {
+            routing_byte_rate: base_rate + 1,
+            routing_service_rate: base_rate + 2,
+            exit_byte_rate: base_rate + 3,
+            exit_service_rate: base_rate + 4,
+        }
+    }
 
     #[test]
     fn data_indefinite_route_request() {
@@ -171,6 +210,7 @@ mod tests {
             neighbor_configs: vec![],
             earning_wallet: Wallet::new("router"),
             consuming_wallet: Some(Wallet::new("consumer")),
+            rate_pack: rate_pack(100),
             is_bootstrap_node: false,
             local_ip_addr: IpAddr::from_str("1.2.3.4").unwrap(),
             clandestine_port_list: vec![1234],
@@ -190,6 +230,7 @@ mod tests {
             )],
             earning_wallet: Wallet::new("router"),
             consuming_wallet: Some(Wallet::new("consumer")),
+            rate_pack: rate_pack(100),
             is_bootstrap_node: false,
             local_ip_addr: sentinel_ip_addr(),
             clandestine_port_list: vec![1234],
@@ -209,6 +250,7 @@ mod tests {
             )],
             earning_wallet: Wallet::new("router"),
             consuming_wallet: Some(Wallet::new("consumer")),
+            rate_pack: rate_pack(100),
             is_bootstrap_node: false,
             local_ip_addr: IpAddr::from_str("1.2.3.4").unwrap(),
             clandestine_port_list: vec![],
@@ -229,6 +271,7 @@ mod tests {
             )],
             earning_wallet: Wallet::new("router"),
             consuming_wallet: Some(Wallet::new("consumer")),
+            rate_pack: rate_pack(100),
             is_bootstrap_node: false,
             local_ip_addr: IpAddr::from_str("1.2.3.4").unwrap(),
             clandestine_port_list: vec![1234],
