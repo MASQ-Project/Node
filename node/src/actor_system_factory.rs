@@ -35,10 +35,8 @@ use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use actix::Actor;
 use actix::Addr;
 use actix::Recipient;
-use actix::System;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
-use std::thread;
 
 pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(
@@ -60,16 +58,7 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
             unsafe { bootstrapper::CRYPT_DE_OPT.as_ref().expect("Internal error") };
         let (tx, rx) = mpsc::channel();
 
-        // TODO: this thread::spawn goes away with actix 0.7
-        thread::spawn(move || {
-            let system = System::new("SubstratumNode");
-
-            ActorSystemFactoryReal::prepare_initial_messages(cryptde, config, actor_factory, tx);
-
-            // TODO: System::new and system.run() are handled by actix::run in actix 0.7+ and might not live here
-            //run the actor system
-            system.run()
-        });
+        ActorSystemFactoryReal::prepare_initial_messages(cryptde, config, actor_factory, tx);
 
         rx.recv().expect("Internal error: actor-system init thread died before initializing StreamHandlerPool subscribers")
     }
@@ -338,12 +327,14 @@ mod tests {
     use crate::test_utils::test_utils::rate_pack_exit_byte;
     use crate::test_utils::test_utils::rate_pack_routing;
     use crate::test_utils::test_utils::rate_pack_routing_byte;
+    use actix::System;
     use std::cell::RefCell;
     use std::net::IpAddr;
     use std::net::Ipv4Addr;
     use std::path::PathBuf;
     use std::sync::Arc;
     use std::sync::Mutex;
+    use std::thread;
     use std::time::Duration;
 
     struct ActorFactoryMock<'a> {
@@ -630,7 +621,10 @@ mod tests {
             CRYPT_DE_OPT = Some(CryptDENull::new());
         }
 
+        let system = System::new("test");
         subject.make_and_start_actors(config, Box::new(actor_factory));
+        System::current().stop();
+        system.run();
 
         thread::sleep(Duration::from_millis(100));
         Recording::get::<BindMessage>(&recordings.dispatcher, 0);

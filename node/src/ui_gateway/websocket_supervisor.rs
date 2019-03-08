@@ -290,7 +290,6 @@ mod tests {
     use crate::test_utils::test_utils::wait_for;
     use actix::Actor;
     use actix::Addr;
-    use actix::Arbiter;
     use actix::System;
     use futures::future::lazy;
     use std::collections::HashSet;
@@ -355,7 +354,7 @@ mod tests {
                 let _subject = WebSocketSupervisorReal::new(port, from_ui_message);
                 Ok(())
             });
-            Arbiter::spawn(subject);
+            actix::spawn(subject);
             system.run();
         });
         wait_for_server(port);
@@ -380,7 +379,7 @@ mod tests {
                 let _subject = WebSocketSupervisorReal::new(port, from_ui_message);
                 Ok(())
             });
-            Arbiter::spawn(subject);
+            actix::spawn(subject);
             system.run();
         });
         wait_for_server(port);
@@ -410,7 +409,7 @@ mod tests {
                 let _subject = WebSocketSupervisorReal::new(port, from_ui_message);
                 Ok(())
             });
-            Arbiter::spawn(subject);
+            actix::spawn(subject);
             system.run();
         });
 
@@ -457,7 +456,7 @@ mod tests {
                 let _subject = WebSocketSupervisorReal::new(port, from_ui_message);
                 Ok(())
             });
-            Arbiter::spawn(subject);
+            actix::spawn(subject);
             system.run();
         });
 
@@ -517,7 +516,7 @@ mod tests {
                 let _subject = WebSocketSupervisorReal::new(port, from_ui_message);
                 Ok(())
             });
-            Arbiter::spawn(subject);
+            actix::spawn(subject);
             system.run();
         });
 
@@ -555,7 +554,7 @@ mod tests {
                 let _subject = WebSocketSupervisorReal::new(port, from_ui_message);
                 Ok(())
             });
-            Arbiter::spawn(subject);
+            actix::spawn(subject);
             system.run();
         });
         let mut client = wait_for_client(port, "SubstratumNode-UI");
