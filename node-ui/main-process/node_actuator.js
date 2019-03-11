@@ -115,6 +115,7 @@ module.exports = class NodeActuator {
         return Promise.resolve(null)
       }
     }
+    this.substratumNodeProcess = null
   }
 
   async off () {

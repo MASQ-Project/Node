@@ -533,6 +533,7 @@ describe('NodeActuator', () => {
 
   describe('shutdown existing node process that can be shut down by the UI without assistance from the OS', () => {
     beforeEach(async () => {
+      subject.substratumNodeProcess = "a running node"
       td.when(mockUiInterface.verifyNodeDown(td.matchers.anything())).thenResolve(true)
     })
 
@@ -549,6 +550,16 @@ describe('NodeActuator', () => {
 
       it('does not resort to calling in a hit from the OS', () => {
         assertNodeStoppedByUi()
+      })
+
+      describe('then goes back to serving', () => {
+        beforeEach(async () => {
+          await subject.serving()
+        })
+
+        it('starts the node', () => {
+          assertNodeStarted()
+        })
       })
     })
 
