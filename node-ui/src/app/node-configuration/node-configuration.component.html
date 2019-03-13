@@ -7,22 +7,43 @@
       <label for="ip" class="node-config__display-label">My External IP Address</label>
     </div>
     <div class="node-config__actions">
-      <input type="text" id="ip" formControlName="ip">
+      <input type="text" id="ip" formControlName="ip"
+             [class.input-invalid]="ip.invalid || nodeConfig.errors?.ipRequired">
     </div>
+    <ul id="ip-validation">
+      <li class="validation-error" id="ip-validation__pattern" *ngIf="ip.errors?.pattern">
+        IP Address is not in the correct format. Should be IPv4 (i.e. 93.184.216.34).
+      </li>
+      <li class="validation-error" id="ip-validation__required" *ngIf="nodeConfig.errors?.ipRequired">
+        IP Address is required when neighbor is provided.
+      </li>
+    </ul>
 
     <div class="node-config__display">
-      <label for="node-descriptor" class="node-config__display-label">Neighbor Node Descriptor </label>
-      <img (click)="toggleTooltip()" id="node-descriptor-help-icon" #tooltipIcon class="question"
-           src="assets/images/questionmark_encircled.svg" height="16"
-           width="16">
+      <label for="neighbor" class="node-config__display-label">Neighbor Node Descriptor </label>
+      <div class="tooltip">
+        <img (click)="toggleTooltip()" id="node-descriptor-help-icon" #tooltipIcon class="question"
+             src="assets/images/questionmark_encircled.svg" height="16"
+             width="16">
 
-      <p *ngIf="tooltipShown" id="node-descriptor-tooltip" class="node-config__clippy">
-        Copy and paste your neighbor's descriptor into this input to join the Substratum Network.
-      </p>
+        <p *ngIf="tooltipShown" id="node-descriptor-tooltip" class="node-config__clippy">
+          Copy and paste your neighbor's descriptor into this input to join the Substratum Network.
+        </p>
+      </div>
+
     </div>
     <div class="node-config__actions">
-      <input type="text" id="node-descriptor" formControlName="neighbor">
+      <input type="text" id="neighbor" formControlName="neighbor"
+             [class.input-invalid]="neighbor.invalid || nodeConfig.errors?.neighborRequired">
     </div>
+    <ul id="neighbor-validation">
+      <li class="validation-error" id="neighbor-validation__pattern" *ngIf="neighbor.errors?.pattern">
+        Node descriptor not in the correct format.
+      </li>
+      <li class="validation-error" id="neighbor-validation__required" *ngIf="nodeConfig.errors?.neighborRequired">
+        Node descriptor is required when ip address is provided.
+      </li>
+    </ul>
 
     <div class="node-config__actions">
       <!--
@@ -38,7 +59,7 @@
          -->
       <button #earning
               [class.button-active]="isActive(earning.value)"
-              class="btn toggle-button"
+              class="toggle-button"
               (click)="walletToggle(earning.value)"
               id="earning-wallet"
               type="button"
@@ -51,8 +72,14 @@
       <label for="wallet-address" class="node-config__display-label">Wallet Address</label>
     </div>
     <div class="node-config__actions">
-      <input id="wallet-address" name="wallet-address" type="text" formControlName="walletAddress">
+      <input id="wallet-address" name="wallet-address" type="text" formControlName="walletAddress"
+             [class.input-invalid]="walletAddress.invalid">
     </div>
+    <ul id="wallet-address-validation" *ngIf="walletAddress.invalid && (walletAddress.touched || walletAddress.dirty)">
+      <li class="validation-error" id="wallet-address-validation__pattern" *ngIf="walletAddress.errors.pattern">
+        Not a valid Ethereum wallet address.
+      </li>
+    </ul>
 
 
     <div *ngIf="walletType == 'Consuming'">
@@ -66,7 +93,9 @@
 
     <div class="node-config__actions node-config__inset">
       <div class="node-config__empty-flex"></div>
-      <button id="save-config" class="node-config__to-action" type="submit">Save</button>
+      <button id="save-config" class="node-config__to-action" [disabled]="nodeConfig.invalid" type="submit">
+        Save
+      </button>
       <div class="node-config__empty-flex"></div>
     </div>
   </form>

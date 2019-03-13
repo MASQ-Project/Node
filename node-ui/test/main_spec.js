@@ -14,6 +14,8 @@ global.WebSocket = WebSocket
 
 describe('Application launch', function () {
   jasmine.DEFAULT_TIMEOUT_INTERVAL = 20000
+  let page
+  let window
 
   beforeEach(async () => {
     this.app = new Application({
@@ -39,6 +41,10 @@ describe('Application launch', function () {
     })
 
     return this.app.start()
+      .then(() => {
+        window = this.app.browserWindow
+        page = new Page(this.app.client)
+      })
   })
 
   afterEach(() => {
@@ -47,7 +53,7 @@ describe('Application launch', function () {
     }
   })
 
-  it('shows configuration', () => {
+  it('shows configuration first then index component after configuration is saved', () => {
     let client = this.app.client
     return client.waitUntilWindowLoaded()
       .then(() => {
@@ -58,15 +64,6 @@ describe('Application launch', function () {
         let saveButton = client.element('#save-config')
         assert.notStrictEqual(saveButton.type, 'NoSuchElement')
       })
-  })
-
-  it('shows index component after configuration is saved', () => {
-    let client = this.app.client
-    return client.waitUntilWindowLoaded()
-      .then(async () => {
-        client.element('#save-config').click()
-        await client.waitUntilWindowLoaded()
-      })
       .then(() => {
         let slider = client.element('div.node-status__actions')
         assert.notStrictEqual(slider.type, 'NoSuchElement')
@@ -74,6 +71,21 @@ describe('Application launch', function () {
         assert.ok(activeButtonText)
         let settingButton = client.element('.settings-menu--inactive')
         assert.notStrictEqual(settingButton.type, 'NoSuchElement')
+      })
+  })
+
+  it('shows validation messages', () => {
+    let client = this.app.client
+    return client.waitUntilWindowLoaded()
+      .then(async () => {
+        page.ipInput.setValue('jalopy')
+        await client.waitUntilTextExists('#ip-validation__pattern', 'IP Address is not in the correct format. Should be IPv4 (i.e. 93.184.216.34).')
+        assert.ok(!await page.saveConfig.isEnabled())
+        await page.ipInput.setValue('')
+        await client.keys(['a', 'Backspace'])
+        await client.waitUntil(async () => {
+          return await page.saveConfig.isEnabled()
+        })
       })
   })
 
@@ -111,3 +123,26 @@ describe('Application launch', function () {
     assert.strictEqual(await uiInterface.verifyNodeDown(5000), true)
   })
 })
+
+class Page {
+
+  get ipInput () {
+    return this.client.element('#ip')
+  }
+
+  get neighborInput () {
+    return this.client.element('#neighbor')
+  }
+
+  get walletAddress () {
+    return this.client.element('#wallet-address')
+  }
+
+  get saveConfig () {
+    return this.client.element('#save-config')
+  }
+
+  constructor (client) {
+    this.client = client
+  }
+}

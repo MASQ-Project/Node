@@ -1,8 +1,9 @@
-import {Component, ElementRef, HostListener, OnInit, ViewChild} from '@angular/core';
-import {FormControl, FormGroup} from '@angular/forms';
+import {FormControl, FormGroup, Validators} from '@angular/forms';
 import {ConfigService} from '../config.service';
 import {Router} from '@angular/router';
 import {WalletType} from '../wallet-type.enum';
+import {Component, ElementRef, HostListener, OnInit, ViewChild} from '@angular/core';
+import {mutuallyRequiredValidator} from './node-configuration.mutually-required.validator';
 
 @Component({
   selector: 'app-node-configuration',
@@ -11,14 +12,22 @@ import {WalletType} from '../wallet-type.enum';
 })
 export class NodeConfigurationComponent implements OnInit {
 
+  ipPattern = '(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)';
+  neighborPattern = `(?:[a-zA-Z0-9\\/\\+]{43}):${this.ipPattern}:(?:\\d+)(?:,\\d+)*`;
+  walletPattern = '0x[a-fA-F0-9]{40}';
+
   constructor(private configService: ConfigService, private router: Router) {
   }
 
   nodeConfig = new FormGroup({
-    ip: new FormControl(''),
+    ip: new FormControl('', [
+      Validators.pattern(this.ipPattern)
+    ]),
     privateKey: new FormControl(''),
-    walletAddress: new FormControl(''),
-    neighbor: new FormControl('')
+    walletAddress: new FormControl('', [Validators.pattern(this.walletPattern)]),
+    neighbor: new FormControl('', [Validators.pattern(this.neighborPattern)])
+  }, {
+    validators: mutuallyRequiredValidator
   });
   tooltipShown = false;
   walletType: WalletType = WalletType.EARNING;
@@ -37,7 +46,7 @@ export class NodeConfigurationComponent implements OnInit {
     this.configService.load().subscribe((config) => {
       this.nodeConfig.patchValue(config);
     });
-    window.resizeTo(620, 518);
+    window.resizeTo(620, 560);
   }
 
   isActive(value: string): boolean {
@@ -59,5 +68,17 @@ export class NodeConfigurationComponent implements OnInit {
 
   walletToggle(value) {
     this.walletType = value;
+  }
+
+  get ip() {
+    return this.nodeConfig.get('ip');
+  }
+
+  get neighbor() {
+    return this.nodeConfig.get('neighbor');
+  }
+
+  get walletAddress() {
+    return this.nodeConfig.get('walletAddress');
   }
 }

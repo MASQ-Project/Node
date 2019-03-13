@@ -2,6 +2,7 @@ import {ComponentFixture} from '@angular/core/testing';
 import {NodeConfigurationComponent} from './node-configuration.component';
 
 export class NodeConfigurationPage {
+
   get consumingWalletBtn(): HTMLButtonElement {
     return this.query('#consuming-wallet');
   }
@@ -14,12 +15,28 @@ export class NodeConfigurationPage {
     return this.query('#earning-wallet');
   }
 
+  get ipValidationPatternLi() {
+    return this.query('#ip-validation__pattern');
+  }
+
+  get ipValidationRequiredLi(): HTMLLIElement {
+    return this.query('#ip-validation__required');
+  }
+
   get ipTxt(): HTMLInputElement {
     return this.query('#ip');
   }
 
   get neighborTxt(): HTMLInputElement {
-    return this.query('#node-descriptor');
+    return this.query('#neighbor');
+  }
+
+  get neighborValidationPatternLi(): HTMLLIElement {
+    return this.query('#neighbor-validation__pattern');
+  }
+
+  get neighborValidationRequiredLi(): HTMLLIElement {
+    return this.query('#neighbor-validation__required');
   }
 
   get privateKeyTxt(): HTMLInputElement {
@@ -28,6 +45,10 @@ export class NodeConfigurationPage {
 
   get walletAddressTxt(): HTMLInputElement {
     return this.query('#wallet-address');
+  }
+
+  get walletValidationPatternLi(): HTMLLIElement {
+    return this.query('#wallet-address-validation__pattern');
   }
 
   get saveConfigBtn(): HTMLButtonElement {
@@ -47,7 +68,6 @@ export class NodeConfigurationPage {
   }
 
   private static setInputText(element: HTMLInputElement, value: string) {
-    // TODO -find a more automatic way to handle this that doesn't need an explicit dispatch event
     element.value = value;
     element.dispatchEvent(new Event('input'));
   }

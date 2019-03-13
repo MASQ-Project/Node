@@ -11,17 +11,22 @@ $right-corners-nubbed: 0 $border-radius $border-radius 0;
   padding: 24px 18px;
   text-align: center;
 
+  .tooltip {
+    position: relative;
+    display: inline-block;
+  }
+
   &__clippy {
     background: color('background', 'light');
     color: color('text', 'light');
     position: absolute;
     z-index: 1;
     padding: 15px;
-    top: 60.5px;
-    left: 55px;
-    right: 42px;
+    top: -45px;
+    right: 150%;
     text-align: left;
     border-radius: $border-radius;
+    width: 515px;
   }
 
   &__clippy::after {
@@ -52,6 +57,16 @@ $right-corners-nubbed: 0 $border-radius $border-radius 0;
     color: color('text', 'light');
     flex: 1;
     border-radius: $border-radius;
+
+  }
+
+  .input-invalid {
+    border: 1px solid color('primary');
+  }
+
+  .validation-error {
+    text-align: left;
+    font-size: fontSize('diminished');
   }
 
   &__to-action {
@@ -64,6 +79,11 @@ $right-corners-nubbed: 0 $border-radius $border-radius 0;
     height: 40px;
     text-transform: uppercase;
     flex: 2;
+
+    &:disabled {
+      color: color('background', 'dark');
+      border: 1.5px solid color('background', 'dark');
+    }
   }
 
   &__display {
