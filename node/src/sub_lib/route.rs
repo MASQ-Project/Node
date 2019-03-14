@@ -21,7 +21,7 @@ impl Route {
         cryptde: &dyn CryptDE, // Any CryptDE can go here; it's only used to encrypt to public keys.
         consuming_wallet: Option<Wallet>,
     ) -> Result<Route, RouteError> {
-        Self::construct(vec![route_segment], cryptde, consuming_wallet, None)
+        Self::construct(route_segment, None, cryptde, consuming_wallet, None)
     }
 
     pub fn round_trip(
@@ -32,7 +32,8 @@ impl Route {
         return_route_id: u32,
     ) -> Result<Route, RouteError> {
         Self::construct(
-            vec![route_segment_over, route_segment_back],
+            route_segment_over,
+            Some(route_segment_back),
             cryptde,
             consuming_wallet,
             Some(return_route_id),
@@ -71,52 +72,100 @@ impl Route {
     }
 
     fn construct(
-        route_segments: Vec<RouteSegment>,
+        over: RouteSegment,
+        back: Option<RouteSegment>,
         cryptde: &dyn CryptDE,
         consuming_wallet: Option<Wallet>,
         return_route_id_opt: Option<u32>,
     ) -> Result<Route, RouteError> {
-        if route_segments.is_empty() {
-            return Err(RouteError::NoRouteSegments);
+        if let Some(error) = Route::validate_route_segments(&over, &back) {
+            return Err(error);
         }
-        let mut hops: Vec<LiveHop> = Vec::new();
-        let mut pending_recipient: Option<Component> = None;
-        for segment_index in 0..route_segments.len() {
-            let route_segment = &route_segments[segment_index];
-            if route_segment.keys.len() < 1 {
-                return Err(RouteError::TooFewKeysInRouteSegment);
-            }
-            for hop_index in 0..route_segment.keys.len() {
-                let key = &route_segment.keys[hop_index];
-                if (segment_index > 0) && (hop_index == 0) {
-                    let last_segment = &route_segments[segment_index - 1];
-                    let last_segment_last_key = &last_segment.keys[last_segment.keys.len() - 1];
-                    if key != last_segment_last_key {
-                        return Err(RouteError::DisjointRouteSegments);
-                    }
-                    continue;
-                }
-                hops.push(match pending_recipient {
-                    Some(recipient) => LiveHop::new(key, consuming_wallet.clone(), recipient),
-                    None => LiveHop::new(key, consuming_wallet.clone(), Component::Hopper),
-                });
-                pending_recipient = None;
-                if (hop_index + 1) == route_segment.keys.len() {
-                    pending_recipient = Some(route_segment.recipient);
-                }
-            }
-        }
-        hops.push(LiveHop::new(
-            &PublicKey::new(b""),
-            consuming_wallet,
-            pending_recipient.expect("Route segment without recipient"),
-        ));
+        let over_component = over.recipient;
+        let over_keys = over.keys.iter().skip(1);
+
+        let mut hops = Route::over_segment(
+            back.is_none(),
+            consuming_wallet.clone(),
+            over_keys,
+            over_component,
+        );
+
+        Route::back_segment(&back, consuming_wallet.clone(), over_component, &mut hops);
+
         Route::hops_to_route(
-            hops[1..].to_vec(),
-            &route_segments[0].keys[0],
+            hops[0..].to_vec(),
+            &over.keys[0],
             return_route_id_opt,
             cryptde,
         )
+    }
+
+    fn over_segment<'a>(
+        one_way: bool,
+        consuming_wallet: Option<Wallet>,
+        over_keys: impl Iterator<Item = &'a PublicKey>,
+        over_component: Component,
+    ) -> Vec<LiveHop> {
+        let mut hops: Vec<LiveHop> = over_keys
+            .map(|key| LiveHop::new(key, consuming_wallet.clone(), Component::Hopper))
+            .collect();
+        if one_way {
+            hops.push(LiveHop::new(
+                &PublicKey::new(b""),
+                consuming_wallet.clone(),
+                over_component,
+            ));
+        };
+        hops
+    }
+
+    fn back_segment(
+        back_option: &Option<RouteSegment>,
+        consuming_wallet: Option<Wallet>,
+        over_component: Component,
+        hops: &mut Vec<LiveHop>,
+    ) {
+        if let Some(back) = back_option {
+            let back_component = back.recipient;
+            let back_keys: Vec<&PublicKey> = back.keys.iter().skip(1).collect();
+            for (key_index, key) in back_keys.iter().enumerate() {
+                let component = if key_index == 0 {
+                    over_component
+                } else {
+                    Component::Hopper
+                };
+
+                hops.push(LiveHop::new(key, consuming_wallet.clone(), component))
+            }
+
+            hops.push(LiveHop::new(
+                &PublicKey::new(b""),
+                consuming_wallet.clone(),
+                back_component,
+            ));
+        }
+    }
+
+    fn validate_route_segments(
+        over: &RouteSegment,
+        back: &Option<RouteSegment>,
+    ) -> Option<RouteError> {
+        if over.keys.is_empty() {
+            return Some(RouteError::TooFewKeysInRouteSegment);
+        }
+
+        if let Some(b) = back {
+            if b.keys.is_empty() {
+                return Some(RouteError::TooFewKeysInRouteSegment);
+            }
+            let over_segment_last_key = &over.keys[over.keys.len() - 1];
+            let back_segment_first_key = &b.keys[0];
+            if back_segment_first_key != over_segment_last_key {
+                return Some(RouteError::DisjointRouteSegments);
+            }
+        };
+        None
     }
 
     fn decode_hop(cryptde: &dyn CryptDE, hop_enc: &CryptData) -> Result<LiveHop, RouteError> {
@@ -175,7 +224,6 @@ impl RouteSegment {
 pub enum RouteError {
     HopDecodeProblem(String),
     EmptyRoute,
-    NoRouteSegments,
     TooFewKeysInRouteSegment,
     DisjointRouteSegments,
 }
@@ -269,6 +317,7 @@ mod tests {
         let d_key = PublicKey::new(&[68, 68, 68]);
         let e_key = PublicKey::new(&[69, 69, 69]);
         let f_key = PublicKey::new(&[70, 70, 70]);
+
         let mut cryptde = CryptDENull::new();
         cryptde.generate_key_pair();
         let consuming_wallet = Wallet::new("wallet");
@@ -284,39 +333,73 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            subject.hops,
-            vec!(
-                LiveHop::new(&b_key, Some(consuming_wallet.clone()), Component::Hopper)
-                    .encode(&a_key, &cryptde)
-                    .unwrap(),
-                LiveHop::new(&c_key, Some(consuming_wallet.clone()), Component::Hopper)
-                    .encode(&b_key, &cryptde)
-                    .unwrap(),
-                LiveHop::new(&d_key, Some(consuming_wallet.clone()), Component::Hopper)
-                    .encode(&c_key, &cryptde)
-                    .unwrap(),
-                LiveHop::new(
-                    &e_key,
-                    Some(consuming_wallet.clone()),
-                    Component::ProxyClient
-                )
-                .encode(&d_key, &cryptde)
-                .unwrap(),
-                LiveHop::new(&f_key, Some(consuming_wallet.clone()), Component::Hopper)
-                    .encode(&e_key, &cryptde)
-                    .unwrap(),
-                LiveHop::new(&a_key, Some(consuming_wallet.clone()), Component::Hopper)
-                    .encode(&f_key, &cryptde)
-                    .unwrap(),
-                LiveHop::new(
-                    &PublicKey::new(b""),
-                    Some(consuming_wallet.clone()),
-                    Component::ProxyServer
-                )
+            LiveHop::new(&b_key, Some(consuming_wallet.clone()), Component::Hopper)
                 .encode(&a_key, &cryptde)
                 .unwrap(),
-                Route::encrypt_return_route_id(return_route_id, &cryptde),
+            subject.hops[0],
+            "first hop"
+        );
+
+        assert_eq!(
+            LiveHop::new(&c_key, Some(consuming_wallet.clone()), Component::Hopper)
+                .encode(&b_key, &cryptde)
+                .unwrap(),
+            subject.hops[1],
+            "second hop"
+        );
+
+        assert_eq!(
+            LiveHop::new(&d_key, Some(consuming_wallet.clone()), Component::Hopper)
+                .encode(&c_key, &cryptde)
+                .unwrap(),
+            subject.hops[2],
+            "third hop"
+        );
+
+        assert_eq!(
+            LiveHop::new(
+                &e_key,
+                Some(consuming_wallet.clone()),
+                Component::ProxyClient
             )
+            .encode(&d_key, &cryptde)
+            .unwrap(),
+            subject.hops[3],
+            "fourth hop"
+        );
+
+        assert_eq!(
+            LiveHop::new(&f_key, Some(consuming_wallet.clone()), Component::Hopper)
+                .encode(&e_key, &cryptde)
+                .unwrap(),
+            subject.hops[4],
+            "fifth hop"
+        );
+
+        assert_eq!(
+            LiveHop::new(&a_key, Some(consuming_wallet.clone()), Component::Hopper)
+                .encode(&f_key, &cryptde)
+                .unwrap(),
+            subject.hops[5],
+            "sixth hop"
+        );
+
+        assert_eq!(
+            LiveHop::new(
+                &PublicKey::new(b""),
+                Some(consuming_wallet.clone()),
+                Component::ProxyServer,
+            )
+            .encode(&a_key, &cryptde)
+            .unwrap(),
+            subject.hops[6],
+            "seventh hop"
+        );
+
+        assert_eq!(
+            Route::encrypt_return_route_id(return_route_id, &cryptde),
+            subject.hops[7],
+            "eighth hop"
         );
     }
 
@@ -336,7 +419,6 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            subject.hops,
             vec!(
                 LiveHop::new(&b_key, Some(consuming_wallet.clone()), Component::Hopper)
                     .encode(&a_key, &cryptde)
@@ -344,11 +426,12 @@ mod tests {
                 LiveHop::new(
                     &PublicKey::new(b""),
                     Some(consuming_wallet.clone()),
-                    Component::Neighborhood
+                    Component::Neighborhood,
                 )
                 .encode(&b_key, &cryptde)
                 .unwrap(),
-            )
+            ),
+            subject.hops,
         );
     }
 
@@ -385,7 +468,7 @@ mod tests {
                 LiveHop::new(
                     &PublicKey::new(b""),
                     Some(consuming_wallet.clone()),
-                    Component::Neighborhood
+                    Component::Neighborhood,
                 )
                 .encode(&key56, &cryptde)
                 .unwrap(),
@@ -426,7 +509,7 @@ mod tests {
                 LiveHop::new(
                     &PublicKey::new(b""),
                     Some(consuming_wallet.clone()),
-                    Component::Neighborhood
+                    Component::Neighborhood,
                 )
                 .encode(&key56, &cryptde)
                 .unwrap(),
