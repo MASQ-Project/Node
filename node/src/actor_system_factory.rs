@@ -302,6 +302,7 @@ mod tests {
     use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
     use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
     use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
+    use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::sub_lib::crash_point::CrashPoint;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::dispatcher::InboundClientData;
@@ -495,6 +496,7 @@ mod tests {
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.blockchain_bridge);
             BlockchainBridgeSubs {
                 bind: addr.clone().recipient::<BindMessage>(),
+                report_accounts_payable: addr.clone().recipient::<ReportAccountsPayable>(),
             }
         }
     }
@@ -609,6 +611,7 @@ mod tests {
             },
             accountant_config: AccountantConfig {
                 data_directory: PathBuf::new(),
+                payable_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
@@ -658,6 +661,7 @@ mod tests {
             },
             accountant_config: AccountantConfig {
                 data_directory: PathBuf::new(),
+                payable_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },

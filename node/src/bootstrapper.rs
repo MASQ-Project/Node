@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::accountant::accountant::DEFAULT_PAYABLE_SCAN_INTERVAL;
 use crate::actor_system_factory::ActorFactoryReal;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
@@ -36,6 +37,7 @@ use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::time::Duration;
 use std::vec::Vec;
 use tokio::prelude::stream::futures_unordered::FuturesUnordered;
 use tokio::prelude::Async;
@@ -70,6 +72,7 @@ impl BootstrapperConfig {
             },
             accountant_config: AccountantConfig {
                 data_directory: PathBuf::new(),
+                payable_scan_interval: Duration::from_secs(DEFAULT_PAYABLE_SCAN_INTERVAL),
             },
             crash_point: CrashPoint::None,
             clandestine_discriminator_factories: vec![],

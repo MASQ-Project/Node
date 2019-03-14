@@ -5,6 +5,7 @@ use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
+use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::dispatcher::DispatcherSubs;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::hopper::ExpiredCoresPackage;
@@ -228,6 +229,14 @@ impl Handler<ReportExitServiceConsumedMessage> for Recorder {
     }
 }
 
+impl Handler<ReportAccountsPayable> for Recorder {
+    type Result = ();
+
+    fn handle(&mut self, msg: ReportAccountsPayable, _ctx: &mut Self::Context) -> Self::Result {
+        self.record(msg);
+    }
+}
+
 fn extract_response<T>(responses: &mut Vec<T>, err_msg: &str) -> T
 where
     T: Clone,
@@ -414,6 +423,7 @@ pub fn make_ui_gateway_subs_from(addr: &Addr<Recorder>) -> UiGatewaySubs {
 pub fn make_blockchain_bridge_subs_from(addr: &Addr<Recorder>) -> BlockchainBridgeSubs {
     BlockchainBridgeSubs {
         bind: addr.clone().recipient::<BindMessage>(),
+        report_accounts_payable: addr.clone().recipient::<ReportAccountsPayable>(),
     }
 }
 

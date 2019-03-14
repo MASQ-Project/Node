@@ -2,6 +2,7 @@
 
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
+use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use actix::Actor;
@@ -40,6 +41,15 @@ impl Handler<BindMessage> for BlockchainBridge {
     }
 }
 
+impl Handler<ReportAccountsPayable> for BlockchainBridge {
+    type Result = ();
+
+    fn handle(&mut self, _msg: ReportAccountsPayable, _ctx: &mut Self::Context) -> Self::Result {
+        self.logger
+            .debug("Received ReportAccountsPayable message".to_string());
+    }
+}
+
 impl BlockchainBridge {
     pub fn new(config: BlockchainBridgeConfig) -> BlockchainBridge {
         BlockchainBridge {
@@ -51,6 +61,7 @@ impl BlockchainBridge {
     pub fn make_subs_from(addr: &Addr<BlockchainBridge>) -> BlockchainBridgeSubs {
         BlockchainBridgeSubs {
             bind: addr.clone().recipient::<BindMessage>(),
+            report_accounts_payable: addr.clone().recipient::<ReportAccountsPayable>(),
         }
     }
 }
@@ -109,6 +120,27 @@ mod tests {
         system.run();
         TestLogHandler::new().exists_log_containing(
             "DEBUG: BlockchainBridge: Received BindMessage; no consuming private key specified",
+        );
+    }
+
+    #[test]
+    fn blockchain_bridge_receives_report_accounts_payable_message_and_logs() {
+        init_test_logging();
+
+        let subject = BlockchainBridge::new(BlockchainBridgeConfig {
+            consuming_private_key: None,
+        });
+
+        let system = System::new("blockchain_bridge_receives_report_accounts_payable_message");
+        let addr: Addr<BlockchainBridge> = subject.start();
+
+        addr.try_send(ReportAccountsPayable { accounts: vec![] })
+            .unwrap();
+
+        System::current().stop_with_code(0);
+        system.run();
+        TestLogHandler::new().exists_log_containing(
+            "DEBUG: BlockchainBridge: Received ReportAccountsPayable message",
         );
     }
 }

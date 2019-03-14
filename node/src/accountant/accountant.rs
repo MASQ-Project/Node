@@ -3,26 +3,38 @@ use super::db_initializer::DbInitializer;
 use super::db_initializer::DbInitializerReal;
 use super::payable_dao::PayableDao;
 use super::receivable_dao::ReceivableDao;
+use crate::accountant::payable_dao::PayableAccount;
 use crate::sub_lib::accountant::AccountantConfig;
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
+use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
 use actix::Addr;
+use actix::AsyncContext;
 use actix::Context;
 use actix::Handler;
+use actix::Recipient;
 use std::fs;
+use std::time::SystemTime;
+
+pub const PAYMENT_CURVE_MINIMUM_TIME: i64 = 86400; // one day
+pub const PAYMENT_CURVE_TIME_INTERSECTION: i64 = 2592000; // thirty days
+pub const PAYMENT_CURVE_MINIMUM_BALANCE: i64 = 10000000; // ten million
+pub const PAYMENT_CURVE_BALANCE_INTERSECTION: i64 = 1000000000; // one billion
+pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
 
 pub struct Accountant {
     config: AccountantConfig,
     db_initializer: Box<DbInitializer>,
     payable_dao: Option<Box<PayableDao>>,
     receivable_dao: Option<Box<ReceivableDao>>,
+    report_accounts_payable_sub: Option<Recipient<ReportAccountsPayable>>,
     logger: Logger,
 }
 
@@ -33,8 +45,19 @@ impl Actor for Accountant {
 impl Handler<BindMessage> for Accountant {
     type Result = ();
 
-    fn handle(&mut self, _msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
+        self.report_accounts_payable_sub =
+            Some(msg.peer_actors.blockchain_bridge.report_accounts_payable);
         self.establish_data_directory();
+        ctx.run_interval(self.config.payable_scan_interval, |act, _ctx| {
+            act.logger.debug("Scanning for payables".to_string());
+            Accountant::scan_for_payables(
+                act.payable_dao.as_ref().expect("PayableDao is unbound"),
+                act.report_accounts_payable_sub
+                    .as_ref()
+                    .expect("BlockchainBridge is unbound"),
+            );
+        });
         self.logger.info(String::from("Accountant bound"));
         ()
     }
@@ -135,6 +158,7 @@ impl Accountant {
             db_initializer: Box::new(DbInitializerReal::new()),
             payable_dao: None,
             receivable_dao: None,
+            report_accounts_payable_sub: None,
             logger: Logger::new("Accountant"),
         }
     }
@@ -155,6 +179,49 @@ impl Accountant {
                 .clone()
                 .recipient::<ReportExitServiceConsumedMessage>(),
         }
+    }
+
+    fn scan_for_payables(
+        payable_dao: &Box<PayableDao>,
+        report_accounts_payable_sub: &Recipient<ReportAccountsPayable>,
+    ) {
+        let payables = payable_dao
+            .non_pending_payables()
+            .into_iter()
+            .filter(Accountant::should_pay)
+            .collect::<Vec<PayableAccount>>();
+
+        if payables.len() > 0 {
+            report_accounts_payable_sub
+                .try_send(ReportAccountsPayable { accounts: payables })
+                .expect("BlockchainBridge is dead");
+        }
+    }
+
+    fn should_pay(payable: &PayableAccount) -> bool {
+        let time_since_last_paid = SystemTime::now()
+            .duration_since(payable.last_paid_timestamp)
+            .expect("Internal error")
+            .as_secs();
+
+        if time_since_last_paid <= PAYMENT_CURVE_MINIMUM_TIME as u64 {
+            return false;
+        }
+
+        if payable.balance <= PAYMENT_CURVE_MINIMUM_BALANCE {
+            return false;
+        }
+
+        let threshold = Accountant::calculate_payout_threshold(time_since_last_paid);
+        payable.balance as f64 > threshold
+    }
+
+    fn calculate_payout_threshold(x: u64) -> f64 {
+        let m = -((PAYMENT_CURVE_BALANCE_INTERSECTION as f64
+            - PAYMENT_CURVE_MINIMUM_BALANCE as f64)
+            / (PAYMENT_CURVE_TIME_INTERSECTION as f64 - PAYMENT_CURVE_MINIMUM_TIME as f64));
+        let b = PAYMENT_CURVE_BALANCE_INTERSECTION as f64 - m * PAYMENT_CURVE_MINIMUM_TIME as f64;
+        m * x as f64 + b
     }
 
     fn establish_data_directory(&mut self) {
@@ -219,11 +286,16 @@ pub mod tests {
     use super::super::payable_dao::PayableAccount;
     use super::super::receivable_dao;
     use super::*;
+    use crate::accountant::dao_utils::from_time_t;
+    use crate::accountant::dao_utils::to_time_t;
     use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
+    use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
+    use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
+    use crate::test_utils::recorder::Recorder;
     use actix::System;
     use std::cell::RefCell;
     use std::fs::File;
@@ -232,6 +304,8 @@ pub mod tests {
     use std::path::PathBuf;
     use std::sync::Arc;
     use std::sync::Mutex;
+    use std::thread;
+    use std::time::Duration;
     use std::time::SystemTime;
 
     struct DbInitializerMock {
@@ -274,6 +348,7 @@ pub mod tests {
     #[derive(Debug)]
     struct PayableDaoMock {
         more_money_payable_parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
+        non_pending_payables_results: RefCell<Vec<Vec<PayableAccount>>>,
     }
 
     impl PayableDao for PayableDaoMock {
@@ -300,12 +375,17 @@ pub mod tests {
         fn account_status(&self, _wallet_address: &Wallet) -> Option<PayableAccount> {
             unimplemented!()
         }
+
+        fn non_pending_payables(&self) -> Vec<PayableAccount> {
+            self.non_pending_payables_results.borrow_mut().remove(0)
+        }
     }
 
     impl PayableDaoMock {
         fn new() -> PayableDaoMock {
             PayableDaoMock {
                 more_money_payable_parameters: Arc::new(Mutex::new(vec![])),
+                non_pending_payables_results: RefCell::new(vec![]),
             }
         }
 
@@ -314,6 +394,11 @@ pub mod tests {
             parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
         ) -> Self {
             self.more_money_payable_parameters = parameters;
+            self
+        }
+
+        fn non_pending_payables_result(self, result: Vec<PayableAccount>) -> Self {
+            self.non_pending_payables_results.borrow_mut().push(result);
             self
         }
     }
@@ -379,6 +464,146 @@ pub mod tests {
     }
 
     #[test]
+    fn accountant_timer_triggers_scanning_for_payables() {
+        init_test_logging();
+        let (blockchain_bridge, blockchain_bridge_awaiter, _) = make_recorder();
+        thread::spawn(move || {
+            let system = System::new("accountant_timer_triggers_scanning_for_payables");
+            let data_dir = PathBuf::from(format!(
+                "{}/accountant_timer_triggers_scanning_for_payables/home",
+                BASE_TEST_DIR
+            ));
+            let config = AccountantConfig {
+                data_directory: data_dir.clone(),
+                payable_scan_interval: Duration::from_millis(100),
+            };
+            let now = to_time_t(&SystemTime::now());
+            let accounts = vec![
+                // slightly above minimum balance, to the right of the curve (time intersection)
+                PayableAccount {
+                    wallet_address: Wallet::new("wallet0"),
+                    balance: PAYMENT_CURVE_MINIMUM_BALANCE + 1,
+                    last_paid_timestamp: from_time_t(now - PAYMENT_CURVE_TIME_INTERSECTION - 10),
+                    pending_payment_transaction: None,
+                },
+            ];
+            let daos = Daos {
+                payable: Box::new(
+                    PayableDaoMock::new()
+                        .non_pending_payables_result(accounts.clone())
+                        .non_pending_payables_result(accounts),
+                ),
+                receivable: Box::new(ReceivableDaoMock::new()),
+            };
+            let db_initializer = DbInitializerMock::new().initialize_result(Ok(daos));
+            let mut subject = Accountant::new(config);
+            subject.db_initializer = Box::new(db_initializer);
+            let peer_actors = peer_actors_builder()
+                .blockchain_bridge(blockchain_bridge)
+                .build();
+            let subject_addr: Addr<Accountant> = subject.start();
+            let subject_subs = Accountant::make_subs_from(&subject_addr);
+
+            subject_subs
+                .bind
+                .try_send(BindMessage { peer_actors })
+                .unwrap();
+
+            system.run();
+        });
+
+        blockchain_bridge_awaiter.await_message_count(2);
+        TestLogHandler::new().exists_log_containing("DEBUG: Accountant: Scanning for payables");
+    }
+
+    #[test]
+    fn scan_for_payables_message_does_not_trigger_payment_for_balances_below_the_curve() {
+        init_test_logging();
+        let now = to_time_t(&SystemTime::now());
+        let accounts = vec![
+            // below minimum balance, to the right of time intersection (inside buffer zone)
+            PayableAccount {
+                wallet_address: Wallet::new("wallet0"),
+                balance: PAYMENT_CURVE_MINIMUM_BALANCE - 1,
+                last_paid_timestamp: from_time_t(now - PAYMENT_CURVE_TIME_INTERSECTION - 10),
+                pending_payment_transaction: None,
+            },
+            // above balance intersection, to the left of minimum time (inside buffer zone)
+            PayableAccount {
+                wallet_address: Wallet::new("wallet1"),
+                balance: PAYMENT_CURVE_BALANCE_INTERSECTION + 1,
+                last_paid_timestamp: from_time_t(now - PAYMENT_CURVE_MINIMUM_TIME + 10),
+                pending_payment_transaction: None,
+            },
+            // above minimum balance, to the right of minimum time (not in buffer zone, below the curve)
+            PayableAccount {
+                wallet_address: Wallet::new("wallet2"),
+                balance: PAYMENT_CURVE_BALANCE_INTERSECTION - 1000,
+                last_paid_timestamp: from_time_t(now - PAYMENT_CURVE_MINIMUM_TIME - 1),
+                pending_payment_transaction: None,
+            },
+        ];
+        let payable_dao: Box<PayableDao> =
+            Box::new(PayableDaoMock::new().non_pending_payables_result(accounts.clone()));
+        let (blockchain_bridge, _, blockchain_bridge_recordings_arc) = make_recorder();
+        let system = System::new(
+            "scan_for_payables_message_does_not_trigger_payment_for_balances_below_the_curve",
+        );
+        let subject_addr: Addr<Recorder> = blockchain_bridge.start();
+        let report_accounts_payable_sub = subject_addr.recipient::<ReportAccountsPayable>();
+
+        Accountant::scan_for_payables(&payable_dao, &report_accounts_payable_sub);
+
+        System::current().stop_with_code(0);
+        system.run();
+
+        let blockchain_bridge_recordings = blockchain_bridge_recordings_arc.lock().unwrap();
+        assert_eq!(blockchain_bridge_recordings.len(), 0);
+    }
+
+    #[test]
+    fn scan_for_payables_message_triggers_payment_for_balances_over_the_curve() {
+        init_test_logging();
+        let now = to_time_t(&SystemTime::now());
+        let accounts = vec![
+            // slightly above minimum balance, to the right of the curve (time intersection)
+            PayableAccount {
+                wallet_address: Wallet::new("wallet0"),
+                balance: PAYMENT_CURVE_MINIMUM_BALANCE + 1,
+                last_paid_timestamp: from_time_t(now - PAYMENT_CURVE_TIME_INTERSECTION - 10),
+                pending_payment_transaction: None,
+            },
+            // slightly above the curve (balance intersection), to the right of minimum time
+            PayableAccount {
+                wallet_address: Wallet::new("wallet1"),
+                balance: PAYMENT_CURVE_BALANCE_INTERSECTION + 1,
+                last_paid_timestamp: from_time_t(now - PAYMENT_CURVE_MINIMUM_TIME - 10),
+                pending_payment_transaction: None,
+            },
+        ];
+        let payable_dao: Box<PayableDao> =
+            Box::new(PayableDaoMock::new().non_pending_payables_result(accounts.clone()));
+        let (blockchain_bridge, blockchain_bridge_awaiter, blockchain_bridge_recordings_arc) =
+            make_recorder();
+        let system =
+            System::new("scan_for_payables_message_triggers_payment_for_balances_over_the_curve");
+        let subject_addr: Addr<Recorder> = blockchain_bridge.start();
+        let report_accounts_payable_sub = subject_addr.recipient::<ReportAccountsPayable>();
+
+        Accountant::scan_for_payables(&payable_dao, &report_accounts_payable_sub);
+
+        System::current().stop_with_code(0);
+        system.run();
+
+        blockchain_bridge_awaiter.await_message_count(1);
+        let blockchain_bridge_recordings = blockchain_bridge_recordings_arc.lock().unwrap();
+        assert_eq!(
+            blockchain_bridge_recordings.get_record::<ReportAccountsPayable>(0),
+            &ReportAccountsPayable { accounts }
+        );
+    }
+
+    #[test]
     fn report_routing_service_provided_message_is_received() {
         init_test_logging();
         let data_dir = PathBuf::from(format!(
@@ -387,6 +612,7 @@ pub mod tests {
         ));
         let config = AccountantConfig {
             data_directory: data_dir.clone(),
+            payable_scan_interval: Duration::from_secs(100),
         };
         let dbi_initialize_parameters_arc = Arc::new(Mutex::new(vec![]));
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
@@ -442,6 +668,7 @@ pub mod tests {
         ));
         let config = AccountantConfig {
             data_directory: data_dir.clone(),
+            payable_scan_interval: Duration::from_secs(100),
         };
         let dbi_initialize_parameters_arc = Arc::new(Mutex::new(vec![]));
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
@@ -493,6 +720,7 @@ pub mod tests {
         init_test_logging();
         let config = AccountantConfig {
             data_directory: PathBuf::new(),
+            payable_scan_interval: Duration::from_secs(100),
         };
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let daos = Daos {
@@ -543,6 +771,7 @@ pub mod tests {
         ));
         let config = AccountantConfig {
             data_directory: data_dir.clone(),
+            payable_scan_interval: Duration::from_secs(100),
         };
         let dbi_initialize_parameters_arc = Arc::new(Mutex::new(vec![]));
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
@@ -598,6 +827,7 @@ pub mod tests {
         fs::remove_dir_all(&data_dir).is_ok();
         let config = AccountantConfig {
             data_directory: data_dir.clone(),
+            payable_scan_interval: Duration::from_secs(100),
         };
         let subject = Accountant::new(config);
 
@@ -621,6 +851,7 @@ pub mod tests {
         }
         let config = AccountantConfig {
             data_directory: data_dir.clone(),
+            payable_scan_interval: Duration::from_secs(100),
         };
         let subject = Accountant::new(config);
 
@@ -641,6 +872,7 @@ pub mod tests {
         ));
         let config = AccountantConfig {
             data_directory: data_dir,
+            payable_scan_interval: Duration::from_secs(100),
         };
         let mut subject = Accountant::new(config);
         let db_initializer = DbInitializerMock::new()
@@ -690,6 +922,7 @@ pub mod tests {
     fn panic_if_directory_is_nonexistent_and_cant_be_created(base_path: &PathBuf) {
         let config = AccountantConfig {
             data_directory: base_path.join("home"),
+            payable_scan_interval: Duration::from_secs(100),
         };
         let subject = Accountant::new(config);
 

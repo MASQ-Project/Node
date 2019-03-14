@@ -7,7 +7,7 @@ use rusqlite::OptionalExtension;
 use std::fmt::Debug;
 use std::time::SystemTime;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PayableAccount {
     pub wallet_address: Wallet,
     pub balance: i64,
@@ -28,6 +28,8 @@ pub trait PayableDao: Debug {
     );
 
     fn account_status(&self, wallet_address: &Wallet) -> Option<PayableAccount>;
+
+    fn non_pending_payables(&self) -> Vec<PayableAccount>;
 }
 
 #[derive(Debug)]
@@ -83,6 +85,22 @@ impl PayableDao for PayableDaoReal {
             Err(e) => panic!("Database is corrupt: {:?}", e),
         }
     }
+
+    fn non_pending_payables(&self) -> Vec<PayableAccount> {
+        let mut stmt = self.conn
+            .prepare("select balance, last_paid_timestamp, wallet_address from payable where pending_payment_transaction is null")
+            .expect("Internal error");
+
+        stmt.query_map(&[] as &[&ToSql], |row| PayableAccount {
+            balance: row.get(0),
+            last_paid_timestamp: dao_utils::from_time_t(row.get(1)),
+            wallet_address: Wallet::new(&row.get::<usize, String>(2)),
+            pending_payment_transaction: None,
+        })
+        .expect("Database is corrupt")
+        .map(|p| p.expect("Database is corrupt"))
+        .collect()
+    }
 }
 
 impl PayableDaoReal {
@@ -128,6 +146,7 @@ mod tests {
     use super::super::db_initializer::DbInitializerReal;
     use super::super::local_test_utils::ensure_node_home_directory_exists;
     use super::*;
+    use crate::accountant::dao_utils::from_time_t;
     use rusqlite::OpenFlags;
     use rusqlite::NO_PARAMS;
 
@@ -213,5 +232,71 @@ mod tests {
         let result = subject.account_status(&wallet);
 
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn non_pending_payables_should_return_an_empty_vec_when_the_database_is_empty() {
+        let home_dir = ensure_node_home_directory_exists(
+            "non_pending_payables_should_return_an_empty_vec_when_the_database_is_empty",
+        );
+
+        let subject = DbInitializerReal::new()
+            .initialize(&home_dir)
+            .unwrap()
+            .payable;
+
+        assert_eq!(subject.non_pending_payables(), vec![]);
+    }
+
+    #[test]
+    fn non_pending_payables_should_return_payables_with_no_pending_transaction() {
+        let home_dir = ensure_node_home_directory_exists(
+            "non_pending_payables_should_return_payables_with_no_pending_transaction",
+        );
+
+        let subject = DbInitializerReal::new()
+            .initialize(&home_dir)
+            .unwrap()
+            .payable;
+
+        let mut flags = OpenFlags::empty();
+        flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
+        let conn =
+            Connection::open_with_flags(&home_dir.join(db_initializer::DATABASE_FILE), flags)
+                .unwrap();
+        let insert = |wallet: &str, balance: i64, pending_payment_transaction: Option<&str>| {
+            let params: &[&ToSql] = &[&wallet, &balance, &0i64, &pending_payment_transaction];
+
+            conn
+                .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_transaction) values (?, ?, ?, ?)")
+                .unwrap()
+                .execute(params)
+                .unwrap();
+        };
+
+        insert("foo", 42, Some("0x155553215215"));
+        insert("bar", 24, Some("0x689477777623"));
+        insert("foobar", 44, None);
+        insert("barfoo", 22, None);
+
+        let result = subject.non_pending_payables();
+
+        assert_eq!(
+            result,
+            vec![
+                PayableAccount {
+                    wallet_address: Wallet::new("foobar"),
+                    balance: 44,
+                    last_paid_timestamp: from_time_t(0),
+                    pending_payment_transaction: None
+                },
+                PayableAccount {
+                    wallet_address: Wallet::new("barfoo"),
+                    balance: 22,
+                    last_paid_timestamp: from_time_t(0),
+                    pending_payment_transaction: None
+                },
+            ]
+        );
     }
 }
