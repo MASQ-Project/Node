@@ -13,6 +13,7 @@ use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
+use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
 use actix::Addr;
@@ -49,6 +50,7 @@ impl Handler<BindMessage> for Accountant {
         self.report_accounts_payable_sub =
             Some(msg.peer_actors.blockchain_bridge.report_accounts_payable);
         self.establish_data_directory();
+        ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         ctx.run_interval(self.config.payable_scan_interval, |act, _ctx| {
             act.logger.debug("Scanning for payables".to_string());
             Accountant::scan_for_payables(
