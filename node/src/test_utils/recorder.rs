@@ -61,69 +61,36 @@ impl Actor for Recorder {
     type Context = Context<Self>;
 }
 
-impl Handler<AddReturnRouteMessage> for Recorder {
-    type Result = ();
+macro_rules! recorder_message_handler {
+    ($message_type: ty) => {
+        impl Handler<$message_type> for Recorder {
+            type Result = ();
 
-    fn handle(&mut self, msg: AddReturnRouteMessage, _ctx: &mut Self::Context) {
-        self.record(msg);
-    }
+            fn handle(&mut self, msg: $message_type, _ctx: &mut Self::Context) {
+                self.record(msg);
+            }
+        }
+    };
 }
 
-impl Handler<TransmitDataMsg> for Recorder {
-    type Result = ();
-
-    fn handle(&mut self, msg: TransmitDataMsg, _ctx: &mut Self::Context) {
-        self.record(msg);
-    }
-}
-
-impl Handler<BindMessage> for Recorder {
-    type Result = ();
-
-    fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) {
-        self.record(msg);
-    }
-}
-
-impl Handler<IncipientCoresPackage> for Recorder {
-    type Result = ();
-
-    fn handle(&mut self, msg: IncipientCoresPackage, _ctx: &mut Self::Context) {
-        self.record(msg);
-    }
-}
-
-impl Handler<ExpiredCoresPackage> for Recorder {
-    type Result = ();
-
-    fn handle(&mut self, msg: ExpiredCoresPackage, _ctx: &mut Self::Context) {
-        self.record(msg);
-    }
-}
-
-impl Handler<InboundClientData> for Recorder {
-    type Result = ();
-
-    fn handle(&mut self, msg: InboundClientData, _ctx: &mut Self::Context) {
-        self.record(msg)
-    }
-}
-
-impl Handler<InboundServerData> for Recorder {
-    type Result = ();
-
-    fn handle(&mut self, msg: InboundServerData, _ctx: &mut Self::Context) {
-        self.record(msg)
-    }
-}
-
-impl Handler<BootstrapNeighborhoodNowMessage> for Recorder {
-    type Result = ();
-
-    fn handle(&mut self, msg: BootstrapNeighborhoodNowMessage, _ctx: &mut Self::Context) {
-        self.record(msg);
-    }
-}
+recorder_message_handler!(AddReturnRouteMessage);
+recorder_message_handler!(TransmitDataMsg);
+recorder_message_handler!(BindMessage);
+recorder_message_handler!(IncipientCoresPackage);
+recorder_message_handler!(ExpiredCoresPackage);
+recorder_message_handler!(InboundClientData);
+recorder_message_handler!(InboundServerData);
+recorder_message_handler!(BootstrapNeighborhoodNowMessage);
+recorder_message_handler!(RemoveNeighborMessage);
+recorder_message_handler!(DispatcherNodeQueryResponse);
+recorder_message_handler!(DispatcherNodeQueryMessage);
+recorder_message_handler!(UiMessage);
+recorder_message_handler!(FromUiMessage);
+recorder_message_handler!(ReportRoutingServiceProvidedMessage);
+recorder_message_handler!(ReportExitServiceProvidedMessage);
+recorder_message_handler!(ReportRoutingServiceConsumedMessage);
+recorder_message_handler!(ReportExitServiceConsumedMessage);
+recorder_message_handler!(ReportAccountsPayable);
 
 impl Handler<NodeQueryMessage> for Recorder {
     type Result = MessageResult<NodeQueryMessage>;
@@ -154,86 +121,6 @@ impl Handler<RouteQueryMessage> for Recorder {
             &mut self.route_query_responses,
             "No RouteQueryResponses prepared for RouteQueryMessage",
         ))
-    }
-}
-
-impl Handler<RemoveNeighborMessage> for Recorder {
-    type Result = ();
-
-    fn handle(&mut self, msg: RemoveNeighborMessage, _ctx: &mut Self::Context) {
-        self.record(msg);
-    }
-}
-
-impl Handler<DispatcherNodeQueryResponse> for Recorder {
-    type Result = ();
-
-    fn handle(&mut self, msg: DispatcherNodeQueryResponse, _ctx: &mut Self::Context) {
-        self.record(msg);
-    }
-}
-
-impl Handler<DispatcherNodeQueryMessage> for Recorder {
-    type Result = ();
-
-    fn handle(&mut self, msg: DispatcherNodeQueryMessage, _ctx: &mut Self::Context) {
-        self.record(msg);
-    }
-}
-
-impl Handler<UiMessage> for Recorder {
-    type Result = ();
-
-    fn handle(&mut self, msg: UiMessage, _ctx: &mut Self::Context) {
-        self.record(msg);
-    }
-}
-
-impl Handler<FromUiMessage> for Recorder {
-    type Result = ();
-
-    fn handle(&mut self, msg: FromUiMessage, _ctx: &mut Self::Context) {
-        self.record(msg);
-    }
-}
-
-impl Handler<ReportRoutingServiceProvidedMessage> for Recorder {
-    type Result = ();
-
-    fn handle(&mut self, msg: ReportRoutingServiceProvidedMessage, _ctx: &mut Self::Context) {
-        self.record(msg);
-    }
-}
-
-impl Handler<ReportExitServiceProvidedMessage> for Recorder {
-    type Result = ();
-
-    fn handle(&mut self, msg: ReportExitServiceProvidedMessage, _ctx: &mut Self::Context) {
-        self.record(msg);
-    }
-}
-
-impl Handler<ReportRoutingServiceConsumedMessage> for Recorder {
-    type Result = ();
-
-    fn handle(&mut self, msg: ReportRoutingServiceConsumedMessage, _ctx: &mut Self::Context) {
-        self.record(msg);
-    }
-}
-
-impl Handler<ReportExitServiceConsumedMessage> for Recorder {
-    type Result = ();
-
-    fn handle(&mut self, msg: ReportExitServiceConsumedMessage, _ctx: &mut Self::Context) {
-        self.record(msg);
-    }
-}
-
-impl Handler<ReportAccountsPayable> for Recorder {
-    type Result = ();
-
-    fn handle(&mut self, msg: ReportAccountsPayable, _ctx: &mut Self::Context) -> Self::Result {
-        self.record(msg);
     }
 }
 
@@ -531,13 +418,7 @@ mod tests {
         string: String,
     }
 
-    impl Handler<FirstMessageType> for Recorder {
-        type Result = ();
-
-        fn handle(&mut self, msg: FirstMessageType, _ctx: &mut Context<Self>) -> () {
-            self.record(msg)
-        }
-    }
+    recorder_message_handler!(FirstMessageType);
 
     #[derive(Debug, PartialEq, Message)]
     struct SecondMessageType {
@@ -545,13 +426,7 @@ mod tests {
         flag: bool,
     }
 
-    impl Handler<SecondMessageType> for Recorder {
-        type Result = ();
-
-        fn handle(&mut self, msg: SecondMessageType, _ctx: &mut Context<Self>) -> () {
-            self.record(msg)
-        }
-    }
+    recorder_message_handler!(SecondMessageType);
 
     #[test]
     fn recorder_records_different_messages() {
