@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::neighborhood::gossip::Gossip;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::dispatcher::Component;
 use crate::sub_lib::hopper::ExpiredCoresPackage;
@@ -64,7 +65,7 @@ pub struct NeighborhoodSubs {
     pub bootstrap: Recipient<BootstrapNeighborhoodNowMessage>,
     pub node_query: Recipient<NodeQueryMessage>,
     pub route_query: Recipient<RouteQueryMessage>,
-    pub from_hopper: Recipient<ExpiredCoresPackage>,
+    pub from_hopper: Recipient<ExpiredCoresPackage<Gossip>>,
     pub dispatcher_node_query: Recipient<DispatcherNodeQueryMessage>,
     pub remove_neighbor: Recipient<RemoveNeighborMessage>,
 }

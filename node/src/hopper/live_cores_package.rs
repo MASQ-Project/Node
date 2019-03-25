@@ -1,11 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PublicKey;
+use crate::sub_lib::cryptde::{decodex, CryptDE};
 use crate::sub_lib::hop::LiveHop;
-use crate::sub_lib::hopper::ExpiredCoresPackage;
 use crate::sub_lib::hopper::IncipientCoresPackage;
+use crate::sub_lib::hopper::{ExpiredCoresPackage, MessageType};
 use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteError;
 use serde_derive::{Deserialize, Serialize};
@@ -50,17 +50,20 @@ impl LiveCoresPackage {
         self,
         immediate_neighbor_ip: IpAddr,
         cryptde: &dyn CryptDE, // Must be the CryptDE of the Node for which the payload is intended.
-    ) -> Result<ExpiredCoresPackage, String> {
+    ) -> Result<ExpiredCoresPackage<MessageType>, String> {
         let top_hop = match self.route.next_hop(cryptde) {
             Err(e) => return Err(format!("{:?}", e)),
             Ok(hop) => hop,
         };
-        Ok(ExpiredCoresPackage::new(
-            immediate_neighbor_ip,
-            top_hop.consuming_wallet,
-            self.route,
-            self.payload,
-        ))
+        decodex::<MessageType>(cryptde, &self.payload).map(|decoded_payload| {
+            ExpiredCoresPackage::new(
+                immediate_neighbor_ip,
+                top_hop.consuming_wallet,
+                self.route,
+                decoded_payload,
+                self.payload.len(),
+            )
+        })
     }
 }
 
@@ -71,13 +74,12 @@ mod tests {
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::Component;
-    use crate::sub_lib::hopper::IncipientCoresPackage;
+    use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::test_utils::cryptde;
     use crate::test_utils::test_utils::make_meaningless_route;
-    use crate::test_utils::test_utils::PayloadMock;
     use std::str::FromStr;
 
     #[test]
@@ -103,7 +105,7 @@ mod tests {
 
     #[test]
     fn live_cores_package_can_be_produced_from_older_live_cores_package() {
-        let payload = PayloadMock::new();
+        let payload = MessageType::DnsResolveFailed;
         let destination_key = PublicKey::new(&[3, 4]);
         let destination_cryptde = CryptDENull::from(&destination_key);
         let relay_key = PublicKey::new(&[1, 2]);
@@ -129,7 +131,7 @@ mod tests {
             LiveHop::new(
                 &destination_key,
                 Some(Wallet::new("wallet")),
-                Component::Hopper
+                Component::Hopper,
             )
         );
         assert_eq!(next_pkg.payload, encrypted_payload);
@@ -139,7 +141,7 @@ mod tests {
             LiveHop::new(
                 &PublicKey::new(&[]),
                 Some(Wallet::new("wallet")),
-                Component::Neighborhood
+                Component::Neighborhood,
             )
         );
         assert_eq!(
@@ -170,7 +172,7 @@ mod tests {
             Some(consuming_wallet),
         )
         .unwrap();
-        let payload = PayloadMock::new();
+        let payload = MessageType::DnsResolveFailed;
 
         let incipient =
             IncipientCoresPackage::new(cryptde, route.clone(), payload.clone(), &key56).unwrap();
@@ -185,7 +187,7 @@ mod tests {
             cryptde
                 .encode(
                     &key56,
-                    &PlainData::new(&serde_cbor::ser::to_vec(&payload).unwrap())
+                    &PlainData::new(&serde_cbor::ser::to_vec(&payload).unwrap()),
                 )
                 .unwrap()
         );
@@ -197,7 +199,7 @@ mod tests {
         let incipient = IncipientCoresPackage::new(
             cryptde,
             Route { hops: vec![] },
-            PayloadMock::new(),
+            MessageType::DnsResolveFailed,
             &PublicKey::new(&[3, 4]),
         )
         .unwrap();
@@ -212,7 +214,7 @@ mod tests {
     #[test]
     fn expired_cores_package_can_be_constructed_from_live_cores_package() {
         let immediate_neighbor_ip = IpAddr::from_str("1.2.3.4").unwrap();
-        let payload = PayloadMock::new();
+        let payload = MessageType::DnsResolveFailed;
         let first_stop_key = PublicKey::new(&[3, 4]);
         let first_stop_cryptde = CryptDENull::from(&first_stop_key);
         let relay_key = PublicKey::new(&[1, 2]);
@@ -242,14 +244,14 @@ mod tests {
 
         assert_eq!(result.immediate_neighbor_ip, immediate_neighbor_ip);
         assert_eq!(result.consuming_wallet, Some(Wallet::new("wallet")));
-        assert_eq!(result.payload, encrypted_payload);
+        assert_eq!(result.payload, payload);
         let mut route = result.remaining_route.clone();
         assert_eq!(
             route.shift(&first_stop_cryptde).unwrap(),
             LiveHop::new(
                 &relay_key,
                 Some(Wallet::new("wallet")),
-                Component::Neighborhood
+                Component::Neighborhood,
             )
         );
         assert_eq!(
@@ -257,7 +259,7 @@ mod tests {
             LiveHop::new(
                 &second_stop_key,
                 Some(Wallet::new("wallet")),
-                Component::Hopper
+                Component::Hopper,
             )
         );
         assert_eq!(
@@ -265,7 +267,7 @@ mod tests {
             LiveHop::new(
                 &PublicKey::new(&[]),
                 Some(Wallet::new("wallet")),
-                Component::ProxyServer
+                Component::ProxyServer,
             )
         );
         assert_eq!(

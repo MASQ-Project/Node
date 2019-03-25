@@ -1,7 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::sub_lib::cryptde::CryptDE;
-use crate::sub_lib::hopper::ExpiredCoresPackage;
+use crate::sub_lib::hopper::{ExpiredCoresPackage, MessageType};
 use crate::sub_lib::peer_actors::BindMessage;
+use crate::sub_lib::proxy_server::ClientRequestPayload;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use actix::Message;
@@ -29,10 +30,16 @@ pub struct ClientResponsePayload {
     pub sequenced_packet: SequencedPacket,
 }
 
+impl Into<MessageType> for ClientResponsePayload {
+    fn into(self) -> MessageType {
+        MessageType::ClientResponse(self)
+    }
+}
+
 #[derive(Clone)]
 pub struct ProxyClientSubs {
     pub bind: Recipient<BindMessage>,
-    pub from_hopper: Recipient<ExpiredCoresPackage>,
+    pub from_hopper: Recipient<ExpiredCoresPackage<ClientRequestPayload>>,
     pub inbound_server_data: Recipient<InboundServerData>,
 }
 
@@ -61,7 +68,7 @@ pub struct InboundServerData {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sub_lib::utils::tests::make_meaningless_stream_key;
+    use crate::test_utils::test_utils::make_meaningless_stream_key;
 
     #[test]
     fn make_terminating_payload_makes_terminating_payload() {

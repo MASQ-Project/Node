@@ -120,17 +120,6 @@ pub fn plus<T>(mut source: Vec<T>, item: T) -> Vec<T> {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::sub_lib::cryptde::PublicKey;
-    use crate::sub_lib::stream_key::StreamKey;
-    use std::net::SocketAddr;
-    use std::str::FromStr;
-
-    pub fn make_meaningless_stream_key() -> StreamKey {
-        StreamKey::new(
-            PublicKey::new(&[]),
-            SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-        )
-    }
 
     #[test]
     fn indicates_dead_stream_identifies_dead_stream_errors() {

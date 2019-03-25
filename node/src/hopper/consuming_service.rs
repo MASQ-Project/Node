@@ -17,7 +17,8 @@ use std::str::FromStr;
 
 pub struct ConsumingService {
     cryptde: &'static dyn CryptDE,
-    _is_bootstrap_node: bool, // TODO: Remember to check this and refuse to consume if set
+    _is_bootstrap_node: bool,
+    // TODO: Remember to check this and refuse to consume if set
     to_dispatcher: Recipient<TransmitDataMsg>,
     to_hopper: Recipient<InboundClientData>,
     logger: Logger,
@@ -59,8 +60,6 @@ impl ConsumingService {
             }
             Err(e) => self.logger.error(e),
         };
-
-        ()
     }
 
     fn serialize_and_encrypt_lcp(
@@ -141,9 +140,10 @@ mod tests {
     use super::super::hopper::Hopper;
     use super::*;
     use crate::sub_lib::dispatcher::Component;
-    use crate::sub_lib::hopper::ExpiredCoresPackage;
-    use crate::sub_lib::hopper::HopperConfig;
+    use crate::sub_lib::hopper::MessageType;
+    use crate::sub_lib::hopper::{ExpiredCoresPackage, HopperConfig};
     use crate::sub_lib::peer_actors::BindMessage;
+    use crate::sub_lib::proxy_server::ClientRequestPayload;
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
     use crate::sub_lib::wallet::Wallet;
@@ -153,6 +153,7 @@ mod tests {
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::test_utils::cryptde;
+    use crate::test_utils::test_utils::make_request_payload;
     use crate::test_utils::test_utils::zero_hop_route_response;
     use actix::Actor;
     use actix::Addr;
@@ -178,7 +179,7 @@ mod tests {
             Some(consuming_wallet),
         )
         .unwrap();
-        let payload = PlainData::new(&b"abcd"[..]);
+        let payload = MessageType::DnsResolveFailed;
         let incipient_cores_package =
             IncipientCoresPackage::new(cryptde, route.clone(), payload, &destination_key).unwrap();
         let incipient_cores_package_a = incipient_cores_package.clone();
@@ -224,14 +225,19 @@ mod tests {
         let (component, component_awaiter, component_recording_arc) = make_recorder();
         let destination_key = cryptde.public_key();
         let route = zero_hop_route_response(&cryptde.public_key(), cryptde).route;
-        let payload = PlainData::new(&b"abcd"[..]);
-        let incipient_cores_package =
-            IncipientCoresPackage::new(cryptde, route, payload, &destination_key).unwrap();
+        let payload = make_request_payload(0, cryptde);
+        let incipient_cores_package = IncipientCoresPackage::new(
+            cryptde,
+            route,
+            MessageType::ClientRequest(payload.clone()),
+            &destination_key,
+        )
+        .unwrap();
         let incipient_cores_package_a = incipient_cores_package.clone();
         let (lcp, _key) =
             LiveCoresPackage::from_incipient(incipient_cores_package_a, cryptde).unwrap();
         thread::spawn(move || {
-            let system = System::new ("hopper_sends_incipient_cores_package_to_recipient_component_when_next_hop_key_is_the_same_as_the_public_key_of_this_node");
+            let system = System::new("hopper_sends_incipient_cores_package_to_recipient_component_when_next_hop_key_is_the_same_as_the_public_key_of_this_node");
             let mut peer_actors = peer_actors_builder().proxy_client(component).build();
             let subject = Hopper::new(HopperConfig {
                 cryptde,
@@ -250,11 +256,18 @@ mod tests {
         });
         component_awaiter.await_message_count(1);
         let component_recording = component_recording_arc.lock().unwrap();
-        let record = component_recording.get_record::<ExpiredCoresPackage>(0);
+        let record = component_recording.get_record::<ExpiredCoresPackage<ClientRequestPayload>>(0);
         let expected_ecp = lcp
             .to_expired(IpAddr::from_str("127.0.0.1").unwrap(), cryptde)
             .unwrap();
-        assert_eq!(*record, expected_ecp);
+        assert_eq!(
+            record.immediate_neighbor_ip,
+            expected_ecp.immediate_neighbor_ip
+        );
+        assert_eq!(record.consuming_wallet, expected_ecp.consuming_wallet);
+        assert_eq!(record.remaining_route, expected_ecp.remaining_route);
+        assert_eq!(record.payload.clone(), payload);
+        assert_eq!(record.payload_len, expected_ecp.payload_len);
     }
 
     #[test]
@@ -271,7 +284,7 @@ mod tests {
             IncipientCoresPackage::new(
                 cryptde(),
                 Route { hops: vec![] },
-                CryptData::new(&[]),
+                MessageType::DnsResolveFailed,
                 &PublicKey::new(&[1, 2]),
             )
             .unwrap(),

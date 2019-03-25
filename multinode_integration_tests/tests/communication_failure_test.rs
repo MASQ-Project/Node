@@ -7,7 +7,7 @@ use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeClus
 use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::sub_lib::dispatcher::Component;
-use node_lib::sub_lib::hopper::IncipientCoresPackage;
+use node_lib::sub_lib::hopper::{IncipientCoresPackage, MessageType};
 use node_lib::sub_lib::route::Route;
 use node_lib::sub_lib::route::RouteSegment;
 use node_lib::sub_lib::wallet::Wallet;
@@ -92,7 +92,7 @@ fn neighborhood_notified_of_missing_node_when_connection_refused() {
             Some(Wallet::new("consuming")),
         )
         .unwrap(),
-        String::from("Meaningless payload"),
+        MessageType::DnsResolveFailed,
         &disappearing_node_key,
     )
     .unwrap();

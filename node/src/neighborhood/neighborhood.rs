@@ -1,18 +1,16 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use super::gossip::to_dot_graph;
-use super::gossip::Gossip;
 use super::gossip_acceptor::GossipAcceptor;
 use super::gossip_acceptor::GossipAcceptorReal;
 use super::gossip_producer::GossipProducer;
 use super::gossip_producer::GossipProducerReal;
 use super::neighborhood_database::NeighborhoodDatabase;
 use super::neighborhood_database::NodeRecord;
+use crate::neighborhood::gossip::{to_dot_graph, Gossip};
 use crate::sub_lib::accountant;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::dispatcher::Component;
-use crate::sub_lib::hopper::ExpiredCoresPackage;
-use crate::sub_lib::hopper::IncipientCoresPackage;
+use crate::sub_lib::hopper::{ExpiredCoresPackage, IncipientCoresPackage};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::sentinel_ip_addr;
 use crate::sub_lib::neighborhood::BootstrapNeighborhoodNowMessage;
@@ -113,7 +111,7 @@ impl Handler<BootstrapNeighborhoodNowMessage> for Neighborhood {
                 let package = IncipientCoresPackage::new(
                     self.cryptde,
                     route,
-                    gossip.clone(),
+                    gossip.clone().into(),
                     &bootstrap_node_key,
                 )
                 .expect("Key magically disappeared");
@@ -232,18 +230,15 @@ impl Handler<RouteQueryMessage> for Neighborhood {
     }
 }
 
-impl Handler<ExpiredCoresPackage> for Neighborhood {
+impl Handler<ExpiredCoresPackage<Gossip>> for Neighborhood {
     type Result = ();
 
-    fn handle(&mut self, msg: ExpiredCoresPackage, _ctx: &mut Self::Context) -> Self::Result {
-        let incoming_gossip: Gossip = match msg.decoded_payload(self.cryptde) {
-            Ok(p) => p,
-            Err(_) => {
-                self.logger
-                    .error(format!("Unintelligible Gossip message received: ignoring"));
-                return ();
-            }
-        };
+    fn handle(
+        &mut self,
+        msg: ExpiredCoresPackage<Gossip>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let incoming_gossip = msg.payload;
         self.logger.trace(format!(
             "Received Gossip: {}",
             to_dot_graph(
@@ -276,7 +271,6 @@ impl Handler<ExpiredCoresPackage> for Neighborhood {
             "Finished processing Gossip about {} Nodes",
             num_nodes
         ));
-        ()
     }
 }
 
@@ -385,7 +379,7 @@ impl Neighborhood {
                 .produce(&self.neighborhood_database, neighbor);
             let gossip_len = gossip.node_records.len();
             let route = self.create_single_hop_route(neighbor);
-            let package = IncipientCoresPackage::new(self.cryptde, route, gossip, neighbor)
+            let package = IncipientCoresPackage::new(self.cryptde, route, gossip.into(), neighbor)
                 .expect("Key magically disappeared");
             self.logger.info(format!(
                 "Relaying Gossip about {} nodes to {}",
@@ -405,7 +399,7 @@ impl Neighborhood {
             bootstrap: addr.clone().recipient::<BootstrapNeighborhoodNowMessage>(),
             node_query: addr.clone().recipient::<NodeQueryMessage>(),
             route_query: addr.clone().recipient::<RouteQueryMessage>(),
-            from_hopper: addr.clone().recipient::<ExpiredCoresPackage>(),
+            from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip>>(),
             dispatcher_node_query: addr.clone().recipient::<DispatcherNodeQueryMessage>(),
             remove_neighbor: addr.clone().recipient::<RemoveNeighborMessage>(),
         }
@@ -686,11 +680,9 @@ mod tests {
     use super::super::gossip::GossipNodeRecord;
     use super::super::neighborhood_test_utils::make_node_record;
     use super::*;
-    use crate::sub_lib::cryptde::encodex;
-    use crate::sub_lib::cryptde::CryptData;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::Endpoint;
-    use crate::sub_lib::hopper::ExpiredCoresPackage;
+    use crate::sub_lib::hopper::MessageType;
     use crate::sub_lib::neighborhood::sentinel_ip_addr;
     use crate::sub_lib::neighborhood::ExpectedServices;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
@@ -1897,43 +1889,6 @@ mod tests {
     }
 
     #[test]
-    fn bad_cores_package_is_logged_and_ignored() {
-        let cryptde = cryptde();
-        let earning_wallet = Wallet::new("earning");
-        let consuming_wallet = Some(Wallet::new("consuming"));
-        init_test_logging();
-        let cores_package = ExpiredCoresPackage {
-            immediate_neighbor_ip: IpAddr::from_str("1.2.3.4").unwrap(),
-            consuming_wallet: Some(Wallet::new("consuming")),
-            remaining_route: make_meaningless_route(),
-            payload: CryptData::new(&b"booga"[..]),
-        };
-        let system = System::new("");
-        let subject = Neighborhood::new(
-            cryptde,
-            NeighborhoodConfig {
-                neighbor_configs: vec![],
-                is_bootstrap_node: false,
-                local_ip_addr: sentinel_ip_addr(),
-                clandestine_port_list: vec![],
-                earning_wallet: earning_wallet.clone(),
-                consuming_wallet: consuming_wallet.clone(),
-                rate_pack: rate_pack(100),
-            },
-        );
-        let addr: Addr<Neighborhood> = subject.start();
-        let sub: Recipient<ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
-
-        sub.try_send(cores_package).unwrap();
-
-        System::current().stop_with_code(0);
-        system.run();
-        TestLogHandler::new().exists_log_containing(
-            "ERROR: Neighborhood: Unintelligible Gossip message received: ignoring",
-        );
-    }
-
-    #[test]
     fn gossips_after_removing_a_neighbor() {
         let hopper = Recorder::new();
         let hopper_awaiter = hopper.get_awaiter();
@@ -2006,16 +1961,22 @@ mod tests {
         let locked_recording = hopper_recording.lock().unwrap();
         let package: &IncipientCoresPackage = locked_recording.get_record(0);
         let decrypted_payload = other_neighbor_cryptde.decode(&package.payload).unwrap();
-        let gossip: Gossip = serde_cbor::de::from_slice(decrypted_payload.as_slice()).unwrap();
-        let the_node_record = gossip
-            .node_records
-            .iter()
-            .find(|&x| x.inner.public_key == cryptde.public_key())
-            .expect("should have the node record");
-        assert!(!the_node_record
-            .inner
-            .neighbors
-            .contains(&removed_neighbor.public_key()));
+        let message: MessageType =
+            serde_cbor::de::from_slice(decrypted_payload.as_slice()).unwrap();
+        match message {
+            MessageType::Gossip(gossip) => {
+                let the_node_record = gossip
+                    .node_records
+                    .iter()
+                    .find(|&x| x.inner.public_key == cryptde.public_key())
+                    .expect("should have the node record");
+                assert!(!the_node_record
+                    .inner
+                    .neighbors
+                    .contains(&removed_neighbor.public_key()));
+            }
+            _ => panic!("unwrapped wrong"),
+        }
     }
 
     #[test]
@@ -2039,7 +2000,8 @@ mod tests {
             immediate_neighbor_ip: IpAddr::from_str("1.2.3.4").unwrap(),
             consuming_wallet: Some(Wallet::new("consuming")),
             remaining_route: make_meaningless_route(),
-            payload: encodex(cryptde, &cryptde.public_key(), &gossip).unwrap(),
+            payload: gossip,
+            payload_len: 0,
         };
         let hopper = Recorder::new();
         let hopper_awaiter = hopper.get_awaiter();
@@ -2071,7 +2033,7 @@ mod tests {
             let peer_actors = peer_actors_builder().hopper(hopper).build();
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            let sub: Recipient<ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
+            let sub = addr.recipient::<ExpiredCoresPackage<Gossip>>();
             sub.try_send(cores_package).unwrap();
 
             system.run();
@@ -2090,17 +2052,22 @@ mod tests {
         check_direct_route_to(&package.route, gossip_neighbor.public_key());
         let gossip_neighbor_cryptde = CryptDENull::from(gossip_neighbor.public_key());
         let decrypted_payload = gossip_neighbor_cryptde.decode(&package.payload).unwrap();
-        let gossip: Gossip = serde_cbor::de::from_slice(decrypted_payload.as_slice()).unwrap();
-        assert_eq!(gossip.node_records.len(), 2);
-        let gossip_node_records = gossip.node_records;
-        assert_contains(
-            &gossip_node_records,
-            &GossipNodeRecord::from(&gossip_neighbor, false),
-        );
-        assert_contains(
-            &gossip_node_records,
-            &GossipNodeRecord::from(&this_node, true),
-        );
+        let gossip: MessageType = serde_cbor::de::from_slice(decrypted_payload.as_slice()).unwrap();
+        match gossip {
+            MessageType::Gossip(gossip) => {
+                assert_eq!(gossip.node_records.len(), 2);
+                let gossip_node_records = gossip.node_records;
+                assert_contains(
+                    &gossip_node_records,
+                    &GossipNodeRecord::from(&gossip_neighbor, false),
+                );
+                assert_contains(
+                    &gossip_node_records,
+                    &GossipNodeRecord::from(&this_node, true),
+                );
+            }
+            _ => panic!("wrong message type"),
+        }
     }
 
     #[test]
@@ -2144,7 +2111,7 @@ mod tests {
         check_direct_route_to(&package_ref.route, bootstrap_node.public_key());
         let bootstrap_node_cryptde = CryptDENull::from(bootstrap_node.public_key());
         let decrypted_payload = bootstrap_node_cryptde.decode(&package_ref.payload).unwrap();
-        let gossip: Gossip = serde_cbor::de::from_slice(decrypted_payload.as_slice()).unwrap();
+        let gossip: MessageType = serde_cbor::de::from_slice(decrypted_payload.as_slice()).unwrap();
         let mut this_node = NodeRecord::new_for_tests(
             &cryptde.public_key(),
             Some(&NodeAddr::new(
@@ -2157,11 +2124,16 @@ mod tests {
         this_node
             .neighbors_mut()
             .push(bootstrap_node.public_key().clone());
-        assert_contains(
-            &gossip.node_records,
-            &GossipNodeRecord::from(&this_node, true),
-        );
-        assert_eq!(gossip.node_records.len(), 1);
+        match gossip {
+            MessageType::Gossip(gossip) => {
+                assert_contains(
+                    &gossip.node_records,
+                    &GossipNodeRecord::from(&this_node, true),
+                );
+                assert_eq!(gossip.node_records.len(), 1);
+            }
+            _ => panic!("wrong message type"),
+        }
     }
 
     /*
@@ -2605,7 +2577,8 @@ mod tests {
             immediate_neighbor_ip: IpAddr::from_str("1.2.3.4").unwrap(),
             consuming_wallet: Some(Wallet::new("consuming")),
             remaining_route: make_meaningless_route(),
-            payload: encodex(cryptde, &cryptde.public_key(), &gossip).unwrap(),
+            payload: gossip,
+            payload_len: 0,
         };
         let hopper = Recorder::new();
         let hopper_recording = hopper.get_recording();
@@ -2638,7 +2611,7 @@ mod tests {
             let peer_actors = peer_actors_builder().hopper(hopper).build();
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            let sub: Recipient<ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
+            let sub = addr.recipient::<ExpiredCoresPackage<Gossip>>();
             sub.try_send(cores_package).unwrap();
 
             system.run();
@@ -2682,7 +2655,8 @@ mod tests {
             immediate_neighbor_ip: IpAddr::from_str("1.2.3.4").unwrap(),
             consuming_wallet: Some(Wallet::new("consuming")),
             remaining_route: make_meaningless_route(),
-            payload: encodex(cryptde, &cryptde.public_key(), &gossip).unwrap(),
+            payload: gossip,
+            payload_len: 0,
         };
         let hopper = Recorder::new();
         let hopper_recording = hopper.get_recording();
@@ -2714,7 +2688,7 @@ mod tests {
             let peer_actors = peer_actors_builder().hopper(hopper).build();
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            let sub: Recipient<ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
+            let sub = addr.recipient::<ExpiredCoresPackage<Gossip>>();
             sub.try_send(cores_package).unwrap();
 
             system.run();
@@ -2754,7 +2728,8 @@ mod tests {
             immediate_neighbor_ip: neighborless_node.node_addr_opt().unwrap().ip_addr(),
             consuming_wallet: Some(Wallet::new("consuming")),
             remaining_route: make_meaningless_route(),
-            payload: encodex(cryptde, &cryptde.public_key(), &gossip).unwrap(),
+            payload: gossip,
+            payload_len: 0,
         };
         let hopper = Recorder::new();
         let hopper_recording = hopper.get_recording();
@@ -2798,7 +2773,7 @@ mod tests {
             let peer_actors = peer_actors_builder().hopper(hopper).build();
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            let sub: Recipient<ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
+            let sub = addr.recipient::<ExpiredCoresPackage<Gossip>>();
             sub.try_send(cores_package).unwrap();
 
             system.run();
@@ -2856,7 +2831,8 @@ mod tests {
             immediate_neighbor_ip: IpAddr::from_str("1.2.3.4").unwrap(),
             consuming_wallet: Some(Wallet::new("consuming")),
             remaining_route: make_meaningless_route(),
-            payload: encodex(cryptde, &cryptde.public_key(), &gossip).unwrap(),
+            payload: gossip,
+            payload_len: 0,
         };
         let hopper = Recorder::new();
         let this_node_inside = this_node.clone();
@@ -2886,7 +2862,7 @@ mod tests {
             let peer_actors = peer_actors_builder().hopper(hopper).build();
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            let sub: Recipient<ExpiredCoresPackage> = addr.recipient::<ExpiredCoresPackage>();
+            let sub = addr.recipient::<ExpiredCoresPackage<Gossip>>();
             sub.try_send(cores_package).unwrap();
 
             system.run();
@@ -2976,12 +2952,17 @@ mod tests {
         let locked_recording = hopper_recording.lock().unwrap();
         let package: &IncipientCoresPackage = locked_recording.get_record(0);
         let decrypted_payload = other_neighbor_cryptde.decode(&package.payload).unwrap();
-        let gossip: Gossip = serde_cbor::de::from_slice(decrypted_payload.as_slice()).unwrap();
-        let the_node_record = gossip
-            .node_records
-            .iter()
-            .find(|&x| x.inner.public_key == cryptde.public_key())
-            .expect("should have the node record");
-        assert_eq!(the_node_record.inner.version, 1);
+        let gossip: MessageType = serde_cbor::de::from_slice(decrypted_payload.as_slice()).unwrap();
+        match gossip {
+            MessageType::Gossip(gossip) => {
+                let the_node_record = gossip
+                    .node_records
+                    .iter()
+                    .find(|&x| x.inner.public_key == cryptde.public_key())
+                    .expect("should have the node record");
+                assert_eq!(the_node_record.inner.version, 1);
+            }
+            _ => panic!("wrong message type"),
+        }
     }
 }

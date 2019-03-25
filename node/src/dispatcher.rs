@@ -141,12 +141,9 @@ mod tests {
         awaiter.await_message_count(1);
         let recording = recording_arc.lock().unwrap();
 
-        let message = &recording.get_record::<InboundClientData>(0) as *const _;
-        let (actual_socket_addr, actual_data) = unsafe {
-            let tptr = message as *const Box<InboundClientData>;
-            let message = &*tptr;
-            (message.peer_addr, message.data.clone())
-        };
+        let message = recording.get_record::<InboundClientData>(0);
+        let actual_socket_addr = message.peer_addr.clone();
+        let actual_data = message.data.clone();
 
         assert_eq!(actual_socket_addr, peer_addr);
         assert_eq!(actual_data, data);
@@ -185,12 +182,9 @@ mod tests {
         awaiter.await_message_count(1);
         let recording = recording_arc.lock().unwrap();
 
-        let message = &recording.get_record::<InboundClientData>(0) as *const _;
-        let (actual_socket_addr, actual_data) = unsafe {
-            let tptr = message as *const Box<InboundClientData>;
-            let message = &*tptr;
-            (message.peer_addr, message.data.clone())
-        };
+        let message = recording.get_record::<InboundClientData>(0);
+        let actual_socket_addr = message.peer_addr.clone();
+        let actual_data = message.data.clone();
 
         assert_eq!(actual_socket_addr, peer_addr);
         assert_eq!(actual_data, data);
@@ -307,12 +301,9 @@ mod tests {
         awaiter.await_message_count(1);
         let recording = recording_arc.lock().unwrap();
 
-        let message = &recording.get_record::<TransmitDataMsg>(0) as *const _;
-        let (actual_endpoint, actual_data) = unsafe {
-            let tptr = message as *const Box<TransmitDataMsg>;
-            let message = &*tptr;
-            (message.endpoint.clone(), message.data.clone())
-        };
+        let message = recording.get_record::<TransmitDataMsg>(0);
+        let actual_endpoint = message.endpoint.clone();
+        let actual_data = message.data.clone();
 
         assert_eq!(actual_endpoint, Endpoint::Socket(socket_addr));
         assert_eq!(actual_data, data);

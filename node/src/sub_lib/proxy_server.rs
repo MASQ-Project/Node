@@ -1,9 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::dispatcher::InboundClientData;
-use crate::sub_lib::hopper::ExpiredCoresPackage;
+use crate::sub_lib::hopper::{ExpiredCoresPackage, MessageType};
 use crate::sub_lib::neighborhood::ExpectedService;
 use crate::sub_lib::peer_actors::BindMessage;
+use crate::sub_lib::proxy_client::ClientResponsePayload;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use actix::Message;
@@ -29,6 +30,12 @@ pub struct ClientRequestPayload {
     pub originator_public_key: PublicKey,
 }
 
+impl Into<MessageType> for ClientRequestPayload {
+    fn into(self) -> MessageType {
+        MessageType::ClientRequest(self)
+    }
+}
+
 #[derive(Message)]
 pub struct AddReturnRouteMessage {
     pub return_route_id: u32,
@@ -40,6 +47,6 @@ pub struct ProxyServerSubs {
     // ProxyServer will handle these messages:
     pub bind: Recipient<BindMessage>,
     pub from_dispatcher: Recipient<InboundClientData>,
-    pub from_hopper: Recipient<ExpiredCoresPackage>,
+    pub from_hopper: Recipient<ExpiredCoresPackage<ClientResponsePayload>>,
     pub add_return_route: Recipient<AddReturnRouteMessage>,
 }

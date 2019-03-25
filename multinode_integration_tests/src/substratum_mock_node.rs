@@ -9,8 +9,7 @@ use crate::substratum_node::SubstratumNodeUtils;
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::Masquerader;
-use node_lib::neighborhood::gossip::Gossip;
-use node_lib::neighborhood::gossip::GossipBuilder;
+use node_lib::neighborhood::gossip::{Gossip, GossipBuilder};
 use node_lib::neighborhood::neighborhood_database::NodeRecord;
 use node_lib::sub_lib::cryptde::CryptDE;
 use node_lib::sub_lib::cryptde::CryptData;
@@ -19,7 +18,7 @@ use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::dispatcher::Component;
 use node_lib::sub_lib::framer::Framer;
-use node_lib::sub_lib::hopper::IncipientCoresPackage;
+use node_lib::sub_lib::hopper::{IncipientCoresPackage, MessageType};
 use node_lib::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use node_lib::sub_lib::neighborhood::{RatePack, ZERO_RATE_PACK};
 use node_lib::sub_lib::node_addr::NodeAddr;
@@ -166,7 +165,8 @@ impl SubstratumMockNode {
         )
         .unwrap();
         let package =
-            IncipientCoresPackage::new(self.cryptde(), route, gossip, &node.public_key()).unwrap();
+            IncipientCoresPackage::new(self.cryptde(), route, gossip.into(), &node.public_key())
+                .unwrap();
 
         self.transmit_package(
             *node.port_list().first().unwrap(),
@@ -256,9 +256,10 @@ impl SubstratumMockNode {
         match self.wait_for_package(&masquerader, timeout) {
             Ok((from, _, package)) => {
                 let incoming_cores_package = package.to_expired(from.ip(), self.cryptde()).unwrap();
-                incoming_cores_package
-                    .decoded_payload::<Gossip>(self.cryptde())
-                    .ok()
+                match incoming_cores_package.payload {
+                    MessageType::Gossip(g) => Some(g),
+                    _ => panic!("Expected Gossip, got something else"),
+                }
             }
             Err(_) => None,
         }

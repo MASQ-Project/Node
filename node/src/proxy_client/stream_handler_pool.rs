@@ -360,9 +360,9 @@ mod tests {
     use crate::proxy_client::stream_establisher::StreamEstablisher;
     use crate::sub_lib::channel_wrappers::FuturesChannelFactoryReal;
     use crate::sub_lib::channel_wrappers::SenderWrapperReal;
-    use crate::sub_lib::cryptde::encodex;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::hopper::ExpiredCoresPackage;
+    use crate::sub_lib::hopper::MessageType;
     use crate::sub_lib::proxy_server::ProxyProtocol;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::channel_wrapper_mocks::FuturesChannelFactoryMock;
@@ -410,14 +410,14 @@ mod tests {
 
     fn run_process_package_in_actix(
         subject: StreamHandlerPoolReal,
-        package: ExpiredCoresPackage,
-        cryptde: &dyn CryptDE,
+        package: ExpiredCoresPackage<MessageType>,
     ) {
+        let consuming_wallet = package.consuming_wallet.clone();
+        let payload = match package.payload {
+            MessageType::ClientRequest(r) => r,
+            _ => panic!("SC-743"),
+        };
         actix::run(move || {
-            let payload = package
-                .decoded_payload::<ClientRequestPayload>(cryptde)
-                .expect("unable to decrypt payload in test, you know the one");
-            let consuming_wallet = package.consuming_wallet;
             subject.process_package(payload, consuming_wallet);
             ok(())
         })
@@ -448,7 +448,8 @@ mod tests {
             IpAddr::from_str("1.2.3.4").unwrap(),
             Some(Wallet::new("consuming")),
             make_meaningless_route(),
-            encodex(cryptde, &cryptde.public_key(), &client_request_payload).unwrap(),
+            client_request_payload.clone().into(),
+            0,
         );
 
         thread::spawn(move || {
@@ -468,7 +469,7 @@ mod tests {
                 .stream_writer_channels
                 .insert(stream_key, tx_to_write);
 
-            run_process_package_in_actix(subject, package, cryptde);
+            run_process_package_in_actix(subject, package);
         });
 
         await_messages(1, &write_parameters);
@@ -502,7 +503,8 @@ mod tests {
                 IpAddr::from_str("1.2.3.4").unwrap(),
                 Some(Wallet::new("consuming")),
                 make_meaningless_route(),
-                encodex(cryptde, &cryptde.public_key(), &client_request_payload).unwrap(),
+                client_request_payload.clone().into(),
+                0,
             );
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let resolver = ResolverWrapperMock::new()
@@ -528,7 +530,7 @@ mod tests {
                 .stream_writer_channels
                 .insert(client_request_payload.stream_key, Box::new(tx_to_write));
 
-            run_process_package_in_actix(subject, package, cryptde);
+            run_process_package_in_actix(subject, package);
         });
         proxy_client_awaiter.await_message_count(1);
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
@@ -568,7 +570,8 @@ mod tests {
                 IpAddr::from_str("1.2.3.4").unwrap(),
                 Some(Wallet::new("consuming")),
                 make_meaningless_route(),
-                encodex(cryptde, &cryptde.public_key(), &client_request_payload).unwrap(),
+                client_request_payload.into(),
+                0,
             );
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_failure(ResolveError::from(ResolveErrorKind::Io));
@@ -581,7 +584,7 @@ mod tests {
                 200,
             );
 
-            run_process_package_in_actix(subject, package, cryptde);
+            run_process_package_in_actix(subject, package);
         });
 
         proxy_client_awaiter.await_message_count(1);
@@ -631,7 +634,8 @@ mod tests {
                 IpAddr::from_str("1.2.3.4").unwrap(),
                 Some(Wallet::new("consuming")),
                 make_meaningless_route(),
-                encodex(cryptde, &cryptde.public_key(), &client_request_payload).unwrap(),
+                client_request_payload.into(),
+                0,
             );
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_parameters(&lookup_ip_parameters)
@@ -688,7 +692,7 @@ mod tests {
                 });
             }
 
-            run_process_package_in_actix(subject, package, cryptde);
+            run_process_package_in_actix(subject, package);
         });
 
         proxy_client_awaiter.await_message_count(1);
@@ -738,7 +742,8 @@ mod tests {
                 IpAddr::from_str("1.2.3.4").unwrap(),
                 Some(Wallet::new("consuming")),
                 make_meaningless_route(),
-                encodex(cryptde, &cryptde.public_key(), &client_request_payload).unwrap(),
+                client_request_payload.into(),
+                0,
             );
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_parameters(&lookup_ip_parameters)
@@ -776,7 +781,7 @@ mod tests {
                     make_results: RefCell::new(vec![establisher]),
                 });
 
-            run_process_package_in_actix(subject, package, cryptde);
+            run_process_package_in_actix(subject, package);
         });
 
         proxy_client_awaiter.await_message_count(1);
@@ -824,7 +829,8 @@ mod tests {
                 IpAddr::from_str("1.2.3.4").unwrap(),
                 Some(Wallet::new("consuming")),
                 make_meaningless_route(),
-                encodex(cryptde, &cryptde.public_key(), &client_request_payload).unwrap(),
+                client_request_payload.into(),
+                0,
             );
 
             let resolver = ResolverWrapperMock::new()
@@ -891,7 +897,7 @@ mod tests {
                     make_results: RefCell::new(vec![establisher]),
                 });
             }
-            run_process_package_in_actix(subject, package, cryptde);
+            run_process_package_in_actix(subject, package);
         });
 
         proxy_client_awaiter.await_message_count(1);
@@ -932,7 +938,8 @@ mod tests {
                 IpAddr::from_str("1.2.3.4").unwrap(),
                 Some(Wallet::new("consuming")),
                 make_meaningless_route(),
-                encodex(cryptde, &cryptde.public_key(), &client_request_payload).unwrap(),
+                client_request_payload.into(),
+                0,
             );
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let mut lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
@@ -947,7 +954,7 @@ mod tests {
                 100,
                 200,
             );
-            run_process_package_in_actix(subject, package, cryptde);
+            run_process_package_in_actix(subject, package);
         });
         TestLogHandler::new().await_log_containing(
             "ERROR: Proxy Client: Could not find IP address for host that.try: io error",
@@ -992,7 +999,8 @@ mod tests {
             IpAddr::from_str("1.2.3.4").unwrap(),
             Some(Wallet::new("consuming")),
             make_meaningless_route(),
-            encodex(cryptde, &cryptde.public_key(), &client_request_payload).unwrap(),
+            client_request_payload.into(),
+            0,
         );
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
@@ -1014,7 +1022,7 @@ mod tests {
                 )),
             );
 
-            run_process_package_in_actix(subject, package, cryptde);
+            run_process_package_in_actix(subject, package);
         });
 
         let test_future = lazy(move || {
@@ -1063,7 +1071,8 @@ mod tests {
             IpAddr::from_str("1.2.3.4").unwrap(),
             Some(Wallet::new("consuming")),
             make_meaningless_route(),
-            encodex(cryptde, &cryptde.public_key(), &client_request_payload).unwrap(),
+            client_request_payload.into(),
+            0,
         );
         let mut sender_wrapper =
             SenderWrapperMock::new(SocketAddr::from_str("1.2.3.4:5678").unwrap());
@@ -1093,7 +1102,7 @@ mod tests {
                 .stream_writer_channels
                 .insert(stream_key, Box::new(sender_wrapper));
 
-            run_process_package_in_actix(subject, package, cryptde);
+            run_process_package_in_actix(subject, package);
         });
 
         await_messages(1, &send_params);
@@ -1133,7 +1142,8 @@ mod tests {
                 IpAddr::from_str("1.2.3.4").unwrap(),
                 Some(Wallet::new("consuming")),
                 make_meaningless_route(),
-                encodex(cryptde, &cryptde.public_key(), &client_request_payload).unwrap(),
+                client_request_payload.into(),
+                0,
             );
             let resolver = ResolverWrapperMock::new();
             let subject = StreamHandlerPoolReal::new(
@@ -1150,7 +1160,7 @@ mod tests {
                     make_results: RefCell::new(vec![]),
                 });
 
-            run_process_package_in_actix(subject, package, cryptde);
+            run_process_package_in_actix(subject, package);
         });
 
         let tlh = TestLogHandler::new();

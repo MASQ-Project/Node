@@ -3,6 +3,7 @@ use super::neighborhood_database::NodeRecord;
 use super::neighborhood_database::NodeRecordInner;
 use super::neighborhood_database::NodeSignatures;
 use crate::sub_lib::cryptde::PublicKey;
+use crate::sub_lib::hopper::MessageType;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -113,6 +114,12 @@ impl GossipNodeRecord {
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Gossip {
     pub node_records: Vec<GossipNodeRecord>,
+}
+
+impl Into<MessageType> for Gossip {
+    fn into(self) -> MessageType {
+        MessageType::Gossip(self)
+    }
 }
 
 pub fn to_dot_graph(gossip: Gossip, target: &PublicKey, source: PublicKey) -> String {

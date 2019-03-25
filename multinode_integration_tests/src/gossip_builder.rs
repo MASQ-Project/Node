@@ -125,7 +125,7 @@ impl GossipBuilder {
                 consuming_wallet,
             )
             .unwrap(),
-            gossip,
+            gossip.into(),
             to,
         )
         .unwrap()

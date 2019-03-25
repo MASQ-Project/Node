@@ -7,8 +7,7 @@ use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::dispatcher::Endpoint;
 use crate::sub_lib::dispatcher::InboundClientData;
-use crate::sub_lib::hopper::ExpiredCoresPackage;
-use crate::sub_lib::hopper::IncipientCoresPackage;
+use crate::sub_lib::hopper::{ExpiredCoresPackage, IncipientCoresPackage};
 use crate::sub_lib::http_server_impersonator;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::ExpectedService;
@@ -51,7 +50,8 @@ pub struct ProxyServer {
     client_request_payload_factory: ClientRequestPayloadFactory,
     stream_key_factory: Box<dyn StreamKeyFactory>,
     keys_and_addrs: BidiHashMap<StreamKey, SocketAddr>,
-    is_decentralized: bool, // TODO: This should be replaced by something more general and configurable.
+    is_decentralized: bool,
+    // TODO: This should be replaced by something more general and configurable.
     cryptde: &'static dyn CryptDE,
     logger: Logger,
     route_ids_to_services: TtlHashMap<u32, Vec<ExpectedService>>,
@@ -114,7 +114,7 @@ impl Handler<InboundClientData> for ProxyServer {
         let source_addr = msg.peer_addr;
         let payload = match self.make_payload(msg) {
             Ok(payload) => payload,
-            Err(_) => return (),
+            Err(_) => return,
         };
         let logger = self.logger.clone();
         let minimum_hop_count = if self.is_decentralized { 2 } else { 0 };
@@ -138,7 +138,6 @@ impl Handler<InboundClientData> for ProxyServer {
                     )
                 }),
         );
-        ()
     }
 }
 
@@ -148,71 +147,67 @@ impl Handler<AddReturnRouteMessage> for ProxyServer {
     fn handle(&mut self, msg: AddReturnRouteMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.route_ids_to_services
             .insert(msg.return_route_id, msg.expected_services);
-        ()
     }
 }
 
-impl Handler<ExpiredCoresPackage> for ProxyServer {
+impl Handler<ExpiredCoresPackage<ClientResponsePayload>> for ProxyServer {
     type Result = ();
 
-    fn handle(&mut self, msg: ExpiredCoresPackage, _ctx: &mut Self::Context) -> Self::Result {
-        let payload_data_len = msg.payload.len();
-        match msg.decoded_payload::<ClientResponsePayload>(self.cryptde) {
-            Ok(payload) => {
-                self.logger.debug(format!(
-                    "Relaying {}-byte ExpiredCoresPackage payload from Hopper to Dispatcher",
-                    payload.sequenced_packet.data.len()
-                ));
-                match self.keys_and_addrs.a_to_b(&payload.stream_key) {
-                    Some(socket_addr) => {
-                        let return_route_id = match self.get_return_route_id(&msg.remaining_route) {
-                            Ok(return_route_id) => return_route_id,
-                            Err(_) => {
-                                self.logger.error("Can't report services consumed: return route ID is unspecified".to_string());
-                                return ();
-                            }
-                        };
-
-                        match self.report_response_services_consumed(
-                            return_route_id,
-                            payload.sequenced_packet.data.len(),
-                            payload_data_len,
-                        ) {
-                            Ok(_) => (),
-                            Err(_) => return (),
-                        }
-
-                        let last_data = payload.sequenced_packet.last_data;
-                        self.dispatcher
-                            .as_ref()
-                            .expect("Dispatcher unbound in ProxyServer")
-                            .try_send(TransmitDataMsg {
-                                endpoint: Endpoint::Socket(socket_addr),
-                                last_data,
-                                sequence_number: Some(payload.sequenced_packet.sequence_number),
-                                data: payload.sequenced_packet.data.clone(),
-                            })
-                            .expect("Dispatcher is dead");
-                        if last_data {
-                            self.keys_and_addrs.remove_b(&socket_addr);
-                        }
+    fn handle(
+        &mut self,
+        msg: ExpiredCoresPackage<ClientResponsePayload>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let payload_data_len = msg.payload_len;
+        let response = msg.payload;
+        self.logger.debug(format!(
+            "Relaying {}-byte ExpiredCoresPackage payload from Hopper to Dispatcher",
+            response.sequenced_packet.data.len()
+        ));
+        match self.keys_and_addrs.a_to_b(&response.stream_key) {
+            Some(socket_addr) => {
+                let return_route_id = match self.get_return_route_id(&msg.remaining_route) {
+                    Ok(return_route_id) => return_route_id,
+                    Err(_) => {
+                        self.logger.error(
+                            "Can't report services consumed: return route ID is unspecified"
+                                .to_string(),
+                        );
+                        return;
                     }
-                    None => self.logger.error(format!(
-                        "Discarding {}-byte packet {} from an unrecognized stream key: {:?}",
-                        payload.sequenced_packet.data.len(),
-                        payload.sequenced_packet.sequence_number,
-                        payload.stream_key
-                    )),
+                };
+
+                match self.report_response_services_consumed(
+                    return_route_id,
+                    response.sequenced_packet.data.len(),
+                    payload_data_len,
+                ) {
+                    Ok(_) => (),
+                    Err(_) => return,
                 }
-                ()
+
+                let last_data = response.sequenced_packet.last_data;
+                self.dispatcher
+                    .as_ref()
+                    .expect("Dispatcher unbound in ProxyServer")
+                    .try_send(TransmitDataMsg {
+                        endpoint: Endpoint::Socket(socket_addr),
+                        last_data,
+                        sequence_number: Some(response.sequenced_packet.sequence_number),
+                        data: response.sequenced_packet.data.clone(),
+                    })
+                    .expect("Dispatcher is dead");
+                if last_data {
+                    self.keys_and_addrs.remove_b(&socket_addr);
+                }
             }
-            Err(_) => {
-                self.logger
-                    .error(format!("ClientResponsePayload is not OK"));
-                return ();
-            }
+            None => self.logger.error(format!(
+                "Discarding {}-byte packet {} from an unrecognized stream key: {:?}",
+                response.sequenced_packet.data.len(),
+                response.sequenced_packet.sequence_number,
+                response.stream_key
+            )),
         }
-        ()
     }
 }
 
@@ -239,7 +234,9 @@ impl ProxyServer {
         ProxyServerSubs {
             bind: addr.clone().recipient::<BindMessage>(),
             from_dispatcher: addr.clone().recipient::<InboundClientData>(),
-            from_hopper: addr.clone().recipient::<ExpiredCoresPackage>(),
+            from_hopper: addr
+                .clone()
+                .recipient::<ExpiredCoresPackage<ClientResponsePayload>>(),
             add_return_route: addr.clone().recipient::<AddReturnRouteMessage>(),
         }
     }
@@ -396,7 +393,7 @@ impl ProxyServer {
         accountant_routing_sub: Recipient<ReportRoutingServiceConsumedMessage>,
     ) {
         let destination_key_opt = if !expected_services.is_empty()
-            && expected_services
+            & &expected_services
                 .iter()
                 .all(|expected_service| match expected_service {
                     ExpectedService::Nothing => true,
@@ -420,7 +417,7 @@ impl ProxyServer {
                 let pkg = IncipientCoresPackage::new(
                     cryptde,
                     route.clone(),
-                    payload,
+                    payload.into(),
                     &payload_destination_key,
                 )
                 .expect("Key magically disappeared");
@@ -454,13 +451,13 @@ impl ProxyServer {
         let data = match payload.protocol {
             ProxyProtocol::HTTP => {
                 let target_hostname = ProxyServer::hostname(&payload);
-                http_server_impersonator::make_error_response (
+                http_server_impersonator::make_error_response(
                     503,
-                   "Routing Problem",
-                    format! ("Can't find a route to {}", target_hostname).as_str (),
-                    format! ("Substratum can't find a route through the Network yet to a Node that knows \
+                    "Routing Problem",
+                    format!("Can't find a route to {}", target_hostname).as_str(),
+                    format!("Substratum can't find a route through the Network yet to a Node that knows \
                     where to find {}. Maybe later enough will be known about the Network to \
-                    find that Node, but we can't guarantee it. We're sorry.", target_hostname).as_str ()
+                    find that Node, but we can't guarantee it. We're sorry.", target_hostname).as_str(),
                 )
             }
             ProxyProtocol::TLS => vec![],
@@ -570,7 +567,7 @@ mod tests {
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::hop::LiveHop;
-    use crate::sub_lib::hopper::ExpiredCoresPackage;
+    use crate::sub_lib::hopper::MessageType;
     use crate::sub_lib::http_server_impersonator;
     use crate::sub_lib::neighborhood::ExpectedService;
     use crate::sub_lib::neighborhood::ExpectedServices;
@@ -747,7 +744,8 @@ mod tests {
             originator_public_key: key.clone(),
         };
         let expected_pkg =
-            IncipientCoresPackage::new(cryptde, route.clone(), expected_payload, &key).unwrap();
+            IncipientCoresPackage::new(cryptde, route.clone(), expected_payload.into(), &key)
+                .unwrap();
         let make_parameters_arc = Arc::new(Mutex::new(vec![]));
         let make_parameters_arc_a = make_parameters_arc.clone();
         thread::spawn(move || {
@@ -822,7 +820,8 @@ mod tests {
             originator_public_key: key.clone(),
         };
         let expected_pkg =
-            IncipientCoresPackage::new(cryptde, route.clone(), expected_payload, &key).unwrap();
+            IncipientCoresPackage::new(cryptde, route.clone(), expected_payload.into(), &key)
+                .unwrap();
         thread::spawn(move || {
             let stream_key_factory = StreamKeyFactoryMock::new(); // can't make any stream keys; shouldn't have to
             let system = System::new("proxy_server_receives_http_request_from_dispatcher_then_sends_cores_package_to_hopper");
@@ -930,7 +929,7 @@ mod tests {
         let expected_pkg = IncipientCoresPackage::new(
             cryptde,
             route.clone(),
-            expected_payload,
+            expected_payload.into(),
             &payload_destination_key,
         )
         .unwrap();
@@ -1042,14 +1041,14 @@ mod tests {
         });
 
         let exit_key = PublicKey::new(&[3]);
-        let payload = ClientRequestPayload {
+        let payload = MessageType::ClientRequest(ClientRequestPayload {
             stream_key,
             sequenced_packet: SequencedPacket::new(expected_data, 0, false),
             target_hostname: Some("nowhere.com".to_string()),
             target_port: 80,
             protocol: ProxyProtocol::HTTP,
             originator_public_key: exit_key,
-        };
+        });
         let payload_ser = PlainData::from(serde_cbor::ser::to_vec(&payload).unwrap());
         let payload_enc = cryptde.encode(&cryptde.public_key(), &payload_ser).unwrap();
 
@@ -1484,7 +1483,8 @@ mod tests {
             originator_public_key: key.clone(),
         };
         let expected_pkg =
-            IncipientCoresPackage::new(cryptde, route.clone(), expected_payload, &key).unwrap();
+            IncipientCoresPackage::new(cryptde, route.clone(), expected_payload.into(), &key)
+                .unwrap();
         thread::spawn(move || {
             let mut subject = ProxyServer::new(cryptde, false);
             subject.stream_key_factory =
@@ -1552,7 +1552,8 @@ mod tests {
             originator_public_key: key.clone(),
         };
         let expected_pkg =
-            IncipientCoresPackage::new(cryptde, route.clone(), expected_payload, &key).unwrap();
+            IncipientCoresPackage::new(cryptde, route.clone(), expected_payload.into(), &key)
+                .unwrap();
         thread::spawn(move || {
             let mut subject = ProxyServer::new(cryptde, false);
             subject.stream_key_factory =
@@ -1618,7 +1619,8 @@ mod tests {
             originator_public_key: key.clone(),
         };
         let expected_pkg =
-            IncipientCoresPackage::new(cryptde, route.clone(), expected_payload, &key).unwrap();
+            IncipientCoresPackage::new(cryptde, route.clone(), expected_payload.into(), &key)
+                .unwrap();
         thread::spawn(move || {
             let mut subject = ProxyServer::new(cryptde, false);
             subject.stream_key_factory =
@@ -1741,7 +1743,8 @@ mod tests {
             IpAddr::from_str("1.2.3.4").unwrap(),
             Some(Wallet::new("consuming")),
             remaining_route,
-            encodex(cryptde, &cryptde.public_key(), &client_response_payload).unwrap(),
+            client_response_payload,
+            0,
         );
         let second_expired_cores_package = first_expired_cores_package.clone();
         let mut peer_actors = peer_actors_builder().dispatcher(dispatcher_mock).build();
@@ -1759,7 +1762,7 @@ mod tests {
         assert_eq!(record.endpoint, Endpoint::Socket(socket_addr));
         assert_eq!(record.last_data, true);
         assert_eq!(record.data, b"16 bytes of data".to_vec());
-        TestLogHandler::new ().exists_log_containing (&format!("ERROR: Proxy Server: Discarding 16-byte packet 12345678 from an unrecognized stream key: {:?}", stream_key));
+        TestLogHandler::new().exists_log_containing(&format!("ERROR: Proxy Server: Discarding 16-byte packet 12345678 from an unrecognized stream key: {:?}", stream_key));
     }
 
     #[test]
@@ -1832,17 +1835,16 @@ mod tests {
                 last_data: false,
             },
         };
+        let first_exit_size = first_client_response_payload.sequenced_packet.data.len();
         let first_expired_cores_package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
             Some(Wallet::new("irrelevant")),
             return_route_with_id(cryptde, 1234),
-            encodex(
-                cryptde,
-                &cryptde.public_key(),
-                &first_client_response_payload,
-            )
-            .unwrap(),
+            first_client_response_payload.into(),
+            0,
         );
+        let routing_size = first_expired_cores_package.payload_len;
+
         let second_client_response_payload = ClientResponsePayload {
             stream_key,
             sequenced_packet: SequencedPacket {
@@ -1851,16 +1853,13 @@ mod tests {
                 last_data: false,
             },
         };
+        let second_exit_size = second_client_response_payload.sequenced_packet.data.len();
         let second_expired_cores_package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.5").unwrap(),
             Some(Wallet::new("irrelevant")),
             return_route_with_id(cryptde, 1235),
-            encodex(
-                cryptde,
-                &cryptde.public_key(),
-                &second_client_response_payload,
-            )
-            .unwrap(),
+            second_client_response_payload.into(),
+            0,
         );
         let mut peer_actors = peer_actors_builder()
             .dispatcher(dispatcher_mock)
@@ -1889,13 +1888,12 @@ mod tests {
         assert_eq!(record.last_data, false);
         assert_eq!(record.data, b"other data".to_vec());
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        let exit_size = first_client_response_payload.sequenced_packet.data.len();
-        let routing_size = first_expired_cores_package.payload.len();
+
         check_exit_report(
             &accountant_recording,
             0,
             &incoming_route_d_wallet,
-            exit_size,
+            first_exit_size,
             &rate_pack(101),
         );
         check_routing_report(
@@ -1912,13 +1910,12 @@ mod tests {
             routing_size,
             &rate_pack(103),
         );
-        let exit_size = second_client_response_payload.sequenced_packet.data.len();
-        let routing_size = second_expired_cores_package.payload.len();
+        let routing_size = second_expired_cores_package.payload_len;
         check_exit_report(
             &accountant_recording,
             3,
             &incoming_route_g_wallet,
-            exit_size,
+            second_exit_size,
             &rate_pack(104),
         );
         check_routing_report(
@@ -1967,7 +1964,8 @@ mod tests {
             IpAddr::from_str("1.2.3.4").unwrap(),
             Some(Wallet::new("consuming")),
             remaining_route,
-            encodex(cryptde, &cryptde.public_key(), &client_response_payload).unwrap(),
+            client_response_payload,
+            0,
         );
 
         subject_addr.try_send(expired_cores_package).unwrap();
@@ -2007,7 +2005,7 @@ mod tests {
         let cryptde = cryptde();
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let system = System::new ("report_response_services_consumed_complains_and_drops_package_if_return_route_id_is_unrecognized");
+        let system = System::new("report_response_services_consumed_complains_and_drops_package_if_return_route_id_is_unrecognized");
         let mut subject = ProxyServer::new(cryptde, true);
         let stream_key = make_meaningless_stream_key();
         subject
@@ -2031,7 +2029,8 @@ mod tests {
             IpAddr::from_str("1.2.3.4").unwrap(),
             Some(Wallet::new("irrelevant")),
             return_route_with_id(cryptde, 1234),
-            encodex(cryptde, &cryptde.public_key(), &client_response_payload).unwrap(),
+            client_response_payload,
+            0,
         );
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
@@ -2051,7 +2050,7 @@ mod tests {
         let cryptde = cryptde();
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let system = System::new ("report_response_services_consumed_complains_and_drops_package_if_return_route_id_is_unspecified");
+        let system = System::new("report_response_services_consumed_complains_and_drops_package_if_return_route_id_is_unspecified");
         let mut subject = ProxyServer::new(cryptde, true);
         let stream_key = make_meaningless_stream_key();
         subject
@@ -2077,7 +2076,8 @@ mod tests {
             Route {
                 hops: vec![make_cover_hop(cryptde)],
             },
-            encodex(cryptde, &cryptde.public_key(), &client_response_payload).unwrap(),
+            client_response_payload,
+            0,
         );
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
@@ -2099,7 +2099,7 @@ mod tests {
         let cryptde = cryptde();
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let system = System::new ("report_response_services_consumed_complains_and_drops_package_if_return_route_id_is_unreadable");
+        let system = System::new("report_response_services_consumed_complains_and_drops_package_if_return_route_id_is_unreadable");
         let mut subject = ProxyServer::new(cryptde, true);
         let stream_key = make_meaningless_stream_key();
         subject
@@ -2125,7 +2125,8 @@ mod tests {
             Route {
                 hops: vec![make_cover_hop(cryptde), CryptData::new(&[0])],
             },
-            encodex(cryptde, &cryptde.public_key(), &client_response_payload).unwrap(),
+            client_response_payload,
+            0,
         );
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
@@ -2148,7 +2149,7 @@ mod tests {
 
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
-            let system = System::new ("report_response_services_consumed_complains_and_drops_package_if_return_route_id_does_not_exist");
+            let system = System::new("report_response_services_consumed_complains_and_drops_package_if_return_route_id_does_not_exist");
             let mut subject = ProxyServer::new(cryptde, true);
             subject.route_ids_to_services = TtlHashMap::new(Duration::from_millis(250));
             subject
@@ -2180,7 +2181,8 @@ mod tests {
             IpAddr::from_str("1.2.3.4").unwrap(),
             Some(Wallet::new("irrelevant")),
             return_route_with_id(cryptde, 1234),
-            encodex(cryptde, &cryptde.public_key(), &client_response_payload).unwrap(),
+            client_response_payload,
+            0,
         );
         subject_addr.try_send(expired_cores_package).unwrap();
 

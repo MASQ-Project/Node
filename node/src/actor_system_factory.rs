@@ -296,6 +296,7 @@ impl ActorFactory for ActorFactoryReal {
 mod tests {
     use super::*;
     use crate::bootstrapper::CRYPT_DE_OPT;
+    use crate::neighborhood::gossip::Gossip;
     use crate::stream_messages::AddStreamMsg;
     use crate::stream_messages::RemoveStreamMsg;
     use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
@@ -312,8 +313,8 @@ mod tests {
     use crate::sub_lib::neighborhood::NodeQueryMessage;
     use crate::sub_lib::neighborhood::RemoveNeighborMessage;
     use crate::sub_lib::neighborhood::RouteQueryMessage;
-    use crate::sub_lib::proxy_client::InboundServerData;
-    use crate::sub_lib::proxy_server::AddReturnRouteMessage;
+    use crate::sub_lib::proxy_client::{ClientResponsePayload, InboundServerData};
+    use crate::sub_lib::proxy_server::{AddReturnRouteMessage, ClientRequestPayload};
     use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::FromUiMessage;
@@ -377,7 +378,9 @@ mod tests {
             ProxyServerSubs {
                 bind: addr.clone().recipient::<BindMessage>(),
                 from_dispatcher: addr.clone().recipient::<InboundClientData>(),
-                from_hopper: addr.clone().recipient::<ExpiredCoresPackage>(),
+                from_hopper: addr
+                    .clone()
+                    .recipient::<ExpiredCoresPackage<ClientResponsePayload>>(),
                 add_return_route: addr.clone().recipient::<AddReturnRouteMessage>(),
             }
         }
@@ -412,7 +415,7 @@ mod tests {
                 bootstrap: addr.clone().recipient::<BootstrapNeighborhoodNowMessage>(),
                 node_query: addr.clone().recipient::<NodeQueryMessage>(),
                 route_query: addr.clone().recipient::<RouteQueryMessage>(),
-                from_hopper: addr.clone().recipient::<ExpiredCoresPackage>(),
+                from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip>>(),
                 dispatcher_node_query: addr.clone().recipient::<DispatcherNodeQueryMessage>(),
                 remove_neighbor: addr.clone().recipient::<RemoveNeighborMessage>(),
             }
@@ -479,7 +482,9 @@ mod tests {
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.proxy_client);
             ProxyClientSubs {
                 bind: addr.clone().recipient::<BindMessage>(),
-                from_hopper: addr.clone().recipient::<ExpiredCoresPackage>(),
+                from_hopper: addr
+                    .clone()
+                    .recipient::<ExpiredCoresPackage<ClientRequestPayload>>(),
                 inbound_server_data: addr.clone().recipient::<InboundServerData>(),
             }
         }

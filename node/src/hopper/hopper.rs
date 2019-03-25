@@ -40,9 +40,9 @@ impl Handler<BindMessage> for Hopper {
         self.routing_service = Some(RoutingService::new(
             self.cryptde,
             self.is_bootstrap_node,
-            msg.peer_actors.proxy_client.from_hopper,
-            msg.peer_actors.proxy_server.from_hopper,
-            msg.peer_actors.neighborhood.from_hopper,
+            msg.peer_actors.proxy_client,
+            msg.peer_actors.proxy_server,
+            msg.peer_actors.neighborhood,
             msg.peer_actors.dispatcher.from_dispatcher_client,
             msg.peer_actors.accountant.report_routing_service_provided,
             self.per_routing_service,
@@ -62,7 +62,6 @@ impl Handler<IncipientCoresPackage> for Hopper {
             .as_ref()
             .expect("Hopper unbound: no ConsumingService")
             .consume(msg);
-        ()
     }
 }
 
@@ -74,7 +73,6 @@ impl Handler<InboundClientData> for Hopper {
             .as_ref()
             .expect("Hopper unbound: no RoutingService")
             .route(msg);
-        ()
     }
 }
 
@@ -106,13 +104,12 @@ mod tests {
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::dispatcher::Component;
-    use crate::sub_lib::hopper::IncipientCoresPackage;
+    use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::test_utils::cryptde;
     use crate::test_utils::test_utils::route_to_proxy_client;
-    use crate::test_utils::test_utils::PayloadMock;
     use actix::Actor;
     use actix::System;
     use std::net::SocketAddr;
@@ -124,7 +121,7 @@ mod tests {
         let cryptde = cryptde();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let route = route_to_proxy_client(&cryptde.public_key(), cryptde);
-        let serialized_payload = serde_cbor::ser::to_vec(&PayloadMock::new()).unwrap();
+        let serialized_payload = serde_cbor::ser::to_vec(&MessageType::DnsResolveFailed).unwrap();
         let data = cryptde
             .encode(
                 &cryptde.public_key(),
@@ -176,9 +173,13 @@ mod tests {
             Some(consuming_wallet),
         )
         .unwrap();
-        let incipient_package =
-            IncipientCoresPackage::new(cryptde, route, PayloadMock::new(), &cryptde.public_key())
-                .unwrap();
+        let incipient_package = IncipientCoresPackage::new(
+            cryptde,
+            route,
+            MessageType::DnsResolveFailed,
+            &cryptde.public_key(),
+        )
+        .unwrap();
         let system = System::new("panics_if_consuming_service_is_unbound");
         let subject = Hopper::new(HopperConfig {
             cryptde,

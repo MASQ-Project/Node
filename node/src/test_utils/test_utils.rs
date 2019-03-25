@@ -10,13 +10,15 @@ use crate::sub_lib::neighborhood::ExpectedService;
 use crate::sub_lib::neighborhood::ExpectedServices;
 use crate::sub_lib::neighborhood::RatePack;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
+use crate::sub_lib::proxy_client::ClientResponsePayload;
+use crate::sub_lib::proxy_server::{ClientRequestPayload, ProxyProtocol};
 use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
+use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
 use lazy_static::lazy_static;
 use regex::Regex;
-use serde_derive::{Deserialize, Serialize};
 use std::cmp::min;
 use std::fmt::Debug;
 use std::io;
@@ -198,19 +200,6 @@ impl Waiter {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PayloadMock {
-    pub data: Vec<u8>,
-}
-
-impl PayloadMock {
-    pub fn new() -> PayloadMock {
-        PayloadMock {
-            data: Vec::from("payload".as_bytes()),
-        }
-    }
-}
-
 pub fn make_meaningless_stream_key() -> StreamKey {
     StreamKey::new(
         PublicKey::new(&[]),
@@ -277,6 +266,42 @@ pub fn encrypt_return_route_id(return_route_id: u32, cryptde: &CryptDE) -> Crypt
     cryptde
         .encode(&cryptde.public_key(), &PlainData::from(return_route_id_ser))
         .unwrap()
+}
+
+pub fn make_garbage_data(bytes: usize) -> Vec<u8> {
+    let mut data = Vec::with_capacity(bytes);
+    for _ in 0..bytes {
+        data.push(0);
+    }
+    data
+}
+
+pub fn make_request_payload(bytes: usize, cryptde: &CryptDE) -> ClientRequestPayload {
+    ClientRequestPayload {
+        stream_key: StreamKey::new(
+            cryptde.public_key(),
+            SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+        ),
+        sequenced_packet: SequencedPacket::new(make_garbage_data(bytes), 0, true),
+        target_hostname: Some("example.com".to_string()),
+        target_port: 80,
+        protocol: ProxyProtocol::HTTP,
+        originator_public_key: cryptde.public_key(),
+    }
+}
+
+pub fn make_response_payload(bytes: usize, cryptde: &CryptDE) -> ClientResponsePayload {
+    ClientResponsePayload {
+        stream_key: StreamKey::new(
+            cryptde.public_key(),
+            SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+        ),
+        sequenced_packet: SequencedPacket {
+            data: make_garbage_data(bytes),
+            sequence_number: 0,
+            last_data: false,
+        },
+    }
 }
 
 pub fn rate_pack_routing_byte(base_rate: u64) -> u64 {

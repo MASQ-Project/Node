@@ -10,11 +10,10 @@ use multinode_integration_tests_lib::substratum_node::SubstratumNode;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
 use node_lib::json_masquerader::JsonMasquerader;
-use node_lib::sub_lib::cryptde::decodex;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::dispatcher::Component;
-use node_lib::sub_lib::hopper::IncipientCoresPackage;
+use node_lib::sub_lib::hopper::{IncipientCoresPackage, MessageType};
 use node_lib::sub_lib::neighborhood::sentinel_ip_addr;
 use node_lib::sub_lib::route::Route;
 use node_lib::sub_lib::route::RouteSegment;
@@ -83,7 +82,7 @@ fn server_relays_cores_package() {
         Some(Wallet::new("consuming")),
     )
     .unwrap();
-    let payload = String::from("Booga booga!");
+    let payload = MessageType::DnsResolveFailed;
     let incipient =
         IncipientCoresPackage::new(cryptde, route.clone(), payload, &cryptde.public_key()).unwrap();
 
@@ -95,8 +94,7 @@ fn server_relays_cores_package() {
 
     route.shift(cryptde).unwrap();
     assert_eq!(expired.remaining_route, route);
-    let decrypted_payload: String = decodex(server.cryptde(), &expired.payload).unwrap();
-    assert_eq!(decrypted_payload, String::from("Booga booga!"));
+    assert_eq!(expired.payload, MessageType::DnsResolveFailed);
 }
 
 #[test]
@@ -120,7 +118,7 @@ fn one_mock_node_talks_to_another() {
     let incipient_cores_package = IncipientCoresPackage::new(
         &cryptde,
         route,
-        String::from("payload"),
+        MessageType::DnsResolveFailed,
         &mock_node_2.public_key(),
     )
     .unwrap();
@@ -143,10 +141,7 @@ fn one_mock_node_talks_to_another() {
 
     assert_eq!(package_from.ip(), mock_node_1.ip_address());
     assert_eq!(package_to, mock_node_2.socket_addr(PortSelector::First));
-    let actual_payload: String = expired_cores_package
-        .decoded_payload(mock_node_2.cryptde())
-        .unwrap();
-    assert_eq!(actual_payload, String::from("payload"));
+    assert_eq!(expired_cores_package.payload, MessageType::DnsResolveFailed);
 }
 
 fn check_node(cluster: &SubstratumNodeCluster, name: &str, ip_address: &str, port: u16) {

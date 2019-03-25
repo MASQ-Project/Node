@@ -15,10 +15,9 @@ use node_lib::sub_lib::cryptde::CryptDE;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::dispatcher::Component;
-use node_lib::sub_lib::hopper::IncipientCoresPackage;
+use node_lib::sub_lib::hopper::{IncipientCoresPackage, MessageType};
 use node_lib::sub_lib::http_server_impersonator;
 use node_lib::sub_lib::neighborhood::ZERO_RATE_PACK;
-use node_lib::sub_lib::proxy_client::ClientResponsePayload;
 use node_lib::sub_lib::proxy_server::ClientRequestPayload;
 use node_lib::sub_lib::proxy_server::ProxyProtocol;
 use node_lib::sub_lib::route::Route;
@@ -83,7 +82,7 @@ fn cores_package_to_http_request_and_http_response_to_cores_package_test() {
     let outgoing_package = IncipientCoresPackage::new(
         &subject.cryptde(),
         route,
-        outgoing_gossip,
+        outgoing_gossip.into(),
         &subject.public_key(),
     )
     .unwrap();
@@ -136,7 +135,7 @@ fn cores_package_to_http_request_and_http_response_to_cores_package_test() {
     let outgoing_package = IncipientCoresPackage::new(
         &subject.cryptde(),
         route,
-        client_request_payload,
+        client_request_payload.into(),
         &subject.public_key(),
     )
     .unwrap();
@@ -157,19 +156,23 @@ fn cores_package_to_http_request_and_http_response_to_cores_package_test() {
         .decode(&package.payload)
         .unwrap();
     let response_payload =
-        serde_cbor::de::from_slice::<ClientResponsePayload>(response_payload_ser.as_slice())
-            .unwrap();
-    assert_eq!(response_payload.stream_key, make_meaningless_stream_key());
-    assert_eq!(response_payload.sequenced_packet.last_data, false);
-    assert_eq!(response_payload.sequenced_packet.sequence_number, 0);
-    assert_eq!(
-        index_of(
-            &response_payload.sequenced_packet.data,
-            &b"This domain is established to be used for illustrative examples in documents."[..]
-        )
-        .is_some(),
-        true
-    );
+        serde_cbor::de::from_slice::<MessageType>(response_payload_ser.as_slice()).unwrap();
+    match response_payload {
+        MessageType::ClientResponse(response_payload) => {
+            assert_eq!(response_payload.stream_key, make_meaningless_stream_key());
+            assert_eq!(response_payload.sequenced_packet.last_data, false);
+            assert_eq!(response_payload.sequenced_packet.sequence_number, 0);
+            assert_eq!(
+                index_of(
+                    &response_payload.sequenced_packet.data,
+                    &b"This domain is established to be used for illustrative examples in documents."[..]
+                )
+                    .is_some(),
+                true
+            );
+        }
+        _ => panic!("SC-743"),
+    }
 }
 
 #[test]

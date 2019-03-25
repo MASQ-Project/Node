@@ -173,7 +173,7 @@ impl TestLogHandler {
         unsafe {
             TEST_LOGS_ARC
                 .as_ref()
-                .unwrap()
+                .expect("Test Logging in not initialized; please call `init_test_logging`")
                 .lock()
                 .expect("TestLogHandler is poisoned in get_logs")
         }

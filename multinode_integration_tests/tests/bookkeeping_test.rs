@@ -8,13 +8,14 @@ use node_lib::accountant::payable_dao::PayableAccount;
 use node_lib::accountant::receivable_dao::ReceivableAccount;
 use node_lib::sub_lib::cryptde::CryptDE;
 use node_lib::sub_lib::cryptde::PlainData;
+use node_lib::sub_lib::hopper::MessageType;
 use node_lib::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use node_lib::sub_lib::proxy_client::ClientResponsePayload;
 use node_lib::sub_lib::proxy_server::ClientRequestPayload;
-use node_lib::sub_lib::proxy_server::ProxyProtocol;
 use node_lib::sub_lib::sequence_buffer::SequencedPacket;
 use node_lib::sub_lib::stream_key::StreamKey;
 use node_lib::sub_lib::wallet::Wallet;
+use node_lib::test_utils::test_utils::{make_garbage_data, make_request_payload};
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::thread;
@@ -235,7 +236,8 @@ fn receivable_account_status(
 
 fn calculate_request_routing_charge(bytes: usize, exit_cryptde: &CryptDE) -> (usize, u64) {
     let payload: ClientRequestPayload = make_request_payload(bytes, exit_cryptde);
-    let payload_ser = PlainData::from(serde_cbor::ser::to_vec(&payload).unwrap());
+    let payload_ser =
+        PlainData::from(serde_cbor::ser::to_vec(&MessageType::ClientRequest(payload)).unwrap());
     let payload_enc = exit_cryptde
         .encode(&exit_cryptde.public_key(), &payload_ser)
         .unwrap();
@@ -249,7 +251,8 @@ fn calculate_request_routing_charge(bytes: usize, exit_cryptde: &CryptDE) -> (us
 
 fn calculate_response_routing_charge(bytes: usize, originating_cryptde: &CryptDE) -> (usize, u64) {
     let payload: ClientResponsePayload = make_response_payload(bytes, originating_cryptde);
-    let payload_ser = PlainData::from(serde_cbor::ser::to_vec(&payload).unwrap());
+    let payload_ser =
+        PlainData::from(serde_cbor::ser::to_vec(&MessageType::ClientResponse(payload)).unwrap());
     let payload_enc = originating_cryptde
         .encode(&originating_cryptde.public_key(), &payload_ser)
         .unwrap();
@@ -283,20 +286,6 @@ fn assert_timestamp_between(before: &SystemTime, timestamp: &SystemTime, after: 
     );
 }
 
-fn make_request_payload(bytes: usize, cryptde: &CryptDE) -> ClientRequestPayload {
-    ClientRequestPayload {
-        stream_key: StreamKey::new(
-            cryptde.public_key(),
-            SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-        ),
-        sequenced_packet: SequencedPacket::new(make_garbage_data(bytes), 0, true),
-        target_hostname: Some("example.com".to_string()),
-        target_port: 80,
-        protocol: ProxyProtocol::HTTP,
-        originator_public_key: cryptde.public_key(),
-    }
-}
-
 fn make_response_payload(bytes: usize, cryptde: &CryptDE) -> ClientResponsePayload {
     ClientResponsePayload {
         stream_key: StreamKey::new(
@@ -313,12 +302,4 @@ fn make_wallet_from(n: usize) -> Wallet {
         address.push(((n + '0' as usize) as u8) as char);
     }
     Wallet::new(address.as_str())
-}
-
-fn make_garbage_data(bytes: usize) -> Vec<u8> {
-    let mut data = Vec::with_capacity(bytes);
-    for _ in 0..bytes {
-        data.push(0);
-    }
-    data
 }

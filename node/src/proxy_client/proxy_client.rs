@@ -7,8 +7,8 @@ use crate::proxy_client::stream_handler_pool::StreamHandlerPoolFactoryReal;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::PublicKey;
-use crate::sub_lib::hopper::ExpiredCoresPackage;
-use crate::sub_lib::hopper::IncipientCoresPackage;
+use crate::sub_lib::hopper::MessageType;
+use crate::sub_lib::hopper::{ExpiredCoresPackage, IncipientCoresPackage};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::ClientResponsePayload;
@@ -79,25 +79,18 @@ impl Handler<BindMessage> for ProxyClient {
             self.exit_service_rate,
             self.exit_byte_rate,
         ));
-        ()
     }
 }
 
-impl Handler<ExpiredCoresPackage> for ProxyClient {
+impl Handler<ExpiredCoresPackage<ClientRequestPayload>> for ProxyClient {
     type Result = ();
 
-    fn handle(&mut self, msg: ExpiredCoresPackage, _ctx: &mut Self::Context) -> Self::Result {
-        let payload = match msg.decoded_payload::<ClientRequestPayload>(self.cryptde) {
-            Ok(payload) => payload,
-            Err(e) => {
-                self.logger.error(format!(
-                    "Error ('{}') interpreting payload for transmission: {:?}",
-                    e,
-                    msg.payload_data().as_slice()
-                ));
-                return ();
-            }
-        };
+    fn handle(
+        &mut self,
+        msg: ExpiredCoresPackage<ClientRequestPayload>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let payload = msg.payload;
         let consuming_wallet = msg.consuming_wallet;
         if consuming_wallet.is_some() || payload.originator_public_key == self.cryptde.public_key()
         {
@@ -118,7 +111,6 @@ impl Handler<ExpiredCoresPackage> for ProxyClient {
                 payload.sequenced_packet.data.len()
             ));
         }
-        ()
     }
 }
 
@@ -175,7 +167,9 @@ impl ProxyClient {
     pub fn make_subs_from(addr: &Addr<ProxyClient>) -> ProxyClientSubs {
         ProxyClientSubs {
             bind: addr.clone().recipient::<BindMessage>(),
-            from_hopper: addr.clone().recipient::<ExpiredCoresPackage>(),
+            from_hopper: addr
+                .clone()
+                .recipient::<ExpiredCoresPackage<ClientRequestPayload>>(),
             inbound_server_data: addr.clone().recipient::<InboundServerData>(),
         }
     }
@@ -188,14 +182,14 @@ impl ProxyClient {
         let msg_data_len = msg.data.len() as u32;
         let msg_source = msg.source;
         let msg_sequence_number = msg.sequence_number;
-        let payload = ClientResponsePayload {
+        let payload = MessageType::ClientResponse(ClientResponsePayload {
             stream_key: msg.stream_key,
             sequenced_packet: SequencedPacket {
                 data: msg.data,
                 sequence_number: msg.sequence_number,
                 last_data: msg.last_data,
             },
-        };
+        });
         let icp = match IncipientCoresPackage::new(
             self.cryptde,
             stream_context.return_route.clone(),
@@ -257,9 +251,9 @@ mod tests {
     use crate::proxy_client::stream_handler_pool::StreamHandlerPool;
     use crate::proxy_client::stream_handler_pool::StreamHandlerPoolFactory;
     use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
-    use crate::sub_lib::cryptde::encodex;
     use crate::sub_lib::cryptde::CryptData;
     use crate::sub_lib::cryptde::PublicKey;
+    use crate::sub_lib::hopper::MessageType;
     use crate::sub_lib::proxy_client::ClientResponsePayload;
     use crate::sub_lib::proxy_server::ClientRequestPayload;
     use crate::sub_lib::proxy_server::ProxyProtocol;
@@ -483,7 +477,8 @@ mod tests {
             IpAddr::from_str("1.2.3.4").unwrap(),
             Some(Wallet::new("consuming")),
             route_to_proxy_client(&cryptde.public_key(), cryptde),
-            encodex(cryptde, &cryptde.public_key(), &request).unwrap(),
+            request,
+            0,
         );
         let system = System::new("panics_if_hopper_is_unbound");
         let subject = ProxyClient::new(ProxyClientConfig {
@@ -498,34 +493,6 @@ mod tests {
 
         System::current().stop_with_code(0);
         system.run();
-    }
-
-    #[test]
-    fn invalid_package_is_logged_and_discarded() {
-        init_test_logging();
-        let package = ExpiredCoresPackage::new(
-            IpAddr::from_str("1.2.3.4").unwrap(),
-            Some(Wallet::new("consuming")),
-            make_meaningless_route(),
-            CryptData::new(&b"invalid"[..]),
-        );
-        let system = System::new("invalid_package_is_logged_and_discarded");
-        let subject = ProxyClient::new(ProxyClientConfig {
-            cryptde: cryptde(),
-            dns_servers: dnss(),
-            exit_service_rate: 100,
-            exit_byte_rate: 200,
-        });
-        let addr: Addr<ProxyClient> = subject.start();
-        let peer_actors = peer_actors_builder().build();
-        addr.try_send(BindMessage { peer_actors }).unwrap();
-
-        addr.try_send(package).unwrap();
-
-        System::current().stop_with_code(0);
-        system.run();
-        TestLogHandler::new()
-            .exists_log_containing("ERROR: Proxy Client: Error ('Decryption error: InvalidKey");
     }
 
     #[test]
@@ -547,7 +514,8 @@ mod tests {
             IpAddr::from_str("1.2.3.4").unwrap(),
             Some(Wallet::new("consuming")),
             make_meaningless_route(),
-            encodex(cryptde, &cryptde.public_key(), &request).unwrap(),
+            request.clone().into(),
+            0,
         );
         let hopper = Recorder::new();
 
@@ -601,7 +569,8 @@ mod tests {
             IpAddr::from_str("1.2.3.4").unwrap(),
             None,
             make_meaningless_route(),
-            encodex(cryptde, &cryptde.public_key(), &request).unwrap(),
+            request,
+            0,
         );
         let hopper = Recorder::new();
 
@@ -654,7 +623,8 @@ mod tests {
             IpAddr::from_str("1.2.3.4").unwrap(),
             None,
             make_meaningless_route(),
-            encodex(cryptde, &cryptde.public_key(), &request).unwrap(),
+            request.clone().into(),
+            0,
         );
         let hopper = Recorder::new();
 
@@ -754,14 +724,14 @@ mod tests {
             &IncipientCoresPackage::new(
                 cryptde(),
                 make_meaningless_route(),
-                ClientResponsePayload {
+                MessageType::ClientResponse(ClientResponsePayload {
                     stream_key: stream_key.clone(),
                     sequenced_packet: SequencedPacket {
                         data: Vec::from(data),
                         sequence_number: 1234,
                         last_data: false
                     },
-                },
+                }),
                 &PublicKey::new(&b"abcd"[..]),
             )
             .unwrap()
@@ -771,14 +741,14 @@ mod tests {
             &IncipientCoresPackage::new(
                 cryptde(),
                 make_meaningless_route(),
-                ClientResponsePayload {
+                MessageType::ClientResponse(ClientResponsePayload {
                     stream_key: stream_key.clone(),
                     sequenced_packet: SequencedPacket {
                         data: Vec::from(data),
                         sequence_number: 1235,
                         last_data: true
                     },
-                },
+                }),
                 &PublicKey::new(&b"abcd"[..]),
             )
             .unwrap()
@@ -961,7 +931,8 @@ mod tests {
                 IpAddr::from_str("2.3.4.5").unwrap(),
                 Some(Wallet::new("gnimusnoc")),
                 new_return_route.clone(),
-                encodex(cryptde, &cryptde.public_key(), &payload).unwrap(),
+                payload.clone().into(),
+                0,
             ))
             .unwrap();
 
@@ -984,14 +955,14 @@ mod tests {
         let expected_icp = IncipientCoresPackage::new(
             cryptde,
             new_return_route,
-            ClientResponsePayload {
+            MessageType::ClientResponse(ClientResponsePayload {
                 stream_key,
                 sequenced_packet: SequencedPacket {
                     data: Vec::from(data.clone()),
                     sequence_number: 1234,
                     last_data: false,
                 },
-            },
+            }),
             &originator_public_key,
         )
         .unwrap();
