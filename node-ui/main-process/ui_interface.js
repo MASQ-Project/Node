@@ -6,18 +6,30 @@ module.exports = (() => {
   const DEFAULT_UI_PORT = 5333
   const UI_INTERFACE_URL = `ws://127.0.0.1`
   const UI_PROTOCOL = 'SubstratumNode-UI'
-  let webSocket
+  let webSocket = null
+  let getNodeDescriptorCallbackPair = null
 
   function connect () {
     return new Promise((resolve, reject) => {
       let ws = createSocket(DEFAULT_UI_PORT)
       ws.onopen = () => {
-        // TODO Remember set onmessage and reset onerror when we go bidirectional
         webSocket = ws
         resolve(true)
       }
-      ws.onerror = (err) => {
-        reject(err)
+      ws.onmessage = (evt) => {
+        const data = JSON.parse(evt.data)
+
+        const nodeDescriptor = data["NodeDescriptor"]
+        if(nodeDescriptor) {
+          getNodeDescriptorCallbackPair.resolve(nodeDescriptor)
+        }
+      }
+      ws.onerror = (event) => {
+        if (getNodeDescriptorCallbackPair) {
+          getNodeDescriptorCallbackPair.reject()
+        }
+        webSocket = null
+        reject(event)
       }
     })
   }
@@ -85,9 +97,27 @@ module.exports = (() => {
   }
 
   function shutdown () {
-    webSocket.send(JSON.stringify({ message_type: 'shutdown' }))
+    webSocket.send("\"ShutdownMessage\"")
     webSocket.close()
     webSocket = null
+  }
+
+  async function getNodeDescriptor () {
+    if (getNodeDescriptorCallbackPair) {
+      return Promise.reject("CallAlreadyInProgress")
+    }
+    return new Promise ((resolve, reject) => {
+      getNodeDescriptorCallbackPair = {
+        resolve: (descriptor) => {
+          getNodeDescriptorCallbackPair = null
+          resolve (descriptor)
+        },
+        reject: () => {
+          reject ()
+        }
+      }
+      webSocket.send("\"GetNodeDescriptor\"")
+    })
   }
 
   function createSocket (port) {
@@ -102,6 +132,7 @@ module.exports = (() => {
     isConnected: isConnected,
     verifyNodeUp: verifyNodeUp,
     verifyNodeDown: verifyNodeDown,
-    shutdown: shutdown
+    shutdown: shutdown,
+    getNodeDescriptor: getNodeDescriptor
   }
 })()

@@ -116,6 +116,8 @@ describe('Application launch', function () {
       assert.strictEqual(nodeUp, true)
     }
 
+    assert.notStrictEqual(await client.getText('#node-descriptor'), '')
+
     await client.element('div.node-status__actions button#off').click()
 
     await new Promise(resolve => setTimeout(resolve, 1000))

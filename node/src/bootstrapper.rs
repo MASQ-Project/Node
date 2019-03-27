@@ -78,6 +78,7 @@ impl BootstrapperConfig {
             clandestine_discriminator_factories: vec![],
             ui_gateway_config: UiGatewayConfig {
                 ui_port: DEFAULT_UI_PORT,
+                node_descriptor: String::from(""),
             },
             blockchain_bridge_config: BlockchainBridgeConfig {
                 consuming_private_key: None,
@@ -121,7 +122,7 @@ impl SocketServer for Bootstrapper {
         Bootstrapper::parse_args(args, &mut config);
         Bootstrapper::parse_environment_variables(&mut config);
         Bootstrapper::add_clandestine_port_info(&configuration, &mut config);
-        Bootstrapper::report_local_descriptor(
+        config.ui_gateway_config.node_descriptor = Bootstrapper::report_local_descriptor(
             cryptde_ref,
             config.neighborhood_config.local_ip_addr,
             config.neighborhood_config.clandestine_port_list.clone(),
@@ -406,17 +407,16 @@ impl Bootstrapper {
         ip_addr: IpAddr,
         ports: Vec<u16>,
         streams: &mut StdStreams<'_>,
-    ) {
+    ) -> String {
         let port_strings: Vec<String> = ports.iter().map(|n| format!("{}", n)).collect();
         let port_list = port_strings.join(",");
-        let descriptor_msg = format!(
-            "SubstratumNode local descriptor: {}:{}:{}",
-            base64::encode_config(&cryptde.public_key().as_slice(), base64::STANDARD_NO_PAD),
-            ip_addr,
-            port_list
-        );
+        let encoded_public_key =
+            base64::encode_config(&cryptde.public_key().as_slice(), base64::STANDARD_NO_PAD);
+        let descriptor = format!("{}:{}:{}", &encoded_public_key, ip_addr, port_list);
+        let descriptor_msg = format!("SubstratumNode local descriptor: {}", descriptor);
         writeln!(streams.stdout, "{}", descriptor_msg).expect("Internal error");
         Logger::new("Bootstrapper").info(descriptor_msg);
+        descriptor
     }
 }
 
@@ -1268,6 +1268,26 @@ mod tests {
             true
         );
         assert_eq!(config.clandestine_discriminator_factories.is_empty(), true);
+    }
+
+    #[test]
+    fn initialize_as_privileged_passes_node_descriptor_to_ui_config() {
+        let mut subject = BootstrapperBuilder::new()
+            .add_listener_handler(Box::new(
+                ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())),
+            ))
+            .add_listener_handler(Box::new(
+                ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())),
+            ))
+            .build();
+
+        subject.initialize_as_privileged(
+            &make_default_cli_params(),
+            &mut FakeStreamHolder::new().streams(),
+        );
+
+        let config = subject.config.unwrap();
+        assert!(config.ui_gateway_config.node_descriptor.len() > 0);
     }
 
     #[test]

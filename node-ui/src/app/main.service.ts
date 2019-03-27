@@ -5,7 +5,6 @@ import {ElectronService} from './electron.service';
 import {BehaviorSubject, Observable, of} from 'rxjs';
 import {NodeStatus} from './node-status.enum';
 import {ConfigService} from './config.service';
-import {first, flatMap} from 'rxjs/operators';
 import {NodeConfiguration} from './node-configuration';
 
 @Injectable({
@@ -16,9 +15,15 @@ export class MainService {
   private statusListener: BehaviorSubject<NodeStatus> = new BehaviorSubject(NodeStatus.Off);
   nodeStatus: Observable<NodeStatus> = this.statusListener.asObservable();
 
+  private nodeDescriptorListener: BehaviorSubject<string> = new BehaviorSubject('');
+  nodeDescriptor: Observable<string> = this.nodeDescriptorListener.asObservable();
+
   constructor(private electronService: ElectronService, private configService: ConfigService) {
     this.electronService.ipcRenderer.on('node-status', (event, args: string) => {
       this.statusListener.next(args as NodeStatus);
+    });
+    this.electronService.ipcRenderer.on('node-descriptor', (_, descriptor: string) => {
+      this.nodeDescriptorListener.next(descriptor);
     });
   }
 
@@ -32,6 +37,10 @@ export class MainService {
 
   consume(): Observable<NodeStatus> {
     return this.changeNodeState('consume', this.configService.getConfig());
+  }
+
+  copyToClipboard(text: string) {
+    this.electronService.clipboard.writeText(text);
   }
 
   private changeNodeState(state, config?: NodeConfiguration): Observable<NodeStatus> {

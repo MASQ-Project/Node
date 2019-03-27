@@ -4,7 +4,7 @@ import {async, ComponentFixture, TestBed} from '@angular/core/testing';
 import {IndexComponent} from './index.component';
 import {FooterComponent} from '../footer/footer.component';
 import {Component} from '@angular/core';
-import {func, when} from 'testdouble';
+import {func, verify, when} from 'testdouble';
 import {MainService} from '../main.service';
 import {BehaviorSubject, of} from 'rxjs';
 import {NodeStatus} from '../node-status.enum';
@@ -18,18 +18,24 @@ describe('IndexComponent', () => {
   let mockTurnOff;
   let mockServe;
   let mockConsume;
+  let mockCopyToClipboard;
   let mockStatus: BehaviorSubject<NodeStatus>;
+  let mockNodeDescriptor: BehaviorSubject<string>;
 
   beforeEach(async(() => {
     mockTurnOff = func('turnOff');
     mockServe = func('serve');
     mockConsume = func('consume');
+    mockCopyToClipboard = func('copyToClipboard');
     mockStatus = new BehaviorSubject(NodeStatus.Off);
+    mockNodeDescriptor = new BehaviorSubject('');
     mockMainService = {
       turnOff: mockTurnOff,
       serve: mockServe,
       consume: mockConsume,
-      nodeStatus: mockStatus.asObservable()
+      copyToClipboard: mockCopyToClipboard,
+      nodeStatus: mockStatus.asObservable(),
+      nodeDescriptor: mockNodeDescriptor.asObservable()
     };
 
     @Component({selector: 'app-header', template: ''})
@@ -72,11 +78,13 @@ describe('IndexComponent', () => {
   describe('clicking off', () => {
     let offButton;
     beforeEach(() => {
+      mockNodeDescriptor.next('beggin for help');
       offButton = compiled.querySelector('#off');
       when(mockTurnOff()).thenReturn(of(NodeStatus.Off));
       offButton.click();
       fixture.detectChanges();
     });
+
     it('tells main to turn off the node', () => {
       expect(offButton.classList).toContain('button-active');
     });
@@ -106,6 +114,18 @@ describe('IndexComponent', () => {
 
     it('tells main to turn off the node', () => {
       expect(consumingButton.classList).toContain('button-active');
+    });
+  });
+
+  describe('clicking copy', () => {
+    beforeEach(() => {
+      mockNodeDescriptor.next('let me out');
+      compiled.querySelector('#copy').click();
+      fixture.detectChanges();
+    });
+
+    it('copies the node descriptor', () => {
+      verify(mockCopyToClipboard('let me out'));
     });
   });
 

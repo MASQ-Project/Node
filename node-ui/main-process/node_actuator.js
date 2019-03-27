@@ -41,7 +41,6 @@ module.exports = class NodeActuator {
 
     this.substratumNodeProcess.on('exit', async code => {
       consoleWrapper.log('substratum_node process exited with code ', code)
-      this.substratumNodeProcess = null
       await this.setStatus()
     })
   }
@@ -57,6 +56,7 @@ module.exports = class NodeActuator {
       this.substratumNodeProcess = processList[0]
     } else {
       this.substratumNodeProcess = null
+      this.webContents.send('node-descriptor', '')
     }
     return this.webContents.send('node-status', status)
   }
@@ -76,25 +76,38 @@ module.exports = class NodeActuator {
 
   async startNode (additionalArguments) {
     if (this.substratumNodeProcess) {
-      await uiInterface.connect()
-    } else {
-      const worker = path.resolve(__dirname, '.', './substratum_node.js')
-      this.substratumNodeProcess = childProcess.fork(worker, [app.getPath('home')], {
-        silent: true,
-        stdio: [0, 1, 2, 'ipc'],
-        detached: true
-      })
-      this.bindProcessEvents()
-      this.substratumNodeProcess.send({
-        type: 'start',
-        arguments: additionalArguments
-      })
-
-      if (await uiInterface.verifyNodeUp(NODE_STARTUP_TIMEOUT)) {
+      try {
         await uiInterface.connect()
-      } else {
-        dialog.showErrorBox('Error', `Node was started but didn't come up within ${NODE_STARTUP_TIMEOUT}ms!`)
+      } catch (err) {
+        return this.spawnSubstratumNodeProcess(additionalArguments)
       }
+    } else {
+      return this.spawnSubstratumNodeProcess(additionalArguments)
+    }
+  }
+
+  async spawnSubstratumNodeProcess(additionalArguments) {
+    const worker = path.resolve(__dirname, '.', './substratum_node.js')
+    this.substratumNodeProcess = childProcess.fork(worker, [app.getPath('home')], {
+      silent: true,
+      stdio: [0, 1, 2, 'ipc'],
+      detached: true
+    })
+    this.bindProcessEvents()
+    this.substratumNodeProcess.send({
+      type: 'start',
+      arguments: additionalArguments
+    })
+
+    if (await uiInterface.verifyNodeUp(NODE_STARTUP_TIMEOUT)) {
+      try {
+        await uiInterface.connect()
+        await this.updateNodeDescriptor (await uiInterface.getNodeDescriptor())
+      } catch (err) {
+        dialog.showErrorBox('Error', 'Could not start node!')
+      }
+    } else {
+      dialog.showErrorBox('Error', `Node was started but didn't come up within ${NODE_STARTUP_TIMEOUT}ms!`)
     }
   }
 
@@ -158,5 +171,9 @@ module.exports = class NodeActuator {
         dialog.showErrorBox('Error', `Couldn't stop consuming: ${error.message}`)
       }
     )
+  }
+
+  async updateNodeDescriptor (descriptor) {
+    return this.webContents.send('node-descriptor', descriptor)
   }
 }

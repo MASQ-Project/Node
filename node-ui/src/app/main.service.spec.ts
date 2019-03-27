@@ -9,20 +9,32 @@ import {ConfigService} from './config.service';
 
 describe('MainService', () => {
   let stubElectronService;
+  let stubClipboard;
+  let mockWriteText;
   let mockSendSync;
   let service: MainService;
   let mockConfigService;
   let mockGetConfig;
+  let mockOn;
+  let nodeStatusListener;
+  let nodeDescriptorListener;
 
   beforeEach(() => {
     mockSendSync = func('sendSync');
     mockGetConfig = func('getConfig');
+    mockWriteText = func('writeText');
+    mockOn = func('on');
+    nodeStatusListener = matchers.captor();
+    nodeDescriptorListener = matchers.captor();
+    stubClipboard = {
+      writeText: mockWriteText
+    };
     stubElectronService = {
       ipcRenderer: {
-        on: () => {
-        },
-        sendSync: mockSendSync
-      }
+        on: mockOn,
+        sendSync: mockSendSync,
+      },
+      clipboard: stubClipboard
     };
     mockConfigService = object(['getConfig']);
     mockConfigService = {
@@ -44,6 +56,21 @@ describe('MainService', () => {
 
   it('should be created', () => {
     expect(service).toBeTruthy();
+  });
+
+  it('creates listeners', () => {
+    verify(mockOn('node-status', nodeStatusListener.capture()));
+    verify(mockOn('node-descriptor', nodeDescriptorListener.capture()));
+
+    nodeStatusListener.value('', 'the status');
+    nodeDescriptorListener.value('', 'the descriptor');
+
+    service.nodeStatus.subscribe(status => {
+      expect(status).toEqual('the status');
+    });
+    service.nodeDescriptor.subscribe(descriptor => {
+      expect(descriptor).toEqual('the descriptor');
+    });
   });
 
   describe('user actions', () => {
@@ -87,6 +114,16 @@ describe('MainService', () => {
       it('is included in consuming', () => {
         verify(mockSendSync('change-node-state', 'consume', nodeConfig));
       });
+    });
+  });
+
+  describe('copy', () => {
+    beforeEach(() => {
+      service.copyToClipboard('this is not a dance');
+    });
+
+    it('writes to the clipboard', () => {
+      verify(mockWriteText('this is not a dance'));
     });
   });
 });

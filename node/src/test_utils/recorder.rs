@@ -28,9 +28,8 @@ use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::proxy_server::{AddReturnRouteMessage, ClientRequestPayload};
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
-use crate::sub_lib::ui_gateway::FromUiMessage;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
-use crate::sub_lib::ui_gateway::UiMessage;
+use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage};
 use crate::test_utils::test_utils::to_millis;
 use actix::Actor;
 use actix::Addr;
@@ -88,7 +87,7 @@ recorder_message_handler!(BootstrapNeighborhoodNowMessage);
 recorder_message_handler!(RemoveNeighborMessage);
 recorder_message_handler!(DispatcherNodeQueryResponse);
 recorder_message_handler!(DispatcherNodeQueryMessage);
-recorder_message_handler!(UiMessage);
+recorder_message_handler!(UiCarrierMessage);
 recorder_message_handler!(FromUiMessage);
 recorder_message_handler!(ReportRoutingServiceProvidedMessage);
 recorder_message_handler!(ReportExitServiceProvidedMessage);
@@ -310,7 +309,7 @@ pub fn make_accountant_subs_from(addr: &Addr<Recorder>) -> AccountantSubs {
 pub fn make_ui_gateway_subs_from(addr: &Addr<Recorder>) -> UiGatewaySubs {
     UiGatewaySubs {
         bind: addr.clone().recipient::<BindMessage>(),
-        ui_message_sub: addr.clone().recipient::<UiMessage>(),
+        ui_message_sub: addr.clone().recipient::<UiCarrierMessage>(),
         from_ui_message_sub: addr.clone().recipient::<FromUiMessage>(),
     }
 }

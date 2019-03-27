@@ -4,6 +4,7 @@
 
 const td = require('testdouble')
 const { EventEmitter } = require('events')
+const assert = require('assert')
 
 td.config({
   ignoreWarnings: true // to discourage warnings about td.when and td.verify on the same mock :<
@@ -95,6 +96,33 @@ describe('NodeActuator', () => {
 
       it('connects the WebSocket', () => {
         td.verify(mockUiInterface.connect())
+      })
+
+      describe('but fails to connect via uiInterface', () => {
+        beforeEach(async () => {
+          td.when(mockUiInterface.connect()).thenReject(':(');
+          await subject.serving()
+        })
+
+        it('does not revert the dns', () => {
+          assertDNSNotReverted()
+        })
+
+        it('starts the node', () => {
+          assertNodeStarted()
+        })
+
+        it('connects the WebSocket', () => {
+          td.verify(mockUiInterface.connect())
+        })
+
+        it('does not try to get the node descriptor', () => {
+          td.verify(mockUiInterface.getNodeDescriptor(), { times: 0 })
+        })
+
+        it('shows an error dialog', () => {
+          td.verify(mockDialog.showErrorBox('Error', 'Could not start node!'))
+        })
       })
     })
 
@@ -475,6 +503,14 @@ describe('NodeActuator', () => {
 
         it('does not revert DNS', () => {
           assertDNSNotReverted()
+        })
+
+        it('clears out the substratumNodeProcess', () => {
+          assert(!subject.substratumNodeProcess)
+        })
+
+        it('clears the node descriptor', () => {
+          td.verify(mockWebContents.send('node-descriptor', ''))
         })
       })
 

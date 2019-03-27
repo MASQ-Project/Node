@@ -13,12 +13,17 @@ import {MainService} from '../main.service';
 export class IndexComponent {
 
   status: NodeStatus = NodeStatus.Off;
+  nodeDescriptor = '';
 
   constructor(private mainService: MainService, private app: ApplicationRef) {
-    window.resizeTo(320, 260);
+    window.resizeTo(640, 480);
     mainService.nodeStatus.subscribe((newStatus) => {
       this.status = newStatus;
       // TODO - is there a nicer way to accomplish this? Forces UI to update right away after change
+      app.tick();
+    });
+    mainService.nodeDescriptor.subscribe((newNodeDescriptor) => {
+      this.nodeDescriptor = newNodeDescriptor;
       app.tick();
     });
   }
@@ -27,7 +32,9 @@ export class IndexComponent {
   header: HeaderComponent;
 
   off() {
-    this.mainService.turnOff().subscribe(status => this.status = status);
+    this.mainService.turnOff().subscribe(status => {
+      this.status = status;
+    });
   }
 
   serve() {
@@ -36,6 +43,10 @@ export class IndexComponent {
 
   consume() {
     this.mainService.consume().subscribe(status => this.status = status);
+  }
+
+  copyNodeDescriptor() {
+    this.mainService.copyToClipboard(this.nodeDescriptor);
   }
 
   isOff(): boolean {
@@ -58,4 +69,7 @@ export class IndexComponent {
     return (this.status === NodeStatus.Invalid) ? 'An error occurred. Choose a state.' : this.status;
   }
 
+  nodeDescriptorText(): string {
+    return this.nodeDescriptor;
+  }
 }

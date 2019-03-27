@@ -317,9 +317,8 @@ mod tests {
     use crate::sub_lib::proxy_server::{AddReturnRouteMessage, ClientRequestPayload};
     use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
-    use crate::sub_lib::ui_gateway::FromUiMessage;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
-    use crate::sub_lib::ui_gateway::UiMessage;
+    use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
@@ -454,7 +453,7 @@ mod tests {
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.ui_gateway);
             UiGatewaySubs {
                 bind: addr.clone().recipient::<BindMessage>(),
-                ui_message_sub: addr.clone().recipient::<UiMessage>(),
+                ui_message_sub: addr.clone().recipient::<UiCarrierMessage>(),
                 from_ui_message_sub: addr.clone().recipient::<FromUiMessage>(),
             }
         }
@@ -619,7 +618,10 @@ mod tests {
                 payable_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
-            ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
+            ui_gateway_config: UiGatewayConfig {
+                ui_port: 5335,
+                node_descriptor: String::from(""),
+            },
             blockchain_bridge_config: BlockchainBridgeConfig {
                 consuming_private_key: None,
             },
@@ -669,7 +671,10 @@ mod tests {
                 payable_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
-            ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
+            ui_gateway_config: UiGatewayConfig {
+                ui_port: 5335,
+                node_descriptor: String::from("NODE-DESCRIPTOR"),
+            },
             blockchain_bridge_config: BlockchainBridgeConfig {
                 consuming_private_key: None,
             },
@@ -711,6 +716,7 @@ mod tests {
         assert_eq!(neighborhood_config, config.neighborhood_config);
         let ui_gateway_config = Parameters::get(parameters.ui_gateway_params);
         assert_eq!(ui_gateway_config.ui_port, 5335);
+        assert_eq!(ui_gateway_config.node_descriptor, "NODE-DESCRIPTOR");
         let blockchain_bridge_config = Parameters::get(parameters.blockchain_bridge_params);
         assert_eq!(
             blockchain_bridge_config,

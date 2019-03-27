@@ -3,7 +3,7 @@
 @import '../../styles/colors';
 @import '../../styles/mixins';
 
-.node-status {
+.node-status, .node-field {
   background: color('background');
   padding: 24px 18px;
 
@@ -18,6 +18,16 @@
       letter-spacing: fontSize('letter-spacing');
       font-weight: normal;
       flex: 1;
+      margin-bottom:10px;
+    }
+
+    &-text {
+      font-size: 0.9em;
+      background-color: #2B2B2C;
+      margin: 0 10px 0 0;
+      padding: 2px 6px;
+      border-radius: 5px;
+      width: 100%;
     }
 
     &-status {
@@ -26,11 +36,30 @@
       text-align: right;
       flex: 1;
     }
+
+    button {
+      background: color('primary');
+      color: color('white');
+      outline: 0;
+      width: 80px;
+      height: 24px;
+      font-family: inherit;
+      font-size: fontSize('diminished');
+      text-transform: uppercase;
+      border: 0;
+      border-radius: 8px;
+      cursor: pointer;
+
+      &:active {
+        background-color: color('background', 'dark');
+      }
+    }
+
   }
 
   &__actions {
     display: flex;
-    margin-top: 20px;
+    margin-top: 10px;
 
     &--invalid {
       border: 3px solid color('primary');

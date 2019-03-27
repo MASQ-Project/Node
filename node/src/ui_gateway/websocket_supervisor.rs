@@ -10,6 +10,7 @@ use futures::stream::SplitSink;
 use futures::Future;
 use futures::Sink;
 use futures::Stream;
+use std::any::Any;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -25,8 +26,32 @@ use websocket::server::upgrade::WsUpgrade;
 use websocket::OwnedMessage;
 use websocket::WebSocketError;
 
+trait ClientWrapper: Send + Any {
+    fn as_any(&self) -> &Any;
+    fn send(&mut self, item: OwnedMessage) -> Result<(), WebSocketError>;
+    fn flush(&mut self) -> Result<(), WebSocketError>;
+}
+
+struct ClientWrapperReal {
+    delegate: Wait<SplitSink<Framed<TcpStream, MessageCodec<OwnedMessage>>>>,
+}
+
+impl ClientWrapper for ClientWrapperReal {
+    fn as_any(&self) -> &Any {
+        self
+    }
+
+    fn send(&mut self, item: OwnedMessage) -> Result<(), WebSocketError> {
+        self.delegate.send(item)
+    }
+
+    fn flush(&mut self) -> Result<(), WebSocketError> {
+        self.delegate.flush()
+    }
+}
+
 pub trait WebSocketSupervisor {
-    fn receive(&self, client_id: u64, message_json: &str);
+    fn send(&self, client_id: u64, message_json: &str);
 }
 
 pub struct WebSocketSupervisorReal {
@@ -34,17 +59,24 @@ pub struct WebSocketSupervisorReal {
     inner: Arc<Mutex<WebSocketSupervisorInner>>,
 }
 
-impl WebSocketSupervisor for WebSocketSupervisorReal {
-    fn receive(&self, _client_id: u64, _message_json: &str) {
-        unimplemented!()
-    }
-}
-
 struct WebSocketSupervisorInner {
     next_client_id: u64,
     from_ui_message: Recipient<FromUiMessage>,
     client_id_by_socket_addr: HashMap<SocketAddr, u64>,
-    client_by_id: HashMap<u64, Wait<SplitSink<Framed<TcpStream, MessageCodec<OwnedMessage>>>>>,
+    client_by_id: HashMap<u64, Box<ClientWrapper>>,
+}
+
+impl WebSocketSupervisor for WebSocketSupervisorReal {
+    fn send(&self, client_id: u64, message_json: &str) {
+        let mut locked_inner = self.inner.lock().expect("WebSocketSupervisor is poisoned");
+        match locked_inner.client_by_id.get_mut(&client_id) {
+            Some(client) => match client.send(OwnedMessage::Text(message_json.to_string())) {
+                Ok(_) => client.flush().expect("Flush error"),
+                Err(e) => panic!("Send error: {:?}", e),
+            },
+            None => panic!("Tried to send to a nonexistent client"),
+        };
+    }
 }
 
 impl WebSocketSupervisorReal {
@@ -161,7 +193,12 @@ impl WebSocketSupervisorReal {
         locked_inner
             .client_id_by_socket_addr
             .insert(socket_addr, client_id);
-        locked_inner.client_by_id.insert(client_id, sync_outgoing);
+        locked_inner.client_by_id.insert(
+            client_id,
+            Box::new(ClientWrapperReal {
+                delegate: sync_outgoing,
+            }),
+        );
         let incoming_future = incoming
             .then(move |result| Self::handle_websocket_errors(result, &logger_2, socket_addr))
             .map(move |owned_message| match owned_message {
@@ -197,10 +234,11 @@ impl WebSocketSupervisorReal {
                 );
                 err::<(), ()>(()) // end the stream
             }
-            Some(_client_id_ref) => {
+            Some(client_id_ref) => {
                 locked_inner
                     .from_ui_message
                     .try_send(FromUiMessage {
+                        client_id: *client_id_ref,
                         json: String::from(message),
                     })
                     .expect("UiGateway is dead");
@@ -300,6 +338,92 @@ mod tests {
     use websocket::stream::sync::TcpStream;
     use websocket::ClientBuilder;
     use websocket::Message;
+
+    impl WebSocketSupervisorReal {
+        fn inject_mock_client(&self, mock_client: ClientWrapperMock) -> u64 {
+            let mut locked_inner = self.inner.lock().unwrap();
+            let client_id = locked_inner.next_client_id;
+            locked_inner.next_client_id += 1;
+            locked_inner
+                .client_by_id
+                .insert(client_id, Box::new(mock_client));
+            client_id
+        }
+
+        fn get_mock_client(&self, client_id: u64) -> ClientWrapperMock {
+            let locked_inner = self.inner.lock().unwrap();
+            let mock_client_box = locked_inner
+                .client_by_id
+                .get(&client_id)
+                .expect(&format!("Did not find mock client for id: {}", client_id));
+            let any = mock_client_box.as_any();
+            let result = any
+                .downcast_ref::<ClientWrapperMock>()
+                .expect("couldn't downcast");
+            result.clone()
+        }
+    }
+
+    struct ClientWrapperMock {
+        send_params: Arc<Mutex<Vec<OwnedMessage>>>,
+        send_results: Vec<Result<(), WebSocketError>>,
+        flush_results: Vec<Result<(), WebSocketError>>,
+    }
+
+    impl Clone for ClientWrapperMock {
+        fn clone(&self) -> Self {
+            ClientWrapperMock {
+                send_params: self.send_params.clone(),
+                send_results: self
+                    .send_results
+                    .iter()
+                    .map(|result| match result {
+                        Ok(()) => Ok(()),
+                        Err(_) => Err(WebSocketError::NoDataAvailable),
+                    })
+                    .collect::<Vec<Result<(), WebSocketError>>>(),
+                flush_results: self
+                    .flush_results
+                    .iter()
+                    .map(|result| match result {
+                        Ok(()) => Ok(()),
+                        Err(_) => Err(WebSocketError::NoDataAvailable),
+                    })
+                    .collect::<Vec<Result<(), WebSocketError>>>(),
+            }
+        }
+    }
+
+    impl ClientWrapperMock {
+        fn new() -> ClientWrapperMock {
+            ClientWrapperMock {
+                send_params: Arc::new(Mutex::new(vec![])),
+                send_results: vec![],
+                flush_results: vec![],
+            }
+        }
+    }
+
+    impl ClientWrapper for ClientWrapperMock {
+        fn as_any(&self) -> &Any {
+            self
+        }
+
+        fn send(&mut self, item: OwnedMessage) -> Result<(), WebSocketError> {
+            self.send_params.lock().unwrap().push(item);
+            if self.send_results.is_empty() {
+                panic!("WaitWrapperMock: send_results is empty")
+            }
+            self.send_results.remove(0)
+        }
+
+        fn flush(&mut self) -> Result<(), WebSocketError> {
+            if self.flush_results.is_empty() {
+                panic!("WaitWrapperMock: flush_results is empty")
+            }
+            self.flush_results.remove(0)
+        }
+    }
 
     fn make_client(port: u16, protocol: &str) -> Result<Client<TcpStream>, WebSocketError> {
         ClientBuilder::new(format!("ws://127.0.0.1:{}", port).as_str())
@@ -533,6 +657,7 @@ mod tests {
         assert_eq!(
             ui_gateway_recording.get_record::<FromUiMessage>(0),
             &FromUiMessage {
+                client_id: 0,
                 json: String::from("One")
             }
         );
@@ -572,9 +697,118 @@ mod tests {
         assert_eq!(
             ui_gateway_recording.get_record::<FromUiMessage>(0),
             &FromUiMessage {
+                client_id: 0,
                 json: String::from("One")
             }
         );
         assert_eq!(ui_gateway_recording.len(), 1);
+    }
+
+    #[test]
+    fn send_sends_a_message_to_the_client() {
+        let port = find_free_port();
+        let (ui_gateway, _, _) = make_recorder();
+        let ui_gateway_recipient = ui_gateway.start().recipient::<FromUiMessage>();
+        let system = System::new("receive_sends_a_message_to_the_client");
+        let mut client_id = 0;
+        let lazy_future = lazy(move || {
+            let subject = WebSocketSupervisorReal::new(port, ui_gateway_recipient);
+            let mut mock_client = ClientWrapperMock::new();
+            mock_client.send_results.push(Ok(()));
+            mock_client.flush_results.push(Ok(()));
+            client_id = subject.inject_mock_client(mock_client);
+
+            let json_string = "{totally: 'valid'}";
+
+            subject.send(client_id, json_string);
+
+            let mock_client_ref = subject.get_mock_client(client_id);
+            assert_eq!(
+                &OwnedMessage::Text(String::from(json_string)),
+                mock_client_ref
+                    .send_params
+                    .lock()
+                    .unwrap()
+                    .get(0)
+                    .expect("Send was not called")
+            );
+            Ok(())
+        });
+        actix::spawn(lazy_future);
+        System::current().stop();
+        system.run();
+    }
+
+    #[test]
+    #[should_panic(expected = "Flush error: NoDataAvailable")]
+    fn send_tries_to_send_message_and_panics_on_flush() {
+        let port = find_free_port();
+        let (ui_gateway, _, _) = make_recorder();
+        let ui_gateway_recipient = ui_gateway.start().recipient::<FromUiMessage>();
+        let system = System::new("receive_sends_a_message_and_errors_on_flush");
+        let mut client_id = 0;
+        let lazy_future = lazy(move || {
+            let subject = WebSocketSupervisorReal::new(port, ui_gateway_recipient);
+            let mut mock_client = ClientWrapperMock::new();
+            mock_client.send_results.push(Ok(()));
+            mock_client
+                .flush_results
+                .push(Err(WebSocketError::NoDataAvailable));
+            client_id = subject.inject_mock_client(mock_client);
+
+            let json_string = "{totally: 'valid'}";
+
+            subject.send(client_id, json_string);
+            Ok(())
+        });
+        actix::spawn(lazy_future);
+        System::current().stop();
+        system.run();
+    }
+
+    #[test]
+    #[should_panic(expected = "Send error: NoDataAvailable")]
+    fn send_tries_to_send_message_and_panics() {
+        let port = find_free_port();
+        let (ui_gateway, _, _) = make_recorder();
+        let ui_gateway_recipient = ui_gateway.start().recipient::<FromUiMessage>();
+        let system = System::new("receive_sends_a_message_and_errors_on_send");
+        let mut client_id = 0;
+        let lazy_future = lazy(move || {
+            let subject = WebSocketSupervisorReal::new(port, ui_gateway_recipient);
+            let mut mock_client = ClientWrapperMock::new();
+            mock_client
+                .send_results
+                .push(Err(WebSocketError::NoDataAvailable));
+            client_id = subject.inject_mock_client(mock_client);
+
+            let json_string = "{totally: 'valid'}";
+
+            subject.send(client_id, json_string);
+            Ok(())
+        });
+        actix::spawn(lazy_future);
+        System::current().stop();
+        system.run();
+    }
+
+    #[test]
+    #[should_panic(expected = "Tried to send to a nonexistent client")]
+    fn send_fails_to_look_up_client_to_send_to() {
+        let port = find_free_port();
+        let (ui_gateway, _, _) = make_recorder();
+        let ui_gateway_recipient = ui_gateway.start().recipient::<FromUiMessage>();
+        let system = System::new("receive_sends_a_message_and_errors_on_send");
+        let lazy_future = lazy(move || {
+            let subject = WebSocketSupervisorReal::new(port, ui_gateway_recipient);
+
+            let json_string = "{totally: 'valid'}";
+
+            subject.send(7, json_string);
+            Ok(())
+        });
+        actix::spawn(lazy_future);
+        System::current().stop();
+        system.run();
     }
 }

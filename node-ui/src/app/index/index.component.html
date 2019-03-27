@@ -16,5 +16,15 @@
     </div>
   </div>
 
+  <div class="node-field">
+    <div class="node-field__display">
+      <span class="node-field__display-label">Node Descriptor:</span>
+    </div>
+    <div class="node-field__display">
+      <span id="node-descriptor" class="node-field__display-text">{{nodeDescriptorText()}}</span>
+      <button (click)="copyNodeDescriptor()" id="copy">Copy</button>
+    </div>
+  </div>
+
   <app-footer></app-footer>
 </div>

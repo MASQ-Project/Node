@@ -13,12 +13,12 @@ pub trait UiTrafficConverter {
 pub struct UiTrafficConverterReal {}
 
 impl UiTrafficConverter for UiTrafficConverterReal {
-    fn marshal(&self, _ui_message: UiMessage) -> Result<String, String> {
-        unimplemented!()
+    fn marshal(&self, ui_message: UiMessage) -> Result<String, String> {
+        serde_json::to_string(&ui_message).map_err(|e| e.to_string())
     }
 
     fn unmarshal(&self, _json: &str) -> Result<UiMessage, String> {
-        Ok(UiMessage::ShutdownMessage)
+        serde_json::from_str(_json).map_err(|e| e.to_string())
     }
 }
 
@@ -34,11 +34,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_shutdown_message_is_properly_unmarshalled() {
+    fn a_shutdown_message_is_properly_marshalled_and_unmarshalled() {
         let subject = UiTrafficConverterReal::new();
 
-        let result = subject.unmarshal("{\"message_type\": \"shutdown\"}");
+        let marshalled = serde_json::to_string(&UiMessage::ShutdownMessage).unwrap();
+        let unmarshalled = subject.unmarshal(&marshalled);
 
-        assert_eq!(result, Ok(UiMessage::ShutdownMessage));
+        assert_eq!(unmarshalled, Ok(UiMessage::ShutdownMessage));
     }
 }

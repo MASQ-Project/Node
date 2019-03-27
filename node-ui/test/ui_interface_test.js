@@ -70,6 +70,7 @@ describe('Given a mock WebSocket', () => {
       describe('but experiences a connection error', () => {
         let result
         beforeEach(async () => {
+          subject.webSocket = 'pretend there is already a webSocket'
           webSocketClient.onerror('My tummy hurts')
           try {
             await connectPromise
@@ -110,7 +111,7 @@ describe('Given a mock WebSocket', () => {
           it('the WebSocket client is instructed to send the proper message', () => {
             let captor = td.matchers.captor()
             td.verify(webSocketClient.send(captor.capture()))
-            assert.deepStrictEqual(JSON.parse(captor.value), {message_type: 'shutdown'})
+            assert.deepStrictEqual(JSON.parse(captor.value), 'ShutdownMessage')
           })
 
           it('the WebSocket client is closed', () => {
@@ -118,6 +119,94 @@ describe('Given a mock WebSocket', () => {
           })
 
           it('the UiInterface claims to be no longer connected', () => {
+            assert.strictEqual(subject.isConnected(), false)
+          })
+        })
+
+        describe('when it is directed to send a GetNodeDescriptor message', () => {
+          let mockCallback = td.function()
+          let nodeDescriptorFailure = false
+          beforeEach(() => {
+            subject.getNodeDescriptor().then (descriptor => mockCallback (descriptor), () => {nodeDescriptorFailure = true})
+          })
+
+          describe('and immediately directed to send another before the first response arrives', () => {
+            let unexpectedSuccess
+            let actualError
+            beforeEach ((done) => {
+              secondCallResult = subject.getNodeDescriptor()
+                .then (descriptor => {
+                  unexpectedSuccess = descriptor
+                  done()
+                })
+                .catch ((msg) => {
+                  actualError = msg
+                  done()
+                })
+            })
+
+            it ('does not succeed', () => {
+              assert.strictEqual(undefined, unexpectedSuccess)
+            })
+
+            it ('fails because another call is already in progress', () => {
+              assert.strictEqual('CallAlreadyInProgress', actualError)
+            })
+          })
+
+          it('the WebSocket client is instructed to send the proper message', () => {
+            let captor = td.matchers.captor()
+            td.verify(webSocketClient.send(captor.capture()))
+            assert.deepStrictEqual(JSON.parse(captor.value), "GetNodeDescriptor")
+          })
+
+          describe('when onmessage is invoked with a descriptor', () => {
+            beforeEach(async () => {
+              webSocketClient.onmessage({data: "{\"NodeDescriptor\": \"NODE_DESCRIPTOR\"}"})
+              await connectPromise
+            })
+
+            it('fires the callback', () => {
+              td.verify(mockCallback("NODE_DESCRIPTOR"))
+            })
+
+            describe('when getting another node descriptor', () => {
+              beforeEach(async () => {
+                subject.getNodeDescriptor().then(descriptor => mockCallback(descriptor))
+                webSocketClient.onmessage({data: '{"NodeDescriptor": "second_descriptor"}'})
+                await connectPromise
+              })
+
+              it('fires the callback with the new value', () => {
+                td.verify(mockCallback("second_descriptor"))
+              })
+            })
+          })
+
+          describe('when onerror is invoked', () => {
+            beforeEach(async () => {
+              webSocketClient.onerror('the error')
+              await connectPromise
+            })
+
+            it('rejects the pending node descriptor', () => {
+              assert.strictEqual(true, nodeDescriptorFailure)
+            })
+          })
+        })
+
+        describe('then experiences a connection error', () => {
+          let result
+          beforeEach(async () => {
+            webSocketClient.onerror('My tummy hurts')
+            try {
+              await connectPromise
+            } catch (err) {
+              result = err
+            }
+          })
+
+          it('says it\'s not connected', () => {
             assert.strictEqual(subject.isConnected(), false)
           })
         })
