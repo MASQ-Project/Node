@@ -171,7 +171,7 @@ fn cores_package_to_http_request_and_http_response_to_cores_package_test() {
                 true
             );
         }
-        _ => panic!("SC-743"),
+        _ => panic!("Expected MessgeType::ClientResponse, got something else"),
     }
 }
 

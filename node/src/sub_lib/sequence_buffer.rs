@@ -12,7 +12,7 @@ use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::fmt;
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct SequencedPacket {
     pub data: Vec<u8>,
     pub sequence_number: u64,

@@ -313,7 +313,9 @@ mod tests {
     use crate::sub_lib::neighborhood::NodeQueryMessage;
     use crate::sub_lib::neighborhood::RemoveNeighborMessage;
     use crate::sub_lib::neighborhood::RouteQueryMessage;
-    use crate::sub_lib::proxy_client::{ClientResponsePayload, InboundServerData};
+    use crate::sub_lib::proxy_client::{
+        ClientResponsePayload, DnsResolveFailure, InboundServerData,
+    };
     use crate::sub_lib::proxy_server::{AddReturnRouteMessage, ClientRequestPayload};
     use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
@@ -485,6 +487,7 @@ mod tests {
                     .clone()
                     .recipient::<ExpiredCoresPackage<ClientRequestPayload>>(),
                 inbound_server_data: addr.clone().recipient::<InboundServerData>(),
+                dns_resolve_failed: addr.clone().recipient::<DnsResolveFailure>(),
             }
         }
 

@@ -204,7 +204,7 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
             panic!("Neighborhood has returned a NodeDescriptor with no ports. This indicates an unrecoverable error.")
         }
 
-        // TODO: Picking the first port is a temporary hack. TODO create a card about this and remove this line
+        // TODO: Picking the first port is a temporary hack. See SC-795
         let peer_addr = SocketAddr::new(node_addr.ip_addr(), node_addr.ports()[0]);
 
         let mut to_remove = false;
@@ -267,7 +267,6 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
                         thread::sleep(Duration::from_millis(100));
                         recipient.try_send(msg).expect("StreamHandlerPool is dead");
                     });
-                    ()
                 }
             }
         } else {
@@ -277,7 +276,7 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
                     peer_addr,
                     msg.context.data.len()
                 ));
-                return ();
+                return;
             }
 
             self.logger

@@ -156,7 +156,12 @@ impl RoutingService {
                     expired_package.payload_len,
                 ))
                 .expect("Proxy Client is dead"),
-            (Component::ProxyServer, MessageType::DnsResolveFailed) => unimplemented!("SC-743"),
+            (Component::ProxyServer, MessageType::DnsResolveFailed(dns_resolve_failure)) => {
+                self.logger.warning(format!(
+                    "We have a situation! Unable to resolve DNS for stream key: {:?}",
+                    dns_resolve_failure.stream_key
+                ));
+            }
             (destination, payload) => self.logger.error(format!(
                 "Attempt to send invalid combination {:?} to {:?}",
                 payload, destination
@@ -287,7 +292,7 @@ mod tests {
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::hopper::{HopperConfig, MessageType};
     use crate::sub_lib::peer_actors::BindMessage;
-    use crate::sub_lib::proxy_client::ClientResponsePayload;
+    use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
     use crate::sub_lib::proxy_server::ClientRequestPayload;
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
@@ -297,9 +302,9 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::test_utils::route_to_proxy_client;
     use crate::test_utils::test_utils::route_to_proxy_server;
     use crate::test_utils::test_utils::{cryptde, make_request_payload};
+    use crate::test_utils::test_utils::{make_meaningless_stream_key, route_to_proxy_client};
     use crate::test_utils::test_utils::{make_response_payload, rate_pack_routing};
     use crate::test_utils::test_utils::{rate_pack_routing_byte, route_from_proxy_client};
     use actix::Actor;
@@ -308,6 +313,52 @@ mod tests {
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::thread;
+
+    #[test]
+    fn logs_and_ignores_dns_resolution_failures() {
+        init_test_logging();
+        let cryptde = cryptde();
+        let route = route_to_proxy_server(&cryptde.public_key(), cryptde);
+        let stream_key = make_meaningless_stream_key();
+        let lcp = LiveCoresPackage::new(
+            route,
+            encodex(
+                cryptde,
+                &cryptde.public_key(),
+                &MessageType::DnsResolveFailed(DnsResolveFailure { stream_key }),
+            )
+            .unwrap(),
+        );
+        let data_enc = encodex(cryptde, &cryptde.public_key(), &lcp).unwrap();
+        let inbound_client_data = InboundClientData {
+            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            reception_port: None,
+            sequence_number: None,
+            last_data: false,
+            is_clandestine: false,
+            data: data_enc.into(),
+        };
+        let peer_actors = peer_actors_builder().build();
+        let subject = RoutingService::new(
+            cryptde,
+            false,
+            peer_actors.proxy_client,
+            peer_actors.proxy_server,
+            peer_actors.neighborhood,
+            peer_actors.dispatcher.from_dispatcher_client,
+            peer_actors.accountant.report_routing_service_provided,
+            100,
+            200,
+        );
+        subject.route(inbound_client_data);
+        TestLogHandler::new().await_log_containing(
+            &format!(
+                "We have a situation! Unable to resolve DNS for stream key: {:?}",
+                stream_key
+            ),
+            1000,
+        );
+    }
 
     #[test]
     fn logs_and_ignores_message_that_cannot_be_decoded() {
@@ -825,7 +876,9 @@ mod tests {
         let origin_key = PublicKey::new(&[1, 2]);
         let origin_cryptde = CryptDENull::from(&origin_key);
         let destination_key = PublicKey::new(&[3, 4]);
-        let payload = MessageType::DnsResolveFailed;
+        let payload = MessageType::DnsResolveFailed(DnsResolveFailure {
+            stream_key: make_meaningless_stream_key(),
+        });
         let route = Route::one_way(
             RouteSegment::new(
                 vec![&origin_key, &cryptde.public_key(), &destination_key],

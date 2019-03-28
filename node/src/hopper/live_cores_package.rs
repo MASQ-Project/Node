@@ -75,11 +75,12 @@ mod tests {
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
+    use crate::sub_lib::proxy_client::DnsResolveFailure;
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::test_utils::cryptde;
     use crate::test_utils::test_utils::make_meaningless_route;
+    use crate::test_utils::test_utils::{cryptde, make_meaningless_stream_key};
     use std::str::FromStr;
 
     #[test]
@@ -105,7 +106,9 @@ mod tests {
 
     #[test]
     fn live_cores_package_can_be_produced_from_older_live_cores_package() {
-        let payload = MessageType::DnsResolveFailed;
+        let payload = MessageType::DnsResolveFailed(DnsResolveFailure {
+            stream_key: make_meaningless_stream_key(),
+        });
         let destination_key = PublicKey::new(&[3, 4]);
         let destination_cryptde = CryptDENull::from(&destination_key);
         let relay_key = PublicKey::new(&[1, 2]);
@@ -172,7 +175,9 @@ mod tests {
             Some(consuming_wallet),
         )
         .unwrap();
-        let payload = MessageType::DnsResolveFailed;
+        let payload = MessageType::DnsResolveFailed(DnsResolveFailure {
+            stream_key: make_meaningless_stream_key(),
+        });
 
         let incipient =
             IncipientCoresPackage::new(cryptde, route.clone(), payload.clone(), &key56).unwrap();
@@ -199,7 +204,9 @@ mod tests {
         let incipient = IncipientCoresPackage::new(
             cryptde,
             Route { hops: vec![] },
-            MessageType::DnsResolveFailed,
+            MessageType::DnsResolveFailed(DnsResolveFailure {
+                stream_key: make_meaningless_stream_key(),
+            }),
             &PublicKey::new(&[3, 4]),
         )
         .unwrap();
@@ -214,7 +221,9 @@ mod tests {
     #[test]
     fn expired_cores_package_can_be_constructed_from_live_cores_package() {
         let immediate_neighbor_ip = IpAddr::from_str("1.2.3.4").unwrap();
-        let payload = MessageType::DnsResolveFailed;
+        let payload = MessageType::DnsResolveFailed(DnsResolveFailure {
+            stream_key: make_meaningless_stream_key(),
+        });
         let first_stop_key = PublicKey::new(&[3, 4]);
         let first_stop_cryptde = CryptDENull::from(&first_stop_key);
         let relay_key = PublicKey::new(&[1, 2]);

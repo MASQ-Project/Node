@@ -10,7 +10,7 @@ use crate::sub_lib::framer::Framer;
 use crate::sub_lib::http_packet_framer::HttpPacketFramer;
 use crate::sub_lib::http_response_start_finder::HttpResponseStartFinder;
 use crate::sub_lib::logger::Logger;
-use crate::sub_lib::proxy_client::InboundServerData;
+use crate::sub_lib::proxy_client::{InboundServerData, ProxyClientSubs};
 use crate::sub_lib::proxy_server::ClientRequestPayload;
 use crate::sub_lib::proxy_server::ProxyProtocol;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
@@ -153,7 +153,7 @@ pub struct StreamEstablisherFactoryReal {
     pub cryptde: &'static dyn CryptDE,
     pub stream_adder_tx: Sender<(StreamKey, Box<dyn SenderWrapper<SequencedPacket>>)>,
     pub stream_killer_tx: Sender<StreamKey>,
-    pub proxy_client_sub: Recipient<InboundServerData>,
+    pub proxy_client_subs: ProxyClientSubs,
     pub logger: Logger,
 }
 
@@ -164,7 +164,7 @@ impl StreamEstablisherFactory for StreamEstablisherFactoryReal {
             stream_adder_tx: self.stream_adder_tx.clone(),
             stream_killer_tx: self.stream_killer_tx.clone(),
             stream_connector: Box::new(StreamConnectorReal {}),
-            proxy_client_sub: self.proxy_client_sub.clone(),
+            proxy_client_sub: self.proxy_client_subs.inbound_server_data.clone(),
             logger: self.logger.clone(),
             channel_factory: Box::new(FuturesChannelFactoryReal {}),
         }

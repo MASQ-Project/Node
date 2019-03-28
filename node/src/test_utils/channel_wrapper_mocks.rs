@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::prelude::Async;
 
+#[derive(Default)]
 pub struct FuturesChannelFactoryMock<T> {
     pub results: Vec<(Box<dyn SenderWrapper<T>>, Box<dyn ReceiverWrapper<T>>)>,
 }

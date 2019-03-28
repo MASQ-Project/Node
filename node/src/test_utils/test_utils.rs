@@ -222,6 +222,10 @@ pub fn make_meaningless_route() -> Route {
     .unwrap()
 }
 
+pub fn make_meaningless_public_key() -> PublicKey {
+    PublicKey::new(&make_garbage_data(8))
+}
+
 pub fn route_to_proxy_client(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {
     shift_one_hop(zero_hop_route_response(key, cryptde).route, cryptde)
 }

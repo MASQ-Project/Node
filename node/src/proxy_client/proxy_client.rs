@@ -11,10 +11,10 @@ use crate::sub_lib::hopper::MessageType;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, IncipientCoresPackage};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::sub_lib::proxy_client::ClientResponsePayload;
 use crate::sub_lib::proxy_client::InboundServerData;
 use crate::sub_lib::proxy_client::ProxyClientConfig;
 use crate::sub_lib::proxy_client::ProxyClientSubs;
+use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
 use crate::sub_lib::proxy_server::ClientRequestPayload;
 use crate::sub_lib::route::Route;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
@@ -75,7 +75,7 @@ impl Handler<BindMessage> for ProxyClient {
             resolver,
             self.cryptde,
             self.to_accountant.clone().expect("Accountant is unbound"),
-            msg.peer_actors.proxy_client.inbound_server_data,
+            msg.peer_actors.proxy_client.clone(),
             self.exit_service_rate,
             self.exit_byte_rate,
         ));
@@ -130,24 +130,51 @@ impl Handler<InboundServerData> for ProxyClient {
                     "Received unsolicited {}-byte response from {}, seq {}: ignoring",
                     msg_data_len, msg_source, msg_sequence_number
                 ));
-                return ();
+                return;
             }
         };
         if self.send_response_to_hopper(msg, &stream_context).is_err() {
-            return ();
+            return;
         };
         self.report_response_exit_to_accountant(&stream_context, msg_data_len);
         if msg_last_data {
             self.stream_contexts.remove(&msg_stream_key).is_some();
         }
-        ()
+    }
+}
+
+impl Handler<DnsResolveFailure> for ProxyClient {
+    type Result = ();
+
+    fn handle(&mut self, msg: DnsResolveFailure, _ctx: &mut Self::Context) -> Self::Result {
+        let stream_context_opt = self.stream_contexts.get(&msg.stream_key);
+        match stream_context_opt {
+            Some(stream_context) => {
+                let package = IncipientCoresPackage::new(
+                    self.cryptde,
+                    stream_context.return_route.clone(),
+                    MessageType::DnsResolveFailed(msg),
+                    &stream_context.payload_destination_key,
+                )
+                .expect("Failed to create IncipientCoresPackage");
+                self.to_hopper
+                    .as_ref()
+                    .expect("Hopper is unbound")
+                    .try_send(package)
+                    .expect("Hopper is dead");
+            }
+            None => self.logger.error(format!(
+                "DNS resolution for nonexistent stream ({:?}) failed.",
+                msg.stream_key
+            )),
+        }
     }
 }
 
 impl ProxyClient {
     pub fn new(config: ProxyClientConfig) -> ProxyClient {
         if config.dns_servers.is_empty() {
-            panic! ("Proxy Client requires at least one DNS server IP address after the --dns_servers parameter")
+            panic!("Proxy Client requires at least one DNS server IP address after the --dns_servers parameter")
         }
         ProxyClient {
             dns_servers: config.dns_servers,
@@ -171,6 +198,7 @@ impl ProxyClient {
                 .clone()
                 .recipient::<ExpiredCoresPackage<ClientRequestPayload>>(),
             inbound_server_data: addr.clone().recipient::<InboundServerData>(),
+            dns_resolve_failed: addr.clone().recipient::<DnsResolveFailure>(),
         }
     }
 
@@ -198,7 +226,7 @@ impl ProxyClient {
         ) {
             Ok(icp) => icp,
             Err(err) => {
-                self.logger.error (format! ("Could not create CORES package for {}-byte response from {}, seq {}: {} - ignoring", msg_data_len, msg_source, msg_sequence_number, err));
+                self.logger.error(format!("Could not create CORES package for {}-byte response from {}, seq {}: {} - ignoring", msg_data_len, msg_source, msg_sequence_number, err));
                 return Err(());
             }
         };
@@ -265,12 +293,12 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::test_utils::cryptde;
     use crate::test_utils::test_utils::make_meaningless_route;
     use crate::test_utils::test_utils::make_meaningless_stream_key;
     use crate::test_utils::test_utils::rate_pack_exit;
     use crate::test_utils::test_utils::rate_pack_exit_byte;
     use crate::test_utils::test_utils::route_to_proxy_client;
+    use crate::test_utils::test_utils::{cryptde, make_meaningless_public_key};
     use actix::System;
     use std::cell::RefCell;
     use std::net::IpAddr;
@@ -278,6 +306,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::Arc;
     use std::sync::Mutex;
+    use std::thread;
 
     fn dnss() -> Vec<SocketAddr> {
         vec![SocketAddr::from_str("8.8.8.8:53").unwrap()]
@@ -319,7 +348,7 @@ mod tests {
                     Box<dyn ResolverWrapper>,
                     &'static dyn CryptDE,
                     Recipient<ReportExitServiceProvidedMessage>,
-                    Recipient<InboundServerData>,
+                    ProxyClientSubs,
                     u64,
                     u64,
                 )>,
@@ -334,7 +363,7 @@ mod tests {
             resolver: Box<dyn ResolverWrapper>,
             cryptde: &'static dyn CryptDE,
             accountant_sub: Recipient<ReportExitServiceProvidedMessage>,
-            proxy_client_sub: Recipient<InboundServerData>,
+            proxy_client_subs: ProxyClientSubs,
             exit_service_rate: u64,
             exit_byte_rate: u64,
         ) -> Box<dyn StreamHandlerPool> {
@@ -342,7 +371,7 @@ mod tests {
                 resolver,
                 cryptde,
                 accountant_sub,
-                proxy_client_sub,
+                proxy_client_subs,
                 exit_service_rate,
                 exit_byte_rate,
             ));
@@ -366,7 +395,7 @@ mod tests {
                         Box<dyn ResolverWrapper>,
                         &'static dyn CryptDE,
                         Recipient<ReportExitServiceProvidedMessage>,
-                        Recipient<InboundServerData>,
+                        ProxyClientSubs,
                         u64,
                         u64,
                     )>,
@@ -444,12 +473,12 @@ mod tests {
                 NameServerConfig {
                     socket_addr: SocketAddr::from_str("4.3.2.1:4321").unwrap(),
                     protocol: Protocol::Udp,
-                    tls_dns_name: None
+                    tls_dns_name: None,
                 },
                 NameServerConfig {
                     socket_addr: SocketAddr::from_str("5.4.3.2:5432").unwrap(),
                     protocol: Protocol::Udp,
-                    tls_dns_name: None
+                    tls_dns_name: None,
                 },
             ]
         );
@@ -493,6 +522,103 @@ mod tests {
 
         System::current().stop_with_code(0);
         system.run();
+    }
+
+    #[test]
+    fn logs_nonexistent_stream_key_during_dns_resolution_failure() {
+        init_test_logging();
+        let cryptde = cryptde();
+        let stream_key = make_meaningless_stream_key();
+        let stream_key_inner = stream_key.clone();
+        thread::spawn(move || {
+            let system = System::new("logs_nonexistent_stream_key_during_dns_resolution_failure");
+            let subject = ProxyClient::new(ProxyClientConfig {
+                cryptde,
+                dns_servers: vec![SocketAddr::from_str("1.1.1.1:53").unwrap()],
+                exit_service_rate: 0,
+                exit_byte_rate: 0,
+            });
+            let subject_addr = subject.start();
+            let subject_subs = ProxyClient::make_subs_from(&subject_addr);
+
+            subject_subs
+                .dns_resolve_failed
+                .try_send(DnsResolveFailure {
+                    stream_key: stream_key_inner,
+                })
+                .unwrap();
+
+            system.run();
+        });
+        TestLogHandler::new().await_log_containing(
+            &format!(
+                "ERROR: Proxy Client: DNS resolution for nonexistent stream ({:?}) failed.",
+                stream_key
+            ),
+            1000,
+        );
+    }
+
+    #[test]
+    fn forwards_dns_resolve_failed_to_hopper() {
+        let cryptde = cryptde();
+        let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
+        let stream_key = make_meaningless_stream_key();
+        let return_route = make_meaningless_route();
+        let originator_key = make_meaningless_public_key();
+        let stream_key_inner = stream_key.clone();
+        let return_route_inner = return_route.clone();
+        let originator_key_inner = originator_key.clone();
+        thread::spawn(move || {
+            let system = System::new("forwards_dns_resolve_failed_to_hopper");
+            let peer_actors = peer_actors_builder().hopper(hopper).build();
+            let mut subject = ProxyClient::new(ProxyClientConfig {
+                cryptde,
+                dns_servers: vec![SocketAddr::from_str("1.1.1.1:53").unwrap()],
+                exit_service_rate: 0,
+                exit_byte_rate: 0,
+            });
+            subject.stream_contexts.insert(
+                stream_key_inner,
+                StreamContext {
+                    return_route: return_route_inner,
+                    payload_destination_key: originator_key_inner,
+                    consuming_wallet: None,
+                },
+            );
+            let subject_addr = subject.start();
+            let subject_subs = ProxyClient::make_subs_from(&subject_addr);
+
+            subject_subs
+                .bind
+                .try_send(BindMessage { peer_actors })
+                .unwrap();
+
+            subject_subs
+                .dns_resolve_failed
+                .try_send(DnsResolveFailure {
+                    stream_key: stream_key_inner,
+                })
+                .unwrap();
+
+            system.run();
+        });
+
+        hopper_awaiter.await_message_count(1);
+
+        assert_eq!(
+            &IncipientCoresPackage::new(
+                cryptde,
+                return_route,
+                MessageType::DnsResolveFailed(DnsResolveFailure { stream_key }),
+                &originator_key
+            )
+            .unwrap(),
+            hopper_recording_arc
+                .lock()
+                .unwrap()
+                .get_record::<IncipientCoresPackage>(0)
+        );
     }
 
     #[test]
@@ -729,7 +855,7 @@ mod tests {
                     sequenced_packet: SequencedPacket {
                         data: Vec::from(data),
                         sequence_number: 1234,
-                        last_data: false
+                        last_data: false,
                     },
                 }),
                 &PublicKey::new(&b"abcd"[..]),
@@ -746,7 +872,7 @@ mod tests {
                     sequenced_packet: SequencedPacket {
                         data: Vec::from(data),
                         sequence_number: 1235,
-                        last_data: true
+                        last_data: true,
                     },
                 }),
                 &PublicKey::new(&b"abcd"[..]),
@@ -762,7 +888,7 @@ mod tests {
                 consuming_wallet: Wallet::new("consuming"),
                 payload_size: data.len(),
                 service_rate: 100,
-                byte_rate: 200
+                byte_rate: 200,
             }
         );
         assert_eq!(
@@ -771,11 +897,11 @@ mod tests {
                 consuming_wallet: Wallet::new("consuming"),
                 payload_size: data.len(),
                 service_rate: 100,
-                byte_rate: 200
+                byte_rate: 200,
             }
         );
         assert_eq!(accountant_recording.len(), 2);
-        TestLogHandler::new ().exists_log_containing(format!("ERROR: Proxy Client: Received unsolicited {}-byte response from 1.2.3.4:5678, seq 1236: ignoring", data.len ()).as_str ());
+        TestLogHandler::new().exists_log_containing(format!("ERROR: Proxy Client: Received unsolicited {}-byte response from 1.2.3.4:5678, seq 1236: ignoring", data.len()).as_str());
     }
 
     #[test]
@@ -872,7 +998,7 @@ mod tests {
         assert_eq!(hopper_recording.len(), 0);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0);
-        TestLogHandler::new ().exists_log_containing(format!("ERROR: Proxy Client: Could not create CORES package for {}-byte response from 1.2.3.4:5678, seq 1234: Could not encrypt payload: EmptyKey - ignoring", data.len ()).as_str ());
+        TestLogHandler::new().exists_log_containing(format!("ERROR: Proxy Client: Could not create CORES package for {}-byte response from 1.2.3.4:5678, seq 1234: Could not encrypt payload: EmptyKey - ignoring", data.len()).as_str());
     }
 
     #[test]

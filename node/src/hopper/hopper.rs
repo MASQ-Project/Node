@@ -105,11 +105,12 @@ mod tests {
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
+    use crate::sub_lib::proxy_client::DnsResolveFailure;
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::test_utils::cryptde;
     use crate::test_utils::test_utils::route_to_proxy_client;
+    use crate::test_utils::test_utils::{cryptde, make_meaningless_stream_key};
     use actix::Actor;
     use actix::System;
     use std::net::SocketAddr;
@@ -121,7 +122,11 @@ mod tests {
         let cryptde = cryptde();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let route = route_to_proxy_client(&cryptde.public_key(), cryptde);
-        let serialized_payload = serde_cbor::ser::to_vec(&MessageType::DnsResolveFailed).unwrap();
+        let serialized_payload =
+            serde_cbor::ser::to_vec(&MessageType::DnsResolveFailed(DnsResolveFailure {
+                stream_key: make_meaningless_stream_key(),
+            }))
+            .unwrap();
         let data = cryptde
             .encode(
                 &cryptde.public_key(),
@@ -176,7 +181,9 @@ mod tests {
         let incipient_package = IncipientCoresPackage::new(
             cryptde,
             route,
-            MessageType::DnsResolveFailed,
+            MessageType::DnsResolveFailed(DnsResolveFailure {
+                stream_key: make_meaningless_stream_key(),
+            }),
             &cryptde.public_key(),
         )
         .unwrap();

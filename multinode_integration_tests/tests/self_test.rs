@@ -15,9 +15,11 @@ use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::dispatcher::Component;
 use node_lib::sub_lib::hopper::{IncipientCoresPackage, MessageType};
 use node_lib::sub_lib::neighborhood::sentinel_ip_addr;
+use node_lib::sub_lib::proxy_client::DnsResolveFailure;
 use node_lib::sub_lib::route::Route;
 use node_lib::sub_lib::route::RouteSegment;
 use node_lib::sub_lib::wallet::Wallet;
+use node_lib::test_utils::test_utils::make_meaningless_stream_key;
 use std::collections::HashSet;
 use std::io::ErrorKind;
 use std::net::IpAddr;
@@ -82,7 +84,8 @@ fn server_relays_cores_package() {
         Some(Wallet::new("consuming")),
     )
     .unwrap();
-    let payload = MessageType::DnsResolveFailed;
+    let stream_key = make_meaningless_stream_key();
+    let payload = MessageType::DnsResolveFailed(DnsResolveFailure { stream_key });
     let incipient =
         IncipientCoresPackage::new(cryptde, route.clone(), payload, &cryptde.public_key()).unwrap();
 
@@ -94,7 +97,10 @@ fn server_relays_cores_package() {
 
     route.shift(cryptde).unwrap();
     assert_eq!(expired.remaining_route, route);
-    assert_eq!(expired.payload, MessageType::DnsResolveFailed);
+    assert_eq!(
+        expired.payload,
+        MessageType::DnsResolveFailed(DnsResolveFailure { stream_key })
+    );
 }
 
 #[test]
@@ -115,10 +121,11 @@ fn one_mock_node_talks_to_another() {
         Some(Wallet::new("consuming")),
     )
     .unwrap();
+    let stream_key = make_meaningless_stream_key();
     let incipient_cores_package = IncipientCoresPackage::new(
         &cryptde,
         route,
-        MessageType::DnsResolveFailed,
+        MessageType::DnsResolveFailed(DnsResolveFailure { stream_key }),
         &mock_node_2.public_key(),
     )
     .unwrap();
@@ -141,7 +148,10 @@ fn one_mock_node_talks_to_another() {
 
     assert_eq!(package_from.ip(), mock_node_1.ip_address());
     assert_eq!(package_to, mock_node_2.socket_addr(PortSelector::First));
-    assert_eq!(expired_cores_package.payload, MessageType::DnsResolveFailed);
+    assert_eq!(
+        expired_cores_package.payload,
+        MessageType::DnsResolveFailed(DnsResolveFailure { stream_key })
+    );
 }
 
 fn check_node(cluster: &SubstratumNodeCluster, name: &str, ip_address: &str, port: u16) {

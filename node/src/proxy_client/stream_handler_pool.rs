@@ -8,8 +8,8 @@ use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::channel_wrappers::SenderWrapper;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::logger::Logger;
-use crate::sub_lib::proxy_client::error_socket_addr;
-use crate::sub_lib::proxy_client::InboundServerData;
+use crate::sub_lib::proxy_client::{error_socket_addr, ProxyClientSubs};
+use crate::sub_lib::proxy_client::{DnsResolveFailure, InboundServerData};
 use crate::sub_lib::proxy_server::ClientRequestPayload;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
@@ -37,7 +37,7 @@ pub struct StreamHandlerPoolReal {
 
 struct StreamHandlerPoolRealInner {
     accountant_sub: Recipient<ReportExitServiceProvidedMessage>,
-    proxy_client_sub: Recipient<InboundServerData>,
+    proxy_client_subs: ProxyClientSubs,
     stream_writer_channels: HashMap<StreamKey, Box<dyn SenderWrapper<SequencedPacket>>>,
     resolver: Box<dyn ResolverWrapper>,
     logger: Logger,
@@ -70,7 +70,7 @@ impl StreamHandlerPoolReal {
         resolver: Box<dyn ResolverWrapper>,
         cryptde: &'static dyn CryptDE,
         accountant_sub: Recipient<ReportExitServiceProvidedMessage>,
-        proxy_client_sub: Recipient<InboundServerData>,
+        proxy_client_subs: ProxyClientSubs,
         exit_service_rate: u64,
         exit_byte_rate: u64,
     ) -> StreamHandlerPoolReal {
@@ -82,11 +82,11 @@ impl StreamHandlerPoolReal {
                     cryptde,
                     stream_adder_tx,
                     stream_killer_tx,
-                    proxy_client_sub: proxy_client_sub.clone(),
+                    proxy_client_subs: proxy_client_subs.clone(),
                     logger: Logger::new("Proxy Client"),
                 }),
                 accountant_sub,
-                proxy_client_sub,
+                proxy_client_subs,
                 stream_writer_channels: HashMap::new(),
                 resolver,
                 logger: Logger::new("Proxy Client"),
@@ -111,8 +111,7 @@ impl StreamHandlerPoolReal {
                 let future =
                     Self::write_and_tend(sender_wrapper, payload, consuming_wallet, inner_arc)
                         .map_err(move |error| {
-                            Self::clean_up_bad_stream(inner_arc_1, &stream_key, source, error);
-                            ()
+                            Self::clean_up_bad_stream(inner_arc_1, &stream_key, source, error)
                         });
                 actix::spawn(future);
             }
@@ -151,7 +150,11 @@ impl StreamHandlerPoolReal {
                 sender_wrapper.peer_addr()
             ));
         }
-        Self::send_terminating_package(stream_key, source, &inner.proxy_client_sub);
+        Self::send_terminating_package(
+            stream_key,
+            source,
+            &inner.proxy_client_subs.inbound_server_data,
+        );
     }
 
     fn write_and_tend(
@@ -210,15 +213,26 @@ impl StreamHandlerPoolReal {
         let fqdn_opt = Self::make_fqdn(&payload.target_hostname);
 
         let payload_clone = payload.clone();
+        let dns_resolve_failed_sub = inner_arc
+            .lock()
+            .expect("Stream handler pool is poisoned")
+            .proxy_client_subs
+            .dns_resolve_failed
+            .clone();
+        let stream_key = payload.stream_key.clone();
+
         inner_arc
             .lock()
             .expect("Stream handler pool is poisoned")
             .resolver
             .lookup_ip(fqdn_opt)
-            .then(move |lookup_result| {
-                let result = establisher.establish_stream(&payload_clone, lookup_result);
-                result
+            .map_err(move |err| {
+                dns_resolve_failed_sub
+                    .try_send(DnsResolveFailure { stream_key })
+                    .expect("Proxy Client is poisoned");
+                err
             })
+            .then(move |lookup_result| establisher.establish_stream(&payload_clone, lookup_result))
             .map_err(|io_error| format!("Could not establish stream: {:?}", io_error))
     }
 
@@ -323,7 +337,7 @@ pub trait StreamHandlerPoolFactory {
         resolver: Box<dyn ResolverWrapper>,
         cryptde: &'static dyn CryptDE,
         accountant_sub: Recipient<ReportExitServiceProvidedMessage>,
-        proxy_client_sub: Recipient<InboundServerData>,
+        proxy_client_subs: ProxyClientSubs,
         exit_service_rate: u64,
         exit_byte_rate: u64,
     ) -> Box<dyn StreamHandlerPool>;
@@ -337,7 +351,7 @@ impl StreamHandlerPoolFactory for StreamHandlerPoolFactoryReal {
         resolver: Box<dyn ResolverWrapper>,
         cryptde: &'static dyn CryptDE,
         accountant_sub: Recipient<ReportExitServiceProvidedMessage>,
-        proxy_client_sub: Recipient<InboundServerData>,
+        proxy_client_subs: ProxyClientSubs,
         exit_service_rate: u64,
         exit_byte_rate: u64,
     ) -> Box<dyn StreamHandlerPool> {
@@ -345,7 +359,7 @@ impl StreamHandlerPoolFactory for StreamHandlerPoolFactoryReal {
             resolver,
             cryptde,
             accountant_sub,
-            proxy_client_sub,
+            proxy_client_subs,
             exit_service_rate,
             exit_byte_rate,
         ))
@@ -379,6 +393,7 @@ mod tests {
     use crate::test_utils::test_utils::make_meaningless_stream_key;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
+    use actix::System;
     use futures::lazy;
     use futures::sync::mpsc::unbounded;
     use futures::Stream;
@@ -395,7 +410,6 @@ mod tests {
     use std::time::Duration;
     use tokio;
     use tokio::prelude::Async;
-    use trust_dns_resolver::error::ResolveError;
     use trust_dns_resolver::error::ResolveErrorKind;
 
     struct StreamEstablisherFactoryMock {
@@ -415,12 +429,69 @@ mod tests {
         let consuming_wallet = package.consuming_wallet.clone();
         let payload = match package.payload {
             MessageType::ClientRequest(r) => r,
-            _ => panic!("SC-743"),
+            _ => panic!("Expected MessageType::ClientRequest, got something else"),
         };
         actix::run(move || {
             subject.process_package(payload, consuming_wallet);
             ok(())
         })
+    }
+
+    #[test]
+    fn dns_resolution_failure_sends_a_message_to_proxy_client() {
+        let (proxy_client, proxy_client_awaiter, proxy_client_recording) = make_recorder();
+        let stream_key = make_meaningless_stream_key();
+        thread::spawn(move || {
+            let system = System::new("dns_resolution_failure_sends_a_message_to_proxy_client");
+            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+            let cryptde = cryptde();
+            let resolver_mock =
+                ResolverWrapperMock::new().lookup_ip_failure(ResolveErrorKind::Io.into());
+            let logger = Logger::new("dns_resolution_failure_sends_a_message_to_proxy_client");
+            let establisher = StreamEstablisher {
+                cryptde,
+                stream_adder_tx: mpsc::channel().0,
+                stream_killer_tx: mpsc::channel().0,
+                stream_connector: Box::new(StreamConnectorMock::new()),
+                proxy_client_sub: peer_actors.proxy_client.inbound_server_data.clone(),
+                logger: logger.clone(),
+                channel_factory: Box::new(FuturesChannelFactoryMock::default()),
+            };
+            let inner = StreamHandlerPoolRealInner {
+                accountant_sub: peer_actors.accountant.report_exit_service_provided.clone(),
+                proxy_client_subs: peer_actors.proxy_client.clone(),
+                stream_writer_channels: HashMap::new(),
+                resolver: Box::new(resolver_mock),
+                logger,
+                establisher_factory: Box::new(StreamEstablisherFactoryMock {
+                    make_results: RefCell::new(vec![establisher]),
+                }),
+                exit_service_rate: Default::default(),
+                exit_byte_rate: Default::default(),
+            };
+            let payload = ClientRequestPayload {
+                stream_key,
+                sequenced_packet: Default::default(),
+                target_hostname: Some("www.example.com".to_string()),
+                target_port: 80,
+                protocol: ProxyProtocol::HTTP,
+                originator_public_key: cryptde.public_key(),
+            };
+
+            StreamHandlerPoolReal::process_package(payload, None, Arc::new(Mutex::new(inner)));
+
+            system.run();
+        });
+
+        proxy_client_awaiter.await_message_count(1);
+
+        assert_eq!(
+            proxy_client_recording
+                .lock()
+                .unwrap()
+                .get_record::<DnsResolveFailure>(0),
+            &DnsResolveFailure { stream_key }
+        );
     }
 
     #[test]
@@ -444,6 +515,7 @@ mod tests {
         ));
         tx_to_write.unbounded_send_results = RefCell::new(vec![Ok(())]);
         let write_parameters = tx_to_write.unbounded_send_params.clone();
+
         let package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
             Some(Wallet::new("consuming")),
@@ -458,7 +530,7 @@ mod tests {
                 Box::new(ResolverWrapperMock::new()),
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client.inbound_server_data.clone(),
+                peer_actors.proxy_client.clone(),
                 100,
                 200,
             );
@@ -519,7 +591,7 @@ mod tests {
                 Box::new(resolver),
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client.inbound_server_data.clone(),
+                peer_actors.proxy_client.clone(),
                 100,
                 200,
             );
@@ -573,13 +645,13 @@ mod tests {
                 client_request_payload.into(),
                 0,
             );
-            let resolver = ResolverWrapperMock::new()
-                .lookup_ip_failure(ResolveError::from(ResolveErrorKind::Io));
+            let resolver =
+                ResolverWrapperMock::new().lookup_ip_failure(ResolveErrorKind::Io.into());
             let subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client.inbound_server_data.clone(),
+                peer_actors.proxy_client.clone(),
                 100,
                 200,
             );
@@ -587,10 +659,10 @@ mod tests {
             run_process_package_in_actix(subject, package);
         });
 
-        proxy_client_awaiter.await_message_count(1);
+        proxy_client_awaiter.await_message_count(2);
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(
-            proxy_client_recording.get_record::<InboundServerData>(0),
+            proxy_client_recording.get_record::<InboundServerData>(1),
             &InboundServerData {
                 stream_key: make_meaningless_stream_key(),
                 last_data: true,
@@ -663,7 +735,7 @@ mod tests {
                 Box::new(resolver),
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client.inbound_server_data.clone(),
+                peer_actors.proxy_client.clone(),
                 100,
                 200,
             );
@@ -682,7 +754,7 @@ mod tests {
                         reader,
                         writer,
                     )),
-                    proxy_client_sub: inner.proxy_client_sub.clone(),
+                    proxy_client_sub: inner.proxy_client_subs.inbound_server_data.clone(),
                     logger: inner.logger.clone(),
                     channel_factory: Box::new(FuturesChannelFactoryReal {}),
                 };
@@ -756,7 +828,7 @@ mod tests {
                 Box::new(resolver),
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
-                proxy_client_sub.clone(),
+                peer_actors.proxy_client.clone(),
                 100,
                 200,
             );
@@ -856,7 +928,7 @@ mod tests {
                 Box::new(resolver),
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client.inbound_server_data.clone(),
+                peer_actors.proxy_client.clone(),
                 100,
                 200,
             );
@@ -945,12 +1017,12 @@ mod tests {
             let mut lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_parameters(&mut lookup_ip_parameters)
-                .lookup_ip_failure(ResolveError::from(ResolveErrorKind::Io));
+                .lookup_ip_failure(ResolveErrorKind::Io.into());
             let subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client.inbound_server_data.clone(),
+                peer_actors.proxy_client.clone(),
                 100,
                 200,
             );
@@ -960,10 +1032,10 @@ mod tests {
             "ERROR: Proxy Client: Could not find IP address for host that.try: io error",
             1000,
         );
-        proxy_client_awaiter.await_message_count(1);
+        proxy_client_awaiter.await_message_count(2);
         let recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(
-            recording.get_record::<InboundServerData>(0),
+            recording.get_record::<InboundServerData>(1),
             &InboundServerData {
                 stream_key,
                 last_data: true,
@@ -1010,7 +1082,7 @@ mod tests {
                 Box::new(resolver),
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client.inbound_server_data.clone(),
+                peer_actors.proxy_client.clone(),
                 100,
                 200,
             );
@@ -1091,7 +1163,7 @@ mod tests {
                 Box::new(resolver),
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client.inbound_server_data.clone(),
+                peer_actors.proxy_client.clone(),
                 100,
                 200,
             );
@@ -1150,7 +1222,7 @@ mod tests {
                 Box::new(resolver),
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client.inbound_server_data.clone(),
+                peer_actors.proxy_client.clone(),
                 100,
                 200,
             );

@@ -22,8 +22,8 @@ use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::peer_actors::PeerActors;
-use crate::sub_lib::proxy_client::ProxyClientSubs;
 use crate::sub_lib::proxy_client::{ClientResponsePayload, InboundServerData};
+use crate::sub_lib::proxy_client::{DnsResolveFailure, ProxyClientSubs};
 use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::proxy_server::{AddReturnRouteMessage, ClientRequestPayload};
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
@@ -94,6 +94,7 @@ recorder_message_handler!(ReportExitServiceProvidedMessage);
 recorder_message_handler!(ReportRoutingServiceConsumedMessage);
 recorder_message_handler!(ReportExitServiceConsumedMessage);
 recorder_message_handler!(ReportAccountsPayable);
+recorder_message_handler!(DnsResolveFailure);
 
 impl Handler<NodeQueryMessage> for Recorder {
     type Result = MessageResult<NodeQueryMessage>;
@@ -277,6 +278,7 @@ pub fn make_proxy_client_subs_from(addr: &Addr<Recorder>) -> ProxyClientSubs {
             .clone()
             .recipient::<ExpiredCoresPackage<ClientRequestPayload>>(),
         inbound_server_data: addr.clone().recipient::<InboundServerData>(),
+        dns_resolve_failed: addr.clone().recipient::<DnsResolveFailure>(),
     }
 }
 

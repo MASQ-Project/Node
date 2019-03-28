@@ -143,6 +143,7 @@ mod tests {
     use crate::sub_lib::hopper::MessageType;
     use crate::sub_lib::hopper::{ExpiredCoresPackage, HopperConfig};
     use crate::sub_lib::peer_actors::BindMessage;
+    use crate::sub_lib::proxy_client::DnsResolveFailure;
     use crate::sub_lib::proxy_server::ClientRequestPayload;
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
@@ -152,9 +153,9 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::test_utils::cryptde;
     use crate::test_utils::test_utils::make_request_payload;
     use crate::test_utils::test_utils::zero_hop_route_response;
+    use crate::test_utils::test_utils::{cryptde, make_meaningless_stream_key};
     use actix::Actor;
     use actix::Addr;
     use actix::System;
@@ -179,7 +180,9 @@ mod tests {
             Some(consuming_wallet),
         )
         .unwrap();
-        let payload = MessageType::DnsResolveFailed;
+        let payload = MessageType::DnsResolveFailed(DnsResolveFailure {
+            stream_key: make_meaningless_stream_key(),
+        });
         let incipient_cores_package =
             IncipientCoresPackage::new(cryptde, route.clone(), payload, &destination_key).unwrap();
         let incipient_cores_package_a = incipient_cores_package.clone();
@@ -284,7 +287,9 @@ mod tests {
             IncipientCoresPackage::new(
                 cryptde(),
                 Route { hops: vec![] },
-                MessageType::DnsResolveFailed,
+                MessageType::DnsResolveFailed(DnsResolveFailure {
+                    stream_key: make_meaningless_stream_key(),
+                }),
                 &PublicKey::new(&[1, 2]),
             )
             .unwrap(),

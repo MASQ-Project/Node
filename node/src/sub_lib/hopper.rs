@@ -6,7 +6,7 @@ use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::sub_lib::proxy_client::ClientResponsePayload;
+use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
 use crate::sub_lib::proxy_server::ClientRequestPayload;
 use crate::sub_lib::route::Route;
 use crate::sub_lib::wallet::Wallet;
@@ -28,7 +28,7 @@ pub enum MessageType {
     ClientRequest(ClientRequestPayload),
     ClientResponse(ClientResponsePayload),
     Gossip(Gossip),
-    DnsResolveFailed,
+    DnsResolveFailed(DnsResolveFailure),
 }
 
 impl IncipientCoresPackage {
@@ -105,6 +105,7 @@ mod tests {
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::route::RouteSegment;
+    use crate::test_utils::test_utils::make_meaningless_stream_key;
     use std::str::FromStr;
 
     #[test]
@@ -120,7 +121,9 @@ mod tests {
             Some(consuming_wallet),
         )
         .unwrap();
-        let payload = MessageType::DnsResolveFailed;
+        let payload = MessageType::DnsResolveFailed(DnsResolveFailure {
+            stream_key: make_meaningless_stream_key(),
+        });
 
         let result = IncipientCoresPackage::new(&cryptde, route.clone(), payload.clone(), &key56);
         let subject = result.unwrap();
@@ -143,7 +146,9 @@ mod tests {
         let result = IncipientCoresPackage::new(
             &cryptde,
             Route { hops: vec![] },
-            MessageType::DnsResolveFailed,
+            MessageType::DnsResolveFailed(DnsResolveFailure {
+                stream_key: make_meaningless_stream_key(),
+            }),
             &PublicKey::new(&[]),
         );
 
@@ -166,7 +171,9 @@ mod tests {
             Some(consuming_wallet.clone()),
         )
         .unwrap();
-        let payload = MessageType::DnsResolveFailed;
+        let payload = MessageType::DnsResolveFailed(DnsResolveFailure {
+            stream_key: make_meaningless_stream_key(),
+        });
 
         let subject: ExpiredCoresPackage<MessageType> = ExpiredCoresPackage::new(
             immediate_neighbor_ip,

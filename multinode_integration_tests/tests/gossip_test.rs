@@ -73,7 +73,7 @@ fn when_bootstrapping_from_a_node_then_the_node_sends_gossip_upon_startup() {
                 },
             );
         }
-        _ => panic!("SC-743"),
+        _ => panic!("Expected MessageType::Gossip, got something else"),
     }
 }
 

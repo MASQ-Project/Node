@@ -30,6 +30,11 @@ pub struct ClientResponsePayload {
     pub sequenced_packet: SequencedPacket,
 }
 
+#[derive(Message, Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct DnsResolveFailure {
+    pub stream_key: StreamKey,
+}
+
 impl Into<MessageType> for ClientResponsePayload {
     fn into(self) -> MessageType {
         MessageType::ClientResponse(self)
@@ -41,6 +46,7 @@ pub struct ProxyClientSubs {
     pub bind: Recipient<BindMessage>,
     pub from_hopper: Recipient<ExpiredCoresPackage<ClientRequestPayload>>,
     pub inbound_server_data: Recipient<InboundServerData>,
+    pub dns_resolve_failed: Recipient<DnsResolveFailure>,
 }
 
 impl ClientResponsePayload {
