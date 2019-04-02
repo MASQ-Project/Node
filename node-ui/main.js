@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron')
+const { app, dialog, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
 const url = require('url')
 
@@ -9,8 +9,8 @@ let nodeActuator
 
 function createWindow () {
   mainWindow = new BrowserWindow({
-    width: 320,
-    height: 260,
+    width: 620,
+    height: 560,
     show: true,
     frame: true,
     backgroundColor: '#383839',
@@ -36,8 +36,22 @@ function createWindow () {
   // The following is optional and will open the DevTools:
   // mainWindow.webContents.openDevTools({ mode: 'detach' })
 
-  mainWindow.on('close', async () => {
-    await nodeActuator.shutdown()
+  let quitting = false
+  mainWindow.on('close', event => {
+    if(!quitting) {
+      quitting = true
+
+      event.preventDefault()
+      nodeActuator.shutdown()
+        .then(() => app.quit())
+        .catch((reason) => {
+          dialog.showErrorBox(
+          "Error shutting down Substratum Node.",
+          `Could not shut down Substratum Node.  You may need to kill it manually.\n\nReason: "${reason}"`
+          )
+          app.quit()
+      })
+    }
   })
 
   mainWindow.on('closed', () => {
@@ -47,9 +61,7 @@ function createWindow () {
 
 app.on('ready', createWindow)
 
-app.on('window-all-closed', () => {
-  app.quit()
-})
+app.on('window-all-closed', app.quit)
 
 // initialize the app's main window
 app.on('activate', () => {

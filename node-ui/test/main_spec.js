@@ -89,7 +89,10 @@ describe('Application launch', function () {
       })
   })
 
-  xit('toggles substratum node from off to serving back to off', async () => {
+  it('toggles substratum node from off to serving back to off', async () => {
+    // TODO: Remove the following line and fix this for Jenkins Linux CI.  See SC-709
+    if(process.platform === 'linux' && process.env.JOB_NAME) return
+
     let client = this.app.client
     await client.waitUntilWindowLoaded()
     client.element('#save-config').click()
@@ -109,12 +112,7 @@ describe('Application launch', function () {
       })
     })
 
-    if (!nodeUp) {
-      // TODO: Fix this for ci under jenkins. See SC-709.
-      consoleWrapper.log('SC-709 is still not done to fix this jenkins CI issue.')
-    } else {
-      assert.strictEqual(nodeUp, true)
-    }
+    assert.strictEqual(nodeUp, true)
 
     assert.notStrictEqual(await client.getText('#node-descriptor'), '')
 
