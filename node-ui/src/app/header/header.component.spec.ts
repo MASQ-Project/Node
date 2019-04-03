@@ -113,7 +113,7 @@ describe('HeaderComponent', () => {
       it('opens the beta survey link in an external browser', () => {
         compiled.querySelector('#send-feedback').click();
 
-        td.verify(mockOpenExternal('https://substratum.net/open-beta-survey/'));
+        td.verify(mockOpenExternal('https://github.com/SubstratumNetwork/SubstratumNode/issues'));
       });
 
       it('opens the documentation link in an external browser', () => {
