@@ -213,6 +213,10 @@ describe('NodeActuator', () => {
       it('stops the node successfully with the UI', () => {
         assertNodeStoppedByUi()
       })
+
+      it('clears the node descriptor', () => {
+        td.verify(mockWebContents.send('node-descriptor', ''))
+      })
     })
 
     describe('to off, where the Node ignores the UI interface and has to be stopped violently', () => {
@@ -231,6 +235,11 @@ describe('NodeActuator', () => {
       it('stops the node violently with the OS', () => {
         assertNodeStoppedViolentlyByPkillAfterUiFailure()
       })
+
+      it('clears the node descriptor', () => {
+        td.verify(mockWebContents.send('node-descriptor', ''))
+      })
+
     })
 
     describe('to serving', () => {

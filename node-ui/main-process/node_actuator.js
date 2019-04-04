@@ -135,6 +135,7 @@ module.exports = class NodeActuator {
     try {
       await dnsUtility.revert()
       await this.stopNode()
+      this.webContents.send('node-descriptor', '')
       return this.getStatus()
     } catch (error) {
       dialog.showErrorBox('Error', error.message)
