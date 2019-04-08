@@ -12,7 +12,6 @@ use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::dispatcher::Component;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, IncipientCoresPackage};
 use crate::sub_lib::logger::Logger;
-use crate::sub_lib::neighborhood::sentinel_ip_addr;
 use crate::sub_lib::neighborhood::BootstrapNeighborhoodNowMessage;
 use crate::sub_lib::neighborhood::DispatcherNodeQueryMessage;
 use crate::sub_lib::neighborhood::ExpectedService;
@@ -26,6 +25,7 @@ use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::TargetType;
 use crate::sub_lib::neighborhood::ZERO_RATE_PACK;
+use crate::sub_lib::neighborhood::{sentinel_ip_addr, NodeRecordMetadataMessage};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::route::Route;
@@ -197,7 +197,6 @@ impl Handler<DispatcherNodeQueryMessage> for Neighborhood {
         msg.recipient
             .try_send(response)
             .expect("Dispatcher's StreamHandlerPool is dead");
-        ()
     }
 }
 
@@ -290,7 +289,20 @@ impl Handler<RemoveNeighborMessage> for Neighborhood {
                 }
             }
         }
-        ()
+    }
+}
+
+impl Handler<NodeRecordMetadataMessage> for Neighborhood {
+    type Result = ();
+
+    fn handle(&mut self, msg: NodeRecordMetadataMessage, _ctx: &mut Self::Context) -> Self::Result {
+        match msg {
+            NodeRecordMetadataMessage::Desirable(public_key, desirable) => {
+                if let Some(node_record) = self.neighborhood_database.node_by_key_mut(&public_key) {
+                    node_record.set_desirable(desirable);
+                };
+            }
+        };
     }
 }
 
@@ -399,6 +411,7 @@ impl Neighborhood {
             bootstrap: addr.clone().recipient::<BootstrapNeighborhoodNowMessage>(),
             node_query: addr.clone().recipient::<NodeQueryMessage>(),
             route_query: addr.clone().recipient::<RouteQueryMessage>(),
+            update_node_record_metadata: addr.clone().recipient::<NodeRecordMetadataMessage>(),
             from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip>>(),
             dispatcher_node_query: addr.clone().recipient::<DispatcherNodeQueryMessage>(),
             remove_neighbor: addr.clone().recipient::<RemoveNeighborMessage>(),
@@ -699,6 +712,8 @@ mod tests {
     use crate::test_utils::test_utils::cryptde;
     use crate::test_utils::test_utils::make_meaningless_route;
     use crate::test_utils::test_utils::rate_pack;
+    use actix::dev::{MessageResponse, ResponseChannel};
+    use actix::Message;
     use actix::Recipient;
     use actix::System;
     use serde_cbor;
@@ -2227,6 +2242,58 @@ mod tests {
         assert_eq!(None, failed_ip_address_query.wait().unwrap());
     }
 
+    #[test]
+    fn neighborhood_updates_node_record_metadata_to_undesirable_when_directed_to() {
+        let cryptde = cryptde();
+        let system = System::new(
+            "neighborhood_updates_node_record_metadata_to_undesirable_when_directed_to",
+        );
+        let mut subject = Neighborhood::new(
+            cryptde,
+            NeighborhoodConfig {
+                neighbor_configs: vec![],
+                is_bootstrap_node: false,
+                local_ip_addr: sentinel_ip_addr(),
+                clandestine_port_list: vec![],
+                earning_wallet: Wallet::new("earning"),
+                consuming_wallet: None,
+                rate_pack: rate_pack(100),
+            },
+        );
+        let this_node = &subject.neighborhood_database.root().clone();
+        let neighbor_node_record = &make_node_record(3456, true, 100, false);
+        {
+            let db = &mut subject.neighborhood_database;
+            db.add_node(neighbor_node_record).unwrap();
+            let mut edge = |a: &NodeRecord, b: &NodeRecord| single_edge_func(db, a, b);
+            edge(this_node, neighbor_node_record);
+        }
+
+        let addr: Addr<Neighborhood> = subject.start();
+        addr.try_send(BindMessage {
+            peer_actors: peer_actors_builder().build(),
+        })
+        .unwrap();
+
+        addr.try_send(NodeRecordMetadataMessage::Desirable(
+            neighbor_node_record.public_key().clone(),
+            false,
+        ))
+        .unwrap();
+
+        let response = addr.send(NeighborhoodDatabaseMessage {});
+        System::current().stop();
+
+        system.run();
+
+        let result_db = response.wait().unwrap();
+
+        let result_record = result_db
+            .node_by_key(neighbor_node_record.public_key())
+            .unwrap();
+        assert_eq!(false, result_record.is_desirable());
+    }
+
     fn node_record_to_pair(node_record_ref: &NodeRecord) -> (PublicKey, NodeAddr) {
         (
             node_record_ref.public_key().clone(),
@@ -2963,6 +3030,36 @@ mod tests {
                 assert_eq!(the_node_record.inner.version, 1);
             }
             _ => panic!("wrong message type"),
+        }
+    }
+
+    pub struct NeighborhoodDatabaseMessage {}
+
+    impl Message for NeighborhoodDatabaseMessage {
+        type Result = NeighborhoodDatabase;
+    }
+
+    impl<A, M> MessageResponse<A, M> for NeighborhoodDatabase
+    where
+        A: Actor,
+        M: Message<Result = NeighborhoodDatabase>,
+    {
+        fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
+            if let Some(tx) = tx {
+                tx.send(self);
+            }
+        }
+    }
+
+    impl Handler<NeighborhoodDatabaseMessage> for Neighborhood {
+        type Result = NeighborhoodDatabase;
+
+        fn handle(
+            &mut self,
+            _msg: NeighborhoodDatabaseMessage,
+            _ctx: &mut Self::Context,
+        ) -> Self::Result {
+            self.neighborhood_database.clone()
         }
     }
 }

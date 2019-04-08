@@ -7,12 +7,11 @@ use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeClus
 use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::sub_lib::dispatcher::Component;
-use node_lib::sub_lib::hopper::{IncipientCoresPackage, MessageType};
-use node_lib::sub_lib::proxy_client::DnsResolveFailure;
+use node_lib::sub_lib::hopper::IncipientCoresPackage;
 use node_lib::sub_lib::route::Route;
 use node_lib::sub_lib::route::RouteSegment;
 use node_lib::sub_lib::wallet::Wallet;
-use node_lib::test_utils::test_utils::make_meaningless_stream_key;
+use node_lib::test_utils::test_utils::make_meaningless_message_type;
 use std::time::Duration;
 
 #[test]
@@ -79,7 +78,6 @@ fn neighborhood_notified_of_missing_node_when_connection_refused() {
 
     cluster.stop_node(&disappearing_node_name);
 
-    let stream_key = make_meaningless_stream_key();
     let cores_package = IncipientCoresPackage::new(
         &subject.cryptde(),
         Route::one_way(
@@ -95,7 +93,7 @@ fn neighborhood_notified_of_missing_node_when_connection_refused() {
             Some(Wallet::new("consuming")),
         )
         .unwrap(),
-        MessageType::DnsResolveFailed(DnsResolveFailure { stream_key }),
+        make_meaningless_message_type(),
         &disappearing_node_key,
     )
     .unwrap();

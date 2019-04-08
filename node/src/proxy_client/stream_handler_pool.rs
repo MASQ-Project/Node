@@ -225,7 +225,7 @@ impl StreamHandlerPoolReal {
             .lock()
             .expect("Stream handler pool is poisoned")
             .resolver
-            .lookup_ip(fqdn_opt)
+            .lookup_ip(fqdn_opt.clone())
             .map_err(move |err| {
                 dns_resolve_failed_sub
                     .try_send(DnsResolveFailure { stream_key })

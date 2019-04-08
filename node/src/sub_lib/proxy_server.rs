@@ -4,7 +4,7 @@ use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, MessageType};
 use crate::sub_lib::neighborhood::ExpectedService;
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::sub_lib::proxy_client::ClientResponsePayload;
+use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use actix::Message;
@@ -48,5 +48,6 @@ pub struct ProxyServerSubs {
     pub bind: Recipient<BindMessage>,
     pub from_dispatcher: Recipient<InboundClientData>,
     pub from_hopper: Recipient<ExpiredCoresPackage<ClientResponsePayload>>,
+    pub dns_failure_from_hopper: Recipient<ExpiredCoresPackage<DnsResolveFailure>>,
     pub add_return_route: Recipient<AddReturnRouteMessage>,
 }

@@ -41,6 +41,12 @@ impl Into<MessageType> for ClientResponsePayload {
     }
 }
 
+impl Into<MessageType> for DnsResolveFailure {
+    fn into(self) -> MessageType {
+        MessageType::DnsResolveFailed(self)
+    }
+}
+
 #[derive(Clone)]
 pub struct ProxyClientSubs {
     pub bind: Recipient<BindMessage>,

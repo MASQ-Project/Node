@@ -12,7 +12,6 @@ use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::hopper::ExpiredCoresPackage;
 use crate::sub_lib::hopper::IncipientCoresPackage;
 use crate::sub_lib::hopper::{HopperSubs, MessageType};
-use crate::sub_lib::neighborhood::BootstrapNeighborhoodNowMessage;
 use crate::sub_lib::neighborhood::DispatcherNodeQueryMessage;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
 use crate::sub_lib::neighborhood::NodeDescriptor;
@@ -20,6 +19,7 @@ use crate::sub_lib::neighborhood::NodeQueryMessage;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
+use crate::sub_lib::neighborhood::{BootstrapNeighborhoodNowMessage, NodeRecordMetadataMessage};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::peer_actors::PeerActors;
 use crate::sub_lib::proxy_client::{ClientResponsePayload, InboundServerData};
@@ -76,6 +76,7 @@ macro_rules! recorder_message_handler {
 recorder_message_handler!(ExpiredCoresPackage<MessageType>);
 recorder_message_handler!(ExpiredCoresPackage<ClientRequestPayload>);
 recorder_message_handler!(ExpiredCoresPackage<ClientResponsePayload>);
+recorder_message_handler!(ExpiredCoresPackage<DnsResolveFailure>);
 recorder_message_handler!(ExpiredCoresPackage<Gossip>);
 recorder_message_handler!(AddReturnRouteMessage);
 recorder_message_handler!(TransmitDataMsg);
@@ -95,6 +96,7 @@ recorder_message_handler!(ReportRoutingServiceConsumedMessage);
 recorder_message_handler!(ReportExitServiceConsumedMessage);
 recorder_message_handler!(ReportAccountsPayable);
 recorder_message_handler!(DnsResolveFailure);
+recorder_message_handler!(NodeRecordMetadataMessage);
 
 impl Handler<NodeQueryMessage> for Recorder {
     type Result = MessageResult<NodeQueryMessage>;
@@ -251,6 +253,9 @@ pub fn make_proxy_server_subs_from(addr: &Addr<Recorder>) -> ProxyServerSubs {
         from_hopper: addr
             .clone()
             .recipient::<ExpiredCoresPackage<ClientResponsePayload>>(),
+        dns_failure_from_hopper: addr
+            .clone()
+            .recipient::<ExpiredCoresPackage<DnsResolveFailure>>(),
         add_return_route: addr.clone().recipient::<AddReturnRouteMessage>(),
     }
 }
@@ -288,6 +293,7 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
         bootstrap: addr.clone().recipient::<BootstrapNeighborhoodNowMessage>(),
         node_query: addr.clone().recipient::<NodeQueryMessage>(),
         route_query: addr.clone().recipient::<RouteQueryMessage>(),
+        update_node_record_metadata: addr.clone().recipient::<NodeRecordMetadataMessage>(),
         from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip>>(),
         dispatcher_node_query: addr.clone().recipient::<DispatcherNodeQueryMessage>(),
         remove_neighbor: addr.clone().recipient::<RemoveNeighborMessage>(),

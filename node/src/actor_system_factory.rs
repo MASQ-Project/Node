@@ -309,10 +309,10 @@ mod tests {
     use crate::sub_lib::dispatcher::InboundClientData;
     use crate::sub_lib::hopper::ExpiredCoresPackage;
     use crate::sub_lib::hopper::IncipientCoresPackage;
-    use crate::sub_lib::neighborhood::DispatcherNodeQueryMessage;
     use crate::sub_lib::neighborhood::NodeQueryMessage;
     use crate::sub_lib::neighborhood::RemoveNeighborMessage;
     use crate::sub_lib::neighborhood::RouteQueryMessage;
+    use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, NodeRecordMetadataMessage};
     use crate::sub_lib::proxy_client::{
         ClientResponsePayload, DnsResolveFailure, InboundServerData,
     };
@@ -382,6 +382,9 @@ mod tests {
                 from_hopper: addr
                     .clone()
                     .recipient::<ExpiredCoresPackage<ClientResponsePayload>>(),
+                dns_failure_from_hopper: addr
+                    .clone()
+                    .recipient::<ExpiredCoresPackage<DnsResolveFailure>>(),
                 add_return_route: addr.clone().recipient::<AddReturnRouteMessage>(),
             }
         }
@@ -416,6 +419,7 @@ mod tests {
                 bootstrap: addr.clone().recipient::<BootstrapNeighborhoodNowMessage>(),
                 node_query: addr.clone().recipient::<NodeQueryMessage>(),
                 route_query: addr.clone().recipient::<RouteQueryMessage>(),
+                update_node_record_metadata: addr.clone().recipient::<NodeRecordMetadataMessage>(),
                 from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip>>(),
                 dispatcher_node_query: addr.clone().recipient::<DispatcherNodeQueryMessage>(),
                 remove_neighbor: addr.clone().recipient::<RemoveNeighborMessage>(),

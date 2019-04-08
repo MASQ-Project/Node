@@ -65,6 +65,7 @@ pub struct NeighborhoodSubs {
     pub bootstrap: Recipient<BootstrapNeighborhoodNowMessage>,
     pub node_query: Recipient<NodeQueryMessage>,
     pub route_query: Recipient<RouteQueryMessage>,
+    pub update_node_record_metadata: Recipient<NodeRecordMetadataMessage>,
     pub from_hopper: Recipient<ExpiredCoresPackage<Gossip>>,
     pub dispatcher_node_query: Recipient<DispatcherNodeQueryMessage>,
     pub remove_neighbor: Recipient<RemoveNeighborMessage>,
@@ -164,6 +165,11 @@ pub struct RouteQueryResponse {
 #[derive(PartialEq, Debug, Message, Clone)]
 pub struct RemoveNeighborMessage {
     pub public_key: PublicKey,
+}
+
+#[derive(PartialEq, Debug, Message, Clone)]
+pub enum NodeRecordMetadataMessage {
+    Desirable(PublicKey, bool),
 }
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]

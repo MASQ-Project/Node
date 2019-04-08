@@ -2,14 +2,15 @@
 
 mod utils;
 
+use crate::utils::read_until_timeout;
 use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
 use std::str::FromStr;
 use std::time::Duration;
 
 #[test]
-fn dns_resolve_failure_logs_warning_integration() {
-    let mut node = utils::SubstratumNode::start(None);
+fn dns_resolve_failure_response_integration() {
+    let mut _node_to_test_against = utils::SubstratumNode::start(None);
     let mut stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:80").unwrap()).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_millis(100)))
@@ -17,8 +18,7 @@ fn dns_resolve_failure_logs_warning_integration() {
     let request = "GET / HTTP/1.1\r\nHost: example.invalid\r\n\r\n".as_bytes();
     stream.write(request.clone()).unwrap();
 
-    node.wait_for_log(
-        "WARN: RoutingService: We have a situation! Unable to resolve DNS for stream key: ",
-        Some(1000),
-    );
+    let buf = read_until_timeout(&mut stream);
+    let expected_buffer = b"{\"bodyText\":\"\"}".to_vec();
+    assert_eq!(expected_buffer, buf);
 }

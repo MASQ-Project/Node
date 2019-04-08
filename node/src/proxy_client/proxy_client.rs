@@ -138,7 +138,7 @@ impl Handler<InboundServerData> for ProxyClient {
         };
         self.report_response_exit_to_accountant(&stream_context, msg_data_len);
         if msg_last_data {
-            self.stream_contexts.remove(&msg_stream_key).is_some();
+            self.stream_contexts.remove(&msg_stream_key);
         }
     }
 }
@@ -147,7 +147,8 @@ impl Handler<DnsResolveFailure> for ProxyClient {
     type Result = ();
 
     fn handle(&mut self, msg: DnsResolveFailure, _ctx: &mut Self::Context) -> Self::Result {
-        let stream_context_opt = self.stream_contexts.get(&msg.stream_key);
+        let stream_key = &msg.stream_key.clone();
+        let stream_context_opt = self.stream_contexts.get(stream_key);
         match stream_context_opt {
             Some(stream_context) => {
                 let package = IncipientCoresPackage::new(
@@ -162,6 +163,7 @@ impl Handler<DnsResolveFailure> for ProxyClient {
                     .expect("Hopper is unbound")
                     .try_send(package)
                     .expect("Hopper is dead");
+                self.stream_contexts.remove(stream_key);
             }
             None => self.logger.error(format!(
                 "DNS resolution for nonexistent stream ({:?}) failed.",
@@ -293,12 +295,12 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::test_utils::make_meaningless_route;
     use crate::test_utils::test_utils::make_meaningless_stream_key;
     use crate::test_utils::test_utils::rate_pack_exit;
     use crate::test_utils::test_utils::rate_pack_exit_byte;
     use crate::test_utils::test_utils::route_to_proxy_client;
     use crate::test_utils::test_utils::{cryptde, make_meaningless_public_key};
+    use crate::test_utils::test_utils::{make_meaningless_message_type, make_meaningless_route};
     use actix::System;
     use std::cell::RefCell;
     use std::net::IpAddr;
@@ -561,6 +563,7 @@ mod tests {
 
     #[test]
     fn forwards_dns_resolve_failed_to_hopper() {
+        init_test_logging();
         let cryptde = cryptde();
         let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
         let stream_key = make_meaningless_stream_key();
@@ -601,6 +604,13 @@ mod tests {
                 })
                 .unwrap();
 
+            subject_subs
+                .dns_resolve_failed
+                .try_send(DnsResolveFailure {
+                    stream_key: stream_key_inner,
+                })
+                .unwrap();
+
             system.run();
         });
 
@@ -610,7 +620,7 @@ mod tests {
             &IncipientCoresPackage::new(
                 cryptde,
                 return_route,
-                MessageType::DnsResolveFailed(DnsResolveFailure { stream_key }),
+                make_meaningless_message_type(),
                 &originator_key
             )
             .unwrap(),
@@ -618,6 +628,13 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_record::<IncipientCoresPackage>(0)
+        );
+        TestLogHandler::new().await_log_containing(
+            &format!(
+                "ERROR: Proxy Client: DNS resolution for nonexistent stream ({:?}) failed.",
+                stream_key
+            ),
+            1000,
         );
     }
 

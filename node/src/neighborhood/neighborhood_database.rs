@@ -7,6 +7,7 @@ use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::neighborhood::RatePack;
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
+use actix::Message;
 use serde_cbor;
 use serde_derive::{Deserialize, Serialize};
 use sha1;
@@ -92,8 +93,14 @@ impl NodeSignatures {
 #[derive(Clone, Debug, PartialEq)]
 pub struct NodeRecord {
     inner: NodeRecordInner,
+    metadata: NodeRecordMetadata,
     // TODO: Replace this with a retransmittable representation of the signed packet/signature from the incoming Gossip.
     signatures: Option<NodeSignatures>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct NodeRecordMetadata {
+    desirable: bool,
 }
 
 impl NodeRecord {
@@ -108,6 +115,7 @@ impl NodeRecord {
         version: u32,
     ) -> NodeRecord {
         NodeRecord {
+            metadata: NodeRecordMetadata { desirable: true },
             inner: NodeRecordInner {
                 public_key: public_key.clone(),
                 node_addr_opt: match node_addr_opt {
@@ -253,8 +261,17 @@ impl NodeRecord {
             true
         }
     }
+
+    pub fn is_desirable(&self) -> bool {
+        self.metadata.desirable
+    }
+
+    pub fn set_desirable(&mut self, is_desirable: bool) {
+        self.metadata.desirable = is_desirable
+    }
 }
 
+#[derive(Clone, Message)]
 pub struct NeighborhoodDatabase {
     this_node: PublicKey,
     by_public_key: HashMap<PublicKey, NodeRecord>,
@@ -1336,6 +1353,36 @@ mod tests {
         assert!(
             !this_node.is_bootstrap_node(),
             "should still be non-bootsrap"
+        );
+    }
+
+    #[test]
+    fn set_desirable_when_no_change_from_default() {
+        let mut this_node = make_node_record(5432, true, 100, false);
+
+        assert!(
+            this_node.is_desirable(),
+            "initial state should have been desirable"
+        );
+        this_node.set_desirable(true);
+        assert!(
+            this_node.is_desirable(),
+            "Should be desirable after being set to true."
+        );
+    }
+
+    #[test]
+    fn set_desirable_to_false() {
+        let mut this_node = make_node_record(5432, true, 100, false);
+
+        assert!(
+            this_node.is_desirable(),
+            "initial state should have been desirable"
+        );
+        this_node.set_desirable(false);
+        assert!(
+            !this_node.is_desirable(),
+            "Should be undesirable after being set to false."
         );
     }
 }

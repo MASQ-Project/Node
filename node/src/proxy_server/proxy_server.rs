@@ -10,13 +10,13 @@ use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, IncipientCoresPackage};
 use crate::sub_lib::http_server_impersonator;
 use crate::sub_lib::logger::Logger;
-use crate::sub_lib::neighborhood::ExpectedService;
 use crate::sub_lib::neighborhood::ExpectedServices;
 use crate::sub_lib::neighborhood::RatePack;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
+use crate::sub_lib::neighborhood::{ExpectedService, NodeRecordMetadataMessage};
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::sub_lib::proxy_client::ClientResponsePayload;
+use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
 use crate::sub_lib::proxy_server::AddReturnRouteMessage;
 use crate::sub_lib::proxy_server::ClientRequestPayload;
 use crate::sub_lib::proxy_server::ProxyProtocol;
@@ -46,6 +46,7 @@ pub struct ProxyServer {
     accountant_exit: Option<Recipient<ReportExitServiceConsumedMessage>>,
     accountant_routing: Option<Recipient<ReportRoutingServiceConsumedMessage>>,
     route_source: Option<Recipient<RouteQueryMessage>>,
+    update_node_record_metadata: Option<Recipient<NodeRecordMetadataMessage>>,
     add_return_route: Option<Recipient<AddReturnRouteMessage>>,
     client_request_payload_factory: ClientRequestPayloadFactory,
     stream_key_factory: Box<dyn StreamKeyFactory>,
@@ -71,8 +72,9 @@ impl Handler<BindMessage> for ProxyServer {
         self.accountant_exit = Some(msg.peer_actors.accountant.report_exit_service_consumed);
         self.accountant_routing = Some(msg.peer_actors.accountant.report_routing_service_consumed);
         self.route_source = Some(msg.peer_actors.neighborhood.route_query);
+        self.update_node_record_metadata =
+            Some(msg.peer_actors.neighborhood.update_node_record_metadata);
         self.add_return_route = Some(msg.peer_actors.proxy_server.add_return_route);
-        ()
     }
 }
 
@@ -150,6 +152,68 @@ impl Handler<AddReturnRouteMessage> for ProxyServer {
     }
 }
 
+impl Handler<ExpiredCoresPackage<DnsResolveFailure>> for ProxyServer {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: ExpiredCoresPackage<DnsResolveFailure>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let response = msg.payload;
+        match self.keys_and_addrs.a_to_b(&response.stream_key) {
+            Some(socket_addr) => {
+                let return_route_id = match self.get_return_route_id(&msg.remaining_route) {
+                    Ok(return_route_id) => return_route_id,
+                    Err(_) => return,
+                };
+
+                self.report_response_services_consumed(return_route_id, 0, msg.payload_len)
+                    .ok();
+
+                self.route_ids_to_services.get(&return_route_id)
+                    .and_then(|services| {
+                        services.iter().find_map(|service| match service {
+                            ExpectedService::Exit(public_key, _, _) => Some(public_key.clone()),
+                            _ => None,
+                        })
+                    })
+                    .or_else(|| {
+                        self.logger.error(format!("No exit service, unable to update NodeRecordMetadata: socket_addr:{:?}", socket_addr).to_string());
+                        None
+                    })
+                    .and_then(|exit_public_key| {
+                        let message =
+                            NodeRecordMetadataMessage::Desirable(exit_public_key, false);
+
+                        self.update_node_record_metadata
+                            .as_ref()
+                            .expect("Neighborhood is unbound in ProxyServer")
+                            .try_send(message)
+                            .expect("Neighborhood is dead");
+                        Some(())
+                    });
+
+                self.dispatcher
+                    .as_ref()
+                    .expect("Dispatcher unbound in ProxyServer")
+                    .try_send(TransmitDataMsg {
+                        endpoint: Endpoint::Socket(socket_addr),
+                        last_data: true,
+                        sequence_number: None,
+                        data: vec![],
+                    })
+                    .expect("Dispatcher is dead");
+                self.keys_and_addrs.remove_a(&response.stream_key);
+            }
+            None => self.logger.error(format!(
+                "Discarding DnsResolveFailure message from an unrecognized stream key {:?}",
+                &response.stream_key
+            )),
+        }
+    }
+}
+
 impl Handler<ExpiredCoresPackage<ClientResponsePayload>> for ProxyServer {
     type Result = ();
 
@@ -219,6 +283,7 @@ impl ProxyServer {
             accountant_exit: None,
             accountant_routing: None,
             route_source: None,
+            update_node_record_metadata: None,
             add_return_route: None,
             client_request_payload_factory: ClientRequestPayloadFactory::new(),
             stream_key_factory: Box::new(StreamKeyFactoryReal {}),
@@ -237,6 +302,9 @@ impl ProxyServer {
             from_hopper: addr
                 .clone()
                 .recipient::<ExpiredCoresPackage<ClientResponsePayload>>(),
+            dns_failure_from_hopper: addr
+                .clone()
+                .recipient::<ExpiredCoresPackage<DnsResolveFailure>>(),
             add_return_route: addr.clone().recipient::<AddReturnRouteMessage>(),
         }
     }
@@ -572,7 +640,7 @@ mod tests {
     use crate::sub_lib::neighborhood::ExpectedService;
     use crate::sub_lib::neighborhood::ExpectedServices;
     use crate::sub_lib::neighborhood::RatePack;
-    use crate::sub_lib::proxy_client::ClientResponsePayload;
+    use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
     use crate::sub_lib::proxy_server::ClientRequestPayload;
     use crate::sub_lib::proxy_server::ProxyProtocol;
     use crate::sub_lib::route::Route;
@@ -1836,13 +1904,14 @@ mod tests {
             },
         };
         let first_exit_size = first_client_response_payload.sequenced_packet.data.len();
-        let first_expired_cores_package = ExpiredCoresPackage::new(
-            IpAddr::from_str("1.2.3.4").unwrap(),
-            Some(Wallet::new("irrelevant")),
-            return_route_with_id(cryptde, 1234),
-            first_client_response_payload.into(),
-            0,
-        );
+        let first_expired_cores_package: ExpiredCoresPackage<ClientResponsePayload> =
+            ExpiredCoresPackage::new(
+                IpAddr::from_str("1.2.3.4").unwrap(),
+                Some(Wallet::new("irrelevant")),
+                return_route_with_id(cryptde, 1234),
+                first_client_response_payload.into(),
+                0,
+            );
         let routing_size = first_expired_cores_package.payload_len;
 
         let second_client_response_payload = ClientResponsePayload {
@@ -1854,13 +1923,14 @@ mod tests {
             },
         };
         let second_exit_size = second_client_response_payload.sequenced_packet.data.len();
-        let second_expired_cores_package = ExpiredCoresPackage::new(
-            IpAddr::from_str("1.2.3.5").unwrap(),
-            Some(Wallet::new("irrelevant")),
-            return_route_with_id(cryptde, 1235),
-            second_client_response_payload.into(),
-            0,
-        );
+        let second_expired_cores_package: ExpiredCoresPackage<ClientResponsePayload> =
+            ExpiredCoresPackage::new(
+                IpAddr::from_str("1.2.3.5").unwrap(),
+                Some(Wallet::new("irrelevant")),
+                return_route_with_id(cryptde, 1235),
+                second_client_response_payload.into(),
+                0,
+            );
         let mut peer_actors = peer_actors_builder()
             .dispatcher(dispatcher_mock)
             .accountant(accountant)
@@ -1933,6 +2003,333 @@ mod tests {
             &rate_pack(106),
         );
         assert_eq!(accountant_recording.len(), 6);
+    }
+
+    #[test]
+    fn handle_dns_resolve_failure_sends_message_to_dispatcher() {
+        let system = System::new("proxy_server_receives_response_from_routing_services");
+
+        let (dispatcher_mock, _, dispatcher_log_arc) = make_recorder();
+
+        let cryptde = cryptde();
+        let mut subject = ProxyServer::new(cryptde, false);
+
+        let stream_key = make_meaningless_stream_key();
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+
+        subject
+            .keys_and_addrs
+            .insert(stream_key.clone(), socket_addr.clone());
+
+        let exit_public_key = PublicKey::from(&b"exit_key"[..]);
+        let exit_wallet = Wallet::new("exit wallet");
+        subject.route_ids_to_services.insert(
+            1234,
+            vec![ExpectedService::Exit(
+                exit_public_key,
+                exit_wallet,
+                rate_pack(10),
+            )],
+        );
+
+        let subject_addr: Addr<ProxyServer> = subject.start();
+
+        let dns_resolve_failure = DnsResolveFailure { stream_key };
+
+        let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
+            ExpiredCoresPackage::new(
+                IpAddr::from_str("1.2.3.4").unwrap(),
+                Some(Wallet::new("irrelevant")),
+                return_route_with_id(cryptde, 1234),
+                dns_resolve_failure.into(),
+                0,
+            );
+
+        let mut peer_actors = peer_actors_builder().dispatcher(dispatcher_mock).build();
+        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr.try_send(expired_cores_package).unwrap();
+
+        System::current().stop_with_code(0);
+        system.run();
+
+        let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
+        let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
+        assert_eq!(record.endpoint, Endpoint::Socket(socket_addr));
+        assert_eq!(record.last_data, true);
+    }
+
+    #[test]
+    fn handle_dns_resolve_failure_reports_services_consumed() {
+        let system = System::new("proxy_server_records_accounting");
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let cryptde = cryptde();
+        let mut subject = ProxyServer::new(cryptde, false);
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let stream_key = make_meaningless_stream_key();
+        let irrelevant_public_key = PublicKey::from(&b"irrelevant"[..]);
+        subject
+            .keys_and_addrs
+            .insert(stream_key.clone(), socket_addr.clone());
+        let incoming_route_d_wallet = Wallet::new("D Earning");
+        let incoming_route_e_wallet = Wallet::new("E Earning");
+        let incoming_route_f_wallet = Wallet::new("F Earning");
+        subject.route_ids_to_services.insert(
+            1234,
+            vec![
+                ExpectedService::Exit(
+                    irrelevant_public_key.clone(),
+                    incoming_route_d_wallet.clone(),
+                    rate_pack(101),
+                ),
+                ExpectedService::Routing(
+                    irrelevant_public_key.clone(),
+                    incoming_route_e_wallet.clone(),
+                    rate_pack(102),
+                ),
+                ExpectedService::Routing(
+                    irrelevant_public_key.clone(),
+                    incoming_route_f_wallet.clone(),
+                    rate_pack(103),
+                ),
+                ExpectedService::Nothing,
+            ],
+        );
+
+        let subject_addr: Addr<ProxyServer> = subject.start();
+        let dns_resolve_failure_payload = DnsResolveFailure { stream_key };
+
+        let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
+            ExpiredCoresPackage::new(
+                IpAddr::from_str("1.2.3.4").unwrap(),
+                Some(Wallet::new("irrelevant")),
+                return_route_with_id(cryptde, 1234),
+                dns_resolve_failure_payload.into(),
+                0,
+            );
+        let routing_size = expired_cores_package.payload_len;
+
+        let mut peer_actors = peer_actors_builder().accountant(accountant).build();
+        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(expired_cores_package.clone())
+            .unwrap();
+
+        System::current().stop_with_code(0);
+        system.run();
+
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        check_exit_report(
+            &accountant_recording,
+            0,
+            &incoming_route_d_wallet,
+            0,
+            &rate_pack(101),
+        );
+        check_routing_report(
+            &accountant_recording,
+            1,
+            &incoming_route_e_wallet,
+            routing_size,
+            &rate_pack(102),
+        );
+        check_routing_report(
+            &accountant_recording,
+            2,
+            &incoming_route_f_wallet,
+            routing_size,
+            &rate_pack(103),
+        );
+        assert_eq!(accountant_recording.len(), 3);
+    }
+
+    #[test]
+    fn handle_dns_resolve_failure_sends_message_to_neighborhood() {
+        let system = System::new("test");
+
+        let (neighborhood_mock, _, neighborhood_log_arc) = make_recorder();
+
+        let cryptde = cryptde();
+        let mut subject = ProxyServer::new(cryptde, false);
+
+        let stream_key = make_meaningless_stream_key();
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+
+        subject
+            .keys_and_addrs
+            .insert(stream_key.clone(), socket_addr.clone());
+
+        let exit_public_key = PublicKey::from(&b"exit_key"[..]);
+        let exit_wallet = Wallet::new("exit wallet");
+        subject.route_ids_to_services.insert(
+            1234,
+            vec![ExpectedService::Exit(
+                exit_public_key.clone(),
+                exit_wallet,
+                rate_pack(10),
+            )],
+        );
+
+        let subject_addr: Addr<ProxyServer> = subject.start();
+
+        let dns_resolve_failure = DnsResolveFailure { stream_key };
+
+        let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
+            ExpiredCoresPackage::new(
+                IpAddr::from_str("1.2.3.4").unwrap(),
+                Some(Wallet::new("irrelevant")),
+                return_route_with_id(cryptde, 1234),
+                dns_resolve_failure.into(),
+                0,
+            );
+
+        let mut peer_actors = peer_actors_builder()
+            .neighborhood(neighborhood_mock)
+            .build();
+        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr.try_send(expired_cores_package).unwrap();
+
+        System::current().stop_with_code(0);
+        system.run();
+
+        let neighborhood_recording = neighborhood_log_arc.lock().unwrap();
+        let record = neighborhood_recording.get_record::<NodeRecordMetadataMessage>(0);
+        assert_eq!(
+            record,
+            &NodeRecordMetadataMessage::Desirable(exit_public_key, false)
+        );
+    }
+
+    #[test]
+    fn handle_dns_resolve_failure_logs_when_no_exit_service() {
+        init_test_logging();
+        let system = System::new("test");
+
+        let (neighborhood_mock, _, _) = make_recorder();
+
+        let cryptde = cryptde();
+        let mut subject = ProxyServer::new(cryptde, false);
+
+        let stream_key = make_meaningless_stream_key();
+        let return_route_id = 1234;
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+
+        subject
+            .keys_and_addrs
+            .insert(stream_key.clone(), socket_addr.clone());
+
+        subject
+            .route_ids_to_services
+            .insert(return_route_id, vec![]);
+
+        let subject_addr: Addr<ProxyServer> = subject.start();
+
+        let dns_resolve_failure = DnsResolveFailure { stream_key };
+
+        let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
+            ExpiredCoresPackage::new(
+                IpAddr::from_str("1.2.3.4").unwrap(),
+                Some(Wallet::new("irrelevant")),
+                return_route_with_id(cryptde, 1234),
+                dns_resolve_failure.into(),
+                0,
+            );
+
+        let mut peer_actors = peer_actors_builder()
+            .neighborhood(neighborhood_mock)
+            .build();
+        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr.try_send(expired_cores_package).unwrap();
+
+        System::current().stop_with_code(0);
+        system.run();
+
+        TestLogHandler::new().exists_log_containing(
+            format!(
+                "No exit service, unable to update NodeRecordMetadata: socket_addr:{:?}",
+                socket_addr
+            )
+            .as_str(),
+        );
+    }
+
+    #[test]
+    fn handle_dns_resolve_failure_logs_when_stream_key_be_gone() {
+        init_test_logging();
+        let system = System::new("test");
+
+        let (neighborhood_mock, _, _) = make_recorder();
+
+        let cryptde = cryptde();
+        let mut subject = ProxyServer::new(cryptde, false);
+
+        let stream_key = make_meaningless_stream_key();
+        let return_route_id = 1234;
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+
+        subject
+            .keys_and_addrs
+            .insert(stream_key.clone(), socket_addr.clone());
+
+        let exit_public_key = PublicKey::from(&b"exit_key"[..]);
+        let exit_wallet = Wallet::new("exit wallet");
+        subject.route_ids_to_services.insert(
+            return_route_id,
+            vec![ExpectedService::Exit(
+                exit_public_key.clone(),
+                exit_wallet,
+                rate_pack(10),
+            )],
+        );
+
+        let subject_addr: Addr<ProxyServer> = subject.start();
+
+        let dns_resolve_failure = DnsResolveFailure { stream_key };
+
+        let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
+            ExpiredCoresPackage::new(
+                IpAddr::from_str("1.2.3.4").unwrap(),
+                Some(Wallet::new("irrelevant")),
+                return_route_with_id(cryptde, 1234),
+                dns_resolve_failure.into(),
+                0,
+            );
+
+        let already_used_expired_cores_package = expired_cores_package.clone();
+
+        let mut peer_actors = peer_actors_builder()
+            .neighborhood(neighborhood_mock)
+            .build();
+        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr.try_send(expired_cores_package).unwrap();
+
+        subject_addr
+            .try_send(already_used_expired_cores_package)
+            .unwrap();
+
+        System::current().stop_with_code(0);
+        system.run();
+
+        TestLogHandler::new().exists_log_containing(
+            format!(
+                "Discarding DnsResolveFailure message from an unrecognized stream key {:?}",
+                stream_key
+            )
+            .as_str(),
+        );
     }
 
     #[test]

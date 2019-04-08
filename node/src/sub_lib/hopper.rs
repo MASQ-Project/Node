@@ -105,7 +105,7 @@ mod tests {
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::route::RouteSegment;
-    use crate::test_utils::test_utils::make_meaningless_stream_key;
+    use crate::test_utils::test_utils::make_meaningless_message_type;
     use std::str::FromStr;
 
     #[test]
@@ -121,9 +121,7 @@ mod tests {
             Some(consuming_wallet),
         )
         .unwrap();
-        let payload = MessageType::DnsResolveFailed(DnsResolveFailure {
-            stream_key: make_meaningless_stream_key(),
-        });
+        let payload = make_meaningless_message_type();
 
         let result = IncipientCoresPackage::new(&cryptde, route.clone(), payload.clone(), &key56);
         let subject = result.unwrap();
@@ -146,9 +144,7 @@ mod tests {
         let result = IncipientCoresPackage::new(
             &cryptde,
             Route { hops: vec![] },
-            MessageType::DnsResolveFailed(DnsResolveFailure {
-                stream_key: make_meaningless_stream_key(),
-            }),
+            make_meaningless_message_type(),
             &PublicKey::new(&[]),
         );
 
@@ -171,9 +167,7 @@ mod tests {
             Some(consuming_wallet.clone()),
         )
         .unwrap();
-        let payload = MessageType::DnsResolveFailed(DnsResolveFailure {
-            stream_key: make_meaningless_stream_key(),
-        });
+        let payload = make_meaningless_message_type();
 
         let subject: ExpiredCoresPackage<MessageType> = ExpiredCoresPackage::new(
             immediate_neighbor_ip,

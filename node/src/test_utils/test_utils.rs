@@ -5,12 +5,13 @@ use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::dispatcher::Component;
+use crate::sub_lib::hopper::MessageType;
 use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::neighborhood::ExpectedService;
 use crate::sub_lib::neighborhood::ExpectedServices;
 use crate::sub_lib::neighborhood::RatePack;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
-use crate::sub_lib::proxy_client::ClientResponsePayload;
+use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
 use crate::sub_lib::proxy_server::{ClientRequestPayload, ProxyProtocol};
 use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
@@ -205,6 +206,13 @@ pub fn make_meaningless_stream_key() -> StreamKey {
         PublicKey::new(&[]),
         SocketAddr::from_str("4.3.2.1:8765").unwrap(),
     )
+}
+
+pub fn make_meaningless_message_type() -> MessageType {
+    DnsResolveFailure {
+        stream_key: make_meaningless_stream_key(),
+    }
+    .into()
 }
 
 pub fn make_meaningless_route() -> Route {

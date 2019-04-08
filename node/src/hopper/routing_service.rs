@@ -157,10 +157,16 @@ impl RoutingService {
                 ))
                 .expect("Proxy Client is dead"),
             (Component::ProxyServer, MessageType::DnsResolveFailed(dns_resolve_failure)) => {
-                self.logger.warning(format!(
-                    "We have a situation! Unable to resolve DNS for stream key: {:?}",
-                    dns_resolve_failure.stream_key
-                ));
+                self.proxy_server_subs
+                    .dns_failure_from_hopper
+                    .try_send(ExpiredCoresPackage::new(
+                        expired_package.immediate_neighbor_ip,
+                        expired_package.consuming_wallet,
+                        expired_package.remaining_route,
+                        dns_resolve_failure,
+                        expired_package.payload_len,
+                    ))
+                    .expect("Proxy Server is dead");
             }
             (destination, payload) => self.logger.error(format!(
                 "Attempt to send invalid combination {:?} to {:?}",
@@ -302,8 +308,8 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::test_utils::route_to_proxy_server;
     use crate::test_utils::test_utils::{cryptde, make_request_payload};
+    use crate::test_utils::test_utils::{make_meaningless_message_type, route_to_proxy_server};
     use crate::test_utils::test_utils::{make_meaningless_stream_key, route_to_proxy_client};
     use crate::test_utils::test_utils::{make_response_payload, rate_pack_routing};
     use crate::test_utils::test_utils::{rate_pack_routing_byte, route_from_proxy_client};
@@ -315,17 +321,18 @@ mod tests {
     use std::thread;
 
     #[test]
-    fn logs_and_ignores_dns_resolution_failures() {
+    fn dns_resolution_failures_are_reported_to_the_proxy_server() {
         init_test_logging();
         let cryptde = cryptde();
         let route = route_to_proxy_server(&cryptde.public_key(), cryptde);
         let stream_key = make_meaningless_stream_key();
+        let dns_resolve_failure = DnsResolveFailure { stream_key };
         let lcp = LiveCoresPackage::new(
             route,
             encodex(
                 cryptde,
                 &cryptde.public_key(),
-                &MessageType::DnsResolveFailed(DnsResolveFailure { stream_key }),
+                &MessageType::DnsResolveFailed(dns_resolve_failure.clone()),
             )
             .unwrap(),
         );
@@ -338,7 +345,10 @@ mod tests {
             is_clandestine: false,
             data: data_enc.into(),
         };
-        let peer_actors = peer_actors_builder().build();
+        let (proxy_server, proxy_server_awaiter, proxy_server_recording) = make_recorder();
+
+        let system = System::new("dns_resolution_failures_are_reported_to_the_proxy_server");
+        let peer_actors = peer_actors_builder().proxy_server(proxy_server).build();
         let subject = RoutingService::new(
             cryptde,
             false,
@@ -350,14 +360,16 @@ mod tests {
             100,
             200,
         );
+
         subject.route(inbound_client_data);
-        TestLogHandler::new().await_log_containing(
-            &format!(
-                "We have a situation! Unable to resolve DNS for stream key: {:?}",
-                stream_key
-            ),
-            1000,
-        );
+
+        System::current().stop();
+        system.run();
+
+        proxy_server_awaiter.await_message_count(1);
+        let recordings = proxy_server_recording.lock().unwrap();
+        let message = recordings.get_record::<ExpiredCoresPackage<DnsResolveFailure>>(0);
+        assert_eq!(dns_resolve_failure, message.payload);
     }
 
     #[test]
@@ -876,9 +888,7 @@ mod tests {
         let origin_key = PublicKey::new(&[1, 2]);
         let origin_cryptde = CryptDENull::from(&origin_key);
         let destination_key = PublicKey::new(&[3, 4]);
-        let payload = MessageType::DnsResolveFailed(DnsResolveFailure {
-            stream_key: make_meaningless_stream_key(),
-        });
+        let payload = make_meaningless_message_type();
         let route = Route::one_way(
             RouteSegment::new(
                 vec![&origin_key, &cryptde.public_key(), &destination_key],

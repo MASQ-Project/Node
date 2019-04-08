@@ -52,7 +52,7 @@ impl ConsumingService {
                         Ok(p) => p,
                         Err(_) => {
                             // TODO what should we do here? (nothing is unbound --so we don't need to blow up-- but we can't send this package)
-                            return ();
+                            return;
                         }
                     };
 
@@ -143,7 +143,6 @@ mod tests {
     use crate::sub_lib::hopper::MessageType;
     use crate::sub_lib::hopper::{ExpiredCoresPackage, HopperConfig};
     use crate::sub_lib::peer_actors::BindMessage;
-    use crate::sub_lib::proxy_client::DnsResolveFailure;
     use crate::sub_lib::proxy_server::ClientRequestPayload;
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
@@ -153,9 +152,10 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::test_utils::make_request_payload;
     use crate::test_utils::test_utils::zero_hop_route_response;
-    use crate::test_utils::test_utils::{cryptde, make_meaningless_stream_key};
+    use crate::test_utils::test_utils::{
+        cryptde, make_meaningless_message_type, make_request_payload,
+    };
     use actix::Actor;
     use actix::Addr;
     use actix::System;
@@ -180,9 +180,7 @@ mod tests {
             Some(consuming_wallet),
         )
         .unwrap();
-        let payload = MessageType::DnsResolveFailed(DnsResolveFailure {
-            stream_key: make_meaningless_stream_key(),
-        });
+        let payload = make_meaningless_message_type();
         let incipient_cores_package =
             IncipientCoresPackage::new(cryptde, route.clone(), payload, &destination_key).unwrap();
         let incipient_cores_package_a = incipient_cores_package.clone();
@@ -287,9 +285,7 @@ mod tests {
             IncipientCoresPackage::new(
                 cryptde(),
                 Route { hops: vec![] },
-                MessageType::DnsResolveFailed(DnsResolveFailure {
-                    stream_key: make_meaningless_stream_key(),
-                }),
+                make_meaningless_message_type(),
                 &PublicKey::new(&[1, 2]),
             )
             .unwrap(),
