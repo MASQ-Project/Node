@@ -1,15 +1,12 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use super::gossip::to_dot_graph;
+
 use super::gossip::Gossip;
 use super::gossip::GossipBuilder;
 use super::neighborhood_database::NeighborhoodDatabase;
-use super::neighborhood_database::NodeRecord;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::logger::Logger;
 
-static MINIMUM_NEIGHBORS: usize = 3;
-
-pub trait GossipProducer {
+pub trait GossipProducer: Send {
     fn produce(&self, database: &NeighborhoodDatabase, target: &PublicKey) -> Gossip;
 }
 
@@ -20,39 +17,34 @@ pub struct GossipProducerReal {
 impl GossipProducer for GossipProducerReal {
     /*
         `produce`
-            the purpose of `produce` is to convert the raw neighborhood from the DB into a Gossip message for a target node
-            the Gossip that `produce` returns includes the entire neighborhood, but masks the IP addresses of nodes that
-            are not directly connected to `target`.
+            the purpose of `produce` is to convert the raw neighborhood from the DB into a Gossip message for a target Node
+            the Gossip that `produce` returns includes the entire neighborhood, but masks the NodeAddrs of Nodes whose
+            NodeAddrs the target Node does not know (except that the NodeAddr of this Node is never masked).
         params:
             `database`: the DB that contains the whole neighborhood
-            `target`: the node to produce the gossip for
-                allows `produce` to determine which ip addrs to mask/reveal, based on which other nodes `target` is connected to (in either direction)
+            `target`: the Node to produce the gossip for
+                allows `produce` to determine which NodeAddrs to mask/reveal, based on which other Nodes `target` has as half neighbors
         returns:
-            a Gossip message representing the current neighborhood for a target node
+            a Gossip message representing the current neighborhood for a target Node
     */
     fn produce(&self, database: &NeighborhoodDatabase, target: &PublicKey) -> Gossip {
-        let target_node_ref = match database.node_by_key(target) {
-            Some(node_ref) => node_ref,
-            None => panic!("Target node {:?} not in NeighborhoodDatabase", target),
-        };
-
-        let introducees = self.choose_introductions(database, target_node_ref);
+        let target_node_ref = database
+            .node_by_key(target)
+            .expect(format!("Target node {:?} not in NeighborhoodDatabase", target).as_str());
         let builder = database
             .keys()
             .into_iter()
-            .fold(GossipBuilder::new(), |so_far, key_ref| {
-                let node_record_ref = database
-                    .node_by_key(key_ref)
-                    .expect("Key magically disappeared");
-                let reveal_node_addr = node_record_ref.has_neighbor(target_node_ref.public_key())
-                    || target_node_ref.has_neighbor(node_record_ref.public_key())
-                    || introducees.contains(&key_ref);
-                so_far.node(node_record_ref, reveal_node_addr)
+            .filter(|k| *k != target)
+            .flat_map(|k| database.node_by_key(k))
+            .fold(GossipBuilder::new(database), |so_far, node_record_ref| {
+                let reveal_node_addr = node_record_ref.public_key() == database.root().public_key()
+                    || target_node_ref.has_half_neighbor(node_record_ref.public_key());
+                so_far.node(node_record_ref.public_key(), reveal_node_addr)
             });
         let gossip = builder.build();
         self.logger.trace(format!(
             "Created Gossip: {}",
-            to_dot_graph(gossip.clone(), target, database.root().public_key().clone())
+            gossip.to_dot_graph(database.root(), target_node_ref)
         ));
         gossip
     }
@@ -64,62 +56,6 @@ impl GossipProducerReal {
             logger: Logger::new("GossipProducerReal"),
         }
     }
-
-    pub fn choose_introductions<'a>(
-        &self,
-        database: &'a NeighborhoodDatabase,
-        target: &NodeRecord,
-    ) -> Vec<&'a PublicKey> {
-        let target_standard_neighbors = target
-            .neighbors()
-            .iter()
-            .filter(|key| match database.node_by_key(key) {
-                Some(node) => !node.is_bootstrap_node(),
-                None => unimplemented!(), // we don't know this node, so we should assume it is not a bootstrap node
-            })
-            .count();
-
-        if !target.is_bootstrap_node()
-            && database.root().neighbors().contains(target.public_key())
-            && target_standard_neighbors < MINIMUM_NEIGHBORS
-        {
-            let mut possible_introducees: Vec<&PublicKey> = database
-                .root()
-                .neighbors()
-                .iter()
-                .filter(|key| !target.neighbors().contains(key))
-                .filter(|key| target.public_key() != *key)
-                .filter(|key| {
-                    !database
-                        .node_by_key(key)
-                        .expect("Key magically disappeared")
-                        .is_bootstrap_node()
-                })
-                .collect();
-
-            possible_introducees.sort_by(|l, r| {
-                database
-                    .node_by_key(l)
-                    .expect("Key magically disappeared")
-                    .neighbors()
-                    .len()
-                    .cmp(
-                        &database
-                            .node_by_key(r)
-                            .expect("Key magically disappeared")
-                            .neighbors()
-                            .len(),
-                    )
-            });
-
-            possible_introducees
-                .into_iter()
-                .take(MINIMUM_NEIGHBORS - target_standard_neighbors)
-                .collect()
-        } else {
-            vec![]
-        }
-    }
 }
 
 #[cfg(test)]
@@ -127,27 +63,16 @@ mod tests {
     use super::super::gossip::GossipNodeRecord;
     use super::super::neighborhood_test_utils::*;
     use super::*;
-    use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
-    use crate::test_utils::test_utils::assert_contains;
-    use crate::test_utils::test_utils::cryptde;
-    use crate::test_utils::test_utils::rate_pack;
+    use std::collections::HashSet;
 
     #[test]
     #[should_panic(expected = "Target node AgMEBQ not in NeighborhoodDatabase")]
     fn produce_fails_for_target_not_in_database() {
-        let this_node = make_node_record(1234, true, 100, false);
-        let target_node = make_node_record(2345, true, 100, false);
-        let database = NeighborhoodDatabase::new(
-            this_node.public_key(),
-            this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.earning_wallet(),
-            this_node.consuming_wallet(),
-            rate_pack(100),
-            this_node.is_bootstrap_node(),
-            cryptde(),
-        );
+        let this_node = make_node_record(1234, true, false);
+        let target_node = make_node_record(2345, true, false);
+        let database = db_from_node(&this_node);
 
         let subject = GossipProducerReal::new();
 
@@ -155,927 +80,108 @@ mod tests {
     }
 
     #[test]
-    fn database_produces_gossip_with_standard_gossip_handler_and_well_connected_target() {
-        let mut this_node = make_node_record(1234, true, 100, false);
-        let mut first_neighbor = make_node_record(2345, true, 100, false);
-        let second_neighbor = make_node_record(3456, true, 100, true);
-        let mut target = make_node_record(4567, false, 100, false);
-        this_node
-            .neighbors_mut()
-            .push(first_neighbor.public_key().clone());
-        this_node
-            .neighbors_mut()
-            .push(second_neighbor.public_key().clone());
-        first_neighbor
-            .neighbors_mut()
-            .push(second_neighbor.public_key().clone());
-        first_neighbor
-            .neighbors_mut()
-            .push(target.public_key().clone());
-        target
-            .neighbors_mut()
-            .push(second_neighbor.public_key().clone());
-
-        let mut database = NeighborhoodDatabase::new(
-            this_node.public_key(),
-            this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.earning_wallet(),
-            this_node.consuming_wallet(),
-            rate_pack(100),
-            this_node.is_bootstrap_node(),
-            &CryptDENull::from(this_node.public_key()),
-        );
-
-        database.add_node(&first_neighbor).unwrap();
-        database.add_node(&second_neighbor).unwrap();
-        database.add_node(&target).unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), first_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), second_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(first_neighbor.public_key(), second_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(first_neighbor.public_key(), target.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(target.public_key(), second_neighbor.public_key())
-            .unwrap();
+    fn produce_reveals_and_conceals_node_addrs_appropriately() {
+        let root_node = make_node_record(1234, true, false);
+        let mut db = db_from_node(&root_node);
+        let target_node_key = &db.add_node(&make_node_record(1235, true, false)).unwrap();
+        let common_neighbor_key = &db.add_node(&make_node_record(1236, true, false)).unwrap();
+        let root_full_neighbor_key = &db.add_node(&make_node_record(1237, true, false)).unwrap();
+        let target_full_neighbor_key = &db.add_node(&make_node_record(1238, false, false)).unwrap();
+        let knows_target_key = &db.add_node(&make_node_record(1239, false, false)).unwrap();
+        let target_knows_key = &db.add_node(&make_node_record(1240, false, false)).unwrap();
+        let knows_root_key = &db.add_node(&make_node_record(1241, false, false)).unwrap();
+        let root_knows_key = &db.add_node(&make_node_record(1242, true, false)).unwrap();
+        let root_bootstrap_key = &db.add_node(&make_node_record(1243, true, true)).unwrap();
+        let target_bootstrap_key = &db.add_node(&make_node_record(1244, false, true)).unwrap();
+        db.add_arbitrary_full_neighbor(root_node.public_key(), target_node_key);
+        db.add_arbitrary_full_neighbor(root_node.public_key(), common_neighbor_key);
+        db.add_arbitrary_full_neighbor(target_node_key, common_neighbor_key);
+        db.add_arbitrary_full_neighbor(root_node.public_key(), root_full_neighbor_key);
+        db.add_arbitrary_full_neighbor(target_node_key, target_full_neighbor_key);
+        db.add_arbitrary_half_neighbor(knows_target_key, target_node_key);
+        db.add_arbitrary_half_neighbor(knows_root_key, root_node.public_key());
+        db.add_arbitrary_half_neighbor(target_node_key, target_knows_key);
+        db.add_arbitrary_half_neighbor(root_node.public_key(), root_knows_key);
+        db.add_arbitrary_full_neighbor(target_node_key, target_bootstrap_key);
+        db.add_arbitrary_full_neighbor(root_node.public_key(), root_bootstrap_key);
         let subject = GossipProducerReal::new();
+        let db = db.clone();
 
-        let result = subject.produce(&database, target.public_key());
+        let gossip = subject.produce(&db, target_node_key);
 
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&this_node, false),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&first_neighbor, true),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&second_neighbor, true),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&target, false),
-        );
-        assert_eq!(result.node_records.len(), 4);
-    }
-
-    #[test]
-    fn database_produces_gossip_with_badly_connected_target() {
-        let mut this_node = make_node_record(1234, true, 100, false);
-        let mut first_neighbor = make_node_record(2345, true, 100, false);
-        let second_neighbor = make_node_record(3456, true, 100, true);
-        let target = make_node_record(4567, false, 100, false);
-        this_node
-            .neighbors_mut()
-            .push(first_neighbor.public_key().clone());
-        this_node
-            .neighbors_mut()
-            .push(second_neighbor.public_key().clone());
-        first_neighbor
-            .neighbors_mut()
-            .push(second_neighbor.public_key().clone());
-        let mut database = NeighborhoodDatabase::new(
-            this_node.public_key(),
-            this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.earning_wallet(),
-            this_node.consuming_wallet(),
-            rate_pack(100),
-            this_node.is_bootstrap_node(),
-            &CryptDENull::from(this_node.public_key()),
-        );
-        database.add_node(&first_neighbor).unwrap();
-        database.add_node(&second_neighbor).unwrap();
-        database.add_node(&target).unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), first_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), second_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(first_neighbor.public_key(), second_neighbor.public_key())
-            .unwrap();
-        let subject = GossipProducerReal::new();
-
-        let result = subject.produce(&database, target.public_key());
-
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&this_node, false),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&first_neighbor, false),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&second_neighbor, false),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&target, false),
-        );
-        assert_eq!(result.node_records.len(), 4);
-    }
-
-    #[test]
-    fn gossip_producer_filters_out_target_connections_to_bootstrap_nodes() {
-        //but keeps target connections from bootstrap nodes
-        let mut this_node = make_node_record(1234, true, 100, false);
-        let mut bootstrap = make_node_record(3456, true, 100, true);
-        let mut target = make_node_record(4567, false, 100, false);
-        this_node
-            .neighbors_mut()
-            .push(bootstrap.public_key().clone());
-        bootstrap.neighbors_mut().push(target.public_key().clone());
-        target.neighbors_mut().push(bootstrap.public_key().clone());
-        let mut database = NeighborhoodDatabase::new(
-            this_node.public_key(),
-            this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.earning_wallet(),
-            this_node.consuming_wallet(),
-            rate_pack(100),
-            this_node.is_bootstrap_node(),
-            &CryptDENull::from(this_node.public_key()),
-        );
-        database.add_node(&bootstrap).unwrap();
-        database.add_node(&target).unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), bootstrap.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(target.public_key(), bootstrap.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(bootstrap.public_key(), target.public_key())
-            .unwrap();
-        let subject = GossipProducerReal::new();
-
-        let result = subject.produce(&database, target.public_key());
-
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&this_node, false),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&bootstrap, true),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&target, false),
-        );
-        assert_eq!(result.node_records.len(), 3);
-    }
-
-    #[test]
-    fn gossip_producer_masks_ip_addrs_for_nodes_not_directly_connected_to_target() {
-        let mut this_node = make_node_record(1234, true, 100, false);
-        let mut first_neighbor = make_node_record(2345, true, 100, false);
-        let second_neighbor = make_node_record(3456, true, 100, false);
-        let mut target = make_node_record(4567, false, 100, false);
-        this_node
-            .neighbors_mut()
-            .push(first_neighbor.public_key().clone());
-        this_node
-            .neighbors_mut()
-            .push(second_neighbor.public_key().clone());
-        first_neighbor
-            .neighbors_mut()
-            .push(second_neighbor.public_key().clone());
-        first_neighbor
-            .neighbors_mut()
-            .push(target.public_key().clone());
-        target
-            .neighbors_mut()
-            .push(second_neighbor.public_key().clone());
-        let mut database = NeighborhoodDatabase::new(
-            this_node.public_key(),
-            this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.earning_wallet(),
-            this_node.consuming_wallet(),
-            rate_pack(100),
-            this_node.is_bootstrap_node(),
-            &CryptDENull::from(this_node.public_key()),
-        );
-        database.add_node(&first_neighbor).unwrap();
-        database.add_node(&second_neighbor).unwrap();
-        database.add_node(&target).unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), first_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), second_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(first_neighbor.public_key(), second_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(first_neighbor.public_key(), target.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(target.public_key(), second_neighbor.public_key())
-            .unwrap();
-        let subject = GossipProducerReal::new();
-
-        let result = subject.produce(&database, target.public_key());
-
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&this_node, false),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&first_neighbor, true),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&second_neighbor, true),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&target, false),
-        );
-        assert_eq!(result.node_records.len(), 4);
-    }
-
-    #[test]
-    fn gossip_producer_reveals_ip_addr_to_introduce_target_to_more_nodes() {
-        let mut this_node = make_node_record(1234, true, 100, false);
-        let mut first_neighbor = make_node_record(2345, true, 100, false);
-        let mut second_neighbor = make_node_record(3456, true, 100, false);
-        let mut target = make_node_record(4567, true, 100, false);
-        this_node
-            .neighbors_mut()
-            .push(first_neighbor.public_key().clone());
-        this_node
-            .neighbors_mut()
-            .push(second_neighbor.public_key().clone());
-        this_node.neighbors_mut().push(target.public_key().clone());
-        first_neighbor
-            .neighbors_mut()
-            .push(this_node.public_key().clone());
-        first_neighbor
-            .neighbors_mut()
-            .push(second_neighbor.public_key().clone());
-        second_neighbor
-            .neighbors_mut()
-            .push(first_neighbor.public_key().clone());
-        second_neighbor
-            .neighbors_mut()
-            .push(this_node.public_key().clone());
-        target.neighbors_mut().push(this_node.public_key().clone());
-        let mut database = NeighborhoodDatabase::new(
-            this_node.public_key(),
-            this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.earning_wallet(),
-            this_node.consuming_wallet(),
-            rate_pack(100),
-            this_node.is_bootstrap_node(),
-            &CryptDENull::from(this_node.public_key()),
-        );
-        database.add_node(&first_neighbor).unwrap();
-        database.add_node(&second_neighbor).unwrap();
-        database.add_node(&target).unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), first_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(first_neighbor.public_key(), this_node.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), second_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(second_neighbor.public_key(), this_node.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(first_neighbor.public_key(), second_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(second_neighbor.public_key(), first_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), target.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(target.public_key(), this_node.public_key())
-            .unwrap();
-
-        let subject = GossipProducerReal::new();
-
-        let result = subject.produce(&database, target.public_key());
-
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&first_neighbor, true),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&this_node, true),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&second_neighbor, true),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&target, false),
-        );
-        assert_eq!(result.node_records.len(), 4);
-    }
-
-    #[test]
-    fn gossip_producer_does_not_introduce_bootstrap_target_to_more_nodes() {
-        let mut this_node = make_node_record(1234, true, 100, false);
-        let mut first_neighbor = make_node_record(2345, true, 100, false);
-        let mut second_neighbor = make_node_record(3456, true, 100, false);
-        let mut target = make_node_record(4567, true, 100, true);
-        this_node
-            .neighbors_mut()
-            .push(first_neighbor.public_key().clone());
-        this_node
-            .neighbors_mut()
-            .push(second_neighbor.public_key().clone());
-        this_node.neighbors_mut().push(target.public_key().clone());
-        first_neighbor
-            .neighbors_mut()
-            .push(this_node.public_key().clone());
-        first_neighbor
-            .neighbors_mut()
-            .push(second_neighbor.public_key().clone());
-        second_neighbor
-            .neighbors_mut()
-            .push(first_neighbor.public_key().clone());
-        second_neighbor
-            .neighbors_mut()
-            .push(this_node.public_key().clone());
-        target.neighbors_mut().push(this_node.public_key().clone());
-        let mut database = NeighborhoodDatabase::new(
-            this_node.public_key(),
-            this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.earning_wallet(),
-            this_node.consuming_wallet(),
-            rate_pack(100),
-            this_node.is_bootstrap_node(),
-            &CryptDENull::from(this_node.public_key()),
-        );
-        database.add_node(&first_neighbor).unwrap();
-        database.add_node(&second_neighbor).unwrap();
-        database.add_node(&target).unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), first_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(first_neighbor.public_key(), this_node.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), second_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(second_neighbor.public_key(), this_node.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(first_neighbor.public_key(), second_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(second_neighbor.public_key(), first_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), target.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(target.public_key(), this_node.public_key())
-            .unwrap();
-
-        let subject = GossipProducerReal::new();
-
-        let result = subject.produce(&database, target.public_key());
-
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&this_node, true),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&first_neighbor, false),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&second_neighbor, false),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&target, false),
-        );
-        assert_eq!(result.node_records.len(), 4);
-    }
-
-    #[test]
-    fn gossip_producer_makes_introductions_based_on_targets_number_of_connections_to_standard_nodes_only(
-    ) {
-        let mut this_node = make_node_record(1234, true, 100, false);
-        let mut first_neighbor = make_node_record(2345, true, 100, false);
-        let mut second_neighbor = make_node_record(3456, true, 100, false);
-        let first_bootstrap = make_node_record(5678, false, 100, true);
-        let second_bootstrap = make_node_record(6789, false, 100, true);
-        let third_bootstrap = make_node_record(7890, false, 100, true);
-        let mut target = make_node_record(4567, true, 100, false);
-        this_node
-            .neighbors_mut()
-            .push(first_neighbor.public_key().clone());
-        this_node
-            .neighbors_mut()
-            .push(second_neighbor.public_key().clone());
-        this_node.neighbors_mut().push(target.public_key().clone());
-        first_neighbor
-            .neighbors_mut()
-            .push(this_node.public_key().clone());
-        first_neighbor
-            .neighbors_mut()
-            .push(second_neighbor.public_key().clone());
-        second_neighbor
-            .neighbors_mut()
-            .push(first_neighbor.public_key().clone());
-        second_neighbor
-            .neighbors_mut()
-            .push(this_node.public_key().clone());
-        target.neighbors_mut().push(this_node.public_key().clone());
-        target
-            .neighbors_mut()
-            .push(first_bootstrap.public_key().clone());
-        target
-            .neighbors_mut()
-            .push(second_bootstrap.public_key().clone());
-        target
-            .neighbors_mut()
-            .push(third_bootstrap.public_key().clone());
-        let mut database = NeighborhoodDatabase::new(
-            this_node.public_key(),
-            this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.earning_wallet(),
-            this_node.consuming_wallet(),
-            rate_pack(100),
-            this_node.is_bootstrap_node(),
-            &CryptDENull::from(this_node.public_key()),
-        );
-        database.add_node(&first_neighbor).unwrap();
-        database.add_node(&second_neighbor).unwrap();
-        database.add_node(&target).unwrap();
-        database.add_node(&first_bootstrap).unwrap();
-        database.add_node(&second_bootstrap).unwrap();
-        database.add_node(&third_bootstrap).unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), first_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(first_neighbor.public_key(), this_node.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), second_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(second_neighbor.public_key(), this_node.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(first_neighbor.public_key(), second_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(second_neighbor.public_key(), first_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), target.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(target.public_key(), this_node.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(target.public_key(), first_bootstrap.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(target.public_key(), second_bootstrap.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(target.public_key(), third_bootstrap.public_key())
-            .unwrap();
-
-        let subject = GossipProducerReal::new();
-
-        let result = subject.produce(&database, target.public_key());
-
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&this_node, true),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&first_neighbor, true),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&second_neighbor, true),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&target, false),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&first_bootstrap, false),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&second_bootstrap, false),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&third_bootstrap, false),
-        );
-        assert_eq!(result.node_records.len(), 7);
-    }
-
-    #[test]
-    fn gossip_producer_introduces_target_to_less_connected_neighbors() {
-        let mut this_node = make_node_record(1234, true, 100, false);
-        let mut first_neighbor = make_node_record(2345, true, 100, false);
-        let mut second_neighbor = make_node_record(3456, true, 100, false);
-        let mut target = make_node_record(4567, true, 100, false);
-        let target_neighbor = make_node_record(5678, true, 100, false);
-        this_node
-            .neighbors_mut()
-            .push(first_neighbor.public_key().clone());
-        this_node
-            .neighbors_mut()
-            .push(target_neighbor.public_key().clone());
-        this_node
-            .neighbors_mut()
-            .push(second_neighbor.public_key().clone());
-        this_node.neighbors_mut().push(target.public_key().clone());
-        first_neighbor
-            .neighbors_mut()
-            .push(this_node.public_key().clone());
-        first_neighbor
-            .neighbors_mut()
-            .push(second_neighbor.public_key().clone());
-        first_neighbor
-            .neighbors_mut()
-            .push(target_neighbor.public_key().clone());
-        second_neighbor
-            .neighbors_mut()
-            .push(first_neighbor.public_key().clone());
-        second_neighbor
-            .neighbors_mut()
-            .push(this_node.public_key().clone());
-        target.neighbors_mut().push(this_node.public_key().clone());
-        target
-            .neighbors_mut()
-            .push(target_neighbor.public_key().clone());
-
-        let mut database = NeighborhoodDatabase::new(
-            this_node.public_key(),
-            this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.earning_wallet(),
-            this_node.consuming_wallet(),
-            rate_pack(100),
-            this_node.is_bootstrap_node(),
-            &CryptDENull::from(this_node.public_key()),
-        );
-        database.add_node(&first_neighbor).unwrap();
-        database.add_node(&second_neighbor).unwrap();
-        database.add_node(&target).unwrap();
-        database.add_node(&target_neighbor).unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), first_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), target_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(first_neighbor.public_key(), this_node.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(first_neighbor.public_key(), target_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), second_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(second_neighbor.public_key(), this_node.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(first_neighbor.public_key(), second_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(second_neighbor.public_key(), first_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), target.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(target.public_key(), this_node.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(target.public_key(), target_neighbor.public_key())
-            .unwrap();
-
-        let subject = GossipProducerReal::new();
-
-        let result = subject.produce(&database, target.public_key());
-
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&this_node, true),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&first_neighbor, false),
-        ); // this is the introduction because first_neighbor has fewer connections than second_neighbor
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&second_neighbor, true),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&target, false),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&target_neighbor, true),
-        );
-        assert_eq!(result.node_records.len(), 5);
-    }
-
-    #[test]
-    fn gossip_producer_does_not_introduce_target_to_bootstrap_nodes() {
-        let mut this_node = make_node_record(1234, true, 100, false);
-        let mut first_neighbor = make_node_record(2345, true, 100, false);
-        let mut second_neighbor = make_node_record(3456, true, 100, true);
-        let mut target = make_node_record(4567, true, 100, false);
-        this_node
-            .neighbors_mut()
-            .push(first_neighbor.public_key().clone());
-        this_node
-            .neighbors_mut()
-            .push(second_neighbor.public_key().clone());
-        this_node.neighbors_mut().push(target.public_key().clone());
-        first_neighbor
-            .neighbors_mut()
-            .push(this_node.public_key().clone());
-        first_neighbor
-            .neighbors_mut()
-            .push(second_neighbor.public_key().clone());
-        second_neighbor
-            .neighbors_mut()
-            .push(first_neighbor.public_key().clone());
-        second_neighbor
-            .neighbors_mut()
-            .push(this_node.public_key().clone());
-        target.neighbors_mut().push(this_node.public_key().clone());
-        let mut database = NeighborhoodDatabase::new(
-            this_node.public_key(),
-            this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.earning_wallet(),
-            this_node.consuming_wallet(),
-            rate_pack(100),
-            this_node.is_bootstrap_node(),
-            &CryptDENull::from(this_node.public_key()),
-        );
-        database.add_node(&first_neighbor).unwrap();
-        database.add_node(&second_neighbor).unwrap();
-        database.add_node(&target).unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), first_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(first_neighbor.public_key(), this_node.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), second_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(second_neighbor.public_key(), this_node.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(first_neighbor.public_key(), second_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(second_neighbor.public_key(), first_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), target.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(target.public_key(), this_node.public_key())
-            .unwrap();
-
-        let subject = GossipProducerReal::new();
-
-        let result = subject.produce(&database, target.public_key());
-
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&this_node, true),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&first_neighbor, true),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&second_neighbor, false),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&target, false),
-        );
-        assert_eq!(result.node_records.len(), 4);
-    }
-
-    #[test]
-    fn gossip_producer_does_not_introduce_target_to_more_nodes_than_it_needs() {
-        let mut this_node = make_node_record(1234, true, 100, false);
-        let mut first_neighbor = make_node_record(2345, true, 100, false);
-        let mut second_neighbor = make_node_record(3456, true, 100, false);
-        let mut target = make_node_record(4567, true, 100, false);
-        let target_neighbor = make_node_record(5678, true, 100, false);
-        this_node
-            .neighbors_mut()
-            .push(first_neighbor.public_key().clone());
-        this_node
-            .neighbors_mut()
-            .push(second_neighbor.public_key().clone());
-        this_node
-            .neighbors_mut()
-            .push(target_neighbor.public_key().clone());
-        this_node.neighbors_mut().push(target.public_key().clone());
-        first_neighbor
-            .neighbors_mut()
-            .push(this_node.public_key().clone());
-        first_neighbor
-            .neighbors_mut()
-            .push(second_neighbor.public_key().clone());
-        second_neighbor
-            .neighbors_mut()
-            .push(first_neighbor.public_key().clone());
-        second_neighbor
-            .neighbors_mut()
-            .push(this_node.public_key().clone());
-        target.neighbors_mut().push(this_node.public_key().clone());
-        target
-            .neighbors_mut()
-            .push(target_neighbor.public_key().clone());
-        let mut database = NeighborhoodDatabase::new(
-            this_node.public_key(),
-            this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.earning_wallet(),
-            this_node.consuming_wallet(),
-            rate_pack(100),
-            this_node.is_bootstrap_node(),
-            &CryptDENull::from(this_node.public_key()),
-        );
-        database.add_node(&first_neighbor).unwrap();
-        database.add_node(&second_neighbor).unwrap();
-        database.add_node(&target).unwrap();
-        database.add_node(&target_neighbor).unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), first_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(first_neighbor.public_key(), this_node.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), second_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(second_neighbor.public_key(), this_node.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), target_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(first_neighbor.public_key(), second_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(second_neighbor.public_key(), first_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), target.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(target.public_key(), this_node.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(target.public_key(), target_neighbor.public_key())
-            .unwrap();
-
-        let subject = GossipProducerReal::new();
-
-        let result = subject.produce(&database, target.public_key());
-
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&this_node, true),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&target, false),
-        );
-        assert_contains(
-            &result.node_records,
-            &GossipNodeRecord::from(&target_neighbor, true),
-        );
-
-        // first_neighbor and second_neighbor have the same number of connections, so choosing which to introduce is non-deterministic
-        let first_neighbor_gossip = result
+        type Digest = (PublicKey, Vec<u8>, bool, HashSet<PublicKey>);
+        let gnr_digest = |gnr: GossipNodeRecord| {
+            (
+                gnr.public_key(),
+                gnr.public_key().into(),
+                gnr.inner.node_addr_opt.is_some(),
+                gnr.inner.neighbors,
+            )
+        };
+        let node_digest = |key: &PublicKey, has_ip: bool| {
+            (
+                key.clone(),
+                key.clone().into(),
+                has_ip,
+                db.node_by_key(key)
+                    .unwrap()
+                    .half_neighbor_keys()
+                    .into_iter()
+                    .map(|kr| kr.clone())
+                    .collect::<HashSet<PublicKey>>(),
+            )
+        };
+        let mut expected_gossip_digests = vec![
+            node_digest(root_node.public_key(), true),
+            node_digest(common_neighbor_key, true),
+            node_digest(root_full_neighbor_key, false),
+            node_digest(target_full_neighbor_key, false),
+            node_digest(knows_target_key, false),
+            node_digest(target_knows_key, false),
+            node_digest(knows_root_key, false),
+            node_digest(root_knows_key, false),
+            node_digest(root_bootstrap_key, false),
+            node_digest(target_bootstrap_key, false),
+        ];
+        expected_gossip_digests.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+        let mut actual_gossip_digests = gossip
             .node_records
-            .iter()
-            .filter(|gnr| gnr.inner.public_key == *first_neighbor.public_key())
-            .next()
-            .unwrap();
-        let second_neighbor_gossip = result
-            .node_records
-            .iter()
-            .filter(|gnr| gnr.inner.public_key == *second_neighbor.public_key())
-            .next()
-            .unwrap();
-        assert_ne!(
-            first_neighbor_gossip.inner.node_addr_opt.is_some(),
-            second_neighbor_gossip.inner.node_addr_opt.is_some(),
-            "exactly one neighbor should be introduced (both or neither actually were)"
-        );
-
-        assert_eq!(result.node_records.len(), 5);
+            .into_iter()
+            .map(|gnr| gnr_digest(gnr))
+            .collect::<Vec<Digest>>();
+        actual_gossip_digests.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(expected_gossip_digests, actual_gossip_digests);
     }
-
-    // TODO test about assuming that unknown target neighbors are not bootstrap when deciding how many introductions to make
-    // ^^^ (not possible to set up yet because we can't add_arbitrary_neighbor a key for target that we don't already have in the DB as a NodeRecord)
-    // This test will drive out the unimplemented!() in choose_introducees
 
     #[test]
     fn produce_logs_about_the_resulting_gossip() {
         init_test_logging();
-        let this_node = make_node_record(1234, true, 100, true);
-        let first_neighbor = make_node_record(2345, true, 100, false);
-        let target = make_node_record(4567, true, 100, false);
-        let mut database = NeighborhoodDatabase::new(
-            this_node.public_key(),
-            this_node.node_addr_opt().as_ref().unwrap(),
-            this_node.earning_wallet(),
-            this_node.consuming_wallet(),
-            rate_pack(100),
-            this_node.is_bootstrap_node(),
-            &CryptDENull::from(this_node.public_key()),
-        );
-        database.add_node(&first_neighbor).unwrap();
-        database.add_node(&target).unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), first_neighbor.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(first_neighbor.public_key(), this_node.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(first_neighbor.public_key(), target.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(this_node.public_key(), target.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(target.public_key(), this_node.public_key())
-            .unwrap();
-        database
-            .add_arbitrary_neighbor(target.public_key(), first_neighbor.public_key())
-            .unwrap();
 
+        let this_node = make_node_record(1234, true, false);
+
+        let mut database = db_from_node(&this_node);
+        let first_neighbor = &database
+            .add_node(&make_node_record(2345, true, false))
+            .unwrap();
+        let target = &database
+            .add_node(&make_node_record(4567, true, false))
+            .unwrap();
+        database.add_arbitrary_full_neighbor(this_node.public_key(), first_neighbor);
+        database.add_arbitrary_full_neighbor(this_node.public_key(), target);
+        database.add_arbitrary_full_neighbor(first_neighbor, target);
         let subject = GossipProducerReal::new();
 
-        let _result = subject.produce(&database, target.public_key());
+        let _result = subject.produce(&database, target);
 
-        TestLogHandler::new().await_log_containing("Created Gossip: digraph db { ", 1000);
-        TestLogHandler::new().await_log_containing(
-            "\"AQIDBA\" [label=\"AQIDBA\\n1.2.3.4:1234\\nbootstrap\"] [style=filled];",
-            500,
+        TestLogHandler::new().exists_log_containing("Created Gossip: digraph db { ");
+        TestLogHandler::new().exists_log_containing(
+            "\"AQIDBA\" [label=\"v0\\nAQIDBA\\n1.2.3.4:1234\"] [style=filled];",
         );
+        TestLogHandler::new().exists_log_containing("\"BAUGBw\" [label=\"BAUGBw\"] [shape=none];");
         TestLogHandler::new()
-            .await_log_containing("\"BAUGBw\" [label=\"BAUGBw\"] [shape=box];", 1000);
-        TestLogHandler::new()
-            .await_log_containing("\"AgMEBQ\" [label=\"AgMEBQ\\n2.3.4.5:2345\"];", 1000);
-        TestLogHandler::new()
-            .await_log_containing("\"AgMEBQ\" -> \"AQIDBA\" [style=dashed];", 1000);
-        TestLogHandler::new()
-            .await_log_containing("\"BAUGBw\" -> \"AQIDBA\" [style=dashed];", 1000);
-        TestLogHandler::new().await_log_containing("\"BAUGBw\" -> \"AgMEBQ\";", 1000);
-        TestLogHandler::new()
-            .await_log_containing("\"AQIDBA\" -> \"AgMEBQ\" [style=dashed];", 1000);
-        TestLogHandler::new()
-            .await_log_containing("\"AQIDBA\" -> \"BAUGBw\" [style=dashed];", 1000);
+            .exists_log_containing("\"AgMEBQ\" [label=\"v0\\nAgMEBQ\\n2.3.4.5:2345\"];");
+        TestLogHandler::new().exists_log_containing("\"AgMEBQ\" -> \"BAUGBw\";");
+        TestLogHandler::new().exists_log_containing("\"AQIDBA\" -> \"AgMEBQ\";");
+        TestLogHandler::new().exists_log_containing("\"AQIDBA\" -> \"BAUGBw\";");
     }
 }

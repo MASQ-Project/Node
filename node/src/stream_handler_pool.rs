@@ -289,7 +289,8 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
             let tell_neighborhood = self.tell_neighborhood.clone().expect("Internal error");
 
             self.stream_writers.insert(peer_addr, None);
-            let logger = self.logger.clone();
+            let logger_m = self.logger.clone();
+            let logger_me = self.logger.clone();
             let clandestine_discriminator_factories =
                 self.clandestine_discriminator_factories.clone();
             let msg_data_len = msg.context.data.len();
@@ -302,6 +303,7 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
 
             let connect_future = self.stream_connector.connect(peer_addr, &self.logger)
                 .map(move |connection_info| {
+                    logger_m.debug (format!("Connection attempt to {} succeeded", peer_addr));
                     let origin_port = connection_info.local_addr.port();
                     add_stream_sub.try_send(AddStreamMsg {
                         connection_info,
@@ -312,7 +314,7 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
                     ()
                 })
                 .map_err(move |err| { // connection was unsuccessful
-                    logger.error(format!("Stream to {} does not exist and could not be connected; discarding {} bytes: {}", peer_addr, msg_data_len, err));
+                    logger_me.error(format!("Stream to {} does not exist and could not be connected; discarding {} bytes: {}", peer_addr, msg_data_len, err));
                     remove_sub.try_send(RemoveStreamMsg { socket_addr: peer_addr_e }).expect("StreamHandlerPool is dead");
 
                     let remove_node_message = RemoveNeighborMessage { public_key: key };
@@ -320,6 +322,8 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
                     ()
                 });
 
+            self.logger
+                .debug(format!("Beginning connection attempt to {}", peer_addr));
             tokio::spawn(connect_future);
         }
 

@@ -1,13 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use super::live_cores_package::LiveCoresPackage;
-use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
-use crate::sub_lib::cryptde::PlainData;
-use crate::sub_lib::cryptde::PublicKey;
+use crate::sub_lib::cryptde::{encodex, CryptDE};
 use crate::sub_lib::dispatcher::Endpoint;
 use crate::sub_lib::dispatcher::InboundClientData;
-use crate::sub_lib::hopper::IncipientCoresPackage;
+use crate::sub_lib::hopper::{IncipientCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use actix::Recipient;
@@ -17,8 +15,6 @@ use std::str::FromStr;
 
 pub struct ConsumingService {
     cryptde: &'static dyn CryptDE,
-    _is_bootstrap_node: bool,
-    // TODO: Remember to check this and refuse to consume if set
     to_dispatcher: Recipient<TransmitDataMsg>,
     to_hopper: Recipient<InboundClientData>,
     logger: Logger,
@@ -27,17 +23,47 @@ pub struct ConsumingService {
 impl ConsumingService {
     pub fn new(
         cryptde: &'static dyn CryptDE,
-        is_bootstrap_node: bool,
         to_dispatcher: Recipient<TransmitDataMsg>,
         to_hopper: Recipient<InboundClientData>,
     ) -> ConsumingService {
         ConsumingService {
             cryptde,
-            _is_bootstrap_node: is_bootstrap_node,
             to_dispatcher,
             to_hopper,
             logger: Logger::new("ConsumingService"),
         }
+    }
+
+    pub fn consume_no_lookup(&self, incipient_cores_package: NoLookupIncipientCoresPackage) {
+        self.logger.debug(format!(
+            "Received NoLookupIncipientCoresPackage with {}-byte payload",
+            incipient_cores_package.payload.len()
+        ));
+        let target_key = incipient_cores_package.public_key.clone();
+        let target_node_addr = incipient_cores_package.node_addr.clone();
+        match LiveCoresPackage::from_no_lookup_incipient(incipient_cores_package, self.cryptde) {
+            Ok((live_package, _)) => {
+                let encrypted_package = match encodex(self.cryptde, &target_key, &live_package) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        self.logger.error(format!(
+                            "Could not accept CORES package for transmission: {}",
+                            e
+                        ));
+                        return;
+                    }
+                };
+                // This port should eventually be chosen by the Traffic Analyzer somehow.
+                let socket_addrs: Vec<SocketAddr> = target_node_addr.into();
+                self.launch_lcp(encrypted_package, Endpoint::Socket(socket_addrs[0]));
+            }
+            Err(e) => {
+                self.logger.error(format!(
+                    "Could not accept CORES package for transmission: {}",
+                    e
+                ));
+            }
+        };
     }
 
     pub fn consume(&self, incipient_cores_package: IncipientCoresPackage) {
@@ -47,54 +73,27 @@ impl ConsumingService {
         ));
         match LiveCoresPackage::from_incipient(incipient_cores_package, self.cryptde.borrow()) {
             Ok((live_package, next_node_key)) => {
-                let encrypted_package =
-                    match self.serialize_and_encrypt_lcp(live_package, &next_node_key) {
-                        Ok(p) => p,
-                        Err(_) => {
-                            // TODO what should we do here? (nothing is unbound --so we don't need to blow up-- but we can't send this package)
-                            return;
-                        }
-                    };
-
-                self.launch_lcp(encrypted_package, next_node_key);
+                let encrypted_package = match encodex(self.cryptde, &next_node_key, &live_package) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        self.logger.error(format!("Couldn't encode package: {}", e));
+                        return;
+                    }
+                };
+                self.launch_lcp(encrypted_package, Endpoint::Key(next_node_key));
             }
             Err(e) => self.logger.error(e),
         };
     }
 
-    fn serialize_and_encrypt_lcp(
-        &self,
-        live_package: LiveCoresPackage,
-        next_node_key: &PublicKey,
-    ) -> Result<CryptData, ()> {
-        let serialized_package = match serde_cbor::ser::to_vec(&live_package) {
-            Ok(package) => package,
-            Err(e) => {
-                self.logger
-                    .error(format!("Couldn't serialize package: {}", e));
-                return Err(());
+    fn launch_lcp(&self, encrypted_package: CryptData, next_stop: Endpoint) {
+        match &next_stop {
+            Endpoint::Key(public_key) if &self.cryptde.public_key() == public_key => {
+                self.launch_zero_hop_lcp(encrypted_package);
             }
-        };
-
-        let encrypted_package = match self
-            .cryptde
-            .encode(&next_node_key, &PlainData::new(&serialized_package[..]))
-        {
-            Ok(package) => package,
-            Err(e) => {
-                self.logger
-                    .error(format!("Couldn't encode package: {:?}", e));
-                return Err(());
+            _ => {
+                self.launch_conventional_lcp(encrypted_package, next_stop);
             }
-        };
-        Ok(encrypted_package)
-    }
-
-    fn launch_lcp(&self, encrypted_package: CryptData, next_node_key: PublicKey) {
-        if self.cryptde.public_key() == next_node_key {
-            self.launch_zero_hop_lcp(encrypted_package);
-        } else {
-            self.launch_conventional_lcp(encrypted_package, next_node_key);
         }
     }
 
@@ -117,9 +116,9 @@ impl ConsumingService {
             .expect("Hopper is dead");
     }
 
-    fn launch_conventional_lcp(&self, encrypted_package: CryptData, next_node_key: PublicKey) {
+    fn launch_conventional_lcp(&self, encrypted_package: CryptData, next_stop: Endpoint) {
         let transmit_msg = TransmitDataMsg {
-            endpoint: Endpoint::Key(next_node_key),
+            endpoint: next_stop,
             last_data: false, // Hopper-to-Hopper streams are never remotely killed
             data: encrypted_package.into(),
             sequence_number: None,
@@ -137,13 +136,10 @@ impl ConsumingService {
 
 #[cfg(test)]
 mod tests {
-    use super::super::hopper::Hopper;
     use super::*;
+    use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::dispatcher::Component;
-    use crate::sub_lib::hopper::MessageType;
-    use crate::sub_lib::hopper::{ExpiredCoresPackage, HopperConfig};
-    use crate::sub_lib::peer_actors::BindMessage;
-    use crate::sub_lib::proxy_server::ClientRequestPayload;
+    use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
     use crate::sub_lib::wallet::Wallet;
@@ -151,25 +147,83 @@ mod tests {
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
-    use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::test_utils::zero_hop_route_response;
     use crate::test_utils::test_utils::{
-        cryptde, make_meaningless_message_type, make_request_payload,
+        cryptde, make_meaningless_message_type, zero_hop_route_response,
     };
-    use actix::Actor;
-    use actix::Addr;
     use actix::System;
     use std::net::IpAddr;
     use std::str::FromStr;
-    use std::thread;
 
-    #[test] // TODO: Rewrite test so that subject is ConsumingService rather than Hopper
+    #[test]
+    fn converts_no_lookup_incipient_message_to_live_and_sends_to_dispatcher() {
+        let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
+        let target_key = PublicKey::new(&[1, 2]);
+        let target_node_addr =
+            NodeAddr::new(&IpAddr::from_str("1.2.1.2").unwrap(), &vec![1212, 2121]);
+        let package = NoLookupIncipientCoresPackage::new(
+            cryptde(),
+            &target_key,
+            &target_node_addr,
+            make_meaningless_message_type(),
+        )
+        .unwrap();
+        let system = System::new("");
+        let peer_actors = peer_actors_builder().dispatcher(dispatcher).build();
+        let subject = ConsumingService::new(
+            cryptde(),
+            peer_actors.dispatcher.from_dispatcher_client,
+            peer_actors.hopper.from_dispatcher,
+        );
+
+        subject.consume_no_lookup(package.clone());
+
+        System::current().stop();
+        system.run();
+        let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
+        let transmit_data_msg = dispatcher_recording.get_record::<TransmitDataMsg>(0);
+        let (lcp, _) = LiveCoresPackage::from_no_lookup_incipient(package, cryptde()).unwrap();
+        assert_eq!(
+            &TransmitDataMsg {
+                endpoint: Endpoint::Socket(SocketAddr::from_str("1.2.1.2:1212").unwrap()),
+                last_data: false,
+                sequence_number: None,
+                data: encodex(cryptde(), &target_key, &lcp).unwrap().into(),
+            },
+            transmit_data_msg
+        );
+    }
+
+    #[test]
+    fn complains_when_consume_no_lookup_is_given_bad_parameters() {
+        init_test_logging();
+        let blank_key = PublicKey::new(b"");
+        let target_node_addr =
+            NodeAddr::new(&IpAddr::from_str("1.2.1.2").unwrap(), &vec![1212, 2121]);
+        let package = NoLookupIncipientCoresPackage {
+            public_key: blank_key.clone(),
+            node_addr: target_node_addr.clone(),
+            payload: CryptData::new(b""),
+        };
+        let system = System::new("");
+        let peer_actors = peer_actors_builder().build();
+        let subject = ConsumingService::new(
+            cryptde(),
+            peer_actors.dispatcher.from_dispatcher_client,
+            peer_actors.hopper.from_dispatcher,
+        );
+
+        subject.consume_no_lookup(package);
+
+        System::current().stop();
+        system.run();
+        TestLogHandler::new ().exists_log_containing ("ERROR: ConsumingService: Could not accept CORES package for transmission: \"Couldn\\'t encode hop: Encryption error: EmptyKey\"");
+    }
+
+    #[test]
     fn converts_incipient_message_to_live_and_sends_to_dispatcher() {
         let cryptde = cryptde();
         let consuming_wallet = Wallet::new("wallet");
-        let dispatcher = Recorder::new();
-        let dispatcher_recording_arc = dispatcher.get_recording();
-        let dispatcher_awaiter = dispatcher.get_awaiter();
+        let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let destination_key = PublicKey::new(&[65, 65, 65]);
         let route = Route::one_way(
             RouteSegment::new(
@@ -183,92 +237,77 @@ mod tests {
         let payload = make_meaningless_message_type();
         let incipient_cores_package =
             IncipientCoresPackage::new(cryptde, route.clone(), payload, &destination_key).unwrap();
-        let incipient_cores_package_a = incipient_cores_package.clone();
-        thread::spawn(move || {
-            let system = System::new("converts_incipient_message_to_live_and_sends_to_dispatcher");
-            let peer_actors = peer_actors_builder().dispatcher(dispatcher).build();
-            let subject = Hopper::new(HopperConfig {
-                cryptde,
-                is_bootstrap_node: false,
-                per_routing_service: 100,
-                per_routing_byte: 200,
-            });
-            let subject_addr: Addr<Hopper> = subject.start();
-            subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        let system = System::new("converts_incipient_message_to_live_and_sends_to_dispatcher");
+        let peer_actors = peer_actors_builder().dispatcher(dispatcher).build();
+        let subject = ConsumingService::new(
+            cryptde,
+            peer_actors.dispatcher.from_dispatcher_client,
+            peer_actors.hopper.from_dispatcher,
+        );
 
-            subject_addr.try_send(incipient_cores_package).unwrap();
+        subject.consume(incipient_cores_package.clone());
 
-            system.run();
-        });
-        dispatcher_awaiter.await_message_count(1);
+        System::current().stop();
+        system.run();
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
         let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
-        let expected_lcp = LiveCoresPackage::from_incipient(incipient_cores_package_a, cryptde)
-            .unwrap()
-            .0;
-        let expected_lcp_ser = PlainData::new(&serde_cbor::ser::to_vec(&expected_lcp).unwrap());
-        let expected_lcp_enc = cryptde.encode(&destination_key, &expected_lcp_ser).unwrap();
+        let (expected_lcp, _) =
+            LiveCoresPackage::from_incipient(incipient_cores_package, cryptde).unwrap();
+        let expected_lcp_enc = encodex(cryptde, &destination_key, &expected_lcp).unwrap();
         assert_eq!(
-            *record,
             TransmitDataMsg {
                 endpoint: Endpoint::Key(destination_key.clone()),
                 last_data: false,
                 sequence_number: None,
                 data: expected_lcp_enc.into(),
-            }
+            },
+            *record,
         );
     }
 
-    #[test] // TODO: Rewrite test so that subject is ConsumingService rather than Hopper
-    fn hopper_sends_incipient_cores_package_to_recipient_component_when_next_hop_key_is_the_same_as_the_public_key_of_this_node(
+    #[test]
+    fn consuming_service_sends_icp_back_to_hopper_when_next_hop_key_is_the_same_as_the_public_key_of_this_node(
     ) {
         let cryptde = cryptde();
-        let (component, component_awaiter, component_recording_arc) = make_recorder();
+        let (hopper, _, hopper_recording_arc) = make_recorder();
         let destination_key = cryptde.public_key();
         let route = zero_hop_route_response(&cryptde.public_key(), cryptde).route;
-        let payload = make_request_payload(0, cryptde);
         let incipient_cores_package = IncipientCoresPackage::new(
             cryptde,
-            route,
-            MessageType::ClientRequest(payload.clone()),
+            route.clone(),
+            make_meaningless_message_type(),
             &destination_key,
         )
         .unwrap();
-        let incipient_cores_package_a = incipient_cores_package.clone();
-        let (lcp, _key) =
-            LiveCoresPackage::from_incipient(incipient_cores_package_a, cryptde).unwrap();
-        thread::spawn(move || {
-            let system = System::new("hopper_sends_incipient_cores_package_to_recipient_component_when_next_hop_key_is_the_same_as_the_public_key_of_this_node");
-            let mut peer_actors = peer_actors_builder().proxy_client(component).build();
-            let subject = Hopper::new(HopperConfig {
-                cryptde,
-                is_bootstrap_node: false,
-                per_routing_service: 100,
-                per_routing_byte: 200,
-            });
-            let subject_addr: Addr<Hopper> = subject.start();
-            let subject_subs = Hopper::make_subs_from(&subject_addr);
-            peer_actors.hopper = subject_subs;
-            subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            subject_addr.try_send(incipient_cores_package).unwrap();
-
-            system.run();
-        });
-        component_awaiter.await_message_count(1);
-        let component_recording = component_recording_arc.lock().unwrap();
-        let record = component_recording.get_record::<ExpiredCoresPackage<ClientRequestPayload>>(0);
-        let expected_ecp = lcp
-            .to_expired(IpAddr::from_str("127.0.0.1").unwrap(), cryptde)
-            .unwrap();
-        assert_eq!(
-            record.immediate_neighbor_ip,
-            expected_ecp.immediate_neighbor_ip
+        let system = System::new("");
+        let peer_actors = peer_actors_builder().hopper(hopper).build();
+        let subject = ConsumingService::new(
+            cryptde,
+            peer_actors.dispatcher.from_dispatcher_client,
+            peer_actors.hopper.from_dispatcher,
         );
-        assert_eq!(record.consuming_wallet, expected_ecp.consuming_wallet);
-        assert_eq!(record.remaining_route, expected_ecp.remaining_route);
-        assert_eq!(record.payload.clone(), payload);
-        assert_eq!(record.payload_len, expected_ecp.payload_len);
+
+        subject.consume(incipient_cores_package.clone());
+
+        System::current().stop();
+        system.run();
+        let hopper_recording = hopper_recording_arc.lock().unwrap();
+        let record = hopper_recording.get_record::<InboundClientData>(0);
+        let (lcp, next_hop) =
+            LiveCoresPackage::from_incipient(incipient_cores_package, cryptde).unwrap();
+        let lcp_enc = encodex(cryptde, &next_hop, &lcp).unwrap();
+        assert_eq!(
+            &InboundClientData {
+                peer_addr: SocketAddr::from_str("127.0.0.1:0").unwrap(),
+                reception_port: None,
+                last_data: false,
+                is_clandestine: true,
+                sequence_number: None,
+                data: lcp_enc.into(),
+            },
+            record
+        );
     }
 
     #[test]
@@ -279,7 +318,7 @@ mod tests {
         let to_dispatcher = peer_actors.dispatcher.from_dispatcher_client;
         let to_hopper = peer_actors.hopper.from_dispatcher;
 
-        let subject = ConsumingService::new(cryptde(), false, to_dispatcher, to_hopper);
+        let subject = ConsumingService::new(cryptde(), to_dispatcher, to_hopper);
 
         subject.consume(
             IncipientCoresPackage::new(

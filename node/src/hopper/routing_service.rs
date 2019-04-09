@@ -62,8 +62,8 @@ impl RoutingService {
     pub fn route(&self, ibcd: InboundClientData) {
         let data_size = ibcd.data.len();
         self.logger.debug(format!(
-            "Received {} bytes of InboundClientData from Dispatcher",
-            data_size
+            "Received {} bytes of InboundClientData ({}) from Dispatcher",
+            data_size, ibcd.peer_addr
         ));
         let sender_ip = ibcd.peer_addr.ip();
         let last_data = ibcd.last_data;
@@ -289,15 +289,13 @@ impl RoutingService {
 
 #[cfg(test)]
 mod tests {
-    use super::super::hopper::Hopper;
     use super::*;
     use crate::neighborhood::gossip::{Gossip, GossipBuilder};
     use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
     use crate::sub_lib::cryptde::{encodex, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::hopper::IncipientCoresPackage;
-    use crate::sub_lib::hopper::{HopperConfig, MessageType};
-    use crate::sub_lib::peer_actors::BindMessage;
+    use crate::sub_lib::hopper::MessageType;
     use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
     use crate::sub_lib::proxy_server::ClientRequestPayload;
     use crate::sub_lib::route::Route;
@@ -307,18 +305,15 @@ mod tests {
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
-    use crate::test_utils::recorder::Recorder;
+    use crate::test_utils::test_utils::make_meaningless_message_type;
+    use crate::test_utils::test_utils::route_to_proxy_server;
     use crate::test_utils::test_utils::{cryptde, make_request_payload};
-    use crate::test_utils::test_utils::{make_meaningless_message_type, route_to_proxy_server};
     use crate::test_utils::test_utils::{make_meaningless_stream_key, route_to_proxy_client};
     use crate::test_utils::test_utils::{make_response_payload, rate_pack_routing};
     use crate::test_utils::test_utils::{rate_pack_routing_byte, route_from_proxy_client};
-    use actix::Actor;
-    use actix::Addr;
     use actix::System;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use std::thread;
 
     #[test]
     fn dns_resolution_failures_are_reported_to_the_proxy_server() {
@@ -414,7 +409,7 @@ mod tests {
         init_test_logging();
         let cryptde = cryptde();
         let route = route_from_proxy_client(&cryptde.public_key(), cryptde);
-        let payload = GossipBuilder::new().build();
+        let payload = GossipBuilder::empty();
         let lcp = LiveCoresPackage::new(
             route,
             encodex(
@@ -450,12 +445,10 @@ mod tests {
             .await_log_matching("Attempt to send invalid combination .* to .*", 1000);
     }
 
-    #[test] // TODO: Rewrite test so that subject is RoutingService rather than Hopper
+    #[test]
     fn converts_live_message_to_expired_for_proxy_client() {
         let cryptde = cryptde();
-        let component = Recorder::new();
-        let component_recording_arc = component.get_recording();
-        let component_awaiter = component.get_awaiter();
+        let (component, _, component_recording_arc) = make_recorder();
         let route = route_to_proxy_client(&cryptde.public_key(), cryptde);
         let payload = make_request_payload(0, cryptde);
         let lcp = LiveCoresPackage::new(
@@ -474,23 +467,25 @@ mod tests {
             is_clandestine: false,
             data: data_enc.into(),
         };
-        thread::spawn(move || {
-            let system = System::new("converts_live_message_to_expired_for_proxy_client");
-            let peer_actors = peer_actors_builder().proxy_client(component).build();
-            let subject = Hopper::new(HopperConfig {
-                cryptde,
-                is_bootstrap_node: false,
-                per_routing_service: rate_pack_routing(103),
-                per_routing_byte: rate_pack_routing_byte(103),
-            });
-            let subject_addr: Addr<Hopper> = subject.start();
-            subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            subject_addr.try_send(inbound_client_data).unwrap();
+        let system = System::new("converts_live_message_to_expired_for_proxy_client");
+        let peer_actors = peer_actors_builder().proxy_client(component).build();
+        let subject = RoutingService::new(
+            cryptde,
+            false,
+            peer_actors.proxy_client,
+            peer_actors.proxy_server,
+            peer_actors.neighborhood,
+            peer_actors.dispatcher.from_dispatcher_client,
+            peer_actors.accountant.report_routing_service_provided,
+            0,
+            0,
+        );
 
-            system.run();
-        });
-        component_awaiter.await_message_count(1);
+        subject.route(inbound_client_data);
+
+        System::current().stop();
+        system.run();
         let component_recording = component_recording_arc.lock().unwrap();
         let record = component_recording.get_record::<ExpiredCoresPackage<ClientRequestPayload>>(0);
         let expected_ecp = lcp_a
@@ -506,12 +501,10 @@ mod tests {
         assert_eq!(record.payload_len, expected_ecp.payload_len);
     }
 
-    #[test] // TODO: Rewrite test so that subject is RoutingService rather than Hopper
+    #[test]
     fn converts_live_message_to_expired_for_proxy_server() {
         let cryptde = cryptde();
-        let component = Recorder::new();
-        let component_recording_arc = component.get_recording();
-        let component_awaiter = component.get_awaiter();
+        let (component, _, component_recording_arc) = make_recorder();
         let route = route_to_proxy_server(&cryptde.public_key(), cryptde);
         let payload = make_response_payload(0, cryptde);
         let lcp = LiveCoresPackage::new(
@@ -530,23 +523,25 @@ mod tests {
             sequence_number: None,
             data: data_enc.into(),
         };
-        thread::spawn(move || {
-            let system = System::new("converts_live_message_to_expired_for_proxy_server");
-            let peer_actors = peer_actors_builder().proxy_server(component).build();
-            let subject = Hopper::new(HopperConfig {
-                cryptde,
-                is_bootstrap_node: false,
-                per_routing_service: rate_pack_routing(103),
-                per_routing_byte: rate_pack_routing_byte(103),
-            });
-            let subject_addr: Addr<Hopper> = subject.start();
-            subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            subject_addr.try_send(inbound_client_data).unwrap();
+        let system = System::new("converts_live_message_to_expired_for_proxy_server");
+        let peer_actors = peer_actors_builder().proxy_server(component).build();
+        let subject = RoutingService::new(
+            cryptde,
+            false,
+            peer_actors.proxy_client,
+            peer_actors.proxy_server,
+            peer_actors.neighborhood,
+            peer_actors.dispatcher.from_dispatcher_client,
+            peer_actors.accountant.report_routing_service_provided,
+            0,
+            0,
+        );
 
-            system.run();
-        });
-        component_awaiter.await_message_count(1);
+        subject.route(inbound_client_data);
+
+        System::current().stop();
+        system.run();
         let component_recording = component_recording_arc.lock().unwrap();
         let record =
             component_recording.get_record::<ExpiredCoresPackage<ClientResponsePayload>>(0);
@@ -563,10 +558,11 @@ mod tests {
         assert_eq!(record.payload_len, expected_ecp.payload_len);
     }
 
-    #[test] // TODO: Rewrite test so that subject is RoutingService rather than Hopper
+    #[test]
     fn refuses_data_for_proxy_client_if_is_bootstrap_node() {
         init_test_logging();
         let cryptde = cryptde();
+        let (component, _, component_recording_arc) = make_recorder();
         let route = route_to_proxy_client(&cryptde.public_key(), cryptde);
         let payload = PlainData::new(&b"abcd"[..]);
         let lcp = LiveCoresPackage::new(
@@ -584,29 +580,35 @@ mod tests {
             data: data_enc.into(),
         };
         let system = System::new("refuses_data_for_proxy_client_if_is_bootstrap_node");
-        let subject = Hopper::new(HopperConfig {
+        let peer_actors = peer_actors_builder().proxy_client(component).build();
+        let subject = RoutingService::new(
             cryptde,
-            is_bootstrap_node: true,
-            per_routing_service: rate_pack_routing(103),
-            per_routing_byte: rate_pack_routing_byte(103),
-        });
-        let subject_addr: Addr<Hopper> = subject.start();
-        let peer_actors = peer_actors_builder().build();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+            true,
+            peer_actors.proxy_client,
+            peer_actors.proxy_server,
+            peer_actors.neighborhood,
+            peer_actors.dispatcher.from_dispatcher_client,
+            peer_actors.accountant.report_routing_service_provided,
+            0,
+            0,
+        );
 
-        subject_addr.try_send(inbound_client_data).unwrap();
+        subject.route(inbound_client_data);
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
         TestLogHandler::new().exists_log_containing(
             "ERROR: RoutingService: Request for Bootstrap Node to route data to ProxyClient: rejected",
         );
+        let component_recording = component_recording_arc.lock().unwrap();
+        assert_eq!(0, component_recording.len());
     }
 
-    #[test] // TODO: Rewrite test so that subject is RoutingService rather than Hopper
+    #[test]
     fn refuses_data_for_proxy_server_if_is_bootstrap_node() {
         init_test_logging();
         let cryptde = cryptde();
+        let (component, _, component_recording_arc) = make_recorder();
         let route = route_to_proxy_server(&cryptde.public_key(), cryptde);
         let payload = PlainData::new(&b"abcd"[..]);
         let lcp = LiveCoresPackage::new(
@@ -624,29 +626,35 @@ mod tests {
             data: data_enc.into(),
         };
         let system = System::new("refuses_data_for_proxy_server_if_is_bootstrap_node");
-        let subject = Hopper::new(HopperConfig {
+        let peer_actors = peer_actors_builder().proxy_server(component).build();
+        let subject = RoutingService::new(
             cryptde,
-            is_bootstrap_node: true,
-            per_routing_service: rate_pack_routing(103),
-            per_routing_byte: rate_pack_routing_byte(103),
-        });
-        let subject_addr: Addr<Hopper> = subject.start();
-        let peer_actors = peer_actors_builder().build();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+            true,
+            peer_actors.proxy_client,
+            peer_actors.proxy_server,
+            peer_actors.neighborhood,
+            peer_actors.dispatcher.from_dispatcher_client,
+            peer_actors.accountant.report_routing_service_provided,
+            0,
+            0,
+        );
 
-        subject_addr.try_send(inbound_client_data).unwrap();
+        subject.route(inbound_client_data);
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
         TestLogHandler::new().exists_log_containing(
             "ERROR: RoutingService: Request for Bootstrap Node to route data to ProxyServer: rejected",
         );
+        let component_recording = component_recording_arc.lock().unwrap();
+        assert_eq!(0, component_recording.len());
     }
 
-    #[test] // TODO: Rewrite test so that subject is RoutingService rather than Hopper
+    #[test]
     fn refuses_data_for_hopper_if_is_bootstrap_node() {
         init_test_logging();
         let cryptde = cryptde();
+        let (component, _, component_recording_arc) = make_recorder();
         let consuming_wallet = Wallet::new("wallet");
         let route = Route::one_way(
             RouteSegment::new(
@@ -673,29 +681,35 @@ mod tests {
             data: data_enc.into(),
         };
         let system = System::new("refuses_data_for_hopper_if_is_bootstrap_node");
-        let subject = Hopper::new(HopperConfig {
+        let peer_actors = peer_actors_builder().hopper(component).build();
+        let subject = RoutingService::new(
             cryptde,
-            is_bootstrap_node: true,
-            per_routing_service: rate_pack_routing(103),
-            per_routing_byte: rate_pack_routing_byte(103),
-        });
-        let subject_addr: Addr<Hopper> = subject.start();
-        let peer_actors = peer_actors_builder().build();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+            true,
+            peer_actors.proxy_client,
+            peer_actors.proxy_server,
+            peer_actors.neighborhood,
+            peer_actors.dispatcher.from_dispatcher_client,
+            peer_actors.accountant.report_routing_service_provided,
+            0,
+            0,
+        );
 
-        subject_addr.try_send(inbound_client_data).unwrap();
+        subject.route(inbound_client_data);
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
         TestLogHandler::new().exists_log_containing(
             "ERROR: RoutingService: Request for Bootstrap Node to route data to Hopper: rejected",
         );
+        let component_recording = component_recording_arc.lock().unwrap();
+        assert_eq!(0, component_recording.len());
     }
 
-    #[test] // TODO: Rewrite test so that subject is RoutingService rather than Hopper
+    #[test]
     fn accepts_data_for_neighborhood_if_is_bootstrap_node() {
         init_test_logging();
         let cryptde = cryptde();
+        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
         let consuming_wallet = Wallet::new("wallet");
         let mut route = Route::one_way(
             RouteSegment::new(
@@ -707,7 +721,7 @@ mod tests {
         )
         .unwrap();
         route.shift(cryptde).unwrap();
-        let payload = GossipBuilder::new().build();
+        let payload = GossipBuilder::empty();
         let encrypted_payload =
             encodex::<MessageType>(cryptde, &cryptde.public_key(), &payload.clone().into())
                 .unwrap();
@@ -723,20 +737,22 @@ mod tests {
             data: data_enc.into(),
         };
         let system = System::new("accepts_data_for_neighborhood_if_is_bootstrap_node");
-        let subject = Hopper::new(HopperConfig {
-            cryptde,
-            is_bootstrap_node: true,
-            per_routing_service: rate_pack_routing(103),
-            per_routing_byte: rate_pack_routing_byte(103),
-        });
-        let subject_addr: Addr<Hopper> = subject.start();
-        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().neighborhood(neighborhood).build();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        let subject = RoutingService::new(
+            cryptde,
+            true,
+            peer_actors.proxy_client,
+            peer_actors.proxy_server,
+            peer_actors.neighborhood,
+            peer_actors.dispatcher.from_dispatcher_client,
+            peer_actors.accountant.report_routing_service_provided,
+            0,
+            0,
+        );
 
-        subject_addr.try_send(inbound_client_data.clone()).unwrap();
+        subject.route(inbound_client_data);
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
         let message = neighborhood_recording.get_record::<ExpiredCoresPackage<Gossip>>(0);
@@ -750,66 +766,12 @@ mod tests {
         );
     }
 
-    #[test] // TODO: Rewrite test so that subject is RoutingService rather than Hopper
-    fn rejects_data_for_non_neighborhood_component_if_is_bootstrap_node() {
-        init_test_logging();
-        let cryptde = cryptde();
-        let consuming_wallet = Wallet::new("wallet");
-        let mut route = Route::one_way(
-            RouteSegment::new(
-                vec![&cryptde.public_key(), &cryptde.public_key()],
-                Component::ProxyClient,
-            ),
-            cryptde,
-            Some(consuming_wallet),
-        )
-        .unwrap();
-        route.shift(cryptde).unwrap();
-        let payload = PlainData::new(&b"abcd"[..]);
-        let lcp = LiveCoresPackage::new(
-            route,
-            cryptde.encode(&cryptde.public_key(), &payload).unwrap(),
-        );
-        let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
-        let data_enc = cryptde.encode(&cryptde.public_key(), &data_ser).unwrap();
-        let inbound_client_data = InboundClientData {
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            reception_port: None,
-            last_data: false,
-            is_clandestine: true,
-            sequence_number: None,
-            data: data_enc.into(),
-        };
-        let system =
-            System::new("rejects_data_for_non_neighborhood_component_if_is_bootstrap_node");
-        let subject = Hopper::new(HopperConfig {
-            cryptde,
-            is_bootstrap_node: true,
-            per_routing_service: rate_pack_routing(103),
-            per_routing_byte: rate_pack_routing_byte(103),
-        });
-        let subject_addr: Addr<Hopper> = subject.start();
-        let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
-        let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-
-        subject_addr.try_send(inbound_client_data.clone()).unwrap();
-
-        System::current().stop_with_code(0);
-        system.run();
-        let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
-        assert_eq!(proxy_client_recording.len(), 0);
-        TestLogHandler::new().exists_log_containing(
-            "ERROR: RoutingService: Request for Bootstrap Node to route data to ProxyClient: rejected",
-        );
-    }
-
-    #[test] // TODO: Rewrite test so that subject is RoutingService rather than Hopper
+    #[test]
     fn passes_on_inbound_client_data_not_meant_for_this_node() {
         let cryptde = cryptde();
         let consuming_wallet = Wallet::new("wallet");
-        let (dispatcher, dispatcher_awaiter, dispatcher_recording_arc) = make_recorder();
-        let (accountant, accountant_awaiter, accountant_recording_arc) = make_recorder();
+        let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
+        let (accountant, _, accountant_recording_arc) = make_recorder();
         let next_key = PublicKey::new(&[65, 65, 65]);
         let route = Route::one_way(
             RouteSegment::new(
@@ -833,26 +795,29 @@ mod tests {
             sequence_number: None,
             data: data_enc.into(),
         };
-        thread::spawn(move || {
-            let system = System::new("passes_on_inbound_client_data_not_meant_for_this_node");
-            let peer_actors = peer_actors_builder()
-                .dispatcher(dispatcher)
-                .accountant(accountant)
-                .build();
-            let subject = Hopper::new(HopperConfig {
-                cryptde,
-                is_bootstrap_node: false,
-                per_routing_service: rate_pack_routing(103),
-                per_routing_byte: rate_pack_routing_byte(103),
-            });
-            let subject_addr: Addr<Hopper> = subject.start();
-            subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            subject_addr.try_send(inbound_client_data).unwrap();
+        let system = System::new("passes_on_inbound_client_data_not_meant_for_this_node");
+        let peer_actors = peer_actors_builder()
+            .dispatcher(dispatcher)
+            .accountant(accountant)
+            .build();
+        let subject = RoutingService::new(
+            cryptde,
+            false,
+            peer_actors.proxy_client,
+            peer_actors.proxy_server,
+            peer_actors.neighborhood,
+            peer_actors.dispatcher.from_dispatcher_client,
+            peer_actors.accountant.report_routing_service_provided,
+            rate_pack_routing(103),
+            rate_pack_routing_byte(103),
+        );
 
-            system.run();
-        });
-        dispatcher_awaiter.await_message_count(1);
+        subject.route(inbound_client_data);
+
+        System::current().stop();
+        system.run();
+
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
         let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
         let expected_lcp = lcp_a.to_next_live(cryptde).unwrap().1;
@@ -867,7 +832,6 @@ mod tests {
                 data: expected_lcp_enc.into(),
             }
         );
-        accountant_awaiter.await_message_count(1);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         let message = accountant_recording.get_record::<ReportRoutingServiceProvidedMessage>(0);
         assert_eq!(

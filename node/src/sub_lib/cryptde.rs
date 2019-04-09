@@ -74,7 +74,7 @@ impl PrivateKey {
 
 // TODO: Consider generating each of these three with a single macro
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PublicKey {
     data: Vec<u8>,
 }

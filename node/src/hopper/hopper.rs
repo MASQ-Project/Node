@@ -3,9 +3,9 @@ use super::consuming_service::ConsumingService;
 use super::routing_service::RoutingService;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::dispatcher::InboundClientData;
-use crate::sub_lib::hopper::HopperConfig;
 use crate::sub_lib::hopper::HopperSubs;
 use crate::sub_lib::hopper::IncipientCoresPackage;
+use crate::sub_lib::hopper::{HopperConfig, NoLookupIncipientCoresPackage};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use actix::Actor;
@@ -33,7 +33,6 @@ impl Handler<BindMessage> for Hopper {
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.consuming_service = Some(ConsumingService::new(
             self.cryptde,
-            self.is_bootstrap_node,
             msg.peer_actors.dispatcher.from_dispatcher_client.clone(),
             msg.peer_actors.hopper.from_dispatcher,
         ));
@@ -48,6 +47,24 @@ impl Handler<BindMessage> for Hopper {
             self.per_routing_service,
             self.per_routing_byte,
         ));
+    }
+}
+
+// TODO: Make this message return a Future, so that the Neighborhood can tell if its
+// message didn't go through.
+impl Handler<NoLookupIncipientCoresPackage> for Hopper {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: NoLookupIncipientCoresPackage,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        self.consuming_service
+            .as_ref()
+            .expect("Hopper unbound: no ConsumingService")
+            .consume_no_lookup(msg);
+        ()
     }
 }
 
@@ -91,6 +108,7 @@ impl Hopper {
         HopperSubs {
             bind: addr.clone().recipient::<BindMessage>(),
             from_hopper_client: addr.clone().recipient::<IncipientCoresPackage>(),
+            from_hopper_client_no_lookup: addr.clone().recipient::<NoLookupIncipientCoresPackage>(),
             from_dispatcher: addr.clone().recipient::<InboundClientData>(),
         }
     }

@@ -1,10 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::neighborhood::gossip::Gossip;
+use crate::sub_lib::cryptde::encodex;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
-use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::dispatcher::InboundClientData;
+use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
 use crate::sub_lib::proxy_server::ClientRequestPayload;
@@ -12,9 +13,45 @@ use crate::sub_lib::route::Route;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
-use serde_cbor;
 use serde_derive::{Deserialize, Serialize};
 use std::net::IpAddr;
+
+/// Special-case hack to avoid extending a Card From Hell. I'm not sure what the right way to do
+/// this is, but this doesn't feel like it. The intent here is to provide a way to send a CORES
+/// package to a Node that isn't in the database yet, because while we have enough information
+/// about it to send it CORES traffic, we don't have enough (or what we have isn't credible enough)
+/// to put it in the database yet. This can happen when we start up and need to send Debut
+/// Gossip to --neighbor nodes, about which we know only the local descriptor, when we send Pass
+/// Gossip to a Debuting Node that hasn't made it into our database yet, or when we get
+/// Introductions to possibly-nonexistent Nodes we want to keep out of the database until we've
+/// verified. We can't use a regular IncipientCoresPackage for this, because it uses a Route full
+/// of PublicKeys destined to be looked up in the database by the Dispatcher.
+/// This struct can be used only for single-hop traffic.
+#[derive(Clone, Debug, PartialEq, Message)]
+pub struct NoLookupIncipientCoresPackage {
+    pub public_key: PublicKey,
+    pub node_addr: NodeAddr,
+    pub payload: CryptData,
+}
+
+impl NoLookupIncipientCoresPackage {
+    pub fn new(
+        cryptde: &dyn CryptDE, // used only for encryption; can be any CryptDE
+        public_key: &PublicKey,
+        node_addr: &NodeAddr,
+        payload: MessageType,
+    ) -> Result<NoLookupIncipientCoresPackage, String> {
+        let encrypted_payload = match encodex(cryptde, &public_key, &payload) {
+            Ok(p) => p,
+            Err(e) => return Err(format!("Could not encrypt payload: {:?}", e)),
+        };
+        Ok(NoLookupIncipientCoresPackage {
+            public_key: public_key.clone(),
+            node_addr: node_addr.clone(),
+            payload: encrypted_payload,
+        })
+    }
+}
 
 /// New CORES package about to be sent to the Hopper and thence put on the Substratum Network
 #[derive(Clone, Debug, PartialEq, Message)]
@@ -38,12 +75,7 @@ impl IncipientCoresPackage {
         payload: MessageType,
         payload_destination_key: &PublicKey,
     ) -> Result<IncipientCoresPackage, String> {
-        // crashpoint - TODO: Figure out how to log this serialization failure rather than letting data crash the Node.
-        let serialized_payload = serde_cbor::ser::to_vec(&payload).expect("Serialization failure");
-        let encrypted_payload = match cryptde.encode(
-            &payload_destination_key,
-            &PlainData::new(&serialized_payload[..]),
-        ) {
+        let encrypted_payload = match encodex(cryptde, &payload_destination_key, &payload) {
             Ok(p) => p,
             Err(e) => return Err(format!("Could not encrypt payload: {:?}", e)),
         };
@@ -95,6 +127,7 @@ pub struct HopperConfig {
 pub struct HopperSubs {
     pub bind: Recipient<BindMessage>,
     pub from_hopper_client: Recipient<IncipientCoresPackage>,
+    pub from_hopper_client_no_lookup: Recipient<NoLookupIncipientCoresPackage>,
     pub from_dispatcher: Recipient<InboundClientData>,
 }
 
@@ -105,8 +138,55 @@ mod tests {
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::route::RouteSegment;
-    use crate::test_utils::test_utils::make_meaningless_message_type;
+    use crate::test_utils::test_utils::{
+        make_meaningless_message_type, make_meaningless_stream_key,
+    };
     use std::str::FromStr;
+
+    #[test]
+    fn no_lookup_incipient_cores_package_is_created_correctly() {
+        let cryptde = CryptDENull::new();
+        let public_key = PublicKey::new(&[1, 2]);
+        let node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1, 2, 3, 4]);
+        let payload = MessageType::DnsResolveFailed(DnsResolveFailure {
+            stream_key: make_meaningless_stream_key(),
+        });
+
+        let result =
+            NoLookupIncipientCoresPackage::new(&cryptde, &public_key, &node_addr, payload.clone());
+        let subject = result.unwrap();
+
+        assert_eq!(public_key, subject.public_key);
+        assert_eq!(node_addr, subject.node_addr);
+        assert_eq!(
+            cryptde
+                .encode(
+                    &public_key,
+                    &PlainData::new(&serde_cbor::ser::to_vec(&payload).unwrap())
+                )
+                .unwrap(),
+            subject.payload,
+        );
+    }
+
+    #[test]
+    fn no_lookup_incipient_cores_package_new_complains_about_problems_encrypting_payload() {
+        let cryptde = CryptDENull::new();
+        let result = NoLookupIncipientCoresPackage::new(
+            &cryptde,
+            &PublicKey::new(&[]),
+            &NodeAddr::new(&IpAddr::from_str("1.1.1.1").unwrap(), &vec![]),
+            MessageType::DnsResolveFailed(DnsResolveFailure {
+                stream_key: make_meaningless_stream_key(),
+            }),
+        );
+        assert_eq!(
+            result,
+            Err(String::from(
+                "Could not encrypt payload: \"Encryption error: EmptyKey\""
+            ))
+        );
+    }
 
     #[test]
     fn incipient_cores_package_is_created_correctly() {
@@ -150,7 +230,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(String::from("Could not encrypt payload: EmptyKey"))
+            Err(String::from(
+                "Could not encrypt payload: \"Encryption error: EmptyKey\""
+            ))
         );
     }
 

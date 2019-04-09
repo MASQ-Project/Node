@@ -307,8 +307,8 @@ mod tests {
     use crate::sub_lib::crash_point::CrashPoint;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::dispatcher::InboundClientData;
-    use crate::sub_lib::hopper::ExpiredCoresPackage;
     use crate::sub_lib::hopper::IncipientCoresPackage;
+    use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
     use crate::sub_lib::neighborhood::NodeQueryMessage;
     use crate::sub_lib::neighborhood::RemoveNeighborMessage;
     use crate::sub_lib::neighborhood::RouteQueryMessage;
@@ -399,6 +399,9 @@ mod tests {
             HopperSubs {
                 bind: addr.clone().recipient::<BindMessage>(),
                 from_hopper_client: addr.clone().recipient::<IncipientCoresPackage>(),
+                from_hopper_client_no_lookup: addr
+                    .clone()
+                    .recipient::<NoLookupIncipientCoresPackage>(),
                 from_dispatcher: addr.clone().recipient::<InboundClientData>(),
             }
         }

@@ -10,7 +10,8 @@ use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::Masquerader;
 use node_lib::neighborhood::gossip::{Gossip, GossipBuilder};
-use node_lib::neighborhood::neighborhood_database::NodeRecord;
+use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;
+use node_lib::neighborhood::node_record::NodeRecord;
 use node_lib::sub_lib::cryptde::CryptDE;
 use node_lib::sub_lib::cryptde::CryptData;
 use node_lib::sub_lib::cryptde::PlainData;
@@ -28,6 +29,7 @@ use node_lib::sub_lib::utils::indicates_dead_stream;
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils::data_hunk::DataHunk;
 use node_lib::test_utils::data_hunk_framer::DataHunkFramer;
+use pretty_hex::*;
 use serde_cbor;
 use std::cell::RefCell;
 use std::io;
@@ -38,6 +40,7 @@ use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::net::TcpStream;
 use std::rc::Rc;
+use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 
@@ -140,13 +143,13 @@ impl SubstratumMockNode {
         }
     }
 
-    pub fn bootstrap_from(&self, node: &dyn SubstratumNode) {
+    pub fn send_debut(&self, node: &dyn SubstratumNode) {
         let masquerader = JsonMasquerader::new();
         let mut node_record = NodeRecord::new(
             &self.public_key(),
             Some(&self.node_addr()),
-            node.earning_wallet(),
-            node.consuming_wallet(),
+            self.earning_wallet(),
+            self.consuming_wallet(),
             DEFAULT_RATE_PACK.clone(),
             false,
             None,
@@ -154,7 +157,10 @@ impl SubstratumMockNode {
         );
         node_record.sign(self.cryptde());
 
-        let gossip = GossipBuilder::new().node(&node_record, true).build();
+        let db = db_from_node(&node_record);
+        let gossip = GossipBuilder::new(&db)
+            .node(node_record.public_key(), true)
+            .build();
         let route = Route::one_way(
             RouteSegment::new(
                 vec![&self.public_key(), &node.public_key()],
@@ -209,6 +215,31 @@ impl SubstratumMockNode {
         self.transmit_data(data_hunk)
     }
 
+    pub fn transmit_gossip(
+        &self,
+        transmit_port: u16,
+        gossip: Gossip,
+        target_key: &PublicKey,
+        target_addr: SocketAddr,
+    ) -> Result<(), io::Error> {
+        let masquerader = JsonMasquerader::new();
+        let route = Route::single_hop(target_key, self.cryptde()).unwrap();
+        let package = IncipientCoresPackage::new(
+            self.cryptde(),
+            route,
+            MessageType::Gossip(gossip),
+            target_key,
+        )
+        .unwrap();
+        self.transmit_package(
+            transmit_port,
+            package,
+            &masquerader,
+            target_key,
+            target_addr,
+        )
+    }
+
     pub fn wait_for_data(&self, timeout: Duration) -> Result<DataHunk, io::Error> {
         let mut buf = [0u8; 16384];
         let mut framer = self.guts.framer.borrow_mut();
@@ -241,7 +272,18 @@ impl SubstratumMockNode {
         timeout: Duration,
     ) -> Result<(SocketAddr, SocketAddr, LiveCoresPackage), io::Error> {
         let data_hunk = self.wait_for_data(timeout)?;
-        let unmasked_data = masquerader.try_unmask(&data_hunk.data[..]).unwrap().chunk;
+        let unmasked_data = masquerader
+            .try_unmask(&data_hunk.data[..])
+            .expect(
+                format!(
+                    "Could not unmask DataHunk from {} to {}:\n{:?}",
+                    data_hunk.from,
+                    data_hunk.to,
+                    data_hunk.data.hex_dump()
+                )
+                .as_str(),
+            )
+            .chunk;
         let decrypted_data = self
             .cryptde()
             .decode(&CryptData::new(&unmasked_data[..]))
@@ -251,13 +293,13 @@ impl SubstratumMockNode {
         Ok((data_hunk.from, data_hunk.to, live_cores_package))
     }
 
-    pub fn wait_for_gossip(&self, timeout: Duration) -> Option<Gossip> {
+    pub fn wait_for_gossip(&self, timeout: Duration) -> Option<(Gossip, IpAddr)> {
         let masquerader = JsonMasquerader::new();
         match self.wait_for_package(&masquerader, timeout) {
             Ok((from, _, package)) => {
                 let incoming_cores_package = package.to_expired(from.ip(), self.cryptde()).unwrap();
                 match incoming_cores_package.payload {
-                    MessageType::Gossip(g) => Some(g),
+                    MessageType::Gossip(g) => Some((g, from.ip())),
                     _ => panic!("Expected Gossip, got something else"),
                 }
             }
@@ -344,4 +386,19 @@ impl Drop for SubstratumMockNodeGuts {
     fn drop(&mut self) {
         SubstratumNodeUtils::stop(self.name.as_str());
     }
+}
+
+pub fn db_from_node(node: &NodeRecord) -> NeighborhoodDatabase {
+    NeighborhoodDatabase::new(
+        node.public_key(),
+        &node.node_addr_opt().unwrap_or(NodeAddr::new(
+            &IpAddr::from_str("200.200.200.200").unwrap(),
+            &vec![200],
+        )),
+        node.earning_wallet(),
+        node.consuming_wallet(),
+        node.rate_pack().clone(),
+        node.is_bootstrap_node(),
+        &CryptDENull::from(node.public_key()),
+    )
 }

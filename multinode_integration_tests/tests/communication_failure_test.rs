@@ -1,123 +1,89 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use multinode_integration_tests_lib::gossip_builder::GossipBuilder;
-use multinode_integration_tests_lib::substratum_node::PortSelector;
 use multinode_integration_tests_lib::substratum_node::SubstratumNode;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
-use node_lib::json_masquerader::JsonMasquerader;
-use node_lib::sub_lib::dispatcher::Component;
-use node_lib::sub_lib::hopper::IncipientCoresPackage;
-use node_lib::sub_lib::route::Route;
-use node_lib::sub_lib::route::RouteSegment;
-use node_lib::sub_lib::wallet::Wallet;
-use node_lib::test_utils::test_utils::make_meaningless_message_type;
+use node_lib::test_utils::test_utils::find_free_port;
 use std::time::Duration;
 
 #[test]
-fn neighborhood_notified_of_missing_node_when_connection_refused() {
+#[ignore] // Should be removed by SC-811
+fn neighborhood_notified_of_newly_missing_node() {
+    // Set up three-Node network, and add a mock witness Node.
     let mut cluster = SubstratumNodeCluster::start().unwrap();
-    let mock_bootstrap = cluster.start_mock_node(vec![5550]);
-    let subject = cluster.start_real_node(
+    let bootstrap = cluster.start_real_node(NodeStartupConfigBuilder::bootstrap().build());
+    let originating_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .neighbor(mock_bootstrap.node_reference())
+            .neighbor(bootstrap.node_reference())
             .build(),
     );
-
-    // This gossip is from the real node (subject) bootstrapping
-    mock_bootstrap
+    let _staying_up_node = cluster.start_real_node(
+        NodeStartupConfigBuilder::standard()
+            .neighbor(bootstrap.node_reference())
+            .build(),
+    );
+    let disappearing_node = cluster.start_real_node(
+        NodeStartupConfigBuilder::standard()
+            .neighbor(bootstrap.node_reference())
+            .build(),
+    );
+    let witness_node = cluster.start_mock_node(vec![find_free_port()]);
+    witness_node.send_debut(&originating_node);
+    let (introductions, _) = witness_node
         .wait_for_gossip(Duration::from_millis(1000))
         .unwrap();
-
-    let masquerader = JsonMasquerader::new();
-
-    let disappearing_node_name: String;
-    let disappearing_node_key = {
-        let disappearing_node = cluster.start_real_node(
-            NodeStartupConfigBuilder::standard()
-                .neighbor(mock_bootstrap.node_reference())
-                .build(),
-        );
-        disappearing_node_name = String::from(disappearing_node.name());
-        let key = disappearing_node.public_key();
-
-        // This gossip is from the disappearing node bootstrapping
-        mock_bootstrap
-            .wait_for_gossip(Duration::from_millis(1000))
-            .unwrap();
-
-        let cores_package = GossipBuilder::new(Some(Wallet::new("consuming")))
-            .add_node(&mock_bootstrap, true, true)
-            .add_node(&subject, false, true)
-            .add_node(&disappearing_node, false, true)
-            .add_connection(&mock_bootstrap.public_key(), &subject.public_key())
-            .add_connection(&mock_bootstrap.public_key(), &key)
-            .build_cores_package(&mock_bootstrap.public_key(), &subject.public_key());
-
-        mock_bootstrap
-            .transmit_package(
-                5550,
-                cores_package,
-                &masquerader,
-                &subject.public_key(),
-                subject.socket_addr(PortSelector::First),
-            )
-            .unwrap();
-
-        // The first of these gossip messages comes in response to the gossip sent to the subject node from the bootstrap (mock) node
-        // The second comes from the disappearing node as it introduces itself after learning the IP of the bootstrap node from the subject node
-        // The third comes from the subject node after its database is updated due to receiving gossip from the disappearing node
-        for _ in 0..3 {
-            mock_bootstrap
-                .wait_for_gossip(Duration::from_millis(1000))
-                .unwrap();
-        }
-
-        key
-    };
-
-    cluster.stop_node(&disappearing_node_name);
-
-    let cores_package = IncipientCoresPackage::new(
-        &subject.cryptde(),
-        Route::one_way(
-            RouteSegment::new(
-                vec![
-                    &mock_bootstrap.public_key(),
-                    &subject.public_key(),
-                    &disappearing_node_key,
-                ],
-                Component::ProxyClient,
+    assert!(
+        introductions.node_records.len() > 1,
+        "Should have been introductions, but wasn't: {}",
+        introductions.to_dot_graph(
+            (
+                &originating_node.public_key(),
+                &Some(originating_node.node_addr())
             ),
-            mock_bootstrap.cryptde(),
-            Some(Wallet::new("consuming")),
+            (&witness_node.public_key(), &Some(witness_node.node_addr()))
         )
-        .unwrap(),
-        make_meaningless_message_type(),
-        &disappearing_node_key,
-    )
-    .unwrap();
-    mock_bootstrap
-        .transmit_package(
-            5550,
-            cores_package,
-            &masquerader,
-            &subject.public_key(),
-            subject.socket_addr(PortSelector::First),
-        )
+    );
+
+    // Kill one of the Nodes--not the originating Node and not the witness Node.
+    cluster.stop_node(disappearing_node.name());
+
+    //Establish a client on the originating Node and send some ill-fated traffic.
+    let mut client = originating_node.make_client(80);
+    client.send_chunk(Vec::from(
+        "GET http://example.com HTTP/1.1\r\n\r\n".as_bytes(),
+    ));
+
+    // Now direct the witness Node to wait for Gossip about the disappeared Node.
+    let (disappearance_gossip, _) = witness_node
+        .wait_for_gossip(Duration::from_secs(130))
         .unwrap();
 
-    let gossip = mock_bootstrap
-        .wait_for_gossip(Duration::from_millis(180000))
-        .unwrap();
-    let subject_record = gossip
+    let dot_graph = disappearance_gossip.to_dot_graph(
+        (
+            &originating_node.public_key(),
+            &Some(originating_node.node_addr()),
+        ),
+        (&witness_node.public_key(), &Some(witness_node.node_addr())),
+    );
+    assert_eq!(
+        3,
+        disappearance_gossip.node_records.len(),
+        "Should have had three records: {}",
+        dot_graph
+    );
+    let originating_node_gnr = disappearance_gossip
         .node_records
-        .iter()
-        .find(|&x| x.inner.public_key == subject.public_key())
-        .expect("should have the subject node record");
-
-    assert!(!subject_record
-        .inner
-        .neighbors
-        .contains(&disappearing_node_key));
+        .into_iter()
+        .find(|gnr| gnr.public_key() == originating_node.public_key())
+        .unwrap();
+    assert!(
+        !originating_node_gnr
+            .inner
+            .neighbors
+            .contains(&disappearing_node.public_key()),
+        "Originating Node {} should not be connected to the disappeared Node {}, but is: {}",
+        originating_node.public_key(),
+        disappearing_node.public_key(),
+        dot_graph
+    );
 }

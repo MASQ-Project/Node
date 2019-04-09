@@ -5,7 +5,7 @@ use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{decodex, CryptDE};
 use crate::sub_lib::hop::LiveHop;
 use crate::sub_lib::hopper::IncipientCoresPackage;
-use crate::sub_lib::hopper::{ExpiredCoresPackage, MessageType};
+use crate::sub_lib::hopper::{ExpiredCoresPackage, MessageType, NoLookupIncipientCoresPackage};
 use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteError;
 use serde_derive::{Deserialize, Serialize};
@@ -29,6 +29,23 @@ impl LiveCoresPackage {
         let next_hop = self.route.shift(cryptde)?;
         let next_live = LiveCoresPackage::new(self.route, self.payload);
         Ok((next_hop, next_live))
+    }
+
+    pub fn from_no_lookup_incipient(
+        no_lookup_incipient: NoLookupIncipientCoresPackage,
+        cryptde: &dyn CryptDE, // must be the CryptDE of the Node the package is about to leave
+    ) -> Result<(LiveCoresPackage, PublicKey), String> {
+        let mut route = match Route::single_hop(&no_lookup_incipient.public_key, cryptde) {
+            Ok(r) => r,
+            Err(e) => return Err(format!("{:?}", e)),
+        };
+        route
+            .shift(cryptde)
+            .expect("CryptDE suddenly changed its keying");
+        Ok((
+            LiveCoresPackage::new(route, no_lookup_incipient.payload),
+            no_lookup_incipient.public_key,
+        ))
     }
 
     pub fn from_incipient(
@@ -75,11 +92,13 @@ mod tests {
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::hopper::IncipientCoresPackage;
+    use crate::sub_lib::node_addr::NodeAddr;
+    use crate::sub_lib::proxy_client::DnsResolveFailure;
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::test_utils::{
-        cryptde, make_meaningless_message_type, make_meaningless_route,
+        cryptde, make_meaningless_message_type, make_meaningless_route, make_meaningless_stream_key,
     };
     use std::str::FromStr;
 
@@ -160,6 +179,49 @@ mod tests {
     }
 
     #[test]
+    fn live_cores_package_can_be_constructed_from_no_lookup_incipient_cores_package() {
+        let cryptde = cryptde();
+        let key34 = PublicKey::new(&[3, 4]);
+        let node_addr34 = NodeAddr::new(&IpAddr::from_str("3.4.3.4").unwrap(), &vec![1234]);
+        let mut route = Route::single_hop(&key34, cryptde).unwrap();
+        let payload = MessageType::DnsResolveFailed(DnsResolveFailure {
+            stream_key: make_meaningless_stream_key(),
+        });
+
+        let incipient =
+            NoLookupIncipientCoresPackage::new(cryptde, &key34, &node_addr34, payload.clone())
+                .unwrap();
+        let (subject, next_stop) =
+            LiveCoresPackage::from_no_lookup_incipient(incipient, cryptde).unwrap();
+
+        assert_eq!(key34, next_stop);
+        route.shift(cryptde).unwrap();
+        assert_eq!(route, subject.route);
+        assert_eq!(encodex(cryptde, &key34, &payload).unwrap(), subject.payload,);
+    }
+
+    #[test]
+    fn from_no_lookup_incipient_relays_errors() {
+        let cryptde = cryptde();
+        let blank_key = PublicKey::new(&[]);
+        let node_addr34 = NodeAddr::new(&IpAddr::from_str("3.4.3.4").unwrap(), &vec![1234]);
+
+        let result = NoLookupIncipientCoresPackage::new(
+            cryptde,
+            &blank_key,
+            &node_addr34,
+            make_meaningless_message_type(),
+        );
+
+        assert_eq!(
+            Err(String::from(
+                "Could not encrypt payload: \"Encryption error: EmptyKey\""
+            )),
+            result
+        )
+    }
+
+    #[test]
     fn live_cores_package_can_be_constructed_from_incipient_cores_package() {
         let cryptde = cryptde();
         let consuming_wallet = Wallet::new("wallet");
@@ -178,19 +240,11 @@ mod tests {
             IncipientCoresPackage::new(cryptde, route.clone(), payload.clone(), &key56).unwrap();
         let (subject, next_stop) = LiveCoresPackage::from_incipient(incipient, cryptde).unwrap();
 
-        assert_eq!(next_stop, key34);
+        assert_eq!(key34, next_stop);
         route.shift(cryptde).unwrap();
 
-        assert_eq!(subject.route, route);
-        assert_eq!(
-            subject.payload,
-            cryptde
-                .encode(
-                    &key56,
-                    &PlainData::new(&serde_cbor::ser::to_vec(&payload).unwrap()),
-                )
-                .unwrap()
-        );
+        assert_eq!(route, subject.route);
+        assert_eq!(encodex(cryptde, &key56, &payload).unwrap(), subject.payload,);
     }
 
     #[test]

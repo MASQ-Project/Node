@@ -5,17 +5,16 @@ use multinode_integration_tests_lib::substratum_node::SubstratumNode;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
 use node_lib::neighborhood::gossip::GossipNodeRecord;
-use node_lib::neighborhood::neighborhood_database::NodeRecord;
-use node_lib::neighborhood::neighborhood_database::NodeRecordInner;
-use node_lib::neighborhood::neighborhood_database::NodeSignatures;
+use node_lib::neighborhood::node_record::NodeRecord;
+use node_lib::neighborhood::node_record::NodeRecordInner;
+use node_lib::neighborhood::node_record::NodeSignatures;
 use node_lib::sub_lib::accountant;
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::hopper::MessageType;
 use node_lib::sub_lib::neighborhood::DEFAULT_RATE_PACK;
-use node_lib::test_utils::test_utils::assert_contains;
+use node_lib::test_utils::test_utils::{assert_contains, vec_to_set};
 use std::net::IpAddr;
 use std::str::FromStr;
-use std::thread;
 use std::time::Duration;
 
 #[test]
@@ -45,7 +44,7 @@ fn when_bootstrapping_from_a_node_then_the_node_sends_gossip_upon_startup() {
                 earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
                 consuming_wallet: Some(accountant::TEMPORARY_CONSUMING_WALLET.clone()),
                 rate_pack: DEFAULT_RATE_PACK,
-                neighbors: vec![bootstrap_node_ref.public_key.clone()],
+                neighbors: vec_to_set(vec![bootstrap_node_ref.public_key.clone()]),
                 version: 0,
             };
             let (complete_signature, obscured_signature) = {
@@ -75,39 +74,4 @@ fn when_bootstrapping_from_a_node_then_the_node_sends_gossip_upon_startup() {
         }
         _ => panic!("Expected MessageType::Gossip, got something else"),
     }
-}
-
-#[test]
-fn when_bootstrapping_from_a_standard_node_then_the_gossip_reveals_that_it_is_standard() {
-    let mut cluster = SubstratumNodeCluster::start().unwrap();
-    let mock_node = cluster.start_mock_node(vec![34685]);
-    let bootstrap_node = cluster.start_real_node(NodeStartupConfigBuilder::bootstrap().build());
-
-    let neighbor_node = cluster.start_real_node(
-        NodeStartupConfigBuilder::standard()
-            .neighbor(bootstrap_node.node_reference())
-            .build(),
-    );
-
-    let subject = cluster.start_real_node(
-        NodeStartupConfigBuilder::standard()
-            .neighbor(neighbor_node.node_reference())
-            .build(),
-    );
-
-    thread::sleep(Duration::from_millis(1000)); // let the gossip settle down
-
-    mock_node.bootstrap_from(&subject);
-
-    let response_gossip = mock_node
-        .wait_for_gossip(Duration::from_millis(1000))
-        .expect("did not receive gossip");
-
-    let neighbor_record = response_gossip
-        .node_records
-        .iter()
-        .find(|record| record.public_key() == neighbor_node.public_key())
-        .expect("should contain neighbor");
-
-    assert!(!neighbor_record.inner.is_bootstrap_node);
 }

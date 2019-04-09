@@ -21,7 +21,9 @@ use crate::sub_lib::wallet::Wallet;
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::cmp::min;
+use std::collections::HashSet;
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::io;
 use std::io::Error;
 use std::io::Read;
@@ -399,10 +401,27 @@ where
     assert_eq!(
         haystack.contains(needle),
         true,
-        "{:?}\ndoes not contain\n{:?}",
+        "\n{:?}\ndoes not contain\n{:?}",
         haystack,
         needle
     );
+}
+
+pub fn assert_string_contains(haystack: &str, needle: &str) {
+    assert!(
+        haystack.contains(needle),
+        "\n\"{}\"\ndoes not contain\n{}",
+        haystack,
+        needle
+    );
+}
+
+pub fn vec_to_set<T>(vec: Vec<T>) -> HashSet<T>
+where
+    T: Eq + Hash,
+{
+    let set: HashSet<T> = vec.into_iter().collect();
+    set
 }
 
 #[cfg(test)]

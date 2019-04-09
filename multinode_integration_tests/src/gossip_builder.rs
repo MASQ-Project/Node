@@ -2,8 +2,8 @@
 use crate::substratum_node::SubstratumNode;
 use node_lib::neighborhood::gossip::Gossip;
 use node_lib::neighborhood::gossip::GossipNodeRecord;
-use node_lib::neighborhood::neighborhood_database::NodeRecordInner;
-use node_lib::neighborhood::neighborhood_database::NodeSignatures;
+use node_lib::neighborhood::node_record::NodeRecordInner;
+use node_lib::neighborhood::node_record::NodeSignatures;
 use node_lib::sub_lib::cryptde::CryptDE;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::cryptde_null::CryptDENull;
@@ -12,6 +12,7 @@ use node_lib::sub_lib::hopper::IncipientCoresPackage;
 use node_lib::sub_lib::route::Route;
 use node_lib::sub_lib::route::RouteSegment;
 use node_lib::sub_lib::wallet::Wallet;
+use std::collections::HashSet;
 
 pub struct GossipBuilder {
     consuming_wallet: Option<Wallet>,
@@ -45,7 +46,7 @@ impl GossipBuilder {
                 earning_wallet: node.earning_wallet().clone(),
                 consuming_wallet: node.consuming_wallet().clone(),
                 rate_pack: node.rate_pack().clone(),
-                neighbors: vec![],
+                neighbors: HashSet::new(),
                 version: 0,
             },
             cryptde: Box::new(CryptDENull::from(&node.public_key())),
@@ -62,7 +63,7 @@ impl GossipBuilder {
                 earning_wallet: gnr.inner.earning_wallet.clone(),
                 consuming_wallet: gnr.inner.consuming_wallet.clone(),
                 rate_pack: gnr.inner.rate_pack.clone(),
-                neighbors: vec![],
+                neighbors: HashSet::new(),
                 version: gnr.inner.version,
             },
             cryptde: Box::new(CryptDENull::from(&gnr.public_key())),
@@ -104,7 +105,7 @@ impl GossipBuilder {
             let from_node_ref_opt = node_records.iter_mut ().find (|n| n.inner.public_key == from_key);
             let to_key = pair_ref.1.clone ();
             if let Some (from_node_ref) = from_node_ref_opt {
-                from_node_ref.inner.neighbors.push (to_key);
+                from_node_ref.inner.neighbors.insert (to_key);
             }
             else {
                 panic! ("You directed that {:?} should be made a neighbor of {:?}, but {:?} was never added to the GossipBuilder",

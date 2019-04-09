@@ -26,7 +26,7 @@ use std::time::SystemTime;
 fn provided_and_consumed_services_are_recorded_in_databases() {
     let mut cluster = SubstratumNodeCluster::start().unwrap();
 
-    let bootstrap = cluster.start_mock_bootstrap_node(vec![5550]);
+    let bootstrap = cluster.start_real_node(NodeStartupConfigBuilder::bootstrap().build());
 
     let _nodes = (0..3)
         .map(|idx| {
@@ -40,24 +40,16 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
         .collect::<Vec<SubstratumRealNode>>();
     thread::sleep(Duration::from_millis(2000));
 
-    let originating_node = cluster
-        .get_real_node_by_key(&bootstrap.originating_node_key())
-        .unwrap();
+    let originating_node = cluster.get_real_node_by_name("test_node_2").unwrap();
+    let test_node_3 = cluster.get_real_node_by_name("test_node_3").unwrap();
+    let test_node_4 = cluster.get_real_node_by_name("test_node_4").unwrap();
+
     let mut client = originating_node.make_client(80);
     let request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes();
     let before = SystemTime::now();
 
     client.send_chunk(Vec::from(request));
     let response = client.wait_for_chunk();
-    let originating_node = cluster
-        .get_real_node_by_key(&bootstrap.originating_node_key())
-        .unwrap();
-    let routing_node = cluster
-        .get_real_node_by_key(&bootstrap.routing_node_keys()[0])
-        .unwrap();
-    let exit_node = cluster
-        .get_real_node_by_key(&bootstrap.exit_node_key())
-        .unwrap();
 
     let param_block = ParamBlock {
         before,
@@ -65,13 +57,27 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
         request_len: request.len(),
         response_len: response.len(),
         originating_node: originating_node.clone(),
-        routing_node: routing_node.clone(),
-        exit_node: exit_node.clone(),
     };
 
-    check_originating_charges(&param_block);
-    check_routing_charges(&param_block);
-    check_exit_charges(&param_block);
+    let (_, expected_request_charge) =
+        calculate_request_routing_charge(request.len(), &test_node_4.cryptde());
+    let (_, expected_response_charge) =
+        calculate_response_routing_charge(response.len(), &originating_node.cryptde());
+    // Was test_node_3 used as the routing Node?
+    let receivable_account_3 =
+        receivable_account_status(&test_node_3, &originating_node.consuming_wallet().unwrap())
+            .unwrap();
+    if expected_request_charge + expected_response_charge == receivable_account_3.balance as u64 {
+        // Yes. Assert that test_node_3 was the routing Node and test_node_4 was the exit Node.
+        check_originating_charges(&param_block, &test_node_3, &test_node_4);
+        check_routing_charges(&param_block, &test_node_3, &test_node_4);
+        check_exit_charges(&param_block, &test_node_3, &test_node_4);
+    } else {
+        // No. Assert that test_node_4 was the routing Node and test_node_3 was the exit Node.
+        check_originating_charges(&param_block, &test_node_4, &test_node_3);
+        check_routing_charges(&param_block, &test_node_4, &test_node_3);
+        check_exit_charges(&param_block, &test_node_4, &test_node_3);
+    }
 }
 
 #[derive(Debug)]
@@ -81,32 +87,31 @@ struct ParamBlock {
     request_len: usize,
     response_len: usize,
     originating_node: SubstratumRealNode,
-    routing_node: SubstratumRealNode,
-    exit_node: SubstratumRealNode,
 }
 
-fn check_originating_charges(param_block: &ParamBlock) {
+fn check_originating_charges(
+    param_block: &ParamBlock,
+    routing_node: &SubstratumRealNode,
+    exit_node: &SubstratumRealNode,
+) {
     let receivable_account = receivable_account_status(
         &param_block.originating_node,
         &param_block.originating_node.consuming_wallet().unwrap(),
     );
     let payable_routing_account = payable_account_status(
         &param_block.originating_node,
-        &param_block.routing_node.earning_wallet(),
+        &routing_node.earning_wallet(),
     )
     .unwrap();
-    let payable_exit_account = payable_account_status(
-        &param_block.originating_node,
-        &param_block.exit_node.earning_wallet(),
-    )
-    .unwrap();
+    let payable_exit_account =
+        payable_account_status(&param_block.originating_node, &exit_node.earning_wallet()).unwrap();
 
     assert_eq!(receivable_account, None);
     let (cores_request_bytes, expected_request_routing_charge) =
-        cores_payload_request_routing_charges(&param_block);
+        cores_payload_request_routing_charges(&param_block, exit_node);
     let expected_request_exit_charge = calculate_exit_charge(param_block.request_len);
     let (cores_response_bytes, expected_response_routing_charge) =
-        cores_payload_response_routing_charges(&param_block);
+        cores_payload_response_routing_charges(&param_block, exit_node);
     let expected_response_exit_charge = calculate_exit_charge(param_block.response_len);
     println!(
         "request_routing_charge: {}, response_routing_charge: {}",
@@ -140,31 +145,36 @@ fn check_originating_charges(param_block: &ParamBlock) {
     );
 }
 
-fn cores_payload_request_routing_charges(param_block: &ParamBlock) -> (usize, u64) {
-    calculate_request_routing_charge(param_block.request_len, &param_block.exit_node.cryptde())
+fn cores_payload_request_routing_charges(
+    param_block: &ParamBlock,
+    exit_node: &SubstratumRealNode,
+) -> (usize, u64) {
+    calculate_request_routing_charge(param_block.request_len, &exit_node.cryptde())
 }
 
-fn cores_payload_response_routing_charges(param_block: &ParamBlock) -> (usize, u64) {
-    calculate_response_routing_charge(param_block.response_len, &param_block.exit_node.cryptde())
+fn cores_payload_response_routing_charges(
+    param_block: &ParamBlock,
+    exit_node: &SubstratumRealNode,
+) -> (usize, u64) {
+    calculate_response_routing_charge(param_block.response_len, &exit_node.cryptde())
 }
 
-fn check_routing_charges(param_block: &ParamBlock) {
+fn check_routing_charges(
+    param_block: &ParamBlock,
+    routing_node: &SubstratumRealNode,
+    exit_node: &SubstratumRealNode,
+) {
     let receivable_account = receivable_account_status(
-        &param_block.routing_node,
+        routing_node,
         &param_block.originating_node.consuming_wallet().unwrap(),
     )
     .unwrap();
-    let payable_originating_account = payable_account_status(
-        &param_block.routing_node,
-        &param_block.originating_node.earning_wallet(),
-    );
-    let payable_exit_account = payable_account_status(
-        &param_block.routing_node,
-        &param_block.exit_node.earning_wallet(),
-    );
+    let payable_originating_account =
+        payable_account_status(routing_node, &param_block.originating_node.earning_wallet());
+    let payable_exit_account = payable_account_status(routing_node, &exit_node.earning_wallet());
 
     let (request_bytes, expected_request_charge) =
-        calculate_request_routing_charge(param_block.request_len, &param_block.exit_node.cryptde());
+        calculate_request_routing_charge(param_block.request_len, &exit_node.cryptde());
     let (response_bytes, expected_response_charge) = calculate_response_routing_charge(
         param_block.response_len,
         &param_block.originating_node.cryptde(),
@@ -185,20 +195,19 @@ fn check_routing_charges(param_block: &ParamBlock) {
     assert_eq!(payable_exit_account, None);
 }
 
-fn check_exit_charges(param_block: &ParamBlock) {
+fn check_exit_charges(
+    param_block: &ParamBlock,
+    routing_node: &SubstratumRealNode,
+    exit_node: &SubstratumRealNode,
+) {
     let receivable_account = receivable_account_status(
-        &param_block.exit_node,
+        exit_node,
         &param_block.originating_node.consuming_wallet().unwrap(),
     )
     .unwrap();
-    let payable_originating_account = payable_account_status(
-        &param_block.exit_node,
-        &param_block.originating_node.earning_wallet(),
-    );
-    let payable_routing_account = payable_account_status(
-        &param_block.exit_node,
-        &param_block.routing_node.earning_wallet(),
-    );
+    let payable_originating_account =
+        payable_account_status(exit_node, &param_block.originating_node.earning_wallet());
+    let payable_routing_account = payable_account_status(exit_node, &routing_node.earning_wallet());
 
     let expected_request_charge = calculate_exit_charge(param_block.request_len);
     let expected_response_charge = calculate_exit_charge(param_block.response_len);

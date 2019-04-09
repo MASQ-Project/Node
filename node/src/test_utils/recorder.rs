@@ -9,8 +9,8 @@ use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::dispatcher::DispatcherSubs;
 use crate::sub_lib::dispatcher::InboundClientData;
-use crate::sub_lib::hopper::ExpiredCoresPackage;
 use crate::sub_lib::hopper::IncipientCoresPackage;
+use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{HopperSubs, MessageType};
 use crate::sub_lib::neighborhood::DispatcherNodeQueryMessage;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
@@ -82,6 +82,7 @@ recorder_message_handler!(AddReturnRouteMessage);
 recorder_message_handler!(TransmitDataMsg);
 recorder_message_handler!(BindMessage);
 recorder_message_handler!(IncipientCoresPackage);
+recorder_message_handler!(NoLookupIncipientCoresPackage);
 recorder_message_handler!(InboundClientData);
 recorder_message_handler!(InboundServerData);
 recorder_message_handler!(BootstrapNeighborhoodNowMessage);
@@ -272,6 +273,7 @@ pub fn make_hopper_subs_from(addr: &Addr<Recorder>) -> HopperSubs {
     HopperSubs {
         bind: addr.clone().recipient::<BindMessage>(),
         from_hopper_client: addr.clone().recipient::<IncipientCoresPackage>(),
+        from_hopper_client_no_lookup: addr.clone().recipient::<NoLookupIncipientCoresPackage>(),
         from_dispatcher: addr.clone().recipient::<InboundClientData>(),
     }
 }

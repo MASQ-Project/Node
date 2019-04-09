@@ -16,11 +16,27 @@ pub struct Route {
 }
 
 impl Route {
+    pub fn single_hop(
+        destination: &PublicKey,
+        cryptde: &dyn CryptDE, // The CryptDE of the beginning of this Route must go here.
+    ) -> Result<Route, String> {
+        Self::construct(
+            RouteSegment::new(
+                vec![&cryptde.public_key(), destination],
+                Component::Neighborhood,
+            ),
+            None,
+            cryptde,
+            None,
+            None,
+        )
+    }
+
     pub fn one_way(
         route_segment: RouteSegment,
         cryptde: &dyn CryptDE, // Any CryptDE can go here; it's only used to encrypt to public keys.
         consuming_wallet: Option<Wallet>,
-    ) -> Result<Route, RouteError> {
+    ) -> Result<Route, String> {
         Self::construct(route_segment, None, cryptde, consuming_wallet, None)
     }
 
@@ -30,7 +46,7 @@ impl Route {
         cryptde: &dyn CryptDE, // Any CryptDE can go here; it's only used to encrypt to public keys.
         consuming_wallet: Option<Wallet>,
         return_route_id: u32,
-    ) -> Result<Route, RouteError> {
+    ) -> Result<Route, String> {
         Self::construct(
             route_segment_over,
             Some(route_segment_back),
@@ -77,9 +93,9 @@ impl Route {
         cryptde: &dyn CryptDE,
         consuming_wallet: Option<Wallet>,
         return_route_id_opt: Option<u32>,
-    ) -> Result<Route, RouteError> {
+    ) -> Result<Route, String> {
         if let Some(error) = Route::validate_route_segments(&over, &back) {
-            return Err(error);
+            return Err(format!("{:?}", error));
         }
         let over_component = over.recipient;
         let over_keys = over.keys.iter().skip(1);
@@ -180,7 +196,7 @@ impl Route {
         top_hop_key: &PublicKey,
         return_route_id_opt: Option<u32>,
         cryptde: &dyn CryptDE,
-    ) -> Result<Route, RouteError> {
+    ) -> Result<Route, String> {
         let mut hops_enc: Vec<CryptData> = Vec::new();
         let mut hop_key = top_hop_key;
         for hop_index in 0..hops.len() {
@@ -188,7 +204,7 @@ impl Route {
             // crashpoint - should not be possible, can this be restructured to remove Option?
             hops_enc.push(match data_hop.encode(hop_key, cryptde) {
                 Ok(crypt_data) => crypt_data,
-                Err(_) => panic!("Couldn't encode hop"),
+                Err(e) => return Err(format!("Couldn't encode hop: {}", e)),
             });
             hop_key = &data_hop.public_key;
         }
@@ -283,7 +299,7 @@ mod tests {
         .err()
         .unwrap();
 
-        assert_eq!(result, RouteError::TooFewKeysInRouteSegment)
+        assert_eq!(String::from("TooFewKeysInRouteSegment"), result)
     }
 
     #[test]
@@ -306,7 +322,30 @@ mod tests {
         .err()
         .unwrap();
 
-        assert_eq!(result, RouteError::DisjointRouteSegments)
+        assert_eq!(String::from("DisjointRouteSegments"), result)
+    }
+
+    #[test]
+    fn construct_can_make_single_hop_route() {
+        let target_key = PublicKey::new(&[65, 65, 65]);
+        let mut cryptde = CryptDENull::new();
+        cryptde.generate_key_pair();
+
+        let subject = Route::single_hop(&target_key, &cryptde).unwrap();
+
+        assert_eq!(
+            LiveHop::new(&target_key, None, Component::Hopper)
+                .encode(&cryptde.public_key(), &cryptde)
+                .unwrap(),
+            subject.hops[0]
+        );
+        assert_eq!(
+            LiveHop::new(&PublicKey::new(b""), None, Component::Neighborhood)
+                .encode(&target_key, &cryptde)
+                .unwrap(),
+            subject.hops[1]
+        );
+        assert_eq!(2, subject.hops.len());
     }
 
     #[test]

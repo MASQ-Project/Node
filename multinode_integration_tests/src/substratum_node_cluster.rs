@@ -1,6 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::command::Command;
-use crate::mock_bootstrap_node::MockBootstrapNode;
 use crate::substratum_mock_node::SubstratumMockNode;
 use crate::substratum_node::SubstratumNode;
 use crate::substratum_real_node::NodeStartupConfig;
@@ -13,7 +12,6 @@ use std::env;
 pub struct SubstratumNodeCluster {
     real_nodes: HashMap<String, SubstratumRealNode>,
     mock_nodes: HashMap<String, SubstratumMockNode>,
-    mock_bootstrap_nodes: HashMap<String, MockBootstrapNode>,
     host_node_parent_dir: Option<String>,
     next_index: usize,
 }
@@ -32,7 +30,6 @@ impl SubstratumNodeCluster {
         Ok(SubstratumNodeCluster {
             real_nodes: HashMap::new(),
             mock_nodes: HashMap::new(),
-            mock_bootstrap_nodes: HashMap::new(),
             host_node_parent_dir,
             next_index: 1,
         })
@@ -56,15 +53,6 @@ impl SubstratumNodeCluster {
         self.mock_nodes.get(&name).unwrap().clone()
     }
 
-    pub fn start_mock_bootstrap_node(&mut self, ports: Vec<u16>) -> MockBootstrapNode {
-        let index = self.next_index;
-        self.next_index += 1;
-        let node = MockBootstrapNode::start(ports, index, self.host_node_parent_dir.clone());
-        let name = node.name().to_string();
-        self.mock_bootstrap_nodes.insert(name.clone(), node);
-        self.mock_bootstrap_nodes.get(&name).unwrap().clone()
-    }
-
     pub fn stop(self) {
         SubstratumNodeCluster::cleanup().unwrap()
     }
@@ -83,7 +71,6 @@ impl SubstratumNodeCluster {
         let mut node_name_refs = vec![];
         node_name_refs.extend(self.real_nodes.keys());
         node_name_refs.extend(self.mock_nodes.keys());
-        node_name_refs.extend(self.mock_bootstrap_nodes.keys());
         node_name_refs.into_iter().map(|x| x.clone()).collect()
     }
 
@@ -118,10 +105,7 @@ impl SubstratumNodeCluster {
             Some(node_ref) => Some(Box::new(node_ref.clone())),
             None => match self.mock_nodes.get(name) {
                 Some(node_ref) => Some(Box::new(node_ref.clone())),
-                None => match self.mock_bootstrap_nodes.get(name) {
-                    Some(node_ref) => Some(Box::new(node_ref.clone())),
-                    None => None,
-                },
+                None => None,
             },
         }
     }
