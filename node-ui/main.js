@@ -1,6 +1,7 @@
-const { app, dialog, BrowserWindow, ipcMain } = require('electron')
+const {app, dialog, BrowserWindow, ipcMain, Menu} = require('electron')
 const path = require('path')
 const url = require('url')
+const process = require('./main-process/wrappers/process_wrapper')
 
 const NodeActuator = require('./main-process/node_actuator')
 
@@ -8,6 +9,33 @@ let mainWindow
 let nodeActuator
 
 function createWindow () {
+
+  // Mac needs special menu entries for clipboard functionality
+  if (process.platform === 'darwin') {
+    Menu.setApplicationMenu(Menu.buildFromTemplate([
+      {
+        label: app.getName(),
+        submenu: [
+          {role: 'quit'}
+        ]
+      },
+      {
+        label: 'Edit',
+        submenu: [
+          {role: 'undo'},
+          {role: 'redo'},
+          {type: 'separator'},
+          {role: 'cut'},
+          {role: 'copy'},
+          {role: 'paste'},
+          {role: 'pasteandmatchstyle'},
+          {role: 'delete'},
+          {role: 'selectall'}
+        ]
+      }
+    ]))
+  }
+
   mainWindow = new BrowserWindow({
     width: 620,
     height: 560,
@@ -38,7 +66,7 @@ function createWindow () {
 
   let quitting = false
   mainWindow.on('close', event => {
-    if(!quitting) {
+    if (!quitting) {
       quitting = true
 
       event.preventDefault()
@@ -46,11 +74,11 @@ function createWindow () {
         .then(() => app.quit())
         .catch((reason) => {
           dialog.showErrorBox(
-          "Error shutting down Substratum Node.",
-          `Could not shut down Substratum Node.  You may need to kill it manually.\n\nReason: "${reason}"`
+            'Error shutting down Substratum Node.',
+            `Could not shut down Substratum Node.  You may need to kill it manually.\n\nReason: "${reason}"`
           )
           app.quit()
-      })
+        })
     }
   })
 

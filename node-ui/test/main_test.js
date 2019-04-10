@@ -5,14 +5,16 @@
 const td = require('testdouble')
 
 describe('shutting down', () => {
-  let subject, mockApp, mockDialog, mockEvent, mainWindowOnClose, MockNodeActuator, appOnReady
+  let subject, mockApp, mockDialog, mockEvent, mockMenu, mainWindowOnClose, MockNodeActuator, appOnReady, process
 
   beforeEach(() => {
     mockEvent = td.object(['preventDefault'])
-    mockApp = td.object(['on', 'quit'])
+    mockApp = td.object(['getName', 'on', 'quit'])
     mockDialog = td.object(['showErrorBox'])
     MockNodeActuator = td.constructor(['shutdown'])
+    mockMenu = td.object(['setApplicationMenu', 'buildFromTemplate'])
     td.replace('../main-process/node_actuator', MockNodeActuator)
+    process = td.replace('../main-process/wrappers/process_wrapper')
 
     const MockBrowserWindow = td.constructor(['on', 'loadURL'])
     mainWindowOnClose = td.matchers.captor()
@@ -25,12 +27,60 @@ describe('shutting down', () => {
       app: mockApp,
       BrowserWindow: MockBrowserWindow,
       dialog: mockDialog,
-      ipcMain: td.object()})
+      ipcMain: td.object(),
+      Menu: mockMenu
+    })
     subject = require('../main')
   })
 
   afterEach(() => {
     td.reset()
+  })
+
+  describe('on mac', () => {
+    beforeEach(() => {
+      process.platform = 'darwin'
+    })
+    it('Menu is set up', () => {
+      appOnReady.value()
+
+      td.verify(mockMenu.buildFromTemplate([
+        {
+          label: undefined,
+          submenu: [
+            {role: 'quit'}
+          ]
+        },
+        {
+          label: 'Edit',
+          submenu: [
+            {role: 'undo'},
+            {role: 'redo'},
+            {type: 'separator'},
+            {role: 'cut'},
+            {role: 'copy'},
+            {role: 'paste'},
+            {role: 'pasteandmatchstyle'},
+            {role: 'delete'},
+            {role: 'selectall'}
+          ]
+        }
+      ]))
+      td.verify(mockMenu.setApplicationMenu(td.matchers.anything()))
+    })
+  })
+
+  describe('on other platforms', () => {
+    beforeEach(() => {
+      process.platform = 'anything other than elephants is irelephant'
+    })
+
+    it('Menu is not set up', () => {
+      appOnReady.value()
+
+      td.verify(mockMenu.buildFromTemplate(td.matchers.anything()), {times: 0})
+      td.verify(mockMenu.setApplicationMenu(td.matchers.anything()), {times: 0})
+    })
   })
 
   describe('successfully', () => {
@@ -42,11 +92,11 @@ describe('shutting down', () => {
     })
 
     it('prevents the default close event behavior', async () => {
-      td.verify(mockEvent.preventDefault(), { times: 1 })
+      td.verify(mockEvent.preventDefault(), {times: 1})
     })
 
     it('quits the app', async () => {
-      td.verify(mockApp.quit(), { times: 1 })
+      td.verify(mockApp.quit(), {times: 1})
     })
 
     describe('when the app is already quitting', () => {
@@ -55,11 +105,11 @@ describe('shutting down', () => {
       })
 
       it('does not prevent the default close event behavior', () => {
-        td.verify(mockEvent.preventDefault(), { times: 1 })
+        td.verify(mockEvent.preventDefault(), {times: 1})
       })
 
       it('does not call quit again', () => {
-        td.verify(mockApp.quit(), { times: 1 })
+        td.verify(mockApp.quit(), {times: 1})
       })
     })
   })
@@ -74,7 +124,7 @@ describe('shutting down', () => {
 
     it('shows an error dialog', () => {
       td.verify(mockDialog.showErrorBox(
-        "Error shutting down Substratum Node.",
+        'Error shutting down Substratum Node.',
         'Could not shut down Substratum Node.  You may need to kill it manually.\n\nReason: "beggin for help"'))
     })
 
@@ -88,11 +138,11 @@ describe('shutting down', () => {
       })
 
       it('does not prevent the default close event behavior', () => {
-        td.verify(mockEvent.preventDefault(), { times: 1 })
+        td.verify(mockEvent.preventDefault(), {times: 1})
       })
 
       it('does not call quit again', () => {
-        td.verify(mockApp.quit(), { times: 1 })
+        td.verify(mockApp.quit(), {times: 1})
       })
     })
   })
