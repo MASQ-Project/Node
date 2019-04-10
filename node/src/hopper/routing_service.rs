@@ -18,7 +18,7 @@ use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
 use std::borrow::Borrow;
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 
 pub struct RoutingService {
     cryptde: &'static dyn CryptDE,
@@ -65,7 +65,7 @@ impl RoutingService {
             "Received {} bytes of InboundClientData ({}) from Dispatcher",
             data_size, ibcd.peer_addr
         ));
-        let sender_ip = ibcd.peer_addr.ip();
+        let peer_addr = ibcd.peer_addr;
         let last_data = ibcd.last_data;
         let live_package = match self.decrypt_and_deserialize_lcp(ibcd) {
             Ok(package) => package,
@@ -81,8 +81,8 @@ impl RoutingService {
             }
         };
 
-        if self.should_route_data(next_hop.component) {
-            self.route_data(sender_ip, next_hop, live_package, last_data);
+        if self.should_route_data(peer_addr, next_hop.component) {
+            self.route_data(peer_addr.ip(), next_hop, live_package, last_data);
         }
     }
 
@@ -248,13 +248,13 @@ impl RoutingService {
         })
     }
 
-    fn should_route_data(&self, component: Component) -> bool {
+    fn should_route_data(&self, peer_addr: SocketAddr, component: Component) -> bool {
         if component == Component::Neighborhood {
             true
         } else if self.is_bootstrap_node {
             self.logger.error(format!(
-                "Request for Bootstrap Node to route data to {:?}: rejected",
-                component
+                "Request from {} for Bootstrap Node to route data to {:?}: rejected",
+                peer_addr, component
             ));
             false
         } else {
@@ -572,7 +572,7 @@ mod tests {
         let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
         let data_enc = cryptde.encode(&cryptde.public_key(), &data_ser).unwrap();
         let inbound_client_data = InboundClientData {
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            peer_addr: SocketAddr::from_str("1.2.3.4:5679").unwrap(),
             reception_port: None,
             last_data: false,
             is_clandestine: false,
@@ -598,7 +598,7 @@ mod tests {
         System::current().stop();
         system.run();
         TestLogHandler::new().exists_log_containing(
-            "ERROR: RoutingService: Request for Bootstrap Node to route data to ProxyClient: rejected",
+            "ERROR: RoutingService: Request from 1.2.3.4:5679 for Bootstrap Node to route data to ProxyClient: rejected",
         );
         let component_recording = component_recording_arc.lock().unwrap();
         assert_eq!(0, component_recording.len());
@@ -644,7 +644,7 @@ mod tests {
         System::current().stop();
         system.run();
         TestLogHandler::new().exists_log_containing(
-            "ERROR: RoutingService: Request for Bootstrap Node to route data to ProxyServer: rejected",
+            "ERROR: RoutingService: Request from 1.2.3.4:5678 for Bootstrap Node to route data to ProxyServer: rejected",
         );
         let component_recording = component_recording_arc.lock().unwrap();
         assert_eq!(0, component_recording.len());
@@ -673,7 +673,7 @@ mod tests {
         let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
         let data_enc = cryptde.encode(&cryptde.public_key(), &data_ser).unwrap();
         let inbound_client_data = InboundClientData {
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            peer_addr: SocketAddr::from_str("1.2.3.4:5681").unwrap(),
             reception_port: None,
             last_data: false,
             is_clandestine: true,
@@ -699,7 +699,7 @@ mod tests {
         System::current().stop();
         system.run();
         TestLogHandler::new().exists_log_containing(
-            "ERROR: RoutingService: Request for Bootstrap Node to route data to Hopper: rejected",
+            "ERROR: RoutingService: Request from 1.2.3.4:5681 for Bootstrap Node to route data to Hopper: rejected",
         );
         let component_recording = component_recording_arc.lock().unwrap();
         assert_eq!(0, component_recording.len());

@@ -5,6 +5,7 @@ pub mod test_utils;
 pub mod channel_wrapper_mocks;
 pub mod data_hunk;
 pub mod data_hunk_framer;
+pub mod little_tcp_server;
 pub mod logging;
 pub mod recorder;
 pub mod stream_connector_mock;

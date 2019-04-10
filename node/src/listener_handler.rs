@@ -33,6 +33,7 @@ pub struct ListenerHandlerReal {
     port_configuration: Option<PortConfiguration>,
     listener: Box<dyn TokioListenerWrapper>,
     add_stream_sub: Option<Recipient<AddStreamMsg>>,
+    stream_connector: Box<StreamConnector>,
     logger: Logger,
 }
 
@@ -62,12 +63,23 @@ impl Future for ListenerHandlerReal {
         loop {
             let result = self.listener.poll_accept();
             match result {
-                Ok(Async::Ready((stream, _socket_addr))) => {
+                Ok(Async::Ready((stream, socket_addr))) => {
+                    let connection_info =
+                        match self.stream_connector.split_stream(stream, &self.logger) {
+                            Some(ci) => ci,
+                            None => {
+                                self.logger.error(format!(
+                                    "Connection from {} was closed before it could be accepted",
+                                    socket_addr
+                                ));
+                                return Ok(Async::NotReady);
+                            }
+                        };
                     self.add_stream_sub
                         .as_ref()
                         .expect("Internal error: StreamHandlerPool unbound")
                         .try_send(AddStreamMsg::new(
-                            StreamConnectorReal {}.split_stream(stream, &self.logger),
+                            connection_info,
                             self.port,
                             self.port_configuration
                                 .as_ref()
@@ -77,7 +89,7 @@ impl Future for ListenerHandlerReal {
                         .expect("Internal error: StreamHandlerPool is dead");
                 }
                 Err(e) => {
-                    // TODO FIXME we should kill the entire node if there is a fatal error in a listener_handler
+                    // TODO FIXME we should kill the entire Node if there is a fatal error in a listener_handler
                     // TODO this could be exploitable and inefficient: if we keep getting errors, we go into a tight loop and do not return
                     self.logger
                         .error(format!("Could not accept connection: {}", e));
@@ -95,6 +107,7 @@ impl ListenerHandlerReal {
             port_configuration: None,
             listener: Box::new(TokioListenerWrapperReal::new()),
             add_stream_sub: None,
+            stream_connector: Box::new(StreamConnectorReal {}),
             logger: Logger::new("Uninitialized Listener"),
         }
     }
@@ -119,11 +132,13 @@ mod tests {
     use super::*;
     use crate::configuration::PortConfiguration;
     use crate::node_test_utils::NullDiscriminatorFactory;
+    use crate::test_utils::little_tcp_server::LittleTcpServer;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLog;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::Recorder;
+    use crate::test_utils::stream_connector_mock::StreamConnectorMock;
     use crate::test_utils::test_utils::find_free_port;
     use actix::Actor;
     use actix::Addr;
@@ -133,6 +148,7 @@ mod tests {
     use std::io::ErrorKind;
     use std::net;
     use std::net::Shutdown;
+    use std::net::TcpStream as StdTcpStream;
     use std::str::FromStr;
     use std::sync::mpsc;
     use std::sync::Arc;
@@ -140,6 +156,7 @@ mod tests {
     use std::time::Duration;
     use tokio;
     use tokio::net::TcpStream;
+    use tokio::reactor::Handle;
 
     struct TokioListenerWrapperMock {
         log: Arc<TestLog>,
@@ -279,6 +296,46 @@ mod tests {
                 port
             )[..],
         ]);
+        let recording = recording_arc.lock().unwrap();
+        assert_eq!(recording.len(), 0);
+    }
+
+    #[test]
+    fn handles_connection_that_wont_split() {
+        init_test_logging();
+        let (stream_handler_pool, _, recording_arc) = make_recorder();
+
+        let port = find_free_port();
+        let server = LittleTcpServer::start();
+        thread::spawn(move || {
+            let add_stream_sub = start_recorder(stream_handler_pool);
+            let std_stream = StdTcpStream::connect(server.socket_addr()).unwrap();
+            let stream = TcpStream::from_std(std_stream, &Handle::default()).unwrap();
+            let tokio_listener_wrapper = TokioListenerWrapperMock::new()
+                .bind_result(Ok(()))
+                .poll_accept_results(vec![Ok(Async::Ready((
+                    stream,
+                    SocketAddr::from_str("1.2.3.4:5").unwrap(),
+                )))]);
+            let stream_connector = StreamConnectorMock::new().split_stream_result(None);
+            let mut subject = ListenerHandlerReal::new();
+            subject.listener = Box::new(tokio_listener_wrapper);
+            subject.stream_connector = Box::new(stream_connector);
+            subject.bind_subs(add_stream_sub);
+            subject
+                .bind_port_and_configuration(port, PortConfiguration::new(vec![], false))
+                .unwrap();
+            tokio::run(subject)
+        });
+        let tlh = TestLogHandler::new();
+        // Stream has no peer_addr before splitting: {}
+        tlh.await_log_containing(
+            &format!(
+                "ERROR: ListenerHandler {}: Connection from 1.2.3.4:5 was closed before it could be accepted",
+                port,
+            )[..],
+            1000
+        );
         let recording = recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
     }

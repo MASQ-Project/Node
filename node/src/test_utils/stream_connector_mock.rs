@@ -18,6 +18,7 @@ use tokio::prelude::Async;
 pub struct StreamConnectorMock {
     connect_pair_params: Arc<Mutex<Vec<SocketAddr>>>,
     connect_pair_results: RefCell<Vec<Result<ConnectionInfo, io::Error>>>,
+    split_stream_results: RefCell<Vec<Option<ConnectionInfo>>>,
 }
 
 impl StreamConnector for StreamConnectorMock {
@@ -37,12 +38,8 @@ impl StreamConnector for StreamConnectorMock {
         self.connect_pair_results.borrow_mut().remove(0)
     }
 
-    fn split_stream(&self, _stream: TcpStream, _logger: &Logger) -> ConnectionInfo {
-        unimplemented!()
-    }
-
-    fn split_stream_fut(&self, _stream: TcpStream, _logger: &Logger) -> ConnectionInfoFuture {
-        unimplemented!()
+    fn split_stream(&self, _stream: TcpStream, _logger: &Logger) -> Option<ConnectionInfo> {
+        self.split_stream_results.borrow_mut().remove(0)
     }
 }
 
@@ -51,6 +48,7 @@ impl StreamConnectorMock {
         Self {
             connect_pair_params: Arc::new(Mutex::new(vec![])),
             connect_pair_results: RefCell::new(vec![]),
+            split_stream_results: RefCell::new(vec![]),
         }
     }
 
@@ -109,6 +107,11 @@ impl StreamConnectorMock {
         result: Result<ConnectionInfo, io::Error>,
     ) -> StreamConnectorMock {
         self.connect_pair_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn split_stream_result(self, result: Option<ConnectionInfo>) -> StreamConnectorMock {
+        self.split_stream_results.borrow_mut().push(result);
         self
     }
 }

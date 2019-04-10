@@ -4,7 +4,6 @@ use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapperReal;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapperReal;
-use futures::future::ok;
 use std::io::ErrorKind;
 use std::net::IpAddr;
 use std::net::SocketAddr;
@@ -36,8 +35,7 @@ pub trait StreamConnector: Send {
         target_port: u16,
         logger: &Logger,
     ) -> Result<ConnectionInfo, io::Error>;
-    fn split_stream(&self, stream: TcpStream, logger: &Logger) -> ConnectionInfo;
-    fn split_stream_fut(&self, stream: TcpStream, logger: &Logger) -> ConnectionInfoFuture;
+    fn split_stream(&self, stream: TcpStream, logger: &Logger) -> Option<ConnectionInfo>;
 }
 
 #[derive(Clone)]
@@ -50,12 +48,24 @@ impl StreamConnector for StreamConnectorReal {
             Timeout::new(
                 TcpStream::connect(&socket_addr).then(move |result| match result {
                     Ok(stream) => {
-                        let local_addr = stream
-                            .local_addr()
-                            .expect("Connected stream has no local_addr");
-                        let peer_addr = stream
-                            .peer_addr()
-                            .expect("Connected stream has no peer_addr");
+                        let local_addr = stream.local_addr().expect(
+                            format!(
+                                "Newly-connected stream to {} has no local_addr",
+                                socket_addr
+                            )
+                            .as_str(),
+                        );
+                        let peer_addr = match stream.peer_addr() {
+                            Ok(addr) => addr,
+                            // Untested code below: we couldn't figure out how to make this happen in captivity
+                            Err(e) => {
+                                future_logger.error(format!(
+                                    "Newly-connected stream to {} has no peer_addr",
+                                    socket_addr
+                                ));
+                                return Err(e);
+                            }
+                        };
                         let (read_half, write_half) = stream.split();
                         Ok(ConnectionInfo {
                             reader: Box::new(ReadHalfWrapperReal::new(read_half)),
@@ -97,7 +107,9 @@ impl StreamConnector for StreamConnectorReal {
                     logger.debug(format!("Connected new stream to {}", socket_addr));
                     let tokio_stream = TcpStream::from_std(stream, &Handle::default())
                         .expect("Tokio could not create a TcpStream");
-                    return Ok(self.split_stream(tokio_stream, logger));
+                    return Ok(self
+                        .split_stream(tokio_stream, logger)
+                        .expect(&format!("Stream to {} could not be split", socket_addr)));
                 }
                 Err(e) => {
                     last_error = e;
@@ -114,53 +126,44 @@ impl StreamConnector for StreamConnectorReal {
         Err(last_error)
     }
 
-    fn split_stream(&self, stream: TcpStream, _logger: &Logger) -> ConnectionInfo {
+    fn split_stream(&self, stream: TcpStream, logger: &Logger) -> Option<ConnectionInfo> {
         let local_addr = stream
             .local_addr()
-            .expect("Connected stream has no local_addr");
-        let peer_addr = stream
-            .peer_addr()
-            .expect("Connected stream has no peer_addr");
+            .expect("Stream has no local_addr before splitting");
+        let peer_addr = match stream.peer_addr() {
+            Ok(addr) => addr,
+            Err(e) => {
+                logger.error(format!("Stream has no peer_addr before splitting: {}", e));
+                return None;
+            }
+        };
         let (read_half, write_half) = stream.split();
-        ConnectionInfo {
+        Some(ConnectionInfo {
             reader: Box::new(ReadHalfWrapperReal::new(read_half)),
             writer: Box::new(WriteHalfWrapperReal::new(write_half)),
             local_addr,
             peer_addr,
-        }
-    }
-
-    fn split_stream_fut(&self, stream: TcpStream, logger: &Logger) -> ConnectionInfoFuture {
-        let connection_info_future =
-            ok::<ConnectionInfo, io::Error>(self.split_stream(stream, logger));
-        Box::new(connection_info_future)
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::little_tcp_server::LittleTcpServer;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::test_utils::find_free_port;
     use futures::future::lazy;
     use futures::future::ok;
-    use std::io::Read;
-    use std::io::Write;
-    use std::net::IpAddr;
-    use std::net::Ipv4Addr;
-    use std::net::TcpListener;
+    use std::net::{IpAddr, Shutdown};
     use std::str::FromStr;
     use std::sync::mpsc;
-    use std::sync::mpsc::Receiver;
-    use std::sync::mpsc::Sender;
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
     use std::time::Duration;
     use tokio;
-    use tokio::io::read_exact;
-    use tokio::io::write_all;
     use tokio::io::ErrorKind;
 
     #[test]
@@ -207,27 +210,6 @@ mod tests {
             assert_eq!(connection_info.peer_addr, server.socket_addr());
             success()
         });
-    }
-
-    #[test]
-    fn stream_connector_can_split_existing_stream() {
-        let server = LittleTcpServer::start();
-        let logger = Logger::new("test");
-        let subject = StreamConnectorReal {};
-        let stream = TcpStream::connect(&server.socket_addr()).wait().unwrap();
-
-        let future = subject.split_stream_fut(stream, &logger);
-
-        let connection_info = future.wait().unwrap();
-        assert_eq!(
-            connection_info.local_addr.ip(),
-            IpAddr::from_str("127.0.0.1").unwrap()
-        );
-        assert_eq!(connection_info.peer_addr, server.socket_addr());
-        let write_future = write_all(connection_info.writer, &b"Booga!"[..]);
-        write_future.wait().unwrap();
-        let read_future = read_exact(connection_info.reader, [0u8; 6]);
-        assert_eq!(&read_future.wait().unwrap().1, b"Booga!");
     }
 
     #[test]
@@ -333,6 +315,37 @@ mod tests {
         TestLogHandler::new().exists_log_matching("Could not connect to any of the IP addresses supplied for some hostname: \\[\"255\\.255\\.255\\.255:\\d+\"\\]");
     }
 
+    #[test]
+    fn closed_stream_either_splits_properly_or_doesnt_split_and_logs() {
+        init_test_logging();
+        let server = LittleTcpServer::start();
+        let std_stream = StdTcpStream::connect(server.socket_addr()).unwrap();
+        let local_addr = std_stream.local_addr().unwrap();
+        let peer_addr = std_stream.peer_addr().unwrap();
+        std_stream.shutdown(Shutdown::Both).unwrap();
+        thread::sleep(Duration::from_millis(100)); // Shutdown apparently needs time to propagate
+        let stream = TcpStream::from_std(std_stream, &Handle::default()).unwrap();
+        let logger = Logger::new("either/or");
+        let subject = StreamConnectorReal {};
+
+        let result = subject.split_stream(stream, &logger);
+
+        match result {
+            Some(connection_info) => {
+                // If the split proceeds (Windows), the ConnectionInfo had better be filled out and there'd better be no log
+                assert_eq!(local_addr, connection_info.local_addr);
+                assert_eq!(peer_addr, connection_info.peer_addr);
+                TestLogHandler::new().exists_no_log_containing("either/or");
+            }
+            None => {
+                // If the split fails (Linux, macOS), there'd better be a log
+                TestLogHandler::new().exists_log_containing(&format!(
+                    "ERROR: either/or: Stream has no peer_addr before splitting:",
+                ));
+            }
+        }
+    }
+
     struct FutureAsserter<I: 'static, E: 'static> {
         future: Box<dyn Future<Item = I, Error = E> + Send>,
     }
@@ -367,69 +380,5 @@ mod tests {
 
     fn success() -> Box<dyn Future<Item = (), Error = ()>> {
         Box::new(ok(()))
-    }
-
-    struct LittleTcpServer {
-        port: u16,
-        tx: Sender<()>,
-        count_rx: Receiver<()>,
-    }
-
-    impl Drop for LittleTcpServer {
-        fn drop(&mut self) {
-            self.tx.send(()).unwrap();
-        }
-    }
-
-    impl LittleTcpServer {
-        fn start() -> LittleTcpServer {
-            let listener =
-                TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0))
-                    .unwrap();
-            let port = listener.local_addr().unwrap().port();
-            let (tx, rx) = mpsc::channel();
-            let (count_tx, count_rx) = mpsc::channel();
-            thread::spawn(move || {
-                let mut buf = [0u8; 1024];
-                loop {
-                    if rx.try_recv().is_ok() {
-                        return;
-                    }
-                    match listener.accept() {
-                        Err(_) => continue,
-                        Ok((mut stream, _)) => {
-                            count_tx.send(()).is_ok();
-                            stream
-                                .set_read_timeout(Some(Duration::from_millis(100)))
-                                .unwrap();
-                            loop {
-                                if rx.try_recv().is_ok() {
-                                    return;
-                                }
-                                match stream.read(&mut buf) {
-                                    Err(_) => break,
-                                    Ok(len) if len == 0 => break,
-                                    Ok(_) => stream.write(&buf).unwrap(),
-                                };
-                            }
-                        }
-                    }
-                }
-            });
-            LittleTcpServer { port, tx, count_rx }
-        }
-
-        fn socket_addr(&self) -> SocketAddr {
-            SocketAddr::new(IpAddr::from_str("127.0.0.1").unwrap(), self.port)
-        }
-
-        fn count_connections(&self, wait_for: Duration) -> u16 {
-            thread::sleep(wait_for);
-            let mut count = 0;
-            while self.count_rx.try_recv().is_ok() {
-                count += 1;
-            }
-            count
-        }
     }
 }
