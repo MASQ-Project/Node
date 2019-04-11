@@ -14,7 +14,7 @@ fn node_exits_from_future_error_integration() {
     let mut node = utils::SubstratumNode::start(Some(panic_config));
 
     let exit_status = node.wait_for_exit(1000);
-    assert_eq!(exit_status, Some(1));
+    assert_ne!(Some(0), exit_status);
 }
 
 #[cfg(windows)]
@@ -27,5 +27,5 @@ fn node_exits_from_future_error_integration() {
 
     let exit_status = node.wait_for_exit(1000);
     // Sometimes 1, sometimes 101
-    assert_ne!(exit_status, Some(0));
+    assert_ne!(Some(0), exit_status);
 }

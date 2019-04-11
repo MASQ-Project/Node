@@ -487,6 +487,8 @@ impl GossipAcceptorReal {
             _ => (), // Maybe we eventually want to detect errors here and abort the change, returning false.
         }
         node_record.inner.neighbors = gnr.inner.neighbors.clone();
+        // TODO: During SC-778, take out this line: is_bootstrap_node flags shouldn't _really_ ever change. But until then, we will tell and believe lies about the Node we boot from, until it tells us differently.
+        node_record.inner.is_bootstrap_node = gnr.inner.is_bootstrap_node;
         node_record.set_version(gnr.inner.version);
         true
     }
@@ -979,6 +981,12 @@ mod tests {
         dest_db.add_arbitrary_full_neighbor(root_node.public_key(), node_b.public_key());
         dest_db.add_arbitrary_full_neighbor(node_a.public_key(), node_b.public_key());
         dest_db.add_arbitrary_full_neighbor(node_b.public_key(), node_d.public_key());
+        // TODO: During SC-778, take out this modification. Until then, the fact that root_node is booting from node_a means it thinks node_a is a bootstrap Node.
+        dest_db
+            .node_by_key_mut(node_a.public_key())
+            .unwrap()
+            .inner
+            .is_bootstrap_node = true;
         src_db.add_node(&node_b).unwrap();
         src_db.add_node(&node_c).unwrap();
         src_db.add_node(&node_e).unwrap();

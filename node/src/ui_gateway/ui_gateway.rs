@@ -127,7 +127,7 @@ impl Handler<FromUiMessage> for UiGateway {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sub_lib::ui_gateway::{UiMessage, DEFAULT_UI_PORT};
+    use crate::sub_lib::ui_gateway::UiMessage;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::make_recorder;
@@ -438,7 +438,7 @@ mod tests {
 
         thread::spawn(move || {
             let mut subject = UiGateway::new(&UiGatewayConfig {
-                ui_port: DEFAULT_UI_PORT,
+                ui_port: find_free_port(),
                 node_descriptor: String::from(""),
             });
             subject.converter = Box::new(handler);
