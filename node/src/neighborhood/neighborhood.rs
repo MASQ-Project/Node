@@ -186,7 +186,7 @@ impl Handler<DispatcherNodeQueryMessage> for Neighborhood {
             Some(node_record_ref) => Some(NodeDescriptor::new(
                 node_record_ref.public_key().clone(),
                 match node_record_ref.node_addr_opt() {
-                    Some(node_addr_ref) => Some(node_addr_ref.clone()),
+                    Some(node_addr) => Some(node_addr.clone()),
                     None => None,
                 },
                 node_record_ref.rate_pack().clone(),
@@ -495,6 +495,7 @@ impl Neighborhood {
             msg.target_type,
             msg.minimum_hop_count,
             msg.target_component,
+            false,
         )?;
         self.logger.debug(format!("Route over: {:?}", over));
         let back = self.make_route_segment(
@@ -503,6 +504,7 @@ impl Neighborhood {
             local_target_type,
             msg.minimum_hop_count,
             msg.return_component_opt.expect("No return component"),
+            true,
         )?;
         self.logger.debug(format!("Route back: {:?}", back));
         self.compose_route_query_response(over, back)
@@ -563,9 +565,15 @@ impl Neighborhood {
         target_type: TargetType,
         minimum_hop_count: usize,
         target_component: Component,
+        next_door_allowed: bool,
     ) -> Result<RouteSegment, String> {
-        let mut node_seqs =
-            self.complete_routes(vec![origin], target, target_type, minimum_hop_count);
+        let mut node_seqs = self.complete_routes(
+            vec![origin],
+            target,
+            target_type,
+            minimum_hop_count,
+            next_door_allowed,
+        );
 
         if node_seqs.is_empty() {
             let target_str = match target {
@@ -681,8 +689,15 @@ impl Neighborhood {
         }
     }
 
-    fn last_type_qualifies(&self, last_node_ref: &NodeRecord, target_type: TargetType) -> bool {
+    fn last_type_qualifies(last_node_ref: &NodeRecord, target_type: TargetType) -> bool {
         (target_type == TargetType::Bootstrap) == last_node_ref.is_bootstrap_node()
+    }
+
+    fn validate_last_next_door_exit(
+        previous_node: &NodeRecord,
+        next_door_exit_allowed: bool,
+    ) -> bool {
+        next_door_exit_allowed || previous_node.node_addr_opt().is_none()
     }
 
     fn advance_return_route_id(&mut self) -> u32 {
@@ -703,43 +718,50 @@ impl Neighborhood {
         target: Option<&'a PublicKey>,
         target_type: TargetType, // TODO: Remove this parameter: it will only ever work with the value TargetType::Standard.
         hops_remaining: usize,
+        next_door_exit_allowed: bool,
     ) -> Vec<Vec<&'a PublicKey>> {
-        let last_node_ref = self
+        let previous_node = self
             .neighborhood_database
             .node_by_key(prefix.last().expect("Empty prefix"))
             .expect("Node magically disappeared");
         // Check to see if we're done. If we are, all three of these qualifications will pass.
         if self.route_length_qualifies(hops_remaining)
-            && self.last_key_qualifies(last_node_ref, target)
-            && self.last_type_qualifies(last_node_ref, target_type)
+            && self.last_key_qualifies(previous_node, target)
+            && Self::last_type_qualifies(previous_node, target_type)
+            && Self::validate_last_next_door_exit(previous_node, next_door_exit_allowed)
         {
             vec![prefix]
         }
         // If we're not done, then last_node is for routing, and bootstrap Nodes don't route.
-        else if last_node_ref.is_bootstrap_node() {
+        else if previous_node.is_bootstrap_node() {
             vec![]
-        }
-        // Go through all the neighbors and compute shorter routes through all the ones we're not already using.
-        else {
-            last_node_ref
+        } else if hops_remaining == 0
+            && !Self::validate_last_next_door_exit(previous_node, next_door_exit_allowed)
+        {
+            //         don't return routes with next door exit nodes
+            vec![]
+        } else {
+            // Go through all the neighbors and compute shorter routes through all the ones we're not already using.
+            previous_node
                 .full_neighbors(&self.neighborhood_database)
                 .iter()
-                .filter(|node_record_ref_ref_ref| {
-                    !prefix.contains(&node_record_ref_ref_ref.public_key())
-                })
-                .flat_map(|node_record_ref_ref| {
+                .filter(|node_record| !prefix.contains(&node_record.public_key()))
+                .flat_map(|node_record| {
                     let mut new_prefix = prefix.clone();
-                    new_prefix.push(node_record_ref_ref.public_key());
+                    new_prefix.push(node_record.public_key());
+
                     let new_hops_remaining = if hops_remaining == 0 {
                         0
                     } else {
                         hops_remaining - 1
                     };
+
                     self.complete_routes(
                         new_prefix.clone(),
                         target,
                         target_type,
                         new_hops_remaining,
+                        next_door_exit_allowed,
                     )
                 })
                 .collect()
@@ -854,14 +876,13 @@ mod tests {
     use super::*;
     use crate::neighborhood::gossip::Gossip;
     use crate::neighborhood::neighborhood_test_utils::{
-        db_from_node, make_cryptde_node_record, neighborhood_from_nodes,
+        db_from_node, make_global_cryptde_node_record, neighborhood_from_nodes,
     };
     use crate::neighborhood::node_record::NodeRecordInner;
-    use crate::sub_lib::cryptde::decodex;
-    use crate::sub_lib::cryptde::encodex;
-    use crate::sub_lib::cryptde::CryptData;
+    use crate::sub_lib::cryptde::{decodex, encodex, CryptData};
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::Endpoint;
+    use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::hopper::MessageType;
     use crate::sub_lib::neighborhood::sentinel_ip_addr;
     use crate::sub_lib::neighborhood::ExpectedServices;
@@ -891,7 +912,7 @@ mod tests {
     use tokio::prelude::Future;
 
     fn make_standard_subject() -> Neighborhood {
-        let root_node = make_cryptde_node_record(9999, true, false);
+        let root_node = make_global_cryptde_node_record(9999, true, false);
         let bootstrap_node = make_node_record(9998, true, true);
         neighborhood_from_nodes(&root_node, Some(&bootstrap_node))
     }
@@ -1455,7 +1476,7 @@ mod tests {
             .set_wallets(earning_wallet, None);
         // These happen to be extracted in the desired order. We could not think of a way to guarantee it.
         let mut undesirable_exit_node = make_node_record(2345, true, false);
-        let desirable_exit_node = make_node_record(3456, true, false);
+        let desirable_exit_node = make_node_record(3456, false, false);
         undesirable_exit_node.set_desirable(false);
         let originating_node = &subject.neighborhood_database.root().clone();
         {
@@ -1998,7 +2019,7 @@ mod tests {
         };
 
         // At least two hops from P to anywhere standard
-        let routes = subject.complete_routes(vec![p], None, TargetType::Standard, 2);
+        let routes = subject.complete_routes(vec![p], None, TargetType::Standard, 2, true);
 
         contains(&routes, vec![p, s, t]);
         contains(&routes, vec![p, r, s]);
@@ -2006,33 +2027,33 @@ mod tests {
         assert_eq!(3, routes.len());
 
         // At least two hops from P to T
-        let routes = subject.complete_routes(vec![p], Some(t), TargetType::Standard, 2);
+        let routes = subject.complete_routes(vec![p], Some(t), TargetType::Standard, 2, true);
 
         contains(&routes, vec![p, s, t]);
         contains(&routes, vec![p, r, s, t]);
         assert_eq!(2, routes.len());
 
         // At least two hops from P to B (bootstrap)
-        let routes = subject.complete_routes(vec![p], Some(b), TargetType::Bootstrap, 2);
+        let routes = subject.complete_routes(vec![p], Some(b), TargetType::Bootstrap, 2, true);
 
         // No routes are found, because bootstrap Nodes can't be exits
         assert_eq!(0, routes.len());
 
         // TODO: When the target_type parameter disappears, remove this section of the test
         // At least two hops from P to anywhere bootstrap
-        let routes = subject.complete_routes(vec![p], None, TargetType::Bootstrap, 2);
+        let routes = subject.complete_routes(vec![p], None, TargetType::Bootstrap, 2, true);
 
         // No routes are found, because bootstrap Nodes can't be exits
         assert_eq!(0, routes.len());
 
         // At least two hops from P to S - one choice
-        let routes = subject.complete_routes(vec![p], Some(s), TargetType::Standard, 2);
+        let routes = subject.complete_routes(vec![p], Some(s), TargetType::Standard, 2, true);
 
         contains(&routes, vec![p, r, s]);
         assert_eq!(1, routes.len());
 
         // At least two hops from P to Q - impossible
-        let routes = subject.complete_routes(vec![p], Some(q), TargetType::Standard, 2);
+        let routes = subject.complete_routes(vec![p], Some(q), TargetType::Standard, 2, true);
 
         assert_eq!(0, routes.len());
     }
@@ -2164,7 +2185,7 @@ mod tests {
         let gossip_acceptor = GossipAcceptorMock::new()
             .handle_params(&handle_params_arc)
             .handle_result(GossipAcceptanceResult::Ignored);
-        let mut subject_node = make_cryptde_node_record(1234, true, false); // 9e7p7un06eHs6frl5A
+        let mut subject_node = make_global_cryptde_node_record(1234, true, false); // 9e7p7un06eHs6frl5A
         let bootstrap = make_node_record(1000, true, true);
         let mut subject = neighborhood_from_nodes(&subject_node, Some(&bootstrap));
         subject.gossip_acceptor = Box::new(gossip_acceptor);
@@ -2213,7 +2234,7 @@ mod tests {
         init_test_logging();
         let introduction_target_node_1 = make_node_record(7345, true, false);
         let introduction_target_node_2 = make_node_record(7456, true, false);
-        let subject_node = make_cryptde_node_record(5555, true, false); // 9e7p7un06eHs6frl5A
+        let subject_node = make_global_cryptde_node_record(5555, true, false); // 9e7p7un06eHs6frl5A
         let bootstrap = make_node_record(1000, true, true);
         let mut subject = neighborhood_from_nodes(&subject_node, Some(&bootstrap));
         subject
@@ -2313,7 +2334,7 @@ mod tests {
     #[test]
     fn neighborhood_sends_from_gossip_producer_when_acceptance_introductions_are_not_provided() {
         init_test_logging();
-        let subject_node = make_cryptde_node_record(5555, true, false); // 9e7p7un06eHs6frl5A
+        let subject_node = make_global_cryptde_node_record(5555, true, false); // 9e7p7un06eHs6frl5A
         let bootstrap = make_node_record(1000, true, true);
         let mut subject = neighborhood_from_nodes(&subject_node, Some(&bootstrap));
         let full_neighbor = make_node_record(1234, true, false);
@@ -2426,7 +2447,7 @@ mod tests {
     #[test]
     fn neighborhood_sends_only_relay_gossip_when_gossip_acceptor_relays() {
         init_test_logging();
-        let subject_node = make_cryptde_node_record(5555, true, false); // 9e7p7un06eHs6frl5A
+        let subject_node = make_global_cryptde_node_record(5555, true, false); // 9e7p7un06eHs6frl5A
         let bootstrap = make_node_record(1000, true, true);
         let mut subject = neighborhood_from_nodes(&subject_node, Some(&bootstrap));
         let debut_node = make_node_record(1234, true, false);
@@ -2484,7 +2505,7 @@ mod tests {
     #[test]
     fn neighborhood_sends_no_gossip_when_gossip_acceptor_ignores() {
         init_test_logging();
-        let subject_node = make_cryptde_node_record(5555, true, false); // 9e7p7un06eHs6frl5A
+        let subject_node = make_global_cryptde_node_record(5555, true, false); // 9e7p7un06eHs6frl5A
         let bootstrap = make_node_record(1000, true, true);
         let mut subject = neighborhood_from_nodes(&subject_node, Some(&bootstrap));
         let gossip_acceptor =
@@ -3028,6 +3049,125 @@ mod tests {
             )
         );
         assert_eq!(message.context, context_a);
+    }
+
+    #[test]
+    fn make_round_trip_route_returns_error_when_no_non_next_door_neighbor_found() {
+        let next_door_neighbor_a = make_node_record(33, true, false);
+
+        let subject_node = make_global_cryptde_node_record(5555, true, false); // 9e7p7un06eHs6frl5A
+        let mut subject = neighborhood_from_nodes(&subject_node, Some(&next_door_neighbor_a));
+
+        let next_door_neighbor_b = make_node_record(3, true, false);
+
+        subject
+            .neighborhood_database
+            .add_node(&next_door_neighbor_b)
+            .unwrap();
+
+        subject.neighborhood_database.add_arbitrary_full_neighbor(
+            subject_node.public_key(),
+            next_door_neighbor_a.public_key(),
+        );
+
+        subject.neighborhood_database.add_arbitrary_full_neighbor(
+            subject_node.public_key(),
+            next_door_neighbor_b.public_key(),
+        );
+
+        let minimum_hop_count = 1;
+
+        let result = subject.make_round_trip_route(RouteQueryMessage {
+            target_type: TargetType::Standard,
+            target_key_opt: None,
+            target_component: Component::ProxyClient,
+            minimum_hop_count,
+            return_component_opt: Some(Component::ProxyServer),
+        });
+
+        assert_eq!(
+            Err(format!(
+                "Couldn't find any routes: at least {}-hop from {} to ProxyClient at Standard",
+                minimum_hop_count,
+                cryptde().public_key()
+            )),
+            result
+        );
+    }
+
+    #[test]
+    fn make_round_trip_succeeds_when_it_finds_non_next_door_neighbor_exit_node() {
+        let not_used_in_route = make_node_record(44, true, false);
+        let next_door_neighbor = make_node_record(3, true, false);
+        let exit_node = make_node_record(5, false, false);
+
+        let subject_node = make_global_cryptde_node_record(666, true, false); // 9e7p7un06eHs6frl5A
+        let mut subject = neighborhood_from_nodes(&subject_node, Some(&not_used_in_route));
+
+        subject
+            .neighborhood_database
+            .add_node(&next_door_neighbor)
+            .unwrap();
+        subject.neighborhood_database.add_node(&exit_node).unwrap();
+
+        subject
+            .neighborhood_database
+            .add_arbitrary_full_neighbor(subject_node.public_key(), not_used_in_route.public_key());
+
+        subject.neighborhood_database.add_arbitrary_full_neighbor(
+            subject_node.public_key(),
+            next_door_neighbor.public_key(),
+        );
+
+        subject.neighborhood_database.add_arbitrary_full_neighbor(
+            not_used_in_route.public_key(),
+            next_door_neighbor.public_key(),
+        );
+
+        subject
+            .neighborhood_database
+            .add_arbitrary_full_neighbor(next_door_neighbor.public_key(), exit_node.public_key());
+
+        let minimum_hop_count = 2;
+
+        let result = subject.make_round_trip_route(RouteQueryMessage {
+            target_type: TargetType::Standard,
+            target_key_opt: None,
+            target_component: Component::ProxyClient,
+            minimum_hop_count,
+            return_component_opt: Some(Component::ProxyServer),
+        });
+
+        let next_door_neighbor_cryptde = CryptDENull::from(&next_door_neighbor.public_key());
+        let exit_node_cryptde = CryptDENull::from(&exit_node.public_key());
+
+        let hops = result.clone().unwrap().route.hops;
+        let actual_keys: Vec<PublicKey> = match hops.as_slice() {
+            [hop, exit, hop_back, origin, empty, _accounting] => vec![
+                decodex::<LiveHop>(cryptde(), hop).expect("hop").public_key,
+                decodex::<LiveHop>(&next_door_neighbor_cryptde, exit)
+                    .expect("exit")
+                    .public_key,
+                decodex::<LiveHop>(&exit_node_cryptde, hop_back)
+                    .expect("hop_back")
+                    .public_key,
+                decodex::<LiveHop>(&next_door_neighbor_cryptde, origin)
+                    .expect("origin")
+                    .public_key,
+                decodex::<LiveHop>(cryptde(), empty)
+                    .expect("empty")
+                    .public_key,
+            ],
+            l => panic!("our match is wrong, real size is {}, {:?}", l.len(), l),
+        };
+        let expected_public_keys = vec![
+            next_door_neighbor.public_key().clone(),
+            exit_node.public_key().clone(),
+            next_door_neighbor.public_key().clone(),
+            subject_node.public_key().clone(),
+            PublicKey::new(b""),
+        ];
+        assert_eq!(expected_public_keys, actual_keys);
     }
 
     pub struct NeighborhoodDatabaseMessage {}

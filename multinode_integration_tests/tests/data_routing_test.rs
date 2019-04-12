@@ -18,14 +18,14 @@ fn end_to_end_gossip_and_routing_test() {
             .build(),
     );
 
-    cluster.start_real_node(
+    let node_3 = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .neighbor(bootstrap_node.node_reference())
+            .neighbor(originating_node.node_reference())
             .build(),
     );
     cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .neighbor(bootstrap_node.node_reference())
+            .neighbor(node_3.node_reference())
             .build(),
     );
 

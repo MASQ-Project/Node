@@ -89,17 +89,6 @@ pub struct NodeRecord {
     pub signatures: Option<NodeSignatures>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct NodeRecordMetadata {
-    desirable: bool,
-}
-
-impl NodeRecordMetadata {
-    pub fn new() -> NodeRecordMetadata {
-        NodeRecordMetadata { desirable: true }
-    }
-}
-
 impl NodeRecord {
     pub fn new(
         public_key: &PublicKey,
@@ -179,11 +168,6 @@ impl NodeRecord {
                 true
             }
         }
-    }
-
-    #[cfg(test)]
-    pub fn remove_signatures(&mut self) {
-        self.signatures = None;
     }
 
     pub fn half_neighbor_keys(&self) -> HashSet<&PublicKey> {
@@ -308,6 +292,22 @@ impl NodeRecord {
 
     pub fn set_desirable(&mut self, is_desirable: bool) {
         self.metadata.desirable = is_desirable
+    }
+
+    #[cfg(test)]
+    pub fn remove_signatures(&mut self) {
+        self.signatures = None;
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct NodeRecordMetadata {
+    desirable: bool,
+}
+
+impl NodeRecordMetadata {
+    pub fn new() -> NodeRecordMetadata {
+        NodeRecordMetadata { desirable: true }
     }
 }
 

@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use multinode_integration_tests_lib::substratum_node::SubstratumNode;
+use multinode_integration_tests_lib::substratum_node::{NodeReference, SubstratumNode};
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
 use multinode_integration_tests_lib::substratum_real_node::SubstratumRealNode;
@@ -22,27 +22,30 @@ use std::thread;
 use std::time::Duration;
 use std::time::SystemTime;
 
+fn start_real_node(
+    cluster: &mut SubstratumNodeCluster,
+    bootstrap_from: NodeReference,
+    index: usize,
+) -> SubstratumRealNode {
+    cluster.start_real_node(
+        NodeStartupConfigBuilder::standard()
+            .neighbor(bootstrap_from)
+            .earning_wallet(make_wallet_from(index))
+            .build(),
+    )
+}
+
 #[test]
 fn provided_and_consumed_services_are_recorded_in_databases() {
     let mut cluster = SubstratumNodeCluster::start().unwrap();
 
     let bootstrap = cluster.start_real_node(NodeStartupConfigBuilder::bootstrap().build());
 
-    let _nodes = (0..3)
-        .map(|idx| {
-            cluster.start_real_node(
-                NodeStartupConfigBuilder::standard()
-                    .neighbor(bootstrap.node_reference())
-                    .earning_wallet(make_wallet_from(idx))
-                    .build(),
-            )
-        })
-        .collect::<Vec<SubstratumRealNode>>();
-    thread::sleep(Duration::from_millis(2000));
+    let originating_node = start_real_node(&mut cluster, bootstrap.node_reference(), 2);
+    let test_node_3 = start_real_node(&mut cluster, originating_node.node_reference(), 3);
+    let test_node_4 = start_real_node(&mut cluster, test_node_3.node_reference(), 4);
 
-    let originating_node = cluster.get_real_node_by_name("test_node_2").unwrap();
-    let test_node_3 = cluster.get_real_node_by_name("test_node_3").unwrap();
-    let test_node_4 = cluster.get_real_node_by_name("test_node_4").unwrap();
+    thread::sleep(Duration::from_millis(2000));
 
     let mut client = originating_node.make_client(80);
     let request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes();

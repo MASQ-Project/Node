@@ -33,7 +33,11 @@ pub fn make_node_record(n: u16, has_ip: bool, is_bootstrap_node: bool) -> NodeRe
     )
 }
 
-pub fn make_cryptde_node_record(n: u16, has_ip: bool, is_bootstrap_node: bool) -> NodeRecord {
+pub fn make_global_cryptde_node_record(
+    n: u16,
+    has_ip: bool,
+    is_bootstrap_node: bool,
+) -> NodeRecord {
     let mut node_record = make_node_record(n, has_ip, is_bootstrap_node);
     node_record.inner.public_key = cryptde().public_key().clone();
     node_record
