@@ -42,6 +42,7 @@ use actix::Context;
 use actix::Handler;
 use actix::MessageResult;
 use actix::Recipient;
+use std::cmp::Ordering;
 use std::net::IpAddr;
 
 pub struct Neighborhood {
@@ -576,9 +577,42 @@ impl Neighborhood {
                 minimum_hop_count, origin, target_component, target_type, target_str
             ))
         } else {
+            // When the target is Some all exit nodes will be the target and it is not optimal to sort.
+            if target.is_none() {
+                self.sort_routes_by_desirable_exit_nodes(node_seqs.as_mut());
+            }
             let chosen_node_seq = node_seqs.remove(0);
             Ok(RouteSegment::new(chosen_node_seq, target_component))
         }
+    }
+
+    fn sort_routes_by_desirable_exit_nodes(&self, node_seqs: &mut Vec<Vec<&PublicKey>>) {
+        if node_seqs.is_empty() {
+            panic!("Unable to sort routes by desirable exit nodes: Missing routes.");
+        }
+        let get_the_exit_nodes_desirable_flag = |vec: &Vec<&PublicKey>| -> Option<bool> {
+            vec.last()
+                .and_then(|pk|
+                    Some(
+                        self.neighborhood_database
+                            .node_by_key(pk)
+                            .expect(format!("Unable to sort routes by desirable exit nodes: Missing NodeRecord for public key: [{}]", pk).as_str())
+                    )
+                ).map(|node| node.is_desirable())
+        };
+
+        node_seqs.sort_by(|vec1: &Vec<&PublicKey>, vec2: &Vec<&PublicKey>| {
+            if vec1.is_empty() || vec2.is_empty() {
+                panic!("Unable to sort routes by desirable exit nodes: Missing route segments.")
+            }
+            let is_desirable1 = get_the_exit_nodes_desirable_flag(vec1);
+            let is_desirable2 = get_the_exit_nodes_desirable_flag(vec2);
+            match (is_desirable1, is_desirable2) {
+                (Some(true), Some(false)) => Ordering::Less,
+                (Some(false), Some(true)) => Ordering::Greater,
+                _ => Ordering::Equal,
+            }
+        });
     }
 
     fn make_expected_services(
@@ -1419,15 +1453,23 @@ mod tests {
             .neighborhood_database
             .root_mut()
             .set_wallets(earning_wallet, None);
-        let a = &make_node_record(1234, true, false);
-        let b = &subject.neighborhood_database.root().clone();
+        // These happen to be extracted in the desired order. We could not think of a way to guarantee it.
+        let mut undesirable_exit_node = make_node_record(2345, true, false);
+        let desirable_exit_node = make_node_record(3456, true, false);
+        undesirable_exit_node.set_desirable(false);
+        let originating_node = &subject.neighborhood_database.root().clone();
         {
             let db = &mut subject.neighborhood_database;
-            db.add_node(a).unwrap();
-            let mut dual_edge = |a: &NodeRecord, b: &NodeRecord| {
-                db.add_arbitrary_full_neighbor(a.public_key(), b.public_key())
-            };
-            dual_edge(a, b);
+            db.add_node(&undesirable_exit_node).unwrap();
+            db.add_node(&desirable_exit_node).unwrap();
+            db.add_arbitrary_full_neighbor(
+                undesirable_exit_node.public_key(),
+                originating_node.public_key(),
+            );
+            db.add_arbitrary_full_neighbor(
+                desirable_exit_node.public_key(),
+                originating_node.public_key(),
+            );
         }
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
@@ -1446,8 +1488,14 @@ mod tests {
         let result = future.wait().unwrap().unwrap();
         let expected_response = RouteQueryResponse {
             route: Route::round_trip(
-                segment(vec![b, a], Component::ProxyClient),
-                segment(vec![a, b], Component::ProxyServer),
+                segment(
+                    vec![originating_node, &desirable_exit_node],
+                    Component::ProxyClient,
+                ),
+                segment(
+                    vec![&desirable_exit_node, originating_node],
+                    Component::ProxyServer,
+                ),
                 cryptde,
                 None,
                 0,
@@ -1457,16 +1505,16 @@ mod tests {
                 vec![
                     ExpectedService::Nothing,
                     ExpectedService::Exit(
-                        a.public_key().clone(),
-                        a.earning_wallet(),
-                        rate_pack(1234),
+                        desirable_exit_node.public_key().clone(),
+                        desirable_exit_node.earning_wallet(),
+                        rate_pack(3456),
                     ),
                 ],
                 vec![
                     ExpectedService::Exit(
-                        a.public_key().clone(),
-                        a.earning_wallet(),
-                        rate_pack(1234),
+                        desirable_exit_node.public_key().clone(),
+                        desirable_exit_node.earning_wallet(),
+                        rate_pack(3456),
                     ),
                     ExpectedService::Nothing,
                 ],
@@ -1588,6 +1636,8 @@ mod tests {
                  +---+-B-+---+
                  |   |   |   |
                  P---Q---R---S
+                     |
+                     T
 
             Tests will be written from the viewpoint of P.
     */
@@ -1608,20 +1658,25 @@ mod tests {
         let q = &make_node_record(3456, true, false);
         let r = &make_node_record(4567, false, false);
         let s = &make_node_record(5678, false, false);
+        let mut t = make_node_record(1111, false, false);
+        t.set_desirable(false);
         {
             let db = &mut subject.neighborhood_database;
             db.add_node(b).unwrap();
             db.add_node(q).unwrap();
+            db.add_node(&t).unwrap();
             db.add_node(r).unwrap();
             db.add_node(s).unwrap();
             let mut dual_edge = |a: &NodeRecord, b: &NodeRecord| {
-                db.add_arbitrary_full_neighbor(a.public_key(), b.public_key())
+                db.add_arbitrary_full_neighbor(a.public_key(), b.public_key());
             };
             dual_edge(b, p);
             dual_edge(b, q);
             dual_edge(b, r);
             dual_edge(b, s);
+            dual_edge(b, &t);
             dual_edge(p, q);
+            dual_edge(q, &t);
             dual_edge(q, r);
             dual_edge(r, s);
         }
@@ -1681,6 +1736,102 @@ mod tests {
             ),
         };
         assert_eq!(result, expected_response);
+    }
+
+    #[test]
+    fn sort_routes_by_desirable_exit_nodes() {
+        let mut subject = make_standard_subject();
+
+        let us = subject.neighborhood_database.root().clone();
+        let routing_node = make_node_record(0000, true, false);
+        let desirable_node = make_node_record(1111, false, false);
+        let mut undesirable_node = make_node_record(2222, false, false);
+        undesirable_node.set_desirable(false);
+
+        subject
+            .neighborhood_database
+            .add_node(&routing_node)
+            .unwrap();
+        subject
+            .neighborhood_database
+            .add_node(&undesirable_node)
+            .unwrap();
+        subject
+            .neighborhood_database
+            .add_node(&desirable_node)
+            .unwrap();
+
+        let mut node_sequences = Vec::new();
+        node_sequences.push(vec![
+            us.public_key(),
+            routing_node.public_key(),
+            undesirable_node.public_key(),
+        ]);
+        node_sequences.push(vec![
+            us.public_key(),
+            routing_node.public_key(),
+            desirable_node.public_key(),
+        ]);
+
+        subject.sort_routes_by_desirable_exit_nodes(&mut node_sequences);
+
+        assert_eq!(desirable_node.public_key(), node_sequences[0][2]);
+        assert_eq!(undesirable_node.public_key(), node_sequences[1][2]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Unable to sort routes by desirable exit nodes: Missing routes.")]
+    fn sort_routes_by_desirable_exit_nodes_panics_with_empty_node_sequences() {
+        let subject = make_standard_subject();
+
+        let mut node_sequences: Vec<Vec<&PublicKey>> = Vec::new();
+        subject.sort_routes_by_desirable_exit_nodes(&mut node_sequences);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Unable to sort routes by desirable exit nodes: Missing route segments."
+    )]
+    fn sort_routes_by_desirable_exit_nodes_panics_with_the_first_route_segment_empty() {
+        let subject = make_standard_subject();
+
+        let mut node_sequences: Vec<Vec<&PublicKey>> = Vec::new();
+        let public_key = &PublicKey::from(&b"1234"[..]);
+        node_sequences.push(vec![]);
+        node_sequences.push(vec![public_key]);
+
+        subject.sort_routes_by_desirable_exit_nodes(&mut node_sequences);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Unable to sort routes by desirable exit nodes: Missing route segments."
+    )]
+    fn sort_routes_by_desirable_exit_nodes_panics_with_the_second_route_segment_empty() {
+        let subject = make_standard_subject();
+
+        let mut node_sequences: Vec<Vec<&PublicKey>> = Vec::new();
+        let public_key = &PublicKey::from(&b"1234"[..]);
+        node_sequences.push(vec![public_key]);
+        node_sequences.push(vec![]);
+
+        subject.sort_routes_by_desirable_exit_nodes(&mut node_sequences);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Unable to sort routes by desirable exit nodes: Missing NodeRecord for public key: [MTIzNA]"
+    )]
+    fn sort_routes_by_desirable_exit_nodes_panics_when_node_record_is_missing() {
+        let subject = make_standard_subject();
+
+        let mut node_sequences: Vec<Vec<&PublicKey>> = Vec::new();
+        let public_key = &PublicKey::from(&b"1234"[..]);
+        node_sequences.push(vec![public_key]);
+        node_sequences.push(vec![public_key]);
+        println!("{}", public_key);
+
+        subject.sort_routes_by_desirable_exit_nodes(&mut node_sequences);
     }
 
     #[test]
