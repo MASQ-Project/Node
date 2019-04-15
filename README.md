@@ -107,7 +107,7 @@ In the above example, we're using Cloudflare's DNS, `1.1.1.1`, but you can use y
 If you can't choose just one favorite DNS, you can also specify multiple ones, separated by a comma but no space (`,`).
 
 _Why do we specify `--dns_servers`? SubstratumNodes still need to talk to the greater Internet.
-See [the ProxyClient README](https://github.com/SubstratumNetwork/SubstratumNode/tree/master/proxy_client_lib)
+See [the ProxyClient README](https://github.com/SubstratumNetwork/SubstratumNode/tree/master/node/src/proxy_client)
 for more information._
 
 #### Running a Decentralized SubstratumNode locally
@@ -199,7 +199,7 @@ you can find on the internet by searching for "Port Forwarding" or "How to Port 
 Here is an example: [PortForward.com](https://portforward.com)
 
 More information on the operation, care, and feeding of the Neighborhood is available
-[in the neighborhood_lib subproject](https://github.com/SubstratumNetwork/SubstratumNode/tree/master/neighborhood_lib).
+[in the neighborhood_subproject](https://github.com/SubstratumNetwork/SubstratumNode/tree/master/node/src/neighborhood).
 
 
 ### Terminating a SubstratumNode (Zero-Hop or Decentralized)
