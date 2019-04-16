@@ -295,12 +295,12 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
+    use crate::test_utils::test_utils::make_meaningless_route;
     use crate::test_utils::test_utils::make_meaningless_stream_key;
     use crate::test_utils::test_utils::rate_pack_exit;
     use crate::test_utils::test_utils::rate_pack_exit_byte;
     use crate::test_utils::test_utils::route_to_proxy_client;
     use crate::test_utils::test_utils::{cryptde, make_meaningless_public_key};
-    use crate::test_utils::test_utils::{make_meaningless_message_type, make_meaningless_route};
     use actix::System;
     use std::cell::RefCell;
     use std::net::IpAddr;
@@ -616,14 +616,10 @@ mod tests {
 
         hopper_awaiter.await_message_count(1);
 
+        let message_type: MessageType = DnsResolveFailure { stream_key }.into();
         assert_eq!(
-            &IncipientCoresPackage::new(
-                cryptde,
-                return_route,
-                make_meaningless_message_type(),
-                &originator_key
-            )
-            .unwrap(),
+            &IncipientCoresPackage::new(cryptde, return_route, message_type, &originator_key)
+                .unwrap(),
             hopper_recording_arc
                 .lock()
                 .unwrap()

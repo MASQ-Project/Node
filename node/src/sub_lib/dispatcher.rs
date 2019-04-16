@@ -4,6 +4,7 @@ use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use actix::Message;
 use actix::Recipient;
+use pretty_hex::PrettyHex;
 use serde;
 use serde::de::Visitor;
 use serde::Deserialize;
@@ -125,10 +126,23 @@ impl Debug for InboundClientData {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let data_string = match String::from_utf8(self.data.clone()) {
             Ok(string) => string,
-            Err(_) => format!("{:?}", &self.data[..]),
+            Err(_) => self.data.hex_dump().to_string(),
         };
-        write! (f, "InboundClientData {{ socket_addr: {:?}, origin_port: {:?}, last_data: {}, sequence_number: {:?}, data: {} }}",
-                self.peer_addr, self.reception_port, self.last_data, self.sequence_number, data_string)
+        write! (f, "InboundClientData {{ peer_addr: {:?}, reception_port: {:?}, last_data: {}, sequence_number: {:?}, {} bytes of data: {} }}",
+                self.peer_addr, self.reception_port, self.last_data, self.sequence_number, self.data.len(), data_string)
+    }
+}
+
+impl InboundClientData {
+    pub fn clone_but_data(&self) -> InboundClientData {
+        InboundClientData {
+            peer_addr: self.peer_addr,
+            reception_port: self.reception_port,
+            last_data: self.last_data,
+            is_clandestine: self.is_clandestine,
+            sequence_number: self.sequence_number,
+            data: vec![],
+        }
     }
 }
 

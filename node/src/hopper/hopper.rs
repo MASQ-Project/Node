@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use super::consuming_service::ConsumingService;
 use super::routing_service::RoutingService;
+use crate::hopper::routing_service::RoutingServiceSubs;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::hopper::HopperSubs;
@@ -34,16 +35,19 @@ impl Handler<BindMessage> for Hopper {
         self.consuming_service = Some(ConsumingService::new(
             self.cryptde,
             msg.peer_actors.dispatcher.from_dispatcher_client.clone(),
-            msg.peer_actors.hopper.from_dispatcher,
+            msg.peer_actors.hopper.from_dispatcher.clone(),
         ));
         self.routing_service = Some(RoutingService::new(
             self.cryptde,
             self.is_bootstrap_node,
-            msg.peer_actors.proxy_client,
-            msg.peer_actors.proxy_server,
-            msg.peer_actors.neighborhood,
-            msg.peer_actors.dispatcher.from_dispatcher_client,
-            msg.peer_actors.accountant.report_routing_service_provided,
+            RoutingServiceSubs {
+                proxy_client_subs: msg.peer_actors.proxy_client,
+                proxy_server_subs: msg.peer_actors.proxy_server,
+                neighborhood_subs: msg.peer_actors.neighborhood,
+                hopper_subs: msg.peer_actors.hopper,
+                to_dispatcher: msg.peer_actors.dispatcher.from_dispatcher_client,
+                to_accountant_routing: msg.peer_actors.accountant.report_routing_service_provided,
+            },
             self.per_routing_service,
             self.per_routing_byte,
         ));

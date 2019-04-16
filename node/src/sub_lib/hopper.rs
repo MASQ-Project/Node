@@ -138,9 +138,7 @@ mod tests {
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::route::RouteSegment;
-    use crate::test_utils::test_utils::{
-        make_meaningless_message_type, make_meaningless_stream_key,
-    };
+    use crate::test_utils::test_utils::make_meaningless_message_type;
     use std::str::FromStr;
 
     #[test]
@@ -148,9 +146,7 @@ mod tests {
         let cryptde = CryptDENull::new();
         let public_key = PublicKey::new(&[1, 2]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1, 2, 3, 4]);
-        let payload = MessageType::DnsResolveFailed(DnsResolveFailure {
-            stream_key: make_meaningless_stream_key(),
-        });
+        let payload = make_meaningless_message_type();
 
         let result =
             NoLookupIncipientCoresPackage::new(&cryptde, &public_key, &node_addr, payload.clone());
@@ -176,9 +172,7 @@ mod tests {
             &cryptde,
             &PublicKey::new(&[]),
             &NodeAddr::new(&IpAddr::from_str("1.1.1.1").unwrap(), &vec![]),
-            MessageType::DnsResolveFailed(DnsResolveFailure {
-                stream_key: make_meaningless_stream_key(),
-            }),
+            make_meaningless_message_type(),
         );
         assert_eq!(
             result,

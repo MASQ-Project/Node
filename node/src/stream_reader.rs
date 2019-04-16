@@ -3,7 +3,6 @@ use crate::discriminator::Discriminator;
 use crate::discriminator::DiscriminatorFactory;
 use crate::stream_messages::*;
 use crate::sub_lib::dispatcher;
-use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::sequencer::Sequencer;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
@@ -151,18 +150,8 @@ impl StreamReaderReal {
                 socket_addr: self.peer_addr,
             })
             .expect("StreamHandlerPool is dead");
-        // TODO: Skinny implementation: wrong for decentralization. StreamReaders for clandestine and non-clandestine data should probably behave differently here.
-        let sequence_number = Some(self.sequencer.next_sequence_number());
-        self.ibcd_sub
-            .try_send(InboundClientData {
-                peer_addr: self.peer_addr,
-                reception_port: self.reception_port,
-                last_data: true,
-                is_clandestine: self.is_clandestine,
-                sequence_number,
-                data: Vec::new(),
-            })
-            .expect("Dispatcher is dead");
+        // No echo of last_data = true to take down other end: what gets us here is a signal
+        // that the other end is already down.
     }
 }
 
@@ -180,7 +169,6 @@ mod tests {
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::make_dispatcher_subs_from;
     use crate::test_utils::recorder::make_recorder;
-    use crate::test_utils::recorder::RecordAwaiter;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
@@ -194,29 +182,23 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
 
-    fn stream_handler_pool_stuff() -> (RecordAwaiter, Arc<Mutex<Recording>>, StreamHandlerPoolSubs)
-    {
-        let (shp, awaiter, recording) = make_recorder();
-        (
-            awaiter,
-            recording,
-            make_stream_handler_pool_subs_from(Some(shp)),
-        )
+    fn stream_handler_pool_stuff() -> (Arc<Mutex<Recording>>, StreamHandlerPoolSubs) {
+        let (shp, _, recording) = make_recorder();
+        (recording, make_stream_handler_pool_subs_from(Some(shp)))
     }
 
-    fn dispatcher_stuff() -> (RecordAwaiter, Arc<Mutex<Recording>>, DispatcherSubs) {
-        let (dispatcher, awaiter, recording) = make_recorder();
+    fn dispatcher_stuff() -> (Arc<Mutex<Recording>>, DispatcherSubs) {
+        let (dispatcher, _, recording) = make_recorder();
         let addr: Addr<Recorder> = dispatcher.start();
-        (awaiter, recording, make_dispatcher_subs_from(&addr))
+        (recording, make_dispatcher_subs_from(&addr))
     }
 
     #[test]
     fn stream_reader_shuts_down_and_returns_ok_on_0_byte_read() {
         init_test_logging();
         let system = System::new("test");
-        let (shp_awaiter, shp_recording_arc, stream_handler_pool_subs) =
-            stream_handler_pool_stuff();
-        let (d_awaiter, d_recording_arc, dispatcher_subs) = dispatcher_stuff();
+        let (shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
+        let (_, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
@@ -241,26 +223,11 @@ mod tests {
         System::current().stop_with_code(0);
         system.run();
 
-        shp_awaiter.await_message_count(1);
         let shp_recording = shp_recording_arc.lock().unwrap();
         assert_eq!(
             shp_recording.get_record::<RemoveStreamMsg>(0),
             &RemoveStreamMsg {
                 socket_addr: peer_addr
-            }
-        );
-
-        d_awaiter.await_message_count(1);
-        let d_recording = d_recording_arc.lock().unwrap();
-        assert_eq!(
-            d_recording.get_record::<dispatcher::InboundClientData>(0),
-            &dispatcher::InboundClientData {
-                peer_addr: peer_addr,
-                reception_port: Some(1234 as u16),
-                last_data: true,
-                is_clandestine: true,
-                sequence_number: Some(0),
-                data: Vec::new(),
             }
         );
 
@@ -273,9 +240,8 @@ mod tests {
     fn stream_reader_shuts_down_and_returns_err_when_it_gets_a_dead_stream_error() {
         init_test_logging();
         let system = System::new("test");
-        let (shp_awaiter, shp_recording_arc, stream_handler_pool_subs) =
-            stream_handler_pool_stuff();
-        let (d_awaiter, d_recording_arc, dispatcher_subs) = dispatcher_stuff();
+        let (shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
+        let (_, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
@@ -300,26 +266,11 @@ mod tests {
         System::current().stop_with_code(0);
         system.run();
 
-        shp_awaiter.await_message_count(1);
         let shp_recording = shp_recording_arc.lock().unwrap();
         assert_eq!(
             shp_recording.get_record::<RemoveStreamMsg>(0),
             &RemoveStreamMsg {
                 socket_addr: peer_addr
-            }
-        );
-
-        d_awaiter.await_message_count(1);
-        let d_recording = d_recording_arc.lock().unwrap();
-        assert_eq!(
-            d_recording.get_record::<dispatcher::InboundClientData>(0),
-            &dispatcher::InboundClientData {
-                peer_addr: peer_addr,
-                reception_port: Some(1234 as u16),
-                last_data: true,
-                is_clandestine: true,
-                sequence_number: Some(0),
-                data: Vec::new(),
             }
         );
 
@@ -332,9 +283,8 @@ mod tests {
     fn stream_reader_returns_not_ready_when_it_gets_not_ready() {
         init_test_logging();
         let system = System::new("test");
-        let (_shp_awaiter, shp_recording_arc, stream_handler_pool_subs) =
-            stream_handler_pool_stuff();
-        let (_d_awaiter, d_recording_arc, dispatcher_subs) = dispatcher_stuff();
+        let (shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
+        let (d_recording_arc, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
@@ -372,9 +322,8 @@ mod tests {
     fn stream_reader_logs_err_but_does_not_shut_down_when_it_gets_a_non_dead_stream_error() {
         init_test_logging();
         let system = System::new("test");
-        let (_shp_awaiter, shp_recording_arc, stream_handler_pool_subs) =
-            stream_handler_pool_stuff();
-        let (_d_awaiter, d_recording_arc, dispatcher_subs) = dispatcher_stuff();
+        let (shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
+        let (d_recording_arc, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
@@ -416,9 +365,8 @@ mod tests {
     fn stream_reader_panics_with_no_discriminator_factories() {
         init_test_logging();
         let _system = System::new("test");
-        let (_shp_awaiter, _shp_recording_arc, stream_handler_pool_subs) =
-            stream_handler_pool_stuff();
-        let (_d_awaiter, _d_recording_arc, dispatcher_subs) = dispatcher_stuff();
+        let (_, stream_handler_pool_subs) = stream_handler_pool_stuff();
+        let (_d_recording_arc, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> = vec![];
@@ -442,9 +390,8 @@ mod tests {
     fn stream_reader_sends_framed_chunks_to_dispatcher() {
         init_test_logging();
         let system = System::new("test");
-        let (_shp_awaiter, _shp_recording_arc, stream_handler_pool_subs) =
-            stream_handler_pool_stuff();
-        let (d_awaiter, d_recording_arc, dispatcher_subs) = dispatcher_stuff();
+        let (_, stream_handler_pool_subs) = stream_handler_pool_stuff();
+        let (d_recording_arc, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
@@ -481,7 +428,6 @@ mod tests {
         System::current().stop_with_code(0);
         system.run();
 
-        d_awaiter.await_message_count(1);
         let d_recording = d_recording_arc.lock().unwrap();
         assert_eq!(
             d_recording.get_record::<dispatcher::InboundClientData>(0),
@@ -502,9 +448,8 @@ mod tests {
     #[test]
     fn stream_reader_assigns_a_sequence_to_inbound_client_data_that_are_flagged_as_sequenced() {
         let system = System::new("test");
-        let (_shp_awaiter, _shp_recording_arc, stream_handler_pool_subs) =
-            stream_handler_pool_stuff();
-        let (d_awaiter, d_recording_arc, dispatcher_subs) = dispatcher_stuff();
+        let (_, stream_handler_pool_subs) = stream_handler_pool_stuff();
+        let (d_recording_arc, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
@@ -537,7 +482,6 @@ mod tests {
         System::current().stop_with_code(0);
         system.run();
 
-        d_awaiter.await_message_count(2);
         let d_recording = d_recording_arc.lock().unwrap();
         assert_eq!(
             d_recording.get_record::<dispatcher::InboundClientData>(0),
@@ -568,9 +512,8 @@ mod tests {
     fn stream_reader_does_not_assign_sequence_to_inbound_client_data_that_is_not_marked_as_sequenece(
     ) {
         let system = System::new("test");
-        let (_shp_awaiter, _shp_recording_arc, stream_handler_pool_subs) =
-            stream_handler_pool_stuff();
-        let (d_awaiter, d_recording_arc, dispatcher_subs) = dispatcher_stuff();
+        let (_, stream_handler_pool_subs) = stream_handler_pool_stuff();
+        let (d_recording_arc, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
@@ -604,7 +547,6 @@ mod tests {
         System::current().stop_with_code(0);
         system.run();
 
-        d_awaiter.await_message_count(1);
         let d_recording = d_recording_arc.lock().unwrap();
         assert_eq!(
             d_recording.get_record::<dispatcher::InboundClientData>(0),

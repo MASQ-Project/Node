@@ -20,7 +20,7 @@ pub mod neighborhood;
 mod null_masquerader;
 mod privilege_drop;
 mod proxy_client;
-mod proxy_server;
+pub mod proxy_server;
 pub mod server_initializer;
 mod stream_handler_pool;
 mod stream_messages;

@@ -11,7 +11,7 @@ use actix::Message;
 use actix::Recipient;
 use serde_derive::{Deserialize, Serialize};
 
-#[derive(Copy, Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum ProxyProtocol {
     HTTP,
     TLS,
@@ -36,10 +36,12 @@ impl Into<MessageType> for ClientRequestPayload {
     }
 }
 
-#[derive(Message)]
+#[derive(Message, Debug, PartialEq, Eq)]
 pub struct AddReturnRouteMessage {
     pub return_route_id: u32,
     pub expected_services: Vec<ExpectedService>,
+    pub protocol: ProxyProtocol,
+    pub server_name: Option<String>,
 }
 
 #[derive(Clone)]

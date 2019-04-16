@@ -121,6 +121,9 @@ impl StreamHandlerPoolReal {
                         Self::write_and_tend(sender_wrapper, payload, consuming_wallet, inner_arc)
                     })
                     .map_err(move |error| {
+                        // TODO: This ends up sending an empty response back to the browser and terminating
+                        // the stream. User deserves better than that. Send back a response from the
+                        // proper ServerImpersonator describing the error.
                         Self::clean_up_bad_stream(
                             inner_arc_1,
                             &stream_key,
@@ -486,11 +489,11 @@ mod tests {
         proxy_client_awaiter.await_message_count(1);
 
         assert_eq!(
+            &DnsResolveFailure { stream_key },
             proxy_client_recording
                 .lock()
                 .unwrap()
                 .get_record::<DnsResolveFailure>(0),
-            &DnsResolveFailure { stream_key }
         );
     }
 

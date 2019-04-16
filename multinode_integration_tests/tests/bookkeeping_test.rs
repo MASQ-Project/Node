@@ -116,10 +116,6 @@ fn check_originating_charges(
     let (cores_response_bytes, expected_response_routing_charge) =
         cores_payload_response_routing_charges(&param_block, exit_node);
     let expected_response_exit_charge = calculate_exit_charge(param_block.response_len);
-    println!(
-        "request_routing_charge: {}, response_routing_charge: {}",
-        expected_request_routing_charge, expected_response_routing_charge
-    );
     assert_eq!(
         payable_routing_account.balance as u64,
         expected_request_routing_charge + expected_response_routing_charge,

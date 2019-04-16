@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::proxy_server::protocol_pack::ProtocolPack;
+use crate::proxy_server::protocol_pack::{ProtocolPack, ServerImpersonator};
+use crate::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::proxy_server::ProxyProtocol;
 use crate::sub_lib::utils::index_of;
@@ -11,12 +12,20 @@ impl ProtocolPack for HttpProtocolPack {
         ProxyProtocol::HTTP
     }
 
+    fn standard_port(&self) -> u16 {
+        80
+    }
+
     fn find_host_name(&self, data: &PlainData) -> Option<String> {
         match HttpProtocolPack::find_header_host_name(data.as_slice()) {
             Some(string) => return Some(string),
             None => (),
         }
         HttpProtocolPack::find_url_host_name(data.as_slice())
+    }
+
+    fn server_impersonator(&self) -> Box<ServerImpersonator> {
+        Box::new(ServerImpersonatorHttp {})
     }
 }
 
@@ -78,6 +87,13 @@ mod tests {
         let result = HttpProtocolPack {}.proxy_protocol();
 
         assert_eq!(result, ProxyProtocol::HTTP);
+    }
+
+    #[test]
+    fn knows_its_standard_port() {
+        let result = HttpProtocolPack {}.standard_port();
+
+        assert_eq!(result, 80);
     }
 
     #[test]

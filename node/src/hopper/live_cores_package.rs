@@ -51,16 +51,13 @@ impl LiveCoresPackage {
     pub fn from_incipient(
         incipient: IncipientCoresPackage,
         cryptde: &dyn CryptDE, // must be the CryptDE of the Node to which the top hop is encrypted
-    ) -> Result<(LiveCoresPackage, PublicKey), String> {
+    ) -> Result<(LiveCoresPackage, LiveHop), String> {
         let mut route = incipient.route.clone();
         let next_hop = match route.shift(cryptde) {
             Ok(h) => h,
             Err(e) => return Err(format!("Could not decrypt next hop: {:?}", e)),
         };
-        Ok((
-            LiveCoresPackage::new(route, incipient.payload),
-            next_hop.public_key,
-        ))
+        Ok((LiveCoresPackage::new(route, incipient.payload), next_hop))
     }
 
     pub fn to_expired(
@@ -93,12 +90,11 @@ mod tests {
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::node_addr::NodeAddr;
-    use crate::sub_lib::proxy_client::DnsResolveFailure;
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::test_utils::{
-        cryptde, make_meaningless_message_type, make_meaningless_route, make_meaningless_stream_key,
+        cryptde, make_meaningless_message_type, make_meaningless_route,
     };
     use std::str::FromStr;
 
@@ -184,9 +180,7 @@ mod tests {
         let key34 = PublicKey::new(&[3, 4]);
         let node_addr34 = NodeAddr::new(&IpAddr::from_str("3.4.3.4").unwrap(), &vec![1234]);
         let mut route = Route::single_hop(&key34, cryptde).unwrap();
-        let payload = MessageType::DnsResolveFailed(DnsResolveFailure {
-            stream_key: make_meaningless_stream_key(),
-        });
+        let payload = make_meaningless_message_type();
 
         let incipient =
             NoLookupIncipientCoresPackage::new(cryptde, &key34, &node_addr34, payload.clone())
@@ -231,7 +225,7 @@ mod tests {
         let mut route = Route::one_way(
             RouteSegment::new(vec![&key12, &key34, &key56], Component::Neighborhood),
             cryptde,
-            Some(consuming_wallet),
+            Some(consuming_wallet.clone()),
         )
         .unwrap();
         let payload = make_meaningless_message_type();
@@ -240,7 +234,14 @@ mod tests {
             IncipientCoresPackage::new(cryptde, route.clone(), payload.clone(), &key56).unwrap();
         let (subject, next_stop) = LiveCoresPackage::from_incipient(incipient, cryptde).unwrap();
 
-        assert_eq!(key34, next_stop);
+        assert_eq!(
+            LiveHop {
+                public_key: key34,
+                consuming_wallet: Some(consuming_wallet),
+                component: Component::Hopper
+            },
+            next_stop
+        );
         route.shift(cryptde).unwrap();
 
         assert_eq!(route, subject.route);

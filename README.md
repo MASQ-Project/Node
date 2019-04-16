@@ -214,6 +214,79 @@ This should have you using the Internet normally again.
 However, if you've been running decentralized, you'll probably want to close the holes in your router's firewall. Don't
 leave them open against the next time you run: your Node will pick different clandestine ports the next time.
 
+## Errors
+
+SubstratumNode, like any other piece of software, can encounter obstacles it cannot overcome in the process of trying
+to do what you ask it to do.  It needs to be able to tell you about these insurmountable obstacles, but it lives in a
+place that makes this difficult.  If it were a Web browser, it would have a window on which to display error messages.
+If it were a Web server it could send data describing the errors to your browser to display. But it's neither of these
+things; instead, it's crowded into a place in the protocol stack where neither the browser nor the server expects it
+to exist.
+
+Therefore, certain error messages are a bit awkward to display, especially if they involve TLS connections. Let's look
+at how SubstratumNode deals with certain kinds of errors.
+
+### HTTP
+
+An insecure HTTP connection is one that is based on a URL that begins with `http://` (as opposed to `https://`). The
+fact that it is insecure means that SubstratumNode (and every other process that handles the data) can intrude on the
+data stream and make your browser display whatever they want it to, which may or may not be related to what the server
+on the other end of the connection intended.
+
+When errors occur, this is very useful for SubstratumNode. If you request something from an HTTP server, and for some
+reason SubstratumNode cannot relay your request to that server, or cannot relay the response from the server back to
+you, it will instead impersonate the server and create a counterfeit response describing the error, and display that
+to you instead of the server response it can't give you. (Don't worry: SubstratumNode's impersonation of the server
+is deliberately very bad, so you can easily tell that the error is not coming from the server. You won't be misled).
+The error message will describe the problem and suggest ways it might be alleviated.
+
+### TLS
+
+TLS (spoken over connections based on URLs that begin with `https://`) is a much more difficult beast. Once a TLS 
+connection is set up between your browser and a server, SubstratumNode cannot understand a single bit of the dataflow,
+and it cannot modify a single bit of it without your browser throwing red alerts and refusing to show you the modified
+data. This is good for you and your privacy, but it doesn't make it easy for SubstratumNode to communicate with you
+via the browser.
+
+There is a small exception.
+
+_Once a TLS connection is set up,_ it's completely secure. But _while_ it's being set up, before the encrypted tunnel has
+been established, there's a little SubstratumNode can do. Specifically, it can inject what's called a TLS Alert into the
+stream of data, as long as it is injected very early. This TLS Alert has a single byte that SubstratumNode can use to tell
+you about problems it has relaying your data. There are a number of predefined values this byte can take on, and
+SubstratumNode has to pick one of these values: it can't make up its own.
+
+If your browser is trying to load a page when the error occurs, you'll see a cryptic message in its window telling you
+that you're not going to get what you're after. The exact wording of the error depends on the exact type of the TLS
+Alert. If your browser is trying to communicate in the background when the error occurs, you probably won't see it on
+the screen; but if the browser stops responding, you can open its developer tools and check the JavaScript console; if
+SubstratumNode sent a TLS Alert, you'll see it there.
+
+Since the concerns of the SubstratumNode aren't precisely the same as the concerns of a TLS endpoint, the correspondence
+can't always be made exact, so here are some specific TLS Alert values that SubstratumNode produces in specific 
+situations.
+
+* Routing Failure - `internal_error`: If your Node is not yet "warmed up" enough in the Substratum Network to see a
+large enough neighborhood to be able to create a clandestine route that meets your specifications, it will raise a
+TLS `internal_error` Alert. This will probably be displayed by your browser as some sort of protocol error--which,
+strictly speaking, it is. If this happens, just wait awhile for your Node and the Substratum Network to Gossip with
+each other and spread around the necessary information. Then try reloading the page.
+
+* DNS Resolution Failure - `unrecognized_name`: Even though you contact websites at names like `google.com` and
+`facebook.com`, the real Internet operates on the basis of IP addresses (like `172.217.6.14` and `31.13.66.35`).
+Before it's useful for retrieving data, your server name has to be translated into an IP address. This is the job of a
+DNS server. Much of Internet censorship consists of crippling the DNS servers you have available to you so that they
+can't give you the correct IP address for the server name you're seeking. SubstratumNode captures the DNS queries your
+browser makes and forwards them across the Substratum Network to some other Node that hopefully has access to a
+non-censored DNS server that _does_ know the IP address you want. But this is a complex task and it may fail. For
+example, perhaps you typed the server name wrong, and _nobody_ knows an IP address it matches. Or perhaps your
+SubstratumNode guessed wrong, and the exit Node to which it forwarded your DNS query is also handicapped by a censored DNS
+and can't find it either. In either case, SubstratumNode will send your browser a TLS `unrecognized_name` alert, which
+your browser will probably present to you as some form of can't-find-host error. If you reload the page, SubstratumNode
+will try to select a different exit Node, if available--one that hasn't failed to resolve a DNS query--for the next 
+attempt, which might bring you better fortune. Of course, if you _have_ typed the name wrong, just reloading the page
+will take another innocent exit Node out of circulation and make it even harder for you to get where you want to go.
+
 # Disclosure
 
 We run tests on every push to `master` on these platforms:

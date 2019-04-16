@@ -1,15 +1,15 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use super::live_cores_package::LiveCoresPackage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
-use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::CryptdecError;
 use crate::sub_lib::cryptde::PlainData;
+use crate::sub_lib::cryptde::{encodex, CryptDE};
 use crate::sub_lib::dispatcher::Component;
 use crate::sub_lib::dispatcher::Endpoint;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::hop::LiveHop;
-use crate::sub_lib::hopper::{ExpiredCoresPackage, MessageType};
+use crate::sub_lib::hopper::{ExpiredCoresPackage, HopperSubs, MessageType};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
 use crate::sub_lib::proxy_client::ProxyClientSubs;
@@ -20,14 +20,19 @@ use actix::Recipient;
 use std::borrow::Borrow;
 use std::net::{IpAddr, SocketAddr};
 
+pub struct RoutingServiceSubs {
+    pub proxy_client_subs: ProxyClientSubs,
+    pub proxy_server_subs: ProxyServerSubs,
+    pub neighborhood_subs: NeighborhoodSubs,
+    pub hopper_subs: HopperSubs,
+    pub to_dispatcher: Recipient<TransmitDataMsg>,
+    pub to_accountant_routing: Recipient<ReportRoutingServiceProvidedMessage>,
+}
+
 pub struct RoutingService {
     cryptde: &'static dyn CryptDE,
     is_bootstrap_node: bool,
-    proxy_client_subs: ProxyClientSubs,
-    proxy_server_subs: ProxyServerSubs,
-    neighborhood_subs: NeighborhoodSubs,
-    to_dispatcher: Recipient<TransmitDataMsg>,
-    to_accountant_routing: Recipient<ReportRoutingServiceProvidedMessage>,
+    routing_service_subs: RoutingServiceSubs,
     per_routing_service: u64,
     per_routing_byte: u64,
     logger: Logger,
@@ -37,22 +42,14 @@ impl RoutingService {
     pub fn new(
         cryptde: &'static dyn CryptDE,
         is_bootstrap_node: bool,
-        proxy_client_subs: ProxyClientSubs,
-        proxy_server_subs: ProxyServerSubs,
-        neighborhood_subs: NeighborhoodSubs,
-        to_dispatcher: Recipient<TransmitDataMsg>,
-        to_accountant_routing: Recipient<ReportRoutingServiceProvidedMessage>,
+        routing_service_subs: RoutingServiceSubs,
         per_routing_service: u64,
         per_routing_byte: u64,
     ) -> RoutingService {
         RoutingService {
             cryptde,
             is_bootstrap_node,
-            proxy_client_subs,
-            proxy_server_subs,
-            neighborhood_subs,
-            to_dispatcher,
-            to_accountant_routing,
+            routing_service_subs,
             per_routing_service,
             per_routing_byte,
             logger: Logger::new("RoutingService"),
@@ -67,6 +64,7 @@ impl RoutingService {
         ));
         let peer_addr = ibcd.peer_addr;
         let last_data = ibcd.last_data;
+        let ibcd_but_data = ibcd.clone_but_data();
         let live_package = match self.decrypt_and_deserialize_lcp(ibcd) {
             Ok(package) => package,
             Err(_) => return, // log already written
@@ -82,7 +80,13 @@ impl RoutingService {
         };
 
         if self.should_route_data(peer_addr, next_hop.component) {
-            self.route_data(peer_addr.ip(), next_hop, live_package, last_data);
+            self.route_data(
+                peer_addr.ip(),
+                next_hop,
+                live_package,
+                last_data,
+                &ibcd_but_data,
+            );
         }
     }
 
@@ -92,15 +96,62 @@ impl RoutingService {
         next_hop: LiveHop,
         live_package: LiveCoresPackage,
         last_data: bool,
+        ibcd_but_data: &InboundClientData,
     ) {
-        if next_hop.component == Component::Hopper {
+        if (next_hop.component == Component::Hopper) && (!self.is_destined_for_here(&next_hop)) {
             self.route_data_externally(live_package, next_hop.consuming_wallet, last_data);
         } else {
-            self.route_data_internally(next_hop.component, sender_ip, live_package)
+            self.route_data_internally(next_hop.component, sender_ip, live_package, ibcd_but_data)
         }
     }
 
+    fn is_destined_for_here(&self, next_hop: &LiveHop) -> bool {
+        next_hop.public_key == self.cryptde.public_key()
+    }
+
     fn route_data_internally(
+        &self,
+        component: Component,
+        immediate_neighbor_ip: IpAddr,
+        live_package: LiveCoresPackage,
+        ibcd_but_data: &InboundClientData,
+    ) {
+        if component == Component::Hopper {
+            self.route_data_around_again(live_package, ibcd_but_data)
+        } else {
+            self.route_data_to_peripheral_component(component, immediate_neighbor_ip, live_package)
+        }
+    }
+
+    fn route_data_around_again(
+        &self,
+        live_package: LiveCoresPackage,
+        ibcd_but_data: &InboundClientData,
+    ) {
+        let (_, next_lcp) = match live_package.to_next_live(self.cryptde) {
+            Ok(x) => x,
+            Err(_) => unimplemented!(),
+        };
+        let payload = match encodex(self.cryptde, &self.cryptde.public_key(), &next_lcp) {
+            Ok(lcp) => lcp,
+            Err(_) => unimplemented!(),
+        };
+        let inbound_client_data = InboundClientData {
+            peer_addr: ibcd_but_data.peer_addr,
+            reception_port: ibcd_but_data.reception_port,
+            last_data: ibcd_but_data.last_data,
+            is_clandestine: ibcd_but_data.is_clandestine,
+            sequence_number: ibcd_but_data.sequence_number,
+            data: payload.into(),
+        };
+        self.routing_service_subs
+            .hopper_subs
+            .from_dispatcher
+            .try_send(inbound_client_data)
+            .expect("Hopper is dead");
+    }
+
+    fn route_data_to_peripheral_component(
         &self,
         component: Component,
         immediate_neighbor_ip: IpAddr,
@@ -124,6 +175,7 @@ impl RoutingService {
         ));
         match (component, expired_package.payload) {
             (Component::ProxyClient, MessageType::ClientRequest(client_request)) => self
+                .routing_service_subs
                 .proxy_client_subs
                 .from_hopper
                 .try_send(ExpiredCoresPackage::new(
@@ -135,6 +187,7 @@ impl RoutingService {
                 ))
                 .expect("Proxy Client is dead"),
             (Component::ProxyServer, MessageType::ClientResponse(client_reponse)) => self
+                .routing_service_subs
                 .proxy_server_subs
                 .from_hopper
                 .try_send(ExpiredCoresPackage::new(
@@ -144,8 +197,21 @@ impl RoutingService {
                     client_reponse,
                     expired_package.payload_len,
                 ))
-                .expect("Proxy Client is dead"),
+                .expect("Proxy Server is dead"),
+            (Component::ProxyServer, MessageType::DnsResolveFailed(dns_resolve_failure)) => self
+                .routing_service_subs
+                .proxy_server_subs
+                .dns_failure_from_hopper
+                .try_send(ExpiredCoresPackage::new(
+                    expired_package.immediate_neighbor_ip,
+                    expired_package.consuming_wallet,
+                    expired_package.remaining_route,
+                    dns_resolve_failure,
+                    expired_package.payload_len,
+                ))
+                .expect("Proxy Server is dead"),
             (Component::Neighborhood, MessageType::Gossip(gossip)) => self
+                .routing_service_subs
                 .neighborhood_subs
                 .from_hopper
                 .try_send(ExpiredCoresPackage::new(
@@ -155,19 +221,7 @@ impl RoutingService {
                     gossip,
                     expired_package.payload_len,
                 ))
-                .expect("Proxy Client is dead"),
-            (Component::ProxyServer, MessageType::DnsResolveFailed(dns_resolve_failure)) => {
-                self.proxy_server_subs
-                    .dns_failure_from_hopper
-                    .try_send(ExpiredCoresPackage::new(
-                        expired_package.immediate_neighbor_ip,
-                        expired_package.consuming_wallet,
-                        expired_package.remaining_route,
-                        dns_resolve_failure,
-                        expired_package.payload_len,
-                    ))
-                    .expect("Proxy Server is dead");
-            }
+                .expect("Neighborhood is dead"),
             (destination, payload) => self.logger.error(format!(
                 "Attempt to send invalid combination {:?} to {:?}",
                 payload, destination
@@ -184,7 +238,8 @@ impl RoutingService {
         let payload_size = live_package.payload.len();
         match consuming_wallet_opt {
             Some(consuming_wallet) => {
-                self.to_accountant_routing
+                self.routing_service_subs
+                    .to_accountant_routing
                     .try_send(ReportRoutingServiceProvidedMessage {
                         consuming_wallet,
                         payload_size,
@@ -212,7 +267,8 @@ impl RoutingService {
             "Relaying {}-byte LiveCoresPackage Dispatcher inside a TransmitDataMsg",
             transmit_msg.data.len()
         ));
-        self.to_dispatcher
+        self.routing_service_subs
+            .to_dispatcher
             .try_send(transmit_msg)
             .expect("Dispatcher is dead");
     }
@@ -347,11 +403,14 @@ mod tests {
         let subject = RoutingService::new(
             cryptde,
             false,
-            peer_actors.proxy_client,
-            peer_actors.proxy_server,
-            peer_actors.neighborhood,
-            peer_actors.dispatcher.from_dispatcher_client,
-            peer_actors.accountant.report_routing_service_provided,
+            RoutingServiceSubs {
+                proxy_client_subs: peer_actors.proxy_client,
+                proxy_server_subs: peer_actors.proxy_server,
+                neighborhood_subs: peer_actors.neighborhood,
+                hopper_subs: peer_actors.hopper,
+                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+            },
             100,
             200,
         );
@@ -389,11 +448,14 @@ mod tests {
         let subject = RoutingService::new(
             cryptde,
             false,
-            peer_actors.proxy_client,
-            peer_actors.proxy_server,
-            peer_actors.neighborhood,
-            peer_actors.dispatcher.from_dispatcher_client,
-            peer_actors.accountant.report_routing_service_provided,
+            RoutingServiceSubs {
+                proxy_client_subs: peer_actors.proxy_client,
+                proxy_server_subs: peer_actors.proxy_server,
+                neighborhood_subs: peer_actors.neighborhood,
+                hopper_subs: peer_actors.hopper,
+                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+            },
             100,
             200,
         );
@@ -432,11 +494,14 @@ mod tests {
         let subject = RoutingService::new(
             cryptde,
             false,
-            peer_actors.proxy_client,
-            peer_actors.proxy_server,
-            peer_actors.neighborhood,
-            peer_actors.dispatcher.from_dispatcher_client,
-            peer_actors.accountant.report_routing_service_provided,
+            RoutingServiceSubs {
+                proxy_client_subs: peer_actors.proxy_client,
+                proxy_server_subs: peer_actors.proxy_server,
+                neighborhood_subs: peer_actors.neighborhood,
+                hopper_subs: peer_actors.hopper,
+                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+            },
             100,
             200,
         );
@@ -463,7 +528,7 @@ mod tests {
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             sequence_number: None,
-            last_data: false,
+            last_data: true,
             is_clandestine: false,
             data: data_enc.into(),
         };
@@ -473,11 +538,14 @@ mod tests {
         let subject = RoutingService::new(
             cryptde,
             false,
-            peer_actors.proxy_client,
-            peer_actors.proxy_server,
-            peer_actors.neighborhood,
-            peer_actors.dispatcher.from_dispatcher_client,
-            peer_actors.accountant.report_routing_service_provided,
+            RoutingServiceSubs {
+                proxy_client_subs: peer_actors.proxy_client,
+                proxy_server_subs: peer_actors.proxy_server,
+                neighborhood_subs: peer_actors.neighborhood,
+                hopper_subs: peer_actors.hopper,
+                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+            },
             0,
             0,
         );
@@ -519,7 +587,7 @@ mod tests {
             peer_addr: SocketAddr::from_str("1.3.2.4:5678").unwrap(),
             reception_port: None,
             last_data: false,
-            is_clandestine: false,
+            is_clandestine: true,
             sequence_number: None,
             data: data_enc.into(),
         };
@@ -529,11 +597,14 @@ mod tests {
         let subject = RoutingService::new(
             cryptde,
             false,
-            peer_actors.proxy_client,
-            peer_actors.proxy_server,
-            peer_actors.neighborhood,
-            peer_actors.dispatcher.from_dispatcher_client,
-            peer_actors.accountant.report_routing_service_provided,
+            RoutingServiceSubs {
+                proxy_client_subs: peer_actors.proxy_client,
+                proxy_server_subs: peer_actors.proxy_server,
+                neighborhood_subs: peer_actors.neighborhood,
+                hopper_subs: peer_actors.hopper,
+                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+            },
             0,
             0,
         );
@@ -556,6 +627,226 @@ mod tests {
         assert_eq!(record.remaining_route, expected_ecp.remaining_route);
         assert_eq!(record.payload, payload);
         assert_eq!(record.payload_len, expected_ecp.payload_len);
+    }
+
+    #[test]
+    fn converts_live_message_to_expired_for_neighborhood() {
+        let cryptde = cryptde();
+        let (component, _, component_recording_arc) = make_recorder();
+        let mut route = Route::one_way(
+            RouteSegment::new(
+                vec![&cryptde.public_key(), &cryptde.public_key()],
+                Component::Neighborhood,
+            ),
+            cryptde,
+            None,
+        )
+        .unwrap();
+        route.shift(cryptde).unwrap();
+        let payload = GossipBuilder::empty();
+        let lcp = LiveCoresPackage::new(
+            route,
+            encodex::<MessageType>(cryptde, &cryptde.public_key(), &payload.clone().into())
+                .unwrap(),
+        );
+        let lcp_a = lcp.clone();
+        let data_enc = encodex(cryptde, &cryptde.public_key(), &lcp).unwrap();
+        let inbound_client_data = InboundClientData {
+            peer_addr: SocketAddr::from_str("1.3.2.4:5678").unwrap(),
+            reception_port: None,
+            last_data: false,
+            is_clandestine: true,
+            sequence_number: None,
+            data: data_enc.into(),
+        };
+
+        let system = System::new("converts_live_message_to_expired_for_neighborhood");
+        let peer_actors = peer_actors_builder().neighborhood(component).build();
+        let subject = RoutingService::new(
+            cryptde,
+            false,
+            RoutingServiceSubs {
+                proxy_client_subs: peer_actors.proxy_client,
+                proxy_server_subs: peer_actors.proxy_server,
+                neighborhood_subs: peer_actors.neighborhood,
+                hopper_subs: peer_actors.hopper,
+                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+            },
+            0,
+            0,
+        );
+
+        subject.route(inbound_client_data);
+
+        System::current().stop();
+        system.run();
+        let component_recording = component_recording_arc.lock().unwrap();
+        let record = component_recording.get_record::<ExpiredCoresPackage<Gossip>>(0);
+        let expected_ecp = lcp_a
+            .to_expired(IpAddr::from_str("1.3.2.4").unwrap(), cryptde)
+            .unwrap();
+        assert_eq!(
+            record.immediate_neighbor_ip,
+            expected_ecp.immediate_neighbor_ip
+        );
+        assert_eq!(record.consuming_wallet, expected_ecp.consuming_wallet);
+        assert_eq!(record.remaining_route, expected_ecp.remaining_route);
+        assert_eq!(record.payload, payload);
+        assert_eq!(record.payload_len, expected_ecp.payload_len);
+    }
+
+    #[test]
+    fn passes_on_inbound_client_data_not_meant_for_this_node() {
+        let cryptde = cryptde();
+        let consuming_wallet = Wallet::new("wallet");
+        let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let next_key = PublicKey::new(&[65, 65, 65]);
+        let route = Route::one_way(
+            RouteSegment::new(
+                vec![&cryptde.public_key(), &next_key],
+                Component::Neighborhood,
+            ),
+            cryptde,
+            Some(consuming_wallet.clone()),
+        )
+        .unwrap();
+        let payload = PlainData::new(&b"abcd"[..]);
+        let lcp = LiveCoresPackage::new(route, cryptde.encode(&next_key, &payload).unwrap());
+        let lcp_a = lcp.clone();
+        let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
+        let data_enc = cryptde.encode(&cryptde.public_key(), &data_ser).unwrap();
+        let inbound_client_data = InboundClientData {
+            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            reception_port: None,
+            last_data: true,
+            is_clandestine: false, // TODO This should probably be true
+            sequence_number: None,
+            data: data_enc.into(),
+        };
+
+        let system = System::new("passes_on_inbound_client_data_not_meant_for_this_node");
+        let peer_actors = peer_actors_builder()
+            .dispatcher(dispatcher)
+            .accountant(accountant)
+            .build();
+        let subject = RoutingService::new(
+            cryptde,
+            false,
+            RoutingServiceSubs {
+                proxy_client_subs: peer_actors.proxy_client,
+                proxy_server_subs: peer_actors.proxy_server,
+                neighborhood_subs: peer_actors.neighborhood,
+                hopper_subs: peer_actors.hopper,
+                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+            },
+            rate_pack_routing(103),
+            rate_pack_routing_byte(103),
+        );
+
+        subject.route(inbound_client_data);
+
+        System::current().stop();
+        system.run();
+
+        let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
+        let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
+        let expected_lcp = lcp_a.to_next_live(cryptde).unwrap().1;
+        let expected_lcp_ser = PlainData::new(&serde_cbor::ser::to_vec(&expected_lcp).unwrap());
+        let expected_lcp_enc = cryptde.encode(&next_key, &expected_lcp_ser).unwrap();
+        assert_eq!(
+            *record,
+            TransmitDataMsg {
+                endpoint: Endpoint::Key(next_key.clone()),
+                last_data: true,
+                sequence_number: None,
+                data: expected_lcp_enc.into(),
+            }
+        );
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        let message = accountant_recording.get_record::<ReportRoutingServiceProvidedMessage>(0);
+        assert_eq!(
+            *message,
+            ReportRoutingServiceProvidedMessage {
+                consuming_wallet,
+                payload_size: lcp.payload.len(),
+                service_rate: rate_pack_routing(103),
+                byte_rate: rate_pack_routing_byte(103),
+            }
+        )
+    }
+
+    #[test]
+    fn reprocesses_inbound_client_data_meant_for_this_node_and_destined_for_hopper() {
+        let cryptde = cryptde();
+        let consuming_wallet = Wallet::new("wallet");
+        let (hopper, _, hopper_recording_arc) = make_recorder();
+        let route = Route::one_way(
+            RouteSegment::new(
+                vec![&cryptde.public_key(), &cryptde.public_key()],
+                Component::Neighborhood,
+            ),
+            cryptde,
+            Some(consuming_wallet.clone()),
+        )
+        .unwrap();
+        let payload = PlainData::new(&b"abcd"[..]);
+        let lcp = LiveCoresPackage::new(
+            route,
+            cryptde.encode(&cryptde.public_key(), &payload).unwrap(),
+        );
+        let lcp_a = lcp.clone();
+        let data_enc = encodex(cryptde, &cryptde.public_key(), &lcp).unwrap();
+        let inbound_client_data = InboundClientData {
+            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            reception_port: None,
+            last_data: true,
+            is_clandestine: true,
+            sequence_number: None,
+            data: data_enc.into(),
+        };
+
+        let system = System::new(
+            "reprocesses_inbound_client_data_meant_for_this_node_and_destined_for_hopper",
+        );
+        let peer_actors = peer_actors_builder().hopper(hopper).build();
+        let subject = RoutingService::new(
+            cryptde,
+            false,
+            RoutingServiceSubs {
+                proxy_client_subs: peer_actors.proxy_client,
+                proxy_server_subs: peer_actors.proxy_server,
+                neighborhood_subs: peer_actors.neighborhood,
+                hopper_subs: peer_actors.hopper,
+                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+            },
+            rate_pack_routing(103),
+            rate_pack_routing_byte(103),
+        );
+
+        subject.route(inbound_client_data);
+
+        System::current().stop();
+        system.run();
+
+        let hopper_recording = hopper_recording_arc.lock().unwrap();
+        let record = hopper_recording.get_record::<InboundClientData>(0);
+        let expected_lcp = lcp_a.to_next_live(cryptde).unwrap().1;
+        let expected_lcp_enc = encodex(cryptde, &cryptde.public_key(), &expected_lcp).unwrap();
+        assert_eq!(
+            *record,
+            InboundClientData {
+                peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+                reception_port: None,
+                last_data: true,
+                is_clandestine: true,
+                sequence_number: None,
+                data: expected_lcp_enc.into()
+            }
+        );
     }
 
     #[test]
@@ -584,11 +875,14 @@ mod tests {
         let subject = RoutingService::new(
             cryptde,
             true,
-            peer_actors.proxy_client,
-            peer_actors.proxy_server,
-            peer_actors.neighborhood,
-            peer_actors.dispatcher.from_dispatcher_client,
-            peer_actors.accountant.report_routing_service_provided,
+            RoutingServiceSubs {
+                proxy_client_subs: peer_actors.proxy_client,
+                proxy_server_subs: peer_actors.proxy_server,
+                neighborhood_subs: peer_actors.neighborhood,
+                hopper_subs: peer_actors.hopper,
+                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+            },
             0,
             0,
         );
@@ -630,11 +924,14 @@ mod tests {
         let subject = RoutingService::new(
             cryptde,
             true,
-            peer_actors.proxy_client,
-            peer_actors.proxy_server,
-            peer_actors.neighborhood,
-            peer_actors.dispatcher.from_dispatcher_client,
-            peer_actors.accountant.report_routing_service_provided,
+            RoutingServiceSubs {
+                proxy_client_subs: peer_actors.proxy_client,
+                proxy_server_subs: peer_actors.proxy_server,
+                neighborhood_subs: peer_actors.neighborhood,
+                hopper_subs: peer_actors.hopper,
+                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+            },
             0,
             0,
         );
@@ -685,11 +982,14 @@ mod tests {
         let subject = RoutingService::new(
             cryptde,
             true,
-            peer_actors.proxy_client,
-            peer_actors.proxy_server,
-            peer_actors.neighborhood,
-            peer_actors.dispatcher.from_dispatcher_client,
-            peer_actors.accountant.report_routing_service_provided,
+            RoutingServiceSubs {
+                proxy_client_subs: peer_actors.proxy_client,
+                proxy_server_subs: peer_actors.proxy_server,
+                neighborhood_subs: peer_actors.neighborhood,
+                hopper_subs: peer_actors.hopper,
+                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+            },
             0,
             0,
         );
@@ -710,14 +1010,13 @@ mod tests {
         init_test_logging();
         let cryptde = cryptde();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
-        let consuming_wallet = Wallet::new("wallet");
         let mut route = Route::one_way(
             RouteSegment::new(
                 vec![&cryptde.public_key(), &cryptde.public_key()],
                 Component::Neighborhood,
             ),
             cryptde,
-            Some(consuming_wallet),
+            None,
         )
         .unwrap();
         route.shift(cryptde).unwrap();
@@ -741,11 +1040,14 @@ mod tests {
         let subject = RoutingService::new(
             cryptde,
             true,
-            peer_actors.proxy_client,
-            peer_actors.proxy_server,
-            peer_actors.neighborhood,
-            peer_actors.dispatcher.from_dispatcher_client,
-            peer_actors.accountant.report_routing_service_provided,
+            RoutingServiceSubs {
+                proxy_client_subs: peer_actors.proxy_client,
+                proxy_server_subs: peer_actors.proxy_server,
+                neighborhood_subs: peer_actors.neighborhood,
+                hopper_subs: peer_actors.hopper,
+                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+            },
             0,
             0,
         );
@@ -764,85 +1066,6 @@ mod tests {
         TestLogHandler::new().exists_no_log_containing(
             "ERROR: RoutingService: Request for Bootstrap Node to route data to Neighborhood: rejected",
         );
-    }
-
-    #[test]
-    fn passes_on_inbound_client_data_not_meant_for_this_node() {
-        let cryptde = cryptde();
-        let consuming_wallet = Wallet::new("wallet");
-        let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
-        let (accountant, _, accountant_recording_arc) = make_recorder();
-        let next_key = PublicKey::new(&[65, 65, 65]);
-        let route = Route::one_way(
-            RouteSegment::new(
-                vec![&cryptde.public_key(), &next_key],
-                Component::Neighborhood,
-            ),
-            cryptde,
-            Some(consuming_wallet.clone()),
-        )
-        .unwrap();
-        let payload = PlainData::new(&b"abcd"[..]);
-        let lcp = LiveCoresPackage::new(route, cryptde.encode(&next_key, &payload).unwrap());
-        let lcp_a = lcp.clone();
-        let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
-        let data_enc = cryptde.encode(&cryptde.public_key(), &data_ser).unwrap();
-        let inbound_client_data = InboundClientData {
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            reception_port: None,
-            last_data: true,
-            is_clandestine: false,
-            sequence_number: None,
-            data: data_enc.into(),
-        };
-
-        let system = System::new("passes_on_inbound_client_data_not_meant_for_this_node");
-        let peer_actors = peer_actors_builder()
-            .dispatcher(dispatcher)
-            .accountant(accountant)
-            .build();
-        let subject = RoutingService::new(
-            cryptde,
-            false,
-            peer_actors.proxy_client,
-            peer_actors.proxy_server,
-            peer_actors.neighborhood,
-            peer_actors.dispatcher.from_dispatcher_client,
-            peer_actors.accountant.report_routing_service_provided,
-            rate_pack_routing(103),
-            rate_pack_routing_byte(103),
-        );
-
-        subject.route(inbound_client_data);
-
-        System::current().stop();
-        system.run();
-
-        let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
-        let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
-        let expected_lcp = lcp_a.to_next_live(cryptde).unwrap().1;
-        let expected_lcp_ser = PlainData::new(&serde_cbor::ser::to_vec(&expected_lcp).unwrap());
-        let expected_lcp_enc = cryptde.encode(&next_key, &expected_lcp_ser).unwrap();
-        assert_eq!(
-            *record,
-            TransmitDataMsg {
-                endpoint: Endpoint::Key(next_key.clone()),
-                last_data: true,
-                sequence_number: None,
-                data: expected_lcp_enc.into(),
-            }
-        );
-        let accountant_recording = accountant_recording_arc.lock().unwrap();
-        let message = accountant_recording.get_record::<ReportRoutingServiceProvidedMessage>(0);
-        assert_eq!(
-            *message,
-            ReportRoutingServiceProvidedMessage {
-                consuming_wallet,
-                payload_size: lcp.payload.len(),
-                service_rate: rate_pack_routing(103),
-                byte_rate: rate_pack_routing_byte(103),
-            }
-        )
     }
 
     #[test]
@@ -891,11 +1114,14 @@ mod tests {
         let subject = RoutingService::new(
             cryptde,
             false,
-            peer_actors.proxy_client,
-            peer_actors.proxy_server,
-            peer_actors.neighborhood,
-            peer_actors.dispatcher.from_dispatcher_client,
-            peer_actors.accountant.report_routing_service_provided,
+            RoutingServiceSubs {
+                proxy_client_subs: peer_actors.proxy_client,
+                proxy_server_subs: peer_actors.proxy_server,
+                neighborhood_subs: peer_actors.neighborhood,
+                hopper_subs: peer_actors.hopper,
+                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+            },
             100,
             200,
         );
@@ -938,11 +1164,14 @@ mod tests {
         let subject = RoutingService::new(
             cryptde(),
             false,
-            peer_actors.proxy_client,
-            peer_actors.proxy_server,
-            peer_actors.neighborhood,
-            peer_actors.dispatcher.from_dispatcher_client,
-            peer_actors.accountant.report_routing_service_provided,
+            RoutingServiceSubs {
+                proxy_client_subs: peer_actors.proxy_client,
+                proxy_server_subs: peer_actors.proxy_server,
+                neighborhood_subs: peer_actors.neighborhood,
+                hopper_subs: peer_actors.hopper,
+                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+            },
             100,
             200,
         );
@@ -989,11 +1218,14 @@ mod tests {
         let subject = RoutingService::new(
             cryptde,
             false,
-            peer_actors.proxy_client,
-            peer_actors.proxy_server,
-            peer_actors.neighborhood,
-            peer_actors.dispatcher.from_dispatcher_client,
-            peer_actors.accountant.report_routing_service_provided,
+            RoutingServiceSubs {
+                proxy_client_subs: peer_actors.proxy_client,
+                proxy_server_subs: peer_actors.proxy_server,
+                neighborhood_subs: peer_actors.neighborhood,
+                hopper_subs: peer_actors.hopper,
+                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+            },
             100,
             200,
         );

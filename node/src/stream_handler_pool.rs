@@ -555,7 +555,7 @@ mod tests {
             system.run();
         });
 
-        awaiter.await_message_count(4);
+        awaiter.await_message_count(3);
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
         assert_eq!(
             dispatcher_recording.get_record::<dispatcher::InboundClientData>(0),
@@ -590,18 +590,7 @@ mod tests {
                 data: a_third_http_req_a,
             }
         );
-        assert_eq!(
-            dispatcher_recording.get_record::<dispatcher::InboundClientData>(3),
-            &dispatcher::InboundClientData {
-                peer_addr: peer_addr_a,
-                reception_port,
-                last_data: true,
-                is_clandestine,
-                sequence_number: Some(3),
-                data: Vec::new(),
-            }
-        );
-        assert_eq!(dispatcher_recording.len(), 4);
+        assert_eq!(dispatcher_recording.len(), 3);
     }
 
     #[test]

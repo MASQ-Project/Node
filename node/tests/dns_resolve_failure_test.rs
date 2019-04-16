@@ -3,13 +3,14 @@
 mod utils;
 
 use crate::utils::read_until_timeout;
+use node_lib::test_utils::test_utils::assert_string_contains;
 use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
 use std::str::FromStr;
 use std::time::Duration;
 
 #[test]
-fn dns_resolve_failure_response_integration() {
+fn dns_resolve_failure_http_response_integration() {
     let mut _node_to_test_against = utils::SubstratumNode::start(None);
     let mut stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:80").unwrap()).unwrap();
     stream
@@ -19,6 +20,52 @@ fn dns_resolve_failure_response_integration() {
     stream.write(request.clone()).unwrap();
 
     let buf = read_until_timeout(&mut stream);
-    let expected_buffer = b"{\"bodyText\":\"\"}".to_vec();
-    assert_eq!(expected_buffer, buf);
+    let buf_str = String::from_utf8(buf).unwrap();
+    assert_string_contains(&buf_str, "DNS Resolution Problem");
+    assert_string_contains(&buf_str, "example.invalid");
+}
+
+#[test]
+fn dns_resolve_failure_tls_response_integration() {
+    let mut _node_to_test_against = utils::SubstratumNode::start(None);
+    let mut stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:443").unwrap()).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_millis(100)))
+        .unwrap();
+    let client_hello = vec![
+        0x16, // content_type: Handshake
+        0x03, 0x03, // TLS 1.2
+        0x00, 0x44, // length: 68
+        0x01, // handshake_type: ClientHello
+        0x00, 0x00, 0x40, // length: 64
+        0x00, 0x00, // version: don't care
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, // random: don't care
+        0x00, // session_id_length
+        0x00, 0x00, // cipher_suites_length
+        0x00, // compression_methods_length
+        0x00, 0x18, // extensions_length: 24
+        0x00, 0x00, // extension_type: server_name
+        0x00, 0x14, // extension_length: 20
+        0x00, 0x12, // server_name_list_length: 18
+        0x00, // server_name_type
+        0x00, 0x0F, // server_name_length: 15
+        'e' as u8, 'x' as u8, 'a' as u8, 'm' as u8, 'p' as u8, 'l' as u8, 'e' as u8, '.' as u8,
+        'i' as u8, 'n' as u8, 'v' as u8, 'a' as u8, 'l' as u8, 'i' as u8,
+        'd' as u8, // server_name
+    ];
+    stream.write(&client_hello[..]).unwrap();
+
+    let buf = read_until_timeout(&mut stream);
+    assert_eq!(
+        vec![
+            0x15, // alert
+            0x03, 0x03, // TLS 1.2
+            0x00, 0x02, // packet length
+            0x02, // fatal alert
+            0x70, // unrecognized_name alert
+        ],
+        buf
+    );
 }

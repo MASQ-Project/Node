@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::proxy_server::protocol_pack::ProtocolPack;
+use crate::proxy_server::protocol_pack::{ProtocolPack, ServerImpersonator};
+use crate::proxy_server::server_impersonator_tls::ServerImpersonatorTls;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::proxy_server::ProxyProtocol;
 
@@ -8,6 +9,10 @@ pub struct TlsProtocolPack {}
 impl ProtocolPack for TlsProtocolPack {
     fn proxy_protocol(&self) -> ProxyProtocol {
         ProxyProtocol::TLS
+    }
+
+    fn standard_port(&self) -> u16 {
+        443
     }
 
     fn find_host_name(&self, data: &PlainData) -> Option<String> {
@@ -19,15 +24,22 @@ impl ProtocolPack for TlsProtocolPack {
         }
         TlsProtocolPack::find_host_name(&data)
     }
+
+    fn server_impersonator(&self) -> Box<ServerImpersonator> {
+        Box::new(ServerImpersonatorTls {})
+    }
 }
 
 impl TlsProtocolPack {
     fn is_handshake(data: &PlainData) -> bool {
-        data.as_slice().first() == Some(&0x16)
+        let handshake_content_type = 22u8;
+        data.as_slice().first() == Some(&handshake_content_type)
     }
 
     fn is_client_hello(data: &PlainData) -> bool {
-        data.as_slice()[5] == 0x01
+        let handshake_message_type_position = 5;
+        let client_hello_message_type = 1;
+        TlsProtocolPack::u8_from(data, handshake_message_type_position) == client_hello_message_type
     }
 
     fn find_host_name(data: &PlainData) -> Option<String> {
@@ -89,10 +101,12 @@ impl TlsProtocolPack {
         Some(length_offset + length_length + length)
     }
 
+    // TODO: This ought to return an Option<usize>, which is None if offset is negative or offset + 1 is past the end of data.
     fn u8_from(data: &PlainData, offset: usize) -> usize {
         data.as_slice()[offset] as usize
     }
 
+    // TODO: This ought to return an Option<usize>, which is None if offset is negative or offset + 2 is past the end of data.
     fn u16_from(data: &PlainData, offset: usize) -> usize {
         (TlsProtocolPack::u8_from(data, offset) << 8) | TlsProtocolPack::u8_from(data, offset + 1)
     }
@@ -107,6 +121,13 @@ mod tests {
         let result = TlsProtocolPack {}.proxy_protocol();
 
         assert_eq!(result, ProxyProtocol::TLS);
+    }
+
+    #[test]
+    fn knows_its_standard_port() {
+        let result = TlsProtocolPack {}.standard_port();
+
+        assert_eq!(result, 443);
     }
 
     #[test]

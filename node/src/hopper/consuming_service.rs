@@ -3,15 +3,13 @@
 use super::live_cores_package::LiveCoresPackage;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::{encodex, CryptDE};
-use crate::sub_lib::dispatcher::Endpoint;
-use crate::sub_lib::dispatcher::InboundClientData;
+use crate::sub_lib::dispatcher::{Endpoint, InboundClientData};
 use crate::sub_lib::hopper::{IncipientCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use actix::Recipient;
 use std::borrow::Borrow;
-use std::net::SocketAddr;
-use std::str::FromStr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 pub struct ConsumingService {
     cryptde: &'static dyn CryptDE,
@@ -72,54 +70,45 @@ impl ConsumingService {
             incipient_cores_package.payload.len()
         ));
         match LiveCoresPackage::from_incipient(incipient_cores_package, self.cryptde.borrow()) {
-            Ok((live_package, next_node_key)) => {
-                let encrypted_package = match encodex(self.cryptde, &next_node_key, &live_package) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        self.logger.error(format!("Couldn't encode package: {}", e));
-                        return;
-                    }
-                };
-                self.launch_lcp(encrypted_package, Endpoint::Key(next_node_key));
+            Ok((live_package, next_hop)) => {
+                let encrypted_package =
+                    match encodex(self.cryptde, &next_hop.public_key, &live_package) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            self.logger.error(format!("Couldn't encode package: {}", e));
+                            return;
+                        }
+                    };
+                if next_hop.public_key == self.cryptde.public_key() {
+                    self.zero_hop(encrypted_package);
+                } else {
+                    self.launch_lcp(encrypted_package, Endpoint::Key(next_hop.public_key));
+                }
             }
             Err(e) => self.logger.error(e),
         };
     }
 
-    fn launch_lcp(&self, encrypted_package: CryptData, next_stop: Endpoint) {
-        match &next_stop {
-            Endpoint::Key(public_key) if &self.cryptde.public_key() == public_key => {
-                self.launch_zero_hop_lcp(encrypted_package);
-            }
-            _ => {
-                self.launch_conventional_lcp(encrypted_package, next_stop);
-            }
-        }
-    }
-
-    fn launch_zero_hop_lcp(&self, encrypted_package: CryptData) {
-        let inbound_client_data = InboundClientData {
-            peer_addr: SocketAddr::from_str("127.0.0.1:0")
-                .expect("Something terrible has happened"), // irrelevant
-            reception_port: None, // irrelevant
-            last_data: false,     // irrelevant
-            sequence_number: None,
+    fn zero_hop(&self, encrypted_package: CryptData) {
+        let ibcd = InboundClientData {
+            peer_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0),
+            reception_port: None,
+            last_data: false,
             is_clandestine: true,
+            sequence_number: None,
             data: encrypted_package.into(),
         };
         self.logger.debug(format!(
-            "Sending InboundClientData with {}-byte payload to Hopper",
-            inbound_client_data.data.len()
+            "Sending zero-hop InboundClientData with {}-byte payload back to Hopper",
+            ibcd.data.len()
         ));
-        self.to_hopper
-            .try_send(inbound_client_data)
-            .expect("Hopper is dead");
+        self.to_hopper.try_send(ibcd).expect("Hopper is dead");
     }
 
-    fn launch_conventional_lcp(&self, encrypted_package: CryptData, next_stop: Endpoint) {
+    fn launch_lcp(&self, encrypted_package: CryptData, next_stop: Endpoint) {
         let transmit_msg = TransmitDataMsg {
             endpoint: next_stop,
-            last_data: false, // Hopper-to-Hopper streams are never remotely killed
+            last_data: false, // Hopper-to-Hopper clandestine streams are never remotely killed
             data: encrypted_package.into(),
             sequence_number: None,
         };
@@ -138,7 +127,7 @@ impl ConsumingService {
 mod tests {
     use super::*;
     use crate::sub_lib::cryptde::PublicKey;
-    use crate::sub_lib::dispatcher::Component;
+    use crate::sub_lib::dispatcher::{Component, InboundClientData};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
@@ -147,11 +136,9 @@ mod tests {
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
-    use crate::test_utils::test_utils::{
-        cryptde, make_meaningless_message_type, zero_hop_route_response,
-    };
+    use crate::test_utils::test_utils::{cryptde, make_meaningless_message_type};
     use actix::System;
-    use std::net::IpAddr;
+    use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
 
     #[test]
@@ -220,7 +207,7 @@ mod tests {
     }
 
     #[test]
-    fn converts_incipient_message_to_live_and_sends_to_dispatcher() {
+    fn consume_converts_incipient_message_to_live_and_sends_to_dispatcher() {
         let cryptde = cryptde();
         let consuming_wallet = Wallet::new("wallet");
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
@@ -266,21 +253,24 @@ mod tests {
     }
 
     #[test]
-    fn consuming_service_sends_icp_back_to_hopper_when_next_hop_key_is_the_same_as_the_public_key_of_this_node(
-    ) {
+    fn consume_sends_zero_hop_incipient_directly_to_hopper() {
         let cryptde = cryptde();
+        let consuming_wallet = Wallet::new("wallet");
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let destination_key = cryptde.public_key();
-        let route = zero_hop_route_response(&cryptde.public_key(), cryptde).route;
-        let incipient_cores_package = IncipientCoresPackage::new(
+        let route = Route::one_way(
+            RouteSegment::new(
+                vec![&cryptde.public_key(), &destination_key.clone()],
+                Component::Neighborhood,
+            ),
             cryptde,
-            route.clone(),
-            make_meaningless_message_type(),
-            &destination_key,
+            Some(consuming_wallet),
         )
         .unwrap();
-
-        let system = System::new("");
+        let payload = make_meaningless_message_type();
+        let incipient_cores_package =
+            IncipientCoresPackage::new(cryptde, route.clone(), payload, &destination_key).unwrap();
+        let system = System::new("consume_sends_zero_hop_incipient_directly_to_hopper");
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let subject = ConsumingService::new(
             cryptde,
@@ -294,19 +284,19 @@ mod tests {
         system.run();
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let record = hopper_recording.get_record::<InboundClientData>(0);
-        let (lcp, next_hop) =
+        let (expected_lcp, _) =
             LiveCoresPackage::from_incipient(incipient_cores_package, cryptde).unwrap();
-        let lcp_enc = encodex(cryptde, &next_hop, &lcp).unwrap();
+        let expected_lcp_enc = encodex(cryptde, &destination_key, &expected_lcp).unwrap();
         assert_eq!(
-            &InboundClientData {
-                peer_addr: SocketAddr::from_str("127.0.0.1:0").unwrap(),
+            InboundClientData {
+                peer_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0),
                 reception_port: None,
                 last_data: false,
                 is_clandestine: true,
                 sequence_number: None,
-                data: lcp_enc.into(),
+                data: expected_lcp_enc.into(),
             },
-            record
+            *record,
         );
     }
 

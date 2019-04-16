@@ -1,7 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
-use crate::proxy_server::protocol_pack::ProtocolPack;
-use crate::proxy_server::tls_protocol_pack::TlsProtocolPack;
+use crate::proxy_server::protocol_pack::for_standard_port;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::dispatcher::InboundClientData;
@@ -9,18 +7,12 @@ use crate::sub_lib::logger::Logger;
 use crate::sub_lib::proxy_server::ClientRequestPayload;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
-use std::collections::HashMap;
 
-pub struct ClientRequestPayloadFactory {
-    protocol_packs: HashMap<u16, Box<dyn ProtocolPack>>,
-}
+pub struct ClientRequestPayloadFactory {}
 
 impl ClientRequestPayloadFactory {
     pub fn new() -> ClientRequestPayloadFactory {
-        let mut protocol_packs: HashMap<u16, Box<dyn ProtocolPack>> = HashMap::new();
-        protocol_packs.insert(80, Box::new(HttpProtocolPack {}));
-        protocol_packs.insert(443, Box::new(TlsProtocolPack {}));
-        ClientRequestPayloadFactory { protocol_packs }
+        ClientRequestPayloadFactory {}
     }
 
     pub fn make(
@@ -41,7 +33,8 @@ impl ClientRequestPayloadFactory {
             }
             Some(origin_port) => origin_port,
         };
-        let protocol_pack = match self.protocol_packs.get(&origin_port) {
+        let protocol_pack = match for_standard_port(origin_port) {
+            Some(pp) => pp,
             None => {
                 logger.error(format!(
                     "No protocol associated with origin port {} for {}-byte packet: {:?}",
@@ -51,7 +44,6 @@ impl ClientRequestPayloadFactory {
                 ));
                 return None;
             }
-            Some(protocol_pack) => protocol_pack,
         };
         let sequence_number = match ibcd.sequence_number {
             Some(sequence_number) => sequence_number,

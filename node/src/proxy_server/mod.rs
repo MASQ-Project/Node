@@ -4,4 +4,6 @@ pub mod client_request_payload_factory;
 pub mod http_protocol_pack;
 pub mod protocol_pack;
 pub mod proxy_server;
+pub mod server_impersonator_http;
+pub mod server_impersonator_tls;
 pub mod tls_protocol_pack;

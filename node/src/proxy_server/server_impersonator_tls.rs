@@ -1,0 +1,59 @@
+// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::proxy_server::protocol_pack::ServerImpersonator;
+use crate::sub_lib::cryptde::PublicKey;
+
+pub struct ServerImpersonatorTls {}
+
+impl ServerImpersonator for ServerImpersonatorTls {
+    fn route_query_failure_response(&self, _server_name: &str) -> Vec<u8> {
+        Vec::from(&TLS_INTERNAL_ERROR_ALERT[..])
+    }
+
+    fn dns_resolution_failure_response(
+        &self,
+        _exit_key: &PublicKey,
+        _server_name: Option<String>,
+    ) -> Vec<u8> {
+        Vec::from(&TLS_UNRECOGNIZED_NAME_ALERT[..])
+    }
+}
+
+const TLS_INTERNAL_ERROR_ALERT: [u8; 7] = [
+    0x15, // alert
+    0x03, 0x03, // TLS 1.2
+    0x00, 0x02, // packet length
+    0x02, // fatal alert
+    0x50, // internal_error alert
+];
+
+const TLS_UNRECOGNIZED_NAME_ALERT: [u8; 7] = [
+    0x15, // alert
+    0x03, 0x03, // TLS 1.2
+    0x00, 0x02, // packet length
+    0x02, // fatal alert
+    0x70, // unrecognized_name alert
+];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn route_query_failure_response_produces_internal_error_alert() {
+        let subject = ServerImpersonatorTls {};
+
+        let result = subject.route_query_failure_response("ignored");
+
+        assert_eq!(Vec::from(&TLS_INTERNAL_ERROR_ALERT[..]), result);
+    }
+
+    #[test]
+    fn dns_resolution_failure_response_produces_unrecognized_name_alert() {
+        let subject = ServerImpersonatorTls {};
+
+        let result =
+            subject.dns_resolution_failure_response(&PublicKey::new(&b"ignored"[..]), None);
+
+        assert_eq!(Vec::from(&TLS_UNRECOGNIZED_NAME_ALERT[..]), result);
+    }
+}
