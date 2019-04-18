@@ -17,6 +17,7 @@ impl ProtocolPack for HttpProtocolPack {
     }
 
     fn find_host_name(&self, data: &PlainData) -> Option<String> {
+        // TODO This is backwards: we should prefer find_url_host_name
         match HttpProtocolPack::find_header_host_name(data.as_slice()) {
             Some(string) => return Some(string),
             None => (),
