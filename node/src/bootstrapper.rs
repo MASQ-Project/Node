@@ -482,6 +482,7 @@ mod tests {
 
     lazy_static! {
         static ref ENVIRONMENT: Mutex<Environment> = Mutex::new(Environment {});
+        static ref INITIALIZATION: Mutex<bool> = Mutex::new(false);
     }
 
     struct Environment {}
@@ -1177,6 +1178,7 @@ mod tests {
 
     #[test]
     fn initialize_as_root_with_no_args_binds_port_80_and_443() {
+        let _ = INITIALIZATION.lock().unwrap();
         let (first_handler, first_handler_log) =
             extract_log(ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())));
         let (second_handler, second_handler_log) =
@@ -1213,6 +1215,7 @@ mod tests {
 
     #[test]
     fn initialize_as_root_reads_environment_variables() {
+        let _ = INITIALIZATION.lock().unwrap();
         let mut subject = BootstrapperBuilder::new()
             .add_listener_handler(Box::new(
                 ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())),
@@ -1250,6 +1253,7 @@ mod tests {
 
     #[test]
     fn initialize_as_root_with_no_args_produces_empty_clandestine_discriminator_factories_vector() {
+        let _ = INITIALIZATION.lock().unwrap();
         let first_handler = Box::new(ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())));
         let second_handler = Box::new(ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())));
         let mut subject = BootstrapperBuilder::new()
@@ -1272,6 +1276,7 @@ mod tests {
 
     #[test]
     fn initialize_as_privileged_passes_node_descriptor_to_ui_config() {
+        let _ = INITIALIZATION.lock().unwrap();
         let mut subject = BootstrapperBuilder::new()
             .add_listener_handler(Box::new(
                 ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())),
@@ -1293,6 +1298,7 @@ mod tests {
     #[test]
     fn initialize_as_root_with_one_clandestine_port_produces_expected_clandestine_discriminator_factories_vector(
     ) {
+        let _ = INITIALIZATION.lock().unwrap();
         let first_handler = Box::new(ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())));
         let second_handler = Box::new(ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())));
         let third_handler = Box::new(ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())));
@@ -1335,6 +1341,7 @@ mod tests {
     #[test]
     fn initialize_as_root_stores_dns_servers_and_passes_them_to_actor_system_factory_for_proxy_client_in_initialize_as_unprivileged(
     ) {
+        let _ = INITIALIZATION.lock().unwrap();
         let actor_system_factory = ActorSystemFactoryMock::new();
         let dns_servers_arc = actor_system_factory.dnss.clone();
         let mut subject = BootstrapperBuilder::new()
@@ -1375,6 +1382,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Invalid IP address for --dns_servers <servers>: 'booga'")]
     fn initialize_as_root_complains_about_dns_servers_syntax_errors() {
+        let _ = INITIALIZATION.lock().unwrap();
         let mut subject = BootstrapperBuilder::new()
             .add_listener_handler(Box::new(
                 ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())),
@@ -1398,6 +1406,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Could not listen on port")]
     fn initialize_as_root_panics_if_tcp_listener_doesnt_bind() {
+        let _ = INITIALIZATION.lock().unwrap();
         let mut subject = BootstrapperBuilder::new()
             .add_listener_handler(Box::new(
                 ListenerHandlerNull::new(vec![])
@@ -1421,6 +1430,7 @@ mod tests {
 
     #[test]
     fn initialize_cryptde_and_report_local_descriptor() {
+        let _ = INITIALIZATION.lock().unwrap();
         init_test_logging();
         let ip_addr = IpAddr::from_str("2.3.4.5").unwrap();
         let ports = vec![3456u16, 4567u16];
@@ -1468,6 +1478,7 @@ mod tests {
 
     #[test]
     fn initialize_as_unprivileged_moves_streams_from_listener_handlers_to_stream_handler_pool() {
+        let _ = INITIALIZATION.lock().unwrap();
         init_test_logging();
         let one_listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
         let another_listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
@@ -1500,6 +1511,7 @@ mod tests {
 
     #[test]
     fn bootstrapper_as_future_polls_listener_handler_futures() {
+        let _ = INITIALIZATION.lock().unwrap();
         let connection_info1 = ConnectionInfo {
             reader: Box::new(ReadHalfWrapperMock::new()),
             writer: Box::new(WriteHalfWrapperMock::new()),
