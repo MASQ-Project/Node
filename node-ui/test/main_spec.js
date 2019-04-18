@@ -90,9 +90,6 @@ describe('Application launch', function () {
   })
 
   it('toggles substratum node from off to serving back to off', async () => {
-    // TODO: Remove the following line and fix this for Jenkins Linux CI.  See SC-709
-    if(process.platform === 'linux' && process.env.JOB_NAME) return
-
     let client = this.app.client
     await client.waitUntilWindowLoaded()
     client.element('#save-config').click()
