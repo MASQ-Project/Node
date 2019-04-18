@@ -286,10 +286,10 @@ pub mod tests {
     use super::super::db_initializer::InitializationError;
     use super::super::local_test_utils::BASE_TEST_DIR;
     use super::super::payable_dao::PayableAccount;
-    use super::super::receivable_dao;
     use super::*;
     use crate::accountant::dao_utils::from_time_t;
     use crate::accountant::dao_utils::to_time_t;
+    use crate::accountant::receivable_dao::ReceivableAccount;
     use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::sub_lib::wallet::Wallet;
@@ -432,10 +432,11 @@ pub mod tests {
             ));
         }
 
-        fn account_status(
-            &self,
-            _wallet_address: &Wallet,
-        ) -> Option<receivable_dao::ReceivableAccount> {
+        fn account_status(&self, _wallet_address: &Wallet) -> Option<ReceivableAccount> {
+            unimplemented!()
+        }
+
+        fn receivables(&self) -> Vec<ReceivableAccount> {
             unimplemented!()
         }
     }

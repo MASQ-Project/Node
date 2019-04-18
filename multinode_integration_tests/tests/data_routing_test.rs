@@ -2,7 +2,9 @@
 
 use multinode_integration_tests_lib::substratum_node::SubstratumNode;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
-use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
+use multinode_integration_tests_lib::substratum_real_node::{
+    NodeStartupConfigBuilder, SubstratumRealNode,
+};
 use node_lib::proxy_server::protocol_pack::ServerImpersonator;
 use node_lib::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
 use node_lib::sub_lib::utils::index_of;
@@ -10,35 +12,32 @@ use std::thread;
 use std::time::Duration;
 
 #[test]
-fn end_to_end_gossip_and_routing_test() {
+fn end_to_end_routing_test() {
     let mut cluster = SubstratumNodeCluster::start().unwrap();
     let bootstrap_node = cluster.start_real_node(NodeStartupConfigBuilder::bootstrap().build());
-    let originating_node = cluster.start_real_node(
-        NodeStartupConfigBuilder::standard()
-            .neighbor(bootstrap_node.node_reference())
-            .build(),
-    );
 
-    let node_3 = cluster.start_real_node(
-        NodeStartupConfigBuilder::standard()
-            .neighbor(originating_node.node_reference())
-            .build(),
-    );
-    cluster.start_real_node(
-        NodeStartupConfigBuilder::standard()
-            .neighbor(node_3.node_reference())
-            .build(),
-    );
+    let nodes = (0..7)
+        .map(|_| {
+            cluster.start_real_node(
+                NodeStartupConfigBuilder::standard()
+                    .neighbor(bootstrap_node.node_reference())
+                    .build(),
+            )
+        })
+        .collect::<Vec<SubstratumRealNode>>();
 
-    // Let gossip storm die down
-    thread::sleep(Duration::from_millis(1000));
+    thread::sleep(Duration::from_millis(10000));
 
-    let mut client = originating_node.make_client(80);
+    let node_1 = nodes.first().unwrap();
+
+    let mut client = node_1.make_client(80);
     client.send_chunk(Vec::from(
         &b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n"[..],
     ));
     let response = client.wait_for_chunk();
 
+    // If this fails (sporadically) check if there are only 6 nodes in the database and find a better way to wait
+    // for it to be 7. There have to be 7 to guarantee an exit node exists for every node in the network
     assert_eq!(
         index_of(
             &response,
@@ -72,10 +71,12 @@ fn http_routing_failure_produces_internal_error_response() {
     let expected_response =
         ServerImpersonatorHttp {}.route_query_failure_response("www.example.com");
 
-    assert!(
-        &response.starts_with(&expected_response),
-        "Actual response:\n{:?}",
-        response
+    assert_eq!(
+        &expected_response,
+        &response
+            .into_iter()
+            .take(expected_response.len())
+            .collect::<Vec<u8>>(),
     );
 }
 

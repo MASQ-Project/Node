@@ -19,6 +19,7 @@ use std::time::Duration;
 fn graph_connects_but_does_not_over_connect() {
     let neighborhood_size = 5;
     let mut cluster = SubstratumNodeCluster::start().unwrap();
+
     let bootstrap_node = cluster.start_real_node(NodeStartupConfigBuilder::bootstrap().build());
     let real_nodes = (0..neighborhood_size)
         .map(|_| {
@@ -98,13 +99,13 @@ fn graph_connects_but_does_not_over_connect() {
         .unwrap();
     let dot_graph =
         current_state.to_dot_graph(&another_gnr.to_node_record(), &mock_gnr.to_node_record());
-    // True number of Nodes in source database should be neighborhood_size + 2, but neither bootstrap
-    // Node nor gossip target (mock_node) will be included in Gossip.
+    // True number of Nodes in source database should be neighborhood_size + 2,
+    // but gossip target (mock_node) will not be included in Gossip so should be neighborhood size + 1 (bootstrap).
     assert_eq!(
-        neighborhood_size,
+        neighborhood_size + 1,
         current_state.node_records.len(),
         "Current-state Gossip should have {} GossipNodeRecords, but has {}: {}",
-        neighborhood_size,
+        neighborhood_size + 1,
         current_state.node_records.len(),
         dot_graph
     );

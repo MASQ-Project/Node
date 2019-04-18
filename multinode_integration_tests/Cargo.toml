@@ -23,5 +23,5 @@ name = "multinode_integration_tests_lib"
 path = "src/lib.rs"
 
 [[bin]]
-name = "MockNode"
+name = "mock_node"
 path = "src/main.rs"

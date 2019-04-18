@@ -3,11 +3,14 @@
 use super::gossip::Gossip;
 use super::gossip::GossipBuilder;
 use super::neighborhood_database::NeighborhoodDatabase;
+use crate::neighborhood::gossip::GossipNodeRecord;
+use crate::neighborhood::node_record::NodeRecord;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::logger::Logger;
 
 pub trait GossipProducer: Send {
     fn produce(&self, database: &NeighborhoodDatabase, target: &PublicKey) -> Gossip;
+    fn produce_debut(&self, node_record: &NodeRecord) -> Result<Gossip, GossipProductionError>;
 }
 
 pub struct GossipProducerReal {
@@ -48,6 +51,19 @@ impl GossipProducer for GossipProducerReal {
         ));
         gossip
     }
+
+    fn produce_debut(&self, node_record: &NodeRecord) -> Result<Gossip, GossipProductionError> {
+        if let Some(signatures) = node_record.signatures() {
+            Ok(Gossip {
+                node_records: vec![GossipNodeRecord {
+                    inner: node_record.inner.clone(),
+                    signatures,
+                }],
+            })
+        } else {
+            Err(GossipProductionError::SignaturesRequired)
+        }
+    }
 }
 
 impl GossipProducerReal {
@@ -56,6 +72,11 @@ impl GossipProducerReal {
             logger: Logger::new("GossipProducerReal"),
         }
     }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum GossipProductionError {
+    SignaturesRequired,
 }
 
 #[cfg(test)]
@@ -183,5 +204,28 @@ mod tests {
         TestLogHandler::new().exists_log_containing("\"AgMEBQ\" -> \"BAUGBw\";");
         TestLogHandler::new().exists_log_containing("\"AQIDBA\" -> \"AgMEBQ\";");
         TestLogHandler::new().exists_log_containing("\"AQIDBA\" -> \"BAUGBw\";");
+    }
+
+    #[test]
+    fn produce_debut_creates_a_gossip_to_a_target_about_ourselves() {
+        let our_node_record = make_node_record(7771, true, false);
+        let subject = GossipProducerReal::new();
+        let result_gossip: Gossip = subject.produce_debut(&our_node_record).unwrap();
+        assert_eq!(1, result_gossip.node_records.len());
+        let result_gossip_record = result_gossip.node_records.first().unwrap();
+        assert_eq!(our_node_record.inner, result_gossip_record.inner);
+        assert_eq!(
+            our_node_record.signatures().expect("srsly"),
+            result_gossip_record.signatures
+        );
+    }
+
+    #[test]
+    fn produce_debut_cannot_succeed_without_signatures() {
+        let mut unsigned_node_record = make_node_record(3334, true, false);
+        unsigned_node_record.signatures = None;
+        let subject = GossipProducerReal::new();
+        let result = subject.produce_debut(&unsigned_node_record);
+        assert_eq!(Err(GossipProductionError::SignaturesRequired), result);
     }
 }

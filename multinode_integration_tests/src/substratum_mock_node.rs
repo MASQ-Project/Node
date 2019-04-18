@@ -334,7 +334,7 @@ impl SubstratumMockNode {
             "-v",
             v_param.as_str(),
             "test_node_image",
-            "/node_root/node/MockNode",
+            "/node_root/node/mock_node",
         ]);
         docker_args.extend(mock_node_args);
         let mut command = Command::new(docker_command, docker_args);

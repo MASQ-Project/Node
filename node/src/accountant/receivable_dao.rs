@@ -20,6 +20,8 @@ pub trait ReceivableDao: Debug {
     fn more_money_received(&self, wallet_address: &Wallet, amount: u64, timestamp: &SystemTime);
 
     fn account_status(&self, wallet_address: &Wallet) -> Option<ReceivableAccount>;
+
+    fn receivables(&self) -> Vec<ReceivableAccount>;
 }
 
 #[derive(Debug)]
@@ -65,6 +67,22 @@ impl ReceivableDao for ReceivableDaoReal {
             Ok(None) => None,
             Err(e) => panic!("Database is corrupt: {:?}", e),
         }
+    }
+
+    fn receivables(&self) -> Vec<ReceivableAccount> {
+        let mut stmt = self
+            .conn
+            .prepare("select balance, last_received_timestamp, wallet_address from receivable")
+            .expect("Internal error");
+
+        stmt.query_map(&[] as &[&ToSql], |row| ReceivableAccount {
+            balance: row.get(0),
+            last_received_timestamp: dao_utils::from_time_t(row.get(1)),
+            wallet_address: Wallet::new(&row.get::<usize, String>(2)),
+        })
+        .expect("Database is corrupt")
+        .map(|p| p.expect("Database is corrupt"))
+        .collect()
     }
 }
 
@@ -193,5 +211,47 @@ mod tests {
         let result = subject.account_status(&wallet);
 
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn receivables_fetches_all_receivable_accounts() {
+        let home_dir =
+            ensure_node_home_directory_exists("receivables_fetches_all_receivable_accounts");
+        let wallet1 = Wallet::new("wallet1");
+        let wallet2 = Wallet::new("wallet2");
+        let time_stub = SystemTime::now();
+
+        let subject = DbInitializerReal::new()
+            .initialize(&home_dir)
+            .unwrap()
+            .receivable;
+
+        subject.more_money_receivable(&wallet1, 1234);
+        subject.more_money_receivable(&wallet2, 2345);
+
+        let accounts = subject
+            .receivables()
+            .into_iter()
+            .map(|r| ReceivableAccount {
+                last_received_timestamp: time_stub,
+                ..r
+            })
+            .collect::<Vec<ReceivableAccount>>();
+
+        assert_eq!(
+            vec![
+                ReceivableAccount {
+                    wallet_address: wallet1,
+                    balance: 1234,
+                    last_received_timestamp: time_stub
+                },
+                ReceivableAccount {
+                    wallet_address: wallet2,
+                    balance: 2345,
+                    last_received_timestamp: time_stub
+                },
+            ],
+            accounts
+        )
     }
 }
