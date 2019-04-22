@@ -149,7 +149,7 @@ impl SubstratumCoresServer {
         self.node_reference().node_addr.clone()
     }
 
-    pub fn private_key(&self) -> PrivateKey {
+    pub fn private_key(&self) -> &PrivateKey {
         self.cryptde().private_key()
     }
 

@@ -505,13 +505,8 @@ impl Neighborhood {
         target_component: Component,
         next_door_allowed: bool,
     ) -> Result<RouteSegment, String> {
-        let mut node_seqs = self.complete_routes(
-            vec![origin],
-            target,
-            target_type,
-            minimum_hop_count,
-            next_door_allowed,
-        );
+        let mut node_seqs =
+            self.complete_routes(vec![origin], target, minimum_hop_count, next_door_allowed);
 
         if node_seqs.is_empty() {
             let target_str = match target {
@@ -627,10 +622,6 @@ impl Neighborhood {
         }
     }
 
-    fn last_type_qualifies(last_node_ref: &NodeRecord, target_type: TargetType) -> bool {
-        (target_type == TargetType::Bootstrap) == last_node_ref.is_bootstrap_node()
-    }
-
     fn validate_last_next_door_exit(
         previous_node: &NodeRecord,
         next_door_exit_allowed: bool,
@@ -654,7 +645,6 @@ impl Neighborhood {
         &'a self,
         prefix: Vec<&'a PublicKey>,
         target: Option<&'a PublicKey>,
-        target_type: TargetType, // TODO: Remove this parameter: it will only ever work with the value TargetType::Standard.
         hops_remaining: usize,
         next_door_exit_allowed: bool,
     ) -> Vec<Vec<&'a PublicKey>> {
@@ -665,7 +655,6 @@ impl Neighborhood {
         // Check to see if we're done. If we are, all three of these qualifications will pass.
         if self.route_length_qualifies(hops_remaining)
             && self.last_key_qualifies(previous_node, target)
-            && Self::last_type_qualifies(previous_node, target_type)
             && Self::validate_last_next_door_exit(previous_node, next_door_exit_allowed)
         {
             vec![prefix]
@@ -697,7 +686,6 @@ impl Neighborhood {
                     self.complete_routes(
                         new_prefix.clone(),
                         target,
-                        target_type,
                         new_hops_remaining,
                         next_door_exit_allowed,
                     )
@@ -1094,7 +1082,7 @@ mod tests {
 
         let root_node_record_ref = subject.neighborhood_database.root();
 
-        assert_eq!(root_node_record_ref.public_key(), &cryptde.public_key());
+        assert_eq!(root_node_record_ref.public_key(), cryptde.public_key());
         assert_eq!(root_node_record_ref.node_addr_opt(), Some(this_node_addr));
         assert_eq!(root_node_record_ref.is_bootstrap_node(), true);
         assert_eq!(root_node_record_ref.half_neighbor_keys().len(), 0);
@@ -1972,7 +1960,7 @@ mod tests {
         };
 
         // At least two hops from P to anywhere standard
-        let routes = subject.complete_routes(vec![p], None, TargetType::Standard, 2, true);
+        let routes = subject.complete_routes(vec![p], None, 2, true);
 
         contains(&routes, vec![p, s, t]);
         contains(&routes, vec![p, r, s]);
@@ -1980,33 +1968,20 @@ mod tests {
         assert_eq!(3, routes.len());
 
         // At least two hops from P to T
-        let routes = subject.complete_routes(vec![p], Some(t), TargetType::Standard, 2, true);
+        let routes = subject.complete_routes(vec![p], Some(t), 2, true);
 
         contains(&routes, vec![p, s, t]);
         contains(&routes, vec![p, r, s, t]);
         assert_eq!(2, routes.len());
 
-        // At least two hops from P to B (bootstrap)
-        let routes = subject.complete_routes(vec![p], Some(b), TargetType::Bootstrap, 2, true);
-
-        // No routes are found, because bootstrap Nodes can't be exits
-        assert_eq!(0, routes.len());
-
-        // TODO: When the target_type parameter disappears, remove this section of the test
-        // At least two hops from P to anywhere bootstrap
-        let routes = subject.complete_routes(vec![p], None, TargetType::Bootstrap, 2, true);
-
-        // No routes are found, because bootstrap Nodes can't be exits
-        assert_eq!(0, routes.len());
-
         // At least two hops from P to S - one choice
-        let routes = subject.complete_routes(vec![p], Some(s), TargetType::Standard, 2, true);
+        let routes = subject.complete_routes(vec![p], Some(s), 2, true);
 
         contains(&routes, vec![p, r, s]);
         assert_eq!(1, routes.len());
 
         // At least two hops from P to Q - impossible
-        let routes = subject.complete_routes(vec![p], Some(q), TargetType::Standard, 2, true);
+        let routes = subject.complete_routes(vec![p], Some(q), 2, true);
 
         assert_eq!(0, routes.len());
     }
@@ -2755,7 +2730,7 @@ mod tests {
             sub.try_send(DispatcherNodeQueryMessage {
                 query: NodeQueryMessage::PublicKey(PublicKey::new(&b"booga"[..])),
                 context: TransmitDataMsg {
-                    endpoint: Endpoint::Key(cryptde.public_key()),
+                    endpoint: Endpoint::Key(cryptde.public_key().clone()),
                     last_data: false,
                     sequence_number: None,
                     data: Vec::new(),
@@ -2809,7 +2784,7 @@ mod tests {
             sub.try_send(DispatcherNodeQueryMessage {
                 query: NodeQueryMessage::PublicKey(PublicKey::new(&b"blah"[..])),
                 context: TransmitDataMsg {
-                    endpoint: Endpoint::Key(cryptde.public_key()),
+                    endpoint: Endpoint::Key(cryptde.public_key().clone()),
                     last_data: false,
                     sequence_number: None,
                     data: Vec::new(),
@@ -2838,7 +2813,7 @@ mod tests {
         let another_neighbor = make_node_record(3456, true, false);
         let another_neighbor_a = another_neighbor.clone();
         let context = TransmitDataMsg {
-            endpoint: Endpoint::Key(cryptde.public_key()),
+            endpoint: Endpoint::Key(cryptde.public_key().clone()),
             last_data: false,
             sequence_number: None,
             data: Vec::new(),
@@ -2925,7 +2900,7 @@ mod tests {
             sub.try_send(DispatcherNodeQueryMessage {
                 query: NodeQueryMessage::IpAddress(IpAddr::from_str("2.3.4.5").unwrap()),
                 context: TransmitDataMsg {
-                    endpoint: Endpoint::Key(cryptde.public_key()),
+                    endpoint: Endpoint::Key(cryptde.public_key().clone()),
                     last_data: false,
                     sequence_number: None,
                     data: Vec::new(),
@@ -2953,7 +2928,7 @@ mod tests {
         let another_node_record = make_node_record(2345, true, false);
         let another_node_record_a = another_node_record.clone();
         let context = TransmitDataMsg {
-            endpoint: Endpoint::Key(cryptde.public_key()),
+            endpoint: Endpoint::Key(cryptde.public_key().clone()),
             last_data: false,
             sequence_number: None,
             data: Vec::new(),

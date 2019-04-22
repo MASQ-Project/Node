@@ -65,13 +65,13 @@ impl SubstratumNode for SubstratumMockNode {
 
     fn node_reference(&self) -> NodeReference {
         NodeReference::new(
-            self.cryptde().public_key(),
+            self.cryptde().public_key().clone(),
             self.node_addr().ip_addr(),
             self.node_addr().ports(),
         )
     }
 
-    fn public_key(&self) -> PublicKey {
+    fn public_key(&self) -> &PublicKey {
         self.cryptde().public_key()
     }
 
@@ -163,7 +163,7 @@ impl SubstratumMockNode {
             .build();
         let route = Route::one_way(
             RouteSegment::new(
-                vec![&self.public_key(), &node.public_key()],
+                vec![self.public_key(), node.public_key()],
                 Component::Neighborhood,
             ),
             self.cryptde(),

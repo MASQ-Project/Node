@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 pub mod accountant;
 pub mod bidi_hashmap;
+pub mod binary_traverser;
 pub mod blockchain_bridge;
 pub mod channel_wrappers;
 pub mod crash_point;

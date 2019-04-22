@@ -91,7 +91,7 @@ fn server_relays_cores_package() {
     )
     .unwrap();
 
-    client.transmit_package(incipient, &masquerader, cryptde.public_key());
+    client.transmit_package(incipient, &masquerader, cryptde.public_key().clone());
     let package = server.wait_for_package(Duration::from_millis(1000));
     let expired = package
         .to_expired(IpAddr::from_str("1.2.3.4").unwrap(), server.cryptde())

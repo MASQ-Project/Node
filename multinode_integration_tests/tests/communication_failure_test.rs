@@ -35,13 +35,7 @@ fn neighborhood_notified_of_newly_missing_node() {
     assert!(
         introductions.node_records.len() > 1,
         "Should have been introductions, but wasn't: {}",
-        introductions.to_dot_graph(
-            (
-                &originating_node.public_key(),
-                &Some(originating_node.node_addr())
-            ),
-            (&witness_node.public_key(), &Some(witness_node.node_addr()))
-        )
+        introductions.to_dot_graph((originating_node.public_key(), &Some(originating_node.node_addr())), (witness_node.public_key(), &Some(witness_node.node_addr())))
     );
 
     // Kill one of the Nodes--not the originating Node and not the witness Node.
@@ -60,10 +54,10 @@ fn neighborhood_notified_of_newly_missing_node() {
 
     let dot_graph = disappearance_gossip.to_dot_graph(
         (
-            &originating_node.public_key(),
+            originating_node.public_key(),
             &Some(originating_node.node_addr()),
         ),
-        (&witness_node.public_key(), &Some(witness_node.node_addr())),
+        (witness_node.public_key(), &Some(witness_node.node_addr())),
     );
     assert_eq!(
         3,
@@ -74,7 +68,7 @@ fn neighborhood_notified_of_newly_missing_node() {
     let originating_node_gnr = disappearance_gossip
         .node_records
         .into_iter()
-        .find(|gnr| gnr.public_key() == originating_node.public_key())
+        .find(|gnr| &gnr.public_key() == originating_node.public_key())
         .unwrap();
     assert!(
         !originating_node_gnr

@@ -111,7 +111,7 @@ mod tests {
                 target_hostname: Some(String::from("borkoed.com")),
                 target_port: 80,
                 protocol: ProxyProtocol::HTTP,
-                originator_public_key: cryptde.public_key(),
+                originator_public_key: cryptde.public_key().clone(),
             })
         );
     }
@@ -165,7 +165,7 @@ mod tests {
                 target_hostname: Some(String::from("server.com")),
                 target_port: 443,
                 protocol: ProxyProtocol::TLS,
-                originator_public_key: cryptde.public_key(),
+                originator_public_key: cryptde.public_key().clone(),
             })
         );
     }
@@ -212,7 +212,7 @@ mod tests {
                 target_hostname: None,
                 target_port: 443,
                 protocol: ProxyProtocol::TLS,
-                originator_public_key: cryptde.public_key(),
+                originator_public_key: cryptde.public_key().clone(),
             })
         );
     }

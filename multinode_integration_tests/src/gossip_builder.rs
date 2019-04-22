@@ -37,7 +37,7 @@ impl GossipBuilder {
     ) -> Self {
         self.node_info.push(GossipBuilderNodeInfo {
             node_record_inner: NodeRecordInner {
-                public_key: node.public_key(),
+                public_key: node.public_key().clone(),
                 node_addr_opt: match include_ip {
                     true => Some(node.node_addr()),
                     false => None,

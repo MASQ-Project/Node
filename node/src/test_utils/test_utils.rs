@@ -293,21 +293,21 @@ pub fn make_garbage_data(bytes: usize) -> Vec<u8> {
 pub fn make_request_payload(bytes: usize, cryptde: &CryptDE) -> ClientRequestPayload {
     ClientRequestPayload {
         stream_key: StreamKey::new(
-            cryptde.public_key(),
+            cryptde.public_key().clone(),
             SocketAddr::from_str("1.2.3.4:5678").unwrap(),
         ),
         sequenced_packet: SequencedPacket::new(make_garbage_data(bytes), 0, true),
         target_hostname: Some("example.com".to_string()),
         target_port: 80,
         protocol: ProxyProtocol::HTTP,
-        originator_public_key: cryptde.public_key(),
+        originator_public_key: cryptde.public_key().clone(),
     }
 }
 
 pub fn make_response_payload(bytes: usize, cryptde: &CryptDE) -> ClientResponsePayload {
     ClientResponsePayload {
         stream_key: StreamKey::new(
-            cryptde.public_key(),
+            cryptde.public_key().clone(),
             SocketAddr::from_str("1.2.3.4:5678").unwrap(),
         ),
         sequenced_packet: SequencedPacket {

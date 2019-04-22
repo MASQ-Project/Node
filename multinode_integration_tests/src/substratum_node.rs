@@ -136,7 +136,7 @@ pub trait SubstratumNode: Any {
     // This is the NodeReference stated by the Node in the console. Its IP address won't be accurate if it's a zero-hop Node.
     fn node_reference(&self) -> NodeReference;
     fn cryptde(&self) -> CryptDENull;
-    fn public_key(&self) -> PublicKey;
+    fn public_key(&self) -> &PublicKey;
     // This is the IP address of the container in which the Node is running.
     fn ip_address(&self) -> IpAddr;
     fn port_list(&self) -> Vec<u16>;

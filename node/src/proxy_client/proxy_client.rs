@@ -92,7 +92,7 @@ impl Handler<ExpiredCoresPackage<ClientRequestPayload>> for ProxyClient {
     ) -> Self::Result {
         let payload = msg.payload;
         let consuming_wallet = msg.consuming_wallet;
-        if consuming_wallet.is_some() || payload.originator_public_key == self.cryptde.public_key()
+        if consuming_wallet.is_some() || &payload.originator_public_key == self.cryptde.public_key()
         {
             let pool = self.pool.as_mut().expect("StreamHandlerPool unbound");
             let return_route = msg.remaining_route;
@@ -756,7 +756,7 @@ mod tests {
             target_hostname: None,
             target_port: 0,
             protocol: ProxyProtocol::HTTP,
-            originator_public_key: cryptde.public_key(),
+            originator_public_key: cryptde.public_key().clone(),
         };
         let package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),

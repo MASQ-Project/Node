@@ -737,7 +737,7 @@ mod tests {
             cryptde,
             &cryptde.public_key(),
             &LiveHop {
-                public_key: cryptde.public_key(),
+                public_key: cryptde.public_key().clone(),
                 consuming_wallet: None,
                 component: Component::ProxyServer,
             },
@@ -851,7 +851,7 @@ mod tests {
         let mut make_parameters = make_parameters_arc_a.lock().unwrap();
         assert_eq!(
             make_parameters.remove(0),
-            (cryptde.public_key(), socket_addr)
+            (cryptde.public_key().clone(), socket_addr)
         );
         let recording = neighborhood_recording_arc.lock().unwrap();
         let record = recording.get_record::<RouteQueryMessage>(0);
@@ -1402,7 +1402,7 @@ mod tests {
             target_hostname: None,
             target_port: 0,
             protocol: ProxyProtocol::TLS,
-            originator_public_key: cryptde.public_key(),
+            originator_public_key: cryptde.public_key().clone(),
         };
         let logger = Logger::new("ProxyServer");
         let source_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();

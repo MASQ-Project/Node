@@ -79,7 +79,7 @@ impl ConsumingService {
                             return;
                         }
                     };
-                if next_hop.public_key == self.cryptde.public_key() {
+                if &next_hop.public_key == self.cryptde.public_key() {
                     self.zero_hop(encrypted_package);
                 } else {
                     self.launch_lcp(encrypted_package, Endpoint::Key(next_hop.public_key));
@@ -214,7 +214,7 @@ mod tests {
         let destination_key = PublicKey::new(&[65, 65, 65]);
         let route = Route::one_way(
             RouteSegment::new(
-                vec![&cryptde.public_key(), &destination_key.clone()],
+                vec![cryptde.public_key(), &destination_key.clone()],
                 Component::Neighborhood,
             ),
             cryptde,
@@ -260,7 +260,7 @@ mod tests {
         let destination_key = cryptde.public_key();
         let route = Route::one_way(
             RouteSegment::new(
-                vec![&cryptde.public_key(), &destination_key.clone()],
+                vec![cryptde.public_key(), &destination_key.clone()],
                 Component::Neighborhood,
             ),
             cryptde,

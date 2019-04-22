@@ -1079,7 +1079,7 @@ mod tests {
             .node_query_response
             .try_send(DispatcherNodeQueryResponse {
                 result: Some(NodeDescriptor::new(
-                    key,
+                    key.clone(),
                     Some(NodeAddr::new(
                         &IpAddr::V4(Ipv4Addr::new(1, 2, 3, 5)),
                         &vec![6789],
@@ -1100,7 +1100,7 @@ mod tests {
     fn node_query_response_handler_does_not_try_to_write_when_neighbor_is_not_found() {
         init_test_logging();
         let cryptde = CryptDENull::new();
-        let key = cryptde.public_key();
+        let key = cryptde.public_key().clone();
 
         thread::spawn(move || {
             let system = System::new("test");
@@ -1123,7 +1123,7 @@ mod tests {
                 .try_send(DispatcherNodeQueryResponse {
                     result: None,
                     context: TransmitDataMsg {
-                        endpoint: Endpoint::Key(key),
+                        endpoint: Endpoint::Key(key.clone()),
                         last_data: false,
                         sequence_number: Some(0),
                         data: b"hello".to_vec(),
@@ -1137,7 +1137,7 @@ mod tests {
         TestLogHandler::new().await_log_containing(
             format!(
                 "ERROR: Dispatcher: No neighbor found at endpoint {:?}",
-                Endpoint::Key(cryptde.public_key())
+                Endpoint::Key(cryptde.public_key().clone())
             )
             .as_str(),
             1000,
@@ -1148,7 +1148,7 @@ mod tests {
     fn node_query_response_handler_does_not_try_to_write_when_neighbor_ip_is_not_known() {
         init_test_logging();
         let cryptde = CryptDENull::new();
-        let key = cryptde.public_key();
+        let key = cryptde.public_key().clone();
 
         thread::spawn(move || {
             let system = System::new("test");
@@ -1171,7 +1171,7 @@ mod tests {
                 .try_send(DispatcherNodeQueryResponse {
                     result: Some(NodeDescriptor::new(key.clone(), None, rate_pack(100))),
                     context: TransmitDataMsg {
-                        endpoint: Endpoint::Key(key),
+                        endpoint: Endpoint::Key(key.clone()),
                         last_data: true,
                         sequence_number: None,
                         data: b"hello".to_vec(),
@@ -1196,7 +1196,7 @@ mod tests {
     fn node_query_response_handler_resends_transmit_data_msg_when_connection_is_in_progress() {
         init_test_logging();
         let cryptde = CryptDENull::new();
-        let key = cryptde.public_key();
+        let key = cryptde.public_key().clone();
 
         let peer_addr = SocketAddr::from_str("5.4.3.1:8000").unwrap();
         let peer_addr_a = peer_addr.clone();
@@ -1230,7 +1230,7 @@ mod tests {
                 .node_query_response
                 .try_send(DispatcherNodeQueryResponse {
                     result: Some(NodeDescriptor::new(
-                        key,
+                        key.clone(),
                         Some(NodeAddr::new(&peer_addr.ip(), &vec![peer_addr.port()])),
                         rate_pack(100),
                     )),
@@ -1293,7 +1293,7 @@ mod tests {
     ) {
         init_test_logging();
         let cryptde = CryptDENull::new();
-        let key = cryptde.public_key();
+        let key = cryptde.public_key().clone();
 
         let peer_addr = SocketAddr::from_str("5.4.3.1:8000").unwrap();
         let peer_addr_a = peer_addr.clone();
@@ -1355,7 +1355,7 @@ mod tests {
                 .node_query_response
                 .try_send(DispatcherNodeQueryResponse {
                     result: Some(NodeDescriptor::new(
-                        key,
+                        key.clone(),
                         Some(NodeAddr::new(&peer_addr.ip(), &vec![peer_addr.port()])),
                         rate_pack(100),
                     )),
@@ -1374,7 +1374,7 @@ mod tests {
             .node_query_response
             .try_send(DispatcherNodeQueryResponse {
                 result: Some(NodeDescriptor::new(
-                    cryptde.public_key(),
+                    cryptde.public_key().clone(),
                     Some(NodeAddr::new(&peer_addr.ip(), &vec![peer_addr.port()])),
                     rate_pack(100),
                 )),
@@ -1424,7 +1424,7 @@ mod tests {
             .node_query_response
             .try_send(DispatcherNodeQueryResponse {
                 result: Some(NodeDescriptor::new(
-                    key,
+                    key.clone(),
                     Some(NodeAddr::new(&peer_addr.ip(), &vec![])),
                     rate_pack(100),
                 )),

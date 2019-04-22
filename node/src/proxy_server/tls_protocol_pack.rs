@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::proxy_server::protocol_pack::{ProtocolPack, ServerImpersonator};
 use crate::proxy_server::server_impersonator_tls::ServerImpersonatorTls;
+use crate::sub_lib::binary_traverser::BinaryTraverser;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::proxy_server::ProxyProtocol;
 
@@ -16,13 +17,17 @@ impl ProtocolPack for TlsProtocolPack {
     }
 
     fn find_host_name(&self, data: &PlainData) -> Option<String> {
-        if !TlsProtocolPack::is_handshake(&data) {
+        let mut xvsr = BinaryTraverser::new(data);
+        if !TlsProtocolPack::is_handshake(&mut xvsr) {
             return None;
         }
-        if !TlsProtocolPack::is_client_hello(&data) {
+        if !TlsProtocolPack::is_client_hello(&mut xvsr) {
             return None;
         }
-        TlsProtocolPack::find_host_name(&data)
+        match Self::host_name_from_client_hello(&mut xvsr) {
+            Ok(s) => Some(s),
+            Err(()) => None,
+        }
     }
 
     fn server_impersonator(&self) -> Box<ServerImpersonator> {
@@ -31,84 +36,64 @@ impl ProtocolPack for TlsProtocolPack {
 }
 
 impl TlsProtocolPack {
-    fn is_handshake(data: &PlainData) -> bool {
+    fn is_handshake(xvsr: &mut BinaryTraverser) -> bool {
         let handshake_content_type = 22u8;
-        data.as_slice().first() == Some(&handshake_content_type)
+        xvsr.get_u8() == Ok(handshake_content_type)
     }
 
-    fn is_client_hello(data: &PlainData) -> bool {
+    fn is_client_hello(xvsr: &mut BinaryTraverser) -> bool {
         let handshake_message_type_position = 5;
-        let client_hello_message_type = 1;
-        TlsProtocolPack::u8_from(data, handshake_message_type_position) == client_hello_message_type
+        let client_hello_message_type = 1u8;
+        xvsr.advance(handshake_message_type_position - xvsr.offset())
+            .is_ok();
+        xvsr.get_u8() == Ok(client_hello_message_type)
     }
 
-    fn find_host_name(data: &PlainData) -> Option<String> {
-        let session_id_offset = 43;
-        let cipher_suites_offset = TlsProtocolPack::advance_past(data, session_id_offset, 1)?;
-        let compression_methods_offset =
-            TlsProtocolPack::advance_past(data, cipher_suites_offset, 2)?;
-        let extensions_offset = TlsProtocolPack::advance_past(data, compression_methods_offset, 1)?;
-        let extensions_end = TlsProtocolPack::advance_past(data, extensions_offset, 2)?;
-        let mut extension_offset = extensions_offset + 2;
-        while extension_offset < extensions_end {
-            let extension_type = TlsProtocolPack::u16_from(data, extension_offset);
-            if extension_type == 0x0000 {
-                return TlsProtocolPack::host_name_from_extension(data, extension_offset);
+    fn host_name_from_client_hello(xvsr: &mut BinaryTraverser) -> Result<String, ()> {
+        let session_id_length_position = 43;
+        let server_name_extension_type = 0u16;
+        xvsr.advance(session_id_length_position - xvsr.offset())?;
+        let session_id_length = xvsr.get_u8()?;
+        xvsr.advance(session_id_length as usize)?;
+        let cipher_suites_length = xvsr.get_u16()?;
+        xvsr.advance(cipher_suites_length as usize)?;
+        let compression_methods_length = xvsr.get_u8()?;
+        xvsr.advance(compression_methods_length as usize)?;
+        let extensions_length = xvsr.get_u16()? as usize;
+        let extensions_offset = xvsr.offset();
+        while xvsr.offset() < (extensions_offset + extensions_length) {
+            let extension_type = xvsr.get_u16()?;
+            if extension_type == server_name_extension_type {
+                return TlsProtocolPack::host_name_from_extension(xvsr);
             }
-            extension_offset = TlsProtocolPack::advance_past(data, extension_offset + 2, 2)?;
+            let extension_length = xvsr.get_u16()?;
+            xvsr.advance(extension_length as usize)?;
         }
-        None
+        Err(())
     }
 
-    fn host_name_from_extension(data: &PlainData, offset: usize) -> Option<String> {
-        let server_name_list_offset = offset + 4;
-        let server_name_list_end = TlsProtocolPack::advance_past(data, server_name_list_offset, 2)?;
-        let mut server_name_list_entry_offset = server_name_list_offset + 2;
-        while server_name_list_entry_offset < server_name_list_end {
-            let server_name_type = TlsProtocolPack::u8_from(data, server_name_list_entry_offset);
+    fn host_name_from_extension(xvsr: &mut BinaryTraverser) -> Result<String, ()> {
+        xvsr.advance(2)?;
+        let server_name_list_length = xvsr.get_u16()? as usize;
+        let server_name_list_end = xvsr.offset() + server_name_list_length;
+        while xvsr.offset() < server_name_list_end {
+            let server_name_type = xvsr.get_u8()?;
             if server_name_type == 0x00 {
-                return TlsProtocolPack::host_name_from_list_entry(
-                    data,
-                    server_name_list_entry_offset,
-                );
+                return Self::host_name_from_list_entry(xvsr);
             }
-            server_name_list_entry_offset =
-                TlsProtocolPack::advance_past(data, server_name_list_entry_offset + 1, 2)?;
+            let server_name_length = xvsr.get_u16()?;
+            xvsr.advance(server_name_length as usize)?;
         }
-        None
+        Err(())
     }
 
-    fn host_name_from_list_entry(data: &PlainData, offset: usize) -> Option<String> {
-        let server_name_length = TlsProtocolPack::u16_from(data, offset + 1);
-        let server_name_offset = offset + 3;
-        match String::from_utf8(Vec::from(
-            &data.as_slice()[(server_name_offset)..(server_name_offset + server_name_length)],
-        )) {
-            Ok(hostname) => Some(hostname),
-            Err(_) => None,
+    fn host_name_from_list_entry(xvsr: &mut BinaryTraverser) -> Result<String, ()> {
+        let server_name_length = xvsr.get_u16()?;
+        let server_name_bytes = xvsr.next_bytes(server_name_length as usize)?;
+        match String::from_utf8(Vec::from(server_name_bytes)) {
+            Ok(hostname) => Ok(hostname),
+            Err(_) => Err(()),
         }
-    }
-
-    fn advance_past(data: &PlainData, length_offset: usize, length_length: usize) -> Option<usize> {
-        if length_offset + length_length > data.len() {
-            return None;
-        }
-        let length = if length_length == 1 {
-            TlsProtocolPack::u8_from(data, length_offset)
-        } else {
-            TlsProtocolPack::u16_from(data, length_offset)
-        };
-        Some(length_offset + length_length + length)
-    }
-
-    // TODO: This ought to return an Option<usize>, which is None if offset is negative or offset + 1 is past the end of data.
-    fn u8_from(data: &PlainData, offset: usize) -> usize {
-        data.as_slice()[offset] as usize
-    }
-
-    // TODO: This ought to return an Option<usize>, which is None if offset is negative or offset + 2 is past the end of data.
-    fn u16_from(data: &PlainData, offset: usize) -> usize {
-        (TlsProtocolPack::u8_from(data, offset) << 8) | TlsProtocolPack::u8_from(data, offset + 1)
     }
 }
 
@@ -167,19 +152,41 @@ mod tests {
 
     #[test]
     fn rejects_packet_that_has_no_server_name_extension() {
+        #[rustfmt::skip]
         let data = PlainData::new(&[
             0x16, // content_type: Handshake
             0x00, 0x00, 0x00, 0x00, // version, length: don't care
             0x01, // handshake_type: ClientHello
             0x00, 0x00, 0x00, 0x00, 0x00, // length, version: don't care
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, // random: don't care
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, // random: don't care
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // random: don't care
             0x00, // session_id_length
             0x00, 0x00, // cipher_suites_length
             0x00, // compression_methods_length
             0x00, 0x00, // extensions_length
+        ]);
+
+        let result = TlsProtocolPack {}.find_host_name(&data);
+
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn does_not_panic_for_zero_length_buffer() {
+        let data = PlainData::new(&[]);
+
+        let result = TlsProtocolPack {}.find_host_name(&data);
+
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn does_not_panic_for_packet_truncated_before_handshake_type() {
+        let data = PlainData::new(&[
+            0x16, // content_type: Handshake
+            0x00, 0x00, 0x00, 0x00, // version, length: don't care
         ]);
 
         let result = TlsProtocolPack {}.find_host_name(&data);
@@ -205,16 +212,16 @@ mod tests {
     #[test]
     fn does_not_panic_for_packet_with_truncated_session_id_length() {
         // Removing this directive will make the Windows and other builds argue over formatting
-        #[cfg_attr(rustfmt, rustfmt_skip)]
+        #[rustfmt::skip]
         let data = PlainData::new(&[
             0x16, // content_type: Handshake
             0x00, 0x00, 0x00, 0x00, // version, length: don't care
             0x01, // handshake_type: ClientHello
             0x00, 0x00, 0x00, 0x00, 0x00, // length, version: don't care
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, // random: don't care
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, // random: don't care
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // random: don't care
                   // truncated session_id_length
         ]);
 
@@ -225,15 +232,16 @@ mod tests {
 
     #[test]
     fn does_not_panic_for_packet_with_truncated_session_id() {
+        #[rustfmt::skip]
         let data = PlainData::new(&[
             0x16, // content_type: Handshake
             0x00, 0x00, 0x00, 0x00, // version, length: don't care
             0x01, // handshake_type: ClientHello
             0x00, 0x00, 0x00, 0x00, 0x00, // length, version: don't care
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, // random: don't care
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, // random: don't care
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // random: don't care
             0xFF, // session_id_length
             0x00, 0x00, // truncated session_id
         ]);
@@ -245,15 +253,16 @@ mod tests {
 
     #[test]
     fn does_not_panic_for_packet_with_truncated_cipher_suites_length() {
+        #[rustfmt::skip]
         let data = PlainData::new(&[
             0x16, // content_type: Handshake
             0x00, 0x00, 0x00, 0x00, // version, length: don't care
             0x01, // handshake_type: ClientHello
             0x00, 0x00, 0x00, 0x00, 0x00, // length, version: don't care
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, // random: don't care
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, // random: don't care
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // random: don't care
             0x00, // session_id_length
             0x00, // truncated cipher_suites_length
         ]);
@@ -265,15 +274,16 @@ mod tests {
 
     #[test]
     fn does_not_panic_for_packet_with_truncated_cipher_suites() {
+        #[rustfmt::skip]
         let data = PlainData::new(&[
             0x16, // content_type: Handshake
             0x00, 0x00, 0x00, 0x00, // version, length: don't care
             0x01, // handshake_type: ClientHello
             0x00, 0x00, 0x00, 0x00, 0x00, // length, version: don't care
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, // random: don't care
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, // random: don't care
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // random: don't care
             0x00, // session_id_length
             0x00, 0xFF, // cipher_suites_length
             0x00, // truncated cipher_suites
@@ -286,15 +296,16 @@ mod tests {
 
     #[test]
     fn does_not_panic_for_packet_with_truncated_compression_methods_length() {
+        #[rustfmt::skip]
         let data = PlainData::new(&[
             0x16, // content_type: Handshake
             0x00, 0x00, 0x00, 0x00, // version, length: don't care
             0x01, // handshake_type: ClientHello
             0x00, 0x00, 0x00, 0x00, 0x00, // length, version: don't care
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, // random: don't care
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, // random: don't care
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // random: don't care
             0x00, // session_id_length
             0x00, 0x00, // cipher_suites_length
             0xFF, // truncated compression_methods_length
@@ -307,15 +318,16 @@ mod tests {
 
     #[test]
     fn does_not_panic_for_packet_with_truncated_compression_methods() {
+        #[rustfmt::skip]
         let data = PlainData::new(&[
             0x16, // content_type: Handshake
             0x00, 0x00, 0x00, 0x00, // version, length: don't care
             0x01, // handshake_type: ClientHello
             0x00, 0x00, 0x00, 0x00, 0x00, // length, version: don't care
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, // random: don't care
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, // random: don't care
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // random: don't care
             0x00, // session_id_length
             0x00, 0x00, // cipher_suites_length
             0xFF, // compression_methods_length
@@ -329,15 +341,16 @@ mod tests {
 
     #[test]
     fn does_not_panic_for_packet_with_truncated_extensions_length() {
+        #[rustfmt::skip]
         let data = PlainData::new(&[
             0x16, // content_type: Handshake
             0x00, 0x00, 0x00, 0x00, // version, length: don't care
             0x01, // handshake_type: ClientHello
             0x00, 0x00, 0x00, 0x00, 0x00, // length, version: don't care
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, // random: don't care
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, // random: don't care
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // random: don't care
             0x00, // session_id_length
             0x00, 0x00, // cipher_suites_length
             0x00, // compression_methods_length
@@ -351,15 +364,16 @@ mod tests {
 
     #[test]
     fn does_not_panic_for_packet_truncated_amid_extensions() {
+        #[rustfmt::skip]
         let data = PlainData::new(&[
             0x16, // content_type: Handshake
             0x00, 0x00, 0x00, 0x00, // version, length: don't care
             0x01, // handshake_type: ClientHello
             0x00, 0x00, 0x00, 0x00, 0x00, // length, version: don't care
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, // random: don't care
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, // random: don't care
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // random: don't care
             0x00, // session_id_length
             0x00, 0x00, // cipher_suites_length
             0x00, // compression_methods_length
@@ -374,15 +388,16 @@ mod tests {
 
     #[test]
     fn does_not_panic_for_hostname_that_is_not_utf8() {
+        #[rustfmt::skip]
         let data = PlainData::new(&[
             0x16, // content_type: Handshake
             0x00, 0x00, 0x00, 0x00, // version, length: don't care
             0x01, // handshake_type: ClientHello
             0x00, 0x00, 0x00, 0x00, 0x00, // length, version: don't care
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, // random: don't care
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, // random: don't care
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // random: don't care
             0x00, // session_id_length
             0x00, 0x0,  // cipher_suites_length
             0x00, // compression_methods_length
@@ -402,16 +417,277 @@ mod tests {
     }
 
     #[test]
-    fn extracts_hostname_from_packet_with_only_server_name_extension() {
+    fn does_not_panic_for_buffer_overrun_in_main_length() {
+        let data = PlainData::new(&[
+            0x16, // content_type: Handshake
+            0x00, 0x00, // version: don't care
+            0x7F, 0xFF, // length: OVERRUN
+        ]);
+
+        let result = TlsProtocolPack {}.find_host_name(&data);
+
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn does_not_panic_for_buffer_overrun_in_client_hello_length() {
+        let data = PlainData::new(&[
+            0x16, // content_type: Handshake
+            0x00, 0x00, // version: don't care
+            0x00, 0x00, // length: don't care
+            0x01, // handshake_type: ClientHello
+            0x7F, 0xFF, 0xFF, // length: OVERRUN
+        ]);
+
+        let result = TlsProtocolPack {}.find_host_name(&data);
+
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn does_not_panic_for_buffer_overrun_in_session_id_length() {
+        #[rustfmt::skip]
+        let data = PlainData::new(&[
+            0x16, // content_type: Handshake
+            0x00, 0x00, // version: don't care
+            0x00, 0x00, // length: don't care
+            0x01, // handshake_type: ClientHello
+            0x00, 0x00, 0x00, // length: don't care
+            0x00, 0x00, // version: don't care
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // random: don't care
+            0x7F, // session_id_length: OVERRUN
+        ]);
+
+        let result = TlsProtocolPack {}.find_host_name(&data);
+
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn does_not_panic_for_buffer_overrun_in_cipher_suites_length() {
+        #[rustfmt::skip]
+        let data = PlainData::new(&[
+            0x16, // content_type: Handshake
+            0x00, 0x00, // version: don't care
+            0x00, 0x00, // length: don't care
+            0x01, // handshake_type: ClientHello
+            0x00, 0x00, 0x00, // length: don't care
+            0x00, 0x00, // version: don't care
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // random: don't care
+            0x01, // session_id_length
+            0x00, // session_id: don't care
+            0x7F, 0xFF, // cipher_suites_length: OVERRUN
+        ]);
+
+        let result = TlsProtocolPack {}.find_host_name(&data);
+
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn does_not_panic_for_buffer_overrun_in_compression_methods_length() {
+        #[rustfmt::skip]
+        let data = PlainData::new(&[
+            0x16, // content_type: Handshake
+            0x00, 0x00, // version: don't care
+            0x00, 0x00, // length: don't care
+            0x01, // handshake_type: ClientHello
+            0x00, 0x00, 0x00, // length: don't care
+            0x00, 0x00, // version: don't care
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // random: don't care
+            0x01, // session_id_length
+            0x00, // session_id: don't care
+            0x00, 0x01, // cipher_suites_length
+            0x00, // cipher_suite: don't care
+            0xFF, // compression_methods_length: OVERRUN
+        ]);
+
+        let result = TlsProtocolPack {}.find_host_name(&data);
+
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn does_not_panic_for_buffer_overrun_in_extensions_length() {
+        #[rustfmt::skip]
         let data = PlainData::new(&[
             0x16, // content_type: Handshake
             0x00, 0x00, 0x00, 0x00, // version, length: don't care
             0x01, // handshake_type: ClientHello
             0x00, 0x00, 0x00, 0x00, 0x00, // length, version: don't care
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, // random: don't care
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, // random: don't care
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // random: don't care
+            0x01, // session_id_length
+            0x00, // session_id: don't care
+            0x00, 0x01, // cipher_suites_length
+            0x00, // cipher_suite: don't care
+            0x01, // compression_methods_length
+            0x00, // compression_method: don't care
+            0x7F, 0xFF, // extensions_length
+        ]);
+
+        let result = TlsProtocolPack {}.find_host_name(&data);
+
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn does_not_panic_for_buffer_overrun_in_preceding_extension_length() {
+        #[rustfmt::skip]
+        let data = PlainData::new(&[
+            0x16, // content_type: Handshake
+            0x00, 0x00, 0x00, 0x00, // version, length: don't care
+            0x01, // handshake_type: ClientHello
+            0x00, 0x00, 0x00, 0x00, 0x00, // length, version: don't care
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // random: don't care
+            0x01, // session_id_length
+            0x00, // session_id: don't care
+            0x00, 0x01, // cipher_suites_length
+            0x00, // cipher_suite: don't care
+            0x01, // compression_methods_length
+            0x00, // compression_method: don't care
+            0x00, 0x20, // extensions_length
+            0x00, 0xFF, // extension_type: not server_name
+            0x7F, 0xFF, // extension_length
+        ]);
+
+        let result = TlsProtocolPack {}.find_host_name(&data);
+
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn does_not_panic_for_buffer_overrun_in_server_name_extension_length() {
+        #[rustfmt::skip]
+        let data = PlainData::new(&[
+            0x16, // content_type: Handshake
+            0x00, 0x00, 0x00, 0x00, // version, length: don't care
+            0x01, // handshake_type: ClientHello
+            0x00, 0x00, 0x00, 0x00, 0x00, // length, version: don't care
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // random: don't care
+            0x01, // session_id_length
+            0x00, // session_id: don't care
+            0x00, 0x01, // cipher_suites_length
+            0x00, // cipher_suite: don't care
+            0x01, // compression_methods_length
+            0x00, // compression_method: don't care
+            0x00, 0x20, // extensions_length
+            0x00, 0xFF, // extension_type: not server_name
+            0x00, 0x03, // extension_length
+            0x01, 0x02, 0x03, // throw-away data for fake extension
+            0x00, 0xFE, // extension_type: not server_name
+            0x00, 0x02, // extension_length
+            0x05, 0x06, // throw-away data for fake extension
+            0x00, 0x00, // extension_type: server_name
+            0x7F, 0xFF, // extension_length
+        ]);
+
+        let result = TlsProtocolPack {}.find_host_name(&data);
+
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn does_not_panic_for_buffer_overrun_in_server_name_list_length() {
+        #[rustfmt::skip]
+        let data = PlainData::new(&[
+            0x16, // content_type: Handshake
+            0x00, 0x00, 0x00, 0x00, // version, length: don't care
+            0x01, // handshake_type: ClientHello
+            0x00, 0x00, 0x00, 0x00, 0x00, // length, version: don't care
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // random: don't care
+            0x01, // session_id_length
+            0x00, // session_id: don't care
+            0x00, 0x01, // cipher_suites_length
+            0x00, // cipher_suite: don't care
+            0x01, // compression_methods_length
+            0x00, // compression_method: don't care
+            0x00, 0x20, // extensions_length
+            0x00, 0xFF, // extension_type: not server_name
+            0x00, 0x03, // extension_length
+            0x01, 0x02, 0x03, // throw-away data for fake extension
+            0x00, 0xFE, // extension_type: not server_name
+            0x00, 0x02, // extension_length
+            0x05, 0x06, // throw-away data for fake extension
+            0x00, 0x00, // extension_type: server_name
+            0x00, 0x0F, // extension_length
+            0x7F, 0xFF, // server_name_list_length
+        ]);
+
+        let result = TlsProtocolPack {}.find_host_name(&data);
+
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn does_not_panic_for_buffer_overrun_in_server_name_length() {
+        #[rustfmt::skip]
+        let data = PlainData::new(&[
+            0x16, // content_type: Handshake
+            0x00, 0x00, 0x00, 0x00, // version, length: don't care
+            0x01, // handshake_type: ClientHello
+            0x00, 0x00, 0x00, 0x00, 0x00, // length, version: don't care
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // random: don't care
+            0x01, // session_id_length
+            0x00, // session_id: don't care
+            0x00, 0x01, // cipher_suites_length
+            0x00, // cipher_suite: don't care
+            0x01, // compression_methods_length
+            0x00, // compression_method: don't care
+            0x00, 0x20, // extensions_length
+            0x00, 0xFF, // extension_type: not server_name
+            0x00, 0x03, // extension_length
+            0x01, 0x02, 0x03, // throw-away data for fake extension
+            0x00, 0xFE, // extension_type: not server_name
+            0x00, 0x02, // extension_length
+            0x05, 0x06, // throw-away data for fake extension
+            0x00, 0x00, // extension_type: server_name
+            0x00, 0x0F, // extension_length
+            0x00, 0x0D, // server_name_list_length
+            0x00, // server_name_type
+            0x7F, 0xFF, // server_name_length
+        ]);
+
+        let result = TlsProtocolPack {}.find_host_name(&data);
+
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn extracts_hostname_from_packet_with_only_server_name_extension() {
+        #[rustfmt::skip]
+        let data = PlainData::new(&[
+            0x16, // content_type: Handshake
+            0x00, 0x00, 0x00, 0x00, // version, length: don't care
+            0x01, // handshake_type: ClientHello
+            0x00, 0x00, 0x00, 0x00, 0x00, // length, version: don't care
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // random: don't care
             0x01, // session_id_length
             0x00, // session_id: don't care
             0x00, 0x01, // cipher_suites_length
@@ -435,15 +711,16 @@ mod tests {
 
     #[test]
     fn extracts_hostname_from_packet_with_sections_and_multiple_extensions() {
+        #[rustfmt::skip]
         let data = PlainData::new(&[
             0x16, // content_type: Handshake
             0x00, 0x00, 0x00, 0x00, // version, length: don't care
             0x01, // handshake_type: ClientHello
             0x00, 0x00, 0x00, 0x00, 0x00, // length, version: don't care
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, // random: don't care
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, // random: don't care
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // random: don't care
             0x01, // session_id_length
             0x00, // session_id: don't care
             0x00, 0x01, // cipher_suites_length
@@ -473,15 +750,16 @@ mod tests {
 
     #[test]
     fn doesnt_see_host_name_extension_that_is_outside_extensions_section() {
+        #[rustfmt::skip]
         let data = PlainData::new(&[
             0x16, // content_type: Handshake
             0x00, 0x00, 0x00, 0x00, // version, length: don't care
             0x01, // handshake_type: ClientHello
             0x00, 0x00, 0x00, 0x00, 0x00, // length, version: don't care
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, // random: don't care
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, // random: don't care
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // random: don't care
             0x00, // session_id_length
             0x00, 0x00, // cipher_suites_length
             0x00, // compression_methods_length

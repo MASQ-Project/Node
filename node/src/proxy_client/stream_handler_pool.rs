@@ -478,7 +478,7 @@ mod tests {
                 target_hostname: Some("www.example.com".to_string()),
                 target_port: 80,
                 protocol: ProxyProtocol::HTTP,
-                originator_public_key: cryptde.public_key(),
+                originator_public_key: cryptde.public_key().clone(),
             };
 
             StreamHandlerPoolReal::process_package(payload, None, Arc::new(Mutex::new(inner)));

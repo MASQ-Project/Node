@@ -63,7 +63,7 @@ pub fn neighborhood_from_nodes(
     neighbor_opt: Option<&NodeRecord>,
 ) -> Neighborhood {
     let cryptde = cryptde();
-    if root.public_key() != &cryptde.public_key() {
+    if root.public_key() != cryptde.public_key() {
         panic!("Neighborhood must be built on root node with public key from cryptde()");
     }
     Neighborhood::new(

@@ -65,12 +65,12 @@ impl CryptDE for CryptDENull {
         }
     }
 
-    fn private_key(&self) -> PrivateKey {
-        self.private_key.clone()
+    fn private_key(&self) -> &PrivateKey {
+        &self.private_key
     }
 
-    fn public_key(&self) -> PublicKey {
-        self.public_key.clone()
+    fn public_key(&self) -> &PublicKey {
+        &self.public_key
     }
 
     // This is dup instead of clone because it returns a Box<CryptDE> instead of a CryptDENull.
@@ -244,7 +244,7 @@ mod tests {
 
         let result = subject.private_key();
 
-        assert_eq!(result, expected);
+        assert_eq!(result.clone(), expected);
     }
 
     #[test]
@@ -254,7 +254,7 @@ mod tests {
 
         let result = subject.public_key();
 
-        assert_eq!(result, expected);
+        assert_eq!(result.clone(), expected);
     }
 
     #[test]
@@ -262,12 +262,12 @@ mod tests {
         let mut subject = CryptDENull::new();
 
         subject.generate_key_pair();
-        let first_public = subject.public_key();
-        let first_private = subject.private_key();
+        let first_public = subject.public_key().clone();
+        let first_private = subject.private_key().clone();
 
         subject.generate_key_pair();
-        let second_public = subject.public_key();
-        let second_private = subject.private_key();
+        let second_public = subject.public_key().clone();
+        let second_private = subject.private_key().clone();
 
         assert_ne!(second_public, first_public);
         assert_ne!(second_private, first_private);

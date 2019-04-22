@@ -86,7 +86,7 @@ impl SubstratumNodeCluster {
             .real_nodes
             .values()
             .into_iter()
-            .find(|node| node.public_key() == *key)
+            .find(|node| node.public_key() == key)
         {
             Some(node_ref) => Some(node_ref.clone()),
             None => None,

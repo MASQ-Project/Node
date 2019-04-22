@@ -50,7 +50,7 @@ fn graph_connects_but_does_not_over_connect() {
         }
         let pass_target = real_nodes
             .iter()
-            .find(|n| n.public_key() == intros.node_records[0].public_key())
+            .find(|n| n.public_key() == &intros.node_records[0].public_key())
             .unwrap();
         mock_node.send_debut(pass_target);
         retries_left -= 1;
@@ -61,17 +61,17 @@ fn graph_connects_but_does_not_over_connect() {
     let another_gnr = introductions
         .node_records
         .iter()
-        .find(|gnr| gnr.public_key() != mock_node.public_key())
+        .find(|gnr| &gnr.public_key() != mock_node.public_key())
         .unwrap();
     let mock_gnr = GossipNodeRecord {
         inner: NodeRecordInner {
-            public_key: mock_node.public_key(),
+            public_key: mock_node.public_key().clone(),
             node_addr_opt: Some(mock_node.node_addr()),
             earning_wallet: Wallet::new("0000"),
             consuming_wallet: None,
             rate_pack: DEFAULT_RATE_PACK.clone(),
             is_bootstrap_node: false,
-            neighbors: vec_to_set(vec![start_node.public_key()]),
+            neighbors: vec_to_set(vec![start_node.public_key().clone()]),
             version: 100, // to make the sample Node update its database and send out standard Gossip
         },
         signatures: NodeSignatures {
@@ -112,7 +112,7 @@ fn graph_connects_but_does_not_over_connect() {
     let key_degrees = current_state
         .node_records
         .iter()
-        .filter(|gnr| !dont_count_these.contains(&gnr.public_key()))
+        .filter(|gnr| !dont_count_these.contains(&&gnr.public_key()))
         .map(|gnr| {
             (
                 gnr.public_key(),
@@ -129,13 +129,13 @@ fn graph_connects_but_does_not_over_connect() {
     );
 }
 
-fn degree(gossip: &Gossip, key: &PublicKey, dont_count_these: &Vec<PublicKey>) -> usize {
+fn degree(gossip: &Gossip, key: &PublicKey, dont_count_these: &Vec<&PublicKey>) -> usize {
     record_of(gossip, key)
         .unwrap()
         .inner
         .neighbors
         .iter()
-        .filter(|k| !dont_count_these.contains(*k))
+        .filter(|k| !dont_count_these.contains(k))
         .count()
 }
 

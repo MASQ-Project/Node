@@ -268,8 +268,8 @@ impl SubstratumNode for SubstratumRealNode {
         self.guts.node_reference.clone()
     }
 
-    fn public_key(&self) -> PublicKey {
-        self.node_reference().public_key.clone()
+    fn public_key(&self) -> &PublicKey {
+        &self.guts.node_reference.public_key
     }
 
     fn cryptde(&self) -> CryptDENull {

@@ -106,7 +106,7 @@ impl RoutingService {
     }
 
     fn is_destined_for_here(&self, next_hop: &LiveHop) -> bool {
-        next_hop.public_key == self.cryptde.public_key()
+        &next_hop.public_key == self.cryptde.public_key()
     }
 
     fn route_data_internally(

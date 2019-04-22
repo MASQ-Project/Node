@@ -309,6 +309,49 @@ impl PlainData {
     pub fn len(&self) -> usize {
         self.data.len()
     }
+
+    pub fn get_u8(&self, idx: usize) -> Option<u8> {
+        if idx >= self.data.len() {
+            None
+        } else {
+            Some(self.data[idx])
+        }
+    }
+
+    // If you're thinking of optimizing these using unsafe code to play with pointers, remember
+    // that you don't know whether this system is big-endian or little-endian.
+    pub fn get_u16(&self, idx: usize) -> Option<u16> {
+        if (idx + 1) >= self.data.len() {
+            None
+        } else {
+            Some(((self.data[idx] as u16) << 8) | (self.data[idx + 1] as u16))
+        }
+    }
+
+    pub fn get_u24(&self, idx: usize) -> Option<u32> {
+        if (idx + 2) >= self.data.len() {
+            None
+        } else {
+            Some(
+                ((self.data[idx] as u32) << 16)
+                    | ((self.data[idx + 1] as u32) << 8)
+                    | (self.data[idx + 2] as u32),
+            )
+        }
+    }
+
+    pub fn get_u32(&self, idx: usize) -> Option<u32> {
+        if (idx + 3) >= self.data.len() {
+            None
+        } else {
+            Some(
+                ((self.data[idx] as u32) << 24)
+                    | ((self.data[idx + 1] as u32) << 16)
+                    | ((self.data[idx + 2] as u32) << 8)
+                    | (self.data[idx + 3] as u32),
+            )
+        }
+    }
 }
 
 struct PlainDataVisitor;
@@ -340,9 +383,8 @@ pub trait CryptDE: Send + Sync {
     fn encode(&self, public_key: &PublicKey, data: &PlainData) -> Result<CryptData, CryptdecError>;
     fn decode(&self, data: &CryptData) -> Result<PlainData, CryptdecError>;
     fn random(&self, dest: &mut [u8]);
-    // TODO: Would be really nice if these could return &XxxKey instead of XxxKey
-    fn private_key(&self) -> PrivateKey;
-    fn public_key(&self) -> PublicKey;
+    fn private_key(&self) -> &PrivateKey;
+    fn public_key(&self) -> &PublicKey;
     // This is dup instead of clone because making a trait Clone has unpleasant consequences.
     fn dup(&self) -> Box<dyn CryptDE>;
     fn sign(&self, data: &PlainData) -> Result<CryptData, CryptdecError>;
@@ -621,6 +663,42 @@ mod tests {
 
         assert_eq!(a.is_empty(), false);
         assert_eq!(b.is_empty(), true);
+    }
+
+    #[test]
+    fn plain_data_get_u8() {
+        let subject = PlainData::new(&[1, 2, 3, 4]);
+
+        assert_eq!(Some(1), subject.get_u8(0));
+        assert_eq!(Some(3), subject.get_u8(2));
+        assert_eq!(None, subject.get_u8(4));
+    }
+
+    #[test]
+    fn plain_data_get_u16() {
+        let subject = PlainData::new(&[1, 2, 3, 4]);
+
+        assert_eq!(Some(0x0102), subject.get_u16(0));
+        assert_eq!(Some(0x0304), subject.get_u16(2));
+        assert_eq!(None, subject.get_u16(3));
+    }
+
+    #[test]
+    fn plain_data_get_u24() {
+        let subject = PlainData::new(&[1, 2, 3, 4]);
+
+        assert_eq!(Some(0x010203), subject.get_u24(0));
+        assert_eq!(Some(0x020304), subject.get_u24(1));
+        assert_eq!(None, subject.get_u24(2));
+    }
+
+    #[test]
+    fn plain_data_get_u32() {
+        let subject = PlainData::new(&[1, 2, 3, 4, 5]);
+
+        assert_eq!(Some(0x01020304), subject.get_u32(0));
+        assert_eq!(Some(0x02030405), subject.get_u32(1));
+        assert_eq!(None, subject.get_u32(2));
     }
 
     #[test]
