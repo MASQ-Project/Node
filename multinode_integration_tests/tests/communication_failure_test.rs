@@ -35,7 +35,13 @@ fn neighborhood_notified_of_newly_missing_node() {
     assert!(
         introductions.node_records.len() > 1,
         "Should have been introductions, but wasn't: {}",
-        introductions.to_dot_graph((originating_node.public_key(), &Some(originating_node.node_addr())), (witness_node.public_key(), &Some(witness_node.node_addr())))
+        introductions.to_dot_graph(
+            (
+                originating_node.public_key(),
+                &Some(originating_node.node_addr())
+            ),
+            (witness_node.public_key(), &Some(witness_node.node_addr()))
+        )
     );
 
     // Kill one of the Nodes--not the originating Node and not the witness Node.
