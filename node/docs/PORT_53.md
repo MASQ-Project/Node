@@ -21,9 +21,10 @@ the __Solutions__ section.
 Some Linux distributions (we know about Ubuntu Desktop >=16.04 and some versions of Mint, but there are probably others)
 come with an installed utility called `dnsmasq`. This utility is intended to let folks with small home LANs give 
 intelligible names to their computers, printers, TVs, DVRs, mobile devices, and other Internet-enabled devices, rather 
-than having to reference them by numeric IP address.
+than having to reference them by numeric IP address.  You may instead have a distribution (for example Ubuntu 18.04)
+that uses `systemd-resolved` for this purpose.  We'll generically call this dns caching.
 
-`dnsmasq` works by putting up a small DNS server on your local machine that fields name-resolution requests for things
+Dns caching works by putting up a small DNS server on your local machine that fields name-resolution requests for things
 like "LivingRoomTV" and returns IP addresses like 192.168.0.47.  This means that when you want to control your TV
 from upstairs, or watch its video feed, or whatever it allows you to do remotely, you can call it "LivingRoomTV"
 (or select it from a list) rather than having to remember its IP address (which may change unexpectedly).
@@ -37,16 +38,16 @@ Unfortunately, only one server can listen on Port 53 (or any port) at one time.
 ## The Problem
 SubstratumNode also includes a small DNS server that allows applications on your computer to send and receive data on
 the Substratum Network. Since this is a DNS server, it must also listen on Port 53. This means that a DNS-subverting
-SubstratumNode and `dnsmasq` are irredeemably inimical to one another and cannot ever operate simultaneously on the
+SubstratumNode and dns caching are irredeemably inimical to one another and cannot ever operate simultaneously on the
 same computer.
 
 Eventually, SubstratumNode will be able to operate in regimes other than DNS subversion, which means that under some
-circumstances, and in the presence of certain sacrifices, it will be compatible with `dnsmasq`; but that's in the
-future, not the present.
+circumstances, and in the presence of certain sacrifices, it will be compatible with dns caching;
+but that's in the future, not the present.
 
 ## Solutions
 We know of two reasonable solutions to the __Port 53 Problem__: a complicated and annoying one that allows you to keep
-using `dnsmasq`, and a much simpler and easier one that consists of disabling `dnsmasq` but will no longer allow you
+using dns caching, and a much simpler and easier one that consists of disabling dns caching but will no longer allow you
 to use intelligible names for the devices on your LAN.
 
 #### Complicated And Annoying: Docker
@@ -57,7 +58,29 @@ have used this solution in the past, and you can see how we've done it by lookin
 [source code](https://github.com/SubstratumNetwork/SubstratumNode/tree/master/node/docker/linux_node). After installing
 Docker on your machine, you may be able to put together a similar solution.
 
-#### Simple But Incompatible: Disable `dnsmasq`
+#### Simple But Incompatible: Disable Dns Caching
+
+##### Ubuntu 18.04
+
+Disable the service:
+
+```
+sudo systemctl disable systemd-resolved.service
+sudo service systemd-resolved stop
+```
+
+Then edit `/etc/NetworkManager/NetworkManager.conf` and add the following line to the `[main]` section:
+
+```
+dns=default
+```
+
+Then remove the symlink.  `sudo rm /etc/resolv.conf`
+
+Then restart the network manager (or reboot). `sudo service network-manager restart`
+
+##### Ubuntu 16.04
+
 If you have this problem, then on your machine there should be a file called `/etc/NetworkManager/NetworkManager.conf`.
 To see if it's there, start a terminal window and type the following command:
 
