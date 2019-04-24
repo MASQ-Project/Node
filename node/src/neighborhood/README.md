@@ -64,9 +64,7 @@ Each Node in the network will know the IP addresses of the few Nodes that are di
 know the IP addresses of any other Node in the network. There are a few security-related implications of this.
 
 One thing it means is that it requires a route at least three hops long to make sure that none of the Nodes on the route
-knows all the IP addresses in it. Therefore, a route less than three hops long is intrinsically insecure. However, since
-__the current version of SubstratumNode is not intended to be secure__ anyway, we have a default route-length minimum of
-two hops rather than three, because it makes testing easier while still presenting all the conditions we need to test.
+knows all the IP addresses in it. Therefore, a route less than three hops long is intrinsically insecure.
 
 Another thing it means has to do with the fact that the exit Node for a two-way route needs to know the public key of
 the originating Node, so that it can encrypt the response payload. Therefore, the exit Node should not also know the
@@ -74,8 +72,8 @@ IP address of the originating Node; otherwise it would be able to associate requ
 transactions (HTTP) with originating IP addresses.
 
 Hence, the question of whether a Neighborhood can produce valid routes is a complex one. It needs enough Nodes that it
-can produce a minimum two-hop (three-hop eventually) route, but not so many connections between Nodes that it can't find
-an exit Node that isn't directly connected.
+can produce a minimum three-hop route, but not so many connections between Nodes that it can't find an exit Node that isn't 
+directly connected.
 
 All this means that it may take a significant interval of time, marked by the periodic arrival and departure of Gossip,
 before a newly-started Neighborhood is complete enough to be able to generate routes to allow its owner to originate
