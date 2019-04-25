@@ -1,10 +1,13 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use multinode_integration_tests_lib::substratum_node::{NodeReference, SubstratumNode};
+use multinode_integration_tests_lib::substratum_node::{
+    NodeReference, SubstratumNode, SubstratumNodeUtils,
+};
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
 use multinode_integration_tests_lib::substratum_real_node::SubstratumRealNode;
-use node_lib::accountant::payable_dao::PayableAccount;
-use node_lib::accountant::receivable_dao::ReceivableAccount;
+use node_lib::accountant::payable_dao::{PayableAccount, PayableDao, PayableDaoReal};
+use node_lib::accountant::receivable_dao::{ReceivableAccount, ReceivableDao, ReceivableDaoReal};
+use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
 use node_lib::sub_lib::wallet::Wallet;
 use std::collections::HashMap;
 use std::thread;
@@ -71,11 +74,33 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
 }
 
 fn non_pending_payables(node: &SubstratumRealNode) -> Vec<PayableAccount> {
-    node.daos().payable.non_pending_payables()
+    let db_initializer = DbInitializerReal::new();
+    let payable_dao = PayableDaoReal::new(
+        db_initializer
+            .initialize(&std::path::PathBuf::from(
+                SubstratumRealNode::node_home_dir(
+                    &SubstratumNodeUtils::find_project_root(),
+                    &node.name().to_string(),
+                ),
+            ))
+            .unwrap(),
+    );
+    payable_dao.non_pending_payables()
 }
 
 fn receivables(node: &SubstratumRealNode) -> Vec<ReceivableAccount> {
-    node.daos().receivable.receivables()
+    let db_initializer = DbInitializerReal::new();
+    let receivable_dao = ReceivableDaoReal::new(
+        db_initializer
+            .initialize(&std::path::PathBuf::from(
+                SubstratumRealNode::node_home_dir(
+                    &SubstratumNodeUtils::find_project_root(),
+                    &node.name().to_string(),
+                ),
+            ))
+            .unwrap(),
+    );
+    receivable_dao.receivables()
 }
 
 pub fn start_real_node(

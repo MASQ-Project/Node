@@ -2,10 +2,11 @@
 
 pub mod accountant;
 mod actor_system_factory;
-mod blockchain_bridge;
+mod blockchain;
 mod bootstrapper;
 mod configuration;
 mod crash_test_dummy;
+pub mod database;
 pub mod discriminator;
 mod dispatcher;
 pub mod entry_dns;

@@ -5,9 +5,6 @@ use crate::substratum_node::NodeReference;
 use crate::substratum_node::PortSelector;
 use crate::substratum_node::SubstratumNode;
 use crate::substratum_node::SubstratumNodeUtils;
-use node_lib::accountant::db_initializer::Daos;
-use node_lib::accountant::db_initializer::DbInitializer;
-use node_lib::accountant::db_initializer::DbInitializerReal;
 use node_lib::sub_lib::accountant;
 use node_lib::sub_lib::accountant::TEMPORARY_CONSUMING_WALLET;
 use node_lib::sub_lib::cryptde::PublicKey;
@@ -355,16 +352,6 @@ impl SubstratumRealNode {
 
     pub fn home_dir(&self) -> String {
         Self::node_home_dir(&self.root_dir(), &String::from(self.name()))
-    }
-
-    pub fn daos(&self) -> Daos {
-        let initializer = DbInitializerReal::new();
-        initializer
-            .initialize(&std::path::PathBuf::from(Self::node_home_dir(
-                &SubstratumNodeUtils::find_project_root(),
-                &self.name().to_string(),
-            )))
-            .unwrap()
     }
 
     fn do_docker_run(

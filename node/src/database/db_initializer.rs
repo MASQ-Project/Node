@@ -1,68 +1,76 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use super::payable_dao::PayableDao;
-use super::payable_dao::PayableDaoReal;
-use super::receivable_dao::ReceivableDao;
-use super::receivable_dao::ReceivableDaoReal;
-use rusqlite::Connection;
-use rusqlite::OpenFlags;
 use rusqlite::NO_PARAMS;
+use rusqlite::{Connection, Statement};
+use rusqlite::{Error, OpenFlags};
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::path::PathBuf;
 
 pub const DATABASE_FILE: &str = "node_data.sqlite";
 pub const CURRENT_SCHEMA_VERSION: &str = "0.0.1";
 
-#[derive(Debug, PartialEq)]
-pub enum InitializationError {
-    IncompatibleVersion,
+pub trait ConnectionWrapper: Debug {
+    fn prepare(&self, query: &str) -> Result<Statement, rusqlite::Error>;
 }
 
 #[derive(Debug)]
-pub struct Daos {
-    pub payable: Box<PayableDao>,
-    pub receivable: Box<ReceivableDao>,
+pub struct ConnectionWrapperReal {
+    conn: Connection,
+}
+
+impl ConnectionWrapper for ConnectionWrapperReal {
+    fn prepare(&self, query: &str) -> Result<Statement, Error> {
+        self.conn.prepare(query)
+    }
+}
+
+impl ConnectionWrapperReal {
+    pub fn new(conn: Connection) -> Self {
+        ConnectionWrapperReal { conn }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum InitializationError {
+    IncompatibleVersion,
+    SqliteError,
 }
 
 pub trait DbInitializer {
-    fn initialize(&self, path: &PathBuf) -> Result<Daos, InitializationError>;
+    fn initialize(&self, path: &PathBuf) -> Result<Box<ConnectionWrapper>, InitializationError>;
 }
 
 pub struct DbInitializerReal {}
 
 impl DbInitializer for DbInitializerReal {
-    fn initialize(&self, path: &PathBuf) -> Result<Daos, InitializationError> {
+    fn initialize(
+        &self,
+        path: &PathBuf,
+    ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
         let mut flags = OpenFlags::empty();
         flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
         let database_file_path = &path.join(DATABASE_FILE);
-        let conn = match Connection::open_with_flags(database_file_path, flags) {
+        match Connection::open_with_flags(database_file_path, flags) {
             Ok(conn) => {
                 let config = self.extract_configurations(&conn);
                 match self.check_version(config.get(&String::from("schema_version"))) {
-                    Ok(_) => conn,
-                    Err(e) => return Err(e),
+                    Ok(_) => Ok(Box::new(ConnectionWrapperReal::new(conn))),
+                    Err(e) => Err(e),
                 }
             }
             Err(_) => {
                 let mut flags = OpenFlags::empty();
                 flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
                 flags.insert(OpenFlags::SQLITE_OPEN_CREATE);
-                let conn = Connection::open_with_flags(database_file_path, flags).expect(
-                    format!("Database can't be created at {:?}", database_file_path).as_str(),
-                );
-                match self.create_database_tables(&conn) {
-                    Ok(()) => conn,
-                    Err(e) => return Err(e),
+                match Connection::open_with_flags(database_file_path, flags) {
+                    Ok(conn) => match self.create_database_tables(&conn) {
+                        Ok(()) => Ok(Box::new(ConnectionWrapperReal::new(conn))),
+                        Err(e) => Err(e),
+                    },
+                    Err(_) => Err(InitializationError::SqliteError),
                 }
             }
-        };
-        let payable = PayableDaoReal::new(conn);
-        let conn = Connection::open_with_flags(database_file_path, flags)
-            .expect("Database suddenly disappeared");
-        let receivable = ReceivableDaoReal::new(conn);
-        Ok(Daos {
-            payable: Box::new(payable),
-            receivable: Box::new(receivable),
-        })
+        }
     }
 }
 
@@ -170,9 +178,69 @@ impl DbInitializerReal {
 }
 
 #[cfg(test)]
+pub mod test_utils {
+    use crate::database::db_initializer::{ConnectionWrapper, DbInitializer, InitializationError};
+    use rusqlite::Error;
+    use rusqlite::Statement;
+    use std::cell::RefCell;
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Debug)]
+    pub struct ConnectionWrapperMock {}
+
+    impl ConnectionWrapper for ConnectionWrapperMock {
+        fn prepare(&self, _query: &str) -> Result<Statement, Error> {
+            unimplemented!("Do not call prepare on a ConnectionWrapperMock")
+        }
+    }
+
+    #[derive(Default)]
+    pub struct DbInitializerMock {
+        pub initialize_parameters: Arc<Mutex<Vec<PathBuf>>>,
+        pub initialize_results: RefCell<Vec<Result<Box<ConnectionWrapper>, InitializationError>>>,
+    }
+
+    impl DbInitializer for DbInitializerMock {
+        fn initialize(
+            &self,
+            path: &PathBuf,
+        ) -> Result<Box<ConnectionWrapper>, InitializationError> {
+            self.initialize_parameters
+                .lock()
+                .unwrap()
+                .push(path.clone());
+            self.initialize_results.borrow_mut().remove(0)
+        }
+    }
+
+    impl DbInitializerMock {
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        pub fn initialize_parameters(
+            mut self,
+            parameters: Arc<Mutex<Vec<PathBuf>>>,
+        ) -> DbInitializerMock {
+            self.initialize_parameters = parameters;
+            self
+        }
+
+        pub fn initialize_result(
+            self,
+            result: Result<Box<ConnectionWrapper>, InitializationError>,
+        ) -> DbInitializerMock {
+            self.initialize_results.borrow_mut().push(result);
+            self
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
-    use super::super::local_test_utils::ensure_node_home_directory_exists;
     use super::*;
+    use crate::accountant::test_utils::ensure_node_home_directory_exists;
     use rusqlite::OpenFlags;
 
     #[test]

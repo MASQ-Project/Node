@@ -12,7 +12,10 @@ use super::stream_handler_pool::StreamHandlerPool;
 use super::stream_handler_pool::StreamHandlerPoolSubs;
 use super::stream_messages::PoolBindMessage;
 use super::ui_gateway::ui_gateway::UiGateway;
-use crate::blockchain_bridge::blockchain_bridge::BlockchainBridge;
+use crate::accountant::payable_dao::PayableDaoReal;
+use crate::accountant::receivable_dao::ReceivableDaoReal;
+use crate::blockchain::blockchain_bridge::BlockchainBridge;
+use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::sub_lib::accountant::AccountantConfig;
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
@@ -71,6 +74,7 @@ impl ActorSystemFactoryReal {
         actor_factory: Box<dyn ActorFactory>,
         tx: Sender<StreamHandlerPoolSubs>,
     ) {
+        let db_initializer = DbInitializerReal::new();
         // make all the actors
         let (dispatcher_subs, pool_bind_sub) = actor_factory.make_and_start_dispatcher();
         let proxy_server_subs = actor_factory
@@ -89,7 +93,8 @@ impl ActorSystemFactoryReal {
         });
         let neighborhood_subs =
             actor_factory.make_and_start_neighborhood(cryptde, config.neighborhood_config);
-        let accountant_subs = actor_factory.make_and_start_accountant(config.accountant_config);
+        let accountant_subs =
+            actor_factory.make_and_start_accountant(config.accountant_config, &db_initializer);
         let ui_gateway_subs = actor_factory.make_and_start_ui_gateway(config.ui_gateway_config);
         let stream_handler_pool_subs = actor_factory
             .make_and_start_stream_handler_pool(config.clandestine_discriminator_factories);
@@ -204,7 +209,11 @@ pub trait ActorFactory: Send {
         cryptde: &'static dyn CryptDE,
         config: NeighborhoodConfig,
     ) -> NeighborhoodSubs;
-    fn make_and_start_accountant(&self, config: AccountantConfig) -> AccountantSubs;
+    fn make_and_start_accountant(
+        &self,
+        config: AccountantConfig,
+        db_initializer: &dyn DbInitializer,
+    ) -> AccountantSubs;
     fn make_and_start_ui_gateway(&self, config: UiGatewayConfig) -> UiGatewaySubs;
     fn make_and_start_stream_handler_pool(
         &self,
@@ -255,8 +264,22 @@ impl ActorFactory for ActorFactoryReal {
         Neighborhood::make_subs_from(&addr)
     }
 
-    fn make_and_start_accountant(&self, config: AccountantConfig) -> AccountantSubs {
-        let accountant = Accountant::new(config);
+    fn make_and_start_accountant(
+        &self,
+        config: AccountantConfig,
+        db_initializer: &dyn DbInitializer,
+    ) -> AccountantSubs {
+        let payable_dao = Box::new(PayableDaoReal::new(
+            db_initializer
+                .initialize(&config.data_directory)
+                .expect("Failed to connect to database"),
+        ));
+        let receivable_dao = Box::new(ReceivableDaoReal::new(
+            db_initializer
+                .initialize(&config.data_directory)
+                .expect("Failed to connect to database"),
+        ));
+        let accountant = Accountant::new(config, payable_dao, receivable_dao);
         let addr: Addr<Accountant> = accountant.start();
         Accountant::make_subs_from(&addr)
     }
@@ -296,6 +319,8 @@ impl ActorFactory for ActorFactoryReal {
 mod tests {
     use super::*;
     use crate::bootstrapper::CRYPT_DE_OPT;
+    use crate::database::db_initializer::test_utils::{ConnectionWrapperMock, DbInitializerMock};
+    use crate::database::db_initializer::InitializationError;
     use crate::neighborhood::gossip::Gossip;
     use crate::stream_messages::AddStreamMsg;
     use crate::stream_messages::RemoveStreamMsg;
@@ -335,6 +360,7 @@ mod tests {
     use std::net::IpAddr;
     use std::net::Ipv4Addr;
     use std::path::PathBuf;
+    use std::str::FromStr;
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
@@ -429,7 +455,11 @@ mod tests {
             }
         }
 
-        fn make_and_start_accountant(&self, config: AccountantConfig) -> AccountantSubs {
+        fn make_and_start_accountant(
+            &self,
+            config: AccountantConfig,
+            _db_initializer: &dyn DbInitializer,
+        ) -> AccountantSubs {
             self.parameters
                 .accountant_params
                 .lock()
@@ -605,6 +635,54 @@ mod tests {
         fn start_recorder(recorder: &RefCell<Option<Recorder>>) -> Addr<Recorder> {
             recorder.borrow_mut().take().unwrap().start()
         }
+    }
+
+    #[test]
+    fn make_and_start_accountant_creates_connections_for_daos() {
+        let subject = ActorFactoryReal {};
+
+        let db_initializer_mock = DbInitializerMock::new()
+            .initialize_result(Ok(Box::new(ConnectionWrapperMock {})))
+            .initialize_result(Ok(Box::new(ConnectionWrapperMock {})));
+        let data_directory = PathBuf::from_str("yeet_home").unwrap();
+        let config = AccountantConfig {
+            data_directory: data_directory.clone(),
+            payable_scan_interval: Duration::from_secs(9),
+        };
+
+        subject.make_and_start_accountant(config.clone(), &db_initializer_mock);
+
+        let initialize_parameters = db_initializer_mock.initialize_parameters.lock().unwrap();
+        assert_eq!(2, initialize_parameters.len());
+        assert_eq!(data_directory, initialize_parameters[0]);
+        assert_eq!(data_directory, initialize_parameters[1]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Failed to connect to database")]
+    fn failed_payable_initialization_produces_panic() {
+        let config = AccountantConfig {
+            data_directory: PathBuf::new(),
+            payable_scan_interval: Duration::from_secs(6),
+        };
+        let db_initializer_mock =
+            DbInitializerMock::new().initialize_result(Err(InitializationError::SqliteError));
+        let subject = ActorFactoryReal {};
+        subject.make_and_start_accountant(config, &db_initializer_mock);
+    }
+
+    #[test]
+    #[should_panic(expected = "Failed to connect to database")]
+    fn failed_receivable_initialization_produces_panic() {
+        let config = AccountantConfig {
+            data_directory: PathBuf::new(),
+            payable_scan_interval: Duration::from_secs(6),
+        };
+        let db_initializer_mock = DbInitializerMock::new()
+            .initialize_result(Ok(Box::new(ConnectionWrapperMock {})))
+            .initialize_result(Err(InitializationError::SqliteError));
+        let subject = ActorFactoryReal {};
+        subject.make_and_start_accountant(config, &db_initializer_mock);
     }
 
     #[test]

@@ -1,6 +1,4 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use super::db_initializer::DbInitializer;
-use super::db_initializer::DbInitializerReal;
 use super::payable_dao::PayableDao;
 use super::receivable_dao::ReceivableDao;
 use crate::accountant::payable_dao::PayableAccount;
@@ -24,17 +22,16 @@ use actix::Recipient;
 use std::fs;
 use std::time::SystemTime;
 
-pub const PAYMENT_CURVE_MINIMUM_TIME: i64 = 86400; // one day
-pub const PAYMENT_CURVE_TIME_INTERSECTION: i64 = 2592000; // thirty days
-pub const PAYMENT_CURVE_MINIMUM_BALANCE: i64 = 10000000; // ten million
-pub const PAYMENT_CURVE_BALANCE_INTERSECTION: i64 = 1000000000; // one billion
+pub const PAYMENT_CURVE_MINIMUM_TIME: i64 = 86_400; // one day
+pub const PAYMENT_CURVE_TIME_INTERSECTION: i64 = 2_592_000; // thirty days
+pub const PAYMENT_CURVE_MINIMUM_BALANCE: i64 = 10_000_000;
+pub const PAYMENT_CURVE_BALANCE_INTERSECTION: i64 = 1_000_000_000;
 pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
 
 pub struct Accountant {
     config: AccountantConfig,
-    db_initializer: Box<DbInitializer>,
-    payable_dao: Option<Box<PayableDao>>,
-    receivable_dao: Option<Box<ReceivableDao>>,
+    payable_dao: Box<PayableDao>,
+    receivable_dao: Box<ReceivableDao>,
     report_accounts_payable_sub: Option<Recipient<ReportAccountsPayable>>,
     logger: Logger,
 }
@@ -49,19 +46,18 @@ impl Handler<BindMessage> for Accountant {
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
         self.report_accounts_payable_sub =
             Some(msg.peer_actors.blockchain_bridge.report_accounts_payable);
-        self.establish_data_directory();
+        self.create_data_directory_if_necessary();
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         ctx.run_interval(self.config.payable_scan_interval, |act, _ctx| {
             act.logger.debug("Scanning for payables".to_string());
             Accountant::scan_for_payables(
-                act.payable_dao.as_ref().expect("PayableDao is unbound"),
+                act.payable_dao.as_ref(),
                 act.report_accounts_payable_sub
                     .as_ref()
                     .expect("BlockchainBridge is unbound"),
             );
         });
         self.logger.info(String::from("Accountant bound"));
-        ()
     }
 }
 
@@ -83,7 +79,6 @@ impl Handler<ReportRoutingServiceProvidedMessage> for Accountant {
             msg.payload_size,
             &msg.consuming_wallet,
         );
-        ()
     }
 }
 
@@ -105,7 +100,6 @@ impl Handler<ReportExitServiceProvidedMessage> for Accountant {
             msg.payload_size,
             &msg.consuming_wallet,
         );
-        ()
     }
 }
 
@@ -127,7 +121,6 @@ impl Handler<ReportRoutingServiceConsumedMessage> for Accountant {
             msg.payload_size,
             &msg.earning_wallet,
         );
-        ()
     }
 }
 
@@ -149,17 +142,19 @@ impl Handler<ReportExitServiceConsumedMessage> for Accountant {
             msg.payload_size,
             &msg.earning_wallet,
         );
-        ()
     }
 }
 
 impl Accountant {
-    pub fn new(config: AccountantConfig) -> Accountant {
+    pub fn new(
+        config: AccountantConfig,
+        payable_dao: Box<PayableDao>,
+        receivable_dao: Box<ReceivableDao>,
+    ) -> Accountant {
         Accountant {
             config,
-            db_initializer: Box::new(DbInitializerReal::new()),
-            payable_dao: None,
-            receivable_dao: None,
+            payable_dao,
+            receivable_dao,
             report_accounts_payable_sub: None,
             logger: Logger::new("Accountant"),
         }
@@ -184,7 +179,7 @@ impl Accountant {
     }
 
     fn scan_for_payables(
-        payable_dao: &Box<PayableDao>,
+        payable_dao: &PayableDao,
         report_accounts_payable_sub: &Recipient<ReportAccountsPayable>,
     ) {
         let payables = payable_dao
@@ -193,7 +188,7 @@ impl Accountant {
             .filter(Accountant::should_pay)
             .collect::<Vec<PayableAccount>>();
 
-        if payables.len() > 0 {
+        if !payables.is_empty() {
             report_accounts_payable_sub
                 .try_send(ReportAccountsPayable { accounts: payables })
                 .expect("BlockchainBridge is dead");
@@ -226,16 +221,6 @@ impl Accountant {
         m * x as f64 + b
     }
 
-    fn establish_data_directory(&mut self) {
-        self.create_data_directory_if_necessary();
-        let daos = self
-            .db_initializer
-            .initialize(&self.config.data_directory)
-            .expect("Could not initialize database");
-        self.payable_dao = Some(daos.payable);
-        self.receivable_dao = Some(daos.receivable);
-    }
-
     fn create_data_directory_if_necessary(&self) {
         match fs::read_dir(&self.config.data_directory) {
             Ok(_) => (),
@@ -260,7 +245,6 @@ impl Accountant {
         let total_charge = service_rate + byte_charge;
         self.receivable_dao
             .as_ref()
-            .expect("Accountant not bound")
             .more_money_receivable(wallet, total_charge);
     }
 
@@ -275,21 +259,18 @@ impl Accountant {
         let total_charge = service_rate + byte_charge;
         self.payable_dao
             .as_ref()
-            .expect("Accountant not bound")
             .more_money_payable(wallet, total_charge);
     }
 }
 
 #[cfg(test)]
 pub mod tests {
-    use super::super::db_initializer::Daos;
-    use super::super::db_initializer::InitializationError;
-    use super::super::local_test_utils::BASE_TEST_DIR;
     use super::super::payable_dao::PayableAccount;
+    use super::super::test_utils::BASE_TEST_DIR;
     use super::*;
-    use crate::accountant::dao_utils::from_time_t;
-    use crate::accountant::dao_utils::to_time_t;
     use crate::accountant::receivable_dao::ReceivableAccount;
+    use crate::database::dao_utils::from_time_t;
+    use crate::database::dao_utils::to_time_t;
     use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::sub_lib::wallet::Wallet;
@@ -310,45 +291,8 @@ pub mod tests {
     use std::time::Duration;
     use std::time::SystemTime;
 
-    struct DbInitializerMock {
-        initialize_parameters: Arc<Mutex<Vec<PathBuf>>>,
-        initialize_results: RefCell<Vec<Result<Daos, InitializationError>>>,
-    }
-
-    impl DbInitializer for DbInitializerMock {
-        fn initialize(&self, path: &PathBuf) -> Result<Daos, InitializationError> {
-            self.initialize_parameters
-                .lock()
-                .unwrap()
-                .push(path.clone());
-            self.initialize_results.borrow_mut().remove(0)
-        }
-    }
-
-    impl DbInitializerMock {
-        fn new() -> DbInitializerMock {
-            DbInitializerMock {
-                initialize_parameters: Arc::new(Mutex::new(vec![])),
-                initialize_results: RefCell::new(vec![]),
-            }
-        }
-
-        fn initialize_parameters(
-            mut self,
-            parameters: Arc<Mutex<Vec<PathBuf>>>,
-        ) -> DbInitializerMock {
-            self.initialize_parameters = parameters;
-            self
-        }
-
-        fn initialize_result(self, result: Result<Daos, InitializationError>) -> DbInitializerMock {
-            self.initialize_results.borrow_mut().push(result);
-            self
-        }
-    }
-
     #[derive(Debug)]
-    struct PayableDaoMock {
+    pub struct PayableDaoMock {
         more_money_payable_parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
         non_pending_payables_results: RefCell<Vec<Vec<PayableAccount>>>,
     }
@@ -384,7 +328,7 @@ pub mod tests {
     }
 
     impl PayableDaoMock {
-        fn new() -> PayableDaoMock {
+        pub fn new() -> PayableDaoMock {
             PayableDaoMock {
                 more_money_payable_parameters: Arc::new(Mutex::new(vec![])),
                 non_pending_payables_results: RefCell::new(vec![]),
@@ -406,7 +350,7 @@ pub mod tests {
     }
 
     #[derive(Debug)]
-    struct ReceivableDaoMock {
+    pub struct ReceivableDaoMock {
         more_money_receivable_parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
         more_money_received_parameters: Arc<Mutex<Vec<(Wallet, u64, SystemTime)>>>,
     }
@@ -442,7 +386,7 @@ pub mod tests {
     }
 
     impl ReceivableDaoMock {
-        fn new() -> ReceivableDaoMock {
+        pub fn new() -> ReceivableDaoMock {
             ReceivableDaoMock {
                 more_money_receivable_parameters: Arc::new(Mutex::new(vec![])),
                 more_money_received_parameters: Arc::new(Mutex::new(vec![])),
@@ -490,17 +434,13 @@ pub mod tests {
                     pending_payment_transaction: None,
                 },
             ];
-            let daos = Daos {
-                payable: Box::new(
-                    PayableDaoMock::new()
-                        .non_pending_payables_result(accounts.clone())
-                        .non_pending_payables_result(accounts),
-                ),
-                receivable: Box::new(ReceivableDaoMock::new()),
-            };
-            let db_initializer = DbInitializerMock::new().initialize_result(Ok(daos));
-            let mut subject = Accountant::new(config);
-            subject.db_initializer = Box::new(db_initializer);
+            let payable_dao = Box::new(
+                PayableDaoMock::new()
+                    .non_pending_payables_result(accounts.clone())
+                    .non_pending_payables_result(accounts),
+            );
+            let receivable_dao = Box::new(ReceivableDaoMock::new());
+            let subject = Accountant::new(config, payable_dao, receivable_dao);
             let peer_actors = peer_actors_builder()
                 .blockchain_bridge(blockchain_bridge)
                 .build();
@@ -546,8 +486,7 @@ pub mod tests {
                 pending_payment_transaction: None,
             },
         ];
-        let payable_dao: Box<PayableDao> =
-            Box::new(PayableDaoMock::new().non_pending_payables_result(accounts.clone()));
+        let payable_dao = PayableDaoMock::new().non_pending_payables_result(accounts.clone());
         let (blockchain_bridge, _, blockchain_bridge_recordings_arc) = make_recorder();
         let system = System::new(
             "scan_for_payables_message_does_not_trigger_payment_for_balances_below_the_curve",
@@ -584,8 +523,7 @@ pub mod tests {
                 pending_payment_transaction: None,
             },
         ];
-        let payable_dao: Box<PayableDao> =
-            Box::new(PayableDaoMock::new().non_pending_payables_result(accounts.clone()));
+        let payable_dao = PayableDaoMock::new().non_pending_payables_result(accounts.clone());
         let (blockchain_bridge, blockchain_bridge_awaiter, blockchain_bridge_recordings_arc) =
             make_recorder();
         let system =
@@ -617,20 +555,13 @@ pub mod tests {
             data_directory: data_dir.clone(),
             payable_scan_interval: Duration::from_secs(100),
         };
-        let dbi_initialize_parameters_arc = Arc::new(Mutex::new(vec![]));
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
-        let daos = Daos {
-            payable: Box::new(PayableDaoMock::new()),
-            receivable: Box::new(
-                ReceivableDaoMock::new()
-                    .more_money_receivable_parameters(more_money_receivable_parameters_arc.clone()),
-            ),
-        };
-        let db_initializer = DbInitializerMock::new()
-            .initialize_parameters(dbi_initialize_parameters_arc.clone())
-            .initialize_result(Ok(daos));
-        let mut subject = Accountant::new(config);
-        subject.db_initializer = Box::new(db_initializer);
+        let payable_dao_mock = Box::new(PayableDaoMock::new());
+        let receivable_dao_mock = Box::new(
+            ReceivableDaoMock::new()
+                .more_money_receivable_parameters(more_money_receivable_parameters_arc.clone()),
+        );
+        let subject = Accountant::new(config, payable_dao_mock, receivable_dao_mock);
         let system = System::new("report_routing_service_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
@@ -650,8 +581,6 @@ pub mod tests {
 
         System::current().stop_with_code(0);
         system.run();
-        let dbi_initialize_parameters = dbi_initialize_parameters_arc.lock().unwrap();
-        assert_eq!(dbi_initialize_parameters[0], data_dir);
         let more_money_receivable_parameters = more_money_receivable_parameters_arc.lock().unwrap();
         assert_eq!(
             more_money_receivable_parameters[0],
@@ -673,20 +602,13 @@ pub mod tests {
             data_directory: data_dir.clone(),
             payable_scan_interval: Duration::from_secs(100),
         };
-        let dbi_initialize_parameters_arc = Arc::new(Mutex::new(vec![]));
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
-        let daos = Daos {
-            payable: Box::new(
-                PayableDaoMock::new()
-                    .more_money_payable_parameters(more_money_payable_parameters_arc.clone()),
-            ),
-            receivable: Box::new(ReceivableDaoMock::new()),
-        };
-        let db_initializer = DbInitializerMock::new()
-            .initialize_parameters(dbi_initialize_parameters_arc.clone())
-            .initialize_result(Ok(daos));
-        let mut subject = Accountant::new(config);
-        subject.db_initializer = Box::new(db_initializer);
+        let payable_dao_mock = Box::new(
+            PayableDaoMock::new()
+                .more_money_payable_parameters(more_money_payable_parameters_arc.clone()),
+        );
+        let receivable_dao_mock = Box::new(ReceivableDaoMock::new());
+        let subject = Accountant::new(config, payable_dao_mock, receivable_dao_mock);
         let system = System::new("report_routing_service_consumed_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
@@ -706,8 +628,6 @@ pub mod tests {
 
         System::current().stop_with_code(0);
         system.run();
-        let dbi_initialize_parameters = dbi_initialize_parameters_arc.lock().unwrap();
-        assert_eq!(dbi_initialize_parameters[0], data_dir);
         let more_money_payable_parameters = more_money_payable_parameters_arc.lock().unwrap();
         assert_eq!(
             more_money_payable_parameters[0],
@@ -726,16 +646,12 @@ pub mod tests {
             payable_scan_interval: Duration::from_secs(100),
         };
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
-        let daos = Daos {
-            payable: Box::new(PayableDaoMock::new()),
-            receivable: Box::new(
-                ReceivableDaoMock::new()
-                    .more_money_receivable_parameters(more_money_receivable_parameters_arc.clone()),
-            ),
-        };
-        let db_initializer = DbInitializerMock::new().initialize_result(Ok(daos));
-        let mut subject = Accountant::new(config);
-        subject.db_initializer = Box::new(db_initializer);
+        let payable_dao_mock = Box::new(PayableDaoMock::new());
+        let receivable_dao_mock = Box::new(
+            ReceivableDaoMock::new()
+                .more_money_receivable_parameters(more_money_receivable_parameters_arc.clone()),
+        );
+        let subject = Accountant::new(config, payable_dao_mock, receivable_dao_mock);
         let system = System::new("report_exit_service_provided_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
@@ -776,20 +692,13 @@ pub mod tests {
             data_directory: data_dir.clone(),
             payable_scan_interval: Duration::from_secs(100),
         };
-        let dbi_initialize_parameters_arc = Arc::new(Mutex::new(vec![]));
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
-        let daos = Daos {
-            payable: Box::new(
-                PayableDaoMock::new()
-                    .more_money_payable_parameters(more_money_payable_parameters_arc.clone()),
-            ),
-            receivable: Box::new(ReceivableDaoMock::new()),
-        };
-        let db_initializer = DbInitializerMock::new()
-            .initialize_parameters(dbi_initialize_parameters_arc.clone())
-            .initialize_result(Ok(daos));
-        let mut subject = Accountant::new(config);
-        subject.db_initializer = Box::new(db_initializer);
+        let payable_dao_mock = Box::new(
+            PayableDaoMock::new()
+                .more_money_payable_parameters(more_money_payable_parameters_arc.clone()),
+        );
+        let receivable_dao_mock = Box::new(ReceivableDaoMock::new());
+        let subject = Accountant::new(config, payable_dao_mock, receivable_dao_mock);
         let system = System::new("report_exit_service_consumed_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
@@ -809,8 +718,6 @@ pub mod tests {
 
         System::current().stop_with_code(0);
         system.run();
-        let dbi_initialize_parameters = dbi_initialize_parameters_arc.lock().unwrap();
-        assert_eq!(dbi_initialize_parameters[0], PathBuf::from(data_dir));
         let more_money_payable_parameters = more_money_payable_parameters_arc.lock().unwrap();
         assert_eq!(
             more_money_payable_parameters[0],
@@ -832,7 +739,11 @@ pub mod tests {
             data_directory: data_dir.clone(),
             payable_scan_interval: Duration::from_secs(100),
         };
-        let subject = Accountant::new(config);
+        let subject = Accountant::new(
+            config,
+            Box::new(PayableDaoMock::new()),
+            Box::new(ReceivableDaoMock::new()),
+        );
 
         subject.create_data_directory_if_necessary();
 
@@ -856,7 +767,11 @@ pub mod tests {
             data_directory: data_dir.clone(),
             payable_scan_interval: Duration::from_secs(100),
         };
-        let subject = Accountant::new(config);
+        let subject = Accountant::new(
+            config,
+            Box::new(PayableDaoMock::new()),
+            Box::new(ReceivableDaoMock::new()),
+        );
 
         subject.create_data_directory_if_necessary();
 
@@ -864,34 +779,6 @@ pub mod tests {
         let mut contents = String::new();
         file.read_to_string(&mut contents).unwrap();
         assert_eq!(contents, String::from("unmolested"));
-    }
-
-    #[test]
-    #[should_panic(expected = "Could not initialize database")]
-    fn failed_initialization_produces_panic() {
-        let data_dir = PathBuf::from(format!(
-            "{}/failed_initialization_produces_panic/home",
-            BASE_TEST_DIR
-        ));
-        let config = AccountantConfig {
-            data_directory: data_dir,
-            payable_scan_interval: Duration::from_secs(100),
-        };
-        let mut subject = Accountant::new(config);
-        let db_initializer = DbInitializerMock::new()
-            .initialize_result(Err(InitializationError::IncompatibleVersion));
-        subject.db_initializer = Box::new(db_initializer);
-        let system = System::new("failed_initialization_produces_panic");
-        let subject_addr: Addr<Accountant> = subject.start();
-
-        subject_addr
-            .try_send(BindMessage {
-                peer_actors: peer_actors_builder().build(),
-            })
-            .unwrap();
-
-        System::current().stop_with_code(0);
-        system.run();
     }
 
     #[cfg(target_os = "linux")]
@@ -927,7 +814,11 @@ pub mod tests {
             data_directory: base_path.join("home"),
             payable_scan_interval: Duration::from_secs(100),
         };
-        let subject = Accountant::new(config);
+        let subject = Accountant::new(
+            config,
+            Box::new(PayableDaoMock::new()),
+            Box::new(ReceivableDaoMock::new()),
+        );
 
         subject.create_data_directory_if_necessary();
     }

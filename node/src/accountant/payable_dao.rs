@@ -1,8 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use super::dao_utils;
+use crate::database::dao_utils;
+use crate::database::db_initializer::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
 use rusqlite::types::ToSql;
-use rusqlite::Connection;
 use rusqlite::OptionalExtension;
 use std::fmt::Debug;
 use std::time::SystemTime;
@@ -34,7 +34,7 @@ pub trait PayableDao: Debug {
 
 #[derive(Debug)]
 pub struct PayableDaoReal {
-    conn: Connection,
+    conn: Box<ConnectionWrapper>,
 }
 
 impl PayableDao for PayableDaoReal {
@@ -104,7 +104,7 @@ impl PayableDao for PayableDaoReal {
 }
 
 impl PayableDaoReal {
-    pub fn new(conn: Connection) -> PayableDaoReal {
+    pub fn new(conn: Box<ConnectionWrapper>) -> PayableDaoReal {
         PayableDaoReal { conn }
     }
 
@@ -140,15 +140,13 @@ impl PayableDaoReal {
 
 #[cfg(test)]
 mod tests {
-    use super::super::dao_utils;
-    use super::super::db_initializer;
-    use super::super::db_initializer::DbInitializer;
-    use super::super::db_initializer::DbInitializerReal;
-    use super::super::local_test_utils::ensure_node_home_directory_exists;
+    use super::super::test_utils::ensure_node_home_directory_exists;
     use super::*;
-    use crate::accountant::dao_utils::from_time_t;
-    use rusqlite::OpenFlags;
+    use crate::database::dao_utils::from_time_t;
+    use crate::database::db_initializer;
+    use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use rusqlite::NO_PARAMS;
+    use rusqlite::{Connection, OpenFlags};
 
     #[test]
     fn more_money_payable_works_for_new_address() {
@@ -157,10 +155,8 @@ mod tests {
         let before = dao_utils::to_time_t(&SystemTime::now());
         let wallet = Wallet::new("booga");
         let status = {
-            let subject = DbInitializerReal::new()
-                .initialize(&home_dir)
-                .unwrap()
-                .payable;
+            let subject =
+                PayableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
 
             subject.more_money_payable(&wallet, 1234);
             subject.account_status(&wallet).unwrap()
@@ -190,10 +186,8 @@ mod tests {
             ensure_node_home_directory_exists("more_money_payable_works_for_existing_address");
         let wallet = Wallet::new("booga");
         let subject = {
-            let subject = DbInitializerReal::new()
-                .initialize(&home_dir)
-                .unwrap()
-                .payable;
+            let subject =
+                PayableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
             subject.more_money_payable(&wallet, 1234);
             let mut flags = OpenFlags::empty();
             flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
@@ -224,10 +218,7 @@ mod tests {
             "payable_account_status_works_when_account_doesnt_exist",
         );
         let wallet = Wallet::new("booga");
-        let subject = DbInitializerReal::new()
-            .initialize(&home_dir)
-            .unwrap()
-            .payable;
+        let subject = PayableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
 
         let result = subject.account_status(&wallet);
 
@@ -240,10 +231,7 @@ mod tests {
             "non_pending_payables_should_return_an_empty_vec_when_the_database_is_empty",
         );
 
-        let subject = DbInitializerReal::new()
-            .initialize(&home_dir)
-            .unwrap()
-            .payable;
+        let subject = PayableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
 
         assert_eq!(subject.non_pending_payables(), vec![]);
     }
@@ -254,10 +242,7 @@ mod tests {
             "non_pending_payables_should_return_payables_with_no_pending_transaction",
         );
 
-        let subject = DbInitializerReal::new()
-            .initialize(&home_dir)
-            .unwrap()
-            .payable;
+        let subject = PayableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
 
         let mut flags = OpenFlags::empty();
         flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
