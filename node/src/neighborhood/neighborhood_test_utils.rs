@@ -4,8 +4,9 @@
 use super::neighborhood_database::NeighborhoodDatabase;
 use super::node_record::NodeRecord;
 use crate::neighborhood::neighborhood::Neighborhood;
-use crate::sub_lib::cryptde::CryptDE;
+use crate::neighborhood::node_record::NodeRecordInner;
 use crate::sub_lib::cryptde::PublicKey;
+use crate::sub_lib::cryptde::{CryptDE, PlainData};
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::neighborhood::NeighborhoodConfig;
 use crate::sub_lib::node_addr::NodeAddr;
@@ -40,6 +41,7 @@ pub fn make_global_cryptde_node_record(
 ) -> NodeRecord {
     let mut node_record = make_node_record(n, has_ip, is_bootstrap_node);
     node_record.inner.public_key = cryptde().public_key().clone();
+    node_record.resign();
     node_record
 }
 
@@ -51,7 +53,6 @@ pub fn db_from_node(node: &NodeRecord) -> NeighborhoodDatabase {
             &vec![200],
         )),
         node.earning_wallet(),
-        node.consuming_wallet(),
         node.rate_pack().clone(),
         node.is_bootstrap_node(),
         &CryptDENull::from(node.public_key()),
@@ -85,7 +86,7 @@ pub fn neighborhood_from_nodes(
                 .ip_addr(),
             clandestine_port_list: root.node_addr_opt().unwrap().ports(),
             earning_wallet: root.earning_wallet(),
-            consuming_wallet: root.consuming_wallet(),
+            consuming_wallet: Some(Wallet::new("consuming")),
             rate_pack: root.rate_pack().clone(),
         },
     )
@@ -118,16 +119,43 @@ impl NodeRecord {
     ) -> NodeRecord {
         let mut node_record = NodeRecord::new(
             public_key,
-            node_addr_opt,
             NodeRecord::earning_wallet_from_key(public_key),
-            NodeRecord::consuming_wallet_from_key(public_key),
             rate_pack(base_rate),
             is_bootstrap_node,
-            None,
             0,
+            &CryptDENull::from(public_key),
         );
-        node_record.sign(&CryptDENull::from(&public_key));
+        if let Some(node_addr) = node_addr_opt {
+            node_record.set_node_addr(node_addr).unwrap();
+        }
+        node_record.signed_gossip =
+            PlainData::from(serde_cbor::ser::to_vec(&node_record.inner).unwrap());
+        node_record.regenerate_signed_gossip(&CryptDENull::from(&public_key));
         node_record
+    }
+
+    pub fn resign(&mut self) {
+        let cryptde = CryptDENull::from(self.public_key());
+        self.regenerate_signed_gossip(&cryptde);
+    }
+}
+
+impl PartialEq for NodeRecord {
+    fn eq(&self, other: &NodeRecord) -> bool {
+        if self.inner != other.inner {
+            return false;
+        }
+        if self.metadata != other.metadata {
+            return false;
+        }
+        if self.signature != other.signature {
+            return false;
+        }
+        let self_nri: NodeRecordInner =
+            serde_cbor::de::from_slice(self.signed_gossip.as_slice()).unwrap();
+        let other_nri: NodeRecordInner =
+            serde_cbor::de::from_slice(other.signed_gossip.as_slice()).unwrap();
+        self_nri == other_nri
     }
 }
 
@@ -141,9 +169,9 @@ impl NeighborhoodDatabase {
         if self.has_half_neighbor(node_key, new_neighbor) {
             false
         } else {
-            self.node_by_key_mut(node_key)
-                .unwrap()
-                .add_half_neighbor_key(new_neighbor.clone());
+            let node_ref = self.node_by_key_mut(node_key).unwrap();
+            node_ref.add_half_neighbor_key(new_neighbor.clone());
+            node_ref.resign();
             true
         }
     }
@@ -168,9 +196,25 @@ impl NeighborhoodDatabase {
         neighbor_key: &PublicKey,
     ) -> bool {
         if let Some(node) = self.node_by_key_mut(node_key) {
-            node.remove_half_neighbor_key(neighbor_key)
+            if node.remove_half_neighbor_key(neighbor_key) {
+                node.resign();
+                true
+            } else {
+                false
+            }
         } else {
             false
         }
+    }
+
+    pub fn resign_node(&mut self, public_key: &PublicKey) {
+        let node_record = {
+            let mut node_record = self.node_by_key(public_key).unwrap().clone();
+            node_record.resign();
+            node_record
+        };
+        let node_ref = self.node_by_key_mut(public_key).unwrap();
+        node_ref.signed_gossip = node_record.signed_gossip;
+        node_ref.signature = node_record.signature;
     }
 }

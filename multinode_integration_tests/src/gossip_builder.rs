@@ -3,21 +3,21 @@ use crate::substratum_node::SubstratumNode;
 use node_lib::neighborhood::gossip::Gossip;
 use node_lib::neighborhood::gossip::GossipNodeRecord;
 use node_lib::neighborhood::node_record::NodeRecordInner;
-use node_lib::neighborhood::node_record::NodeSignatures;
-use node_lib::sub_lib::cryptde::CryptDE;
 use node_lib::sub_lib::cryptde::PublicKey;
+use node_lib::sub_lib::cryptde::{CryptDE, PlainData};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::dispatcher::Component;
 use node_lib::sub_lib::hopper::IncipientCoresPackage;
+use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::sub_lib::route::Route;
 use node_lib::sub_lib::route::RouteSegment;
 use node_lib::sub_lib::wallet::Wallet;
 use std::collections::HashSet;
+use std::convert::TryFrom;
 
 pub struct GossipBuilder {
     consuming_wallet: Option<Wallet>,
     node_info: Vec<GossipBuilderNodeInfo>,
-    connection_pairs: Vec<(PublicKey, PublicKey)>,
 }
 
 impl GossipBuilder {
@@ -25,7 +25,6 @@ impl GossipBuilder {
         GossipBuilder {
             consuming_wallet,
             node_info: vec![],
-            connection_pairs: vec![],
         }
     }
 
@@ -38,16 +37,15 @@ impl GossipBuilder {
         self.node_info.push(GossipBuilderNodeInfo {
             node_record_inner: NodeRecordInner {
                 public_key: node.public_key().clone(),
-                node_addr_opt: match include_ip {
-                    true => Some(node.node_addr()),
-                    false => None,
-                },
                 is_bootstrap_node: is_bootstrap,
                 earning_wallet: node.earning_wallet().clone(),
-                consuming_wallet: node.consuming_wallet().clone(),
                 rate_pack: node.rate_pack().clone(),
                 neighbors: HashSet::new(),
                 version: 0,
+            },
+            node_addr_opt: match include_ip {
+                true => Some(node.node_addr()),
+                false => None,
             },
             cryptde: Box::new(CryptDENull::from(&node.public_key())),
         });
@@ -55,18 +53,12 @@ impl GossipBuilder {
     }
 
     pub fn add_gnr(mut self, gnr: &GossipNodeRecord) -> Self {
+        let inner = NodeRecordInner::try_from(gnr).unwrap();
+        let public_key = inner.public_key.clone();
         self.node_info.push(GossipBuilderNodeInfo {
-            node_record_inner: NodeRecordInner {
-                public_key: gnr.public_key(),
-                node_addr_opt: gnr.inner.node_addr_opt.clone(),
-                is_bootstrap_node: gnr.inner.is_bootstrap_node,
-                earning_wallet: gnr.inner.earning_wallet.clone(),
-                consuming_wallet: gnr.inner.consuming_wallet.clone(),
-                rate_pack: gnr.inner.rate_pack.clone(),
-                neighbors: HashSet::new(),
-                version: gnr.inner.version,
-            },
-            cryptde: Box::new(CryptDENull::from(&gnr.public_key())),
+            node_record_inner: inner,
+            node_addr_opt: gnr.node_addr_opt.clone(),
+            cryptde: Box::new(CryptDENull::from(&public_key)),
         });
         self
     }
@@ -75,43 +67,36 @@ impl GossipBuilder {
         let key = node_record.public_key.clone();
         self.node_info.push(GossipBuilderNodeInfo {
             node_record_inner: node_record,
+            node_addr_opt: None,
             cryptde: Box::new(CryptDENull::from(&key)),
         });
         self
     }
 
-    pub fn add_connection(mut self, from_key: &PublicKey, to_key: &PublicKey) -> Self {
-        self.connection_pairs
-            .push((from_key.clone(), to_key.clone()));
+    pub fn add_half_connection(mut self, from_key: &PublicKey, to_key: &PublicKey) -> Self {
+        let ni = match self.node_info.iter_mut().find (|ni| &ni.node_record_inner.public_key == from_key) {
+            Some (ni) => ni,
+            None => panic! ("You directed that {:?} should be made a neighbor of {:?}, but {:?} has not yet been added to the GossipBuilder", to_key, from_key, from_key),
+        };
+        ni.node_record_inner.neighbors.insert(to_key.clone());
         self
     }
 
     pub fn build(self) -> Gossip {
-        let mut node_records: Vec<GossipNodeRecord> = self
+        let node_records: Vec<GossipNodeRecord> = self
             .node_info
             .into_iter()
             .map(|node_info| {
-                let signatures =
-                    NodeSignatures::from(node_info.cryptde.as_ref(), &node_info.node_record_inner);
+                let signed_data =
+                    PlainData::from(serde_cbor::ser::to_vec(&node_info.node_record_inner).unwrap());
+                let signature = node_info.cryptde.sign(&signed_data).unwrap();
                 GossipNodeRecord {
-                    inner: node_info.node_record_inner,
-                    signatures,
+                    signed_data,
+                    signature,
+                    node_addr_opt: node_info.node_addr_opt,
                 }
             })
             .collect();
-
-        self.connection_pairs.iter ().for_each (|pair_ref| {
-            let from_key = pair_ref.0.clone ();
-            let from_node_ref_opt = node_records.iter_mut ().find (|n| n.inner.public_key == from_key);
-            let to_key = pair_ref.1.clone ();
-            if let Some (from_node_ref) = from_node_ref_opt {
-                from_node_ref.inner.neighbors.insert (to_key);
-            }
-            else {
-                panic! ("You directed that {:?} should be made a neighbor of {:?}, but {:?} was never added to the GossipBuilder",
-                    to_key, from_key, from_key)
-            }
-        });
         Gossip { node_records }
     }
 
@@ -135,5 +120,6 @@ impl GossipBuilder {
 
 struct GossipBuilderNodeInfo {
     node_record_inner: NodeRecordInner,
+    node_addr_opt: Option<NodeAddr>,
     cryptde: Box<dyn CryptDE>,
 }

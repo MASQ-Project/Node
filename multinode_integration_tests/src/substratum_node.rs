@@ -206,6 +206,11 @@ impl SubstratumNodeUtils {
         );
     }
 
+    pub fn retrieve_logs(name: &str) -> String {
+        let mut command = Command::new("docker", Command::strings(vec!["logs", name]));
+        command.stdout_and_stderr()
+    }
+
     fn start_from(start: &Path) -> PathBuf {
         let recognized: Vec<Result<DirEntry, io::Error>> = fs::read_dir(start)
             .unwrap()
@@ -223,11 +228,6 @@ impl SubstratumNodeUtils {
         } else {
             Self::start_from(start.parent().unwrap())
         }
-    }
-
-    fn retrieve_logs(name: &str) -> String {
-        let mut command = Command::new("docker", Command::strings(vec!["logs", name]));
-        command.stdout_and_stderr()
     }
 }
 

@@ -1,5 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use crate::neighborhood::gossip::GossipNodeRecord;
+use crate::neighborhood::neighborhood::AccessibleGossipRecord;
 use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, NeighborhoodDatabaseError};
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData, PublicKey};
 use crate::sub_lib::neighborhood::RatePack;
@@ -7,116 +9,70 @@ use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::convert::TryFrom;
 use std::iter::FromIterator;
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct NodeRecordInner {
     pub public_key: PublicKey,
-    pub node_addr_opt: Option<NodeAddr>, // Note: this should not be signed or versioned data. This says whether _other_ Nodes know this Node's NodeAddr, and that's not part of this Node's state.
     pub earning_wallet: Wallet,
-    pub consuming_wallet: Option<Wallet>,
     pub rate_pack: RatePack,
     pub is_bootstrap_node: bool,
     pub neighbors: HashSet<PublicKey>,
     pub version: u32,
 }
 
-impl NodeRecordInner {
-    // TODO fail gracefully
-    // For now, this is only called at initialization time (NeighborhoodDatabase) and in tests, so panicking is OK.
-    // When we start signing NodeRecords at other times, we should probably not panic
-    pub fn generate_signature(&self, cryptde: &dyn CryptDE) -> CryptData {
-        let serialized = match serde_cbor::ser::to_vec(&self) {
-            Ok(inner) => inner,
-            Err(_) => panic!("NodeRecord content {:?} could not be serialized", &self),
-        };
+impl TryFrom<GossipNodeRecord> for NodeRecordInner {
+    type Error = String;
 
-        let mut hash = sha1::Sha1::new();
-        hash.update(&serialized[..]);
-
-        cryptde
-            .sign(&PlainData::new(&hash.digest().bytes()))
-            .expect(&format!(
-                "NodeRecord content {:?} could not be signed",
-                &self
-            ))
+    fn try_from(gnr: GossipNodeRecord) -> Result<Self, Self::Error> {
+        match serde_cbor::from_slice(gnr.signed_data.as_slice()) {
+            Ok(inner) => Ok(inner),
+            Err(e) => Err(format!("{:?}", e)),
+        }
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
-pub struct NodeSignatures {
-    pub complete: CryptData,
-    pub obscured: CryptData,
-}
+impl TryFrom<&GossipNodeRecord> for NodeRecordInner {
+    type Error = String;
 
-impl NodeSignatures {
-    pub fn new(complete: CryptData, obscured: CryptData) -> NodeSignatures {
-        NodeSignatures { complete, obscured }
-    }
-
-    pub fn from(cryptde: &dyn CryptDE, node_record_inner: &NodeRecordInner) -> Self {
-        let complete_signature = node_record_inner.generate_signature(cryptde);
-
-        let obscured_inner = NodeRecordInner {
-            public_key: node_record_inner.clone().public_key,
-            node_addr_opt: None,
-            earning_wallet: node_record_inner.earning_wallet.clone(),
-            consuming_wallet: node_record_inner.consuming_wallet.clone(),
-            rate_pack: node_record_inner.rate_pack.clone(),
-            is_bootstrap_node: node_record_inner.is_bootstrap_node,
-            neighbors: node_record_inner.neighbors.clone(),
-            version: node_record_inner.version,
-        };
-        let obscured_signature = obscured_inner.generate_signature(cryptde);
-
-        NodeSignatures::new(complete_signature, obscured_signature)
-    }
-
-    pub fn complete(&self) -> &CryptData {
-        &self.complete
-    }
-
-    pub fn obscured(&self) -> &CryptData {
-        &self.obscured
+    fn try_from(gnr_addr_ref: &GossipNodeRecord) -> Result<Self, Self::Error> {
+        NodeRecordInner::try_from(gnr_addr_ref.clone())
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct NodeRecord {
     pub inner: NodeRecordInner,
     pub metadata: NodeRecordMetadata,
-    // TODO: Replace this with a retransmittable representation of the signed packet/signature from the incoming Gossip.
-    pub signatures: Option<NodeSignatures>,
+    pub signed_gossip: PlainData,
+    pub signature: CryptData,
 }
 
 impl NodeRecord {
     pub fn new(
         public_key: &PublicKey,
-        node_addr_opt: Option<&NodeAddr>,
         earning_wallet: Wallet,
-        consuming_wallet: Option<Wallet>,
         rate_pack: RatePack,
         is_bootstrap_node: bool,
-        signatures: Option<NodeSignatures>,
         version: u32,
+        cryptde: &CryptDE,
     ) -> NodeRecord {
-        NodeRecord {
+        let mut node_record = NodeRecord {
             metadata: NodeRecordMetadata::new(),
             inner: NodeRecordInner {
                 public_key: public_key.clone(),
-                node_addr_opt: match node_addr_opt {
-                    Some(node_addr) => Some(node_addr.clone()),
-                    None => None,
-                },
                 earning_wallet,
-                consuming_wallet,
                 rate_pack,
                 is_bootstrap_node,
                 neighbors: HashSet::new(),
                 version,
             },
-            signatures,
-        }
+            signed_gossip: PlainData::new(&[]),
+            signature: CryptData::new(&[]),
+        };
+        node_record.regenerate_signed_gossip(cryptde);
+        node_record
     }
 
     pub fn public_key(&self) -> &PublicKey {
@@ -124,7 +80,7 @@ impl NodeRecord {
     }
 
     pub fn node_addr_opt(&self) -> Option<NodeAddr> {
-        self.inner.node_addr_opt.clone()
+        self.metadata.node_addr_opt.clone()
     }
 
     pub fn is_bootstrap_node(&self) -> bool {
@@ -139,35 +95,20 @@ impl NodeRecord {
         &mut self,
         node_addr: &NodeAddr,
     ) -> Result<bool, NeighborhoodDatabaseError> {
-        match self.inner.node_addr_opt {
+        match self.metadata.node_addr_opt {
             Some(ref inner_node_addr) if node_addr == inner_node_addr => Ok(false),
             Some(ref inner_node_addr) => Err(NeighborhoodDatabaseError::NodeAddrAlreadySet(
                 inner_node_addr.clone(),
             )),
             None => {
-                self.inner.node_addr_opt = Some(node_addr.clone());
+                self.metadata.node_addr_opt = Some(node_addr.clone());
                 Ok(true)
             }
         }
     }
 
     pub fn unset_node_addr(&mut self) {
-        self.inner.node_addr_opt = None
-    }
-
-    pub fn set_signatures(&mut self, signatures: NodeSignatures) -> bool {
-        let existing_signatures = self.signatures.clone();
-        match &existing_signatures {
-            Some(ref existing) if existing == &signatures => false,
-            Some(_) => {
-                self.signatures = Some(signatures);
-                true
-            }
-            None => {
-                self.signatures = Some(signatures);
-                true
-            }
-        }
+        self.metadata.node_addr_opt = None
     }
 
     pub fn half_neighbor_keys(&self) -> HashSet<&PublicKey> {
@@ -234,12 +175,21 @@ impl NodeRecord {
         }
     }
 
-    pub fn signatures(&self) -> Option<NodeSignatures> {
-        self.signatures.clone()
+    pub fn regenerate_signed_gossip(&mut self, cryptde: &dyn CryptDE) {
+        self.signed_gossip =
+            PlainData::from(serde_cbor::ser::to_vec(&self.inner).expect("Serialization failed"));
+        self.signature = match cryptde.sign(&self.signed_gossip) {
+            Ok(sig) => sig,
+            Err(e) => unimplemented!("Signing error: {:?}", e),
+        }
     }
 
-    pub fn sign(&mut self, cryptde: &dyn CryptDE) {
-        self.signatures = Some(NodeSignatures::from(cryptde, &self.inner))
+    pub fn signed_gossip(&self) -> &PlainData {
+        &self.signed_gossip
+    }
+
+    pub fn signature(&self) -> &CryptData {
+        &self.signature
     }
 
     pub fn version(&self) -> u32 {
@@ -258,28 +208,14 @@ impl NodeRecord {
         self.inner.earning_wallet.clone()
     }
 
-    pub fn consuming_wallet(&self) -> Option<Wallet> {
-        self.inner.consuming_wallet.clone()
-    }
-
-    pub fn set_wallets(
-        &mut self,
-        earning_wallet: Wallet,
-        consuming_wallet: Option<Wallet>,
-    ) -> bool {
-        let earning_change = if self.inner.earning_wallet == earning_wallet {
+    pub fn set_earning_wallet(&mut self, earning_wallet: Wallet) -> bool {
+        let change = if self.inner.earning_wallet == earning_wallet {
             false
         } else {
             self.inner.earning_wallet = earning_wallet;
             true
         };
-        let consuming_change = if self.inner.consuming_wallet == consuming_wallet {
-            false
-        } else {
-            self.inner.consuming_wallet = consuming_wallet;
-            true
-        };
-        earning_change || consuming_change
+        change
     }
 
     pub fn rate_pack(&self) -> &RatePack {
@@ -293,21 +229,56 @@ impl NodeRecord {
     pub fn set_desirable(&mut self, is_desirable: bool) {
         self.metadata.desirable = is_desirable
     }
+}
 
-    #[cfg(test)]
-    pub fn remove_signatures(&mut self) {
-        self.signatures = None;
+impl From<AccessibleGossipRecord> for NodeRecord {
+    fn from(agr: AccessibleGossipRecord) -> Self {
+        let mut node_record = NodeRecord {
+            inner: agr.inner,
+            metadata: NodeRecordMetadata::new(),
+            signed_gossip: agr.signed_gossip,
+            signature: agr.signature,
+        };
+        node_record.metadata.node_addr_opt = agr.node_addr_opt;
+        node_record
+    }
+}
+
+impl From<&AccessibleGossipRecord> for NodeRecord {
+    fn from(agr_ref: &AccessibleGossipRecord) -> Self {
+        let agr = agr_ref.clone();
+        NodeRecord::from(agr)
+    }
+}
+
+impl TryFrom<&GossipNodeRecord> for NodeRecord {
+    type Error = String;
+
+    fn try_from(gnr: &GossipNodeRecord) -> Result<Self, Self::Error> {
+        let inner = NodeRecordInner::try_from(gnr)?;
+        let mut node_record = NodeRecord {
+            inner,
+            metadata: NodeRecordMetadata::new(),
+            signed_gossip: gnr.signed_data.clone(),
+            signature: gnr.signature.clone(),
+        };
+        node_record.metadata.node_addr_opt = gnr.node_addr_opt.clone();
+        Ok(node_record)
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NodeRecordMetadata {
-    desirable: bool,
+    pub desirable: bool,
+    pub node_addr_opt: Option<NodeAddr>,
 }
 
 impl NodeRecordMetadata {
     pub fn new() -> NodeRecordMetadata {
-        NodeRecordMetadata { desirable: true }
+        NodeRecordMetadata {
+            desirable: true,
+            node_addr_opt: None,
+        }
     }
 }
 
@@ -315,12 +286,27 @@ impl NodeRecordMetadata {
 mod tests {
     use super::super::neighborhood_test_utils::make_node_record;
     use super::*;
+    use crate::neighborhood::gossip::GossipBuilder;
     use crate::neighborhood::neighborhood_test_utils::db_from_node;
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::test_utils::test_utils::{assert_contains, rate_pack};
-    use std::collections::HashSet;
+    use crate::test_utils::test_utils::{assert_contains, cryptde, rate_pack};
     use std::net::IpAddr;
     use std::str::FromStr;
+
+    #[test]
+    fn can_create_a_node_record_from_a_reference() {
+        let mut expected_node_record = make_node_record(1234, true, true);
+        expected_node_record.set_version(6);
+        expected_node_record.resign();
+        let mut db = db_from_node(&make_node_record(2345, true, false));
+        db.add_node(expected_node_record.clone()).unwrap();
+        let builder = GossipBuilder::new(&db).node(expected_node_record.public_key(), true);
+
+        let actual_node_record =
+            NodeRecord::try_from(builder.build().node_records.first().unwrap()).unwrap();
+
+        assert_eq!(expected_node_record, actual_node_record);
+    }
 
     #[test]
     fn set_node_addr_works_once_but_not_twice() {
@@ -362,56 +348,6 @@ mod tests {
         subject.unset_node_addr();
 
         assert_eq!(None, subject.node_addr_opt());
-    }
-
-    #[test]
-    fn set_signatures_returns_true_when_signatures_are_not_set() {
-        let subject_signed = make_node_record(1234, false, false);
-        let mut subject = NodeRecord::new(
-            subject_signed.public_key(),
-            subject_signed.node_addr_opt().as_ref(),
-            Wallet::new("0x1234"),
-            Some(Wallet::new("0x2345")),
-            rate_pack(100),
-            subject_signed.is_bootstrap_node(),
-            None,
-            0,
-        );
-
-        assert_eq!(subject.signatures(), None);
-
-        let signatures = NodeSignatures::new(
-            CryptData::new(&[123, 56, 89]),
-            CryptData::new(&[87, 54, 21]),
-        );
-
-        let result = subject.set_signatures(signatures.clone());
-
-        assert_eq!(result, true);
-        assert_eq!(subject.signatures(), Some(signatures.clone()));
-    }
-
-    #[test]
-    fn set_signatures_returns_false_when_new_signatures_are_identical() {
-        let mut subject = make_node_record(1234, false, false);
-
-        let signatures = subject.signatures().unwrap();
-        let result = subject.set_signatures(signatures.clone());
-
-        assert_eq!(result, false);
-    }
-
-    #[test]
-    fn set_signatures_returns_true_when_existing_signatures_are_changed() {
-        let mut subject = make_node_record(1234, false, false);
-
-        let signatures = NodeSignatures::new(
-            CryptData::new(&[123, 56, 89]),
-            CryptData::new(&[87, 54, 21]),
-        );
-        let result = subject.set_signatures(signatures);
-
-        assert_eq!(result, true);
     }
 
     #[test]
@@ -499,7 +435,7 @@ mod tests {
         ]
         .into_iter()
         .for_each(|n| {
-            database.add_node(n).unwrap();
+            database.add_node(n.clone()).unwrap();
         });
 
         let this_node = database.root();
@@ -548,149 +484,105 @@ mod tests {
     }
 
     #[test]
-    fn node_signatures_can_be_created_from_node_record_inner() {
-        let to_be_signed = NodeRecordInner {
-            public_key: PublicKey::new(&[1, 2, 3, 4]),
-            node_addr_opt: Some(NodeAddr::new(
-                &IpAddr::from_str("1.2.3.4").unwrap(),
-                &vec![1234],
-            )),
-            is_bootstrap_node: true,
-            earning_wallet: Wallet::new("0x2345"),
-            consuming_wallet: Some(Wallet::new("0x1234")),
-            rate_pack: rate_pack(100),
-            neighbors: HashSet::new(),
-            version: 0,
-        };
-        let cryptde = CryptDENull::from(&to_be_signed.public_key);
-
-        let result = NodeSignatures::from(&cryptde, &to_be_signed);
-
-        assert_eq!(
-            result.complete(),
-            &to_be_signed.generate_signature(&cryptde)
-        );
-        let mut to_be_signed_obscured = to_be_signed.clone();
-        to_be_signed_obscured.node_addr_opt = None;
-        assert_eq!(
-            result.obscured(),
-            &to_be_signed_obscured.generate_signature(&cryptde)
-        )
-    }
-
-    #[test]
     fn node_record_partial_eq() {
-        let node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]);
-        let node_addr_opt = Some(&node_addr);
         let earning_wallet = Wallet::new("wallet");
-        let consuming_wallet = Wallet::new("wallet");
         let exemplar = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
-            node_addr_opt.clone(),
             earning_wallet.clone(),
-            Some(consuming_wallet.clone()),
             rate_pack(100),
             true,
-            None,
             0,
+            cryptde(),
         );
         let duplicate = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
-            node_addr_opt.clone(),
             earning_wallet.clone(),
-            Some(consuming_wallet.clone()),
             rate_pack(100),
             true,
-            None,
             0,
+            cryptde(),
         );
         let mut with_neighbor = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
-            node_addr_opt.clone(),
             earning_wallet.clone(),
-            Some(consuming_wallet.clone()),
             rate_pack(100),
             true,
-            None,
             0,
+            cryptde(),
         );
         let mod_key = NodeRecord::new(
             &PublicKey::new(&b"kope"[..]),
-            node_addr_opt.clone(),
             earning_wallet.clone(),
-            Some(consuming_wallet.clone()),
             rate_pack(100),
             true,
-            None,
             0,
+            cryptde(),
         );
-        let mod_node_addr = NodeRecord::new(
+        with_neighbor.add_half_neighbor_key(mod_key.public_key().clone());
+        let mut mod_node_addr = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
-            Some(&NodeAddr::new(
+            earning_wallet.clone(),
+            rate_pack(100),
+            true,
+            0,
+            cryptde(),
+        );
+        mod_node_addr
+            .set_node_addr(&NodeAddr::new(
                 &IpAddr::from_str("1.2.3.5").unwrap(),
                 &vec![1234],
-            )),
-            earning_wallet.clone(),
-            Some(consuming_wallet.clone()),
-            rate_pack(100),
-            true,
-            None,
-            0,
-        );
+            ))
+            .unwrap();
         let mod_earning_wallet = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
-            node_addr_opt.clone(),
             Wallet::new("booga"),
-            Some(consuming_wallet.clone()),
             rate_pack(100),
             true,
-            None,
             0,
-        );
-        let mod_consuming_wallet = NodeRecord::new(
-            &PublicKey::new(&b"poke"[..]),
-            node_addr_opt.clone(),
-            earning_wallet.clone(),
-            Some(Wallet::new("booga")),
-            rate_pack(100),
-            true,
-            None,
-            0,
+            cryptde(),
         );
         let mod_rate_pack = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
-            node_addr_opt.clone(),
             earning_wallet.clone(),
-            Some(consuming_wallet.clone()),
             rate_pack(200),
             true,
-            None,
             0,
+            cryptde(),
         );
         let mod_is_bootstrap = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
-            node_addr_opt.clone(),
             earning_wallet.clone(),
-            Some(consuming_wallet.clone()),
             rate_pack(100),
             false,
-            None,
             0,
+            cryptde(),
         );
-        let mod_signatures = NodeRecord::new(
+        let mut mod_signed_gossip = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
-            node_addr_opt.clone(),
             earning_wallet.clone(),
-            Some(consuming_wallet.clone()),
             rate_pack(100),
             true,
-            Some(NodeSignatures::new(
-                CryptData::new(b""),
-                CryptData::new(b""),
-            )),
             0,
+            cryptde(),
         );
-        with_neighbor.add_half_neighbor_key(mod_key.public_key().clone());
+        mod_signed_gossip.signed_gossip = mod_is_bootstrap.signed_gossip.clone();
+        let mut mod_signature = NodeRecord::new(
+            &PublicKey::new(&b"poke"[..]),
+            earning_wallet.clone(),
+            rate_pack(100),
+            true,
+            0,
+            cryptde(),
+        );
+        mod_signature.signature = CryptData::new(&[]);
+        let mod_version = NodeRecord::new(
+            &PublicKey::new(&b"poke"[..]),
+            earning_wallet.clone(),
+            rate_pack(100),
+            true,
+            1,
+            cryptde(),
+        );
 
         assert_eq!(exemplar, exemplar);
         assert_eq!(exemplar, duplicate);
@@ -698,10 +590,11 @@ mod tests {
         assert_ne!(exemplar, mod_key);
         assert_ne!(exemplar, mod_node_addr);
         assert_ne!(exemplar, mod_earning_wallet);
-        assert_ne!(exemplar, mod_consuming_wallet);
         assert_ne!(exemplar, mod_rate_pack);
         assert_ne!(exemplar, mod_is_bootstrap);
-        assert_ne!(exemplar, mod_signatures);
+        assert_ne!(exemplar, mod_signed_gossip);
+        assert_ne!(exemplar, mod_signature);
+        assert_ne!(exemplar, mod_version);
     }
 
     #[test]
@@ -731,37 +624,23 @@ mod tests {
     }
 
     #[test]
-    fn set_wallets_returns_true_when_the_earning_wallet_changes() {
+    fn set_earning_wallet_returns_true_when_the_earning_wallet_changes() {
         let mut this_node = make_node_record(1234, true, false);
         assert_eq!(this_node.earning_wallet(), Wallet::new("0x1234"));
-        assert_eq!(this_node.consuming_wallet(), Some(Wallet::new("0x4321")));
 
-        assert!(this_node.set_wallets(Wallet::new("0x2345"), Some(Wallet::new("0x4321"))));
+        assert!(this_node.set_earning_wallet(Wallet::new("0x2345")));
 
         assert_eq!(this_node.earning_wallet(), Wallet::new("0x2345"));
     }
 
     #[test]
-    fn set_wallets_returns_true_when_the_consuming_wallet_changes() {
+    fn set_earning_wallet_returns_false_when_the_wallet_does_not_change() {
         let mut this_node = make_node_record(1234, true, false);
         assert_eq!(this_node.earning_wallet(), Wallet::new("0x1234"));
-        assert_eq!(this_node.consuming_wallet(), Some(Wallet::new("0x4321")));
 
-        assert!(this_node.set_wallets(Wallet::new("0x1234"), Some(Wallet::new("0x2345"))));
-
-        assert_eq!(this_node.consuming_wallet(), Some(Wallet::new("0x2345")));
-    }
-
-    #[test]
-    fn set_wallets_returns_false_when_the_wallet_does_not_change() {
-        let mut this_node = make_node_record(1234, true, false);
-        assert_eq!(this_node.earning_wallet(), Wallet::new("0x1234"));
-        assert_eq!(this_node.consuming_wallet(), Some(Wallet::new("0x4321")));
-
-        assert!(!this_node.set_wallets(Wallet::new("0x1234"), Some(Wallet::new("0x4321"))));
+        assert!(!this_node.set_earning_wallet(Wallet::new("0x1234")));
 
         assert_eq!(this_node.earning_wallet(), Wallet::new("0x1234"));
-        assert_eq!(this_node.consuming_wallet(), Some(Wallet::new("0x4321")));
     }
 
     #[test]
@@ -803,5 +682,38 @@ mod tests {
             !this_node.is_desirable(),
             "Should be undesirable after being set to false."
         );
+    }
+
+    #[test]
+    fn from_gnr_to_nri_when_gossip_is_corrupt() {
+        let corrupt_gnr = GossipNodeRecord {
+            signed_data: PlainData::new(&[1, 2, 3, 4]),
+            signature: CryptData::new(&[]),
+            node_addr_opt: None,
+        };
+
+        let result = NodeRecordInner::try_from(corrupt_gnr);
+
+        assert_eq! (Err(String::from ("ErrorImpl { code: Message(\"invalid type: integer `1`, expected struct NodeRecordInner\"), offset: 0 }")), result);
+    }
+
+    #[test]
+    fn regenerate_signed_data_regenerates_signed_gossip_and_resigns() {
+        let mut subject = make_node_record(1234, true, false);
+        let cryptde = CryptDENull::from(subject.public_key());
+        let initial_signed_gossip = subject.signed_gossip().clone();
+        subject.increment_version();
+
+        subject.regenerate_signed_gossip(&cryptde);
+
+        let final_signed_gossip = subject.signed_gossip().clone();
+        let final_signature = subject.signature().clone();
+        assert_ne!(initial_signed_gossip, final_signed_gossip);
+        assert_eq!(
+            true,
+            cryptde.verify_signature(&final_signed_gossip, &final_signature, cryptde.public_key())
+        );
+        let final_serialized = serde_cbor::ser::to_vec(&subject.inner).unwrap();
+        assert_eq!(&final_serialized[..], final_signed_gossip.as_slice());
     }
 }

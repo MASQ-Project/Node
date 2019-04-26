@@ -1,8 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use core::convert::TryInto;
 use multinode_integration_tests_lib::substratum_node::SubstratumNode;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
+use node_lib::neighborhood::neighborhood::AccessibleGossipRecord;
 use node_lib::test_utils::test_utils::find_free_port;
 use std::time::Duration;
 
@@ -71,13 +73,13 @@ fn neighborhood_notified_of_newly_missing_node() {
         "Should have had three records: {}",
         dot_graph
     );
-    let originating_node_gnr = disappearance_gossip
-        .node_records
+    let disappearance_agrs: Vec<AccessibleGossipRecord> = disappearance_gossip.try_into().unwrap();
+    let originating_node_agr = disappearance_agrs
         .into_iter()
-        .find(|gnr| &gnr.public_key() == originating_node.public_key())
+        .find(|agr| &agr.inner.public_key == originating_node.public_key())
         .unwrap();
     assert!(
-        !originating_node_gnr
+        !originating_node_agr
             .inner
             .neighbors
             .contains(&disappearing_node.public_key()),

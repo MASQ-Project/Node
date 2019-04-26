@@ -5,10 +5,11 @@ use super::gossip_producer::GossipProducer;
 use super::gossip_producer::GossipProducerReal;
 use super::neighborhood_database::NeighborhoodDatabase;
 use super::node_record::NodeRecord;
-use crate::neighborhood::gossip::Gossip;
+use crate::neighborhood::gossip::{DotGossipEndpoint, Gossip, GossipNodeRecord};
 use crate::neighborhood::gossip_acceptor::GossipAcceptanceResult;
-use crate::sub_lib::cryptde::CryptDE;
+use crate::neighborhood::node_record::NodeRecordInner;
 use crate::sub_lib::cryptde::PublicKey;
+use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::Component;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
@@ -25,7 +26,6 @@ use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::TargetType;
-use crate::sub_lib::neighborhood::ZERO_RATE_PACK;
 use crate::sub_lib::neighborhood::{sentinel_ip_addr, NodeRecordMetadataMessage};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::BindMessage;
@@ -41,6 +41,7 @@ use actix::Handler;
 use actix::MessageResult;
 use actix::Recipient;
 use std::cmp::Ordering;
+use std::convert::TryFrom;
 use std::net::IpAddr;
 
 pub struct Neighborhood {
@@ -50,6 +51,7 @@ pub struct Neighborhood {
     gossip_acceptor: Box<dyn GossipAcceptor>,
     gossip_producer: Box<dyn GossipProducer>,
     neighborhood_database: NeighborhoodDatabase,
+    consuming_wallet_opt: Option<Wallet>,
     next_return_route_id: u32,
     initial_neighbors: Vec<(PublicKey, NodeAddr)>,
     logger: Logger,
@@ -85,8 +87,7 @@ impl Handler<BootstrapNeighborhoodNowMessage> for Neighborhood {
 
         let gossip = self
             .gossip_producer
-            .produce_debut(self.neighborhood_database.root())
-            .expect("Unable to gather enough information about ourselves to join the Substratum Network");
+            .produce_debut(&self.neighborhood_database);
         &self
             .initial_neighbors
             .iter()
@@ -104,6 +105,13 @@ impl Handler<BootstrapNeighborhoodNowMessage> for Neighborhood {
                         .expect("Key magically disappeared"),
                     )
                     .expect("hopper is dead");
+                self.logger.trace(format!(
+                    "Sent Gossip: {}",
+                    gossip.to_dot_graph(
+                        self.neighborhood_database.root(),
+                        (public_key, &Some(node_addr.clone()))
+                    )
+                ));
             });
     }
 }
@@ -210,7 +218,7 @@ impl Handler<ExpiredCoresPackage<Gossip>> for Neighborhood {
     ) -> Self::Result {
         let incoming_gossip = msg.payload;
         self.log_incoming_gossip(&incoming_gossip, msg.immediate_neighbor_ip);
-        self.handle_gossip(&incoming_gossip, msg.immediate_neighbor_ip);
+        self.handle_gossip(incoming_gossip, msg.immediate_neighbor_ip);
     }
 }
 
@@ -246,6 +254,30 @@ impl Handler<NodeRecordMetadataMessage> for Neighborhood {
     }
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub struct AccessibleGossipRecord {
+    pub signed_gossip: PlainData,
+    pub signature: CryptData,
+    pub node_addr_opt: Option<NodeAddr>,
+    pub inner: NodeRecordInner,
+}
+
+impl TryFrom<GossipNodeRecord> for AccessibleGossipRecord {
+    type Error = String;
+
+    fn try_from(value: GossipNodeRecord) -> Result<Self, Self::Error> {
+        match serde_cbor::de::from_slice(value.signed_data.as_slice()) {
+            Ok(inner) => Ok(AccessibleGossipRecord {
+                signed_gossip: value.signed_data,
+                signature: value.signature,
+                node_addr_opt: value.node_addr_opt,
+                inner,
+            }),
+            Err(e) => Err(format!("{}", e)),
+        }
+    }
+}
+
 impl Neighborhood {
     pub fn new(cryptde: &'static dyn CryptDE, config: NeighborhoodConfig) -> Self {
         if config.local_ip_addr == sentinel_ip_addr() {
@@ -263,14 +295,13 @@ impl Neighborhood {
         {
             panic! ("An --ip setting indicates that you want to decentralize, but you also need at least one --neighbor setting or --node_type bootstrap for that, and a --port_count greater than 0")
         }
-        let gossip_acceptor: Box<dyn GossipAcceptor> = Box::new(GossipAcceptorReal::new());
+        let gossip_acceptor: Box<dyn GossipAcceptor> = Box::new(GossipAcceptorReal::new(cryptde));
         let gossip_producer = Box::new(GossipProducerReal::new());
         let local_node_addr = NodeAddr::new(&config.local_ip_addr, &config.clandestine_port_list);
         let neighborhood_database = NeighborhoodDatabase::new(
             &cryptde.public_key(),
             &local_node_addr,
             config.earning_wallet.clone(),
-            config.consuming_wallet.clone(),
             config.rate_pack.clone(),
             config.is_bootstrap_node,
             cryptde,
@@ -283,6 +314,7 @@ impl Neighborhood {
             gossip_acceptor,
             gossip_producer,
             neighborhood_database,
+            consuming_wallet_opt: config.consuming_wallet,
             next_return_route_id: 0,
             initial_neighbors: config.neighbor_configs,
             logger: Logger::new("Neighborhood"),
@@ -291,80 +323,6 @@ impl Neighborhood {
 
     pub fn initial_neighbors(&self) -> &Vec<(PublicKey, NodeAddr)> {
         &self.initial_neighbors
-    }
-
-    fn log_incoming_gossip(&self, incoming_gossip: &Gossip, gossip_source: IpAddr) {
-        let source = match self.neighborhood_database.node_by_ip(&gossip_source) {
-            Some(node) => node.clone(),
-            None => Self::ip_only_node_record(gossip_source),
-        };
-        self.logger.trace(format!(
-            "Received Gossip: {}",
-            incoming_gossip.to_dot_graph(&source, self.neighborhood_database.root())
-        ));
-    }
-
-    fn handle_gossip(&mut self, incoming_gossip: &Gossip, gossip_source: IpAddr) {
-        self.logger.info(format!(
-            "Processing Gossip about {} Nodes",
-            incoming_gossip.node_records.len()
-        ));
-
-        let acceptance_result = self.gossip_acceptor.handle(
-            &mut self.neighborhood_database,
-            &incoming_gossip,
-            gossip_source,
-        );
-        match acceptance_result {
-            GossipAcceptanceResult::Accepted(debut_triples) => {
-                self.handle_gossip_acceptance(debut_triples)
-            }
-            GossipAcceptanceResult::Relay(relay_gossip, relay_target, relay_node_addr) => {
-                self.handle_gossip_relay(relay_gossip, relay_target, relay_node_addr, gossip_source)
-            }
-            GossipAcceptanceResult::Ignored => {
-                self.handle_gossip_ignored(&incoming_gossip, gossip_source)
-            }
-        }
-        self.logger.info(format!(
-            "Finished processing Gossip about {} Nodes",
-            incoming_gossip.node_records.len(),
-        ));
-        self.logger.debug(format!(
-            "Current database: {}",
-            self.neighborhood_database.to_dot_graph()
-        ));
-    }
-
-    fn gossip_to_neighbors(&self) {
-        self.gossip_to(
-            self.neighborhood_database
-                .root()
-                .half_neighbor_keys()
-                .into_iter()
-                .collect(),
-        );
-    }
-
-    fn gossip_to(&self, neighbors: Vec<&PublicKey>) {
-        neighbors.iter().for_each(|neighbor| {
-            let gossip = self
-                .gossip_producer
-                .produce(&self.neighborhood_database, neighbor);
-            let gossip_len = gossip.node_records.len();
-            let route = self.create_single_hop_route(neighbor);
-            let package = IncipientCoresPackage::new(self.cryptde, route, gossip.into(), neighbor)
-                .expect("Key magically disappeared");
-            self.logger.info(format!(
-                "Sending update Gossip about {} Nodes to Node {}",
-                gossip_len, neighbor
-            ));
-            self.hopper
-                .as_ref()
-                .expect("unbound hopper")
-                .try_send(package)
-                .expect("hopper is dead");
-        });
     }
 
     pub fn make_subs_from(addr: &Addr<Neighborhood>) -> NeighborhoodSubs {
@@ -378,6 +336,125 @@ impl Neighborhood {
             dispatcher_node_query: addr.clone().recipient::<DispatcherNodeQueryMessage>(),
             remove_neighbor: addr.clone().recipient::<RemoveNeighborMessage>(),
         }
+    }
+
+    fn log_incoming_gossip(&self, incoming_gossip: &Gossip, gossip_source: IpAddr) {
+        let source = match self.neighborhood_database.node_by_ip(&gossip_source) {
+            Some(node) => DotGossipEndpoint::from(node),
+            None => DotGossipEndpoint::from(gossip_source),
+        };
+        self.logger.trace(format!(
+            "Received Gossip: {}",
+            incoming_gossip.to_dot_graph(source, self.neighborhood_database.root())
+        ));
+    }
+
+    fn handle_gossip(&mut self, incoming_gossip: Gossip, gossip_source: IpAddr) {
+        self.logger.info(format!(
+            "Processing Gossip about {} Nodes",
+            incoming_gossip.node_records.len()
+        ));
+
+        let record_count = incoming_gossip.node_records.len();
+        let agrs: Vec<AccessibleGossipRecord> = incoming_gossip
+            .node_records
+            .into_iter()
+            .flat_map(|gnr| AccessibleGossipRecord::try_from(gnr))
+            .collect();
+
+        if agrs.len() < record_count {
+            // TODO: Instead of ignoring non-deserializable Gossip, ban the Node that sent it
+            self.logger.error(format!(
+                "Received non-deserializable Gossip from {}",
+                gossip_source
+            ));
+            self.announce_gossip_handling_completion(record_count);
+            return;
+        }
+
+        if agrs.iter().any(|agr| {
+            !self.cryptde.verify_signature(
+                &agr.signed_gossip,
+                &agr.signature,
+                &agr.inner.public_key,
+            )
+        }) {
+            // TODO: Instead of ignoring badly-signed Gossip, ban the Node that sent it
+            self.logger.error(format!(
+                "Received Gossip with invalid signature from {}",
+                gossip_source
+            ));
+            self.announce_gossip_handling_completion(record_count);
+            return;
+        }
+
+        self.handle_agrs(agrs, gossip_source);
+        self.announce_gossip_handling_completion(record_count);
+    }
+
+    fn handle_agrs(&mut self, agrs: Vec<AccessibleGossipRecord>, gossip_source: IpAddr) {
+        let ignored_node_name = self.gossip_source_name(&agrs, gossip_source);
+        let gossip_record_count = agrs.len();
+        let acceptance_result =
+            self.gossip_acceptor
+                .handle(&mut self.neighborhood_database, agrs, gossip_source);
+        match acceptance_result {
+            GossipAcceptanceResult::Accepted(debut_triples) => {
+                self.logger.debug(format!(
+                    "Current database: {}",
+                    self.neighborhood_database.to_dot_graph()
+                ));
+                self.handle_gossip_acceptance(debut_triples)
+            }
+            GossipAcceptanceResult::Relay(next_debut, relay_target, relay_node_addr) => {
+                self.handle_gossip_relay(next_debut, relay_target, relay_node_addr, gossip_source)
+            }
+            GossipAcceptanceResult::Ignored => {
+                self.handle_gossip_ignored(ignored_node_name, gossip_record_count)
+            }
+        }
+    }
+
+    fn announce_gossip_handling_completion(&self, record_count: usize) {
+        self.logger.info(format!(
+            "Finished processing Gossip about {} Nodes",
+            record_count,
+        ));
+    }
+
+    fn gossip_to_neighbors(&mut self) {
+        self.neighborhood_database
+            .root_mut()
+            .regenerate_signed_gossip(self.cryptde);
+        let neighbors = self.neighborhood_database.root().half_neighbor_keys();
+        neighbors.iter().for_each(|neighbor| {
+            let gossip = self
+                .gossip_producer
+                .produce(&self.neighborhood_database, neighbor);
+            let gossip_len = gossip.node_records.len();
+            let route = self.create_single_hop_route(neighbor);
+            let package =
+                IncipientCoresPackage::new(self.cryptde, route, gossip.clone().into(), neighbor)
+                    .expect("Key magically disappeared");
+            self.logger.info(format!(
+                "Sending update Gossip about {} Nodes to Node {}",
+                gossip_len, neighbor
+            ));
+            self.hopper
+                .as_ref()
+                .expect("unbound hopper")
+                .try_send(package)
+                .expect("hopper is dead");
+            self.logger.trace(format!(
+                "Sent Gossip: {}",
+                gossip.to_dot_graph(
+                    self.neighborhood_database.root(),
+                    self.neighborhood_database
+                        .node_by_key(*neighbor)
+                        .expect("Node magically disappeared")
+                )
+            ));
+        });
     }
 
     fn create_single_hop_route(&self, destination: &PublicKey) -> Route {
@@ -459,12 +536,11 @@ impl Neighborhood {
             return Err("Cannot make multi-hop route without segment keys".to_string());
         }
 
-        let consuming_wallet_opt = self.neighborhood_database.root().consuming_wallet();
         let has_long_segment = segments
             .iter()
             .find(|segment| segment.keys.len() > 2)
             .is_some();
-        if consuming_wallet_opt.is_none() && has_long_segment {
+        if self.consuming_wallet_opt.is_none() && has_long_segment {
             return Err("Cannot make multi-hop route segment without consuming wallet".to_string());
         }
 
@@ -484,7 +560,7 @@ impl Neighborhood {
                 over,
                 back,
                 self.cryptde,
-                consuming_wallet_opt,
+                self.consuming_wallet_opt.clone(),
                 return_route_id,
             )
             .expect("Internal error: bad route"),
@@ -694,22 +770,9 @@ impl Neighborhood {
         }
     }
 
-    fn ip_only_node_record(ip_addr: IpAddr) -> NodeRecord {
-        NodeRecord::new(
-            &PublicKey::new(&[]),
-            Some(&NodeAddr::new(&ip_addr, &vec![])),
-            Wallet::new(""),
-            None,
-            ZERO_RATE_PACK,
-            false,
-            None,
-            0,
-        )
-    }
-
-    fn handle_gossip_acceptance(&self, debut_triples: Vec<(Gossip, PublicKey, NodeAddr)>) {
+    fn handle_gossip_acceptance(&mut self, debut_triples: Vec<(Gossip, PublicKey, NodeAddr)>) {
         if debut_triples.is_empty() {
-            self.send_gossip_updates()
+            self.gossip_to_neighbors()
         } else {
             self.send_debuts(debut_triples)
         }
@@ -717,37 +780,31 @@ impl Neighborhood {
 
     fn handle_gossip_relay(
         &self,
-        relay_gossip: Gossip,
+        next_debut_gossip: Gossip,
         relay_target: PublicKey,
         relay_node_addr: NodeAddr,
         gossip_source: IpAddr,
     ) {
-        let relayed_node = self.gossip_source_name(&relay_gossip, gossip_source);
         self.logger.info(format!(
-            "Relaying debut from Node {} to neighbor {}",
-            relayed_node, relay_target
+            "Node {} sent a Pass: sending Debut to {}/{}",
+            gossip_source, relay_target, relay_node_addr
         ));
-        self.send_gossip(relay_gossip, relay_target, relay_node_addr);
+        self.send_gossip(next_debut_gossip, relay_target, relay_node_addr);
     }
 
-    fn handle_gossip_ignored(&self, ignored_gossip: &Gossip, gossip_source: IpAddr) {
-        let ignored_node = self.gossip_source_name(&ignored_gossip, gossip_source);
+    fn handle_gossip_ignored(&self, ignored_node_name: String, gossip_record_count: usize) {
         self.logger.info(format!(
             "Ignored Gossip about {} Nodes from {}",
-            ignored_gossip.node_records.len(),
-            ignored_node
+            gossip_record_count, ignored_node_name
         ));
-    }
-
-    fn send_gossip_updates(&self) {
-        self.gossip_to_neighbors()
     }
 
     fn send_debuts(&self, debut_triples: Vec<(Gossip, PublicKey, NodeAddr)>) {
         for (debut, debut_target, debut_node_addr) in debut_triples {
             self.logger.info(format!(
-                "Accepting introduction to Node {}/{}: sending debut",
-                debut_target, debut_node_addr
+                "Accepting introduction: sending Debut to Node {}/{}",
+                &debut_target,
+                &debut_node_addr.ip_addr()
             ));
             self.send_gossip(debut, debut_target, debut_node_addr);
         }
@@ -775,20 +832,24 @@ impl Neighborhood {
             "Sent Gossip: {}",
             gossip.to_dot_graph(
                 self.neighborhood_database.root(),
-                (&self.neighborhood_database, &target_key)
+                (&target_key, &Some(target_node_addr))
             )
         ));
     }
 
-    fn gossip_source_name(&self, gossip: &Gossip, gossip_source: IpAddr) -> String {
-        match gossip.node_records.iter().find(|gnr| {
-            if let Some(ref node_addr) = gnr.inner.node_addr_opt {
+    fn gossip_source_name(
+        &self,
+        accessible_gossip: &Vec<AccessibleGossipRecord>,
+        gossip_source: IpAddr,
+    ) -> String {
+        match accessible_gossip.iter().find(|agr| {
+            if let Some(ref node_addr) = agr.node_addr_opt {
                 node_addr.ip_addr() == gossip_source
             } else {
                 false
             }
         }) {
-            Some(gnr) => format!("{}", gnr.public_key()),
+            Some(agr) => format!("{}", agr.inner.public_key),
             None => format!("{}", gossip_source),
         }
     }
@@ -801,7 +862,6 @@ mod tests {
     use super::super::neighborhood_test_utils::make_node_record;
     use super::*;
     use crate::neighborhood::gossip::Gossip;
-    use crate::neighborhood::gossip_producer::GossipProductionError;
     use crate::neighborhood::neighborhood_test_utils::{
         db_from_node, make_global_cryptde_node_record, neighborhood_from_nodes,
     };
@@ -832,7 +892,7 @@ mod tests {
     use actix::System;
     use serde_cbor;
     use std::cell::RefCell;
-    use std::collections::HashSet;
+    use std::convert::TryInto;
     use std::net::IpAddr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
@@ -846,7 +906,7 @@ mod tests {
     }
 
     pub struct GossipAcceptorMock {
-        handle_params: Arc<Mutex<Vec<(NeighborhoodDatabase, Gossip, IpAddr)>>>,
+        handle_params: Arc<Mutex<Vec<(NeighborhoodDatabase, Vec<AccessibleGossipRecord>, IpAddr)>>>,
         handle_results: RefCell<Vec<GossipAcceptanceResult>>,
     }
 
@@ -854,14 +914,13 @@ mod tests {
         fn handle(
             &self,
             database: &mut NeighborhoodDatabase,
-            gossip: &Gossip,
+            agrs: Vec<AccessibleGossipRecord>,
             gossip_source: IpAddr,
         ) -> GossipAcceptanceResult {
-            self.handle_params.lock().unwrap().push((
-                database.clone(),
-                gossip.clone(),
-                gossip_source,
-            ));
+            self.handle_params
+                .lock()
+                .unwrap()
+                .push((database.clone(), agrs, gossip_source));
             self.handle_results.borrow_mut().remove(0)
         }
     }
@@ -876,7 +935,9 @@ mod tests {
 
         pub fn handle_params(
             mut self,
-            params_arc: &Arc<Mutex<Vec<(NeighborhoodDatabase, Gossip, IpAddr)>>>,
+            params_arc: &Arc<
+                Mutex<Vec<(NeighborhoodDatabase, Vec<AccessibleGossipRecord>, IpAddr)>>,
+            >,
         ) -> GossipAcceptorMock {
             self.handle_params = params_arc.clone();
             self
@@ -892,8 +953,6 @@ mod tests {
     pub struct GossipProducerMock {
         produce_params: Arc<Mutex<Vec<(NeighborhoodDatabase, PublicKey)>>>,
         produce_results: RefCell<Vec<Gossip>>,
-        produce_debut_params: Arc<Mutex<Vec<NodeRecord>>>,
-        produce_debut_results: RefCell<Vec<Result<Gossip, GossipProductionError>>>,
     }
 
     impl GossipProducer for GossipProducerMock {
@@ -905,12 +964,8 @@ mod tests {
             self.produce_results.borrow_mut().remove(0)
         }
 
-        fn produce_debut(&self, node_record: &NodeRecord) -> Result<Gossip, GossipProductionError> {
-            self.produce_debut_params
-                .lock()
-                .unwrap()
-                .push(node_record.clone());
-            self.produce_debut_results.borrow_mut().remove(0)
+        fn produce_debut(&self, _database: &NeighborhoodDatabase) -> Gossip {
+            unimplemented!()
         }
     }
 
@@ -929,14 +984,6 @@ mod tests {
 
         pub fn produce_result(self, result: Gossip) -> GossipProducerMock {
             self.produce_results.borrow_mut().push(result);
-            self
-        }
-
-        pub fn produce_debut_result(
-            self,
-            result: Result<Gossip, GossipProductionError>,
-        ) -> GossipProducerMock {
-            self.produce_debut_results.borrow_mut().push(result);
             self
         }
     }
@@ -1064,7 +1111,6 @@ mod tests {
     fn bootstrap_node_neighborhood_creates_single_node_database() {
         let cryptde = cryptde();
         let earning_wallet = Wallet::new("earning");
-        let consuming_wallet = Some(Wallet::new("consuming"));
         let this_node_addr = NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]);
 
         let subject = Neighborhood::new(
@@ -1075,7 +1121,7 @@ mod tests {
                 local_ip_addr: this_node_addr.ip_addr(),
                 clandestine_port_list: this_node_addr.ports().clone(),
                 earning_wallet: earning_wallet.clone(),
-                consuming_wallet: consuming_wallet.clone(),
+                consuming_wallet: None,
                 rate_pack: rate_pack(100),
             },
         );
@@ -1086,7 +1132,6 @@ mod tests {
         assert_eq!(root_node_record_ref.node_addr_opt(), Some(this_node_addr));
         assert_eq!(root_node_record_ref.is_bootstrap_node(), true);
         assert_eq!(root_node_record_ref.half_neighbor_keys().len(), 0);
-        assert_eq!(root_node_record_ref.consuming_wallet(), consuming_wallet);
     }
 
     #[test]
@@ -1127,7 +1172,6 @@ mod tests {
     }
 
     #[test]
-    // TODO: This test will change drastically or disappear when Neighborhood bootstrapping is corrected.
     fn neighborhood_adds_nodes_and_links() {
         let cryptde = cryptde();
         let earning_wallet = Wallet::new("earning");
@@ -1261,7 +1305,7 @@ mod tests {
         );
         subject
             .neighborhood_database
-            .add_node(&another_neighbor)
+            .add_node(another_neighbor.clone())
             .unwrap();
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<NodeQueryMessage> = addr.recipient::<NodeQueryMessage>();
@@ -1343,13 +1387,13 @@ mod tests {
                     .ports()
                     .clone(),
                 earning_wallet: node_record.earning_wallet(),
-                consuming_wallet: node_record.consuming_wallet(),
+                consuming_wallet: None,
                 rate_pack: rate_pack(100),
             },
         );
         subject
             .neighborhood_database
-            .add_node(&another_node_record)
+            .add_node(another_node_record.clone())
             .unwrap();
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<NodeQueryMessage> = addr.recipient::<NodeQueryMessage>();
@@ -1414,7 +1458,8 @@ mod tests {
         subject
             .neighborhood_database
             .root_mut()
-            .set_wallets(earning_wallet, None);
+            .set_earning_wallet(earning_wallet);
+        subject.consuming_wallet_opt = None;
         // These happen to be extracted in the desired order. We could not think of a way to guarantee it.
         let mut undesirable_exit_node = make_node_record(2345, true, false);
         let desirable_exit_node = make_node_record(3456, false, false);
@@ -1422,8 +1467,8 @@ mod tests {
         let originating_node = &subject.neighborhood_database.root().clone();
         {
             let db = &mut subject.neighborhood_database;
-            db.add_node(&undesirable_exit_node).unwrap();
-            db.add_node(&desirable_exit_node).unwrap();
+            db.add_node(undesirable_exit_node.clone()).unwrap();
+            db.add_node(desirable_exit_node.clone()).unwrap();
             db.add_arbitrary_full_neighbor(
                 undesirable_exit_node.public_key(),
                 originating_node.public_key(),
@@ -1483,7 +1528,7 @@ mod tests {
                 0,
             ),
         };
-        assert_eq!(result, expected_response);
+        assert_eq!(expected_response, result);
     }
 
     #[test]
@@ -1496,8 +1541,8 @@ mod tests {
         let c = &make_node_record(3456, true, false);
         {
             let db = &mut subject.neighborhood_database;
-            db.add_node(a).unwrap();
-            db.add_node(c).unwrap();
+            db.add_node(a.clone()).unwrap();
+            db.add_node(c.clone()).unwrap();
             let mut single_edge = |a: &NodeRecord, b: &NodeRecord| {
                 db.add_arbitrary_half_neighbor(a.public_key(), b.public_key())
             };
@@ -1608,13 +1653,13 @@ mod tests {
     fn route_query_messages() {
         let cryptde = cryptde();
         let earning_wallet = Wallet::new("earning");
-        let consuming_wallet = Some(Wallet::new("consuming"));
         let system = System::new("route_query_messages");
         let mut subject = make_standard_subject();
         subject
             .neighborhood_database
             .root_mut()
-            .set_wallets(earning_wallet, consuming_wallet.clone());
+            .set_earning_wallet(earning_wallet);
+        let consuming_wallet_opt = subject.consuming_wallet_opt.clone();
         let b = &make_node_record(1234, true, true);
         let p = &subject.neighborhood_database.root().clone();
         let q = &make_node_record(3456, true, false);
@@ -1624,11 +1669,11 @@ mod tests {
         t.set_desirable(false);
         {
             let db = &mut subject.neighborhood_database;
-            db.add_node(b).unwrap();
-            db.add_node(q).unwrap();
-            db.add_node(&t).unwrap();
-            db.add_node(r).unwrap();
-            db.add_node(s).unwrap();
+            db.add_node(b.clone()).unwrap();
+            db.add_node(q.clone()).unwrap();
+            db.add_node(t.clone()).unwrap();
+            db.add_node(r.clone()).unwrap();
+            db.add_node(s.clone()).unwrap();
             let mut dual_edge = |a: &NodeRecord, b: &NodeRecord| {
                 db.add_arbitrary_full_neighbor(a.public_key(), b.public_key());
             };
@@ -1663,7 +1708,7 @@ mod tests {
                 segment(vec![p, q, r], Component::ProxyClient),
                 segment(vec![r, q, p], Component::ProxyServer),
                 cryptde,
-                consuming_wallet,
+                consuming_wallet_opt,
                 0,
             )
             .unwrap(),
@@ -1712,15 +1757,15 @@ mod tests {
 
         subject
             .neighborhood_database
-            .add_node(&routing_node)
+            .add_node(routing_node.clone())
             .unwrap();
         subject
             .neighborhood_database
-            .add_node(&undesirable_node)
+            .add_node(undesirable_node.clone())
             .unwrap();
         subject
             .neighborhood_database
-            .add_node(&desirable_node)
+            .add_node(desirable_node.clone())
             .unwrap();
 
         let mut node_sequences = Vec::new();
@@ -1842,8 +1887,8 @@ mod tests {
         let e = &make_node_record(5678, false, false);
         {
             let db = &mut subject.neighborhood_database;
-            db.add_node(r).unwrap();
-            db.add_node(e).unwrap();
+            db.add_node(r.clone()).unwrap();
+            db.add_node(e.clone()).unwrap();
             let mut dual_edge = |a: &NodeRecord, b: &NodeRecord| {
                 db.add_arbitrary_full_neighbor(a.public_key(), b.public_key())
             };
@@ -1915,7 +1960,7 @@ mod tests {
         let mut subject = make_standard_subject();
         let a = &make_node_record(3456, true, false);
         let db = &mut subject.neighborhood_database;
-        db.add_node(a).unwrap();
+        db.add_node(a.clone()).unwrap();
 
         let result = subject.calculate_expected_service(a.public_key(), None, None);
         assert!(result.is_err());
@@ -1942,11 +1987,11 @@ mod tests {
         let mut subject = make_standard_subject();
         let db = &mut subject.neighborhood_database;
         let p = &db.root_mut().public_key().clone(); // 9e7p7un06eHs6frl5A
-        let b = &db.add_node(&make_node_record(1234, true, true)).unwrap(); // AQIDBA
-        let q = &db.add_node(&make_node_record(3456, true, false)).unwrap(); // AwQFBg
-        let r = &db.add_node(&make_node_record(4567, true, false)).unwrap(); // BAUGBw
-        let s = &db.add_node(&make_node_record(5678, true, false)).unwrap(); // BQYHCA
-        let t = &db.add_node(&make_node_record(6789, true, false)).unwrap(); // BgcICQ
+        let b = &db.add_node(make_node_record(1234, true, true)).unwrap(); // AQIDBA
+        let q = &db.add_node(make_node_record(3456, true, false)).unwrap(); // AwQFBg
+        let r = &db.add_node(make_node_record(4567, true, false)).unwrap(); // BAUGBw
+        let s = &db.add_node(make_node_record(5678, true, false)).unwrap(); // BQYHCA
+        let t = &db.add_node(make_node_record(6789, true, false)).unwrap(); // BgcICQ
         db.add_arbitrary_full_neighbor(b, p);
         db.add_arbitrary_full_neighbor(b, r);
         db.add_arbitrary_full_neighbor(q, p);
@@ -2023,8 +2068,8 @@ mod tests {
             );
             let db = &mut subject.neighborhood_database;
 
-            db.add_node(&removed_neighbor_inside).unwrap();
-            db.add_node(&other_neighbor_inside).unwrap();
+            db.add_node(removed_neighbor_inside.clone()).unwrap();
+            db.add_node(other_neighbor_inside.clone()).unwrap();
             db.add_arbitrary_full_neighbor(
                 &cryptde.public_key(),
                 removed_neighbor_inside.public_key(),
@@ -2061,25 +2106,22 @@ mod tests {
         };
         type Digest = (PublicKey, Vec<u8>, bool, u32, Vec<PublicKey>);
         let to_digest = |gnr: GossipNodeRecord| {
-            let mut neighbors_vec = gnr
-                .inner
-                .neighbors
-                .iter()
-                .map(|k| k.clone())
-                .collect::<Vec<PublicKey>>();
+            let node_addr_opt = gnr.node_addr_opt.clone();
+            let inner = NodeRecordInner::try_from(gnr).unwrap();
+            let mut neighbors_vec = inner.neighbors.into_iter().collect::<Vec<PublicKey>>();
             neighbors_vec.sort_unstable_by(|a, b| a.cmp(&b));
             (
-                gnr.public_key(),
-                gnr.public_key().into(),
-                gnr.inner.node_addr_opt.is_some(),
-                gnr.inner.version,
+                inner.public_key.clone(),
+                inner.public_key.into(),
+                node_addr_opt.is_some(),
+                inner.version,
                 neighbors_vec,
             )
         };
         let mut digests = gossip
             .node_records
             .into_iter()
-            .map(|nr| to_digest(nr))
+            .map(|gnr| to_digest(gnr))
             .collect::<Vec<Digest>>();
         digests.sort_unstable_by(|a, b| a.0.cmp(&b.0));
         assert_eq!(
@@ -2138,11 +2180,12 @@ mod tests {
         System::current().stop();
         system.run();
         let mut handle_params = handle_params_arc.lock().unwrap();
-        let (call_database, call_gossip, call_gossip_source) = handle_params.remove(0);
+        let (call_database, call_agrs, call_gossip_source) = handle_params.remove(0);
         assert!(handle_params.is_empty());
         assert_eq!(&subject_node, call_database.root());
         assert_eq!(1, call_database.keys().len());
-        assert_eq!(gossip, call_gossip);
+        let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
+        assert_eq!(agrs, call_agrs);
         assert_eq!(
             subject_node.node_addr_opt().unwrap().ip_addr(),
             call_gossip_source
@@ -2166,11 +2209,11 @@ mod tests {
         let mut subject = neighborhood_from_nodes(&subject_node, Some(&bootstrap));
         subject
             .neighborhood_database
-            .add_node(&introduction_target_node_1)
+            .add_node(introduction_target_node_1.clone())
             .unwrap();
         subject
             .neighborhood_database
-            .add_node(&introduction_target_node_2)
+            .add_node(introduction_target_node_2.clone())
             .unwrap();
 
         subject.neighborhood_database.add_arbitrary_half_neighbor(
@@ -2204,7 +2247,7 @@ mod tests {
         subject.hopper_no_lookup = Some(peer_actors.hopper.from_hopper_client_no_lookup);
 
         subject.handle_gossip(
-            &Gossip {
+            Gossip {
                 node_records: vec![],
             },
             IpAddr::from_str("1.1.1.1").unwrap(),
@@ -2243,17 +2286,23 @@ mod tests {
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing(
             format!(
-                "INFO: Neighborhood: Accepting introduction to Node {}/{}: sending debut",
+                "INFO: Neighborhood: Accepting introduction: sending Debut to Node {}/{}",
                 introduction_target_node_1.public_key(),
-                introduction_target_node_1.node_addr_opt().unwrap()
+                introduction_target_node_1
+                    .node_addr_opt()
+                    .unwrap()
+                    .ip_addr()
             )
             .as_str(),
         );
         tlh.exists_log_containing(
             format!(
-                "INFO: Neighborhood: Accepting introduction to Node {}/{}: sending debut",
+                "INFO: Neighborhood: Accepting introduction: sending Debut to Node {}/{}",
                 introduction_target_node_2.public_key(),
-                introduction_target_node_2.node_addr_opt().unwrap()
+                introduction_target_node_2
+                    .node_addr_opt()
+                    .unwrap()
+                    .ip_addr()
             )
             .as_str(),
         );
@@ -2269,11 +2318,11 @@ mod tests {
         let half_neighbor = make_node_record(2345, true, false);
         subject
             .neighborhood_database
-            .add_node(&full_neighbor)
+            .add_node(full_neighbor.clone())
             .unwrap();
         subject
             .neighborhood_database
-            .add_node(&half_neighbor)
+            .add_node(half_neighbor.clone())
             .unwrap();
         subject
             .neighborhood_database
@@ -2301,7 +2350,7 @@ mod tests {
         subject.hopper = Some(peer_actors.hopper.from_hopper_client);
 
         subject.handle_gossip(
-            &Gossip {
+            Gossip {
                 node_records: vec![],
             },
             IpAddr::from_str("1.1.1.1").unwrap(),
@@ -2358,37 +2407,39 @@ mod tests {
             )
             .as_str(),
         );
+        tlh.exists_log_containing("Sent Gossip: digraph db { \"src\" [label=\"Gossip From:\\n9e7p7un0\\n5.5.5.5\"]; \"dest\" [label=\"Gossip To:\\nAQIDBA\\n1.2.3.4\"]; \"src\" -> \"dest\" [arrowhead=empty]; }");
+        tlh.exists_log_containing("Sent Gossip: digraph db { \"src\" [label=\"Gossip From:\\n9e7p7un0\\n5.5.5.5\"]; \"dest\" [label=\"Gossip To:\\nAgMEBQ\\n2.3.4.5\"]; \"src\" -> \"dest\" [arrowhead=empty]; }");
     }
 
     #[test]
     fn neighborhood_sends_only_relay_gossip_when_gossip_acceptor_relays() {
         init_test_logging();
         let subject_node = make_global_cryptde_node_record(5555, true, false); // 9e7p7un06eHs6frl5A
-        let bootstrap = make_node_record(1000, true, true);
-        let mut subject = neighborhood_from_nodes(&subject_node, Some(&bootstrap));
+        let mut subject =
+            neighborhood_from_nodes(&subject_node, Some(&make_node_record(1000, true, true)));
         let debut_node = make_node_record(1234, true, false);
-        let debut_db = db_from_node(&debut_node);
-        let gossip = GossipBuilder::new(&debut_db)
-            .node(debut_node.public_key(), true)
+        let debut_gossip = GossipBuilder::new(&subject.neighborhood_database)
+            .node(subject_node.public_key(), true)
             .build();
         let gossip_acceptor =
             GossipAcceptorMock::new().handle_result(GossipAcceptanceResult::Relay(
-                gossip.clone(),
-                subject_node.public_key().clone(),
-                subject_node.node_addr_opt().unwrap(),
+                debut_gossip.clone(),
+                debut_node.public_key().clone(),
+                debut_node.node_addr_opt().unwrap(),
             ));
         subject.gossip_acceptor = Box::new(gossip_acceptor);
-        let subject_node = subject.neighborhood_database.root().clone();
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let system = System::new("");
         subject.hopper_no_lookup = Some(peer_actors.hopper.from_hopper_client_no_lookup);
+        let gossip_source = IpAddr::from_str("8.6.5.4").unwrap();
 
         subject.handle_gossip(
-            &Gossip {
+            // In real life this would be Relay Gossip from gossip_source to debut_node.
+            Gossip {
                 node_records: vec![],
             },
-            debut_node.node_addr_opt().unwrap().ip_addr(),
+            gossip_source,
         );
 
         System::current().stop();
@@ -2396,11 +2447,15 @@ mod tests {
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let package = hopper_recording.get_record::<NoLookupIncipientCoresPackage>(0);
         assert_eq!(1, hopper_recording.len());
-        assert_eq!(subject_node.public_key(), &package.public_key);
+        assert_eq!(debut_node.public_key(), &package.public_key);
         assert_eq!(
-            gossip,
+            debut_node.node_addr_opt().as_ref().unwrap(),
+            &package.node_addr
+        );
+        assert_eq!(
+            debut_gossip,
             match decodex::<MessageType>(
-                &CryptDENull::from(subject_node.public_key()),
+                &CryptDENull::from(debut_node.public_key()),
                 &package.payload
             ) {
                 Ok(MessageType::Gossip(g)) => g,
@@ -2410,9 +2465,10 @@ mod tests {
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing(
             format!(
-                "INFO: Neighborhood: Relaying debut from Node {} to neighbor {}",
+                "INFO: Neighborhood: Node {} sent a Pass: sending Debut to {}/{}",
+                gossip_source,
                 debut_node.public_key(),
-                subject_node.public_key()
+                debut_node.node_addr_opt().unwrap(),
             )
             .as_str(),
         );
@@ -2434,7 +2490,7 @@ mod tests {
         subject.hopper = Some(peer_actors.hopper.from_hopper_client);
 
         subject.handle_gossip(
-            &Gossip {
+            Gossip {
                 node_records: vec![],
             },
             subject_node.node_addr_opt().unwrap().ip_addr(),
@@ -2446,6 +2502,56 @@ mod tests {
         assert_eq!(0, hopper_recording.len());
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing("INFO: Neighborhood: Ignored Gossip about 0 Nodes from 5.5.5.5");
+    }
+
+    #[test]
+    fn neighborhood_does_not_accept_gossip_if_a_record_is_non_deserializable() {
+        init_test_logging();
+        let mut subject = make_standard_subject();
+        let gossip_acceptor = GossipAcceptorMock::new();
+        subject.gossip_acceptor = Box::new(gossip_acceptor);
+        let db = &mut subject.neighborhood_database;
+        let one_node_key = &db.add_node(make_node_record(2222, true, false)).unwrap();
+        let another_node_key = &db.add_node(make_node_record(3333, true, false)).unwrap();
+        let mut gossip = GossipBuilder::new(db)
+            .node(one_node_key, true)
+            .node(another_node_key, false)
+            .build();
+        gossip.node_records[1].signed_data = PlainData::new(&[1, 2, 3, 4]); // corrupt second record
+        let gossip_source = IpAddr::from_str("1.2.3.4").unwrap();
+
+        subject.handle_gossip(gossip, gossip_source);
+
+        // No panic means that subject didn't try to invoke the GossipAcceptorMock: test passes!
+        TestLogHandler::new().exists_log_containing(&format!(
+            "ERROR: Neighborhood: Received non-deserializable Gossip from {}",
+            gossip_source
+        ));
+    }
+
+    #[test]
+    fn neighborhood_does_not_accept_gossip_if_a_record_signature_is_invalid() {
+        init_test_logging();
+        let mut subject = make_standard_subject();
+        let gossip_acceptor = GossipAcceptorMock::new();
+        subject.gossip_acceptor = Box::new(gossip_acceptor);
+        let db = &mut subject.neighborhood_database;
+        let one_node_key = &db.add_node(make_node_record(2222, true, false)).unwrap();
+        let another_node_key = &db.add_node(make_node_record(3333, true, false)).unwrap();
+        let mut gossip = GossipBuilder::new(db)
+            .node(one_node_key, true)
+            .node(another_node_key, false)
+            .build();
+        gossip.node_records[1].signature = CryptData::new(&[1, 2, 3, 4]); // corrupt second record
+        let gossip_source = IpAddr::from_str("1.2.3.4").unwrap();
+
+        subject.handle_gossip(gossip, gossip_source);
+
+        // No panic means that subject didn't try to invoke the GossipAcceptorMock: test passes!
+        TestLogHandler::new().exists_log_containing(&format!(
+            "ERROR: Neighborhood: Received Gossip with invalid signature from {}",
+            gossip_source
+        ));
     }
 
     #[test]
@@ -2462,12 +2568,19 @@ mod tests {
             true,
         );
         let mut db = db_from_node(&this_node);
-        let far_neighbor = make_node_record(1234, true, false);
-        let gossip_neighbor = make_node_record(4567, true, false);
-        db.add_node(&far_neighbor).unwrap();
-        db.add_node(&gossip_neighbor).unwrap();
+        let far_neighbor = make_node_record(1324, true, false);
+        let gossip_neighbor = make_node_record(4657, true, false);
+        db.add_node(far_neighbor.clone()).unwrap();
+        db.add_node(gossip_neighbor.clone()).unwrap();
         db.add_arbitrary_full_neighbor(this_node.public_key(), gossip_neighbor.public_key());
         db.add_arbitrary_full_neighbor(gossip_neighbor.public_key(), far_neighbor.public_key());
+        db.node_by_key_mut(this_node.public_key()).unwrap().resign();
+        db.node_by_key_mut(gossip_neighbor.public_key())
+            .unwrap()
+            .resign();
+        db.node_by_key_mut(far_neighbor.public_key())
+            .unwrap()
+            .resign();
 
         let gossip = GossipBuilder::new(&db)
             .node(gossip_neighbor.public_key(), true)
@@ -2492,7 +2605,7 @@ mod tests {
                     local_ip_addr: this_node_inside.node_addr_opt().unwrap().ip_addr(),
                     clandestine_port_list: this_node_inside.node_addr_opt().unwrap().ports(),
                     earning_wallet: this_node_inside.earning_wallet(),
-                    consuming_wallet: this_node_inside.consuming_wallet(),
+                    consuming_wallet: None,
                     rate_pack: rate_pack(100),
                 },
             );
@@ -2506,17 +2619,18 @@ mod tests {
 
             system.run();
         });
-        TestLogHandler::new()
-            .await_log_containing(&format!("Finished processing Gossip about 2 Nodes"), 5000);
+        let tlh = TestLogHandler::new();
+        tlh.await_log_containing(
+            &format!("\"BAYFBw\" [label=\"v0\\nBAYFBw\\n4.6.5.7:4657\"];"),
+            5000,
+        );
 
-        TestLogHandler::new().exists_log_containing("Received Gossip: digraph db { ");
-        TestLogHandler::new().exists_log_containing("\"AQIDBA\" [label=\"v0\\nAQIDBA\"];");
-        TestLogHandler::new()
-            .exists_log_containing("\"9e7p7un06eHs6frl5A\" [label=\"9e7p7un0\"] [shape=none];");
-        TestLogHandler::new()
-            .exists_log_containing("\"BAUGBw\" [label=\"v0\\nBAUGBw\\n4.5.6.7:4567\"];");
-        TestLogHandler::new().exists_log_containing("\"AQIDBA\" -> \"BAUGBw\";");
-        TestLogHandler::new().exists_log_containing("\"BAUGBw\" -> \"AQIDBA\";");
+        tlh.exists_log_containing("Received Gossip: digraph db { ");
+        tlh.exists_log_containing("\"AQMCBA\" [label=\"v0\\nAQMCBA\"];");
+        tlh.exists_log_containing("\"9e7p7un06eHs6frl5A\" [label=\"9e7p7un0\"] [shape=none];");
+        tlh.exists_log_containing("\"BAYFBw\" -> \"9e7p7un06eHs6frl5A\";");
+        tlh.exists_log_containing("\"AQMCBA\" -> \"BAYFBw\";");
+        tlh.exists_log_containing("\"BAYFBw\" -> \"AQMCBA\";");
     }
 
     #[test]
@@ -2565,64 +2679,10 @@ mod tests {
             MessageType::Gossip(g) => g,
             x => panic!("Should have been MessageType::Gossip, but was {:?}", x),
         };
-
-        let expected_gnr = GossipNodeRecord {
-            inner: NodeRecordInner {
-                public_key: this_node.public_key().clone(),
-                node_addr_opt: this_node.node_addr_opt(),
-                earning_wallet: this_node.earning_wallet(),
-                consuming_wallet: this_node.consuming_wallet(),
-                rate_pack: rate_pack(100),
-                is_bootstrap_node: this_node.is_bootstrap_node(),
-                neighbors: HashSet::default(),
-                version: this_node.version(),
-            },
-            signatures: this_node.signatures().unwrap(),
-        };
+        let temp_db = db_from_node(&this_node);
+        let expected_gnr = GossipNodeRecord::from((&temp_db, this_node.public_key(), true));
         assert_contains(&gossip.node_records, &expected_gnr);
         assert_eq!(1, gossip.node_records.len());
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Unable to gather enough information about ourselves to join the Substratum Network"
-    )]
-    fn bootstrap_neighborhood_now_message_sends_nothing_to_hopper_when() {
-        let neighbor = make_node_record(1111, true, false);
-        let mut subject = Neighborhood::new(
-            cryptde(),
-            NeighborhoodConfig {
-                neighbor_configs: vec![(
-                    neighbor.public_key().clone(),
-                    neighbor.node_addr_opt().unwrap(),
-                )],
-                is_bootstrap_node: false,
-                local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
-                clandestine_port_list: vec![1234],
-                earning_wallet: NodeRecord::earning_wallet_from_key(&cryptde().public_key()),
-                consuming_wallet: None,
-                rate_pack: rate_pack(100),
-            },
-        );
-        let mock_gossip_producer = Box::new(
-            GossipProducerMock::new()
-                .produce_debut_result(Err(GossipProductionError::SignaturesRequired)),
-        );
-
-        subject.gossip_producer = mock_gossip_producer;
-
-        let system = System::new("bootstrap_neighborhood_now_message_sends_nothing_to_hopper_when");
-        let addr: Addr<Neighborhood> = subject.start();
-        let peer_actors = peer_actors_builder().build();
-        addr.try_send(BindMessage { peer_actors }).unwrap();
-
-        let sub: Recipient<BootstrapNeighborhoodNowMessage> =
-            addr.recipient::<BootstrapNeighborhoodNowMessage>();
-
-        sub.try_send(BootstrapNeighborhoodNowMessage {}).unwrap();
-        System::current().stop();
-
-        system.run();
     }
 
     /*
@@ -2658,9 +2718,9 @@ mod tests {
         let c = &make_node_record(5678, true, false);
         {
             let db = &mut subject.neighborhood_database;
-            db.add_node(a).unwrap();
-            db.add_node(b).unwrap();
-            db.add_node(c).unwrap();
+            db.add_node(a.clone()).unwrap();
+            db.add_node(b.clone()).unwrap();
+            db.add_node(c.clone()).unwrap();
             let mut single_edge = |a: &NodeRecord, b: &NodeRecord| {
                 db.add_arbitrary_half_neighbor(a.public_key(), b.public_key())
             };
@@ -2837,7 +2897,7 @@ mod tests {
             );
             subject
                 .neighborhood_database
-                .add_node(&another_neighbor)
+                .add_node(another_neighbor.clone())
                 .unwrap();
             let addr: Addr<Neighborhood> = subject.start();
             let sub: Recipient<DispatcherNodeQueryMessage> =
@@ -2955,13 +3015,13 @@ mod tests {
                         .ports()
                         .clone(),
                     earning_wallet: node_record.earning_wallet(),
-                    consuming_wallet: node_record.consuming_wallet(),
+                    consuming_wallet: None,
                     rate_pack: rate_pack(100),
                 },
             );
             subject
                 .neighborhood_database
-                .add_node(&another_node_record_a)
+                .add_node(another_node_record_a)
                 .unwrap();
             let addr: Addr<Neighborhood> = subject.start();
             let sub: Recipient<DispatcherNodeQueryMessage> =
@@ -2999,7 +3059,7 @@ mod tests {
 
         subject
             .neighborhood_database
-            .add_node(&next_door_neighbor)
+            .add_node(next_door_neighbor.clone())
             .unwrap();
 
         subject.neighborhood_database.add_arbitrary_full_neighbor(
@@ -3037,9 +3097,12 @@ mod tests {
 
         subject
             .neighborhood_database
-            .add_node(&next_door_neighbor)
+            .add_node(next_door_neighbor.clone())
             .unwrap();
-        subject.neighborhood_database.add_node(&exit_node).unwrap();
+        subject
+            .neighborhood_database
+            .add_node(exit_node.clone())
+            .unwrap();
 
         subject.neighborhood_database.add_arbitrary_full_neighbor(
             subject_node.public_key(),

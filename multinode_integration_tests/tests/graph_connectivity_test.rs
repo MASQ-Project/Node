@@ -1,13 +1,15 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use multinode_integration_tests_lib::substratum_node::SubstratumNode;
+use core::convert::TryInto;
+use multinode_integration_tests_lib::substratum_node::{SubstratumNode, SubstratumNodeUtils};
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::substratum_real_node::{
     NodeStartupConfigBuilder, SubstratumRealNode,
 };
 use node_lib::neighborhood::gossip::{Gossip, GossipNodeRecord};
-use node_lib::neighborhood::node_record::{NodeRecordInner, NodeSignatures};
-use node_lib::sub_lib::cryptde::{CryptData, PublicKey};
+use node_lib::neighborhood::neighborhood::AccessibleGossipRecord;
+use node_lib::neighborhood::node_record::NodeRecordInner;
+use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils::test_utils::{find_free_port, vec_to_set};
@@ -39,18 +41,23 @@ fn graph_connects_but_does_not_over_connect() {
     // Start the bootstrap process; follow passes until Introductions arrive
     mock_node.send_debut(start_node);
     let mut retries_left = neighborhood_size;
-    let mut introductions_opt: Option<Gossip> = None;
+    let mut introductions_opt: Option<Vec<AccessibleGossipRecord>> = None;
     while retries_left > 0 {
-        let (intros, _) = mock_node
-            .wait_for_gossip(Duration::from_millis(1000))
-            .unwrap();
+        let (intros, _) = match mock_node.wait_for_gossip(Duration::from_millis(1000)) {
+            Some(pair) => pair,
+            None => {
+                println!("{}", SubstratumNodeUtils::retrieve_logs("test_node_2"));
+                panic!("Received no Gossip after a second")
+            }
+        };
+        let agrs: Vec<AccessibleGossipRecord> = intros.clone().try_into().unwrap();
         if intros.node_records.len() > 1 {
-            introductions_opt = Some(intros);
+            introductions_opt = Some(agrs);
             break;
         }
         let pass_target = real_nodes
             .iter()
-            .find(|n| n.public_key() == &intros.node_records[0].public_key())
+            .find(|n| n.public_key() == &agrs[0].inner.public_key)
             .unwrap();
         mock_node.send_debut(pass_target);
         retries_left -= 1;
@@ -58,29 +65,27 @@ fn graph_connects_but_does_not_over_connect() {
     let introductions = introductions_opt.unwrap();
 
     // Compose and send a standard Gossip message that will stimulate a general Gossip broadcast
-    let another_gnr = introductions
-        .node_records
+    let another_agr = introductions
         .iter()
-        .find(|gnr| &gnr.public_key() != mock_node.public_key())
+        .find(|agr| &agr.inner.public_key != mock_node.public_key())
         .unwrap();
-    let mock_gnr = GossipNodeRecord {
-        inner: NodeRecordInner {
-            public_key: mock_node.public_key().clone(),
-            node_addr_opt: Some(mock_node.node_addr()),
-            earning_wallet: Wallet::new("0000"),
-            consuming_wallet: None,
-            rate_pack: DEFAULT_RATE_PACK.clone(),
-            is_bootstrap_node: false,
-            neighbors: vec_to_set(vec![start_node.public_key().clone()]),
-            version: 100, // to make the sample Node update its database and send out standard Gossip
-        },
-        signatures: NodeSignatures {
-            complete: CryptData::new(b""),
-            obscured: CryptData::new(b""),
-        },
+    let mock_inner = NodeRecordInner {
+        public_key: mock_node.public_key().clone(),
+        earning_wallet: Wallet::new("0000"),
+        rate_pack: DEFAULT_RATE_PACK.clone(),
+        is_bootstrap_node: false,
+        neighbors: vec_to_set(vec![start_node.public_key().clone()]),
+        version: 100, // to make the sample Node update its database and send out standard Gossip
     };
     let standard_gossip = Gossip {
-        node_records: vec![mock_gnr.clone(), another_gnr.clone()],
+        node_records: vec![
+            GossipNodeRecord::from((
+                mock_inner.clone(),
+                Some(mock_node.node_addr()),
+                mock_node.cryptde(),
+            )),
+            GossipNodeRecord::from(another_agr.clone()),
+        ],
     };
     let socket_addrs: Vec<SocketAddr> = start_node.node_addr().into();
     mock_node
@@ -97,8 +102,10 @@ fn graph_connects_but_does_not_over_connect() {
     let (current_state, _) = mock_node
         .wait_for_gossip(Duration::from_millis(1000))
         .unwrap();
-    let dot_graph =
-        current_state.to_dot_graph(&another_gnr.to_node_record(), &mock_gnr.to_node_record());
+    let dot_graph = current_state.to_dot_graph(
+        another_agr,
+        (&mock_inner.public_key, &Some(mock_node.node_addr())),
+    );
     // True number of Nodes in source database should be neighborhood_size + 2,
     // but gossip target (mock_node) will not be included in Gossip so should be neighborhood size + 1 (bootstrap).
     assert_eq!(
@@ -109,14 +116,18 @@ fn graph_connects_but_does_not_over_connect() {
         current_state.node_records.len(),
         dot_graph
     );
-    let key_degrees = current_state
-        .node_records
+    let current_state_agrs: Vec<AccessibleGossipRecord> = current_state.try_into().unwrap();
+    let key_degrees = current_state_agrs
         .iter()
-        .filter(|gnr| !dont_count_these.contains(&&gnr.public_key()))
-        .map(|gnr| {
+        .filter(|agr| !dont_count_these.contains(&&agr.inner.public_key))
+        .map(|agr| {
             (
-                gnr.public_key(),
-                degree(&current_state, &gnr.public_key(), &dont_count_these),
+                agr.inner.public_key.clone(),
+                degree(
+                    &current_state_agrs,
+                    &agr.inner.public_key,
+                    &dont_count_these,
+                ),
             )
         })
         .filter(|pair| (pair.1 < 2 || pair.1 > 5))
@@ -129,8 +140,12 @@ fn graph_connects_but_does_not_over_connect() {
     );
 }
 
-fn degree(gossip: &Gossip, key: &PublicKey, dont_count_these: &Vec<&PublicKey>) -> usize {
-    record_of(gossip, key)
+fn degree(
+    agrs: &Vec<AccessibleGossipRecord>,
+    key: &PublicKey,
+    dont_count_these: &Vec<&PublicKey>,
+) -> usize {
+    record_of(agrs, key)
         .unwrap()
         .inner
         .neighbors
@@ -139,6 +154,9 @@ fn degree(gossip: &Gossip, key: &PublicKey, dont_count_these: &Vec<&PublicKey>) 
         .count()
 }
 
-fn record_of<'a>(gossip: &'a Gossip, key: &PublicKey) -> Option<&'a GossipNodeRecord> {
-    gossip.node_records.iter().find(|n| &n.public_key() == key)
+fn record_of<'a>(
+    agrs: &'a Vec<AccessibleGossipRecord>,
+    key: &PublicKey,
+) -> Option<&'a AccessibleGossipRecord> {
+    agrs.iter().find(|n| &n.inner.public_key == key)
 }

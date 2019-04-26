@@ -5,10 +5,9 @@ use multinode_integration_tests_lib::substratum_node::SubstratumNode;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
 use node_lib::neighborhood::gossip::GossipNodeRecord;
-use node_lib::neighborhood::node_record::NodeRecord;
 use node_lib::neighborhood::node_record::NodeRecordInner;
-use node_lib::neighborhood::node_record::NodeSignatures;
 use node_lib::sub_lib::accountant;
+use node_lib::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::hopper::MessageType;
 use node_lib::sub_lib::neighborhood::DEFAULT_RATE_PACK;
@@ -40,38 +39,21 @@ fn when_bootstrapping_from_a_node_then_the_node_sends_gossip_upon_startup() {
             let node_ref = subject.node_reference();
             let inner = NodeRecordInner {
                 public_key: node_ref.public_key.clone(),
-                node_addr_opt: Some(node_ref.node_addr.clone()),
                 is_bootstrap_node: false,
                 earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
-                consuming_wallet: Some(accountant::TEMPORARY_CONSUMING_WALLET.clone()),
                 rate_pack: DEFAULT_RATE_PACK,
                 neighbors: HashSet::default(),
                 version: 0,
             };
-            let (complete_signature, obscured_signature) = {
-                let mut nr = NodeRecord::new(
-                    &node_ref.public_key,
-                    Some(&node_ref.node_addr),
-                    inner.earning_wallet.clone(),
-                    inner.consuming_wallet.clone(),
-                    DEFAULT_RATE_PACK,
-                    false,
-                    None,
-                    0,
-                );
-                nr.sign(&CryptDENull::from(&node_ref.public_key));
-                (
-                    nr.signatures().unwrap().complete().clone(),
-                    nr.signatures().unwrap().obscured().clone(),
-                )
+            let cryptde = CryptDENull::from(&node_ref.public_key);
+            let signed_data = PlainData::from(serde_cbor::ser::to_vec(&inner).unwrap());
+            let signature = CryptData::from(cryptde.sign(&signed_data).unwrap());
+            let gnr = GossipNodeRecord {
+                signed_data,
+                signature,
+                node_addr_opt: Some(node_ref.node_addr.clone()),
             };
-            assert_contains(
-                &gossip.node_records,
-                &GossipNodeRecord {
-                    inner,
-                    signatures: NodeSignatures::new(complete_signature, obscured_signature),
-                },
-            );
+            assert_contains(&gossip.node_records, &gnr);
         }
         _ => panic!("Expected MessageType::Gossip, got something else"),
     }

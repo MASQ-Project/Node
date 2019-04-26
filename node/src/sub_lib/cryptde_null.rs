@@ -24,39 +24,11 @@ impl CryptDE for CryptDENull {
     }
 
     fn encode(&self, public_key: &PublicKey, data: &PlainData) -> Result<CryptData, CryptdecError> {
-        if public_key.is_empty() {
-            Err(CryptdecError::EmptyKey)
-        } else if data.is_empty() {
-            Err(CryptdecError::EmptyData)
-        } else {
-            let other_key = CryptDENull::private_from_public(public_key);
-            Ok(CryptData::new(
-                &[&other_key.as_slice(), data.as_slice()].concat()[..],
-            ))
-        }
+        Self::encode_with_key_data(public_key.as_slice(), data)
     }
 
     fn decode(&self, data: &CryptData) -> Result<PlainData, CryptdecError> {
-        if self.private_key.is_empty() {
-            Err(CryptdecError::EmptyKey)
-        } else if data.is_empty() {
-            Err(CryptdecError::EmptyData)
-        } else if self.private_key.len() > data.len() {
-            Err(CryptdecError::InvalidKey(CryptDENull::invalid_key_message(
-                &self.private_key,
-                data,
-            )))
-        } else {
-            let (k, d) = data.as_slice().split_at(self.private_key.len());
-            if k != self.private_key.as_slice() {
-                Err(CryptdecError::InvalidKey(CryptDENull::invalid_key_message(
-                    &self.private_key,
-                    data,
-                )))
-            } else {
-                Ok(PlainData::new(d))
-            }
-        }
+        Self::decode_with_key_data(self.private_key.as_slice(), data)
     }
 
     fn random(&self, dest: &mut [u8]) {
@@ -82,16 +54,24 @@ impl CryptDE for CryptDENull {
     }
 
     fn sign(&self, _data: &PlainData) -> Result<CryptData, CryptdecError> {
+        // To implement:
+        // Hash the data (hashing should be a function of CryptDE)
+        // Encrypt the hash _with our private key_ (means you can't use self.encode(); try Self::encode_with_key_data() instead)
+        // Return the encrypted hash in a CryptData
         Ok(CryptData::new(b"signed"))
     }
 
     fn verify_signature(
         &self,
         _data: &PlainData,
-        _signature: &CryptData,
+        signature: &CryptData,
         _public_key: &PublicKey,
     ) -> bool {
-        true
+        // To implement:
+        // Decrypt the signature _with the supplied public key_ (means you can't use self.decode(); try Self::decode_with_key_data() instead)
+        // Hash the data (hashing should be a function of CryptDE)
+        // Compare the decrypted signature with the hash; if identical true, else false
+        signature.as_slice() == CryptData::new(b"signed").as_slice()
     }
 }
 
@@ -116,30 +96,57 @@ impl CryptDENull {
     }
 
     pub fn private_from_public(in_key: &PublicKey) -> PrivateKey {
-        let out_key_data: Vec<u8> = in_key
-            .as_slice()
-            .iter()
-            .map(|b| (*b).wrapping_add(128))
-            .collect();
-        PrivateKey::new(&out_key_data[..])
+        PrivateKey::new(&Self::other_key_data(in_key.as_slice()))
     }
 
     pub fn public_from_private(in_key: &PrivateKey) -> PublicKey {
-        let out_key_data: Vec<u8> = in_key
-            .as_slice()
-            .iter()
-            .map(|b| (*b).wrapping_add(128))
-            .collect();
-        PublicKey::new(&out_key_data[..])
+        PublicKey::new(&Self::other_key_data(in_key.as_slice()))
     }
 
-    fn invalid_key_message(key: &PrivateKey, data: &CryptData) -> String {
-        let prefix_len = std::cmp::min(key.len(), data.len());
+    pub fn other_key_data(in_key_data: &[u8]) -> Vec<u8> {
+        in_key_data.iter().map(|b| (*b).wrapping_add(128)).collect()
+    }
+
+    fn encode_with_key_data(key_data: &[u8], data: &PlainData) -> Result<CryptData, CryptdecError> {
+        if key_data.is_empty() {
+            Err(CryptdecError::EmptyKey)
+        } else if data.is_empty() {
+            Err(CryptdecError::EmptyData)
+        } else {
+            let other_key = Self::other_key_data(key_data);
+            Ok(CryptData::new(
+                &[&other_key.as_slice(), data.as_slice()].concat()[..],
+            ))
+        }
+    }
+
+    fn decode_with_key_data(key_data: &[u8], data: &CryptData) -> Result<PlainData, CryptdecError> {
+        if key_data.is_empty() {
+            Err(CryptdecError::EmptyKey)
+        } else if data.is_empty() {
+            Err(CryptdecError::EmptyData)
+        } else if key_data.len() > data.len() {
+            Err(CryptdecError::InvalidKey(CryptDENull::invalid_key_message(
+                key_data, data,
+            )))
+        } else {
+            let (k, d) = data.as_slice().split_at(key_data.len());
+            if k != key_data {
+                Err(CryptdecError::InvalidKey(CryptDENull::invalid_key_message(
+                    key_data, data,
+                )))
+            } else {
+                Ok(PlainData::new(d))
+            }
+        }
+    }
+
+    fn invalid_key_message(key_data: &[u8], data: &CryptData) -> String {
+        let prefix_len = std::cmp::min(key_data.len(), data.len());
         let vec = Vec::from(&data.as_slice()[0..prefix_len]);
         format!(
             "Could not decrypt with {:?} data beginning with {:?}",
-            key.as_slice(),
-            vec
+            key_data, vec
         )
     }
 }

@@ -3,19 +3,14 @@
 use super::gossip::Gossip;
 use super::gossip::GossipBuilder;
 use super::neighborhood_database::NeighborhoodDatabase;
-use crate::neighborhood::gossip::GossipNodeRecord;
-use crate::neighborhood::node_record::NodeRecord;
 use crate::sub_lib::cryptde::PublicKey;
-use crate::sub_lib::logger::Logger;
 
 pub trait GossipProducer: Send {
     fn produce(&self, database: &NeighborhoodDatabase, target: &PublicKey) -> Gossip;
-    fn produce_debut(&self, node_record: &NodeRecord) -> Result<Gossip, GossipProductionError>;
+    fn produce_debut(&self, database: &NeighborhoodDatabase) -> Gossip;
 }
 
-pub struct GossipProducerReal {
-    logger: Logger,
-}
+pub struct GossipProducerReal {}
 
 impl GossipProducer for GossipProducerReal {
     /*
@@ -45,38 +40,20 @@ impl GossipProducer for GossipProducerReal {
                 so_far.node(node_record_ref.public_key(), reveal_node_addr)
             });
         let gossip = builder.build();
-        self.logger.trace(format!(
-            "Created Gossip: {}",
-            gossip.to_dot_graph(database.root(), target_node_ref)
-        ));
         gossip
     }
 
-    fn produce_debut(&self, node_record: &NodeRecord) -> Result<Gossip, GossipProductionError> {
-        if let Some(signatures) = node_record.signatures() {
-            Ok(Gossip {
-                node_records: vec![GossipNodeRecord {
-                    inner: node_record.inner.clone(),
-                    signatures,
-                }],
-            })
-        } else {
-            Err(GossipProductionError::SignaturesRequired)
-        }
+    fn produce_debut(&self, database: &NeighborhoodDatabase) -> Gossip {
+        GossipBuilder::new(database)
+            .node(database.root().public_key(), true)
+            .build()
     }
 }
 
 impl GossipProducerReal {
     pub fn new() -> GossipProducerReal {
-        GossipProducerReal {
-            logger: Logger::new("GossipProducerReal"),
-        }
+        GossipProducerReal {}
     }
-}
-
-#[derive(Debug, PartialEq)]
-pub enum GossipProductionError {
-    SignaturesRequired,
 }
 
 #[cfg(test)]
@@ -84,9 +61,11 @@ mod tests {
     use super::super::gossip::GossipNodeRecord;
     use super::super::neighborhood_test_utils::*;
     use super::*;
-    use crate::test_utils::logging::init_test_logging;
-    use crate::test_utils::logging::TestLogHandler;
+    use crate::neighborhood::node_record::NodeRecordInner;
+    use crate::sub_lib::cryptde::CryptDE;
+    use crate::sub_lib::cryptde_null::CryptDENull;
     use std::collections::HashSet;
+    use std::convert::TryFrom;
 
     #[test]
     #[should_panic(expected = "Target node AgMEBQ not in NeighborhoodDatabase")]
@@ -104,16 +83,16 @@ mod tests {
     fn produce_reveals_and_conceals_node_addrs_appropriately() {
         let root_node = make_node_record(1234, true, false);
         let mut db = db_from_node(&root_node);
-        let target_node_key = &db.add_node(&make_node_record(1235, true, false)).unwrap();
-        let common_neighbor_key = &db.add_node(&make_node_record(1236, true, false)).unwrap();
-        let root_full_neighbor_key = &db.add_node(&make_node_record(1237, true, false)).unwrap();
-        let target_full_neighbor_key = &db.add_node(&make_node_record(1238, false, false)).unwrap();
-        let knows_target_key = &db.add_node(&make_node_record(1239, false, false)).unwrap();
-        let target_knows_key = &db.add_node(&make_node_record(1240, false, false)).unwrap();
-        let knows_root_key = &db.add_node(&make_node_record(1241, false, false)).unwrap();
-        let root_knows_key = &db.add_node(&make_node_record(1242, true, false)).unwrap();
-        let root_bootstrap_key = &db.add_node(&make_node_record(1243, true, true)).unwrap();
-        let target_bootstrap_key = &db.add_node(&make_node_record(1244, false, true)).unwrap();
+        let target_node_key = &db.add_node(make_node_record(1235, true, false)).unwrap();
+        let common_neighbor_key = &db.add_node(make_node_record(1236, true, false)).unwrap();
+        let root_full_neighbor_key = &db.add_node(make_node_record(1237, true, false)).unwrap();
+        let target_full_neighbor_key = &db.add_node(make_node_record(1238, false, false)).unwrap();
+        let knows_target_key = &db.add_node(make_node_record(1239, false, false)).unwrap();
+        let target_knows_key = &db.add_node(make_node_record(1240, false, false)).unwrap();
+        let knows_root_key = &db.add_node(make_node_record(1241, false, false)).unwrap();
+        let root_knows_key = &db.add_node(make_node_record(1242, true, false)).unwrap();
+        let root_bootstrap_key = &db.add_node(make_node_record(1243, true, true)).unwrap();
+        let target_bootstrap_key = &db.add_node(make_node_record(1244, false, true)).unwrap();
         db.add_arbitrary_full_neighbor(root_node.public_key(), target_node_key);
         db.add_arbitrary_full_neighbor(root_node.public_key(), common_neighbor_key);
         db.add_arbitrary_full_neighbor(target_node_key, common_neighbor_key);
@@ -132,11 +111,13 @@ mod tests {
 
         type Digest = (PublicKey, Vec<u8>, bool, HashSet<PublicKey>);
         let gnr_digest = |gnr: GossipNodeRecord| {
+            let has_ip = gnr.node_addr_opt.is_some();
+            let nri = NodeRecordInner::try_from(gnr).unwrap();
             (
-                gnr.public_key(),
-                gnr.public_key().into(),
-                gnr.inner.node_addr_opt.is_some(),
-                gnr.inner.neighbors,
+                nri.public_key.clone(),
+                nri.public_key.into(),
+                has_ip,
+                nri.neighbors.clone(),
             )
         };
         let node_digest = |key: &PublicKey, has_ip: bool| {
@@ -175,57 +156,23 @@ mod tests {
     }
 
     #[test]
-    fn produce_logs_about_the_resulting_gossip() {
-        init_test_logging();
-
-        let this_node = make_node_record(1234, true, false);
-
-        let mut database = db_from_node(&this_node);
-        let first_neighbor = &database
-            .add_node(&make_node_record(2345, true, false))
-            .unwrap();
-        let target = &database
-            .add_node(&make_node_record(4567, true, false))
-            .unwrap();
-        database.add_arbitrary_full_neighbor(this_node.public_key(), first_neighbor);
-        database.add_arbitrary_full_neighbor(this_node.public_key(), target);
-        database.add_arbitrary_full_neighbor(first_neighbor, target);
-        let subject = GossipProducerReal::new();
-
-        let _result = subject.produce(&database, target);
-
-        TestLogHandler::new().exists_log_containing("Created Gossip: digraph db { ");
-        TestLogHandler::new().exists_log_containing(
-            "\"AQIDBA\" [label=\"v0\\nAQIDBA\\n1.2.3.4:1234\"] [style=filled];",
-        );
-        TestLogHandler::new().exists_log_containing("\"BAUGBw\" [label=\"BAUGBw\"] [shape=none];");
-        TestLogHandler::new()
-            .exists_log_containing("\"AgMEBQ\" [label=\"v0\\nAgMEBQ\\n2.3.4.5:2345\"];");
-        TestLogHandler::new().exists_log_containing("\"AgMEBQ\" -> \"BAUGBw\";");
-        TestLogHandler::new().exists_log_containing("\"AQIDBA\" -> \"AgMEBQ\";");
-        TestLogHandler::new().exists_log_containing("\"AQIDBA\" -> \"BAUGBw\";");
-    }
-
-    #[test]
     fn produce_debut_creates_a_gossip_to_a_target_about_ourselves() {
         let our_node_record = make_node_record(7771, true, false);
+        let db = db_from_node(&our_node_record);
         let subject = GossipProducerReal::new();
-        let result_gossip: Gossip = subject.produce_debut(&our_node_record).unwrap();
+        let result_gossip: Gossip = subject.produce_debut(&db);
         assert_eq!(1, result_gossip.node_records.len());
         let result_gossip_record = result_gossip.node_records.first().unwrap();
-        assert_eq!(our_node_record.inner, result_gossip_record.inner);
+        let result_node_record_inner = NodeRecordInner::try_from(result_gossip_record).unwrap();
+        assert_eq!(our_node_record.inner, result_node_record_inner);
+        let our_cryptde = CryptDENull::from(our_node_record.public_key());
         assert_eq!(
-            our_node_record.signatures().expect("srsly"),
-            result_gossip_record.signatures
+            true,
+            our_cryptde.verify_signature(
+                &our_node_record.signed_gossip,
+                &our_node_record.signature,
+                our_cryptde.public_key()
+            )
         );
-    }
-
-    #[test]
-    fn produce_debut_cannot_succeed_without_signatures() {
-        let mut unsigned_node_record = make_node_record(3334, true, false);
-        unsigned_node_record.signatures = None;
-        let subject = GossipProducerReal::new();
-        let result = subject.produce_debut(&unsigned_node_record);
-        assert_eq!(Err(GossipProductionError::SignaturesRequired), result);
     }
 }

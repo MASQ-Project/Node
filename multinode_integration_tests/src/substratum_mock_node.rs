@@ -147,15 +147,14 @@ impl SubstratumMockNode {
         let masquerader = JsonMasquerader::new();
         let mut node_record = NodeRecord::new(
             &self.public_key(),
-            Some(&self.node_addr()),
             self.earning_wallet(),
-            self.consuming_wallet(),
             DEFAULT_RATE_PACK.clone(),
             false,
-            None,
             0,
+            self.cryptde(),
         );
-        node_record.sign(self.cryptde());
+        node_record.metadata.node_addr_opt = Some(self.node_addr());
+        node_record.regenerate_signed_gossip(self.cryptde());
 
         let db = db_from_node(&node_record);
         let gossip = GossipBuilder::new(&db)
@@ -396,7 +395,6 @@ pub fn db_from_node(node: &NodeRecord) -> NeighborhoodDatabase {
             &vec![200],
         )),
         node.earning_wallet(),
-        node.consuming_wallet(),
         node.rate_pack().clone(),
         node.is_bootstrap_node(),
         &CryptDENull::from(node.public_key()),
