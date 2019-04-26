@@ -4,10 +4,16 @@ use crate::proxy_server::tls_protocol_pack::TlsProtocolPack;
 use crate::sub_lib::cryptde::{PlainData, PublicKey};
 use crate::sub_lib::proxy_server::ProxyProtocol;
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct Host {
+    pub name: String,
+    pub port: Option<u16>,
+}
+
 pub trait ProtocolPack: Send + Sync {
     fn proxy_protocol(&self) -> ProxyProtocol;
     fn standard_port(&self) -> u16;
-    fn find_host_name(&self, data: &PlainData) -> Option<String>;
+    fn find_host(&self, data: &PlainData) -> Option<Host>;
     fn server_impersonator(&self) -> Box<ServerImpersonator>;
 }
 

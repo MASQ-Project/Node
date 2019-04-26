@@ -55,7 +55,15 @@ impl ClientRequestPayloadFactory {
                 return None;
             }
         };
-        let host_name = protocol_pack.find_host_name(&PlainData::new(&ibcd.data));
+        let data = PlainData::new(&ibcd.data);
+        let target_host = protocol_pack.find_host(&data);
+        let (target_hostname, target_port) = match target_host {
+            Some(host) => match host.port {
+                Some(port) => (Some(host.name), port),
+                None => (Some(host.name), origin_port),
+            },
+            None => (None, origin_port),
+        };
         Some(ClientRequestPayload {
             stream_key,
             sequenced_packet: SequencedPacket {
@@ -63,8 +71,8 @@ impl ClientRequestPayloadFactory {
                 sequence_number,
                 last_data: ibcd.last_data,
             },
-            target_hostname: host_name,
-            target_port: origin_port,
+            target_hostname,
+            target_port,
             protocol: protocol_pack.proxy_protocol(),
             originator_public_key: cryptde.public_key().clone(),
         })
@@ -83,7 +91,41 @@ mod tests {
     use std::str::FromStr;
 
     #[test]
-    fn handles_http() {
+    fn handles_http_with_a_port() {
+        let data = PlainData::new(&b"GET http://borkoed.com:2345/fleebs.html HTTP/1.1\r\n\r\n"[..]);
+        let ibcd = InboundClientData {
+            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            reception_port: Some(80),
+            sequence_number: Some(1),
+            last_data: false,
+            is_clandestine: false,
+            data: data.clone().into(),
+        };
+        let cryptde = CryptDENull::new();
+        let logger = Logger::new("test");
+        let subject = ClientRequestPayloadFactory::new();
+
+        let result = subject.make(&ibcd, make_meaningless_stream_key(), &cryptde, &logger);
+
+        assert_eq!(
+            result,
+            Some(ClientRequestPayload {
+                stream_key: make_meaningless_stream_key(),
+                sequenced_packet: SequencedPacket {
+                    data: data.into(),
+                    sequence_number: 1,
+                    last_data: false
+                },
+                target_hostname: Some(String::from("borkoed.com")),
+                target_port: 2345,
+                protocol: ProxyProtocol::HTTP,
+                originator_public_key: cryptde.public_key().clone(),
+            })
+        );
+    }
+
+    #[test]
+    fn handles_http_with_no_port() {
         let data = PlainData::new(&b"GET http://borkoed.com/fleebs.html HTTP/1.1\r\n\r\n"[..]);
         let ibcd = InboundClientData {
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),

@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::proxy_server::protocol_pack::{ProtocolPack, ServerImpersonator};
+use crate::proxy_server::protocol_pack::{Host, ProtocolPack, ServerImpersonator};
 use crate::proxy_server::server_impersonator_tls::ServerImpersonatorTls;
 use crate::sub_lib::binary_traverser::BinaryTraverser;
 use crate::sub_lib::cryptde::PlainData;
@@ -16,7 +16,7 @@ impl ProtocolPack for TlsProtocolPack {
         443
     }
 
-    fn find_host_name(&self, data: &PlainData) -> Option<String> {
+    fn find_host(&self, data: &PlainData) -> Option<Host> {
         let mut xvsr = BinaryTraverser::new(data);
         if !TlsProtocolPack::is_handshake(&mut xvsr) {
             return None;
@@ -25,7 +25,7 @@ impl ProtocolPack for TlsProtocolPack {
             return None;
         }
         match Self::host_name_from_client_hello(&mut xvsr) {
-            Ok(s) => Some(s),
+            Ok(name) => Some(Host { name, port: None }),
             Err(()) => None,
         }
     }
@@ -122,9 +122,9 @@ mod tests {
             .for_each(|content_type| {
                 let data = PlainData::new(&[*content_type]);
 
-                let result = TlsProtocolPack {}.find_host_name(&data);
+                let result = TlsProtocolPack {}.find_host(&data);
 
-                assert_eq!(result, None, "content_type: {}", *content_type);
+                assert_eq!(None, result, "content_type: {}", *content_type);
             });
     }
 
@@ -132,9 +132,9 @@ mod tests {
     fn rejects_empty_packet_as_non_handshake() {
         let data = PlainData::new(&[]);
 
-        let result = TlsProtocolPack {}.find_host_name(&data);
+        let result = TlsProtocolPack {}.find_host(&data);
 
-        assert_eq!(result, None);
+        assert_eq!(None, result);
     }
 
     #[test]
@@ -144,9 +144,9 @@ mod tests {
             .for_each(|handshake_type| {
                 let data = PlainData::new(&[0x16, 0x00, 0x00, 0x00, 0x00, *handshake_type]);
 
-                let result = TlsProtocolPack {}.find_host_name(&data);
+                let result = TlsProtocolPack {}.find_host(&data);
 
-                assert_eq!(result, None, "handshake_type: {}", *handshake_type);
+                assert_eq!(None, result, "handshake_type: {}", *handshake_type);
             });
     }
 
@@ -168,18 +168,18 @@ mod tests {
             0x00, 0x00, // extensions_length
         ]);
 
-        let result = TlsProtocolPack {}.find_host_name(&data);
+        let result = TlsProtocolPack {}.find_host(&data);
 
-        assert_eq!(result, None);
+        assert_eq!(None, result);
     }
 
     #[test]
     fn does_not_panic_for_zero_length_buffer() {
         let data = PlainData::new(&[]);
 
-        let result = TlsProtocolPack {}.find_host_name(&data);
+        let result = TlsProtocolPack {}.find_host(&data);
 
-        assert_eq!(result, None);
+        assert_eq!(None, result);
     }
 
     #[test]
@@ -189,9 +189,9 @@ mod tests {
             0x00, 0x00, 0x00, 0x00, // version, length: don't care
         ]);
 
-        let result = TlsProtocolPack {}.find_host_name(&data);
+        let result = TlsProtocolPack {}.find_host(&data);
 
-        assert_eq!(result, None);
+        assert_eq!(None, result);
     }
 
     #[test]
@@ -204,9 +204,9 @@ mod tests {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // truncated preamble
         ]);
 
-        let result = TlsProtocolPack {}.find_host_name(&data);
+        let result = TlsProtocolPack {}.find_host(&data);
 
-        assert_eq!(result, None);
+        assert_eq!(None, result);
     }
 
     #[test]
@@ -225,9 +225,9 @@ mod tests {
                   // truncated session_id_length
         ]);
 
-        let result = TlsProtocolPack {}.find_host_name(&data);
+        let result = TlsProtocolPack {}.find_host(&data);
 
-        assert_eq!(result, None);
+        assert_eq!(None, result);
     }
 
     #[test]
@@ -246,9 +246,9 @@ mod tests {
             0x00, 0x00, // truncated session_id
         ]);
 
-        let result = TlsProtocolPack {}.find_host_name(&data);
+        let result = TlsProtocolPack {}.find_host(&data);
 
-        assert_eq!(result, None);
+        assert_eq!(None, result);
     }
 
     #[test]
@@ -267,9 +267,9 @@ mod tests {
             0x00, // truncated cipher_suites_length
         ]);
 
-        let result = TlsProtocolPack {}.find_host_name(&data);
+        let result = TlsProtocolPack {}.find_host(&data);
 
-        assert_eq!(result, None);
+        assert_eq!(None, result);
     }
 
     #[test]
@@ -289,9 +289,9 @@ mod tests {
             0x00, // truncated cipher_suites
         ]);
 
-        let result = TlsProtocolPack {}.find_host_name(&data);
+        let result = TlsProtocolPack {}.find_host(&data);
 
-        assert_eq!(result, None);
+        assert_eq!(None, result);
     }
 
     #[test]
@@ -311,9 +311,9 @@ mod tests {
             0xFF, // truncated compression_methods_length
         ]);
 
-        let result = TlsProtocolPack {}.find_host_name(&data);
+        let result = TlsProtocolPack {}.find_host(&data);
 
-        assert_eq!(result, None);
+        assert_eq!(None, result);
     }
 
     #[test]
@@ -334,9 +334,9 @@ mod tests {
             0x00, 0x00, 0x00, // truncated compression_methods
         ]);
 
-        let result = TlsProtocolPack {}.find_host_name(&data);
+        let result = TlsProtocolPack {}.find_host(&data);
 
-        assert_eq!(result, None);
+        assert_eq!(None, result);
     }
 
     #[test]
@@ -357,9 +357,9 @@ mod tests {
             0x00, // truncated extensions_length
         ]);
 
-        let result = TlsProtocolPack {}.find_host_name(&data);
+        let result = TlsProtocolPack {}.find_host(&data);
 
-        assert_eq!(result, None);
+        assert_eq!(None, result);
     }
 
     #[test]
@@ -381,9 +381,9 @@ mod tests {
             0xFF, 0xFF, // truncated extensions
         ]);
 
-        let result = TlsProtocolPack {}.find_host_name(&data);
+        let result = TlsProtocolPack {}.find_host(&data);
 
-        assert_eq!(result, None);
+        assert_eq!(None, result);
     }
 
     #[test]
@@ -411,9 +411,9 @@ mod tests {
             0x28, 'm' as u8, // bad server_name
         ]);
 
-        let result = TlsProtocolPack {}.find_host_name(&data);
+        let result = TlsProtocolPack {}.find_host(&data);
 
-        assert_eq!(result, None);
+        assert_eq!(None, result);
     }
 
     #[test]
@@ -424,9 +424,9 @@ mod tests {
             0x7F, 0xFF, // length: OVERRUN
         ]);
 
-        let result = TlsProtocolPack {}.find_host_name(&data);
+        let result = TlsProtocolPack {}.find_host(&data);
 
-        assert_eq!(result, None);
+        assert_eq!(None, result);
     }
 
     #[test]
@@ -439,9 +439,9 @@ mod tests {
             0x7F, 0xFF, 0xFF, // length: OVERRUN
         ]);
 
-        let result = TlsProtocolPack {}.find_host_name(&data);
+        let result = TlsProtocolPack {}.find_host(&data);
 
-        assert_eq!(result, None);
+        assert_eq!(None, result);
     }
 
     #[test]
@@ -461,9 +461,9 @@ mod tests {
             0x7F, // session_id_length: OVERRUN
         ]);
 
-        let result = TlsProtocolPack {}.find_host_name(&data);
+        let result = TlsProtocolPack {}.find_host(&data);
 
-        assert_eq!(result, None);
+        assert_eq!(None, result);
     }
 
     #[test]
@@ -485,9 +485,9 @@ mod tests {
             0x7F, 0xFF, // cipher_suites_length: OVERRUN
         ]);
 
-        let result = TlsProtocolPack {}.find_host_name(&data);
+        let result = TlsProtocolPack {}.find_host(&data);
 
-        assert_eq!(result, None);
+        assert_eq!(None, result);
     }
 
     #[test]
@@ -511,9 +511,9 @@ mod tests {
             0xFF, // compression_methods_length: OVERRUN
         ]);
 
-        let result = TlsProtocolPack {}.find_host_name(&data);
+        let result = TlsProtocolPack {}.find_host(&data);
 
-        assert_eq!(result, None);
+        assert_eq!(None, result);
     }
 
     #[test]
@@ -537,9 +537,9 @@ mod tests {
             0x7F, 0xFF, // extensions_length
         ]);
 
-        let result = TlsProtocolPack {}.find_host_name(&data);
+        let result = TlsProtocolPack {}.find_host(&data);
 
-        assert_eq!(result, None);
+        assert_eq!(None, result);
     }
 
     #[test]
@@ -565,9 +565,9 @@ mod tests {
             0x7F, 0xFF, // extension_length
         ]);
 
-        let result = TlsProtocolPack {}.find_host_name(&data);
+        let result = TlsProtocolPack {}.find_host(&data);
 
-        assert_eq!(result, None);
+        assert_eq!(None, result);
     }
 
     #[test]
@@ -599,9 +599,9 @@ mod tests {
             0x7F, 0xFF, // extension_length
         ]);
 
-        let result = TlsProtocolPack {}.find_host_name(&data);
+        let result = TlsProtocolPack {}.find_host(&data);
 
-        assert_eq!(result, None);
+        assert_eq!(None, result);
     }
 
     #[test]
@@ -634,9 +634,9 @@ mod tests {
             0x7F, 0xFF, // server_name_list_length
         ]);
 
-        let result = TlsProtocolPack {}.find_host_name(&data);
+        let result = TlsProtocolPack {}.find_host(&data);
 
-        assert_eq!(result, None);
+        assert_eq!(None, result);
     }
 
     #[test]
@@ -671,9 +671,9 @@ mod tests {
             0x7F, 0xFF, // server_name_length
         ]);
 
-        let result = TlsProtocolPack {}.find_host_name(&data);
+        let result = TlsProtocolPack {}.find_host(&data);
 
-        assert_eq!(result, None);
+        assert_eq!(None, result);
     }
 
     #[test]
@@ -704,9 +704,15 @@ mod tests {
             'o' as u8, 'm' as u8, // server_name
         ]);
 
-        let result = TlsProtocolPack {}.find_host_name(&data);
+        let result = TlsProtocolPack {}.find_host(&data);
 
-        assert_eq!(result, Some(String::from("server.com")));
+        assert_eq!(
+            Some(Host {
+                name: String::from("server.com"),
+                port: None,
+            }),
+            result
+        );
     }
 
     #[test]
@@ -743,9 +749,15 @@ mod tests {
             'o' as u8, 'm' as u8, // server_name
         ]);
 
-        let result = TlsProtocolPack {}.find_host_name(&data);
+        let result = TlsProtocolPack {}.find_host(&data);
 
-        assert_eq!(result, Some(String::from("server.com")));
+        assert_eq!(
+            Some(Host {
+                name: String::from("server.com"),
+                port: None
+            }),
+            result
+        );
     }
 
     #[test]
@@ -776,8 +788,8 @@ mod tests {
             'o' as u8, 'm' as u8, // server_name
         ]);
 
-        let result = TlsProtocolPack {}.find_host_name(&data);
+        let result = TlsProtocolPack {}.find_host(&data);
 
-        assert_eq!(result, None);
+        assert_eq!(None, result);
     }
 }
