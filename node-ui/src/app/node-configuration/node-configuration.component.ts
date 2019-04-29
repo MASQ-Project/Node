@@ -4,6 +4,7 @@ import {Router} from '@angular/router';
 import {WalletType} from '../wallet-type.enum';
 import {Component, ElementRef, HostListener, OnInit, ViewChild} from '@angular/core';
 import {mutuallyRequiredValidator} from './node-configuration.mutually-required.validator';
+import {MainService} from '../main.service';
 
 @Component({
   selector: 'app-node-configuration',
@@ -16,7 +17,7 @@ export class NodeConfigurationComponent implements OnInit {
   neighborPattern = `(?:[a-zA-Z0-9\\/\\+]{43}):${this.ipPattern}:(?:\\d+)(?:,\\d+)*`;
   walletPattern = '0x[a-fA-F0-9]{40}';
 
-  constructor(private configService: ConfigService, private router: Router) {
+  constructor(private configService: ConfigService, private router: Router, private mainService: MainService) {
   }
 
   nodeConfig = new FormGroup({
@@ -47,6 +48,9 @@ export class NodeConfigurationComponent implements OnInit {
       this.nodeConfig.patchValue(config);
     });
     window.resizeTo(620, 560);
+    this.mainService.lookupIp().subscribe((ip) => {
+      this.nodeConfig.patchValue({'ip': ip});
+    });
   }
 
   isActive(value: string): boolean {

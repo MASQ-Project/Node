@@ -79,6 +79,7 @@ describe('MainService', () => {
       when(mockSendSync('change-node-state', 'turn-off', matchers.anything())).thenReturn('Off');
       when(mockSendSync('change-node-state', 'serve', matchers.anything())).thenReturn('Serving');
       when(mockSendSync('change-node-state', 'consume', matchers.anything())).thenReturn('Consuming');
+      when(mockSendSync('ip-lookup')).thenReturn('4.3.2.1');
     });
 
     it('tells the main to turn off', () => {
@@ -97,6 +98,10 @@ describe('MainService', () => {
       service.consume().subscribe((v) => {
         expect(v).toBe('Consuming');
       });
+    });
+
+    it('looks up the ip address', () => {
+      service.lookupIp().subscribe(result => expect(result).toBe('4.3.2.1'));
     });
 
     describe('when configuration exists', () => {

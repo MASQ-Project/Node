@@ -10,6 +10,7 @@ import {NodeConfiguration} from './node-configuration';
 @Injectable({
   providedIn: 'root'
 })
+
 export class MainService {
 
   private statusListener: BehaviorSubject<NodeStatus> = new BehaviorSubject(NodeStatus.Off);
@@ -43,8 +44,11 @@ export class MainService {
     this.electronService.clipboard.writeText(text);
   }
 
+  lookupIp(): Observable<string> {
+    return of(this.electronService.ipcRenderer.sendSync('ip-lookup'));
+  }
+
   private changeNodeState(state, config?: NodeConfiguration): Observable<NodeStatus> {
     return of(this.electronService.ipcRenderer.sendSync('change-node-state', state, config));
   }
-
 }

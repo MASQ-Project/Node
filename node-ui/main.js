@@ -1,7 +1,8 @@
-const {app, dialog, BrowserWindow, ipcMain, Menu} = require('electron')
+const { app, dialog, BrowserWindow, ipcMain, Menu } = require('electron')
 const path = require('path')
 const url = require('url')
 const process = require('./main-process/wrappers/process_wrapper')
+const http = require('http')
 
 const NodeActuator = require('./main-process/node_actuator')
 
@@ -16,21 +17,21 @@ function createWindow () {
       {
         label: app.getName(),
         submenu: [
-          {role: 'quit'}
+          { role: 'quit' }
         ]
       },
       {
         label: 'Edit',
         submenu: [
-          {role: 'undo'},
-          {role: 'redo'},
-          {type: 'separator'},
-          {role: 'cut'},
-          {role: 'copy'},
-          {role: 'paste'},
-          {role: 'pasteandmatchstyle'},
-          {role: 'delete'},
-          {role: 'selectall'}
+          { role: 'undo' },
+          { role: 'redo' },
+          { type: 'separator' },
+          { role: 'cut' },
+          { role: 'copy' },
+          { role: 'paste' },
+          { role: 'pasteandmatchstyle' },
+          { role: 'delete' },
+          { role: 'selectall' }
         ]
       }
     ]))
@@ -91,11 +92,23 @@ app.on('ready', createWindow)
 
 app.on('window-all-closed', app.quit)
 
-// initialize the app's main window
 app.on('activate', () => {
   if (mainWindow === null) {
     createWindow()
   }
+})
+
+ipcMain.on('ip-lookup', async (event, command, arguments) => {
+  let req = http.get(
+    { 'host': 'api.ipify.org', 'port': 80, 'path': '/', 'timeout': 1000 },
+    resp => {
+      let rawData = ''
+      resp.on('data', chunk => rawData += chunk)
+      resp.on('end', () => event.returnValue = rawData)
+    })
+
+  req.on('timeout', () => req.abort())
+  req.on('error', () => event.returnValue = '')
 })
 
 ipcMain.on('change-node-state', async (event, command, arguments) => {

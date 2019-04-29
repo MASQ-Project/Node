@@ -92,6 +92,12 @@ describe('Application launch', function () {
   it('toggles substratum node from off to serving back to off', async () => {
     let client = this.app.client
     await client.waitUntilWindowLoaded()
+    await page.ipInput.setValue('1.2.3.4')
+    await page.neighborInput.setValue('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345,4321')
+    await page.walletAddress.setValue('0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
+    await client.waitUntil(async () => {
+      return await page.saveConfig.isEnabled()
+    })
     client.element('#save-config').click()
     await client.waitUntilWindowLoaded()
 

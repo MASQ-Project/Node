@@ -9,6 +9,8 @@ import {Router} from '@angular/router';
 import {BehaviorSubject, Subject} from 'rxjs';
 import {NodeConfiguration} from '../node-configuration';
 import {NodeConfigurationPage} from './node-configuration-page';
+import {of} from 'rxjs/internal/observable/of';
+import {MainService} from '../main.service';
 
 describe('NodeConfigurationComponent', () => {
   let component: NodeConfigurationComponent;
@@ -20,13 +22,19 @@ describe('NodeConfigurationComponent', () => {
   let mockLoad;
   let mockNavigateByUrl;
   let storedConfig: Subject<NodeConfiguration>;
+  let mockMainService;
+  let mockLookupIp;
 
   beforeEach(async(() => {
     storedConfig = new BehaviorSubject(new NodeConfiguration());
     mockSave = func('save');
     mockLoad = func('load');
     mockNavigateByUrl = func('navigateByUrl');
+    mockLookupIp = func('lookupIp');
 
+    mockMainService = {
+      lookupIp: mockLookupIp
+    };
     mockConfigService = {
       save: mockSave,
       load: mockLoad
@@ -42,6 +50,7 @@ describe('NodeConfigurationComponent', () => {
       ],
       providers: [
         {provide: ConfigService, useValue: mockConfigService},
+        {provide: MainService, useValue: mockMainService},
         {provide: Router, useValue: mockRouter}
       ]
     })
@@ -50,263 +59,292 @@ describe('NodeConfigurationComponent', () => {
 
   beforeEach(() => {
     when(mockConfigService.load()).thenReturn(storedConfig.asObservable());
-    fixture = TestBed.createComponent(NodeConfigurationComponent);
-    page = new NodeConfigurationPage(fixture);
-    component = fixture.componentInstance;
-    fixture.detectChanges();
   });
 
   afterEach(() => {
     reset();
   });
 
-  it('should create', () => {
-    expect(component).toBeTruthy();
-  });
-
-  describe('Wallet section', () => {
-    xdescribe('when toggled to consuming', () => {
+  describe('successful ip address lookup', () => {
+    describe('ip is filled out if it can be looked up', () => {
       beforeEach(() => {
-        page.consumingWalletBtn.click();
+        when(mockMainService.lookupIp()).thenReturn(of('192.168.1.1'));
+        fixture = TestBed.createComponent(NodeConfigurationComponent);
+        page = new NodeConfigurationPage(fixture);
+        component = fixture.componentInstance;
         fixture.detectChanges();
       });
 
-      it('consuming is highlighted to indicate it is selected', () => {
-        expect(page.consumingWalletBtn.classList).toContain('button-active');
-        expect(page.earningWalletBtn.classList).not.toContain('button-active');
+      it('should create', () => {
+        expect(component).toBeTruthy();
       });
 
-      it('allows the user to enter a private key', () => {
-        expect(page.privateKeyTxt).toBeTruthy();
-      });
-    });
-
-    describe('when toggled to earning', () => {
-      beforeEach(() => {
-        page.earningWalletBtn.click();
-        fixture.detectChanges();
-      });
-
-      it('earning is highlighted to indicate it is selected', () => {
-        expect(page.earningWalletBtn.classList).toContain('button-active');
-        // Re-enable when consuming is shown
-        // expect(page.consumingWalletBtn.classList).not.toContain('button-active');
-      });
-
-      it('only allows the user to enter a wallet address', () => {
-        expect(page.privateKeyTxt).toBeFalsy();
-      });
-    });
-
-    describe('with a filled out form', () => {
-      describe('when submitted', () => {
-        const expected = {
-          ip: '127.0.0.1',
-          neighbor: 'neighbornodedescriptor',
-          walletAddress: 'address',
-          // privateKey: 'private',
-          privateKey: '',
-        };
-
-        beforeEach(() => {
-          page.setIp('127.0.0.1');
-          page.setNeighbor('neighbornodedescriptor');
-          // page.setPrivateKey('private');
-          page.setWalletAddress('address');
-          page.saveConfigBtn.click();
-          fixture.detectChanges();
-        });
-
-        it('persists the values', () => {
-          verify(mockSave(expected));
-        });
-
-        it('redirects to the main screen', () => {
-          verify(mockNavigateByUrl('/index'));
-        });
+      it('is filled out', () => {
+        expect(page.ipTxt.value).toBe('192.168.1.1');
       });
     });
   });
 
-  describe('when configuration already exists', () => {
-    const expected: NodeConfiguration = {
-      ip: '127.0.0.1',
-      neighbor: 'neighbornodedescriptor',
-      walletAddress: 'address',
-      // privateKey: 'private', switch back when consuming is brought in
-      privateKey: '',
-    };
-
+  describe('unsuccessful ip address lookup', () => {
     beforeEach(() => {
-      storedConfig.next(expected);
-    });
-
-    it('is prepopulated with that data', () => {
-      expect(page.ipTxt.value).toBe('127.0.0.1');
-      expect(page.neighborTxt.value).toBe('neighbornodedescriptor');
-      // expect(page.privateKeyTxt.value).toBe('private');
-      expect(page.walletAddressTxt.value).toBe('address');
-    });
-  });
-
-  describe('when clicking the node descriptor help icon', () => {
-
-    beforeEach(() => {
-      page.nodeDescriptorHelpImg.click();
+      when(mockMainService.lookupIp()).thenReturn(of(''));
+      fixture = TestBed.createComponent(NodeConfigurationComponent);
+      page = new NodeConfigurationPage(fixture);
+      component = fixture.componentInstance;
       fixture.detectChanges();
     });
+    describe('the ip field', () => {
 
-    it('displays the help message', () => {
-      expect(page.nodeDescriptorTooltip).toBeTruthy();
+      it('should create', () => {
+        expect(component).toBeTruthy();
+      });
+
+      it('starts blank', () => {
+        expect(page.ipTxt.value).toBe('');
+      });
     });
 
-    describe('clicking anywhere', () => {
+    describe('Wallet section', () => {
+      xdescribe('when toggled to consuming', () => {
+        beforeEach(() => {
+          page.consumingWalletBtn.click();
+        });
+
+        it('consuming is highlighted to indicate it is selected', () => {
+          expect(page.consumingWalletBtn.classList).toContain('button-active');
+          expect(page.earningWalletBtn.classList).not.toContain('button-active');
+        });
+
+        it('allows the user to enter a private key', () => {
+          expect(page.privateKeyTxt).toBeTruthy();
+        });
+      });
+
+      describe('when toggled to earning', () => {
+        beforeEach(() => {
+          page.earningWalletBtn.click();
+        });
+
+        it('earning is highlighted to indicate it is selected', () => {
+          expect(page.earningWalletBtn.classList).toContain('button-active');
+          // Re-enable when consuming is shown
+          // expect(page.consumingWalletBtn.classList).not.toContain('button-active');
+        });
+
+        it('only allows the user to enter a wallet address', () => {
+          expect(page.privateKeyTxt).toBeFalsy();
+        });
+      });
+
+      describe('with a filled out form', () => {
+        describe('when submitted', () => {
+          const expected = {
+            ip: '127.0.0.1',
+            neighbor: 'neighbornodedescriptor',
+            walletAddress: 'address',
+            // privateKey: 'private',
+            privateKey: '',
+          };
+
+          beforeEach(() => {
+            page.setIp('127.0.0.1');
+            page.setNeighbor('neighbornodedescriptor');
+            // page.setPrivateKey('private');
+            page.setWalletAddress('address');
+            page.saveConfigBtn.click();
+          });
+
+          it('persists the values', () => {
+            verify(mockSave(expected));
+          });
+
+          it('redirects to the main screen', () => {
+            verify(mockNavigateByUrl('/index'));
+          });
+        });
+      });
+    });
+
+    describe('when configuration already exists', () => {
+      const expected: NodeConfiguration = {
+        ip: '127.0.0.1',
+        neighbor: 'neighbornodedescriptor',
+        walletAddress: 'address',
+        // privateKey: 'private', switch back when consuming is brought in
+        privateKey: '',
+      };
+
       beforeEach(() => {
+        storedConfig.next(expected);
+      });
+
+      it('is prepopulated with that data', () => {
+        expect(page.ipTxt.value).toBe('127.0.0.1');
+        expect(page.neighborTxt.value).toBe('neighbornodedescriptor');
+        // expect(page.privateKeyTxt.value).toBe('private');
+        expect(page.walletAddressTxt.value).toBe('address');
+      });
+    });
+
+    describe('when clicking the node descriptor help icon', () => {
+
+      beforeEach(() => {
+        page.nodeDescriptorHelpImg.click();
+        fixture.detectChanges();
+      });
+
+      it('displays the help message', () => {
         expect(page.nodeDescriptorTooltip).toBeTruthy();
-        page.containerDiv.click();
-        fixture.detectChanges();
       });
 
-      it('hides the help message', () => {
-        expect(page.nodeDescriptorTooltip).toBeFalsy();
-      });
-    });
-  });
-
-  describe('Validation', () => {
-    describe('ip bad format', () => {
-      beforeEach(() => {
-        page.setIp('abc123');
-        fixture.detectChanges();
-      });
-
-      it('displays an invalid format error', () => {
-        expect(page.ipValidationPatternLi).toBeTruthy();
-      });
-    });
-
-    describe('valid ipv4 address', () => {
-      beforeEach(() => {
-        page.setIp('192.168.1.1');
-        fixture.detectChanges();
-      });
-
-      it('does not display an invalid format error', () => {
-        expect(page.ipValidationPatternLi).toBeFalsy();
-      });
-    });
-
-    describe('joint required fields', () => {
-      describe('neither provided', () => {
-        it('should be valid', () => {
-          expect(page.ipValidationRequiredLi).toBeFalsy();
-          expect(page.neighborValidationRequiredLi).toBeFalsy();
-        });
-      });
-
-      describe('only ip provided', () => {
+      describe('clicking anywhere', () => {
         beforeEach(() => {
-          page.setIp('1.2.3.4');
+          expect(page.nodeDescriptorTooltip).toBeTruthy();
+          page.containerDiv.click();
           fixture.detectChanges();
         });
 
-        it('neighbor validation should be invalid', () => {
-          expect(page.ipValidationRequiredLi).toBeFalsy();
-          expect(page.neighborValidationRequiredLi).toBeTruthy();
+        it('hides the help message', () => {
+          expect(page.nodeDescriptorTooltip).toBeFalsy();
+        });
+      });
+    });
+
+    describe('Validation', () => {
+      describe('ip bad format', () => {
+        beforeEach(() => {
+          page.setIp('abc123');
+          fixture.detectChanges();
+        });
+
+        it('displays an invalid format error', () => {
+          expect(page.ipValidationPatternLi).toBeTruthy();
         });
       });
 
-      describe('only neighbor provided', () => {
+      describe('valid ipv4 address', () => {
+        beforeEach(() => {
+          page.setIp('192.168.1.1');
+          fixture.detectChanges();
+        });
+
+        it('does not display an invalid format error', () => {
+          expect(page.ipValidationPatternLi).toBeFalsy();
+        });
+      });
+
+      describe('joint required fields', () => {
+        describe('neither provided', () => {
+          it('should be valid', () => {
+            expect(page.ipValidationRequiredLi).toBeFalsy();
+            expect(page.neighborValidationRequiredLi).toBeFalsy();
+          });
+        });
+
+        describe('only ip provided', () => {
+          beforeEach(() => {
+            page.setIp('1.2.3.4');
+            fixture.detectChanges();
+          });
+
+          it('neighbor validation should be invalid', () => {
+            expect(page.ipValidationRequiredLi).toBeFalsy();
+            expect(page.neighborValidationRequiredLi).toBeTruthy();
+          });
+        });
+
+        describe('only neighbor provided', () => {
+          beforeEach(() => {
+            page.setNeighbor('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345,4321');
+            fixture.detectChanges();
+          });
+
+          it('ip validation should be invalid', () => {
+            expect(page.ipValidationRequiredLi).toBeTruthy();
+            expect(page.neighborValidationRequiredLi).toBeFalsy();
+          });
+        });
+
+        describe('both provided', () => {
+          beforeEach(() => {
+            page.setIp('1.2.3.4');
+            page.setNeighbor('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345,4321');
+            fixture.detectChanges();
+          });
+
+          it('should be valid', () => {
+            expect(page.ipValidationRequiredLi).toBeFalsy();
+            expect(page.neighborValidationRequiredLi).toBeFalsy();
+          });
+        });
+      });
+
+      describe('bad node descriptor', () => {
+        beforeEach(() => {
+          page.setNeighbor('pewpew');
+          fixture.detectChanges();
+        });
+
+        it('is in error if it is not in node descriptor format', () => {
+          expect(page.neighborValidationPatternLi).toBeTruthy();
+        });
+      });
+
+      describe('valid node descriptor', () => {
         beforeEach(() => {
           page.setNeighbor('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345,4321');
           fixture.detectChanges();
         });
 
-        it('ip validation should be invalid', () => {
-          expect(page.ipValidationRequiredLi).toBeTruthy();
-          expect(page.neighborValidationRequiredLi).toBeFalsy();
+        it('is not in error if it is in node descriptor format', () => {
+          expect(page.neighborValidationPatternLi).toBeFalsy();
         });
       });
 
-      describe('both provided', () => {
+      describe('bad wallet address', () => {
         beforeEach(() => {
-          page.setIp('1.2.3.4');
-          page.setNeighbor('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345,4321');
+          page.setWalletAddress('0xbadaddy');
           fixture.detectChanges();
         });
 
-        it('should be valid', () => {
-          expect(page.ipValidationRequiredLi).toBeFalsy();
-          expect(page.neighborValidationRequiredLi).toBeFalsy();
+        it('shows a validation error', () => {
+          expect(page.walletValidationPatternLi).toBeTruthy();
         });
       });
-    });
 
-    describe('bad node descriptor', () => {
-      beforeEach(() => {
-        page.setNeighbor('pewpew');
-        fixture.detectChanges();
+      describe('valid wallet address', () => {
+        beforeEach(() => {
+          page.setWalletAddress('0xdddddddddddddddddddddddddddddddddddddddd');
+          fixture.detectChanges();
+        });
+
+        it('does not show a validation error', () => {
+          expect(page.walletValidationPatternLi).toBeFalsy();
+        });
       });
 
-      it('is in error if it is not in node descriptor format', () => {
-        expect(page.neighborValidationPatternLi).toBeTruthy();
-      });
-    });
+      describe('invalid form', () => {
+        beforeEach(() => {
+          page.setIp('abc123');
+          fixture.detectChanges();
+        });
 
-    describe('valid node descriptor', () => {
-      beforeEach(() => {
-        page.setNeighbor('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345,4321');
-        fixture.detectChanges();
-      });
-
-      it('is not in error if it is in node descriptor format', () => {
-        expect(page.neighborValidationPatternLi).toBeFalsy();
-      });
-    });
-
-    describe('bad wallet address', () => {
-      beforeEach(() => {
-        page.setWalletAddress('0xbadaddy');
-        fixture.detectChanges();
+        it('save config button is disabled', () => {
+          expect(page.saveConfigBtn.disabled).toBeTruthy();
+        });
       });
 
-      it('shows a validation error', () => {
-        expect(page.walletValidationPatternLi).toBeTruthy();
-      });
-    });
+      describe('valid filled out form', () => {
+        beforeEach(() => {
+          page.setIp('192.168.1.1');
+          page.setNeighbor('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345,4321');
+          page.setWalletAddress('0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
+          fixture.detectChanges();
+        });
 
-    describe('valid wallet address', () => {
-      beforeEach(() => {
-        page.setWalletAddress('0xdddddddddddddddddddddddddddddddddddddddd');
-        fixture.detectChanges();
-      });
-
-      it('does not show a validation error', () => {
-        expect(page.walletValidationPatternLi).toBeFalsy();
-      });
-    });
-
-    describe('invalid form', () => {
-      beforeEach(() => {
-        page.setIp('abc123');
-        fixture.detectChanges();
-      });
-
-      it('save config button is disabled', () => {
-        expect(page.saveConfigBtn.disabled).toBeTruthy();
-      });
-    });
-
-    describe('valid filled out form', () => {
-      beforeEach(() => {
-        page.setIp('192.168.1.1');
-        page.setNeighbor('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345,4321');
-        page.setWalletAddress('0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
-        fixture.detectChanges();
-      });
-
-      it('save config button is disabled', () => {
-        expect(page.saveConfigBtn.disabled).toBeFalsy();
+        it('save config button is disabled', () => {
+          expect(page.saveConfigBtn.disabled).toBeFalsy();
+        });
       });
     });
   });
