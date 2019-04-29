@@ -34,27 +34,15 @@ impl HttpProtocolPack {
         let first_line = &data[0..idx];
         let (index, prefix) =
             HttpProtocolPack::find_first(first_line, vec![&b" http://"[..], &b" https://"[..]])?;
-        let begin = index + prefix.len();
-        let second_space_index = index_of(&data[begin..], &b" "[..])? + begin;
-
-        let index = match HttpProtocolPack::find_first(
-            &first_line[begin..second_space_index],
-            vec![&b":"[..], &b"/"[..]],
-        ) {
-            Some((index, _)) => index,
-            None => second_space_index - begin,
+        let path_begin = index + prefix.len();
+        let path_end = index_of(&data[path_begin..], &b" "[..])? + path_begin;
+        let path = match String::from_utf8(Vec::from(&data[path_begin..path_end])) {
+            Ok(s) => s,
+            Err(_) => return None,
         };
-        let name_end = begin + index;
-        let hostname_u8s = &first_line[begin..name_end];
-        match String::from_utf8(Vec::from(hostname_u8s)) {
-            Ok(name) => Some(Host {
-                name,
-                port: HttpProtocolPack::find_port_in_host(
-                    &first_line[name_end..second_space_index],
-                ),
-            }),
-            Err(_) => None,
-        }
+        let mut path_parts: Vec<&str> = path.split("/").collect();
+        let host_name_and_port = path_parts.remove(0);
+        Self::host_from_host_name_and_port(host_name_and_port)
     }
 
     fn find_header_host(data: &[u8]) -> Option<Host> {
@@ -62,39 +50,34 @@ impl HttpProtocolPack {
         let headers = &data[0..idx + 2];
         let needle = b"\r\nHost: ";
         let begin = index_of(&headers, &needle[..])? + needle.len();
-        let newline = index_of(&headers[begin..], &b"\r\n"[..])? + begin;
-
-        let name_end = match index_of(&headers[begin..], &b":"[..]) {
-            Some(colon) => colon + begin,
-            None => newline,
+        let host_header_value =
+            &headers[begin..(index_of(&headers[begin..], &b"\r\n"[..])? + begin)];
+        let host_and_port = match String::from_utf8(Vec::from(host_header_value)) {
+            Err(_) => return None,
+            Ok(s) => s,
         };
-        let hostname_u8s = &headers[begin..name_end];
-        match String::from_utf8(Vec::from(hostname_u8s)) {
-            Ok(name) => Some(Host {
-                name,
-                port: HttpProtocolPack::find_port_in_host(&headers[name_end..newline]),
+        Self::host_from_host_name_and_port(&host_and_port)
+    }
+
+    fn host_from_host_name_and_port(host_and_port: &str) -> Option<Host> {
+        let mut parts: Vec<&str> = host_and_port.split(":").collect();
+        match parts.len() {
+            1 => Some(Host {
+                name: parts.remove(0).to_string(),
+                port: None,
             }),
-            Err(_) => None,
+            2 => Some(Host {
+                name: parts.remove(0).to_string(),
+                port: Self::port_from_string(parts.remove(0).to_string()),
+            }),
+            _ => None,
         }
     }
 
-    fn find_port_in_host(slice: &[u8]) -> Option<u16> {
-        if slice.len() < 2 {
-            return None;
-        }
-
-        if slice[0] == b":"[..][0] {
-            let end = match index_of(slice, &b"/"[..]) {
-                Some(index) => index,
-                None => slice.len(),
-            };
-            let port_u8s = &slice[1..end];
-            String::from_utf8(Vec::from(port_u8s))
-                .ok()?
-                .parse::<u16>()
-                .ok()
-        } else {
-            None
+    fn port_from_string(port_str: String) -> Option<u16> {
+        match port_str.parse::<u16>() {
+            Err(_) => None,
+            Ok(port) => Some(port),
         }
     }
 
@@ -167,6 +150,29 @@ mod tests {
     }
 
     #[test]
+    fn rejects_host_header_with_two_colons() {
+        let data = PlainData::new(
+            b"OPTIONS /index.html HTTP/1.1\r\nHost: header.host.com:1234:2345\r\n\r\nbodybody",
+        );
+
+        let result = HttpProtocolPack {}.find_host(&data);
+
+        assert_eq!(None, result);
+    }
+
+    #[test]
+    fn failed_in_production_2019_26_04() {
+        let data = PlainData::new(
+            b"GET /index.html HTTP/1.1\r\nHost: 192.168.1.230\r\nUser-Agent: curl/7.47.0\r\nAccept:*/*\r\n\r\n"
+        );
+
+        let host = HttpProtocolPack {}.find_host(&data).unwrap();
+
+        assert_eq!(String::from("192.168.1.230"), host.name);
+        assert_eq!(None, host.port);
+    }
+
+    #[test]
     fn returns_host_name_and_port_from_url_if_both_exist() {
         let data = PlainData::new (b"OPTIONS http://top.host.com:1234/index.html HTTP/1.1\r\nHost: header.host.com:5432\r\n\r\nbodybody");
 
@@ -211,6 +217,15 @@ mod tests {
 
         assert_eq!(String::from("top.host.com"), host.name);
         assert_eq!(Some(8080), host.port);
+    }
+
+    #[test]
+    fn specifying_two_colons_in_the_url() {
+        let data = PlainData::new (b"HEAD http://top.host.com:8080:1234/index.html HTTP/1.1\r\nContent-Length: 23\r\n\r\nHost: body.host.com\r\n\r\n");
+
+        let result = HttpProtocolPack {}.find_host(&data);
+
+        assert_eq!(None, result);
     }
 
     #[test]

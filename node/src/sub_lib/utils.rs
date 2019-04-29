@@ -36,7 +36,7 @@ where
                 mismatch = true;
                 break;
             }
-            if haystack[h + n] != needle[n] {
+            if haystack[i] != needle[n] {
                 mismatch = true;
                 break;
             }
