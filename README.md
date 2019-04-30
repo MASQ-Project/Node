@@ -142,19 +142,6 @@ Specify the number of clandestine ports your SubstratumNode should listen on.  I
 print them to the console when it starts up.  The default value of n is 0 (zero-hop).  Note: This is a temporary 
 parameter; configuration like this will be done differently in the future.
 
-* `--dns_target <IP address>`
-The DNS server that is part of the SubstratumNode always gives the same answer to every query. This is how you can change
-that answer: specify it here and the DNS server will direct all requests to the target you specify. The default, of
-course, is `127.0.0.1`.  We found this parameter useful for testing, but we don't use it anymore and you probably won't
-need it either.
-
-* `--dns_port <port>`
-Almost everything that uses a DNS server expects to find it listening on port 53.  In the early days of development,
-we found it inconvenient to always put the DNS server on port 53, because it requires admin privilege to do so; so we
-put in this parameter so that we could put it elsewhere and point tests at it.  Since then we've had to find ways to
-do testing on low ports anyway, so now we always leave this parameter out and let it default to 53.  You probably won't
-have much use for this.
-
 * `--log_level < off | error | warn | info | debug | trace >`
 The Node has the potential to log a lot of data. (A _lot_ of data: a busy Node can fill your disk in a few minutes.) This
 parameter allows you to specify how much of that potential will be realized. `trace` will encourage the Node to reach its

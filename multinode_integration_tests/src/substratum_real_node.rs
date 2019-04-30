@@ -84,10 +84,6 @@ impl NodeStartupConfig {
         );
         args.push("--port_count".to_string());
         args.push(format!("{}", self.port_count));
-        args.push("--dns_target".to_string());
-        args.push(format!("{}", self.dns_target));
-        args.push("--dns_port".to_string());
-        args.push(format!("{}", self.dns_port));
         args.push("--log_level".to_string());
         args.push("trace".to_string());
         args.push("--data_directory".to_string());
@@ -691,10 +687,6 @@ mod tests {
                 "standard",
                 "--port_count",
                 "1",
-                "--dns_target",
-                "127.0.0.1",
-                "--dns_port",
-                "53",
                 "--log_level",
                 "trace",
                 "--data_directory",

@@ -3,140 +3,123 @@ use super::packet_facade::PacketFacade;
 use super::packet_facade::Query;
 use super::packet_facade::ResourceRecord;
 use crate::sub_lib::logger::Logger;
-use std::net::IpAddr;
+use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::time::Instant;
 
-pub trait ProcessorTrait: Send + Sync {
-    fn process(&self, buf: &mut [u8], length: usize, addr: &SocketAddr, logger: &Logger) -> usize;
-}
-
-pub struct ProcessorReal {
-    target_ip: IpAddr,
-}
-
-impl ProcessorReal {
-    pub fn new(target_ip: IpAddr) -> ProcessorReal {
-        ProcessorReal { target_ip }
-    }
-}
-
-impl ProcessorTrait for ProcessorReal {
-    fn process(&self, buf: &mut [u8], length: usize, addr: &SocketAddr, logger: &Logger) -> usize {
-        let mut facade = PacketFacade::new(buf, length);
-        let request_record = RequestRecord {
-            timestamp: Instant::now(),
-            opcode: facade.get_opcode().unwrap_or(0xFF),
-            queries: facade.get_queries().unwrap_or(vec![]),
-        };
-        let result: usize;
-        loop {
-            if facade
-                .get_opcode()
-                .expect("The provided buffer must have more than 0 bytes")
-                != 0x0
-            {
-                result = ProcessorReal::make_not_implemented_error(&mut facade);
-                break;
-            }
-            let success = facade.set_query(false)
-                && facade.set_authoritative_answer(false)
-                && facade.set_truncated(false)
-                && facade.set_recursion_available(true)
-                && facade.set_authenticated_data(false)
-                && facade.set_checking_disabled(false);
-            if !success {
-                result = ProcessorReal::make_format_error(&mut facade);
-                break;
-            };
-            let queries = match facade.get_queries() {
-                None => {
-                    result = ProcessorReal::make_format_error(&mut facade);
-                    break;
-                }
-                Some(q) => q,
-            };
-            for query in queries {
-                if query.get_query_type() != 0x0001 {
-                    return ProcessorReal::make_not_implemented_error(&mut facade);
-                }
-                if query.get_query_class() != 0x0001 {
-                    return ProcessorReal::make_not_implemented_error(&mut facade);
-                }
-                let octets = match self.target_ip {
-                    IpAddr::V4(ipv4) => ipv4.octets(),
-                    // crashpoint - make a card
-                    IpAddr::V6(_ipv6) => unimplemented!(),
-                };
-                facade.add_answer(&query.get_query_name(), 0x0001, 0x0001, 3600, &octets);
-            }
-
-            result = facade.get_length();
+pub fn process(buf: &mut [u8], length: usize, addr: &SocketAddr, logger: &Logger) -> usize {
+    let mut facade = PacketFacade::new(buf, length);
+    let request_record = RequestRecord {
+        timestamp: Instant::now(),
+        opcode: facade.get_opcode().unwrap_or(0xFF),
+        queries: facade.get_queries().unwrap_or(vec![]),
+    };
+    let result: usize;
+    loop {
+        if facade
+            .get_opcode()
+            .expect("The provided buffer must have more than 0 bytes")
+            != 0x0
+        {
+            result = make_not_implemented_error(&mut facade);
             break;
         }
-        let latency = request_record.timestamp.elapsed();
-        let response_record = ResponseRecord {
-            latency_ns: ((latency.as_secs() as u64) * 1000000000) + (latency.subsec_nanos() as u64),
-            rcode: facade.get_rcode().unwrap_or(0xFF),
-            answers: facade.get_answers().unwrap_or(vec![]),
+        let success = facade.set_query(false)
+            && facade.set_authoritative_answer(false)
+            && facade.set_truncated(false)
+            && facade.set_recursion_available(true)
+            && facade.set_authenticated_data(false)
+            && facade.set_checking_disabled(false);
+        if !success {
+            result = make_format_error(&mut facade);
+            break;
         };
-        ProcessorReal::write_log(&request_record, &response_record, addr, logger);
-        return result;
-    }
-}
-
-impl ProcessorReal {
-    fn make_format_error(facade: &mut PacketFacade<'_>) -> usize {
-        facade.set_query(false);
-        facade.set_authoritative_answer(false);
-        facade.set_truncated(false);
-        facade.set_recursion_available(true);
-        facade.set_authenticated_data(false);
-        facade.set_checking_disabled(false);
-        facade.set_rcode(0x1);
-        facade.clear();
-        return 12;
-    }
-
-    fn make_not_implemented_error(facade: &mut PacketFacade<'_>) -> usize {
-        facade.set_query(false);
-        facade.set_authoritative_answer(false);
-        facade.set_truncated(false);
-        facade.set_recursion_available(true);
-        facade.set_authenticated_data(false);
-        facade.set_checking_disabled(false);
-        facade.set_rcode(0x4);
-        facade.clear();
-        return 12;
-    }
-
-    fn write_log(from: &RequestRecord, to: &ResponseRecord, addr: &SocketAddr, logger: &Logger) {
-        let mut query_list = String::new();
-        for query in from.queries.as_slice() {
-            if !query_list.is_empty() {
-                query_list += ", "
+        let queries = match facade.get_queries() {
+            None => {
+                result = make_format_error(&mut facade);
+                break;
             }
-            query_list += &format!(
-                "{}/{}/{}",
-                query.get_query_type(),
-                query.get_query_class(),
-                query.get_query_name()
+            Some(q) => q,
+        };
+        for query in queries {
+            if query.get_query_type() != 0x0001 {
+                return make_not_implemented_error(&mut facade);
+            }
+            if query.get_query_class() != 0x0001 {
+                return make_not_implemented_error(&mut facade);
+            }
+            facade.add_answer(
+                &query.get_query_name(),
+                0x0001,
+                0x0001,
+                3600,
+                &Ipv4Addr::LOCALHOST.octets(),
             );
         }
-        let mut answer_list = String::new();
-        for answer in to.answers.as_slice() {
-            if !answer_list.is_empty() {
-                answer_list += ", "
-            }
-            let rdata = answer.get_rdata();
-            // TODO: What if there aren't four elements in this array?
-            answer_list += &format!("{}.{}.{}.{}", rdata[0], rdata[1], rdata[2], rdata[3])
-        }
-        logger.info(format!(
-            "{}ns: {} RQ{:X} ({}) -> RS{:X} ({})",
-            to.latency_ns, addr, from.opcode, &query_list, to.rcode, &answer_list
-        ));
+
+        result = facade.get_length();
+        break;
     }
+    let latency = request_record.timestamp.elapsed();
+    let response_record = ResponseRecord {
+        latency_ns: ((latency.as_secs() as u64) * 1000000000) + (latency.subsec_nanos() as u64),
+        rcode: facade.get_rcode().unwrap_or(0xFF),
+        answers: facade.get_answers().unwrap_or(vec![]),
+    };
+    write_log(&request_record, &response_record, addr, logger);
+    return result;
+}
+
+fn make_format_error(facade: &mut PacketFacade<'_>) -> usize {
+    facade.set_query(false);
+    facade.set_authoritative_answer(false);
+    facade.set_truncated(false);
+    facade.set_recursion_available(true);
+    facade.set_authenticated_data(false);
+    facade.set_checking_disabled(false);
+    facade.set_rcode(0x1);
+    facade.clear();
+    return 12;
+}
+
+fn make_not_implemented_error(facade: &mut PacketFacade<'_>) -> usize {
+    facade.set_query(false);
+    facade.set_authoritative_answer(false);
+    facade.set_truncated(false);
+    facade.set_recursion_available(true);
+    facade.set_authenticated_data(false);
+    facade.set_checking_disabled(false);
+    facade.set_rcode(0x4);
+    facade.clear();
+    return 12;
+}
+
+fn write_log(from: &RequestRecord, to: &ResponseRecord, addr: &SocketAddr, logger: &Logger) {
+    let mut query_list = String::new();
+    for query in from.queries.as_slice() {
+        if !query_list.is_empty() {
+            query_list += ", "
+        }
+        query_list += &format!(
+            "{}/{}/{}",
+            query.get_query_type(),
+            query.get_query_class(),
+            query.get_query_name()
+        );
+    }
+    let mut answer_list = String::new();
+    for answer in to.answers.as_slice() {
+        if !answer_list.is_empty() {
+            answer_list += ", "
+        }
+        let rdata = answer.get_rdata();
+        // TODO: What if there aren't four elements in this array?
+        answer_list += &format!("{}.{}.{}.{}", rdata[0], rdata[1], rdata[2], rdata[3])
+    }
+    logger.info(format!(
+        "{}ns: {} RQ{:X} ({}) -> RS{:X} ({})",
+        to.latency_ns, addr, from.opcode, &query_list, to.rcode, &answer_list
+    ));
 }
 
 struct RequestRecord {
@@ -157,11 +140,9 @@ mod tests {
     use crate::sub_lib::logger::Logger;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
-    use std::net::IpAddr;
     use std::net::Ipv4Addr;
     use std::net::SocketAddr;
     use std::net::SocketAddrV4;
-    use std::str::FromStr;
     use std::time::Instant;
 
     #[test]
@@ -181,9 +162,8 @@ mod tests {
         let truncated_length = correct_length - 1;
         let truncated_buf = &mut correct_buf[0..truncated_length];
         let addr = SocketAddr::from(SocketAddrV4::new(Ipv4Addr::new(101, 102, 103, 104), 53));
-        let subject = ProcessorReal::new(IpAddr::from_str("123.124.125.126").unwrap());
 
-        let result = subject.process(truncated_buf, truncated_length, &addr, &Logger::new(""));
+        let result = process(truncated_buf, truncated_length, &addr, &Logger::new(""));
 
         check_format_error_message(truncated_buf, 0x1234);
         assert_eq!(result, 12);
@@ -203,9 +183,8 @@ mod tests {
             facade.get_length()
         };
         let addr = SocketAddr::from(SocketAddrV4::new(Ipv4Addr::new(101, 102, 103, 104), 53));
-        let subject = ProcessorReal::new(IpAddr::from_str("18.52.86.120").unwrap());
 
-        let rsp_length = subject.process(&mut buf, req_length, &addr, &Logger::new(""));
+        let rsp_length = process(&mut buf, req_length, &addr, &Logger::new(""));
 
         check_not_implemented_error_message(&mut buf, 0x1234, 0x1);
         assert_eq!(rsp_length, 12);
@@ -225,9 +204,8 @@ mod tests {
             facade.get_length()
         };
         let addr = SocketAddr::from(SocketAddrV4::new(Ipv4Addr::new(101, 102, 103, 104), 53));
-        let subject = ProcessorReal::new(IpAddr::from_str("18.52.86.120").unwrap());
 
-        let rsp_length = subject.process(&mut buf, req_length, &addr, &Logger::new(""));
+        let rsp_length = process(&mut buf, req_length, &addr, &Logger::new(""));
 
         check_not_implemented_error_message(&mut buf, 0x1234, 0x0);
         assert_eq!(rsp_length, 12);
@@ -247,9 +225,8 @@ mod tests {
             facade.get_length()
         };
         let addr = SocketAddr::from(SocketAddrV4::new(Ipv4Addr::new(101, 102, 103, 104), 53));
-        let subject = ProcessorReal::new(IpAddr::from_str("18.52.86.120").unwrap());
 
-        let rsp_length = subject.process(&mut buf, req_length, &addr, &Logger::new(""));
+        let rsp_length = process(&mut buf, req_length, &addr, &Logger::new(""));
 
         check_not_implemented_error_message(&mut buf, 0x1234, 0x0);
         assert_eq!(rsp_length, 12);
@@ -273,9 +250,7 @@ mod tests {
         };
         let addr = SocketAddr::from(SocketAddrV4::new(Ipv4Addr::new(101, 102, 103, 104), 53));
         let rsp_length = {
-            let subject = ProcessorReal::new(IpAddr::from_str("18.52.86.120").unwrap());
-
-            subject.process(
+            process(
                 &mut buf,
                 req_length,
                 &addr,
@@ -310,25 +285,21 @@ mod tests {
             assert_eq!(answers[0].get_resource_class(), 0x0001);
             assert_eq!(answers[0].get_resource_type(), 0x0001);
             assert_eq!(answers[0].get_time_to_live(), 3600);
-            assert_eq!(
-                answers[0].get_rdata(),
-                vec![0x12 as u8, 0x34 as u8, 0x56 as u8, 0x78 as u8].as_slice()
-            );
+            assert_eq!(answers[0].get_rdata(), vec![127, 0, 0, 1].as_slice());
             assert_eq!(answers[1].get_name(), "booga.com");
             assert_eq!(answers[1].get_resource_class(), 0x0001);
             assert_eq!(answers[1].get_resource_type(), 0x0001);
             assert_eq!(answers[1].get_time_to_live(), 3600);
-            assert_eq!(
-                answers[1].get_rdata(),
-                vec![0x12 as u8, 0x34 as u8, 0x56 as u8, 0x78 as u8].as_slice()
-            );
+            assert_eq!(answers[1].get_rdata(), vec![127, 0, 0, 1].as_slice());
             assert_eq!(answers.len(), 2);
             assert_eq!(response.get_authorities().unwrap().len(), 0);
             assert_eq!(response.get_additionals().unwrap().len(), 0);
         }
 
         let tlh = TestLogHandler::new();
-        tlh.exists_log_containing ("101.102.103.104:53 RQ0 (1/1/ooga.com, 1/1/booga.com) -> RS0 (18.52.86.120, 18.52.86.120)");
+        tlh.exists_log_containing(
+            "101.102.103.104:53 RQ0 (1/1/ooga.com, 1/1/booga.com) -> RS0 (127.0.0.1, 127.0.0.1)",
+        );
     }
 
     #[test]
@@ -366,7 +337,7 @@ mod tests {
         };
         let addr = SocketAddr::from(SocketAddrV4::new(Ipv4Addr::new(101, 102, 103, 104), 53));
         {
-            ProcessorReal::write_log(
+            write_log(
                 &request_record,
                 &response_record,
                 &addr,

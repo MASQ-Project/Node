@@ -3,25 +3,19 @@
 #[macro_use]
 pub mod packet_facade; // public only so that it can be used by the integration test
 mod dns_socket_server;
-mod processor;
+mod processing;
 
-use self::processor::ProcessorTrait;
 use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperReal;
 use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
-use std::net::IpAddr;
 
 pub struct DnsSocketServer {
-    dns_target: Option<IpAddr>,
     socket_wrapper: Box<dyn UdpSocketWrapperTrait>,
-    processor: Option<Box<dyn ProcessorTrait>>,
     buf: Option<[u8; 65536]>,
 }
 
 pub fn new_dns_socket_server() -> DnsSocketServer {
     DnsSocketServer {
-        dns_target: None,
         socket_wrapper: Box::new(UdpSocketWrapperReal::new()),
-        processor: None,
         buf: None,
     }
 }

@@ -1,17 +1,17 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use super::processor::ProcessorReal;
+use super::processing;
 use super::DnsSocketServer;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::socket_server::SocketServer;
 use std::borrow::BorrowMut;
-use std::net::IpAddr;
 use std::net::IpAddr::V4;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
-use std::str::FromStr;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
+
+const DNS_PORT: u16 = 53;
 
 impl Future for DnsSocketServer {
     type Item = ();
@@ -34,12 +34,8 @@ impl Future for DnsSocketServer {
                     return Err(());
                 }
             };
-            let processor_unwrapped = self
-                .processor
-                .as_ref()
-                .expect("Missing Processor - was initialized_as_privileged called?");
             let response_length =
-                processor_unwrapped.process(buffer.borrow_mut(), len, &socket_addr, &logger);
+                processing::process(buffer.borrow_mut(), len, &socket_addr, &logger);
             match self
                 .socket_wrapper
                 .send_to(&buffer[0..response_length], socket_addr)
@@ -59,9 +55,8 @@ impl SocketServer for DnsSocketServer {
         String::from("EntryDnsServer")
     }
 
-    fn initialize_as_privileged(&mut self, args: &Vec<String>, _streams: &mut StdStreams<'_>) {
-        self.dns_target = Some(get_dns_target(args));
-        let socket_addr = SocketAddr::new(V4(Ipv4Addr::from(0)), get_dns_port(args));
+    fn initialize_as_privileged(&mut self, _args: &Vec<String>, _streams: &mut StdStreams<'_>) {
+        let socket_addr = SocketAddr::new(V4(Ipv4Addr::from(0)), DNS_PORT);
         // The following expect() will cause an appropriate panic if the port can't be opened
         self.socket_wrapper
             .bind(socket_addr)
@@ -69,78 +64,7 @@ impl SocketServer for DnsSocketServer {
     }
 
     fn initialize_as_unprivileged(&mut self) {
-        let processor_real = ProcessorReal::new(
-            self.dns_target
-                .expect("Missing dns_target - was initialize_as_privileged called?"),
-        );
-        self.processor = Some(Box::new(processor_real));
         self.buf = Some([0; 65536]);
-    }
-}
-
-fn get_dns_target(args: &Vec<String>) -> IpAddr {
-    let finder = ParameterFinder::new(args);
-    let ip_addr_str = match finder.find_value_after(
-        "--dns_target",
-        "must be followed by IP address to redirect to (default 127.0.0.1)",
-    ) {
-        Some(s) => s,
-        None => String::from("127.0.0.1"),
-    };
-    match Ipv4Addr::from_str(&ip_addr_str) {
-        Ok(ip_addr) => V4(ip_addr),
-        Err(_) => panic!("Invalid IP address for --dns_target: {}", ip_addr_str),
-    }
-}
-
-fn get_dns_port(args: &Vec<String>) -> u16 {
-    let finder = ParameterFinder::new(args);
-    let port_str = match finder.find_value_after(
-        "--dns_port",
-        "must be followed by port number on which DNS server listens (default 53)",
-    ) {
-        Some(s) => s,
-        None => String::from("53"),
-    };
-    let port: u64 = match port_str.parse() {
-        Ok(p) => p,
-        Err(_) => panic!("DNS server port must be numeric, not '{}'", port_str),
-    };
-    if port < 1 || port > 65535 {
-        panic!("DNS server port must be in the range 1-65535, not {}", port)
-    }
-    port as u16
-}
-
-struct ParameterFinder<'a> {
-    args: &'a Vec<String>,
-}
-
-impl<'a> ParameterFinder<'a> {
-    fn new(args: &'a Vec<String>) -> ParameterFinder<'a> {
-        ParameterFinder { args }
-    }
-
-    fn find_value_after(&self, parameter_tag: &str, msg: &str) -> Option<String> {
-        let mut index = 0;
-        while index < self.args.len() {
-            if self.args[index] == parameter_tag {
-                if index == self.args.len() - 1 {
-                    // crashpoint - return none?
-                    panic!("{} {}", parameter_tag, msg);
-                }
-                let value: &str = &self.args[index + 1];
-                if value.starts_with("-") {
-                    // crashpoint - return none?
-                    panic!("{} {}", parameter_tag, msg);
-                } else {
-                    return Some(String::from(value));
-                }
-            }
-            // TODO: Should probably skip 2 if this item had a parameter
-            index += 1;
-        }
-        return None;
     }
 }
 
@@ -161,6 +85,7 @@ mod tests {
     use std::io::Error;
     use std::io::ErrorKind;
     use std::ops::DerefMut;
+    use std::str::FromStr;
     use std::sync::Arc;
     use std::sync::Mutex;
     use tokio;
@@ -256,198 +181,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "--dns_target must be followed by IP address to redirect to (default 127.0.0.1)"
-    )]
-    fn complains_about_missing_dns_target() {
-        let mut holder = FakeStreamHolder::new();
-        let mut subject = make_instrumented_subject(make_socket_wrapper_mock());
-
-        subject.initialize_as_privileged(
-            &vec![
-                String::from("--dns_target"),
-                String::from("--something_else"),
-            ],
-            &mut holder.streams(),
-        );
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "--dns_target must be followed by IP address to redirect to (default 127.0.0.1)"
-    )]
-    fn complains_about_missing_dns_target_at_end() {
-        let mut holder = FakeStreamHolder::new();
-        let mut subject = make_instrumented_subject(make_socket_wrapper_mock());
-
-        subject.initialize_as_privileged(
-            &vec![String::from("irrelevant"), String::from("--dns_target")],
-            &mut holder.streams(),
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "Invalid IP address for --dns_target: lots.and.lots.of.dots")]
-    fn complains_about_dns_target_with_too_many_dots() {
-        let mut holder = FakeStreamHolder::new();
-        let mut subject = make_instrumented_subject(make_socket_wrapper_mock());
-
-        subject.initialize_as_privileged(
-            &vec![
-                String::from("--dns_target"),
-                String::from("lots.and.lots.of.dots"),
-            ],
-            &mut holder.streams(),
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "Invalid IP address for --dns_target: only.two.dots")]
-    fn complains_about_dns_target_with_too_few_dots() {
-        let mut holder = FakeStreamHolder::new();
-        let mut subject = make_instrumented_subject(make_socket_wrapper_mock());
-
-        subject.initialize_as_privileged(
-            &vec![String::from("--dns_target"), String::from("only.two.dots")],
-            &mut holder.streams(),
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "Invalid IP address for --dns_target: 123.124.125.booga")]
-    fn complains_about_dns_target_with_nonnumeric_components() {
-        let mut holder = FakeStreamHolder::new();
-        let mut subject = make_instrumented_subject(make_socket_wrapper_mock());
-
-        subject.initialize_as_privileged(
-            &vec![
-                String::from("--dns_target"),
-                String::from("123.124.125.booga"),
-            ],
-            &mut holder.streams(),
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "Invalid IP address for --dns_target: 123.124.125.256")]
-    fn complains_about_dns_target_with_numeric_components_too_large() {
-        let mut holder = FakeStreamHolder::new();
-        let mut subject = make_instrumented_subject(make_socket_wrapper_mock());
-
-        subject.initialize_as_privileged(
-            &vec![
-                String::from("--dns_target"),
-                String::from("123.124.125.256"),
-            ],
-            &mut holder.streams(),
-        );
-    }
-
-    #[test]
-    fn accepts_valid_dns_target() {
-        let mut holder = FakeStreamHolder::new();
-        let mut subject = make_instrumented_subject(make_socket_wrapper_mock());
-
-        subject.initialize_as_privileged(
-            &vec![
-                String::from("--dns_target"),
-                String::from("123.124.125.126"),
-            ],
-            &mut holder.streams(),
-        );
-
-        assert_eq!(
-            subject.dns_target,
-            Some(V4(Ipv4Addr::from_str("123.124.125.126").unwrap()))
-        );
-    }
-
-    #[test]
-    fn defaults_unspecified_dns_target() {
-        let mut holder = FakeStreamHolder::new();
-        let mut subject = make_instrumented_subject(make_socket_wrapper_mock());
-
-        subject.initialize_as_privileged(&vec![], &mut holder.streams());
-
-        assert_eq!(
-            subject.dns_target,
-            Some(V4(Ipv4Addr::from_str("127.0.0.1").unwrap()))
-        );
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "--dns_port must be followed by port number on which DNS server listens (default 53)"
-    )]
-    fn complains_about_missing_dns_port() {
-        let mut holder = FakeStreamHolder::new();
-        let mut subject = make_instrumented_subject(make_socket_wrapper_mock());
-
-        subject.initialize_as_privileged(
-            &vec![String::from("--dns_port"), String::from("--something_else")],
-            &mut holder.streams(),
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "DNS server port must be numeric, not 'booga'")]
-    fn complains_if_dns_server_port_is_not_numeric() {
-        let mut holder = FakeStreamHolder::new();
-        let mut subject = make_instrumented_subject(make_socket_wrapper_mock());
-
-        subject.initialize_as_privileged(
-            &vec![String::from("--dns_port"), String::from("booga")],
-            &mut holder.streams(),
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "DNS server port must be in the range 1-65535, not 0")]
-    fn complains_if_dns_server_port_is_too_small() {
-        let mut holder = FakeStreamHolder::new();
-        let mut subject = make_instrumented_subject(make_socket_wrapper_mock());
-
-        subject.initialize_as_privileged(
-            &vec![String::from("--dns_port"), String::from("0")],
-            &mut holder.streams(),
-        );
-
-        panic!("Wrong message");
-    }
-
-    #[test]
-    #[should_panic(expected = "DNS server port must be in the range 1-65535, not 65536")]
-    fn complains_if_dns_server_port_is_too_large() {
-        let mut holder = FakeStreamHolder::new();
-        let mut subject = make_instrumented_subject(make_socket_wrapper_mock());
-
-        subject.initialize_as_privileged(
-            &vec![String::from("--dns_port"), String::from("65536")],
-            &mut holder.streams(),
-        );
-
-        panic!("Wrong message");
-    }
-
-    #[test]
-    fn accepts_valid_dns_port() {
-        let mut holder = FakeStreamHolder::new();
-        let socket_wrapper = make_socket_wrapper_mock();
-        let mut subject = make_instrumented_subject(socket_wrapper.clone());
-
-        subject.initialize_as_privileged(
-            &vec![String::from("--dns_port"), String::from("5454")],
-            &mut holder.streams(),
-        );
-
-        let unwrapped_guts = socket_wrapper.guts.lock().unwrap();
-        let borrowed_guts = unwrapped_guts.borrow();
-        let log = &borrowed_guts.log;
-        assert_eq!(log[0], "bind ('V4(0.0.0.0:5454)')")
-    }
-
-    #[test]
-    fn defaults_unspecified_dns_port() {
+    fn uses_standard_dns_port() {
         let mut holder = FakeStreamHolder::new();
         let socket_wrapper = make_socket_wrapper_mock();
         let mut subject = make_instrumented_subject(socket_wrapper.clone());
@@ -512,7 +246,6 @@ mod tests {
                 .push(Ok(Async::Ready(12)));
 
             let mut subject = make_instrumented_subject(socket_wrapper.clone());
-            subject.dns_target = Some(V4(Ipv4Addr::from_str("1.2.3.4").unwrap()));
 
             subject.initialize_as_unprivileged();
             tokio::run(subject);
@@ -555,7 +288,6 @@ mod tests {
             .push(Err(Error::from(ErrorKind::BrokenPipe)));
 
         let mut subject = make_instrumented_subject(socket_wrapper.clone());
-        subject.dns_target = Some(V4(Ipv4Addr::from_str("1.2.3.4").unwrap()));
 
         subject.initialize_as_unprivileged();
 
@@ -584,7 +316,6 @@ mod tests {
             .push(Err(Error::from(ErrorKind::BrokenPipe)));
 
         let mut subject = make_instrumented_subject(socket_wrapper.clone());
-        subject.dns_target = Some(V4(Ipv4Addr::from_str("1.2.3.4").unwrap()));
 
         subject.initialize_as_unprivileged();
 
@@ -602,9 +333,7 @@ mod tests {
 
     fn make_instrumented_subject(socket_wrapper: Box<UdpSocketWrapperMock>) -> DnsSocketServer {
         DnsSocketServer {
-            dns_target: None,
             socket_wrapper,
-            processor: None,
             buf: None,
         }
     }
