@@ -207,7 +207,10 @@ impl SubstratumNodeUtils {
     }
 
     pub fn retrieve_logs(name: &str) -> String {
-        let mut command = Command::new("docker", Command::strings(vec!["logs", name]));
+        let mut command = Command::new(
+            "docker",
+            Command::strings(vec!["exec", "-t", name, "cat", "/tmp/SubstratumNode.log"]),
+        );
         command.stdout_and_stderr()
     }
 

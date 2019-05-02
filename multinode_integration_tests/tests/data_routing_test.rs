@@ -16,7 +16,7 @@ fn end_to_end_routing_test() {
     let mut cluster = SubstratumNodeCluster::start().unwrap();
     let bootstrap_node = cluster.start_real_node(NodeStartupConfigBuilder::bootstrap().build());
 
-    let nodes = (0..7)
+    let nodes = (0..6)
         .map(|_| {
             cluster.start_real_node(
                 NodeStartupConfigBuilder::standard()
@@ -26,17 +26,22 @@ fn end_to_end_routing_test() {
         })
         .collect::<Vec<SubstratumRealNode>>();
 
-    thread::sleep(Duration::from_millis(10000));
+    thread::sleep(Duration::from_millis(500 * (nodes.len() as u64)));
 
-    let node_1 = nodes.first().unwrap();
+    let last_node = cluster.start_real_node(
+        NodeStartupConfigBuilder::standard()
+            .neighbor(bootstrap_node.node_reference())
+            .open_firewall_port(8080)
+            .build(),
+    );
 
-    let mut client = node_1.make_client(80);
+    let mut client = last_node.make_client(8080);
     client.send_chunk(Vec::from(
         &b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n"[..],
     ));
     let response = client.wait_for_chunk();
 
-    // If this fails (sporadically) check if there are only 6 nodes in the database and find a better way to wait
+    // If this fails (sporadically) check if there are only 6 nodes in the network and find a better way to wait
     // for it to be 7. There have to be 7 to guarantee an exit node exists for every node in the network
     assert_eq!(
         index_of(
@@ -61,7 +66,7 @@ fn http_routing_failure_produces_internal_error_response() {
     );
     thread::sleep(Duration::from_millis(1000));
 
-    let mut client = originating_node.make_client(80);
+    let mut client = originating_node.make_client(8080);
 
     client.send_chunk(Vec::from(
         &b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n"[..],
@@ -89,7 +94,7 @@ fn tls_routing_failure_produces_internal_error_response() {
             .neighbor(bootstrap.node_reference())
             .build(),
     );
-    let mut client = originating_node.make_client(443);
+    let mut client = originating_node.make_client(8443);
     let client_hello = vec![
         0x16, // content_type: Handshake
         0x03, 0x03, // TLS 1.2
@@ -132,8 +137,8 @@ fn tls_routing_failure_produces_internal_error_response() {
 fn multiple_stream_zero_hop_test() {
     let mut cluster = SubstratumNodeCluster::start().unwrap();
     let zero_hop_node = cluster.start_real_node(NodeStartupConfigBuilder::zero_hop().build());
-    let mut one_client = zero_hop_node.make_client(80);
-    let mut another_client = zero_hop_node.make_client(80);
+    let mut one_client = zero_hop_node.make_client(8080);
+    let mut another_client = zero_hop_node.make_client(8080);
 
     one_client.send_chunk(Vec::from(
         &b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n"[..],

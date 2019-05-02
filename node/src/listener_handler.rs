@@ -44,10 +44,15 @@ impl ListenerHandler for ListenerHandlerReal {
         port_configuration: PortConfiguration,
     ) -> io::Result<()> {
         self.port = Some(port);
+        let is_clandestine = port_configuration.is_clandestine;
         self.port_configuration = Some(port_configuration);
         self.logger = Logger::new(&format!("ListenerHandler {}", port));
-        self.listener
-            .bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::from(0)), port))
+        let ip_addr = IpAddr::V4(if is_clandestine {
+            Ipv4Addr::from(0)
+        } else {
+            Ipv4Addr::LOCALHOST
+        });
+        self.listener.bind(SocketAddr::new(ip_addr, port))
     }
 
     fn bind_subs(&mut self, add_stream_sub: Recipient<AddStreamMsg>) {
@@ -226,7 +231,7 @@ mod tests {
     }
 
     #[test]
-    fn handles_bind_port_and_configuration_success() {
+    fn handles_bind_port_and_configuration_success_for_clandestine_port() {
         let listener = TokioListenerWrapperMock::new().bind_result(Ok(()));
         let listener_log = listener.log.clone();
         let discriminator_factory =
@@ -251,6 +256,34 @@ mod tests {
         let chunk = discriminator.take_chunk().unwrap();
         assert_eq!(chunk.chunk, b"booga".to_vec());
         assert!(port_configuration.is_clandestine);
+    }
+
+    #[test]
+    fn handles_bind_port_and_configuration_success_for_non_clandestine_port() {
+        let listener = TokioListenerWrapperMock::new().bind_result(Ok(()));
+        let listener_log = listener.log.clone();
+        let discriminator_factory =
+            NullDiscriminatorFactory::new().discriminator_nature(vec![b"booga".to_vec()]);
+        let mut subject = ListenerHandlerReal::new();
+        subject.listener = Box::new(listener);
+
+        let result = subject.bind_port_and_configuration(
+            2345,
+            PortConfiguration::new(vec![Box::new(discriminator_factory)], false),
+        );
+
+        assert_eq!(result.unwrap(), ());
+        assert_eq!(
+            listener_log.dump(),
+            vec!(format!("bind (V4(127.0.0.1:2345))"))
+        );
+        assert_eq!(subject.port, Some(2345));
+        let mut port_configuration = subject.port_configuration.unwrap();
+        let factory = port_configuration.discriminator_factories.remove(0);
+        let mut discriminator = factory.make();
+        let chunk = discriminator.take_chunk().unwrap();
+        assert_eq!(chunk.chunk, b"booga".to_vec());
+        assert!(!port_configuration.is_clandestine);
     }
 
     #[test]

@@ -50,7 +50,7 @@ fn neighborhood_notified_of_newly_missing_node() {
     cluster.stop_node(disappearing_node.name());
 
     //Establish a client on the originating Node and send some ill-fated traffic.
-    let mut client = originating_node.make_client(80);
+    let mut client = originating_node.make_client(8080);
     client.send_chunk(Vec::from(
         "GET http://example.com HTTP/1.1\r\n\r\n".as_bytes(),
     ));

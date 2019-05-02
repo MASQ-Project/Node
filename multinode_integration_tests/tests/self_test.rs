@@ -52,15 +52,15 @@ fn establishes_substratum_node_cluster_from_nothing() {
             .into_iter()
             .collect();
     assert_eq!(cluster.running_node_names(), expected_nodes);
-    check_node(&cluster, real_node_name, "172.18.1.1", 80);
+    check_node(&cluster, real_node_name, "172.18.1.1", 8080);
     check_node(&cluster, mock_node_name, "172.18.1.2", CONTROL_STREAM_PORT);
 
     cluster.stop_node(real_node_name);
-    ensure_node_is_not_running(real_node_name, first_ip_addr, 80);
+    ensure_node_is_not_running(real_node_name, first_ip_addr, 8080);
     ensure_node_is_running(mock_node_name, second_ip_addr, CONTROL_STREAM_PORT);
 
     cluster.stop_node(mock_node_name);
-    ensure_node_is_not_running(real_node_name, first_ip_addr, 80);
+    ensure_node_is_not_running(real_node_name, first_ip_addr, 8080);
     ensure_node_is_not_running(mock_node_name, second_ip_addr, CONTROL_STREAM_PORT);
 
     cluster.stop();

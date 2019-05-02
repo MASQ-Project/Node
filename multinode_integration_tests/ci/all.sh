@@ -20,9 +20,12 @@ if [ "HOST_NODE_PARENT_DIR" == "" ]; then
     export HOST_NODE_PARENT_DIR="$CI_DIR/../.."
 fi
 
+pushd "$CI_DIR/../../port_exposer"
+ci/all.sh
+popd
+
 cd docker
 ./build.sh
-cd "${CI_DIR}"/..
 
 # TODO remove -Aproc-macro-derive-resolution-fallback when they are promoted to errors
 export RUSTFLAGS="-D warnings -Anon-snake-case -Aproc-macro-derive-resolution-fallback"

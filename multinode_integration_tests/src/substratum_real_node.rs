@@ -24,6 +24,11 @@ use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct Firewall {
+    ports_to_open: Vec<u16>,
+}
+
 #[derive(PartialEq, Clone, Debug, Copy)]
 pub enum NodeType {
     Standard,
@@ -42,6 +47,7 @@ pub struct NodeStartupConfig {
     pub earning_wallet: Wallet,
     pub rate_pack: RatePack,
     pub consuming_private_key: Option<String>,
+    pub firewall: Option<Firewall>,
 }
 
 impl NodeStartupConfig {
@@ -59,7 +65,12 @@ impl NodeStartupConfig {
             consuming_private_key: Some(String::from(
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
             )),
+            firewall: None,
         }
+    }
+
+    pub fn firewall(&self) -> Option<Firewall> {
+        self.firewall.clone()
     }
 
     fn make_args(&self) -> Vec<String> {
@@ -111,6 +122,7 @@ pub struct NodeStartupConfigBuilder {
     earning_wallet: Wallet,
     rate_pack: RatePack,
     consuming_private_key: Option<String>,
+    firewall: Option<Firewall>,
 }
 
 impl NodeStartupConfigBuilder {
@@ -126,6 +138,7 @@ impl NodeStartupConfigBuilder {
             earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
             rate_pack: ZERO_RATE_PACK.clone(),
             consuming_private_key: None,
+            firewall: None,
         }
     }
 
@@ -143,6 +156,7 @@ impl NodeStartupConfigBuilder {
             consuming_private_key: Some(String::from(
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
             )),
+            firewall: None,
         }
     }
 
@@ -158,6 +172,7 @@ impl NodeStartupConfigBuilder {
             earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
             rate_pack: ZERO_RATE_PACK,
             consuming_private_key: None,
+            firewall: None,
         }
     }
 
@@ -173,6 +188,7 @@ impl NodeStartupConfigBuilder {
             earning_wallet: config.earning_wallet.clone(),
             rate_pack: config.rate_pack.clone(),
             consuming_private_key: config.consuming_private_key.clone(),
+            firewall: config.firewall.clone(),
         }
     }
 
@@ -221,13 +237,27 @@ impl NodeStartupConfigBuilder {
         self
     }
 
+    pub fn rate_pack(mut self, value: RatePack) -> NodeStartupConfigBuilder {
+        self.rate_pack = value;
+        self
+    }
+
     pub fn consuming_private_key(mut self, value: &str) -> NodeStartupConfigBuilder {
         self.consuming_private_key = Some(String::from(value));
         self
     }
 
-    pub fn rate_pack(mut self, value: RatePack) -> NodeStartupConfigBuilder {
-        self.rate_pack = value;
+    pub fn open_firewall_port(mut self, port: u16) -> NodeStartupConfigBuilder {
+        if self.firewall.is_none() {
+            self.firewall = Some(Firewall {
+                ports_to_open: vec![],
+            })
+        }
+        self.firewall
+            .as_mut()
+            .expect("Firewall magically disappeared")
+            .ports_to_open
+            .push(port);
         self
     }
 
@@ -243,6 +273,7 @@ impl NodeStartupConfigBuilder {
             earning_wallet: self.earning_wallet,
             rate_pack: self.rate_pack,
             consuming_private_key: self.consuming_private_key,
+            firewall: self.firewall,
         }
     }
 }
@@ -315,7 +346,7 @@ impl SubstratumRealNode {
         let rate_pack = startup_config.rate_pack.clone();
         SubstratumNodeUtils::clean_up_existing_container(&name[..]);
         let real_startup_config = match startup_config.port_count {
-            0 => startup_config,
+            0 => startup_config.clone(),
             _ => NodeStartupConfigBuilder::copy(&startup_config)
                 .ip(ip_addr)
                 .build(),
@@ -325,6 +356,28 @@ impl SubstratumRealNode {
             None => SubstratumNodeUtils::find_project_root(),
         };
         Self::do_docker_run(&real_startup_config, &root_dir, ip_addr, &name).unwrap();
+
+        Self::exec_command_on_container_and_detach(
+            &name,
+            vec!["/usr/local/bin/port_exposer", "80:8080", "443:8443"],
+        )
+        .expect("port_exposer wouldn't run");
+        match &real_startup_config.firewall {
+            None => (),
+            Some(firewall) => {
+                Self::create_impenetrable_firewall(&name);
+                firewall.ports_to_open.iter().for_each(|port| {
+                    Self::open_firewall_port(&name, *port)
+                        .expect(&format!("Can't open port {}", *port))
+                });
+            }
+        }
+        let node_args = real_startup_config.make_args();
+        let mut command_parts = vec!["/node_root/node/SubstratumNode"];
+        command_parts.extend(node_args.iter().map(|s| s.as_str()));
+        Self::exec_command_on_container_and_detach(&name, command_parts)
+            .expect("Couldn't start SubstratumNode");
+
         let node_reference = SubstratumRealNode::extract_node_reference(&name).unwrap();
         let guts = Rc::new(SubstratumRealNodeGuts {
             name,
@@ -350,17 +403,32 @@ impl SubstratumRealNode {
         Self::node_home_dir(&self.root_dir(), &String::from(self.name()))
     }
 
+    pub fn open_firewall_port(name: &str, port: u16) -> Result<(), ()> {
+        let port_str = format!("{}", port);
+        match Self::exec_command_on_container_and_wait(
+            name,
+            vec![
+                "iptables", "-A", "INPUT", "-p", "tcp", "--dport", &port_str, "-j", "ACCEPT",
+            ],
+        ) {
+            Err(_) => Err(()),
+            Ok(_) => Ok(()),
+        }
+    }
+
     fn do_docker_run(
         startup_config: &NodeStartupConfig,
         root_dir: &String,
         ip_addr: IpAddr,
-        name: &String,
+        container_name_ref: &String,
     ) -> Result<(), String> {
-        let name_string = name.clone();
+        let container_name = container_name_ref.clone();
         let node_command_dir = format!("{}/node/target/release", root_dir);
-        let host_node_home_dir = Self::node_home_dir(root_dir, name);
-        let test_runner_node_home_dir =
-            Self::node_home_dir(&SubstratumNodeUtils::find_project_root(), name);
+        let host_node_home_dir = Self::node_home_dir(root_dir, container_name_ref);
+        let test_runner_node_home_dir = Self::node_home_dir(
+            &SubstratumNodeUtils::find_project_root(),
+            container_name_ref,
+        );
         Command::new(
             "rm",
             Command::strings(vec!["-r", test_runner_node_home_dir.as_str()]),
@@ -375,7 +443,7 @@ impl SubstratumRealNode {
             0 => (),
             _ => panic!(
                 "Couldn't create home directory for node {} at {}",
-                name_string, test_runner_node_home_dir
+                container_name, test_runner_node_home_dir
             ),
         }
         match Command::new(
@@ -387,13 +455,11 @@ impl SubstratumRealNode {
             0 => (),
             _ => panic!(
                 "Couldn't chmod 777 home directory for node {} at {}",
-                name_string, test_runner_node_home_dir
+                container_name, test_runner_node_home_dir
             ),
         }
-        let node_args = startup_config.make_args();
-        let docker_command = "docker";
         let ip_addr_string = format!("{}", ip_addr);
-        let binary_v_param = format!("{}:/node_root/node", node_command_dir);
+        let node_binary_v_param = format!("{}:/node_root/node", node_command_dir);
         let home_v_param = format!("{}:/node_root/home", host_node_home_dir);
 
         let mut args = vec![
@@ -404,15 +470,16 @@ impl SubstratumRealNode {
             "--dns",
             "127.0.0.1",
             "--name",
-            name_string.as_str(),
+            container_name.as_str(),
             "--net",
             "integration_net",
             "-v",
-            binary_v_param.as_str(),
+            node_binary_v_param.as_str(),
             "-v",
             home_v_param.as_str(),
             "-e",
             "RUST_BACKTRACE=full",
+            "--cap-add=NET_ADMIN",
         ];
 
         let maybe_key = match startup_config.consuming_private_key.clone() {
@@ -423,14 +490,60 @@ impl SubstratumRealNode {
             args.push("-e");
             args.push(&maybe_key)
         }
-
-        args.extend_from_slice(&["test_node_image", "/node_root/node/SubstratumNode"]);
-
-        let mut docker_args = Command::strings(args);
-        docker_args.extend(node_args);
-        let mut command = Command::new(docker_command, docker_args);
+        args.push("test_node_image");
+        let mut command = Command::new("docker", Command::strings(args));
         command.stdout_or_stderr()?;
         Ok(())
+    }
+
+    fn exec_command_on_container_and_detach(
+        name: &str,
+        command_parts: Vec<&str>,
+    ) -> Result<String, String> {
+        Self::do_docker_exec(name, command_parts, "-d")
+    }
+
+    fn exec_command_on_container_and_wait(
+        name: &str,
+        command_parts: Vec<&str>,
+    ) -> Result<String, String> {
+        Self::do_docker_exec(name, command_parts, "-t")
+    }
+
+    fn do_docker_exec(
+        name: &str,
+        command_parts: Vec<&str>,
+        exec_type: &str,
+    ) -> Result<String, String> {
+        let mut params = vec!["exec", exec_type, name];
+        params.extend(command_parts);
+        let mut command = Command::new("docker", Command::strings(params));
+        command.stdout_or_stderr()
+    }
+
+    fn create_impenetrable_firewall(name: &str) {
+        Self::exec_command_on_container_and_wait(name, vec!["iptables", "-P", "INPUT", "DROP"])
+            .expect("Can't completely reject all incoming data by default");
+        Self::exec_command_on_container_and_wait(
+            name,
+            vec!["iptables", "-A", "INPUT", "-i", "lo", "-j", "ACCEPT"],
+        )
+        .expect("Can't add exception to allow incoming data from loopback interface");
+        Self::exec_command_on_container_and_wait(
+            name,
+            vec![
+                "iptables",
+                "-A",
+                "INPUT",
+                "-m",
+                "conntrack",
+                "--ctstate",
+                "RELATED,ESTABLISHED",
+                "-j",
+                "ACCEPT",
+            ],
+        )
+        .expect("Can't add exception to allow input that is respondent to past output");
     }
 
     fn extract_node_reference(name: &String) -> Result<NodeReference, String> {
@@ -439,8 +552,10 @@ impl SubstratumRealNode {
         loop {
             thread::sleep(Duration::from_millis(100));
             println!("Checking for {} startup", name);
-            let mut command = Command::new("docker", Command::strings(vec!["logs", name.as_str()]));
-            let output = command.stdout_or_stderr()?;
+            let output = Self::exec_command_on_container_and_wait(
+                name,
+                vec!["cat", "/tmp/SubstratumNode.log"],
+            )?;
             match regex.captures(output.as_str()) {
                 Some(captures) => {
                     let node_reference =
@@ -600,6 +715,9 @@ mod tests {
             consuming_private_key: Some(String::from(
                 "ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD",
             )),
+            firewall: Some(Firewall {
+                ports_to_open: vec![80, 443],
+            }),
         };
         let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
         let one_neighbor_key = PublicKey::new(&[1, 2, 3, 4]);
