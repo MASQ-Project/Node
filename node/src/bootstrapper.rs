@@ -148,10 +148,12 @@ impl SocketServer for Bootstrapper {
     }
 
     fn initialize_as_unprivileged(&mut self) {
+        // NOTE: The following line of code is not covered by unit tests
+        fdlimit::raise_fd_limit();
         let stream_handler_pool_subs = self.actor_system_factory.make_and_start_actors(
             self.config
                 .as_ref()
-                .expect("Missing BootstrapperConfig - call initialize_as_root first")
+                .expect("Missing BootstrapperConfig - call initialize_as_privileged first")
                 .clone(),
             Box::new(ActorFactoryReal {}),
         );

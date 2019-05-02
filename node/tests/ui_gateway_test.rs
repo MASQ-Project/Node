@@ -12,6 +12,7 @@ use websocket::OwnedMessage;
 
 #[test]
 fn ui_gateway_message_integration() {
+    fdlimit::raise_fd_limit();
     let mut node = utils::SubstratumNode::start(None);
 
     let descriptor_client =

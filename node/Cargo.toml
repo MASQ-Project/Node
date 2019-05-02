@@ -32,6 +32,7 @@ tokio = "0.1.15"
 tokio-core = "0.1.12"
 trust-dns = "0.16.0"
 trust-dns-resolver = "0.10.3"
+fdlimit = "0.1.1"
 
 [dependencies.rusqlite]
 version = "0.16.0"
