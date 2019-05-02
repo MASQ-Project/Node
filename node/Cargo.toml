@@ -30,7 +30,8 @@ serde_cbor = "0.9.0"
 sha1 = "0.6.0"
 tokio = "0.1.15"
 tokio-core = "0.1.12"
-trust-dns-resolver = "0.9.1"
+trust-dns = "0.16.0"
+trust-dns-resolver = "0.10.3"
 
 [dependencies.rusqlite]
 version = "0.16.0"
@@ -43,7 +44,8 @@ features = ["async", "sync"]
 
 [dev-dependencies]
 native-tls = "0.2.2"
-trust-dns-proto = "0.4.0"
+serial_test_derive = "0.2.0"
+serial_test = "0.2.0"
 
 [target.'cfg(unix)'.dependencies]
 daemonize = "0.3.0"

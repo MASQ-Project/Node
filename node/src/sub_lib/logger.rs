@@ -1,9 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use chrono::format::strftime::StrftimeItems;
 use chrono::NaiveDateTime;
-use log::logger;
 use log::Level;
 use log::Record;
+use log::{logger, Metadata};
 use std::thread;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
@@ -20,12 +20,12 @@ impl Logger {
         }
     }
 
-    pub fn debug(&self, string: String) {
-        self.generic_log(Level::Debug, string);
-    }
-
     pub fn trace(&self, string: String) {
         self.generic_log(Level::Trace, string);
+    }
+
+    pub fn debug(&self, string: String) {
+        self.generic_log(Level::Debug, string);
     }
 
     pub fn info(&self, string: String) {
@@ -37,10 +37,6 @@ impl Logger {
     }
 
     pub fn error(&self, string: String) {
-        self.generic_log(Level::Error, string);
-    }
-
-    pub fn fatal(&self, string: String) {
         self.generic_log(Level::Error, string);
     }
 
@@ -68,6 +64,30 @@ impl Logger {
                 ))
                 .build(),
         );
+    }
+
+    pub fn trace_enabled(&self) -> bool {
+        self.level_enabled(Level::Trace)
+    }
+
+    pub fn debug_enabled(&self) -> bool {
+        self.level_enabled(Level::Debug)
+    }
+
+    pub fn info_enabled(&self) -> bool {
+        self.level_enabled(Level::Info)
+    }
+
+    pub fn warning_enabled(&self) -> bool {
+        self.level_enabled(Level::Warn)
+    }
+
+    pub fn error_enabled(&self) -> bool {
+        self.level_enabled(Level::Error)
+    }
+
+    pub fn level_enabled(&self, level: Level) -> bool {
+        logger().enabled(&Metadata::builder().level(level).target(&self.name).build())
     }
 }
 

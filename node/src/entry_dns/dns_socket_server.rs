@@ -89,6 +89,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
     use tokio;
+    use trust_dns::op::ResponseCode;
 
     struct UdpSocketWrapperMockGuts {
         log: Vec<String>,
@@ -272,9 +273,9 @@ mod tests {
             )
         );
         let facade = PacketFacade::new(&mut buf, 12);
-        assert_eq!(facade.get_transaction_id(), Some(0x1234));
-        assert_eq!(facade.get_rcode(), Some(0x4));
-        TestLogHandler::new ().await_log_matching (r"\d\d\d\d-\d\d-\d\d \d\d:\d\d:\d\d\.\d\d\d ThreadId\(\d+\): INFO: EntryDnsServer: \d+ns: 0\.0\.0\.0:0 RQF \(\) -> RS4 \(\)", 1000);
+        assert_eq!(Some(0x1234), facade.get_transaction_id());
+        assert_eq!(Some(ResponseCode::NoError.low()), facade.get_rcode());
+        TestLogHandler::new ().await_log_matching (r"\d\d\d\d-\d\d-\d\d \d\d:\d\d:\d\d\.\d\d\d ThreadId\(\d+\): TRACE: EntryDnsServer: \d+ns: 0\.0\.0\.0:0 Query \(\) -> No Error \(\)", 1000);
     }
 
     #[test]
@@ -327,7 +328,7 @@ mod tests {
 
     fn make_socket_wrapper_mock() -> Box<UdpSocketWrapperMock> {
         Box::new(UdpSocketWrapperMock::new(&[
-            0x12, 0x34, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x12, 0x34, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ]))
     }
 

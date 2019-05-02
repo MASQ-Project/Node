@@ -1,27 +1,40 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 mod utils;
-
 use node_lib::entry_dns::packet_facade::PacketFacade;
+use serial_test_derive::serial;
 use std::net::UdpSocket;
 use std::time::Duration;
+use trust_dns::op::{OpCode, ResponseCode};
+use trust_dns::rr::{DNSClass, RecordType};
 
 #[test]
-fn handles_two_consecutive_dns_requests_integration() {
+#[serial(port53)]
+fn handles_two_consecutive_ipv4_dns_requests_integration() {
     let _node = utils::SubstratumNode::start(None);
 
-    perform_transaction();
-    perform_transaction();
+    perform_ipv4_query();
+    perform_ipv4_query();
 }
 
-fn perform_transaction() {
+#[test]
+#[serial(port53)]
+fn handles_consecutive_heterogeneous_dns_requests_integration() {
+    let _node = utils::SubstratumNode::start(None);
+
+    perform_ipv4_query();
+    perform_ipv6_query();
+    perform_ipv4_query();
+}
+
+fn perform_query(record_type: RecordType, rdata: &[u8]) {
     let mut buf: [u8; 1024] = [0; 1024];
     let length = {
         let mut facade = PacketFacade::new(&mut buf, 12);
         facade.set_transaction_id(0x1234);
         facade.set_query(true);
-        facade.set_opcode(0x0);
+        facade.set_opcode(OpCode::Query.into());
         facade.set_recursion_desired(true);
-        facade.add_query("www.domain.com", 0x0001, 0x0001);
+        facade.add_query("www.domain.com", record_type.into(), DNSClass::IN.into());
         facade.get_length()
     };
 
@@ -38,30 +51,36 @@ fn perform_transaction() {
 
     {
         let facade = PacketFacade::new(&mut buf, receive_count);
-        assert_eq!(facade.get_transaction_id(), Some(0x1234));
-        assert_eq!(facade.is_query(), Some(false));
-        assert_eq!(facade.is_truncated(), Some(false));
-        assert_eq!(facade.is_authoritative_answer(), Some(false));
-        assert_eq!(facade.is_recursion_desired(), Some(true));
-        assert_eq!(facade.is_recursion_available(), Some(true));
-        assert_eq!(facade.get_opcode(), Some(0x0));
-        assert_eq!(facade.get_rcode(), Some(0x0));
+        assert_eq!(Some(0x1234), facade.get_transaction_id());
+        assert_eq!(Some(false), facade.is_query());
+        assert_eq!(Some(false), facade.is_truncated());
+        assert_eq!(Some(false), facade.is_authoritative_answer());
+        assert_eq!(Some(true), facade.is_recursion_desired());
+        assert_eq!(Some(true), facade.is_recursion_available());
+        assert_eq!(Some(OpCode::Query.into()), facade.get_opcode());
+        assert_eq!(Some(ResponseCode::NoError.low()), facade.get_rcode());
         let queries = facade.get_queries().unwrap();
-        assert_eq!(queries[0].get_query_name(), "www.domain.com");
-        assert_eq!(queries[0].get_query_type(), 0x0001);
-        assert_eq!(queries[0].get_query_class(), 0x0001);
-        assert_eq!(queries.len(), 1);
+        assert_eq!("www.domain.com", queries[0].get_query_name());
+        assert_eq!(u16::from(record_type), queries[0].get_query_type());
+        assert_eq!(u16::from(DNSClass::IN), queries[0].get_query_class());
+        assert_eq!(1, queries.len());
         let answers = facade.get_answers().unwrap();
-        assert_eq!(answers[0].get_name(), "www.domain.com");
-        assert_eq!(answers[0].get_time_to_live(), 3600);
-        assert_eq!(answers[0].get_resource_type(), 0x0001);
-        assert_eq!(answers[0].get_resource_class(), 0x0001);
-        assert_eq!(make_hex_string(answers[0].get_rdata()), "7F 00 00 01");
-        assert_eq!(answers.len(), 1);
+        assert_eq!("www.domain.com", answers[0].get_name());
+        assert_eq!(3600, answers[0].get_time_to_live());
+        assert_eq!(u16::from(record_type), answers[0].get_resource_type());
+        assert_eq!(u16::from(DNSClass::IN), answers[0].get_resource_class());
+        assert_eq!(rdata, answers[0].get_rdata());
+        assert_eq!(1, answers.len());
     }
 }
 
-fn make_hex_string(bytes: &[u8]) -> String {
-    let strs: Vec<String> = bytes.iter().map(|b| format!("{:02X}", b)).collect();
-    strs.join(" ")
+fn perform_ipv4_query() {
+    perform_query(RecordType::A, &[127, 0, 0, 1]);
+}
+
+fn perform_ipv6_query() {
+    perform_query(
+        RecordType::AAAA,
+        &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    );
 }

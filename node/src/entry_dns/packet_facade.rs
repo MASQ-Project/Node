@@ -177,10 +177,7 @@ pub struct PacketFacade<'a> {
 #[allow(dead_code)]
 impl<'a> PacketFacade<'a> {
     pub fn new(buf: &mut [u8], length: usize) -> PacketFacade<'_> {
-        PacketFacade {
-            buf,
-            length: length,
-        }
+        PacketFacade { buf, length }
     }
 
     pub fn get_transaction_id(&self) -> Option<u16> {
@@ -1243,7 +1240,7 @@ mod tests {
                     0x1234,
                     0x2345,
                     0x12345678,
-                    &vec![0x00, 0x05, 0x10, 0x15]
+                    &vec![0x00, 0x05, 0x10, 0x15],
                 ),
                 true
             );
@@ -1253,7 +1250,7 @@ mod tests {
                     0x3456,
                     0x4567,
                     0x87654321,
-                    &vec![0x20, 0x25, 0x30, 0x35]
+                    &vec![0x20, 0x25, 0x30, 0x35],
                 ),
                 true
             );
@@ -1306,7 +1303,7 @@ mod tests {
                     0x1234,
                     0x2345,
                     0x12345678,
-                    &vec![0x00, 0x05, 0x10, 0x15]
+                    &vec![0x00, 0x05, 0x10, 0x15],
                 ),
                 true
             );
@@ -1316,7 +1313,7 @@ mod tests {
                     0x3456,
                     0x4567,
                     0x87654321,
-                    &vec![0x20, 0x25, 0x30, 0x35]
+                    &vec![0x20, 0x25, 0x30, 0x35],
                 ),
                 true
             );
@@ -1377,7 +1374,7 @@ mod tests {
                     0x1234,
                     0x2345,
                     0x12345678,
-                    &vec![0x00, 0x05, 0x10, 0x15]
+                    &vec![0x00, 0x05, 0x10, 0x15],
                 ),
                 true
             );
@@ -1387,7 +1384,7 @@ mod tests {
                     0x3456,
                     0x4567,
                     0x87654321,
-                    &vec![0x20, 0x25, 0x30, 0x35]
+                    &vec![0x20, 0x25, 0x30, 0x35],
                 ),
                 true
             );

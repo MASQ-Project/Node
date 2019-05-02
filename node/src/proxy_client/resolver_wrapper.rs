@@ -4,7 +4,7 @@ use trust_dns_resolver::config::ResolverConfig;
 use trust_dns_resolver::config::ResolverOpts;
 use trust_dns_resolver::error::ResolveError;
 use trust_dns_resolver::lookup_ip::LookupIp;
-use trust_dns_resolver::ResolverFuture;
+use trust_dns_resolver::AsyncResolver;
 
 pub type WrappedLookupIpFuture = dyn Future<Item = LookupIp, Error = ResolveError> + Send;
 
@@ -17,12 +17,12 @@ pub trait ResolverWrapperFactory {
 }
 
 pub struct ResolverWrapperReal {
-    delegate: Box<ResolverFuture>,
+    delegate: Box<AsyncResolver>,
 }
 
 impl ResolverWrapper for ResolverWrapperReal {
     fn lookup_ip(&self, host_opt: Option<String>) -> Box<WrappedLookupIpFuture> {
-        //TODO: This is likely not optimal, we need to figure out how to return a LookupIpFuture Error
+        //TODO: SC-855 This is likely not optimal, we need to figure out how to return a LookupIpFuture Error
         let host = host_opt.unwrap_or(String::from("<unspecified>"));
         Box::new(self.delegate.lookup_ip(host.as_str()))
     }
@@ -31,12 +31,9 @@ impl ResolverWrapper for ResolverWrapperReal {
 pub struct ResolverWrapperFactoryReal;
 impl ResolverWrapperFactory for ResolverWrapperFactoryReal {
     fn make(&self, config: ResolverConfig, options: ResolverOpts) -> Box<dyn ResolverWrapper> {
-        // THIS HAPPENS ONLY ONCE AT STARTUP during ProxyClient bind. So don't worry about the `wait()`.
-        let delegate = Box::new(
-            ResolverFuture::new(config, options)
-                .wait()
-                .expect("couldn't create resolver future"),
-        );
+        let (resolver, background_worker) = AsyncResolver::new(config, options);
+        tokio::spawn(background_worker);
+        let delegate = Box::new(resolver);
 
         Box::new(ResolverWrapperReal { delegate })
     }

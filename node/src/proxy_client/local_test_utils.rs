@@ -10,11 +10,11 @@ use std::cell::RefCell;
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::sync::Mutex;
-use trust_dns_proto::rr::RData;
 use trust_dns_resolver::config::ResolverConfig;
 use trust_dns_resolver::config::ResolverOpts;
 use trust_dns_resolver::error::ResolveError;
 use trust_dns_resolver::lookup::Lookup;
+use trust_dns_resolver::proto::rr::RData;
 
 pub struct ResolverWrapperMock {
     lookup_ip_results: RefCell<Vec<Box<WrappedLookupIpFuture>>>,

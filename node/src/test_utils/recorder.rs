@@ -216,7 +216,7 @@ impl Recording {
 
 impl RecordAwaiter {
     pub fn await_message_count(&self, count: usize) {
-        let limit = 1000u64;
+        let limit = 10_000u64;
         let mut prev_len: usize = 0;
         let begin = Instant::now();
         loop {
