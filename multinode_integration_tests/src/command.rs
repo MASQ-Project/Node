@@ -9,6 +9,9 @@ pub struct Command {
     output: Option<Output>,
 }
 
+// Jenkins will fail if you try to println! too many (hundreds of thousands) of characters at once
+const MAX_PRINTED_STRING_SIZE: usize = 32767;
+
 impl Command {
     pub fn new(program: &str, args: Vec<String>) -> Command {
         let mut command = process::Command::new(program);
@@ -48,13 +51,23 @@ impl Command {
 
     pub fn stdout_as_string(&self) -> String {
         let text = String::from_utf8(self.output.as_ref().unwrap().stdout.clone()).unwrap();
-        println!("{}", text);
+        println!("{}", Self::truncate_long_string(text.clone()));
         text
     }
 
     pub fn stderr_as_string(&self) -> String {
         let text = String::from_utf8(self.output.as_ref().unwrap().stderr.clone()).unwrap();
-        println!("{}", text);
+        println!("{}", Self::truncate_long_string(text.clone()));
         text
+    }
+
+    fn truncate_long_string(mut string: String) -> String {
+        if string.len() <= MAX_PRINTED_STRING_SIZE {
+            string
+        } else {
+            string.truncate(MAX_PRINTED_STRING_SIZE);
+            string.extend(" [...truncated...]".chars());
+            string
+        }
     }
 }
