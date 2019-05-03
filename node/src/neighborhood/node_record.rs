@@ -8,6 +8,7 @@ use crate::sub_lib::neighborhood::RatePack;
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
 use serde_derive::{Deserialize, Serialize};
+use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::iter::FromIterator;
@@ -18,7 +19,7 @@ pub struct NodeRecordInner {
     pub earning_wallet: Wallet,
     pub rate_pack: RatePack,
     pub is_bootstrap_node: bool,
-    pub neighbors: HashSet<PublicKey>,
+    pub neighbors: BTreeSet<PublicKey>,
     pub version: u32,
 }
 
@@ -65,7 +66,7 @@ impl NodeRecord {
                 earning_wallet,
                 rate_pack,
                 is_bootstrap_node,
-                neighbors: HashSet::new(),
+                neighbors: BTreeSet::new(),
                 version,
             },
             signed_gossip: PlainData::new(&[]),

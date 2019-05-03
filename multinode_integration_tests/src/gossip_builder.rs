@@ -12,7 +12,7 @@ use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::sub_lib::route::Route;
 use node_lib::sub_lib::route::RouteSegment;
 use node_lib::sub_lib::wallet::Wallet;
-use std::collections::HashSet;
+use std::collections::btree_set::BTreeSet;
 use std::convert::TryFrom;
 
 pub struct GossipBuilder {
@@ -40,7 +40,7 @@ impl GossipBuilder {
                 is_bootstrap_node: is_bootstrap,
                 earning_wallet: node.earning_wallet().clone(),
                 rate_pack: node.rate_pack().clone(),
-                neighbors: HashSet::new(),
+                neighbors: BTreeSet::new(),
                 version: 0,
             },
             node_addr_opt: match include_ip {

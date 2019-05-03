@@ -3,13 +3,15 @@
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
+use crate::sub_lib::cryptde::CryptDE;
+use crate::sub_lib::cryptde::PlainData;
+use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
-use sha1::Sha1;
 
 pub struct BlockchainBridge {
     config: BlockchainBridgeConfig,
@@ -26,11 +28,11 @@ impl Handler<BindMessage> for BlockchainBridge {
     fn handle(&mut self, _msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
         match self.config.consuming_private_key.as_ref() {
             Some(key) => {
-                let mut hash = Sha1::new();
-                hash.update(key.as_bytes()); // This is hashing the ASCII bytes of the string, not the actual bytes encoded as hex
+                // This is hashing the UTF-8 bytes of the string, not the actual bytes encoded as hex
+                let hash = CryptDENull::new().hash(&PlainData::new(key.as_bytes()));
                 self.logger.debug(format!(
-                    "Received BindMessage; consuming private key that hashes to {}",
-                    hash.digest().to_string()
+                    "Received BindMessage; consuming private key that hashes to {:?}",
+                    hash
                 ));
             }
             None => {
@@ -72,7 +74,7 @@ mod tests {
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::peer_actors_builder;
-    use crate::test_utils::test_utils::sha1_hash;
+    use crate::test_utils::test_utils::cryptde;
     use actix::Addr;
     use actix::System;
 
@@ -96,8 +98,9 @@ mod tests {
 
         System::current().stop();
         system.run();
+        let hash = cryptde().hash(&PlainData::new(consuming_private_key.as_bytes()));
         TestLogHandler::new()
-            .exists_log_containing(&format!("DEBUG: BlockchainBridge: Received BindMessage; consuming private key that hashes to {}", sha1_hash(consuming_private_key.as_bytes())));
+            .exists_log_containing(&format!("DEBUG: BlockchainBridge: Received BindMessage; consuming private key that hashes to {:?}", hash));
     }
 
     #[test]

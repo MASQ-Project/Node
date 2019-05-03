@@ -394,6 +394,7 @@ pub trait CryptDE: Send + Sync {
         signature: &CryptData,
         public_key: &PublicKey,
     ) -> bool;
+    fn hash(&self, data: &PlainData) -> CryptData;
 }
 
 pub fn encodex<T>(cryptde: &CryptDE, public_key: &PublicKey, item: &T) -> Result<CryptData, String>

@@ -21,6 +21,7 @@ use crate::sub_lib::wallet::Wallet;
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::cmp::min;
+use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -49,12 +50,6 @@ lazy_static! {
 
 pub fn cryptde() -> &'static CryptDENull {
     &CRYPT_DE_NULL
-}
-
-pub fn sha1_hash(data: &[u8]) -> String {
-    let mut hash = sha1::Sha1::new();
-    hash.update(data);
-    hash.digest().to_string()
 }
 
 pub struct ByteArrayWriter {
@@ -421,6 +416,14 @@ where
     T: Eq + Hash,
 {
     let set: HashSet<T> = vec.into_iter().collect();
+    set
+}
+
+pub fn vec_to_btset<T>(vec: Vec<T>) -> BTreeSet<T>
+where
+    T: Eq + Hash + Ord,
+{
+    let set: BTreeSet<T> = vec.into_iter().collect();
     set
 }
 

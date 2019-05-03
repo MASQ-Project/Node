@@ -64,7 +64,7 @@ mod tests {
     use crate::neighborhood::node_record::NodeRecordInner;
     use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use std::collections::HashSet;
+    use std::collections::btree_set::BTreeSet;
     use std::convert::TryFrom;
 
     #[test]
@@ -109,7 +109,7 @@ mod tests {
 
         let gossip = subject.produce(&db, target_node_key);
 
-        type Digest = (PublicKey, Vec<u8>, bool, HashSet<PublicKey>);
+        type Digest = (PublicKey, Vec<u8>, bool, BTreeSet<PublicKey>);
         let gnr_digest = |gnr: GossipNodeRecord| {
             let has_ip = gnr.node_addr_opt.is_some();
             let nri = NodeRecordInner::try_from(gnr).unwrap();
@@ -130,7 +130,7 @@ mod tests {
                     .half_neighbor_keys()
                     .into_iter()
                     .map(|kr| kr.clone())
-                    .collect::<HashSet<PublicKey>>(),
+                    .collect::<BTreeSet<PublicKey>>(),
             )
         };
         let mut expected_gossip_digests = vec![

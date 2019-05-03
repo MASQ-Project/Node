@@ -30,10 +30,12 @@ fn end_to_end_routing_test() {
 
     let last_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .neighbor(bootstrap_node.node_reference())
+            .neighbor(nodes.last().unwrap().node_reference())
             .open_firewall_port(8080)
             .build(),
     );
+
+    thread::sleep(Duration::from_millis(500));
 
     let mut client = last_node.make_client(8080);
     client.send_chunk(Vec::from(

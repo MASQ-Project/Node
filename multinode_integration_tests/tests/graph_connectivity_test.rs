@@ -12,7 +12,7 @@ use node_lib::neighborhood::node_record::NodeRecordInner;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use node_lib::sub_lib::wallet::Wallet;
-use node_lib::test_utils::test_utils::{find_free_port, vec_to_set};
+use node_lib::test_utils::test_utils::{find_free_port, vec_to_btset};
 use std::net::SocketAddr;
 use std::thread;
 use std::time::Duration;
@@ -74,7 +74,7 @@ fn graph_connects_but_does_not_over_connect() {
         earning_wallet: Wallet::new("0000"),
         rate_pack: DEFAULT_RATE_PACK.clone(),
         is_bootstrap_node: false,
-        neighbors: vec_to_set(vec![start_node.public_key().clone()]),
+        neighbors: vec_to_btset(vec![start_node.public_key().clone()]),
         version: 100, // to make the sample Node update its database and send out standard Gossip
     };
     let standard_gossip = Gossip {

@@ -53,25 +53,32 @@ impl CryptDE for CryptDENull {
         })
     }
 
-    fn sign(&self, _data: &PlainData) -> Result<CryptData, CryptdecError> {
-        // To implement:
-        // Hash the data (hashing should be a function of CryptDE)
-        // Encrypt the hash _with our private key_ (means you can't use self.encode(); try Self::encode_with_key_data() instead)
-        // Return the encrypted hash in a CryptData
-        Ok(CryptData::new(b"signed"))
+    fn sign(&self, data: &PlainData) -> Result<CryptData, CryptdecError> {
+        let hash = self.hash(data);
+        Self::encode_with_key_data(
+            self.private_key().as_slice(),
+            &PlainData::new(hash.as_slice()),
+        )
     }
 
     fn verify_signature(
         &self,
-        _data: &PlainData,
+        data: &PlainData,
         signature: &CryptData,
-        _public_key: &PublicKey,
+        public_key: &PublicKey,
     ) -> bool {
-        // To implement:
-        // Decrypt the signature _with the supplied public key_ (means you can't use self.decode(); try Self::decode_with_key_data() instead)
-        // Hash the data (hashing should be a function of CryptDE)
-        // Compare the decrypted signature with the hash; if identical true, else false
-        signature.as_slice() == CryptData::new(b"signed").as_slice()
+        let claimed_hash = match Self::decode_with_key_data(public_key.as_slice(), signature) {
+            Err(_) => return false,
+            Ok(hash) => CryptData::new(hash.as_slice()),
+        };
+        let actual_hash = self.hash(data);
+        actual_hash == claimed_hash
+    }
+
+    fn hash(&self, data: &PlainData) -> CryptData {
+        let mut hash = sha1::Sha1::new();
+        hash.update(data.as_slice());
+        CryptData::new(&hash.digest().bytes())
     }
 }
 
@@ -161,7 +168,7 @@ mod tests {
 
         let result = subject.encode(&PublicKey::new(b""), &PlainData::new(b"data"));
 
-        assert_eq!(result.err().unwrap(), CryptdecError::EmptyKey);
+        assert_eq!(CryptdecError::EmptyKey, result.err().unwrap());
     }
 
     #[test]
@@ -170,7 +177,7 @@ mod tests {
 
         let result = subject.encode(&PublicKey::new(b"key"), &PlainData::new(b""));
 
-        assert_eq!(result.err().unwrap(), CryptdecError::EmptyData);
+        assert_eq!(CryptdecError::EmptyData, result.err().unwrap());
     }
 
     #[test]
@@ -181,7 +188,7 @@ mod tests {
 
         let mut data: Vec<u8> = CryptDENull::private_from_public(&PublicKey::new(b"key")).into();
         data.extend(b"data".iter());
-        assert_eq!(result.ok().unwrap(), CryptData::new(&data[..]));
+        assert_eq!(CryptData::new(&data[..]), result.ok().unwrap());
     }
 
     #[test]
@@ -191,7 +198,7 @@ mod tests {
 
         let result = subject.decode(&CryptData::new(b"keydata"));
 
-        assert_eq!(result.err().unwrap(), CryptdecError::EmptyKey);
+        assert_eq!(CryptdecError::EmptyKey, result.err().unwrap());
     }
 
     #[test]
@@ -201,7 +208,7 @@ mod tests {
 
         let result = subject.decode(&CryptData::new(b""));
 
-        assert_eq!(result.err().unwrap(), CryptdecError::EmptyData);
+        assert_eq!(CryptdecError::EmptyData, result.err().unwrap());
     }
 
     #[test]
@@ -211,7 +218,7 @@ mod tests {
 
         let result = subject.decode(&CryptData::new(b"keydata"));
 
-        assert_eq!(result.ok().unwrap(), PlainData::new(b"data"));
+        assert_eq!(PlainData::new(b"data"), result.ok().unwrap());
     }
 
     #[test]
@@ -221,7 +228,7 @@ mod tests {
 
         let result = subject.decode(&CryptData::new(b"keydataxyz"));
 
-        assert_eq!(result.err().unwrap(), CryptdecError::InvalidKey (String::from ("Could not decrypt with [98, 97, 100, 75, 101, 121] data beginning with [107, 101, 121, 100, 97, 116]")));
+        assert_eq!(CryptdecError::InvalidKey (String::from ("Could not decrypt with [98, 97, 100, 75, 101, 121] data beginning with [107, 101, 121, 100, 97, 116]")), result.err().unwrap());
     }
 
     #[test]
@@ -231,7 +238,7 @@ mod tests {
 
         let result = subject.decode(&CryptData::new(b"keydata"));
 
-        assert_eq!(result.err().unwrap(), CryptdecError::InvalidKey (String::from ("Could not decrypt with [105, 110, 118, 97, 108, 105, 100, 107, 101, 121] data beginning with [107, 101, 121, 100, 97, 116, 97]")));
+        assert_eq!(CryptdecError::InvalidKey (String::from ("Could not decrypt with [105, 110, 118, 97, 108, 105, 100, 107, 101, 121] data beginning with [107, 101, 121, 100, 97, 116, 97]")), result.err().unwrap());
     }
 
     #[test]
@@ -241,7 +248,7 @@ mod tests {
 
         subject.random(&mut dest[..]);
 
-        assert_eq!(dest, &b"44444444444"[..]);
+        assert_eq!(&b"44444444444"[..], dest);
     }
 
     #[test]
@@ -251,7 +258,7 @@ mod tests {
 
         let result = subject.private_key();
 
-        assert_eq!(result.clone(), expected);
+        assert_eq!(expected, result.clone());
     }
 
     #[test]
@@ -261,7 +268,7 @@ mod tests {
 
         let result = subject.public_key();
 
-        assert_eq!(result.clone(), expected);
+        assert_eq!(expected, result.clone());
     }
 
     #[test]
@@ -291,7 +298,7 @@ mod tests {
             .encode(&subject.public_key(), &expected_data)
             .unwrap();
         let decrypted_data = subject.decode(&encrypted_data).unwrap();
-        assert_eq!(decrypted_data, expected_data);
+        assert_eq!(expected_data, decrypted_data);
     }
 
     #[test]
@@ -302,7 +309,7 @@ mod tests {
         let resulting_private_key = CryptDENull::private_from_public(&public_key);
 
         assert_ne!(original_private_key.as_slice(), public_key.as_slice());
-        assert_eq!(resulting_private_key, original_private_key);
+        assert_eq!(original_private_key, resulting_private_key);
     }
 
     #[test]
@@ -314,12 +321,12 @@ mod tests {
         let expected_data = PlainData::new(&b"These are the times that try men's souls"[..]);
         let encrypted_data = subject.encode(&public_key, &expected_data).unwrap();
         let decrypted_data = subject.decode(&encrypted_data).unwrap();
-        assert_eq!(decrypted_data, expected_data);
+        assert_eq!(expected_data, decrypted_data);
         let encrypted_data = subject
             .encode(&subject.public_key(), &expected_data)
             .unwrap();
         let decrypted_data = subject.decode(&encrypted_data).unwrap();
-        assert_eq!(decrypted_data, expected_data);
+        assert_eq!(expected_data, decrypted_data);
     }
 
     #[test]
@@ -333,14 +340,108 @@ mod tests {
         assert_eq!(result.private_key(), subject.private_key());
     }
 
+    const HASHABLE_DATA: &str = "Availing himself of the mild, summer-cool weather that now reigned \
+        in these latitudes, and in preparation for the peculiarly active pursuits shortly to be \
+        anticipated, Perth, the begrimed, blistered old blacksmith, had not removed his portable \
+        forge to the hold again, after concluding his contributory work for Ahab's leg, but still \
+        retained it on deck, fast lashed to ringbolts by the foremast; being now almost incessantly \
+        invoked by the headsmen, and harpooneers, and bowsmen to do some little job for them; \
+        altering, or repairing, or new shaping their various weapons and boat furniture. Often \
+        he would be surrounded by an eager circle, all waiting to be served; holding boat-spades, \
+        pike-heads, harpoons, and lances, and jealously watching his every sooty movement, as he \
+        toiled. Nevertheless, this old man's was a patient hammer wielded by a patient arm. No \
+        murmur, no impatience, no petulance did come from him. Silent, slow, and solemn; bowing \
+        over still further his chronically broken back, he toiled away, as if toil were life \
+        itself, and the heavy beating of his hammer the heavy beating of his heart. And so it \
+        was.—Most miserable! A peculiar walk in this old man, a certain slight but painful \
+        appearing yawing in his gait, had at an early period of the voyage excited the curiosity \
+        of the mariners. And to the importunity of their persisted questionings he had finally \
+        given in; and so it came to pass that every one now knew the shameful story of his wretched \
+        fate. Belated, and not innocently, one bitter winter's midnight, on the road running \
+        between two country towns, the blacksmith half-stupidly felt the deadly numbness stealing \
+        over him, and sought refuge in a leaning, dilapidated barn. The issue was, the loss of the \
+        extremities of both feet. Out of this revelation, part by part, at last came out the four \
+        acts of the gladness, and the one long, and as yet uncatastrophied fifth act of the grief \
+        of his life's drama. He was an old man, who, at the age of nearly sixty, had postponedly \
+        encountered that thing in sorrow's technicals called ruin. He had been an artisan of famed \
+        excellence, and with plenty to do; owned a house and garden; embraced a youthful, \
+        daughter-like, loving wife, and three blithe, ruddy children; every Sunday went to a \
+        cheerful-looking church, planted in a grove. But one night, under cover of darkness, and \
+        further concealed in a most cunning disguisement, a desperate burglar slid into his happy \
+        home, and robbed them all of everything. And darker yet to tell, the blacksmith himself \
+        did ignorantly conduct this burglar into his family's heart. It was the Bottle Conjuror! \
+        Upon the opening of that fatal cork, forth flew the fiend, and shrivelled up his home. \
+        Now, for prudent, most wise, and economic reasons, the blacksmith's shop was in the \
+        basement of his dwelling, but with a separate entrance to it; so that always had the \
+        young and loving healthy wife listened with no unhappy nervousness, but with vigorous \
+        pleasure, to the stout ringing of her young-armed old husband's hammer; whose \
+        reverberations, muffled by passing through the floors and walls, came up to her, not \
+        unsweetly, in her nursery; and so, to stout Labor's iron lullaby, the blacksmith's \
+        infants were rocked to slumber. Oh, woe on woe! Oh, Death, why canst thou not sometimes \
+        be timely? Hadst thou taken this old blacksmith to thyself ere his full ruin came upon \
+        him, then had the young widow had a delicious grief, and her orphans a truly venerable, \
+        legendary sire to dream of in their after years; and all of them a care-killing competency.";
+
     #[test]
     fn verifying_a_good_signature_works() {
-        let data = PlainData::new(b"Fourscore and seven years ago");
+        let data = PlainData::new(HASHABLE_DATA.as_bytes());
         let subject = CryptDENull::new();
 
         let signature = subject.sign(&data).unwrap();
         let result = subject.verify_signature(&data, &signature, &subject.public_key());
 
-        assert_eq!(result, true);
+        assert_eq!(true, result);
+    }
+
+    #[test]
+    fn verifying_a_bad_signature_fails() {
+        let data = PlainData::new(HASHABLE_DATA.as_bytes());
+        let subject = CryptDENull::new();
+        let mut modified = Vec::from(HASHABLE_DATA.as_bytes());
+        modified[0] = modified[0] + 1;
+        let different_data = PlainData::from(modified);
+        let signature = subject.sign(&data).unwrap();
+
+        let result = subject.verify_signature(&different_data, &signature, &subject.public_key());
+
+        assert_eq!(false, result);
+    }
+
+    #[test]
+    fn hashing_produces_the_same_value_for_the_same_data() {
+        let some_data = PlainData::new(HASHABLE_DATA.as_bytes());
+        let more_data = some_data.clone();
+        let subject = CryptDENull::new();
+
+        let some_result = subject.hash(&some_data);
+        let more_result = subject.hash(&more_data);
+
+        assert_eq!(some_result, more_result);
+    }
+
+    #[test]
+    fn hashing_produces_different_values_for_different_data() {
+        let some_data = PlainData::new(HASHABLE_DATA.as_bytes());
+        let mut modified = Vec::from(HASHABLE_DATA.as_bytes());
+        modified[0] = modified[0] + 1;
+        let different_data = PlainData::from(modified);
+        let subject = CryptDENull::new();
+
+        let some_result = subject.hash(&some_data);
+        let different_result = subject.hash(&different_data);
+
+        assert_ne!(some_result, different_result);
+    }
+
+    #[test]
+    fn hashing_produces_the_same_length_for_long_and_short_data() {
+        let long_data = PlainData::new(HASHABLE_DATA.as_bytes());
+        let short_data = PlainData::new(&[1, 2, 3, 4]);
+        let subject = CryptDENull::new();
+
+        let long_result = subject.hash(&long_data);
+        let short_result = subject.hash(&short_data);
+
+        assert_eq!(long_result.len(), short_result.len());
     }
 }

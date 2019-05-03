@@ -422,7 +422,7 @@ mod tests {
     use super::super::neighborhood_test_utils::make_node_record;
     use super::*;
     use crate::neighborhood::neighborhood_test_utils::db_from_node;
-    use crate::test_utils::test_utils::{assert_string_contains, vec_to_set};
+    use crate::test_utils::test_utils::{assert_string_contains, vec_to_btset};
     use std::str::FromStr;
 
     #[test]
@@ -489,7 +489,7 @@ mod tests {
 
     #[test]
     fn gossip_node_record_keeps_all_half_neighbors_including_bootstraps() {
-        let this_node = make_node_record(1234, true, false);
+        let mut this_node = make_node_record(1234, true, false);
         let full_neighbor_one = make_node_record(2345, true, false);
         let full_neighbor_two = make_node_record(3456, true, false);
         let full_neighbor_bootstrap = make_node_record(4567, true, true);
@@ -507,6 +507,7 @@ mod tests {
             db.add_arbitrary_half_neighbor(&this_node_key, half_neighbor.public_key());
             db
         };
+        this_node.signature = db.root().signature().clone();
 
         let result = GossipNodeRecord::from((&db, db.root().public_key(), true));
 
@@ -518,7 +519,7 @@ mod tests {
             result.inner.is_bootstrap_node
         );
         assert_eq!(
-            vec_to_set(vec![
+            vec_to_btset(vec![
                 full_neighbor_one.public_key().clone(),
                 full_neighbor_two.public_key().clone(),
                 half_neighbor.public_key().clone(),
@@ -570,7 +571,7 @@ mod tests {
             "\n\tinner: NodeRecordInner {\n\t\tpublic_key: AQIDBA,\n\t\tnode_addr_opt: Some(1.2.3.4:[1234]),\n\t\tis_bootstrap_node: false,\n\t\tearning_wallet: Wallet { address: \"0x1234\" },\n\t\trate_pack: RatePack { routing_byte_rate: 1235, routing_service_rate: 1236, exit_byte_rate: 1237, exit_service_rate: 1238 },\n\t\tneighbors: [],\n\t\tversion: 2,\n\t},",
             "\n\tnode_addr_opt: Some(1.2.3.4:[1234]),",
             "\n\tsigned_data: PlainData { data: [166, 106, 112, 117, 98, 108, 105, 99, 95, 107, 101, 121, 68, 1, 2, 3, 4, 110, 101, 97, 114, 110, 105, 110, 103, 95, 119, 97, 108, 108, 101, 116, 161, 103, 97, 100, 100, 114, 101, 115, 115, 102, 48, 120, 49, 50, 51, 52, 105, 114, 97, 116, 101, 95, 112, 97, 99, 107, 164, 113, 114, 111, 117, 116, 105, 110, 103, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 25, 4, 211, 116, 114, 111, 117, 116, 105, 110, 103, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 25, 4, 212, 110, 101, 120, 105, 116, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 25, 4, 213, 113, 101, 120, 105, 116, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 25, 4, 214, 113, 105, 115, 95, 98, 111, 111, 116, 115, 116, 114, 97, 112, 95, 110, 111, 100, 101, 244, 105, 110, 101, 105, 103, 104, 98, 111, 114, 115, 128, 103, 118, 101, 114, 115, 105, 111, 110, 2] },",
-            "\n\tsignature: CryptData { data: [115, 105, 103, 110, 101, 100] },"
+            "\n\tsignature: CryptData { data: [1, 2, 3, 4, 173, 202, 73, 13, 113, 107, 215, 175, 17, 86, 222, 134, 22, 141, 45, 123, 130, 82, 44, 226] },"
         );
 
         assert_eq!(expected, result);

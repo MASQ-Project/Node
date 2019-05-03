@@ -12,7 +12,7 @@ use std::net::IpAddr;
 pub enum GossipAcceptanceResult {
     Ignored, // Don't change anything; this Gossip was not worth accepting.
     Relay(Gossip, PublicKey, NodeAddr), // Don't change anything, but send this relay Gossip back to the debuter at the provided key and NodeAddr.
-    Accepted(Vec<(Gossip, PublicKey, NodeAddr)>), // If debuts are provided, send only the debuts. If no debuts, Gossip the current database around.
+    Accepted(Vec<(Gossip, PublicKey, NodeAddr)>), // If Gossip triples are provided, send only the provided Gossip. If nothing is provided, Gossip the current database around.
 }
 
 pub trait GossipAcceptor: Send {
@@ -262,7 +262,7 @@ impl<'a> GossipAcceptorReal<'a> {
             .clone()
             .expect("Debut Gossip should have been checked for NodeAddr");
         let debuting_node = NodeRecord::from(debuting_agr);
-        let node_key = match database.add_node(debuting_node) {
+        let debut_node_key = match database.add_node(debuting_node) {
             Ok(key) => key,
             // TODO: We'll have to stop rejecting re-debuts if we're going to repair the network.
             Err(NeighborhoodDatabaseError::NodeKeyCollision(_)) => {
@@ -277,13 +277,13 @@ impl<'a> GossipAcceptorReal<'a> {
                 public_key, e
             ),
         };
-        match database.add_half_neighbor(&node_key) {
+        match database.add_half_neighbor(&debut_node_key) {
             Err(NeighborhoodDatabaseError::NodeKeyNotFound(k)) => {
                 panic!("Node {} magically disappeared", k)
             }
             Err(e) => panic!(
                 "Unexpected error accepting debut from {}/{:?}: {:?}",
-                node_key,
+                debut_node_key,
                 Some(node_addr),
                 e
             ),
@@ -291,9 +291,11 @@ impl<'a> GossipAcceptorReal<'a> {
                 let root_mut = database.root_mut();
                 root_mut.increment_version();
                 root_mut.regenerate_signed_gossip(self.cryptde);
-                Ok(GossipAcceptanceResult::Accepted(
-                    self.make_acceptance_gossip_opt(database, &node_key, node_addr),
-                ))
+                Ok(GossipAcceptanceResult::Accepted(self.make_introductions(
+                    database,
+                    &debut_node_key,
+                    node_addr,
+                )))
             }
             Ok(false) => panic!("Brand-new neighbor already existed"),
         }
@@ -393,24 +395,24 @@ impl<'a> GossipAcceptorReal<'a> {
 
     //////
 
-    fn make_acceptance_gossip_opt(
+    fn make_introductions(
         &self,
         database: &NeighborhoodDatabase,
-        public_key: &PublicKey,
+        debut_node_key: &PublicKey,
         node_addr: NodeAddr,
     ) -> Vec<(Gossip, PublicKey, NodeAddr)> {
         let mut neighbor_keys = database.root().half_neighbor_keys();
-        neighbor_keys.remove(public_key);
-        let least_connected_neighbor_key =
-            Self::find_least_connected_neighbor_excluding(database, public_key);
-        least_connected_neighbor_key
+        neighbor_keys.remove(debut_node_key);
+        let least_connected_neighbor_key_opt =
+            Self::find_least_connected_neighbor_excluding(database, debut_node_key);
+        least_connected_neighbor_key_opt
             .map(|least_connected_neighbor_key| {
                 (
                     GossipBuilder::new(database)
                         .node(database.root().public_key(), true)
                         .node(least_connected_neighbor_key, true)
                         .build(),
-                    public_key.clone(),
+                    debut_node_key.clone(),
                     node_addr,
                 )
             })
@@ -493,8 +495,9 @@ mod tests {
     use super::*;
     use crate::neighborhood::neighborhood_test_utils::{db_from_node, make_node_record};
     use crate::neighborhood::node_record::NodeRecord;
+    use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
-    use crate::test_utils::test_utils::{assert_contains, cryptde, vec_to_set};
+    use crate::test_utils::test_utils::{assert_contains, cryptde, vec_to_btset};
     use std::convert::TryFrom;
     use std::convert::TryInto;
     use std::str::FromStr;
@@ -621,9 +624,10 @@ mod tests {
     #[test]
     fn first_debut_is_handled() {
         let mut root_node = make_node_record(1234, true, false);
+        let root_node_cryptde = CryptDENull::from(&root_node.public_key());
         let mut dest_db = db_from_node(&root_node);
         let (gossip, debut_node, gossip_source) = make_debut(2345);
-        let subject = GossipAcceptorReal::new(cryptde());
+        let subject = GossipAcceptorReal::new(&root_node_cryptde);
 
         let result = subject.handle(&mut dest_db, gossip.try_into().unwrap(), gossip_source);
 
@@ -641,6 +645,7 @@ mod tests {
     #[test]
     fn second_debut_is_handled() {
         let mut root_node = make_node_record(1234, true, false);
+        let root_node_cryptde = CryptDENull::from(&root_node.public_key());
         let mut dest_db = db_from_node(&root_node);
         let existing_node_key = &dest_db
             .add_node(make_node_record(3456, true, false))
@@ -652,7 +657,7 @@ mod tests {
             .resign();
         dest_db.node_by_key_mut(existing_node_key).unwrap().resign();
         let (gossip, debut_node, gossip_source) = make_debut(2345);
-        let subject = GossipAcceptorReal::new(cryptde());
+        let subject = GossipAcceptorReal::new(&root_node_cryptde);
 
         let result = subject.handle(&mut dest_db, gossip.try_into().unwrap(), gossip_source);
 
@@ -682,6 +687,7 @@ mod tests {
     #[test]
     fn fourth_debut_is_handled() {
         let mut root_node = make_node_record(1234, true, false);
+        let root_node_cryptde = CryptDENull::from(&root_node.public_key());
         let mut dest_db = db_from_node(&root_node);
         let existing_node_1_key = &dest_db
             .add_node(make_node_record(3456, true, false))
@@ -715,7 +721,7 @@ mod tests {
             .resign();
 
         let (gossip, debut_node, gossip_source) = make_debut(2345);
-        let subject = GossipAcceptorReal::new(cryptde());
+        let subject = GossipAcceptorReal::new(&root_node_cryptde);
 
         let result = subject.handle(&mut dest_db, gossip.try_into().unwrap(), gossip_source);
 
@@ -760,6 +766,7 @@ mod tests {
     #[test]
     fn fifth_debut_is_handled() {
         let mut root_node = make_node_record(1234, true, false);
+        let root_node_cryptde = CryptDENull::from(&root_node.public_key());
         let mut dest_db = db_from_node(&root_node);
         let existing_node_1_key = &dest_db
             .add_node(make_node_record(3456, true, false))
@@ -802,7 +809,7 @@ mod tests {
             .resign();
 
         let (gossip, debut_node, gossip_source) = make_debut(2345);
-        let subject = GossipAcceptorReal::new(cryptde());
+        let subject = GossipAcceptorReal::new(&root_node_cryptde);
 
         let result = subject.handle(&mut dest_db, gossip.try_into().unwrap(), gossip_source);
 
@@ -838,6 +845,7 @@ mod tests {
     #[test]
     fn debut_when_degree_is_five_is_passed_to_least_connected_neighbor() {
         let mut root_node = make_node_record(1234, true, false);
+        let root_node_cryptde = CryptDENull::from(&root_node.public_key());
         let mut dest_db = db_from_node(&root_node);
         let existing_node_1_key = &dest_db
             .add_node(make_node_record(3456, true, false))
@@ -887,7 +895,7 @@ mod tests {
             .resign();
 
         let (gossip, debut_node, gossip_source) = make_debut(2345);
-        let subject = GossipAcceptorReal::new(cryptde());
+        let subject = GossipAcceptorReal::new(&root_node_cryptde);
 
         let result = subject.handle(&mut dest_db, gossip.try_into().unwrap(), gossip_source);
 
@@ -914,9 +922,10 @@ mod tests {
     #[test]
     fn bootstrap_node_handles_initial_debut_properly() {
         let mut root_node = make_node_record(1234, true, true);
+        let root_node_cryptde = CryptDENull::from(&root_node.public_key());
         let mut dest_db = db_from_node(&root_node);
         let (gossip, debut_node, gossip_source) = make_debut(2345);
-        let subject = GossipAcceptorReal::new(cryptde());
+        let subject = GossipAcceptorReal::new(&root_node_cryptde);
 
         let result = subject.handle(&mut dest_db, gossip.try_into().unwrap(), gossip_source);
 
@@ -934,6 +943,7 @@ mod tests {
     #[test]
     fn bootstrap_node_handles_later_debut_properly() {
         let root_node = make_node_record(1234, true, true);
+        let root_node_cryptde = CryptDENull::from(&root_node.public_key());
         let mut dest_db = db_from_node(&root_node);
         let relay_target_key = &dest_db
             .add_node(make_node_record(2345, true, false))
@@ -963,10 +973,7 @@ mod tests {
         dest_db.add_arbitrary_full_neighbor(two_key, three_key);
         dest_db.add_arbitrary_full_neighbor(three_key, four_key);
         dest_db.add_arbitrary_full_neighbor(four_key, five_key);
-        dest_db
-            .node_by_key_mut(root_node.public_key())
-            .unwrap()
-            .resign();
+        dest_db.root_mut().resign();
         dest_db.node_by_key_mut(relay_target_key).unwrap().resign();
         dest_db.node_by_key_mut(one_key).unwrap().resign();
         dest_db.node_by_key_mut(two_key).unwrap().resign();
@@ -974,7 +981,7 @@ mod tests {
         dest_db.node_by_key_mut(four_key).unwrap().resign();
         dest_db.node_by_key_mut(five_key).unwrap().resign();
         let (gossip, debut_node, gossip_source) = make_debut(8901);
-        let subject = GossipAcceptorReal::new(cryptde());
+        let subject = GossipAcceptorReal::new(&root_node_cryptde);
         let mut root_node = dest_db.root().clone();
 
         let result = subject.handle(&mut dest_db, gossip.try_into().unwrap(), gossip_source);
@@ -1189,6 +1196,7 @@ mod tests {
     #[test]
     fn standard_gossip_does_not_stimulate_introduction_response_for_gossip_source() {
         let dest_node = make_node_record(1234, true, false);
+        let dest_node_cryptde = CryptDENull::from(&dest_node.public_key());
         let mut dest_db = db_from_node(&dest_node);
         let src_node = make_node_record(2345, true, false);
         let mut src_db = db_from_node(&src_node);
@@ -1223,7 +1231,7 @@ mod tests {
             .node(src_node.public_key(), true)
             .node(third_node.public_key(), true)
             .build();
-        let subject = GossipAcceptorReal::new(cryptde());
+        let subject = GossipAcceptorReal::new(&dest_node_cryptde);
 
         let result = subject.handle(
             &mut dest_db,
@@ -1360,7 +1368,7 @@ mod tests {
         assert_eq!(root_node.public_key(), &agr.inner.public_key);
         assert_eq!(root_node.node_addr_opt(), agr.node_addr_opt);
         assert_eq!(
-            vec_to_set(vec![existing_neighbor.public_key().clone()]),
+            vec_to_btset(vec![existing_neighbor.public_key().clone()]),
             agr.inner.neighbors
         );
     }
