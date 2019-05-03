@@ -15,6 +15,9 @@ use super::ui_gateway::ui_gateway::UiGateway;
 use crate::accountant::payable_dao::PayableDaoReal;
 use crate::accountant::receivable_dao::ReceivableDaoReal;
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
+use crate::blockchain::blockchain_interface::{
+    BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceRpc,
+};
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::sub_lib::accountant::AccountantConfig;
 use crate::sub_lib::accountant::AccountantSubs;
@@ -309,7 +312,18 @@ impl ActorFactory for ActorFactoryReal {
         &self,
         config: BlockchainBridgeConfig,
     ) -> BlockchainBridgeSubs {
-        let blockchain_bridge = BlockchainBridge::new(config);
+        let blockchain_service_url = config.blockchain_service_url.clone();
+        let contract_address = config.contract_address.clone();
+        let blockchain_interface: Box<dyn BlockchainInterface> = {
+            match blockchain_service_url {
+                Some(url) => match BlockchainInterfaceRpc::new(url, contract_address) {
+                    Ok(interface) => Box::new(interface),
+                    Err(_) => panic!("Invalid blockchain node URL"),
+                },
+                None => Box::new(BlockchainInterfaceClandestine {}),
+            }
+        };
+        let blockchain_bridge = BlockchainBridge::new(config, blockchain_interface);
         let addr: Addr<BlockchainBridge> = blockchain_bridge.start();
         BlockchainBridge::make_subs_from(&addr)
     }
@@ -318,6 +332,7 @@ impl ActorFactory for ActorFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::blockchain_interface::TESTNET_CONTRACT_ADDRESS;
     use crate::bootstrapper::CRYPT_DE_OPT;
     use crate::database::db_initializer::test_utils::{ConnectionWrapperMock, DbInitializerMock};
     use crate::database::db_initializer::InitializationError;
@@ -686,6 +701,18 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Invalid blockchain node URL")]
+    fn invalid_blockchain_url_produces_panic() {
+        let config = BlockchainBridgeConfig {
+            blockchain_service_url: Some("http://λ:8545".to_string()),
+            contract_address: TESTNET_CONTRACT_ADDRESS,
+            consuming_private_key: None,
+        };
+        let subject = ActorFactoryReal {};
+        subject.make_and_start_blockchain_bridge(config);
+    }
+
+    #[test]
     fn make_and_start_actors_sends_bind_messages() {
         let actor_factory = ActorFactoryMock::new();
         let recordings = actor_factory.get_recordings();
@@ -711,6 +738,8 @@ mod tests {
                 node_descriptor: String::from(""),
             },
             blockchain_bridge_config: BlockchainBridgeConfig {
+                blockchain_service_url: None,
+                contract_address: TESTNET_CONTRACT_ADDRESS,
                 consuming_private_key: None,
             },
         };
@@ -764,6 +793,8 @@ mod tests {
                 node_descriptor: String::from("NODE-DESCRIPTOR"),
             },
             blockchain_bridge_config: BlockchainBridgeConfig {
+                blockchain_service_url: None,
+                contract_address: TESTNET_CONTRACT_ADDRESS,
                 consuming_private_key: None,
             },
         };
@@ -777,7 +808,7 @@ mod tests {
             tx,
         );
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
         check_bind_message(&recordings.dispatcher);
         check_bind_message(&recordings.hopper);
@@ -809,6 +840,8 @@ mod tests {
         assert_eq!(
             blockchain_bridge_config,
             BlockchainBridgeConfig {
+                blockchain_service_url: None,
+                contract_address: TESTNET_CONTRACT_ADDRESS,
                 consuming_private_key: None
             }
         );

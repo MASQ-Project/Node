@@ -55,6 +55,13 @@ $ ci/all.sh
 ```
 
 #### If you're using Windows
+Substratum Node utilizes a Web3 crate to facilitate Blockchain communications. The Web3 crate depends on OpenSSL for TLS
+when connecting over HTTPS. Some setup for a proper Windows build environment may be needed. You have two choices: a) install
+OpenSSL and allow it to be dynamically linked at compile time b) download an OpenSSL binary and set `OPENSSL_STATIC`
+and allow it to be statically linked at compile time.
+See the [Rust OpenSSL Documentation](https://docs.rs/openssl/0.10.20/openssl/) for more information on configuring this 
+environment variable. If it is not set, dynamic linking is assumed. The binaries we distribute are statically linked.
+
 Open a `git-bash` window as administrator and type:
 ```
 $ ci/all.sh
@@ -113,6 +120,10 @@ for more information._
 #### Running a Decentralized SubstratumNode locally
 
 There are several more options that are available for running decentralized. Here is a list of them and their meanings:
+
+* `--blockchain_service_url <url>` An optional URL that should point to an Infura, Geth, or Parity HTTP endpoint. Not 
+supplying a URL will direct blockchain traffic through the Substratum Network, allowing those nodes that do supply the 
+URL to talk to the blockchain on your behalf.
 
 * `--ip <IP address>` This is the public IP address of your SubstratumNode: that is, the IP address at which other
 SubstratumNodes can contact yours. If you're in a fairly standard residential situation, then this will be the IP

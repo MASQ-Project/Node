@@ -3,6 +3,7 @@ use crate::accountant::accountant::DEFAULT_PAYABLE_SCAN_INTERVAL;
 use crate::actor_system_factory::ActorFactoryReal;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
+use crate::blockchain::blockchain_interface::TESTNET_CONTRACT_ADDRESS;
 use crate::configuration::Configuration;
 use crate::crash_test_dummy::CrashTestDummy;
 use crate::discriminator::DiscriminatorFactory;
@@ -81,6 +82,8 @@ impl BootstrapperConfig {
                 node_descriptor: String::from(""),
             },
             blockchain_bridge_config: BlockchainBridgeConfig {
+                blockchain_service_url: None,
+                contract_address: TESTNET_CONTRACT_ADDRESS,
                 consuming_private_key: None,
             },
         }
@@ -192,6 +195,8 @@ impl Bootstrapper {
             Bootstrapper::parse_data_dir(&finder, &RealDirsWrapper {});
         config.neighborhood_config.earning_wallet = Bootstrapper::parse_wallet_address(&finder)
             .unwrap_or(accountant::DEFAULT_EARNING_WALLET.clone());
+        config.blockchain_bridge_config.blockchain_service_url =
+            Bootstrapper::parse_blockchain_service_url(&finder);
         // TODO: In real life this should come from a command-line parameter
         config.neighborhood_config.consuming_wallet =
             Some(accountant::TEMPORARY_CONSUMING_WALLET.clone());
@@ -232,6 +237,11 @@ impl Bootstrapper {
             panic!("CONSUMING_PRIVATE_KEY requires a valid Ethereum private key");
         }
         Some(key)
+    }
+
+    fn parse_blockchain_service_url(finder: &ParameterFinder) -> Option<String> {
+        let usage = "--blockchain_service_url <url>";
+        finder.find_value_for("--blockchain_service_url", usage)
     }
 
     fn is_valid_ethereum_address(address: &str) -> bool {
@@ -703,6 +713,28 @@ mod tests {
 
     #[test]
     #[should_panic(
+        expected = "Missing value for --blockchain_service_url: --blockchain_service_url <url>"
+    )]
+    fn parse_blockchain_service_url_requires_a_url() {
+        let finder = ParameterFinder::new(vec![String::from("--blockchain_service_url")]);
+
+        Bootstrapper::parse_blockchain_service_url(&finder);
+    }
+
+    #[test]
+    fn parse_blockchain_service_url_handles_happy_path() {
+        let finder = ParameterFinder::new(vec![
+            String::from("--blockchain_service_url"),
+            String::from("http://127.0.0.1:8545"),
+        ]);
+
+        let result = Bootstrapper::parse_blockchain_service_url(&finder);
+
+        assert_eq!(Some("http://127.0.0.1:8545".to_string()), result);
+    }
+
+    #[test]
+    #[should_panic(
         expected = "Missing value for --wallet_address: --wallet_address <address> where 'address' is an Ethereum wallet address"
     )]
     fn parse_wallet_address_requires_an_address() {
@@ -1111,6 +1143,8 @@ mod tests {
             "0xbDfeFf9A1f4A1bdF483d680046344316019C58CF",
             "--data_directory",
             "~/.booga",
+            "--blockchain_service_url",
+            "http://127.0.0.1:8545",
         ]
         .into_iter()
         .map(String::from)
@@ -1150,6 +1184,10 @@ mod tests {
         assert_eq!(
             config.neighborhood_config.earning_wallet,
             Wallet::new("0xbDfeFf9A1f4A1bdF483d680046344316019C58CF")
+        );
+        assert_eq!(
+            Some("http://127.0.0.1:8545".to_string()),
+            config.blockchain_bridge_config.blockchain_service_url
         );
         assert_eq!(
             config.accountant_config.data_directory,

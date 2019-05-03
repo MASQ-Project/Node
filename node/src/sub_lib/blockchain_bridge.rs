@@ -4,9 +4,12 @@ use crate::accountant::payable_dao::PayableAccount;
 use crate::sub_lib::peer_actors::BindMessage;
 use actix::Message;
 use actix::Recipient;
+use web3::types::H160;
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, Default)]
 pub struct BlockchainBridgeConfig {
+    pub blockchain_service_url: Option<String>,
+    pub contract_address: H160,
     pub consuming_private_key: Option<String>,
 }
 

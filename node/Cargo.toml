@@ -38,18 +38,28 @@ fdlimit = "0.1.1"
 version = "0.16.0"
 features = ["bundled"]
 
+[dependencies.web3]
+version = "0.6.0"
+default-features = false
+features = ["http", "tls"]
+
 [dependencies.websocket]
 version = "0.22.1"
 default-features = false
 features = ["async", "sync"]
 
 [dev-dependencies]
-native-tls = "0.2.2"
+native-tls = "0.2.3"
+trust-dns-proto = "0.4.0"
+simple-server = "0.4.0"
 serial_test_derive = "0.2.0"
 serial_test = "0.2.0"
 
 [target.'cfg(unix)'.dependencies]
 daemonize = "0.3.0"
+
+[target.'cfg(not(windows))'.dependencies]
+openssl = { version = "0.10", features = ["vendored"] }
 
 [target.'cfg(windows)'.dependencies]
 
