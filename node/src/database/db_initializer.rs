@@ -156,7 +156,7 @@ impl DbInitializerReal {
     fn extract_configurations(&self, conn: &Connection) -> HashMap<String, String> {
         let mut stmt = conn.prepare("select name, value from config").unwrap();
         let config_contents = stmt
-            .query_map(NO_PARAMS, |row| (row.get(0), row.get(1)))
+            .query_map(NO_PARAMS, |row| Ok((row.get_unwrap(0), row.get_unwrap(1))))
             .expect("Internal error")
             .into_iter()
             .flat_map(|x| x);
@@ -255,7 +255,7 @@ mod tests {
         let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
         let mut stmt = conn.prepare("select name, value from config").unwrap();
         let mut payable_contents = stmt
-            .query_map(NO_PARAMS, |row| (row.get(0), row.get(1)))
+            .query_map(NO_PARAMS, |row| Ok((row.get_unwrap(0), row.get_unwrap(1))))
             .unwrap();
         assert_eq!(
             payable_contents.next().unwrap().unwrap(),
@@ -266,12 +266,12 @@ mod tests {
         );
         assert!(payable_contents.next().is_none());
         let mut stmt = conn.prepare ("select wallet_address, balance, last_paid_timestamp, pending_payment_transaction from payable").unwrap ();
-        let mut payable_contents = stmt.query_map(NO_PARAMS, |_| 42).unwrap();
+        let mut payable_contents = stmt.query_map(NO_PARAMS, |_| Ok(42)).unwrap();
         assert!(payable_contents.next().is_none());
         let mut stmt = conn
             .prepare("select wallet_address, balance, last_received_timestamp from receivable")
             .unwrap();
-        let mut receivable_contents = stmt.query_map(NO_PARAMS, |_| 42).unwrap();
+        let mut receivable_contents = stmt.query_map(NO_PARAMS, |_| Ok(42)).unwrap();
         assert!(receivable_contents.next().is_none());
     }
 
@@ -303,7 +303,7 @@ mod tests {
             .prepare("select name, value from config order by name")
             .unwrap();
         let mut config_contents = stmt
-            .query_map(NO_PARAMS, |row| (row.get(0), row.get(1)))
+            .query_map(NO_PARAMS, |row| Ok((row.get_unwrap(0), row.get_unwrap(1))))
             .unwrap();
         assert_eq!(
             config_contents.next().unwrap().unwrap(),

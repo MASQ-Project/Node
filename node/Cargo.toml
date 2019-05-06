@@ -35,7 +35,7 @@ trust-dns-resolver = "0.10.3"
 fdlimit = "0.1.1"
 
 [dependencies.rusqlite]
-version = "0.16.0"
+version = "0.18.0"
 features = ["bundled"]
 
 [dependencies.web3]

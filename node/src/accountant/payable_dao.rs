@@ -3,7 +3,7 @@ use crate::database::dao_utils;
 use crate::database::db_initializer::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
 use rusqlite::types::ToSql;
-use rusqlite::OptionalExtension;
+use rusqlite::{OptionalExtension, NO_PARAMS};
 use std::fmt::Debug;
 use std::time::SystemTime;
 
@@ -68,11 +68,11 @@ impl PayableDao for PayableDaoReal {
             .expect("Internal error");
         match stmt
             .query_row(&[wallet_address.address.clone()], |row| {
-                (row.get(0), row.get(1), row.get(2))
+                Ok((row.get(0), row.get(1), row.get(2)))
             })
             .optional()
         {
-            Ok(Some((Some(balance), Some(last_paid_timestamp), pending_payment_transaction))) => {
+            Ok(Some((Ok(balance), Ok(last_paid_timestamp), Ok(pending_payment_transaction)))) => {
                 Some(PayableAccount {
                     wallet_address: wallet_address.clone(),
                     balance,
@@ -91,11 +91,13 @@ impl PayableDao for PayableDaoReal {
             .prepare("select balance, last_paid_timestamp, wallet_address from payable where pending_payment_transaction is null")
             .expect("Internal error");
 
-        stmt.query_map(&[] as &[&ToSql], |row| PayableAccount {
-            balance: row.get(0),
-            last_paid_timestamp: dao_utils::from_time_t(row.get(1)),
-            wallet_address: Wallet::new(&row.get::<usize, String>(2)),
-            pending_payment_transaction: None,
+        stmt.query_map(NO_PARAMS, |row| {
+            Ok(PayableAccount {
+                balance: row.get_unwrap(0),
+                last_paid_timestamp: dao_utils::from_time_t(row.get_unwrap(1)),
+                wallet_address: Wallet::new(&row.get_unwrap::<usize, String>(2)),
+                pending_payment_transaction: None,
+            })
         })
         .expect("Database is corrupt")
         .map(|p| p.expect("Database is corrupt"))

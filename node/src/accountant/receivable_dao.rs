@@ -54,7 +54,7 @@ impl ReceivableDao for ReceivableDaoReal {
             .expect("Internal error");
         match stmt
             .query_row(&[wallet_address.address.clone()], |row| {
-                (row.get(0), row.get(1))
+                Ok((row.get_unwrap(0), row.get_unwrap(1)))
             })
             .optional()
         {
@@ -75,10 +75,12 @@ impl ReceivableDao for ReceivableDaoReal {
             .prepare("select balance, last_received_timestamp, wallet_address from receivable")
             .expect("Internal error");
 
-        stmt.query_map(&[] as &[&ToSql], |row| ReceivableAccount {
-            balance: row.get(0),
-            last_received_timestamp: dao_utils::from_time_t(row.get(1)),
-            wallet_address: Wallet::new(&row.get::<usize, String>(2)),
+        stmt.query_map(&[] as &[&ToSql], |row| {
+            Ok(ReceivableAccount {
+                balance: row.get_unwrap(0),
+                last_received_timestamp: dao_utils::from_time_t(row.get_unwrap(1)),
+                wallet_address: Wallet::new(&row.get_unwrap::<usize, String>(2)),
+            })
         })
         .expect("Database is corrupt")
         .map(|p| p.expect("Database is corrupt"))
