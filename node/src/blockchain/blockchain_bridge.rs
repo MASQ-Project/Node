@@ -106,7 +106,7 @@ impl BlockchainBridge {
 mod tests {
     use super::*;
     use crate::blockchain::blockchain_interface::{
-        BlockchainError, Transaction, TESTNET_CONTRACT_ADDRESS,
+        Balance, BlockchainError, Transaction, Transactions, TESTNET_CONTRACT_ADDRESS,
     };
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -226,16 +226,20 @@ mod tests {
     }
 
     impl BlockchainInterface for BlockchainInterfaceMock {
-        fn retrieve_transactions(
-            &self,
-            start_block: u64,
-            recipient: &Wallet,
-        ) -> Box<dyn Future<Item = Vec<Transaction>, Error = BlockchainError> + Send> {
+        fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> Transactions {
             self.retrieve_transactions_parameters
                 .lock()
                 .unwrap()
                 .push((start_block.clone(), recipient.clone()));
             self.retrieve_transactions_results.borrow_mut().remove(0)
+        }
+
+        fn get_eth_balance(&self, _address: &Wallet) -> Balance {
+            unimplemented!()
+        }
+
+        fn get_token_balance(&self, _address: &Wallet) -> Balance {
+            unimplemented!()
         }
     }
 
