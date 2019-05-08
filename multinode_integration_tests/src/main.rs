@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use self::sub_lib::utils::indicates_dead_stream;
+use node_lib::persistent_configuration::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use node_lib::sub_lib;
 use node_lib::sub_lib::framer::Framer;
 use node_lib::sub_lib::main_tools::Command;
@@ -24,7 +25,6 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
 use std::thread;
-use node_lib::persistent_configuration::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 
 pub const CONTROL_STREAM_PORT: u16 = 42511;
 

@@ -3,6 +3,7 @@ use crate::command::Command;
 use crate::substratum_client::SubstratumNodeClient;
 use base64;
 use base64::STANDARD_NO_PAD;
+use node_lib::persistent_configuration::HIGHEST_USABLE_PORT;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::neighborhood::RatePack;
@@ -24,7 +25,6 @@ use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-use node_lib::persistent_configuration::HIGHEST_USABLE_PORT;
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct NodeReference {

@@ -610,7 +610,7 @@ impl Drop for SubstratumRealNodeGuts {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use node_lib::persistent_configuration::{TLS_PORT, HTTP_PORT};
+    use node_lib::persistent_configuration::{HTTP_PORT, TLS_PORT};
 
     #[test]
     fn node_startup_config_builder_zero_hop() {
