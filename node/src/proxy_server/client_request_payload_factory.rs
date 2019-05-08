@@ -82,6 +82,7 @@ impl ClientRequestPayloadFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::persistent_configuration::HTTP_PORT;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::proxy_server::ProxyProtocol;
     use crate::test_utils::logging::init_test_logging;
@@ -95,7 +96,7 @@ mod tests {
         let data = PlainData::new(&b"GET http://borkoed.com:2345/fleebs.html HTTP/1.1\r\n\r\n"[..]);
         let ibcd = InboundClientData {
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            reception_port: Some(80),
+            reception_port: Some(HTTP_PORT),
             sequence_number: Some(1),
             last_data: false,
             is_clandestine: false,
@@ -129,7 +130,7 @@ mod tests {
         let data = PlainData::new(&b"GET http://borkoed.com/fleebs.html HTTP/1.1\r\n\r\n"[..]);
         let ibcd = InboundClientData {
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            reception_port: Some(80),
+            reception_port: Some(HTTP_PORT),
             sequence_number: Some(1),
             last_data: false,
             is_clandestine: false,
@@ -151,7 +152,7 @@ mod tests {
                     last_data: false
                 },
                 target_hostname: Some(String::from("borkoed.com")),
-                target_port: 80,
+                target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: cryptde.public_key().clone(),
             })
@@ -307,7 +308,7 @@ mod tests {
     fn use_sequence_from_inbound_client_data_in_client_request_payload() {
         let ibcd = InboundClientData {
             peer_addr: SocketAddr::from_str("1.2.3.4:80").unwrap(),
-            reception_port: Some(80),
+            reception_port: Some(HTTP_PORT),
             sequence_number: Some(1),
             last_data: false,
             data: vec![0x10, 0x11, 0x12],
@@ -330,7 +331,7 @@ mod tests {
         init_test_logging();
         let ibcd = InboundClientData {
             peer_addr: SocketAddr::from_str("1.2.3.4:80").unwrap(),
-            reception_port: Some(80),
+            reception_port: Some(HTTP_PORT),
             last_data: false,
             is_clandestine: false,
             sequence_number: None,

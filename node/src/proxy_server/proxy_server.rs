@@ -635,6 +635,7 @@ impl StreamKeyFactory for StreamKeyFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::persistent_configuration::{HTTP_PORT, TLS_PORT};
     use crate::proxy_server::protocol_pack::ServerImpersonator;
     use crate::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
     use crate::proxy_server::server_impersonator_tls::ServerImpersonatorTls;
@@ -798,7 +799,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             peer_addr: socket_addr.clone(),
-            reception_port: Some(80),
+            reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
             is_clandestine: false,
@@ -815,7 +816,7 @@ mod tests {
                 last_data: true,
             },
             target_hostname: Some(String::from("nowhere.com")),
-            target_port: 80,
+            target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
             originator_public_key: key.clone(),
         };
@@ -874,7 +875,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             peer_addr: socket_addr.clone(),
-            reception_port: Some(80),
+            reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
             is_clandestine: false,
@@ -891,7 +892,7 @@ mod tests {
                 last_data: true,
             },
             target_hostname: Some(String::from("nowhere.com")),
-            target_port: 80,
+            target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
             originator_public_key: key.clone(),
         };
@@ -982,7 +983,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             peer_addr: socket_addr.clone(),
-            reception_port: Some(80),
+            reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
             is_clandestine: false,
@@ -998,7 +999,7 @@ mod tests {
                 last_data: true,
             },
             target_hostname: Some(String::from("nowhere.com")),
-            target_port: 80,
+            target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
             originator_public_key: key.clone(),
         };
@@ -1092,7 +1093,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             peer_addr: socket_addr.clone(),
-            reception_port: Some(80),
+            reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
             is_clandestine: false,
@@ -1121,7 +1122,7 @@ mod tests {
             stream_key,
             sequenced_packet: SequencedPacket::new(expected_data, 0, false),
             target_hostname: Some("nowhere.com".to_string()),
-            target_port: 80,
+            target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
             originator_public_key: exit_key,
         });
@@ -1167,7 +1168,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             peer_addr: socket_addr.clone(),
-            reception_port: Some(80),
+            reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
             is_clandestine: false,
@@ -1230,7 +1231,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             peer_addr: socket_addr.clone(),
-            reception_port: Some(80),
+            reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
             is_clandestine: false,
@@ -1282,7 +1283,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             peer_addr: socket_addr.clone(),
-            reception_port: Some(80),
+            reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
             is_clandestine: false,
@@ -1325,7 +1326,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             peer_addr: socket_addr.clone(),
-            reception_port: Some(80),
+            reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
             data: expected_data.clone(),
@@ -1449,7 +1450,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             peer_addr: socket_addr.clone(),
-            reception_port: Some(80),
+            reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
             data: expected_data.clone(),
@@ -1523,7 +1524,7 @@ mod tests {
         let expected_data = tls_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             peer_addr: socket_addr.clone(),
-            reception_port: Some(443),
+            reception_port: Some(TLS_PORT),
             sequence_number: Some(0),
             last_data: false,
             is_clandestine: false,
@@ -1540,7 +1541,7 @@ mod tests {
                 last_data: false,
             },
             target_hostname: Some(String::from("server.com")),
-            target_port: 443,
+            target_port: TLS_PORT,
             protocol: ProxyProtocol::TLS,
             originator_public_key: key.clone(),
         };
@@ -1592,7 +1593,7 @@ mod tests {
         let expected_data = tls_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             peer_addr: socket_addr.clone(),
-            reception_port: Some(443),
+            reception_port: Some(TLS_PORT),
             sequence_number: Some(0),
             last_data: false,
             is_clandestine: false,
@@ -1609,7 +1610,7 @@ mod tests {
                 last_data: false,
             },
             target_hostname: None,
-            target_port: 443,
+            target_port: TLS_PORT,
             protocol: ProxyProtocol::TLS,
             originator_public_key: key.clone(),
         };
@@ -1659,7 +1660,7 @@ mod tests {
         let expected_data = tls_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             peer_addr: socket_addr.clone(),
-            reception_port: Some(443),
+            reception_port: Some(TLS_PORT),
             sequence_number: Some(0),
             last_data: true,
             is_clandestine: false,
@@ -1676,7 +1677,7 @@ mod tests {
                 last_data: true,
             },
             target_hostname: None,
-            target_port: 443,
+            target_port: TLS_PORT,
             protocol: ProxyProtocol::TLS,
             originator_public_key: key.clone(),
         };
@@ -1740,7 +1741,7 @@ mod tests {
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let msg_from_dispatcher = InboundClientData {
             peer_addr: socket_addr.clone(),
-            reception_port: Some(443),
+            reception_port: Some(TLS_PORT),
             sequence_number: Some(0),
             last_data: true,
             data: tls_request,

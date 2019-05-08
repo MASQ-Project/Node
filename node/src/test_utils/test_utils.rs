@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::persistent_configuration::HTTP_PORT;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PlainData;
@@ -25,7 +26,6 @@ use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::io;
 use std::io::Error;
 use std::io::Read;
 use std::io::Write;
@@ -33,6 +33,7 @@ use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::net::UdpSocket;
+use std::path::PathBuf;
 use std::str::from_utf8;
 use std::str::FromStr;
 use std::sync::mpsc;
@@ -43,6 +44,7 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use std::{fs, io};
 
 lazy_static! {
     static ref CRYPT_DE_NULL: CryptDENull = CryptDENull::new();
@@ -293,7 +295,7 @@ pub fn make_request_payload(bytes: usize, cryptde: &CryptDE) -> ClientRequestPay
         ),
         sequenced_packet: SequencedPacket::new(make_garbage_data(bytes), 0, true),
         target_hostname: Some("example.com".to_string()),
-        target_port: 80,
+        target_port: HTTP_PORT,
         protocol: ProxyProtocol::HTTP,
         originator_public_key: cryptde.public_key().clone(),
     }
@@ -425,6 +427,26 @@ where
 {
     let set: BTreeSet<T> = vec.into_iter().collect();
     set
+}
+
+pub const BASE_TEST_DIR: &str = "generated/test";
+
+pub fn node_home_directory(module: &str, name: &str) -> PathBuf {
+    let home_dir_string = format!("{}/{}/{}/home", BASE_TEST_DIR, module, name);
+    PathBuf::from(home_dir_string.as_str())
+}
+
+pub fn ensure_node_home_directory_does_not_exist(module: &str, name: &str) -> PathBuf {
+    let home_dir = PathBuf::from(node_home_directory(module, name));
+    fs::remove_dir_all(&home_dir).is_ok();
+    home_dir
+}
+
+pub fn ensure_node_home_directory_exists(module: &str, name: &str) -> PathBuf {
+    let home_dir = PathBuf::from(node_home_directory(module, name));
+    fs::remove_dir_all(&home_dir).is_ok();
+    fs::create_dir_all(&home_dir).is_ok();
+    home_dir
 }
 
 #[cfg(test)]

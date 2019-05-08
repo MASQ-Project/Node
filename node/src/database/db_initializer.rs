@@ -1,13 +1,22 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::persistent_configuration::{
+    HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
+};
+use rand::rngs::SmallRng;
+use rand::FromEntropy;
+use rand::Rng;
 use rusqlite::NO_PARAMS;
 use rusqlite::{Connection, Statement};
 use rusqlite::{Error, OpenFlags};
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::fs;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
+use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node_data.sqlite";
-pub const CURRENT_SCHEMA_VERSION: &str = "0.0.1";
+pub const CURRENT_SCHEMA_VERSION: &str = "0.0.2";
 
 pub trait ConnectionWrapper: Debug {
     fn prepare(&self, query: &str) -> Result<Statement, rusqlite::Error>;
@@ -33,7 +42,7 @@ impl ConnectionWrapperReal {
 #[derive(Debug, PartialEq)]
 pub enum InitializationError {
     IncompatibleVersion,
-    SqliteError,
+    SqliteError(rusqlite::Error),
 }
 
 pub trait DbInitializer {
@@ -47,6 +56,7 @@ impl DbInitializer for DbInitializerReal {
         &self,
         path: &PathBuf,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
+        Self::create_data_directory_if_necessary(path);
         let mut flags = OpenFlags::empty();
         flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
         let database_file_path = &path.join(DATABASE_FILE);
@@ -67,7 +77,7 @@ impl DbInitializer for DbInitializerReal {
                         Ok(()) => Ok(Box::new(ConnectionWrapperReal::new(conn))),
                         Err(e) => Err(e),
                     },
-                    Err(_) => Err(InitializationError::SqliteError),
+                    Err(e) => Err(InitializationError::SqliteError(e)),
                 }
             }
         }
@@ -77,6 +87,19 @@ impl DbInitializer for DbInitializerReal {
 impl DbInitializerReal {
     pub fn new() -> DbInitializerReal {
         DbInitializerReal {}
+    }
+
+    fn create_data_directory_if_necessary(data_directory: &PathBuf) {
+        match fs::read_dir(data_directory) {
+            Ok(_) => (),
+            Err(_) => fs::create_dir_all(data_directory).expect(
+                format!(
+                    "Cannot create specified data directory at {:?}",
+                    data_directory
+                )
+                .as_str(),
+            ),
+        }
     }
 
     fn create_database_tables(&self, conn: &Connection) -> Result<(), InitializationError> {
@@ -112,7 +135,16 @@ impl DbInitializerReal {
             .as_str(),
             NO_PARAMS,
         )
-        .expect("Can't load config table");
+        .expect("Can't preload config table with database version");
+        conn.execute(
+            format!(
+                "insert into config (name, value) values ('clandestine_port', '{}')",
+                Self::choose_clandestine_port().to_string(),
+            )
+            .as_str(),
+            NO_PARAMS,
+        )
+        .expect("Can't preload config table with clandestine port");
         Ok(())
     }
 
@@ -172,6 +204,21 @@ impl DbInitializerReal {
                 } else {
                     Err(InitializationError::IncompatibleVersion)
                 }
+            }
+        }
+    }
+
+    fn choose_clandestine_port() -> u16 {
+        let mut rng = SmallRng::from_entropy();
+        loop {
+            let candidate_port: u16 =
+                rng.gen_range(LOWEST_USABLE_INSECURE_PORT, HIGHEST_RANDOM_CLANDESTINE_PORT);
+            match TcpListener::bind(&SocketAddr::V4(SocketAddrV4::new(
+                Ipv4Addr::from(0),
+                candidate_port,
+            ))) {
+                Ok(_) => return candidate_port,
+                Err(_) => continue,
             }
         }
     }
@@ -240,12 +287,21 @@ pub mod test_utils {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::test_utils::ensure_node_home_directory_exists;
+    use crate::test_utils::test_utils::{
+        ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
+    };
     use rusqlite::OpenFlags;
+    use std::fs::File;
+    use std::io::{Read, Write};
+    use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+    use tokio::net::TcpListener;
 
     #[test]
-    fn nonexistent_database_is_created() {
-        let home_dir = ensure_node_home_directory_exists("nonexistent_database_is_created");
+    fn nonexistent_database_is_created_in_nonexistent_directory() {
+        let home_dir = ensure_node_home_directory_does_not_exist(
+            "accountant",
+            "nonexistent_database_is_created",
+        );
         let subject = DbInitializerReal::new();
 
         subject.initialize(&home_dir).unwrap();
@@ -253,18 +309,34 @@ mod tests {
         let mut flags = OpenFlags::empty();
         flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
         let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
-        let mut stmt = conn.prepare("select name, value from config").unwrap();
-        let mut payable_contents = stmt
+        let mut stmt = conn
+            .prepare("select name, value from config order by name")
+            .unwrap();
+        let mut config_contents = stmt
             .query_map(NO_PARAMS, |row| Ok((row.get_unwrap(0), row.get_unwrap(1))))
             .unwrap();
+        let (clandestine_port_name, clandestine_port_value_str): (String, String) =
+            config_contents.next().unwrap().unwrap();
+        let clandestine_port_value = clandestine_port_value_str.parse::<u16>().unwrap();
+        assert_eq!("clandestine_port".to_string(), clandestine_port_name);
+        assert!(
+            clandestine_port_value >= LOWEST_USABLE_INSECURE_PORT,
+            "clandestine_port_value should have been > 1024, but was {}",
+            clandestine_port_value
+        );
+        assert!(
+            clandestine_port_value <= HIGHEST_RANDOM_CLANDESTINE_PORT,
+            "clandestine_port_value should have been < 10000, but was {}",
+            clandestine_port_value
+        );
         assert_eq!(
-            payable_contents.next().unwrap().unwrap(),
+            config_contents.next().unwrap().unwrap(),
             (
                 String::from("schema_version"),
                 String::from(CURRENT_SCHEMA_VERSION)
             )
         );
-        assert!(payable_contents.next().is_none());
+        assert!(config_contents.next().is_none());
         let mut stmt = conn.prepare ("select wallet_address, balance, last_paid_timestamp, pending_payment_transaction from payable").unwrap ();
         let mut payable_contents = stmt.query_map(NO_PARAMS, |_| Ok(42)).unwrap();
         assert!(payable_contents.next().is_none());
@@ -277,8 +349,10 @@ mod tests {
 
     #[test]
     fn existing_database_with_correct_version_is_accepted_without_changes() {
-        let home_dir =
-            ensure_node_home_directory_exists("existing_database_with_version_is_accepted");
+        let home_dir = ensure_node_home_directory_exists(
+            "accountant",
+            "existing_database_with_version_is_accepted",
+        );
         let subject = DbInitializerReal::new();
         {
             DbInitializerReal::new().initialize(&home_dir).unwrap();
@@ -305,21 +379,28 @@ mod tests {
         let mut config_contents = stmt
             .query_map(NO_PARAMS, |row| Ok((row.get_unwrap(0), row.get_unwrap(1))))
             .unwrap();
+        let (name, _) = config_contents.next().unwrap().unwrap();
+        assert_eq!("clandestine_port", name);
         assert_eq!(
             config_contents.next().unwrap().unwrap(),
             (String::from("preexisting"), String::from("yes"))
         );
         assert_eq!(
             config_contents.next().unwrap().unwrap(),
-            (String::from("schema_version"), String::from("0.0.1"))
+            (
+                String::from("schema_version"),
+                String::from(CURRENT_SCHEMA_VERSION)
+            )
         );
         assert!(config_contents.next().is_none());
     }
 
     #[test]
     fn existing_database_with_no_version_is_rejected() {
-        let home_dir =
-            ensure_node_home_directory_exists("existing_database_with_no_version_is_rejected");
+        let home_dir = ensure_node_home_directory_exists(
+            "accountant",
+            "existing_database_with_no_version_is_rejected",
+        );
         {
             DbInitializerReal::new().initialize(&home_dir).unwrap();
             let mut flags = OpenFlags::empty();
@@ -344,6 +425,7 @@ mod tests {
     #[test]
     fn existing_database_with_the_wrong_version_is_rejected() {
         let home_dir = ensure_node_home_directory_exists(
+            "accountant",
             "existing_database_with_the_wrong_version_is_rejected",
         );
         {
@@ -365,5 +447,102 @@ mod tests {
             result.err().unwrap(),
             InitializationError::IncompatibleVersion
         );
+    }
+
+    #[test]
+    fn choose_clandestine_port_chooses_different_unused_ports_each_time() {
+        let _listeners = (0..10)
+            .into_iter()
+            .map(|_| {
+                let port = DbInitializerReal::choose_clandestine_port();
+                TcpListener::bind(&SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::from(0), port)))
+                    .expect(&format!("Port {} was not free", port))
+            })
+            .collect::<Vec<TcpListener>>();
+    }
+
+    #[test]
+    fn nonexistent_directory_is_created_when_possible() {
+        let data_dir = ensure_node_home_directory_does_not_exist(
+            "db_initializer",
+            "nonexistent_directory_is_created_when_possible",
+        );
+
+        DbInitializerReal::create_data_directory_if_necessary(&data_dir);
+
+        // If .unwrap() succeeds, test passes! (If not, it gives a better failure message than .is_ok())
+        fs::read_dir(data_dir).unwrap();
+    }
+
+    #[test]
+    fn directory_is_unmolested_if_present() {
+        let data_dir = ensure_node_home_directory_exists(
+            "db_initializer",
+            "directory_is_unmolested_if_present",
+        );
+        {
+            let mut file = File::create(data_dir.join("booga.txt")).unwrap();
+            file.write(b"unmolested").unwrap();
+        }
+
+        DbInitializerReal::create_data_directory_if_necessary(&data_dir);
+
+        let mut file = File::open(data_dir.join("booga.txt")).unwrap();
+        let mut contents = String::new();
+        file.read_to_string(&mut contents).unwrap();
+        assert_eq!(contents, String::from("unmolested"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[should_panic(
+        expected = "Os { code: 13, kind: PermissionDenied, message: \"Permission denied\" }"
+    )]
+    fn linux_panic_if_directory_is_nonexistent_and_cant_be_created() {
+        panic_if_directory_is_nonexistent_and_cant_be_created(&create_read_only_directory())
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[should_panic(
+        expected = "Os { code: 13, kind: PermissionDenied, message: \"Permission denied\" }"
+    )]
+    fn macos_panic_if_directory_is_nonexistent_and_cant_be_created() {
+        panic_if_directory_is_nonexistent_and_cant_be_created(&create_read_only_directory())
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    #[should_panic(
+        expected = "Custom { kind: Other, error: StringError(\"failed to create whole tree\") }"
+    )]
+    fn windows_panic_if_directory_is_nonexistent_and_cant_be_created() {
+        let base_path = PathBuf::from("M:\\nonexistent");
+        panic_if_directory_is_nonexistent_and_cant_be_created(&base_path);
+    }
+
+    fn panic_if_directory_is_nonexistent_and_cant_be_created(base_path: &PathBuf) {
+        DbInitializerReal::create_data_directory_if_necessary(&base_path.join("home"));
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn create_read_only_directory() -> PathBuf {
+        let parent_dir = ensure_node_home_directory_exists(
+            "db_initializer",
+            "panic_if_directory_is_nonexistent_and_cant_be_created",
+        );
+        let data_dir = parent_dir.join("uncreatable");
+        match fs::metadata(&parent_dir) {
+            Err(_) => (),
+            Ok(metadata) => {
+                let mut permissions = metadata.permissions();
+                permissions.set_readonly(false);
+                fs::set_permissions(&parent_dir, permissions).unwrap();
+            }
+        }
+        let mut permissions = fs::metadata(&parent_dir).unwrap().permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(&parent_dir, permissions).unwrap();
+        data_dir
     }
 }

@@ -24,6 +24,7 @@ use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use node_lib::persistent_configuration::HIGHEST_USABLE_PORT;
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct NodeReference {
@@ -112,11 +113,14 @@ impl NodeReference {
                 slice
             ));
         }
-        match port_list_numbers.iter().find(|x| x > &&65535) {
+        match port_list_numbers
+            .iter()
+            .find(|x| x > &&(HIGHEST_USABLE_PORT as i64))
+        {
             Some(x) => {
                 return Err(format!(
-                    "Each port number must be 65535 or less, not '{}'",
-                    x
+                    "Each port number must be {} or less, not '{}'",
+                    HIGHEST_USABLE_PORT, x
                 ));
             }
             None => (),
