@@ -1,5 +1,4 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::persistent_configuration::HTTP_PORT;
 use crate::proxy_server::protocol_pack::{Host, ProtocolPack, ServerImpersonator};
 use crate::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
 use crate::sub_lib::cryptde::PlainData;
@@ -14,7 +13,7 @@ impl ProtocolPack for HttpProtocolPack {
     }
 
     fn standard_port(&self) -> u16 {
-        HTTP_PORT
+        80
     }
 
     fn find_host(&self, data: &PlainData) -> Option<Host> {
@@ -108,7 +107,7 @@ mod tests {
     fn knows_its_standard_port() {
         let result = HttpProtocolPack {}.standard_port();
 
-        assert_eq!(HTTP_PORT, result);
+        assert_eq!(80, result);
     }
 
     #[test]

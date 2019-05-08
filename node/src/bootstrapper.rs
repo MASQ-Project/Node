@@ -4,19 +4,12 @@ use crate::actor_system_factory::ActorFactoryReal;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
 use crate::blockchain::blockchain_interface::TESTNET_CONTRACT_ADDRESS;
-use crate::config_dao::ConfigDaoReal;
-use crate::configuration::{Configuration, PortConfiguration};
+use crate::configuration::Configuration;
 use crate::crash_test_dummy::CrashTestDummy;
-use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::discriminator::DiscriminatorFactory;
-use crate::json_discriminator_factory::JsonDiscriminatorFactory;
 use crate::listener_handler::ListenerHandler;
 use crate::listener_handler::ListenerHandlerFactory;
 use crate::listener_handler::ListenerHandlerFactoryReal;
-use crate::persistent_configuration::{
-    PersistentConfiguration, PersistentConfigurationReal, HIGHEST_USABLE_PORT,
-    LOWEST_USABLE_INSECURE_PORT,
-};
 use crate::sub_lib::accountant;
 use crate::sub_lib::accountant::AccountantConfig;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
@@ -63,11 +56,6 @@ pub struct BootstrapperConfig {
     pub clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
     pub ui_gateway_config: UiGatewayConfig,
     pub blockchain_bridge_config: BlockchainBridgeConfig,
-    // This is to defer storing of the clandestine port in the database until after privilege is
-    // relinquished, so that if we create the database we don't do it as root, which would lead
-    // to an unfortunate ownership and privilege situation for the database file.
-    pub clandestine_port_opt: Option<u16>,
-    pub data_directory: PathBuf,
 }
 
 impl BootstrapperConfig {
@@ -84,6 +72,7 @@ impl BootstrapperConfig {
                 rate_pack: DEFAULT_RATE_PACK.clone(),
             },
             accountant_config: AccountantConfig {
+                data_directory: PathBuf::new(),
                 payable_scan_interval: Duration::from_secs(DEFAULT_PAYABLE_SCAN_INTERVAL),
             },
             crash_point: CrashPoint::None,
@@ -97,8 +86,6 @@ impl BootstrapperConfig {
                 contract_address: TESTNET_CONTRACT_ADDRESS,
                 consuming_private_key: None,
             },
-            clandestine_port_opt: None,
-            data_directory: PathBuf::new(),
         }
     }
 }
@@ -130,12 +117,20 @@ impl SocketServer for Bootstrapper {
         String::from("Dispatcher")
     }
 
-    fn initialize_as_privileged(&mut self, args: &Vec<String>) {
+    fn initialize_as_privileged(&mut self, args: &Vec<String>, streams: &mut StdStreams<'_>) {
         let mut configuration = Configuration::new();
-        configuration.establish();
+        configuration.establish(args);
+        let cryptde_ref = Bootstrapper::initialize_cryptde();
         let mut config = BootstrapperConfig::new();
         Bootstrapper::parse_args(args, &mut config);
         Bootstrapper::parse_environment_variables(&mut config);
+        Bootstrapper::add_clandestine_port_info(&configuration, &mut config);
+        config.ui_gateway_config.node_descriptor = Bootstrapper::report_local_descriptor(
+            cryptde_ref,
+            config.neighborhood_config.local_ip_addr,
+            config.neighborhood_config.clandestine_port_list.clone(),
+            streams,
+        );
         self.config = Some(config);
         self.listener_handlers =
             FuturesUnordered::<Box<dyn ListenerHandler<Item = (), Error = ()>>>::new();
@@ -155,18 +150,9 @@ impl SocketServer for Bootstrapper {
             });
     }
 
-    fn initialize_as_unprivileged(&mut self, streams: &mut StdStreams<'_>) {
+    fn initialize_as_unprivileged(&mut self) {
         // NOTE: The following line of code is not covered by unit tests
         fdlimit::raise_fd_limit();
-        self.establish_clandestine_port();
-        let cryptde_ref = Bootstrapper::initialize_cryptde();
-        let config = self.config.as_mut().expect("Configuration missing");
-        config.ui_gateway_config.node_descriptor = Bootstrapper::report_local_descriptor(
-            cryptde_ref,
-            config.neighborhood_config.local_ip_addr,
-            config.neighborhood_config.clandestine_port_list.clone(),
-            streams,
-        );
         let stream_handler_pool_subs = self.actor_system_factory.make_and_start_actors(
             self.config
                 .as_ref()
@@ -205,7 +191,8 @@ impl Bootstrapper {
         config.neighborhood_config.is_bootstrap_node = Bootstrapper::parse_node_type(&finder);
         config.neighborhood_config.local_ip_addr = local_ip_addr;
         config.ui_gateway_config.ui_port = Bootstrapper::parse_ui_port(&finder);
-        config.data_directory = Bootstrapper::parse_data_dir(&finder, &RealDirsWrapper {});
+        config.accountant_config.data_directory =
+            Bootstrapper::parse_data_dir(&finder, &RealDirsWrapper {});
         config.neighborhood_config.earning_wallet = Bootstrapper::parse_wallet_address(&finder)
             .unwrap_or(accountant::DEFAULT_EARNING_WALLET.clone());
         config.blockchain_bridge_config.blockchain_service_url =
@@ -213,7 +200,6 @@ impl Bootstrapper {
         // TODO: In real life this should come from a command-line parameter
         config.neighborhood_config.consuming_wallet =
             Some(accountant::TEMPORARY_CONSUMING_WALLET.clone());
-        config.clandestine_port_opt = Bootstrapper::parse_clandestine_port(&finder);
     }
 
     fn parse_environment_variables(config: &mut BootstrapperConfig) {
@@ -298,7 +284,7 @@ impl Bootstrapper {
         let usage = "--ui_port <port number>";
         match finder.find_value_for("--ui_port", usage) {
             Some(port_string) => match str::parse::<u16>(port_string.as_str()) {
-                Ok(port_number) if port_number < LOWEST_USABLE_INSECURE_PORT => panic!(
+                Ok(port_number) if port_number < 1024 => panic!(
                     "Invalid port for --ui_port <port number>: '{}'",
                     port_string
                 ),
@@ -402,20 +388,20 @@ impl Bootstrapper {
         (public_key, node_addr)
     }
 
-    fn parse_clandestine_port(finder: &ParameterFinder) -> Option<u16> {
-        let usage = "--clandestine_port <clandestine port, default = random selection>";
-        match finder.find_value_for("--clandestine_port", usage) {
-            None => None,
-            Some(ref arg_str) => match arg_str.parse::<u16>() {
-                Ok(clandestine_port) if clandestine_port >= LOWEST_USABLE_INSECURE_PORT => {
-                    Some(clandestine_port)
-                }
-                _ => panic!(
-                    "--clandestine_port <port> needs a number between {} and {}, not '{}'",
-                    LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT, arg_str
-                ),
-            },
-        }
+    // TODO Possibly should be a method on BootstrapperConfig
+    fn add_clandestine_port_info(configuration: &Configuration, config: &mut BootstrapperConfig) {
+        let clandestine_ports = configuration.clandestine_ports();
+        config.clandestine_discriminator_factories = if clandestine_ports.is_empty() {
+            vec![]
+        } else {
+            configuration
+                .port_configurations
+                .get(&clandestine_ports[0])
+                .expect("Malformed configuration")
+                .discriminator_factories
+                .clone()
+        };
+        config.neighborhood_config.clandestine_port_list = clandestine_ports;
     }
 
     fn initialize_cryptde() -> &'static dyn CryptDE {
@@ -444,45 +430,6 @@ impl Bootstrapper {
         Logger::new("Bootstrapper").info(descriptor_msg);
         descriptor
     }
-
-    fn establish_clandestine_port(&mut self) {
-        let mut config = self
-            .config
-            .as_mut()
-            .expect("Configuration must be established");
-        if Self::is_zero_hop(&config) {
-            return;
-        }
-        let conn = DbInitializerReal::new()
-            .initialize(&config.data_directory)
-            .expect("Cannot initialize database");
-        let config_dao = ConfigDaoReal::new(conn);
-        let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
-        if let Some(clandestine_port) = config.clandestine_port_opt {
-            persistent_config.set_clandestine_port(clandestine_port)
-        }
-        let clandestine_port = persistent_config.clandestine_port();
-        let mut listener_handler = self.listener_handler_factory.make();
-        listener_handler
-            .bind_port_and_configuration(
-                clandestine_port,
-                PortConfiguration {
-                    discriminator_factories: vec![Box::new(JsonDiscriminatorFactory::new())],
-                    is_clandestine: true,
-                },
-            )
-            .expect("Failed to bind ListenerHandler to clandestine port");
-        self.listener_handlers.push(listener_handler);
-        config.neighborhood_config.clandestine_port_list = vec![clandestine_port];
-        config
-            .clandestine_discriminator_factories
-            .push(Box::new(JsonDiscriminatorFactory::new()));
-    }
-
-    fn is_zero_hop(config: &BootstrapperConfig) -> bool {
-        config.neighborhood_config.neighbor_configs.is_empty()
-            && config.neighborhood_config.local_ip_addr == sentinel_ip_addr()
-    }
 }
 
 struct RealDirsWrapper {}
@@ -501,15 +448,12 @@ impl DirsWrapper for RealDirsWrapper {
 mod tests {
     use super::*;
     use crate::actor_system_factory::ActorFactory;
-    use crate::config_dao::ConfigDaoReal;
     use crate::configuration::PortConfiguration;
-    use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::discriminator::Discriminator;
     use crate::discriminator::UnmaskedChunk;
     use crate::node_test_utils::extract_log;
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
     use crate::node_test_utils::TestLogOwner;
-    use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
     use crate::stream_handler_pool::StreamHandlerPoolSubs;
     use crate::stream_messages::AddStreamMsg;
     use crate::sub_lib::cryptde::PlainData;
@@ -521,8 +465,8 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::RecordAwaiter;
     use crate::test_utils::recorder::Recording;
+    use crate::test_utils::test_utils::assert_contains;
     use crate::test_utils::test_utils::FakeStreamHolder;
-    use crate::test_utils::test_utils::{assert_contains, ensure_node_home_directory_exists};
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use actix::Recipient;
@@ -627,10 +571,10 @@ mod tests {
             port: u16,
             discriminator_factories: PortConfiguration,
         ) -> io::Result<()> {
-            self.log.lock().unwrap().log(format!(
-                "bind_port_and_configuration ({}, PortConfiguration {{is_clandestine: {}, ...}})",
-                port, discriminator_factories.is_clandestine
-            ));
+            self.log
+                .lock()
+                .unwrap()
+                .log(format!("bind_port_and_configuration ({}, ...)", port));
             self.port_configuration_parameter = Some(discriminator_factories);
             self.bind_port_and_discriminator_factories_result
                 .take()
@@ -691,6 +635,8 @@ mod tests {
         vec![
             String::from("--dns_servers"),
             String::from("222.222.222.222"),
+            String::from("--port_count"),
+            String::from("0"),
         ]
     }
 
@@ -1171,75 +1117,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "--clandestine_port <port> needs a number between 1025 and 65535, not 'booga'"
-    )]
-    fn parse_clandestine_port_rejects_badly_formatted_port_number() {
-        let args = vec![
-            String::from("command"),
-            String::from("--clandestine_port"),
-            String::from("booga"),
-        ];
-        let finder = ParameterFinder::new(args);
-
-        Bootstrapper::parse_clandestine_port(&finder);
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "--clandestine_port <port> needs a number between 1025 and 65535, not '1024'"
-    )]
-    fn parse_clandestine_port_rejects_port_number_too_low() {
-        let args = vec![
-            String::from("command"),
-            String::from("--clandestine_port"),
-            String::from("1024"),
-        ];
-        let finder = ParameterFinder::new(args);
-
-        Bootstrapper::parse_clandestine_port(&finder);
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "--clandestine_port <port> needs a number between 1025 and 65535, not '65536'"
-    )]
-    fn parse_clandestine_port_rejects_port_number_too_high() {
-        let args = vec![
-            String::from("command"),
-            String::from("--clandestine_port"),
-            String::from("65536"),
-        ];
-        let finder = ParameterFinder::new(args);
-
-        Bootstrapper::parse_clandestine_port(&finder);
-    }
-
-    #[test]
-    fn parse_clandestine_port_accepts_port_if_provided() {
-        let args = vec![
-            String::from("command"),
-            String::from("--clandestine_port"),
-            String::from("4567"),
-        ];
-        let finder = ParameterFinder::new(args);
-
-        let port = Bootstrapper::parse_clandestine_port(&finder);
-
-        assert_eq!(Some(4567u16), port)
-    }
-
-    #[test]
-    fn parse_clandestine_port_accepts_no_provided_port() {
-        let args = vec![String::from("command")];
-        let finder = ParameterFinder::new(args);
-
-        let port = Bootstrapper::parse_clandestine_port(&finder);
-
-        assert_eq!(None, port)
-    }
-
-    #[test]
     fn parse_args_creates_configurations() {
         let args: Vec<String> = vec![
             "--irrelevant",
@@ -1252,8 +1129,8 @@ mod tests {
             "QmlsbA:1.2.3.4:1234,2345",
             "--ip",
             "34.56.78.90",
-            "--clandestine_port",
-            "1234",
+            "--port_count",
+            "2",
             "--neighbor",
             "VGVk:2.3.4.5:3456,4567",
             "--node_type",
@@ -1274,18 +1151,19 @@ mod tests {
         .collect();
         let mut configuration = Configuration::new();
 
-        configuration.establish();
+        configuration.establish(&args);
         let mut config = BootstrapperConfig::new();
         Bootstrapper::parse_args(&args, &mut config);
 
         assert_eq!(
+            config.dns_servers,
             vec!(
                 SocketAddr::from_str("12.34.56.78:53").unwrap(),
                 SocketAddr::from_str("23.45.67.89:53").unwrap()
-            ),
-            config.dns_servers,
+            )
         );
         assert_eq!(
+            config.neighborhood_config.neighbor_configs,
             vec!(
                 (
                     PublicKey::new(b"Bill"),
@@ -1295,30 +1173,26 @@ mod tests {
                     PublicKey::new(b"Ted"),
                     NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec!(3456, 4567))
                 ),
-            ),
-            config.neighborhood_config.neighbor_configs,
+            )
         );
-        assert_eq!(true, config.neighborhood_config.is_bootstrap_node);
+        assert_eq!(config.neighborhood_config.is_bootstrap_node, true);
         assert_eq!(
-            IpAddr::V4(Ipv4Addr::new(34, 56, 78, 90)),
             config.neighborhood_config.local_ip_addr,
+            IpAddr::V4(Ipv4Addr::new(34, 56, 78, 90))
         );
         assert_eq!(config.ui_gateway_config.ui_port, 5335);
         assert_eq!(
-            Wallet::new("0xbDfeFf9A1f4A1bdF483d680046344316019C58CF"),
             config.neighborhood_config.earning_wallet,
-        );
-        let expected_port_list: Vec<u16> = vec![];
-        assert_eq!(
-            expected_port_list,
-            config.neighborhood_config.clandestine_port_list
+            Wallet::new("0xbDfeFf9A1f4A1bdF483d680046344316019C58CF")
         );
         assert_eq!(
             Some("http://127.0.0.1:8545".to_string()),
             config.blockchain_bridge_config.blockchain_service_url
         );
-        assert_eq!(PathBuf::from("~/.booga"), config.data_directory,);
-        assert_eq!(Some(1234u16), config.clandestine_port_opt)
+        assert_eq!(
+            config.accountant_config.data_directory,
+            PathBuf::from("~/.booga")
+        );
     }
 
     #[test]
@@ -1339,7 +1213,7 @@ mod tests {
     }
 
     #[test]
-    fn initialize_as_privileged_with_no_args_binds_http_and_tls_ports() {
+    fn initialize_as_root_with_no_args_binds_port_80_and_443() {
         let _lock = INITIALIZATION.lock();
         let (first_handler, first_handler_log) =
             extract_log(ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())));
@@ -1353,23 +1227,22 @@ mod tests {
             .add_listener_handler(Box::new(third_handler))
             .build();
 
-        subject.initialize_as_privileged(&make_default_cli_params());
+        subject.initialize_as_privileged(
+            &make_default_cli_params(),
+            &mut FakeStreamHolder::new().streams(),
+        );
 
         let mut all_calls = vec![];
         all_calls.extend(first_handler_log.lock().unwrap().dump());
         all_calls.extend(second_handler_log.lock().unwrap().dump());
         all_calls.extend(third_handler_log.lock().unwrap().dump());
         assert!(
-            all_calls.contains(&String::from(
-                "bind_port_and_configuration (80, PortConfiguration {is_clandestine: false, ...})"
-            )),
+            all_calls.contains(&String::from("bind_port_and_configuration (80, ...)")),
             "{:?}",
             all_calls
         );
         assert!(
-            all_calls.contains(&String::from(
-                "bind_port_and_configuration (443, PortConfiguration {is_clandestine: false, ...})"
-            )),
+            all_calls.contains(&String::from("bind_port_and_configuration (443, ...)")),
             "{:?}",
             all_calls
         );
@@ -1377,7 +1250,7 @@ mod tests {
     }
 
     #[test]
-    fn initialize_as_privileged_reads_environment_variables() {
+    fn initialize_as_root_reads_environment_variables() {
         let _lock = INITIALIZATION.lock();
         let environment = ENVIRONMENT.lock().unwrap();
         let mut subject = BootstrapperBuilder::new()
@@ -1394,7 +1267,10 @@ mod tests {
             "9bc385849a4f9019a0acf7699da91422fdd0a3eb55ff4407e450f2c65e69a9f9",
         );
 
-        subject.initialize_as_privileged(&make_default_cli_params());
+        subject.initialize_as_privileged(
+            &make_default_cli_params(),
+            &mut FakeStreamHolder::new().streams(),
+        );
 
         let config = subject.config.unwrap();
         assert_eq!(
@@ -1409,8 +1285,7 @@ mod tests {
     }
 
     #[test]
-    fn initialize_as_privileged_with_no_args_produces_empty_clandestine_discriminator_factories_vector(
-    ) {
+    fn initialize_as_root_with_no_args_produces_empty_clandestine_discriminator_factories_vector() {
         let _lock = INITIALIZATION.lock();
         let first_handler = Box::new(ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())));
         let second_handler = Box::new(ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())));
@@ -1419,7 +1294,10 @@ mod tests {
             .add_listener_handler(second_handler)
             .build();
 
-        subject.initialize_as_privileged(&make_default_cli_params());
+        subject.initialize_as_privileged(
+            &make_default_cli_params(),
+            &mut FakeStreamHolder::new().streams(),
+        );
 
         let config = subject.config.unwrap();
         assert_eq!(
@@ -1430,30 +1308,28 @@ mod tests {
     }
 
     #[test]
-    fn initialize_as_unprivileged_passes_node_descriptor_to_ui_config() {
+    fn initialize_as_privileged_passes_node_descriptor_to_ui_config() {
         let _lock = INITIALIZATION.lock();
-        let home_dir = ensure_node_home_directory_exists(
-            "bootstrapper",
-            "initialize_as_unprivileged_passes_node_descriptor_to_ui_config",
-        );
         let mut subject = BootstrapperBuilder::new()
             .add_listener_handler(Box::new(
                 ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())),
             ))
+            .add_listener_handler(Box::new(
+                ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())),
+            ))
             .build();
-        let mut config = BootstrapperConfig::new();
-        config.clandestine_port_opt = Some(1234);
-        config.data_directory = home_dir;
-        subject.config = Some(config);
 
-        subject.initialize_as_unprivileged(&mut FakeStreamHolder::new().streams());
+        subject.initialize_as_privileged(
+            &make_default_cli_params(),
+            &mut FakeStreamHolder::new().streams(),
+        );
 
         let config = subject.config.unwrap();
         assert!(config.ui_gateway_config.node_descriptor.len() > 0);
     }
 
     #[test]
-    fn initialize_as_privileged_with_clandestine_port_produces_expected_clandestine_discriminator_factories_vector(
+    fn initialize_as_root_with_one_clandestine_port_produces_expected_clandestine_discriminator_factories_vector(
     ) {
         let _lock = INITIALIZATION.lock();
         let first_handler = Box::new(ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())));
@@ -1465,23 +1341,40 @@ mod tests {
             .add_listener_handler(third_handler)
             .build();
 
-        subject.initialize_as_privileged(&vec![
-            String::from("--dns_servers"),
-            String::from("222.222.222.222"),
-            String::from("--clandestine_port"),
-            String::from("1234"),
-        ]);
+        subject.initialize_as_privileged(
+            &vec![
+                String::from("--dns_servers"),
+                String::from("222.222.222.222"),
+                String::from("--port_count"),
+                String::from("1"),
+            ],
+            &mut FakeStreamHolder::new().streams(),
+        );
 
         let config = subject.config.unwrap();
-        assert!(config.neighborhood_config.clandestine_port_list.is_empty());
-        assert_eq!(Some(1234u16), config.clandestine_port_opt);
+        assert_eq!(config.neighborhood_config.clandestine_port_list.len(), 1);
+        let mut clandestine_discriminators = config
+            .clandestine_discriminator_factories
+            .into_iter()
+            .map(|factory| factory.make())
+            .collect::<Vec<Discriminator>>();
+        let mut discriminator = clandestine_discriminators.remove(0);
+        discriminator.add_data(&b"{\"component\": \"NBHD\", \"bodyText\": \"Booga\"}"[..]);
+        assert_eq!(
+            discriminator.take_chunk(),
+            Some(UnmaskedChunk {
+                chunk: b"Booga".to_vec(),
+                last_chunk: true,
+                sequenced: false,
+            })
+        ); // TODO: Where is this 'true' coming from?  Is it a problem?
+        assert_eq!(clandestine_discriminators.len(), 0);
     }
 
     #[test]
-    fn initialize_as_privileged_stores_dns_servers_and_passes_them_to_actor_system_factory_for_proxy_client_in_initialize_as_unprivileged(
+    fn initialize_as_root_stores_dns_servers_and_passes_them_to_actor_system_factory_for_proxy_client_in_initialize_as_unprivileged(
     ) {
         let _lock = INITIALIZATION.lock();
-        let mut holder = FakeStreamHolder::new();
         let actor_system_factory = ActorSystemFactoryMock::new();
         let dns_servers_arc = actor_system_factory.dnss.clone();
         let mut subject = BootstrapperBuilder::new()
@@ -1497,14 +1390,17 @@ mod tests {
             ))
             .build();
 
-        subject.initialize_as_privileged(&vec![
-            String::from("--dns_servers"),
-            String::from("1.2.3.4,2.3.4.5"),
-            String::from("--clandestine_port"),
-            String::from("1234"),
-        ]);
+        subject.initialize_as_privileged(
+            &vec![
+                String::from("--dns_servers"),
+                String::from("1.2.3.4,2.3.4.5"),
+                String::from("--port_count"),
+                String::from("0"),
+            ],
+            &mut FakeStreamHolder::new().streams(),
+        );
 
-        subject.initialize_as_unprivileged(&mut holder.streams());
+        subject.initialize_as_unprivileged();
 
         let dns_servers_guard = dns_servers_arc.lock().unwrap();
         assert_eq!(
@@ -1518,7 +1414,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "Invalid IP address for --dns_servers <servers>: 'booga'")]
-    fn initialize_as_privileged_complains_about_dns_servers_syntax_errors() {
+    fn initialize_as_root_complains_about_dns_servers_syntax_errors() {
         let _lock = INITIALIZATION.lock();
         let mut subject = BootstrapperBuilder::new()
             .add_listener_handler(Box::new(
@@ -1529,15 +1425,20 @@ mod tests {
             ))
             .build();
 
-        subject.initialize_as_privileged(&vec![
-            String::from("--dns_servers"),
-            String::from("booga,booga"),
-        ]);
+        subject.initialize_as_privileged(
+            &vec![
+                String::from("--dns_servers"),
+                String::from("booga,booga"),
+                String::from("--port_count"),
+                String::from("0"),
+            ],
+            &mut FakeStreamHolder::new().streams(),
+        );
     }
 
     #[test]
     #[should_panic(expected = "Could not listen on port")]
-    fn initialize_as_privileged_panics_if_tcp_listener_doesnt_bind() {
+    fn initialize_as_root_panics_if_tcp_listener_doesnt_bind() {
         let _lock = INITIALIZATION.lock();
         let mut subject = BootstrapperBuilder::new()
             .add_listener_handler(Box::new(
@@ -1549,10 +1450,15 @@ mod tests {
             ))
             .build();
 
-        subject.initialize_as_privileged(&vec![
-            String::from("--dns_servers"),
-            String::from("1.1.1.1"),
-        ]);
+        subject.initialize_as_privileged(
+            &vec![
+                String::from("--dns_servers"),
+                String::from("1.1.1.1"),
+                String::from("--port_count"),
+                String::from("0"),
+            ],
+            &mut FakeStreamHolder::new().streams(),
+        );
     }
 
     #[test]
@@ -1604,39 +1510,9 @@ mod tests {
     }
 
     #[test]
-    fn initialize_as_unprivileged_binds_clandestine_port() {
-        let _lock = INITIALIZATION.lock();
-        let home_dir = ensure_node_home_directory_exists(
-            "bootstrapper",
-            "initialize_as_unprivileged_binds_clandestine_port",
-        );
-        let (listener_handler, listener_handler_log_arc) =
-            extract_log(ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())));
-        let mut subject = BootstrapperBuilder::new()
-            .add_listener_handler(Box::new(listener_handler))
-            .build();
-        let mut config = BootstrapperConfig::new();
-        config.data_directory = home_dir;
-        config.clandestine_port_opt = Some(1234);
-        subject.config = Some(config);
-
-        subject.initialize_as_unprivileged(&mut FakeStreamHolder::new().streams());
-
-        let calls = listener_handler_log_arc.lock().unwrap().dump();
-        assert_eq!(
-            vec![
-                "bind_port_and_configuration (1234, PortConfiguration {is_clandestine: true, ...})"
-                    .to_string()
-            ],
-            calls
-        );
-    }
-
-    #[test]
     fn initialize_as_unprivileged_moves_streams_from_listener_handlers_to_stream_handler_pool() {
         let _lock = INITIALIZATION.lock();
         init_test_logging();
-        let mut holder = FakeStreamHolder::new();
         let one_listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
         let another_listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
         let yet_another_listener_handler =
@@ -1644,8 +1520,8 @@ mod tests {
         let cli_params = vec![
             String::from("--dns_servers"),
             String::from("222.222.222.222"),
-            String::from("--clandestine_port"),
-            String::from("1234"),
+            String::from("--port_count"),
+            String::from("1"),
         ];
         let actor_system_factory = ActorSystemFactoryMock::new();
         let mut subject = BootstrapperBuilder::new()
@@ -1654,9 +1530,9 @@ mod tests {
             .add_listener_handler(Box::new(another_listener_handler))
             .add_listener_handler(Box::new(yet_another_listener_handler))
             .build();
-        subject.initialize_as_privileged(&cli_params);
+        subject.initialize_as_privileged(&cli_params, &mut FakeStreamHolder::new().streams());
 
-        subject.initialize_as_unprivileged(&mut holder.streams());
+        subject.initialize_as_unprivileged();
 
         // Checking log message cause I don't know how to get at add_stream_sub
         let tlh = TestLogHandler::new();
@@ -1669,7 +1545,6 @@ mod tests {
     #[test]
     fn bootstrapper_as_future_polls_listener_handler_futures() {
         let _lock = INITIALIZATION.lock();
-        let mut holder = FakeStreamHolder::new();
         let connection_info1 = ConnectionInfo {
             reader: Box::new(ReadHalfWrapperMock::new()),
             writer: Box::new(WriteHalfWrapperMock::new()),
@@ -1718,14 +1593,18 @@ mod tests {
             .recording
             .take()
             .unwrap();
+
         let mut subject = BootstrapperBuilder::new()
             .actor_system_factory(Box::new(actor_system_factory))
             .add_listener_handler(Box::new(one_listener_handler))
             .add_listener_handler(Box::new(another_listener_handler))
             .build();
 
-        subject.initialize_as_privileged(&make_default_cli_params());
-        subject.initialize_as_unprivileged(&mut holder.streams());
+        subject.initialize_as_privileged(
+            &make_default_cli_params(),
+            &mut FakeStreamHolder::new().streams(),
+        );
+        subject.initialize_as_unprivileged();
 
         thread::spawn(|| {
             tokio::run(subject);
@@ -1780,128 +1659,6 @@ mod tests {
         Bootstrapper::parse_args(&args, &mut subject);
 
         assert_eq!(subject.crash_point, CrashPoint::Panic);
-    }
-
-    #[test]
-    fn establish_clandestine_port_handles_specified_port() {
-        let listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
-        let mut subject = BootstrapperBuilder::new()
-            .add_listener_handler(Box::new(listener_handler))
-            .build();
-        let mut config = BootstrapperConfig::new();
-        let home_dir = ensure_node_home_directory_exists(
-            "bootstrapper",
-            "establish_clandestine_port_handles_specified_port",
-        );
-        config.neighborhood_config.local_ip_addr = IpAddr::from_str("1.2.3.4").unwrap(); // not sentinel
-        config.neighborhood_config.neighbor_configs = vec![(
-            PublicKey::new(&[1, 2, 3, 4]),
-            NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
-        )];
-        config.data_directory = home_dir.clone();
-        config.clandestine_port_opt = Some(1234);
-        subject.config = Some(config);
-
-        subject.establish_clandestine_port();
-
-        let conn = DbInitializerReal::new().initialize(&home_dir).unwrap();
-        let config_dao = ConfigDaoReal::new(conn);
-        let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
-        assert_eq!(1234u16, persistent_config.clandestine_port());
-        assert_eq!(
-            vec![1234u16],
-            subject
-                .config
-                .as_ref()
-                .unwrap()
-                .neighborhood_config
-                .clandestine_port_list
-        );
-        assert_eq!(1, subject.listener_handlers.len());
-
-        let config = subject.config.unwrap();
-        let mut clandestine_discriminators = config
-            .clandestine_discriminator_factories
-            .into_iter()
-            .map(|factory| factory.make())
-            .collect::<Vec<Discriminator>>();
-        let mut discriminator = clandestine_discriminators.remove(0);
-        discriminator.add_data(&b"{\"component\": \"NBHD\", \"bodyText\": \"Booga\"}"[..]);
-        assert_eq!(
-            Some(UnmaskedChunk {
-                chunk: b"Booga".to_vec(),
-                last_chunk: true,
-                sequenced: false,
-            }),
-            discriminator.take_chunk(),
-        );
-        assert_eq!(0, clandestine_discriminators.len()); // Used to be 1, now 0 after removal
-    }
-
-    #[test]
-    fn establish_clandestine_port_handles_unspecified_port() {
-        let listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
-        let mut subject = BootstrapperBuilder::new()
-            .add_listener_handler(Box::new(listener_handler))
-            .build();
-        let mut config = BootstrapperConfig::new();
-        let home_dir = ensure_node_home_directory_exists(
-            "bootstrapper",
-            "establish_clandestine_port_handles_unspecified_port",
-        );
-        config.neighborhood_config.local_ip_addr = IpAddr::from_str("1.2.3.4").unwrap(); // not sentinel
-        config.neighborhood_config.neighbor_configs = vec![(
-            PublicKey::new(&[1, 2, 3, 4]),
-            NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
-        )];
-        config.data_directory = home_dir.clone();
-        config.clandestine_port_opt = None;
-        subject.config = Some(config);
-
-        subject.establish_clandestine_port();
-
-        let conn = DbInitializerReal::new().initialize(&home_dir).unwrap();
-        let config_dao = ConfigDaoReal::new(conn);
-        let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
-        let clandestine_port = persistent_config.clandestine_port();
-        assert_eq!(
-            vec![clandestine_port],
-            subject
-                .config
-                .as_ref()
-                .unwrap()
-                .neighborhood_config
-                .clandestine_port_list
-        );
-    }
-
-    #[test]
-    fn establish_clandestine_port_handles_zero_hop() {
-        let listener_handler = ListenerHandlerNull::new(vec![]);
-        let mut subject = BootstrapperBuilder::new()
-            .add_listener_handler(Box::new(listener_handler))
-            .build();
-        let mut config = BootstrapperConfig::new();
-        let home_dir = ensure_node_home_directory_exists(
-            "bootstrapper",
-            "establish_clandestine_port_handles_zero_hop",
-        );
-        config.data_directory = home_dir.clone();
-        config.clandestine_port_opt = None;
-        config.neighborhood_config.neighbor_configs = vec![]; // empty
-        config.neighborhood_config.local_ip_addr = sentinel_ip_addr(); // sentinel
-        config.neighborhood_config.clandestine_port_list = vec![];
-        subject.config = Some(config);
-
-        subject.establish_clandestine_port();
-
-        assert!(subject
-            .config
-            .as_ref()
-            .unwrap()
-            .neighborhood_config
-            .clandestine_port_list
-            .is_empty());
     }
 
     struct StreamHandlerPoolCluster {

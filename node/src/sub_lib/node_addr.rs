@@ -1,5 +1,4 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::persistent_configuration::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use crate::sub_lib::utils::plus;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
@@ -99,12 +98,12 @@ impl FromStr for NodeAddr {
             .split(",")
             .map(|s| match s.parse::<u16>() {
                 Err(_) => Err(format!(
-                    "NodeAddr must have port numbers between {} and {}, not '{}'",
-                    LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT, s
+                    "NodeAddr must have port numbers between 1024 and 65535, not '{}'",
+                    s
                 )),
-                Ok(port) if port < LOWEST_USABLE_INSECURE_PORT => Err(format!(
-                    "NodeAddr must have port numbers between {} and {}, not '{}'",
-                    LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT, s
+                Ok(port) if port < 1024 => Err(format!(
+                    "NodeAddr must have port numbers between 1024 and 65535, not '{}'",
+                    s
                 )),
                 Ok(port) => Ok(port),
             })
@@ -234,7 +233,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "NodeAddr must have port numbers between 1025 and 65535, not '1023'"
+                "NodeAddr must have port numbers between 1024 and 65535, not '1023'"
             ))
         );
     }
@@ -246,7 +245,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "NodeAddr must have port numbers between 1025 and 65535, not '65536'"
+                "NodeAddr must have port numbers between 1024 and 65535, not '65536'"
             ))
         );
     }

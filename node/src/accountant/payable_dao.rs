@@ -142,20 +142,18 @@ impl PayableDaoReal {
 
 #[cfg(test)]
 mod tests {
+    use super::super::test_utils::ensure_node_home_directory_exists;
     use super::*;
     use crate::database::dao_utils::from_time_t;
     use crate::database::db_initializer;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::test_utils::test_utils::ensure_node_home_directory_exists;
     use rusqlite::NO_PARAMS;
     use rusqlite::{Connection, OpenFlags};
 
     #[test]
     fn more_money_payable_works_for_new_address() {
-        let home_dir = ensure_node_home_directory_exists(
-            "accountant",
-            "more_money_payable_works_for_new_address",
-        );
+        let home_dir =
+            ensure_node_home_directory_exists("more_money_payable_works_for_new_address");
         let before = dao_utils::to_time_t(&SystemTime::now());
         let wallet = Wallet::new("booga");
         let status = {
@@ -186,10 +184,8 @@ mod tests {
 
     #[test]
     fn more_money_payable_works_for_existing_address() {
-        let home_dir = ensure_node_home_directory_exists(
-            "accountant",
-            "more_money_payable_works_for_existing_address",
-        );
+        let home_dir =
+            ensure_node_home_directory_exists("more_money_payable_works_for_existing_address");
         let wallet = Wallet::new("booga");
         let subject = {
             let subject =
@@ -221,7 +217,6 @@ mod tests {
     #[test]
     fn payable_account_status_works_when_account_doesnt_exist() {
         let home_dir = ensure_node_home_directory_exists(
-            "accountant",
             "payable_account_status_works_when_account_doesnt_exist",
         );
         let wallet = Wallet::new("booga");
@@ -235,7 +230,6 @@ mod tests {
     #[test]
     fn non_pending_payables_should_return_an_empty_vec_when_the_database_is_empty() {
         let home_dir = ensure_node_home_directory_exists(
-            "accountant",
             "non_pending_payables_should_return_an_empty_vec_when_the_database_is_empty",
         );
 
@@ -247,7 +241,6 @@ mod tests {
     #[test]
     fn non_pending_payables_should_return_payables_with_no_pending_transaction() {
         let home_dir = ensure_node_home_directory_exists(
-            "accountant",
             "non_pending_payables_should_return_payables_with_no_pending_transaction",
         );
 

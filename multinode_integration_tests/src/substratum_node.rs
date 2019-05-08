@@ -3,7 +3,6 @@ use crate::command::Command;
 use crate::substratum_client::SubstratumNodeClient;
 use base64;
 use base64::STANDARD_NO_PAD;
-use node_lib::persistent_configuration::HIGHEST_USABLE_PORT;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::neighborhood::RatePack;
@@ -113,14 +112,11 @@ impl NodeReference {
                 slice
             ));
         }
-        match port_list_numbers
-            .iter()
-            .find(|x| x > &&(HIGHEST_USABLE_PORT as i64))
-        {
+        match port_list_numbers.iter().find(|x| x > &&65535) {
             Some(x) => {
                 return Err(format!(
-                    "Each port number must be {} or less, not '{}'",
-                    HIGHEST_USABLE_PORT, x
+                    "Each port number must be 65535 or less, not '{}'",
+                    x
                 ));
             }
             None => (),

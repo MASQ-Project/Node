@@ -41,7 +41,6 @@ use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use actix::Actor;
 use actix::Addr;
 use actix::Recipient;
-use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 
@@ -97,11 +96,8 @@ impl ActorSystemFactoryReal {
         });
         let neighborhood_subs =
             actor_factory.make_and_start_neighborhood(cryptde, config.neighborhood_config);
-        let accountant_subs = actor_factory.make_and_start_accountant(
-            config.accountant_config,
-            &config.data_directory,
-            &db_initializer,
-        );
+        let accountant_subs =
+            actor_factory.make_and_start_accountant(config.accountant_config, &db_initializer);
         let ui_gateway_subs = actor_factory.make_and_start_ui_gateway(config.ui_gateway_config);
         let stream_handler_pool_subs = actor_factory
             .make_and_start_stream_handler_pool(config.clandestine_discriminator_factories);
@@ -219,7 +215,6 @@ pub trait ActorFactory: Send {
     fn make_and_start_accountant(
         &self,
         config: AccountantConfig,
-        data_directory: &PathBuf,
         db_initializer: &dyn DbInitializer,
     ) -> AccountantSubs;
     fn make_and_start_ui_gateway(&self, config: UiGatewayConfig) -> UiGatewaySubs;
@@ -275,17 +270,16 @@ impl ActorFactory for ActorFactoryReal {
     fn make_and_start_accountant(
         &self,
         config: AccountantConfig,
-        data_directory: &PathBuf,
         db_initializer: &dyn DbInitializer,
     ) -> AccountantSubs {
         let payable_dao = Box::new(PayableDaoReal::new(
             db_initializer
-                .initialize(data_directory)
+                .initialize(&config.data_directory)
                 .expect("Failed to connect to database"),
         ));
         let receivable_dao = Box::new(ReceivableDaoReal::new(
             db_initializer
-                .initialize(data_directory)
+                .initialize(&config.data_directory)
                 .expect("Failed to connect to database"),
         ));
         let accountant = Accountant::new(config, payable_dao, receivable_dao);
@@ -479,14 +473,13 @@ mod tests {
         fn make_and_start_accountant(
             &self,
             config: AccountantConfig,
-            data_directory: &PathBuf,
             _db_initializer: &dyn DbInitializer,
         ) -> AccountantSubs {
             self.parameters
                 .accountant_params
                 .lock()
                 .unwrap()
-                .get_or_insert((config, data_directory.clone()));
+                .get_or_insert(config);
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.accountant);
             AccountantSubs {
                 bind: addr.clone().recipient::<BindMessage>(),
@@ -585,7 +578,7 @@ mod tests {
         proxy_server_params: Arc<Mutex<Option<(&'a dyn CryptDE, bool)>>>,
         hopper_params: Arc<Mutex<Option<HopperConfig>>>,
         neighborhood_params: Arc<Mutex<Option<(&'a dyn CryptDE, NeighborhoodConfig)>>>,
-        accountant_params: Arc<Mutex<Option<(AccountantConfig, PathBuf)>>>,
+        accountant_params: Arc<Mutex<Option<AccountantConfig>>>,
         ui_gateway_params: Arc<Mutex<Option<UiGatewayConfig>>>,
         blockchain_bridge_params: Arc<Mutex<Option<BlockchainBridgeConfig>>>,
     }
@@ -668,10 +661,11 @@ mod tests {
             .initialize_result(Ok(Box::new(ConnectionWrapperMock {})));
         let data_directory = PathBuf::from_str("yeet_home").unwrap();
         let config = AccountantConfig {
+            data_directory: data_directory.clone(),
             payable_scan_interval: Duration::from_secs(9),
         };
 
-        subject.make_and_start_accountant(config.clone(), &data_directory, &db_initializer_mock);
+        subject.make_and_start_accountant(config.clone(), &db_initializer_mock);
 
         let initialize_parameters = db_initializer_mock.initialize_parameters.lock().unwrap();
         assert_eq!(2, initialize_parameters.len());
@@ -680,34 +674,30 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Failed to connect to database: SqliteError(InvalidColumnName(\"booga\"))"
-    )]
+    #[should_panic(expected = "Failed to connect to database")]
     fn failed_payable_initialization_produces_panic() {
         let config = AccountantConfig {
+            data_directory: PathBuf::new(),
             payable_scan_interval: Duration::from_secs(6),
         };
         let db_initializer_mock =
-            DbInitializerMock::new().initialize_result(Err(InitializationError::SqliteError(
-                rusqlite::Error::InvalidColumnName("booga".to_string()),
-            )));
+            DbInitializerMock::new().initialize_result(Err(InitializationError::SqliteError));
         let subject = ActorFactoryReal {};
-        subject.make_and_start_accountant(config, &PathBuf::new(), &db_initializer_mock);
+        subject.make_and_start_accountant(config, &db_initializer_mock);
     }
 
     #[test]
-    #[should_panic(expected = "Failed to connect to database: SqliteError(InvalidQuery)")]
+    #[should_panic(expected = "Failed to connect to database")]
     fn failed_receivable_initialization_produces_panic() {
         let config = AccountantConfig {
+            data_directory: PathBuf::new(),
             payable_scan_interval: Duration::from_secs(6),
         };
         let db_initializer_mock = DbInitializerMock::new()
             .initialize_result(Ok(Box::new(ConnectionWrapperMock {})))
-            .initialize_result(Err(InitializationError::SqliteError(
-                rusqlite::Error::InvalidQuery,
-            )));
+            .initialize_result(Err(InitializationError::SqliteError));
         let subject = ActorFactoryReal {};
-        subject.make_and_start_accountant(config, &PathBuf::new(), &db_initializer_mock);
+        subject.make_and_start_accountant(config, &db_initializer_mock);
     }
 
     #[test]
@@ -739,6 +729,7 @@ mod tests {
                 rate_pack: rate_pack(100),
             },
             accountant_config: AccountantConfig {
+                data_directory: PathBuf::new(),
                 payable_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
@@ -751,8 +742,6 @@ mod tests {
                 contract_address: TESTNET_CONTRACT_ADDRESS,
                 consuming_private_key: None,
             },
-            clandestine_port_opt: None,
-            data_directory: PathBuf::new(),
         };
         let subject = ActorSystemFactoryReal {};
         unsafe {
@@ -795,6 +784,7 @@ mod tests {
                 rate_pack: rate_pack(100),
             },
             accountant_config: AccountantConfig {
+                data_directory: PathBuf::new(),
                 payable_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
@@ -807,8 +797,6 @@ mod tests {
                 contract_address: TESTNET_CONTRACT_ADDRESS,
                 consuming_private_key: None,
             },
-            clandestine_port_opt: None,
-            data_directory: PathBuf::new(),
         };
         let (tx, rx) = mpsc::channel();
         let system = System::new("SubstratumNode");

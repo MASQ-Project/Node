@@ -35,20 +35,13 @@ pub enum NodeType {
     Bootstrap,
 }
 
-#[derive(PartialEq, Clone, Debug, Copy)]
-pub enum LocalIpInfo {
-    ZeroHop,
-    DistributedUnknown,
-    DistributedKnown(IpAddr),
-}
-
 #[derive(PartialEq, Clone)]
 pub struct NodeStartupConfig {
-    pub ip_info: LocalIpInfo,
+    pub ip: IpAddr,
     pub dns_servers: Vec<IpAddr>,
     pub neighbors: Vec<NodeReference>,
     pub node_type: NodeType,
-    pub clandestine_port_opt: Option<u16>,
+    pub port_count: usize,
     pub dns_target: IpAddr,
     pub dns_port: u16,
     pub earning_wallet: Wallet,
@@ -60,11 +53,11 @@ pub struct NodeStartupConfig {
 impl NodeStartupConfig {
     pub fn new() -> NodeStartupConfig {
         NodeStartupConfig {
-            ip_info: LocalIpInfo::ZeroHop,
+            ip: sentinel_ip_addr(),
             dns_servers: Vec::new(),
             neighbors: Vec::new(),
             node_type: NodeType::Bootstrap,
-            clandestine_port_opt: None,
+            port_count: 0,
             dns_target: sentinel_ip_addr(),
             dns_port: 0,
             earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
@@ -82,10 +75,8 @@ impl NodeStartupConfig {
 
     fn make_args(&self) -> Vec<String> {
         let mut args = vec![];
-        if let LocalIpInfo::DistributedKnown(ip_addr) = self.ip_info {
-            args.push("--ip".to_string());
-            args.push(format!("{}", ip_addr));
-        }
+        args.push("--ip".to_string());
+        args.push(format!("{}", self.ip));
         args.push("--dns_servers".to_string());
         args.push(Self::join_ip_addrs(&self.dns_servers));
         self.neighbors.iter().for_each(|neighbor| {
@@ -102,10 +93,8 @@ impl NodeStartupConfig {
             }
             .to_string(),
         );
-        if let Some(clandestine_port) = self.clandestine_port_opt {
-            args.push("--clandestine_port".to_string());
-            args.push(format!("{}", clandestine_port));
-        }
+        args.push("--port_count".to_string());
+        args.push(format!("{}", self.port_count));
         args.push("--log_level".to_string());
         args.push("trace".to_string());
         args.push("--data_directory".to_string());
@@ -123,11 +112,11 @@ impl NodeStartupConfig {
 }
 
 pub struct NodeStartupConfigBuilder {
-    ip_info: LocalIpInfo,
+    ip: IpAddr,
     dns_servers: Vec<IpAddr>,
     neighbors: Vec<NodeReference>,
     node_type: NodeType,
-    clandestine_port_opt: Option<u16>,
+    port_count: usize,
     dns_target: IpAddr,
     dns_port: u16,
     earning_wallet: Wallet,
@@ -139,11 +128,11 @@ pub struct NodeStartupConfigBuilder {
 impl NodeStartupConfigBuilder {
     pub fn zero_hop() -> NodeStartupConfigBuilder {
         NodeStartupConfigBuilder {
-            ip_info: LocalIpInfo::ZeroHop,
+            ip: sentinel_ip_addr(),
             dns_servers: vec![IpAddr::from_str("8.8.8.8").unwrap()],
             neighbors: vec![],
             node_type: NodeType::Standard,
-            clandestine_port_opt: None,
+            port_count: 0,
             dns_target: IpAddr::from_str("127.0.0.1").unwrap(),
             dns_port: 53,
             earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
@@ -155,11 +144,11 @@ impl NodeStartupConfigBuilder {
 
     pub fn standard() -> NodeStartupConfigBuilder {
         NodeStartupConfigBuilder {
-            ip_info: LocalIpInfo::DistributedUnknown,
+            ip: sentinel_ip_addr(), // this is replaced at startup
             dns_servers: vec![IpAddr::from_str("8.8.8.8").unwrap()],
             neighbors: vec![],
             node_type: NodeType::Standard,
-            clandestine_port_opt: None,
+            port_count: 1,
             dns_target: IpAddr::from_str("127.0.0.1").unwrap(),
             dns_port: 53,
             earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
@@ -173,11 +162,11 @@ impl NodeStartupConfigBuilder {
 
     pub fn bootstrap() -> NodeStartupConfigBuilder {
         NodeStartupConfigBuilder {
-            ip_info: LocalIpInfo::DistributedUnknown,
+            ip: sentinel_ip_addr(), // this is replaced at startup
             dns_servers: vec![IpAddr::from_str("8.8.8.8").unwrap()],
             neighbors: vec![],
             node_type: NodeType::Bootstrap,
-            clandestine_port_opt: None,
+            port_count: 1,
             dns_target: IpAddr::from_str("127.0.0.1").unwrap(),
             dns_port: 53,
             earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
@@ -189,11 +178,11 @@ impl NodeStartupConfigBuilder {
 
     pub fn copy(config: &NodeStartupConfig) -> NodeStartupConfigBuilder {
         NodeStartupConfigBuilder {
-            ip_info: config.ip_info.clone(),
+            ip: config.ip.clone(),
             dns_servers: config.dns_servers.clone(),
             neighbors: config.neighbors.clone(),
             node_type: config.node_type,
-            clandestine_port_opt: config.clandestine_port_opt,
+            port_count: config.port_count,
             dns_target: config.dns_target.clone(),
             dns_port: config.dns_port,
             earning_wallet: config.earning_wallet.clone(),
@@ -204,7 +193,7 @@ impl NodeStartupConfigBuilder {
     }
 
     pub fn ip(mut self, value: IpAddr) -> NodeStartupConfigBuilder {
-        self.ip_info = LocalIpInfo::DistributedKnown(value);
+        self.ip = value;
         self
     }
 
@@ -228,8 +217,8 @@ impl NodeStartupConfigBuilder {
         self
     }
 
-    pub fn clandestine_port(mut self, value: u16) -> NodeStartupConfigBuilder {
-        self.clandestine_port_opt = Some(value);
+    pub fn port_count(mut self, value: usize) -> NodeStartupConfigBuilder {
+        self.port_count = value;
         self
     }
 
@@ -274,11 +263,11 @@ impl NodeStartupConfigBuilder {
 
     pub fn build(self) -> NodeStartupConfig {
         NodeStartupConfig {
-            ip_info: self.ip_info,
+            ip: self.ip,
             dns_servers: self.dns_servers,
             neighbors: self.neighbors,
             node_type: self.node_type,
-            clandestine_port_opt: self.clandestine_port_opt,
+            port_count: self.port_count,
             dns_target: self.dns_target,
             dns_port: self.dns_port,
             earning_wallet: self.earning_wallet,
@@ -356,15 +345,11 @@ impl SubstratumRealNode {
         let earning_wallet = startup_config.earning_wallet.clone();
         let rate_pack = startup_config.rate_pack.clone();
         SubstratumNodeUtils::clean_up_existing_container(&name[..]);
-        let real_startup_config = match startup_config.ip_info {
-            LocalIpInfo::ZeroHop => startup_config.clone(),
-            LocalIpInfo::DistributedUnknown => NodeStartupConfigBuilder::copy(&startup_config)
+        let real_startup_config = match startup_config.port_count {
+            0 => startup_config.clone(),
+            _ => NodeStartupConfigBuilder::copy(&startup_config)
                 .ip(ip_addr)
                 .build(),
-            LocalIpInfo::DistributedKnown(ip_addr) => panic!(
-                "Can't pre-specify the IP address of a SubstratumRealNode: {}",
-                ip_addr
-            ),
         };
         let root_dir = match host_node_parent_dir {
             Some(dir) => dir,
@@ -610,20 +595,19 @@ impl Drop for SubstratumRealNodeGuts {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use node_lib::persistent_configuration::{HTTP_PORT, TLS_PORT};
 
     #[test]
     fn node_startup_config_builder_zero_hop() {
         let result = NodeStartupConfigBuilder::zero_hop().build();
 
-        assert_eq!(result.ip_info, LocalIpInfo::ZeroHop);
+        assert_eq!(result.ip, sentinel_ip_addr());
         assert_eq!(
             result.dns_servers,
             vec!(IpAddr::from_str("8.8.8.8").unwrap())
         );
         assert_eq!(result.neighbors, vec!());
         assert_eq!(result.node_type, NodeType::Standard);
-        assert_eq!(result.clandestine_port_opt, None);
+        assert_eq!(result.port_count, 0);
         assert_eq!(result.dns_target, IpAddr::from_str("127.0.0.1").unwrap());
         assert_eq!(result.dns_port, 53);
     }
@@ -632,14 +616,14 @@ mod tests {
     fn node_startup_config_builder_standard() {
         let result = NodeStartupConfigBuilder::standard().build();
 
-        assert_eq!(result.ip_info, LocalIpInfo::DistributedUnknown);
+        assert_eq!(result.ip, sentinel_ip_addr());
         assert_eq!(
             result.dns_servers,
             vec!(IpAddr::from_str("8.8.8.8").unwrap())
         );
         assert_eq!(result.neighbors, vec!());
         assert_eq!(result.node_type, NodeType::Standard);
-        assert_eq!(result.clandestine_port_opt, None);
+        assert_eq!(result.port_count, 1);
         assert_eq!(result.dns_target, IpAddr::from_str("127.0.0.1").unwrap());
         assert_eq!(result.dns_port, 53);
     }
@@ -648,14 +632,14 @@ mod tests {
     fn node_startup_config_builder_bootstrap() {
         let result = NodeStartupConfigBuilder::bootstrap().build();
 
-        assert_eq!(result.ip_info, LocalIpInfo::DistributedUnknown);
+        assert_eq!(result.ip, sentinel_ip_addr());
         assert_eq!(
             result.dns_servers,
             vec!(IpAddr::from_str("8.8.8.8").unwrap())
         );
         assert_eq!(result.neighbors, vec!());
         assert_eq!(result.node_type, NodeType::Bootstrap);
-        assert_eq!(result.clandestine_port_opt, None);
+        assert_eq!(result.port_count, 1);
         assert_eq!(result.dns_target, IpAddr::from_str("127.0.0.1").unwrap());
         assert_eq!(result.dns_port, 53);
     }
@@ -693,15 +677,16 @@ mod tests {
             .neighbor(neighbors[0].clone())
             .neighbor(neighbors[1].clone())
             .node_type(NodeType::Standard)
+            .port_count(2)
             .dns_target(dns_target)
             .dns_port(35)
             .build();
 
-        assert_eq!(result.ip_info, LocalIpInfo::DistributedKnown(ip_addr));
+        assert_eq!(result.ip, ip_addr);
         assert_eq!(result.dns_servers, dns_servers);
         assert_eq!(result.neighbors, neighbors);
         assert_eq!(result.node_type, NodeType::Standard);
-        assert_eq!(result.clandestine_port_opt, None);
+        assert_eq!(result.port_count, 2);
         assert_eq!(result.dns_target, dns_target);
         assert_eq!(result.dns_port, 35);
     }
@@ -709,7 +694,7 @@ mod tests {
     #[test]
     fn node_startup_config_builder_copy() {
         let original = NodeStartupConfig {
-            ip_info: LocalIpInfo::DistributedUnknown,
+            ip: IpAddr::from_str("255.255.255.255").unwrap(),
             dns_servers: vec![IpAddr::from_str("255.255.255.255").unwrap()],
             neighbors: vec![NodeReference::new(
                 PublicKey::new(&[255]),
@@ -717,7 +702,7 @@ mod tests {
                 vec![255],
             )],
             node_type: NodeType::Standard,
-            clandestine_port_opt: Some(1234),
+            port_count: 200,
             dns_target: IpAddr::from_str("255.255.255.255").unwrap(),
             dns_port: 54,
             earning_wallet: Wallet::new("booga"),
@@ -731,7 +716,7 @@ mod tests {
                 "ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD",
             )),
             firewall: Some(Firewall {
-                ports_to_open: vec![HTTP_PORT, TLS_PORT],
+                ports_to_open: vec![80, 443],
             }),
         };
         let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
@@ -764,16 +749,16 @@ mod tests {
             .dns_servers(dns_servers.clone())
             .neighbors(neighbors.clone())
             .node_type(NodeType::Bootstrap)
-            .clandestine_port(1234)
+            .port_count(2)
             .dns_target(dns_target)
             .dns_port(35)
             .build();
 
-        assert_eq!(result.ip_info, LocalIpInfo::DistributedKnown(ip_addr));
+        assert_eq!(result.ip, ip_addr);
         assert_eq!(result.dns_servers, dns_servers);
         assert_eq!(result.neighbors, neighbors);
         assert_eq!(result.node_type, NodeType::Bootstrap);
-        assert_eq!(result.clandestine_port_opt, Some(1234));
+        assert_eq!(result.port_count, 2);
         assert_eq!(result.dns_target, dns_target);
         assert_eq!(result.dns_port, 35);
         assert_eq!(result.earning_wallet, Wallet::new("booga"));
@@ -797,7 +782,6 @@ mod tests {
         );
 
         let subject = NodeStartupConfigBuilder::standard()
-            .ip(IpAddr::from_str("1.3.5.7").unwrap())
             .neighbor(one_neighbor.clone())
             .neighbor(another_neighbor.clone())
             .build();
@@ -808,7 +792,7 @@ mod tests {
             result,
             Command::strings(vec!(
                 "--ip",
-                "1.3.5.7",
+                "255.255.255.255",
                 "--dns_servers",
                 "8.8.8.8",
                 "--neighbor",
@@ -819,6 +803,8 @@ mod tests {
                 accountant::DEFAULT_EARNING_WALLET.address.as_str(),
                 "--node_type",
                 "standard",
+                "--port_count",
+                "1",
                 "--log_level",
                 "trace",
                 "--data_directory",

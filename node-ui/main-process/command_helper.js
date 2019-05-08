@@ -37,6 +37,7 @@ module.exports = (() => {
           [
             '--ip', additionalArgs.ip,
             '--neighbor', additionalArgs.neighbor,
+            '--port_count', 1
           ])
       }
 

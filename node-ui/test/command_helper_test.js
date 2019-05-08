@@ -172,6 +172,10 @@ describe('CommandHelper', () => {
         it('provides them as command line arguments', () => {
           td.verify(sudoPrompt.exec(td.matchers.contains(/--ip abc\s+--neighbor hidelyho/), { name: 'Substratum Node' }, 'callback'))
         })
+
+        it('provides port_count command line argument', () => {
+          td.verify(sudoPrompt.exec(td.matchers.contains('--port_count 1'), { name: 'Substratum Node' }, 'callback'))
+        })
       })
 
       describe('when neighbor is provided but ip is not', () => {
@@ -248,6 +252,10 @@ describe('CommandHelper', () => {
 
         it('provides them as command line arguments', () => {
           td.verify(nodeCmd.get(td.matchers.contains(/--ip abc\s+--neighbor hidelyho/), 'callback'))
+        })
+
+        it('provides port_count command line argument', () => {
+          td.verify(nodeCmd.get(td.matchers.contains('--port_count 1'), 'callback'))
         })
       })
 

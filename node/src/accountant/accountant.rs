@@ -19,6 +19,7 @@ use actix::AsyncContext;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
+use std::fs;
 use std::time::SystemTime;
 
 pub const PAYMENT_CURVE_MINIMUM_TIME: i64 = 86_400; // one day
@@ -45,6 +46,7 @@ impl Handler<BindMessage> for Accountant {
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
         self.report_accounts_payable_sub =
             Some(msg.peer_actors.blockchain_bridge.report_accounts_payable);
+        self.create_data_directory_if_necessary();
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         ctx.run_interval(self.config.payable_scan_interval, |act, _ctx| {
             act.logger.debug("Scanning for payables".to_string());
@@ -219,6 +221,19 @@ impl Accountant {
         m * x as f64 + b
     }
 
+    fn create_data_directory_if_necessary(&self) {
+        match fs::read_dir(&self.config.data_directory) {
+            Ok(_) => (),
+            Err(_) => fs::create_dir_all(&self.config.data_directory).expect(
+                format!(
+                    "Cannot create specified data directory at {:?}",
+                    self.config.data_directory
+                )
+                .as_str(),
+            ),
+        }
+    }
+
     fn record_service_provided(
         &self,
         service_rate: u64,
@@ -251,6 +266,7 @@ impl Accountant {
 #[cfg(test)]
 pub mod tests {
     use super::super::payable_dao::PayableAccount;
+    use super::super::test_utils::BASE_TEST_DIR;
     use super::*;
     use crate::accountant::receivable_dao::ReceivableAccount;
     use crate::database::dao_utils::from_time_t;
@@ -265,6 +281,10 @@ pub mod tests {
     use crate::test_utils::recorder::Recorder;
     use actix::System;
     use std::cell::RefCell;
+    use std::fs::File;
+    use std::io::Read;
+    use std::io::Write;
+    use std::path::PathBuf;
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
@@ -396,7 +416,12 @@ pub mod tests {
         let (blockchain_bridge, blockchain_bridge_awaiter, _) = make_recorder();
         thread::spawn(move || {
             let system = System::new("accountant_timer_triggers_scanning_for_payables");
+            let data_dir = PathBuf::from(format!(
+                "{}/accountant_timer_triggers_scanning_for_payables/home",
+                BASE_TEST_DIR
+            ));
             let config = AccountantConfig {
+                data_directory: data_dir.clone(),
                 payable_scan_interval: Duration::from_millis(100),
             };
             let now = to_time_t(&SystemTime::now());
@@ -522,7 +547,12 @@ pub mod tests {
     #[test]
     fn report_routing_service_provided_message_is_received() {
         init_test_logging();
+        let data_dir = PathBuf::from(format!(
+            "{}/report_routing_service_provided_message_is_received/home",
+            BASE_TEST_DIR
+        ));
         let config = AccountantConfig {
+            data_directory: data_dir.clone(),
             payable_scan_interval: Duration::from_secs(100),
         };
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
@@ -564,7 +594,12 @@ pub mod tests {
     #[test]
     fn report_routing_service_consumed_message_is_received() {
         init_test_logging();
+        let data_dir = PathBuf::from(format!(
+            "{}/report_routing_service_consumed_message_is_received/home",
+            BASE_TEST_DIR
+        ));
         let config = AccountantConfig {
+            data_directory: data_dir.clone(),
             payable_scan_interval: Duration::from_secs(100),
         };
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
@@ -607,6 +642,7 @@ pub mod tests {
     fn report_exit_service_provided_message_is_received() {
         init_test_logging();
         let config = AccountantConfig {
+            data_directory: PathBuf::new(),
             payable_scan_interval: Duration::from_secs(100),
         };
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
@@ -648,7 +684,12 @@ pub mod tests {
     #[test]
     fn report_exit_service_consumed_message_is_received() {
         init_test_logging();
+        let data_dir = PathBuf::from(format!(
+            "{}/report_exit_service_consumed_message_is_received/home",
+            BASE_TEST_DIR
+        ));
         let config = AccountantConfig {
+            data_directory: data_dir.clone(),
             payable_scan_interval: Duration::from_secs(100),
         };
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
@@ -685,5 +726,123 @@ pub mod tests {
         TestLogHandler::new().exists_log_containing(
             "DEBUG: Accountant: Accruing debt to wallet booga for consuming exit service 1234 bytes",
         );
+    }
+
+    #[test]
+    fn nonexistent_directory_is_created_when_possible() {
+        let data_dir = PathBuf::from(format!(
+            "{}/nonexistent_directory_is_created_when_possible/home",
+            BASE_TEST_DIR
+        ));
+        fs::remove_dir_all(&data_dir).is_ok();
+        let config = AccountantConfig {
+            data_directory: data_dir.clone(),
+            payable_scan_interval: Duration::from_secs(100),
+        };
+        let subject = Accountant::new(
+            config,
+            Box::new(PayableDaoMock::new()),
+            Box::new(ReceivableDaoMock::new()),
+        );
+
+        subject.create_data_directory_if_necessary();
+
+        // If .unwrap() succeeds, test passes! (If not, it gives a better failure message than .is_ok())
+        fs::read_dir(data_dir).unwrap();
+    }
+
+    #[test]
+    fn directory_is_unmolested_if_present() {
+        let data_dir = PathBuf::from(format!(
+            "{}/directory_is_unmolested_if_present/home",
+            BASE_TEST_DIR
+        ));
+        fs::remove_dir_all(&data_dir).is_ok();
+        fs::create_dir_all(&data_dir).is_ok();
+        {
+            let mut file = File::create(data_dir.join("booga.txt")).unwrap();
+            file.write(b"unmolested").unwrap();
+        }
+        let config = AccountantConfig {
+            data_directory: data_dir.clone(),
+            payable_scan_interval: Duration::from_secs(100),
+        };
+        let subject = Accountant::new(
+            config,
+            Box::new(PayableDaoMock::new()),
+            Box::new(ReceivableDaoMock::new()),
+        );
+
+        subject.create_data_directory_if_necessary();
+
+        let mut file = File::open(data_dir.join("booga.txt")).unwrap();
+        let mut contents = String::new();
+        file.read_to_string(&mut contents).unwrap();
+        assert_eq!(contents, String::from("unmolested"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[should_panic(
+        expected = "Os { code: 13, kind: PermissionDenied, message: \"Permission denied\" }"
+    )]
+    fn linux_panic_if_directory_is_nonexistent_and_cant_be_created() {
+        panic_if_directory_is_nonexistent_and_cant_be_created(&create_read_only_directory())
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[should_panic(
+        expected = "Os { code: 13, kind: PermissionDenied, message: \"Permission denied\" }"
+    )]
+    fn macos_panic_if_directory_is_nonexistent_and_cant_be_created() {
+        panic_if_directory_is_nonexistent_and_cant_be_created(&create_read_only_directory())
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    #[should_panic(
+        expected = "Custom { kind: Other, error: StringError(\"failed to create whole tree\") }"
+    )]
+    fn windows_panic_if_directory_is_nonexistent_and_cant_be_created() {
+        let base_path = PathBuf::from("M:\\nonexistent");
+        panic_if_directory_is_nonexistent_and_cant_be_created(&base_path);
+    }
+
+    fn panic_if_directory_is_nonexistent_and_cant_be_created(base_path: &PathBuf) {
+        let config = AccountantConfig {
+            data_directory: base_path.join("home"),
+            payable_scan_interval: Duration::from_secs(100),
+        };
+        let subject = Accountant::new(
+            config,
+            Box::new(PayableDaoMock::new()),
+            Box::new(ReceivableDaoMock::new()),
+        );
+
+        subject.create_data_directory_if_necessary();
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn create_read_only_directory() -> PathBuf {
+        let data_dir = PathBuf::from(format!(
+            "{}/panic_if_directory_is_nonexistent_and_cant_be_created/home",
+            BASE_TEST_DIR
+        ));
+        let parent_dir = data_dir.parent().unwrap();
+        match fs::metadata(parent_dir) {
+            Err(_) => (),
+            Ok(metadata) => {
+                let mut permissions = metadata.permissions();
+                permissions.set_readonly(false);
+                fs::set_permissions(parent_dir, permissions).unwrap();
+            }
+        }
+        fs::remove_dir_all(&data_dir).is_ok();
+        fs::create_dir_all(parent_dir).unwrap();
+        let mut permissions = fs::metadata(parent_dir).unwrap().permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(parent_dir, permissions).unwrap();
+        PathBuf::from(parent_dir)
     }
 }

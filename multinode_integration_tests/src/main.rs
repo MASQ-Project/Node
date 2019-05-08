@@ -1,7 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use self::sub_lib::utils::indicates_dead_stream;
-use node_lib::persistent_configuration::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use node_lib::sub_lib;
 use node_lib::sub_lib::framer::Framer;
 use node_lib::sub_lib::main_tools::Command;
@@ -213,10 +212,7 @@ impl MockNode {
     }
 
     fn usage(stderr: &mut dyn Write) -> u8 {
-        writeln! (stderr, "Usage: MockNode <IP address>:<port>,[<port>,...] where <IP address> is the address MockNode is running on and <port> is between {} and {}",
-            LOWEST_USABLE_INSECURE_PORT,
-            HIGHEST_USABLE_PORT,
-        ).unwrap ();
+        writeln! (stderr, "Usage: MockNode <IP address>:<port>,[<port>,...] where <IP address> is the address MockNode is running on and <port> is between 1024 and 65535").unwrap ();
         return 1;
     }
 
@@ -342,7 +338,7 @@ mod tests {
 
         assert_eq!(result, 1);
         let stderr = holder.stderr;
-        assert_eq! (stderr.get_string (), String::from ("Usage: MockNode <IP address>:<port>,[<port>,...] where <IP address> is the address MockNode is running on and <port> is between 1025 and 65535\n\n"));
+        assert_eq! (stderr.get_string (), String::from ("Usage: MockNode <IP address>:<port>,[<port>,...] where <IP address> is the address MockNode is running on and <port> is between 1024 and 65535\n\n"));
     }
 
     #[test]

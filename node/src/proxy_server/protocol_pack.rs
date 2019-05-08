@@ -1,5 +1,4 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::persistent_configuration::{HTTP_PORT, TLS_PORT};
 use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
 use crate::proxy_server::tls_protocol_pack::TlsProtocolPack;
 use crate::sub_lib::cryptde::{PlainData, PublicKey};
@@ -27,8 +26,8 @@ pub fn for_protocol(protocol: ProxyProtocol) -> Box<ProtocolPack> {
 
 pub fn for_standard_port(_standard_port: u16) -> Option<Box<ProtocolPack>> {
     match _standard_port {
-        HTTP_PORT => Some(Box::new(HttpProtocolPack {})),
-        TLS_PORT => Some(Box::new(TlsProtocolPack {})),
+        80 => Some(Box::new(HttpProtocolPack {})),
+        443 => Some(Box::new(TlsProtocolPack {})),
         _ => None,
     }
 }

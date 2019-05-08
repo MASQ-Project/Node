@@ -55,7 +55,7 @@ impl SocketServer for DnsSocketServer {
         String::from("EntryDnsServer")
     }
 
-    fn initialize_as_privileged(&mut self, _args: &Vec<String>) {
+    fn initialize_as_privileged(&mut self, _args: &Vec<String>, _streams: &mut StdStreams<'_>) {
         let socket_addr = SocketAddr::new(V4(Ipv4Addr::from(0)), DNS_PORT);
         // The following expect() will cause an appropriate panic if the port can't be opened
         self.socket_wrapper
@@ -63,7 +63,7 @@ impl SocketServer for DnsSocketServer {
             .expect(&format!("Cannot bind socket to {:?}", socket_addr));
     }
 
-    fn initialize_as_unprivileged(&mut self, _streams: &mut StdStreams<'_>) {
+    fn initialize_as_unprivileged(&mut self) {
         self.buf = Some([0; 65536]);
     }
 }
@@ -183,10 +183,11 @@ mod tests {
 
     #[test]
     fn uses_standard_dns_port() {
+        let mut holder = FakeStreamHolder::new();
         let socket_wrapper = make_socket_wrapper_mock();
         let mut subject = make_instrumented_subject(socket_wrapper.clone());
 
-        subject.initialize_as_privileged(&vec![]);
+        subject.initialize_as_privileged(&vec![], &mut holder.streams());
 
         let unwrapped_guts = socket_wrapper.guts.lock().unwrap();
         let borrowed_guts = unwrapped_guts.borrow();
@@ -197,7 +198,6 @@ mod tests {
     #[test]
     fn serves_multiple_requests_then_short_circuit_on_error() {
         init_test_logging();
-        let mut holder = FakeStreamHolder::new();
         let (log, mut buf) = {
             let socket_wrapper = make_socket_wrapper_mock();
             socket_wrapper
@@ -248,7 +248,7 @@ mod tests {
 
             let mut subject = make_instrumented_subject(socket_wrapper.clone());
 
-            subject.initialize_as_unprivileged(&mut holder.streams());
+            subject.initialize_as_unprivileged();
             tokio::run(subject);
 
             let unwrapped_guts = socket_wrapper.guts.lock().unwrap();
@@ -281,7 +281,6 @@ mod tests {
     #[test]
     fn poll_handles_error_receiving_from_udp_socket_wrapper() {
         init_test_logging();
-        let mut holder = FakeStreamHolder::new();
         let socket_wrapper = make_socket_wrapper_mock();
         socket_wrapper
             .recv_from_results
@@ -291,7 +290,7 @@ mod tests {
 
         let mut subject = make_instrumented_subject(socket_wrapper.clone());
 
-        subject.initialize_as_unprivileged(&mut holder.streams());
+        subject.initialize_as_unprivileged();
 
         let result = subject.poll();
 
@@ -302,7 +301,6 @@ mod tests {
     #[test]
     fn poll_handles_error_sending_to_udp_socket_wrapper() {
         init_test_logging();
-        let mut holder = FakeStreamHolder::new();
         let socket_wrapper = make_socket_wrapper_mock();
         socket_wrapper
             .recv_from_results
@@ -320,7 +318,7 @@ mod tests {
 
         let mut subject = make_instrumented_subject(socket_wrapper.clone());
 
-        subject.initialize_as_unprivileged(&mut holder.streams());
+        subject.initialize_as_unprivileged();
 
         let result = subject.poll();
 

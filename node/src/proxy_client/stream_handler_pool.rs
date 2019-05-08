@@ -372,7 +372,6 @@ impl StreamHandlerPoolFactory for StreamHandlerPoolFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::persistent_configuration::HTTP_PORT;
     use crate::proxy_client::local_test_utils::make_send_error;
     use crate::proxy_client::local_test_utils::ResolverWrapperMock;
     use crate::proxy_client::stream_establisher::StreamEstablisher;
@@ -477,7 +476,7 @@ mod tests {
                 stream_key,
                 sequenced_packet: Default::default(),
                 target_hostname: Some("www.example.com".to_string()),
-                target_port: HTTP_PORT,
+                target_port: 80,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: cryptde.public_key().clone(),
             };
@@ -510,7 +509,7 @@ mod tests {
                 last_data: false,
             },
             target_hostname: None,
-            target_port: HTTP_PORT,
+            target_port: 80,
             protocol: ProxyProtocol::HTTP,
             originator_public_key: PublicKey::new(&b"men's souls"[..]),
         };
@@ -571,7 +570,7 @@ mod tests {
                     last_data: false,
                 },
                 target_hostname: Some(String::from("that.try")),
-                target_port: HTTP_PORT,
+                target_port: 80,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: originator_key,
             };
@@ -638,7 +637,7 @@ mod tests {
                     last_data: false,
                 },
                 target_hostname: None,
-                target_port: HTTP_PORT,
+                target_port: 80,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: originator_key,
             };
@@ -702,7 +701,7 @@ mod tests {
                     last_data: false,
                 },
                 target_hostname: Some(String::from("that.try")),
-                target_port: HTTP_PORT,
+                target_port: 80,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: PublicKey::new(&b"men's souls"[..]),
             };
@@ -810,7 +809,7 @@ mod tests {
                     last_data: false,
                 },
                 target_hostname: Some(String::from("that.try")),
-                target_port: HTTP_PORT,
+                target_port: 80,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: originator_key,
             };
@@ -896,7 +895,7 @@ mod tests {
                 stream_key,
                 sequenced_packet: sequenced_packet.clone(),
                 target_hostname: Some(String::from("that.try")),
-                target_port: HTTP_PORT,
+                target_port: 80,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: PublicKey::new(&b"men's souls"[..]),
             };
@@ -1006,7 +1005,7 @@ mod tests {
                     last_data: true,
                 },
                 target_hostname: Some(String::from("that.try")),
-                target_port: HTTP_PORT,
+                target_port: 80,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: originator_key,
             };
@@ -1067,7 +1066,7 @@ mod tests {
             stream_key: stream_key.clone(),
             sequenced_packet: sequenced_packet.clone(),
             target_hostname: Some(String::from("that.try")),
-            target_port: HTTP_PORT,
+            target_port: 80,
             protocol: ProxyProtocol::HTTP,
             originator_public_key: PublicKey::new(&b"men's souls"[..]),
         };
@@ -1139,7 +1138,7 @@ mod tests {
             stream_key: stream_key.clone(),
             sequenced_packet: sequenced_packet.clone(),
             target_hostname: Some(String::from("that.try")),
-            target_port: HTTP_PORT,
+            target_port: 80,
             protocol: ProxyProtocol::HTTP,
             originator_public_key: PublicKey::new(&b"men's souls"[..]),
         };
@@ -1210,7 +1209,7 @@ mod tests {
                     last_data: true,
                 },
                 target_hostname: None,
-                target_port: HTTP_PORT,
+                target_port: 80,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: PublicKey::new(&b"men's souls"[..]),
             };

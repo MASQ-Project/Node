@@ -484,7 +484,6 @@ mod tests {
     use crate::json_masquerader::JsonMasquerader;
     use crate::masquerader::Masquerader;
     use crate::node_test_utils::FailingMasquerader;
-    use crate::persistent_configuration::HTTP_PORT;
     use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::InboundClientData;
@@ -1318,7 +1317,7 @@ mod tests {
             .add_sub
             .try_send(AddStreamMsg::new(
                 connection_info,
-                Some(HTTP_PORT),
+                Some(80u16),
                 PortConfiguration::new(
                     vec![Box::new(HttpRequestDiscriminatorFactory::new())],
                     false,

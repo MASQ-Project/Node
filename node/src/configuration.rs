@@ -1,9 +1,14 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::discriminator::DiscriminatorFactory;
 use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
-use crate::persistent_configuration::{HTTP_PORT, TLS_PORT};
+use crate::json_discriminator_factory::JsonDiscriminatorFactory;
+use crate::sub_lib::parameter_finder::ParameterFinder;
 use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
 use std::collections::HashMap;
+use std::net::IpAddr;
+use std::net::Ipv4Addr;
+use std::net::SocketAddr;
+use std::net::UdpSocket;
 
 // TODO: This should be subsumed into BootstrapperConfig
 pub struct Configuration {
@@ -17,18 +22,61 @@ impl Configuration {
         }
     }
 
-    pub fn establish(&mut self) {
+    pub fn establish(&mut self, args: &Vec<String>) {
         self.port_configurations.insert(
-            HTTP_PORT,
+            80,
             PortConfiguration::new(
                 vec![Box::new(HttpRequestDiscriminatorFactory::new())],
                 false,
             ),
         );
         self.port_configurations.insert(
-            TLS_PORT,
+            443,
             PortConfiguration::new(vec![Box::new(TlsDiscriminatorFactory::new())], false),
         );
+
+        let port_count = Configuration::parse_port_count(&ParameterFinder::new(args.clone()));
+        for _ in 0..port_count {
+            let port = Configuration::find_free_port();
+            self.port_configurations.insert(
+                port,
+                PortConfiguration::new(vec![Box::new(JsonDiscriminatorFactory::new())], true),
+            );
+        }
+    }
+
+    pub fn all_ports(&self) -> Vec<u16> {
+        self.port_configurations
+            .keys()
+            .map(|port_ref| *port_ref)
+            .collect()
+    }
+
+    pub fn clandestine_ports(&self) -> Vec<u16> {
+        self.all_ports()
+            .into_iter()
+            .filter(|port| (*port != 80) && (*port != 443))
+            .collect()
+    }
+
+    fn find_free_port() -> u16 {
+        let socket = UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0))
+            .expect("Not enough free ports");
+        socket.local_addr().expect("Bind failed").port()
+    }
+
+    fn parse_port_count(finder: &ParameterFinder) -> usize {
+        let usage = "--port_count <number of clandestine ports to open, default = 0>";
+        match finder.find_value_for("--port_count", usage) {
+            None => 0,
+            Some(ref port_count_str) => match port_count_str.parse::<usize>() {
+                Ok(port_count) => port_count,
+                Err(_) => panic!(
+                    "--port_count <clandestine port count> needs a number, not '{}'",
+                    port_count_str
+                ),
+            },
+        }
     }
 }
 
@@ -57,31 +105,43 @@ mod tests {
     use crate::node_test_utils::NullDiscriminatorFactory;
     use crate::test_utils::test_utils::assert_contains;
 
-    fn all_ports(config: &Configuration) -> Vec<u16> {
-        config
-            .port_configurations
-            .keys()
-            .map(|port_ref| *port_ref)
-            .collect()
-    }
-
-    fn clandestine_ports(config: &Configuration) -> Vec<u16> {
-        all_ports(config)
-            .into_iter()
-            .filter(|port| (*port != HTTP_PORT) && (*port != TLS_PORT))
-            .collect()
+    #[test]
+    fn find_free_port_works_ten_times() {
+        let sockets: Vec<UdpSocket> = (0u16..10u16)
+            .map(|_| {
+                let port = Configuration::find_free_port();
+                UdpSocket::bind(SocketAddr::new(
+                    IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                    port,
+                ))
+                .expect(&format!("Could not bind free port {}", port))
+            })
+            .collect();
+        for i in 0..10 {
+            for j in (i + 1)..10 {
+                assert_ne!(
+                    sockets[i].local_addr().expect("Bind failed").port(),
+                    sockets[j].local_addr().expect("Bind failed").port(),
+                    "Port #{} is the same as port #{}: {}!",
+                    i,
+                    j,
+                    sockets[i].local_addr().expect("Bind failed").port()
+                );
+            }
+        }
     }
 
     #[test]
-    fn establish_produces_configuration_for_http_port() {
+    fn no_parameters_produces_configuration_for_80() {
+        let args = vec![String::from("command")];
         let mut subject = Configuration::new();
 
-        subject.establish();
+        subject.establish(&args);
 
-        let mut http_port_configuration = subject.port_configurations.remove(&HTTP_PORT).unwrap();
-        assert_eq!(http_port_configuration.discriminator_factories.len(), 1);
-        assert!(!http_port_configuration.is_clandestine);
-        let http_factory = http_port_configuration.discriminator_factories.remove(0);
+        let mut port_80_configuration = subject.port_configurations.remove(&80).unwrap();
+        assert_eq!(port_80_configuration.discriminator_factories.len(), 1);
+        assert!(!port_80_configuration.is_clandestine);
+        let http_factory = port_80_configuration.discriminator_factories.remove(0);
         let mut http_discriminator = http_factory.make();
         http_discriminator.add_data("GET http://url.com HTTP/1.1\r\n\r\n".as_bytes());
         let http_chunk = http_discriminator.take_chunk().unwrap();
@@ -96,15 +156,16 @@ mod tests {
     }
 
     #[test]
-    fn establish_produces_configuration_for_tls_port() {
+    fn no_parameters_produces_configuration_for_443() {
+        let args = vec![String::from("command")];
         let mut subject = Configuration::new();
 
-        subject.establish();
+        subject.establish(&args);
 
-        let mut tls_port_configuration = subject.port_configurations.remove(&TLS_PORT).unwrap();
-        assert_eq!(tls_port_configuration.discriminator_factories.len(), 1);
-        assert!(!tls_port_configuration.is_clandestine);
-        let tls_factory = tls_port_configuration.discriminator_factories.remove(0);
+        let mut port_443_configuration = subject.port_configurations.remove(&443).unwrap();
+        assert_eq!(port_443_configuration.discriminator_factories.len(), 1);
+        assert!(!port_443_configuration.is_clandestine);
+        let tls_factory = port_443_configuration.discriminator_factories.remove(0);
         let mut tls_discriminator = tls_factory.make();
         tls_discriminator.add_data(&vec![0x16, 0x03, 0x01, 0x00, 0x03, 0x01, 0x02, 0x03][..]);
         let tls_chunk = tls_discriminator.take_chunk().unwrap();
@@ -119,12 +180,55 @@ mod tests {
     }
 
     #[test]
-    fn establish_produces_configuration_with_no_clandestine_ports() {
+    fn no_parameters_produces_configuration_with_no_high_ports() {
+        let args = vec![String::from("command")];
         let mut subject = Configuration::new();
 
-        subject.establish();
+        subject.establish(&args);
 
-        assert_eq!(clandestine_ports(&subject).len(), 0);
+        assert_eq!(subject.clandestine_ports().len(), 0);
+    }
+
+    #[test]
+    fn port_count_produces_configuration_with_proper_number_of_high_ports() {
+        let args = vec![
+            String::from("command"),
+            String::from("--port_count"),
+            String::from("5"),
+        ];
+        let mut subject = Configuration::new();
+
+        subject.establish(&args);
+
+        subject.port_configurations.remove(&80);
+        subject.port_configurations.remove(&443);
+        assert_eq!(subject.all_ports().len(), 5);
+        subject.all_ports().into_iter().for_each(|high_port| {
+            let mut high_port_configuration =
+                subject.port_configurations.remove(&high_port).unwrap();
+            assert_eq!(high_port_configuration.discriminator_factories.len(), 1);
+            let json_factory = high_port_configuration.discriminator_factories.remove(0);
+            let mut json_discriminator = json_factory.make();
+            json_discriminator.add_data(&b"{\"component\": \"NBHD\", \"bodyText\": \"booga\"}"[..]);
+            let json_chunk = json_discriminator.take_chunk().unwrap();
+            assert_eq!(
+                json_chunk,
+                UnmaskedChunk::new(b"booga".to_vec(), true, false)
+            );
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "--port_count <clandestine port count> needs a number, not 'booga'")]
+    fn parse_port_count_rejects_badly_formatted_port_count() {
+        let args = vec![
+            String::from("command"),
+            String::from("--port_count"),
+            String::from("booga"),
+        ];
+        let finder = ParameterFinder::new(args);
+
+        Configuration::parse_port_count(&finder);
     }
 
     #[test]
@@ -134,21 +238,20 @@ mod tests {
         let factory2 = NullDiscriminatorFactory::new();
         let factory3 = NullDiscriminatorFactory::new();
         subject.port_configurations.insert(
-            HTTP_PORT,
+            80,
             PortConfiguration::new(vec![Box::new(factory1), Box::new(factory2)], false),
         );
-        subject.port_configurations.insert(
-            TLS_PORT,
-            PortConfiguration::new(vec![Box::new(factory3)], false),
-        );
+        subject
+            .port_configurations
+            .insert(443, PortConfiguration::new(vec![Box::new(factory3)], false));
         subject
             .port_configurations
             .insert(3456, PortConfiguration::new(vec![], true));
 
-        let ports = all_ports(&subject);
+        let ports = subject.all_ports();
 
-        assert_contains(&ports, &HTTP_PORT);
-        assert_contains(&ports, &TLS_PORT);
+        assert_contains(&ports, &80);
+        assert_contains(&ports, &443);
         assert_contains(&ports, &3456);
         assert_eq!(ports.len(), 3);
     }
@@ -160,18 +263,17 @@ mod tests {
         let factory2 = NullDiscriminatorFactory::new();
         let factory3 = NullDiscriminatorFactory::new();
         subject.port_configurations.insert(
-            HTTP_PORT,
+            80,
             PortConfiguration::new(vec![Box::new(factory1), Box::new(factory2)], false),
         );
-        subject.port_configurations.insert(
-            TLS_PORT,
-            PortConfiguration::new(vec![Box::new(factory3)], false),
-        );
+        subject
+            .port_configurations
+            .insert(443, PortConfiguration::new(vec![Box::new(factory3)], false));
         subject
             .port_configurations
             .insert(3456, PortConfiguration::new(vec![], true));
 
-        let ports = clandestine_ports(&subject);
+        let ports = subject.clandestine_ports();
 
         assert_eq!(ports.contains(&3456), true);
         assert_eq!(ports.len(), 1);
