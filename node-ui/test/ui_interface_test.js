@@ -447,8 +447,8 @@ describe('Given a mock WebSocket', () => {
       })
 
       it('returns after at least 450ms but not too long', () => {
-        assert(end - start >= 500)
-        assert(end - start < 1000)
+        assert(end - start >= 500, `diff was ${end - start}`)
+        assert(end - start < 1000, `diff was ${end - start}`)
       })
 
       it('reports that the Node is not yet up', () => {

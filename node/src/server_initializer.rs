@@ -36,15 +36,17 @@ where
 
         self.dns_socket_server
             .as_mut()
-            .initialize_as_privileged(args, streams);
-        self.bootstrapper
-            .as_mut()
-            .initialize_as_privileged(args, streams);
+            .initialize_as_privileged(args);
+        self.bootstrapper.as_mut().initialize_as_privileged(args);
 
         self.privilege_dropper.drop_privileges();
 
-        self.dns_socket_server.as_mut().initialize_as_unprivileged();
-        self.bootstrapper.as_mut().initialize_as_unprivileged();
+        self.dns_socket_server
+            .as_mut()
+            .initialize_as_unprivileged(streams);
+        self.bootstrapper
+            .as_mut()
+            .initialize_as_unprivileged(streams);
 
         1
     }
@@ -133,10 +135,9 @@ mod tests {
             String::from("crash test SocketServer")
         }
 
-        fn initialize_as_privileged(&mut self, _args: &Vec<String>, _streams: &mut StdStreams<'_>) {
-        }
+        fn initialize_as_privileged(&mut self, _args: &Vec<String>) {}
 
-        fn initialize_as_unprivileged(&mut self) {}
+        fn initialize_as_unprivileged(&mut self, _streams: &mut StdStreams<'_>) {}
     }
 
     struct PrivilegeDropperMock {

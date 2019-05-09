@@ -126,7 +126,8 @@ impl SubstratumNode {
             .skip(1)
             .next()
             .unwrap();
-        let command_to_start = &format!("target\\{}\\SubstratumNode", debug_or_release);
+        let bin_dir = &format!("target\\{}", debug_or_release);
+        let command_to_start = &format!("{}\\SubstratumNode.exe", bin_dir);
         let mut command = Command::new("cmd");
         command.args(&[
             "/c",
@@ -135,6 +136,8 @@ impl SubstratumNode {
             "8.8.8.8",
             "--crash_point",
             &crash_point,
+            "--data_directory",
+            bin_dir,
             "--log_level",
             "trace",
         ]);
@@ -152,17 +155,18 @@ impl SubstratumNode {
             .skip(1)
             .next()
             .unwrap();
-        let command_to_start = format!("target/{}/SubstratumNode", debug_or_release);
+        let bin_dir = &format!("target/{}", debug_or_release);
+        let command_to_start = &format!("{}/SubstratumNode", bin_dir);
         let mut command = Command::new(command_to_start);
         command.args(&[
             "--dns_servers",
             "8.8.8.8",
             "--crash_point",
             &crash_point,
+            "--data_directory",
+            bin_dir,
             "--log_level",
             "trace",
-            "--data_directory",
-            ".",
         ]);
         command
     }

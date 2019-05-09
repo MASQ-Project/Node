@@ -9,6 +9,7 @@ const { Application } = require('spectron')
 const WebSocket = require('isomorphic-ws')
 const uiInterface = require('../main-process/ui_interface')
 const consoleWrapper = require('../main-process/wrappers/console_wrapper')
+const test_utilities = require('./test_utilities')
 
 global.WebSocket = WebSocket
 
@@ -18,6 +19,7 @@ describe('Application launch', function () {
   let window
 
   beforeEach(async () => {
+    test_utilities.purge_existing_state()
     this.app = new Application({
       // Your electron path can be any binary
       // i.e for OSX an example path could be '/Applications/MyApp.app/Contents/MacOS/MyApp'

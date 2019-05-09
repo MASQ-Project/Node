@@ -123,18 +123,20 @@ impl ReceivableDaoReal {
 
 #[cfg(test)]
 mod tests {
-    use super::super::test_utils::*;
     use super::*;
     use crate::database::db_initializer;
     use crate::database::db_initializer::DbInitializer;
     use crate::database::db_initializer::DbInitializerReal;
+    use crate::test_utils::test_utils::ensure_node_home_directory_exists;
     use rusqlite::NO_PARAMS;
     use rusqlite::{Connection, OpenFlags};
 
     #[test]
     fn more_money_receivable_works_for_new_address() {
-        let home_dir =
-            ensure_node_home_directory_exists("more_money_receivable_works_for_new_address");
+        let home_dir = ensure_node_home_directory_exists(
+            "accountant",
+            "more_money_receivable_works_for_new_address",
+        );
         let before = dao_utils::to_time_t(&SystemTime::now());
         let wallet = Wallet::new("booga");
         let status = {
@@ -165,8 +167,10 @@ mod tests {
 
     #[test]
     fn more_money_receivable_works_for_existing_address() {
-        let home_dir =
-            ensure_node_home_directory_exists("more_money_receivable_works_for_existing_address");
+        let home_dir = ensure_node_home_directory_exists(
+            "accountant",
+            "more_money_receivable_works_for_existing_address",
+        );
         let wallet = Wallet::new("booga");
         let subject = {
             let subject =
@@ -198,6 +202,7 @@ mod tests {
     #[test]
     fn receivable_account_status_works_when_account_doesnt_exist() {
         let home_dir = ensure_node_home_directory_exists(
+            "accountant",
             "receivable_account_status_works_when_account_doesnt_exist",
         );
         let wallet = Wallet::new("booga");
@@ -211,8 +216,10 @@ mod tests {
 
     #[test]
     fn receivables_fetches_all_receivable_accounts() {
-        let home_dir =
-            ensure_node_home_directory_exists("receivables_fetches_all_receivable_accounts");
+        let home_dir = ensure_node_home_directory_exists(
+            "accountant",
+            "receivables_fetches_all_receivable_accounts",
+        );
         let wallet1 = Wallet::new("wallet1");
         let wallet2 = Wallet::new("wallet2");
         let time_stub = SystemTime::now();

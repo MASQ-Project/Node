@@ -5,6 +5,6 @@ use tokio::prelude::Future;
 
 pub trait SocketServer: Send + Future<Item = (), Error = ()> {
     fn name(&self) -> String;
-    fn initialize_as_privileged(&mut self, args: &Vec<String>, streams: &mut StdStreams<'_>);
-    fn initialize_as_unprivileged(&mut self);
+    fn initialize_as_privileged(&mut self, args: &Vec<String>);
+    fn initialize_as_unprivileged(&mut self, streams: &mut StdStreams<'_>);
 }

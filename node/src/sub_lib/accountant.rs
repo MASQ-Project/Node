@@ -4,7 +4,6 @@ use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
 use lazy_static::lazy_static;
-use std::path::PathBuf;
 use std::time::Duration;
 
 lazy_static! {
@@ -17,7 +16,6 @@ lazy_static! {
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct AccountantConfig {
-    pub data_directory: PathBuf,
     pub payable_scan_interval: Duration,
 }
 

@@ -284,16 +284,13 @@ impl Neighborhood {
             if !config.neighbor_configs.is_empty() {
                 panic! ("A SubstratumNode without an --ip setting is not decentralized and cannot have any --neighbor settings")
             }
-            if !config.clandestine_port_list.is_empty() {
-                panic! ("A SubstratumNode without an --ip setting is not decentralized and cannot have any --port_count setting other than 0")
-            }
             if config.is_bootstrap_node {
                 panic! ("A SubstratumNode without an --ip setting is not decentralized and cannot be --node_type bootstrap")
             }
         } else if (config.neighbor_configs.is_empty() && !config.is_bootstrap_node)
             || config.clandestine_port_list.is_empty()
         {
-            panic! ("An --ip setting indicates that you want to decentralize, but you also need at least one --neighbor setting or --node_type bootstrap for that, and a --port_count greater than 0")
+            panic! ("An --ip setting indicates that you want to decentralize, but you also need at least one --neighbor setting or --node_type bootstrap for that")
         }
         let gossip_acceptor: Box<dyn GossipAcceptor> = Box::new(GossipAcceptorReal::new(cryptde));
         let gossip_producer = Box::new(GossipProducerReal::new());
@@ -1026,29 +1023,6 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "A SubstratumNode without an --ip setting is not decentralized and cannot have any --port_count setting other than 0"
-    )]
-    fn neighborhood_cannot_be_created_with_clandestine_ports_and_default_ip() {
-        let cryptde = cryptde();
-        let earning_wallet = Wallet::new("earning");
-        let consuming_wallet = Some(Wallet::new("consuming"));
-
-        Neighborhood::new(
-            cryptde,
-            NeighborhoodConfig {
-                neighbor_configs: vec![],
-                is_bootstrap_node: false,
-                local_ip_addr: sentinel_ip_addr(),
-                clandestine_port_list: vec![1234],
-                earning_wallet: earning_wallet.clone(),
-                consuming_wallet: consuming_wallet.clone(),
-                rate_pack: rate_pack(100),
-            },
-        );
-    }
-
-    #[test]
-    #[should_panic(
         expected = "A SubstratumNode without an --ip setting is not decentralized and cannot be --node_type bootstrap"
     )]
     fn neighborhood_cannot_be_created_as_a_bootstrap_node_with_default_ip() {
@@ -1072,7 +1046,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "An --ip setting indicates that you want to decentralize, but you also need at least one --neighbor setting or --node_type bootstrap for that, and a --port_count greater than 0"
+        expected = "An --ip setting indicates that you want to decentralize, but you also need at least one --neighbor setting or --node_type bootstrap for that"
     )]
     fn neighborhood_cannot_be_created_with_ip_and_neighbors_but_no_clandestine_ports() {
         let cryptde = cryptde();
@@ -1095,7 +1069,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "An --ip setting indicates that you want to decentralize, but you also need at least one --neighbor setting or --node_type bootstrap for that, and a --port_count greater than 0"
+        expected = "An --ip setting indicates that you want to decentralize, but you also need at least one --neighbor setting or --node_type bootstrap for that"
     )]
     fn neighborhood_cannot_be_created_with_ip_and_clandestine_ports_but_no_neighbors() {
         let cryptde = cryptde();

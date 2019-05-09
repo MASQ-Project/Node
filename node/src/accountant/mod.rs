@@ -3,5 +3,3 @@
 pub mod accountant;
 pub mod payable_dao;
 pub mod receivable_dao;
-#[cfg(test)]
-pub mod test_utils;

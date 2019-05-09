@@ -148,10 +148,16 @@ you're interested in running data through the system, you won't find the `bootst
 you should feel free to try it if you like.  Note: Bootstrap-only Nodes must start up with no knowledge of their environment,
 so `--node_type bootstrap` will not tolerate `--neighbor`.
 
-* `--port_count <n>`
-Specify the number of clandestine ports your SubstratumNode should listen on.  It will select the port numbers and
-print them to the console when it starts up.  The default value of n is 0 (zero-hop).  Note: This is a temporary 
-parameter; configuration like this will be done differently in the future.
+* `--clandestine_port <n>`
+This is an optional parameter. If you don't specify a clandestine port, your Node will use the same clandestine port it
+used last time it ran, if that port is still available. If the port is no longer available, the Node will refuse to
+start until either it is available or until you specify a `--clandestine_port`, whereupon it will use the new port
+every time it starts. If it's a new installation, it will select a random unused clandestine port between 1025 and 9999,
+and use that every time. Whenever you specify `--clandestine_port`, the port you specify will keep being used until
+you reinstall or specify a different one. You can specify any port between 1025 and 65535. Whatever the clandestine port
+is, it will be printed in the log and to the console as part of the Node descriptor when the Node starts up. Note: This 
+is a temporary parameter; the concept of a special clandestine port will go away someday, and Node descriptors will
+look different.
 
 * `--log_level < off | error | warn | info | debug | trace >`
 The Node has the potential to log a lot of data. (A _lot_ of data: a busy Node can fill your disk in a few minutes.) This
@@ -167,7 +173,7 @@ cases, this will not need to be changed.
 
 * `--data_directory <directory>`
 This is the directory in which Node will keep the state that needs to persist from run to run. If it's not specified, the
-default is `$XDG_DATA_HOME` or `$HOME/.local/share` on Linux, `{FOLDERID_RoamingAppData}` on Windows, and 
+default is `$XDG_DATA_HOME` or `$HOME/.local/share` on Linux, `%APPDATA%` on Windows, and
 `$HOME/Library/Application Support` on MacOS. If it is specified but doesn't exist, Node will try to create the directory
 and abort if it fails. If persistent state exists in the directory, but it was created by a version of Node that is
 incompatible with the version you're trying to start, Node will abort. If this is the case, either remove the existing
