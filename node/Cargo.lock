@@ -813,10 +813,10 @@ dependencies = [
 
 [[package]]
 name = "multinode_integration_tests"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "base64 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "node 0.4.4",
+ "node 0.4.5",
  "pretty-hex 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "regex 1.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.90 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -859,7 +859,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "node"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "actix 0.7.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "base64 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)",

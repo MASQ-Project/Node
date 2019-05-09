@@ -1,7 +1,7 @@
 {
   "name": "SubstratumNode",
   "description": "SubstratumNode user interface",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "homepage": "https://substratum.net",
   "repository": "https://github.com/SubstratumNetwork/SubstratumNode",
   "author": "Substratum LLC <support@substratum.net>",
