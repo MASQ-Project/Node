@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use super::processing;
 use super::DnsSocketServer;
+use crate::server_initializer::LoggerInitializerWrapper;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::socket_server::SocketServer;
@@ -55,7 +56,11 @@ impl SocketServer for DnsSocketServer {
         String::from("EntryDnsServer")
     }
 
-    fn initialize_as_privileged(&mut self, _args: &Vec<String>) {
+    fn initialize_as_privileged(
+        &mut self,
+        _args: &Vec<String>,
+        _logger_initializer: &mut Box<dyn LoggerInitializerWrapper>,
+    ) {
         let socket_addr = SocketAddr::new(V4(Ipv4Addr::from(0)), DNS_PORT);
         // The following expect() will cause an appropriate panic if the port can't be opened
         self.socket_wrapper
@@ -73,6 +78,7 @@ mod tests {
     use super::super::new_dns_socket_server;
     use super::super::packet_facade::PacketFacade;
     use super::*;
+    use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
     use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -186,7 +192,9 @@ mod tests {
         let socket_wrapper = make_socket_wrapper_mock();
         let mut subject = make_instrumented_subject(socket_wrapper.clone());
 
-        subject.initialize_as_privileged(&vec![]);
+        let mut log_initializer: Box<LoggerInitializerWrapper> =
+            Box::new(LoggerInitializerWrapperMock::new());
+        subject.initialize_as_privileged(&vec![], &mut log_initializer);
 
         let unwrapped_guts = socket_wrapper.guts.lock().unwrap();
         let borrowed_guts = unwrapped_guts.borrow();

@@ -14,6 +14,7 @@ use actix::Recipient;
 use serde_derive::{Deserialize, Serialize};
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
+use std::str::FromStr;
 
 pub const SENTINEL_IP_OCTETS: [u8; 4] = [255, 255, 255, 255];
 
@@ -41,8 +42,45 @@ pub fn sentinel_ip_addr() -> IpAddr {
 }
 
 #[derive(Clone, PartialEq, Debug)]
+pub struct NodeDescriptor {
+    pub public_key: PublicKey,
+    pub node_addr: NodeAddr,
+}
+
+impl FromStr for NodeDescriptor {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let pieces: Vec<&str> = s.splitn(2, ":").collect();
+
+        if pieces.len() != 2 {
+            return Err(String::from(s));
+        }
+
+        let public_key = match base64::decode(pieces[0]) {
+            Ok(key) => PublicKey::new(&key),
+            Err(_) => return Err(String::from(s)),
+        };
+
+        if public_key.is_empty() {
+            return Err(String::from(s));
+        }
+
+        let node_addr = match NodeAddr::from_str(&pieces[1]) {
+            Ok(node_addr) => node_addr,
+            Err(_) => return Err(String::from(s)),
+        };
+
+        Ok(NodeDescriptor {
+            public_key,
+            node_addr,
+        })
+    }
+}
+
+#[derive(Clone, PartialEq, Debug)]
 pub struct NeighborhoodConfig {
-    pub neighbor_configs: Vec<(PublicKey, NodeAddr)>,
+    pub neighbor_configs: Vec<NodeDescriptor>,
     pub is_bootstrap_node: bool,
     pub local_ip_addr: IpAddr,
     pub clandestine_port_list: Vec<u16>,
@@ -72,19 +110,19 @@ pub struct NeighborhoodSubs {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct NodeDescriptor {
+pub struct NodeQueryResponseMetadata {
     pub public_key: PublicKey,
     pub node_addr_opt: Option<NodeAddr>,
     pub rate_pack: RatePack,
 }
 
-impl NodeDescriptor {
+impl NodeQueryResponseMetadata {
     pub fn new(
         public_key: PublicKey,
         node_addr_opt: Option<NodeAddr>,
         rate_pack: RatePack,
-    ) -> NodeDescriptor {
-        NodeDescriptor {
+    ) -> NodeQueryResponseMetadata {
+        NodeQueryResponseMetadata {
             public_key,
             node_addr_opt,
             rate_pack,
@@ -102,7 +140,7 @@ pub enum NodeQueryMessage {
 }
 
 impl Message for NodeQueryMessage {
-    type Result = Option<NodeDescriptor>;
+    type Result = Option<NodeQueryResponseMetadata>;
 }
 
 #[derive(Message, Clone)]
@@ -195,6 +233,50 @@ mod tests {
     }
 
     #[test]
+    fn node_descriptor_from_str_requires_two_pieces_to_a_configuration() {
+        let result = NodeDescriptor::from_str("only_one_piece");
+
+        assert_eq!(Err(String::from("only_one_piece")), result);
+    }
+
+    #[test]
+    fn node_descriptor_from_str_complains_about_bad_base_64() {
+        let result = NodeDescriptor::from_str("bad_key:1.2.3.4:1234,2345");
+
+        assert_eq!(Err(String::from("bad_key:1.2.3.4:1234,2345")), result);
+    }
+
+    #[test]
+    fn node_descriptor_from_str_complains_about_blank_public_key() {
+        let result = NodeDescriptor::from_str(":1.2.3.4:1234,2345");
+
+        assert_eq!(Err(String::from(":1.2.3.4:1234,2345")), result);
+    }
+
+    #[test]
+    fn node_descriptor_from_str_complains_about_bad_node_addr() {
+        let result = NodeDescriptor::from_str("R29vZEtleQ==:BadNodeAddr");
+
+        assert_eq!(Err(String::from("R29vZEtleQ==:BadNodeAddr")), result);
+    }
+
+    #[test]
+    fn node_descriptor_from_str_handles_the_happy_path() {
+        let result = NodeDescriptor::from_str("R29vZEtleQ:1.2.3.4:1234,2345,3456");
+
+        assert_eq!(
+            NodeDescriptor {
+                public_key: PublicKey::new(b"GoodKey"),
+                node_addr: NodeAddr::new(
+                    &IpAddr::from_str("1.2.3.4").unwrap(),
+                    &vec!(1234, 2345, 3456),
+                )
+            },
+            result.unwrap()
+        )
+    }
+
+    #[test]
     fn data_indefinite_route_request() {
         let result = RouteQueryMessage::data_indefinite_route_request(2);
 
@@ -230,10 +312,10 @@ mod tests {
     #[test]
     fn neighborhood_config_is_not_decentralized_if_the_sentinel_ip_address_is_used() {
         let subject = NeighborhoodConfig {
-            neighbor_configs: vec![(
-                PublicKey::new(&b"key"[..]),
-                NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]),
-            )],
+            neighbor_configs: vec![NodeDescriptor {
+                public_key: PublicKey::new(&b"key"[..]),
+                node_addr: NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]),
+            }],
             earning_wallet: Wallet::new("router"),
             consuming_wallet: Some(Wallet::new("consumer")),
             rate_pack: rate_pack(100),
@@ -250,10 +332,10 @@ mod tests {
     #[test]
     fn neighborhood_config_is_not_decentralized_if_there_are_no_clandestine_ports() {
         let subject = NeighborhoodConfig {
-            neighbor_configs: vec![(
-                PublicKey::new(&b"key"[..]),
-                NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]),
-            )],
+            neighbor_configs: vec![NodeDescriptor {
+                public_key: PublicKey::new(&b"key"[..]),
+                node_addr: NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]),
+            }],
             earning_wallet: Wallet::new("router"),
             consuming_wallet: Some(Wallet::new("consumer")),
             rate_pack: rate_pack(100),
@@ -271,10 +353,10 @@ mod tests {
     fn neighborhood_config_is_decentralized_if_neighbor_config_and_local_ip_addr_and_clandestine_port(
     ) {
         let subject = NeighborhoodConfig {
-            neighbor_configs: vec![(
-                PublicKey::new(&b"key"[..]),
-                NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]),
-            )],
+            neighbor_configs: vec![NodeDescriptor {
+                public_key: PublicKey::new(&b"key"[..]),
+                node_addr: NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]),
+            }],
             earning_wallet: Wallet::new("router"),
             consuming_wallet: Some(Wallet::new("consumer")),
             rate_pack: rate_pack(100),

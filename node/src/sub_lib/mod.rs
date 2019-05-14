@@ -19,7 +19,6 @@ pub mod logger;
 pub mod main_tools;
 pub mod neighborhood;
 pub mod node_addr;
-pub mod parameter_finder;
 pub mod peer_actors;
 pub mod proxy_client;
 pub mod proxy_server;

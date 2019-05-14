@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::sub_lib::dispatcher::Endpoint;
-use crate::sub_lib::neighborhood::NodeDescriptor;
+use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use actix::Message;
 
 #[derive(PartialEq, Debug, Message, Clone)]
@@ -13,6 +13,6 @@ pub struct TransmitDataMsg {
 
 #[derive(Message, Clone)]
 pub struct DispatcherNodeQueryResponse {
-    pub result: Option<NodeDescriptor>,
+    pub result: Option<NodeQueryResponseMetadata>,
     pub context: TransmitDataMsg,
 }

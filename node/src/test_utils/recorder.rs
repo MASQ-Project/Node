@@ -14,8 +14,8 @@ use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage}
 use crate::sub_lib::hopper::{HopperSubs, MessageType};
 use crate::sub_lib::neighborhood::DispatcherNodeQueryMessage;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
-use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::NodeQueryMessage;
+use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
@@ -45,7 +45,7 @@ use std::time::Instant;
 
 pub struct Recorder {
     recording: Arc<Mutex<Recording>>,
-    node_query_responses: Vec<Option<NodeDescriptor>>,
+    node_query_responses: Vec<Option<NodeQueryResponseMetadata>>,
     route_query_responses: Vec<Option<RouteQueryResponse>>,
 }
 
@@ -171,7 +171,7 @@ impl Recorder {
         }
     }
 
-    pub fn node_query_response(mut self, response: Option<NodeDescriptor>) -> Recorder {
+    pub fn node_query_response(mut self, response: Option<NodeQueryResponseMetadata>) -> Recorder {
         self.node_query_responses.push(response);
         self
     }

@@ -14,30 +14,31 @@ use crate::listener_handler::ListenerHandler;
 use crate::listener_handler::ListenerHandlerFactory;
 use crate::listener_handler::ListenerHandlerFactoryReal;
 use crate::persistent_configuration::{
-    PersistentConfiguration, PersistentConfigurationReal, HIGHEST_USABLE_PORT,
-    LOWEST_USABLE_INSECURE_PORT,
+    PersistentConfiguration, PersistentConfigurationReal, LOWEST_USABLE_INSECURE_PORT,
 };
+use crate::server_initializer::LoggerInitializerWrapper;
 use crate::sub_lib::accountant;
 use crate::sub_lib::accountant::AccountantConfig;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
 use crate::sub_lib::crash_point::CrashPoint;
 use crate::sub_lib::cryptde::CryptDE;
-use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::main_tools::StdStreams;
-use crate::sub_lib::neighborhood::sentinel_ip_addr;
 use crate::sub_lib::neighborhood::NeighborhoodConfig;
 use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
-use crate::sub_lib::node_addr::NodeAddr;
-use crate::sub_lib::parameter_finder::ParameterFinder;
+use crate::sub_lib::neighborhood::{sentinel_ip_addr, NodeDescriptor};
 use crate::sub_lib::socket_server::SocketServer;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::ui_gateway::DEFAULT_UI_PORT;
 use crate::sub_lib::wallet::Wallet;
 use base64;
+use clap::{
+    arg_enum, crate_authors, crate_description, crate_version, value_t, values_t, App, Arg,
+};
 use dirs::data_dir;
 use futures::try_ready;
+use log::LevelFilter;
 use regex::Regex;
 use std::env;
 use std::net::IpAddr;
@@ -54,8 +55,26 @@ use tokio::prelude::Stream;
 
 pub static mut CRYPT_DE_OPT: Option<CryptDENull> = None;
 
+arg_enum! {
+    #[derive(Debug, PartialEq, Clone)]
+    enum NodeType {
+        Bootstrap,
+        Standard
+    }
+}
+
+impl Into<bool> for NodeType {
+    fn into(self) -> bool {
+        match self {
+            NodeType::Bootstrap => true,
+            NodeType::Standard => false,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct BootstrapperConfig {
+    pub log_level: LevelFilter,
     pub dns_servers: Vec<SocketAddr>,
     pub neighborhood_config: NeighborhoodConfig,
     pub accountant_config: AccountantConfig,
@@ -73,6 +92,7 @@ pub struct BootstrapperConfig {
 impl BootstrapperConfig {
     pub fn new() -> BootstrapperConfig {
         BootstrapperConfig {
+            log_level: LevelFilter::Off,
             dns_servers: vec![],
             neighborhood_config: NeighborhoodConfig {
                 neighbor_configs: vec![],
@@ -130,11 +150,16 @@ impl SocketServer for Bootstrapper {
         String::from("Dispatcher")
     }
 
-    fn initialize_as_privileged(&mut self, args: &Vec<String>) {
+    fn initialize_as_privileged(
+        &mut self,
+        args: &Vec<String>,
+        logger_initializer: &mut Box<dyn LoggerInitializerWrapper>,
+    ) {
         let mut configuration = Configuration::new();
         configuration.establish();
         let mut config = BootstrapperConfig::new();
         Bootstrapper::parse_args(args, &mut config);
+        logger_initializer.init(config.log_level);
         Bootstrapper::parse_environment_variables(&mut config);
         self.config = Some(config);
         self.listener_handlers =
@@ -196,24 +221,167 @@ impl Bootstrapper {
     }
 
     fn parse_args(args: &Vec<String>, config: &mut BootstrapperConfig) {
-        let finder = ParameterFinder::new(args.clone());
-        let local_ip_addr = Bootstrapper::parse_ip(&finder);
-        config.crash_point = Bootstrapper::parse_crash_point(&finder);
-        config.dns_servers = Bootstrapper::parse_dns_servers(&finder);
+        let default_ui_port_value = DEFAULT_UI_PORT.to_string();
+        let default_earning_wallet_value = accountant::DEFAULT_EARNING_WALLET.clone().address;
+        let default_crash_point_value = format!("{}", CrashPoint::None);
+        let default_node_type_value = format!("{}", NodeType::Standard);
+        let default_ip_value = sentinel_ip_addr().to_string();
+        let default_data_dir_value = Bootstrapper::data_directory_default(&RealDirsWrapper {});
+        let matches = App::new("SubstratumNode")
+            .version(crate_version!())
+            .author(crate_authors!("\n"))
+            .about(crate_description!())
+            .arg(
+                Arg::with_name("blockchain_service_url")
+                    .long("blockchain_service_url")
+                    .value_name("URL")
+                    .takes_value(true),
+            )
+            .arg(
+                Arg::with_name("clandestine_port")
+                    .long("clandestine_port")
+                    .value_name("CLANDESTINE_PORT")
+                    .empty_values(false)
+                    .validator(Bootstrapper::validate_clandestine_port)
+                    .help("Must be between 1025 and 65535 [default: last used port]"),
+            )
+            .arg(
+                Arg::with_name("data_directory")
+                    .long("data_directory")
+                    .value_name("DATA_DIRECTORY")
+                    .empty_values(false)
+                    .default_value(&default_data_dir_value),
+            )
+            .arg(
+                Arg::with_name("dns_servers")
+                    .long("dns_servers")
+                    .value_name("DNS_SERVERS")
+                    .takes_value(true)
+                    .required(true)
+                    .use_delimiter(true)
+                    .validator(Bootstrapper::validate_ip_address),
+            )
+            .arg(
+                Arg::with_name("ip")
+                    .long("ip")
+                    .value_name("IP")
+                    .takes_value(true)
+                    .default_value(&default_ip_value)
+                    .validator(Bootstrapper::validate_ip_address),
+            )
+            .arg(
+                Arg::with_name("log_level")
+                    .long("log_level")
+                    .value_name("FILTER")
+                    .takes_value(true)
+                    .possible_values(&["error", "warn", "info", "debug", "trace", "off"])
+                    .default_value("warn")
+                    .case_insensitive(true),
+            )
+            .arg(
+                Arg::with_name("neighbor")
+                    .long("neighbor")
+                    .value_name("NODE_DESCRIPTOR")
+                    .takes_value(true)
+                    .number_of_values(1)
+                    .multiple(true)
+                    .requires("ip")
+                    .validator(|s| NodeDescriptor::from_str(&s).map(|_| ())),
+            )
+            .arg(
+                Arg::with_name("node_type")
+                    .long("node_type")
+                    .value_name("NODE_TYPE")
+                    .takes_value(true)
+                    .possible_values(&NodeType::variants())
+                    .default_value(&default_node_type_value)
+                    .case_insensitive(true),
+            )
+            .arg(
+                Arg::with_name("ui_port")
+                    .long("ui_port")
+                    .value_name("UI_PORT")
+                    .takes_value(true)
+                    .default_value(&default_ui_port_value)
+                    .validator(Bootstrapper::validate_ui_port)
+                    .help(&format!(
+                        "Must be between 1025 and 65535; defaults to {}",
+                        DEFAULT_UI_PORT
+                    )),
+            )
+            .arg(
+                Arg::with_name("wallet_address")
+                    .long("wallet_address")
+                    .value_name("WALLET_ADDRESS")
+                    .takes_value(true)
+                    .default_value(&default_earning_wallet_value)
+                    .hide_default_value(true)
+                    .validator(Bootstrapper::validate_ethereum_address)
+                    .help(&format!(
+                        "Must be 42 characters long, contain only hex and start with 0x"
+                    )),
+            )
+            .arg(
+                Arg::with_name("crash_point")
+                    .long("crash_point")
+                    .value_name("CRASH_POINT")
+                    .takes_value(true)
+                    .default_value(&default_crash_point_value)
+                    .possible_values(&CrashPoint::variants())
+                    .case_insensitive(true)
+                    .hidden(true)
+                    .help("Only used for testing"),
+            )
+            .get_matches_from(args.iter());
+
+        config.blockchain_bridge_config.blockchain_service_url = matches
+            .value_of("blockchain_service_url")
+            .map(|s| String::from(s));
+
+        config.clandestine_port_opt = match value_t!(matches, "clandestine_port", u16) {
+            Ok(port) => Some(port),
+            Err(_) => None,
+        };
+
+        config.data_directory =
+            value_t!(matches, "data_directory", PathBuf).expect("Internal Error");
+
+        config.dns_servers = matches
+            .values_of("dns_servers")
+            .expect("Internal Error")
+            .into_iter()
+            .map(|s| SocketAddr::from((IpAddr::from_str(s).expect("Internal Error"), 53)))
+            .collect();
+
+        config.neighborhood_config.local_ip_addr =
+            value_t!(matches, "ip", IpAddr).expect("Internal Error");
+
+        config.log_level = value_t!(matches, "log_level", LevelFilter).expect("Internal Error");
+
         config.neighborhood_config.neighbor_configs =
-            Bootstrapper::parse_neighbor_configs(&finder, "--neighbor");
-        config.neighborhood_config.is_bootstrap_node = Bootstrapper::parse_node_type(&finder);
-        config.neighborhood_config.local_ip_addr = local_ip_addr;
-        config.ui_gateway_config.ui_port = Bootstrapper::parse_ui_port(&finder);
-        config.data_directory = Bootstrapper::parse_data_dir(&finder, &RealDirsWrapper {});
-        config.neighborhood_config.earning_wallet = Bootstrapper::parse_wallet_address(&finder)
-            .unwrap_or(accountant::DEFAULT_EARNING_WALLET.clone());
-        config.blockchain_bridge_config.blockchain_service_url =
-            Bootstrapper::parse_blockchain_service_url(&finder);
+            match values_t!(matches, "neighbor", NodeDescriptor) {
+                Ok(neighbors) => neighbors,
+                Err(_) => vec![],
+            };
+
+        config.neighborhood_config.is_bootstrap_node = value_t!(matches, "node_type", NodeType)
+            .expect("Internal Error")
+            .into();
+
+        config.ui_gateway_config.ui_port =
+            value_t!(matches, "ui_port", u16).expect("Internal Error");
+
+        config.neighborhood_config.earning_wallet = Wallet::new(
+            value_t!(matches, "wallet_address", String)
+                .expect("Internal Error")
+                .as_str(),
+        );
+
+        config.crash_point = value_t!(matches, "crash_point", CrashPoint).expect("Internal Error");
+
         // TODO: In real life this should come from a command-line parameter
         config.neighborhood_config.consuming_wallet =
             Some(accountant::TEMPORARY_CONSUMING_WALLET.clone());
-        config.clandestine_port_opt = Bootstrapper::parse_clandestine_port(&finder);
     }
 
     fn parse_environment_variables(config: &mut BootstrapperConfig) {
@@ -224,20 +392,6 @@ impl Bootstrapper {
             };
 
         env::remove_var("CONSUMING_PRIVATE_KEY");
-    }
-
-    fn parse_crash_point(finder: &ParameterFinder) -> CrashPoint {
-        // TODO FIXME implement crash point values as string instead of numbers
-        match finder.find_value_for(
-            "--crash_point",
-            "--crash_point <number where 1 = panic, 2 = error, default = 0 - no crash)>",
-        ) {
-            None => CrashPoint::None,
-            Some(ref crash_point_str) => match crash_point_str.parse::<usize>() {
-                Ok(crash_point) => crash_point.into(),
-                Err(_) => panic!("--crash_point needs a number, not '{}'", crash_point_str),
-            },
-        }
     }
 
     fn is_valid_private_key(key: &str) -> bool {
@@ -253,169 +407,45 @@ impl Bootstrapper {
         Some(key)
     }
 
-    fn parse_blockchain_service_url(finder: &ParameterFinder) -> Option<String> {
-        let usage = "--blockchain_service_url <url>";
-        finder.find_value_for("--blockchain_service_url", usage)
-    }
-
-    fn is_valid_ethereum_address(address: &str) -> bool {
-        Regex::new("^0x[0-9a-fA-F]{40}$")
+    fn validate_ethereum_address(address: String) -> Result<(), String> {
+        match Regex::new("^0x[0-9a-fA-F]{40}$")
             .expect("Failed to compile regular expression")
-            .is_match(address)
-    }
-
-    fn parse_wallet_address(finder: &ParameterFinder) -> Option<Wallet> {
-        let usage = "--wallet_address <address> where 'address' is an Ethereum wallet address";
-        match finder.find_value_for("--wallet_address", usage) {
-            Some(address) => {
-                if !Bootstrapper::is_valid_ethereum_address(&address) {
-                    panic!(
-                        "--wallet_address requires a valid Ethereum wallet address, not '{}'",
-                        address
-                    );
-                }
-                Some(Wallet::new(address.as_str()))
-            }
-            None => None,
+            .is_match(&address)
+        {
+            true => Ok(()),
+            false => Err(address),
         }
     }
 
-    fn parse_ip(finder: &ParameterFinder) -> IpAddr {
-        let usage = "--ip <public IP address>";
-        match finder.find_value_for("--ip", usage) {
-            Some(ip_addr_string) => match IpAddr::from_str(ip_addr_string.as_str()) {
-                Ok(ip_addr) => ip_addr,
-                Err(_) => panic!(
-                    "Invalid IP address for --ip <public IP address>: '{}'",
-                    ip_addr_string
-                ),
-            },
-            None => sentinel_ip_addr(),
+    fn validate_ip_address(address: String) -> Result<(), String> {
+        match IpAddr::from_str(&address) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(address),
         }
     }
 
-    fn parse_ui_port(finder: &ParameterFinder) -> u16 {
-        let usage = "--ui_port <port number>";
-        match finder.find_value_for("--ui_port", usage) {
-            Some(port_string) => match str::parse::<u16>(port_string.as_str()) {
-                Ok(port_number) if port_number < LOWEST_USABLE_INSECURE_PORT => panic!(
-                    "Invalid port for --ui_port <port number>: '{}'",
-                    port_string
-                ),
-                Ok(port_number) => port_number,
-                Err(_) => panic!(
-                    "Invalid port for --ui_port <port number>: '{}'",
-                    port_string
-                ),
-            },
-            None => DEFAULT_UI_PORT,
+    fn validate_ui_port(port: String) -> Result<(), String> {
+        match str::parse::<u16>(&port) {
+            Ok(port_number) if port_number < LOWEST_USABLE_INSECURE_PORT => Err(port),
+            Ok(_) => Ok(()),
+            Err(_) => Err(port),
         }
     }
 
-    fn parse_data_dir(finder: &ParameterFinder, dirs_wrapper: &DirsWrapper) -> PathBuf {
-        let usage = "--data_directory <directory>";
-        match finder.find_value_for("--data_directory", usage) {
-            Some(data_directory) => PathBuf::from(data_directory),
-            None => dirs_wrapper.data_dir().expect("Could not provide a default data directory, please specify one with --data_directory")
+    fn validate_clandestine_port(clandestine_port: String) -> Result<(), String> {
+        match clandestine_port.parse::<u16>() {
+            Ok(clandestine_port) if clandestine_port >= LOWEST_USABLE_INSECURE_PORT => Ok(()),
+            _ => Err(clandestine_port),
         }
     }
 
-    fn parse_dns_servers(finder: &ParameterFinder) -> Vec<SocketAddr> {
-        let parameter_tag = "--dns_servers";
-        let usage =
-            "--dns_servers <servers> where 'servers' is a comma-separated list of IP addresses";
-
-        let dns_server_strings: Vec<String> = match finder.find_value_for(parameter_tag, usage) {
-            Some(dns_server_string) => dns_server_string
-                .split(",")
-                .map(|s| String::from(s))
-                .collect(),
-            None => panic!(usage),
-        };
-        dns_server_strings
-            .iter()
-            .map(|string| match IpAddr::from_str(string) {
-                Ok(addr) => SocketAddr::new(addr, 53),
-                Err(_) => panic!(
-                    "Invalid IP address for --dns_servers <servers>: '{}'",
-                    string
-                ),
-            })
-            .collect()
-    }
-
-    fn parse_node_type(finder: &ParameterFinder) -> bool {
-        let usage = "--node_type standard|bootstrap";
-        match finder.find_value_for("--node_type", usage) {
-            None => false,
-            Some(ref node_type) if node_type == "standard" => false,
-            Some(ref node_type) if node_type == "bootstrap" => true,
-            Some(ref node_type) => panic!(
-                "--node_type must be either standard or bootstrap, not {}",
-                node_type
-            ),
-        }
-    }
-
-    fn parse_neighbor_configs(
-        finder: &ParameterFinder,
-        parameter_tag: &str,
-    ) -> Vec<(PublicKey, NodeAddr)> {
-        let usage = &format!(
-            "{} <public key>:<IP address>:<port>,<port>,...",
-            parameter_tag
-        )[..];
-        finder
-            .find_values_for(parameter_tag, usage)
-            .into_iter()
-            .map(|s| Bootstrapper::parse_neighbor_config(s, parameter_tag))
-            .collect()
-    }
-
-    fn parse_neighbor_config(input: String, parameter_tag: &str) -> (PublicKey, NodeAddr) {
-        let pieces: Vec<&str> = input.splitn(2, ":").collect();
-        if pieces.len() != 2 {
-            panic!(
-                "{} <public key>:<IP address>:<port>,<port>,... (not {} {})",
-                parameter_tag, parameter_tag, input
-            )
-        }
-        let public_key = PublicKey::new(
-            &base64::decode(pieces[0]).expect(
-                format!(
-                    "Invalid Base64 for {} <public key>: '{}'",
-                    parameter_tag, pieces[0]
-                )
-                .as_str(),
-            )[..],
-        );
-        if public_key.is_empty() {
-            panic!("Blank public key for --neighbor {}", input)
-        }
-        let node_addr = NodeAddr::from_str(&pieces[1]).expect(
-            format!(
-                "Invalid NodeAddr for {} <NodeAddr>: '{}'",
-                parameter_tag, pieces[1]
-            )
-            .as_str(),
-        );
-        (public_key, node_addr)
-    }
-
-    fn parse_clandestine_port(finder: &ParameterFinder) -> Option<u16> {
-        let usage = "--clandestine_port <clandestine port, default = random selection>";
-        match finder.find_value_for("--clandestine_port", usage) {
-            None => None,
-            Some(ref arg_str) => match arg_str.parse::<u16>() {
-                Ok(clandestine_port) if clandestine_port >= LOWEST_USABLE_INSECURE_PORT => {
-                    Some(clandestine_port)
-                }
-                _ => panic!(
-                    "--clandestine_port <port> needs a number between {} and {}, not '{}'",
-                    LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT, arg_str
-                ),
-            },
-        }
+    fn data_directory_default(dirs_wrapper: &DirsWrapper) -> String {
+        dirs_wrapper
+            .data_dir()
+            .unwrap_or(PathBuf::from(""))
+            .to_str()
+            .expect("Internal Error")
+            .to_string()
     }
 
     fn initialize_cryptde() -> &'static dyn CryptDE {
@@ -510,10 +540,12 @@ mod tests {
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
     use crate::node_test_utils::TestLogOwner;
     use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
+    use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
     use crate::stream_handler_pool::StreamHandlerPoolSubs;
     use crate::stream_messages::AddStreamMsg;
     use crate::sub_lib::cryptde::PlainData;
-    use crate::sub_lib::parameter_finder::ParameterFinder;
+    use crate::sub_lib::cryptde::PublicKey;
+    use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::stream_connector::ConnectionInfo;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLog;
@@ -534,7 +566,6 @@ mod tests {
     use std::env::VarError;
     use std::ffi::OsStr;
     use std::io;
-    use std::io::Error;
     use std::io::ErrorKind;
     use std::marker::Sync;
     use std::net::Ipv4Addr;
@@ -689,11 +720,11 @@ mod tests {
 
     fn make_default_cli_params() -> Vec<String> {
         vec![
+            String::from("SubstratumNode"),
             String::from("--dns_servers"),
             String::from("222.222.222.222"),
         ]
     }
-
     #[test]
     fn knows_its_name() {
         let subject = BootstrapperBuilder::new().build();
@@ -701,6 +732,15 @@ mod tests {
         let result = subject.name();
 
         assert_eq!(result, String::from("Dispatcher"));
+    }
+
+    #[test]
+    fn node_type_into() {
+        let bootstrap: bool = NodeType::Bootstrap.into();
+        let standard: bool = NodeType::Standard.into();
+
+        assert_eq!(true, bootstrap);
+        assert_eq!(false, standard);
     }
 
     #[test]
@@ -766,488 +806,138 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Missing value for --blockchain_service_url: --blockchain_service_url <url>"
-    )]
-    fn parse_blockchain_service_url_requires_a_url() {
-        let finder = ParameterFinder::new(vec![String::from("--blockchain_service_url")]);
-
-        Bootstrapper::parse_blockchain_service_url(&finder);
-    }
-
-    #[test]
-    fn parse_blockchain_service_url_handles_happy_path() {
-        let finder = ParameterFinder::new(vec![
-            String::from("--blockchain_service_url"),
-            String::from("http://127.0.0.1:8545"),
-        ]);
-
-        let result = Bootstrapper::parse_blockchain_service_url(&finder);
-
-        assert_eq!(Some("http://127.0.0.1:8545".to_string()), result);
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Missing value for --wallet_address: --wallet_address <address> where 'address' is an Ethereum wallet address"
-    )]
-    fn parse_wallet_address_requires_an_address() {
-        let finder = ParameterFinder::new(vec![String::from("--wallet_address")]);
-
-        Bootstrapper::parse_wallet_address(&finder);
-    }
-
-    #[test]
-    #[should_panic(expected = "--wallet_address requires a valid Ethereum wallet address")]
-    fn parse_wallet_address_requires_an_address_that_is_42_characters_long() {
-        let finder = ParameterFinder::new(vec![
-            String::from("--wallet_address"),
-            String::from("my-favorite-wallet.com"),
-        ]);
-
-        Bootstrapper::parse_wallet_address(&finder);
-    }
-
-    #[test]
-    #[should_panic(expected = "--wallet_address requires a valid Ethereum wallet address")]
-    fn parse_wallet_address_must_start_with_0x() {
-        let finder = ParameterFinder::new(vec![
-            String::from("--wallet_address"),
-            String::from("x0my-favorite-wallet.com222222222222222222"),
-        ]);
-
-        Bootstrapper::parse_wallet_address(&finder);
-    }
-
-    #[test]
-    #[should_panic(expected = "--wallet_address requires a valid Ethereum wallet address")]
-    fn parse_wallet_address_must_contain_only_hex_characters() {
-        let finder = ParameterFinder::new(vec![
-            String::from("--wallet_address"),
-            String::from("0x9707f21F95B9839A54605100Ca69dCc2e7eaA26q"),
-        ]);
-
-        Bootstrapper::parse_wallet_address(&finder);
-    }
-
-    #[test]
-    fn parse_wallet_address_returns_none_if_no_address_supplied() {
-        let finder = ParameterFinder::new(vec![]);
-
-        assert_eq!(Bootstrapper::parse_wallet_address(&finder), None);
-    }
-
-    #[test]
-    fn parse_wallet_address_handles_happy_path() {
-        let finder = ParameterFinder::new(vec![
-            String::from("--wallet_address"),
-            String::from("0xbDfeFf9A1f4A1bdF483d680046344316019C58CF"),
-        ]);
-
+    fn validate_ip_address_given_invalid_input() {
         assert_eq!(
-            Bootstrapper::parse_wallet_address(&finder),
-            Some(Wallet::new("0xbDfeFf9A1f4A1bdF483d680046344316019C58CF"))
+            Err(String::from("not-a-valid-IP")),
+            Bootstrapper::validate_ip_address(String::from("not-a-valid-IP")),
         );
     }
 
     #[test]
-    #[should_panic(
-        expected = "--dns_servers <servers> where 'servers' is a comma-separated list of IP addresses"
-    )]
-    fn parse_dns_servers_requires_dns_servers() {
-        let finder = ParameterFinder::new(vec![
-            String::from("--not_dns_servers"),
-            String::from("1.2.3.4"),
-        ]);
-
-        Bootstrapper::parse_dns_servers(&finder);
-    }
-
-    #[test]
-    #[should_panic(expected = "Invalid IP address for --dns_servers <servers>: '1.2.3.256'")]
-    fn parse_dns_servers_catches_invalid_ip_addresses() {
-        let finder = ParameterFinder::new(vec![
-            String::from("--dns_servers"),
-            String::from("1.2.3.256"),
-        ]);
-
-        Bootstrapper::parse_dns_servers(&finder);
-    }
-
-    #[test]
-    fn parse_dns_servers_ignores_second_server_list() {
-        let finder = ParameterFinder::new(
-            vec![
-                "--dns_servers",
-                "1.2.3.4,2.3.4.5",
-                "--dns_servers",
-                "3.4.5.6",
-            ]
-            .into_iter()
-            .map(String::from)
-            .collect(),
-        );
-
-        let socket_addrs = Bootstrapper::parse_dns_servers(&finder);
-
+    fn validate_ip_address_given_valid_input() {
         assert_eq!(
-            socket_addrs,
-            vec!(
-                SocketAddr::from_str("1.2.3.4:53").unwrap(),
-                SocketAddr::from_str("2.3.4.5:53").unwrap()
-            )
-        )
+            Ok(()),
+            Bootstrapper::validate_ip_address(String::from("1.2.3.4"))
+        );
     }
 
     #[test]
-    #[should_panic(expected = "--neighbor <public key>:<IP address>:<port>,<port>,...")]
-    fn parse_neighbor_configs_requires_two_pieces_to_a_configuration() {
-        let finder = ParameterFinder::new(
-            vec!["--neighbor", "only_one_piece"]
-                .into_iter()
-                .map(String::from)
-                .collect(),
-        );
-
-        Bootstrapper::parse_neighbor_configs(&finder, "--neighbor");
-    }
-
-    #[test]
-    #[should_panic(expected = "Invalid Base64 for --neighbor <public key>: 'bad_key'")]
-    fn parse_neighbor_configs_complains_about_bad_base_64() {
-        let finder = ParameterFinder::new(
-            vec!["--neighbor", "bad_key:1.2.3.4:1234,2345"]
-                .into_iter()
-                .map(String::from)
-                .collect(),
-        );
-
-        Bootstrapper::parse_neighbor_configs(&finder, "--neighbor");
-    }
-
-    #[test]
-    #[should_panic(expected = "Blank public key for --neighbor :1.2.3.4:1234,2345")]
-    fn parse_neighbor_configs_complains_about_blank_public_key() {
-        let finder = ParameterFinder::new(
-            vec!["--neighbor", ":1.2.3.4:1234,2345"]
-                .into_iter()
-                .map(String::from)
-                .collect(),
-        );
-
-        Bootstrapper::parse_neighbor_configs(&finder, "--neighbor");
-    }
-
-    #[test]
-    #[should_panic(expected = "Invalid NodeAddr for --neighbor <NodeAddr>: 'BadNodeAddr'")]
-    fn parse_neighbor_configs_complains_about_bad_node_addr() {
-        let finder = ParameterFinder::new(
-            vec!["--neighbor", "R29vZEtleQ==:BadNodeAddr"]
-                .into_iter()
-                .map(String::from)
-                .collect(),
-        );
-
-        Bootstrapper::parse_neighbor_configs(&finder, "--neighbor");
-    }
-
-    #[test]
-    fn parse_neighbor_configs_handles_the_happy_path() {
-        let finder = ParameterFinder::new(
-            vec![
-                "--booga",
-                "R29vZEtleQ:1.2.3.4:1234,2345,3456",
-                "--irrelevant",
-                "parameter",
-                "--booga",
-                "QW5vdGhlckdvb2RLZXk:2.3.4.5:4567,5678,6789",
-            ]
-            .into_iter()
-            .map(String::from)
-            .collect(),
-        );
-
-        let result = Bootstrapper::parse_neighbor_configs(&finder, "--booga");
-
+    fn validate_ethereum_address_requires_an_address_that_is_42_characters_long() {
         assert_eq!(
-            result,
-            vec!(
-                (
-                    PublicKey::new(b"GoodKey"),
-                    NodeAddr::new(
-                        &IpAddr::from_str("1.2.3.4").unwrap(),
-                        &vec!(1234, 2345, 3456),
-                    )
-                ),
-                (
-                    PublicKey::new(b"AnotherGoodKey"),
-                    NodeAddr::new(
-                        &IpAddr::from_str("2.3.4.5").unwrap(),
-                        &vec!(4567, 5678, 6789),
-                    )
-                )
-            )
-        )
-    }
-
-    #[test]
-    fn parse_node_type_handles_standard() {
-        let finder = ParameterFinder::new(
-            vec!["--node_type", "standard"]
-                .into_iter()
-                .map(String::from)
-                .collect(),
+            Err(String::from("my-favorite-wallet.com")),
+            Bootstrapper::validate_ethereum_address(String::from("my-favorite-wallet.com")),
         );
-
-        let result = Bootstrapper::parse_node_type(&finder);
-
-        assert_eq!(result, false);
     }
 
     #[test]
-    fn parse_node_type_handles_bootstrap() {
-        let finder = ParameterFinder::new(
-            vec!["--node_type", "bootstrap"]
-                .into_iter()
-                .map(String::from)
-                .collect(),
+    fn validate_ethereum_address_must_start_with_0x() {
+        assert_eq!(
+            Err(String::from("x0my-favorite-wallet.com222222222222222222")),
+            Bootstrapper::validate_ethereum_address(String::from(
+                "x0my-favorite-wallet.com222222222222222222"
+            ))
         );
-
-        let result = Bootstrapper::parse_node_type(&finder);
-
-        assert_eq!(result, true);
     }
 
     #[test]
-    fn parse_node_type_defaults_to_standard() {
-        let finder = ParameterFinder::new(
-            vec!["--irrelevant", "parameter"]
-                .into_iter()
-                .map(String::from)
-                .collect(),
+    fn validate_ethereum_address_must_contain_only_hex_characters() {
+        assert_eq!(
+            Err(String::from("0x9707f21F95B9839A54605100Ca69dCc2e7eaA26q")),
+            Bootstrapper::validate_ethereum_address(String::from(
+                "0x9707f21F95B9839A54605100Ca69dCc2e7eaA26q"
+            ))
         );
-
-        let result = Bootstrapper::parse_node_type(&finder);
-
-        assert_eq!(result, false);
     }
 
     #[test]
-    #[should_panic(expected = "--node_type must be either standard or bootstrap, not booga")]
-    fn parse_node_type_complains_about_bad_node_type() {
-        let finder = ParameterFinder::new(
-            vec!["--node_type", "booga"]
-                .into_iter()
-                .map(String::from)
-                .collect(),
+    fn validate_ethereum_address_when_happy() {
+        assert_eq!(
+            Ok(()),
+            Bootstrapper::validate_ethereum_address(String::from(
+                "0xbDfeFf9A1f4A1bdF483d680046344316019C58CF"
+            ))
         );
-
-        Bootstrapper::parse_node_type(&finder);
     }
 
     #[test]
-    fn parse_ip_defaults() {
-        let finder = ParameterFinder::new(
-            vec!["--irrelevant", "parameter"]
-                .into_iter()
-                .map(String::from)
-                .collect(),
-        );
-
-        let result = Bootstrapper::parse_ip(&finder);
-
-        assert_eq!(result, sentinel_ip_addr())
-    }
-
-    #[test]
-    #[should_panic(expected = "Invalid IP address for --ip <public IP address>: 'booga'")]
-    fn parse_complains_about_bad_ip_address() {
-        let finder = ParameterFinder::new(
-            vec!["--ip", "booga"]
-                .into_iter()
-                .map(String::from)
-                .collect(),
-        );
-
-        Bootstrapper::parse_ip(&finder);
-    }
-
-    #[test]
-    #[should_panic(expected = "Invalid port for --ui_port <port number>: 'booga'")]
     fn parse_complains_about_non_numeric_ui_port() {
-        let finder = ParameterFinder::new(
-            vec!["--ui_port", "booga"]
-                .into_iter()
-                .map(String::from)
-                .collect(),
-        );
+        let result = Bootstrapper::validate_ui_port(String::from("booga"));
 
-        Bootstrapper::parse_ui_port(&finder);
+        assert_eq!(Err(String::from("booga")), result);
     }
 
     #[test]
-    #[should_panic(expected = "Invalid port for --ui_port <port number>: '1023'")]
     fn parse_complains_about_ui_port_too_low() {
-        let finder = ParameterFinder::new(
-            vec!["--ui_port", "1023"]
-                .into_iter()
-                .map(String::from)
-                .collect(),
-        );
+        let result = Bootstrapper::validate_ui_port(String::from("1023"));
 
-        Bootstrapper::parse_ui_port(&finder);
+        assert_eq!(Err(String::from("1023")), result);
     }
 
     #[test]
-    #[should_panic(expected = "Invalid port for --ui_port <port number>: '65536'")]
     fn parse_complains_about_ui_port_too_high() {
-        let finder = ParameterFinder::new(
-            vec!["--ui_port", "65536"]
-                .into_iter()
-                .map(String::from)
-                .collect(),
-        );
+        let result = Bootstrapper::validate_ui_port(String::from("65536"));
 
-        Bootstrapper::parse_ui_port(&finder);
+        assert_eq!(Err(String::from("65536")), result);
     }
 
     #[test]
     fn parse_ui_port_works() {
-        let finder = ParameterFinder::new(
-            vec!["--ui_port", "5335"]
-                .into_iter()
-                .map(String::from)
-                .collect(),
-        );
+        let result = Bootstrapper::validate_ui_port(String::from("5335"));
 
-        let result = Bootstrapper::parse_ui_port(&finder);
-
-        assert_eq!(result, 5335)
+        assert_eq!(Ok(()), result);
     }
 
     #[test]
-    fn parse_ui_port_defaults() {
-        let finder = ParameterFinder::new(vec![]);
-
-        let result = Bootstrapper::parse_ui_port(&finder);
-
-        assert_eq!(result, DEFAULT_UI_PORT)
+    fn data_directory_default_given_no_default() {
+        assert_eq!(
+            String::from(""),
+            Bootstrapper::data_directory_default(&BadMockDirsWrapper {})
+        );
     }
 
     #[test]
-    fn parse_data_directory_works() {
-        let finder = ParameterFinder::new(
-            vec!["--data_directory", "~/.booga"]
-                .into_iter()
-                .map(String::from)
-                .collect(),
-        );
+    fn data_directory_default_works() {
         let mock_dirs_wrapper = MockDirsWrapper {};
 
-        let result = Bootstrapper::parse_data_dir(&finder, &mock_dirs_wrapper);
+        let result = Bootstrapper::data_directory_default(&mock_dirs_wrapper);
 
-        assert_eq!(result, PathBuf::from("~/.booga"))
+        assert_eq!(String::from("mocked/path"), result);
     }
 
     #[test]
-    fn parse_data_directory_defaults() {
-        let finder = ParameterFinder::new(vec![]);
-        let mock_dirs_wrapper = MockDirsWrapper {};
+    fn validate_clandestine_port_rejects_badly_formatted_port_number() {
+        let result = Bootstrapper::validate_clandestine_port(String::from("booga"));
 
-        let result = Bootstrapper::parse_data_dir(&finder, &mock_dirs_wrapper);
-
-        assert_eq!(result, PathBuf::from("mocked/path"));
+        assert_eq!(Err(String::from("booga")), result);
     }
 
     #[test]
-    #[should_panic(
-        expected = "Could not provide a default data directory, please specify one with --data_directory"
-    )]
-    fn parse_data_directory_panics_when_none() {
-        let finder = ParameterFinder::new(vec![]);
-        let bad_mock_dirs_wrapper = BadMockDirsWrapper {};
+    fn validate_clandestine_port_rejects_port_number_too_low() {
+        let result = Bootstrapper::validate_clandestine_port(String::from("1024"));
 
-        let _ = Bootstrapper::parse_data_dir(&finder, &bad_mock_dirs_wrapper);
+        assert_eq!(Err(String::from("1024")), result);
     }
 
     #[test]
-    #[should_panic(
-        expected = "--clandestine_port <port> needs a number between 1025 and 65535, not 'booga'"
-    )]
-    fn parse_clandestine_port_rejects_badly_formatted_port_number() {
-        let args = vec![
-            String::from("command"),
-            String::from("--clandestine_port"),
-            String::from("booga"),
-        ];
-        let finder = ParameterFinder::new(args);
+    fn validate_clandestine_port_rejects_port_number_too_high() {
+        let result = Bootstrapper::validate_clandestine_port(String::from("65536"));
 
-        Bootstrapper::parse_clandestine_port(&finder);
+        assert_eq!(Err(String::from("65536")), result);
     }
 
     #[test]
-    #[should_panic(
-        expected = "--clandestine_port <port> needs a number between 1025 and 65535, not '1024'"
-    )]
-    fn parse_clandestine_port_rejects_port_number_too_low() {
-        let args = vec![
-            String::from("command"),
-            String::from("--clandestine_port"),
-            String::from("1024"),
-        ];
-        let finder = ParameterFinder::new(args);
+    fn validate_clandestine_port_accepts_port_if_provided() {
+        let result = Bootstrapper::validate_clandestine_port(String::from("4567"));
 
-        Bootstrapper::parse_clandestine_port(&finder);
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "--clandestine_port <port> needs a number between 1025 and 65535, not '65536'"
-    )]
-    fn parse_clandestine_port_rejects_port_number_too_high() {
-        let args = vec![
-            String::from("command"),
-            String::from("--clandestine_port"),
-            String::from("65536"),
-        ];
-        let finder = ParameterFinder::new(args);
-
-        Bootstrapper::parse_clandestine_port(&finder);
-    }
-
-    #[test]
-    fn parse_clandestine_port_accepts_port_if_provided() {
-        let args = vec![
-            String::from("command"),
-            String::from("--clandestine_port"),
-            String::from("4567"),
-        ];
-        let finder = ParameterFinder::new(args);
-
-        let port = Bootstrapper::parse_clandestine_port(&finder);
-
-        assert_eq!(Some(4567u16), port)
-    }
-
-    #[test]
-    fn parse_clandestine_port_accepts_no_provided_port() {
-        let args = vec![String::from("command")];
-        let finder = ParameterFinder::new(args);
-
-        let port = Bootstrapper::parse_clandestine_port(&finder);
-
-        assert_eq!(None, port)
+        assert_eq!(Ok(()), result);
     }
 
     #[test]
     fn parse_args_creates_configurations() {
         let args: Vec<String> = vec![
-            "--irrelevant",
-            "irrelevant",
+            "SubstratumNode",
             "--dns_servers",
             "12.34.56.78,23.45.67.89",
-            "--irrelevant",
-            "irrelevant",
             "--neighbor",
             "QmlsbA:1.2.3.4:1234,2345",
             "--ip",
@@ -1260,14 +950,14 @@ mod tests {
             "bootstrap",
             "--ui_port",
             "5335",
-            "--irrelevant",
-            "irrelevant",
             "--wallet_address",
             "0xbDfeFf9A1f4A1bdF483d680046344316019C58CF",
             "--data_directory",
             "~/.booga",
             "--blockchain_service_url",
             "http://127.0.0.1:8545",
+            "--log_level",
+            "trace",
         ]
         .into_iter()
         .map(String::from)
@@ -1287,14 +977,20 @@ mod tests {
         );
         assert_eq!(
             vec!(
-                (
-                    PublicKey::new(b"Bill"),
-                    NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec!(1234, 2345))
-                ),
-                (
-                    PublicKey::new(b"Ted"),
-                    NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec!(3456, 4567))
-                ),
+                NodeDescriptor {
+                    public_key: PublicKey::new(b"Bill"),
+                    node_addr: NodeAddr::new(
+                        &IpAddr::from_str("1.2.3.4").unwrap(),
+                        &vec!(1234, 2345)
+                    )
+                },
+                NodeDescriptor {
+                    public_key: PublicKey::new(b"Ted"),
+                    node_addr: NodeAddr::new(
+                        &IpAddr::from_str("2.3.4.5").unwrap(),
+                        &vec!(3456, 4567)
+                    )
+                }
             ),
             config.neighborhood_config.neighbor_configs,
         );
@@ -1322,11 +1018,48 @@ mod tests {
     }
 
     #[test]
-    fn parse_args_works_with_node_type_standard() {
-        let args: Vec<String> = vec!["--dns_servers", "12.34.56.78", "--node_type", "standard"]
+    fn parse_args_creates_configuration_with_defaults() {
+        let args: Vec<String> = vec!["SubstratumNode", "--dns_servers", "12.34.56.78,23.45.67.89"]
             .into_iter()
             .map(String::from)
             .collect();
+        let mut configuration = Configuration::new();
+
+        configuration.establish();
+        let mut config = BootstrapperConfig::new();
+        Bootstrapper::parse_args(&args, &mut config);
+
+        assert_eq!(
+            config.dns_servers,
+            vec!(
+                SocketAddr::from_str("12.34.56.78:53").unwrap(),
+                SocketAddr::from_str("23.45.67.89:53").unwrap()
+            )
+        );
+        assert_eq!(false, config.neighborhood_config.is_bootstrap_node);
+        assert_eq!(None, config.clandestine_port_opt);
+        assert_eq!(CrashPoint::None, config.crash_point);
+        assert!(config.data_directory.is_dir());
+        assert_eq!(
+            Wallet::new("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+            config.neighborhood_config.earning_wallet,
+        );
+        assert_eq!(sentinel_ip_addr(), config.neighborhood_config.local_ip_addr,);
+        assert_eq!(5333, config.ui_gateway_config.ui_port);
+    }
+
+    #[test]
+    fn parse_args_works_with_node_type_standard() {
+        let args: Vec<String> = vec![
+            "SubstratumNode",
+            "--dns_servers",
+            "12.34.56.78",
+            "--node_type",
+            "standard",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
         let mut config = BootstrapperConfig::new();
 
         Bootstrapper::parse_args(&args, &mut config);
@@ -1353,7 +1086,9 @@ mod tests {
             .add_listener_handler(Box::new(third_handler))
             .build();
 
-        subject.initialize_as_privileged(&make_default_cli_params());
+        let mut log_initializer: Box<LoggerInitializerWrapper> =
+            Box::new(LoggerInitializerWrapperMock::new());
+        subject.initialize_as_privileged(&make_default_cli_params(), &mut log_initializer);
 
         let mut all_calls = vec![];
         all_calls.extend(first_handler_log.lock().unwrap().dump());
@@ -1394,7 +1129,9 @@ mod tests {
             "9bc385849a4f9019a0acf7699da91422fdd0a3eb55ff4407e450f2c65e69a9f9",
         );
 
-        subject.initialize_as_privileged(&make_default_cli_params());
+        let mut log_initializer: Box<LoggerInitializerWrapper> =
+            Box::new(LoggerInitializerWrapperMock::new());
+        subject.initialize_as_privileged(&make_default_cli_params(), &mut log_initializer);
 
         let config = subject.config.unwrap();
         assert_eq!(
@@ -1419,7 +1156,9 @@ mod tests {
             .add_listener_handler(second_handler)
             .build();
 
-        subject.initialize_as_privileged(&make_default_cli_params());
+        let mut log_initializer: Box<LoggerInitializerWrapper> =
+            Box::new(LoggerInitializerWrapperMock::new());
+        subject.initialize_as_privileged(&make_default_cli_params(), &mut log_initializer);
 
         let config = subject.config.unwrap();
         assert_eq!(
@@ -1465,12 +1204,18 @@ mod tests {
             .add_listener_handler(third_handler)
             .build();
 
-        subject.initialize_as_privileged(&vec![
-            String::from("--dns_servers"),
-            String::from("222.222.222.222"),
-            String::from("--clandestine_port"),
-            String::from("1234"),
-        ]);
+        let mut log_initializer: Box<LoggerInitializerWrapper> =
+            Box::new(LoggerInitializerWrapperMock::new());
+        subject.initialize_as_privileged(
+            &vec![
+                String::from("SubstratumNode"),
+                String::from("--dns_servers"),
+                String::from("222.222.222.222"),
+                String::from("--clandestine_port"),
+                String::from("1234"),
+            ],
+            &mut log_initializer,
+        );
 
         let config = subject.config.unwrap();
         assert!(config.neighborhood_config.clandestine_port_list.is_empty());
@@ -1497,12 +1242,18 @@ mod tests {
             ))
             .build();
 
-        subject.initialize_as_privileged(&vec![
-            String::from("--dns_servers"),
-            String::from("1.2.3.4,2.3.4.5"),
-            String::from("--clandestine_port"),
-            String::from("1234"),
-        ]);
+        let mut log_initializer: Box<LoggerInitializerWrapper> =
+            Box::new(LoggerInitializerWrapperMock::new());
+        subject.initialize_as_privileged(
+            &vec![
+                String::from("SubstratumNode"),
+                String::from("--dns_servers"),
+                String::from("1.2.3.4,2.3.4.5"),
+                String::from("--clandestine_port"),
+                String::from("1234"),
+            ],
+            &mut log_initializer,
+        );
 
         subject.initialize_as_unprivileged(&mut holder.streams());
 
@@ -1517,42 +1268,29 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Invalid IP address for --dns_servers <servers>: 'booga'")]
-    fn initialize_as_privileged_complains_about_dns_servers_syntax_errors() {
-        let _lock = INITIALIZATION.lock();
-        let mut subject = BootstrapperBuilder::new()
-            .add_listener_handler(Box::new(
-                ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())),
-            ))
-            .add_listener_handler(Box::new(
-                ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())),
-            ))
-            .build();
-
-        subject.initialize_as_privileged(&vec![
-            String::from("--dns_servers"),
-            String::from("booga,booga"),
-        ]);
-    }
-
-    #[test]
     #[should_panic(expected = "Could not listen on port")]
     fn initialize_as_privileged_panics_if_tcp_listener_doesnt_bind() {
         let _lock = INITIALIZATION.lock();
         let mut subject = BootstrapperBuilder::new()
             .add_listener_handler(Box::new(
                 ListenerHandlerNull::new(vec![])
-                    .bind_port_result(Err(Error::from(ErrorKind::AddrInUse))),
+                    .bind_port_result(Err(io::Error::from(ErrorKind::AddrInUse))),
             ))
             .add_listener_handler(Box::new(
                 ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())),
             ))
             .build();
 
-        subject.initialize_as_privileged(&vec![
-            String::from("--dns_servers"),
-            String::from("1.1.1.1"),
-        ]);
+        let mut log_initializer: Box<LoggerInitializerWrapper> =
+            Box::new(LoggerInitializerWrapperMock::new());
+        subject.initialize_as_privileged(
+            &vec![
+                String::from("SubstratumNode"),
+                String::from("--dns_servers"),
+                String::from("1.1.1.1"),
+            ],
+            &mut log_initializer,
+        );
     }
 
     #[test]
@@ -1642,6 +1380,7 @@ mod tests {
         let yet_another_listener_handler =
             ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
         let cli_params = vec![
+            String::from("SubstratumNode"),
             String::from("--dns_servers"),
             String::from("222.222.222.222"),
             String::from("--clandestine_port"),
@@ -1654,7 +1393,9 @@ mod tests {
             .add_listener_handler(Box::new(another_listener_handler))
             .add_listener_handler(Box::new(yet_another_listener_handler))
             .build();
-        subject.initialize_as_privileged(&cli_params);
+        let mut log_initializer: Box<LoggerInitializerWrapper> =
+            Box::new(LoggerInitializerWrapperMock::new());
+        subject.initialize_as_privileged(&cli_params, &mut log_initializer);
 
         subject.initialize_as_unprivileged(&mut holder.streams());
 
@@ -1724,7 +1465,9 @@ mod tests {
             .add_listener_handler(Box::new(another_listener_handler))
             .build();
 
-        subject.initialize_as_privileged(&make_default_cli_params());
+        let mut log_initializer: Box<LoggerInitializerWrapper> =
+            Box::new(LoggerInitializerWrapperMock::new());
+        subject.initialize_as_privileged(&make_default_cli_params(), &mut log_initializer);
         subject.initialize_as_unprivileged(&mut holder.streams());
 
         thread::spawn(|| {
@@ -1748,19 +1491,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "--crash_point needs a number, not 'booga'")]
-    fn parse_crash_point_rejects_invalid_integers() {
-        let args = vec![
-            String::from("command"),
-            String::from("--crash_point"),
-            String::from("booga"),
-        ];
-        let finder = ParameterFinder::new(args);
-
-        Bootstrapper::parse_crash_point(&finder);
-    }
-
-    #[test]
     fn no_parameters_produces_configuration_for_crash_point() {
         let args = make_default_cli_params();
         let mut subject = BootstrapperConfig::new();
@@ -1772,7 +1502,7 @@ mod tests {
     #[test]
     fn with_parameters_produces_configuration_for_crash_point() {
         let mut args = make_default_cli_params();
-        let crash_args = vec![String::from("--crash_point"), String::from("1")];
+        let crash_args = vec![String::from("--crash_point"), String::from("panic")];
         let mut subject = BootstrapperConfig::new();
 
         args.extend(crash_args);
@@ -1794,10 +1524,10 @@ mod tests {
             "establish_clandestine_port_handles_specified_port",
         );
         config.neighborhood_config.local_ip_addr = IpAddr::from_str("1.2.3.4").unwrap(); // not sentinel
-        config.neighborhood_config.neighbor_configs = vec![(
-            PublicKey::new(&[1, 2, 3, 4]),
-            NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
-        )];
+        config.neighborhood_config.neighbor_configs = vec![NodeDescriptor {
+            public_key: PublicKey::new(&[1, 2, 3, 4]),
+            node_addr: NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
+        }];
         config.data_directory = home_dir.clone();
         config.clandestine_port_opt = Some(1234);
         subject.config = Some(config);
@@ -1850,10 +1580,10 @@ mod tests {
             "establish_clandestine_port_handles_unspecified_port",
         );
         config.neighborhood_config.local_ip_addr = IpAddr::from_str("1.2.3.4").unwrap(); // not sentinel
-        config.neighborhood_config.neighbor_configs = vec![(
-            PublicKey::new(&[1, 2, 3, 4]),
-            NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
-        )];
+        config.neighborhood_config.neighbor_configs = vec![NodeDescriptor {
+            public_key: PublicKey::new(&[1, 2, 3, 4]),
+            node_addr: NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
+        }];
         config.data_directory = home_dir.clone();
         config.clandestine_port_opt = None;
         subject.config = Some(config);

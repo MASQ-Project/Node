@@ -8,7 +8,7 @@ use crate::neighborhood::node_record::NodeRecordInner;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, PlainData};
 use crate::sub_lib::cryptde_null::CryptDENull;
-use crate::sub_lib::neighborhood::NeighborhoodConfig;
+use crate::sub_lib::neighborhood::{NeighborhoodConfig, NodeDescriptor};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::test_utils::cryptde;
@@ -72,12 +72,12 @@ pub fn neighborhood_from_nodes(
         NeighborhoodConfig {
             neighbor_configs: match neighbor_opt {
                 None => vec![],
-                Some(neighbor) => vec![(
-                    neighbor.public_key().clone(),
-                    neighbor
+                Some(neighbor) => vec![NodeDescriptor {
+                    public_key: neighbor.public_key().clone(),
+                    node_addr: neighbor
                         .node_addr_opt()
                         .expect("Neighbor has to have NodeAddr"),
-                )],
+                }],
             },
             is_bootstrap_node: root.is_bootstrap_node(),
             local_ip_addr: root

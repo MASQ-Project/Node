@@ -377,6 +377,7 @@ mod tests {
     use crate::test_utils::test_utils::rate_pack_routing;
     use crate::test_utils::test_utils::rate_pack_routing_byte;
     use actix::System;
+    use log::LevelFilter;
     use std::cell::RefCell;
     use std::net::IpAddr;
     use std::net::Ipv4Addr;
@@ -727,6 +728,7 @@ mod tests {
         let actor_factory = ActorFactoryMock::new();
         let recordings = actor_factory.get_recordings();
         let config = BootstrapperConfig {
+            log_level: LevelFilter::Off,
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             neighborhood_config: NeighborhoodConfig {
@@ -783,6 +785,7 @@ mod tests {
         let recordings = actor_factory.get_recordings();
         let parameters = actor_factory.make_parameters();
         let config = BootstrapperConfig {
+            log_level: LevelFilter::Off,
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             neighborhood_config: NeighborhoodConfig {

@@ -16,8 +16,8 @@ use crate::sub_lib::dispatcher::DispatcherSubs;
 use crate::sub_lib::dispatcher::Endpoint;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::DispatcherNodeQueryMessage;
-use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::NodeQueryMessage;
+use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::ZERO_RATE_PACK;
 use crate::sub_lib::node_addr::NodeAddr;
@@ -185,7 +185,7 @@ impl Handler<TransmitDataMsg> for StreamHandlerPool {
                 ));
                 node_query_response_recipient
                     .try_send(DispatcherNodeQueryResponse {
-                        result: Some(NodeDescriptor::new(
+                        result: Some(NodeQueryResponseMetadata::new(
                             PublicKey::new(&[]),
                             Some(NodeAddr::from(&socket_addr)),
                             ZERO_RATE_PACK.clone(),
@@ -484,7 +484,7 @@ mod tests {
     use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::InboundClientData;
-    use crate::sub_lib::neighborhood::NodeDescriptor;
+    use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
     use crate::sub_lib::stream_connector::ConnectionInfo;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -902,7 +902,7 @@ mod tests {
             subject_subs
                 .node_query_response
                 .try_send(DispatcherNodeQueryResponse {
-                    result: Some(NodeDescriptor::new(
+                    result: Some(NodeQueryResponseMetadata::new(
                         public_key.clone(),
                         Some(NodeAddr::new(
                             &IpAddr::V4(Ipv4Addr::new(1, 2, 3, 5)),
@@ -1011,7 +1011,7 @@ mod tests {
         subject_subs
             .node_query_response
             .try_send(DispatcherNodeQueryResponse {
-                result: Some(NodeDescriptor::new(
+                result: Some(NodeQueryResponseMetadata::new(
                     public_key,
                     Some(NodeAddr::new(
                         &IpAddr::V4(Ipv4Addr::new(1, 2, 3, 5)),
@@ -1116,7 +1116,7 @@ mod tests {
         subject_subs
             .node_query_response
             .try_send(DispatcherNodeQueryResponse {
-                result: Some(NodeDescriptor::new(
+                result: Some(NodeQueryResponseMetadata::new(
                     key.clone(),
                     Some(NodeAddr::new(
                         &IpAddr::V4(Ipv4Addr::new(1, 2, 3, 5)),
@@ -1207,7 +1207,11 @@ mod tests {
             subject_subs
                 .node_query_response
                 .try_send(DispatcherNodeQueryResponse {
-                    result: Some(NodeDescriptor::new(key.clone(), None, rate_pack(100))),
+                    result: Some(NodeQueryResponseMetadata::new(
+                        key.clone(),
+                        None,
+                        rate_pack(100),
+                    )),
                     context: TransmitDataMsg {
                         endpoint: Endpoint::Key(key.clone()),
                         last_data: true,
@@ -1269,7 +1273,7 @@ mod tests {
             subject_subs
                 .node_query_response
                 .try_send(DispatcherNodeQueryResponse {
-                    result: Some(NodeDescriptor::new(
+                    result: Some(NodeQueryResponseMetadata::new(
                         key.clone(),
                         Some(NodeAddr::new(&peer_addr.ip(), &vec![peer_addr.port()])),
                         rate_pack(100),
@@ -1394,7 +1398,7 @@ mod tests {
             subject_subs
                 .node_query_response
                 .try_send(DispatcherNodeQueryResponse {
-                    result: Some(NodeDescriptor::new(
+                    result: Some(NodeQueryResponseMetadata::new(
                         key.clone(),
                         Some(NodeAddr::new(&peer_addr.ip(), &vec![peer_addr.port()])),
                         rate_pack(100),
@@ -1413,7 +1417,7 @@ mod tests {
         subject_subs
             .node_query_response
             .try_send(DispatcherNodeQueryResponse {
-                result: Some(NodeDescriptor::new(
+                result: Some(NodeQueryResponseMetadata::new(
                     cryptde.public_key().clone(),
                     Some(NodeAddr::new(&peer_addr.ip(), &vec![peer_addr.port()])),
                     rate_pack(100),
@@ -1463,7 +1467,7 @@ mod tests {
         subject_subs
             .node_query_response
             .try_send(DispatcherNodeQueryResponse {
-                result: Some(NodeDescriptor::new(
+                result: Some(NodeQueryResponseMetadata::new(
                     key.clone(),
                     Some(NodeAddr::new(&peer_addr.ip(), &vec![])),
                     rate_pack(100),

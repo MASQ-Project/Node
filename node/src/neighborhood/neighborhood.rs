@@ -14,19 +14,19 @@ use crate::sub_lib::dispatcher::Component;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
 use crate::sub_lib::logger::Logger;
-use crate::sub_lib::neighborhood::BootstrapNeighborhoodNowMessage;
 use crate::sub_lib::neighborhood::DispatcherNodeQueryMessage;
 use crate::sub_lib::neighborhood::ExpectedService;
 use crate::sub_lib::neighborhood::ExpectedServices;
 use crate::sub_lib::neighborhood::NeighborhoodConfig;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
-use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::NodeQueryMessage;
+use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::TargetType;
 use crate::sub_lib::neighborhood::{sentinel_ip_addr, NodeRecordMetadataMessage};
+use crate::sub_lib::neighborhood::{BootstrapNeighborhoodNowMessage, NodeDescriptor};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::route::Route;
@@ -53,7 +53,7 @@ pub struct Neighborhood {
     neighborhood_database: NeighborhoodDatabase,
     consuming_wallet_opt: Option<Wallet>,
     next_return_route_id: u32,
-    initial_neighbors: Vec<(PublicKey, NodeAddr)>,
+    initial_neighbors: Vec<NodeDescriptor>,
     logger: Logger,
 }
 
@@ -88,31 +88,28 @@ impl Handler<BootstrapNeighborhoodNowMessage> for Neighborhood {
         let gossip = self
             .gossip_producer
             .produce_debut(&self.neighborhood_database);
-        &self
-            .initial_neighbors
-            .iter()
-            .for_each(|(public_key, node_addr)| {
-                self.hopper_no_lookup
-                    .as_ref()
-                    .expect("unbound hopper")
-                    .try_send(
-                        NoLookupIncipientCoresPackage::new(
-                            self.cryptde,
-                            public_key,
-                            node_addr,
-                            MessageType::Gossip(gossip.clone()),
-                        )
-                        .expect("Key magically disappeared"),
+        &self.initial_neighbors.iter().for_each(|neighbor| {
+            self.hopper_no_lookup
+                .as_ref()
+                .expect("unbound hopper")
+                .try_send(
+                    NoLookupIncipientCoresPackage::new(
+                        self.cryptde,
+                        &neighbor.public_key,
+                        &neighbor.node_addr,
+                        MessageType::Gossip(gossip.clone()),
                     )
-                    .expect("hopper is dead");
-                self.logger.trace(format!(
-                    "Sent Gossip: {}",
-                    gossip.to_dot_graph(
-                        self.neighborhood_database.root(),
-                        (public_key, &Some(node_addr.clone()))
-                    )
-                ));
-            });
+                    .expect("Key magically disappeared"),
+                )
+                .expect("hopper is dead");
+            self.logger.trace(format!(
+                "Sent Gossip: {}",
+                gossip.to_dot_graph(
+                    self.neighborhood_database.root(),
+                    (&neighbor.public_key, &Some(neighbor.node_addr.clone()))
+                )
+            ));
+        });
     }
 }
 
@@ -130,7 +127,7 @@ impl Handler<NodeQueryMessage> for Neighborhood {
         };
 
         MessageResult(match node_record_ref_opt {
-            Some(node_record_ref) => Some(NodeDescriptor::new(
+            Some(node_record_ref) => Some(NodeQueryResponseMetadata::new(
                 node_record_ref.public_key().clone(),
                 match node_record_ref.node_addr_opt() {
                     Some(node_addr_ref) => Some(node_addr_ref.clone()),
@@ -157,7 +154,7 @@ impl Handler<DispatcherNodeQueryMessage> for Neighborhood {
         };
 
         let node_descriptor = match node_record_ref_opt {
-            Some(node_record_ref) => Some(NodeDescriptor::new(
+            Some(node_record_ref) => Some(NodeQueryResponseMetadata::new(
                 node_record_ref.public_key().clone(),
                 match node_record_ref.node_addr_opt() {
                     Some(node_addr) => Some(node_addr.clone()),
@@ -287,10 +284,6 @@ impl Neighborhood {
             if config.is_bootstrap_node {
                 panic! ("A SubstratumNode without an --ip setting is not decentralized and cannot be --node_type bootstrap")
             }
-        } else if (config.neighbor_configs.is_empty() && !config.is_bootstrap_node)
-            || config.clandestine_port_list.is_empty()
-        {
-            panic! ("An --ip setting indicates that you want to decentralize, but you also need at least one --neighbor setting or --node_type bootstrap for that")
         }
         let gossip_acceptor: Box<dyn GossipAcceptor> = Box::new(GossipAcceptorReal::new(cryptde));
         let gossip_producer = Box::new(GossipProducerReal::new());
@@ -318,7 +311,7 @@ impl Neighborhood {
         }
     }
 
-    pub fn initial_neighbors(&self) -> &Vec<(PublicKey, NodeAddr)> {
+    pub fn initial_neighbors(&self) -> &Vec<NodeDescriptor> {
         &self.initial_neighbors
     }
 
@@ -1007,10 +1000,10 @@ mod tests {
         Neighborhood::new(
             cryptde,
             NeighborhoodConfig {
-                neighbor_configs: vec![(
-                    neighbor.public_key().clone(),
-                    neighbor.node_addr_opt().unwrap().clone(),
-                )],
+                neighbor_configs: vec![NodeDescriptor {
+                    public_key: neighbor.public_key().clone(),
+                    node_addr: neighbor.node_addr_opt().unwrap().clone(),
+                }],
                 is_bootstrap_node: false,
                 local_ip_addr: sentinel_ip_addr(),
                 clandestine_port_list: vec![0],
@@ -1037,52 +1030,6 @@ mod tests {
                 is_bootstrap_node: true,
                 local_ip_addr: sentinel_ip_addr(),
                 clandestine_port_list: vec![],
-                earning_wallet: earning_wallet.clone(),
-                consuming_wallet: consuming_wallet.clone(),
-                rate_pack: rate_pack(100),
-            },
-        );
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "An --ip setting indicates that you want to decentralize, but you also need at least one --neighbor setting or --node_type bootstrap for that"
-    )]
-    fn neighborhood_cannot_be_created_with_ip_and_neighbors_but_no_clandestine_ports() {
-        let cryptde = cryptde();
-        let earning_wallet = Wallet::new("earning");
-        let consuming_wallet = Some(Wallet::new("consuming"));
-
-        Neighborhood::new(
-            cryptde,
-            NeighborhoodConfig {
-                neighbor_configs: vec![],
-                is_bootstrap_node: false,
-                local_ip_addr: IpAddr::from_str("2.3.4.5").unwrap(),
-                clandestine_port_list: vec![0],
-                earning_wallet: earning_wallet.clone(),
-                consuming_wallet: consuming_wallet.clone(),
-                rate_pack: rate_pack(100),
-            },
-        );
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "An --ip setting indicates that you want to decentralize, but you also need at least one --neighbor setting or --node_type bootstrap for that"
-    )]
-    fn neighborhood_cannot_be_created_with_ip_and_clandestine_ports_but_no_neighbors() {
-        let cryptde = cryptde();
-        let earning_wallet = Wallet::new("earning");
-        let consuming_wallet = Some(Wallet::new("consuming"));
-
-        Neighborhood::new(
-            cryptde,
-            NeighborhoodConfig {
-                neighbor_configs: vec![],
-                is_bootstrap_node: false,
-                local_ip_addr: IpAddr::from_str("2.3.4.5").unwrap(),
-                clandestine_port_list: vec![2345],
                 earning_wallet: earning_wallet.clone(),
                 consuming_wallet: consuming_wallet.clone(),
                 rate_pack: rate_pack(100),
@@ -1167,14 +1114,14 @@ mod tests {
             cryptde,
             NeighborhoodConfig {
                 neighbor_configs: vec![
-                    (
-                        one_bootstrap_node.public_key().clone(),
-                        one_bootstrap_node.node_addr_opt().unwrap().clone(),
-                    ),
-                    (
-                        another_bootstrap_node.public_key().clone(),
-                        another_bootstrap_node.node_addr_opt().unwrap().clone(),
-                    ),
+                    NodeDescriptor {
+                        public_key: one_bootstrap_node.public_key().clone(),
+                        node_addr: one_bootstrap_node.node_addr_opt().unwrap().clone(),
+                    },
+                    NodeDescriptor {
+                        public_key: another_bootstrap_node.public_key().clone(),
+                        node_addr: another_bootstrap_node.node_addr_opt().unwrap().clone(),
+                    },
                 ],
                 is_bootstrap_node: false,
                 local_ip_addr: this_node_addr.ip_addr(),
@@ -1203,17 +1150,17 @@ mod tests {
         );
         assert_eq!(
             subject.initial_neighbors()[0],
-            (
-                one_bootstrap_node.public_key().clone(),
-                one_bootstrap_node.node_addr_opt().unwrap()
-            )
+            NodeDescriptor {
+                public_key: one_bootstrap_node.public_key().clone(),
+                node_addr: one_bootstrap_node.node_addr_opt().unwrap()
+            }
         );
         assert_eq!(
             subject.initial_neighbors()[1],
-            (
-                another_bootstrap_node.public_key().clone(),
-                another_bootstrap_node.node_addr_opt().unwrap()
-            )
+            NodeDescriptor {
+                public_key: another_bootstrap_node.public_key().clone(),
+                node_addr: another_bootstrap_node.node_addr_opt().unwrap()
+            }
         );
     }
 
@@ -1242,10 +1189,13 @@ mod tests {
         let subject = Neighborhood::new(
             cryptde,
             NeighborhoodConfig {
-                neighbor_configs: vec![(
-                    PublicKey::new(&b"booga"[..]),
-                    NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234, 2345]),
-                )],
+                neighbor_configs: vec![NodeDescriptor {
+                    public_key: PublicKey::new(&b"booga"[..]),
+                    node_addr: NodeAddr::new(
+                        &IpAddr::from_str("1.2.3.4").unwrap(),
+                        &vec![1234, 2345],
+                    ),
+                }],
                 is_bootstrap_node: false,
                 local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                 clandestine_port_list: vec![5678],
@@ -1277,7 +1227,7 @@ mod tests {
         let mut subject = Neighborhood::new(
             cryptde,
             NeighborhoodConfig {
-                neighbor_configs: vec![node_record_to_pair(&one_neighbor)],
+                neighbor_configs: vec![node_record_to_neighbor(&one_neighbor)],
                 is_bootstrap_node: false,
                 local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                 clandestine_port_list: vec![5678],
@@ -1302,7 +1252,7 @@ mod tests {
         let result = future.wait().unwrap();
         assert_eq!(
             result.unwrap(),
-            NodeDescriptor::new(
+            NodeQueryResponseMetadata::new(
                 another_neighbor.public_key().clone(),
                 Some(another_neighbor.node_addr_opt().unwrap().clone()),
                 another_neighbor.rate_pack().clone(),
@@ -1321,10 +1271,13 @@ mod tests {
         let subject = Neighborhood::new(
             cryptde,
             NeighborhoodConfig {
-                neighbor_configs: vec![(
-                    PublicKey::new(&b"booga"[..]),
-                    NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234, 2345]),
-                )],
+                neighbor_configs: vec![NodeDescriptor {
+                    public_key: PublicKey::new(&b"booga"[..]),
+                    node_addr: NodeAddr::new(
+                        &IpAddr::from_str("1.2.3.4").unwrap(),
+                        &vec![1234, 2345],
+                    ),
+                }],
                 is_bootstrap_node: false,
                 local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                 clandestine_port_list: vec![5678],
@@ -1357,10 +1310,10 @@ mod tests {
         let mut subject = Neighborhood::new(
             cryptde,
             NeighborhoodConfig {
-                neighbor_configs: vec![(
-                    node_record.public_key().clone(),
-                    node_record.node_addr_opt().unwrap().clone(),
-                )],
+                neighbor_configs: vec![NodeDescriptor {
+                    public_key: node_record.public_key().clone(),
+                    node_addr: node_record.node_addr_opt().unwrap().clone(),
+                }],
                 is_bootstrap_node: false,
                 local_ip_addr: node_record.node_addr_opt().as_ref().unwrap().ip_addr(),
                 clandestine_port_list: node_record
@@ -1390,7 +1343,7 @@ mod tests {
         let result = future.wait().unwrap();
         assert_eq!(
             result.unwrap(),
-            NodeDescriptor::new(
+            NodeQueryResponseMetadata::new(
                 another_node_record.public_key().clone(),
                 Some(another_node_record.node_addr_opt().unwrap().clone()),
                 another_node_record.rate_pack().clone(),
@@ -2627,10 +2580,10 @@ mod tests {
         let subject = Neighborhood::new(
             cryptde,
             NeighborhoodConfig {
-                neighbor_configs: vec![(
-                    bootstrap_node_inside.public_key().clone(),
-                    bootstrap_node_inside.node_addr_opt().unwrap().clone(),
-                )],
+                neighbor_configs: vec![NodeDescriptor {
+                    public_key: bootstrap_node_inside.public_key().clone(),
+                    node_addr: bootstrap_node_inside.node_addr_opt().unwrap().clone(),
+                }],
                 is_bootstrap_node: false,
                 local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                 clandestine_port_list: vec![1234],
@@ -2747,11 +2700,11 @@ mod tests {
         assert_eq!(None, failed_ip_address_query.wait().unwrap());
     }
 
-    fn node_record_to_pair(node_record_ref: &NodeRecord) -> (PublicKey, NodeAddr) {
-        (
-            node_record_ref.public_key().clone(),
-            node_record_ref.node_addr_opt().unwrap().clone(),
-        )
+    fn node_record_to_neighbor(node_record_ref: &NodeRecord) -> NodeDescriptor {
+        NodeDescriptor {
+            public_key: node_record_ref.public_key().clone(),
+            node_addr: node_record_ref.node_addr_opt().unwrap().clone(),
+        }
     }
 
     #[test]
@@ -2808,10 +2761,13 @@ mod tests {
             let subject = Neighborhood::new(
                 cryptde,
                 NeighborhoodConfig {
-                    neighbor_configs: vec![(
-                        PublicKey::new(&b"booga"[..]),
-                        NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234, 2345]),
-                    )],
+                    neighbor_configs: vec![NodeDescriptor {
+                        public_key: PublicKey::new(&b"booga"[..]),
+                        node_addr: NodeAddr::new(
+                            &IpAddr::from_str("1.2.3.4").unwrap(),
+                            &vec![1234, 2345],
+                        ),
+                    }],
                     is_bootstrap_node: false,
                     local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                     clandestine_port_list: vec![5678],
@@ -2869,7 +2825,7 @@ mod tests {
             let mut subject = Neighborhood::new(
                 cryptde,
                 NeighborhoodConfig {
-                    neighbor_configs: vec![node_record_to_pair(&one_neighbor)],
+                    neighbor_configs: vec![node_record_to_neighbor(&one_neighbor)],
                     is_bootstrap_node: false,
                     local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                     clandestine_port_list: vec![5678],
@@ -2900,7 +2856,7 @@ mod tests {
         let message = Recording::get::<DispatcherNodeQueryResponse>(&recording_arc, 0);
         assert_eq!(
             message.result.unwrap(),
-            NodeDescriptor::new(
+            NodeQueryResponseMetadata::new(
                 another_neighbor_a.public_key().clone(),
                 Some(another_neighbor_a.node_addr_opt().unwrap().clone()),
                 another_neighbor_a.rate_pack().clone(),
@@ -2924,10 +2880,13 @@ mod tests {
             let subject = Neighborhood::new(
                 cryptde,
                 NeighborhoodConfig {
-                    neighbor_configs: vec![(
-                        PublicKey::new(&b"booga"[..]),
-                        NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234, 2345]),
-                    )],
+                    neighbor_configs: vec![NodeDescriptor {
+                        public_key: PublicKey::new(&b"booga"[..]),
+                        node_addr: NodeAddr::new(
+                            &IpAddr::from_str("1.2.3.4").unwrap(),
+                            &vec![1234, 2345],
+                        ),
+                    }],
                     is_bootstrap_node: false,
                     local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                     clandestine_port_list: vec![5678],
@@ -2985,10 +2944,10 @@ mod tests {
             let mut subject = Neighborhood::new(
                 cryptde,
                 NeighborhoodConfig {
-                    neighbor_configs: vec![(
-                        node_record.public_key().clone(),
-                        node_record.node_addr_opt().unwrap().clone(),
-                    )],
+                    neighbor_configs: vec![NodeDescriptor {
+                        public_key: node_record.public_key().clone(),
+                        node_addr: node_record.node_addr_opt().unwrap().clone(),
+                    }],
                     is_bootstrap_node: false,
                     local_ip_addr: node_record.node_addr_opt().as_ref().unwrap().ip_addr(),
                     clandestine_port_list: node_record
@@ -3025,7 +2984,7 @@ mod tests {
 
         assert_eq!(
             message.result.unwrap(),
-            NodeDescriptor::new(
+            NodeQueryResponseMetadata::new(
                 another_node_record.public_key().clone(),
                 Some(another_node_record.node_addr_opt().unwrap().clone()),
                 another_node_record.rate_pack().clone(),

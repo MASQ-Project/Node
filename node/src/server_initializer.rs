@@ -5,7 +5,6 @@ use super::privilege_drop::PrivilegeDropper;
 use super::privilege_drop::PrivilegeDropperReal;
 use crate::sub_lib::main_tools::Command;
 use crate::sub_lib::main_tools::StdStreams;
-use crate::sub_lib::parameter_finder::ParameterFinder;
 use crate::sub_lib::socket_server::SocketServer;
 use flexi_logger::Duplicate;
 use flexi_logger::LevelFilter;
@@ -13,7 +12,6 @@ use flexi_logger::LogSpecification;
 use flexi_logger::Logger;
 use futures::try_ready;
 use std::env::temp_dir;
-use std::str::FromStr;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 
@@ -32,12 +30,12 @@ where
     P: PrivilegeDropper,
 {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &Vec<String>) -> u8 {
-        self.logger_initializer_wrapper.init(args);
-
         self.dns_socket_server
             .as_mut()
-            .initialize_as_privileged(args);
-        self.bootstrapper.as_mut().initialize_as_privileged(args);
+            .initialize_as_privileged(args, &mut self.logger_initializer_wrapper);
+        self.bootstrapper
+            .as_mut()
+            .initialize_as_privileged(args, &mut self.logger_initializer_wrapper);
 
         self.privilege_dropper.drop_privileges();
 
@@ -80,23 +78,21 @@ impl ServerInitializer<PrivilegeDropperReal> {
     }
 }
 
-trait LoggerInitializerWrapper: Send {
-    fn init(&mut self, args: &Vec<String>) -> bool;
+pub trait LoggerInitializerWrapper: Send {
+    fn init(&mut self, log_level: LevelFilter) -> bool;
 }
 
 struct LoggerInitializerWrapperReal {}
 
 impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
-    fn init(&mut self, args: &Vec<String>) -> bool {
-        match Logger::with(
-            LogSpecification::default(LoggerInitializerWrapperReal::get_log_level(args)).finalize(),
-        )
-        .log_to_file()
-        .directory(&temp_dir().to_str().expect("Bad temporary filename")[..])
-        .print_message()
-        .duplicate_to_stderr(Duplicate::Info)
-        .suppress_timestamp()
-        .start()
+    fn init(&mut self, log_level: LevelFilter) -> bool {
+        match Logger::with(LogSpecification::default(log_level).finalize())
+            .log_to_file()
+            .directory(&temp_dir().to_str().expect("Bad temporary filename")[..])
+            .print_message()
+            .duplicate_to_stderr(Duplicate::Info)
+            .suppress_timestamp()
+            .start()
         {
             Ok(_) => true,
             Err(_) => false,
@@ -104,44 +100,16 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
     }
 }
 
-impl LoggerInitializerWrapperReal {
-    fn get_log_level(args: &Vec<String>) -> LevelFilter {
-        let parameter_tag = "--log_level";
-        let usage = "should be one of <trace|debug|info|warn|error|off> (default = warn)";
-
-        match ParameterFinder::new(args.clone()).find_value_for(parameter_tag, usage) {
-            Some(value) => match LevelFilter::from_str(value.as_str()) {
-                Ok(lf) => lf,
-                Err(_) => panic!("Bad value '{}' for {}: {}", value, parameter_tag, usage),
-            },
-            None => LevelFilter::Warn,
-        }
-    }
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::crash_test_dummy::CrashTestDummy;
-    use crate::sub_lib::crash_point::CrashPoint;
+pub mod test_utils {
+    use crate::privilege_drop::PrivilegeDropper;
+    use crate::server_initializer::LoggerInitializerWrapper;
     use crate::test_utils::logging::init_test_logging;
-    use crate::test_utils::test_utils::ByteArrayReader;
-    use crate::test_utils::test_utils::ByteArrayWriter;
-    use std::sync::Arc;
-    use std::sync::Mutex;
+    use log::LevelFilter;
+    use std::sync::{Arc, Mutex};
 
-    impl SocketServer for CrashTestDummy {
-        fn name(&self) -> String {
-            String::from("crash test SocketServer")
-        }
-
-        fn initialize_as_privileged(&mut self, _args: &Vec<String>) {}
-
-        fn initialize_as_unprivileged(&mut self, _streams: &mut StdStreams<'_>) {}
-    }
-
-    struct PrivilegeDropperMock {
-        call_count: Arc<Mutex<usize>>,
+    pub struct PrivilegeDropperMock {
+        pub call_count: Arc<Mutex<usize>>,
     }
 
     impl PrivilegeDropperMock {
@@ -159,13 +127,13 @@ mod tests {
         }
     }
 
-    struct LoggerInitializerWrapperMock {
-        init_parameters: Arc<Mutex<Vec<Vec<String>>>>,
+    pub struct LoggerInitializerWrapperMock {
+        init_parameters: Arc<Mutex<Vec<LevelFilter>>>,
     }
 
     impl LoggerInitializerWrapper for LoggerInitializerWrapperMock {
-        fn init(&mut self, args: &Vec<String>) -> bool {
-            self.init_parameters.lock().unwrap().push(args.clone());
+        fn init(&mut self, log_level: LevelFilter) -> bool {
+            self.init_parameters.lock().unwrap().push(log_level);
             init_test_logging()
         }
     }
@@ -177,9 +145,38 @@ mod tests {
             }
         }
 
-        pub fn init_parameters(&mut self, parameters: &Arc<Mutex<Vec<Vec<String>>>>) {
+        pub fn init_parameters(&mut self, parameters: &Arc<Mutex<Vec<LevelFilter>>>) {
             self.init_parameters = parameters.clone();
         }
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+    use crate::crash_test_dummy::CrashTestDummy;
+    use crate::server_initializer::test_utils::{
+        LoggerInitializerWrapperMock, PrivilegeDropperMock,
+    };
+    use crate::sub_lib::crash_point::CrashPoint;
+    use crate::test_utils::test_utils::ByteArrayReader;
+    use crate::test_utils::test_utils::ByteArrayWriter;
+    use std::sync::Arc;
+    use std::sync::Mutex;
+
+    impl SocketServer for CrashTestDummy {
+        fn name(&self) -> String {
+            String::from("crash test SocketServer")
+        }
+
+        fn initialize_as_privileged(
+            &mut self,
+            _args: &Vec<String>,
+            _logger_initializer: &mut Box<dyn LoggerInitializerWrapper>,
+        ) {
+        }
+
+        fn initialize_as_unprivileged(&mut self, _streams: &mut StdStreams<'_>) {}
     }
 
     #[test]
@@ -189,7 +186,7 @@ mod tests {
 
         let privilege_dropper = PrivilegeDropperMock::new();
         let mut logger_initializer_wrapper_mock = LoggerInitializerWrapperMock::new();
-        let logger_init_parameters: Arc<Mutex<Vec<Vec<String>>>> = Arc::new(Mutex::new(vec![]));
+        let logger_init_parameters: Arc<Mutex<Vec<LevelFilter>>> = Arc::new(Mutex::new(vec![]));
         logger_initializer_wrapper_mock.init_parameters(&logger_init_parameters);
 
         let mut subject = ServerInitializer {
@@ -266,79 +263,6 @@ mod tests {
         };
 
         let _ = subject.poll();
-    }
-
-    #[test]
-    fn get_log_level_returns_warn_by_default() {
-        let args: Vec<String> = vec![];
-        assert_eq!(
-            LoggerInitializerWrapperReal::get_log_level(&args),
-            LevelFilter::Warn
-        );
-    }
-
-    #[test]
-    fn get_log_level_returns_log_level_from_args() {
-        let args = vec![String::from("--log_level"), String::from("trace")];
-        assert_eq!(
-            LoggerInitializerWrapperReal::get_log_level(&args),
-            LevelFilter::Trace
-        );
-
-        let args = vec![String::from("--log_level"), String::from("WaRn")];
-        assert_eq!(
-            LoggerInitializerWrapperReal::get_log_level(&args),
-            LevelFilter::Warn
-        );
-
-        let args = vec![String::from("--log_level"), String::from("DebuG")];
-        assert_eq!(
-            LoggerInitializerWrapperReal::get_log_level(&args),
-            LevelFilter::Debug
-        );
-
-        let args = vec![String::from("--log_level"), String::from("INFO")];
-        assert_eq!(
-            LoggerInitializerWrapperReal::get_log_level(&args),
-            LevelFilter::Info
-        );
-
-        let args = vec![String::from("--log_level"), String::from("Error")];
-        assert_eq!(
-            LoggerInitializerWrapperReal::get_log_level(&args),
-            LevelFilter::Error
-        );
-
-        let args = vec![String::from("--log_level"), String::from("off")];
-        assert_eq!(
-            LoggerInitializerWrapperReal::get_log_level(&args),
-            LevelFilter::Off
-        );
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Bad value 'blooga' for --log_level: should be one of <trace|debug|info|warn|error|off> (default = warn)"
-    )]
-    fn get_log_level_panics_if_arg_makes_no_sense() {
-        let args = vec![
-            String::from("--dns_servers"),
-            String::from("1.2.3.4"),
-            String::from("--log_level"),
-            String::from("blooga"),
-        ];
-
-        LoggerInitializerWrapperReal::get_log_level(&args);
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Missing value for --log_level: should be one of <trace|debug|info|warn|error|off> (default = warn)"
-    )]
-    fn get_log_level_panics_if_flag_is_last_with_no_value() {
-        let args = vec![String::from("--log_level")];
-
-        LoggerInitializerWrapperReal::get_log_level(&args);
     }
 
     #[test]

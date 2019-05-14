@@ -1,30 +1,19 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use std::fmt;
-use std::fmt::Display;
-use std::fmt::Formatter;
+use clap::arg_enum;
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum CrashPoint {
-    Panic,
-    Error,
-    None,
+arg_enum! {
+    #[derive(Debug, PartialEq, Clone)]
+    pub enum CrashPoint {
+        Panic,
+        Error,
+        None,
+    }
 }
 
 const PANIC: usize = 1;
 const ERROR: usize = 2;
 const NONE: usize = 0;
-
-impl Display for CrashPoint {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let numeric = match self {
-            CrashPoint::Panic => PANIC,
-            CrashPoint::Error => ERROR,
-            CrashPoint::None => NONE,
-        };
-        write!(f, "{}", numeric)
-    }
-}
 
 impl From<usize> for CrashPoint {
     fn from(number: usize) -> Self {
@@ -66,12 +55,5 @@ mod tests {
         assert_eq!(0usize, none);
         assert_eq!(1usize, panic);
         assert_eq!(2usize, error);
-    }
-
-    #[test]
-    fn fmt() {
-        assert_eq!("0", format!("{}", CrashPoint::None));
-        assert_eq!("1", format!("{}", CrashPoint::Panic));
-        assert_eq!("2", format!("{}", CrashPoint::Error));
     }
 }
