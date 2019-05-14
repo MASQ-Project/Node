@@ -1,14 +1,18 @@
 # Port 53 Problems?
 
 ## Identification
-When you try to start your SubstratumNode, do you see a message that looks something like this?
+When you try to start your SubstratumNode, do you see a message that looks something like one of these?
 
 ```
-thread 'main' panicked at 'Cannot bind socket to V4(0.0.0.0:53): Error { repr: Os { code: 98, message: "Address already in use" } }', /checkout/src/libcore/result.rs:916:5
+thread 'main' panicked at 'Cannot bind socket to V4(0.0.0.0:53): Os { code: 10048, kind: AddrInUse, message: "Only one usage of each socket address (protocol/network address/port) is normally permitted." }'
 ```
 
-The important parts of this message are the "`V4(0.0.0.0:53)`" part (especially the `:53`) and the "`Address
-already in use`" part.  Different operating systems may produce slightly different messages.
+```
+thread 'main' panicked at 'Cannot bind socket to V4(0.0.0.0:53): Error { repr: Os { code: 98, message: "Address already in use" } }'
+```
+
+The important parts of this message are the "`V4(0.0.0.0:53)`" part (especially the `:53`) and the "`Only one usage of each socket address`..."
+or "`Address already in use`" part.  Different operating systems may produce slightly different messages.
 
 If you see both of those parts in the message, then you are definitely afflicted with the __Port 53 Problem__. If
 you see only one of them, you're _probably_ afflicted with the __Port 53 Problem__. If you see neither of them,
@@ -18,18 +22,27 @@ If you don't care about what the problem is or why it happens, and you just want
 the __Solutions__ section.
 
 ## Background
+
+### Windows
+Windows includes a service called Internet Connection Sharing (ICS) that listens on port 53. It's a somewhat dated service
+from the days before widespread WiFi availability that allows you to make your Windows machine a nexus through which
+other people can connect their machines to the Internet. If you're not already aware that you're doing this, you
+probably don't need to have ICS active.
+
+### Linux
 Some Linux distributions (we know about Ubuntu Desktop >=16.04 and some versions of Mint, but there are probably others)
 come with an installed utility called `dnsmasq`. This utility is intended to let folks with small home LANs give 
 intelligible names to their computers, printers, TVs, DVRs, mobile devices, and other Internet-enabled devices, rather 
 than having to reference them by numeric IP address.  You may instead have a distribution (for example Ubuntu 18.04)
 that uses `systemd-resolved` for this purpose.  We'll generically call this dns caching.
 
-Dns caching works by putting up a small DNS server on your local machine that fields name-resolution requests for things
+DNS caching works by putting up a small DNS server on your local machine that fields name-resolution requests for things
 like "LivingRoomTV" and returns IP addresses like 192.168.0.47.  This means that when you want to control your TV
 from upstairs, or watch its video feed, or whatever it allows you to do remotely, you can call it "LivingRoomTV"
 (or select it from a list) rather than having to remember its IP address (which may change unexpectedly).
 
-In general, any software that uses a DNS server to convert an intelligible name into an IP address will contact that
+### In General
+Any software that uses a DNS server to convert an intelligible name into an IP address will contact that
 DNS server on Port 53; it's part of the widely-accepted DNS protocol. Therefore, every DNS server must listen on
 Port 53 for requests if it expects to receive any.
 
@@ -38,15 +51,37 @@ Unfortunately, only one server can listen on Port 53 (or any port) at one time.
 ## The Problem
 SubstratumNode also includes a small DNS server that allows applications on your computer to send and receive data on
 the Substratum Network. Since this is a DNS server, it must also listen on Port 53. This means that a DNS-subverting
-SubstratumNode and dns caching are irredeemably inimical to one another and cannot ever operate simultaneously on the
-same computer.
+SubstratumNode and preexisting port 53 software are irredeemably inimical to one another and cannot ever operate
+simultaneously on the same computer.
 
 Eventually, SubstratumNode will be able to operate in regimes other than DNS subversion, which means that under some
-circumstances, and in the presence of certain sacrifices, it will be compatible with dns caching;
+circumstances, and in the presence of certain sacrifices, it will be compatible with other port 53 software;
 but that's in the future, not the present.
 
 ## Solutions
-We know of two reasonable solutions to the __Port 53 Problem__: a complicated and annoying one that allows you to keep
+
+### Windows
+Internet Connection Sharing can be an annoyance. We had problems with it starting spontaneously after we stopped it,
+and reenabling itself and starting after we disabled it, and coming back into action over a reboot, in all cases
+monopolizing port 53 and preventing SubstratumNode from starting.  However, the solution turned out to be simple:
+we just installed all pending updates (in our case, they ended at version 1809), and the problem went away. We disabled
+ICS, and it stayed disabled.
+
+ICS can be enabled and disabled for individual network interfaces, but you'll need to disable it across your entire
+system to free up port 53 for SubstratumNode.
+
+To do so, press your Windows button and type Services. Scroll down to where you see "Internet Connection Sharing (ICS)"
+in the left-hand column. Does the second column show it to be Running? If not, ICS isn't your problem, and you'll need
+to look elsewhere.
+
+If it is, then right-click on the Internet Connection Sharing item and choose Properties. Pull down the "Startup type"
+list and choose "Disabled" so that it can't be restarted once it stops.  Now click the "Stop" button to kill the service.
+You'll get a dialog box with a progress bar; the service should stop fairly quickly. After it does, click "OK" and
+verify that the service list now shows the service as "Disabled" in the "Startup Type" column, with no value at all in
+the "Status" column. If that's the case, you've successfully disabled ICS.
+
+### Linux
+We know of two reasonable solutions to the __Port 53 Problem__ in Linux: a complicated and annoying one that allows you to keep
 using dns caching, and a much simpler and easier one that consists of disabling dns caching but will no longer allow you
 to use intelligible names for the devices on your LAN.
 
@@ -58,7 +93,7 @@ have used this solution in the past, and you can see how we've done it by lookin
 [source code](https://github.com/SubstratumNetwork/SubstratumNode/tree/master/node/docker/linux_node). After installing
 Docker on your machine, you may be able to put together a similar solution.
 
-#### Simple But Incompatible: Disable Dns Caching
+#### Simple But Incompatible: Disable DNS Caching
 
 ##### Ubuntu 18.04
 
