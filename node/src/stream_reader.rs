@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::discriminator::Discriminator;
 use crate::discriminator::DiscriminatorFactory;
+use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
 use crate::stream_messages::*;
 use crate::sub_lib::dispatcher;
 use crate::sub_lib::logger::Logger;
@@ -31,7 +32,7 @@ impl Future for StreamReaderReal {
 
     fn poll(&mut self) -> Result<Async<()>, ()> {
         let port = self.local_addr.port();
-        let mut buf = [0u8; 0x10000];
+        let mut buf = [0u8; 0x10_000];
         loop {
             match self.stream.poll_read(&mut buf) {
                 Ok(Async::NotReady) => return Ok(Async::NotReady),
@@ -84,6 +85,10 @@ impl StreamReaderReal {
         if discriminator_factories.is_empty() {
             panic!("Internal error: no Discriminator factories!")
         }
+        let discriminators: Vec<Discriminator> = discriminator_factories
+            .into_iter()
+            .map(|df| (df.make()))
+            .collect();
         StreamReaderReal {
             stream,
             local_addr,
@@ -91,8 +96,7 @@ impl StreamReaderReal {
             reception_port,
             ibcd_sub,
             remove_sub,
-            // Skinny implementation
-            discriminators: vec![discriminator_factories[0].make()],
+            discriminators,
             is_clandestine,
             logger: Logger::new(&name),
             sequencer: Sequencer::new(),
@@ -100,15 +104,31 @@ impl StreamReaderReal {
     }
 
     fn wrangle_discriminators(&mut self, buf: &[u8], length: usize) {
-        // Skinny implementation
+        // Although discriminators is a vec, it was never really designed to have more than one.
+        let is_connect = HttpProtocolPack::is_connect(buf);
+        let chosen_discriminator = if self.discriminators.len() > 1 && is_connect {
+            &mut self.discriminators[1]
+        } else {
+            &mut self.discriminators[0]
+        };
+
         self.logger
             .debug(format!("Adding {} bytes to discriminator", length));
-        self.discriminators[0].add_data(&buf[..length]);
+        chosen_discriminator.add_data(&buf[..length]);
         loop {
-            match self.discriminators[0].take_chunk() {
+            match chosen_discriminator.take_chunk() {
                 Some(unmasked_chunk) => {
-                    let sequence_number = if unmasked_chunk.sequenced {
+                    // For Proxy Clients that send an Http Connect message via TLS, sequence_number
+                    // should be Some(0). The next message the Proxy Client will send begins the TLS
+                    // handshake and should start the sequence at Some(0) as well, the ProxyServer will
+                    // handle the sequenced packet offset before sending them through the stream_writer
+                    // and avoid dropping duplicate packets.
+                    let sequence_number = if unmasked_chunk.sequenced && !is_connect {
                         Some(self.sequencer.next_sequence_number())
+                    } else if is_connect {
+                        // This case needs to explicitly be Some(0) instead of None so that the StreamHandlerPool does
+                        // not JsonMasquerade it.
+                        Some(0)
                     } else {
                         None
                     };
@@ -131,8 +151,8 @@ impl StreamReaderReal {
                         sequence_number,
                         data: unmasked_chunk.chunk.clone(),
                     };
-                    self.logger.debug (format! ("Discriminator framed and unmasked {} bytes for {}; transmitting via Hopper",
-                                                 unmasked_chunk.chunk.len (), msg.peer_addr));
+                    self.logger.debug(format!("Discriminator framed and unmasked {} bytes for {}; transmitting via Hopper",
+                                              unmasked_chunk.chunk.len(), msg.peer_addr));
                     self.ibcd_sub.try_send(msg).expect("Dispatcher is dead");
                 }
                 None => {
@@ -172,6 +192,7 @@ mod tests {
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
+    use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
     use actix::Actor;
     use actix::Addr;
     use actix::System;
@@ -233,7 +254,7 @@ mod tests {
 
         assert_eq!(result, Ok(Async::Ready(())));
 
-        TestLogHandler::new ().exists_log_matching("ThreadId\\(\\d+\\): DEBUG: StreamReader for 1\\.2\\.3\\.4:5678: Stream on port 6789 has shut down \\(0-byte read\\)");
+        TestLogHandler::new().exists_log_matching("ThreadId\\(\\d+\\): DEBUG: StreamReader for 1\\.2\\.3\\.4:5678: Stream on port 6789 has shut down \\(0-byte read\\)");
     }
 
     #[test]
@@ -276,7 +297,7 @@ mod tests {
 
         assert_eq!(result, Err(()));
 
-        TestLogHandler::new ().exists_log_matching("ThreadId\\(\\d+\\): DEBUG: StreamReader for 1\\.2\\.3\\.4:5678: Stream on port 6789 is dead: broken pipe");
+        TestLogHandler::new().exists_log_matching("ThreadId\\(\\d+\\): DEBUG: StreamReader for 1\\.2\\.3\\.4:5678: Stream on port 6789 is dead: broken pipe");
     }
 
     #[test]
@@ -351,7 +372,7 @@ mod tests {
         System::current().stop_with_code(0);
         system.run();
 
-        TestLogHandler::new ().await_log_matching("ThreadId\\(\\d+\\): WARN: StreamReader for 1\\.2\\.3\\.4:5678: Continuing after read error on port 6789: other os error", 1000);
+        TestLogHandler::new().await_log_matching("ThreadId\\(\\d+\\): WARN: StreamReader for 1\\.2\\.3\\.4:5678: Continuing after read error on port 6789: other os error", 1000);
 
         let shp_recording = shp_recording_arc.lock().unwrap();
         assert_eq!(shp_recording.len(), 0);
@@ -432,7 +453,7 @@ mod tests {
         assert_eq!(
             d_recording.get_record::<dispatcher::InboundClientData>(0),
             &dispatcher::InboundClientData {
-                peer_addr: peer_addr,
+                peer_addr,
                 reception_port: Some(1234 as u16),
                 last_data: false,
                 is_clandestine: true,
@@ -441,8 +462,64 @@ mod tests {
             }
         );
 
-        TestLogHandler::new ().exists_log_matching("ThreadId\\(\\d+\\): DEBUG: StreamReader for 1\\.2\\.3\\.4:5678: Read 14-byte chunk from port 6789");
-        TestLogHandler::new ().exists_log_matching("ThreadId\\(\\d+\\): DEBUG: StreamReader for 1\\.2\\.3\\.4:5678: Read 18-byte chunk from port 6789");
+        TestLogHandler::new().exists_log_matching("ThreadId\\(\\d+\\): DEBUG: StreamReader for 1\\.2\\.3\\.4:5678: Read 14-byte chunk from port 6789");
+        TestLogHandler::new().exists_log_matching("ThreadId\\(\\d+\\): DEBUG: StreamReader for 1\\.2\\.3\\.4:5678: Read 18-byte chunk from port 6789");
+    }
+
+    #[test]
+    fn stream_reader_sends_two_correct_sequenced_messages_when_sent_a_http_connect() {
+        let system = System::new("test");
+        let (_, stream_handler_pool_subs) = stream_handler_pool_stuff();
+        let (d_recording_arc, dispatcher_subs) = dispatcher_stuff();
+        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
+        let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> = vec![
+            Box::new(TlsDiscriminatorFactory::new()),
+            Box::new(HttpRequestDiscriminatorFactory::new()),
+        ];
+        let http_connect_request = Vec::from("CONNECT example.com:443 HTTP/1.1\r\n\r\n".as_bytes());
+        // Magic TLS Sauce stolen from Configuration
+        let tls_request = Vec::from(&vec![0x16, 0x03, 0x01, 0x00, 0x03, 0x01, 0x02, 0x03][..]);
+        let reader = ReadHalfWrapperMock {
+            poll_read_results: vec![
+                (
+                    http_connect_request.clone(),
+                    Ok(Async::Ready(http_connect_request.len())),
+                ),
+                (tls_request.clone(), Ok(Async::Ready(tls_request.len()))),
+                (vec![], Ok(Async::NotReady)),
+            ],
+        };
+
+        let mut subject = StreamReaderReal::new(
+            Box::new(reader),
+            Some(1234 as u16),
+            dispatcher_subs.ibcd_sub,
+            stream_handler_pool_subs.remove_sub,
+            discriminator_factories,
+            false,
+            peer_addr,
+            local_addr,
+        );
+
+        subject.poll().err();
+
+        System::current().stop();
+        system.run();
+
+        let d_recording = d_recording_arc.lock().unwrap();
+        assert_eq!(
+            Some(0),
+            d_recording
+                .get_record::<dispatcher::InboundClientData>(0)
+                .sequence_number,
+        );
+        assert_eq!(
+            Some(0),
+            d_recording
+                .get_record::<dispatcher::InboundClientData>(1)
+                .sequence_number,
+        );
     }
 
     #[test]

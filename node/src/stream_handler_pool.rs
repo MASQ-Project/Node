@@ -133,7 +133,6 @@ impl Handler<AddStreamMsg> for StreamHandlerPool {
             msg.connection_info.peer_addr,
             msg.connection_info.local_addr,
         );
-        ()
     }
 }
 
@@ -196,7 +195,6 @@ impl Handler<TransmitDataMsg> for StreamHandlerPool {
                     .expect("StreamHandlerPool is dead?")
             }
         };
-        ()
     }
 }
 
@@ -328,7 +326,7 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
                 let clandestine_discriminator_factories =
                     self.clandestine_discriminator_factories.clone();
                 let msg_data_len = msg.context.data.len();
-                let peer_addr_e = peer_addr.clone();
+                let peer_addr_e = peer_addr;
                 let key = msg
                     .result
                     .clone()
@@ -345,7 +343,6 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
                             port_configuration: PortConfiguration::new(clandestine_discriminator_factories, true),
                         }).expect("StreamHandlerPool is dead");
                         node_query_response_sub.try_send(msg).expect("StreamHandlerPool is dead");
-                        ()
                     })
                     .map_err(move |err| { // connection was unsuccessful
                         logger_me.error(format!("Stream to {} does not exist and could not be connected; discarding {} bytes: {}", peer_addr, msg_data_len, err));
@@ -353,7 +350,6 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
 
                         let remove_node_message = RemoveNeighborMessage { public_key: key };
                         tell_neighborhood.try_send(remove_node_message).expect("Neighborhood is Dead");
-                        ()
                     });
 
                 self.logger

@@ -1,7 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::masquerader::Masquerader;
 use crate::sub_lib::framer::Framer;
-use crate::sub_lib::logger::Logger;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct UnmaskedChunk {
@@ -34,7 +33,6 @@ impl Clone for Box<dyn DiscriminatorFactory> {
 pub struct Discriminator {
     framer: Box<dyn Framer>,
     masqueraders: Vec<Box<dyn Masquerader>>,
-    _logger: Logger,
 }
 
 impl Discriminator {
@@ -45,7 +43,6 @@ impl Discriminator {
         Discriminator {
             framer,
             masqueraders,
-            _logger: Logger::new("Discriminator"),
         }
     }
 

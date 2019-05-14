@@ -5,6 +5,12 @@ use crate::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::proxy_server::ProxyProtocol;
 use crate::sub_lib::utils::index_of;
+use lazy_static::lazy_static;
+use regex::Regex;
+
+lazy_static! {
+    static ref HOST_PATTERN: Regex = Regex::new(r"^(?:https?://)?([^\s/]+)").expect("bad regex");
+}
 
 pub struct HttpProtocolPack {}
 
@@ -33,17 +39,16 @@ impl HttpProtocolPack {
     fn find_url_host(data: &[u8]) -> Option<Host> {
         let idx = index_of(data, &b"\r\n"[..])?;
         let first_line = &data[0..idx];
-        let (index, prefix) =
-            HttpProtocolPack::find_first(first_line, vec![&b" http://"[..], &b" https://"[..]])?;
-        let path_begin = index + prefix.len();
+        let path_begin = index_of(first_line, b" ")? + 1;
         let path_end = index_of(&data[path_begin..], &b" "[..])? + path_begin;
-        let path = match String::from_utf8(Vec::from(&data[path_begin..path_end])) {
-            Ok(s) => s,
-            Err(_) => return None,
-        };
-        let mut path_parts: Vec<&str> = path.split("/").collect();
-        let host_name_and_port = path_parts.remove(0);
-        Self::host_from_host_name_and_port(host_name_and_port)
+        let path = String::from_utf8(Vec::from(&data[path_begin..path_end])).ok()?;
+        let host_name_and_port = HOST_PATTERN.captures(&path)?.get(1)?.as_str();
+        let host_maybe = Self::host_from_host_name_and_port(host_name_and_port);
+
+        match host_maybe {
+            Some(ref host) if !&host.name.is_empty() => host_maybe,
+            _ => None,
+        }
     }
 
     fn find_header_host(data: &[u8]) -> Option<Host> {
@@ -53,15 +58,12 @@ impl HttpProtocolPack {
         let begin = index_of(&headers, &needle[..])? + needle.len();
         let host_header_value =
             &headers[begin..(index_of(&headers[begin..], &b"\r\n"[..])? + begin)];
-        let host_and_port = match String::from_utf8(Vec::from(host_header_value)) {
-            Err(_) => return None,
-            Ok(s) => s,
-        };
+        let host_and_port = String::from_utf8(Vec::from(host_header_value)).ok()?;
         Self::host_from_host_name_and_port(&host_and_port)
     }
 
     fn host_from_host_name_and_port(host_and_port: &str) -> Option<Host> {
-        let mut parts: Vec<&str> = host_and_port.split(":").collect();
+        let mut parts: Vec<&str> = host_and_port.split(':').collect();
         match parts.len() {
             1 => Some(Host {
                 name: parts.remove(0).to_string(),
@@ -75,21 +77,25 @@ impl HttpProtocolPack {
         }
     }
 
+    pub fn is_connect(data: &[u8]) -> bool {
+        let method_bytes: Vec<u8> = data
+            .iter()
+            .take(8)
+            .take_while(|c| c != &&b' ')
+            .cloned()
+            .collect();
+
+        match http::Method::from_bytes(method_bytes.as_slice()) {
+            Ok(http::Method::CONNECT) => true,
+            _ => false,
+        }
+    }
+
     fn port_from_string(port_str: String) -> Option<u16> {
         match port_str.parse::<u16>() {
             Err(_) => None,
             Ok(port) => Some(port),
         }
-    }
-
-    fn find_first<'a>(haystack: &'a [u8], needles: Vec<&'a [u8]>) -> Option<(usize, &'a [u8])> {
-        for needle in needles {
-            match index_of(haystack, needle) {
-                Some(index) => return Some((index, needle)),
-                None => (),
-            }
-        }
-        None
     }
 }
 
@@ -175,7 +181,7 @@ mod tests {
 
     #[test]
     fn returns_host_name_and_port_from_url_if_both_exist() {
-        let data = PlainData::new (b"OPTIONS http://top.host.com:1234/index.html HTTP/1.1\r\nHost: header.host.com:5432\r\n\r\nbodybody");
+        let data = PlainData::new(b"OPTIONS http://top.host.com:1234/index.html HTTP/1.1\r\nHost: header.host.com:5432\r\n\r\nbodybody");
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
@@ -185,7 +191,7 @@ mod tests {
 
     #[test]
     fn returns_host_name_from_http_url_if_header_doesnt_exist() {
-        let data = PlainData::new (b"DELETE http://top.host.com/index.html HTTP/1.1\r\nContent-Length: 23\r\n\r\nHost: body.host.com\r\n\r\n");
+        let data = PlainData::new(b"DELETE http://top.host.com/index.html HTTP/1.1\r\nContent-Length: 23\r\n\r\nHost: body.host.com\r\n\r\n");
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
@@ -194,7 +200,7 @@ mod tests {
 
     #[test]
     fn returns_host_name_from_https_url_if_header_doesnt_exist() {
-        let data = PlainData::new (b"PUT https://top.host.com/index.html HTTP/1.1\r\nContent-Length: 23\r\n\r\nHost: body.host.com\r\n\r\n");
+        let data = PlainData::new(b"PUT https://top.host.com/index.html HTTP/1.1\r\nContent-Length: 23\r\n\r\nHost: body.host.com\r\n\r\n");
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
@@ -203,7 +209,7 @@ mod tests {
 
     #[test]
     fn returns_host_name_even_when_no_path() {
-        let data = PlainData::new (b"PROXY http://top.host.com HTTP/1.1\r\nContent-Length: 23\r\n\r\nHost: body.host.com\r\n\r\n");
+        let data = PlainData::new(b"PROXY http://top.host.com HTTP/1.1\r\nContent-Length: 23\r\n\r\nHost: body.host.com\r\n\r\n");
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
@@ -211,8 +217,30 @@ mod tests {
     }
 
     #[test]
+    fn returns_host_name_from_url_when_no_scheme() {
+        let data = PlainData::new(
+            b"CONNECT good.url.dude/path.html HTTP/1.1\r\nHost: wrong.url.dude\r\n\r\n",
+        );
+
+        let host = HttpProtocolPack {}.find_host(&data).unwrap();
+
+        assert_eq!(String::from("good.url.dude"), host.name);
+    }
+
+    #[test]
+    fn can_handle_domain_that_starts_with_http() {
+        let data = PlainData::new(
+            b"CONNECT http.url.dude/path.html HTTP/1.1\r\nHost: wrong.url.dude\r\n\r\n",
+        );
+
+        let host = HttpProtocolPack {}.find_host(&data).unwrap();
+
+        assert_eq!(String::from("http.url.dude"), host.name);
+    }
+
+    #[test]
     fn specifying_a_port_in_the_url() {
-        let data = PlainData::new (b"HEAD http://top.host.com:8080/index.html HTTP/1.1\r\nContent-Length: 23\r\n\r\nHost: body.host.com\r\n\r\n");
+        let data = PlainData::new(b"HEAD http://top.host.com:8080/index.html HTTP/1.1\r\nContent-Length: 23\r\n\r\nHost: body.host.com\r\n\r\n");
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
@@ -222,7 +250,7 @@ mod tests {
 
     #[test]
     fn specifying_two_colons_in_the_url() {
-        let data = PlainData::new (b"HEAD http://top.host.com:8080:1234/index.html HTTP/1.1\r\nContent-Length: 23\r\n\r\nHost: body.host.com\r\n\r\n");
+        let data = PlainData::new(b"HEAD http://top.host.com:8080:1234/index.html HTTP/1.1\r\nContent-Length: 23\r\n\r\nHost: body.host.com\r\n\r\n");
 
         let result = HttpProtocolPack {}.find_host(&data);
 
@@ -231,7 +259,7 @@ mod tests {
 
     #[test]
     fn specifying_a_non_numeric_port_in_the_url() {
-        let data = PlainData::new (b"HEAD http://top.host.com:nanan/index.html HTTP/1.1\r\nContent-Length: 23\r\n\r\nHost: body.host.com\r\n\r\n");
+        let data = PlainData::new(b"HEAD http://top.host.com:nanan/index.html HTTP/1.1\r\nContent-Length: 23\r\n\r\nHost: body.host.com\r\n\r\n");
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
@@ -241,7 +269,7 @@ mod tests {
 
     #[test]
     fn specifying_a_missing_port_in_the_url() {
-        let data = PlainData::new (b"HEAD http://top.host.com:/index.html HTTP/1.1\r\nContent-Length: 23\r\n\r\nHost: body.host.com\r\n\r\n");
+        let data = PlainData::new(b"HEAD http://top.host.com:/index.html HTTP/1.1\r\nContent-Length: 23\r\n\r\nHost: body.host.com\r\n\r\n");
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
@@ -296,5 +324,25 @@ mod tests {
 
         assert_eq!(String::from("www.example.com"), host.name);
         assert_eq!(None, host.port);
+    }
+
+    #[test]
+    fn is_connect_true_when_method_is_connect() {
+        let data = b"CONNECT server.example.com:80 HTTP/1.1\r\nHost: server.example.com:80\r\nProxy-Authorization: basic aGVsbG86d29ybGQ=\r\n\r\n";
+
+        assert!(HttpProtocolPack::is_connect(data));
+    }
+
+    #[test]
+    fn is_connect_false_when_message_has_message_other_than_connect() {
+        let data = b"GET server.example.com:80 HTTP/1.1\r\nHost: server.example.com:80\r\nProxy-Authorization: basic aGVsbG86d29ybGQ=\r\n\r\n";
+
+        assert!(!HttpProtocolPack::is_connect(data));
+    }
+
+    #[test]
+    fn is_connect_false_when_there_is_no_space_after_the_method() {
+        let data = b"CONNECTX";
+        assert!(!HttpProtocolPack::is_connect(data));
     }
 }

@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
@@ -128,8 +129,8 @@ impl Debug for InboundClientData {
             Ok(string) => string,
             Err(_) => self.data.hex_dump().to_string(),
         };
-        write! (f, "InboundClientData {{ peer_addr: {:?}, reception_port: {:?}, last_data: {}, sequence_number: {:?}, {} bytes of data: {} }}",
-                self.peer_addr, self.reception_port, self.last_data, self.sequence_number, self.data.len(), data_string)
+        write!(f, "InboundClientData {{ peer_addr: {:?}, reception_port: {:?}, last_data: {}, sequence_number: {:?}, {} bytes of data: {} }}",
+               self.peer_addr, self.reception_port, self.last_data, self.sequence_number, self.data.len(), data_string)
     }
 }
 
@@ -143,6 +144,10 @@ impl InboundClientData {
             sequence_number: self.sequence_number,
             data: vec![],
         }
+    }
+
+    pub fn is_connect(&self) -> bool {
+        HttpProtocolPack::is_connect(self.data.as_slice())
     }
 }
 
@@ -231,6 +236,48 @@ mod tests {
 
         let unrecognized_result = serde_cbor::de::from_slice::<Component>(unrecognized_data);
 
-        assert_eq! (format! ("{:?}", unrecognized_result), String::from ("Err(ErrorImpl { code: Message(\"invalid value: integer `4`, expected a Component enum\"), offset: 0 })"))
+        assert_eq!(format!("{:?}", unrecognized_result), String::from("Err(ErrorImpl { code: Message(\"invalid value: integer `4`, expected a Component enum\"), offset: 0 })"))
+    }
+
+    #[test]
+    fn inbound_client_data_is_identifiable_as_a_connect() {
+        let subject = InboundClientData {
+            peer_addr: SocketAddr::from_str("1.4.3.2:9999").unwrap(),
+            reception_port: None,
+            last_data: false,
+            is_clandestine: false,
+            sequence_number: None,
+            data: b"CONNECT server.example.com:80 HTTP/1.1\r\nHost: server.example.com:80\r\nProxy-Authorization: basic aGVsbG86d29ybGQ=\r\n\r\n".to_vec(),
+        };
+
+        assert!(subject.is_connect());
+    }
+
+    #[test]
+    fn inbound_client_data_is_not_connect() {
+        let subject = InboundClientData {
+            peer_addr: SocketAddr::from_str("1.4.3.2:9999").unwrap(),
+            reception_port: None,
+            last_data: false,
+            is_clandestine: false,
+            sequence_number: None,
+            data: b"GET server.example.com:80 HTTP/1.1\r\nHost: server.example.com:80\r\nProxy-Authorization: basic aGVsbG86d29ybGQ=\r\n\r\n".to_vec(),
+        };
+
+        assert!(!subject.is_connect());
+    }
+
+    #[test]
+    fn inbound_client_data_not_connect_if_no_space_after_method() {
+        let subject = InboundClientData {
+            peer_addr: SocketAddr::from_str("1.4.3.2:9999").unwrap(),
+            reception_port: None,
+            last_data: false,
+            is_clandestine: false,
+            sequence_number: None,
+            data: b"CONNECTX".to_vec(),
+        };
+
+        assert!(!subject.is_connect());
     }
 }

@@ -793,7 +793,7 @@ mod framer_tests {
 
     #[test]
     fn transfer_encoding_response_followed_by_non_chunked_response() {
-        let data = "GOOD_FIRST_LINE\r\nTransfer-Encoding: chunked\r\n\r\nB\r\nFirst chunk\r\nC\r\nSecond chunk\r\n0\r\n\r\nGOOD_FIRST_LINE\r\n\r\n".as_bytes ();
+        let data = "GOOD_FIRST_LINE\r\nTransfer-Encoding: chunked\r\n\r\nB\r\nFirst chunk\r\nC\r\nSecond chunk\r\n0\r\n\r\nGOOD_FIRST_LINE\r\n\r\n".as_bytes();
         let mut subject = HttpPacketFramer::new(Box::new(TameStartFinder {}));
         subject.add_data(data);
 
@@ -810,35 +810,35 @@ mod framer_tests {
                 chunk: Vec::from(
                     "GOOD_FIRST_LINE\r\nTransfer-Encoding: chunked\r\n\r\n".as_bytes()
                 ),
-                last_chunk: false
+                last_chunk: false,
             }
         );
         assert_eq!(
             first_chunk,
             FramedChunk {
                 chunk: Vec::from("B\r\nFirst chunk\r\n".as_bytes()),
-                last_chunk: false
+                last_chunk: false,
             }
         );
         assert_eq!(
             second_chunk,
             FramedChunk {
                 chunk: Vec::from("C\r\nSecond chunk\r\n".as_bytes()),
-                last_chunk: false
+                last_chunk: false,
             }
         );
         assert_eq!(
             final_chunk,
             FramedChunk {
                 chunk: Vec::from("0\r\n\r\n".as_bytes()),
-                last_chunk: false
+                last_chunk: false,
             }
         );
         assert_eq!(
             second_response,
             FramedChunk {
                 chunk: Vec::from("GOOD_FIRST_LINE\r\n\r\n".as_bytes()),
-                last_chunk: false
+                last_chunk: false,
             }
         );
         assert_eq!(none, None);
@@ -972,7 +972,7 @@ mod framer_tests {
             result,
             Some(FramedChunk {
                 chunk: Vec::from(&b"13\r\nnineteen characters\r\n"[..]),
-                last_chunk: false
+                last_chunk: false,
             })
         );
         assert_eq!(
@@ -1006,7 +1006,7 @@ mod framer_tests {
             result1,
             Some(FramedChunk {
                 chunk: Vec::from(&b"13\r\nnineteen characters\r\n"[..]),
-                last_chunk: false
+                last_chunk: false,
             })
         );
         // unterminated; will cause error in browser, but that's appropriate
@@ -1014,7 +1014,7 @@ mod framer_tests {
             result2,
             Some(FramedChunk {
                 chunk: Vec::from(&b"16\r\nanother few characters"[..]),
-                last_chunk: false
+                last_chunk: false,
             })
         );
         assert_eq!(result3, None);
@@ -1043,7 +1043,7 @@ mod framer_tests {
             result,
             Some(FramedChunk {
                 chunk: Vec::from(&b"0\r\n\r\n"[..]),
-                last_chunk: false
+                last_chunk: false,
             })
         );
         assert_eq!(subject.framer_state.data_so_far, Vec::from(&b"garbage"[..]));
@@ -1072,7 +1072,7 @@ mod framer_tests {
             result,
             Some(FramedChunk {
                 chunk: Vec::from(&b"0\r\nHeader: value\r\n\r\n"[..]),
-                last_chunk: false
+                last_chunk: false,
             })
         );
         assert_eq!(subject.framer_state.data_so_far, Vec::from(&b""[..]));

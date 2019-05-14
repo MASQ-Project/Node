@@ -222,7 +222,7 @@ impl StreamHandlerPoolReal {
             .proxy_client_subs
             .dns_resolve_failed
             .clone();
-        let stream_key = payload.stream_key.clone();
+        let stream_key = payload.stream_key;
 
         inner_arc
             .lock()

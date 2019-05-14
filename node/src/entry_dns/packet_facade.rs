@@ -42,7 +42,7 @@ impl Query {
         })
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn new_for_test(name: String, qtype: u16, qclass: u16, length: usize) -> Query {
         Query {
             name,
@@ -78,7 +78,6 @@ impl Query {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub struct ResourceRecord {
     name: String,
@@ -89,7 +88,6 @@ pub struct ResourceRecord {
     length: usize,
 }
 
-#[allow(dead_code)]
 impl ResourceRecord {
     fn new(buf: &[u8], offset: usize, buflen: usize) -> Option<ResourceRecord> {
         let (name, name_end) = try_opt!(PacketFacade::extract_string_seq(buf, offset, buflen));
@@ -174,7 +172,6 @@ pub struct PacketFacade<'a> {
     length: usize,
 }
 
-#[allow(dead_code)]
 impl<'a> PacketFacade<'a> {
     pub fn new(buf: &mut [u8], length: usize) -> PacketFacade<'_> {
         PacketFacade { buf, length }
@@ -500,18 +497,6 @@ impl<'a> PacketFacade<'a> {
             None
         } else {
             Some(closure())
-        }
-    }
-
-    fn req_len_flg<F>(&mut self, length: usize, mut closure: F) -> bool
-    where
-        F: FnMut(&mut PacketFacade<'_>) -> (),
-    {
-        if (self.length < length) || (self.buf.len() < length) {
-            false
-        } else {
-            closure(self);
-            true
         }
     }
 

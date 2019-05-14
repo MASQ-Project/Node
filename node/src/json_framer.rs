@@ -1,7 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::sub_lib::framer::FramedChunk;
 use crate::sub_lib::framer::Framer;
-use crate::sub_lib::logger::Logger;
 
 pub struct JsonFramer {
     possible_start: Option<usize>,
@@ -11,7 +10,6 @@ pub struct JsonFramer {
     in_single_quote_string: bool,
     in_double_quote_string: bool,
     after_backslash: bool,
-    _logger: Logger,
 }
 
 impl Framer for JsonFramer {
@@ -61,7 +59,6 @@ impl JsonFramer {
             in_single_quote_string: false,
             in_double_quote_string: false,
             after_backslash: false,
-            _logger: Logger::new("JsonFramer"),
         }
     }
 

@@ -5,7 +5,6 @@ use crate::persistent_configuration::{HTTP_PORT, TLS_PORT};
 use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
 use std::collections::HashMap;
 
-// TODO: This should be subsumed into BootstrapperConfig
 pub struct Configuration {
     pub port_configurations: HashMap<u16, PortConfiguration>,
 }
@@ -27,7 +26,13 @@ impl Configuration {
         );
         self.port_configurations.insert(
             TLS_PORT,
-            PortConfiguration::new(vec![Box::new(TlsDiscriminatorFactory::new())], false),
+            PortConfiguration::new(
+                vec![
+                    Box::new(TlsDiscriminatorFactory::new()),
+                    Box::new(HttpRequestDiscriminatorFactory::new()),
+                ],
+                false,
+            ),
         );
     }
 }
@@ -90,7 +95,7 @@ mod tests {
             UnmaskedChunk::new(
                 Vec::from("GET http://url.com HTTP/1.1\r\n\r\n".as_bytes()),
                 true,
-                true
+                true,
             )
         );
     }
@@ -102,18 +107,42 @@ mod tests {
         subject.establish();
 
         let mut tls_port_configuration = subject.port_configurations.remove(&TLS_PORT).unwrap();
-        assert_eq!(tls_port_configuration.discriminator_factories.len(), 1);
+        assert_eq!(tls_port_configuration.discriminator_factories.len(), 2);
         assert!(!tls_port_configuration.is_clandestine);
         let tls_factory = tls_port_configuration.discriminator_factories.remove(0);
         let mut tls_discriminator = tls_factory.make();
+
         tls_discriminator.add_data(&vec![0x16, 0x03, 0x01, 0x00, 0x03, 0x01, 0x02, 0x03][..]);
         let tls_chunk = tls_discriminator.take_chunk().unwrap();
+
         assert_eq!(
             tls_chunk,
             UnmaskedChunk::new(
                 vec!(0x16, 0x03, 0x01, 0x00, 0x03, 0x01, 0x02, 0x03),
                 true,
-                true
+                true,
+            )
+        );
+    }
+
+    #[test]
+    fn default_port_443_configuration_includes_an_http_discriminator_factory() {
+        let mut subject = Configuration::new();
+
+        subject.establish();
+
+        let mut port_443_configuration = subject.port_configurations.remove(&443).unwrap();
+        let http_factory = port_443_configuration.discriminator_factories.remove(1);
+        let mut http_discriminator = http_factory.make();
+
+        http_discriminator.add_data("GET http://url.com HTTP/1.1\r\n\r\n".as_bytes());
+        let http_chunk = http_discriminator.take_chunk().unwrap();
+        assert_eq!(
+            http_chunk,
+            UnmaskedChunk::new(
+                Vec::from("GET http://url.com HTTP/1.1\r\n\r\n".as_bytes()),
+                true,
+                true,
             )
         );
     }

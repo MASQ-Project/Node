@@ -178,7 +178,7 @@ mod tests {
                     result,
                     Some(FramedChunk {
                         chunk: vec!(*content_type, 0x03, 0x03, 0x00, 0x03, 0x01, 0x02, 0x03),
-                        last_chunk: false
+                        last_chunk: false,
                     })
                 );
                 assert_eq!(subject.data_so_far, Vec::<u8>::new());
@@ -199,7 +199,7 @@ mod tests {
                 result,
                 Some(FramedChunk {
                     chunk: vec!(0x17, byte1, byte2, 0x00, 0x03, 0x01, 0x02, 0x03),
-                    last_chunk: false
+                    last_chunk: false,
                 })
             );
             assert_eq!(subject.data_so_far, Vec::<u8>::new());
@@ -223,7 +223,7 @@ mod tests {
             result,
             Some(FramedChunk {
                 chunk: vec!(0x15, 0x03, 0x03, 0x00, 0x03, 0x05, 0x06, 0x07),
-                last_chunk: false
+                last_chunk: false,
             })
         );
         assert_eq!(subject.data_so_far, vec!(0x01, 0x02));
@@ -253,21 +253,21 @@ mod tests {
             result1,
             Some(FramedChunk {
                 chunk: vec!(0x14, 0x03, 0x03, 0x00, 0x03, 0x05, 0x06, 0x07),
-                last_chunk: false
+                last_chunk: false,
             })
         );
         assert_eq!(
             result2,
             Some(FramedChunk {
                 chunk: vec!(0x17, 0x03, 0x01, 0x00, 0x02, 0x08, 0x09),
-                last_chunk: false
+                last_chunk: false,
             })
         );
         assert_eq!(
             result3,
             Some(FramedChunk {
                 chunk: vec!(0x16, 0x03, 0x03, 0x00, 0x01, 0x0A),
-                last_chunk: false
+                last_chunk: false,
             })
         );
         assert_eq!(result4, None);
