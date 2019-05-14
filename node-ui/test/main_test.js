@@ -5,14 +5,14 @@
 const td = require('testdouble')
 
 describe('main', () => {
-  let subject, mockApp, mockDialog, mockEvent, mockHttp, mockIpcMain, mockMenu, mainWindowOnClose, MockNodeActuator, appOnReady, ipcMainOnIpLookup, process
+  let subject, mockApp, mockDialog, mockEvent, mockHttp, mockIpcMain, mockMenu, mainWindowOnClose, MockNodeActuator, appOnReady, ipcMainOnIpLookup, ipcMainOnChangeNodeState, process
 
   beforeEach(() => {
     mockEvent = td.object(['preventDefault'])
     mockApp = td.object(['getName', 'on', 'quit'])
     mockDialog = td.object(['showErrorBox'])
     mockIpcMain = td.object(['on'])
-    MockNodeActuator = td.constructor(['shutdown'])
+    MockNodeActuator = td.constructor(['shutdown', 'off', 'serving', 'consuming'])
     mockMenu = td.object(['setApplicationMenu', 'buildFromTemplate'])
     td.replace('../main-process/node_actuator', MockNodeActuator)
     mockHttp = td.replace('http')
@@ -27,6 +27,9 @@ describe('main', () => {
 
     ipcMainOnIpLookup = td.matchers.captor()
     td.when(mockIpcMain.on('ip-lookup', ipcMainOnIpLookup.capture())).thenReturn(mockIpcMain)
+
+    ipcMainOnChangeNodeState = td.matchers.captor()
+    td.when(mockIpcMain.on('change-node-state', ipcMainOnChangeNodeState.capture())).thenReturn(mockIpcMain)
 
     td.replace('electron', {
       app: mockApp,
@@ -84,6 +87,100 @@ describe('main', () => {
 
       it('returns empty string', () => {
         expect(event.returnValue).toBe('')
+      })
+    })
+  })
+
+  describe('change-node-state', () => {
+    let command
+    let event = {returnValue: null}
+    let arg = ['inconsequential']
+
+    beforeEach(() => {
+      appOnReady.value()
+    })
+
+    describe('when command is turn-off', () => {
+      beforeEach(() => {
+        command = 'turn-off'
+      })
+
+      describe('and off succeeds', () => {
+        beforeEach(async () => {
+          td.when(MockNodeActuator.prototype.off()).thenResolve('Off')
+          await ipcMainOnChangeNodeState.value(event, command, arg)
+        })
+
+        it("returns 'Off'", () => {
+          expect(event.returnValue).toBe('Off')
+        })
+      })
+
+      describe('and off fails', () => {
+        beforeEach(async () => {
+          td.when(MockNodeActuator.prototype.off()).thenReject(Error('off failed'))
+          await ipcMainOnChangeNodeState.value(event, command, arg)
+        })
+
+        it("returns 'Invalid'", () => {
+          expect(event.returnValue).toBe('Invalid')
+        })
+      })
+    })
+
+    describe('when command is serve', () => {
+      beforeEach(() => {
+        command = 'serve'
+      })
+
+      describe('and serving succeeds', () => {
+        beforeEach(async () => {
+          td.when(MockNodeActuator.prototype.serving(arg)).thenResolve('Serving')
+          await ipcMainOnChangeNodeState.value(event, command, arg)
+        })
+
+        it("returns 'Serving'", () => {
+          expect(event.returnValue).toBe('Serving')
+        })
+      })
+
+      describe('and serving fails', () => {
+        beforeEach(async () => {
+          td.when(MockNodeActuator.prototype.serving(arg)).thenReject(Error('serving failed'))
+          await ipcMainOnChangeNodeState.value(event, command, arg)
+        })
+
+        it("returns 'Invalid'", () => {
+          expect(event.returnValue).toBe('Invalid')
+        })
+      })
+    })
+
+    describe('when command is consume', () => {
+      beforeEach(() => {
+        command = 'consume'
+      })
+
+      describe('and consuming succeeds', () => {
+        beforeEach(async () => {
+          td.when(MockNodeActuator.prototype.consuming(arg)).thenResolve('Consuming')
+          await ipcMainOnChangeNodeState.value(event, command, arg)
+        })
+
+        it("returns 'Consuming'", () => {
+          expect(event.returnValue).toBe('Consuming')
+        })
+      })
+
+      describe('and consuming fails', () => {
+        beforeEach(async () => {
+          td.when(MockNodeActuator.prototype.consuming(arg)).thenReject(Error('consuming failed'))
+          await ipcMainOnChangeNodeState.value(event, command, arg)
+        })
+
+        it("returns 'Invalid'", () => {
+          expect(event.returnValue).toBe('Invalid')
+        })
       })
     })
   })

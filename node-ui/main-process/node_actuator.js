@@ -136,32 +136,41 @@ module.exports = class NodeActuator {
       await dnsUtility.revert()
       await this.stopNode()
       this.webContents.send('node-descriptor', '')
-      return this.getStatus()
+      return await this.getStatus()
     } catch (error) {
-      dialog.showErrorBox('Error', error.message)
-      return this.getStatus()
+      let status = await this.getStatus()
+      if (status !== 'Off') {
+        dialog.showErrorBox('Error', error.message)
+      }
+      return status
     }
   }
 
   async serving (additionalArgs) {
-    await this.startNode(additionalArgs)
     try {
+      await this.startNode(additionalArgs)
       await dnsUtility.revert()
       return await this.getStatus()
     } catch (error) {
-      dialog.showErrorBox('Error', error.message)
-      return this.getStatus()
+      let status = await this.getStatus()
+      if (status !== 'Serving') {
+        dialog.showErrorBox('Error', error.message)
+      }
+      return status
     }
   }
 
   async consuming (additionalArgs) {
-    await this.startNode(additionalArgs)
     try {
+      await this.startNode(additionalArgs)
       await dnsUtility.subvert()
       return await this.getStatus()
     } catch (error) {
-      dialog.showErrorBox('Error', error.message)
-      return await this.getStatus()
+      let status = await this.getStatus()
+      if (status !== 'Consuming') {
+        dialog.showErrorBox('Error', error.message)
+      }
+      return status
     }
   }
 

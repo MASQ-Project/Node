@@ -6,6 +6,8 @@ const http = require('http')
 
 const NodeActuator = require('./main-process/node_actuator')
 
+const Invalid = 'Invalid'
+
 let mainWindow
 let nodeActuator
 
@@ -111,12 +113,20 @@ ipcMain.on('ip-lookup', async (event, command, arguments) => {
   req.on('error', () => event.returnValue = '')
 })
 
-ipcMain.on('change-node-state', async (event, command, arguments) => {
+ipcMain.on('change-node-state', (event, command, arguments) => {
   if (command === 'turn-off') {
-    event.returnValue = await nodeActuator.off()
+    assignStatus(event, nodeActuator.off())
   } else if (command === 'serve') {
-    event.returnValue = await nodeActuator.serving(arguments)
+    assignStatus(event, nodeActuator.serving(arguments))
   } else if (command === 'consume') {
-    event.returnValue = await nodeActuator.consuming(arguments)
+    assignStatus(event, nodeActuator.consuming(arguments))
   }
 })
+
+assignStatus = (event, promise) => {
+  promise.then( val => {
+    event.returnValue = val
+  }).catch( () => {
+    event.returnValue = Invalid
+  })
+}

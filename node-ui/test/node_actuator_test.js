@@ -5,6 +5,7 @@
 const td = require('testdouble')
 const { EventEmitter } = require('events')
 const assert = require('assert')
+const neverCalled = {times: 0, ignoreExtraArgs: true}
 
 td.config({
   ignoreWarnings: true // to discourage warnings about td.when and td.verify on the same mock :<
@@ -342,40 +343,346 @@ describe('NodeActuator', () => {
     })
   })
 
-  describe('dns utility failures', () => {
-    describe('when Off was clicked', () => {
-      beforeEach(async () => {
-        td.when(mockDnsUtility.revert()).thenReject(new Error('booga'))
+  describe('with dns utility subvert and revert failures', () => {
+    beforeEach(() => {
+      td.when(mockDnsUtility.subvert()).thenReject(new Error('subvert failed'))
+      td.when(mockDnsUtility.revert()).thenReject(new Error('revert failed'))
+      td.when(mockPsWrapper.findNodeProcess()).thenResolve(['item'])
+    })
+    describe('when current state is "Consuming"', () => {
+      beforeEach(() => {
+        td.when(mockDnsUtility.getStatus()).thenReturn('subverted')
+        td.when(mockUiInterface.verifyNodeUp(td.matchers.anything())).thenResolve(true)
+      })
+      describe('and Off is clicked', () => {
+        let result = null
+        beforeEach(async () => {
+          result = await subject.off()
+        })
 
-        await subject.off()
+        it('shows a dialog', () => {
+          td.verify(mockDialog.showErrorBox('Error', 'revert failed'))
+        })
+
+        it('returns "Consuming"', () => {
+          assert.strictEqual(result, 'Consuming')
+        })
       })
 
-      it('shows a dialog', () => {
-        td.verify(mockDialog.showErrorBox('Error', 'booga'))
+      describe('when Serving is clicked', () => {
+        let result = null
+        beforeEach(async () => {
+          result = await subject.serving()
+        })
+
+        it('shows a dialog', () => {
+          td.verify(mockDialog.showErrorBox('Error', 'revert failed'))
+        })
+
+        it('returns "Consuming"', () => {
+          assert.strictEqual(result, 'Consuming')
+        })
+      })
+
+      describe('when Consuming is clicked', () => {
+        let result = null
+        beforeEach(async () => {
+          result = await subject.consuming()
+        })
+
+        it('shows no dialog', () => {
+          td.verify(mockDialog.showErrorBox(), neverCalled)
+        })
+
+        it('returns "Consuming"', () => {
+          assert.strictEqual(result, 'Consuming')
+        })
+      })
+    })
+    describe('when current state is "Serving"', () => {
+      beforeEach(() => {
+        td.when(mockDnsUtility.getStatus()).thenReturn('reverted')
+        td.when(mockUiInterface.verifyNodeUp(td.matchers.anything())).thenResolve(true)
+      })
+      describe('and Off is clicked', () => {
+        let result = null
+        beforeEach(async () => {
+          result = await subject.off()
+        })
+
+        it('shows a dialog', () => {
+          td.verify(mockDialog.showErrorBox('Error', 'revert failed'))
+        })
+
+        it('returns "Serving"', () => {
+          assert.strictEqual(result, 'Serving')
+        })
+      })
+
+      describe('when Serving is clicked', () => {
+        let result = null
+        beforeEach(async () => {
+          result = await subject.serving()
+        })
+
+        it('shows no dialog', () => {
+          td.verify(mockDialog.showErrorBox(), neverCalled)
+        })
+
+        it('returns "Serving"', () => {
+          assert.strictEqual(result, 'Serving')
+        })
+      })
+
+      describe('when Consuming is clicked', () => {
+        let result = null
+        beforeEach(async () => {
+          result = await subject.consuming()
+        })
+
+        it('shows a dialog', () => {
+          td.verify(mockDialog.showErrorBox('Error', 'subvert failed'))
+        })
+
+        it('returns "Serving"', () => {
+          assert.strictEqual(result, 'Serving')
+        })
+      })
+    })
+    describe('when current state is "Off"', () => {
+      beforeEach(() => {
+        td.when(mockDnsUtility.getStatus()).thenReturn('reverted')
+        td.when(mockUiInterface.verifyNodeUp(td.matchers.anything())).thenResolve(true)
+      })
+      describe('and Off is clicked', () => {
+        let result = null
+        beforeEach(async () => {
+          td.when(mockPsWrapper.findNodeProcess()).thenResolve([])
+          result = await subject.off()
+        })
+
+        it('shows no dialog', () => {
+          td.verify(mockDialog.showErrorBox(), neverCalled)
+        })
+
+        it('returns "Off"', () => {
+          assert.strictEqual(result, 'Off')
+        })
+      })
+
+      describe('when Serving is clicked', () => {
+        let result = null
+        beforeEach(async () => {
+          result = await subject.serving()
+        })
+
+        it('shows no dialog', () => {
+          td.verify(mockDialog.showErrorBox(), neverCalled)
+        })
+
+        it('returns "Serving"', () => {
+          assert.strictEqual(result, 'Serving')
+        })
+      })
+
+      describe('when Consuming is clicked', () => {
+        let result = null
+        beforeEach(async () => {
+          result = await subject.consuming()
+        })
+
+        it('shows a dialog', () => {
+          td.verify(mockDialog.showErrorBox('Error', 'subvert failed'))
+        })
+
+        it('returns "Serving"', () => {
+          assert.strictEqual(result, 'Serving')
+        })
+      })
+    })
+  })
+
+  describe('with startNode failure', () => {
+    beforeEach(() => {
+      td.when(mockChildProcess.fork(td.matchers.anything(), td.matchers.anything(), td.matchers.anything()))
+        .thenThrow(new Error('startNode failed'))
+    })
+
+    describe('when current state is "Off"', () => {
+      beforeEach(() => {
+        td.when(mockPsWrapper.findNodeProcess()).thenResolve([])
+        td.when(mockDnsUtility.getStatus()).thenReturn('reverted')
+      })
+
+      describe('and Serving is clicked', () => {
+        let result = null
+        beforeEach(async () => {
+          result = await subject.serving()
+        })
+
+        it('shows a dialog', () => {
+          td.verify(mockDialog.showErrorBox('Error', 'startNode failed'))
+        })
+
+        it('returns "Off"', () => {
+          assert.strictEqual(result, 'Off')
+        })
+      })
+
+      describe('and Consuming is clicked', () => {
+        let result = null
+        beforeEach(async () => {
+          result = await subject.consuming()
+        })
+
+        it('shows a dialog', () => {
+          td.verify(mockDialog.showErrorBox('Error', 'startNode failed'))
+        })
+
+        it('returns "Off"', () => {
+          assert.strictEqual(result, 'Off')
+        })
       })
     })
 
-    describe('when Serving was clicked', () => {
-      beforeEach(async () => {
-        td.when(mockDnsUtility.revert()).thenReject(new Error('borf'))
-
-        await subject.serving()
+    describe('when current state is "Serving"', () => {
+      beforeEach(() => {
+        td.when(mockPsWrapper.findNodeProcess()).thenResolve(['node'])
+        td.when(mockDnsUtility.getStatus()).thenReturn('reverted')
       })
 
-      it('shows a dialog', () => {
-        td.verify(mockDialog.showErrorBox('Error', 'borf'))
+      describe('and Serving is clicked', () => {
+        let result = null
+        beforeEach(async () => {
+          result = await subject.serving()
+        })
+
+        it('shows no dialog', () => {
+          td.verify(mockDialog.showErrorBox(), neverCalled)
+        })
+
+        it('returns "Serving"', () => {
+          assert.strictEqual(result, 'Serving')
+        })
+      })
+
+      describe('and Consuming is clicked', () => {
+        let result = null
+        beforeEach(async () => {
+          result = await subject.consuming()
+        })
+
+        it('shows a dialog', () => {
+          td.verify(mockDialog.showErrorBox('Error', 'startNode failed'))
+        })
+
+        it('returns "Serving"', () => {
+          assert.strictEqual(result, 'Serving')
+        })
       })
     })
 
-    describe('when Consuming was clicked', () => {
-      beforeEach(async () => {
-        td.when(mockDnsUtility.subvert()).thenReject(new Error('snarf'))
-
-        await subject.consuming()
+    describe('when current state is "Consuming"', () => {
+      beforeEach(() => {
+        td.when(mockPsWrapper.findNodeProcess()).thenResolve(['node'])
+        td.when(mockDnsUtility.getStatus()).thenReturn('subverted')
       })
 
-      it('shows a dialog', () => {
-        td.verify(mockDialog.showErrorBox('Error', 'snarf'))
+      describe('and Serving is clicked', () => {
+        let result = null
+        beforeEach(async () => {
+          result = await subject.serving()
+        })
+
+        it('shows a dialog', () => {
+          td.verify(mockDialog.showErrorBox('Error', 'startNode failed'))
+        })
+
+        it('returns "Consuming"', () => {
+          assert.strictEqual(result, 'Consuming')
+        })
+      })
+
+      describe('and Consuming is clicked', () => {
+        let result = null
+        beforeEach(async () => {
+          result = await subject.consuming()
+        })
+
+        it('shows no dialog', () => {
+          td.verify(mockDialog.showErrorBox(), neverCalled)
+        })
+
+        it('returns "Consuming"', () => {
+          assert.strictEqual(result, 'Consuming')
+        })
+      })
+    })
+  })
+
+  describe('with stopNode failure', () => {
+    beforeEach(() => {
+      td.when(mockDnsUtility.revert()).thenResolve(null)
+      td.when(mockPsWrapper.killNodeProcess()).thenReject(new Error ("kill error"))
+    })
+    describe('when current state is "Consuming"', () => {
+      beforeEach(() => {
+        td.when(mockPsWrapper.findNodeProcess()).thenResolve(['item'])
+        td.when(mockDnsUtility.getStatus()).thenReturn('reverted')
+      })
+      describe('and Off is clicked', () => {
+        let result = null
+        beforeEach(async () => {
+          result = await subject.off()
+        })
+
+        it('shows a dialog', () => {
+          td.verify(mockDialog.showErrorBox('Error', 'kill error'))
+        })
+
+        it('returns "Serving"', () => {
+          assert.strictEqual(result, 'Serving')
+        })
+      })
+    })
+    describe('when current state is "Serving"', () => {
+      beforeEach(() => {
+        td.when(mockPsWrapper.findNodeProcess()).thenResolve(['item'])
+        td.when(mockDnsUtility.getStatus()).thenReturn('reverted')
+      })
+      describe('and Off is clicked', () => {
+        let result = null
+        beforeEach(async () => {
+          result = await subject.off()
+        })
+
+        it('shows a dialog', () => {
+          td.verify(mockDialog.showErrorBox('Error', 'kill error'))
+        })
+
+        it('returns "Serving"', () => {
+          assert.strictEqual(result, 'Serving')
+        })
+      })
+    })
+    describe('when current state is "Off"', () => {
+      beforeEach(() => {
+        td.when(mockPsWrapper.findNodeProcess()).thenResolve([])
+        td.when(mockDnsUtility.getStatus()).thenReturn('reverted')
+      })
+      describe('and Off is clicked', () => {
+        let result = null
+        beforeEach(async () => {
+          result = await subject.off()
+        })
+
+        it('shows no dialog', () => {
+          td.verify(mockDialog.showErrorBox('Error', 'kill error'), neverCalled)
+        })
+
+        it('returns "Off"', () => {
+          assert.strictEqual(result, 'Off')
+        })
       })
     })
   })

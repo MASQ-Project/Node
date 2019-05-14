@@ -50,6 +50,9 @@ Temporary Items
 **/.idea/codeStyles
 **/.idea/misc.xml
 **/.idea/codeStyles/codeStyleConfig.xml
+**/.idea/jsLibraryMappings.xml
+**/.idea/markdown-navigator.xml
+**/.idea/markdown-navigator/**
 
 # Sensitive or high-churn files:
 **/.idea/**/dataSources/

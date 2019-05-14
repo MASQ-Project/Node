@@ -1,5 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+/* globals module, __dirname */
+
 module.exports = (() => {
   const childProcess = require('child_process')
   const pathWrapper = require('./wrappers/path_wrapper')
@@ -9,31 +11,50 @@ module.exports = (() => {
   const dnsUtilityPathRelative = '../dist/static/binaries/dns_utility'
   const dnsUtilityPathUnquoted = pathWrapper.resolveUnquoted(__dirname, dnsUtilityPathRelative)
   const dnsUtilityPathQuoted = pathWrapper.resolveQuoted(__dirname, dnsUtilityPathRelative)
+  const syncTimeout = 1000
 
   function getStatus () {
-    let status = childProcess.spawnSync(dnsUtilityPathUnquoted, ['status'])
-    if (status && status.error) {
-      return 'ERROR: Failed to call dns_utility inspect: ' + status.error.code
+    let result = childProcess.spawnSync(dnsUtilityPathUnquoted, ['status'], {timeout: syncTimeout})
+    if (result.status === 0) {
+      return result.stdout.toString('utf8').trim()
     }
-    return status.stdout
+    if (result.status) {
+      throw Error (`Failed with status: ${result.status}${mineError (result.error)}`)
+    }
+    else if (result.signal) {
+      throw Error (`Failed with signal: '${result.signal}'${mineError (result.error)}`)
+    }
+    else {
+      throw Error (`Failed without status or signal${mineError (result.error)}`)
+    }
   }
 
   function revert () {
-    let isReverted = getStatus()
-    if (isReverted && isReverted.indexOf('reverted') >= 0) {
-      return Promise.resolve(null)
-    }
+    try {
+      let isReverted = getStatus()
+      if (isReverted && isReverted.indexOf('reverted') >= 0) {
+        return Promise.resolve(null)
+      }
 
-    return runDnsUtility('revert')
+      return runDnsUtility('revert')
+    }
+    catch (e) {
+      return Promise.reject(e)
+    }
   }
 
   function subvert () {
-    let isSubverted = getStatus()
-    if (isSubverted && isSubverted.indexOf('subverted') >= 0) {
-      return Promise.resolve(null)
-    }
+    try {
+      let isSubverted = getStatus()
+      if (isSubverted && isSubverted.indexOf('subverted') >= 0) {
+        return Promise.resolve(null)
+      }
 
-    return runDnsUtility('subvert')
+      return runDnsUtility('subvert')
+    }
+    catch (e) {
+      return Promise.reject(e)
+    }
   }
 
   function runDnsUtility (mode) {
@@ -47,6 +68,15 @@ module.exports = (() => {
         }
       })
     })
+  }
+
+  function mineError (error) {
+    if (!error) {
+      return ''
+    }
+    else {
+      return ` and error: '${error.message}'`
+    }
   }
 
   return {
