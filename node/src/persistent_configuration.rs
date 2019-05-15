@@ -1,5 +1,4 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-
 use crate::config_dao::ConfigDao;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 
@@ -13,6 +12,8 @@ pub trait PersistentConfiguration {
     fn current_schema_version(&self) -> String;
     fn clandestine_port(&self) -> u16;
     fn set_clandestine_port(&self, port: u16);
+    fn mnemonic_seed(&self) -> Option<String>;
+    fn set_mnemonic_seed(&self, seed: String);
 }
 
 pub struct PersistentConfigurationReal {
@@ -71,6 +72,23 @@ impl PersistentConfiguration for PersistentConfigurationReal {
             ),
         }
     }
+
+    fn mnemonic_seed(&self) -> Option<String> {
+        match self.dao.get_string("seed") {
+            Ok(mnemonic_seed) => Some(mnemonic_seed),
+            Err(_) => None,
+        }
+    }
+
+    fn set_mnemonic_seed(&self, seed: String) {
+        match self.dao.set_string("seed", &seed.as_str()) {
+            Ok(_) => (),
+            Err(e) => panic!(
+                "Can't continue; mnemonic seed configuration is inaccessible: {:?}",
+                e
+            ),
+        }
+    }
 }
 
 impl PersistentConfigurationReal {
@@ -83,114 +101,9 @@ impl PersistentConfigurationReal {
 mod tests {
     use super::*;
     use crate::config_dao::ConfigDaoError;
-    use std::cell::RefCell;
+    use crate::test_utils::config_dao_mock::ConfigDaoMock;
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener};
     use std::sync::{Arc, Mutex};
-
-    pub struct ConfigDaoMock {
-        get_string_params: Arc<Mutex<Vec<String>>>,
-        get_string_results: RefCell<Vec<Result<String, ConfigDaoError>>>,
-        set_string_params: Arc<Mutex<Vec<(String, String)>>>,
-        set_string_results: RefCell<Vec<Result<(), ConfigDaoError>>>,
-        get_u64_params: Arc<Mutex<Vec<String>>>,
-        get_u64_results: RefCell<Vec<Result<u64, ConfigDaoError>>>,
-        set_u64_params: Arc<Mutex<Vec<(String, u64)>>>,
-        set_u64_results: RefCell<Vec<Result<(), ConfigDaoError>>>,
-    }
-
-    impl ConfigDao for ConfigDaoMock {
-        fn get_string(&self, name: &str) -> Result<String, ConfigDaoError> {
-            self.get_string_params
-                .lock()
-                .unwrap()
-                .push(String::from(name));
-            self.get_string_results.borrow_mut().remove(0)
-        }
-
-        fn set_string(&self, name: &str, value: &str) -> Result<(), ConfigDaoError> {
-            self.set_string_params
-                .lock()
-                .unwrap()
-                .push((String::from(name), String::from(value)));
-            self.set_string_results.borrow_mut().remove(0)
-        }
-
-        fn get_u64(&self, name: &str) -> Result<u64, ConfigDaoError> {
-            self.get_u64_params.lock().unwrap().push(String::from(name));
-            self.get_u64_results.borrow_mut().remove(0)
-        }
-
-        fn set_u64(&self, name: &str, value: u64) -> Result<(), ConfigDaoError> {
-            self.set_u64_params
-                .lock()
-                .unwrap()
-                .push((String::from(name), value));
-            self.set_u64_results.borrow_mut().remove(0)
-        }
-    }
-
-    impl ConfigDaoMock {
-        pub fn new() -> ConfigDaoMock {
-            ConfigDaoMock {
-                get_string_params: Arc::new(Mutex::new(vec![])),
-                get_string_results: RefCell::new(vec![]),
-                set_string_params: Arc::new(Mutex::new(vec![])),
-                set_string_results: RefCell::new(vec![]),
-                get_u64_params: Arc::new(Mutex::new(vec![])),
-                get_u64_results: RefCell::new(vec![]),
-                set_u64_params: Arc::new(Mutex::new(vec![])),
-                set_u64_results: RefCell::new(vec![]),
-            }
-        }
-
-        pub fn get_string_params(mut self, params_arc: &Arc<Mutex<Vec<String>>>) -> ConfigDaoMock {
-            self.get_string_params = params_arc.clone();
-            self
-        }
-
-        pub fn get_string_result(self, result: Result<String, ConfigDaoError>) -> ConfigDaoMock {
-            self.get_string_results.borrow_mut().push(result);
-            self
-        }
-
-        #[allow(dead_code)]
-        pub fn set_string_params(
-            mut self,
-            params_arc: &Arc<Mutex<Vec<(String, String)>>>,
-        ) -> ConfigDaoMock {
-            self.set_string_params = params_arc.clone();
-            self
-        }
-
-        #[allow(dead_code)]
-        pub fn set_string_result(self, result: Result<(), ConfigDaoError>) -> ConfigDaoMock {
-            self.set_string_results.borrow_mut().push(result);
-            self
-        }
-
-        pub fn get_u64_params(mut self, params_arc: &Arc<Mutex<Vec<String>>>) -> ConfigDaoMock {
-            self.get_u64_params = params_arc.clone();
-            self
-        }
-
-        pub fn get_u64_result(self, result: Result<u64, ConfigDaoError>) -> ConfigDaoMock {
-            self.get_u64_results.borrow_mut().push(result);
-            self
-        }
-
-        pub fn set_u64_params(
-            mut self,
-            params_arc: &Arc<Mutex<Vec<(String, u64)>>>,
-        ) -> ConfigDaoMock {
-            self.set_u64_params = params_arc.clone();
-            self
-        }
-
-        pub fn set_u64_result(self, result: Result<(), ConfigDaoError>) -> ConfigDaoMock {
-            self.set_u64_results.borrow_mut().push(result);
-            self
-        }
-    }
 
     #[test]
     #[should_panic(expected = "Can't continue; current schema version is inaccessible: NotPresent")]
@@ -314,5 +227,69 @@ mod tests {
         let set_u64_params = set_u64_params_arc.lock().unwrap();
         assert_eq!(("clandestine_port".to_string(), 4747), set_u64_params[0]);
         assert_eq!(1, set_u64_params.len());
+    }
+
+    #[test]
+    fn mnemonic_seed_success() {
+        let get_string_params_arc = Arc::new(Mutex::new(vec!["seed".to_string()]));
+        let config_dao = ConfigDaoMock::new()
+            .get_string_result(Ok("Some encrypted data string".to_string()))
+            .get_string_params(&get_string_params_arc);
+
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+        let possible_seed = subject.mnemonic_seed();
+
+        assert!(possible_seed.is_some());
+
+        assert_eq!(
+            Some("Some encrypted data string".to_string()),
+            possible_seed
+        );
+    }
+
+    #[test]
+    fn mnemonic_seed_none_on_error() {
+        let get_string_params_arc = Arc::new(Mutex::new(vec!["seed".to_string()]));
+        let config_dao = ConfigDaoMock::new()
+            .get_string_result(Err(ConfigDaoError::DatabaseError(
+                "Invalid column type Null at index: 0".to_string(),
+            )))
+            .get_string_params(&get_string_params_arc);
+
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        assert!(subject.mnemonic_seed().is_none());
+    }
+
+    #[test]
+    #[should_panic(
+        expected = r#"Can't continue; mnemonic seed configuration is inaccessible: DatabaseError("Here\'s your problem")"#
+    )]
+    fn set_mnemonic_seed_panics_if_dao_error() {
+        let config_dao = ConfigDaoMock::new().set_string_result(Err(
+            ConfigDaoError::DatabaseError("Here's your problem".to_string()),
+        ));
+
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+        subject.set_mnemonic_seed("".to_string());
+    }
+
+    #[test]
+    fn set_mnemonic_seed_succeeds() {
+        let expected_params = (
+            "seed".to_string(),
+            "this is an encrypted string".to_string(),
+        );
+        let set_string_params_arc = Arc::new(Mutex::new(vec![expected_params.clone()]));
+        let config_dao = ConfigDaoMock::new()
+            .set_string_params(&set_string_params_arc)
+            .set_string_result(Ok(()));
+
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+        subject.set_mnemonic_seed("this is an encrypted string".to_string());
+
+        let set_string_params = set_string_params_arc.lock().unwrap();
+
+        assert_eq!(expected_params, set_string_params[0]);
     }
 }

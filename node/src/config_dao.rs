@@ -73,11 +73,11 @@ impl ConfigDaoReal {
             Ok(stmt) => stmt,
             Err(e) => return Err(ConfigDaoError::DatabaseError(format!("{}", e))),
         };
-        let params: &[&ToSql] = &[&value, &name];
+        let params: &[&dyn ToSql] = &[&value, &name];
         match stmt.execute(params) {
             Ok(0) => Err(ConfigDaoError::NotPresent),
             Ok(_) => Ok(()),
-            Err(e) => return Err(ConfigDaoError::DatabaseError(format!("{}", e))), // Don't know how to trigger this
+            Err(e) => Err(ConfigDaoError::DatabaseError(format!("{}", e))), // Don't know how to trigger this
         }
     }
 }

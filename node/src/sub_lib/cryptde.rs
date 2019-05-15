@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use base64;
+use rustc_hex::ToHex;
 use serde;
 use serde::de::Visitor;
 use serde::Deserialize;
@@ -8,6 +9,7 @@ use serde::Serialize;
 use serde::Serializer;
 use serde_cbor;
 use std::fmt;
+use std::iter::FromIterator;
 
 #[derive(Clone, PartialEq)]
 pub struct PrivateKey {
@@ -210,6 +212,12 @@ impl From<Vec<u8>> for CryptData {
 impl Into<Vec<u8>> for CryptData {
     fn into(self) -> Vec<u8> {
         self.data
+    }
+}
+
+impl ToHex for CryptData {
+    fn to_hex<T: FromIterator<char>>(&self) -> T {
+        self.data.to_hex()
     }
 }
 
@@ -429,6 +437,7 @@ where
 mod tests {
     use super::*;
     use crate::sub_lib::cryptde_null::CryptDENull;
+    use rustc_hex::{FromHex, FromHexError};
     use serde::de;
     use serde::ser;
     use serde_cbor;
@@ -588,6 +597,22 @@ mod tests {
         let result = subject.as_slice();
 
         assert_eq!(result, &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn crypt_data_to_hex_and_from_hex() {
+        let subject = CryptData::new(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+        let hex_str: String = subject.to_hex();
+
+        assert_eq!(hex_str, "0102030405060708090a0b0c0d0e0f");
+
+        let actual_result: Result<Vec<u8>, FromHexError> = hex_str.from_hex();
+        assert!(actual_result.is_ok());
+
+        match actual_result {
+            Ok(actual_crypt_data) => assert_eq!(actual_crypt_data, subject.data),
+            Err(e) => panic!(format!("crypt_data_to_hex failed {}", e)),
+        }
     }
 
     #[test]

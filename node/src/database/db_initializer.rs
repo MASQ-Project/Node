@@ -5,9 +5,7 @@ use crate::persistent_configuration::{
 use rand::rngs::SmallRng;
 use rand::FromEntropy;
 use rand::Rng;
-use rusqlite::NO_PARAMS;
-use rusqlite::{Connection, Statement};
-use rusqlite::{Error, OpenFlags};
+use rusqlite::{Connection, Error, OpenFlags, OptionalExtension, Statement, NO_PARAMS};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::fs;
@@ -15,8 +13,8 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
 use tokio::net::TcpListener;
 
-pub const DATABASE_FILE: &str = "node_data.sqlite";
-pub const CURRENT_SCHEMA_VERSION: &str = "0.0.2";
+pub const DATABASE_FILE: &str = "node-data.db";
+pub const CURRENT_SCHEMA_VERSION: &str = "0.0.3";
 
 pub trait ConnectionWrapper: Debug {
     fn prepare(&self, query: &str) -> Result<Statement, rusqlite::Error>;
@@ -111,15 +109,15 @@ impl DbInitializerReal {
 
     fn create_config_table(&self, conn: &Connection) -> Result<(), InitializationError> {
         conn.execute(
-            "create table config (
+            "create table if not exists config (
                 name text not null,
-                value text not null
+                value text
             )",
             NO_PARAMS,
         )
         .expect("Can't create config table");
         conn.execute(
-            "create unique index idx_config_name on config (name)",
+            "create unique index if not exists idx_config_name on config (name)",
             NO_PARAMS,
         )
         .expect("Can't create config name index");
@@ -145,12 +143,17 @@ impl DbInitializerReal {
             NO_PARAMS,
         )
         .expect("Can't preload config table with clandestine port");
+        conn.execute(
+            "insert into config (name, value) values ('seed', null)",
+            NO_PARAMS,
+        )
+        .expect("Can't preload config table with mnemonic seed");
         Ok(())
     }
 
     fn create_payable_table(&self, conn: &Connection) -> Result<(), InitializationError> {
         conn.execute(
-            "create table payable (
+            "create table if not exists payable (
                 wallet_address text primary key,
                 balance integer not null,
                 last_paid_timestamp integer not null,
@@ -160,7 +163,7 @@ impl DbInitializerReal {
         )
         .expect("Can't create payable table");
         conn.execute(
-            "create unique index idx_payable_wallet_address on payable (wallet_address)",
+            "create unique index if not exists idx_payable_wallet_address on payable (wallet_address)",
             NO_PARAMS,
         )
         .expect("Can't create payable wallet_address index");
@@ -169,7 +172,7 @@ impl DbInitializerReal {
 
     fn create_receivable_table(&self, conn: &Connection) -> Result<(), InitializationError> {
         conn.execute(
-            "create table receivable (
+            "create table if not exists receivable (
                 wallet_address text primary key,
                 balance integer not null,
                 last_received_timestamp integer not null
@@ -178,7 +181,7 @@ impl DbInitializerReal {
         )
         .expect("Can't create receivable table");
         conn.execute(
-            "create unique index idx_receivable_wallet_address on receivable (wallet_address)",
+            "create unique index if not exists idx_receivable_wallet_address on receivable (wallet_address)",
             NO_PARAMS,
         )
         .expect("Can't create receivable wallet_address index");
@@ -187,12 +190,15 @@ impl DbInitializerReal {
 
     fn extract_configurations(&self, conn: &Connection) -> HashMap<String, String> {
         let mut stmt = conn.prepare("select name, value from config").unwrap();
-        let config_contents = stmt
-            .query_map(NO_PARAMS, |row| Ok((row.get_unwrap(0), row.get_unwrap(1))))
-            .expect("Internal error")
-            .into_iter()
-            .flat_map(|x| x);
-        config_contents.collect::<HashMap<String, String>>()
+        match stmt
+            .query_row(NO_PARAMS, |row| Ok((row.get(0), row.get(1))))
+            .optional()
+        {
+            Ok(Some((Ok(name), Ok(value)))) => Some((name, value)),
+            _ => None,
+        }
+        .into_iter()
+        .collect::<HashMap<String, String>>()
     }
 
     fn check_version(&self, version: Option<&String>) -> Result<(), InitializationError> {
@@ -227,8 +233,7 @@ impl DbInitializerReal {
 #[cfg(test)]
 pub mod test_utils {
     use crate::database::db_initializer::{ConnectionWrapper, DbInitializer, InitializationError};
-    use rusqlite::Error;
-    use rusqlite::Statement;
+    use rusqlite::{Error, Statement};
     use std::cell::RefCell;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
@@ -313,29 +318,36 @@ mod tests {
             .prepare("select name, value from config order by name")
             .unwrap();
         let mut config_contents = stmt
-            .query_map(NO_PARAMS, |row| Ok((row.get_unwrap(0), row.get_unwrap(1))))
+            .query_map(NO_PARAMS, |row| Ok((row.get(0), row.get(1))))
             .unwrap();
-        let (clandestine_port_name, clandestine_port_value_str): (String, String) =
-            config_contents.next().unwrap().unwrap();
-        let clandestine_port_value = clandestine_port_value_str.parse::<u16>().unwrap();
-        assert_eq!("clandestine_port".to_string(), clandestine_port_name);
-        assert!(
-            clandestine_port_value >= LOWEST_USABLE_INSECURE_PORT,
-            "clandestine_port_value should have been > 1024, but was {}",
-            clandestine_port_value
-        );
-        assert!(
-            clandestine_port_value <= HIGHEST_RANDOM_CLANDESTINE_PORT,
-            "clandestine_port_value should have been < 10000, but was {}",
-            clandestine_port_value
-        );
+        if let (Ok(clandestine_port_name), Ok(clandestine_port_value_str)) =
+            config_contents.next().unwrap().unwrap()
+                as (Result<String, Error>, Result<String, Error>)
+        {
+            let clandestine_port_value = clandestine_port_value_str.parse::<u16>().unwrap();
+            assert_eq!("clandestine_port".to_string(), clandestine_port_name);
+            assert!(
+                clandestine_port_value >= LOWEST_USABLE_INSECURE_PORT,
+                "clandestine_port_value should have been > 1024, but was {}",
+                clandestine_port_value
+            );
+            assert!(
+                clandestine_port_value <= HIGHEST_RANDOM_CLANDESTINE_PORT,
+                "clandestine_port_value should have been < 10000, but was {}",
+                clandestine_port_value
+            );
+        } else {
+            panic!("Test failed");
+        }
         assert_eq!(
-            config_contents.next().unwrap().unwrap(),
-            (
-                String::from("schema_version"),
-                String::from(CURRENT_SCHEMA_VERSION)
-            )
+            config_contents.next().unwrap(),
+            Ok((
+                Ok(String::from("schema_version")),
+                Ok(String::from(CURRENT_SCHEMA_VERSION))
+            ))
         );
+        let (result, _) = config_contents.next().unwrap().unwrap();
+        assert_eq!(result, Ok(String::from("seed")));
         assert!(config_contents.next().is_none());
         let mut stmt = conn.prepare ("select wallet_address, balance, last_paid_timestamp, pending_payment_transaction from payable").unwrap ();
         let mut payable_contents = stmt.query_map(NO_PARAMS, |_| Ok(42)).unwrap();
@@ -377,21 +389,24 @@ mod tests {
             .prepare("select name, value from config order by name")
             .unwrap();
         let mut config_contents = stmt
-            .query_map(NO_PARAMS, |row| Ok((row.get_unwrap(0), row.get_unwrap(1))))
+            .query_map(NO_PARAMS, |row| Ok((row.get(0), row.get(1))))
             .unwrap();
         let (name, _) = config_contents.next().unwrap().unwrap();
-        assert_eq!("clandestine_port", name);
+        assert!(name.is_ok());
+        assert_eq!("clandestine_port", name.unwrap());
         assert_eq!(
-            config_contents.next().unwrap().unwrap(),
-            (String::from("preexisting"), String::from("yes"))
+            config_contents.next().unwrap(),
+            Ok((Ok(String::from("preexisting")), Ok(String::from("yes"))))
         );
         assert_eq!(
-            config_contents.next().unwrap().unwrap(),
-            (
-                String::from("schema_version"),
-                String::from(CURRENT_SCHEMA_VERSION)
-            )
+            config_contents.next().unwrap(),
+            Ok((
+                Ok(String::from("schema_version")),
+                Ok(String::from(CURRENT_SCHEMA_VERSION))
+            ))
         );
+        let (result, _) = config_contents.next().unwrap().unwrap();
+        assert_eq!(result, Ok(String::from("seed")));
         assert!(config_contents.next().is_none());
     }
 

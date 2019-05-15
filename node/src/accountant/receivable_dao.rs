@@ -3,7 +3,7 @@ use crate::database::dao_utils;
 use crate::database::db_initializer::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
 use rusqlite::types::ToSql;
-use rusqlite::OptionalExtension;
+use rusqlite::{OptionalExtension, NO_PARAMS};
 use std::fmt::Debug;
 use std::time::SystemTime;
 
@@ -54,11 +54,11 @@ impl ReceivableDao for ReceivableDaoReal {
             .expect("Internal error");
         match stmt
             .query_row(&[wallet_address.address.clone()], |row| {
-                Ok((row.get_unwrap(0), row.get_unwrap(1)))
+                Ok((row.get(0), row.get(1)))
             })
             .optional()
         {
-            Ok(Some((Some(balance), Some(timestamp)))) => Some(ReceivableAccount {
+            Ok(Some((Ok(balance), Ok(timestamp)))) => Some(ReceivableAccount {
                 wallet_address: wallet_address.clone(),
                 balance,
                 last_received_timestamp: dao_utils::from_time_t(timestamp),
@@ -75,7 +75,7 @@ impl ReceivableDao for ReceivableDaoReal {
             .prepare("select balance, last_received_timestamp, wallet_address from receivable")
             .expect("Internal error");
 
-        stmt.query_map(&[] as &[&ToSql], |row| {
+        stmt.query_map(NO_PARAMS, |row| {
             Ok(ReceivableAccount {
                 balance: row.get_unwrap(0),
                 last_received_timestamp: dao_utils::from_time_t(row.get_unwrap(1)),
