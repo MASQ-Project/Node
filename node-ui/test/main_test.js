@@ -1,11 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-/* global describe beforeEach it afterEach */
+/* global describe beforeEach it afterEach expect */
 
 const td = require('testdouble')
 
 describe('main', () => {
-  let subject, mockApp, mockDialog, mockEvent, mockHttp, mockIpcMain, mockMenu, mainWindowOnClose, MockNodeActuator, appOnReady, ipcMainOnIpLookup, ipcMainOnChangeNodeState, process
+  let mockApp, mockDialog, mockEvent, mockHttp, mockIpcMain, mockMenu, mainWindowOnClose, MockNodeActuator, appOnReady, ipcMainOnIpLookup, ipcMainOnChangeNodeState, process
 
   beforeEach(() => {
     mockEvent = td.object(['preventDefault'])
@@ -38,7 +38,7 @@ describe('main', () => {
       ipcMain: mockIpcMain,
       Menu: mockMenu
     })
-    subject = require('../main')
+    require('../main')
   })
 
   afterEach(() => {
@@ -93,7 +93,7 @@ describe('main', () => {
 
   describe('change-node-state', () => {
     let command
-    let event = {returnValue: null}
+    let event = { returnValue: null }
     let arg = ['inconsequential']
 
     beforeEach(() => {
@@ -197,21 +197,21 @@ describe('main', () => {
           {
             label: undefined,
             submenu: [
-              {role: 'quit'}
+              { role: 'quit' }
             ]
           },
           {
             label: 'Edit',
             submenu: [
-              {role: 'undo'},
-              {role: 'redo'},
-              {type: 'separator'},
-              {role: 'cut'},
-              {role: 'copy'},
-              {role: 'paste'},
-              {role: 'pasteandmatchstyle'},
-              {role: 'delete'},
-              {role: 'selectall'}
+              { role: 'undo' },
+              { role: 'redo' },
+              { type: 'separator' },
+              { role: 'cut' },
+              { role: 'copy' },
+              { role: 'paste' },
+              { role: 'pasteandmatchstyle' },
+              { role: 'delete' },
+              { role: 'selectall' }
             ]
           }
         ]))
@@ -227,8 +227,8 @@ describe('main', () => {
       it('Menu is not set up', () => {
         appOnReady.value()
 
-        td.verify(mockMenu.buildFromTemplate(td.matchers.anything()), {times: 0})
-        td.verify(mockMenu.setApplicationMenu(td.matchers.anything()), {times: 0})
+        td.verify(mockMenu.buildFromTemplate(td.matchers.anything()), { times: 0 })
+        td.verify(mockMenu.setApplicationMenu(td.matchers.anything()), { times: 0 })
       })
     })
 
@@ -241,11 +241,11 @@ describe('main', () => {
       })
 
       it('prevents the default close event behavior', async () => {
-        td.verify(mockEvent.preventDefault(), {times: 1})
+        td.verify(mockEvent.preventDefault(), { times: 1 })
       })
 
       it('quits the app', async () => {
-        td.verify(mockApp.quit(), {times: 1})
+        td.verify(mockApp.quit(), { times: 1 })
       })
 
       describe('when the app is already quitting', () => {
@@ -254,11 +254,11 @@ describe('main', () => {
         })
 
         it('does not prevent the default close event behavior', () => {
-          td.verify(mockEvent.preventDefault(), {times: 1})
+          td.verify(mockEvent.preventDefault(), { times: 1 })
         })
 
         it('does not call quit again', () => {
-          td.verify(mockApp.quit(), {times: 1})
+          td.verify(mockApp.quit(), { times: 1 })
         })
       })
     })
@@ -287,11 +287,11 @@ describe('main', () => {
         })
 
         it('does not prevent the default close event behavior', () => {
-          td.verify(mockEvent.preventDefault(), {times: 1})
+          td.verify(mockEvent.preventDefault(), { times: 1 })
         })
 
         it('does not call quit again', () => {
-          td.verify(mockApp.quit(), {times: 1})
+          td.verify(mockApp.quit(), { times: 1 })
         })
       })
     })

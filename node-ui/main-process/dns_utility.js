@@ -14,18 +14,16 @@ module.exports = (() => {
   const syncTimeout = 1000
 
   function getStatus () {
-    let result = childProcess.spawnSync(dnsUtilityPathUnquoted, ['status'], {timeout: syncTimeout})
+    let result = childProcess.spawnSync(dnsUtilityPathUnquoted, ['status'], { timeout: syncTimeout })
     if (result.status === 0) {
       return result.stdout.toString('utf8').trim()
     }
     if (result.status) {
-      throw Error (`Failed with status: ${result.status}${mineError (result.error)}`)
-    }
-    else if (result.signal) {
-      throw Error (`Failed with signal: '${result.signal}'${mineError (result.error)}`)
-    }
-    else {
-      throw Error (`Failed without status or signal${mineError (result.error)}`)
+      throw Error(`Failed with status: ${result.status}${mineError(result.error)}`)
+    } else if (result.signal) {
+      throw Error(`Failed with signal: '${result.signal}'${mineError(result.error)}`)
+    } else {
+      throw Error(`Failed without status or signal${mineError(result.error)}`)
     }
   }
 
@@ -37,8 +35,7 @@ module.exports = (() => {
       }
 
       return runDnsUtility('revert')
-    }
-    catch (e) {
+    } catch (e) {
       return Promise.reject(e)
     }
   }
@@ -51,8 +48,7 @@ module.exports = (() => {
       }
 
       return runDnsUtility('subvert')
-    }
-    catch (e) {
+    } catch (e) {
       return Promise.reject(e)
     }
   }
@@ -73,8 +69,7 @@ module.exports = (() => {
   function mineError (error) {
     if (!error) {
       return ''
-    }
-    else {
+    } else {
       return ` and error: '${error.message}'`
     }
   }

@@ -3,12 +3,11 @@ const process = require('../main-process/wrappers/process_wrapper')
 const fs = require('fs')
 const path = require('path')
 
-function remove_file (data_dir, filename) {
-  complete_path = path.join(data_dir, filename)
+function removeFile (dataDir, filename) {
+  let completePath = path.join(dataDir, filename)
   try {
-    fs.unlinkSync(complete_path)
-  }
-  catch (err) {
+    fs.unlinkSync(completePath)
+  } catch (err) {
     // fine.
   }
 }
@@ -41,9 +40,9 @@ module.exports = (() => {
       return element
     },
     purge_existing_state: function () {
-        let data_dir = process.env.APPDATA ||
-          (process.platform === 'darwin' ? process.env.HOME + '/Library/Application Support' : process.env.HOME + "/.local/share")
-        remove_file(data_dir, 'node_data.sqlite')
+      let dataDir = process.env.APPDATA ||
+          (process.platform === 'darwin' ? process.env.HOME + '/Library/Application Support' : process.env.HOME + '/.local/share')
+      removeFile(dataDir, 'node_data.sqlite')
     }
   }
 })()

@@ -12,7 +12,6 @@ let mainWindow
 let nodeActuator
 
 function createWindow () {
-
   // Mac needs special menu entries for clipboard functionality
   if (process.platform === 'darwin') {
     Menu.setApplicationMenu(Menu.buildFromTemplate([
@@ -100,33 +99,33 @@ app.on('activate', () => {
   }
 })
 
-ipcMain.on('ip-lookup', async (event, command, arguments) => {
+ipcMain.on('ip-lookup', async (event, command, args) => {
   let req = http.get(
     { 'host': 'api.ipify.org', 'port': 80, 'path': '/', 'timeout': 1000 },
     resp => {
       let rawData = ''
-      resp.on('data', chunk => rawData += chunk)
-      resp.on('end', () => event.returnValue = rawData)
+      resp.on('data', chunk => { rawData += chunk })
+      resp.on('end', () => { event.returnValue = rawData })
     })
 
-  req.on('timeout', () => req.abort())
-  req.on('error', () => event.returnValue = '')
+  req.on('timeout', () => { req.abort() })
+  req.on('error', () => { event.returnValue = '' })
 })
 
-ipcMain.on('change-node-state', (event, command, arguments) => {
+ipcMain.on('change-node-state', (event, command, args) => {
   if (command === 'turn-off') {
     assignStatus(event, nodeActuator.off())
   } else if (command === 'serve') {
-    assignStatus(event, nodeActuator.serving(arguments))
+    assignStatus(event, nodeActuator.serving(args))
   } else if (command === 'consume') {
-    assignStatus(event, nodeActuator.consuming(arguments))
+    assignStatus(event, nodeActuator.consuming(args))
   }
 })
 
-assignStatus = (event, promise) => {
-  promise.then( val => {
+let assignStatus = (event, promise) => {
+  promise.then(val => {
     event.returnValue = val
-  }).catch( () => {
+  }).catch(() => {
     event.returnValue = Invalid
   })
 }

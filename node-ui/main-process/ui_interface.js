@@ -19,8 +19,8 @@ module.exports = (() => {
       ws.onmessage = (evt) => {
         const data = JSON.parse(evt.data)
 
-        const nodeDescriptor = data["NodeDescriptor"]
-        if(nodeDescriptor) {
+        const nodeDescriptor = data['NodeDescriptor']
+        if (nodeDescriptor) {
           getNodeDescriptorCallbackPair.resolve(nodeDescriptor)
         }
       }
@@ -97,26 +97,26 @@ module.exports = (() => {
   }
 
   function shutdown () {
-    webSocket.send("\"ShutdownMessage\"")
+    webSocket.send('"ShutdownMessage"')
     webSocket.close()
     webSocket = null
   }
 
   async function getNodeDescriptor () {
     if (getNodeDescriptorCallbackPair) {
-      return Promise.reject("CallAlreadyInProgress")
+      return Promise.reject(Error('CallAlreadyInProgress'))
     }
-    return new Promise ((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       getNodeDescriptorCallbackPair = {
         resolve: (descriptor) => {
           getNodeDescriptorCallbackPair = null
-          resolve (descriptor)
+          resolve(descriptor)
         },
-        reject: () => {
-          reject ()
+        reject: (e) => {
+          reject(e)
         }
       }
-      webSocket.send("\"GetNodeDescriptor\"")
+      webSocket.send('"GetNodeDescriptor"')
     })
   }
 

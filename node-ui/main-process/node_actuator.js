@@ -23,7 +23,7 @@ module.exports = class NodeActuator {
   }
 
   bindProcessEvents () {
-    this.substratumNodeProcess.on('message', message => {
+    this.substratumNodeProcess.on('message', async message => {
       consoleWrapper.log('substratum_node process received message: ', message)
       if (message.startsWith('Command returned error: ')) {
         if (this.substratumNodeProcess) { dialog.showErrorBox('Error', message) }
@@ -86,7 +86,7 @@ module.exports = class NodeActuator {
     }
   }
 
-  async spawnSubstratumNodeProcess(additionalArguments) {
+  async spawnSubstratumNodeProcess (additionalArguments) {
     const worker = path.resolve(__dirname, '.', './substratum_node.js')
     this.substratumNodeProcess = childProcess.fork(worker, [app.getPath('home')], {
       silent: true,
@@ -102,7 +102,7 @@ module.exports = class NodeActuator {
     if (await uiInterface.verifyNodeUp(NODE_STARTUP_TIMEOUT)) {
       try {
         await uiInterface.connect()
-        await this.updateNodeDescriptor (await uiInterface.getNodeDescriptor())
+        await this.updateNodeDescriptor(await uiInterface.getNodeDescriptor())
       } catch (err) {
         dialog.showErrorBox('Error', 'Could not start node!')
       }

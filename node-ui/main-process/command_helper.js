@@ -36,7 +36,7 @@ module.exports = (() => {
         args = args.concat(
           [
             '--ip', additionalArgs.ip,
-            '--neighbor', additionalArgs.neighbor,
+            '--neighbor', additionalArgs.neighbor
           ])
       }
 
@@ -45,7 +45,7 @@ module.exports = (() => {
       }
     }
 
-    args.forEach((value) => command += value + ' ')
+    args.forEach(value => { command += value + ' ' })
     consoleWrapper.log('getCommand(): ' + command)
     return command
   }

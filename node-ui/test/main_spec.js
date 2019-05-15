@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-/* global jasmine describe beforeEach afterEach it xit */
+/* global jasmine describe beforeEach afterEach it */
 
 const assert = require('assert')
 const path = require('path')
@@ -9,17 +9,16 @@ const { Application } = require('spectron')
 const WebSocket = require('isomorphic-ws')
 const uiInterface = require('../main-process/ui_interface')
 const consoleWrapper = require('../main-process/wrappers/console_wrapper')
-const test_utilities = require('./test_utilities')
+const testUtilities = require('./test_utilities')
 
 global.WebSocket = WebSocket
 
 describe('Application launch', function () {
   jasmine.DEFAULT_TIMEOUT_INTERVAL = 20000
   let page
-  let window
 
   beforeEach(async () => {
-    test_utilities.purge_existing_state()
+    testUtilities.purge_existing_state()
     this.app = new Application({
       // Your electron path can be any binary
       // i.e for OSX an example path could be '/Applications/MyApp.app/Contents/MacOS/MyApp'
@@ -44,7 +43,6 @@ describe('Application launch', function () {
 
     return this.app.start()
       .then(() => {
-        window = this.app.browserWindow
         page = new Page(this.app.client)
       })
   })
@@ -86,7 +84,7 @@ describe('Application launch', function () {
         await page.ipInput.setValue('')
         await client.keys(['a', 'Backspace'])
         await client.waitUntil(async () => {
-          return await page.saveConfig.isEnabled()
+          return page.saveConfig.isEnabled()
         })
       })
   })
@@ -98,7 +96,7 @@ describe('Application launch', function () {
     await page.neighborInput.setValue('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345,4321')
     await page.walletAddress.setValue('0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
     await client.waitUntil(async () => {
-      return await page.saveConfig.isEnabled()
+      return page.saveConfig.isEnabled()
     })
     client.element('#save-config').click()
     await client.waitUntilWindowLoaded()
@@ -130,7 +128,6 @@ describe('Application launch', function () {
 })
 
 class Page {
-
   get ipInput () {
     return this.client.element('#ip')
   }

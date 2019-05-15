@@ -127,58 +127,57 @@ describe('Given a mock WebSocket', () => {
           let mockCallback = td.function()
           let nodeDescriptorFailure = false
           beforeEach(() => {
-            subject.getNodeDescriptor().then (descriptor => mockCallback (descriptor), () => {nodeDescriptorFailure = true})
+            subject.getNodeDescriptor().then(descriptor => mockCallback(descriptor), () => { nodeDescriptorFailure = true })
           })
 
           describe('and immediately directed to send another before the first response arrives', () => {
-            let unexpectedSuccess
-            let actualError
-            beforeEach ((done) => {
-              secondCallResult = subject.getNodeDescriptor()
-                .then (descriptor => {
+            let actualError, unexpectedSuccess
+            beforeEach((done) => {
+              subject.getNodeDescriptor()
+                .then(descriptor => {
                   unexpectedSuccess = descriptor
                   done()
                 })
-                .catch ((msg) => {
-                  actualError = msg
+                .catch((e) => {
+                  actualError = e
                   done()
                 })
             })
 
-            it ('does not succeed', () => {
+            it('does not succeed', () => {
               assert.strictEqual(undefined, unexpectedSuccess)
             })
 
-            it ('fails because another call is already in progress', () => {
-              assert.strictEqual('CallAlreadyInProgress', actualError)
+            it('fails because another call is already in progress', () => {
+              assert.strictEqual('CallAlreadyInProgress', actualError.message)
             })
           })
 
           it('the WebSocket client is instructed to send the proper message', () => {
             let captor = td.matchers.captor()
             td.verify(webSocketClient.send(captor.capture()))
-            assert.deepStrictEqual(JSON.parse(captor.value), "GetNodeDescriptor")
+            assert.deepStrictEqual(JSON.parse(captor.value), 'GetNodeDescriptor')
           })
 
           describe('when onmessage is invoked with a descriptor', () => {
             beforeEach(async () => {
-              webSocketClient.onmessage({data: "{\"NodeDescriptor\": \"NODE_DESCRIPTOR\"}"})
+              webSocketClient.onmessage({ data: '{"NodeDescriptor": "NODE_DESCRIPTOR"}' })
               await connectPromise
             })
 
             it('fires the callback', () => {
-              td.verify(mockCallback("NODE_DESCRIPTOR"))
+              td.verify(mockCallback('NODE_DESCRIPTOR'))
             })
 
             describe('when getting another node descriptor', () => {
               beforeEach(async () => {
                 subject.getNodeDescriptor().then(descriptor => mockCallback(descriptor))
-                webSocketClient.onmessage({data: '{"NodeDescriptor": "second_descriptor"}'})
+                webSocketClient.onmessage({ data: '{"NodeDescriptor": "second_descriptor"}' })
                 await connectPromise
               })
 
               it('fires the callback with the new value', () => {
-                td.verify(mockCallback("second_descriptor"))
+                td.verify(mockCallback('second_descriptor'))
               })
             })
           })
@@ -196,17 +195,15 @@ describe('Given a mock WebSocket', () => {
         })
 
         describe('then experiences a connection error', () => {
-          let result
           beforeEach(async () => {
             webSocketClient.onerror('My tummy hurts')
             try {
               await connectPromise
             } catch (err) {
-              result = err
             }
           })
 
-          it('says it\'s not connected', () => {
+          it("says it's not connected", () => {
             assert.strictEqual(subject.isConnected(), false)
           })
         })

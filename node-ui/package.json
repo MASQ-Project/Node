@@ -53,7 +53,7 @@
     "build": "ng build --base-href ./",
     "build-prod": "ng build --base-href ./ --prod",
     "test": "ng test",
-    "lint": "ng lint",
+    "lint": "standard --fix && ng lint",
     "unit": "jasmine test/*_test.js && ng test --no-watch --browsers=ChromeHeadlessNoSandbox",
     "spec": "jasmine test/*_spec.js",
     "dist": "electron-builder"

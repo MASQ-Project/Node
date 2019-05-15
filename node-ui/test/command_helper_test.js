@@ -49,13 +49,13 @@ describe('CommandHelper', () => {
               return /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" os-uid os-gid "/.test(arg) &&
                 /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns_servers \d{1,3}\./.test(arg) &&
                 /--data_directory [/\\]mock-home-dir[/\\]\.local[/\\]share[/\\]/.test(arg)
-            }), {name: 'Substratum Node'}, 'callback'))
+            }), { name: 'Substratum Node' }, 'callback'))
           })
         })
 
         describe('when the environment variables SUDO_UID and SUDO_GID are populated', () => {
           beforeEach(() => {
-            process.env = {SUDO_UID: 'env-uid', SUDO_GID: 'env-gid'}
+            process.env = { SUDO_UID: 'env-uid', SUDO_GID: 'env-gid' }
             subject = require('../main-process/command_helper')
 
             subject.startSubstratumNode({}, 'callback')
@@ -66,7 +66,7 @@ describe('CommandHelper', () => {
               return /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" env-uid env-gid "/.test(arg) &&
                 /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns_servers \d{1,3}\./.test(arg) &&
                 /--data_directory [/\\]mock-home-dir[/\\]\.local[/\\]share[/\\]/.test(arg)
-            }), {name: 'Substratum Node'}, 'callback'))
+            }), { name: 'Substratum Node' }, 'callback'))
           })
         })
       })
@@ -89,7 +89,7 @@ describe('CommandHelper', () => {
               return /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" os-uid os-gid "/.test(arg) &&
                 /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns_servers \d{1,3}\./.test(arg) &&
                 !arg.includes('--data_directory')
-            }), {name: 'Substratum Node'}, 'callback'))
+            }), { name: 'Substratum Node' }, 'callback'))
           })
         })
 
@@ -106,7 +106,7 @@ describe('CommandHelper', () => {
               return /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" env-uid env-gid "/.test(arg) &&
                 /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns_servers \d{1,3}\./.test(arg) &&
                 !arg.includes('--data_directory')
-            }), {name: 'Substratum Node'}, 'callback'))
+            }), { name: 'Substratum Node' }, 'callback'))
           })
         })
       })
@@ -240,7 +240,6 @@ describe('CommandHelper', () => {
     })
 
     describe('getCommand', () => {
-
       describe('when ip and neighbor are both provided', () => {
         beforeEach(() => {
           subject.startSubstratumNode({ ip: 'abc', neighbor: 'hidelyho' }, 'callback')

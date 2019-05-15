@@ -72,7 +72,7 @@ describe('ps_wrapper', () => {
         cmd: 'users/static/binaries/SubstratumNode --dns_servers 8.8.8.8'
       }])
       mockPath.sep = '/'
-      let result =  await subject.findNodeProcess()
+      let result = await subject.findNodeProcess()
       assert.strictEqual(result.length, 1)
       assert.strictEqual(result[0].name, 'SubstratumNode')
     })

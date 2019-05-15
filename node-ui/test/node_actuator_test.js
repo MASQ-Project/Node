@@ -3,9 +3,8 @@
 /* global describe beforeEach afterEach it */
 
 const td = require('testdouble')
-const { EventEmitter } = require('events')
 const assert = require('assert')
-const neverCalled = {times: 0, ignoreExtraArgs: true}
+const neverCalled = { times: 0, ignoreExtraArgs: true }
 
 td.config({
   ignoreWarnings: true // to discourage warnings about td.when and td.verify on the same mock :<
@@ -21,6 +20,9 @@ describe('NodeActuator', () => {
   let mockUiInterface
 
   let mockSubstratumNodeProcess
+  let substratumNodeProcessOnMessage
+  let substratumNodeProcessOnError
+  let substratumNodeProcessOnExit
   let mockDnsUtility
   let mockWebContents
 
@@ -38,8 +40,14 @@ describe('NodeActuator', () => {
     mockPsWrapper = td.replace('../main-process/wrappers/ps_wrapper')
     mockUiInterface = td.replace('../main-process/ui_interface')
 
-    mockSubstratumNodeProcess = new EventEmitter()
-    mockSubstratumNodeProcess.send = td.function()
+    mockSubstratumNodeProcess = td.object(['on', 'send'])
+    substratumNodeProcessOnMessage = td.matchers.captor()
+    td.when(mockSubstratumNodeProcess.on('message', substratumNodeProcessOnMessage.capture())).thenReturn(mockSubstratumNodeProcess)
+    substratumNodeProcessOnError = td.matchers.captor()
+    td.when(mockSubstratumNodeProcess.on('error', substratumNodeProcessOnError.capture())).thenReturn(mockSubstratumNodeProcess)
+    substratumNodeProcessOnExit = td.matchers.captor()
+    td.when(mockSubstratumNodeProcess.on('exit', substratumNodeProcessOnExit.capture())).thenReturn(mockSubstratumNodeProcess)
+
     td.when(mockSudoPrompt.exec(td.matchers.anything(), td.matchers.anything()))
       .thenCallback(false, 'success!', false)
     td.when(mockChildProcess.fork(td.matchers.contains('substratum_node.js'), ['/mock-home-dir'], {
@@ -101,7 +109,7 @@ describe('NodeActuator', () => {
 
       describe('but fails to connect via uiInterface', () => {
         beforeEach(async () => {
-          td.when(mockUiInterface.connect()).thenReject(':(');
+          td.when(mockUiInterface.connect()).thenReject(':(')
           await subject.serving()
         })
 
@@ -114,7 +122,7 @@ describe('NodeActuator', () => {
         })
 
         it('connects the WebSocket', () => {
-          td.verify(mockUiInterface.connect())
+          td.verify(mockUiInterface.connect().catch(() => {}))
         })
 
         it('does not try to get the node descriptor', () => {
@@ -240,7 +248,6 @@ describe('NodeActuator', () => {
       it('clears the node descriptor', () => {
         td.verify(mockWebContents.send('node-descriptor', ''))
       })
-
     })
 
     describe('to serving', () => {
@@ -623,7 +630,7 @@ describe('NodeActuator', () => {
   describe('with stopNode failure', () => {
     beforeEach(() => {
       td.when(mockDnsUtility.revert()).thenResolve(null)
-      td.when(mockPsWrapper.killNodeProcess()).thenReject(new Error ("kill error"))
+      td.when(mockPsWrapper.killNodeProcess()).thenReject(new Error('kill error'))
     })
     describe('when current state is "Consuming"', () => {
       beforeEach(() => {
@@ -703,12 +710,14 @@ describe('NodeActuator', () => {
 
   describe('childProcess messages', () => {
     beforeEach(async () => {
+      subject.determineStatus = td.function()
+      td.when(subject.determineStatus(td.matchers.anything())).thenReturn('Off')
       await subject.serving()
     })
 
     describe('receiving a message from child process', () => {
       beforeEach(async () => {
-        await mockSubstratumNodeProcess.emit('message', 'blooga')
+        await substratumNodeProcessOnMessage.value('blooga')
       })
 
       it('logs the message', () => {
@@ -721,7 +730,7 @@ describe('NodeActuator', () => {
         beforeEach(async () => {
           await subject.serving()
 
-          await mockSubstratumNodeProcess.emit('message', 'Command returned error: blooga')
+          await substratumNodeProcessOnMessage.value('Command returned error: blooga')
         })
 
         it('logs the error', () => {
@@ -748,7 +757,7 @@ describe('NodeActuator', () => {
           beforeEach(async () => {
             await subject.consuming()
 
-            await mockSubstratumNodeProcess.emit('message', 'Command returned error: blooga')
+            await substratumNodeProcessOnMessage.value('Command returned error: blooga')
           })
 
           it('reverts the dns', () => {
@@ -771,7 +780,7 @@ describe('NodeActuator', () => {
         beforeEach(async () => {
           await subject.serving()
 
-          await mockSubstratumNodeProcess.emit('error', new Error('blooga'))
+          await substratumNodeProcessOnError.value(new Error('blooga'))
         })
 
         it('logs the error', () => {
@@ -784,7 +793,7 @@ describe('NodeActuator', () => {
           beforeEach(async () => {
             await subject.consuming()
 
-            await mockSubstratumNodeProcess.emit('error', new Error('blooga'))
+            await substratumNodeProcessOnError.value(new Error('blooga'))
           })
 
           it('reverts the dns', () => {
@@ -810,7 +819,7 @@ describe('NodeActuator', () => {
             .thenCallback(error, stdout, stderr)
           td.when(mockPsWrapper.findNodeProcess()).thenCallback([])
 
-          await mockSubstratumNodeProcess.emit('exit', 7)
+          await substratumNodeProcessOnExit.value(7)
         })
 
         it('logs to console', () => {
@@ -837,7 +846,7 @@ describe('NodeActuator', () => {
             td.when(mockDnsUtility.getStatus()).thenReturn('subverted')
             td.when(mockPsWrapper.findNodeProcess()).thenCallback([])
 
-            await mockSubstratumNodeProcess.emit('exit', 7)
+            await substratumNodeProcessOnExit.value(7)
           })
 
           it('logs to console', () => {
@@ -885,7 +894,7 @@ describe('NodeActuator', () => {
 
   describe('shutdown existing node process that can be shut down by the UI without assistance from the OS', () => {
     beforeEach(async () => {
-      subject.substratumNodeProcess = "a running node"
+      subject.substratumNodeProcess = 'a running node'
       td.when(mockUiInterface.verifyNodeDown(td.matchers.anything())).thenResolve(true)
     })
 
@@ -945,7 +954,7 @@ describe('NodeActuator', () => {
 
     describe('then an error message comes from the process', () => {
       beforeEach(async () => {
-        await mockSubstratumNodeProcess.emit('message', 'Command returned error: borf')
+        await substratumNodeProcessOnMessage.value('Command returned error: borf')
         await subject.serving()
         await subject.shutdown()
       })
@@ -957,7 +966,7 @@ describe('NodeActuator', () => {
 
     describe('then an error comes from the process', () => {
       beforeEach(async () => {
-        await mockSubstratumNodeProcess.emit('error', 'bzzzzzzzzzzzzz')
+        await substratumNodeProcessOnError.value('bzzzzzzzzzzzzz')
       })
 
       it('does not show the alert', () => {
