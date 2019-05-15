@@ -121,6 +121,8 @@ for more information._
 
 There are several more options that are available for running decentralized. Here is a list of them and their meanings:
 
+* `--help` As of v0.4.6 SubstratumNode CLI displays usage, flags, and options. NOTE: Run with `sudo`.
+
 * `--blockchain_service_url <url>` An optional URL that should point to an Infura, Geth, or Parity HTTP endpoint. Not 
 supplying a URL will direct blockchain traffic through the Substratum Network, allowing those nodes that do supply the 
 URL to talk to the blockchain on your behalf.
@@ -178,6 +180,8 @@ default is `$XDG_DATA_HOME` or `$HOME/.local/share` on Linux, `%APPDATA%` on Win
 and abort if it fails. If persistent state exists in the directory, but it was created by a version of Node that is
 incompatible with the version you're trying to start, Node will abort. If this is the case, either remove the existing
 state and restart Node, or specify a different `--data_directory` directory.
+
+* `--wallet_address <WALLET_ADDRESS>` Must be 42 characters long, contain only hex and start with 0x.
 
 If you try to start your SubstratumNode decentralized, you will quickly discover that these parameters have
 a great deal of interdependence on each other.  Some are required, some are optional, some are optional only if others

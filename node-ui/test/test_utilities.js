@@ -42,7 +42,7 @@ module.exports = (() => {
     purge_existing_state: function () {
       let dataDir = process.env.APPDATA ||
           (process.platform === 'darwin' ? process.env.HOME + '/Library/Application Support' : process.env.HOME + '/.local/share')
-      removeFile(dataDir, 'node_data.sqlite')
+      removeFile(dataDir, 'node-data.db')
     }
   }
 })()
