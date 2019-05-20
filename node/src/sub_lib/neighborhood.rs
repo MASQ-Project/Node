@@ -91,9 +91,7 @@ pub struct NeighborhoodConfig {
 
 impl NeighborhoodConfig {
     pub fn is_decentralized(&self) -> bool {
-        !self.neighbor_configs.is_empty()
-            && (self.local_ip_addr != sentinel_ip_addr())
-            && !self.clandestine_port_list.is_empty()
+        (self.local_ip_addr != sentinel_ip_addr()) && !self.clandestine_port_list.is_empty()
     }
 }
 
@@ -293,23 +291,6 @@ mod tests {
     }
 
     #[test]
-    fn neighborhood_config_is_not_decentralized_if_there_are_no_neighbor_configs() {
-        let subject = NeighborhoodConfig {
-            neighbor_configs: vec![],
-            earning_wallet: Wallet::new("router"),
-            consuming_wallet: Some(Wallet::new("consumer")),
-            rate_pack: rate_pack(100),
-            is_bootstrap_node: false,
-            local_ip_addr: IpAddr::from_str("1.2.3.4").unwrap(),
-            clandestine_port_list: vec![1234],
-        };
-
-        let result = subject.is_decentralized();
-
-        assert_eq!(result, false);
-    }
-
-    #[test]
     fn neighborhood_config_is_not_decentralized_if_the_sentinel_ip_address_is_used() {
         let subject = NeighborhoodConfig {
             neighbor_configs: vec![NodeDescriptor {
@@ -350,13 +331,9 @@ mod tests {
     }
 
     #[test]
-    fn neighborhood_config_is_decentralized_if_neighbor_config_and_local_ip_addr_and_clandestine_port(
-    ) {
+    fn neighborhood_config_is_decentralized_if_local_ip_addr_and_clandestine_port() {
         let subject = NeighborhoodConfig {
-            neighbor_configs: vec![NodeDescriptor {
-                public_key: PublicKey::new(&b"key"[..]),
-                node_addr: NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]),
-            }],
+            neighbor_configs: vec![],
             earning_wallet: Wallet::new("router"),
             consuming_wallet: Some(Wallet::new("consumer")),
             rate_pack: rate_pack(100),

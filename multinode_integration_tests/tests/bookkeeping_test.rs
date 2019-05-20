@@ -17,15 +17,13 @@ use std::time::Duration;
 fn provided_and_consumed_services_are_recorded_in_databases() {
     let mut cluster = SubstratumNodeCluster::start().unwrap();
 
-    let bootstrap = cluster.start_real_node(NodeStartupConfigBuilder::bootstrap().build());
-
-    let originating_node = start_real_node(&mut cluster, bootstrap.node_reference(), 2);
-    let test_node_3 = start_real_node(&mut cluster, originating_node.node_reference(), 3);
-    let test_node_4 = start_real_node(&mut cluster, originating_node.node_reference(), 4);
-    let test_node_5 = start_real_node(&mut cluster, test_node_3.node_reference(), 5);
-    let test_node_6 = start_real_node(&mut cluster, test_node_4.node_reference(), 6);
-    let test_node_7 = start_real_node(&mut cluster, test_node_4.node_reference(), 7);
-    let test_node_8 = start_real_node(&mut cluster, test_node_4.node_reference(), 8);
+    let originating_node = start_lonely_real_node(&mut cluster);
+    let test_node_3 = start_real_node(&mut cluster, originating_node.node_reference());
+    let test_node_4 = start_real_node(&mut cluster, originating_node.node_reference());
+    let test_node_5 = start_real_node(&mut cluster, test_node_3.node_reference());
+    let test_node_6 = start_real_node(&mut cluster, test_node_4.node_reference());
+    let test_node_7 = start_real_node(&mut cluster, test_node_4.node_reference());
+    let test_node_8 = start_real_node(&mut cluster, test_node_4.node_reference());
 
     thread::sleep(Duration::from_millis(2000));
 
@@ -33,9 +31,16 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
     let request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes();
 
     client.send_chunk(Vec::from(request));
-    let _response = client.wait_for_chunk();
+    let response = String::from_utf8(client.wait_for_chunk()).unwrap();
+    assert!(
+        response.contains(
+            "This domain is established to be used for illustrative examples in documents."
+        ),
+        "Not from example.com:\n{}",
+        response
+    );
 
-    let nodes = vec![
+    let non_originating_nodes = vec![
         test_node_3,
         test_node_4,
         test_node_5,
@@ -48,7 +53,7 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
     let payables = non_pending_payables(&originating_node);
 
     // get all receivables from all other nodes
-    let receivable_balances = nodes
+    let receivable_balances = non_originating_nodes
         .iter()
         .flat_map(|node| {
             receivables(node)
@@ -58,17 +63,23 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
         .collect::<HashMap<Wallet, i64>>();
 
     // check that each payable has a receivable
+    assert_eq!(
+        payables.len(),
+        receivable_balances.len(),
+        "Lengths of payables and receivables should match.\nPayables: {:?}\nReceivables: {:?}",
+        payables,
+        receivable_balances
+    );
     assert!(
-        receivable_balances.len() >= 3,
+        receivable_balances.len() >= 3, // minimum service list: route, route, exit.
         "not enough receivables found {:?}",
         receivable_balances
     );
-    assert_eq!(payables.len(), receivable_balances.len());
 
     payables.iter().for_each(|payable| {
         assert_eq!(
+            &payable.balance,
             receivable_balances.get(&payable.wallet_address).unwrap(),
-            &payable.balance
         );
     });
 }
@@ -103,11 +114,20 @@ fn receivables(node: &SubstratumRealNode) -> Vec<ReceivableAccount> {
     receivable_dao.receivables()
 }
 
+pub fn start_lonely_real_node(cluster: &mut SubstratumNodeCluster) -> SubstratumRealNode {
+    let index = cluster.next_index();
+    cluster.start_real_node(
+        NodeStartupConfigBuilder::standard()
+            .earning_wallet(make_wallet_from(index))
+            .build(),
+    )
+}
+
 pub fn start_real_node(
     cluster: &mut SubstratumNodeCluster,
     bootstrap_from: NodeReference,
-    index: usize,
 ) -> SubstratumRealNode {
+    let index = cluster.next_index();
     cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .neighbor(bootstrap_from)

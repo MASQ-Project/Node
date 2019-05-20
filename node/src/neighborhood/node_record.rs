@@ -230,6 +230,26 @@ impl NodeRecord {
     pub fn set_desirable(&mut self, is_desirable: bool) {
         self.metadata.desirable = is_desirable
     }
+
+    pub fn update(&mut self, agr: AccessibleGossipRecord) -> Result<(), String> {
+        if &agr.inner.public_key != self.public_key() {
+            return Err("Updating a NodeRecord must not change its public key".to_string());
+        }
+        if agr.node_addr_opt != self.node_addr_opt() {
+            return Err("Updating a NodeRecord must not change its node_addr_opt".to_string());
+        }
+        if agr.inner.is_bootstrap_node != self.is_bootstrap_node() {
+            return Err("Updating a NodeRecord must not change its bootstrap flag".to_string());
+        }
+        if &agr.inner.rate_pack != self.rate_pack() {
+            return Err("Updating a NodeRecord must not change its rate pack".to_string());
+        }
+        self.metadata.node_addr_opt = agr.node_addr_opt;
+        self.signed_gossip = agr.signed_gossip;
+        self.signature = agr.signature;
+        self.inner = agr.inner;
+        Ok(())
+    }
 }
 
 impl From<AccessibleGossipRecord> for NodeRecord {
@@ -290,6 +310,7 @@ mod tests {
     use crate::neighborhood::gossip::GossipBuilder;
     use crate::neighborhood::neighborhood_test_utils::db_from_node;
     use crate::sub_lib::cryptde_null::CryptDENull;
+    use crate::sub_lib::neighborhood::ZERO_RATE_PACK;
     use crate::test_utils::test_utils::{assert_contains, cryptde, rate_pack};
     use std::net::IpAddr;
     use std::str::FromStr;
@@ -683,6 +704,87 @@ mod tests {
             !this_node.is_desirable(),
             "Should be undesirable after being set to false."
         );
+    }
+
+    #[test]
+    fn update_works_when_immutable_characteristics_dont_change() {
+        let mut subject = make_node_record(1234, true, false);
+        let mut modified = subject.clone();
+        modified.inner.version = 100;
+        modified.resign();
+        let agr = AccessibleGossipRecord::from(&modified);
+
+        let result = subject.update(agr);
+
+        assert_eq!(Ok(()), result);
+        assert_eq!(modified.metadata, subject.metadata);
+        assert_eq!(modified.inner, subject.inner);
+        assert_eq!(modified.signed_gossip, subject.signed_gossip);
+        assert_eq!(modified.signature, subject.signature);
+    }
+
+    #[test]
+    fn update_complains_when_public_key_tries_to_change() {
+        let mut subject = make_node_record(1234, true, false);
+        let mut modified = subject.clone();
+        modified.inner.public_key = PublicKey::new(b"dangerous");
+        modified.resign();
+        let agr = AccessibleGossipRecord::from(&modified);
+
+        let result = subject.update(agr);
+
+        assert_eq!(
+            Err("Updating a NodeRecord must not change its public key".to_string()),
+            result
+        )
+    }
+
+    #[test]
+    fn update_complains_when_node_addr_opt_tries_to_change() {
+        let mut subject = make_node_record(1234, true, false);
+        let mut modified = subject.clone();
+        modified.metadata.node_addr_opt = None;
+        modified.resign();
+        let agr = AccessibleGossipRecord::from(&modified);
+
+        let result = subject.update(agr);
+
+        assert_eq!(
+            Err("Updating a NodeRecord must not change its node_addr_opt".to_string()),
+            result
+        )
+    }
+
+    #[test]
+    fn update_complains_when_is_bootstrap_node_tries_to_change() {
+        let mut subject = make_node_record(1234, true, false);
+        let mut modified = subject.clone();
+        modified.inner.is_bootstrap_node = true;
+        modified.resign();
+        let agr = AccessibleGossipRecord::from(&modified);
+
+        let result = subject.update(agr);
+
+        assert_eq!(
+            Err("Updating a NodeRecord must not change its bootstrap flag".to_string()),
+            result
+        )
+    }
+
+    #[test]
+    fn update_complains_when_rate_pack_tries_to_change() {
+        let mut subject = make_node_record(1234, true, false);
+        let mut modified = subject.clone();
+        modified.inner.rate_pack = ZERO_RATE_PACK.clone();
+        modified.resign();
+        let agr = AccessibleGossipRecord::from(&modified);
+
+        let result = subject.update(agr);
+
+        assert_eq!(
+            Err("Updating a NodeRecord must not change its rate pack".to_string()),
+            result
+        )
     }
 
     #[test]

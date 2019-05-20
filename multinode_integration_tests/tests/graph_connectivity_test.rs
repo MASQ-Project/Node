@@ -22,24 +22,23 @@ fn graph_connects_but_does_not_over_connect() {
     let neighborhood_size = 5;
     let mut cluster = SubstratumNodeCluster::start().unwrap();
 
-    let bootstrap_node = cluster.start_real_node(NodeStartupConfigBuilder::bootstrap().build());
-    let real_nodes = (0..neighborhood_size)
+    let first_node = cluster.start_real_node(NodeStartupConfigBuilder::standard().build());
+    let real_nodes = (1..neighborhood_size)
         .map(|_| {
             cluster.start_real_node(
                 NodeStartupConfigBuilder::standard()
-                    .neighbor(bootstrap_node.node_reference())
+                    .neighbor(first_node.node_reference())
                     .build(),
             )
         })
         .collect::<Vec<SubstratumRealNode>>();
     let mock_node = cluster.start_mock_node(vec![find_free_port()]);
-    let dont_count_these = vec![bootstrap_node.public_key(), mock_node.public_key()];
-    let start_node = real_nodes.first().unwrap();
+    let dont_count_these = vec![mock_node.public_key()];
     // Wait for Gossip to abate
     thread::sleep(Duration::from_millis(2000));
 
     // Start the bootstrap process; follow passes until Introductions arrive
-    mock_node.send_debut(start_node);
+    mock_node.send_debut(&first_node);
     let mut retries_left = neighborhood_size;
     let mut introductions_opt: Option<Vec<AccessibleGossipRecord>> = None;
     while retries_left > 0 {
@@ -74,7 +73,7 @@ fn graph_connects_but_does_not_over_connect() {
         earning_wallet: Wallet::new("0000"),
         rate_pack: DEFAULT_RATE_PACK.clone(),
         is_bootstrap_node: false,
-        neighbors: vec_to_btset(vec![start_node.public_key().clone()]),
+        neighbors: vec_to_btset(vec![first_node.public_key().clone()]),
         version: 100, // to make the sample Node update its database and send out standard Gossip
     };
     let standard_gossip = Gossip {
@@ -87,12 +86,12 @@ fn graph_connects_but_does_not_over_connect() {
             GossipNodeRecord::from(another_agr.clone()),
         ],
     };
-    let socket_addrs: Vec<SocketAddr> = start_node.node_addr().into();
+    let socket_addrs: Vec<SocketAddr> = first_node.node_addr().into();
     mock_node
         .transmit_gossip(
             mock_node.port_list()[0],
             standard_gossip,
-            &start_node.public_key(),
+            &first_node.public_key(),
             socket_addrs[0],
         )
         .unwrap();
@@ -109,10 +108,10 @@ fn graph_connects_but_does_not_over_connect() {
     // True number of Nodes in source database should be neighborhood_size + 2,
     // but gossip target (mock_node) will not be included in Gossip so should be neighborhood size + 1 (bootstrap).
     assert_eq!(
-        neighborhood_size + 1,
+        neighborhood_size,
         current_state.node_records.len(),
         "Current-state Gossip should have {} GossipNodeRecords, but has {}: {}",
-        neighborhood_size + 1,
+        neighborhood_size,
         current_state.node_records.len(),
         dot_graph
     );

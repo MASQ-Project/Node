@@ -1,35 +1,20 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use multinode_integration_tests_lib::substratum_node::{NodeReference, SubstratumNode};
+use multinode_integration_tests_lib::substratum_node::SubstratumNode;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::substratum_real_node::{
     NodeStartupConfigBuilder, SubstratumRealNode,
 };
 use node_lib::proxy_server::protocol_pack::ServerImpersonator;
 use node_lib::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
-use node_lib::sub_lib::cryptde::CryptDE;
-use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::utils::index_of;
-use std::net::IpAddr;
-use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 
 #[test]
 fn end_to_end_routing_test() {
     let mut cluster = SubstratumNodeCluster::start().unwrap();
-    let mut bogus_cryptde = CryptDENull::new();
-    bogus_cryptde.generate_key_pair();
-    let bogus_bootstrap_ref = NodeReference::new(
-        bogus_cryptde.public_key().clone(),
-        IpAddr::from_str("1.2.3.4").unwrap(),
-        vec![1234],
-    );
-    let first_node = cluster.start_real_node(
-        NodeStartupConfigBuilder::standard()
-            .neighbor(bogus_bootstrap_ref)
-            .build(),
-    );
+    let first_node = cluster.start_real_node(NodeStartupConfigBuilder::standard().build());
 
     let nodes = (0..6)
         .map(|_| {

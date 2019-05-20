@@ -35,6 +35,10 @@ impl SubstratumNodeCluster {
         })
     }
 
+    pub fn next_index(&self) -> usize {
+        self.next_index
+    }
+
     pub fn start_real_node(&mut self, config: NodeStartupConfig) -> SubstratumRealNode {
         let index = self.next_index;
         self.next_index += 1;

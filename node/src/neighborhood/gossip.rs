@@ -399,11 +399,11 @@ impl<'a> GossipBuilder<'a> {
             // crashpoint
             None => panic!("GossipBuilder cannot add a nonexistent Node"),
             Some(node_record_ref) => {
-                self.gossip.node_records.push(GossipNodeRecord::from((
-                    self.db,
-                    node_record_ref.public_key(),
-                    reveal_node_addr,
-                )));
+                let mut gnr = GossipNodeRecord::from(node_record_ref.clone());
+                if !reveal_node_addr {
+                    gnr.node_addr_opt = None
+                }
+                self.gossip.node_records.push(gnr);
                 self.keys_so_far
                     .insert(node_record_ref.public_key().clone());
             }

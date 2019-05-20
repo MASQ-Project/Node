@@ -3,7 +3,7 @@
 
 use super::neighborhood_database::NeighborhoodDatabase;
 use super::node_record::NodeRecord;
-use crate::neighborhood::neighborhood::Neighborhood;
+use crate::neighborhood::neighborhood::{AccessibleGossipRecord, Neighborhood};
 use crate::neighborhood::node_record::NodeRecordInner;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, PlainData};
@@ -43,6 +43,11 @@ pub fn make_global_cryptde_node_record(
     node_record.inner.public_key = cryptde().public_key().clone();
     node_record.resign();
     node_record
+}
+
+pub fn make_meaningless_db() -> NeighborhoodDatabase {
+    let node = make_node_record(9898, true, false);
+    db_from_node(&node)
 }
 
 pub fn db_from_node(node: &NodeRecord) -> NeighborhoodDatabase {
@@ -216,5 +221,16 @@ impl NeighborhoodDatabase {
         let node_ref = self.node_by_key_mut(public_key).unwrap();
         node_ref.signed_gossip = node_record.signed_gossip;
         node_ref.signature = node_record.signature;
+    }
+}
+
+impl From<&NodeRecord> for AccessibleGossipRecord {
+    fn from(node_record: &NodeRecord) -> Self {
+        AccessibleGossipRecord {
+            signed_gossip: node_record.signed_gossip.clone(),
+            signature: node_record.signature.clone(),
+            node_addr_opt: node_record.node_addr_opt(),
+            inner: node_record.inner.clone(),
+        }
     }
 }
