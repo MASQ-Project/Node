@@ -54,17 +54,20 @@ impl ReceivableDao for ReceivableDaoReal {
             .expect("Internal error");
         match stmt
             .query_row(&[wallet_address.address.clone()], |row| {
-                Ok((row.get(0), row.get(1)))
+                let balance_result = row.get(0);
+                let last_received_timestamp_result = row.get(1);
+                match (balance_result, last_received_timestamp_result) {
+                    (Ok(balance), Ok(last_received_timestamp)) => Ok(ReceivableAccount {
+                        wallet_address: wallet_address.clone(),
+                        balance,
+                        last_received_timestamp: dao_utils::from_time_t(last_received_timestamp),
+                    }),
+                    _ => panic!("Database is corrupt: RECEIVABLE table columns and/or types"),
+                }
             })
             .optional()
         {
-            Ok(Some((Ok(balance), Ok(timestamp)))) => Some(ReceivableAccount {
-                wallet_address: wallet_address.clone(),
-                balance,
-                last_received_timestamp: dao_utils::from_time_t(timestamp),
-            }),
-            Ok(Some(e)) => panic!("Database is corrupt: {:?}", e),
-            Ok(None) => None,
+            Ok(value) => value,
             Err(e) => panic!("Database is corrupt: {:?}", e),
         }
     }
@@ -76,14 +79,26 @@ impl ReceivableDao for ReceivableDaoReal {
             .expect("Internal error");
 
         stmt.query_map(NO_PARAMS, |row| {
-            Ok(ReceivableAccount {
-                balance: row.get_unwrap(0),
-                last_received_timestamp: dao_utils::from_time_t(row.get_unwrap(1)),
-                wallet_address: Wallet::new(&row.get_unwrap::<usize, String>(2)),
-            })
+            let balance_result = row.get(0);
+            let last_received_timestamp_result = row.get(1);
+            let wallet_address_result: Result<String, rusqlite::Error> = row.get(2);
+            match (
+                balance_result,
+                last_received_timestamp_result,
+                wallet_address_result,
+            ) {
+                (Ok(balance), Ok(last_received_timestamp), Ok(wallet_address)) => {
+                    Ok(ReceivableAccount {
+                        wallet_address: Wallet::new(wallet_address.as_str()),
+                        balance,
+                        last_received_timestamp: dao_utils::from_time_t(last_received_timestamp),
+                    })
+                }
+                _ => panic!("Database is corrupt: RECEIVABLE table columns and/or types"),
+            }
         })
         .expect("Database is corrupt")
-        .map(|p| p.expect("Database is corrupt"))
+        .flat_map(|p| p)
         .collect()
     }
 }

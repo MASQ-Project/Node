@@ -68,20 +68,28 @@ impl PayableDao for PayableDaoReal {
             .expect("Internal error");
         match stmt
             .query_row(&[wallet_address.address.clone()], |row| {
-                Ok((row.get(0), row.get(1), row.get(2)))
+                let balance_result = row.get(0);
+                let last_paid_timestamp_result = row.get(1);
+                let pending_payment_transaction_result = row.get(2);
+                match (
+                    balance_result,
+                    last_paid_timestamp_result,
+                    pending_payment_transaction_result,
+                ) {
+                    (Ok(balance), Ok(last_paid_timestamp), Ok(pending_payment_transaction)) => {
+                        Ok(PayableAccount {
+                            wallet_address: wallet_address.clone(),
+                            balance,
+                            last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
+                            pending_payment_transaction,
+                        })
+                    }
+                    _ => panic!("Database is corrupt: PAYABLE table columns and/or types"),
+                }
             })
             .optional()
         {
-            Ok(Some((Ok(balance), Ok(last_paid_timestamp), Ok(pending_payment_transaction)))) => {
-                Some(PayableAccount {
-                    wallet_address: wallet_address.clone(),
-                    balance,
-                    last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
-                    pending_payment_transaction,
-                })
-            }
-            Ok(Some(e)) => panic!("Database is corrupt: {:?}", e),
-            Ok(None) => None,
+            Ok(value) => value,
             Err(e) => panic!("Database is corrupt: {:?}", e),
         }
     }
@@ -92,15 +100,26 @@ impl PayableDao for PayableDaoReal {
             .expect("Internal error");
 
         stmt.query_map(NO_PARAMS, |row| {
-            Ok(PayableAccount {
-                balance: row.get_unwrap(0),
-                last_paid_timestamp: dao_utils::from_time_t(row.get_unwrap(1)),
-                wallet_address: Wallet::new(&row.get_unwrap::<usize, String>(2)),
-                pending_payment_transaction: None,
-            })
+            let balance_result = row.get(0);
+            let last_paid_timestamp_result = row.get(1);
+            let wallet_address_result: Result<String, rusqlite::Error> = row.get(2);
+            match (
+                balance_result,
+                last_paid_timestamp_result,
+                wallet_address_result,
+            ) {
+                (Ok(balance), Ok(last_paid_timestamp), Ok(wallet_address)) => Ok(PayableAccount {
+                    wallet_address: Wallet::new(wallet_address.as_str()),
+                    balance,
+                    last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
+                    pending_payment_transaction: None,
+                }),
+                _ => panic!("Database is corrupt: PAYABLE table columns and/or types"),
+            }
         })
         .expect("Database is corrupt")
-        .map(|p| p.expect("Database is corrupt"))
+        .into_iter()
+        .flat_map(|v| v)
         .collect()
     }
 }
