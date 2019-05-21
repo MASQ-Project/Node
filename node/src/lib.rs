@@ -20,6 +20,7 @@ pub mod json_masquerader;
 mod listener_handler;
 pub mod masquerader;
 pub mod neighborhood;
+mod node_configurator;
 mod null_masquerader;
 pub mod persistent_configuration;
 mod privilege_drop;
