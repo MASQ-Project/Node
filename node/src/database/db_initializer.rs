@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node-data.db";
-pub const CURRENT_SCHEMA_VERSION: &str = "0.0.3";
+pub const CURRENT_SCHEMA_VERSION: &str = "0.0.4";
 
 pub trait ConnectionWrapper: Debug {
     fn prepare(&self, query: &str) -> Result<Statement, rusqlite::Error>;
