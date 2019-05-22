@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::configuration::PortConfiguration;
+use crate::bootstrapper::PortConfiguration;
 use crate::stream_handler_pool::StreamHandlerPoolSubs;
 use crate::sub_lib::dispatcher::DispatcherSubs;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;

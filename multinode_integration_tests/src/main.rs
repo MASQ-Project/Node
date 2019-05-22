@@ -360,7 +360,7 @@ mod tests {
         assert_eq!(
             stderr.get_string(),
             String::from(
-                "NodeAddr should be expressed as '<IP address>:<port>,<port>,...', not 'Booga'\n"
+                "NodeAddr should be expressed as '<IP address>:<port>;<port>,...', not 'Booga'\n"
             )
         );
     }

@@ -136,19 +136,19 @@ care of for you (if you haven't turned off UPnP on your router), but right now i
 * `--dns_servers <IP address>,...` This is the same list of DNS servers needed for zero-hop operation. Whenever your
 SubstratumNode is used as an exit Node, it will contact these DNS servers to find the host the client is trying to reach.
 
-* `--neighbor <public key>;<IP address>;<port>,<port>,...`
-This is how you tell your Node about one of its neighbors. The `<public key>` is the Base64-encoded public key of the
+* `--neighbors <public key>:<IP address>:<port>[;<port>;...][,<public key>:<IP address>:<port>[;<port>;...],...`
+This is how you tell your Node about its initial neighbors. You can specify as many neighbors as you like, with the
+descriptors separated by commas but no spaces. The `<public key>` in a descriptor is the Base64-encoded public key of the
 neighbor in question. The `<IP address>` is the public IP address of that neighbor, and the `<port>` numbers are the
-clandestine ports on which the neighbor is listening.  If this other Node is one you're running yourself, you'll see it
+clandestine ports on which the neighbor is listening.  If the neighbor Node is one you're running yourself, you'll see it
 print this information to the console when it comes up.  If it's somewhere else on the Internet, you'll probably receive
-this information in an email or chat message to copy/paste onto your command line.  You can specify as many `--neighbor`
-parameters as you like.
+this information in an email or chat message to copy/paste onto your command line.
 
 * `--node_type < standard | bootstrap >`
 This is how you tell SubstratumNode whether to start up as a bootstrap-only Node or as a standard (non-bootstrap) Node. If
 you're interested in running data through the system, you won't find the `bootstrap` option particularly fulfilling, but
 you should feel free to try it if you like.  Note: Bootstrap-only Nodes must start up with no knowledge of their environment,
-so `--node_type bootstrap` will not tolerate `--neighbor`.
+so `--node_type bootstrap` will not tolerate `--neighbors`.
 
 * `--clandestine_port <n>`
 This is an optional parameter. If you don't specify a clandestine port, your Node will use the same clandestine port it
@@ -181,30 +181,31 @@ and abort if it fails. If persistent state exists in the directory, but it was c
 incompatible with the version you're trying to start, Node will abort. If this is the case, either remove the existing
 state and restart Node, or specify a different `--data_directory` directory.
 
-* `--wallet_address <WALLET_ADDRESS>` Must be 42 characters long, contain only hex and start with 0x.
-
-If you try to start your SubstratumNode decentralized, you will quickly discover that these parameters have
-a great deal of interdependence on each other.  Some are required, some are optional, some are optional only if others
-are provided, and so on.  Here's a brief description of the dependencies.
+* `--wallet_address <WALLET_ADDRESS>` This is the Ethereum address of your earning wallet--that is, the wallet other
+Nodes will pay SUB into when they use your routing and exit services. It must be 42 characters long, contain only
+hexadecimal digits, and start with "0x". The parameter is optional; if you don't specify it, a hard-coded default will
+be used, and the money for the services you provide will go to Substratum instead of to you.
 
 In order to run decentralized, the SubstratumNode _must_ know the IP address others can use to contact it. Therefore,
-you must supply `--ip`. You also must have some way of finding out about your network environment, so you must specify 
-`--neighbor` or `--node_type bootstrap`, but only one of those.  Also, your Node must have some
-way to transfer clandestine traffic to and from other Nodes, so you must have a `--port_count` greater than zero.  
-(1 is fine. 1000 is fine too, but you'll be poking holes in your router's firewall for awhile.)
+you must supply `--ip`. If you don't supply `--ip`, your Node will come up in zero-hop mode and never route through
+any other Nodes.
 
-Your home network is behind your internet provider's router and a public IP address. Other nodes in the Substratum Network
-will communicate with your public IP address requiring some ports to be opened on your router. The Node gossip protocol 
-"gossips" to other nodes the ports you are listening on and it is those ports you will need to open. When your node 
-is started it will print the list of ports; you will need to forward those exact ports from your router to 
-your computer's IP address.
+If you're starting the very first Node in your Substratum network, then you don't have to tell your Node about any
+preexisting network; but otherwise, you'll need to specify `--neighbors` so that your Node will know how to join the
+network that is already in place.
 
-Opening ports on your router is somewhat technical and at a minimum you should know how to login to your router in 
-order to make changes. Opening a port is usually referred to as Port Forwarding or Port Mapping within a router's 
-interface and maybe labeled as such. Assigning a Static IP for your computer will make this process easier as your 
-IP address can change each time your computer restarts or you restart the network interface. There are many guides that 
-you can find on the internet by searching for "Port Forwarding" or "How to Port Forwarding". 
-Here is an example: [PortForward.com](https://portforward.com)
+Your home network is behind your internet provider's router and a public IP address. Other Nodes in the Substratum Network
+will contact your Node through your public IP address, requiring at least one port to be forwarded on your router. The Node
+Gossip protocol "gossips" to other nodes the clandestine port you are listening on, and it is that port you will need 
+to open. When your Node is started it will write its descriptor to the console and the log, giving the clandestine
+port it is using; you will need to forward that port from your router to your computer's IP address.
+
+Forwarding ports on your router is somewhat technical. At a minimum, you should know how to log in to your router in 
+order to make changes to its configuration. The process is interchangeably called forwarding a port, opening a port,
+or mapping a port, and may be labeled as such in the router's interface. Assigning a static IP address for your computer
+will make this process easier, as otherwise your IP address can change each time your computer restarts or you restart
+the network interface. There are many guides that you can find on the Internet by searching for "Port Forwarding" or
+"How to Port Forwarding". Here is an example: [PortForward.com](https://portforward.com)
 
 More information on the operation, care, and feeding of the Neighborhood is available
 [in the neighborhood_subproject](https://github.com/SubstratumNetwork/SubstratumNode/tree/master/node/src/neighborhood).

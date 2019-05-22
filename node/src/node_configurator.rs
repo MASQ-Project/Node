@@ -1,12 +1,15 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::bootstrapper::BootstrapperConfig;
+use crate::bootstrapper::{BootstrapperConfig, PortConfiguration};
+use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
+use crate::persistent_configuration::{HTTP_PORT, TLS_PORT};
 use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
 use crate::sub_lib::accountant::TEMPORARY_CONSUMING_WALLET;
 use crate::sub_lib::crash_point::CrashPoint;
 use crate::sub_lib::neighborhood::{sentinel_ip_addr, NodeDescriptor};
 use crate::sub_lib::ui_gateway::DEFAULT_UI_PORT;
 use crate::sub_lib::wallet::Wallet;
+use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
 use clap::{
     arg_enum, crate_authors, crate_description, crate_version, value_t, values_t, App, Arg,
 };
@@ -51,6 +54,7 @@ pub struct NodeConfiguratorReal {
 impl NodeConfigurator for NodeConfiguratorReal {
     fn generate_configuration(&self, args: &Vec<String>) -> BootstrapperConfig {
         let mut bootstrapper_config = BootstrapperConfig::new();
+        self.establish_port_configurations(&mut bootstrapper_config);
         self.parse_args(args, &mut bootstrapper_config);
         self.parse_environment_variables(&mut bootstrapper_config);
         bootstrapper_config
@@ -70,114 +74,135 @@ lazy_static! {
         "Must be between {} and {}; defaults to {}",
         LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT, DEFAULT_UI_PORT
     );
+    static ref CLANDESTINE_PORT_HELP: String = format!(
+        "Must be between {} and {}; defaults to last used port",
+        LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
+    );
 }
 
 impl NodeConfiguratorReal {
     pub fn new() -> NodeConfiguratorReal {
-        let mut result = NodeConfiguratorReal {
-            app: App::new("Preliminary"),
-        };
-        result.app = App::new("SubstratumNode")
-            .version(crate_version!())
-            .author(crate_authors!("\n"))
-            .about(crate_description!())
-            .arg(
-                Arg::with_name("blockchain_service_url")
-                    .long("blockchain_service_url")
-                    .value_name("URL")
-                    .takes_value(true),
-            )
-            .arg(
-                Arg::with_name("clandestine_port")
-                    .long("clandestine_port")
-                    .value_name("CLANDESTINE_PORT")
-                    .empty_values(false)
-                    .validator(Validators::validate_clandestine_port)
-                    .help("Must be between 1025 and 65535 [default: last used port]"),
-            )
-            .arg(
-                Arg::with_name("data_directory")
-                    .long("data_directory")
-                    .value_name("DATA_DIRECTORY")
-                    .empty_values(false)
-                    .default_value(&DEFAULT_DATA_DIR_VALUE),
-            )
-            .arg(
-                Arg::with_name("dns_servers")
-                    .long("dns_servers")
-                    .value_name("DNS_SERVERS")
-                    .takes_value(true)
-                    .required(true)
-                    .use_delimiter(true)
-                    .validator(Validators::validate_ip_address),
-            )
-            .arg(
-                Arg::with_name("ip")
-                    .long("ip")
-                    .value_name("IP")
-                    .takes_value(true)
-                    .default_value(&DEFAULT_IP_VALUE)
-                    .validator(Validators::validate_ip_address),
-            )
-            .arg(
-                Arg::with_name("log_level")
-                    .long("log_level")
-                    .value_name("FILTER")
-                    .takes_value(true)
-                    .possible_values(&["error", "warn", "info", "debug", "trace", "off"])
-                    .default_value("warn")
-                    .case_insensitive(true),
-            )
-            .arg(
-                Arg::with_name("neighbor")
-                    .long("neighbor")
-                    .value_name("NODE_DESCRIPTOR")
-                    .takes_value(true)
-                    .number_of_values(1)
-                    .multiple(true)
-                    .requires("ip")
-                    .validator(|s| NodeDescriptor::from_str(&s).map(|_| ())),
-            )
-            .arg(
-                Arg::with_name("node_type")
-                    .long("node_type")
-                    .value_name("NODE_TYPE")
-                    .takes_value(true)
-                    .possible_values(&NodeType::variants())
-                    .default_value(&DEFAULT_NODE_TYPE_VALUE)
-                    .case_insensitive(true),
-            )
-            .arg(
-                Arg::with_name("ui_port")
-                    .long("ui_port")
-                    .value_name("UI_PORT")
-                    .takes_value(true)
-                    .default_value(&DEFAULT_UI_PORT_VALUE)
-                    .validator(Validators::validate_ui_port)
-                    .help(&UI_PORT_HELP),
-            )
-            .arg(
-                Arg::with_name("wallet_address")
-                    .long("wallet_address")
-                    .value_name("WALLET_ADDRESS")
-                    .takes_value(true)
-                    .default_value(&DEFAULT_EARNING_WALLET_VALUE)
-                    .hide_default_value(true)
-                    .validator(Validators::validate_ethereum_address)
-                    .help("Must be 42 characters long, contain only hex and start with 0x"),
-            )
-            .arg(
-                Arg::with_name("crash_point")
-                    .long("crash_point")
-                    .value_name("CRASH_POINT")
-                    .takes_value(true)
-                    .default_value(&DEFAULT_CRASH_POINT_VALUE)
-                    .possible_values(&CrashPoint::variants())
-                    .case_insensitive(true)
-                    .hidden(true)
-                    .help("Only used for testing"),
-            );
-        result
+        NodeConfiguratorReal {
+            app: App::new("SubstratumNode")
+                .version(crate_version!())
+                .author(crate_authors!("\n"))
+                .about(crate_description!())
+                .arg(
+                    Arg::with_name("blockchain_service_url")
+                        .long("blockchain_service_url")
+                        .value_name("URL")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("clandestine_port")
+                        .long("clandestine_port")
+                        .value_name("CLANDESTINE_PORT")
+                        .empty_values(false)
+                        .validator(Validators::validate_clandestine_port)
+                        .help(&CLANDESTINE_PORT_HELP),
+                )
+                .arg(
+                    Arg::with_name("data_directory")
+                        .long("data_directory")
+                        .value_name("DATA_DIRECTORY")
+                        .empty_values(false)
+                        .default_value(&DEFAULT_DATA_DIR_VALUE),
+                )
+                .arg(
+                    Arg::with_name("dns_servers")
+                        .long("dns_servers")
+                        .value_name("DNS_SERVERS")
+                        .takes_value(true)
+                        .required(true)
+                        .use_delimiter(true)
+                        .validator(Validators::validate_ip_address),
+                )
+                .arg(
+                    Arg::with_name("ip")
+                        .long("ip")
+                        .value_name("IP")
+                        .takes_value(true)
+                        .default_value(&DEFAULT_IP_VALUE)
+                        .validator(Validators::validate_ip_address),
+                )
+                .arg(
+                    Arg::with_name("log_level")
+                        .long("log_level")
+                        .value_name("FILTER")
+                        .takes_value(true)
+                        .possible_values(&["error", "warn", "info", "debug", "trace", "off"])
+                        .default_value("warn")
+                        .case_insensitive(true),
+                )
+                .arg(
+                    Arg::with_name("neighbors")
+                        .long("neighbors")
+                        .value_name("NODE_DESCRIPTORS")
+                        .takes_value(true)
+                        .use_delimiter(true)
+                        .requires("ip")
+                        .validator(|s| NodeDescriptor::from_str(&s).map(|_| ())),
+                )
+                .arg(
+                    Arg::with_name("node_type")
+                        .long("node_type")
+                        .value_name("NODE_TYPE")
+                        .takes_value(true)
+                        .possible_values(&NodeType::variants())
+                        .default_value(&DEFAULT_NODE_TYPE_VALUE)
+                        .case_insensitive(true),
+                )
+                .arg(
+                    Arg::with_name("ui_port")
+                        .long("ui_port")
+                        .value_name("UI_PORT")
+                        .takes_value(true)
+                        .default_value(&DEFAULT_UI_PORT_VALUE)
+                        .validator(Validators::validate_ui_port)
+                        .help(&UI_PORT_HELP),
+                )
+                .arg(
+                    Arg::with_name("wallet_address")
+                        .long("wallet_address")
+                        .value_name("WALLET_ADDRESS")
+                        .takes_value(true)
+                        .default_value(&DEFAULT_EARNING_WALLET_VALUE)
+                        .hide_default_value(true)
+                        .validator(Validators::validate_ethereum_address)
+                        .help("Must be 42 characters long, contain only hex and start with 0x"),
+                )
+                .arg(
+                    Arg::with_name("crash_point")
+                        .long("crash_point")
+                        .value_name("CRASH_POINT")
+                        .takes_value(true)
+                        .default_value(&DEFAULT_CRASH_POINT_VALUE)
+                        .possible_values(&CrashPoint::variants())
+                        .case_insensitive(true)
+                        .hidden(true)
+                        .help("Only used for testing"),
+                ),
+        }
+    }
+
+    fn establish_port_configurations(&self, config: &mut BootstrapperConfig) {
+        config.port_configurations.insert(
+            HTTP_PORT,
+            PortConfiguration::new(
+                vec![Box::new(HttpRequestDiscriminatorFactory::new())],
+                false,
+            ),
+        );
+        config.port_configurations.insert(
+            TLS_PORT,
+            PortConfiguration::new(
+                vec![
+                    Box::new(TlsDiscriminatorFactory::new()),
+                    Box::new(HttpRequestDiscriminatorFactory::new()),
+                ],
+                false,
+            ),
+        );
     }
 
     fn parse_args(&self, args: &Vec<String>, config: &mut BootstrapperConfig) {
@@ -209,7 +234,7 @@ impl NodeConfiguratorReal {
         config.log_level = value_t!(matches, "log_level", LevelFilter).expect("Internal Error");
 
         config.neighborhood_config.neighbor_configs =
-            match values_t!(matches, "neighbor", NodeDescriptor) {
+            match values_t!(matches, "neighbors", NodeDescriptor) {
                 Ok(neighbors) => neighbors,
                 Err(_) => vec![],
             };
@@ -317,7 +342,6 @@ impl DirsWrapper for RealDirsWrapper {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::configuration::Configuration;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::neighborhood::sentinel_ip_addr;
     use crate::sub_lib::node_addr::NodeAddr;
@@ -578,14 +602,12 @@ mod tests {
             "SubstratumNode",
             "--dns_servers",
             "12.34.56.78,23.45.67.89",
-            "--neighbor",
-            "QmlsbA:1.2.3.4:1234,2345",
+            "--neighbors",
+            "QmlsbA:1.2.3.4:1234;2345,VGVk:2.3.4.5:3456;4567",
             "--ip",
             "34.56.78.90",
             "--clandestine_port",
             "1234",
-            "--neighbor",
-            "VGVk:2.3.4.5:3456,4567",
             "--node_type",
             "bootstrap",
             "--ui_port",
@@ -602,9 +624,6 @@ mod tests {
         .into_iter()
         .map(String::from)
         .collect();
-        let mut configuration = Configuration::new();
-
-        configuration.establish();
         let mut config = BootstrapperConfig::new();
         let subject = NodeConfiguratorReal::new();
 
@@ -665,9 +684,6 @@ mod tests {
             .into_iter()
             .map(String::from)
             .collect();
-        let mut configuration = Configuration::new();
-
-        configuration.establish();
         let mut config = BootstrapperConfig::new();
         let subject = NodeConfiguratorReal::new();
 

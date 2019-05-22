@@ -3,7 +3,7 @@ use super::neighborhood_database::NeighborhoodDatabaseError::NodeKeyNotFound;
 use crate::neighborhood::dot_graph::{
     render_dot_graph, DotRenderable, EdgeRenderable, NodeRenderable,
 };
-use crate::neighborhood::node_record::NodeRecord;
+use crate::neighborhood::node_record::{NodeRecord, NodeRecordError};
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, PlainData};
 use crate::sub_lib::neighborhood::RatePack;
@@ -148,10 +148,12 @@ impl NeighborhoodDatabase {
             return Ok(false);
         }
         match self.node_by_key_mut(node_key) {
-            Some(node) => {
-                node.add_half_neighbor_key(new_neighbor.clone());
-                Ok(true)
-            }
+            Some(node) => match node.add_half_neighbor_key(new_neighbor.clone()) {
+                Err(NodeRecordError::SelfNeighborAttempt(key)) => {
+                    Err(NeighborhoodDatabaseError::SelfNeighborAttempt(key))
+                }
+                Ok(_) => Ok(true),
+            },
             None => Err(NodeKeyNotFound(node_key.clone())),
         }
     }
@@ -290,6 +292,7 @@ impl NeighborhoodDatabase {
 pub enum NeighborhoodDatabaseError {
     NodeKeyNotFound(PublicKey),
     NodeKeyCollision(PublicKey),
+    SelfNeighborAttempt(PublicKey),
     NodeAddrAlreadySet(NodeAddr),
     EmptyPortList,
 }
@@ -577,6 +580,21 @@ mod tests {
     }
 
     #[test]
+    fn add_half_neighbor_complains_when_node_tries_to_neighbor_itself() {
+        let this_node = make_node_record(1234, true, false);
+        let mut subject = db_from_node(&this_node);
+
+        let result = subject.add_half_neighbor(this_node.public_key());
+
+        assert_eq!(
+            result,
+            Err(NeighborhoodDatabaseError::SelfNeighborAttempt(
+                this_node.public_key().clone()
+            ))
+        )
+    }
+
+    #[test]
     fn add_half_neighbor_returns_true_when_new_edge_is_created() {
         let this_node = make_node_record(1234, true, false);
         let other_node = make_node_record(2345, true, false);
@@ -632,8 +650,12 @@ mod tests {
         db.add_arbitrary_full_neighbor(p, r);
         // nonexistent neighbor
         let mut s_rec = make_node_record(1010, true, false);
-        s_rec.add_half_neighbor_key(PublicKey::new(&[8, 8, 8, 8]));
-        s_rec.add_half_neighbor_key(PublicKey::new(&[9, 9, 9, 9]));
+        s_rec
+            .add_half_neighbor_key(PublicKey::new(&[8, 8, 8, 8]))
+            .unwrap();
+        s_rec
+            .add_half_neighbor_key(PublicKey::new(&[9, 9, 9, 9]))
+            .unwrap();
         let s = &db.add_node(s_rec).unwrap();
 
         assert_eq!(2, db.gossip_target_degree(a));

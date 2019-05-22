@@ -175,7 +175,9 @@ impl NeighborhoodDatabase {
             false
         } else {
             let node_ref = self.node_by_key_mut(node_key).unwrap();
-            node_ref.add_half_neighbor_key(new_neighbor.clone());
+            node_ref
+                .add_half_neighbor_key(new_neighbor.clone())
+                .unwrap();
             node_ref.resign();
             true
         }

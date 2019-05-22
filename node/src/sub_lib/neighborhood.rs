@@ -239,16 +239,16 @@ mod tests {
 
     #[test]
     fn node_descriptor_from_str_complains_about_bad_base_64() {
-        let result = NodeDescriptor::from_str("bad_key:1.2.3.4:1234,2345");
+        let result = NodeDescriptor::from_str("bad_key:1.2.3.4:1234;2345");
 
-        assert_eq!(Err(String::from("bad_key:1.2.3.4:1234,2345")), result);
+        assert_eq!(Err(String::from("bad_key:1.2.3.4:1234;2345")), result);
     }
 
     #[test]
     fn node_descriptor_from_str_complains_about_blank_public_key() {
-        let result = NodeDescriptor::from_str(":1.2.3.4:1234,2345");
+        let result = NodeDescriptor::from_str(":1.2.3.4:1234;2345");
 
-        assert_eq!(Err(String::from(":1.2.3.4:1234,2345")), result);
+        assert_eq!(Err(String::from(":1.2.3.4:1234;2345")), result);
     }
 
     #[test]
@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn node_descriptor_from_str_handles_the_happy_path() {
-        let result = NodeDescriptor::from_str("R29vZEtleQ:1.2.3.4:1234,2345,3456");
+        let result = NodeDescriptor::from_str("R29vZEtleQ:1.2.3.4:1234;2345;3456");
 
         assert_eq!(
             NodeDescriptor {

@@ -5,7 +5,6 @@ use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
 use crate::blockchain::blockchain_interface::TESTNET_CONTRACT_ADDRESS;
 use crate::config_dao::ConfigDaoReal;
-use crate::configuration::{Configuration, PortConfiguration};
 use crate::crash_test_dummy::CrashTestDummy;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::discriminator::DiscriminatorFactory;
@@ -31,8 +30,10 @@ use crate::sub_lib::socket_server::SocketServer;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::ui_gateway::DEFAULT_UI_PORT;
 use base64;
+use clap::arg_enum;
 use futures::try_ready;
 use log::LevelFilter;
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
@@ -46,6 +47,41 @@ use tokio::prelude::Stream;
 
 pub static mut CRYPT_DE_OPT: Option<CryptDENull> = None;
 
+arg_enum! {
+    #[derive(Debug, PartialEq, Clone)]
+    enum NodeType {
+        Bootstrap,
+        Standard
+    }
+}
+
+impl Into<bool> for NodeType {
+    fn into(self) -> bool {
+        match self {
+            NodeType::Bootstrap => true,
+            NodeType::Standard => false,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct PortConfiguration {
+    pub discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
+    pub is_clandestine: bool,
+}
+
+impl PortConfiguration {
+    pub fn new(
+        discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
+        is_clandestine: bool,
+    ) -> PortConfiguration {
+        PortConfiguration {
+            discriminator_factories,
+            is_clandestine,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct BootstrapperConfig {
     pub log_level: LevelFilter,
@@ -56,6 +92,7 @@ pub struct BootstrapperConfig {
     pub clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
     pub ui_gateway_config: UiGatewayConfig,
     pub blockchain_bridge_config: BlockchainBridgeConfig,
+    pub port_configurations: HashMap<u16, PortConfiguration>,
     // This is to defer storing of the clandestine port in the database until after privilege is
     // relinquished, so that if we create the database we don't do it as root, which would lead
     // to an unfortunate ownership and privilege situation for the database file.
@@ -91,6 +128,7 @@ impl BootstrapperConfig {
                 contract_address: TESTNET_CONTRACT_ADDRESS,
                 consuming_private_key: None,
             },
+            port_configurations: HashMap::new(),
             clandestine_port_opt: None,
             data_directory: PathBuf::new(),
         }
@@ -129,16 +167,13 @@ impl SocketServer for Bootstrapper {
         args: &Vec<String>,
         logger_initializer: &mut Box<dyn LoggerInitializerWrapper>,
     ) {
-        let mut configuration = Configuration::new();
-        configuration.establish();
         let configurator = NodeConfiguratorReal::new();
         let config = configurator.generate_configuration(args);
         logger_initializer.init(config.log_level);
-        self.config = Some(config);
         self.listener_handlers =
             FuturesUnordered::<Box<dyn ListenerHandler<Item = (), Error = ()>>>::new();
 
-        configuration
+        config
             .port_configurations
             .iter()
             .for_each(|(port, port_configuration)| {
@@ -151,6 +186,7 @@ impl SocketServer for Bootstrapper {
                 }
                 self.listener_handlers.push(listener_handler);
             });
+        self.config = Some(config);
     }
 
     fn initialize_as_unprivileged(&mut self, streams: &mut StdStreams<'_>) {
@@ -254,7 +290,7 @@ impl Bootstrapper {
             .push(Box::new(JsonDiscriminatorFactory::new()));
     }
 
-    // TODO Examine this and make sure it won't ever cause problems with decentralized Nodes that don't specify --neighbor
+    // TODO Examine this and make sure it won't ever cause problems with decentralized Nodes that don't specify --neighbors
     fn is_zero_hop(config: &BootstrapperConfig) -> bool {
         config.neighborhood_config.neighbor_configs.is_empty()
             && config.neighborhood_config.local_ip_addr == sentinel_ip_addr()
@@ -266,7 +302,6 @@ mod tests {
     use super::*;
     use crate::actor_system_factory::ActorFactory;
     use crate::config_dao::ConfigDaoReal;
-    use crate::configuration::PortConfiguration;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::discriminator::Discriminator;
     use crate::discriminator::UnmaskedChunk;
@@ -991,7 +1026,6 @@ mod tests {
     }
 
     struct BootstrapperBuilder {
-        configuration: Option<Configuration>,
         actor_system_factory: Box<dyn ActorSystemFactory>,
         listener_handler_factory: ListenerHandlerFactoryMock,
     }
@@ -999,17 +1033,10 @@ mod tests {
     impl BootstrapperBuilder {
         fn new() -> BootstrapperBuilder {
             BootstrapperBuilder {
-                configuration: None,
                 actor_system_factory: Box::new(ActorSystemFactoryMock::new()),
                 // Don't modify this line unless you've already looked at DispatcherBuilder::add_listener_handler().
                 listener_handler_factory: ListenerHandlerFactoryMock::new(),
             }
-        }
-
-        #[allow(dead_code)]
-        fn configuration(mut self, configuration: Configuration) -> BootstrapperBuilder {
-            self.configuration = Some(configuration);
-            self
         }
 
         fn actor_system_factory(

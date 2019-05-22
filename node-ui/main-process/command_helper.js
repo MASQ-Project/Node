@@ -36,7 +36,7 @@ module.exports = (() => {
         args = args.concat(
           [
             '--ip', additionalArgs.ip,
-            '--neighbor', additionalArgs.neighbor
+            '--neighbors', additionalArgs.neighbor
           ])
       }
 

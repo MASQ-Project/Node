@@ -16,6 +16,7 @@ use node_lib::sub_lib::neighborhood::ZERO_RATE_PACK;
 use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::sub_lib::wallet::Wallet;
 use regex::Regex;
+use std::fmt::Display;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
@@ -87,11 +88,11 @@ impl NodeStartupConfig {
             args.push(format!("{}", ip_addr));
         }
         args.push("--dns_servers".to_string());
-        args.push(Self::join_ip_addrs(&self.dns_servers));
-        self.neighbors.iter().for_each(|neighbor| {
-            args.push("--neighbor".to_string());
-            args.push(format!("{}", neighbor));
-        });
+        args.push(Self::join_strings(&self.dns_servers));
+        if !self.neighbors.is_empty() {
+            args.push("--neighbors".to_string());
+            args.push(Self::join_strings(&self.neighbors));
+        }
         args.push("--wallet_address".to_string());
         args.push(format!("{}", self.earning_wallet.address));
         args.push("--node_type".to_string());
@@ -113,10 +114,10 @@ impl NodeStartupConfig {
         args
     }
 
-    fn join_ip_addrs(ip_addrs: &Vec<IpAddr>) -> String {
-        ip_addrs
+    fn join_strings<T: Display>(items: &Vec<T>) -> String {
+        items
             .iter()
-            .map(|ip_addr| format!("{}", ip_addr))
+            .map(|item| format!("{}", item))
             .collect::<Vec<String>>()
             .join(",")
     }
@@ -811,10 +812,8 @@ mod tests {
                 "1.3.5.7",
                 "--dns_servers",
                 "8.8.8.8",
-                "--neighbor",
-                format!("{}", one_neighbor).as_str(),
-                "--neighbor",
-                format!("{}", another_neighbor).as_str(),
+                "--neighbors",
+                format!("{},{}", one_neighbor, another_neighbor).as_str(),
                 "--wallet_address",
                 accountant::DEFAULT_EARNING_WALLET.address.as_str(),
                 "--node_type",

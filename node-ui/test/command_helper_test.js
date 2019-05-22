@@ -170,7 +170,7 @@ describe('CommandHelper', () => {
         })
 
         it('provides them as command line arguments', () => {
-          td.verify(sudoPrompt.exec(td.matchers.contains(/--ip abc\s+--neighbor hidelyho/), { name: 'Substratum Node' }, 'callback'))
+          td.verify(sudoPrompt.exec(td.matchers.contains(/--ip abc\s+--neighbors hidelyho/), { name: 'Substratum Node' }, 'callback'))
         })
       })
 
@@ -181,7 +181,7 @@ describe('CommandHelper', () => {
 
         it('uses neither as command line arguments', () => {
           td.verify(sudoPrompt.exec(td.matchers.argThat((args) => {
-            return !args.includes('--ip') && !args.includes('--neighbor')
+            return !args.includes('--ip') && !args.includes('--neighbors')
           }), { name: 'Substratum Node' }, 'callback'))
         })
       })
@@ -193,7 +193,7 @@ describe('CommandHelper', () => {
 
         it('uses neither as command line arguments', () => {
           td.verify(sudoPrompt.exec(td.matchers.argThat((args) => {
-            return !args.includes('--ip') && !args.includes('--neighbor')
+            return !args.includes('--ip') && !args.includes('--neighbors')
           }), { name: 'Substratum Node' }, 'callback'))
         })
       })
@@ -246,7 +246,7 @@ describe('CommandHelper', () => {
         })
 
         it('provides them as command line arguments', () => {
-          td.verify(nodeCmd.get(td.matchers.contains(/--ip abc\s+--neighbor hidelyho/), 'callback'))
+          td.verify(nodeCmd.get(td.matchers.contains(/--ip abc\s+--neighbors hidelyho/), 'callback'))
         })
       })
 
@@ -257,7 +257,7 @@ describe('CommandHelper', () => {
 
         it('uses neither as command line arguments', () => {
           td.verify(nodeCmd.get(td.matchers.argThat((args) => {
-            return !args.includes('--ip') && !args.includes('--neighbor')
+            return !args.includes('--ip') && !args.includes('--neighbors')
           }), 'callback'))
         })
       })
@@ -269,7 +269,7 @@ describe('CommandHelper', () => {
 
         it('uses neither as command line arguments', () => {
           td.verify(nodeCmd.get(td.matchers.argThat((args) => {
-            return !args.includes('--ip') && !args.includes('--neighbor')
+            return !args.includes('--ip') && !args.includes('--neighbors')
           }), 'callback'))
         })
       })

@@ -14,7 +14,7 @@ import {MainService} from '../main.service';
 export class NodeConfigurationComponent implements OnInit {
 
   ipPattern = '(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)';
-  neighborPattern = `(?:[a-zA-Z0-9\\/\\+]{43}):${this.ipPattern}:(?:\\d+)(?:,\\d+)*`;
+  neighborPattern = `(?:[a-zA-Z0-9\\/\\+]{43}):${this.ipPattern}:(?:\\d+)(?:;\\d+)*`;
   walletPattern = '0x[a-fA-F0-9]{40}';
 
   constructor(private configService: ConfigService, private router: Router, private mainService: MainService) {

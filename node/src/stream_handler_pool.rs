@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::configuration::PortConfiguration;
+use crate::bootstrapper::PortConfiguration;
 use crate::discriminator::DiscriminatorFactory;
 use crate::json_masquerader::JsonMasquerader;
 use crate::masquerader::Masquerader;

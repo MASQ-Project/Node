@@ -7,7 +7,6 @@ mod banned_dao;
 mod blockchain;
 mod bootstrapper;
 mod config_dao;
-mod configuration;
 mod crash_test_dummy;
 pub mod database;
 pub mod discriminator;

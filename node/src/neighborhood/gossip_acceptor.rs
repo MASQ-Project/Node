@@ -382,7 +382,7 @@ impl GossipHandler for IntroductionHandler {
     // match the gossip_source. The other record's IP address must not match the gossip_source.
     fn qualifies(
         &self,
-        _database: &NeighborhoodDatabase,
+        database: &NeighborhoodDatabase,
         agrs: &Vec<AccessibleGossipRecord>,
         gossip_source: IpAddr,
     ) -> Qualification {
@@ -395,7 +395,7 @@ impl GossipHandler for IntroductionHandler {
                 Ok(true) => (&agrs[0], &agrs[1]),
                 Ok(false) => (&agrs[1], &agrs[0]),
             };
-        if let Some(qual) = Self::verify_introducer(introducer) {
+        if let Some(qual) = Self::verify_introducer(introducer, database.root()) {
             return qual;
         };
         if let Some(qual) = Self::verify_introducee(introducer, introducee, gossip_source) {
@@ -491,13 +491,33 @@ impl IntroductionHandler {
         Ok(pair)
     }
 
-    fn verify_introducer(agr: &AccessibleGossipRecord) -> Option<Qualification> {
+    fn verify_introducer(
+        agr: &AccessibleGossipRecord,
+        root_node: &NodeRecord,
+    ) -> Option<Qualification> {
+        if &agr.inner.public_key == root_node.public_key() {
+            return Some(Qualification::Malformed(format!(
+                "Introducer {} claims local Node's public key",
+                agr.inner.public_key
+            )));
+        }
         let introducer_node_addr = agr.node_addr_opt.as_ref().expect("NodeAddr disappeared");
         if introducer_node_addr.ports().is_empty() {
             return Some(Qualification::Malformed(format!(
                 "Introducer {} from {} has no ports",
                 &agr.inner.public_key,
                 introducer_node_addr.ip_addr()
+            )));
+        }
+        if introducer_node_addr.ip_addr()
+            == root_node
+                .node_addr_opt()
+                .expect("Root node must have NodeAddr")
+                .ip_addr()
+        {
+            return Some(Qualification::Malformed(format!(
+                "Introducer {} claims to be at local Node's IP address",
+                agr.inner.public_key
             )));
         }
         None
@@ -666,11 +686,11 @@ impl NamedType for StandardGossipHandler {
 
 impl GossipHandler for StandardGossipHandler {
     // Standard Gossip must contain more than one GossipNodeRecord, and it must not be an Introduction. At least one
-    // record in the Gossip must contain the IP address from which the Gossip arrived.
-    // Beyond that, the requirements are somewhat murky.
+    // record in the Gossip must contain the IP address from which the Gossip arrived. There must be no record in the
+    // Gossip describing the local Node (although there may be records that reference the local Node as a neighbor).
     fn qualifies(
         &self,
-        _database: &NeighborhoodDatabase,
+        database: &NeighborhoodDatabase,
         agrs: &Vec<AccessibleGossipRecord>,
         gossip_source: IpAddr,
     ) -> Qualification {
@@ -678,23 +698,42 @@ impl GossipHandler for StandardGossipHandler {
         if agrs.len() < 2 {
             return Qualification::Unmatched;
         }
-        let ip_addrs = agrs
+        let agrs_next_door = agrs
             .iter()
-            .flat_map(|agr| agr.node_addr_opt.as_ref())
-            .map(|node_addr| node_addr.ip_addr())
-            .collect::<Vec<IpAddr>>();
-        if !ip_addrs.iter().any(|ip_addr| ip_addr == &gossip_source) {
+            .filter(|agr| agr.node_addr_opt.is_some())
+            .collect::<Vec<&AccessibleGossipRecord>>();
+        if !agrs_next_door
+            .iter()
+            .any(|agr| Self::ip_of(agr) == gossip_source)
+        {
             return Qualification::Malformed(format!(
                 "Standard Gossip from {} contains no record claiming to be from {}",
                 gossip_source, gossip_source
             ));
         }
+        let root_node = database.root();
+        match agrs_next_door.iter()
+            .find (|agr| Self::ip_of(agr) == root_node.node_addr_opt().expect("Root Node must have NodeAddr").ip_addr())
+        {
+            Some(impostor) => return Qualification::Malformed(format!("Standard Gossip from {} contains a record claiming that {} has this Node's IP address", gossip_source, impostor.inner.public_key)),
+            None => (),
+        }
+        if agrs
+            .iter()
+            .any(|agr| &agr.inner.public_key == root_node.public_key())
+        {
+            return Qualification::Malformed(format!(
+                "Standard Gossip from {} contains a record with this Node's public key",
+                gossip_source
+            ));
+        }
         let init_addr_set: HashSet<IpAddr> = HashSet::new();
         let init_dup_set: HashSet<IpAddr> = HashSet::new();
-        let dup_set = ip_addrs
+        let dup_set = agrs_next_door
             .into_iter()
-            .fold((init_addr_set, init_dup_set), |so_far, ip_addr| {
+            .fold((init_addr_set, init_dup_set), |so_far, agr| {
                 let (addr_set, dup_set) = so_far;
+                let ip_addr = Self::ip_of(agr);
                 if addr_set.contains(&ip_addr) {
                     (addr_set, Self::add_ip_addr(dup_set, ip_addr))
                 } else {
@@ -835,6 +874,13 @@ impl StandardGossipHandler {
         let mut result = HashSet::from(set);
         result.insert(ip_addr);
         result
+    }
+
+    fn ip_of(agr: &AccessibleGossipRecord) -> IpAddr {
+        agr.node_addr_opt
+            .as_ref()
+            .expect("Should have NodeAddr")
+            .ip_addr()
     }
 }
 
@@ -1247,6 +1293,52 @@ mod tests {
     }
 
     #[test]
+    fn introduction_where_introducer_has_local_public_key_is_malformed() {
+        let (gossip, gossip_source) = make_introduction(2345, 3456);
+        let dest_root = make_node_record(7878, true, false);
+        let dest_db = db_from_node(&dest_root);
+        let subject = IntroductionHandler::new(Logger::new("test"));
+        let mut agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
+        agrs[0].inner.public_key = dest_root.public_key().clone();
+        let introducer_key = &agrs[0].inner.public_key;
+
+        let result = subject.qualifies(&dest_db, &agrs, gossip_source);
+
+        assert_eq!(
+            Qualification::Malformed(format!(
+                "Introducer {} claims local Node's public key",
+                introducer_key
+            )),
+            result
+        );
+    }
+
+    #[test]
+    fn introduction_where_introducer_has_local_ip_address_is_malformed() {
+        let (gossip, _) = make_introduction(2345, 3456);
+        let dest_root = make_node_record(7878, true, false);
+        let dest_db = db_from_node(&dest_root);
+        let subject = IntroductionHandler::new(Logger::new("test"));
+        let mut agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
+        agrs[0].node_addr_opt = dest_root.node_addr_opt();
+        let introducer_key = &agrs[0].inner.public_key;
+
+        let result = subject.qualifies(
+            &dest_db,
+            &agrs,
+            dest_root.node_addr_opt().unwrap().ip_addr(),
+        );
+
+        assert_eq!(
+            Qualification::Malformed(format!(
+                "Introducer {} claims to be at local Node's IP address",
+                introducer_key
+            )),
+            result
+        );
+    }
+
+    #[test]
     fn introduction_that_tries_to_change_immutable_characteristics_of_introducer_is_suspicious() {
         let (gossip, gossip_source) = make_introduction(2345, 3456);
         let dest_root = make_node_record(7878, true, false);
@@ -1442,6 +1534,70 @@ mod tests {
     }
 
     #[test]
+    fn standard_gossip_that_contains_record_describing_local_node_by_public_key_is_malformed() {
+        let src_node = make_node_record(1234, true, false);
+        let mut src_db = db_from_node(&src_node);
+        let dest_node = make_node_record(2345, true, false);
+        let mut dest_db = db_from_node(&dest_node);
+        let node_a = make_node_record(3456, true, false);
+        src_db.add_node(dest_node.clone()).unwrap();
+        src_db.add_arbitrary_full_neighbor(src_node.public_key(), dest_node.public_key());
+        src_db.add_node(node_a.clone()).unwrap();
+        dest_db.add_node(src_node.clone()).unwrap();
+        dest_db.add_arbitrary_full_neighbor(dest_node.public_key(), src_node.public_key());
+        let gossip = GossipBuilder::new(&src_db)
+            .node(src_node.public_key(), true)
+            .node(node_a.public_key(), false)
+            .node(dest_node.public_key(), false)
+            .build();
+        let subject = StandardGossipHandler::new();
+        let gossip_source = src_node.node_addr_opt().unwrap().ip_addr();
+
+        let result = subject.qualifies(&mut dest_db, &gossip.try_into().unwrap(), gossip_source);
+
+        assert_eq!(
+            Qualification::Malformed(format!(
+                "Standard Gossip from 1.2.3.4 contains a record with this Node's public key"
+            )),
+            result
+        );
+    }
+
+    #[test]
+    fn standard_gossip_that_contains_record_describing_local_node_by_ip_address_is_malformed() {
+        let src_node = make_node_record(1234, true, false);
+        let mut src_db = db_from_node(&src_node);
+        let dest_node = make_node_record(2345, true, false);
+        let mut dest_db = db_from_node(&dest_node);
+        let node_a = make_node_record(3456, true, false);
+        let mut node_b = make_node_record(4567, true, false);
+        node_b.metadata.node_addr_opt = dest_node.node_addr_opt();
+        src_db.add_node(dest_node.clone()).unwrap();
+        src_db.add_node(node_a.clone()).unwrap();
+        src_db.add_node(node_b.clone()).unwrap();
+        src_db.add_arbitrary_full_neighbor(src_node.public_key(), dest_node.public_key());
+        dest_db.add_node(src_node.clone()).unwrap();
+        dest_db.add_arbitrary_full_neighbor(dest_node.public_key(), src_node.public_key());
+        let gossip = GossipBuilder::new(&src_db)
+            .node(src_node.public_key(), true)
+            .node(node_a.public_key(), false)
+            .node(node_b.public_key(), true)
+            .build();
+        let subject = StandardGossipHandler::new();
+        let gossip_source = src_node.node_addr_opt().unwrap().ip_addr();
+
+        let result = subject.qualifies(&mut dest_db, &gossip.try_into().unwrap(), gossip_source);
+
+        assert_eq!(
+            Qualification::Malformed(format!(
+                "Standard Gossip from 1.2.3.4 contains a record claiming that {} has this Node's IP address",
+                node_b.public_key()
+            )),
+            result
+        );
+    }
+
+    #[test]
     fn standard_gossip_that_contains_multiple_records_with_same_ip_is_malformed() {
         let src_node = make_node_record(1234, true, false);
         let mut src_db = db_from_node(&src_node);
@@ -1586,7 +1742,9 @@ mod tests {
         let result = subject.handle(&mut dest_db, gossip.try_into().unwrap(), gossip_source);
 
         assert_eq!(GossipAcceptanceResult::Accepted, result);
-        root_node.add_half_neighbor_key(debut_node.public_key().clone());
+        root_node
+            .add_half_neighbor_key(debut_node.public_key().clone())
+            .unwrap();
         root_node.increment_version();
         root_node.resign();
         assert_eq!(&root_node, dest_db.root());
@@ -1627,8 +1785,12 @@ mod tests {
             ),
             result
         );
-        root_node.add_half_neighbor_key(debut_node.public_key().clone());
-        root_node.add_half_neighbor_key(existing_node_key.clone());
+        root_node
+            .add_half_neighbor_key(debut_node.public_key().clone())
+            .unwrap();
+        root_node
+            .add_half_neighbor_key(existing_node_key.clone())
+            .unwrap();
         root_node.increment_version();
         root_node.resign();
         assert_eq!(&root_node, dest_db.root());
@@ -1704,10 +1866,18 @@ mod tests {
             ],
             &result,
         );
-        root_node.add_half_neighbor_key(debut_node.public_key().clone());
-        root_node.add_half_neighbor_key(existing_node_1_key.clone());
-        root_node.add_half_neighbor_key(existing_node_2_key.clone());
-        root_node.add_half_neighbor_key(existing_node_3_key.clone());
+        root_node
+            .add_half_neighbor_key(debut_node.public_key().clone())
+            .unwrap();
+        root_node
+            .add_half_neighbor_key(existing_node_1_key.clone())
+            .unwrap();
+        root_node
+            .add_half_neighbor_key(existing_node_2_key.clone())
+            .unwrap();
+        root_node
+            .add_half_neighbor_key(existing_node_3_key.clone())
+            .unwrap();
         root_node.increment_version();
         root_node.resign();
         assert_eq!(&root_node, dest_db.root());
@@ -1788,10 +1958,18 @@ mod tests {
             ],
             &result,
         );
-        root_node.add_half_neighbor_key(existing_node_1_key.clone());
-        root_node.add_half_neighbor_key(existing_node_2_key.clone());
-        root_node.add_half_neighbor_key(existing_node_3_key.clone());
-        root_node.add_half_neighbor_key(existing_node_4_key.clone());
+        root_node
+            .add_half_neighbor_key(existing_node_1_key.clone())
+            .unwrap();
+        root_node
+            .add_half_neighbor_key(existing_node_2_key.clone())
+            .unwrap();
+        root_node
+            .add_half_neighbor_key(existing_node_3_key.clone())
+            .unwrap();
+        root_node
+            .add_half_neighbor_key(existing_node_4_key.clone())
+            .unwrap();
         root_node.resign();
         assert_eq!(&root_node, dest_db.root());
     }
@@ -1864,11 +2042,21 @@ mod tests {
             ),
             result
         );
-        root_node.add_half_neighbor_key(existing_node_1_key.clone());
-        root_node.add_half_neighbor_key(existing_node_2_key.clone());
-        root_node.add_half_neighbor_key(existing_node_3_key.clone());
-        root_node.add_half_neighbor_key(existing_node_4_key.clone());
-        root_node.add_half_neighbor_key(existing_node_5_key.clone());
+        root_node
+            .add_half_neighbor_key(existing_node_1_key.clone())
+            .unwrap();
+        root_node
+            .add_half_neighbor_key(existing_node_2_key.clone())
+            .unwrap();
+        root_node
+            .add_half_neighbor_key(existing_node_3_key.clone())
+            .unwrap();
+        root_node
+            .add_half_neighbor_key(existing_node_4_key.clone())
+            .unwrap();
+        root_node
+            .add_half_neighbor_key(existing_node_5_key.clone())
+            .unwrap();
         root_node.resign();
         assert_eq!(&root_node, dest_db.root());
     }
@@ -1884,7 +2072,9 @@ mod tests {
         let result = subject.handle(&mut dest_db, gossip.try_into().unwrap(), gossip_source);
 
         assert_eq!(GossipAcceptanceResult::Accepted, result);
-        root_node.add_half_neighbor_key(debut_node.public_key().clone());
+        root_node
+            .add_half_neighbor_key(debut_node.public_key().clone())
+            .unwrap();
         root_node.increment_version();
         root_node.resign();
         assert_eq!(&root_node, dest_db.root());
@@ -1949,7 +2139,9 @@ mod tests {
             ),
             result
         );
-        root_node.add_half_neighbor_key(debut_node.public_key().clone());
+        root_node
+            .add_half_neighbor_key(debut_node.public_key().clone())
+            .unwrap();
         root_node.increment_version();
         root_node.resign();
         assert_eq!(&root_node, dest_db.root());

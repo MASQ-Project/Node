@@ -255,7 +255,7 @@ describe('NodeConfigurationComponent', () => {
 
         describe('only neighbor provided', () => {
           beforeEach(() => {
-            page.setNeighbor('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345,4321');
+            page.setNeighbor('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345;4321');
             fixture.detectChanges();
           });
 
@@ -268,7 +268,7 @@ describe('NodeConfigurationComponent', () => {
         describe('both provided', () => {
           beforeEach(() => {
             page.setIp('1.2.3.4');
-            page.setNeighbor('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345,4321');
+            page.setNeighbor('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345;4321');
             fixture.detectChanges();
           });
 
@@ -292,7 +292,7 @@ describe('NodeConfigurationComponent', () => {
 
       describe('valid node descriptor', () => {
         beforeEach(() => {
-          page.setNeighbor('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345,4321');
+          page.setNeighbor('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345;4321');
           fixture.detectChanges();
         });
 
@@ -337,7 +337,7 @@ describe('NodeConfigurationComponent', () => {
       describe('valid filled out form', () => {
         beforeEach(() => {
           page.setIp('192.168.1.1');
-          page.setNeighbor('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345,4321');
+          page.setNeighbor('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345;4321');
           page.setWalletAddress('0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
           fixture.detectChanges();
         });

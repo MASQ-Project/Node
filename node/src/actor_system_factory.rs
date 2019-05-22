@@ -388,6 +388,7 @@ mod tests {
     use actix::System;
     use log::LevelFilter;
     use std::cell::RefCell;
+    use std::collections::HashMap;
     use std::net::IpAddr;
     use std::net::Ipv4Addr;
     use std::path::PathBuf;
@@ -796,6 +797,7 @@ mod tests {
                 contract_address: TESTNET_CONTRACT_ADDRESS,
                 consuming_private_key: None,
             },
+            port_configurations: HashMap::new(),
             clandestine_port_opt: None,
             data_directory: PathBuf::new(),
         };
@@ -853,6 +855,7 @@ mod tests {
                 contract_address: TESTNET_CONTRACT_ADDRESS,
                 consuming_private_key: None,
             },
+            port_configurations: HashMap::new(),
             clandestine_port_opt: None,
             data_directory: PathBuf::new(),
         };

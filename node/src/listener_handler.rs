@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::configuration::PortConfiguration;
+use crate::bootstrapper::PortConfiguration;
 use crate::stream_messages::AddStreamMsg;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::stream_connector::StreamConnector;
@@ -135,7 +135,6 @@ impl ListenerHandlerFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::configuration::PortConfiguration;
     use crate::node_test_utils::NullDiscriminatorFactory;
     use crate::test_utils::little_tcp_server::LittleTcpServer;
     use crate::test_utils::logging::init_test_logging;

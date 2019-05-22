@@ -21,9 +21,9 @@ use std::net::IpAddr;
 /// package to a Node that isn't in the database yet, because while we have enough information
 /// about it to send it CORES traffic, we don't have enough (or what we have isn't credible enough)
 /// to put it in the database yet. This can happen when we start up and need to send Debut
-/// Gossip to --neighbor nodes, about which we know only the local descriptor, when we send Pass
+/// Gossip to Nodes specified by --neighbors, about which we know only the local descriptor, when we send Pass
 /// Gossip to a Debuting Node that hasn't made it into our database yet, or when we get
-/// Introductions to possibly-nonexistent Nodes we want to keep out of the database until we've
+/// Introductions to possibly-nonexistent Nodes that we want to keep out of the database until they've been
 /// verified. We can't use a regular IncipientCoresPackage for this, because it uses a Route full
 /// of PublicKeys destined to be looked up in the database by the Dispatcher.
 /// This struct can be used only for single-hop traffic.

@@ -42,6 +42,11 @@ impl TryFrom<&GossipNodeRecord> for NodeRecordInner {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum NodeRecordError {
+    SelfNeighborAttempt(PublicKey),
+}
+
 #[derive(Clone, Debug)]
 pub struct NodeRecord {
     pub inner: NodeRecordInner,
@@ -120,12 +125,14 @@ impl NodeRecord {
         self.inner.neighbors.contains(key)
     }
 
-    pub fn add_half_neighbor_key(&mut self, key: PublicKey) {
+    pub fn add_half_neighbor_key(&mut self, key: PublicKey) -> Result<(), NodeRecordError> {
+        if &key == self.public_key() {
+            return Err(NodeRecordError::SelfNeighborAttempt(
+                self.public_key().clone(),
+            ));
+        }
         self.inner.neighbors.insert(key);
-    }
-
-    pub fn add_half_neighbor_keys(&mut self, keys: Vec<PublicKey>) {
-        keys.into_iter().for_each(|k| self.add_half_neighbor_key(k));
+        Ok(())
     }
 
     pub fn remove_half_neighbor_key(&mut self, key: &PublicKey) -> bool {
@@ -383,9 +390,12 @@ mod tests {
         let neighbor_three = PublicKey::new(&b"three"[..]);
         let neighbor_four = PublicKey::new(&b"four"[..]);
 
-        subject.add_half_neighbor_key(neighbor_one.clone());
-        subject.add_half_neighbor_keys(vec![neighbor_two.clone(), neighbor_three.clone()]);
-        subject.add_half_neighbor_key(neighbor_one.clone());
+        subject.add_half_neighbor_key(neighbor_one.clone()).unwrap();
+        subject.add_half_neighbor_key(neighbor_two.clone()).unwrap();
+        subject
+            .add_half_neighbor_key(neighbor_three.clone())
+            .unwrap();
+        subject.add_half_neighbor_key(neighbor_one.clone()).unwrap();
 
         assert_eq!(
             subject.half_neighbor_keys(),
@@ -411,6 +421,20 @@ mod tests {
     }
 
     #[test]
+    fn node_cannot_be_its_own_neighbor() {
+        let mut subject = make_node_record(1234, false, false);
+
+        let result = subject.add_half_neighbor_key(subject.public_key().clone());
+
+        assert_eq!(
+            Err(NodeRecordError::SelfNeighborAttempt(
+                subject.public_key().clone()
+            )),
+            result
+        );
+    }
+
+    #[test]
     fn full_neighbor_exploration() {
         let this_node = make_node_record(1000, true, false);
         let mut database = db_from_node(&this_node);
@@ -426,14 +450,24 @@ mod tests {
 
         {
             let this_node = database.root_mut();
-            this_node.add_half_neighbor_keys(vec![
-                half_neighbor_one.public_key().clone(),
-                half_neighbor_two.public_key().clone(),
-                half_neighbor_bootstrap.public_key().clone(),
-                full_neighbor_one.public_key().clone(),
-                full_neighbor_two.public_key().clone(),
-                full_neighbor_bootstrap.public_key().clone(),
-            ]);
+            this_node
+                .add_half_neighbor_key(half_neighbor_one.public_key().clone())
+                .unwrap();
+            this_node
+                .add_half_neighbor_key(half_neighbor_two.public_key().clone())
+                .unwrap();
+            this_node
+                .add_half_neighbor_key(half_neighbor_bootstrap.public_key().clone())
+                .unwrap();
+            this_node
+                .add_half_neighbor_key(full_neighbor_one.public_key().clone())
+                .unwrap();
+            this_node
+                .add_half_neighbor_key(full_neighbor_two.public_key().clone())
+                .unwrap();
+            this_node
+                .add_half_neighbor_key(full_neighbor_bootstrap.public_key().clone())
+                .unwrap();
         }
         let this_node = database.root();
         vec![
@@ -443,7 +477,10 @@ mod tests {
             &mut full_neighbor_bootstrap,
         ]
         .into_iter()
-        .for_each(|n| n.add_half_neighbor_key(this_node.public_key().clone()));
+        .for_each(|n| {
+            n.add_half_neighbor_key(this_node.public_key().clone())
+                .unwrap()
+        });
 
         vec![
             &half_neighbor_one,
@@ -540,7 +577,9 @@ mod tests {
             0,
             cryptde(),
         );
-        with_neighbor.add_half_neighbor_key(mod_key.public_key().clone());
+        with_neighbor
+            .add_half_neighbor_key(mod_key.public_key().clone())
+            .unwrap();
         let mut mod_node_addr = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             earning_wallet.clone(),
