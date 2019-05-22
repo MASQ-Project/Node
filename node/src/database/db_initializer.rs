@@ -33,7 +33,7 @@ impl ConnectionWrapper for ConnectionWrapperReal {
 
 impl ConnectionWrapperReal {
     pub fn new(conn: Connection) -> Self {
-        ConnectionWrapperReal { conn }
+        Self { conn }
     }
 }
 
@@ -104,7 +104,8 @@ impl DbInitializerReal {
         self.create_config_table(conn)?;
         self.initialize_config(conn)?;
         self.create_payable_table(conn)?;
-        self.create_receivable_table(conn)
+        self.create_receivable_table(conn)?;
+        self.create_banned_table(conn)
     }
 
     fn create_config_table(&self, conn: &Connection) -> Result<(), InitializationError> {
@@ -188,6 +189,20 @@ impl DbInitializerReal {
         Ok(())
     }
 
+    fn create_banned_table(&self, conn: &Connection) -> Result<(), InitializationError> {
+        conn.execute(
+            "create table banned ( wallet_address text primary key )",
+            NO_PARAMS,
+        )
+        .expect("Can't create banned table");
+        conn.execute(
+            "create unique index idx_banned_wallet_address on banned (wallet_address)",
+            NO_PARAMS,
+        )
+        .expect("Can't create banned wallet_address index");
+        Ok(())
+    }
+
     fn extract_configurations(&self, conn: &Connection) -> HashMap<String, String> {
         let mut stmt = conn.prepare("select name, value from config").unwrap();
         match stmt
@@ -238,12 +253,26 @@ pub mod test_utils {
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
 
-    #[derive(Debug)]
-    pub struct ConnectionWrapperMock {}
+    #[derive(Debug, Default)]
+    pub struct ConnectionWrapperMock<'a> {
+        pub prepare_parameters: Arc<Mutex<Vec<String>>>,
+        pub prepare_results: RefCell<Vec<Result<Statement<'a>, Error>>>,
+    }
 
-    impl ConnectionWrapper for ConnectionWrapperMock {
-        fn prepare(&self, _query: &str) -> Result<Statement, Error> {
-            unimplemented!("Do not call prepare on a ConnectionWrapperMock")
+    impl<'a> ConnectionWrapperMock<'a> {
+        pub fn prepare_result(self, result: Result<Statement<'a>, Error>) -> Self {
+            self.prepare_results.borrow_mut().push(result);
+            self
+        }
+    }
+
+    impl<'a> ConnectionWrapper for ConnectionWrapperMock<'a> {
+        fn prepare(&self, query: &str) -> Result<Statement, Error> {
+            self.prepare_parameters
+                .lock()
+                .unwrap()
+                .push(String::from(query));
+            self.prepare_results.borrow_mut().remove(0)
         }
     }
 
@@ -295,6 +324,7 @@ mod tests {
     use crate::test_utils::test_utils::{
         ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
     };
+    use rusqlite::types::Type::Null;
     use rusqlite::OpenFlags;
     use std::fs::File;
     use std::io::{Read, Write};
@@ -302,10 +332,10 @@ mod tests {
     use tokio::net::TcpListener;
 
     #[test]
-    fn nonexistent_database_is_created_in_nonexistent_directory() {
+    fn db_initialize_creates_payable_table() {
         let home_dir = ensure_node_home_directory_does_not_exist(
             "accountant",
-            "nonexistent_database_is_created",
+            "db_initialize_creates_payable_table",
         );
         let subject = DbInitializerReal::new();
 
@@ -314,49 +344,50 @@ mod tests {
         let mut flags = OpenFlags::empty();
         flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
         let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
-        let mut stmt = conn
-            .prepare("select name, value from config order by name")
-            .unwrap();
-        let mut config_contents = stmt
-            .query_map(NO_PARAMS, |row| Ok((row.get(0), row.get(1))))
-            .unwrap();
-        if let (Ok(clandestine_port_name), Ok(clandestine_port_value_str)) =
-            config_contents.next().unwrap().unwrap()
-                as (Result<String, Error>, Result<String, Error>)
-        {
-            let clandestine_port_value = clandestine_port_value_str.parse::<u16>().unwrap();
-            assert_eq!("clandestine_port".to_string(), clandestine_port_name);
-            assert!(
-                clandestine_port_value >= LOWEST_USABLE_INSECURE_PORT,
-                "clandestine_port_value should have been > 1024, but was {}",
-                clandestine_port_value
-            );
-            assert!(
-                clandestine_port_value <= HIGHEST_RANDOM_CLANDESTINE_PORT,
-                "clandestine_port_value should have been < 10000, but was {}",
-                clandestine_port_value
-            );
-        } else {
-            panic!("Test failed");
-        }
-        assert_eq!(
-            config_contents.next().unwrap(),
-            Ok((
-                Ok(String::from("schema_version")),
-                Ok(String::from(CURRENT_SCHEMA_VERSION))
-            ))
-        );
-        let (result, _) = config_contents.next().unwrap().unwrap();
-        assert_eq!(result, Ok(String::from("seed")));
-        assert!(config_contents.next().is_none());
+
         let mut stmt = conn.prepare ("select wallet_address, balance, last_paid_timestamp, pending_payment_transaction from payable").unwrap ();
         let mut payable_contents = stmt.query_map(NO_PARAMS, |_| Ok(42)).unwrap();
         assert!(payable_contents.next().is_none());
+    }
+
+    #[test]
+    fn db_initialize_creates_receivable_table() {
+        let home_dir = ensure_node_home_directory_does_not_exist(
+            "accountant",
+            "db_initialize_creates_receivable_table",
+        );
+        let subject = DbInitializerReal::new();
+
+        subject.initialize(&home_dir).unwrap();
+
+        let mut flags = OpenFlags::empty();
+        flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
+        let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
+
         let mut stmt = conn
             .prepare("select wallet_address, balance, last_received_timestamp from receivable")
             .unwrap();
         let mut receivable_contents = stmt.query_map(NO_PARAMS, |_| Ok(42)).unwrap();
         assert!(receivable_contents.next().is_none());
+    }
+
+    #[test]
+    fn db_initialize_creates_banned_table() {
+        let home_dir = ensure_node_home_directory_does_not_exist(
+            "accountant",
+            "db_initialize_creates_banned_table",
+        );
+        let subject = DbInitializerReal::new();
+
+        subject.initialize(&home_dir).unwrap();
+
+        let mut flags = OpenFlags::empty();
+        flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
+        let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
+
+        let mut stmt = conn.prepare("select wallet_address from banned").unwrap();
+        let mut banned_contents = stmt.query_map(NO_PARAMS, |_| Ok(42)).unwrap();
+        assert!(banned_contents.next().is_none());
     }
 
     #[test]
@@ -474,6 +505,45 @@ mod tests {
                     .expect(&format!("Port {} was not free", port))
             })
             .collect::<Vec<TcpListener>>();
+    }
+
+    #[test]
+    fn choose_clandestine_port_chooses_ports_between_the_minimum_and_maximum() {
+        let clandestine_port_value = DbInitializerReal::choose_clandestine_port();
+        assert!(
+            clandestine_port_value >= LOWEST_USABLE_INSECURE_PORT,
+            "clandestine_port_value should have been > 1024, but was {}",
+            clandestine_port_value
+        );
+        assert!(
+            clandestine_port_value <= HIGHEST_RANDOM_CLANDESTINE_PORT,
+            "clandestine_port_value should have been < 10000, but was {}",
+            clandestine_port_value
+        );
+    }
+
+    #[test]
+    fn initialize_config_with_seed() {
+        let home_dir =
+            ensure_node_home_directory_exists("accountant", "initialize_config_with_seed");
+
+        DbInitializerReal::new().initialize(&home_dir).unwrap();
+
+        let mut flags = OpenFlags::empty();
+        flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
+        let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
+        let mut stmt = conn
+            .prepare("select name, value from config where name=?")
+            .unwrap();
+        let mut config_contents = stmt
+            .query_map(&["seed"], |row| Ok((row.get(0), row.get(1))))
+            .unwrap();
+
+        let (name, value) = config_contents.next().unwrap().unwrap()
+            as (Result<String, Error>, Result<String, Error>);
+        assert_eq!(name, Ok(String::from("seed")));
+        assert_eq!(value, Err(Error::InvalidColumnType(1, Null)));
+        assert!(config_contents.next().is_none());
     }
 
     #[test]

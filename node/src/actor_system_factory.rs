@@ -14,6 +14,7 @@ use super::stream_messages::PoolBindMessage;
 use super::ui_gateway::ui_gateway::UiGateway;
 use crate::accountant::payable_dao::PayableDaoReal;
 use crate::accountant::receivable_dao::ReceivableDaoReal;
+use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
 use crate::blockchain::blockchain_interface::{
     BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceRpc,
@@ -101,6 +102,7 @@ impl ActorSystemFactoryReal {
             config.accountant_config,
             &config.data_directory,
             &db_initializer,
+            &BannedCacheLoaderReal {},
         );
         let ui_gateway_subs = actor_factory.make_and_start_ui_gateway(config.ui_gateway_config);
         let stream_handler_pool_subs = actor_factory
@@ -221,6 +223,7 @@ pub trait ActorFactory: Send {
         config: AccountantConfig,
         data_directory: &PathBuf,
         db_initializer: &dyn DbInitializer,
+        banned_cache_loader: &dyn BannedCacheLoader,
     ) -> AccountantSubs;
     fn make_and_start_ui_gateway(&self, config: UiGatewayConfig) -> UiGatewaySubs;
     fn make_and_start_stream_handler_pool(
@@ -277,6 +280,7 @@ impl ActorFactory for ActorFactoryReal {
         config: AccountantConfig,
         data_directory: &PathBuf,
         db_initializer: &dyn DbInitializer,
+        banned_cache_loader: &dyn BannedCacheLoader,
     ) -> AccountantSubs {
         let payable_dao = Box::new(PayableDaoReal::new(
             db_initializer
@@ -288,6 +292,11 @@ impl ActorFactory for ActorFactoryReal {
                 .initialize(data_directory)
                 .expect("Failed to connect to database"),
         ));
+        banned_cache_loader.load(
+            db_initializer
+                .initialize(data_directory)
+                .expect("Failed to connect to database"),
+        );
         let accountant = Accountant::new(config, payable_dao, receivable_dao);
         let addr: Addr<Accountant> = accountant.start();
         Accountant::make_subs_from(&addr)
@@ -341,7 +350,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::TESTNET_CONTRACT_ADDRESS;
     use crate::bootstrapper::CRYPT_DE_OPT;
     use crate::database::db_initializer::test_utils::{ConnectionWrapperMock, DbInitializerMock};
-    use crate::database::db_initializer::InitializationError;
+    use crate::database::db_initializer::{ConnectionWrapper, InitializationError};
     use crate::neighborhood::gossip::Gossip;
     use crate::stream_messages::AddStreamMsg;
     use crate::stream_messages::RemoveStreamMsg;
@@ -387,6 +396,17 @@ mod tests {
     use std::sync::Mutex;
     use std::thread;
     use std::time::Duration;
+
+    #[derive(Default)]
+    struct BannedCacheLoaderMock {
+        pub load_params: Arc<Mutex<Vec<Box<ConnectionWrapper>>>>,
+    }
+
+    impl BannedCacheLoader for BannedCacheLoaderMock {
+        fn load(&self, conn: Box<ConnectionWrapper>) {
+            self.load_params.lock().unwrap().push(conn);
+        }
+    }
 
     struct ActorFactoryMock<'a> {
         dispatcher: RefCell<Option<Recorder>>,
@@ -482,6 +502,7 @@ mod tests {
             config: AccountantConfig,
             data_directory: &PathBuf,
             _db_initializer: &dyn DbInitializer,
+            _banned_cache_loader: &dyn BannedCacheLoader,
         ) -> AccountantSubs {
             self.parameters
                 .accountant_params
@@ -661,23 +682,35 @@ mod tests {
     }
 
     #[test]
-    fn make_and_start_accountant_creates_connections_for_daos() {
+    fn make_and_start_accountant_creates_connections_for_daos_and_banned_cache() {
         let subject = ActorFactoryReal {};
 
         let db_initializer_mock = DbInitializerMock::new()
-            .initialize_result(Ok(Box::new(ConnectionWrapperMock {})))
-            .initialize_result(Ok(Box::new(ConnectionWrapperMock {})));
+            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
+            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
+            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())));
         let data_directory = PathBuf::from_str("yeet_home").unwrap();
         let config = AccountantConfig {
             payable_scan_interval: Duration::from_secs(9),
         };
 
-        subject.make_and_start_accountant(config.clone(), &data_directory, &db_initializer_mock);
+        let banned_cache_loader = &BannedCacheLoaderMock::default();
+
+        subject.make_and_start_accountant(
+            config.clone(),
+            &data_directory,
+            &db_initializer_mock,
+            banned_cache_loader,
+        );
 
         let initialize_parameters = db_initializer_mock.initialize_parameters.lock().unwrap();
-        assert_eq!(2, initialize_parameters.len());
+        assert_eq!(3, initialize_parameters.len());
         assert_eq!(data_directory, initialize_parameters[0]);
         assert_eq!(data_directory, initialize_parameters[1]);
+        assert_eq!(data_directory, initialize_parameters[2]);
+
+        let load_parameters = banned_cache_loader.load_params.lock().unwrap();
+        assert_eq!(1, load_parameters.len());
     }
 
     #[test]
@@ -693,7 +726,12 @@ mod tests {
                 rusqlite::Error::InvalidColumnName("booga".to_string()),
             )));
         let subject = ActorFactoryReal {};
-        subject.make_and_start_accountant(config, &PathBuf::new(), &db_initializer_mock);
+        subject.make_and_start_accountant(
+            config,
+            &PathBuf::new(),
+            &db_initializer_mock,
+            &BannedCacheLoaderMock::default(),
+        );
     }
 
     #[test]
@@ -703,12 +741,17 @@ mod tests {
             payable_scan_interval: Duration::from_secs(6),
         };
         let db_initializer_mock = DbInitializerMock::new()
-            .initialize_result(Ok(Box::new(ConnectionWrapperMock {})))
+            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
             .initialize_result(Err(InitializationError::SqliteError(
                 rusqlite::Error::InvalidQuery,
             )));
         let subject = ActorFactoryReal {};
-        subject.make_and_start_accountant(config, &PathBuf::new(), &db_initializer_mock);
+        subject.make_and_start_accountant(
+            config,
+            &PathBuf::new(),
+            &db_initializer_mock,
+            &BannedCacheLoaderMock::default(),
+        );
     }
 
     #[test]

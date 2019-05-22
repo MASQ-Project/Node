@@ -3,6 +3,7 @@
 
 pub mod accountant;
 mod actor_system_factory;
+mod banned_dao;
 mod blockchain;
 mod bootstrapper;
 mod config_dao;
