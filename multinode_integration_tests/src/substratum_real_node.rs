@@ -111,6 +111,10 @@ impl NodeStartupConfig {
         args.push("trace".to_string());
         args.push("--data_directory".to_string());
         args.push("/node_root/home".to_string());
+        if let Some(ref consuming_private_key) = self.consuming_private_key {
+            args.push("--consuming_private_key".to_string());
+            args.push(consuming_private_key.clone());
+        }
         args
     }
 
@@ -371,7 +375,7 @@ impl SubstratumRealNode {
             Some(dir) => dir,
             None => SubstratumNodeUtils::find_project_root(),
         };
-        Self::do_docker_run(&real_startup_config, &root_dir, ip_addr, &name).unwrap();
+        Self::do_docker_run(&root_dir, ip_addr, &name).unwrap();
 
         Self::exec_command_on_container_and_detach(
             &name,
@@ -433,7 +437,6 @@ impl SubstratumRealNode {
     }
 
     fn do_docker_run(
-        startup_config: &NodeStartupConfig,
         root_dir: &String,
         ip_addr: IpAddr,
         container_name_ref: &String,
@@ -498,14 +501,6 @@ impl SubstratumRealNode {
             "--cap-add=NET_ADMIN",
         ];
 
-        let maybe_key = match startup_config.consuming_private_key.clone() {
-            Some(key) => format!("CONSUMING_PRIVATE_KEY={}", key),
-            None => "".to_string(),
-        };
-        if startup_config.consuming_private_key.is_some() {
-            args.push("-e");
-            args.push(&maybe_key)
-        }
         args.push("test_node_image");
         let mut command = Command::new("docker", Command::strings(args));
         command.stdout_or_stderr()?;
@@ -581,7 +576,7 @@ impl SubstratumRealNode {
                 }
                 None => {
                     if retries_left <= 0 {
-                        return Err(format!("Node {} never started", name));
+                        return Err(format!("Node {} never started:\n{}", name, output));
                     } else {
                         retries_left -= 1;
                     }
@@ -822,6 +817,8 @@ mod tests {
                 "trace",
                 "--data_directory",
                 "/node_root/home",
+                "--consuming_private_key",
+                "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
             ))
         );
     }
