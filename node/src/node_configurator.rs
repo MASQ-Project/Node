@@ -672,7 +672,10 @@ mod tests {
 
         let (config_file_path, user_specified) = subject.determine_config_file_path(&args);
 
-        assert_eq!(r"\tmp\booga.toml", &format!("{}", config_file_path.display()));
+        assert_eq!(
+            r"\tmp\booga.toml",
+            &format!("{}", config_file_path.display())
+        );
         assert_eq!(true, user_specified);
     }
 
