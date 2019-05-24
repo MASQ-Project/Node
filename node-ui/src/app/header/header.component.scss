@@ -67,3 +67,48 @@
     display: block;
   }
 }
+
+.modal-help {
+  background: color('background', 'medium');
+  border-radius: $border-radius;
+  box-shadow: 0 0 10px 0 rgba(0,0,0,.3);
+  position: absolute;
+  top: 0;
+  right: 0;
+  font-size: fontSize('base');
+  color: color('text');
+  padding: 0 20px;
+  overflow: hidden;
+  z-index: 1;
+
+  &--inactive {
+    display: none;
+  }
+  &--active {
+    display: block;
+  }
+
+  .buttons {
+    margin: 0 auto;
+    text-align: center;
+  }
+
+  button {
+    background: color('primary');
+    color: color('white');
+    outline: 0;
+    width: 80px;
+    height: 24px;
+    font-family: inherit;
+    font-size: fontSize('diminished');
+    text-transform: uppercase;
+    border: 0;
+    border-radius: 8px;
+    cursor: pointer;
+    margin: 10px 5px 0 5px;
+
+    &:active {
+      background-color: color('background', 'dark');
+    }
+  }
+}

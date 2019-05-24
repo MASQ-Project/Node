@@ -9,7 +9,8 @@ import {ElectronService} from '../electron.service';
   styleUrls: ['./header.component.scss']
 })
 export class HeaderComponent {
-  visible: boolean;
+  visibleSettings: boolean;
+  visibleModalHelp: boolean;
 
   @ViewChild('settingsbutton')
   settings_button: ElementRef;
@@ -23,7 +24,7 @@ export class HeaderComponent {
   }
 
   toggleSettings() {
-    this.visible = !this.visible;
+    this.visibleSettings = !this.visibleSettings;
   }
 
   hideSettings(e) {
@@ -31,7 +32,7 @@ export class HeaderComponent {
       return;
     }
 
-    this.visible = false;
+    this.visibleSettings = false;
   }
 
   quit() {
@@ -40,5 +41,9 @@ export class HeaderComponent {
 
   openUrl(url: string) {
     this.electron.shell.openExternal(url);
+  }
+
+  toggleModalHelp() {
+    this.visibleModalHelp = !this.visibleModalHelp;
   }
 }

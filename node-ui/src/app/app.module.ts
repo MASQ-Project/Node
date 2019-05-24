@@ -10,6 +10,7 @@ import {FooterComponent} from './footer/footer.component';
 import {ElectronService} from './electron.service';
 import {NodeConfigurationComponent} from './node-configuration/node-configuration.component';
 import {FormsModule, ReactiveFormsModule} from '@angular/forms';
+import {NetworkHelpComponent} from './network-help/network-help.component';
 
 @NgModule({
   declarations: [
@@ -17,7 +18,8 @@ import {FormsModule, ReactiveFormsModule} from '@angular/forms';
     IndexComponent,
     HeaderComponent,
     FooterComponent,
-    NodeConfigurationComponent
+    NodeConfigurationComponent,
+    NetworkHelpComponent
   ],
   imports: [
     BrowserModule,

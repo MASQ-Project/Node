@@ -5,6 +5,7 @@ import {async, ComponentFixture, ComponentFixtureAutoDetect, TestBed} from '@ang
 import {HeaderComponent} from './header.component';
 import {ElectronService} from '../electron.service';
 import * as td from 'testdouble';
+import {NetworkHelpComponent} from '../network-help/network-help.component';
 
 describe('HeaderComponent', () => {
   let component: HeaderComponent;
@@ -27,7 +28,7 @@ describe('HeaderComponent', () => {
     };
     TestBed.configureTestingModule({
       declarations: [
-        HeaderComponent
+        HeaderComponent, NetworkHelpComponent
       ],
       providers: [
         {provide: ComponentFixtureAutoDetect, useValue: true},
@@ -126,6 +127,51 @@ describe('HeaderComponent', () => {
         compiled.querySelector('#terms').click();
 
         td.verify(mockOpenExternal('https://substratum.net/wp-content/uploads/2018/05/Beta_Terms.pdf'));
+      });
+    });
+
+    describe('network help modal', () => {
+      describe('clicking network help from settings', () => {
+        beforeEach(() => {
+          compiled.querySelector('#toggle-network-help').click();
+        });
+
+        it('opens the modal', () => {
+          expect(compiled.querySelector('#network-help-modal').classList.contains('modal-help--active')).toBeTruthy();
+          expect(compiled.querySelector('#network-help-modal').classList.contains('modal-help--inactive')).toBeFalsy();
+        });
+
+        describe('clicking close from network help', () => {
+          beforeEach(() => {
+            compiled.querySelector('#toggle-modal-button').click();
+          });
+
+          it('closes the modal', () => {
+            expect(compiled.querySelector('#network-help-modal').classList.contains('modal-help--active')).toBeFalsy();
+            expect(compiled.querySelector('#network-help-modal').classList.contains('modal-help--inactive')).toBeTruthy();
+          });
+        });
+      });
+    });
+  });
+
+  describe('toggleModalHelp', () => {
+    beforeEach (() => {
+      component.toggleModalHelp();
+      fixture.detectChanges();
+    });
+    it('opens the modal', () => {
+      expect(compiled.querySelector('#network-help-modal').classList.contains('modal-help--active')).toBeTruthy();
+      expect(compiled.querySelector('#network-help-modal').classList.contains('modal-help--inactive')).toBeFalsy();
+    });
+    describe('invoking again', () => {
+      beforeEach (() => {
+        component.toggleModalHelp();
+        fixture.detectChanges();
+      });
+      it('closes the modal', () => {
+        expect(compiled.querySelector('#network-help-modal').classList.contains('modal-help--active')).toBeFalsy();
+        expect(compiled.querySelector('#network-help-modal').classList.contains('modal-help--inactive')).toBeTruthy();
       });
     });
   });

@@ -14,6 +14,7 @@ use clap::{
     arg_enum, crate_authors, crate_description, crate_version, value_t, values_t, App, Arg,
 };
 use dirs::data_dir;
+use indoc::indoc;
 use lazy_static::lazy_static;
 use log::LevelFilter;
 use regex::Regex;
@@ -80,6 +81,22 @@ lazy_static! {
     );
 }
 
+const HELP_TEXT: &str = indoc!(r"ADDITIONAL HELP:
+                           SubstratumNode listens for connections from other SubstratumNodes using the computer's 
+                           network interface. Configuring the internet router for port forwarding is a necessary
+                           step for SubstratumNode users to permit network communication between SubstratumNodes.
+                           
+                           Once started, SubstratumNode prints the node descriptor to the console. The descriptor
+                           indicates the required port needing to be forwarded by the network router. The port is
+                           the last number in the descriptor, as shown below:
+                           
+                           95VjByq5tEUUpDcczA//zXWGE6+7YFEvzN4CDVoPbWw:86.75.30.9:1234
+                                                                                  ^^^^ 
+                           Steps To Forwarding Ports In The Router
+                               1. Log in to the router.
+                               2. Navigate to the router's port forwarding section, also frequently called virtual server.
+                               3. Create the port forwarding entries in the router.");
+
 impl NodeConfiguratorReal {
     pub fn new() -> NodeConfiguratorReal {
         NodeConfiguratorReal {
@@ -87,6 +104,7 @@ impl NodeConfiguratorReal {
                 .version(crate_version!())
                 .author(crate_authors!("\n"))
                 .about(crate_description!())
+                .after_help(HELP_TEXT)
                 .arg(
                     Arg::with_name("blockchain_service_url")
                         .long("blockchain_service_url")
