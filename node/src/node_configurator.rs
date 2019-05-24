@@ -672,7 +672,7 @@ mod tests {
 
         let (config_file_path, user_specified) = subject.determine_config_file_path(&args);
 
-        assert_eq!(r"\tmp\booga.toml", &format!("{}", user_specified.display()));
+        assert_eq!(r"\tmp\booga.toml", &format!("{}", config_file_path.display()));
         assert_eq!(true, user_specified);
     }
 
@@ -697,7 +697,7 @@ mod tests {
 
         assert_eq!(
             r"c:\tmp\booga.toml",
-            &format!("{}", resuser_specifiedult.display())
+            &format!("{}", config_file_path.display())
         );
         assert_eq!(true, user_specified);
     }
@@ -723,7 +723,7 @@ mod tests {
 
         assert_eq!(
             r"\\TMP\booga.toml",
-            &format!("{}", user_specified.display())
+            &format!("{}", config_file_path.display())
         );
         assert_eq!(true, user_specified);
     }
@@ -750,7 +750,7 @@ mod tests {
 
         assert_eq!(
             r"c:tmp\booga.toml",
-            &format!("{}", user_specified.display())
+            &format!("{}", config_file_path.display())
         );
         assert_eq!(true, user_specified);
     }
