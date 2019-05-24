@@ -6,6 +6,7 @@ pub mod channel_wrapper_mocks;
 pub mod config_dao_mock;
 pub mod data_hunk;
 pub mod data_hunk_framer;
+pub mod environment_guard;
 pub mod little_tcp_server;
 pub mod logging;
 pub mod recorder;

@@ -19,6 +19,8 @@ pub mod json_framer;
 pub mod json_masquerader;
 mod listener_handler;
 pub mod masquerader;
+#[macro_use]
+mod multi_config;
 pub mod neighborhood;
 mod node_configurator;
 mod null_masquerader;
@@ -36,6 +38,9 @@ pub mod sub_lib;
 pub mod test_utils;
 pub mod tls_discriminator_factory;
 mod ui_gateway;
+
+#[macro_use]
+extern crate clap;
 
 #[cfg(test)]
 mod node_test_utils;

@@ -104,6 +104,66 @@ it to and from your destination.
 __Important Note:__ Please remember that at the moment neither zero-hop Substratum Nodes nor decentralized SubstratumNodes
 are secure or private in any sense of the word.  Please don't use them for any kind of sensitive traffic at this stage.
 
+#### Supplying Configuration To SubstratumNode
+
+There are three ways to get configuration information into a SubstratumNode on startup. In decreasing level of priority,
+these are:
+
+1. the command line
+2. the shell environment
+3. the configuration file
+
+Any piece of configuration information can be provided through any of these channels, with one exception: the path to
+the configuration file cannot be taken from the configuration file. (It can be provided there, but it will never be
+taken from there.) Configuration information provided in the environment will supersede conflicting information
+provided in the configuration file, and information provided on the command line will supersede conflicting information
+from both of the other sources.
+
+##### Command line
+
+This is the easiest. In this file, all our documentation of the configuration options shows you how to provide them on
+the command line. Keep in mind, though, that command lines tend to be preserved by the operating system for display to
+users who want to see process lists. Therefore, the command line may not be the best place to specify sensitive or
+secret configuration information. (Nothing prevents you from doing this, though, so be careful.)
+
+##### Shell Environment
+
+If you see that the command line accepts a parameter such as `--clandestine_port 1234`, then you can supply that same
+parameter in the environment by setting the `SUB_CLANDESTINE_PORT` environment variable to `1234`. Note that you need
+to remove the initial `--` prefix, convert the name to all uppercase, and add a `SUB_` prefix to namespace the parameter
+against other applications that might look for a similar variable.
+
+##### Configuration File
+
+The configuration file, by default, resides in the data directory (see the `--data_directory` parameter for further
+information) and is named `config.toml`. If you leave the configuration file unspecified, this is where the SubstratumNode
+will look for it. If it's found, it will be used; if it's not, the Node will act as though it had been found but empty.
+But if you want to use a different file, specify it either as `--config_file` on the command line or as `SUB_CONFIG_FILE`
+in the environment. If you specify a relative filename, SubstratumNode will look for the configuration file in the data
+directory; if you specify an absolute filename, SubstratumNode will not use the data directory to find the configuration
+file.
+
+The configuration file should be in TOML format. TOML is a competitor to other formats like JSON and YAML, but the
+SubstratumNode uses only scalar settings, not arrays or tables. If you see that the command line accepts a parameter such
+as `--clandestine_port 1234`, then you can supply that same parameter in the configuration file by adding the following
+line to it:
+
+```
+clandestine_port = "1234"
+```
+
+Note that you need to remove the initial `--` prefix. All the configuration parameters will work if you supply their
+values as double-quoted strings, but if they're numeric values, you can supply them numerically as well--for example,
+
+```
+clandestine_port = 1234
+```
+
+Keep in mind that a configuration file is persistent information: anyone who has or can gain read access to the file
+can read whatever's in it, whether the Node is running or not. Therefore, the configuration file may not be the best
+place to specify sensitive or secret configuration information. (Nothing prevents you from doing this, though, so be
+careful.)
+
 #### Running a Zero-Hop SubstratumNode locally
 
 Here's all you need to start your zero-hop SubstratumNode:

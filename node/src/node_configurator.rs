@@ -2,6 +2,7 @@
 
 use crate::bootstrapper::{BootstrapperConfig, PortConfiguration};
 use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
+use crate::multi_config::{CommandLineVCL, ConfigFileVCL, EnvironmentVCL, MultiConfig};
 use crate::persistent_configuration::{HTTP_PORT, TLS_PORT};
 use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
 use crate::sub_lib::accountant::TEMPORARY_CONSUMING_WALLET;
@@ -10,15 +11,12 @@ use crate::sub_lib::neighborhood::{sentinel_ip_addr, NodeDescriptor};
 use crate::sub_lib::ui_gateway::DEFAULT_UI_PORT;
 use crate::sub_lib::wallet::Wallet;
 use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
-use clap::{
-    arg_enum, crate_authors, crate_description, crate_version, value_t, values_t, App, Arg,
-};
+use clap::{arg_enum, crate_authors, crate_description, crate_version, App, Arg};
 use dirs::data_dir;
 use indoc::indoc;
 use lazy_static::lazy_static;
 use log::LevelFilter;
 use regex::Regex;
-use std::env;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -56,8 +54,16 @@ impl NodeConfigurator for NodeConfiguratorReal {
     fn generate_configuration(&self, args: &Vec<String>) -> BootstrapperConfig {
         let mut bootstrapper_config = BootstrapperConfig::new();
         self.establish_port_configurations(&mut bootstrapper_config);
-        self.parse_args(args, &mut bootstrapper_config);
-        self.parse_environment_variables(&mut bootstrapper_config);
+        let (config_file_path, user_specified) = self.determine_config_file_path(args);
+        let multi_config = MultiConfig::new(
+            &self.app,
+            vec![
+                Box::new(CommandLineVCL::new(args.clone())),
+                Box::new(EnvironmentVCL::new(&self.app)),
+                Box::new(ConfigFileVCL::new(&config_file_path, user_specified)),
+            ],
+        );
+        self.parse_args(&multi_config, &mut bootstrapper_config);
         bootstrapper_config
     }
 }
@@ -105,6 +111,14 @@ impl NodeConfiguratorReal {
                 .author(crate_authors!("\n"))
                 .about(crate_description!())
                 .after_help(HELP_TEXT)
+                .arg(
+                    Arg::with_name("config_file")
+                        .long("config_file")
+                        .value_name("FILE_PATH")
+                        .default_value("config.toml")
+                        .takes_value(true)
+                        .required(false),
+                )
                 .arg(
                     Arg::with_name("blockchain_service_url")
                         .long("blockchain_service_url")
@@ -190,6 +204,14 @@ impl NodeConfiguratorReal {
                         .help("Must be 42 characters long, contain only hex and start with 0x"),
                 )
                 .arg(
+                    Arg::with_name("consuming_private_key")
+                        .long("consuming_private_key")
+                        .value_name("PRIVATE_KEY")
+                        .takes_value(true)
+                        .validator(Validators::validate_private_key)
+                        .help("Must be 64 characters long and contain only hex"),
+                )
+                .arg(
                     Arg::with_name("crash_point")
                         .long("crash_point")
                         .value_name("CRASH_POINT")
@@ -223,74 +245,67 @@ impl NodeConfiguratorReal {
         );
     }
 
-    fn parse_args(&self, args: &Vec<String>, config: &mut BootstrapperConfig) {
-        let app_clone = self.app.clone();
-        let matches = app_clone.get_matches_from(args.iter());
+    fn determine_config_file_path(&self, args: &Vec<String>) -> (PathBuf, bool) {
+        let multi_config = MultiConfig::new(
+            &self.app,
+            vec![
+                Box::new(EnvironmentVCL::new(&self.app)),
+                Box::new(CommandLineVCL::new(args.clone())),
+            ],
+        );
+        let config_file_path = value_m!(multi_config, "config_file", PathBuf)
+            .expect("config_file should be defaulted");
+        let user_specified = multi_config.arg_matches().occurrences_of("config_file") > 0;
+        let data_directory: PathBuf = value_m!(multi_config, "data_directory", PathBuf)
+            .expect("data_directory should be defaulted");
+        (data_directory.join(config_file_path), user_specified)
+    }
 
-        config.blockchain_bridge_config.blockchain_service_url = matches
-            .value_of("blockchain_service_url")
-            .map(|s| String::from(s));
+    fn parse_args(&self, multi_config: &MultiConfig, config: &mut BootstrapperConfig) {
+        config.blockchain_bridge_config.blockchain_service_url =
+            value_m!(multi_config, "blockchain_service_url", String);
 
-        config.clandestine_port_opt = match value_t!(matches, "clandestine_port", u16) {
-            Ok(port) => Some(port),
-            Err(_) => None,
-        };
+        config.clandestine_port_opt = value_m!(multi_config, "clandestine_port", u16);
 
         config.data_directory =
-            value_t!(matches, "data_directory", PathBuf).expect("Internal Error");
+            value_m!(multi_config, "data_directory", PathBuf).expect("Internal Error");
 
-        config.dns_servers = matches
-            .values_of("dns_servers")
-            .expect("Internal Error")
+        config.dns_servers = values_m!(multi_config, "dns_servers", IpAddr)
             .into_iter()
-            .map(|s| SocketAddr::from((IpAddr::from_str(s).expect("Internal Error"), 53)))
+            .map(|ip| SocketAddr::from((ip, 53)))
             .collect();
 
         config.neighborhood_config.local_ip_addr =
-            value_t!(matches, "ip", IpAddr).expect("Internal Error");
+            value_m!(multi_config, "ip", IpAddr).expect("Internal Error");
 
-        config.log_level = value_t!(matches, "log_level", LevelFilter).expect("Internal Error");
+        config.log_level =
+            value_m!(multi_config, "log_level", LevelFilter).expect("Internal Error");
 
         config.neighborhood_config.neighbor_configs =
-            match values_t!(matches, "neighbors", NodeDescriptor) {
-                Ok(neighbors) => neighbors,
-                Err(_) => vec![],
-            };
+            values_m!(multi_config, "neighbors", NodeDescriptor);
 
-        config.neighborhood_config.is_bootstrap_node = value_t!(matches, "node_type", NodeType)
-            .expect("Internal Error")
-            .into();
+        config.neighborhood_config.is_bootstrap_node =
+            value_m!(multi_config, "node_type", NodeType)
+                .expect("Internal Error")
+                .into();
 
         config.ui_gateway_config.ui_port =
-            value_t!(matches, "ui_port", u16).expect("Internal Error");
+            value_m!(multi_config, "ui_port", u16).expect("Internal Error");
 
         config.neighborhood_config.earning_wallet = Wallet::new(
-            value_t!(matches, "wallet_address", String)
+            value_m!(multi_config, "wallet_address", String)
                 .expect("Internal Error")
                 .as_str(),
         );
 
-        config.crash_point = value_t!(matches, "crash_point", CrashPoint).expect("Internal Error");
+        config.crash_point =
+            value_m!(multi_config, "crash_point", CrashPoint).expect("Internal Error");
 
         // TODO: In real life this should come from a command-line parameter
         config.neighborhood_config.consuming_wallet = Some(TEMPORARY_CONSUMING_WALLET.clone());
-    }
 
-    fn parse_environment_variables(&self, config: &mut BootstrapperConfig) {
         config.blockchain_bridge_config.consuming_private_key =
-            match env::var("CONSUMING_PRIVATE_KEY") {
-                Ok(key) => Self::parse_private_key(key),
-                Err(_) => None,
-            };
-
-        env::remove_var("CONSUMING_PRIVATE_KEY");
-    }
-
-    fn parse_private_key(key: String) -> Option<String> {
-        if !Validators::is_valid_private_key(&key) {
-            panic!("CONSUMING_PRIVATE_KEY requires a valid Ethereum private key");
-        }
-        Some(key)
+            value_m!(multi_config, "consuming_private_key", String);
     }
 
     fn data_directory_default(dirs_wrapper: &DirsWrapper) -> String {
@@ -338,10 +353,15 @@ impl Validators {
         }
     }
 
-    fn is_valid_private_key(key: &str) -> bool {
-        Regex::new("^[0-9a-fA-F]{64}$")
+    fn validate_private_key(key: String) -> Result<(), String> {
+        if Regex::new("^[0-9a-fA-F]{64}$")
             .expect("Failed to compile regular expression")
-            .is_match(key)
+            .is_match(&key)
+        {
+            Ok(())
+        } else {
+            Err(key)
+        }
     }
 }
 
@@ -360,37 +380,15 @@ impl DirsWrapper for RealDirsWrapper {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::multi_config::VirtualCommandLine;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::neighborhood::sentinel_ip_addr;
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
-    use lazy_static::lazy_static;
-    use std::env;
-    use std::ffi::OsStr;
+    use crate::test_utils::environment_guard::EnvironmentGuard;
     use std::net::Ipv4Addr;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use std::sync::Mutex;
-
-    lazy_static! {
-        static ref ENVIRONMENT: Mutex<Environment> = Mutex::new(Environment {});
-    }
-
-    struct Environment {}
-
-    impl Environment {
-        pub fn remove_var<K: AsRef<OsStr>>(&self, key: K) {
-            env::remove_var(key);
-        }
-
-        pub fn set_var<K: AsRef<OsStr>, V: AsRef<OsStr>>(&self, key: K, value: V) {
-            env::set_var(key, value);
-        }
-        //
-        //        pub fn var<K: AsRef<OsStr>>(&self, key: K) -> Result<String, VarError> {
-        //            env::var(key)
-        //        }
-    }
 
     struct MockDirsWrapper {}
 
@@ -426,65 +424,31 @@ mod tests {
     }
 
     #[test]
-    fn parse_environment_variables_sets_consuming_private_key_to_none_when_not_specified() {
-        let mut config = BootstrapperConfig::new();
-        let environment = ENVIRONMENT.lock().unwrap();
-        environment.remove_var("CONSUMING_PRIVATE_KEY");
-        let subject = NodeConfiguratorReal::new();
+    fn validate_private_key_requires_a_key_that_is_64_characters_long() {
+        let result = Validators::validate_private_key(String::from("42"));
 
-        subject.parse_environment_variables(&mut config);
-
-        assert_eq!(config.blockchain_bridge_config.consuming_private_key, None);
+        assert_eq!(Err("42".to_string()), result);
     }
 
     #[test]
-    fn parse_environment_variables_reads_consuming_private_key_when_specified() {
-        let mut config = BootstrapperConfig::new();
-        let environment = ENVIRONMENT.lock().unwrap();
-        environment.set_var(
-            "CONSUMING_PRIVATE_KEY",
-            "cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9",
-        );
-        let subject = NodeConfiguratorReal::new();
-
-        subject.parse_environment_variables(&mut config);
-
-        environment.remove_var("CONSUMING_PRIVATE_KEY");
-
-        assert_eq!(
-            config.blockchain_bridge_config.consuming_private_key,
-            Some(String::from(
-                "cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9"
-            ))
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "CONSUMING_PRIVATE_KEY requires a valid Ethereum private key")]
-    fn parse_private_key_requires_a_key_that_is_64_characters_long() {
-        NodeConfiguratorReal::parse_private_key(String::from("42"));
-    }
-
-    #[test]
-    #[should_panic(expected = "CONSUMING_PRIVATE_KEY requires a valid Ethereum private key")]
-    fn parse_private_key_must_contain_only_hex_characters() {
-        NodeConfiguratorReal::parse_private_key(String::from(
+    fn validate_private_key_must_contain_only_hex_characters() {
+        let result = Validators::validate_private_key(String::from(
             "cc46befe8d169b89db447bd725fc2368b12542113555302598430cinvalidhex",
         ));
+
+        assert_eq!(
+            Err("cc46befe8d169b89db447bd725fc2368b12542113555302598430cinvalidhex".to_string()),
+            result
+        );
     }
 
     #[test]
-    fn parse_private_key_handles_happy_path() {
-        let result = NodeConfiguratorReal::parse_private_key(String::from(
+    fn validate_private_key_handles_happy_path() {
+        let result = Validators::validate_private_key(String::from(
             "cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9",
         ));
 
-        assert_eq!(
-            result,
-            Some(String::from(
-                "cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9"
-            ))
-        );
+        assert_eq!(Ok(()), result);
     }
 
     #[test]
@@ -615,9 +579,189 @@ mod tests {
     }
 
     #[test]
-    fn parse_args_creates_configurations() {
+    fn determine_config_file_path_finds_path_in_args() {
         let args: Vec<String> = vec![
             "SubstratumNode",
+            "--clandestine_port",
+            "2345",
+            "--data_directory",
+            "data_dir",
+            "--config_file",
+            "booga.toml",
+            "--dns_servers",
+            "1.2.3.4",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        let subject = NodeConfiguratorReal::new();
+
+        let (config_file_path, user_specified) = subject.determine_config_file_path(&args);
+
+        assert_eq!(
+            "data_dir",
+            &format!("{}", config_file_path.parent().unwrap().display())
+        );
+        assert_eq!("booga.toml", config_file_path.file_name().unwrap());
+        assert_eq!(true, user_specified);
+    }
+
+    #[test]
+    fn determine_config_file_path_finds_path_in_environment() {
+        let _guard = EnvironmentGuard::new();
+        let args: Vec<String> = vec!["SubstratumNode", "--dns_servers", "1.2.3.4"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        std::env::set_var("SUB_DATA_DIRECTORY", "data_dir");
+        std::env::set_var("SUB_CONFIG_FILE", "booga.toml");
+        let subject = NodeConfiguratorReal::new();
+
+        let (config_file_path, user_specified) = subject.determine_config_file_path(&args);
+
+        assert_eq!(
+            "data_dir",
+            &format!("{}", config_file_path.parent().unwrap().display())
+        );
+        assert_eq!("booga.toml", config_file_path.file_name().unwrap());
+        assert_eq!(true, user_specified);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn determine_config_file_path_ignores_data_dir_if_config_file_has_root() {
+        let args: Vec<String> = vec![
+            "SubstratumNode",
+            "--data_directory",
+            "data_dir",
+            "--config_file",
+            "/tmp/booga.toml",
+            "--dns_servers",
+            "1.2.3.4",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        let subject = NodeConfiguratorReal::new();
+
+        let (config_file_path, user_specified) = subject.determine_config_file_path(&args);
+
+        assert_eq!(
+            "/tmp/booga.toml",
+            &format!("{}", config_file_path.display())
+        );
+        assert_eq!(true, user_specified);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn determine_config_file_path_ignores_data_dir_if_config_file_has_separator_root() {
+        let args: Vec<String> = vec![
+            "SubstratumNode",
+            "--data_directory",
+            "data_dir",
+            "--config_file",
+            r"\tmp\booga.toml",
+            "--dns_servers",
+            "1.2.3.4",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        let subject = NodeConfiguratorReal::new();
+
+        let (config_file_path, user_specified) = subject.determine_config_file_path(&args);
+
+        assert_eq!(r"\tmp\booga.toml", &format!("{}", user_specified.display()));
+        assert_eq!(true, user_specified);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn determine_config_file_path_ignores_data_dir_if_config_file_has_drive_root() {
+        let args: Vec<String> = vec![
+            "SubstratumNode",
+            "--data_directory",
+            "data_dir",
+            "--config_file",
+            r"c:\tmp\booga.toml",
+            "--dns_servers",
+            "1.2.3.4",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        let subject = NodeConfiguratorReal::new();
+
+        let (config_file_path, user_specified) = subject.determine_config_file_path(&args);
+
+        assert_eq!(
+            r"c:\tmp\booga.toml",
+            &format!("{}", resuser_specifiedult.display())
+        );
+        assert_eq!(true, user_specified);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn determine_config_file_path_ignores_data_dir_if_config_file_has_network_root() {
+        let args: Vec<String> = vec![
+            "SubstratumNode",
+            "--data_directory",
+            "data_dir",
+            "--config_file",
+            r"\\TMP\booga.toml",
+            "--dns_servers",
+            "1.2.3.4",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        let subject = NodeConfiguratorReal::new();
+
+        let (config_file_path, user_specified) = subject.determine_config_file_path(&args);
+
+        assert_eq!(
+            r"\\TMP\booga.toml",
+            &format!("{}", user_specified.display())
+        );
+        assert_eq!(true, user_specified);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn determine_config_file_path_ignores_data_dir_if_config_file_has_drive_letter_but_no_separator(
+    ) {
+        let args: Vec<String> = vec![
+            "SubstratumNode",
+            "--data_directory",
+            "data_dir",
+            "--config_file",
+            r"c:tmp\booga.toml",
+            "--dns_servers",
+            "1.2.3.4",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        let subject = NodeConfiguratorReal::new();
+
+        let (config_file_path, user_specified) = subject.determine_config_file_path(&args);
+
+        assert_eq!(
+            r"c:tmp\booga.toml",
+            &format!("{}", user_specified.display())
+        );
+        assert_eq!(true, user_specified);
+    }
+
+    #[test]
+    fn parse_args_creates_configurations() {
+        let _guard = EnvironmentGuard::new();
+        let args: Vec<String> = vec![
+            "SubstratumNode",
+            "--config_file",
+            "specified_config.toml",
             "--dns_servers",
             "12.34.56.78,23.45.67.89",
             "--neighbors",
@@ -642,11 +786,24 @@ mod tests {
         .into_iter()
         .map(String::from)
         .collect();
+        std::env::set_var(
+            "SUB_CONSUMING_PRIVATE_KEY",
+            "1234567891123456789212345678913234567894123456789512345678961234",
+        );
         let mut config = BootstrapperConfig::new();
         let subject = NodeConfiguratorReal::new();
+        let vcls: Vec<Box<VirtualCommandLine>> = vec![
+            Box::new(EnvironmentVCL::new(&subject.app)),
+            Box::new(CommandLineVCL::new(args)),
+        ];
+        let multi_config = MultiConfig::new(&subject.app, vcls);
 
-        subject.parse_args(&args, &mut config);
+        subject.parse_args(&multi_config, &mut config);
 
+        assert_eq!(
+            Some(PathBuf::from("specified_config.toml")),
+            value_m!(multi_config, "config_file", PathBuf)
+        );
         assert_eq!(
             vec!(
                 SocketAddr::from_str("12.34.56.78:53").unwrap(),
@@ -693,26 +850,40 @@ mod tests {
             config.blockchain_bridge_config.blockchain_service_url
         );
         assert_eq!(PathBuf::from("~/.booga"), config.data_directory,);
-        assert_eq!(Some(1234u16), config.clandestine_port_opt)
+        assert_eq!(Some(1234u16), config.clandestine_port_opt);
+        assert_eq!(
+            Some("1234567891123456789212345678913234567894123456789512345678961234".to_string()),
+            config.blockchain_bridge_config.consuming_private_key
+        );
     }
 
     #[test]
     fn parse_args_creates_configuration_with_defaults() {
+        let _guard = EnvironmentGuard::new();
         let args: Vec<String> = vec!["SubstratumNode", "--dns_servers", "12.34.56.78,23.45.67.89"]
             .into_iter()
             .map(String::from)
             .collect();
         let mut config = BootstrapperConfig::new();
         let subject = NodeConfiguratorReal::new();
+        let vcls: Vec<Box<VirtualCommandLine>> = vec![
+            Box::new(CommandLineVCL::new(args)),
+            Box::new(EnvironmentVCL::new(&subject.app)),
+        ];
+        let multi_config = MultiConfig::new(&subject.app, vcls);
 
-        subject.parse_args(&args, &mut config);
+        subject.parse_args(&multi_config, &mut config);
 
         assert_eq!(
-            config.dns_servers,
+            Some(PathBuf::from("config.toml")),
+            value_m!(multi_config, "config_file", PathBuf)
+        );
+        assert_eq!(
             vec!(
                 SocketAddr::from_str("12.34.56.78:53").unwrap(),
                 SocketAddr::from_str("23.45.67.89:53").unwrap()
-            )
+            ),
+            config.dns_servers,
         );
         assert_eq!(false, config.neighborhood_config.is_bootstrap_node);
         assert_eq!(None, config.clandestine_port_opt);
@@ -724,6 +895,7 @@ mod tests {
         );
         assert_eq!(sentinel_ip_addr(), config.neighborhood_config.local_ip_addr,);
         assert_eq!(5333, config.ui_gateway_config.ui_port);
+        assert_eq!(None, config.blockchain_bridge_config.consuming_private_key);
     }
 
     #[test]
@@ -740,8 +912,10 @@ mod tests {
         .collect();
         let mut config = BootstrapperConfig::new();
         let subject = NodeConfiguratorReal::new();
+        let vcl = Box::new(CommandLineVCL::new(args));
+        let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
 
-        subject.parse_args(&args, &mut config);
+        subject.parse_args(&multi_config, &mut config);
 
         assert_eq!(config.neighborhood_config.is_bootstrap_node, false);
         assert_eq!(
@@ -753,24 +927,45 @@ mod tests {
     #[test]
     fn no_parameters_produces_configuration_for_crash_point() {
         let args = make_default_cli_params();
-        let mut subject = BootstrapperConfig::new();
-        let configurator = NodeConfiguratorReal::new();
+        let mut config = BootstrapperConfig::new();
+        let subject = NodeConfiguratorReal::new();
+        let vcl = Box::new(CommandLineVCL::new(args));
+        let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
 
-        configurator.parse_args(&args, &mut subject);
+        subject.parse_args(&multi_config, &mut config);
 
-        assert_eq!(subject.crash_point, CrashPoint::None);
+        assert_eq!(config.crash_point, CrashPoint::None);
     }
 
     #[test]
     fn with_parameters_produces_configuration_for_crash_point() {
         let mut args = make_default_cli_params();
         let crash_args = vec![String::from("--crash_point"), String::from("panic")];
-        let mut subject = BootstrapperConfig::new();
         args.extend(crash_args);
-        let configurator = NodeConfiguratorReal::new();
+        let mut config = BootstrapperConfig::new();
+        let subject = NodeConfiguratorReal::new();
+        let vcl = Box::new(CommandLineVCL::new(args));
+        let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
 
-        configurator.parse_args(&args, &mut subject);
+        subject.parse_args(&multi_config, &mut config);
 
-        assert_eq!(subject.crash_point, CrashPoint::Panic);
+        assert_eq!(config.crash_point, CrashPoint::Panic);
+    }
+
+    #[test]
+    #[should_panic(expected = "could not be read: ")]
+    fn generate_configuration_senses_when_user_specifies_config_file() {
+        let subject = NodeConfiguratorReal::new();
+        let args = vec![
+            "SubstratumNode",
+            "--dns_servers",
+            "1.2.3.4",
+            "--config_file",
+            "booga.toml", // nonexistent config file: should stimulate panic because user-specified
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect::<Vec<String>>();
+        subject.generate_configuration(&args);
     }
 }
