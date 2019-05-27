@@ -23,62 +23,9 @@ pub fn process(buf: &mut [u8], length: usize, addr: &SocketAddr, logger: &Logger
         opcode: facade.get_opcode().unwrap_or(0xFF),
         queries: facade.get_queries().unwrap_or(vec![]),
     };
-    let result: usize;
-    // TODO - Loop doesn't loop, just breaking to short circuit
-    loop {
-        if facade
-            .get_opcode()
-            .expect("The provided buffer must have more than 0 bytes")
-            != u8::from(OpCode::Query)
-        {
-            result = make_not_implemented_error(&mut facade);
-            break;
-        }
-        let success = facade.set_query(false)
-            && facade.set_authoritative_answer(false)
-            && facade.set_truncated(false)
-            && facade.set_recursion_available(true)
-            && facade.set_authenticated_data(false)
-            && facade.set_checking_disabled(false);
-        if !success {
-            result = make_format_error(&mut facade);
-            break;
-        };
-        let queries = match facade.get_queries() {
-            None => {
-                result = make_format_error(&mut facade);
-                break;
-            }
-            Some(q) => q,
-        };
-        for query in queries {
-            if query.get_query_class() != u16::from(DNSClass::IN) {
-                return make_not_implemented_error(&mut facade);
-            }
 
-            let resource_type = query.get_query_type();
-            match RecordType::from(resource_type) {
-                RecordType::A => facade.add_answer(
-                    &query.get_query_name(),
-                    resource_type,
-                    DNSClass::IN.into(),
-                    3600,
-                    &Ipv4Addr::LOCALHOST.octets(),
-                ),
-                RecordType::AAAA => facade.add_answer(
-                    &query.get_query_name(),
-                    resource_type,
-                    DNSClass::IN.into(),
-                    3600,
-                    &Ipv6Addr::LOCALHOST.octets(),
-                ),
-                _ => return make_not_implemented_error(&mut facade),
-            };
-        }
+    let response_size = make_response(&mut facade);
 
-        result = facade.get_length();
-        break;
-    }
     let latency = request_record.timestamp.elapsed();
     let response_record = ResponseRecord {
         latency_ns: latency.as_nanos() as u64,
@@ -86,7 +33,51 @@ pub fn process(buf: &mut [u8], length: usize, addr: &SocketAddr, logger: &Logger
         answers: facade.get_answers().unwrap_or(vec![]),
     };
     write_log(&request_record, &response_record, addr, logger);
-    result
+    response_size
+}
+
+fn make_response(mut facade: &mut PacketFacade) -> usize {
+    match facade.get_opcode() {
+        None => return make_format_error(facade),
+        Some(opcode) if opcode == u8::from(OpCode::Query) => (),
+        Some(_) => return make_not_implemented_error(facade),
+    }
+    let _ = (facade.set_query(false)
+        && facade.set_authoritative_answer(false)
+        && facade.set_truncated(false)
+        && facade.set_recursion_available(true)
+        && facade.set_authenticated_data(false)
+        && facade.set_checking_disabled(false))
+        || return make_format_error(facade);
+    let queries = match facade.get_queries() {
+        None => return make_format_error(facade),
+        Some(q) => q,
+    };
+    for query in queries {
+        if query.get_query_class() != u16::from(DNSClass::IN) {
+            return make_not_implemented_error(facade);
+        }
+
+        let resource_type = query.get_query_type();
+        match RecordType::from(resource_type) {
+            RecordType::A => facade.add_answer(
+                &query.get_query_name(),
+                resource_type,
+                DNSClass::IN.into(),
+                3600,
+                &Ipv4Addr::LOCALHOST.octets(),
+            ),
+            RecordType::AAAA => facade.add_answer(
+                &query.get_query_name(),
+                resource_type,
+                DNSClass::IN.into(),
+                3600,
+                &Ipv6Addr::LOCALHOST.octets(),
+            ),
+            _ => return make_not_implemented_error(&mut facade),
+        };
+    }
+    facade.get_length()
 }
 
 fn display(opcode: u8) -> &'static str {
@@ -100,25 +91,21 @@ fn display(opcode: u8) -> &'static str {
 }
 
 fn make_format_error(facade: &mut PacketFacade<'_>) -> usize {
-    facade.set_query(false);
-    facade.set_authoritative_answer(false);
-    facade.set_truncated(false);
-    facade.set_recursion_available(true);
-    facade.set_authenticated_data(false);
-    facade.set_checking_disabled(false);
-    facade.set_rcode(ResponseCode::FormErr.low());
-    facade.clear();
-    HEADER_BYTES
+    make_error(facade, ResponseCode::FormErr.low())
 }
 
 fn make_not_implemented_error(facade: &mut PacketFacade<'_>) -> usize {
+    make_error(facade, ResponseCode::NotImp.low())
+}
+
+fn make_error(facade: &mut PacketFacade<'_>, response_code: u8) -> usize {
     facade.set_query(false);
     facade.set_authoritative_answer(false);
     facade.set_truncated(false);
     facade.set_recursion_available(true);
     facade.set_authenticated_data(false);
     facade.set_checking_disabled(false);
-    facade.set_rcode(ResponseCode::NotImp.low());
+    facade.set_rcode(response_code);
     facade.clear();
     HEADER_BYTES
 }

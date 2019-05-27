@@ -1,8 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use super::bootstrapper::Bootstrapper;
-use super::entry_dns::new_dns_socket_server;
 use super::privilege_drop::PrivilegeDropper;
 use super::privilege_drop::PrivilegeDropperReal;
+use crate::entry_dns::dns_socket_server::DnsSocketServer;
 use crate::sub_lib::main_tools::Command;
 use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::socket_server::SocketServer;
@@ -70,7 +70,7 @@ where
 impl ServerInitializer<PrivilegeDropperReal> {
     pub fn new() -> ServerInitializer<PrivilegeDropperReal> {
         ServerInitializer {
-            dns_socket_server: Box::new(new_dns_socket_server()),
+            dns_socket_server: Box::new(DnsSocketServer::new()),
             bootstrapper: Box::new(Bootstrapper::new()),
             privilege_dropper: PrivilegeDropperReal::new(),
             logger_initializer_wrapper: Box::new(LoggerInitializerWrapperReal {}),

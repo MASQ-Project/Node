@@ -1,11 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use super::processing;
-use super::DnsSocketServer;
 use crate::server_initializer::LoggerInitializerWrapper;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::socket_server::SocketServer;
-use std::borrow::BorrowMut;
 use std::net::IpAddr::V4;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
@@ -14,6 +11,15 @@ use tokio::prelude::Future;
 
 const DNS_PORT: u16 = 53;
 
+use crate::entry_dns::processing;
+use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperReal;
+use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
+
+pub struct DnsSocketServer {
+    socket_wrapper: Box<dyn UdpSocketWrapperTrait>,
+    buf: [u8; 65536],
+}
+
 impl Future for DnsSocketServer {
     type Item = ();
     type Error = ();
@@ -21,10 +27,8 @@ impl Future for DnsSocketServer {
     fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
         let logger = Logger::new("EntryDnsServer");
         loop {
-            let mut buffer = self
-                .buf
-                .expect("Missing buffer - was initialize_as_privileged called?");
-            let (len, socket_addr) = match self.socket_wrapper.recv_from(buffer.borrow_mut()) {
+            let mut buffer = self.buf;
+            let (len, socket_addr) = match self.socket_wrapper.recv_from(&mut buffer) {
                 Ok(Async::Ready((len, socket_addr))) => (len, socket_addr),
                 Ok(Async::NotReady) => return Ok(Async::NotReady),
                 Err(e) => {
@@ -35,8 +39,7 @@ impl Future for DnsSocketServer {
                     return Err(());
                 }
             };
-            let response_length =
-                processing::process(buffer.borrow_mut(), len, &socket_addr, &logger);
+            let response_length = processing::process(&mut buffer, len, &socket_addr, &logger);
             match self
                 .socket_wrapper
                 .send_to(&buffer[0..response_length], socket_addr)
@@ -69,13 +72,21 @@ impl SocketServer for DnsSocketServer {
     }
 
     fn initialize_as_unprivileged(&mut self, _streams: &mut StdStreams<'_>) {
-        self.buf = Some([0; 65536]);
+        self.buf = [0; 65536];
+    }
+}
+
+impl DnsSocketServer {
+    pub fn new() -> DnsSocketServer {
+        DnsSocketServer {
+            socket_wrapper: Box::new(UdpSocketWrapperReal::new()),
+            buf: [0; 65536],
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::new_dns_socket_server;
     use super::super::packet_facade::PacketFacade;
     use super::*;
     use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
@@ -180,7 +191,7 @@ mod tests {
 
     #[test]
     fn knows_its_name() {
-        let subject = new_dns_socket_server();
+        let subject = DnsSocketServer::new();
 
         let result = subject.name();
 
@@ -345,7 +356,7 @@ mod tests {
     fn make_instrumented_subject(socket_wrapper: Box<UdpSocketWrapperMock>) -> DnsSocketServer {
         DnsSocketServer {
             socket_wrapper,
-            buf: None,
+            buf: [0; 65536],
         }
     }
 }

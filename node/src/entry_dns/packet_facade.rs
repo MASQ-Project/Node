@@ -594,9 +594,10 @@ impl<'a> PacketFacade<'a> {
             if end > buflen {
                 return None;
             }
-            result = result.add(
-                from_utf8(&buf[(local_offset + 1)..end]).expect("Internal error: non-UTF-8 string"),
-            );
+            result = result.add(match from_utf8(&buf[(local_offset + 1)..end]) {
+                Ok(s) => s,
+                Err(_) => return None,
+            });
             local_offset = end;
         }
     }
@@ -727,6 +728,25 @@ mod tests {
             adder.add_bytes(&vec![0x00, 0x01]); // one resource record
             adder.skip_bytes(4);
             adder.add_bytes(&vec![0x01]); // length of first name part
+            adder.get_offset()
+        };
+
+        let new_result = ResourceRecord::new(&buf, 12, length);
+        let find_result = ResourceRecord::find_end(&buf, 12, length);
+
+        assert_eq!(new_result.is_none(), true);
+        assert_eq!(find_result.is_none(), true);
+    }
+
+    #[test]
+    fn resource_record_complains_when_name_is_not_utf8() {
+        let mut buf: [u8; 100] = [0; 100];
+        let length = {
+            let mut adder = ByteHandle::new(&mut buf, 6);
+            adder.add_bytes(&vec![0x00, 0x01]); // one resource record
+            adder.skip_bytes(4);
+            adder.add_bytes(&vec![0x02]); // length of first name part
+            adder.add_bytes(&vec![192, 193]); // illegal UTF-8
             adder.get_offset()
         };
 
