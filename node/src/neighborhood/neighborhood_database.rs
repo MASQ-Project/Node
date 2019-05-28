@@ -35,7 +35,6 @@ impl NeighborhoodDatabase {
         node_addr: &NodeAddr,
         earning_wallet: Wallet,
         rate_pack: RatePack,
-        is_bootstrap_node: bool,
         cryptde: &dyn CryptDE,
     ) -> NeighborhoodDatabase {
         let mut result = NeighborhoodDatabase {
@@ -44,15 +43,10 @@ impl NeighborhoodDatabase {
             by_ip_addr: HashMap::new(),
         };
 
-        let mut node_record = NodeRecord::new(
-            public_key,
-            earning_wallet,
-            rate_pack,
-            is_bootstrap_node,
-            0,
-            cryptde,
-        );
-        node_record.set_node_addr(node_addr).is_ok();
+        let mut node_record = NodeRecord::new(public_key, earning_wallet, rate_pack, 0, cryptde);
+        node_record
+            .set_node_addr(node_addr)
+            .expect("Failed to set_node_addr");
         node_record.signed_gossip = PlainData::from(
             serde_cbor::ser::to_vec(&node_record.inner).expect("Couldn't serialize"),
         );
@@ -72,13 +66,6 @@ impl NeighborhoodDatabase {
 
     pub fn keys(&self) -> HashSet<&PublicKey> {
         self.by_public_key.keys().into_iter().collect()
-    }
-
-    pub fn non_bootstrap_count(&self) -> usize {
-        self.by_public_key
-            .values()
-            .filter(|node_record_ref_ref| node_record_ref_ref.is_not_bootstrap_node())
-            .count()
     }
 
     pub fn node_by_key(&self, public_key: &PublicKey) -> Option<&NodeRecord> {
@@ -207,11 +194,6 @@ impl NeighborhoodDatabase {
             .into_iter()
             .map(|k| self.node_by_key(k).expect("Node magically disappeared"))
             .collect::<Vec<&NodeRecord>>();
-        let bootstrap_keys: HashSet<PublicKey> = node_records
-            .iter()
-            .filter(|n| n.is_bootstrap_node())
-            .map(|n| n.public_key().clone())
-            .collect();
         node_records.into_iter().for_each(|nr| {
             present.insert(nr.public_key().clone());
             let public_key = nr.public_key();
@@ -220,15 +202,12 @@ impl NeighborhoodDatabase {
                 edge_renderables.push(EdgeRenderable {
                     from: public_key.clone(),
                     to: k.clone(),
-                    known_bootstrap_edge: bootstrap_keys.contains(public_key)
-                        || bootstrap_keys.contains(k),
                 })
             });
             node_renderables.push(NodeRenderable {
                 version: Some(nr.version()),
                 public_key: public_key.clone(),
                 node_addr: nr.node_addr_opt().clone(),
-                known_bootstrap_node: bootstrap_keys.contains(public_key),
                 known_source: public_key == self.root().public_key(),
                 known_target: false,
                 is_present: true,
@@ -239,7 +218,6 @@ impl NeighborhoodDatabase {
                 version: None,
                 public_key: k.clone(),
                 node_addr: None,
-                known_bootstrap_node: false,
                 known_source: false,
                 known_target: false,
                 is_present: false,
@@ -309,7 +287,7 @@ mod tests {
 
     #[test]
     fn a_brand_new_database_has_the_expected_contents() {
-        let this_node = make_node_record(1234, true, false);
+        let this_node = make_node_record(1234, true);
 
         let subject = db_from_node(&this_node);
 
@@ -337,14 +315,13 @@ mod tests {
 
     #[test]
     fn can_get_mutable_root() {
-        let this_node = make_node_record(1234, true, false);
+        let this_node = make_node_record(1234, true);
 
         let mut subject = NeighborhoodDatabase::new(
             this_node.public_key(),
             &this_node.node_addr_opt().unwrap(),
             this_node.earning_wallet(),
             rate_pack(1234),
-            false,
             &CryptDENull::from(this_node.public_key()),
         );
 
@@ -372,9 +349,9 @@ mod tests {
 
     #[test]
     fn cant_add_a_node_twice() {
-        let this_node = make_node_record(1234, true, false);
-        let first_copy = make_node_record(2345, true, false);
-        let second_copy = make_node_record(2345, true, false);
+        let this_node = make_node_record(1234, true);
+        let first_copy = make_node_record(2345, true);
+        let second_copy = make_node_record(2345, true);
         let mut subject = db_from_node(&this_node);
         let first_result = subject.add_node(first_copy.clone());
 
@@ -389,9 +366,9 @@ mod tests {
 
     #[test]
     fn cant_add_a_node_without_any_ports() {
-        let this_node = make_node_record(1234, true, false);
+        let this_node = make_node_record(1234, true);
         let mut subject = db_from_node(&this_node);
-        let mut node_with_no_ports = make_node_record(2345, true, false);
+        let mut node_with_no_ports = make_node_record(2345, true);
         node_with_no_ports.unset_node_addr();
         let changed = node_with_no_ports
             .set_node_addr(&NodeAddr::new(
@@ -409,15 +386,14 @@ mod tests {
 
     #[test]
     fn node_by_key_works() {
-        let this_node = make_node_record(1234, true, false);
-        let one_node = make_node_record(4567, true, false);
-        let another_node = make_node_record(5678, true, false);
+        let this_node = make_node_record(1234, true);
+        let one_node = make_node_record(4567, true);
+        let another_node = make_node_record(5678, true);
         let mut subject = NeighborhoodDatabase::new(
             this_node.public_key(),
             &this_node.node_addr_opt().unwrap(),
             Wallet::new("0x1234"),
             rate_pack(1234),
-            false,
             &CryptDENull::from(this_node.public_key()),
         );
 
@@ -436,9 +412,9 @@ mod tests {
 
     #[test]
     fn node_by_ip_works() {
-        let this_node = make_node_record(1234, true, false);
-        let one_node = make_node_record(4567, true, false);
-        let another_node = make_node_record(5678, true, false);
+        let this_node = make_node_record(1234, true);
+        let one_node = make_node_record(4567, true);
+        let another_node = make_node_record(5678, true);
         let mut subject = db_from_node(&this_node);
 
         subject.add_node(one_node.clone()).unwrap();
@@ -465,15 +441,14 @@ mod tests {
 
     #[test]
     fn add_half_neighbor_works() {
-        let this_node = make_node_record(1234, true, false);
-        let one_node = make_node_record(2345, false, false);
-        let another_node = make_node_record(3456, true, false);
+        let this_node = make_node_record(1234, true);
+        let one_node = make_node_record(2345, false);
+        let another_node = make_node_record(3456, true);
         let mut subject = NeighborhoodDatabase::new(
             this_node.public_key(),
             &this_node.node_addr_opt().unwrap(),
             Wallet::new("0x1234"),
             rate_pack(100),
-            false,
             &CryptDENull::from(this_node.public_key()),
         );
         subject.add_node(one_node.clone()).unwrap();
@@ -565,8 +540,8 @@ mod tests {
 
     #[test]
     fn add_half_neighbor_complains_if_to_node_doesnt_exist() {
-        let this_node = make_node_record(1234, true, false);
-        let nonexistent_node = make_node_record(2345, true, false);
+        let this_node = make_node_record(1234, true);
+        let nonexistent_node = make_node_record(2345, true);
         let mut subject = db_from_node(&this_node);
 
         let result = subject.add_half_neighbor(nonexistent_node.public_key());
@@ -581,7 +556,7 @@ mod tests {
 
     #[test]
     fn add_half_neighbor_complains_when_node_tries_to_neighbor_itself() {
-        let this_node = make_node_record(1234, true, false);
+        let this_node = make_node_record(1234, true);
         let mut subject = db_from_node(&this_node);
 
         let result = subject.add_half_neighbor(this_node.public_key());
@@ -596,14 +571,13 @@ mod tests {
 
     #[test]
     fn add_half_neighbor_returns_true_when_new_edge_is_created() {
-        let this_node = make_node_record(1234, true, false);
-        let other_node = make_node_record(2345, true, false);
+        let this_node = make_node_record(1234, true);
+        let other_node = make_node_record(2345, true);
         let mut subject = NeighborhoodDatabase::new(
             this_node.public_key(),
             &this_node.node_addr_opt().unwrap(),
             Wallet::new("0x1234"),
             rate_pack(100),
-            false,
             &CryptDENull::from(this_node.public_key()),
         );
         subject.add_node(other_node.clone()).unwrap();
@@ -615,8 +589,8 @@ mod tests {
 
     #[test]
     fn add_half_neighbor_returns_false_when_edge_already_exists() {
-        let this_node = make_node_record(1234, true, false);
-        let other_node = make_node_record(2345, true, false);
+        let this_node = make_node_record(1234, true);
+        let other_node = make_node_record(2345, true);
         let mut subject = db_from_node(&this_node);
         subject.add_node(other_node.clone()).unwrap();
         subject.add_half_neighbor(other_node.public_key()).unwrap();
@@ -628,28 +602,22 @@ mod tests {
 
     #[test]
     fn gossip_target_degree() {
-        let root = make_node_record(1000, true, false);
+        let root = make_node_record(1000, true);
         let mut db = db_from_node(&root);
         // full-neighbor
-        let a = &db.add_node(make_node_record(1001, true, false)).unwrap();
-        let b = &db.add_node(make_node_record(1002, true, false)).unwrap();
-        let c = &db.add_node(make_node_record(1003, true, false)).unwrap();
+        let a = &db.add_node(make_node_record(1001, true)).unwrap();
+        let b = &db.add_node(make_node_record(1002, true)).unwrap();
+        let c = &db.add_node(make_node_record(1003, true)).unwrap();
         db.add_arbitrary_full_neighbor(a, b);
         db.add_arbitrary_full_neighbor(a, c);
         // half-neighbor
-        let m = &db.add_node(make_node_record(1004, true, false)).unwrap();
-        let n = &db.add_node(make_node_record(1005, true, false)).unwrap();
-        let o = &db.add_node(make_node_record(1006, true, false)).unwrap();
+        let m = &db.add_node(make_node_record(1004, true)).unwrap();
+        let n = &db.add_node(make_node_record(1005, true)).unwrap();
+        let o = &db.add_node(make_node_record(1006, true)).unwrap();
         db.add_arbitrary_half_neighbor(m, n);
         db.add_arbitrary_half_neighbor(m, o);
-        // bootstrap neighbor
-        let p = &db.add_node(make_node_record(1007, true, false)).unwrap();
-        let q = &db.add_node(make_node_record(1008, true, true)).unwrap();
-        let r = &db.add_node(make_node_record(1009, true, true)).unwrap();
-        db.add_arbitrary_full_neighbor(p, q);
-        db.add_arbitrary_full_neighbor(p, r);
         // nonexistent neighbor
-        let mut s_rec = make_node_record(1010, true, false);
+        let mut s_rec = make_node_record(1010, true);
         s_rec
             .add_half_neighbor_key(PublicKey::new(&[8, 8, 8, 8]))
             .unwrap();
@@ -657,56 +625,17 @@ mod tests {
             .add_half_neighbor_key(PublicKey::new(&[9, 9, 9, 9]))
             .unwrap();
         let s = &db.add_node(s_rec).unwrap();
-
         assert_eq!(2, db.gossip_target_degree(a));
         assert_eq!(0, db.gossip_target_degree(m));
-        assert_eq!(0, db.gossip_target_degree(p));
         assert_eq!(2, db.gossip_target_degree(s));
     }
 
     #[test]
-    fn non_bootstrap_count_doesnt_count_bootstrap_nodes() {
-        let mut subject = make_single_node_subject();
-
-        assert_eq!(subject.non_bootstrap_count(), 1);
-
-        subject
-            .add_node(make_node_record(1001, true, false))
-            .unwrap();
-
-        assert_eq!(subject.non_bootstrap_count(), 2);
-
-        subject
-            .add_node(make_node_record(1002, true, true))
-            .unwrap();
-
-        assert_eq!(subject.non_bootstrap_count(), 2);
-
-        subject
-            .add_node(make_node_record(1003, true, false))
-            .unwrap();
-
-        assert_eq!(subject.non_bootstrap_count(), 3);
-    }
-
-    fn make_single_node_subject() -> NeighborhoodDatabase {
-        let this_node = make_node_record(1000, true, false);
-        NeighborhoodDatabase::new(
-            this_node.public_key(),
-            &this_node.node_addr_opt().unwrap(),
-            Wallet::new("0x1234"),
-            rate_pack(100),
-            false,
-            &CryptDENull::from(this_node.public_key()),
-        )
-    }
-
-    #[test]
     fn database_can_be_pretty_printed_to_dot_format() {
-        let this_node = make_node_record(1234, true, true); // AQIDBA
-        let node_one = make_node_record(2345, true, false); // AgMEBQ
-        let node_two = make_node_record(3456, true, false); // AwQFBg
-        let node_three = make_node_record(4567, true, false); // BAUGBw
+        let this_node = make_node_record(1234, true); // AQIDBA
+        let node_one = make_node_record(2345, true); // AgMEBQ
+        let node_two = make_node_record(3456, true); // AwQFBg
+        let node_three = make_node_record(4567, true); // BAUGBw
 
         let mut subject = db_from_node(&this_node);
 
@@ -731,7 +660,7 @@ mod tests {
         assert_eq!(result.matches("->").count(), 8);
         assert_string_contains(
             &result,
-            "\"AQIDBA\" [label=\"v1\\nAQIDBA\\n1.2.3.4:1234\\nbootstrap\"] [style=filled];",
+            "\"AQIDBA\" [label=\"v1\\nAQIDBA\\n1.2.3.4:1234\"] [style=filled];",
         );
         assert_string_contains(
             &result,
@@ -745,25 +674,24 @@ mod tests {
             &result,
             "\"BAUGBw\" [label=\"v0\\nBAUGBw\\n4.5.6.7:4567\"];",
         );
-        assert_string_contains(&result, "\"AQIDBA\" -> \"AgMEBQ\" [style=dashed];");
-        assert_string_contains(&result, "\"AgMEBQ\" -> \"AQIDBA\" [style=dashed];");
+        assert_string_contains(&result, "\"AQIDBA\" -> \"AgMEBQ\";");
+        assert_string_contains(&result, "\"AgMEBQ\" -> \"AQIDBA\";");
         assert_string_contains(&result, "\"AgMEBQ\" -> \"AwQFBg\";");
         assert_string_contains(&result, "\"AwQFBg\" -> \"AgMEBQ\";");
-        assert_string_contains(&result, "\"AwQFBg\" -> \"AQIDBA\" [style=dashed];");
+        assert_string_contains(&result, "\"AwQFBg\" -> \"AQIDBA\";");
         assert_string_contains(&result, "\"BAUGBw\" -> \"AwQFBg\";");
         assert_string_contains(&result, "\"AwQFBg\" -> \"BAUGBw\";");
-        assert_string_contains(&result, "\"BAUGBw\" -> \"AQIDBA\" [style=dashed];");
+        assert_string_contains(&result, "\"BAUGBw\" -> \"AQIDBA\";");
     }
 
     #[test]
     fn remove_neighbor_returns_error_when_given_nonexistent_node_key() {
-        let this_node = make_node_record(123, true, false);
+        let this_node = make_node_record(123, true);
         let mut subject = NeighborhoodDatabase::new(
             this_node.public_key(),
             &this_node.node_addr_opt().unwrap(),
             Wallet::new("0x123"),
             rate_pack(100),
-            false,
             &CryptDENull::from(this_node.public_key()),
         );
         let nonexistent_key = &PublicKey::new(b"nonexistent");
@@ -780,9 +708,9 @@ mod tests {
 
     #[test]
     fn remove_neighbor_returns_true_when_neighbor_was_removed() {
-        let this_node = make_node_record(123, true, false);
+        let this_node = make_node_record(123, true);
         let mut subject = db_from_node(&this_node);
-        let other_node = make_node_record(2345, true, false);
+        let other_node = make_node_record(2345, true);
         subject.add_node(other_node.clone()).unwrap();
         subject.add_arbitrary_half_neighbor(&this_node.public_key(), &other_node.public_key());
 
@@ -805,16 +733,15 @@ mod tests {
 
     #[test]
     fn remove_neighbor_returns_false_when_neighbor_was_not_removed() {
-        let this_node = make_node_record(123, true, false);
+        let this_node = make_node_record(123, true);
         let mut subject = NeighborhoodDatabase::new(
             this_node.public_key(),
             &this_node.node_addr_opt().unwrap(),
             Wallet::new("0x123"),
             rate_pack(100),
-            false,
             &CryptDENull::from(this_node.public_key()),
         );
-        let neighborless_node = make_node_record(2345, true, false);
+        let neighborless_node = make_node_record(2345, true);
         subject.add_node(neighborless_node.clone()).unwrap();
 
         let result = subject.remove_neighbor(neighborless_node.public_key());

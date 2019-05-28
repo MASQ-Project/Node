@@ -13,20 +13,20 @@ use std::time::Duration;
 fn neighborhood_notified_of_newly_missing_node() {
     // Set up three-Node network, and add a mock witness Node.
     let mut cluster = SubstratumNodeCluster::start().unwrap();
-    let bootstrap = cluster.start_real_node(NodeStartupConfigBuilder::bootstrap().build());
+    let neighbor = cluster.start_real_node(NodeStartupConfigBuilder::standard().build());
     let originating_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .neighbor(bootstrap.node_reference())
+            .neighbor(neighbor.node_reference())
             .build(),
     );
     let _staying_up_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .neighbor(bootstrap.node_reference())
+            .neighbor(neighbor.node_reference())
             .build(),
     );
     let disappearing_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .neighbor(bootstrap.node_reference())
+            .neighbor(neighbor.node_reference())
             .build(),
     );
     let witness_node = cluster.start_mock_node(vec![find_free_port()]);

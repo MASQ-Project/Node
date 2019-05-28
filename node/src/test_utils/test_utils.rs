@@ -438,14 +438,14 @@ pub fn node_home_directory(module: &str, name: &str) -> PathBuf {
 
 pub fn ensure_node_home_directory_does_not_exist(module: &str, name: &str) -> PathBuf {
     let home_dir = PathBuf::from(node_home_directory(module, name));
-    fs::remove_dir_all(&home_dir).is_ok();
+    let _ = fs::remove_dir_all(&home_dir);
     home_dir
 }
 
 pub fn ensure_node_home_directory_exists(module: &str, name: &str) -> PathBuf {
     let home_dir = PathBuf::from(node_home_directory(module, name));
-    fs::remove_dir_all(&home_dir).is_ok();
-    fs::create_dir_all(&home_dir).is_ok();
+    let _ = fs::remove_dir_all(&home_dir);
+    let _ = fs::create_dir_all(&home_dir);
     home_dir
 }
 

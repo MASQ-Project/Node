@@ -118,7 +118,6 @@ impl<T> ExpiredCoresPackage<T> {
 #[derive(Clone)]
 pub struct HopperConfig {
     pub cryptde: &'static dyn CryptDE,
-    pub is_bootstrap_node: bool,
     pub per_routing_service: u64,
     pub per_routing_byte: u64,
 }

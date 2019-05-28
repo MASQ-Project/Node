@@ -18,14 +18,14 @@ use std::str::FromStr;
 use std::time::Duration;
 
 #[test]
-fn when_bootstrapping_from_a_node_then_the_node_sends_gossip_upon_startup() {
+fn node_sends_gossip_to_neighbors_upon_startup() {
     let mut cluster = SubstratumNodeCluster::start().unwrap();
     let server = SubstratumCoresServer::new();
-    let bootstrap_node_ref = server.node_reference();
+    let neighbor_node_ref = server.node_reference();
 
     let subject = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .neighbor(bootstrap_node_ref.clone())
+            .neighbor(neighbor_node_ref.clone())
             .build(),
     );
 
@@ -39,7 +39,6 @@ fn when_bootstrapping_from_a_node_then_the_node_sends_gossip_upon_startup() {
             let node_ref = subject.node_reference();
             let inner = NodeRecordInner {
                 public_key: node_ref.public_key.clone(),
-                is_bootstrap_node: false,
                 earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
                 rate_pack: DEFAULT_RATE_PACK,
                 neighbors: BTreeSet::default(),

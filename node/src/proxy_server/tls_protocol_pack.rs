@@ -45,7 +45,7 @@ impl TlsProtocolPack {
         let handshake_message_type_position = 5;
         let client_hello_message_type = 1u8;
         xvsr.advance(handshake_message_type_position - xvsr.offset())
-            .is_ok();
+            .expect("Internal Error");
         xvsr.get_u8() == Ok(client_hello_message_type)
     }
 

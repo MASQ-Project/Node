@@ -31,7 +31,6 @@ pub struct RoutingServiceSubs {
 
 pub struct RoutingService {
     cryptde: &'static dyn CryptDE,
-    is_bootstrap_node: bool,
     routing_service_subs: RoutingServiceSubs,
     per_routing_service: u64,
     per_routing_byte: u64,
@@ -41,14 +40,12 @@ pub struct RoutingService {
 impl RoutingService {
     pub fn new(
         cryptde: &'static dyn CryptDE,
-        is_bootstrap_node: bool,
         routing_service_subs: RoutingServiceSubs,
         per_routing_service: u64,
         per_routing_byte: u64,
     ) -> RoutingService {
         RoutingService {
             cryptde,
-            is_bootstrap_node,
             routing_service_subs,
             per_routing_service,
             per_routing_byte,
@@ -304,18 +301,8 @@ impl RoutingService {
         })
     }
 
-    fn should_route_data(&self, peer_addr: SocketAddr, component: Component) -> bool {
-        if component == Component::Neighborhood {
-            true
-        } else if self.is_bootstrap_node {
-            self.logger.error(format!(
-                "Request from {} for Bootstrap Node to route data to {:?}: rejected",
-                peer_addr, component
-            ));
-            false
-        } else {
-            true
-        }
+    fn should_route_data(&self, _peer_addr: SocketAddr, _component: Component) -> bool {
+        true // Eventually use this place to drop packets from banned nodes
     }
 
     fn decrypt_and_deserialize_lcp(&self, ibcd: InboundClientData) -> Result<LiveCoresPackage, ()> {
@@ -402,7 +389,6 @@ mod tests {
         let peer_actors = peer_actors_builder().proxy_server(proxy_server).build();
         let subject = RoutingService::new(
             cryptde,
-            false,
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -447,7 +433,6 @@ mod tests {
         let peer_actors = peer_actors_builder().build();
         let subject = RoutingService::new(
             cryptde,
-            false,
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -493,7 +478,6 @@ mod tests {
         let peer_actors = peer_actors_builder().build();
         let subject = RoutingService::new(
             cryptde,
-            false,
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -537,7 +521,6 @@ mod tests {
         let peer_actors = peer_actors_builder().proxy_client(component).build();
         let subject = RoutingService::new(
             cryptde,
-            false,
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -596,7 +579,6 @@ mod tests {
         let peer_actors = peer_actors_builder().proxy_server(component).build();
         let subject = RoutingService::new(
             cryptde,
-            false,
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -664,7 +646,6 @@ mod tests {
         let peer_actors = peer_actors_builder().neighborhood(component).build();
         let subject = RoutingService::new(
             cryptde,
-            false,
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -733,7 +714,6 @@ mod tests {
             .build();
         let subject = RoutingService::new(
             cryptde,
-            false,
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -814,7 +794,6 @@ mod tests {
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let subject = RoutingService::new(
             cryptde,
-            false,
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -846,225 +825,6 @@ mod tests {
                 sequence_number: None,
                 data: expected_lcp_enc.into()
             }
-        );
-    }
-
-    #[test]
-    fn refuses_data_for_proxy_client_if_is_bootstrap_node() {
-        init_test_logging();
-        let cryptde = cryptde();
-        let (component, _, component_recording_arc) = make_recorder();
-        let route = route_to_proxy_client(&cryptde.public_key(), cryptde);
-        let payload = PlainData::new(&b"abcd"[..]);
-        let lcp = LiveCoresPackage::new(
-            route,
-            cryptde.encode(&cryptde.public_key(), &payload).unwrap(),
-        );
-        let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
-        let data_enc = cryptde.encode(&cryptde.public_key(), &data_ser).unwrap();
-        let inbound_client_data = InboundClientData {
-            peer_addr: SocketAddr::from_str("1.2.3.4:5679").unwrap(),
-            reception_port: None,
-            last_data: false,
-            is_clandestine: false,
-            sequence_number: None,
-            data: data_enc.into(),
-        };
-        let system = System::new("refuses_data_for_proxy_client_if_is_bootstrap_node");
-        let peer_actors = peer_actors_builder().proxy_client(component).build();
-        let subject = RoutingService::new(
-            cryptde,
-            true,
-            RoutingServiceSubs {
-                proxy_client_subs: peer_actors.proxy_client,
-                proxy_server_subs: peer_actors.proxy_server,
-                neighborhood_subs: peer_actors.neighborhood,
-                hopper_subs: peer_actors.hopper,
-                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
-                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
-            },
-            0,
-            0,
-        );
-
-        subject.route(inbound_client_data);
-
-        System::current().stop();
-        system.run();
-        TestLogHandler::new().exists_log_containing(
-            "ERROR: RoutingService: Request from 1.2.3.4:5679 for Bootstrap Node to route data to ProxyClient: rejected",
-        );
-        let component_recording = component_recording_arc.lock().unwrap();
-        assert_eq!(0, component_recording.len());
-    }
-
-    #[test]
-    fn refuses_data_for_proxy_server_if_is_bootstrap_node() {
-        init_test_logging();
-        let cryptde = cryptde();
-        let (component, _, component_recording_arc) = make_recorder();
-        let route = route_to_proxy_server(&cryptde.public_key(), cryptde);
-        let payload = PlainData::new(&b"abcd"[..]);
-        let lcp = LiveCoresPackage::new(
-            route,
-            cryptde.encode(&cryptde.public_key(), &payload).unwrap(),
-        );
-        let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
-        let data_enc = cryptde.encode(&cryptde.public_key(), &data_ser).unwrap();
-        let inbound_client_data = InboundClientData {
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            reception_port: None,
-            sequence_number: None,
-            last_data: false,
-            is_clandestine: false,
-            data: data_enc.into(),
-        };
-        let system = System::new("refuses_data_for_proxy_server_if_is_bootstrap_node");
-        let peer_actors = peer_actors_builder().proxy_server(component).build();
-        let subject = RoutingService::new(
-            cryptde,
-            true,
-            RoutingServiceSubs {
-                proxy_client_subs: peer_actors.proxy_client,
-                proxy_server_subs: peer_actors.proxy_server,
-                neighborhood_subs: peer_actors.neighborhood,
-                hopper_subs: peer_actors.hopper,
-                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
-                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
-            },
-            0,
-            0,
-        );
-
-        subject.route(inbound_client_data);
-
-        System::current().stop();
-        system.run();
-        TestLogHandler::new().exists_log_containing(
-            "ERROR: RoutingService: Request from 1.2.3.4:5678 for Bootstrap Node to route data to ProxyServer: rejected",
-        );
-        let component_recording = component_recording_arc.lock().unwrap();
-        assert_eq!(0, component_recording.len());
-    }
-
-    #[test]
-    fn refuses_data_for_hopper_if_is_bootstrap_node() {
-        init_test_logging();
-        let cryptde = cryptde();
-        let (component, _, component_recording_arc) = make_recorder();
-        let consuming_wallet = Wallet::new("wallet");
-        let route = Route::one_way(
-            RouteSegment::new(
-                vec![&cryptde.public_key(), &cryptde.public_key()],
-                Component::Hopper,
-            ),
-            cryptde,
-            Some(consuming_wallet),
-        )
-        .unwrap();
-        let payload = PlainData::new(&b"abcd"[..]);
-        let lcp = LiveCoresPackage::new(
-            route,
-            cryptde.encode(&cryptde.public_key(), &payload).unwrap(),
-        );
-        let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
-        let data_enc = cryptde.encode(&cryptde.public_key(), &data_ser).unwrap();
-        let inbound_client_data = InboundClientData {
-            peer_addr: SocketAddr::from_str("1.2.3.4:5681").unwrap(),
-            reception_port: None,
-            last_data: false,
-            is_clandestine: true,
-            sequence_number: None,
-            data: data_enc.into(),
-        };
-        let system = System::new("refuses_data_for_hopper_if_is_bootstrap_node");
-        let peer_actors = peer_actors_builder().hopper(component).build();
-        let subject = RoutingService::new(
-            cryptde,
-            true,
-            RoutingServiceSubs {
-                proxy_client_subs: peer_actors.proxy_client,
-                proxy_server_subs: peer_actors.proxy_server,
-                neighborhood_subs: peer_actors.neighborhood,
-                hopper_subs: peer_actors.hopper,
-                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
-                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
-            },
-            0,
-            0,
-        );
-
-        subject.route(inbound_client_data);
-
-        System::current().stop();
-        system.run();
-        TestLogHandler::new().exists_log_containing(
-            "ERROR: RoutingService: Request from 1.2.3.4:5681 for Bootstrap Node to route data to Hopper: rejected",
-        );
-        let component_recording = component_recording_arc.lock().unwrap();
-        assert_eq!(0, component_recording.len());
-    }
-
-    #[test]
-    fn accepts_data_for_neighborhood_if_is_bootstrap_node() {
-        init_test_logging();
-        let cryptde = cryptde();
-        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
-        let mut route = Route::one_way(
-            RouteSegment::new(
-                vec![&cryptde.public_key(), &cryptde.public_key()],
-                Component::Neighborhood,
-            ),
-            cryptde,
-            None,
-        )
-        .unwrap();
-        route.shift(cryptde).unwrap();
-        let payload = GossipBuilder::empty();
-        let encrypted_payload =
-            encodex::<MessageType>(cryptde, &cryptde.public_key(), &payload.clone().into())
-                .unwrap();
-        let lcp = LiveCoresPackage::new(route, encrypted_payload.clone());
-        let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
-        let data_enc = cryptde.encode(&cryptde.public_key(), &data_ser).unwrap();
-        let inbound_client_data = InboundClientData {
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            reception_port: None,
-            last_data: false,
-            is_clandestine: true,
-            sequence_number: None,
-            data: data_enc.into(),
-        };
-        let system = System::new("accepts_data_for_neighborhood_if_is_bootstrap_node");
-        let peer_actors = peer_actors_builder().neighborhood(neighborhood).build();
-        let subject = RoutingService::new(
-            cryptde,
-            true,
-            RoutingServiceSubs {
-                proxy_client_subs: peer_actors.proxy_client,
-                proxy_server_subs: peer_actors.proxy_server,
-                neighborhood_subs: peer_actors.neighborhood,
-                hopper_subs: peer_actors.hopper,
-                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
-                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
-            },
-            0,
-            0,
-        );
-
-        subject.route(inbound_client_data);
-
-        System::current().stop();
-        system.run();
-        let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
-        let message = neighborhood_recording.get_record::<ExpiredCoresPackage<Gossip>>(0);
-        assert_eq!(message.clone().payload, payload);
-        assert_eq!(
-            message.clone().immediate_neighbor_ip,
-            IpAddr::from_str("1.2.3.4").unwrap()
-        );
-        TestLogHandler::new().exists_no_log_containing(
-            "ERROR: RoutingService: Request for Bootstrap Node to route data to Neighborhood: rejected",
         );
     }
 
@@ -1113,7 +873,6 @@ mod tests {
             .build();
         let subject = RoutingService::new(
             cryptde,
-            false,
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -1163,7 +922,6 @@ mod tests {
             .build();
         let subject = RoutingService::new(
             cryptde(),
-            false,
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -1217,7 +975,6 @@ mod tests {
             .build();
         let subject = RoutingService::new(
             cryptde,
-            false,
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,

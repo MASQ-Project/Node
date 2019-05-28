@@ -70,8 +70,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "Target node AgMEBQ not in NeighborhoodDatabase")]
     fn produce_fails_for_target_not_in_database() {
-        let this_node = make_node_record(1234, true, false);
-        let target_node = make_node_record(2345, true, false);
+        let this_node = make_node_record(1234, true);
+        let target_node = make_node_record(2345, true);
         let database = db_from_node(&this_node);
 
         let subject = GossipProducerReal::new();
@@ -81,18 +81,18 @@ mod tests {
 
     #[test]
     fn produce_reveals_and_conceals_node_addrs_appropriately() {
-        let root_node = make_node_record(1234, true, false);
+        let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
-        let target_node_key = &db.add_node(make_node_record(1235, true, false)).unwrap();
-        let common_neighbor_key = &db.add_node(make_node_record(1236, true, false)).unwrap();
-        let root_full_neighbor_key = &db.add_node(make_node_record(1237, true, false)).unwrap();
-        let target_full_neighbor_key = &db.add_node(make_node_record(1238, false, false)).unwrap();
-        let knows_target_key = &db.add_node(make_node_record(1239, false, false)).unwrap();
-        let target_knows_key = &db.add_node(make_node_record(1240, false, false)).unwrap();
-        let knows_root_key = &db.add_node(make_node_record(1241, false, false)).unwrap();
-        let root_knows_key = &db.add_node(make_node_record(1242, true, false)).unwrap();
-        let root_bootstrap_key = &db.add_node(make_node_record(1243, true, true)).unwrap();
-        let target_bootstrap_key = &db.add_node(make_node_record(1244, false, true)).unwrap();
+        let target_node_key = &db.add_node(make_node_record(1235, true)).unwrap();
+        let common_neighbor_key = &db.add_node(make_node_record(1236, true)).unwrap();
+        let root_full_neighbor_key = &db.add_node(make_node_record(1237, true)).unwrap();
+        let target_full_neighbor_key = &db.add_node(make_node_record(1238, false)).unwrap();
+        let knows_target_key = &db.add_node(make_node_record(1239, false)).unwrap();
+        let target_knows_key = &db.add_node(make_node_record(1240, false)).unwrap();
+        let knows_root_key = &db.add_node(make_node_record(1241, false)).unwrap();
+        let root_knows_key = &db.add_node(make_node_record(1242, true)).unwrap();
+        let root_bootstrap_key = &db.add_node(make_node_record(1243, true)).unwrap();
+        let target_bootstrap_key = &db.add_node(make_node_record(1244, false)).unwrap();
         db.add_arbitrary_full_neighbor(root_node.public_key(), target_node_key);
         db.add_arbitrary_full_neighbor(root_node.public_key(), common_neighbor_key);
         db.add_arbitrary_full_neighbor(target_node_key, common_neighbor_key);
@@ -157,7 +157,7 @@ mod tests {
 
     #[test]
     fn produce_debut_creates_a_gossip_to_a_target_about_ourselves() {
-        let our_node_record = make_node_record(7771, true, false);
+        let our_node_record = make_node_record(7771, true);
         let db = db_from_node(&our_node_record);
         let subject = GossipProducerReal::new();
         let result_gossip: Gossip = subject.produce_debut(&db);

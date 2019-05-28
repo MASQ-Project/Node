@@ -92,7 +92,6 @@ impl ActorSystemFactoryReal {
         });
         let hopper_subs = actor_factory.make_and_start_hopper(HopperConfig {
             cryptde,
-            is_bootstrap_node: config.neighborhood_config.is_bootstrap_node,
             per_routing_service: config.neighborhood_config.rate_pack.routing_service_rate,
             per_routing_byte: config.neighborhood_config.rate_pack.routing_byte_rate,
         });
@@ -777,7 +776,6 @@ mod tests {
             dns_servers: vec![],
             neighborhood_config: NeighborhoodConfig {
                 neighbor_configs: vec![],
-                is_bootstrap_node: false,
                 local_ip_addr: IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
                 clandestine_port_list: vec![],
                 earning_wallet: Wallet::new("router"),
@@ -835,7 +833,6 @@ mod tests {
             dns_servers: vec![],
             neighborhood_config: NeighborhoodConfig {
                 neighbor_configs: vec![],
-                is_bootstrap_node: false,
                 local_ip_addr: IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
                 clandestine_port_list: vec![],
                 earning_wallet: Wallet::new("router"),
@@ -879,7 +876,6 @@ mod tests {
         check_bind_message(&recordings.ui_gateway);
         let hopper_config = Parameters::get(parameters.hopper_params);
         check_cryptde(hopper_config.cryptde);
-        assert_eq!(hopper_config.is_bootstrap_node, false);
         assert_eq!(hopper_config.per_routing_service, rate_pack_routing(100));
         assert_eq!(hopper_config.per_routing_byte, rate_pack_routing_byte(100));
         let proxy_client_config = Parameters::get(parameters.proxy_client_params);

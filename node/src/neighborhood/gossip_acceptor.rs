@@ -89,29 +89,10 @@ impl GossipHandler for DebutHandler {
         &self,
         cryptde: &CryptDE,
         database: &mut NeighborhoodDatabase,
-        agrs: Vec<AccessibleGossipRecord>,
+        mut args: Vec<AccessibleGossipRecord>,
         _gossip_source: IpAddr,
     ) -> GossipAcceptanceResult {
-        if database.root().is_bootstrap_node() {
-            self.handle_debut_bootstrap(cryptde, database, agrs)
-        } else {
-            self.handle_debut_standard(cryptde, database, agrs)
-        }
-    }
-}
-
-impl DebutHandler {
-    fn new(logger: Logger) -> DebutHandler {
-        DebutHandler { logger }
-    }
-
-    fn handle_debut_standard(
-        &self,
-        cryptde: &CryptDE,
-        database: &mut NeighborhoodDatabase,
-        mut agrs: Vec<AccessibleGossipRecord>,
-    ) -> GossipAcceptanceResult {
-        let source_agr = agrs.remove(0); // empty Gossip shouldn't get here
+        let source_agr = args.remove(0); // empty Gossip shouldn't get here
         let source_key = source_agr.inner.public_key.clone();
         let source_node_addr = source_agr
             .node_addr_opt
@@ -163,37 +144,11 @@ impl DebutHandler {
             },
         }
     }
+}
 
-    fn handle_debut_bootstrap(
-        &self,
-        cryptde: &CryptDE,
-        database: &mut NeighborhoodDatabase,
-        mut agrs: Vec<AccessibleGossipRecord>,
-    ) -> GossipAcceptanceResult {
-        let least_connected_neighbor_key_opt = {
-            let neighbor_vec = Self::root_neighbors_ordered_by_degree(database);
-            if neighbor_vec.is_empty() {
-                None
-            } else {
-                Some(neighbor_vec[0].clone())
-            }
-        };
-        let agr = agrs.remove(0); // empty Gossip shouldn't get here
-        let public_key = agr.inner.public_key.clone();
-        let node_addr = agr
-            .node_addr_opt
-            .clone()
-            .expect("NodeAddr magically disappeared");
-        self.try_accept_debut(cryptde, database, agr).is_ok(); // can't really get an error here
-        match least_connected_neighbor_key_opt {
-            None => GossipAcceptanceResult::Accepted,
-            Some(least_connected_neighbor_key) => {
-                let pass_gossip = GossipBuilder::new(database)
-                    .node(&least_connected_neighbor_key, true)
-                    .build();
-                GossipAcceptanceResult::Reply(pass_gossip, public_key, node_addr)
-            }
-        }
+impl DebutHandler {
+    fn new(logger: Logger) -> DebutHandler {
+        DebutHandler { logger }
     }
 
     fn find_more_appropriate_neighbor<'b>(
@@ -226,9 +181,7 @@ impl DebutHandler {
         database: &mut NeighborhoodDatabase,
         debuting_agr: AccessibleGossipRecord,
     ) -> Result<GossipAcceptanceResult, ()> {
-        if (database.gossip_target_degree(database.root().public_key()) >= 5)
-            && database.root().is_not_bootstrap_node()
-        {
+        if database.gossip_target_degree(database.root().public_key()) >= 5 {
             return Err(());
         }
         let public_key = debuting_agr.inner.public_key.clone();
@@ -342,19 +295,13 @@ impl DebutHandler {
         database: &NeighborhoodDatabase,
         keys: HashSet<&'b PublicKey>,
     ) -> Vec<&'b PublicKey> {
-        let mut non_bootstrap_neighbor_keys_vec = keys
-            .into_iter()
-            .filter(|k| match database.node_by_key(*k) {
-                None => true,
-                Some(n) => n.is_not_bootstrap_node(),
-            })
-            .collect::<Vec<&PublicKey>>();
-        non_bootstrap_neighbor_keys_vec.sort_unstable_by(|a, b| {
+        let mut neighbor_keys_vec = keys.into_iter().collect::<Vec<&PublicKey>>();
+        neighbor_keys_vec.sort_unstable_by(|a, b| {
             database
                 .gossip_target_degree(*a)
                 .cmp(&database.gossip_target_degree(*b))
         });
-        non_bootstrap_neighbor_keys_vec
+        neighbor_keys_vec
     }
 
     fn root_neighbors_ordered_by_degree(database: &NeighborhoodDatabase) -> Vec<&PublicKey> {
@@ -1033,9 +980,9 @@ mod tests {
     #[test]
     fn proper_debut_with_populated_database_is_identified_and_handled() {
         let (gossip, new_node, gossip_source) = make_debut(2345);
-        let root_node = make_node_record(1234, true, false);
+        let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
-        let neighbor_key = &db.add_node(make_node_record(3456, true, false)).unwrap();
+        let neighbor_key = &db.add_node(make_node_record(3456, true)).unwrap();
         db.add_arbitrary_full_neighbor(root_node.public_key(), neighbor_key);
         let cryptde = CryptDENull::from(db.root().public_key());
         let agrs = gossip.try_into().unwrap();
@@ -1185,7 +1132,7 @@ mod tests {
     #[test]
     fn introduction_where_nobody_admits_to_being_source_is_unmatched() {
         let (mut gossip, gossip_source) = make_introduction(2345, 3456);
-        let dest_root = make_node_record(7878, true, false);
+        let dest_root = make_node_record(7878, true);
         let dest_db = db_from_node(&dest_root);
         gossip.node_records[0].node_addr_opt = None;
         let subject = IntroductionHandler::new(Logger::new("test"));
@@ -1199,7 +1146,7 @@ mod tests {
     #[test]
     fn introduction_where_introducer_does_not_provide_at_least_one_port_is_malformed() {
         let (mut gossip, gossip_source) = make_introduction(2345, 3456);
-        let dest_root = make_node_record(7878, true, false);
+        let dest_root = make_node_record(7878, true);
         let dest_db = db_from_node(&dest_root);
         gossip.node_records[0].node_addr_opt = Some(NodeAddr::new(
             &IpAddr::from_str("2.3.4.5").unwrap(),
@@ -1219,7 +1166,7 @@ mod tests {
     #[test]
     fn gossip_where_introducee_does_not_provide_node_addr_is_not_introduction() {
         let (mut gossip, gossip_source) = make_introduction(2345, 3456);
-        let dest_root = make_node_record(7878, true, false);
+        let dest_root = make_node_record(7878, true);
         let dest_db = db_from_node(&dest_root);
         gossip.node_records[1].node_addr_opt = None;
         let subject = IntroductionHandler::new(Logger::new("test"));
@@ -1233,7 +1180,7 @@ mod tests {
     #[test]
     fn introduction_where_introducee_does_not_provide_at_least_one_port_is_malformed() {
         let (mut gossip, gossip_source) = make_introduction(2345, 3456);
-        let dest_root = make_node_record(7878, true, false);
+        let dest_root = make_node_record(7878, true);
         let dest_db = db_from_node(&dest_root);
         gossip.node_records[1].node_addr_opt = Some(NodeAddr::new(
             &IpAddr::from_str("3.4.5.6").unwrap(),
@@ -1256,7 +1203,7 @@ mod tests {
     #[test]
     fn gossip_where_no_record_has_the_gossip_source_ip_is_not_introduction() {
         let (mut gossip, gossip_source) = make_introduction(2345, 3456);
-        let dest_root = make_node_record(7878, true, false);
+        let dest_root = make_node_record(7878, true);
         let dest_db = db_from_node(&dest_root);
         gossip.node_records[0].node_addr_opt = Some(NodeAddr::new(
             &IpAddr::from_str("4.5.6.7").unwrap(),
@@ -1273,7 +1220,7 @@ mod tests {
     #[test]
     fn introduction_where_both_records_have_gossip_source_ip_is_malformed() {
         let (mut gossip, gossip_source) = make_introduction(2345, 3456);
-        let dest_root = make_node_record(7878, true, false);
+        let dest_root = make_node_record(7878, true);
         let dest_db = db_from_node(&dest_root);
         gossip.node_records[1].node_addr_opt = Some(NodeAddr::new(
             &IpAddr::from_str("2.3.4.5").unwrap(),
@@ -1295,7 +1242,7 @@ mod tests {
     #[test]
     fn introduction_where_introducer_has_local_public_key_is_malformed() {
         let (gossip, gossip_source) = make_introduction(2345, 3456);
-        let dest_root = make_node_record(7878, true, false);
+        let dest_root = make_node_record(7878, true);
         let dest_db = db_from_node(&dest_root);
         let subject = IntroductionHandler::new(Logger::new("test"));
         let mut agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
@@ -1316,7 +1263,7 @@ mod tests {
     #[test]
     fn introduction_where_introducer_has_local_ip_address_is_malformed() {
         let (gossip, _) = make_introduction(2345, 3456);
-        let dest_root = make_node_record(7878, true, false);
+        let dest_root = make_node_record(7878, true);
         let dest_db = db_from_node(&dest_root);
         let subject = IntroductionHandler::new(Logger::new("test"));
         let mut agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
@@ -1341,7 +1288,7 @@ mod tests {
     #[test]
     fn introduction_that_tries_to_change_immutable_characteristics_of_introducer_is_suspicious() {
         let (gossip, gossip_source) = make_introduction(2345, 3456);
-        let dest_root = make_node_record(7878, true, false);
+        let dest_root = make_node_record(7878, true);
         let mut dest_db = db_from_node(&dest_root);
         let cryptde = CryptDENull::from(dest_db.root().public_key());
         let subject = IntroductionHandler::new(Logger::new("test"));
@@ -1355,8 +1302,7 @@ mod tests {
         dest_db
             .node_by_key_mut(introducer_key)
             .unwrap()
-            .inner
-            .is_bootstrap_node = true; // Gossip will try to change this immutable characteristic
+            .unset_node_addr();
         dest_db.resign_node(introducer_key);
         let introducer_before_gossip = dest_db.node_by_key(introducer_key).unwrap().clone();
 
@@ -1365,7 +1311,7 @@ mod tests {
 
         assert_eq!(Qualification::Matched, qualifies_result);
         assert_eq!(
-            GossipAcceptanceResult::Ban(format!("Introducer {} tried changing immutable characteristic: Updating a NodeRecord must not change its bootstrap flag", introducer_key)),
+            GossipAcceptanceResult::Ban(format!("Introducer {} tried changing immutable characteristic: Updating a NodeRecord must not change its node_addr_opt", introducer_key)),
             handle_result
         );
         assert_eq!(
@@ -1377,7 +1323,7 @@ mod tests {
     #[test]
     fn introduction_with_no_problems_is_processed_correctly_when_introducer_is_not_in_database() {
         let (gossip, gossip_source) = make_introduction(2345, 3456);
-        let dest_root = make_node_record(7878, true, false);
+        let dest_root = make_node_record(7878, true);
         let mut dest_db = db_from_node(&dest_root);
         let cryptde = CryptDENull::from(dest_db.root().public_key());
         let subject = IntroductionHandler::new(Logger::new("test"));
@@ -1417,7 +1363,7 @@ mod tests {
     fn introduction_with_no_problems_is_processed_correctly_when_introducer_is_in_database_and_obsolete(
     ) {
         let (gossip, gossip_source) = make_introduction(2345, 3456);
-        let dest_root = make_node_record(7878, true, false);
+        let dest_root = make_node_record(7878, true);
         let mut dest_db = db_from_node(&dest_root);
         let cryptde = CryptDENull::from(dest_db.root().public_key());
         let subject = IntroductionHandler::new(Logger::new("test"));
@@ -1463,7 +1409,7 @@ mod tests {
     fn introduction_with_no_problems_is_processed_correctly_when_introducer_is_in_database_and_up_to_date(
     ) {
         let (gossip, gossip_source) = make_introduction(2345, 3456);
-        let dest_root = make_node_record(7878, true, false);
+        let dest_root = make_node_record(7878, true);
         let mut dest_db = db_from_node(&dest_root);
         let cryptde = CryptDENull::from(dest_db.root().public_key());
         let subject = IntroductionHandler::new(Logger::new("test"));
@@ -1503,12 +1449,12 @@ mod tests {
 
     #[test]
     fn standard_gossip_that_doesnt_contain_record_with_gossip_source_ip_is_malformed() {
-        let src_node = make_node_record(1234, true, false);
+        let src_node = make_node_record(1234, true);
         let mut src_db = db_from_node(&src_node);
-        let dest_node = make_node_record(2345, true, false);
+        let dest_node = make_node_record(2345, true);
         let mut dest_db = db_from_node(&dest_node);
-        let node_a = make_node_record(3456, true, false);
-        let node_b = make_node_record(4567, true, false);
+        let node_a = make_node_record(3456, true);
+        let node_b = make_node_record(4567, true);
         src_db.add_node(dest_node.clone()).unwrap();
         src_db.add_node(node_a.clone()).unwrap();
         src_db.add_node(node_b.clone()).unwrap();
@@ -1535,11 +1481,11 @@ mod tests {
 
     #[test]
     fn standard_gossip_that_contains_record_describing_local_node_by_public_key_is_malformed() {
-        let src_node = make_node_record(1234, true, false);
+        let src_node = make_node_record(1234, true);
         let mut src_db = db_from_node(&src_node);
-        let dest_node = make_node_record(2345, true, false);
+        let dest_node = make_node_record(2345, true);
         let mut dest_db = db_from_node(&dest_node);
-        let node_a = make_node_record(3456, true, false);
+        let node_a = make_node_record(3456, true);
         src_db.add_node(dest_node.clone()).unwrap();
         src_db.add_arbitrary_full_neighbor(src_node.public_key(), dest_node.public_key());
         src_db.add_node(node_a.clone()).unwrap();
@@ -1565,12 +1511,12 @@ mod tests {
 
     #[test]
     fn standard_gossip_that_contains_record_describing_local_node_by_ip_address_is_malformed() {
-        let src_node = make_node_record(1234, true, false);
+        let src_node = make_node_record(1234, true);
         let mut src_db = db_from_node(&src_node);
-        let dest_node = make_node_record(2345, true, false);
+        let dest_node = make_node_record(2345, true);
         let mut dest_db = db_from_node(&dest_node);
-        let node_a = make_node_record(3456, true, false);
-        let mut node_b = make_node_record(4567, true, false);
+        let node_a = make_node_record(3456, true);
+        let mut node_b = make_node_record(4567, true);
         node_b.metadata.node_addr_opt = dest_node.node_addr_opt();
         src_db.add_node(dest_node.clone()).unwrap();
         src_db.add_node(node_a.clone()).unwrap();
@@ -1599,12 +1545,12 @@ mod tests {
 
     #[test]
     fn standard_gossip_that_contains_multiple_records_with_same_ip_is_malformed() {
-        let src_node = make_node_record(1234, true, false);
+        let src_node = make_node_record(1234, true);
         let mut src_db = db_from_node(&src_node);
-        let dest_node = make_node_record(2345, true, false);
+        let dest_node = make_node_record(2345, true);
         let mut dest_db = db_from_node(&dest_node);
-        let node_a = make_node_record(3456, true, false);
-        let node_b = make_node_record(4567, true, false);
+        let node_a = make_node_record(3456, true);
+        let node_b = make_node_record(4567, true);
         src_db.add_node(dest_node.clone()).unwrap();
         src_db.add_node(node_a.clone()).unwrap();
         src_db.add_node(node_b.clone()).unwrap();
@@ -1635,15 +1581,11 @@ mod tests {
 
     #[test]
     fn proper_standard_gossip_is_matched_and_handled() {
-        let src_root = make_node_record(1234, true, false);
-        let dest_root = make_node_record(2345, true, false);
+        let src_root = make_node_record(1234, true);
+        let dest_root = make_node_record(2345, true);
         let mut src_db = db_from_node(&src_root);
-        let node_a_key = &src_db
-            .add_node(make_node_record(3456, true, false))
-            .unwrap();
-        let node_b_key = &src_db
-            .add_node(make_node_record(4567, true, false))
-            .unwrap();
+        let node_a_key = &src_db.add_node(make_node_record(3456, true)).unwrap();
+        let node_b_key = &src_db.add_node(make_node_record(4567, true)).unwrap();
         let mut dest_db = db_from_node(&dest_root);
         dest_db.add_node(src_root.clone()).unwrap();
         dest_db.add_arbitrary_full_neighbor(dest_root.public_key(), src_root.public_key());
@@ -1681,7 +1623,7 @@ mod tests {
 
     #[test]
     fn malformed_gossip_stimulates_ban_request() {
-        let just_a_node = make_node_record(1234, true, false);
+        let just_a_node = make_node_record(1234, true);
         let agrs = vec![];
         let subject = GossipAcceptorReal::new(cryptde());
 
@@ -1701,12 +1643,12 @@ mod tests {
 
     #[test]
     fn non_useful_gossip_is_ignored() {
-        let src_node = make_node_record(1234, true, false);
+        let src_node = make_node_record(1234, true);
         let mut src_db = db_from_node(&src_node);
-        let dest_node = make_node_record(2345, true, false);
+        let dest_node = make_node_record(2345, true);
         let mut dest_db = db_from_node(&dest_node);
-        let node_a = make_node_record(3456, true, false);
-        let node_b = make_node_record(4567, true, false);
+        let node_a = make_node_record(3456, true);
+        let node_b = make_node_record(4567, true);
         src_db.add_node(dest_node.clone()).unwrap();
         src_db.add_node(node_a.clone()).unwrap();
         src_db.add_node(node_b.clone()).unwrap();
@@ -1733,7 +1675,7 @@ mod tests {
 
     #[test]
     fn first_debut_is_handled() {
-        let mut root_node = make_node_record(1234, true, false);
+        let mut root_node = make_node_record(1234, true);
         let root_node_cryptde = CryptDENull::from(&root_node.public_key());
         let mut dest_db = db_from_node(&root_node);
         let (gossip, debut_node, gossip_source) = make_debut(2345);
@@ -1756,12 +1698,10 @@ mod tests {
 
     #[test]
     fn second_debut_is_handled() {
-        let mut root_node = make_node_record(1234, true, false);
+        let mut root_node = make_node_record(1234, true);
         let root_node_cryptde = CryptDENull::from(&root_node.public_key());
         let mut dest_db = db_from_node(&root_node);
-        let existing_node_key = &dest_db
-            .add_node(make_node_record(3456, true, false))
-            .unwrap();
+        let existing_node_key = &dest_db.add_node(make_node_record(3456, true)).unwrap();
         dest_db.add_arbitrary_full_neighbor(root_node.public_key(), existing_node_key);
         dest_db
             .node_by_key_mut(root_node.public_key())
@@ -1802,18 +1742,12 @@ mod tests {
 
     #[test]
     fn fourth_debut_is_handled() {
-        let mut root_node = make_node_record(1234, true, false);
+        let mut root_node = make_node_record(1234, true);
         let root_node_cryptde = CryptDENull::from(&root_node.public_key());
         let mut dest_db = db_from_node(&root_node);
-        let existing_node_1_key = &dest_db
-            .add_node(make_node_record(3456, true, false))
-            .unwrap();
-        let existing_node_2_key = &dest_db
-            .add_node(make_node_record(4567, true, false))
-            .unwrap();
-        let existing_node_3_key = &dest_db
-            .add_node(make_node_record(5678, true, false))
-            .unwrap();
+        let existing_node_1_key = &dest_db.add_node(make_node_record(3456, true)).unwrap();
+        let existing_node_2_key = &dest_db.add_node(make_node_record(4567, true)).unwrap();
+        let existing_node_3_key = &dest_db.add_node(make_node_record(5678, true)).unwrap();
         dest_db.add_arbitrary_full_neighbor(root_node.public_key(), existing_node_1_key);
         dest_db.add_arbitrary_full_neighbor(root_node.public_key(), existing_node_2_key);
         dest_db.add_arbitrary_full_neighbor(root_node.public_key(), existing_node_3_key);
@@ -1889,21 +1823,13 @@ mod tests {
 
     #[test]
     fn fifth_debut_is_handled() {
-        let mut root_node = make_node_record(1234, true, false);
+        let mut root_node = make_node_record(1234, true);
         let root_node_cryptde = CryptDENull::from(&root_node.public_key());
         let mut dest_db = db_from_node(&root_node);
-        let existing_node_1_key = &dest_db
-            .add_node(make_node_record(3456, true, false))
-            .unwrap();
-        let existing_node_2_key = &dest_db
-            .add_node(make_node_record(4567, true, false))
-            .unwrap();
-        let existing_node_3_key = &dest_db
-            .add_node(make_node_record(5678, true, false))
-            .unwrap();
-        let existing_node_4_key = &dest_db
-            .add_node(make_node_record(6789, true, false))
-            .unwrap();
+        let existing_node_1_key = &dest_db.add_node(make_node_record(3456, true)).unwrap();
+        let existing_node_2_key = &dest_db.add_node(make_node_record(4567, true)).unwrap();
+        let existing_node_3_key = &dest_db.add_node(make_node_record(5678, true)).unwrap();
+        let existing_node_4_key = &dest_db.add_node(make_node_record(6789, true)).unwrap();
         dest_db.add_arbitrary_full_neighbor(root_node.public_key(), existing_node_1_key);
         dest_db.add_arbitrary_full_neighbor(root_node.public_key(), existing_node_2_key);
         dest_db.add_arbitrary_full_neighbor(root_node.public_key(), existing_node_3_key);
@@ -1976,24 +1902,14 @@ mod tests {
 
     #[test]
     fn debut_when_degree_is_five_is_passed_to_least_connected_neighbor() {
-        let mut root_node = make_node_record(1234, true, false);
+        let mut root_node = make_node_record(1234, true);
         let root_node_cryptde = CryptDENull::from(&root_node.public_key());
         let mut dest_db = db_from_node(&root_node);
-        let existing_node_1_key = &dest_db
-            .add_node(make_node_record(3456, true, false))
-            .unwrap();
-        let existing_node_2_key = &dest_db
-            .add_node(make_node_record(4567, true, false))
-            .unwrap();
-        let existing_node_3_key = &dest_db
-            .add_node(make_node_record(5678, true, false))
-            .unwrap();
-        let existing_node_4_key = &dest_db
-            .add_node(make_node_record(6789, true, false))
-            .unwrap();
-        let existing_node_5_key = &dest_db
-            .add_node(make_node_record(7890, true, false))
-            .unwrap();
+        let existing_node_1_key = &dest_db.add_node(make_node_record(3456, true)).unwrap();
+        let existing_node_2_key = &dest_db.add_node(make_node_record(4567, true)).unwrap();
+        let existing_node_3_key = &dest_db.add_node(make_node_record(5678, true)).unwrap();
+        let existing_node_4_key = &dest_db.add_node(make_node_record(6789, true)).unwrap();
+        let existing_node_5_key = &dest_db.add_node(make_node_record(7890, true)).unwrap();
         dest_db.add_arbitrary_full_neighbor(root_node.public_key(), existing_node_1_key);
         dest_db.add_arbitrary_full_neighbor(root_node.public_key(), existing_node_2_key);
         dest_db.add_arbitrary_full_neighbor(root_node.public_key(), existing_node_3_key);
@@ -2062,101 +1978,11 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_node_handles_initial_debut_properly() {
-        let mut root_node = make_node_record(1234, true, true);
-        let root_node_cryptde = CryptDENull::from(&root_node.public_key());
-        let mut dest_db = db_from_node(&root_node);
-        let (gossip, debut_node, gossip_source) = make_debut(2345);
-        let subject = GossipAcceptorReal::new(&root_node_cryptde);
-
-        let result = subject.handle(&mut dest_db, gossip.try_into().unwrap(), gossip_source);
-
-        assert_eq!(GossipAcceptanceResult::Accepted, result);
-        root_node
-            .add_half_neighbor_key(debut_node.public_key().clone())
-            .unwrap();
-        root_node.increment_version();
-        root_node.resign();
-        assert_eq!(&root_node, dest_db.root());
-        assert_eq!(
-            &debut_node,
-            dest_db.node_by_key(debut_node.public_key()).unwrap()
-        );
-    }
-
-    #[test]
-    fn bootstrap_node_handles_later_debut_properly() {
-        let root_node = make_node_record(1234, true, true);
-        let root_node_cryptde = CryptDENull::from(&root_node.public_key());
-        let mut dest_db = db_from_node(&root_node);
-        let relay_target_key = &dest_db
-            .add_node(make_node_record(2345, true, false))
-            .unwrap();
-        let one_key = &dest_db
-            .add_node(make_node_record(3456, true, false))
-            .unwrap();
-        let two_key = &dest_db
-            .add_node(make_node_record(4567, true, false))
-            .unwrap();
-        let three_key = &dest_db
-            .add_node(make_node_record(5678, true, false))
-            .unwrap();
-        let four_key = &dest_db
-            .add_node(make_node_record(6789, true, false))
-            .unwrap();
-        let five_key = &dest_db
-            .add_node(make_node_record(7890, true, false))
-            .unwrap();
-        dest_db.add_arbitrary_full_neighbor(root_node.public_key(), relay_target_key);
-        dest_db.add_arbitrary_full_neighbor(root_node.public_key(), one_key);
-        dest_db.add_arbitrary_full_neighbor(root_node.public_key(), two_key);
-        dest_db.add_arbitrary_full_neighbor(root_node.public_key(), three_key);
-        dest_db.add_arbitrary_full_neighbor(root_node.public_key(), four_key);
-        dest_db.add_arbitrary_full_neighbor(root_node.public_key(), five_key);
-        dest_db.add_arbitrary_full_neighbor(one_key, two_key);
-        dest_db.add_arbitrary_full_neighbor(two_key, three_key);
-        dest_db.add_arbitrary_full_neighbor(three_key, four_key);
-        dest_db.add_arbitrary_full_neighbor(four_key, five_key);
-        dest_db.root_mut().resign();
-        dest_db.node_by_key_mut(relay_target_key).unwrap().resign();
-        dest_db.node_by_key_mut(one_key).unwrap().resign();
-        dest_db.node_by_key_mut(two_key).unwrap().resign();
-        dest_db.node_by_key_mut(three_key).unwrap().resign();
-        dest_db.node_by_key_mut(four_key).unwrap().resign();
-        dest_db.node_by_key_mut(five_key).unwrap().resign();
-        let (gossip, debut_node, gossip_source) = make_debut(8901);
-        let subject = GossipAcceptorReal::new(&root_node_cryptde);
-        let mut root_node = dest_db.root().clone();
-
-        let result = subject.handle(&mut dest_db, gossip.try_into().unwrap(), gossip_source);
-
-        let relay_gossip = DebutHandler::make_pass_gossip(&dest_db, relay_target_key);
-        assert_eq!(
-            GossipAcceptanceResult::Reply(
-                relay_gossip,
-                debut_node.public_key().clone(),
-                debut_node.node_addr_opt().unwrap()
-            ),
-            result
-        );
-        root_node
-            .add_half_neighbor_key(debut_node.public_key().clone())
-            .unwrap();
-        root_node.increment_version();
-        root_node.resign();
-        assert_eq!(&root_node, dest_db.root());
-        assert_eq!(
-            &debut_node,
-            dest_db.node_by_key(debut_node.public_key()).unwrap()
-        );
-    }
-
-    #[test]
     fn redebut_is_passed_to_standard_gossip_handler_and_ignored_if_it_is_not_a_new_version() {
         init_test_logging();
-        let src_node = make_node_record(1234, true, false);
+        let src_node = make_node_record(1234, true);
         let mut src_db = db_from_node(&src_node);
-        let dest_node = make_node_record(2345, true, false);
+        let dest_node = make_node_record(2345, true);
         let mut dest_db = db_from_node(&dest_node);
         dest_db.add_node(src_node.clone()).unwrap();
         dest_db.add_half_neighbor(src_node.public_key()).unwrap();
@@ -2192,9 +2018,9 @@ mod tests {
     #[test]
     fn redebut_is_passed_to_standard_gossip_handler_and_incorporated_if_it_is_a_new_version() {
         init_test_logging();
-        let src_node = make_node_record(1234, true, false);
+        let src_node = make_node_record(1234, true);
         let mut src_db = db_from_node(&src_node);
-        let dest_node = make_node_record(2345, true, false);
+        let dest_node = make_node_record(2345, true);
         let mut dest_db = db_from_node(&dest_node);
         dest_db.add_node(src_node.clone()).unwrap();
         dest_db.add_half_neighbor(src_node.public_key()).unwrap();
@@ -2231,7 +2057,7 @@ mod tests {
 
     #[test]
     fn pass_is_properly_handled() {
-        let root_node = make_node_record(1234, true, false);
+        let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
         let (gossip, pass_target, gossip_source) = make_pass(2345);
         let subject = GossipAcceptorReal::new(cryptde());
@@ -2254,15 +2080,15 @@ mod tests {
 
     #[test]
     fn standard_gossip_containing_unfamiliar_node_addrs_leads_to_them_being_ignored() {
-        let root_node = make_node_record(1234, true, false);
+        let root_node = make_node_record(1234, true);
         let mut dest_db = db_from_node(&root_node);
-        let node_a = make_node_record(2345, true, false);
+        let node_a = make_node_record(2345, true);
         let mut src_db = db_from_node(&node_a);
-        let node_b = make_node_record(3456, true, false);
-        let node_c = make_node_record(4567, false, false);
-        let node_d = make_node_record(5678, false, false);
-        let node_e = make_node_record(6789, true, false);
-        let node_f = make_node_record(7890, true, false);
+        let node_b = make_node_record(3456, true);
+        let node_c = make_node_record(4567, false);
+        let node_d = make_node_record(5678, false);
+        let node_e = make_node_record(6789, true);
+        let node_f = make_node_record(7890, true);
         dest_db.add_node(node_a.clone()).unwrap();
         dest_db.add_node(node_b.clone()).unwrap();
         dest_db.add_node(node_d.clone()).unwrap();
@@ -2383,13 +2209,13 @@ mod tests {
 
     #[test]
     fn standard_gossip_does_not_stimulate_introduction_response_for_gossip_source() {
-        let dest_node = make_node_record(1234, true, false);
+        let dest_node = make_node_record(1234, true);
         let dest_node_cryptde = CryptDENull::from(&dest_node.public_key());
         let mut dest_db = db_from_node(&dest_node);
-        let src_node = make_node_record(2345, true, false);
+        let src_node = make_node_record(2345, true);
         let mut src_db = db_from_node(&src_node);
-        let third_node = make_node_record(3456, true, false);
-        let disconnected_node = make_node_record(4567, true, false);
+        let third_node = make_node_record(3456, true);
+        let disconnected_node = make_node_record(4567, true);
         dest_db.add_node(third_node.clone()).unwrap();
         src_db.add_node(dest_node.clone()).unwrap();
         src_db.add_node(third_node.clone()).unwrap();
@@ -2469,12 +2295,12 @@ mod tests {
 
     #[test]
     fn standard_gossip_with_current_and_obsolete_versions_doesnt_change_anything() {
-        let dest_root = make_node_record(1234, true, false);
+        let dest_root = make_node_record(1234, true);
         let mut dest_db = db_from_node(&dest_root);
-        let src_root = make_node_record(2345, true, false);
+        let src_root = make_node_record(2345, true);
         let mut src_db = db_from_node(&src_root);
-        let mut current_node = make_node_record(3456, true, false);
-        let mut obsolete_node = make_node_record(4567, false, false);
+        let mut current_node = make_node_record(3456, true);
+        let mut obsolete_node = make_node_record(4567, false);
         current_node.set_version(100);
         obsolete_node.set_version(100);
         dest_db.add_node(src_root.clone()).unwrap();
@@ -2533,9 +2359,9 @@ mod tests {
 
     #[test]
     fn make_debut_triple_doesnt_like_record_with_no_node_addr() {
-        let root_node = make_node_record(1234, true, false);
+        let root_node = make_node_record(1234, true);
         let db = db_from_node(&root_node);
-        let neighbor = make_node_record(2345, false, false);
+        let neighbor = make_node_record(2345, false);
         let agr = AccessibleGossipRecord::from(&neighbor);
 
         let result = GossipAcceptorReal::make_debut_triple(&db, &agr);
@@ -2551,9 +2377,9 @@ mod tests {
 
     #[test]
     fn make_debut_triple_doesnt_like_record_with_no_ports() {
-        let root_node = make_node_record(1234, true, false);
+        let root_node = make_node_record(1234, true);
         let db = db_from_node(&root_node);
-        let mut neighbor = make_node_record(2345, true, false);
+        let mut neighbor = make_node_record(2345, true);
         neighbor.metadata.node_addr_opt = Some(NodeAddr::new(
             &IpAddr::from_str("2.3.4.5").unwrap(),
             &vec![],
@@ -2574,9 +2400,9 @@ mod tests {
 
     #[test]
     fn make_debut_triple_works_when_its_happy() {
-        let root_node = make_node_record(1234, true, false);
+        let root_node = make_node_record(1234, true);
         let db = db_from_node(&root_node);
-        let neighbor = make_node_record(2345, true, false);
+        let neighbor = make_node_record(2345, true);
         let agr = AccessibleGossipRecord::from(&neighbor);
 
         let result = GossipAcceptorReal::make_debut_triple(&db, &agr);
@@ -2595,13 +2421,12 @@ mod tests {
 
     #[test]
     fn find_more_appropriate_neighbor_rejects_twos_and_finds_three() {
-        let root_node = make_node_record(1234, true, false);
+        let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
-        let less_connected_neighbor_key =
-            &db.add_node(make_node_record(2345, true, false)).unwrap();
-        let other_neighbor_1_key = &db.add_node(make_node_record(3456, true, false)).unwrap();
-        let other_neighbor_2_key = &db.add_node(make_node_record(4567, true, false)).unwrap();
-        let other_neighbor_3_key = &db.add_node(make_node_record(5678, true, false)).unwrap();
+        let less_connected_neighbor_key = &db.add_node(make_node_record(2345, true)).unwrap();
+        let other_neighbor_1_key = &db.add_node(make_node_record(3456, true)).unwrap();
+        let other_neighbor_2_key = &db.add_node(make_node_record(4567, true)).unwrap();
+        let other_neighbor_3_key = &db.add_node(make_node_record(5678, true)).unwrap();
         db.add_arbitrary_full_neighbor(root_node.public_key(), less_connected_neighbor_key);
         db.add_arbitrary_full_neighbor(root_node.public_key(), other_neighbor_1_key);
         db.add_arbitrary_full_neighbor(root_node.public_key(), other_neighbor_2_key);
@@ -2617,13 +2442,12 @@ mod tests {
 
     #[test]
     fn find_more_appropriate_neighbor_rejects_if_all_neighbors_are_connected_as_well_as_me() {
-        let root_node = make_node_record(1234, true, false);
+        let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
-        let less_connected_neighbor_key =
-            &db.add_node(make_node_record(2345, true, false)).unwrap();
-        let other_neighbor_1_key = &db.add_node(make_node_record(3456, true, false)).unwrap();
-        let other_neighbor_2_key = &db.add_node(make_node_record(4567, true, false)).unwrap();
-        let other_neighbor_3_key = &db.add_node(make_node_record(5678, true, false)).unwrap();
+        let less_connected_neighbor_key = &db.add_node(make_node_record(2345, true)).unwrap();
+        let other_neighbor_1_key = &db.add_node(make_node_record(3456, true)).unwrap();
+        let other_neighbor_2_key = &db.add_node(make_node_record(4567, true)).unwrap();
+        let other_neighbor_3_key = &db.add_node(make_node_record(5678, true)).unwrap();
         db.add_arbitrary_full_neighbor(root_node.public_key(), less_connected_neighbor_key);
         db.add_arbitrary_full_neighbor(root_node.public_key(), other_neighbor_1_key);
         db.add_arbitrary_full_neighbor(root_node.public_key(), other_neighbor_2_key);
@@ -2639,20 +2463,19 @@ mod tests {
     }
 
     #[test]
-    fn root_neighbors_ordered_by_degree_ignores_bootstrap_nodes() {
-        let root_node = make_node_record(1234, true, false);
+    fn root_neighbors_ordered_by_degree() {
+        let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
-        let near_bootstrap_key = &db.add_node(make_node_record(2345, true, true)).unwrap();
-        let far_bootstrap_key = &db.add_node(make_node_record(3456, true, true)).unwrap();
-        let distant_node_key = &db.add_node(make_node_record(4567, true, false)).unwrap();
-        let high_degree_key = &db.add_node(make_node_record(5678, true, false)).unwrap();
-        let low_degree_key = &db.add_node(make_node_record(6789, true, false)).unwrap();
-        db.add_arbitrary_full_neighbor(root_node.public_key(), near_bootstrap_key);
+        let near_key = &db.add_node(make_node_record(2345, true)).unwrap();
+        let far_key = &db.add_node(make_node_record(3456, true)).unwrap();
+        let distant_node_key = &db.add_node(make_node_record(4567, true)).unwrap();
+        let high_degree_key = &db.add_node(make_node_record(5678, true)).unwrap();
+        let low_degree_key = &db.add_node(make_node_record(6789, true)).unwrap();
         db.add_arbitrary_full_neighbor(root_node.public_key(), high_degree_key);
         db.add_arbitrary_full_neighbor(root_node.public_key(), low_degree_key);
         db.add_arbitrary_full_neighbor(high_degree_key, distant_node_key);
-        db.add_arbitrary_full_neighbor(low_degree_key, near_bootstrap_key);
-        db.add_arbitrary_full_neighbor(low_degree_key, far_bootstrap_key);
+        db.add_arbitrary_full_neighbor(high_degree_key, near_key);
+        db.add_arbitrary_full_neighbor(low_degree_key, far_key);
 
         let result = DebutHandler::root_neighbors_ordered_by_degree(&db);
 
@@ -2675,7 +2498,7 @@ mod tests {
     }
 
     fn make_single_node_gossip(n: u16) -> (Gossip, NodeRecord) {
-        let debut_node = make_node_record(n, true, false);
+        let debut_node = make_node_record(n, true);
         let src_db = db_from_node(&debut_node);
         let gossip = GossipBuilder::new(&src_db)
             .node(debut_node.public_key(), true)
@@ -2684,9 +2507,9 @@ mod tests {
     }
 
     fn make_introduction(introducer_n: u16, introducee_n: u16) -> (Gossip, IpAddr) {
-        let mut introducer_node = make_node_record(introducer_n, true, false);
+        let mut introducer_node = make_node_record(introducer_n, true);
         introducer_node.set_version(10);
-        let mut introducee_node = make_node_record(introducee_n, true, false);
+        let mut introducee_node = make_node_record(introducee_n, true);
         introducee_node.set_version(10);
         let introducer_key = introducer_node.public_key().clone();
         let introducee_key = introducee_node.public_key().clone();

@@ -11,7 +11,7 @@ use crate::sub_lib::neighborhood::{sentinel_ip_addr, NodeDescriptor};
 use crate::sub_lib::ui_gateway::DEFAULT_UI_PORT;
 use crate::sub_lib::wallet::Wallet;
 use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
-use clap::{arg_enum, crate_authors, crate_description, crate_version, App, Arg};
+use clap::{crate_authors, crate_description, crate_version, App, Arg};
 use dirs::data_dir;
 use indoc::indoc;
 use lazy_static::lazy_static;
@@ -24,23 +24,6 @@ use std::str::FromStr;
 
 pub const LOWEST_USABLE_INSECURE_PORT: u16 = 1025;
 pub const HIGHEST_USABLE_PORT: u16 = 65535;
-
-arg_enum! {
-    #[derive(Debug, PartialEq, Clone)]
-    enum NodeType {
-        Bootstrap,
-        Standard
-    }
-}
-
-impl Into<bool> for NodeType {
-    fn into(self) -> bool {
-        match self {
-            NodeType::Bootstrap => true,
-            NodeType::Standard => false,
-        }
-    }
-}
 
 pub trait NodeConfigurator {
     fn generate_configuration(&self, args: &Vec<String>) -> BootstrapperConfig;
@@ -73,7 +56,6 @@ lazy_static! {
     static ref DEFAULT_EARNING_WALLET_VALUE: String =
         String::from(DEFAULT_EARNING_WALLET.clone().address);
     static ref DEFAULT_CRASH_POINT_VALUE: String = format!("{}", CrashPoint::None);
-    static ref DEFAULT_NODE_TYPE_VALUE: String = format!("{}", NodeType::Standard);
     static ref DEFAULT_IP_VALUE: String = sentinel_ip_addr().to_string();
     static ref DEFAULT_DATA_DIR_VALUE: String =
         NodeConfiguratorReal::data_directory_default(&RealDirsWrapper {});
@@ -88,16 +70,16 @@ lazy_static! {
 }
 
 const HELP_TEXT: &str = indoc!(r"ADDITIONAL HELP:
-                           SubstratumNode listens for connections from other SubstratumNodes using the computer's 
+                           SubstratumNode listens for connections from other SubstratumNodes using the computer's
                            network interface. Configuring the internet router for port forwarding is a necessary
                            step for SubstratumNode users to permit network communication between SubstratumNodes.
-                           
+
                            Once started, SubstratumNode prints the node descriptor to the console. The descriptor
                            indicates the required port needing to be forwarded by the network router. The port is
                            the last number in the descriptor, as shown below:
-                           
+
                            95VjByq5tEUUpDcczA//zXWGE6+7YFEvzN4CDVoPbWw:86.75.30.9:1234
-                                                                                  ^^^^ 
+                                                                                  ^^^^
                            Steps To Forwarding Ports In The Router
                                1. Log in to the router.
                                2. Navigate to the router's port forwarding section, also frequently called virtual server.
@@ -174,15 +156,6 @@ impl NodeConfiguratorReal {
                         .use_delimiter(true)
                         .requires("ip")
                         .validator(|s| NodeDescriptor::from_str(&s).map(|_| ())),
-                )
-                .arg(
-                    Arg::with_name("node_type")
-                        .long("node_type")
-                        .value_name("NODE_TYPE")
-                        .takes_value(true)
-                        .possible_values(&NodeType::variants())
-                        .default_value(&DEFAULT_NODE_TYPE_VALUE)
-                        .case_insensitive(true),
                 )
                 .arg(
                     Arg::with_name("ui_port")
@@ -283,11 +256,6 @@ impl NodeConfiguratorReal {
 
         config.neighborhood_config.neighbor_configs =
             values_m!(multi_config, "neighbors", NodeDescriptor);
-
-        config.neighborhood_config.is_bootstrap_node =
-            value_m!(multi_config, "node_type", NodeType)
-                .expect("Internal Error")
-                .into();
 
         config.ui_gateway_config.ui_port =
             value_m!(multi_config, "ui_port", u16).expect("Internal Error");
@@ -412,15 +380,6 @@ mod tests {
             String::from("--dns_servers"),
             String::from("222.222.222.222"),
         ]
-    }
-
-    #[test]
-    fn node_type_into() {
-        let bootstrap: bool = NodeType::Bootstrap.into();
-        let standard: bool = NodeType::Standard.into();
-
-        assert_eq!(true, bootstrap);
-        assert_eq!(false, standard);
     }
 
     #[test]
@@ -773,8 +732,6 @@ mod tests {
             "34.56.78.90",
             "--clandestine_port",
             "1234",
-            "--node_type",
-            "bootstrap",
             "--ui_port",
             "5335",
             "--wallet_address",
@@ -833,7 +790,6 @@ mod tests {
             ),
             config.neighborhood_config.neighbor_configs,
         );
-        assert_eq!(true, config.neighborhood_config.is_bootstrap_node);
         assert_eq!(
             IpAddr::V4(Ipv4Addr::new(34, 56, 78, 90)),
             config.neighborhood_config.local_ip_addr,
@@ -888,7 +844,6 @@ mod tests {
             ),
             config.dns_servers,
         );
-        assert_eq!(false, config.neighborhood_config.is_bootstrap_node);
         assert_eq!(None, config.clandestine_port_opt);
         assert_eq!(CrashPoint::None, config.crash_point);
         assert!(config.data_directory.is_dir());
@@ -899,32 +854,6 @@ mod tests {
         assert_eq!(sentinel_ip_addr(), config.neighborhood_config.local_ip_addr,);
         assert_eq!(5333, config.ui_gateway_config.ui_port);
         assert_eq!(None, config.blockchain_bridge_config.consuming_private_key);
-    }
-
-    #[test]
-    fn parse_args_works_with_node_type_standard() {
-        let args: Vec<String> = vec![
-            "SubstratumNode",
-            "--dns_servers",
-            "12.34.56.78",
-            "--node_type",
-            "standard",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-        let mut config = BootstrapperConfig::new();
-        let subject = NodeConfiguratorReal::new();
-        let vcl = Box::new(CommandLineVCL::new(args));
-        let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
-
-        subject.parse_args(&multi_config, &mut config);
-
-        assert_eq!(config.neighborhood_config.is_bootstrap_node, false);
-        assert_eq!(
-            config.neighborhood_config.earning_wallet,
-            DEFAULT_EARNING_WALLET.clone()
-        );
     }
 
     #[test]

@@ -11,7 +11,6 @@ pub struct NodeRenderable {
     pub version: Option<u32>,
     pub public_key: PublicKey,
     pub node_addr: Option<NodeAddr>,
-    pub known_bootstrap_node: bool,
     pub known_source: bool,
     pub known_target: bool,
     pub is_present: bool,
@@ -51,15 +50,10 @@ impl NodeRenderable {
             None => String::new(),
             Some(ref na) => format!("\\n{}", na),
         };
-        let type_string = if self.known_bootstrap_node {
-            "\\nbootstrap"
-        } else {
-            ""
-        };
 
         format!(
-            " [label=\"{}{}{}{}\"]",
-            version_string, public_key_trunc, node_addr_string, type_string,
+            " [label=\"{}{}{}\"]",
+            version_string, public_key_trunc, node_addr_string,
         )
     }
 }
@@ -67,17 +61,12 @@ impl NodeRenderable {
 pub struct EdgeRenderable {
     pub from: PublicKey,
     pub to: PublicKey,
-    pub known_bootstrap_edge: bool,
 }
 
 impl DotRenderable for EdgeRenderable {
     fn render(&self) -> String {
         let mut result = String::new();
-        result.push_str(&format!("\"{}\" -> \"{}\"", self.from, self.to));
-        if self.known_bootstrap_edge {
-            result.push_str(" [style=dashed]")
-        }
-        result.push_str(";");
+        result.push_str(&format!("\"{}\" -> \"{}\";", self.from, self.to));
         result
     }
 }
@@ -105,7 +94,6 @@ mod tests {
             version: Some(1),
             public_key: public_key.clone(),
             node_addr: None,
-            known_bootstrap_node: false,
             known_source: false,
             known_target: false,
             is_present: true,
@@ -130,7 +118,6 @@ mod tests {
             version: Some(1),
             public_key: public_key.clone(),
             node_addr: None,
-            known_bootstrap_node: false,
             known_source: false,
             known_target: false,
             is_present: true,

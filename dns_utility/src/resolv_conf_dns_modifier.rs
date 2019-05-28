@@ -839,7 +839,7 @@ mod tests {
         let generated_dir = cur_dir.join(Path::new("generated"));
         let suite_dir = generated_dir.join(Path::new("ResolvConfDnsModifier"));
         let base_dir = suite_dir.join(Path::new(test_name));
-        fs::remove_dir_all(base_dir.clone()).is_ok(); // don't care if it doesn't exist
+        let _ = fs::remove_dir_all(base_dir.clone()); // don't care if it doesn't exist
         fs::create_dir_all(base_dir.clone()).unwrap();
         base_dir
     }

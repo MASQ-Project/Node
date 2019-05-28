@@ -204,12 +204,6 @@ clandestine ports on which the neighbor is listening.  If the neighbor Node is o
 print this information to the console when it comes up.  If it's somewhere else on the Internet, you'll probably receive
 this information in an email or chat message to copy/paste onto your command line.
 
-* `--node_type < standard | bootstrap >`
-This is how you tell SubstratumNode whether to start up as a bootstrap-only Node or as a standard (non-bootstrap) Node. If
-you're interested in running data through the system, you won't find the `bootstrap` option particularly fulfilling, but
-you should feel free to try it if you like.  Note: Bootstrap-only Nodes must start up with no knowledge of their environment,
-so `--node_type bootstrap` will not tolerate `--neighbors`.
-
 * `--clandestine_port <n>`
 This is an optional parameter. If you don't specify a clandestine port, your Node will use the same clandestine port it
 used last time it ran, if that port is still available. If the port is no longer available, the Node will refuse to

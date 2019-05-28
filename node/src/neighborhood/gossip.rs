@@ -90,10 +90,6 @@ impl GossipNodeRecord {
                 human_readable.push_str("\n\tinner: NodeRecordInner {");
                 human_readable.push_str(&format!("\n\t\tpublic_key: {:?},", &nri.public_key));
                 human_readable.push_str(&format!("\n\t\tnode_addr_opt: {:?},", self.node_addr_opt));
-                human_readable.push_str(&format!(
-                    "\n\t\tis_bootstrap_node: {:?},",
-                    nri.is_bootstrap_node
-                ));
                 human_readable
                     .push_str(&format!("\n\t\tearning_wallet: {:?},", nri.earning_wallet));
                 human_readable.push_str(&format!("\n\t\trate_pack: {:?},", nri.rate_pack));
@@ -316,11 +312,6 @@ impl Gossip {
                 (nri, gnr.node_addr_opt.clone())
             })
             .collect();
-        let bootstrap_keys: HashSet<&PublicKey> = inners_and_addrs
-            .iter()
-            .filter(|(n, _)| n.is_bootstrap_node)
-            .map(|(n, _)| &n.public_key)
-            .collect();
         inners_and_addrs.iter().for_each(|(nri, addr)| {
             present.insert(nri.public_key.clone());
             nri.neighbors.iter().for_each(|k| {
@@ -328,15 +319,12 @@ impl Gossip {
                 edge_renderables.push(EdgeRenderable {
                     from: nri.public_key.clone(),
                     to: k.clone(),
-                    known_bootstrap_edge: bootstrap_keys.contains(&nri.public_key)
-                        || bootstrap_keys.contains(k),
                 })
             });
             node_renderables.push(NodeRenderable {
                 version: Some(nri.version),
                 public_key: nri.public_key.clone(),
                 node_addr: addr.clone(),
-                known_bootstrap_node: bootstrap_keys.contains(&nri.public_key),
                 known_source: &nri.public_key == &source.public_key,
                 known_target: &nri.public_key == &target.public_key,
                 is_present: true,
@@ -347,7 +335,6 @@ impl Gossip {
                 version: None,
                 public_key: k.clone(),
                 node_addr: None,
-                known_bootstrap_node: false,
                 known_source: false,
                 known_target: false,
                 is_present: false,
@@ -428,7 +415,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "GossipBuilder cannot add a Node more than once")]
     fn adding_node_twice_to_gossip_builder_causes_panic() {
-        let node = make_node_record(1234, true, true);
+        let node = make_node_record(1234, true);
         let db = db_from_node(&node);
         let builder = GossipBuilder::new(&db).node(node.public_key(), true);
 
@@ -437,7 +424,7 @@ mod tests {
 
     #[test]
     fn adding_node_with_addr_and_reveal_results_in_node_with_addr() {
-        let node = make_node_record(1234, true, false);
+        let node = make_node_record(1234, true);
         let db = db_from_node(&node);
         let builder = GossipBuilder::new(&db);
 
@@ -452,7 +439,7 @@ mod tests {
 
     #[test]
     fn adding_node_with_addr_and_no_reveal_results_in_node_with_no_addr() {
-        let node = make_node_record(1234, true, false);
+        let node = make_node_record(1234, true);
         let db = db_from_node(&node);
         let builder = GossipBuilder::new(&db);
 
@@ -464,9 +451,9 @@ mod tests {
 
     #[test]
     fn adding_node_with_no_addr_and_reveal_results_in_node_with_no_addr() {
-        let node = make_node_record(1234, false, false);
+        let node = make_node_record(1234, false);
         let mut db = db_from_node(&node);
-        let gossip_node = &db.add_node(make_node_record(2345, false, false)).unwrap();
+        let gossip_node = &db.add_node(make_node_record(2345, false)).unwrap();
         let builder = GossipBuilder::new(&db);
 
         let builder = builder.node(gossip_node, true);
@@ -477,7 +464,7 @@ mod tests {
 
     #[test]
     fn adding_node_with_no_addr_and_no_reveal_results_in_node_with_no_addr() {
-        let node = make_node_record(1234, false, false);
+        let node = make_node_record(1234, false);
         let db = db_from_node(&node);
         let builder = GossipBuilder::new(&db);
 
@@ -488,22 +475,22 @@ mod tests {
     }
 
     #[test]
-    fn gossip_node_record_keeps_all_half_neighbors_including_bootstraps() {
-        let mut this_node = make_node_record(1234, true, false);
-        let full_neighbor_one = make_node_record(2345, true, false);
-        let full_neighbor_two = make_node_record(3456, true, false);
-        let full_neighbor_bootstrap = make_node_record(4567, true, true);
-        let half_neighbor = make_node_record(5678, true, false);
+    fn gossip_node_record_keeps_all_half_neighbors() {
+        let mut this_node = make_node_record(1234, true);
+        let full_neighbor_one = make_node_record(2345, true);
+        let full_neighbor_two = make_node_record(3456, true);
+        let full_neighbor_three = make_node_record(4567, true);
+        let half_neighbor = make_node_record(5678, true);
         let db = {
             let mut db = db_from_node(&this_node);
             let this_node_key = db.root().public_key().clone();
             db.add_node(full_neighbor_one.clone()).unwrap();
             db.add_node(full_neighbor_two.clone()).unwrap();
-            db.add_node(full_neighbor_bootstrap.clone()).unwrap();
+            db.add_node(full_neighbor_three.clone()).unwrap();
             db.add_node(half_neighbor.clone()).unwrap();
             db.add_arbitrary_full_neighbor(&this_node_key, full_neighbor_one.public_key());
             db.add_arbitrary_full_neighbor(&this_node_key, full_neighbor_two.public_key());
-            db.add_arbitrary_full_neighbor(&this_node_key, full_neighbor_bootstrap.public_key());
+            db.add_arbitrary_full_neighbor(&this_node_key, full_neighbor_three.public_key());
             db.add_arbitrary_half_neighbor(&this_node_key, half_neighbor.public_key());
             db
         };
@@ -515,15 +502,11 @@ mod tests {
         assert_eq!(this_node.public_key(), &result.inner.public_key);
         assert_eq!(this_node.node_addr_opt(), result.node_addr_opt);
         assert_eq!(
-            this_node.is_bootstrap_node(),
-            result.inner.is_bootstrap_node
-        );
-        assert_eq!(
             vec_to_btset(vec![
                 full_neighbor_one.public_key().clone(),
                 full_neighbor_two.public_key().clone(),
                 half_neighbor.public_key().clone(),
-                full_neighbor_bootstrap.public_key().clone(),
+                full_neighbor_three.public_key().clone(),
             ]),
             result.inner.neighbors
         );
@@ -535,8 +518,8 @@ mod tests {
 
     #[test]
     fn gossip_into_vec_of_agrs_when_gossip_is_corrupt() {
-        let one_node = make_node_record(1234, true, false);
-        let another_node = make_node_record(2345, true, false);
+        let one_node = make_node_record(1234, true);
+        let another_node = make_node_record(2345, true);
         let mut db = db_from_node(&one_node);
         db.add_node(another_node.clone()).unwrap();
         let mut gossip = GossipBuilder::new(&mut db)
@@ -557,7 +540,7 @@ mod tests {
 
     #[test]
     fn gossip_node_record_is_debug_formatted_to_be_human_readable() {
-        let node = make_node_record(1234, true, false);
+        let node = make_node_record(1234, true);
         let mut db = db_from_node(&node);
         db.root_mut().increment_version();
         db.root_mut().increment_version();
@@ -565,13 +548,12 @@ mod tests {
         let gossip = GossipNodeRecord::from((&db, node.public_key(), true));
 
         let result = format!("{:?}", gossip);
-
         let expected = format!(
             "\nGossipNodeRecord {{{}{}{}{}\n}}",
-            "\n\tinner: NodeRecordInner {\n\t\tpublic_key: AQIDBA,\n\t\tnode_addr_opt: Some(1.2.3.4:[1234]),\n\t\tis_bootstrap_node: false,\n\t\tearning_wallet: Wallet { address: \"0x1234\" },\n\t\trate_pack: RatePack { routing_byte_rate: 1235, routing_service_rate: 1236, exit_byte_rate: 1237, exit_service_rate: 1238 },\n\t\tneighbors: [],\n\t\tversion: 2,\n\t},",
+            "\n\tinner: NodeRecordInner {\n\t\tpublic_key: AQIDBA,\n\t\tnode_addr_opt: Some(1.2.3.4:[1234]),\n\t\tearning_wallet: Wallet { address: \"0x1234\" },\n\t\trate_pack: RatePack { routing_byte_rate: 1235, routing_service_rate: 1236, exit_byte_rate: 1237, exit_service_rate: 1238 },\n\t\tneighbors: [],\n\t\tversion: 2,\n\t},",
             "\n\tnode_addr_opt: Some(1.2.3.4:[1234]),",
-            "\n\tsigned_data: PlainData { data: [166, 106, 112, 117, 98, 108, 105, 99, 95, 107, 101, 121, 68, 1, 2, 3, 4, 110, 101, 97, 114, 110, 105, 110, 103, 95, 119, 97, 108, 108, 101, 116, 161, 103, 97, 100, 100, 114, 101, 115, 115, 102, 48, 120, 49, 50, 51, 52, 105, 114, 97, 116, 101, 95, 112, 97, 99, 107, 164, 113, 114, 111, 117, 116, 105, 110, 103, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 25, 4, 211, 116, 114, 111, 117, 116, 105, 110, 103, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 25, 4, 212, 110, 101, 120, 105, 116, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 25, 4, 213, 113, 101, 120, 105, 116, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 25, 4, 214, 113, 105, 115, 95, 98, 111, 111, 116, 115, 116, 114, 97, 112, 95, 110, 111, 100, 101, 244, 105, 110, 101, 105, 103, 104, 98, 111, 114, 115, 128, 103, 118, 101, 114, 115, 105, 111, 110, 2] },",
-            "\n\tsignature: CryptData { data: [1, 2, 3, 4, 173, 202, 73, 13, 113, 107, 215, 175, 17, 86, 222, 134, 22, 141, 45, 123, 130, 82, 44, 226] },"
+            "\n\tsigned_data: PlainData { data: [165, 106, 112, 117, 98, 108, 105, 99, 95, 107, 101, 121, 68, 1, 2, 3, 4, 110, 101, 97, 114, 110, 105, 110, 103, 95, 119, 97, 108, 108, 101, 116, 161, 103, 97, 100, 100, 114, 101, 115, 115, 102, 48, 120, 49, 50, 51, 52, 105, 114, 97, 116, 101, 95, 112, 97, 99, 107, 164, 113, 114, 111, 117, 116, 105, 110, 103, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 25, 4, 211, 116, 114, 111, 117, 116, 105, 110, 103, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 25, 4, 212, 110, 101, 120, 105, 116, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 25, 4, 213, 113, 101, 120, 105, 116, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 25, 4, 214, 105, 110, 101, 105, 103, 104, 98, 111, 114, 115, 128, 103, 118, 101, 114, 115, 105, 111, 110, 2] },",
+            "\n\tsignature: CryptData { data: [1, 2, 3, 4, 221, 118, 156, 174, 211, 238, 116, 131, 74, 226, 85, 191, 47, 206, 212, 217, 156, 75, 51, 224] },"
         );
 
         assert_eq!(expected, result);
@@ -600,18 +582,18 @@ mod tests {
 
     #[test]
     fn to_dot_graph_returns_gossip_in_dotgraph_format() {
-        let mut source_node = make_node_record(1234, true, true);
+        let mut source_node = make_node_record(1234, true);
         source_node.inner.public_key = PublicKey::new(&b"ABCDEFGHIJKLMNOPQRSTUVWXYZ"[..]);
-        let mut target_node = make_node_record(2345, true, false);
+        let mut target_node = make_node_record(2345, true);
         target_node.inner.public_key = PublicKey::new(&b"ZYXWVUTSRQPONMLKJIHGFEDCBA"[..]);
-        let neighbor = make_node_record(3456, false, false);
+        let neighbor = make_node_record(3456, false);
         let mut db = db_from_node(&source_node);
         db.add_node(target_node.clone()).unwrap();
         db.add_node(neighbor.clone()).unwrap();
         db.add_arbitrary_full_neighbor(target_node.public_key(), source_node.public_key());
         db.add_arbitrary_full_neighbor(target_node.public_key(), neighbor.public_key());
         db.add_arbitrary_full_neighbor(source_node.public_key(), neighbor.public_key());
-        let nonexistent_node = make_node_record(4567, false, false);
+        let nonexistent_node = make_node_record(4567, false);
         db.add_arbitrary_half_neighbor(neighbor.public_key(), nonexistent_node.public_key());
         db.root_mut().increment_version();
         db.root_mut().resign();
@@ -631,7 +613,7 @@ mod tests {
         assert_string_contains(&result, "\"AwQFBg\" [label=\"v0\\nAwQFBg\"]; ");
         assert_string_contains(
             &result,
-            "\"QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo\" [label=\"v1\\nQUJDREVG\\n1.2.3.4:1234\\nbootstrap\"] [style=filled]; ",
+            "\"QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo\" [label=\"v1\\nQUJDREVG\\n1.2.3.4:1234\"] [style=filled]; ",
         );
         assert_string_contains(
             &result,
@@ -646,7 +628,10 @@ mod tests {
             "\"dest\" [label=\"Gossip To:\\nWllYV1ZV\\n2.3.4.5\"]; ",
         );
         assert_string_contains(&result, "\"BAUGBw\" [label=\"BAUGBw\"] [shape=none]; ");
-        assert_string_contains(&result, "\"QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo\" -> \"WllYV1ZVVFNSUVBPTk1MS0pJSEdGRURDQkE\" [style=dashed]; ");
+        assert_string_contains(
+            &result,
+            "\"QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo\" -> \"WllYV1ZVVFNSUVBPTk1MS0pJSEdGRURDQkE\"; ",
+        );
         assert_string_contains(
             &result,
             "\"WllYV1ZVVFNSUVBPTk1MS0pJSEdGRURDQkE\" -> \"AwQFBg\"; ",
@@ -661,9 +646,9 @@ mod tests {
 
     #[test]
     fn to_dot_graph_handles_gossip_node_record_refs() {
-        let source = make_node_record(1234, true, false);
+        let source = make_node_record(1234, true);
         let mut db = db_from_node(&source);
-        let dest = make_node_record(2345, false, false);
+        let dest = make_node_record(2345, false);
         db.add_node(dest.clone()).unwrap();
         let gossip = GossipBuilder::empty();
         let source_gnr = GossipNodeRecord::from((&db, source.public_key(), true));
@@ -676,9 +661,9 @@ mod tests {
 
     #[test]
     fn to_dot_graph_handles_db_public_key_pairs() {
-        let source = make_node_record(1234, true, false);
+        let source = make_node_record(1234, true);
         let mut db = db_from_node(&source);
-        let dest = make_node_record(2345, false, false);
+        let dest = make_node_record(2345, false);
         db.add_node(dest.clone()).unwrap();
         let gossip = GossipBuilder::empty();
 
@@ -689,8 +674,8 @@ mod tests {
 
     #[test]
     fn to_dot_graph_handles_public_key_node_addr_opt_pairs() {
-        let source = make_node_record(1234, true, false);
-        let dest = make_node_record(2345, false, false);
+        let source = make_node_record(1234, true);
+        let dest = make_node_record(2345, false);
         let gossip = GossipBuilder::empty();
 
         let result = gossip.to_dot_graph(
@@ -703,8 +688,8 @@ mod tests {
 
     #[test]
     fn to_dot_graph_handles_public_key_refs() {
-        let source = make_node_record(1234, true, false);
-        let dest = make_node_record(2345, false, false);
+        let source = make_node_record(1234, true);
+        let dest = make_node_record(2345, false);
         let gossip = GossipBuilder::empty();
 
         let result = gossip.to_dot_graph(source.public_key(), dest.public_key());

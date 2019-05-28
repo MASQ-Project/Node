@@ -47,7 +47,7 @@ impl TestCommand {
     }
 
     pub fn kill(&mut self) {
-        self.child.kill().is_ok(); // can't do anything special for failure
+        let _ = self.child.kill(); // can't do anything special for failure
     }
 
     pub fn output(&mut self) -> String {

@@ -16,7 +16,6 @@ use actix::Handler;
 
 pub struct Hopper {
     cryptde: &'static dyn CryptDE,
-    is_bootstrap_node: bool,
     consuming_service: Option<ConsumingService>,
     routing_service: Option<RoutingService>,
     per_routing_service: u64,
@@ -39,7 +38,6 @@ impl Handler<BindMessage> for Hopper {
         ));
         self.routing_service = Some(RoutingService::new(
             self.cryptde,
-            self.is_bootstrap_node,
             RoutingServiceSubs {
                 proxy_client_subs: msg.peer_actors.proxy_client,
                 proxy_server_subs: msg.peer_actors.proxy_server,
@@ -100,7 +98,6 @@ impl Hopper {
     pub fn new(config: HopperConfig) -> Hopper {
         Hopper {
             cryptde: config.cryptde,
-            is_bootstrap_node: config.is_bootstrap_node,
             consuming_service: None,
             routing_service: None,
             per_routing_service: config.per_routing_service,
@@ -168,7 +165,6 @@ mod tests {
         let system = System::new("panics_if_routing_service_is_unbound");
         let subject = Hopper::new(HopperConfig {
             cryptde,
-            is_bootstrap_node: false,
             per_routing_service: 100,
             per_routing_byte: 200,
         });
@@ -205,7 +201,6 @@ mod tests {
         let system = System::new("panics_if_consuming_service_is_unbound");
         let subject = Hopper::new(HopperConfig {
             cryptde,
-            is_bootstrap_node: false,
             per_routing_service: 100,
             per_routing_byte: 200,
         });

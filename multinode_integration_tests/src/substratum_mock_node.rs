@@ -149,7 +149,6 @@ impl SubstratumMockNode {
             &self.public_key(),
             self.earning_wallet(),
             DEFAULT_RATE_PACK.clone(),
-            false,
             0,
             self.cryptde(),
         );
@@ -396,7 +395,6 @@ pub fn db_from_node(node: &NodeRecord) -> NeighborhoodDatabase {
         )),
         node.earning_wallet(),
         node.rate_pack().clone(),
-        node.is_bootstrap_node(),
         &CryptDENull::from(node.public_key()),
     )
 }

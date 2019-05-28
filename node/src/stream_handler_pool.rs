@@ -141,8 +141,7 @@ impl Handler<RemoveStreamMsg> for StreamHandlerPool {
 
     fn handle(&mut self, msg: RemoveStreamMsg, _ctx: &mut Self::Context) {
         self.stream_writers
-            .remove(&StreamWriterKey::from(msg.socket_addr))
-            .is_some(); // can't do anything if it fails
+            .remove(&StreamWriterKey::from(msg.socket_addr));
     }
 }
 
@@ -723,7 +722,7 @@ mod tests {
                 })
                 .unwrap();
 
-            sub_tx.send(subject_subs).is_ok();
+            sub_tx.send(subject_subs).expect("Internal Error");
             system.run();
         });
 

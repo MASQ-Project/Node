@@ -37,7 +37,7 @@ impl LittleTcpServer {
                 match listener.accept() {
                     Err(_) => continue,
                     Ok((mut stream, _)) => {
-                        count_tx.send(()).is_ok();
+                        count_tx.send(()).expect("Internal Error");
                         stream
                             .set_read_timeout(Some(Duration::from_millis(100)))
                             .unwrap();

@@ -96,7 +96,7 @@ impl SubstratumNode {
     }
 
     pub fn kill(&mut self) {
-        self.child.kill().is_ok();
+        let _ = self.child.kill();
     }
 
     #[allow(dead_code)]

@@ -17,7 +17,7 @@ use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
 
-pub fn make_node_record(n: u16, has_ip: bool, is_bootstrap_node: bool) -> NodeRecord {
+pub fn make_node_record(n: u16, has_ip: bool) -> NodeRecord {
     let a = ((n / 1000) % 10) as u8;
     let b = ((n / 100) % 10) as u8;
     let c = ((n / 10) % 10) as u8;
@@ -26,27 +26,18 @@ pub fn make_node_record(n: u16, has_ip: bool, is_bootstrap_node: bool) -> NodeRe
     let ip_addr = IpAddr::V4(Ipv4Addr::new(a, b, c, d));
     let node_addr = NodeAddr::new(&ip_addr, &vec![n % 10000]);
 
-    NodeRecord::new_for_tests(
-        &key,
-        if has_ip { Some(&node_addr) } else { None },
-        n as u64,
-        is_bootstrap_node,
-    )
+    NodeRecord::new_for_tests(&key, if has_ip { Some(&node_addr) } else { None }, n as u64)
 }
 
-pub fn make_global_cryptde_node_record(
-    n: u16,
-    has_ip: bool,
-    is_bootstrap_node: bool,
-) -> NodeRecord {
-    let mut node_record = make_node_record(n, has_ip, is_bootstrap_node);
+pub fn make_global_cryptde_node_record(n: u16, has_ip: bool) -> NodeRecord {
+    let mut node_record = make_node_record(n, has_ip);
     node_record.inner.public_key = cryptde().public_key().clone();
     node_record.resign();
     node_record
 }
 
 pub fn make_meaningless_db() -> NeighborhoodDatabase {
-    let node = make_node_record(9898, true, false);
+    let node = make_node_record(9898, true);
     db_from_node(&node)
 }
 
@@ -59,7 +50,6 @@ pub fn db_from_node(node: &NodeRecord) -> NeighborhoodDatabase {
         )),
         node.earning_wallet(),
         node.rate_pack().clone(),
-        node.is_bootstrap_node(),
         &CryptDENull::from(node.public_key()),
     )
 }
@@ -84,7 +74,6 @@ pub fn neighborhood_from_nodes(
                         .expect("Neighbor has to have NodeAddr"),
                 }],
             },
-            is_bootstrap_node: root.is_bootstrap_node(),
             local_ip_addr: root
                 .node_addr_opt()
                 .expect("Root has to have NodeAddr")
@@ -120,13 +109,11 @@ impl NodeRecord {
         public_key: &PublicKey,
         node_addr_opt: Option<&NodeAddr>,
         base_rate: u64,
-        is_bootstrap_node: bool,
     ) -> NodeRecord {
         let mut node_record = NodeRecord::new(
             public_key,
             NodeRecord::earning_wallet_from_key(public_key),
             rate_pack(base_rate),
-            is_bootstrap_node,
             0,
             &CryptDENull::from(public_key),
         );

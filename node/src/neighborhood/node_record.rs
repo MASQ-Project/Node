@@ -18,7 +18,6 @@ pub struct NodeRecordInner {
     pub public_key: PublicKey,
     pub earning_wallet: Wallet,
     pub rate_pack: RatePack,
-    pub is_bootstrap_node: bool,
     pub neighbors: BTreeSet<PublicKey>,
     pub version: u32,
 }
@@ -60,7 +59,6 @@ impl NodeRecord {
         public_key: &PublicKey,
         earning_wallet: Wallet,
         rate_pack: RatePack,
-        is_bootstrap_node: bool,
         version: u32,
         cryptde: &CryptDE,
     ) -> NodeRecord {
@@ -70,7 +68,6 @@ impl NodeRecord {
                 public_key: public_key.clone(),
                 earning_wallet,
                 rate_pack,
-                is_bootstrap_node,
                 neighbors: BTreeSet::new(),
                 version,
             },
@@ -87,14 +84,6 @@ impl NodeRecord {
 
     pub fn node_addr_opt(&self) -> Option<NodeAddr> {
         self.metadata.node_addr_opt.clone()
-    }
-
-    pub fn is_bootstrap_node(&self) -> bool {
-        self.inner.is_bootstrap_node
-    }
-
-    pub fn is_not_bootstrap_node(&self) -> bool {
-        !self.is_bootstrap_node()
     }
 
     pub fn set_node_addr(
@@ -160,8 +149,7 @@ impl NodeRecord {
             .into_iter()
             .filter(|k| {
                 if let Some(node_record_ref) = db.node_by_key(k) {
-                    let result = node_record_ref.is_not_bootstrap_node()
-                        && node_record_ref.has_half_neighbor(self.public_key());
+                    let result = node_record_ref.has_half_neighbor(self.public_key());
                     result
                 } else {
                     false
@@ -175,10 +163,7 @@ impl NodeRecord {
             return false;
         }
         match db.node_by_key(key) {
-            Some(neighbor) => {
-                neighbor.half_neighbor_keys().contains(self.public_key())
-                    && !neighbor.is_bootstrap_node()
-            }
+            Some(neighbor) => neighbor.half_neighbor_keys().contains(self.public_key()),
             None => false,
         }
     }
@@ -244,9 +229,6 @@ impl NodeRecord {
         }
         if agr.node_addr_opt != self.node_addr_opt() {
             return Err("Updating a NodeRecord must not change its node_addr_opt".to_string());
-        }
-        if agr.inner.is_bootstrap_node != self.is_bootstrap_node() {
-            return Err("Updating a NodeRecord must not change its bootstrap flag".to_string());
         }
         if &agr.inner.rate_pack != self.rate_pack() {
             return Err("Updating a NodeRecord must not change its rate pack".to_string());
@@ -324,10 +306,10 @@ mod tests {
 
     #[test]
     fn can_create_a_node_record_from_a_reference() {
-        let mut expected_node_record = make_node_record(1234, true, true);
+        let mut expected_node_record = make_node_record(1234, true);
         expected_node_record.set_version(6);
         expected_node_record.resign();
-        let mut db = db_from_node(&make_node_record(2345, true, false));
+        let mut db = db_from_node(&make_node_record(2345, true));
         db.add_node(expected_node_record.clone()).unwrap();
         let builder = GossipBuilder::new(&db).node(expected_node_record.public_key(), true);
 
@@ -339,7 +321,7 @@ mod tests {
 
     #[test]
     fn set_node_addr_works_once_but_not_twice() {
-        let mut subject = make_node_record(1234, false, false);
+        let mut subject = make_node_record(1234, false);
         assert_eq!(subject.node_addr_opt(), None);
         let first_node_addr = NodeAddr::new(&IpAddr::from_str("4.3.2.1").unwrap(), &vec![4321]);
         let result = subject.set_node_addr(&first_node_addr);
@@ -358,7 +340,7 @@ mod tests {
 
     #[test]
     fn set_node_addr_works_twice_if_the_new_address_is_the_same_as_the_old() {
-        let mut subject = make_node_record(1234, false, false);
+        let mut subject = make_node_record(1234, false);
         assert_eq!(subject.node_addr_opt(), None);
         let first_node_addr = NodeAddr::new(&IpAddr::from_str("4.3.2.1").unwrap(), &vec![4321]);
         let result = subject.set_node_addr(&first_node_addr);
@@ -372,7 +354,7 @@ mod tests {
 
     #[test]
     fn unset_node_addr() {
-        let mut subject = make_node_record(1234, true, false);
+        let mut subject = make_node_record(1234, true);
 
         subject.unset_node_addr();
 
@@ -381,7 +363,7 @@ mod tests {
 
     #[test]
     fn half_neighbor_manipulation() {
-        let mut subject = make_node_record(1234, false, false);
+        let mut subject = make_node_record(1234, false);
 
         assert_eq!(subject.half_neighbor_keys().is_empty(), true);
 
@@ -422,7 +404,7 @@ mod tests {
 
     #[test]
     fn node_cannot_be_its_own_neighbor() {
-        let mut subject = make_node_record(1234, false, false);
+        let mut subject = make_node_record(1234, false);
 
         let result = subject.add_half_neighbor_key(subject.public_key().clone());
 
@@ -436,17 +418,15 @@ mod tests {
 
     #[test]
     fn full_neighbor_exploration() {
-        let this_node = make_node_record(1000, true, false);
+        let this_node = make_node_record(1000, true);
         let mut database = db_from_node(&this_node);
-        let half_neighbor_one = make_node_record(1001, true, false);
-        let half_neighbor_two = make_node_record(1002, true, false);
-        let mut half_neighbor_reverse = make_node_record(1003, true, false);
-        let half_neighbor_bootstrap = make_node_record(1004, true, true);
-        let mut full_neighbor_one = make_node_record(1005, true, false);
-        let mut full_neighbor_two = make_node_record(1006, true, false);
-        let mut full_neighbor_bootstrap = make_node_record(1007, true, true);
-        let disconnected = make_node_record(1008, false, false);
-        let nonexistent = make_node_record(1009, false, false);
+        let half_neighbor_one = make_node_record(1001, true);
+        let half_neighbor_two = make_node_record(1002, true);
+        let mut half_neighbor_reverse = make_node_record(1003, true);
+        let mut full_neighbor_one = make_node_record(1005, true);
+        let mut full_neighbor_two = make_node_record(1006, true);
+        let disconnected = make_node_record(1008, false);
+        let nonexistent = make_node_record(1009, false);
 
         {
             let this_node = database.root_mut();
@@ -457,16 +437,10 @@ mod tests {
                 .add_half_neighbor_key(half_neighbor_two.public_key().clone())
                 .unwrap();
             this_node
-                .add_half_neighbor_key(half_neighbor_bootstrap.public_key().clone())
-                .unwrap();
-            this_node
                 .add_half_neighbor_key(full_neighbor_one.public_key().clone())
                 .unwrap();
             this_node
                 .add_half_neighbor_key(full_neighbor_two.public_key().clone())
-                .unwrap();
-            this_node
-                .add_half_neighbor_key(full_neighbor_bootstrap.public_key().clone())
                 .unwrap();
         }
         let this_node = database.root();
@@ -474,7 +448,6 @@ mod tests {
             &mut half_neighbor_reverse,
             &mut full_neighbor_one,
             &mut full_neighbor_two,
-            &mut full_neighbor_bootstrap,
         ]
         .into_iter()
         .for_each(|n| {
@@ -486,10 +459,8 @@ mod tests {
             &half_neighbor_one,
             &half_neighbor_two,
             &half_neighbor_reverse,
-            &half_neighbor_bootstrap,
             &full_neighbor_one,
             &full_neighbor_two,
-            &full_neighbor_bootstrap,
             &disconnected,
         ]
         .into_iter()
@@ -517,15 +488,7 @@ mod tests {
             true
         );
         assert_eq!(
-            this_node.has_full_neighbor(&database, full_neighbor_bootstrap.public_key()),
-            false
-        );
-        assert_eq!(
             this_node.has_full_neighbor(&database, half_neighbor_one.public_key()),
-            false
-        );
-        assert_eq!(
-            this_node.has_full_neighbor(&database, half_neighbor_bootstrap.public_key()),
             false
         );
         assert_eq!(
@@ -549,7 +512,6 @@ mod tests {
             &PublicKey::new(&b"poke"[..]),
             earning_wallet.clone(),
             rate_pack(100),
-            true,
             0,
             cryptde(),
         );
@@ -557,7 +519,6 @@ mod tests {
             &PublicKey::new(&b"poke"[..]),
             earning_wallet.clone(),
             rate_pack(100),
-            true,
             0,
             cryptde(),
         );
@@ -565,7 +526,6 @@ mod tests {
             &PublicKey::new(&b"poke"[..]),
             earning_wallet.clone(),
             rate_pack(100),
-            true,
             0,
             cryptde(),
         );
@@ -573,7 +533,6 @@ mod tests {
             &PublicKey::new(&b"kope"[..]),
             earning_wallet.clone(),
             rate_pack(100),
-            true,
             0,
             cryptde(),
         );
@@ -584,7 +543,6 @@ mod tests {
             &PublicKey::new(&b"poke"[..]),
             earning_wallet.clone(),
             rate_pack(100),
-            true,
             0,
             cryptde(),
         );
@@ -598,7 +556,6 @@ mod tests {
             &PublicKey::new(&b"poke"[..]),
             Wallet::new("booga"),
             rate_pack(100),
-            true,
             0,
             cryptde(),
         );
@@ -606,15 +563,6 @@ mod tests {
             &PublicKey::new(&b"poke"[..]),
             earning_wallet.clone(),
             rate_pack(200),
-            true,
-            0,
-            cryptde(),
-        );
-        let mod_is_bootstrap = NodeRecord::new(
-            &PublicKey::new(&b"poke"[..]),
-            earning_wallet.clone(),
-            rate_pack(100),
-            false,
             0,
             cryptde(),
         );
@@ -622,16 +570,14 @@ mod tests {
             &PublicKey::new(&b"poke"[..]),
             earning_wallet.clone(),
             rate_pack(100),
-            true,
             0,
             cryptde(),
         );
-        mod_signed_gossip.signed_gossip = mod_is_bootstrap.signed_gossip.clone();
+        mod_signed_gossip.signed_gossip = mod_rate_pack.signed_gossip.clone();
         let mut mod_signature = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             earning_wallet.clone(),
             rate_pack(100),
-            true,
             0,
             cryptde(),
         );
@@ -640,7 +586,6 @@ mod tests {
             &PublicKey::new(&b"poke"[..]),
             earning_wallet.clone(),
             rate_pack(100),
-            true,
             1,
             cryptde(),
         );
@@ -652,7 +597,6 @@ mod tests {
         assert_ne!(exemplar, mod_node_addr);
         assert_ne!(exemplar, mod_earning_wallet);
         assert_ne!(exemplar, mod_rate_pack);
-        assert_ne!(exemplar, mod_is_bootstrap);
         assert_ne!(exemplar, mod_signed_gossip);
         assert_ne!(exemplar, mod_signature);
         assert_ne!(exemplar, mod_version);
@@ -660,7 +604,7 @@ mod tests {
 
     #[test]
     fn increment_version_increments_node_record_version_by_1() {
-        let mut this_node = make_node_record(123, true, false);
+        let mut this_node = make_node_record(123, true);
 
         assert_eq!(this_node.version(), 0);
 
@@ -676,7 +620,7 @@ mod tests {
 
     #[test]
     fn set_version_sets_the_version() {
-        let mut this_node = make_node_record(123, true, false);
+        let mut this_node = make_node_record(123, true);
         assert_eq!(this_node.version(), 0);
 
         this_node.set_version(10000);
@@ -686,7 +630,7 @@ mod tests {
 
     #[test]
     fn set_earning_wallet_returns_true_when_the_earning_wallet_changes() {
-        let mut this_node = make_node_record(1234, true, false);
+        let mut this_node = make_node_record(1234, true);
         assert_eq!(this_node.earning_wallet(), Wallet::new("0x1234"));
 
         assert!(this_node.set_earning_wallet(Wallet::new("0x2345")));
@@ -696,7 +640,7 @@ mod tests {
 
     #[test]
     fn set_earning_wallet_returns_false_when_the_wallet_does_not_change() {
-        let mut this_node = make_node_record(1234, true, false);
+        let mut this_node = make_node_record(1234, true);
         assert_eq!(this_node.earning_wallet(), Wallet::new("0x1234"));
 
         assert!(!this_node.set_earning_wallet(Wallet::new("0x1234")));
@@ -705,19 +649,8 @@ mod tests {
     }
 
     #[test]
-    fn is_bootstrap_node_and_is_not_bootstrap_node_are_opposites() {
-        let bootstrap = make_node_record(1234, true, true);
-        let standard = make_node_record(2345, true, false);
-
-        assert!(bootstrap.is_bootstrap_node());
-        assert!(!bootstrap.is_not_bootstrap_node());
-        assert!(!standard.is_bootstrap_node());
-        assert!(standard.is_not_bootstrap_node());
-    }
-
-    #[test]
     fn set_desirable_when_no_change_from_default() {
-        let mut this_node = make_node_record(5432, true, false);
+        let mut this_node = make_node_record(5432, true);
 
         assert!(
             this_node.is_desirable(),
@@ -732,7 +665,7 @@ mod tests {
 
     #[test]
     fn set_desirable_to_false() {
-        let mut this_node = make_node_record(5432, true, false);
+        let mut this_node = make_node_record(5432, true);
 
         assert!(
             this_node.is_desirable(),
@@ -747,7 +680,7 @@ mod tests {
 
     #[test]
     fn update_works_when_immutable_characteristics_dont_change() {
-        let mut subject = make_node_record(1234, true, false);
+        let mut subject = make_node_record(1234, true);
         let mut modified = subject.clone();
         modified.inner.version = 100;
         modified.resign();
@@ -764,7 +697,7 @@ mod tests {
 
     #[test]
     fn update_complains_when_public_key_tries_to_change() {
-        let mut subject = make_node_record(1234, true, false);
+        let mut subject = make_node_record(1234, true);
         let mut modified = subject.clone();
         modified.inner.public_key = PublicKey::new(b"dangerous");
         modified.resign();
@@ -780,7 +713,7 @@ mod tests {
 
     #[test]
     fn update_complains_when_node_addr_opt_tries_to_change() {
-        let mut subject = make_node_record(1234, true, false);
+        let mut subject = make_node_record(1234, true);
         let mut modified = subject.clone();
         modified.metadata.node_addr_opt = None;
         modified.resign();
@@ -795,24 +728,8 @@ mod tests {
     }
 
     #[test]
-    fn update_complains_when_is_bootstrap_node_tries_to_change() {
-        let mut subject = make_node_record(1234, true, false);
-        let mut modified = subject.clone();
-        modified.inner.is_bootstrap_node = true;
-        modified.resign();
-        let agr = AccessibleGossipRecord::from(&modified);
-
-        let result = subject.update(agr);
-
-        assert_eq!(
-            Err("Updating a NodeRecord must not change its bootstrap flag".to_string()),
-            result
-        )
-    }
-
-    #[test]
     fn update_complains_when_rate_pack_tries_to_change() {
-        let mut subject = make_node_record(1234, true, false);
+        let mut subject = make_node_record(1234, true);
         let mut modified = subject.clone();
         modified.inner.rate_pack = ZERO_RATE_PACK.clone();
         modified.resign();
@@ -841,7 +758,7 @@ mod tests {
 
     #[test]
     fn regenerate_signed_data_regenerates_signed_gossip_and_resigns() {
-        let mut subject = make_node_record(1234, true, false);
+        let mut subject = make_node_record(1234, true);
         let cryptde = CryptDENull::from(subject.public_key());
         let initial_signed_gossip = subject.signed_gossip().clone();
         subject.increment_version();

@@ -272,12 +272,12 @@ impl MockNode {
                 match stream.read(&mut buf) {
                     Err(ref e) if indicates_dead_stream(e.kind()) => {
                         eprintln!("Read error from {}: {}", peer_addr, e);
-                        stream.shutdown(Shutdown::Both).is_ok();
+                        let _ = stream.shutdown(Shutdown::Both);
                         break;
                     }
                     Ok(0) => {
                         eprintln!("{} shut down stream", peer_addr);
-                        stream.shutdown(Shutdown::Both).is_ok();
+                        let _ = stream.shutdown(Shutdown::Both);
                         break;
                     }
                     Ok(len) => {
@@ -311,7 +311,7 @@ impl MockNode {
         match stream.write(buf) {
             Err(ref e) if indicates_dead_stream(e.kind()) => {
                 eprintln!("Write error to {}: {}", peer_addr, e);
-                stream.shutdown(Shutdown::Both).is_ok();
+                let _ = stream.shutdown(Shutdown::Both);
                 false
             }
             Err(_) => Self::write_with_retry(stream, buf, peer_addr),

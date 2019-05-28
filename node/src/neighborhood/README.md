@@ -9,8 +9,7 @@ is a better place to start.
 
 Each SubstratumNode in the Substratum Network contains a subsystem that we call the Neighborhood. The Neighborhood is
 responsible for keeping track of other Nodes in the network, remembering how (and whether) they're connected to one
-another, and storing other information about them as well. Currently, for example, we keep track of whether or not
-they're bootstrap Nodes and therefore don't route data. Our current plan for the future is that we'll also remember 
+another, and storing other information about them as well. Our current plan for the future is that we'll also remember 
 things like how fast they have proven to be and whether they're acting suspiciously. Also, whenever a consuming Node
 wants to send a CORES package through the network, its Neighborhood is responsible for analyzing the network and
 determining what route the CORES package should take.
@@ -77,9 +76,8 @@ directly connected.
 
 All this means that it may take a significant interval of time, marked by the periodic arrival and departure of Gossip,
 before a newly-started Neighborhood is complete enough to be able to generate routes to allow its owner to originate
-traffic. On the other hand, a Neighborhood will be ready to route other people's data as soon as it has two immediate neighbors
-that are not bootstrap Nodes. Of course, in order to do so it must be built into a route by another Node, and it may take
-some time for another Node to assimilate and choose it as well.
+traffic. On the other hand, a Neighborhood will be ready to route other people's data as soon as it has two immediate neighbors.
+Of course, in order to do so it must be built into a route by another Node, and it may take some time for another Node to assimilate and choose it as well.
 
 ### Technical Policies
 The generation and integration of Gossip can be somewhat abstruse. Here are some elements of our various algorithms that

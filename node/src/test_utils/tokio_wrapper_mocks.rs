@@ -29,7 +29,9 @@ impl AsyncRead for ReadHalfWrapperMock {
             panic!("ReadHalfWrapperMock: poll_read_results is empty")
         }
         let (to_buf, ret_val) = self.poll_read_results.remove(0);
-        buf.as_mut().write(to_buf.as_slice()).is_ok();
+        buf.as_mut()
+            .write(to_buf.as_slice())
+            .expect("Internal Error");
         ret_val
     }
 }

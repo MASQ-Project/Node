@@ -95,7 +95,7 @@ impl StreamReader {
     fn shutdown(&mut self) {
         let stream_key = self.stream_key.clone();
         self.send_inbound_server_data(stream_key, vec![], true);
-        self.stream_killer.send(self.stream_key).is_ok();
+        let _ = self.stream_killer.send(self.stream_key);
     }
 
     fn send_frames_loop(&mut self) {
@@ -120,7 +120,9 @@ impl StreamReader {
                     );
                     if response_chunk.last_chunk {
                         // FIXME no production framer sets this to true...
-                        self.stream_killer.send(self.stream_key).is_ok();
+                        self.stream_killer
+                            .send(self.stream_key)
+                            .expect("Internal Error");
                         break;
                     }
                 }
@@ -208,7 +210,7 @@ mod tests {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
 
             tx.send(peer_actors.proxy_client.inbound_server_data)
-                .is_ok();
+                .expect("Internal Error");
             system.run();
         });
 
@@ -292,7 +294,7 @@ mod tests {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
 
             tx.send(peer_actors.proxy_client.inbound_server_data)
-                .is_ok();
+                .expect("Internal Error");
             system.run();
         });
 
@@ -353,7 +355,7 @@ mod tests {
             let system = System::new("test");
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             tx.send(peer_actors.proxy_client.inbound_server_data)
-                .is_ok();
+                .expect("Internal Error");
 
             system.run();
         });
@@ -439,7 +441,7 @@ mod tests {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
 
             tx.send(peer_actors.proxy_client.inbound_server_data)
-                .is_ok();
+                .expect("Internal Error");
             system.run();
         });
 
@@ -498,7 +500,7 @@ mod tests {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
 
             tx.send(peer_actors.proxy_client.inbound_server_data)
-                .is_ok();
+                .expect("Internal Error");
             system.run();
         });
 

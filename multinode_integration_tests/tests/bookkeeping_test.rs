@@ -125,12 +125,12 @@ pub fn start_lonely_real_node(cluster: &mut SubstratumNodeCluster) -> Substratum
 
 pub fn start_real_node(
     cluster: &mut SubstratumNodeCluster,
-    bootstrap_from: NodeReference,
+    neighbor: NodeReference,
 ) -> SubstratumRealNode {
     let index = cluster.next_index();
     cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .neighbor(bootstrap_from)
+            .neighbor(neighbor)
             .earning_wallet(make_wallet_from(index))
             .build(),
     )

@@ -28,16 +28,10 @@ impl GossipBuilder {
         }
     }
 
-    pub fn add_node(
-        mut self,
-        node: &dyn SubstratumNode,
-        is_bootstrap: bool,
-        include_ip: bool,
-    ) -> Self {
+    pub fn add_node(mut self, node: &dyn SubstratumNode, include_ip: bool) -> Self {
         self.node_info.push(GossipBuilderNodeInfo {
             node_record_inner: NodeRecordInner {
                 public_key: node.public_key().clone(),
-                is_bootstrap_node: is_bootstrap,
                 earning_wallet: node.earning_wallet().clone(),
                 rate_pack: node.rate_pack().clone(),
                 neighbors: BTreeSet::new(),

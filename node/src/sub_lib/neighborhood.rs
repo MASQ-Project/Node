@@ -81,7 +81,6 @@ impl FromStr for NodeDescriptor {
 #[derive(Clone, PartialEq, Debug)]
 pub struct NeighborhoodConfig {
     pub neighbor_configs: Vec<NodeDescriptor>,
-    pub is_bootstrap_node: bool,
     pub local_ip_addr: IpAddr,
     pub clandestine_port_list: Vec<u16>,
     pub earning_wallet: Wallet,
@@ -148,15 +147,8 @@ pub struct DispatcherNodeQueryMessage {
     pub recipient: Recipient<DispatcherNodeQueryResponse>,
 }
 
-#[derive(PartialEq, Clone, Debug, Copy)]
-pub enum TargetType {
-    Bootstrap,
-    Standard,
-}
-
 #[derive(PartialEq, Debug)]
 pub struct RouteQueryMessage {
-    pub target_type: TargetType,
     pub target_key_opt: Option<PublicKey>,
     pub target_component: Component,
     pub minimum_hop_count: usize,
@@ -170,7 +162,6 @@ impl Message for RouteQueryMessage {
 impl RouteQueryMessage {
     pub fn data_indefinite_route_request(minimum_hop_count: usize) -> RouteQueryMessage {
         RouteQueryMessage {
-            target_type: TargetType::Standard,
             target_key_opt: None,
             target_component: Component::ProxyClient,
             minimum_hop_count,
@@ -281,7 +272,6 @@ mod tests {
         assert_eq!(
             result,
             RouteQueryMessage {
-                target_type: TargetType::Standard,
                 target_key_opt: None,
                 target_component: Component::ProxyClient,
                 minimum_hop_count: 2,
@@ -300,7 +290,6 @@ mod tests {
             earning_wallet: Wallet::new("router"),
             consuming_wallet: Some(Wallet::new("consumer")),
             rate_pack: rate_pack(100),
-            is_bootstrap_node: false,
             local_ip_addr: sentinel_ip_addr(),
             clandestine_port_list: vec![1234],
         };
@@ -320,7 +309,6 @@ mod tests {
             earning_wallet: Wallet::new("router"),
             consuming_wallet: Some(Wallet::new("consumer")),
             rate_pack: rate_pack(100),
-            is_bootstrap_node: false,
             local_ip_addr: IpAddr::from_str("1.2.3.4").unwrap(),
             clandestine_port_list: vec![],
         };
@@ -337,7 +325,6 @@ mod tests {
             earning_wallet: Wallet::new("router"),
             consuming_wallet: Some(Wallet::new("consumer")),
             rate_pack: rate_pack(100),
-            is_bootstrap_node: false,
             local_ip_addr: IpAddr::from_str("1.2.3.4").unwrap(),
             clandestine_port_list: vec![1234],
         };

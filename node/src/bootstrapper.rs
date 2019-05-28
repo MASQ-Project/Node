@@ -30,7 +30,6 @@ use crate::sub_lib::socket_server::SocketServer;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::ui_gateway::DEFAULT_UI_PORT;
 use base64;
-use clap::arg_enum;
 use futures::try_ready;
 use log::LevelFilter;
 use std::collections::HashMap;
@@ -46,23 +45,6 @@ use tokio::prelude::Future;
 use tokio::prelude::Stream;
 
 pub static mut CRYPT_DE_OPT: Option<CryptDENull> = None;
-
-arg_enum! {
-    #[derive(Debug, PartialEq, Clone)]
-    enum NodeType {
-        Bootstrap,
-        Standard
-    }
-}
-
-impl Into<bool> for NodeType {
-    fn into(self) -> bool {
-        match self {
-            NodeType::Bootstrap => true,
-            NodeType::Standard => false,
-        }
-    }
-}
 
 #[derive(Clone)]
 pub struct PortConfiguration {
@@ -107,7 +89,6 @@ impl BootstrapperConfig {
             dns_servers: vec![],
             neighborhood_config: NeighborhoodConfig {
                 neighbor_configs: vec![],
-                is_bootstrap_node: false,
                 local_ip_addr: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
                 clandestine_port_list: vec![],
                 earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),

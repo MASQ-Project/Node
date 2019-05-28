@@ -60,10 +60,10 @@ fn end_to_end_routing_test() {
 #[test]
 fn http_routing_failure_produces_internal_error_response() {
     let mut cluster = SubstratumNodeCluster::start().unwrap();
-    let bootstrap_node = cluster.start_real_node(NodeStartupConfigBuilder::bootstrap().build());
+    let neighbor_node = cluster.start_real_node(NodeStartupConfigBuilder::standard().build());
     let originating_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .neighbor(bootstrap_node.node_reference())
+            .neighbor(neighbor_node.node_reference())
             .build(),
     );
     thread::sleep(Duration::from_millis(1000));
@@ -90,10 +90,10 @@ fn http_routing_failure_produces_internal_error_response() {
 #[test]
 fn tls_routing_failure_produces_internal_error_response() {
     let mut cluster = SubstratumNodeCluster::start().unwrap();
-    let bootstrap = cluster.start_real_node(NodeStartupConfigBuilder::bootstrap().build());
+    let neighbor = cluster.start_real_node(NodeStartupConfigBuilder::standard().build());
     let originating_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .neighbor(bootstrap.node_reference())
+            .neighbor(neighbor.node_reference())
             .build(),
     );
     let mut client = originating_node.make_client(8443);

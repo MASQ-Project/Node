@@ -72,7 +72,6 @@ fn graph_connects_but_does_not_over_connect() {
         public_key: mock_node.public_key().clone(),
         earning_wallet: Wallet::new("0000"),
         rate_pack: DEFAULT_RATE_PACK.clone(),
-        is_bootstrap_node: false,
         neighbors: vec_to_btset(vec![first_node.public_key().clone()]),
         version: 100, // to make the sample Node update its database and send out standard Gossip
     };
@@ -96,7 +95,7 @@ fn graph_connects_but_does_not_over_connect() {
         )
         .unwrap();
 
-    // Snag the broadcast and assert on it: everything that isn't test harness or bootstrap Node
+    // Snag the broadcast and assert on it: everything that isn't test harness
     // should have degree at least 2 and no more than 5.
     let (current_state, _) = mock_node
         .wait_for_gossip(Duration::from_millis(1000))
@@ -106,7 +105,7 @@ fn graph_connects_but_does_not_over_connect() {
         (&mock_inner.public_key, &Some(mock_node.node_addr())),
     );
     // True number of Nodes in source database should be neighborhood_size + 2,
-    // but gossip target (mock_node) will not be included in Gossip so should be neighborhood size + 1 (bootstrap).
+    // but gossip target (mock_node) will not be included in Gossip so should be neighborhood size
     assert_eq!(
         neighborhood_size,
         current_state.node_records.len(),
