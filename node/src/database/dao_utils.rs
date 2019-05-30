@@ -9,6 +9,10 @@ pub fn to_time_t(system_time: &SystemTime) -> i64 {
     }
 }
 
+pub fn now_time_t() -> i64 {
+    to_time_t(&SystemTime::now())
+}
+
 pub fn from_time_t(time_t: i64) -> SystemTime {
     let interval = Duration::from_secs(time_t as u64);
     SystemTime::UNIX_EPOCH + interval

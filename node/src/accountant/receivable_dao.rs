@@ -1,13 +1,17 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::accountant::accountant::PaymentCurves;
 use crate::database::dao_utils;
+use crate::database::dao_utils::to_time_t;
 use crate::database::db_initializer::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
+use indoc::indoc;
+use rusqlite::named_params;
 use rusqlite::types::ToSql;
-use rusqlite::{OptionalExtension, NO_PARAMS};
+use rusqlite::{OptionalExtension, Row, NO_PARAMS};
 use std::fmt::Debug;
 use std::time::SystemTime;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ReceivableAccount {
     pub wallet_address: Wallet,
     pub balance: i64,
@@ -22,6 +26,14 @@ pub trait ReceivableDao: Debug {
     fn account_status(&self, wallet_address: &Wallet) -> Option<ReceivableAccount>;
 
     fn receivables(&self) -> Vec<ReceivableAccount>;
+
+    fn new_delinquencies(
+        &self,
+        now: SystemTime,
+        payment_curves: &PaymentCurves,
+    ) -> Vec<ReceivableAccount>;
+
+    fn paid_delinquencies(&self, payment_curves: &PaymentCurves) -> Vec<ReceivableAccount>;
 }
 
 #[derive(Debug)]
@@ -49,22 +61,11 @@ impl ReceivableDao for ReceivableDaoReal {
         let mut stmt = self
             .conn
             .prepare(
-                "select balance, last_received_timestamp from receivable where wallet_address = ?",
+                "select wallet_address, balance, last_received_timestamp from receivable where wallet_address = ?",
             )
             .expect("Internal error");
         match stmt
-            .query_row(&[wallet_address.address.clone()], |row| {
-                let balance_result = row.get(0);
-                let last_received_timestamp_result = row.get(1);
-                match (balance_result, last_received_timestamp_result) {
-                    (Ok(balance), Ok(last_received_timestamp)) => Ok(ReceivableAccount {
-                        wallet_address: wallet_address.clone(),
-                        balance,
-                        last_received_timestamp: dao_utils::from_time_t(last_received_timestamp),
-                    }),
-                    _ => panic!("Database is corrupt: RECEIVABLE table columns and/or types"),
-                }
-            })
+            .query_row(&[wallet_address.address.clone()], Self::row_to_account)
             .optional()
         {
             Ok(value) => value,
@@ -101,6 +102,60 @@ impl ReceivableDao for ReceivableDaoReal {
         .flat_map(|p| p)
         .collect()
     }
+
+    fn new_delinquencies(
+        &self,
+        system_now: SystemTime,
+        payment_curves: &PaymentCurves,
+    ) -> Vec<ReceivableAccount> {
+        let now = to_time_t(&system_now);
+        let slope = (payment_curves.permanent_debt_allowed_gwub as f64
+            - payment_curves.balance_to_decrease_from_gwub as f64)
+            / (payment_curves.balance_decreases_for_sec as f64);
+        let sql = indoc! (r"
+            select r.wallet_address, r.balance, r.last_received_timestamp
+            from receivable r left outer join banned b on r.wallet_address = b.wallet_address
+            where
+                r.last_received_timestamp < :sugg_and_grace
+                and r.balance > :balance_to_decrease_from + :slope * (:sugg_and_grace - r.last_received_timestamp)
+                and r.balance > :permanent_debt
+                and b.wallet_address is null
+        ");
+        let mut stmt = self.conn.prepare(sql).expect("Couldn't prepare statement");
+        stmt.query_map_named(
+            named_params! {
+                ":slope": slope,
+                ":sugg_and_grace": payment_curves.sugg_and_grace(now),
+                ":balance_to_decrease_from": payment_curves.balance_to_decrease_from_gwub,
+                ":permanent_debt": payment_curves.permanent_debt_allowed_gwub,
+            },
+            Self::row_to_account,
+        )
+        .expect("Couldn't retrieve new delinquencies: database corruption")
+        .flat_map(|v| v)
+        .collect()
+    }
+
+    fn paid_delinquencies(&self, payment_curves: &PaymentCurves) -> Vec<ReceivableAccount> {
+        let sql = indoc!(
+            r"
+            select r.wallet_address, r.balance, r.last_received_timestamp
+            from receivable r inner join banned b on r.wallet_address = b.wallet_address
+            where
+                r.balance <= :unban_balance
+        "
+        );
+        let mut stmt = self.conn.prepare(sql).expect("Couldn't prepare statement");
+        stmt.query_map_named(
+            named_params! {
+                ":unban_balance": payment_curves.unban_when_balance_below_gwub,
+            },
+            Self::row_to_account,
+        )
+        .expect("Couldn't retrieve new delinquencies: database corruption")
+        .flat_map(|v| v)
+        .collect()
+    }
 }
 
 impl ReceivableDaoReal {
@@ -134,15 +189,37 @@ impl ReceivableDaoReal {
             Err(e) => Err(format!("{}", e)),
         }
     }
+
+    fn row_to_account(row: &Row) -> rusqlite::Result<ReceivableAccount> {
+        let wallet_address_result: Result<String, rusqlite::Error> = row.get(0);
+        let balance_result = row.get(1);
+        let last_received_timestamp_result = row.get(2);
+        match (
+            wallet_address_result,
+            balance_result,
+            last_received_timestamp_result,
+        ) {
+            (Ok(wallet_address), Ok(balance), Ok(last_received_timestamp)) => {
+                Ok(ReceivableAccount {
+                    wallet_address: Wallet::new(wallet_address.as_str()),
+                    balance,
+                    last_received_timestamp: dao_utils::from_time_t(last_received_timestamp),
+                })
+            }
+            _ => panic!("Database is corrupt: RECEIVABLE table columns and/or types"),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::test_utils::make_receivable_account;
+    use crate::database::dao_utils::{from_time_t, now_time_t, to_time_t};
     use crate::database::db_initializer;
     use crate::database::db_initializer::DbInitializer;
     use crate::database::db_initializer::DbInitializerReal;
-    use crate::test_utils::test_utils::ensure_node_home_directory_exists;
+    use crate::test_utils::test_utils::{assert_contains, ensure_node_home_directory_exists};
     use rusqlite::NO_PARAMS;
     use rusqlite::{Connection, OpenFlags};
 
@@ -269,5 +346,233 @@ mod tests {
             ],
             accounts
         )
+    }
+
+    #[test]
+    fn new_delinquencies_unit_slope() {
+        let pcs = PaymentCurves {
+            payment_suggested_after_sec: 25,
+            payment_grace_before_ban_sec: 50,
+            permanent_debt_allowed_gwub: 100,
+            balance_to_decrease_from_gwub: 200,
+            balance_decreases_for_sec: 100,
+            unban_when_balance_below_gwub: 0, // doesn't matter for this test
+        };
+        let now = now_time_t();
+        let mut not_delinquent_inside_grace_period = make_receivable_account(1234, false);
+        not_delinquent_inside_grace_period.balance = pcs.balance_to_decrease_from_gwub + 1;
+        not_delinquent_inside_grace_period.last_received_timestamp =
+            from_time_t(pcs.sugg_and_grace(now) + 2);
+        let mut not_delinquent_after_grace_below_slope = make_receivable_account(2345, false);
+        not_delinquent_after_grace_below_slope.balance = pcs.balance_to_decrease_from_gwub - 2;
+        not_delinquent_after_grace_below_slope.last_received_timestamp =
+            from_time_t(pcs.sugg_and_grace(now) - 1);
+        let mut delinquent_above_slope_after_grace = make_receivable_account(3456, true);
+        delinquent_above_slope_after_grace.balance = pcs.balance_to_decrease_from_gwub - 1;
+        delinquent_above_slope_after_grace.last_received_timestamp =
+            from_time_t(pcs.sugg_and_grace(now) - 2);
+        let mut not_delinquent_below_slope_before_stop = make_receivable_account(4567, false);
+        not_delinquent_below_slope_before_stop.balance = pcs.permanent_debt_allowed_gwub + 1;
+        not_delinquent_below_slope_before_stop.last_received_timestamp =
+            from_time_t(pcs.sugg_thru_decreasing(now) + 2);
+        let mut delinquent_above_slope_before_stop = make_receivable_account(5678, true);
+        delinquent_above_slope_before_stop.balance = pcs.permanent_debt_allowed_gwub + 2;
+        delinquent_above_slope_before_stop.last_received_timestamp =
+            from_time_t(pcs.sugg_thru_decreasing(now) + 1);
+        let mut not_delinquent_above_slope_after_stop = make_receivable_account(6789, false);
+        not_delinquent_above_slope_after_stop.balance = pcs.permanent_debt_allowed_gwub - 1;
+        not_delinquent_above_slope_after_stop.last_received_timestamp =
+            from_time_t(pcs.sugg_thru_decreasing(now) - 2);
+        let home_dir = ensure_node_home_directory_exists("accountant", "new_delinquencies");
+        let db_initializer = DbInitializerReal::new();
+        let conn = db_initializer.initialize(&home_dir).unwrap();
+        add_receivable_account(&conn, &not_delinquent_inside_grace_period);
+        add_receivable_account(&conn, &not_delinquent_after_grace_below_slope);
+        add_receivable_account(&conn, &delinquent_above_slope_after_grace);
+        add_receivable_account(&conn, &not_delinquent_below_slope_before_stop);
+        add_receivable_account(&conn, &delinquent_above_slope_before_stop);
+        add_receivable_account(&conn, &not_delinquent_above_slope_after_stop);
+        let subject = ReceivableDaoReal::new(conn);
+
+        let result = subject.new_delinquencies(from_time_t(now), &pcs);
+
+        assert_contains(&result, &delinquent_above_slope_after_grace);
+        assert_contains(&result, &delinquent_above_slope_before_stop);
+        assert_eq!(2, result.len());
+    }
+
+    #[test]
+    fn new_delinquencies_shallow_slope() {
+        let pcs = PaymentCurves {
+            payment_suggested_after_sec: 100,
+            payment_grace_before_ban_sec: 100,
+            permanent_debt_allowed_gwub: 100,
+            balance_to_decrease_from_gwub: 110,
+            balance_decreases_for_sec: 100,
+            unban_when_balance_below_gwub: 0, // doesn't matter for this test
+        };
+        let now = now_time_t();
+        let mut not_delinquent = make_receivable_account(1234, false);
+        not_delinquent.balance = 105;
+        not_delinquent.last_received_timestamp = from_time_t(pcs.sugg_and_grace(now) - 25);
+        let mut delinquent = make_receivable_account(2345, true);
+        delinquent.balance = 105;
+        delinquent.last_received_timestamp = from_time_t(pcs.sugg_and_grace(now) - 75);
+        let home_dir =
+            ensure_node_home_directory_exists("accountant", "new_delinquencies_shallow_slope");
+        let db_initializer = DbInitializerReal::new();
+        let conn = db_initializer.initialize(&home_dir).unwrap();
+        add_receivable_account(&conn, &not_delinquent);
+        add_receivable_account(&conn, &delinquent);
+        let subject = ReceivableDaoReal::new(conn);
+
+        let result = subject.new_delinquencies(from_time_t(now), &pcs);
+
+        assert_contains(&result, &delinquent);
+        assert_eq!(1, result.len());
+    }
+
+    #[test]
+    fn new_delinquencies_steep_slope() {
+        let pcs = PaymentCurves {
+            payment_suggested_after_sec: 100,
+            payment_grace_before_ban_sec: 100,
+            permanent_debt_allowed_gwub: 100,
+            balance_to_decrease_from_gwub: 1100,
+            balance_decreases_for_sec: 100,
+            unban_when_balance_below_gwub: 0, // doesn't matter for this test
+        };
+        let now = now_time_t();
+        let mut not_delinquent = make_receivable_account(1234, false);
+        not_delinquent.balance = 600;
+        not_delinquent.last_received_timestamp = from_time_t(pcs.sugg_and_grace(now) - 25);
+        let mut delinquent = make_receivable_account(2345, true);
+        delinquent.balance = 600;
+        delinquent.last_received_timestamp = from_time_t(pcs.sugg_and_grace(now) - 75);
+        let home_dir =
+            ensure_node_home_directory_exists("accountant", "new_delinquencies_steep_slope");
+        let db_initializer = DbInitializerReal::new();
+        let conn = db_initializer.initialize(&home_dir).unwrap();
+        add_receivable_account(&conn, &not_delinquent);
+        add_receivable_account(&conn, &delinquent);
+        let subject = ReceivableDaoReal::new(conn);
+
+        let result = subject.new_delinquencies(from_time_t(now), &pcs);
+
+        assert_contains(&result, &delinquent);
+        assert_eq!(1, result.len());
+    }
+
+    #[test]
+    fn new_delinquencies_does_not_find_existing_delinquencies() {
+        let pcs = PaymentCurves {
+            payment_suggested_after_sec: 25,
+            payment_grace_before_ban_sec: 50,
+            permanent_debt_allowed_gwub: 100,
+            balance_to_decrease_from_gwub: 200,
+            balance_decreases_for_sec: 100,
+            unban_when_balance_below_gwub: 0, // doesn't matter for this test
+        };
+        let now = now_time_t();
+        let mut existing_delinquency = make_receivable_account(1234, true);
+        existing_delinquency.balance = 250;
+        existing_delinquency.last_received_timestamp = from_time_t(pcs.sugg_and_grace(now) - 1);
+        let mut new_delinquency = make_receivable_account(2345, true);
+        new_delinquency.balance = 250;
+        new_delinquency.last_received_timestamp = from_time_t(pcs.sugg_and_grace(now) - 1);
+
+        let home_dir = ensure_node_home_directory_exists(
+            "accountant",
+            "new_delinquencies_does_not_find_existing_delinquencies",
+        );
+        let db_initializer = DbInitializerReal::new();
+        let conn = db_initializer.initialize(&home_dir).unwrap();
+        add_receivable_account(&conn, &existing_delinquency);
+        add_receivable_account(&conn, &new_delinquency);
+        add_banned_account(&conn, &existing_delinquency);
+        let subject = ReceivableDaoReal::new(conn);
+
+        let result = subject.new_delinquencies(from_time_t(now), &pcs);
+
+        assert_contains(&result, &new_delinquency);
+        assert_eq!(1, result.len());
+    }
+
+    #[test]
+    fn paid_delinquencies() {
+        let pcs = PaymentCurves {
+            payment_suggested_after_sec: 0,   // doesn't matter for this test
+            payment_grace_before_ban_sec: 0,  // doesn't matter for this test
+            permanent_debt_allowed_gwub: 0,   // doesn't matter for this test
+            balance_to_decrease_from_gwub: 0, // doesn't matter for this test
+            balance_decreases_for_sec: 0,     // doesn't matter for this test
+            unban_when_balance_below_gwub: 50,
+        };
+        let mut paid_delinquent = make_receivable_account(1234, true);
+        paid_delinquent.balance = 50;
+        let mut unpaid_delinquent = make_receivable_account(2345, true);
+        unpaid_delinquent.balance = 51;
+        let home_dir = ensure_node_home_directory_exists("accountant", "paid_delinquencies");
+        let db_initializer = DbInitializerReal::new();
+        let conn = db_initializer.initialize(&home_dir).unwrap();
+        add_receivable_account(&conn, &paid_delinquent);
+        add_receivable_account(&conn, &unpaid_delinquent);
+        add_banned_account(&conn, &paid_delinquent);
+        add_banned_account(&conn, &unpaid_delinquent);
+        let subject = ReceivableDaoReal::new(conn);
+
+        let result = subject.paid_delinquencies(&pcs);
+
+        assert_contains(&result, &paid_delinquent);
+        assert_eq!(1, result.len());
+    }
+
+    #[test]
+    fn paid_delinquencies_does_not_find_existing_nondelinquencies() {
+        let pcs = PaymentCurves {
+            payment_suggested_after_sec: 0,   // doesn't matter for this test
+            payment_grace_before_ban_sec: 0,  // doesn't matter for this test
+            permanent_debt_allowed_gwub: 0,   // doesn't matter for this test
+            balance_to_decrease_from_gwub: 0, // doesn't matter for this test
+            balance_decreases_for_sec: 0,     // doesn't matter for this test
+            unban_when_balance_below_gwub: 50,
+        };
+        let mut newly_non_delinquent = make_receivable_account(1234, false);
+        newly_non_delinquent.balance = 25;
+        let mut old_non_delinquent = make_receivable_account(2345, false);
+        old_non_delinquent.balance = 25;
+
+        let home_dir = ensure_node_home_directory_exists(
+            "accountant",
+            "paid_delinquencies_does_not_find_existing_nondelinquencies",
+        );
+        let db_initializer = DbInitializerReal::new();
+        let conn = db_initializer.initialize(&home_dir).unwrap();
+        add_receivable_account(&conn, &newly_non_delinquent);
+        add_receivable_account(&conn, &old_non_delinquent);
+        add_banned_account(&conn, &newly_non_delinquent);
+        let subject = ReceivableDaoReal::new(conn);
+
+        let result = subject.paid_delinquencies(&pcs);
+
+        assert_contains(&result, &newly_non_delinquent);
+        assert_eq!(1, result.len());
+    }
+
+    fn add_receivable_account(conn: &Box<ConnectionWrapper>, account: &ReceivableAccount) {
+        let mut stmt = conn.prepare ("insert into receivable (wallet_address, balance, last_received_timestamp) values (?, ?, ?)").unwrap();
+        let params: &[&ToSql] = &[
+            &account.wallet_address.address,
+            &account.balance,
+            &to_time_t(&account.last_received_timestamp),
+        ];
+        stmt.execute(params).unwrap();
+    }
+
+    fn add_banned_account(conn: &Box<ConnectionWrapper>, account: &ReceivableAccount) {
+        let mut stmt = conn
+            .prepare("insert into banned (wallet_address) values (?)")
+            .unwrap();
+        stmt.execute(&[&account.wallet_address.address]).unwrap();
     }
 }

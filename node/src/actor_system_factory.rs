@@ -14,7 +14,7 @@ use super::stream_messages::PoolBindMessage;
 use super::ui_gateway::ui_gateway::UiGateway;
 use crate::accountant::payable_dao::PayableDaoReal;
 use crate::accountant::receivable_dao::ReceivableDaoReal;
-use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
+use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal, BannedDaoReal};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
 use crate::blockchain::blockchain_interface::{
     BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceRpc,
@@ -291,12 +291,17 @@ impl ActorFactory for ActorFactoryReal {
                 .initialize(data_directory)
                 .expect("Failed to connect to database"),
         ));
+        let banned_dao = Box::new(BannedDaoReal::new(
+            db_initializer
+                .initialize(data_directory)
+                .expect("Failed to connect to database"),
+        ));
         banned_cache_loader.load(
             db_initializer
                 .initialize(data_directory)
                 .expect("Failed to connect to database"),
         );
-        let accountant = Accountant::new(config, payable_dao, receivable_dao);
+        let accountant = Accountant::new(config, payable_dao, receivable_dao, banned_dao);
         let addr: Addr<Accountant> = accountant.start();
         Accountant::make_subs_from(&addr)
     }
@@ -688,6 +693,7 @@ mod tests {
         let db_initializer_mock = DbInitializerMock::new()
             .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
             .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
+            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
             .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())));
         let data_directory = PathBuf::from_str("yeet_home").unwrap();
         let config = AccountantConfig {
@@ -704,10 +710,11 @@ mod tests {
         );
 
         let initialize_parameters = db_initializer_mock.initialize_parameters.lock().unwrap();
-        assert_eq!(3, initialize_parameters.len());
         assert_eq!(data_directory, initialize_parameters[0]);
         assert_eq!(data_directory, initialize_parameters[1]);
         assert_eq!(data_directory, initialize_parameters[2]);
+        assert_eq!(data_directory, initialize_parameters[3]);
+        assert_eq!(4, initialize_parameters.len());
 
         let load_parameters = banned_cache_loader.load_params.lock().unwrap();
         assert_eq!(1, load_parameters.len());
@@ -741,6 +748,49 @@ mod tests {
             payable_scan_interval: Duration::from_secs(6),
         };
         let db_initializer_mock = DbInitializerMock::new()
+            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
+            .initialize_result(Err(InitializationError::SqliteError(
+                rusqlite::Error::InvalidQuery,
+            )));
+        let subject = ActorFactoryReal {};
+        subject.make_and_start_accountant(
+            config,
+            &PathBuf::new(),
+            &db_initializer_mock,
+            &BannedCacheLoaderMock::default(),
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Failed to connect to database: SqliteError(InvalidQuery)")]
+    fn failed_banned_dao_initialization_produces_panic() {
+        let config = AccountantConfig {
+            payable_scan_interval: Duration::from_secs(6),
+        };
+        let db_initializer_mock = DbInitializerMock::new()
+            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
+            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
+            .initialize_result(Err(InitializationError::SqliteError(
+                rusqlite::Error::InvalidQuery,
+            )));
+        let subject = ActorFactoryReal {};
+        subject.make_and_start_accountant(
+            config,
+            &PathBuf::new(),
+            &db_initializer_mock,
+            &BannedCacheLoaderMock::default(),
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Failed to connect to database: SqliteError(InvalidQuery)")]
+    fn failed_ban_cache_initialization_produces_panic() {
+        let config = AccountantConfig {
+            payable_scan_interval: Duration::from_secs(6),
+        };
+        let db_initializer_mock = DbInitializerMock::new()
+            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
+            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
             .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
             .initialize_result(Err(InitializationError::SqliteError(
                 rusqlite::Error::InvalidQuery,

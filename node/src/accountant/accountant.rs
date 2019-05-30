@@ -2,6 +2,8 @@
 use super::payable_dao::PayableDao;
 use super::receivable_dao::ReceivableDao;
 use crate::accountant::payable_dao::PayableAccount;
+use crate::accountant::receivable_dao::ReceivableAccount;
+use crate::banned_dao::BannedDao;
 use crate::sub_lib::accountant::AccountantConfig;
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
@@ -19,18 +21,49 @@ use actix::AsyncContext;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
-use std::time::SystemTime;
+use lazy_static::lazy_static;
+use std::time::{Duration, SystemTime};
 
-pub const PAYMENT_CURVE_MINIMUM_TIME: i64 = 86_400; // one day
-pub const PAYMENT_CURVE_TIME_INTERSECTION: i64 = 2_592_000; // thirty days
-pub const PAYMENT_CURVE_MINIMUM_BALANCE: i64 = 10_000_000;
-pub const PAYMENT_CURVE_BALANCE_INTERSECTION: i64 = 1_000_000_000;
 pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
+
+const SECONDS_PER_DAY: i64 = 86_400;
+
+lazy_static! {
+    pub static ref PAYMENT_CURVES: PaymentCurves = PaymentCurves {
+        payment_suggested_after_sec: SECONDS_PER_DAY,
+        payment_grace_before_ban_sec: SECONDS_PER_DAY,
+        permanent_debt_allowed_gwub: 10_000_000,
+        balance_to_decrease_from_gwub: 1_000_000_000,
+        balance_decreases_for_sec: 30 * SECONDS_PER_DAY,
+        unban_when_balance_below_gwub: 10_000_000,
+    };
+}
+
+#[derive(PartialEq, Debug, Clone)]
+pub struct PaymentCurves {
+    pub payment_suggested_after_sec: i64,
+    pub payment_grace_before_ban_sec: i64,
+    pub permanent_debt_allowed_gwub: i64,
+    pub balance_to_decrease_from_gwub: i64,
+    pub balance_decreases_for_sec: i64,
+    pub unban_when_balance_below_gwub: i64,
+}
+
+impl PaymentCurves {
+    pub fn sugg_and_grace(&self, now: i64) -> i64 {
+        now - self.payment_suggested_after_sec - self.payment_grace_before_ban_sec
+    }
+
+    pub fn sugg_thru_decreasing(&self, now: i64) -> i64 {
+        self.sugg_and_grace(now) - self.balance_decreases_for_sec
+    }
+}
 
 pub struct Accountant {
     config: AccountantConfig,
     payable_dao: Box<PayableDao>,
     receivable_dao: Box<ReceivableDao>,
+    banned_dao: Box<BannedDao>,
     report_accounts_payable_sub: Option<Recipient<ReportAccountsPayable>>,
     logger: Logger,
 }
@@ -46,14 +79,8 @@ impl Handler<BindMessage> for Accountant {
         self.report_accounts_payable_sub =
             Some(msg.peer_actors.blockchain_bridge.report_accounts_payable);
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
-        ctx.run_interval(self.config.payable_scan_interval, |act, _ctx| {
-            act.logger.debug("Scanning for payables".to_string());
-            Accountant::scan_for_payables(
-                act.payable_dao.as_ref(),
-                act.report_accounts_payable_sub
-                    .as_ref()
-                    .expect("BlockchainBridge is unbound"),
-            );
+        ctx.run_interval(self.config.payable_scan_interval, |act, _| {
+            act.periodic_scans();
         });
         self.logger.info(String::from("Accountant bound"));
     }
@@ -148,11 +175,13 @@ impl Accountant {
         config: AccountantConfig,
         payable_dao: Box<PayableDao>,
         receivable_dao: Box<ReceivableDao>,
+        banned_dao: Box<BannedDao>,
     ) -> Accountant {
         Accountant {
             config,
             payable_dao,
             receivable_dao,
+            banned_dao,
             report_accounts_payable_sub: None,
             logger: Logger::new("Accountant"),
         }
@@ -176,34 +205,81 @@ impl Accountant {
         }
     }
 
-    fn scan_for_payables(
-        payable_dao: &PayableDao,
-        report_accounts_payable_sub: &Recipient<ReportAccountsPayable>,
-    ) {
-        let payables = payable_dao
+    fn periodic_scans(&mut self) {
+        self.scan_for_payables();
+        self.scan_for_delinquencies();
+    }
+
+    fn scan_for_payables(&mut self) {
+        self.logger.debug("Scanning for payables".to_string());
+        let payables = self
+            .payable_dao
             .non_pending_payables()
             .into_iter()
             .filter(Accountant::should_pay)
             .collect::<Vec<PayableAccount>>();
 
         if !payables.is_empty() {
-            report_accounts_payable_sub
+            self.report_accounts_payable_sub
+                .as_ref()
+                .expect("BlockchainBridge is unbound")
                 .try_send(ReportAccountsPayable { accounts: payables })
                 .expect("BlockchainBridge is dead");
         }
     }
 
+    fn scan_for_delinquencies(&mut self) {
+        let now = SystemTime::now();
+        self.receivable_dao
+            .new_delinquencies(now.clone(), &PAYMENT_CURVES)
+            .into_iter()
+            .for_each(|account| {
+                self.banned_dao.ban(&account.wallet_address);
+                let (balance, age) = Self::balance_and_age(&account);
+                self.logger.info(format!(
+                    "Wallet {} (balance: {} SUB, age: {} sec) banned for delinquency",
+                    account.wallet_address,
+                    balance,
+                    age.as_secs()
+                ))
+            });
+
+        self.receivable_dao
+            .paid_delinquencies(&PAYMENT_CURVES)
+            .into_iter()
+            .for_each(|account| {
+                self.banned_dao.unban(&account.wallet_address);
+                let (balance, age) = Self::balance_and_age(&account);
+                self.logger.info(format!(
+                    "Wallet {} (balance: {} SUB, age: {} sec) is no longer delinquent: unbanned",
+                    account.wallet_address,
+                    balance,
+                    age.as_secs()
+                ))
+            });
+    }
+
+    fn balance_and_age(account: &ReceivableAccount) -> (String, Duration) {
+        let balance = format!("{}", (account.balance as f64) / 1_000_000_000.0);
+        let age = account
+            .last_received_timestamp
+            .elapsed()
+            .unwrap_or(Duration::new(0, 0));
+        (balance, age)
+    }
+
     fn should_pay(payable: &PayableAccount) -> bool {
+        // TODO: This calculation should be done in the database, if possible
         let time_since_last_paid = SystemTime::now()
             .duration_since(payable.last_paid_timestamp)
             .expect("Internal error")
             .as_secs();
 
-        if time_since_last_paid <= PAYMENT_CURVE_MINIMUM_TIME as u64 {
+        if time_since_last_paid <= PAYMENT_CURVES.payment_suggested_after_sec as u64 {
             return false;
         }
 
-        if payable.balance <= PAYMENT_CURVE_MINIMUM_BALANCE {
+        if payable.balance <= PAYMENT_CURVES.permanent_debt_allowed_gwub {
             return false;
         }
 
@@ -212,10 +288,12 @@ impl Accountant {
     }
 
     fn calculate_payout_threshold(x: u64) -> f64 {
-        let m = -((PAYMENT_CURVE_BALANCE_INTERSECTION as f64
-            - PAYMENT_CURVE_MINIMUM_BALANCE as f64)
-            / (PAYMENT_CURVE_TIME_INTERSECTION as f64 - PAYMENT_CURVE_MINIMUM_TIME as f64));
-        let b = PAYMENT_CURVE_BALANCE_INTERSECTION as f64 - m * PAYMENT_CURVE_MINIMUM_TIME as f64;
+        let m = -((PAYMENT_CURVES.balance_to_decrease_from_gwub as f64
+            - PAYMENT_CURVES.permanent_debt_allowed_gwub as f64)
+            / (PAYMENT_CURVES.balance_decreases_for_sec as f64
+                - PAYMENT_CURVES.payment_suggested_after_sec as f64));
+        let b = PAYMENT_CURVES.balance_to_decrease_from_gwub as f64
+            - m * PAYMENT_CURVES.payment_suggested_after_sec as f64;
         m * x as f64 + b
     }
 
@@ -253,6 +331,7 @@ pub mod tests {
     use super::super::payable_dao::PayableAccount;
     use super::*;
     use crate::accountant::receivable_dao::ReceivableAccount;
+    use crate::accountant::test_utils::make_receivable_account;
     use crate::database::dao_utils::from_time_t;
     use crate::database::dao_utils::to_time_t;
     use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
@@ -265,8 +344,8 @@ pub mod tests {
     use crate::test_utils::recorder::Recorder;
     use actix::System;
     use std::cell::RefCell;
-    use std::sync::Arc;
     use std::sync::Mutex;
+    use std::sync::{Arc, MutexGuard};
     use std::thread;
     use std::time::Duration;
     use std::time::SystemTime;
@@ -333,6 +412,10 @@ pub mod tests {
     pub struct ReceivableDaoMock {
         more_money_receivable_parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
         more_money_received_parameters: Arc<Mutex<Vec<(Wallet, u64, SystemTime)>>>,
+        new_delinquencies_parameters: Arc<Mutex<Vec<(SystemTime, PaymentCurves)>>>,
+        new_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
+        paid_delinquencies_parameters: Arc<Mutex<Vec<PaymentCurves>>>,
+        paid_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
     }
 
     impl ReceivableDao for ReceivableDaoMock {
@@ -363,6 +446,26 @@ pub mod tests {
         fn receivables(&self) -> Vec<ReceivableAccount> {
             unimplemented!()
         }
+
+        fn new_delinquencies(
+            &self,
+            now: SystemTime,
+            payment_curves: &PaymentCurves,
+        ) -> Vec<ReceivableAccount> {
+            self.new_delinquencies_parameters
+                .lock()
+                .unwrap()
+                .push((now, payment_curves.clone()));
+            self.new_delinquencies_results.borrow_mut().remove(0)
+        }
+
+        fn paid_delinquencies(&self, payment_curves: &PaymentCurves) -> Vec<ReceivableAccount> {
+            self.paid_delinquencies_parameters
+                .lock()
+                .unwrap()
+                .push(payment_curves.clone());
+            self.paid_delinquencies_results.borrow_mut().remove(0)
+        }
     }
 
     impl ReceivableDaoMock {
@@ -370,6 +473,10 @@ pub mod tests {
             ReceivableDaoMock {
                 more_money_receivable_parameters: Arc::new(Mutex::new(vec![])),
                 more_money_received_parameters: Arc::new(Mutex::new(vec![])),
+                new_delinquencies_results: RefCell::new(vec![]),
+                new_delinquencies_parameters: Arc::new(Mutex::new(vec![])),
+                paid_delinquencies_results: RefCell::new(vec![]),
+                paid_delinquencies_parameters: Arc::new(Mutex::new(vec![])),
             }
         }
 
@@ -388,34 +495,131 @@ pub mod tests {
             self.more_money_received_parameters = parameters;
             self
         }
+
+        fn new_delinquencies_parameters(
+            mut self,
+            parameters: &Arc<Mutex<Vec<(SystemTime, PaymentCurves)>>>,
+        ) -> Self {
+            self.new_delinquencies_parameters = parameters.clone();
+            self
+        }
+
+        fn new_delinquencies_result(self, result: Vec<ReceivableAccount>) -> ReceivableDaoMock {
+            self.new_delinquencies_results.borrow_mut().push(result);
+            self
+        }
+
+        fn paid_delinquencies_parameters(
+            mut self,
+            parameters: &Arc<Mutex<Vec<PaymentCurves>>>,
+        ) -> Self {
+            self.paid_delinquencies_parameters = parameters.clone();
+            self
+        }
+
+        fn paid_delinquencies_result(self, result: Vec<ReceivableAccount>) -> ReceivableDaoMock {
+            self.paid_delinquencies_results.borrow_mut().push(result);
+            self
+        }
+    }
+
+    struct BannedDaoMock {
+        ban_list_parameters: Arc<Mutex<Vec<()>>>,
+        ban_list_results: RefCell<Vec<Vec<Wallet>>>,
+        ban_parameters: Arc<Mutex<Vec<Wallet>>>,
+        unban_parameters: Arc<Mutex<Vec<Wallet>>>,
+    }
+
+    impl BannedDao for BannedDaoMock {
+        fn ban_list(&self) -> Vec<Wallet> {
+            self.ban_list_parameters.lock().unwrap().push(());
+            self.ban_list_results.borrow_mut().remove(0)
+        }
+
+        fn ban(&self, wallet_address: &Wallet) {
+            self.ban_parameters
+                .lock()
+                .unwrap()
+                .push(wallet_address.clone());
+        }
+
+        fn unban(&self, wallet_address: &Wallet) {
+            self.unban_parameters
+                .lock()
+                .unwrap()
+                .push(wallet_address.clone());
+        }
+    }
+
+    impl BannedDaoMock {
+        pub fn new() -> BannedDaoMock {
+            BannedDaoMock {
+                ban_list_parameters: Arc::new(Mutex::new(vec![])),
+                ban_list_results: RefCell::new(vec![]),
+                ban_parameters: Arc::new(Mutex::new(vec![])),
+                unban_parameters: Arc::new(Mutex::new(vec![])),
+            }
+        }
+
+        pub fn ban_list_result(self, result: Vec<Wallet>) -> Self {
+            self.ban_list_results.borrow_mut().push(result);
+            self
+        }
+
+        pub fn ban_parameters(mut self, parameters: &Arc<Mutex<Vec<Wallet>>>) -> Self {
+            self.ban_parameters = parameters.clone();
+            self
+        }
+
+        pub fn unban_parameters(mut self, parameters: &Arc<Mutex<Vec<Wallet>>>) -> Self {
+            self.unban_parameters = parameters.clone();
+            self
+        }
     }
 
     #[test]
-    fn accountant_timer_triggers_scanning_for_payables() {
+    fn accountant_timer_triggers_periodic_scanning() {
         init_test_logging();
         let (blockchain_bridge, blockchain_bridge_awaiter, _) = make_recorder();
+        let ban_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let ban_parameters_arc_inner = ban_parameters_arc.clone();
         thread::spawn(move || {
             let system = System::new("accountant_timer_triggers_scanning_for_payables");
             let config = AccountantConfig {
                 payable_scan_interval: Duration::from_millis(100),
             };
             let now = to_time_t(&SystemTime::now());
-            let accounts = vec![
-                // slightly above minimum balance, to the right of the curve (time intersection)
-                PayableAccount {
-                    wallet_address: Wallet::new("wallet0"),
-                    balance: PAYMENT_CURVE_MINIMUM_BALANCE + 1,
-                    last_paid_timestamp: from_time_t(now - PAYMENT_CURVE_TIME_INTERSECTION - 10),
-                    pending_payment_transaction: None,
-                },
-            ];
+            // slightly above minimum balance, to the right of the curve (time intersection)
+            let account0 = PayableAccount {
+                wallet_address: Wallet::new("wallet0"),
+                balance: PAYMENT_CURVES.permanent_debt_allowed_gwub + 1,
+                last_paid_timestamp: from_time_t(
+                    now - PAYMENT_CURVES.balance_decreases_for_sec - 10,
+                ),
+                pending_payment_transaction: None,
+            };
+            let account1 = PayableAccount {
+                wallet_address: Wallet::new("wallet1"),
+                balance: PAYMENT_CURVES.permanent_debt_allowed_gwub + 2,
+                last_paid_timestamp: from_time_t(
+                    now - PAYMENT_CURVES.balance_decreases_for_sec - 12,
+                ),
+                pending_payment_transaction: None,
+            };
             let payable_dao = Box::new(
-                PayableDaoMock::new()
-                    .non_pending_payables_result(accounts.clone())
-                    .non_pending_payables_result(accounts),
+                PayableDaoMock::new().non_pending_payables_result(vec![account0, account1]),
             );
-            let receivable_dao = Box::new(ReceivableDaoMock::new());
-            let subject = Accountant::new(config, payable_dao, receivable_dao);
+            let receivable_dao = Box::new(
+                ReceivableDaoMock::new()
+                    .new_delinquencies_result(vec![make_receivable_account(1234, true)])
+                    .paid_delinquencies_result(vec![]),
+            );
+            let banned_dao = Box::new(
+                BannedDaoMock::new()
+                    .ban_list_result(vec![])
+                    .ban_parameters(&ban_parameters_arc_inner),
+            );
+            let subject = Accountant::new(config, payable_dao, receivable_dao, banned_dao);
             let peer_actors = peer_actors_builder()
                 .blockchain_bridge(blockchain_bridge)
                 .build();
@@ -430,46 +634,67 @@ pub mod tests {
             system.run();
         });
 
-        blockchain_bridge_awaiter.await_message_count(2);
+        blockchain_bridge_awaiter.await_message_count(1);
         TestLogHandler::new().exists_log_containing("DEBUG: Accountant: Scanning for payables");
+        let ban_parameters = ban_parameters_arc.lock().unwrap();
+        assert_eq!("wallet1234d", &ban_parameters[0].address);
     }
 
     #[test]
     fn scan_for_payables_message_does_not_trigger_payment_for_balances_below_the_curve() {
         init_test_logging();
+        let config = AccountantConfig {
+            payable_scan_interval: Duration::from_secs(100),
+        };
         let now = to_time_t(&SystemTime::now());
         let accounts = vec![
             // below minimum balance, to the right of time intersection (inside buffer zone)
             PayableAccount {
                 wallet_address: Wallet::new("wallet0"),
-                balance: PAYMENT_CURVE_MINIMUM_BALANCE - 1,
-                last_paid_timestamp: from_time_t(now - PAYMENT_CURVE_TIME_INTERSECTION - 10),
+                balance: PAYMENT_CURVES.permanent_debt_allowed_gwub - 1,
+                last_paid_timestamp: from_time_t(
+                    now - PAYMENT_CURVES.balance_decreases_for_sec - 10,
+                ),
                 pending_payment_transaction: None,
             },
             // above balance intersection, to the left of minimum time (inside buffer zone)
             PayableAccount {
                 wallet_address: Wallet::new("wallet1"),
-                balance: PAYMENT_CURVE_BALANCE_INTERSECTION + 1,
-                last_paid_timestamp: from_time_t(now - PAYMENT_CURVE_MINIMUM_TIME + 10),
+                balance: PAYMENT_CURVES.balance_to_decrease_from_gwub + 1,
+                last_paid_timestamp: from_time_t(
+                    now - PAYMENT_CURVES.payment_suggested_after_sec + 10,
+                ),
                 pending_payment_transaction: None,
             },
             // above minimum balance, to the right of minimum time (not in buffer zone, below the curve)
             PayableAccount {
                 wallet_address: Wallet::new("wallet2"),
-                balance: PAYMENT_CURVE_BALANCE_INTERSECTION - 1000,
-                last_paid_timestamp: from_time_t(now - PAYMENT_CURVE_MINIMUM_TIME - 1),
+                balance: PAYMENT_CURVES.balance_to_decrease_from_gwub - 1000,
+                last_paid_timestamp: from_time_t(
+                    now - PAYMENT_CURVES.payment_suggested_after_sec - 1,
+                ),
                 pending_payment_transaction: None,
             },
         ];
         let payable_dao = PayableDaoMock::new().non_pending_payables_result(accounts.clone());
+        let receivable_dao = ReceivableDaoMock::new();
+        let banned_dao = BannedDaoMock::new();
         let (blockchain_bridge, _, blockchain_bridge_recordings_arc) = make_recorder();
         let system = System::new(
             "scan_for_payables_message_does_not_trigger_payment_for_balances_below_the_curve",
         );
-        let subject_addr: Addr<Recorder> = blockchain_bridge.start();
-        let report_accounts_payable_sub = subject_addr.recipient::<ReportAccountsPayable>();
+        let blockchain_bridge_addr: Addr<Recorder> = blockchain_bridge.start();
+        let report_accounts_payable_sub =
+            blockchain_bridge_addr.recipient::<ReportAccountsPayable>();
+        let mut subject = Accountant::new(
+            config,
+            Box::new(payable_dao),
+            Box::new(receivable_dao),
+            Box::new(banned_dao),
+        );
+        subject.report_accounts_payable_sub = Some(report_accounts_payable_sub);
 
-        Accountant::scan_for_payables(&payable_dao, &report_accounts_payable_sub);
+        subject.scan_for_payables();
 
         System::current().stop_with_code(0);
         system.run();
@@ -477,36 +702,52 @@ pub mod tests {
         let blockchain_bridge_recordings = blockchain_bridge_recordings_arc.lock().unwrap();
         assert_eq!(blockchain_bridge_recordings.len(), 0);
     }
-
     #[test]
     fn scan_for_payables_message_triggers_payment_for_balances_over_the_curve() {
         init_test_logging();
+        let config = AccountantConfig {
+            payable_scan_interval: Duration::from_secs(100),
+        };
         let now = to_time_t(&SystemTime::now());
         let accounts = vec![
             // slightly above minimum balance, to the right of the curve (time intersection)
             PayableAccount {
                 wallet_address: Wallet::new("wallet0"),
-                balance: PAYMENT_CURVE_MINIMUM_BALANCE + 1,
-                last_paid_timestamp: from_time_t(now - PAYMENT_CURVE_TIME_INTERSECTION - 10),
+                balance: PAYMENT_CURVES.permanent_debt_allowed_gwub + 1,
+                last_paid_timestamp: from_time_t(
+                    now - PAYMENT_CURVES.balance_decreases_for_sec - 10,
+                ),
                 pending_payment_transaction: None,
             },
             // slightly above the curve (balance intersection), to the right of minimum time
             PayableAccount {
                 wallet_address: Wallet::new("wallet1"),
-                balance: PAYMENT_CURVE_BALANCE_INTERSECTION + 1,
-                last_paid_timestamp: from_time_t(now - PAYMENT_CURVE_MINIMUM_TIME - 10),
+                balance: PAYMENT_CURVES.balance_to_decrease_from_gwub + 1,
+                last_paid_timestamp: from_time_t(
+                    now - PAYMENT_CURVES.payment_suggested_after_sec - 10,
+                ),
                 pending_payment_transaction: None,
             },
         ];
         let payable_dao = PayableDaoMock::new().non_pending_payables_result(accounts.clone());
+        let receivable_dao = ReceivableDaoMock::new();
+        let banned_dao = BannedDaoMock::new();
         let (blockchain_bridge, blockchain_bridge_awaiter, blockchain_bridge_recordings_arc) =
             make_recorder();
         let system =
             System::new("scan_for_payables_message_triggers_payment_for_balances_over_the_curve");
-        let subject_addr: Addr<Recorder> = blockchain_bridge.start();
-        let report_accounts_payable_sub = subject_addr.recipient::<ReportAccountsPayable>();
+        let blockchain_bridge_addr: Addr<Recorder> = blockchain_bridge.start();
+        let report_accounts_payable_sub =
+            blockchain_bridge_addr.recipient::<ReportAccountsPayable>();
+        let mut subject = Accountant::new(
+            config,
+            Box::new(payable_dao),
+            Box::new(receivable_dao),
+            Box::new(banned_dao),
+        );
+        subject.report_accounts_payable_sub = Some(report_accounts_payable_sub);
 
-        Accountant::scan_for_payables(&payable_dao, &report_accounts_payable_sub);
+        subject.scan_for_payables();
 
         System::current().stop_with_code(0);
         system.run();
@@ -517,6 +758,60 @@ pub mod tests {
             blockchain_bridge_recordings.get_record::<ReportAccountsPayable>(0),
             &ReportAccountsPayable { accounts }
         );
+    }
+
+    #[test]
+    fn scan_for_delinquencies_triggers_bans_and_unbans() {
+        init_test_logging();
+        let config = AccountantConfig {
+            payable_scan_interval: Duration::from_secs(100),
+        };
+        let newly_banned_1 = make_receivable_account(1234, true);
+        let newly_banned_2 = make_receivable_account(2345, true);
+        let newly_unbanned_1 = make_receivable_account(3456, false);
+        let newly_unbanned_2 = make_receivable_account(4567, false);
+        let payable_dao = PayableDaoMock::new();
+        let new_delinquencies_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let paid_delinquencies_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let receivable_dao = ReceivableDaoMock::new()
+            .new_delinquencies_parameters(&new_delinquencies_parameters_arc)
+            .new_delinquencies_result(vec![newly_banned_1.clone(), newly_banned_2.clone()])
+            .paid_delinquencies_parameters(&paid_delinquencies_parameters_arc)
+            .paid_delinquencies_result(vec![newly_unbanned_1.clone(), newly_unbanned_2.clone()]);
+        let ban_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let unban_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let banned_dao = BannedDaoMock::new()
+            .ban_list_result(vec![])
+            .ban_parameters(&ban_parameters_arc)
+            .unban_parameters(&unban_parameters_arc);
+        let mut subject = Accountant::new(
+            config,
+            Box::new(payable_dao),
+            Box::new(receivable_dao),
+            Box::new(banned_dao),
+        );
+
+        subject.scan_for_delinquencies();
+
+        let new_delinquencies_parameters: MutexGuard<Vec<(SystemTime, PaymentCurves)>> =
+            new_delinquencies_parameters_arc.lock().unwrap();
+        assert_eq!(PAYMENT_CURVES.clone(), new_delinquencies_parameters[0].1);
+        let paid_delinquencies_parameters: MutexGuard<Vec<PaymentCurves>> =
+            paid_delinquencies_parameters_arc.lock().unwrap();
+        assert_eq!(PAYMENT_CURVES.clone(), paid_delinquencies_parameters[0]);
+        let ban_parameters = ban_parameters_arc.lock().unwrap();
+        assert!(ban_parameters.contains(&newly_banned_1.wallet_address));
+        assert!(ban_parameters.contains(&newly_banned_2.wallet_address));
+        assert_eq!(2, ban_parameters.len());
+        let unban_parameters = unban_parameters_arc.lock().unwrap();
+        assert!(unban_parameters.contains(&newly_unbanned_1.wallet_address));
+        assert!(unban_parameters.contains(&newly_unbanned_2.wallet_address));
+        assert_eq!(2, unban_parameters.len());
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_matching ("INFO: Accountant: Wallet wallet1234d \\(balance: 1234 SUB, age: \\d+ sec\\) banned for delinquency");
+        tlh.exists_log_matching ("INFO: Accountant: Wallet wallet2345d \\(balance: 2345 SUB, age: \\d+ sec\\) banned for delinquency");
+        tlh.exists_log_matching ("INFO: Accountant: Wallet wallet3456n \\(balance: 3456 SUB, age: \\d+ sec\\) is no longer delinquent: unbanned");
+        tlh.exists_log_matching ("INFO: Accountant: Wallet wallet4567n \\(balance: 4567 SUB, age: \\d+ sec\\) is no longer delinquent: unbanned");
     }
 
     #[test]
@@ -531,7 +826,13 @@ pub mod tests {
             ReceivableDaoMock::new()
                 .more_money_receivable_parameters(more_money_receivable_parameters_arc.clone()),
         );
-        let subject = Accountant::new(config, payable_dao_mock, receivable_dao_mock);
+        let banned_dao_mock = Box::new(BannedDaoMock::new());
+        let subject = Accountant::new(
+            config,
+            payable_dao_mock,
+            receivable_dao_mock,
+            banned_dao_mock,
+        );
         let system = System::new("report_routing_service_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
@@ -573,7 +874,13 @@ pub mod tests {
                 .more_money_payable_parameters(more_money_payable_parameters_arc.clone()),
         );
         let receivable_dao_mock = Box::new(ReceivableDaoMock::new());
-        let subject = Accountant::new(config, payable_dao_mock, receivable_dao_mock);
+        let banned_dao_mock = Box::new(BannedDaoMock::new());
+        let subject = Accountant::new(
+            config,
+            payable_dao_mock,
+            receivable_dao_mock,
+            banned_dao_mock,
+        );
         let system = System::new("report_routing_service_consumed_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
@@ -615,7 +922,13 @@ pub mod tests {
             ReceivableDaoMock::new()
                 .more_money_receivable_parameters(more_money_receivable_parameters_arc.clone()),
         );
-        let subject = Accountant::new(config, payable_dao_mock, receivable_dao_mock);
+        let banned_dao_mock = Box::new(BannedDaoMock::new());
+        let subject = Accountant::new(
+            config,
+            payable_dao_mock,
+            receivable_dao_mock,
+            banned_dao_mock,
+        );
         let system = System::new("report_exit_service_provided_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
@@ -657,7 +970,13 @@ pub mod tests {
                 .more_money_payable_parameters(more_money_payable_parameters_arc.clone()),
         );
         let receivable_dao_mock = Box::new(ReceivableDaoMock::new());
-        let subject = Accountant::new(config, payable_dao_mock, receivable_dao_mock);
+        let banned_dao_mock = Box::new(BannedDaoMock::new());
+        let subject = Accountant::new(
+            config,
+            payable_dao_mock,
+            receivable_dao_mock,
+            banned_dao_mock,
+        );
         let system = System::new("report_exit_service_consumed_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
