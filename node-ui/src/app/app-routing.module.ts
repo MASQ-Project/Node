@@ -5,7 +5,7 @@ import {IndexComponent} from './index/index.component';
 import {NodeConfigurationComponent} from './node-configuration/node-configuration.component';
 
 const routes: Routes = [
-  {path: '', redirectTo: '/config', pathMatch: 'full'},
+  {path: '', redirectTo: '/index', pathMatch: 'full'},
   {path: 'index', component: IndexComponent},
   {path: 'config', component: NodeConfigurationComponent}
 ];

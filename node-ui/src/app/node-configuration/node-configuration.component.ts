@@ -1,9 +1,16 @@
-import {FormControl, FormGroup, Validators} from '@angular/forms';
+// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+
+import {FormControl, FormGroup} from '@angular/forms';
 import {ConfigService} from '../config.service';
 import {Router} from '@angular/router';
 import {WalletType} from '../wallet-type.enum';
-import {Component, ElementRef, HostListener, OnInit, ViewChild} from '@angular/core';
-import {mutuallyRequiredValidator} from './node-configuration.mutually-required.validator';
+import {Component, ElementRef, EventEmitter, HostListener, OnInit, Output, ViewChild} from '@angular/core';
+import {
+  ipValidator,
+  mutuallyRequiredValidator,
+  neighborhoodValidator,
+  walletValidator
+} from './node-configuration.validator';
 import {MainService} from '../main.service';
 
 @Component({
@@ -12,21 +19,16 @@ import {MainService} from '../main.service';
   styleUrls: ['./node-configuration.component.scss']
 })
 export class NodeConfigurationComponent implements OnInit {
-
-  ipPattern = '(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)';
-  neighborPattern = `(?:[a-zA-Z0-9\\/\\+]{43}):${this.ipPattern}:(?:\\d+)(?:;\\d+)*`;
-  walletPattern = '0x[a-fA-F0-9]{40}';
+  @Output() saved = new EventEmitter<void>();
 
   constructor(private configService: ConfigService, private router: Router, private mainService: MainService) {
   }
 
   nodeConfig = new FormGroup({
-    ip: new FormControl('', [
-      Validators.pattern(this.ipPattern)
-    ]),
+    ip: new FormControl('', [ipValidator]),
     privateKey: new FormControl(''),
-    walletAddress: new FormControl('', [Validators.pattern(this.walletPattern)]),
-    neighbor: new FormControl('', [Validators.pattern(this.neighborPattern)])
+    walletAddress: new FormControl('', [walletValidator]),
+    neighbor: new FormControl('', [neighborhoodValidator])
   }, {
     validators: mutuallyRequiredValidator
   });
@@ -47,19 +49,18 @@ export class NodeConfigurationComponent implements OnInit {
     this.configService.load().subscribe((config) => {
       this.nodeConfig.patchValue(config);
     });
-    window.resizeTo(620, 560);
     this.mainService.lookupIp().subscribe((ip) => {
       this.nodeConfig.patchValue({'ip': ip});
     });
   }
 
-  isActive(value: string): boolean {
-    return this.walletType === value;
+  save() {
+    this.saved.emit();
   }
 
   async onSubmit() {
     this.configService.save(this.nodeConfig.value);
-    await this.router.navigateByUrl('/index');
+    this.save();
   }
 
   hideTooltip() {
@@ -68,10 +69,6 @@ export class NodeConfigurationComponent implements OnInit {
 
   toggleTooltip() {
     this.tooltipShown = !this.tooltipShown;
-  }
-
-  walletToggle(value) {
-    this.walletType = value;
   }
 
   get ip() {

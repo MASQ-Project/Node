@@ -15,7 +15,8 @@ global.WebSocket = WebSocket
 
 describe('Application launch', function () {
   jasmine.DEFAULT_TIMEOUT_INTERVAL = 20000
-  let page
+  let configComponent
+  let indexPage
 
   beforeEach(async () => {
     testUtilities.purge_existing_state()
@@ -43,7 +44,8 @@ describe('Application launch', function () {
 
     return this.app.start()
       .then(() => {
-        page = new Page(this.app.client)
+        configComponent = new ConfigComponent(this.app.client)
+        indexPage = new IndexPage(this.app.client)
       })
   })
 
@@ -53,7 +55,7 @@ describe('Application launch', function () {
     }
   })
 
-  it('shows configuration first then index component after configuration is saved', () => {
+  it('shows the main page with the node in off', () => {
     let client = this.app.client
     return client.waitUntilWindowLoaded()
       .then(() => {
@@ -78,56 +80,103 @@ describe('Application launch', function () {
     let client = this.app.client
     return client.waitUntilWindowLoaded()
       .then(async () => {
-        page.ipInput.setValue('jalopy')
-        await client.waitUntilTextExists('#ip-validation__pattern', 'IP Address is not in the correct format. Should be IPv4 (i.e. 93.184.216.34).')
-        assert.ok(!await page.saveConfig.isEnabled())
-        await page.ipInput.setValue('')
+        await indexPage.serving.click()
+        configComponent.ipInput.setValue('jalopy')
+        await client.waitUntilTextExists('#ip-validation__pattern', 'Incorrect Format. Should be IPv4 (i.e. 86.75.30.9).')
+        assert.ok(!await configComponent.saveConfig.isEnabled())
+        await configComponent.ipInput.setValue('')
         await client.keys(['a', 'Backspace'])
         await client.waitUntil(async () => {
-          return page.saveConfig.isEnabled()
+          return configComponent.saveConfig.isEnabled()
         })
       })
   })
 
-  it('toggles substratum node from off to serving back to off', async () => {
+  it('toggling substratum node to serving prompts for configurations', () => {
     let client = this.app.client
+    return client.waitUntilWindowLoaded()
+      .then(async () => {
+        indexPage.serving.click()
+      })
+      .then(async () => {
+        assert.ok(configComponent.at())
+      })
+  })
+
+  it('toggles substratum node from off to serving back to off and back on and on again without needing to enter information and then back off again', async () => {
+    let client = this.app.client
+
     await client.waitUntilWindowLoaded()
-    await page.ipInput.setValue('1.2.3.4')
-    await page.neighborInput.setValue('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345;4321')
-    await page.walletAddress.setValue('0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
+    await indexPage.serving.click()
+    await configComponent.ipInput.setValue('1.2.3.4')
+    await configComponent.neighborInput.setValue('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345;4321')
+    await configComponent.walletAddress.setValue('0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
     await client.waitUntil(async () => {
-      return page.saveConfig.isEnabled()
+      return configComponent.saveConfig.isEnabled()
     })
     client.element('#save-config').click()
     await client.waitUntilWindowLoaded()
 
-    await client.element('div.node-status__actions button#serving').click()
-
+    await indexPage.serving.click()
     assert.strictEqual((await client.getText('#node-status-label')).toLocaleLowerCase(), 'serving')
-
-    await new Promise(resolve => setTimeout(resolve, 1000))
-
+    await wait(1000)
     let nodeUp = await uiInterface.verifyNodeUp(10000)
-
-    client.getMainProcessLogs().then(function (logs) {
-      logs.forEach(function (log) {
-        consoleWrapper.log(log)
-      })
-    })
-
+    printConsoleForDebugging(client, false)
     assert.strictEqual(nodeUp, true)
-
     assert.notStrictEqual(await client.getText('#node-descriptor'), '')
 
     await client.element('div.node-status__actions button#off').click()
+    await wait(1000)
+    assert.strictEqual(await uiInterface.verifyNodeDown(5000), true)
 
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    client.element('#save-config').click()
+    await client.waitUntilWindowLoaded()
+    await indexPage.serving.click()
+    assert.strictEqual((await client.getText('#node-status-label')).toLocaleLowerCase(), 'serving')
+    await wait(1000)
+    nodeUp = await uiInterface.verifyNodeUp(10000)
+    printConsoleForDebugging(client, false)
+    assert.strictEqual(nodeUp, true)
+    assert.notStrictEqual(await client.getText('#node-descriptor'), '')
 
+    await client.element('div.node-status__actions button#off').click()
+    await wait(1000)
     assert.strictEqual(await uiInterface.verifyNodeDown(5000), true)
   })
 })
 
-class Page {
+function wait (ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+function printConsoleForDebugging (client, debug) {
+  if (!debug) { return }
+  client.getMainProcessLogs().then(function (logs) {
+    logs.forEach(function (log) {
+      consoleWrapper.log(log)
+    })
+  })
+}
+
+class IndexPage {
+  constructor (client) {
+    this.client = client
+  }
+
+  at () {
+    return this.client.element('#index-page')
+  }
+
+  get serving () {
+    return this.client.element('#serving')
+  }
+}
+
+class ConfigComponent {
+  at () {
+    return this.client.element('#node-config')
+  }
+
   get ipInput () {
     return this.client.element('#ip')
   }

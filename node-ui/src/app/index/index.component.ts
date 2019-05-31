@@ -4,6 +4,7 @@ import {ApplicationRef, Component, ViewChild} from '@angular/core';
 import {HeaderComponent} from '../header/header.component';
 import {NodeStatus} from '../node-status.enum';
 import {MainService} from '../main.service';
+import {ConfigService} from '../config.service';
 
 @Component({
   selector: 'app-index',
@@ -14,9 +15,11 @@ export class IndexComponent {
 
   status: NodeStatus = NodeStatus.Off;
   nodeDescriptor = '';
+  servingConfigurationVisible = false;
+  consumingConfigurationVisible = false;
 
-  constructor(private mainService: MainService, private app: ApplicationRef) {
-    window.resizeTo(640, 480);
+  constructor(private mainService: MainService, private configService: ConfigService, private app: ApplicationRef) {
+    this.resizeSmall();
     mainService.nodeStatus.subscribe((newStatus) => {
       this.status = newStatus;
       // TODO - is there a nicer way to accomplish this? Forces UI to update right away after change
@@ -32,17 +35,46 @@ export class IndexComponent {
   header: HeaderComponent;
 
   off() {
+    if (!this.isOff()) {
+      this.resizeSmall();
+      this.servingConfigurationVisible = false;
+      this.consumingConfigurationVisible = false;
+    }
     this.mainService.turnOff().subscribe(status => {
       this.status = status;
     });
   }
 
   serve() {
-    this.mainService.serve().subscribe(status => this.status = status);
+    if (!this.isServing()) {
+      this.consumingConfigurationVisible = false;
+      if (this.configService.isValidServing()) {
+        this.resizeSmall();
+        this.mainService.serve().subscribe(status => {
+            this.status = status;
+          }
+        );
+      } else {
+        this.resizeLarge();
+        this.servingConfigurationVisible = true;
+      }
+    }
   }
 
   consume() {
-    this.mainService.consume().subscribe(status => this.status = status);
+    if (!this.isConsuming()) {
+      this.servingConfigurationVisible = false;
+
+      if (this.configService.isValidServing()) {
+        this.resizeSmall();
+        this.mainService.consume().subscribe(status => {
+          this.status = status;
+        });
+      } else {
+        this.resizeLarge();
+        this.consumingConfigurationVisible = true;
+      }
+    }
   }
 
   copyNodeDescriptor() {
@@ -50,15 +82,17 @@ export class IndexComponent {
   }
 
   isOff(): boolean {
-    return this.status === NodeStatus.Off;
+    return !(this.isConsuming() || this.isServing() || this.isInvalid());
   }
 
   isServing(): boolean {
-    return this.status === NodeStatus.Serving;
+    return (this.status === NodeStatus.Serving || this.servingConfigurationVisible)
+      && !this.consumingConfigurationVisible;
   }
 
   isConsuming(): boolean {
-    return this.status === NodeStatus.Consuming;
+    return (this.status === NodeStatus.Consuming || this.consumingConfigurationVisible)
+      && !this.servingConfigurationVisible;
   }
 
   isInvalid(): boolean {
@@ -71,5 +105,25 @@ export class IndexComponent {
 
   nodeDescriptorText(): string {
     return this.nodeDescriptor;
+  }
+
+  onServingSaved() {
+    this.servingConfigurationVisible = false;
+    this.mainService.serve().subscribe(status => this.status = status);
+    this.resizeSmall();
+  }
+
+  onConsumingSaved() {
+    this.consumingConfigurationVisible = false;
+    this.mainService.consume().subscribe(status => this.status = status);
+    this.resizeSmall();
+  }
+
+  resizeSmall() {
+    window.resizeTo(640, 360);
+  }
+
+  resizeLarge() {
+    window.resizeTo(640, 710);
   }
 }

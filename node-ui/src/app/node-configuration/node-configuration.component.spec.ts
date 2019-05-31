@@ -105,37 +105,6 @@ describe('NodeConfigurationComponent', () => {
     });
 
     describe('Wallet section', () => {
-      xdescribe('when toggled to consuming', () => {
-        beforeEach(() => {
-          page.consumingWalletBtn.click();
-        });
-
-        it('consuming is highlighted to indicate it is selected', () => {
-          expect(page.consumingWalletBtn.classList).toContain('button-active');
-          expect(page.earningWalletBtn.classList).not.toContain('button-active');
-        });
-
-        it('allows the user to enter a private key', () => {
-          expect(page.privateKeyTxt).toBeTruthy();
-        });
-      });
-
-      describe('when toggled to earning', () => {
-        beforeEach(() => {
-          page.earningWalletBtn.click();
-        });
-
-        it('earning is highlighted to indicate it is selected', () => {
-          expect(page.earningWalletBtn.classList).toContain('button-active');
-          // Re-enable when consuming is shown
-          // expect(page.consumingWalletBtn.classList).not.toContain('button-active');
-        });
-
-        it('only allows the user to enter a wallet address', () => {
-          expect(page.privateKeyTxt).toBeFalsy();
-        });
-      });
-
       describe('with a filled out form', () => {
         describe('when submitted', () => {
           const expected = {
@@ -156,10 +125,6 @@ describe('NodeConfigurationComponent', () => {
 
           it('persists the values', () => {
             verify(mockSave(expected));
-          });
-
-          it('redirects to the main screen', () => {
-            verify(mockNavigateByUrl('/index'));
           });
         });
       });

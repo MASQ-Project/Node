@@ -6,9 +6,31 @@
 $left-corners-nubbed: $border-radius 0 0 $border-radius;
 $right-corners-nubbed: 0 $border-radius $border-radius 0;
 
+@mixin action-button() {
+  padding: 0 24px;
+  background: color('background');
+  border: 1.5px solid color('green');
+  border-radius: 30px;
+  color: color('green');
+  font-size: fontSize('base');
+  height: 40px;
+  text-transform: uppercase;
+  flex: 2;
+
+  &:disabled {
+    color: color('background', 'dark');
+    border: 1.5px solid color('background', 'dark');
+  }
+}
+
+#node-config {
+  border-top: 1px solid color('background','light');
+  display: block;
+}
+
 .node-config {
   background: color('background');
-  padding: 24px 18px;
+  padding: 24px 18px 0 18px;
   text-align: center;
 
   .tooltip {
@@ -57,7 +79,6 @@ $right-corners-nubbed: 0 $border-radius $border-radius 0;
     color: color('text', 'light');
     flex: 1;
     border-radius: $border-radius;
-
   }
 
   .input-invalid {
@@ -70,20 +91,7 @@ $right-corners-nubbed: 0 $border-radius $border-radius 0;
   }
 
   &__to-action {
-    padding: 0 24px;
-    background: color('background');
-    border: 1.5px solid color('green');
-    border-radius: 30px;
-    color: color('green');
-    font-size: fontSize('base');
-    height: 40px;
-    text-transform: uppercase;
-    flex: 2;
-
-    &:disabled {
-      color: color('background', 'dark');
-      border: 1.5px solid color('background', 'dark');
-    }
+    @include action-button();
   }
 
   &__display {

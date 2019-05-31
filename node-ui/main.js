@@ -39,7 +39,7 @@ function createWindow () {
   }
 
   mainWindow = new BrowserWindow({
-    width: 620,
+    width: 640,
     height: 560,
     show: true,
     frame: true,

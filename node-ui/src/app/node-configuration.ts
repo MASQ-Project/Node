@@ -4,3 +4,4 @@ export class NodeConfiguration {
   walletAddress?: string;
   neighbor?: string;
 }
+
