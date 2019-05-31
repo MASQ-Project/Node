@@ -260,11 +260,13 @@ impl NodeConfiguratorReal {
         config.ui_gateway_config.ui_port =
             value_m!(multi_config, "ui_port", u16).expect("Internal Error");
 
-        config.neighborhood_config.earning_wallet = Wallet::new(
+        let earning_wallet = Wallet::new(
             value_m!(multi_config, "wallet_address", String)
                 .expect("Internal Error")
                 .as_str(),
         );
+        config.neighborhood_config.earning_wallet = earning_wallet.clone();
+        config.accountant_config.earning_wallet = earning_wallet;
 
         config.crash_point =
             value_m!(multi_config, "crash_point", CrashPoint).expect("Internal Error");
@@ -795,6 +797,9 @@ mod tests {
             config.neighborhood_config.local_ip_addr,
         );
         assert_eq!(config.ui_gateway_config.ui_port, 5335);
+        let earning_wallet = Wallet::new("0xbDfeFf9A1f4A1bdF483d680046344316019C58CF");
+        assert_eq!(earning_wallet, config.neighborhood_config.earning_wallet);
+        assert_eq!(earning_wallet, config.accountant_config.earning_wallet);
         assert_eq!(
             Wallet::new("0xbDfeFf9A1f4A1bdF483d680046344316019C58CF"),
             config.neighborhood_config.earning_wallet,

@@ -1,5 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::config_dao::ConfigDao;
+use crate::config_dao::ConfigDaoError;
+use rusqlite::Transaction;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 
 pub const LOWEST_USABLE_INSECURE_PORT: u16 = 1025;
@@ -14,10 +16,12 @@ pub trait PersistentConfiguration {
     fn set_clandestine_port(&self, port: u16);
     fn mnemonic_seed(&self) -> Option<String>;
     fn set_mnemonic_seed(&self, seed: String);
+    fn start_block(&self) -> u64;
+    fn set_start_block_transactionally(&self, tx: &Transaction, value: u64) -> Result<(), String>;
 }
 
 pub struct PersistentConfigurationReal {
-    dao: Box<ConfigDao>,
+    dao: Box<dyn ConfigDao>,
 }
 
 impl PersistentConfiguration for PersistentConfigurationReal {
@@ -89,6 +93,27 @@ impl PersistentConfiguration for PersistentConfigurationReal {
             ),
         }
     }
+
+    fn start_block(&self) -> u64 {
+        self.dao.get_u64("start_block").unwrap_or_else(|e| {
+            panic!(
+                "Can't continue; start_block configuration is inaccessible: {:?}",
+                e
+            )
+        })
+    }
+
+    fn set_start_block_transactionally(&self, tx: &Transaction, value: u64) -> Result<(), String> {
+        self.dao
+            .set_u64_transactional(tx, "start_block", value)
+            .map_err(|e| match e {
+                ConfigDaoError::DatabaseError(_) => format!("{:?}", e),
+                ConfigDaoError::NotPresent => {
+                    panic!("Unable to update start_block, maybe missing from the database")
+                }
+                ConfigDaoError::TypeError => panic!("Unknown error: TypeError"),
+            })
+    }
 }
 
 impl PersistentConfigurationReal {
@@ -100,8 +125,9 @@ impl PersistentConfigurationReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config_dao::ConfigDaoError;
+    use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::test_utils::config_dao_mock::ConfigDaoMock;
+    use crate::test_utils::test_utils::ensure_node_home_directory_exists;
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener};
     use std::sync::{Arc, Mutex};
 
@@ -291,5 +317,104 @@ mod tests {
         let set_string_params = set_string_params_arc.lock().unwrap();
 
         assert_eq!(expected_params, set_string_params[0]);
+    }
+
+    #[test]
+    fn start_block_success() {
+        let config_dao = ConfigDaoMock::new().get_u64_result(Ok(6u64));
+
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+        let start_block = subject.start_block();
+
+        assert_eq!(6u64, start_block);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = r#"Can't continue; start_block configuration is inaccessible: DatabaseError("Here\'s your problem")"#
+    )]
+    fn start_block_panics_when_not_set() {
+        let config_dao = ConfigDaoMock::new().get_u64_result(Err(ConfigDaoError::DatabaseError(
+            "Here's your problem".to_string(),
+        )));
+
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject.start_block();
+    }
+
+    #[test]
+    fn set_start_block_transactionally_success() {
+        let config_dao = ConfigDaoMock::new().set_u64_transactional_result(Ok(()));
+
+        let home_dir = ensure_node_home_directory_exists(
+            "persistent_configuration",
+            "set_start_block_transactionally_success",
+        );
+        let mut conn = DbInitializerReal::new().initialize(&home_dir).unwrap();
+        let transaction = conn.transaction().unwrap();
+
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+        let result = subject.set_start_block_transactionally(&transaction, 1234);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn set_start_block_transactionally_returns_err_when_transaction_fails() {
+        let config_dao = ConfigDaoMock::new()
+            .set_u64_transactional_result(Err(ConfigDaoError::DatabaseError("nah".to_string())));
+
+        let home_dir = ensure_node_home_directory_exists(
+            "persistent_configuration",
+            "set_start_block_transactionally_returns_err_when_transaction_fails",
+        );
+        let mut conn = DbInitializerReal::new().initialize(&home_dir).unwrap();
+        let transaction = conn.transaction().unwrap();
+
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+        let result = subject.set_start_block_transactionally(&transaction, 1234);
+
+        assert_eq!(Err(r#"DatabaseError("nah")"#.to_string()), result);
+    }
+
+    #[test]
+    #[should_panic(expected = "Unable to update start_block, maybe missing from the database")]
+    fn set_start_block_transactionally_panics_for_not_present_error() {
+        let config_dao =
+            ConfigDaoMock::new().set_u64_transactional_result(Err(ConfigDaoError::NotPresent));
+
+        let home_dir = ensure_node_home_directory_exists(
+            "persistent_configuration",
+            "set_start_block_transactionally_panics_for_not_present_error",
+        );
+        let mut conn = DbInitializerReal::new().initialize(&home_dir).unwrap();
+        let transaction = conn.transaction().unwrap();
+
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject
+            .set_start_block_transactionally(&transaction, 1234)
+            .unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "Unknown error: TypeError")]
+    fn set_start_block_transactionally_panics_for_type_error() {
+        let config_dao =
+            ConfigDaoMock::new().set_u64_transactional_result(Err(ConfigDaoError::TypeError));
+
+        let home_dir = ensure_node_home_directory_exists(
+            "persistent_configuration",
+            "set_start_block_transactionally_panics_for_type_error",
+        );
+        let mut conn = DbInitializerReal::new().initialize(&home_dir).unwrap();
+        let transaction = conn.transaction().unwrap();
+
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject
+            .set_start_block_transactionally(&transaction, 1234)
+            .unwrap();
     }
 }

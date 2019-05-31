@@ -1,4 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::accountant::accountant::ReceivedPayments;
+use crate::blockchain::blockchain_bridge::RetrieveTransactions;
+use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
 use crate::neighborhood::gossip::Gossip;
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
@@ -43,12 +46,15 @@ use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 
+#[derive(Default)]
 pub struct Recorder {
     recording: Arc<Mutex<Recording>>,
     node_query_responses: Vec<Option<NodeQueryResponseMetadata>>,
     route_query_responses: Vec<Option<RouteQueryResponse>>,
+    retrieve_transactions_responses: Vec<Result<Vec<Transaction>, BlockchainError>>,
 }
 
+#[derive(Default)]
 pub struct Recording {
     messages: Vec<Box<dyn Any + Send>>,
 }
@@ -98,6 +104,7 @@ recorder_message_handler!(ReportExitServiceConsumedMessage);
 recorder_message_handler!(ReportAccountsPayable);
 recorder_message_handler!(DnsResolveFailure);
 recorder_message_handler!(NodeRecordMetadataMessage);
+recorder_message_handler!(ReceivedPayments);
 
 impl Handler<NodeQueryMessage> for Recorder {
     type Result = MessageResult<NodeQueryMessage>;
@@ -131,6 +138,20 @@ impl Handler<RouteQueryMessage> for Recorder {
     }
 }
 
+impl Handler<RetrieveTransactions> for Recorder {
+    type Result = MessageResult<RetrieveTransactions>;
+
+    fn handle(
+        &mut self,
+        msg: RetrieveTransactions,
+        _ctx: &mut Self::Context,
+    ) -> <Self as Handler<RetrieveTransactions>>::Result {
+        self.record(msg);
+        let result = self.retrieve_transactions_responses.remove(0);
+        MessageResult(result)
+    }
+}
+
 fn extract_response<T>(responses: &mut Vec<T>, err_msg: &str) -> T
 where
     T: Clone,
@@ -144,11 +165,7 @@ where
 
 impl Recorder {
     pub fn new() -> Recorder {
-        Recorder {
-            recording: Arc::new(Mutex::new(Recording { messages: vec![] })),
-            node_query_responses: vec![],
-            route_query_responses: vec![],
-        }
+        Self::default()
     }
 
     pub fn record<T>(&mut self, item: T)
@@ -178,6 +195,14 @@ impl Recorder {
 
     pub fn route_query_response(mut self, response: Option<RouteQueryResponse>) -> Recorder {
         self.route_query_responses.push(response);
+        self
+    }
+
+    pub fn retrieve_transactions_response(
+        mut self,
+        response: Result<Vec<Transaction>, BlockchainError>,
+    ) -> Recorder {
+        self.retrieve_transactions_responses.push(response);
         self
     }
 }
@@ -313,6 +338,7 @@ pub fn make_accountant_subs_from(addr: &Addr<Recorder>) -> AccountantSubs {
             .clone()
             .recipient::<ReportRoutingServiceConsumedMessage>(),
         report_exit_service_consumed: addr.clone().recipient::<ReportExitServiceConsumedMessage>(),
+        report_new_payments: addr.clone().recipient::<ReceivedPayments>(),
     }
 }
 
@@ -328,6 +354,7 @@ pub fn make_blockchain_bridge_subs_from(addr: &Addr<Recorder>) -> BlockchainBrid
     BlockchainBridgeSubs {
         bind: addr.clone().recipient::<BindMessage>(),
         report_accounts_payable: addr.clone().recipient::<ReportAccountsPayable>(),
+        retrieve_transactions: addr.clone().recipient::<RetrieveTransactions>(),
     }
 }
 

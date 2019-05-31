@@ -15,7 +15,12 @@ pub trait ConfigDao {
     fn set_string(&self, name: &str, value: &str) -> Result<(), ConfigDaoError>;
     fn get_u64(&self, name: &str) -> Result<u64, ConfigDaoError>;
     fn set_u64(&self, name: &str, value: u64) -> Result<(), ConfigDaoError>;
-    // Add getters and setters for other types as they become necessary
+    fn set_u64_transactional(
+        &self,
+        transaction: &rusqlite::Transaction,
+        name: &str,
+        value: u64,
+    ) -> Result<(), ConfigDaoError>;
 }
 
 pub struct ConfigDaoReal {
@@ -46,6 +51,21 @@ impl ConfigDao for ConfigDaoReal {
         let str_value = format!("{}", value);
         self.set_string(name, &str_value)
     }
+
+    fn set_u64_transactional(
+        &self,
+        transaction: &rusqlite::Transaction,
+        name: &str,
+        value: u64,
+    ) -> Result<(), ConfigDaoError> {
+        let mut statement = match transaction.prepare("update config set value = ? where name = ?")
+        {
+            Ok(stmt) => stmt,
+            Err(e) => return Err(ConfigDaoError::DatabaseError(format!("{}", e))),
+        };
+        let params: &[&dyn ToSql] = &[&value.to_string(), &name];
+        handle_update_execution(statement.execute(params))
+    }
 }
 
 impl ConfigDaoReal {
@@ -74,11 +94,15 @@ impl ConfigDaoReal {
             Err(e) => return Err(ConfigDaoError::DatabaseError(format!("{}", e))),
         };
         let params: &[&dyn ToSql] = &[&value, &name];
-        match stmt.execute(params) {
-            Ok(0) => Err(ConfigDaoError::NotPresent),
-            Ok(_) => Ok(()),
-            Err(e) => Err(ConfigDaoError::DatabaseError(format!("{}", e))), // Don't know how to trigger this
-        }
+        handle_update_execution(stmt.execute(params))
+    }
+}
+
+fn handle_update_execution(result: rusqlite::Result<usize>) -> Result<(), ConfigDaoError> {
+    match result {
+        Ok(0) => Err(ConfigDaoError::NotPresent),
+        Ok(_) => Ok(()),
+        Err(e) => Err(ConfigDaoError::DatabaseError(format!("{}", e))), // Don't know how to trigger this
     }
 }
 
@@ -202,5 +226,27 @@ mod tests {
         let result = subject.get_u64("clandestine_port");
 
         assert_eq!(Ok(4096), result);
+    }
+
+    #[test]
+    fn set_u64_transaction_updates_start_block() {
+        let home_dir = ensure_node_home_directory_exists("node", "rename_me");
+        let key = "start_block";
+        let value = 99u64;
+
+        let subject = ConfigDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+        {
+            let mut db = DbInitializerReal::new().initialize(&home_dir).unwrap();
+            let transaction = db.transaction().unwrap();
+
+            subject
+                .set_u64_transactional(&transaction, &key, value)
+                .unwrap();
+            transaction.commit().unwrap();
+        }
+
+        let result = subject.get_u64(key);
+
+        assert_eq!(Ok(99u64), result);
     }
 }

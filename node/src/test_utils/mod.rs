@@ -9,6 +9,7 @@ pub mod data_hunk_framer;
 pub mod environment_guard;
 pub mod little_tcp_server;
 pub mod logging;
+pub mod persistent_configuration_mock;
 pub mod recorder;
 pub mod stream_connector_mock;
 pub mod tcp_wrapper_mocks;

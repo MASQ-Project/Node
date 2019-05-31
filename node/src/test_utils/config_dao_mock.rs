@@ -3,6 +3,7 @@ use crate::config_dao::{ConfigDao, ConfigDaoError};
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
+#[derive(Default)]
 pub struct ConfigDaoMock {
     get_string_params: Arc<Mutex<Vec<String>>>,
     get_string_results: RefCell<Vec<Result<String, ConfigDaoError>>>,
@@ -12,6 +13,8 @@ pub struct ConfigDaoMock {
     get_u64_results: RefCell<Vec<Result<u64, ConfigDaoError>>>,
     set_u64_params: Arc<Mutex<Vec<(String, u64)>>>,
     set_u64_results: RefCell<Vec<Result<(), ConfigDaoError>>>,
+    set_u64_transactional_params: Arc<Mutex<Vec<(String, u64)>>>,
+    set_u64_transactional_results: RefCell<Vec<Result<(), ConfigDaoError>>>,
 }
 
 impl ConfigDao for ConfigDaoMock {
@@ -43,20 +46,24 @@ impl ConfigDao for ConfigDaoMock {
             .push((String::from(name), value));
         self.set_u64_results.borrow_mut().remove(0)
     }
+
+    fn set_u64_transactional(
+        &self,
+        _transaction: &rusqlite::Transaction,
+        name: &str,
+        value: u64,
+    ) -> Result<(), ConfigDaoError> {
+        self.set_u64_transactional_params
+            .lock()
+            .unwrap()
+            .push((String::from(name), value));
+        self.set_u64_transactional_results.borrow_mut().remove(0)
+    }
 }
 
 impl ConfigDaoMock {
     pub fn new() -> ConfigDaoMock {
-        ConfigDaoMock {
-            get_string_params: Arc::new(Mutex::new(vec![])),
-            get_string_results: RefCell::new(vec![]),
-            set_string_params: Arc::new(Mutex::new(vec![])),
-            set_string_results: RefCell::new(vec![]),
-            get_u64_params: Arc::new(Mutex::new(vec![])),
-            get_u64_results: RefCell::new(vec![]),
-            set_u64_params: Arc::new(Mutex::new(vec![])),
-            set_u64_results: RefCell::new(vec![]),
-        }
+        Self::default()
     }
 
     pub fn get_string_params(mut self, params_arc: &Arc<Mutex<Vec<String>>>) -> ConfigDaoMock {
@@ -101,6 +108,19 @@ impl ConfigDaoMock {
 
     pub fn set_u64_result(self, result: Result<(), ConfigDaoError>) -> ConfigDaoMock {
         self.set_u64_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn set_u64_transactional_params(
+        mut self,
+        params_arc: &Arc<Mutex<Vec<(String, u64)>>>,
+    ) -> ConfigDaoMock {
+        self.set_u64_transactional_params = params_arc.clone();
+        self
+    }
+
+    pub fn set_u64_transactional_result(self, result: Result<(), ConfigDaoError>) -> ConfigDaoMock {
+        self.set_u64_transactional_results.borrow_mut().push(result);
         self
     }
 }

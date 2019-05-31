@@ -19,7 +19,9 @@ use crate::blockchain::blockchain_bridge::BlockchainBridge;
 use crate::blockchain::blockchain_interface::{
     BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceRpc,
 };
+use crate::config_dao::ConfigDaoReal;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+use crate::persistent_configuration::PersistentConfigurationReal;
 use crate::sub_lib::accountant::AccountantConfig;
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
@@ -301,7 +303,19 @@ impl ActorFactory for ActorFactoryReal {
                 .initialize(data_directory)
                 .expect("Failed to connect to database"),
         );
-        let accountant = Accountant::new(config, payable_dao, receivable_dao, banned_dao);
+        let config_dao = Box::new(ConfigDaoReal::new(
+            db_initializer
+                .initialize(data_directory)
+                .expect("Failed to connect to database"),
+        ));
+        let persistent_configuration = Box::new(PersistentConfigurationReal::new(config_dao));
+        let accountant = Accountant::new(
+            config,
+            payable_dao,
+            receivable_dao,
+            banned_dao,
+            persistent_configuration,
+        );
         let addr: Addr<Accountant> = accountant.start();
         Accountant::make_subs_from(&addr)
     }
@@ -351,6 +365,8 @@ impl ActorFactory for ActorFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::accountant::ReceivedPayments;
+    use crate::blockchain::blockchain_bridge::RetrieveTransactions;
     use crate::blockchain::blockchain_interface::TESTNET_CONTRACT_ADDRESS;
     use crate::bootstrapper::CRYPT_DE_OPT;
     use crate::database::db_initializer::test_utils::{ConnectionWrapperMock, DbInitializerMock};
@@ -529,6 +545,7 @@ mod tests {
                 report_exit_service_consumed: addr
                     .clone()
                     .recipient::<ReportExitServiceConsumedMessage>(),
+                report_new_payments: addr.clone().recipient::<ReceivedPayments>(),
             }
         }
 
@@ -590,6 +607,7 @@ mod tests {
             BlockchainBridgeSubs {
                 bind: addr.clone().recipient::<BindMessage>(),
                 report_accounts_payable: addr.clone().recipient::<ReportAccountsPayable>(),
+                retrieve_transactions: addr.clone().recipient::<RetrieveTransactions>(),
             }
         }
     }
@@ -694,10 +712,13 @@ mod tests {
             .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
             .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
             .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
+            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
             .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())));
         let data_directory = PathBuf::from_str("yeet_home").unwrap();
         let config = AccountantConfig {
             payable_scan_interval: Duration::from_secs(9),
+            payment_received_scan_interval: Duration::from_secs(100),
+            earning_wallet: Wallet::new("hi"),
         };
 
         let banned_cache_loader = &BannedCacheLoaderMock::default();
@@ -710,11 +731,12 @@ mod tests {
         );
 
         let initialize_parameters = db_initializer_mock.initialize_parameters.lock().unwrap();
+        assert_eq!(5, initialize_parameters.len());
         assert_eq!(data_directory, initialize_parameters[0]);
         assert_eq!(data_directory, initialize_parameters[1]);
         assert_eq!(data_directory, initialize_parameters[2]);
         assert_eq!(data_directory, initialize_parameters[3]);
-        assert_eq!(4, initialize_parameters.len());
+        assert_eq!(data_directory, initialize_parameters[4]);
 
         let load_parameters = banned_cache_loader.load_params.lock().unwrap();
         assert_eq!(1, load_parameters.len());
@@ -727,6 +749,8 @@ mod tests {
     fn failed_payable_initialization_produces_panic() {
         let config = AccountantConfig {
             payable_scan_interval: Duration::from_secs(6),
+            payment_received_scan_interval: Duration::from_secs(100),
+            earning_wallet: Wallet::new("hi"),
         };
         let db_initializer_mock =
             DbInitializerMock::new().initialize_result(Err(InitializationError::SqliteError(
@@ -746,6 +770,8 @@ mod tests {
     fn failed_receivable_initialization_produces_panic() {
         let config = AccountantConfig {
             payable_scan_interval: Duration::from_secs(6),
+            payment_received_scan_interval: Duration::from_secs(100),
+            earning_wallet: Wallet::new("hi"),
         };
         let db_initializer_mock = DbInitializerMock::new()
             .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
@@ -766,6 +792,8 @@ mod tests {
     fn failed_banned_dao_initialization_produces_panic() {
         let config = AccountantConfig {
             payable_scan_interval: Duration::from_secs(6),
+            payment_received_scan_interval: Duration::from_secs(1000),
+            earning_wallet: Wallet::new("mine"),
         };
         let db_initializer_mock = DbInitializerMock::new()
             .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
@@ -787,6 +815,8 @@ mod tests {
     fn failed_ban_cache_initialization_produces_panic() {
         let config = AccountantConfig {
             payable_scan_interval: Duration::from_secs(6),
+            payment_received_scan_interval: Duration::from_secs(1000),
+            earning_wallet: Wallet::new("mine"),
         };
         let db_initializer_mock = DbInitializerMock::new()
             .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
@@ -834,6 +864,8 @@ mod tests {
             },
             accountant_config: AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
+                payment_received_scan_interval: Duration::from_secs(100),
+                earning_wallet: Wallet::new("hi"),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig {
@@ -891,6 +923,8 @@ mod tests {
             },
             accountant_config: AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
+                payment_received_scan_interval: Duration::from_secs(100),
+                earning_wallet: Wallet::new("hi"),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig {

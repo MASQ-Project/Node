@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::accountant::accountant::ReceivedPayments;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
@@ -17,6 +18,8 @@ lazy_static! {
 #[derive(Clone, PartialEq, Debug)]
 pub struct AccountantConfig {
     pub payable_scan_interval: Duration,
+    pub payment_received_scan_interval: Duration,
+    pub earning_wallet: Wallet,
 }
 
 #[derive(Clone)]
@@ -26,6 +29,7 @@ pub struct AccountantSubs {
     pub report_exit_service_provided: Recipient<ReportExitServiceProvidedMessage>,
     pub report_routing_service_consumed: Recipient<ReportRoutingServiceConsumedMessage>,
     pub report_exit_service_consumed: Recipient<ReportExitServiceConsumedMessage>,
+    pub report_new_payments: Recipient<ReceivedPayments>,
 }
 
 #[derive(Clone, PartialEq, Debug, Message)]

@@ -5,7 +5,9 @@ use crate::persistent_configuration::{
 use rand::rngs::SmallRng;
 use rand::FromEntropy;
 use rand::Rng;
-use rusqlite::{Connection, Error, OpenFlags, OptionalExtension, Statement, NO_PARAMS};
+use rusqlite::{
+    Connection, Error, OpenFlags, OptionalExtension, Statement, Transaction, NO_PARAMS,
+};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::fs;
@@ -14,10 +16,12 @@ use std::path::PathBuf;
 use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node-data.db";
-pub const CURRENT_SCHEMA_VERSION: &str = "0.0.4";
+pub const CURRENT_SCHEMA_VERSION: &str = "0.0.5";
+pub const ROPSTEN_CONTRACT_CREATION_BLOCK: u64 = 4647463;
 
 pub trait ConnectionWrapper: Debug {
     fn prepare(&self, query: &str) -> Result<Statement, rusqlite::Error>;
+    fn transaction(&mut self) -> Result<Transaction, rusqlite::Error>;
 }
 
 #[derive(Debug)]
@@ -28,6 +32,10 @@ pub struct ConnectionWrapperReal {
 impl ConnectionWrapper for ConnectionWrapperReal {
     fn prepare(&self, query: &str) -> Result<Statement, Error> {
         self.conn.prepare(query)
+    }
+
+    fn transaction(&mut self) -> Result<Transaction, Error> {
+        self.conn.transaction()
     }
 }
 
@@ -149,6 +157,15 @@ impl DbInitializerReal {
             NO_PARAMS,
         )
         .expect("Can't preload config table with mnemonic seed");
+        conn.execute(
+            format!(
+                "insert into config (name, value) values ('start_block', '{}')",
+                ROPSTEN_CONTRACT_CREATION_BLOCK,
+            )
+            .as_str(),
+            NO_PARAMS,
+        )
+        .expect("Can't preload config table with ropsten start block");
         Ok(())
     }
 
@@ -248,7 +265,7 @@ impl DbInitializerReal {
 #[cfg(test)]
 pub mod test_utils {
     use crate::database::db_initializer::{ConnectionWrapper, DbInitializer, InitializationError};
-    use rusqlite::{Error, Statement};
+    use rusqlite::{Error, Statement, Transaction};
     use std::cell::RefCell;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
@@ -257,11 +274,17 @@ pub mod test_utils {
     pub struct ConnectionWrapperMock<'a> {
         pub prepare_parameters: Arc<Mutex<Vec<String>>>,
         pub prepare_results: RefCell<Vec<Result<Statement<'a>, Error>>>,
+        pub transaction_results: RefCell<Vec<Result<Transaction<'a>, Error>>>,
     }
 
     impl<'a> ConnectionWrapperMock<'a> {
         pub fn prepare_result(self, result: Result<Statement<'a>, Error>) -> Self {
             self.prepare_results.borrow_mut().push(result);
+            self
+        }
+
+        pub fn transaction_result(self, result: Result<Transaction<'a>, Error>) -> Self {
+            self.transaction_results.borrow_mut().push(result);
             self
         }
     }
@@ -273,6 +296,10 @@ pub mod test_utils {
                 .unwrap()
                 .push(String::from(query));
             self.prepare_results.borrow_mut().remove(0)
+        }
+
+        fn transaction(&mut self) -> Result<Transaction, Error> {
+            self.transaction_results.borrow_mut().remove(0)
         }
     }
 
@@ -367,7 +394,7 @@ mod tests {
         let mut stmt = conn
             .prepare("select wallet_address, balance, last_received_timestamp from receivable")
             .unwrap();
-        let mut receivable_contents = stmt.query_map(NO_PARAMS, |_| Ok(42)).unwrap();
+        let mut receivable_contents = stmt.query_map(NO_PARAMS, |_| Ok(())).unwrap();
         assert!(receivable_contents.next().is_none());
     }
 
@@ -426,18 +453,25 @@ mod tests {
         assert!(name.is_ok());
         assert_eq!("clandestine_port", name.unwrap());
         assert_eq!(
-            config_contents.next().unwrap(),
-            Ok((Ok(String::from("preexisting")), Ok(String::from("yes"))))
+            (Ok("preexisting".to_string()), Ok("yes".to_string())),
+            config_contents.next().unwrap().unwrap(),
         );
         assert_eq!(
-            config_contents.next().unwrap(),
             Ok((
                 Ok(String::from("schema_version")),
                 Ok(String::from(CURRENT_SCHEMA_VERSION))
-            ))
+            )),
+            config_contents.next().unwrap(),
         );
         let (result, _) = config_contents.next().unwrap().unwrap();
         assert_eq!(result, Ok(String::from("seed")));
+        assert_eq!(
+            (
+                Ok("start_block".to_string()),
+                Ok(format!("{}", ROPSTEN_CONTRACT_CREATION_BLOCK))
+            ),
+            config_contents.next().unwrap().unwrap(),
+        );
         assert!(config_contents.next().is_none());
     }
 
@@ -463,8 +497,8 @@ mod tests {
         let result = subject.initialize(&home_dir);
 
         assert_eq!(
+            InitializationError::IncompatibleVersion,
             result.err().unwrap(),
-            InitializationError::IncompatibleVersion
         );
     }
 
@@ -490,8 +524,8 @@ mod tests {
         let result = subject.initialize(&home_dir);
 
         assert_eq!(
+            InitializationError::IncompatibleVersion,
             result.err().unwrap(),
-            InitializationError::IncompatibleVersion
         );
     }
 
@@ -541,8 +575,8 @@ mod tests {
 
         let (name, value) = config_contents.next().unwrap().unwrap()
             as (Result<String, Error>, Result<String, Error>);
-        assert_eq!(name, Ok(String::from("seed")));
-        assert_eq!(value, Err(Error::InvalidColumnType(1, Null)));
+        assert_eq!(Ok(String::from("seed")), name);
+        assert_eq!(Err(Error::InvalidColumnType(1, Null)), value);
         assert!(config_contents.next().is_none());
     }
 
@@ -575,7 +609,7 @@ mod tests {
         let mut file = File::open(data_dir.join("booga.txt")).unwrap();
         let mut contents = String::new();
         file.read_to_string(&mut contents).unwrap();
-        assert_eq!(contents, String::from("unmolested"));
+        assert_eq!(String::from("unmolested"), contents);
     }
 
     #[cfg(target_os = "linux")]

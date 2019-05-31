@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use crate::accountant::payable_dao::PayableAccount;
+use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::sub_lib::peer_actors::BindMessage;
 use actix::Message;
 use actix::Recipient;
@@ -17,6 +18,7 @@ pub struct BlockchainBridgeConfig {
 pub struct BlockchainBridgeSubs {
     pub bind: Recipient<BindMessage>,
     pub report_accounts_payable: Recipient<ReportAccountsPayable>,
+    pub retrieve_transactions: Recipient<RetrieveTransactions>,
 }
 
 #[derive(Clone, PartialEq, Debug, Message)]

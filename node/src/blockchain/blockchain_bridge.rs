@@ -15,22 +15,11 @@ use actix::Context;
 use actix::Handler;
 use actix::Message;
 use actix::{Actor, MessageResult};
-use futures::Future;
 
 pub struct BlockchainBridge {
     config: BlockchainBridgeConfig,
     blockchain_interface: Box<dyn BlockchainInterface>,
     logger: Logger,
-}
-
-#[allow(dead_code)] // Not utilized by SC-702, but should be in future.
-struct RetrieveTransactions {
-    start_block: u64,
-    recipient: Wallet,
-}
-
-impl Message for RetrieveTransactions {
-    type Result = Box<Future<Item = Vec<Transaction>, Error = BlockchainError> + Send>;
 }
 
 impl Actor for BlockchainBridge {
@@ -56,6 +45,16 @@ impl Handler<BindMessage> for BlockchainBridge {
             }
         }
     }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct RetrieveTransactions {
+    pub start_block: u64,
+    pub recipient: Wallet,
+}
+
+impl Message for RetrieveTransactions {
+    type Result = Result<Vec<Transaction>, BlockchainError>;
 }
 
 impl Handler<RetrieveTransactions> for BlockchainBridge {
@@ -98,6 +97,7 @@ impl BlockchainBridge {
         BlockchainBridgeSubs {
             bind: addr.clone().recipient::<BindMessage>(),
             report_accounts_payable: addr.clone().recipient::<ReportAccountsPayable>(),
+            retrieve_transactions: addr.clone().recipient::<RetrieveTransactions>(),
         }
     }
 }
@@ -114,11 +114,9 @@ mod tests {
     use crate::test_utils::test_utils::cryptde;
     use actix::Addr;
     use actix::System;
-    use futures::future::ok;
-    use futures::Future;
+    use futures::future::Future;
     use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
-    use web3::types::U256;
 
     fn stub_bi() -> Box<BlockchainInterface> {
         Box::new(BlockchainInterfaceMock::default())
@@ -211,14 +209,13 @@ mod tests {
     #[derive(Default)]
     struct BlockchainInterfaceMock {
         pub retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
-        pub retrieve_transactions_results:
-            RefCell<Vec<Box<dyn Future<Item = Vec<Transaction>, Error = BlockchainError> + Send>>>,
+        pub retrieve_transactions_results: RefCell<Vec<Result<Vec<Transaction>, BlockchainError>>>,
     }
 
     impl BlockchainInterfaceMock {
         fn retrieve_transactions_result(
             self,
-            result: Box<dyn Future<Item = Vec<Transaction>, Error = BlockchainError> + Send>,
+            result: Result<Vec<Transaction>, BlockchainError>,
         ) -> Self {
             self.retrieve_transactions_results.borrow_mut().push(result);
             self
@@ -248,11 +245,11 @@ mod tests {
         let system = System::new("ask_me_about_my_transactions");
         let block_no = 37;
         let expected_results = vec![Transaction {
-            block_number: U256::from(42),
+            block_number: 42u64,
             from: Wallet::new("some_address"),
-            amount: U256::from(21),
+            gwei_amount: 21,
         }];
-        let result = Box::new(ok(expected_results.clone()));
+        let result = Ok(expected_results.clone());
         let wallet = Wallet {
             address: "smelly".to_string(),
         };
@@ -281,7 +278,7 @@ mod tests {
         let retrieve_transactions_parameters = retrieve_transactions_parameters.lock().unwrap();
         assert_eq!((block_no, wallet), retrieve_transactions_parameters[0]);
 
-        let result = request.wait().unwrap().wait().unwrap();
+        let result = request.wait().unwrap().unwrap();
         assert_eq!(expected_results, result);
     }
 }

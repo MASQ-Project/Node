@@ -1,13 +1,13 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use futures::future::{err, ok};
+use crate::sub_lib::wallet::Wallet;
+use actix::Message;
 use futures::{future, Future};
+use std::convert::TryFrom;
 use web3::contract::{Contract, Options};
 use web3::transports::{EventLoopHandle, Http};
 use web3::types::{Address, BlockNumber, FilterBuilder, Log, H160, H256, U256};
 use web3::Web3;
-
-use crate::sub_lib::wallet::Wallet;
 
 // HOT (Ropsten)
 pub const TESTNET_CONTRACT_ADDRESS: Address = Address {
@@ -35,11 +35,11 @@ fn remove_0x(s: &str) -> &str {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, Eq, Message, PartialEq)]
 pub struct Transaction {
-    pub block_number: U256,
+    pub block_number: u64,
     pub from: Wallet,
-    pub amount: U256,
+    pub gwei_amount: u64,
 }
 
 #[derive(Debug, PartialEq)]
@@ -50,7 +50,7 @@ pub enum BlockchainError {
     QueryFailed,
 }
 
-type BlockchainResult<T> = Box<dyn Future<Item = T, Error = BlockchainError> + Send>;
+type BlockchainResult<T> = Result<T, BlockchainError>;
 pub type Balance = BlockchainResult<U256>;
 pub type Transactions = BlockchainResult<Vec<Transaction>>;
 
@@ -73,7 +73,7 @@ pub struct BlockchainInterfaceClandestine {}
 
 impl BlockchainInterface for BlockchainInterfaceClandestine {
     fn retrieve_transactions(&self, _start_block: u64, _recipient: &Wallet) -> Transactions {
-        Box::new(ok(vec![]))
+        unimplemented!()
     }
 
     fn get_eth_balance(&self, _address: &Wallet) -> Balance {
@@ -94,11 +94,15 @@ pub struct BlockchainInterfaceRpc {
     contract: Contract<Http>,
 }
 
+fn to_gwei(wei: U256) -> Option<u64> {
+    u64::try_from(wei / U256::from(1_000_000_000)).ok()
+}
+
 impl BlockchainInterface for BlockchainInterfaceRpc {
     fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> Transactions {
         let to_address = match remove_0x(&recipient.address).parse::<H160>() {
             Ok(x) => x.into(),
-            Err(_) => return Box::new(err(BlockchainError::InvalidAddress)),
+            Err(_) => return Err(BlockchainError::InvalidAddress),
         };
 
         let filter = FilterBuilder::default()
@@ -114,53 +118,59 @@ impl BlockchainInterface for BlockchainInterfaceRpc {
             .build();
 
         let log_request = self.web3.eth().logs(filter);
-        Box::new(log_request.then(|logs| {
-            future::result::<Vec<Transaction>, BlockchainError>(match logs {
-                Ok(logs) => {
-                    if logs
-                        .iter()
-                        .any(|log| log.topics.len() < 2 || log.data.0.len() > 32)
-                    {
-                        Err(BlockchainError::InvalidResponse)
-                    } else {
-                        Ok(logs
+        log_request
+            .then(|logs| {
+                future::result::<Vec<Transaction>, BlockchainError>(match logs {
+                    Ok(logs) => {
+                        if logs
                             .iter()
-                            .filter_map(|log: &Log| match log.block_number {
-                                Some(block_number) => Some(Transaction {
-                                    block_number,
-                                    from: Wallet::from(log.topics[1]),
-                                    amount: U256::from(log.data.0.as_slice()),
-                                }),
-                                None => None,
-                            })
-                            .collect())
+                            .any(|log| log.topics.len() < 2 || log.data.0.len() > 32)
+                        {
+                            Err(BlockchainError::InvalidResponse)
+                        } else {
+                            Ok(logs
+                                .iter()
+                                .filter_map(|log: &Log| match log.block_number {
+                                    Some(block_number) => {
+                                        let amount: U256 = U256::from(log.data.0.as_slice());
+                                        let gwei_amount = to_gwei(amount);
+                                        gwei_amount.map(|gwei_amount| Transaction {
+                                            block_number: u64::from(block_number), // TODO: back to testing for overflow
+                                            from: Wallet::from(log.topics[1]),
+                                            gwei_amount,
+                                        })
+                                    }
+                                    None => None,
+                                })
+                                .collect())
+                        }
                     }
-                }
-                Err(_) => Err(BlockchainError::QueryFailed),
+                    Err(_) => Err(BlockchainError::QueryFailed),
+                })
             })
-        }))
+            .wait()
     }
 
     fn get_eth_balance(&self, address: &Wallet) -> Balance {
         match remove_0x(&address.address).parse() {
-            Ok(address) => Box::new(
-                self.web3
-                    .eth()
-                    .balance(address, None)
-                    .map_err(|_| BlockchainError::QueryFailed),
-            ),
-            Err(_) => Box::new(err(BlockchainError::InvalidAddress)),
+            Ok(address) => self
+                .web3
+                .eth()
+                .balance(address, None)
+                .map_err(|_| BlockchainError::QueryFailed)
+                .wait(),
+            Err(_) => Err(BlockchainError::InvalidAddress),
         }
     }
 
     fn get_token_balance(&self, address: &Wallet) -> Balance {
         match remove_0x(&address.address).parse::<Address>() {
-            Ok(address) => Box::new(
-                self.contract
-                    .query("balanceOf", address, None, Options::with(|_| {}), None)
-                    .map_err(|_| BlockchainError::QueryFailed),
-            ),
-            Err(_) => Box::new(err(BlockchainError::InvalidAddress)),
+            Ok(address) => self
+                .contract
+                .query("balanceOf", address, None, Options::with(|_| {}), None)
+                .map_err(|_| BlockchainError::QueryFailed)
+                .wait(),
+            Err(_) => Err(BlockchainError::InvalidAddress),
         }
     }
 }
@@ -222,7 +232,6 @@ mod tests {
                 42,
                 &Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"),
             )
-            .wait()
             .unwrap();
 
         let body: Value = serde_json::de::from_slice(&rx.recv().unwrap()).unwrap();
@@ -232,9 +241,9 @@ mod tests {
         );
         assert_eq!(
             vec![Transaction {
-                block_number: U256::from(4_974_179),
+                block_number: 4_974_179u64,
                 from: Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"),
-                amount: U256::from(4_503_599_627_370_496u64),
+                gwei_amount: 4_503_599u64,
             }],
             result,
         )
@@ -252,7 +261,8 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_rpc_returns_an_error_if_the_to_address_is_invalid() {
+    fn blockchain_interface_rpc_retrieve_transactions_returns_an_error_if_the_to_address_is_invalid(
+    ) {
         let subject = BlockchainInterfaceRpc::new(
             "http://127.0.0.1:8545".to_string(),
             TESTNET_CONTRACT_ADDRESS,
@@ -260,8 +270,7 @@ mod tests {
         .unwrap();
 
         let result = subject
-            .retrieve_transactions(42, &Wallet::new("0x3f69f9efd4f2592fd70beecd9dce71c472fc"))
-            .wait();
+            .retrieve_transactions(42, &Wallet::new("0x3f69f9efd4f2592fd70beecd9dce71c472fc"));
 
         assert_eq!(
             BlockchainError::InvalidAddress,
@@ -270,7 +279,8 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_rpc_returns_an_error_if_a_response_with_too_few_topics_is_returned() {
+    fn blockchain_interface_rpc_retrieve_transactions_returns_an_error_if_a_response_with_too_few_topics_is_returned(
+    ) {
         let port = find_free_port();
 
         thread::spawn(move || {
@@ -286,12 +296,10 @@ mod tests {
         )
         .unwrap();
 
-        let result = subject
-            .retrieve_transactions(
-                42,
-                &Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"),
-            )
-            .wait();
+        let result = subject.retrieve_transactions(
+            42,
+            &Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"),
+        );
 
         assert_eq!(
             BlockchainError::InvalidResponse,
@@ -300,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_rpc_returns_an_error_if_a_response_with_data_that_is_too_long_is_returned(
+    fn blockchain_interface_rpc_retrieve_transactions_returns_an_error_if_a_response_with_data_that_is_too_long_is_returned(
     ) {
         let port = find_free_port();
 
@@ -316,18 +324,17 @@ mod tests {
         )
         .unwrap();
 
-        let result = subject
-            .retrieve_transactions(
-                42,
-                &Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"),
-            )
-            .wait();
+        let result = subject.retrieve_transactions(
+            42,
+            &Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"),
+        );
 
         assert_eq!(Err(BlockchainError::InvalidResponse), result);
     }
 
     #[test]
-    fn blockchain_interface_rpc_ignores_transaction_logs_that_have_no_block_number() {
+    fn blockchain_interface_rpc_retrieve_transactions_ignores_transaction_logs_that_have_no_block_number(
+    ) {
         let port = find_free_port();
 
         thread::spawn(move || {
@@ -343,12 +350,10 @@ mod tests {
         )
         .unwrap();
 
-        let result = subject
-            .retrieve_transactions(
-                42,
-                &Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"),
-            )
-            .wait();
+        let result = subject.retrieve_transactions(
+            42,
+            &Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"),
+        );
 
         assert_eq!(Ok(vec![]), result);
     }
@@ -370,9 +375,8 @@ mod tests {
         )
         .unwrap();
 
-        let result = subject
-            .get_eth_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"))
-            .wait();
+        let result =
+            subject.get_eth_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"));
 
         assert_eq!(U256::from(65535), result.unwrap());
     }
@@ -386,9 +390,8 @@ mod tests {
         )
         .unwrap();
 
-        let result = subject
-            .get_eth_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ"))
-            .wait();
+        let result =
+            subject.get_eth_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ"));
 
         assert_eq!(Err(BlockchainError::InvalidAddress), result);
     }
@@ -411,9 +414,8 @@ mod tests {
         )
         .unwrap();
 
-        let result = subject
-            .get_eth_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"))
-            .wait();
+        let result =
+            subject.get_eth_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"));
 
         assert_eq!(Err(BlockchainError::QueryFailed), result);
     }
@@ -439,9 +441,8 @@ mod tests {
         )
         .unwrap();
 
-        let result = subject
-            .get_token_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"))
-            .wait();
+        let result =
+            subject.get_token_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"));
 
         assert_eq!(U256::from(65535), result.unwrap());
     }
@@ -455,9 +456,8 @@ mod tests {
         )
         .unwrap();
 
-        let result = subject
-            .get_token_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ"))
-            .wait();
+        let result =
+            subject.get_token_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ"));
 
         assert_eq!(Err(BlockchainError::InvalidAddress), result);
     }
@@ -484,9 +484,8 @@ mod tests {
         )
         .unwrap();
 
-        let result = subject
-            .get_token_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"))
-            .wait();
+        let result =
+            subject.get_token_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"));
 
         assert_eq!(Err(BlockchainError::QueryFailed), result);
     }
@@ -514,10 +513,16 @@ mod tests {
 
         let results: (Balance, Balance) =
             subject.get_balances(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"));
-        let eth_balance = results.0.wait().unwrap();
-        let token_balance = results.1.wait().unwrap();
+        let eth_balance = results.0.unwrap();
+        let token_balance = results.1.unwrap();
 
         assert_eq!(U256::from(1), eth_balance);
         assert_eq!(U256::from(1), token_balance)
     }
+
+    #[test]
+    fn to_gwei_truncates_units_smaller_than_gwei() {
+        assert_eq!(Some(1), to_gwei(U256::from(1_999_999_999)));
+    }
+
 }
