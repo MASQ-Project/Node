@@ -3,7 +3,6 @@
 use crate::sub_lib::logger::Logger;
 use clap::{App, ArgMatches};
 use std::collections::HashSet;
-use std::fmt::Debug;
 use std::fs::File;
 use std::io::{ErrorKind, Read};
 use std::path::PathBuf;
@@ -57,7 +56,7 @@ impl<'a> MultiConfig<'a> {
     }
 }
 
-pub trait VclArg: Debug {
+pub trait VclArg {
     fn name(&self) -> &str;
     fn value(&self) -> &str;
     fn to_args(&self) -> Vec<String>;
@@ -158,6 +157,12 @@ impl VirtualCommandLine for CommandLineVCL {
     }
 }
 
+impl From<Vec<Box<VclArg>>> for CommandLineVCL {
+    fn from(vcl_args: Vec<Box<VclArg>>) -> Self {
+        CommandLineVCL { vcl_args }
+    }
+}
+
 impl CommandLineVCL {
     pub fn new(mut args: Vec<String>) -> CommandLineVCL {
         args.remove(0); // remove command
@@ -212,7 +217,6 @@ impl EnvironmentVCL {
 
 pub struct ConfigFileVCL {
     vcl_args: Vec<Box<VclArg>>,
-    _logger: Logger,
 }
 
 impl VirtualCommandLine for ConfigFileVCL {
@@ -240,10 +244,7 @@ impl ConfigFileVCL {
                         "No configuration file was found at {} - skipping",
                         file_path.display()
                     ));
-                    return ConfigFileVCL {
-                        vcl_args: vec![],
-                        _logger: logger,
-                    };
+                    return ConfigFileVCL { vcl_args: vec![] };
                 }
             }
             Ok(file) => file,
@@ -269,6 +270,7 @@ impl ConfigFileVCL {
                     Value::Table(_) => Self::complain_about_data_elements(file_path),
                     Value::Array(_) => Self::complain_about_data_elements(file_path),
                     Value::Datetime(_) => Self::complain_about_data_elements(file_path),
+                    Value::String(v) => v.as_str().to_string(),
                     v => v.to_string(),
                 };
                 let result: Box<VclArg> = Box::new(NameValueVclArg::new(&name, &value.to_string()));
@@ -276,10 +278,7 @@ impl ConfigFileVCL {
             })
             .collect();
 
-        ConfigFileVCL {
-            vcl_args,
-            _logger: logger,
-        }
+        ConfigFileVCL { vcl_args }
     }
 
     fn complain_about_data_elements(file_path: &PathBuf) -> ! {
@@ -534,7 +533,9 @@ mod tests {
         file_path.push("config.toml");
         {
             let mut toml_file = File::create(&file_path).unwrap();
-            toml_file.write_all(b"numeric_arg = 47\n").unwrap();
+            toml_file
+                .write_all(b"numeric_arg = 47\nstring_arg = \"booga\"\nboolean_arg = true\n")
+                .unwrap();
         }
 
         let subject = ConfigFileVCL::new(&file_path, true);
@@ -542,13 +543,21 @@ mod tests {
         assert_eq!(
             vec![
                 "".to_string(),
+                "--boolean_arg".to_string(),
+                "true".to_string(),
                 "--numeric_arg".to_string(),
-                "47".to_string()
+                "47".to_string(),
+                "--string_arg".to_string(),
+                "booga".to_string(),
             ],
             subject.args()
         );
         assert_eq!(
-            vec![("--numeric_arg", "47")],
+            vec![
+                ("--boolean_arg", "true"),
+                ("--numeric_arg", "47"),
+                ("--string_arg", "booga")
+            ],
             subject
                 .vcl_args()
                 .into_iter()

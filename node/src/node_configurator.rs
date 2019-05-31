@@ -2,7 +2,9 @@
 
 use crate::bootstrapper::{BootstrapperConfig, PortConfiguration};
 use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
-use crate::multi_config::{CommandLineVCL, ConfigFileVCL, EnvironmentVCL, MultiConfig};
+use crate::multi_config::{
+    merge, CommandLineVCL, ConfigFileVCL, EnvironmentVCL, MultiConfig, VclArg,
+};
 use crate::persistent_configuration::{HTTP_PORT, TLS_PORT};
 use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
 use crate::sub_lib::accountant::TEMPORARY_CONSUMING_WALLET;
@@ -69,6 +71,26 @@ lazy_static! {
     );
 }
 
+// These Args are needed both for the preliminary pass to find the config file and for the main
+// pass to configure everything. To avoid code duplication, they're defined here and referred
+// to from both places.
+fn data_directory_arg<'a>() -> Arg<'a, 'a> {
+    Arg::with_name("data_directory")
+        .long("data_directory")
+        .value_name("DATA_DIRECTORY")
+        .empty_values(false)
+        .default_value(&DEFAULT_DATA_DIR_VALUE)
+}
+
+fn config_file_arg<'a>() -> Arg<'a, 'a> {
+    Arg::with_name("config_file")
+        .long("config_file")
+        .value_name("FILE_PATH")
+        .default_value("config.toml")
+        .takes_value(true)
+        .required(false)
+}
+
 const HELP_TEXT: &str = indoc!(r"ADDITIONAL HELP:
                            SubstratumNode listens for connections from other SubstratumNodes using the computer's
                            network interface. Configuring the internet router for port forwarding is a necessary
@@ -93,14 +115,8 @@ impl NodeConfiguratorReal {
                 .author(crate_authors!("\n"))
                 .about(crate_description!())
                 .after_help(HELP_TEXT)
-                .arg(
-                    Arg::with_name("config_file")
-                        .long("config_file")
-                        .value_name("FILE_PATH")
-                        .default_value("config.toml")
-                        .takes_value(true)
-                        .required(false),
-                )
+                .arg(data_directory_arg())
+                .arg(config_file_arg())
                 .arg(
                     Arg::with_name("blockchain_service_url")
                         .long("blockchain_service_url")
@@ -114,13 +130,6 @@ impl NodeConfiguratorReal {
                         .empty_values(false)
                         .validator(Validators::validate_clandestine_port)
                         .help(&CLANDESTINE_PORT_HELP),
-                )
-                .arg(
-                    Arg::with_name("data_directory")
-                        .long("data_directory")
-                        .value_name("DATA_DIRECTORY")
-                        .empty_values(false)
-                        .default_value(&DEFAULT_DATA_DIR_VALUE),
                 )
                 .arg(
                     Arg::with_name("dns_servers")
@@ -219,13 +228,23 @@ impl NodeConfiguratorReal {
     }
 
     fn determine_config_file_path(&self, args: &Vec<String>) -> (PathBuf, bool) {
-        let multi_config = MultiConfig::new(
-            &self.app,
-            vec![
-                Box::new(EnvironmentVCL::new(&self.app)),
-                Box::new(CommandLineVCL::new(args.clone())),
-            ],
-        );
+        let orientation_schema = App::new("Preliminary")
+            .arg(data_directory_arg())
+            .arg(config_file_arg());
+        let orientation_args: Vec<Box<VclArg>> = merge(
+            Box::new(EnvironmentVCL::new(&self.app)),
+            Box::new(CommandLineVCL::new(args.clone())),
+        )
+        .vcl_args()
+        .into_iter()
+        .filter(|vcl_arg| {
+            (vcl_arg.name() == "--data_directory") || (vcl_arg.name() == "--config_file")
+        })
+        .map(|vcl_arg| vcl_arg.dup())
+        .collect();
+        let orientation_vcl = CommandLineVCL::from(orientation_args);
+
+        let multi_config = MultiConfig::new(&orientation_schema, vec![Box::new(orientation_vcl)]);
         let config_file_path = value_m!(multi_config, "config_file", PathBuf)
             .expect("config_file should be defaulted");
         let user_specified = multi_config.arg_matches().occurrences_of("config_file") > 0;
@@ -356,6 +375,9 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::environment_guard::EnvironmentGuard;
+    use crate::test_utils::test_utils::ensure_node_home_directory_exists;
+    use std::fs::File;
+    use std::io::Write;
     use std::net::Ipv4Addr;
     use std::net::SocketAddr;
     use std::str::FromStr;
@@ -717,6 +739,32 @@ mod tests {
             &format!("{}", config_file_path.display())
         );
         assert_eq!(true, user_specified);
+    }
+
+    #[test]
+    fn can_read_required_parameters_from_config_file() {
+        let home_dir = ensure_node_home_directory_exists(
+            "node_configurator",
+            "can_read_required_parameters_from_config_file",
+        );
+        {
+            let mut config_file = File::create(home_dir.join("config.toml")).unwrap();
+            config_file
+                .write_all(b"dns_servers = \"1.2.3.4\"\n")
+                .unwrap();
+        }
+        let subject = NodeConfiguratorReal::new();
+
+        let configuration = subject.generate_configuration(&vec![
+            "".to_string(),
+            "--data_directory".to_string(),
+            home_dir.to_str().unwrap().to_string(),
+        ]);
+
+        assert_eq!(
+            vec![SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), 53)],
+            configuration.dns_servers
+        );
     }
 
     #[test]
