@@ -743,6 +743,7 @@ mod tests {
 
     #[test]
     fn can_read_required_parameters_from_config_file() {
+        let _guard = EnvironmentGuard::new();
         let home_dir = ensure_node_home_directory_exists(
             "node_configurator",
             "can_read_required_parameters_from_config_file",
