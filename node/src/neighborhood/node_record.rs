@@ -6,6 +6,7 @@ use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, Neighborh
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData, PublicKey};
 use crate::sub_lib::neighborhood::RatePack;
 use crate::sub_lib::node_addr::NodeAddr;
+use crate::sub_lib::utils::regenerate_signed_gossip;
 use crate::sub_lib::wallet::Wallet;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::btree_set::BTreeSet;
@@ -60,7 +61,7 @@ impl NodeRecord {
         earning_wallet: Wallet,
         rate_pack: RatePack,
         version: u32,
-        cryptde: &CryptDE,
+        cryptde: &CryptDE, // Must be the new NodeRecord's CryptDE: used for signing
     ) -> NodeRecord {
         let mut node_record = NodeRecord {
             metadata: NodeRecordMetadata::new(),
@@ -169,12 +170,9 @@ impl NodeRecord {
     }
 
     pub fn regenerate_signed_gossip(&mut self, cryptde: &dyn CryptDE) {
-        self.signed_gossip =
-            PlainData::from(serde_cbor::ser::to_vec(&self.inner).expect("Serialization failed"));
-        self.signature = match cryptde.sign(&self.signed_gossip) {
-            Ok(sig) => sig,
-            Err(e) => unimplemented!("Signing error: {:?}", e),
-        }
+        let (signed_gossip, signature) = regenerate_signed_gossip(&self.inner, cryptde);
+        self.signed_gossip = signed_gossip;
+        self.signature = signature;
     }
 
     pub fn signed_gossip(&self) -> &PlainData {

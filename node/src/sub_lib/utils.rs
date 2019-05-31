@@ -1,4 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::neighborhood::node_record::NodeRecordInner;
+use crate::sub_lib::cryptde::CryptDE;
+use crate::sub_lib::cryptde::CryptData;
+use crate::sub_lib::cryptde::PlainData;
 use std::io::ErrorKind;
 use std::net::IpAddr;
 use std::str::FromStr;
@@ -115,6 +119,19 @@ pub fn plus<T>(mut source: Vec<T>, item: T) -> Vec<T> {
     result.append(&mut source);
     result.push(item);
     result
+}
+
+pub fn regenerate_signed_gossip(
+    inner: &NodeRecordInner,
+    cryptde: &CryptDE, // Must be the correct CryptDE for the Node from which inner came: used for signing
+) -> (PlainData, CryptData) {
+    let signed_gossip =
+        PlainData::from(serde_cbor::ser::to_vec(&inner).expect("Serialization failed"));
+    let signature = match cryptde.sign(&signed_gossip) {
+        Ok(sig) => sig,
+        Err(e) => unimplemented!("Signing error: {:?}", e),
+    };
+    (signed_gossip, signature)
 }
 
 #[cfg(test)]

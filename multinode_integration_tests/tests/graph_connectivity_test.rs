@@ -38,7 +38,7 @@ fn graph_connects_but_does_not_over_connect() {
     thread::sleep(Duration::from_millis(2000));
 
     // Start the bootstrap process; follow passes until Introductions arrive
-    mock_node.send_debut(&first_node);
+    mock_node.transmit_debut(&first_node).unwrap();
     let mut retries_left = neighborhood_size;
     let mut introductions_opt: Option<Vec<AccessibleGossipRecord>> = None;
     while retries_left > 0 {
@@ -58,7 +58,7 @@ fn graph_connects_but_does_not_over_connect() {
             .iter()
             .find(|n| n.public_key() == &agrs[0].inner.public_key)
             .unwrap();
-        mock_node.send_debut(pass_target);
+        mock_node.transmit_debut(pass_target).unwrap();
         retries_left -= 1;
     }
     let introductions = introductions_opt.unwrap();

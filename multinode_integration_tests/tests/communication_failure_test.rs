@@ -30,7 +30,7 @@ fn neighborhood_notified_of_newly_missing_node() {
             .build(),
     );
     let witness_node = cluster.start_mock_node(vec![find_free_port()]);
-    witness_node.send_debut(&originating_node);
+    witness_node.transmit_debut(&originating_node).unwrap();
     let (introductions, _) = witness_node
         .wait_for_gossip(Duration::from_millis(1000))
         .unwrap();

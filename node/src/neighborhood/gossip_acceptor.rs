@@ -197,7 +197,7 @@ impl DebutHandler {
                     "Passing re-debut from Node {} on to StandardGossipHandler",
                     public_key
                 ));
-                let standard_gossip_handler = StandardGossipHandler::new();
+                let standard_gossip_handler = StandardGossipHandler::new(self.logger.clone());
                 return Ok(standard_gossip_handler.handle(
                     cryptde,
                     database,
@@ -224,6 +224,8 @@ impl DebutHandler {
                 let root_mut = database.root_mut();
                 root_mut.increment_version();
                 root_mut.regenerate_signed_gossip(cryptde);
+                self.logger
+                    .debug(format!("Current database: {}", database.to_dot_graph()));
                 match self.make_introduction(database, &debut_node_key) {
                     Some((introduction, target_ip, target_node_addr)) => Ok(
                         GossipAcceptanceResult::Reply(introduction, target_ip, target_node_addr),
@@ -548,6 +550,8 @@ impl IntroductionHandler {
             database.root_mut().increment_version();
             database.root_mut().regenerate_signed_gossip(cryptde);
         }
+        self.logger
+            .debug(format!("Current database: {}", database.to_dot_graph()));
         Ok(())
     }
 }
@@ -623,7 +627,9 @@ impl PassHandler {
     }
 }
 
-struct StandardGossipHandler {}
+struct StandardGossipHandler {
+    logger: Logger,
+}
 
 impl NamedType for StandardGossipHandler {
     fn type_name(&self) -> &'static str {
@@ -715,6 +721,8 @@ impl GossipHandler for StandardGossipHandler {
         // If no Nodes need updating, return ::Ignored and don't change the database.
         // Otherwise, return ::Accepted.
         if db_changed {
+            self.logger
+                .debug(format!("Current database: {}", database.to_dot_graph()));
             GossipAcceptanceResult::Accepted
         } else {
             GossipAcceptanceResult::Ignored
@@ -723,8 +731,8 @@ impl GossipHandler for StandardGossipHandler {
 }
 
 impl StandardGossipHandler {
-    fn new() -> StandardGossipHandler {
-        StandardGossipHandler {}
+    fn new(logger: Logger) -> StandardGossipHandler {
+        StandardGossipHandler { logger }
     }
 
     fn identify_and_add_non_introductory_new_nodes(
@@ -921,7 +929,7 @@ impl<'a> GossipAcceptorReal<'a> {
         GossipAcceptorReal {
             gossip_handlers: vec![
                 Box::new(IntroductionHandler::new(logger.clone())),
-                Box::new(StandardGossipHandler::new()),
+                Box::new(StandardGossipHandler::new(logger.clone())),
                 Box::new(DebutHandler::new(logger.clone())),
                 Box::new(PassHandler::new()),
                 Box::new(RejectHandler::new()),
@@ -1466,7 +1474,7 @@ mod tests {
             .node(node_a.public_key(), false)
             .node(node_b.public_key(), false)
             .build();
-        let subject = StandardGossipHandler::new();
+        let subject = StandardGossipHandler::new(Logger::new("test"));
         let gossip_source = src_node.node_addr_opt().unwrap().ip_addr();
 
         let result = subject.qualifies(&mut dest_db, &gossip.try_into().unwrap(), gossip_source);
@@ -1496,7 +1504,7 @@ mod tests {
             .node(node_a.public_key(), false)
             .node(dest_node.public_key(), false)
             .build();
-        let subject = StandardGossipHandler::new();
+        let subject = StandardGossipHandler::new(Logger::new("test"));
         let gossip_source = src_node.node_addr_opt().unwrap().ip_addr();
 
         let result = subject.qualifies(&mut dest_db, &gossip.try_into().unwrap(), gossip_source);
@@ -1529,7 +1537,7 @@ mod tests {
             .node(node_a.public_key(), false)
             .node(node_b.public_key(), true)
             .build();
-        let subject = StandardGossipHandler::new();
+        let subject = StandardGossipHandler::new(Logger::new("test"));
         let gossip_source = src_node.node_addr_opt().unwrap().ip_addr();
 
         let result = subject.qualifies(&mut dest_db, &gossip.try_into().unwrap(), gossip_source);
@@ -1566,7 +1574,7 @@ mod tests {
             &node_a.node_addr_opt().unwrap().ip_addr(),
             &vec![4567],
         ));
-        let subject = StandardGossipHandler::new();
+        let subject = StandardGossipHandler::new(Logger::new("test"));
         let gossip_source = src_node.node_addr_opt().unwrap().ip_addr();
 
         let result = subject.qualifies(&mut dest_db, &gossip.try_into().unwrap(), gossip_source);
@@ -1596,7 +1604,7 @@ mod tests {
             .node(node_a_key, false)
             .node(node_b_key, false)
             .build();
-        let subject = StandardGossipHandler::new();
+        let subject = StandardGossipHandler::new(Logger::new("test"));
         let cryptde = CryptDENull::from(dest_db.root().public_key());
         let agrs = gossip.try_into().unwrap();
         let gossip_source = src_root.node_addr_opt().unwrap().ip_addr();

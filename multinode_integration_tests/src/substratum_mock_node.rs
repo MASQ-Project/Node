@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::command::Command;
 use crate::main::CONTROL_STREAM_PORT;
+use crate::multinode_gossip::{Introduction, MultinodeGossip, SingleNode};
 use crate::substratum_client::SubstratumNodeClient;
 use crate::substratum_node::NodeReference;
 use crate::substratum_node::PortSelector;
@@ -9,7 +10,7 @@ use crate::substratum_node::SubstratumNodeUtils;
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::Masquerader;
-use node_lib::neighborhood::gossip::{Gossip, GossipBuilder};
+use node_lib::neighborhood::gossip::Gossip;
 use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;
 use node_lib::neighborhood::node_record::NodeRecord;
 use node_lib::sub_lib::cryptde::CryptDE;
@@ -17,14 +18,11 @@ use node_lib::sub_lib::cryptde::CryptData;
 use node_lib::sub_lib::cryptde::PlainData;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::cryptde_null::CryptDENull;
-use node_lib::sub_lib::dispatcher::Component;
 use node_lib::sub_lib::framer::Framer;
 use node_lib::sub_lib::hopper::{IncipientCoresPackage, MessageType};
-use node_lib::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use node_lib::sub_lib::neighborhood::{RatePack, ZERO_RATE_PACK};
 use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::sub_lib::route::Route;
-use node_lib::sub_lib::route::RouteSegment;
 use node_lib::sub_lib::utils::indicates_dead_stream;
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils::data_hunk::DataHunk;
@@ -143,45 +141,6 @@ impl SubstratumMockNode {
         }
     }
 
-    pub fn send_debut(&self, node: &dyn SubstratumNode) {
-        let masquerader = JsonMasquerader::new();
-        let mut node_record = NodeRecord::new(
-            &self.public_key(),
-            self.earning_wallet(),
-            DEFAULT_RATE_PACK.clone(),
-            0,
-            self.cryptde(),
-        );
-        node_record.metadata.node_addr_opt = Some(self.node_addr());
-        node_record.regenerate_signed_gossip(self.cryptde());
-
-        let db = db_from_node(&node_record);
-        let gossip = GossipBuilder::new(&db)
-            .node(node_record.public_key(), true)
-            .build();
-        let route = Route::one_way(
-            RouteSegment::new(
-                vec![self.public_key(), node.public_key()],
-                Component::Neighborhood,
-            ),
-            self.cryptde(),
-            node.consuming_wallet().clone(),
-        )
-        .unwrap();
-        let package =
-            IncipientCoresPackage::new(self.cryptde(), route, gossip.into(), &node.public_key())
-                .unwrap();
-
-        self.transmit_package(
-            *node.port_list().first().unwrap(),
-            package,
-            &masquerader,
-            &node.public_key(),
-            node.socket_addr(PortSelector::First),
-        )
-        .unwrap();
-    }
-
     pub fn transmit_data(&self, data_hunk: DataHunk) -> Result<(), io::Error> {
         let to_transmit: Vec<u8> = data_hunk.into();
         match self.control_stream.borrow_mut().write(&to_transmit[..]) {
@@ -235,6 +194,40 @@ impl SubstratumMockNode {
             &masquerader,
             target_key,
             target_addr,
+        )
+    }
+
+    pub fn transmit_debut(&self, receiver: &SubstratumNode) -> Result<(), io::Error> {
+        self.transmit_multinode_gossip(receiver, &SingleNode::new(self))
+    }
+
+    pub fn transmit_pass(
+        &self,
+        receiver: &SubstratumNode,
+        target: &SubstratumNode,
+    ) -> Result<(), io::Error> {
+        self.transmit_multinode_gossip(receiver, &SingleNode::new(target))
+    }
+
+    pub fn transmit_introduction(
+        &self,
+        receiver: &SubstratumNode,
+        introducee: &SubstratumNode,
+    ) -> Result<(), io::Error> {
+        self.transmit_multinode_gossip(receiver, &Introduction::new(self, introducee))
+    }
+
+    pub fn transmit_multinode_gossip(
+        &self,
+        receiver: &SubstratumNode,
+        multinode_gossip: &MultinodeGossip,
+    ) -> Result<(), io::Error> {
+        let gossip = multinode_gossip.render();
+        self.transmit_gossip(
+            receiver.port_list()[0],
+            gossip,
+            receiver.public_key(),
+            receiver.socket_addr(PortSelector::First),
         )
     }
 

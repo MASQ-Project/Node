@@ -1,8 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 pub mod command;
-pub mod gossip_builder;
 pub mod main;
+pub mod multinode_gossip;
 pub mod substratum_client;
 pub mod substratum_cores_client;
 pub mod substratum_cores_server;

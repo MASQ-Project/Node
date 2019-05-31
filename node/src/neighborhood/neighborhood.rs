@@ -31,6 +31,7 @@ use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
+use crate::sub_lib::utils::regenerate_signed_gossip;
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
@@ -258,6 +259,14 @@ pub struct AccessibleGossipRecord {
     pub inner: NodeRecordInner,
 }
 
+impl AccessibleGossipRecord {
+    pub fn regenerate_signed_gossip(&mut self, cryptde: &CryptDE) {
+        let (signed_gossip, signature) = regenerate_signed_gossip(&self.inner, cryptde);
+        self.signed_gossip = signed_gossip;
+        self.signature = signature;
+    }
+}
+
 impl TryFrom<GossipNodeRecord> for AccessibleGossipRecord {
     type Error = String;
 
@@ -382,13 +391,7 @@ impl Neighborhood {
             self.gossip_acceptor
                 .handle(&mut self.neighborhood_database, agrs, gossip_source);
         match acceptance_result {
-            GossipAcceptanceResult::Accepted => {
-                self.logger.debug(format!(
-                    "Current database: {}",
-                    self.neighborhood_database.to_dot_graph()
-                ));
-                self.gossip_to_neighbors()
-            }
+            GossipAcceptanceResult::Accepted => self.gossip_to_neighbors(),
             GossipAcceptanceResult::Reply(next_debut, relay_target, relay_node_addr) => {
                 self.handle_gossip_reply(next_debut, relay_target, relay_node_addr)
             }
