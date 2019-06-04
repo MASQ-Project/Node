@@ -62,6 +62,7 @@ impl Logger {
                     self.name,
                     string
                 ))
+                .level(level)
                 .build(),
         );
     }
