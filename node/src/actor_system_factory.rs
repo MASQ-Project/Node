@@ -841,6 +841,7 @@ mod tests {
             blockchain_service_url: Some("http://λ:8545".to_string()),
             contract_address: TESTNET_CONTRACT_ADDRESS,
             consuming_private_key: None,
+            mnemonic_seed: None,
         };
         let subject = ActorFactoryReal {};
         subject.make_and_start_blockchain_bridge(config);
@@ -876,6 +877,7 @@ mod tests {
                 blockchain_service_url: None,
                 contract_address: TESTNET_CONTRACT_ADDRESS,
                 consuming_private_key: None,
+                mnemonic_seed: None,
             },
             port_configurations: HashMap::new(),
             clandestine_port_opt: None,
@@ -935,6 +937,7 @@ mod tests {
                 blockchain_service_url: None,
                 contract_address: TESTNET_CONTRACT_ADDRESS,
                 consuming_private_key: None,
+                mnemonic_seed: None,
             },
             port_configurations: HashMap::new(),
             clandestine_port_opt: None,
@@ -983,7 +986,8 @@ mod tests {
             BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 contract_address: TESTNET_CONTRACT_ADDRESS,
-                consuming_private_key: None
+                consuming_private_key: None,
+                mnemonic_seed: None,
             }
         );
         let _stream_handler_pool_subs = rx.recv().unwrap();

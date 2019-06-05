@@ -79,21 +79,21 @@ impl NodeStartupConfig {
             args.push("--ip".to_string());
             args.push(format!("{}", ip_addr));
         }
-        args.push("--dns_servers".to_string());
+        args.push("--dns-servers".to_string());
         args.push(Self::join_strings(&self.dns_servers));
         if !self.neighbors.is_empty() {
             args.push("--neighbors".to_string());
             args.push(Self::join_strings(&self.neighbors));
         }
-        args.push("--wallet_address".to_string());
+        args.push("--wallet-address".to_string());
         args.push(format!("{}", self.earning_wallet.address));
         if let Some(clandestine_port) = self.clandestine_port_opt {
-            args.push("--clandestine_port".to_string());
+            args.push("--clandestine-port".to_string());
             args.push(format!("{}", clandestine_port));
         }
-        args.push("--log_level".to_string());
+        args.push("--log-level".to_string());
         args.push("trace".to_string());
-        args.push("--data_directory".to_string());
+        args.push("--data-directory".to_string());
         args.push("/node_root/home".to_string());
         if let Some(ref consuming_private_key) = self.consuming_private_key {
             args.push("--consuming_private_key".to_string());
@@ -740,15 +740,15 @@ mod tests {
             Command::strings(vec!(
                 "--ip",
                 "1.3.5.7",
-                "--dns_servers",
+                "--dns-servers",
                 "8.8.8.8",
                 "--neighbors",
                 format!("{},{}", one_neighbor, another_neighbor).as_str(),
-                "--wallet_address",
+                "--wallet-address",
                 accountant::DEFAULT_EARNING_WALLET.address.as_str(),
-                "--log_level",
+                "--log-level",
                 "trace",
-                "--data_directory",
+                "--data-directory",
                 "/node_root/home",
                 "--consuming_private_key",
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"

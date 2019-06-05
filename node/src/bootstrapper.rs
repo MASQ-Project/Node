@@ -114,6 +114,7 @@ impl BootstrapperConfig {
                 blockchain_service_url: None,
                 contract_address: TESTNET_CONTRACT_ADDRESS,
                 consuming_private_key: None,
+                mnemonic_seed: None,
             },
             port_configurations: HashMap::new(),
             clandestine_port_opt: None,
@@ -152,10 +153,11 @@ impl SocketServer for Bootstrapper {
     fn initialize_as_privileged(
         &mut self,
         args: &Vec<String>,
+        streams: &mut StdStreams<'_>,
         logger_initializer: &mut Box<dyn LoggerInitializerWrapper>,
     ) {
         let configurator = NodeConfiguratorReal::new();
-        let config = configurator.generate_configuration(args);
+        let config = configurator.generate_configuration(args, streams);
         logger_initializer.init(config.log_level);
         self.listener_handlers =
             FuturesUnordered::<Box<dyn ListenerHandler<Item = (), Error = ()>>>::new();
@@ -441,10 +443,11 @@ mod tests {
     fn make_default_cli_params() -> Vec<String> {
         vec![
             String::from("SubstratumNode"),
-            String::from("--dns_servers"),
+            String::from("--dns-servers"),
             String::from("222.222.222.222"),
         ]
     }
+
     #[test]
     fn knows_its_name() {
         let subject = BootstrapperBuilder::new().build();
@@ -471,7 +474,11 @@ mod tests {
 
         let mut log_initializer: Box<LoggerInitializerWrapper> =
             Box::new(LoggerInitializerWrapperMock::new());
-        subject.initialize_as_privileged(&make_default_cli_params(), &mut log_initializer);
+        subject.initialize_as_privileged(
+            &make_default_cli_params(),
+            &mut FakeStreamHolder::new().streams(),
+            &mut log_initializer,
+        );
 
         let mut all_calls = vec![];
         all_calls.extend(first_handler_log.lock().unwrap().dump());
@@ -507,7 +514,11 @@ mod tests {
 
         let mut log_initializer: Box<LoggerInitializerWrapper> =
             Box::new(LoggerInitializerWrapperMock::new());
-        subject.initialize_as_privileged(&make_default_cli_params(), &mut log_initializer);
+        subject.initialize_as_privileged(
+            &make_default_cli_params(),
+            &mut FakeStreamHolder::new().streams(),
+            &mut log_initializer,
+        );
 
         let config = subject.config.unwrap();
         assert_eq!(
@@ -558,11 +569,12 @@ mod tests {
         subject.initialize_as_privileged(
             &vec![
                 String::from("SubstratumNode"),
-                String::from("--dns_servers"),
+                String::from("--dns-servers"),
                 String::from("222.222.222.222"),
-                String::from("--clandestine_port"),
+                String::from("--clandestine-port"),
                 String::from("1234"),
             ],
+            &mut FakeStreamHolder::new().streams(),
             &mut log_initializer,
         );
 
@@ -596,11 +608,12 @@ mod tests {
         subject.initialize_as_privileged(
             &vec![
                 String::from("SubstratumNode"),
-                String::from("--dns_servers"),
+                String::from("--dns-servers"),
                 String::from("1.2.3.4,2.3.4.5"),
-                String::from("--clandestine_port"),
+                String::from("--clandestine-port"),
                 String::from("1234"),
             ],
+            &mut holder.streams(),
             &mut log_initializer,
         );
 
@@ -635,9 +648,10 @@ mod tests {
         subject.initialize_as_privileged(
             &vec![
                 String::from("SubstratumNode"),
-                String::from("--dns_servers"),
+                String::from("--dns-servers"),
                 String::from("1.1.1.1"),
             ],
+            &mut FakeStreamHolder::new().streams(),
             &mut log_initializer,
         );
     }
@@ -730,9 +744,9 @@ mod tests {
             ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
         let cli_params = vec![
             String::from("SubstratumNode"),
-            String::from("--dns_servers"),
+            String::from("--dns-servers"),
             String::from("222.222.222.222"),
-            String::from("--clandestine_port"),
+            String::from("--clandestine-port"),
             String::from("1234"),
         ];
         let actor_system_factory = ActorSystemFactoryMock::new();
@@ -744,7 +758,7 @@ mod tests {
             .build();
         let mut log_initializer: Box<LoggerInitializerWrapper> =
             Box::new(LoggerInitializerWrapperMock::new());
-        subject.initialize_as_privileged(&cli_params, &mut log_initializer);
+        subject.initialize_as_privileged(&cli_params, &mut holder.streams(), &mut log_initializer);
 
         subject.initialize_as_unprivileged(&mut holder.streams());
 
@@ -816,7 +830,11 @@ mod tests {
 
         let mut log_initializer: Box<LoggerInitializerWrapper> =
             Box::new(LoggerInitializerWrapperMock::new());
-        subject.initialize_as_privileged(&make_default_cli_params(), &mut log_initializer);
+        subject.initialize_as_privileged(
+            &make_default_cli_params(),
+            &mut holder.streams(),
+            &mut log_initializer,
+        );
         subject.initialize_as_unprivileged(&mut holder.streams());
 
         thread::spawn(|| {

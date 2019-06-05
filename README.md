@@ -55,7 +55,7 @@ $ ci/all.sh
 ```
 
 #### If you're using Windows
-Substratum Node utilizes a Web3 crate to facilitate Blockchain communications. The Web3 crate depends on OpenSSL for TLS
+SubstratumNode utilizes a Web3 crate to facilitate Blockchain communications. The Web3 crate depends on OpenSSL for TLS
 when connecting over HTTPS. Some setup for a proper Windows build environment may be needed. You have two choices: a) install
 OpenSSL and allow it to be dynamically linked at compile time b) download an OpenSSL binary and set `OPENSSL_STATIC`
 and allow it to be statically linked at compile time.
@@ -93,15 +93,15 @@ the SubstratumNode can run: zero-hop and decentralized.
 
 A zero-hop SubstratumNode is very easy to start, and it's self-contained: every zero-hop SubstratumNode has an entire
 Substratum Network inside it.  However, it doesn't communicate with any other SubstratumNodes.  Every network transaction
-is zero-hop: your Node is the Client node, the Originating node, and the Exit node all at once.  A zero-hop SubstratumNode
+is zero-hop: your SubstratumNode is the Client node, the Originating node, and the Exit node all at once.  A zero-hop SubstratumNode
 is good for exploring the system and verifying its compatibility with your hardware, but it doesn't relay traffic through
-any other Nodes.
+any other SubstratumNodes.
 
 A decentralized SubstratumNode is considerably more difficult to start, because you have to give it much more information
 to get it running; however, it can route your traffic through other SubstratumNodes running elsewhere in the world to get
 it to and from your destination.
 
-__Important Note:__ Please remember that at the moment neither zero-hop Substratum Nodes nor decentralized SubstratumNodes
+__Important Note:__ Please remember that at the moment neither zero-hop SubstratumNodes nor decentralized SubstratumNodes
 are secure or private in any sense of the word.  Please don't use them for any kind of sensitive traffic at this stage.
 
 #### Supplying Configuration To SubstratumNode
@@ -128,52 +128,52 @@ secret configuration information. (Nothing prevents you from doing this, though,
 
 ##### Shell Environment
 
-If you see that the command line accepts a parameter such as `--clandestine_port 1234`, then you can supply that same
+If you see that the command line accepts a parameter such as `--clandestine-port 1234`, then you can supply that same
 parameter in the environment by setting the `SUB_CLANDESTINE_PORT` environment variable to `1234`. Note that you need
 to remove the initial `--` prefix, convert the name to all uppercase, and add a `SUB_` prefix to namespace the parameter
 against other applications that might look for a similar variable.
 
 ##### Configuration File
 
-The configuration file, by default, resides in the data directory (see the `--data_directory` parameter for further
-information) and is named `config.toml`. If you leave the configuration file unspecified, this is where the SubstratumNode
-will look for it. If it's found, it will be used; if it's not, the Node will act as though it had been found but empty.
-But if you want to use a different file, specify it either as `--config_file` on the command line or as `SUB_CONFIG_FILE`
+The configuration file, by default, resides in the data directory (see the `--data-directory` parameter for further
+information) and is named `config.toml`. If you leave the configuration file unspecified, this is where SubstratumNode
+will look for it. If it's found, it will be used; if it's not, SubstratumNode will act as though it had been found but empty.
+But if you want to use a different file, specify it either as `--config-file` on the command line or as `SUB_CONFIG_FILE`
 in the environment. If you specify a relative filename, SubstratumNode will look for the configuration file in the data
 directory; if you specify an absolute filename, SubstratumNode will not use the data directory to find the configuration
 file.
 
 The configuration file should be in TOML format. TOML is a competitor to other formats like JSON and YAML, but the
 SubstratumNode uses only scalar settings, not arrays or tables. If you see that the command line accepts a parameter such
-as `--clandestine_port 1234`, then you can supply that same parameter in the configuration file by adding the following
+as `--clandestine-port 1234`, then you can supply that same parameter in the configuration file by adding the following
 line to it:
 
 ```
-clandestine_port = "1234"
+clandestine-port = "1234"
 ```
 
 Note that you need to remove the initial `--` prefix. All the configuration parameters will work if you supply their
 values as double-quoted strings, but if they're numeric values, you can supply them numerically as well--for example,
 
 ```
-clandestine_port = 1234
+clandestine-port = 1234
 ```
 
 Keep in mind that a configuration file is persistent information: anyone who has or can gain read access to the file
-can read whatever's in it, whether the Node is running or not. Therefore, the configuration file may not be the best
-place to specify sensitive or secret configuration information. (Nothing prevents you from doing this, though, so be
-careful.)
+can read whatever's in it, whether SubstratumNode is running or not. Therefore, the configuration file may not be the 
+best place to specify sensitive or secret configuration information. (Nothing prevents you from doing this, though, so 
+be careful.)
 
 #### Running a Zero-Hop SubstratumNode locally
 
 Here's all you need to start your zero-hop SubstratumNode:
 ```
-$ sudo SubstratumNode/node/target/release/SubstratumNode --dns_servers 1.1.1.1
+$ sudo SubstratumNode/node/target/release/SubstratumNode --dns-servers 1.1.1.1
 ```
 In the above example, we're using Cloudflare's DNS, `1.1.1.1`, but you can use your preferred DNS.
 If you can't choose just one favorite DNS, you can also specify multiple ones, separated by a comma but no space (`,`).
 
-_Why do we specify `--dns_servers`? SubstratumNodes still need to talk to the greater Internet.
+_Why do we specify `--dns-servers`? SubstratumNodes still need to talk to the greater Internet.
 See [the ProxyClient README](https://github.com/SubstratumNetwork/SubstratumNode/tree/master/node/src/proxy_client)
 for more information._
 
@@ -181,9 +181,10 @@ for more information._
 
 There are several more options that are available for running decentralized. Here is a list of them and their meanings:
 
-* `--help` As of v0.4.6 SubstratumNode CLI displays usage, flags, and options. NOTE: Run with `sudo`.
+* `--help` As of v0.4.6 SubstratumNode CLI displays usage, flags, and options. NOTE: Run with `sudo` and to see the full 
+help you may need to include --dns-servers 1.1.1.1 while we resolve an issue with our argument parser.
 
-* `--blockchain_service_url <url>` An optional URL that should point to an Infura, Geth, or Parity HTTP endpoint. Not 
+* `--blockchain-service-url <url>` An optional URL that should point to an Infura, Geth, or Parity HTTP endpoint. Not 
 supplying a URL will direct blockchain traffic through the Substratum Network, allowing those nodes that do supply the 
 URL to talk to the blockchain on your behalf.
 
@@ -193,65 +194,111 @@ address issued to your router by your ISP, and in order to receive data you'll n
 firewall to enable incoming data to reach you on your clandestine ports (see below).  In the future, this will be taken
 care of for you (if you haven't turned off UPnP on your router), but right now it's manual.
 
-* `--dns_servers <IP address>,...` This is the same list of DNS servers needed for zero-hop operation. Whenever your
-SubstratumNode is used as an exit Node, it will contact these DNS servers to find the host the client is trying to reach.
+* `--dns-servers <IP address>,...` This is the same list of DNS servers needed for zero-hop operation. Whenever your
+SubstratumNode is used as an exit node, it will contact these DNS servers to find the host the client is trying to reach.
 
 * `--neighbors <public key>:<IP address>:<port>[;<port>;...][,<public key>:<IP address>:<port>[;<port>;...],...`
-This is how you tell your Node about its initial neighbors. You can specify as many neighbors as you like, with the
+This is how you tell SubstratumNode about its initial neighbors. You can specify as many neighbors as you like, with the
 descriptors separated by commas but no spaces. The `<public key>` in a descriptor is the Base64-encoded public key of the
 neighbor in question. The `<IP address>` is the public IP address of that neighbor, and the `<port>` numbers are the
-clandestine ports on which the neighbor is listening.  If the neighbor Node is one you're running yourself, you'll see it
+clandestine ports on which the neighbor is listening.  If the neighbor node is one you're running yourself, you'll see it
 print this information to the console when it comes up.  If it's somewhere else on the Internet, you'll probably receive
 this information in an email or chat message to copy/paste onto your command line.
 
-* `--clandestine_port <n>`
-This is an optional parameter. If you don't specify a clandestine port, your Node will use the same clandestine port it
-used last time it ran, if that port is still available. If the port is no longer available, the Node will refuse to
-start until either it is available or until you specify a `--clandestine_port`, whereupon it will use the new port
+* `--clandestine-port <n>`
+This is an optional parameter. If you don't specify a clandestine port, your node will use the same clandestine port it
+used last time it ran, if that port is still available. If the port is no longer available, SubstratumNode will refuse to
+start until either it is available or until you specify a `--clandestine-port`, whereupon it will use the new port
 every time it starts. If it's a new installation, it will select a random unused clandestine port between 1025 and 9999,
-and use that every time. Whenever you specify `--clandestine_port`, the port you specify will keep being used until
+and use that every time. Whenever you specify `--clandestine-port`, the port you specify will keep being used until
 you reinstall or specify a different one. You can specify any port between 1025 and 65535. Whatever the clandestine port
-is, it will be printed in the log and to the console as part of the Node descriptor when the Node starts up. Note: This 
-is a temporary parameter; the concept of a special clandestine port will go away someday, and Node descriptors will
+is, it will be printed in the log and to the console as part of the node descriptor when SubstratumNode starts up. Note: 
+This is a temporary parameter; the concept of a special clandestine port will go away someday, and node descriptors will
 look different.
 
-* `--log_level < off | error | warn | info | debug | trace >`
-The Node has the potential to log a lot of data. (A _lot_ of data: a busy Node can fill your disk in a few minutes.) This
-parameter allows you to specify how much of that potential will be realized. `trace` will encourage the Node to reach its
-full potential, and should probably only be used when you're going to run the Node for a few seconds to try one thing
-that's been giving you problems, and then shut it off to look at the logs. `error` logs only the 
-most serious of errors, and the other values are in-between compromise points. Default is `warn`.
+* `--generate-wallet <yes | true>`
+This is an optional parameter that is mutually exclusive with options concerned with starting and running SubstratumNode. 
+Use this to generate a new BIP39 mnemonic phrase compatible with wallet software (*e.g.* Metamask, MEW) or hardware 
+devices (*e.g.* Ledger, Trezor). You may use this phrase to later recover your wallet addresses if, for example, you 
+replace your computer. While this option produces a recovery mnemonic phrase, internally it generates a mnemonic seed 
+encrypted with a password you provide. This mnemonic seed is used to derive consuming and earning wallet addresses along 
+with their corresponding public and private key pairs necessary to sign, verify, encrypt and decrypt data while 
+SubstratumNode operates. The value you provide with the parameter is a placeholder and can be any value for the same 
+result. You **MUST** record the mnemonic phrase exactly as displayed along with the mnemonic-passphrase you provide and 
+keep it in a secure location. When it is displayed that is your only opportunity to record the words. For security 
+purposes they cannot be displayed again. Record the words on paper, etch them in metal or stone and secure them in a safe
+deposit box or other secure offsite location.
 
-* `--ui_port <port>`
-This is how you tell the node which port it should listen on for local WebSocket connections to the UI gateway. This allows
-the node to be controlled and inspected by other programs, such as the Substratum Node UI. The default port is 5333; in most
-cases, this will not need to be changed.
+* `--language <English | 中文(简体) | 中文(繁體) | Français | Italiano | 日本語 | 한국어 | Español>`
+The optional parameter to indicate the language in which to generate the BIP39 mnemonic phrase. Defaults to English.
+This parameter is only used with `--generate-wallet` and `--mnemonic`.
 
-* `--data_directory <directory>`
-This is the directory in which Node will keep the state that needs to persist from run to run. If it's not specified, the
+* `--log-level <off | error | warn | info | debug | trace>`
+SubstratumNode has the potential to log a lot of data. (A _lot_ of data: a busy node can fill your disk in a few 
+minutes.) This parameter allows you to specify how much of that potential will be realized. `trace` will encourage 
+SubstratumNode to reach its full potential, and should probably only be used when you're going to run SubstratumNode 
+for a few seconds to try one thing that's been giving you problems, and then shut it off to look at the logs. `error` 
+logs only the most serious of errors, and the other values are in-between compromise points. Default is `warn`.
+
+* `--mnemonic <BIP39 WORDS>`
+This optional parameter allows you to recover a wallet or to match a hardware wallet using a valid mnemonic recovery
+phrase consisting of valid BIP39 word-list words. The words must be consistent with the language specified with `--language`,
+otherwise the phrase will be rejected. The phrase must also meet the BIP39 checksum requirement of the final word --
+order is significant.
+
+* `--mnemonic-passphrase [MNEMONIC-PASSPHRASE]`
+This optional parameter allows you to specify extra words to generate a unique wallet. If either the value or the option
+are omitted, SubstratumNode will prompt for a mnemonic passphrase and prompt for confirmation. For security purposes the
+characters you type will not display. We strongly recommend you provide a mnemonic passphrase, but it is not required. 
+An empty passphrase allows you to match an existing hardware wallet initialization. NOTE: This mnemonic passphrase cannot
+be changed and still produce the same set of wallet addresses. 
+
+* `--ui-port <UI-PORT>`
+This is how you tell SubstratumNode which port it should listen on for local WebSocket connections to the UI gateway. 
+This allows SubstratumNode to be controlled and inspected by other programs, such as the SubstratumNode UI. The default 
+port is 5333; in most cases, this will not need to be changed.
+
+* `--data-directory <DIRECTORY>`
+This is the directory in which SubstratumNode will keep the state that needs to persist from run to run. If it's not specified, the
 default is `$XDG_DATA_HOME` or `$HOME/.local/share` on Linux, `%APPDATA%` on Windows, and
-`$HOME/Library/Application Support` on MacOS. If it is specified but doesn't exist, Node will try to create the directory
-and abort if it fails. If persistent state exists in the directory, but it was created by a version of Node that is
-incompatible with the version you're trying to start, Node will abort. If this is the case, either remove the existing
-state and restart Node, or specify a different `--data_directory` directory.
+`$HOME/Library/Application Support` on macOS. If it is specified but doesn't exist, SubstratumNode will try to create 
+the directory and abort if it fails. If persistent state exists in the directory, but it was created by a version of 
+SubstratumNode that is incompatible with the version you're trying to start, SubstratumNode will abort. If this is the 
+case, either remove the existing state and restart SubstratumNode, or specify a different `--data-directory` directory.
 
-* `--wallet_address <WALLET_ADDRESS>` This is the Ethereum address of your earning wallet--that is, the wallet other
-Nodes will pay SUB into when they use your routing and exit services. It must be 42 characters long, contain only
-hexadecimal digits, and start with "0x". The parameter is optional; if you don't specify it, a hard-coded default will
-be used, and the money for the services you provide will go to Substratum instead of to you.
+* `--wallet-address <WALLET-ADDRESS>` 
+This is the Ethereum address of your earning wallet--that is, the wallet other
+Nodes will pay SUB into when they use your routing and exit services. It must begin with 0x followed by 40 hexadecimal 
+digits. The parameter is optional; if you don't specify it, a hard-coded default willbe used, and the money for the 
+services you provide will go to Substratum instead of to you.
+
+* `--wallet-password <PASSORD>`
+An optional parameter to provide a password to decrypt the mnemonic seed to unlock your consuming and earning wallets.
+For better security omit this parameter to have SubstratumNode prompt you when unlocking your wallet is necessary. This
+password -- not to be confused with the mnemonic-passphrase -- can be changed later and still produce the same wallet
+addresses. This password can also be thought of as a passphrase because it can contain any characters
+
+* `--word-count <12 | 15 | 18 | 21 | 24>`
+This parameter is optional an only used with `--generate-wallet` to determine the number of words to generate for the
+BIP39 mnemonic phrase. The default value for testnet is 12 and mainnet is 24. 24 is recommended with a mnemonic 
+passphrase for the most security. NOTE that Metamask allows 12 words and MEW allows 12 and 24 words. Please choose 
+according to your compatibility needs.
+
+* `--version`
+An optional parameter. Displays the version of SubstratumNode and exits. The version is also displayed with `--help`.
 
 In order to run decentralized, the SubstratumNode _must_ know the IP address others can use to contact it. Therefore,
-you must supply `--ip`. If you don't supply `--ip`, your Node will come up in zero-hop mode and never route through
-any other Nodes.
+you must supply `--ip`. If you don't supply `--ip`, your node will come up in zero-hop mode and never route through
+any other nodes.
 
-If you're starting the very first Node in your Substratum network, then you don't have to tell your Node about any
-preexisting network; but otherwise, you'll need to specify `--neighbors` so that your Node will know how to join the
+If you're starting the very first SubstratumNode in your Substratum network, then you don't have to tell your node about 
+any preexisting network; but otherwise, you'll need to specify `--neighbors` so that your node will know how to join the
 network that is already in place.
 
-Your home network is behind your internet provider's router and a public IP address. Other Nodes in the Substratum Network
-will contact your Node through your public IP address, requiring at least one port to be forwarded on your router. The Node
-Gossip protocol "gossips" to other nodes the clandestine port you are listening on, and it is that port you will need 
-to open. When your Node is started it will write its descriptor to the console and the log, giving the clandestine
+Your home network is behind your internet provider's router and a public IP address. Other nodes in the Substratum Network
+will contact your node through your public IP address, requiring at least one port to be forwarded on your router. The 
+SubstratumNode Gossip protocol "gossips" to other nodes the clandestine port you are listening on, and it is that port 
+you will need to open. When your node is started it will write its descriptor to the console and the log, giving the clandestine
 port it is using; you will need to forward that port from your router to your computer's IP address.
 
 Forwarding ports on your router is somewhat technical. At a minimum, you should know how to log in to your router in 
@@ -275,7 +322,7 @@ $ sudo SubstratumNode/dns_utility/target/release/dns_utility revert
 This should have you using the Internet normally again.
 
 However, if you've been running decentralized, you'll probably want to close the holes in your router's firewall. Don't
-leave them open against the next time you run: your Node will pick different clandestine ports the next time.
+leave them open against the next time you run: your node will pick different clandestine ports the next time.
 
 ## Errors
 
@@ -329,10 +376,10 @@ Since the concerns of the SubstratumNode aren't precisely the same as the concer
 can't always be made exact, so here are some specific TLS Alert values that SubstratumNode produces in specific 
 situations.
 
-* Routing Failure - `internal_error`: If your Node is not yet "warmed up" enough in the Substratum Network to see a
+* Routing Failure - `internal_error`: If your node is not yet "warmed up" enough in the Substratum Network to see a
 large enough neighborhood to be able to create a clandestine route that meets your specifications, it will raise a
 TLS `internal_error` Alert. This will probably be displayed by your browser as some sort of protocol error--which,
-strictly speaking, it is. If this happens, just wait awhile for your Node and the Substratum Network to Gossip with
+strictly speaking, it is. If this happens, just wait awhile for your node and the Substratum Network to Gossip with
 each other and spread around the necessary information. Then try reloading the page.
 
 * DNS Resolution Failure - `unrecognized_name`: Even though you contact websites at names like `google.com` and
@@ -340,15 +387,15 @@ each other and spread around the necessary information. Then try reloading the p
 Before it's useful for retrieving data, your server name has to be translated into an IP address. This is the job of a
 DNS server. Much of Internet censorship consists of crippling the DNS servers you have available to you so that they
 can't give you the correct IP address for the server name you're seeking. SubstratumNode captures the DNS queries your
-browser makes and forwards them across the Substratum Network to some other Node that hopefully has access to a
+browser makes and forwards them across the Substratum Network to some other node that hopefully has access to a
 non-censored DNS server that _does_ know the IP address you want. But this is a complex task and it may fail. For
 example, perhaps you typed the server name wrong, and _nobody_ knows an IP address it matches. Or perhaps your
-SubstratumNode guessed wrong, and the exit Node to which it forwarded your DNS query is also handicapped by a censored DNS
+SubstratumNode guessed wrong, and the exit node to which it forwarded your DNS query is also handicapped by a censored DNS
 and can't find it either. In either case, SubstratumNode will send your browser a TLS `unrecognized_name` alert, which
 your browser will probably present to you as some form of can't-find-host error. If you reload the page, SubstratumNode
-will try to select a different exit Node, if available--one that hasn't failed to resolve a DNS query--for the next 
+will try to select a different exit node, if available--one that hasn't failed to resolve a DNS query--for the next 
 attempt, which might bring you better fortune. Of course, if you _have_ typed the name wrong, just reloading the page
-will take another innocent exit Node out of circulation and make it even harder for you to get where you want to go.
+will take another innocent exit node out of circulation and make it even harder for you to get where you want to go.
 
 # Disclosure
 

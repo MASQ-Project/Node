@@ -47,7 +47,16 @@ impl<'a> MultiConfig<'a> {
             arg_matches: schema
                 .clone()
                 .get_matches_from_safe(merged.args().into_iter())
-                .unwrap_or_else(|e| panic!("{}", e)),
+                .unwrap_or_else(|e| match e.kind {
+                    clap::ErrorKind::HelpDisplayed | clap::ErrorKind::VersionDisplayed => e.exit(),
+                    _ => {
+                        if cfg!(test) {
+                            panic!("{}. Note in production this will be an exit.", e)
+                        } else {
+                            e.exit()
+                        }
+                    }
+                }),
         }
     }
 
@@ -251,9 +260,9 @@ impl ConfigFileVCL {
         };
         let mut contents = String::new();
         match file.read_to_string(&mut contents) {
-            Err (ref e) if e.kind() == ErrorKind::InvalidData => panic! ("Configuration file at {:?} is corrupted: contains data that cannot be interpreted as UTF-8", file_path),
-            Err (e) => panic! ("Configuration file at {:?}: {}", file_path, e),
-            Ok (_) => (),
+            Err(ref e) if e.kind() == ErrorKind::InvalidData => panic!("Configuration file at {:?} is corrupted: contains data that cannot be interpreted as UTF-8", file_path),
+            Err(e) => panic!("Configuration file at {:?}: {}", file_path, e),
+            Ok(_) => (),
         };
         let table: Table = match toml::de::from_str(&contents) {
             Err(e) => panic!(
@@ -282,7 +291,7 @@ impl ConfigFileVCL {
     }
 
     fn complain_about_data_elements(file_path: &PathBuf) -> ! {
-        panic! ("Configuration file at {:?} contains unsupported Datetime or non-scalar configuration values", file_path)
+        panic!("Configuration file at {:?} contains unsupported Datetime or non-scalar configuration values", file_path)
     }
 }
 

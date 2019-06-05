@@ -176,7 +176,7 @@ impl Handler<DnsResolveFailure> for ProxyClient {
 impl ProxyClient {
     pub fn new(config: ProxyClientConfig) -> ProxyClient {
         if config.dns_servers.is_empty() {
-            panic!("Proxy Client requires at least one DNS server IP address after the --dns_servers parameter")
+            panic!("Proxy Client requires at least one DNS server IP address after the --dns-servers parameter")
         }
         ProxyClient {
             dns_servers: config.dns_servers,
@@ -419,7 +419,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Proxy Client requires at least one DNS server IP address after the --dns_servers parameter"
+        expected = "Proxy Client requires at least one DNS server IP address after the --dns-servers parameter"
     )]
     fn at_least_one_dns_server_must_be_provided() {
         ProxyClient::new(ProxyClientConfig {

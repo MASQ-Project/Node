@@ -24,7 +24,7 @@ describe('ps_wrapper', () => {
     it('should not call treeKill with wrong path', async () => {
       td.when(mockPs()).thenResolve([{
         name: 'SubstratumNode',
-        cmd: 'users/SubstratumNode --dns_servers 8.8.8.8',
+        cmd: 'users/SubstratumNode --dns-servers 8.8.8.8',
         pid: '1234'
       }])
       mockPath.sep = '/'
@@ -35,7 +35,7 @@ describe('ps_wrapper', () => {
     it('kills with *nix path', async () => {
       td.when(mockPs()).thenResolve([{
         name: 'SubstratumNode',
-        cmd: 'users/static/binaries/SubstratumNode --dns_servers 8.8.8.8',
+        cmd: 'users/static/binaries/SubstratumNode --dns-servers 8.8.8.8',
         pid: '1234'
       }])
       mockPath.sep = '/'
@@ -46,7 +46,7 @@ describe('ps_wrapper', () => {
     it('kills with Windows path', async () => {
       td.when(mockPs()).thenResolve([{
         name: 'SubstratumNode',
-        cmd: 'users\\static\\binaries\\SubstratumNode --dns_servers 8.8.8.8',
+        cmd: 'users\\static\\binaries\\SubstratumNode --dns-servers 8.8.8.8',
         pid: '1234'
       }])
       mockPath.sep = '\\'
@@ -59,7 +59,7 @@ describe('ps_wrapper', () => {
     it('should not find with *nix path', async () => {
       td.when(mockPs()).thenResolve([{
         name: 'SubstratumNode',
-        cmd: 'users/SubstratumNode --dns_servers 8.8.8.8'
+        cmd: 'users/SubstratumNode --dns-servers 8.8.8.8'
       }])
       mockPath.sep = '/'
       let result = await subject.findNodeProcess()
@@ -69,7 +69,7 @@ describe('ps_wrapper', () => {
     it('should find with *nix path', async () => {
       td.when(mockPs()).thenResolve([{
         name: 'SubstratumNode',
-        cmd: 'users/static/binaries/SubstratumNode --dns_servers 8.8.8.8'
+        cmd: 'users/static/binaries/SubstratumNode --dns-servers 8.8.8.8'
       }])
       mockPath.sep = '/'
       let result = await subject.findNodeProcess()
@@ -80,7 +80,7 @@ describe('ps_wrapper', () => {
     it('should find with Windows path', async () => {
       td.when(mockPs()).thenResolve([{
         name: 'SubstratumNode',
-        cmd: 'users\\static\\binaries\\SubstratumNode --dns_servers 8.8.8.8'
+        cmd: 'users\\static\\binaries\\SubstratumNode --dns-servers 8.8.8.8'
       }])
       mockPath.sep = '\\'
       let result = await subject.findNodeProcess()

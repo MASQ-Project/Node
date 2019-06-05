@@ -133,6 +133,7 @@ mod tests {
                 blockchain_service_url: None,
                 contract_address: TESTNET_CONTRACT_ADDRESS,
                 consuming_private_key: Some(consuming_private_key.clone()),
+                mnemonic_seed: None,
             },
             stub_bi(),
         );
@@ -161,6 +162,7 @@ mod tests {
                 blockchain_service_url: None,
                 contract_address: TESTNET_CONTRACT_ADDRESS,
                 consuming_private_key: None,
+                mnemonic_seed: None,
             },
             stub_bi(),
         );
@@ -189,6 +191,7 @@ mod tests {
                 blockchain_service_url: None,
                 contract_address: TESTNET_CONTRACT_ADDRESS,
                 consuming_private_key: None,
+                mnemonic_seed: None,
             },
             stub_bi(),
         );
@@ -263,6 +266,7 @@ mod tests {
                 blockchain_service_url: None,
                 contract_address: TESTNET_CONTRACT_ADDRESS,
                 consuming_private_key: None,
+                mnemonic_seed: None,
             },
             Box::new(blockchain_interface_mock),
         );

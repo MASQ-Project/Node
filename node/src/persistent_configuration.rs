@@ -46,7 +46,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         if (unchecked_port < LOWEST_USABLE_INSECURE_PORT as u64)
             || (unchecked_port > HIGHEST_USABLE_PORT as u64)
         {
-            panic! ("Can't continue; clandestine port configuration is incorrect. Must be between {} and {}, not {}. Specify --clandestine_port <p> where <p> is an unused port.",
+            panic! ("Can't continue; clandestine port configuration is incorrect. Must be between {} and {}, not {}. Specify --clandestine-port <p> where <p> is an unused port.",
                 LOWEST_USABLE_INSECURE_PORT,
                 HIGHEST_USABLE_PORT,
                 unchecked_port
@@ -55,7 +55,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         let port = unchecked_port as u16;
         match TcpListener::bind (SocketAddrV4::new (Ipv4Addr::from (0), port)) {
             Ok (_) => port,
-            Err (_) => panic! ("Can't continue; clandestine port {} is in use. Specify --clandestine_port <p> where <p> is an unused port between {} and {}.",
+            Err (_) => panic! ("Can't continue; clandestine port {} is in use. Specify --clandestine-port <p> where <p> is an unused port between {} and {}.",
                 port,
                 LOWEST_USABLE_INSECURE_PORT,
                 HIGHEST_USABLE_PORT,
@@ -65,7 +65,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn set_clandestine_port(&self, port: u16) {
         if port < LOWEST_USABLE_INSECURE_PORT {
-            panic! ("Can't continue; clandestine port configuration is incorrect. Must be between {} and {}, not {}. Specify --clandestine_port <p> where <p> is an unused port.",
+            panic! ("Can't continue; clandestine port configuration is incorrect. Must be between {} and {}, not {}. Specify --clandestine-port <p> where <p> is an unused port.",
                     LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT, port);
         }
         match self.dao.set_u64("clandestine_port", port as u64) {
@@ -169,7 +169,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Can't continue; clandestine port configuration is incorrect. Must be between 1025 and 65535, not 65536. Specify --clandestine_port <p> where <p> is an unused port."
+        expected = "Can't continue; clandestine port configuration is incorrect. Must be between 1025 and 65535, not 65536. Specify --clandestine-port <p> where <p> is an unused port."
     )]
     fn clandestine_port_panics_if_configured_port_is_too_high() {
         let config_dao = ConfigDaoMock::new().get_u64_result(Ok(65536));
@@ -180,7 +180,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Can't continue; clandestine port configuration is incorrect. Must be between 1025 and 65535, not 1024. Specify --clandestine_port <p> where <p> is an unused port."
+        expected = "Can't continue; clandestine port configuration is incorrect. Must be between 1025 and 65535, not 1024. Specify --clandestine-port <p> where <p> is an unused port."
     )]
     fn clandestine_port_panics_if_configured_port_is_too_low() {
         let config_dao = ConfigDaoMock::new().get_u64_result(Ok(1024));
@@ -191,7 +191,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Can't continue; clandestine port 5333 is in use. Specify --clandestine_port <p> where <p> is an unused port between 1025 and 65535."
+        expected = "Can't continue; clandestine port 5333 is in use. Specify --clandestine-port <p> where <p> is an unused port between 1025 and 65535."
     )]
     fn clandestine_port_panics_if_configured_port_is_in_use() {
         let config_dao = ConfigDaoMock::new().get_u64_result(Ok(5333));
@@ -231,7 +231,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Can't continue; clandestine port configuration is incorrect. Must be between 1025 and 65535, not 1024. Specify --clandestine_port <p> where <p> is an unused port."
+        expected = "Can't continue; clandestine port configuration is incorrect. Must be between 1025 and 65535, not 1024. Specify --clandestine-port <p> where <p> is an unused port."
     )]
     fn set_clandestine_port_panics_if_configured_port_is_too_low() {
         let config_dao = ConfigDaoMock::new().set_u64_result(Ok(()));

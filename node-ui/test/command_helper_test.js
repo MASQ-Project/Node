@@ -47,8 +47,8 @@ describe('CommandHelper', () => {
           it('executes the command via sudo prompt', () => {
             td.verify(sudoPrompt.exec(td.matchers.argThat(arg => {
               return /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" os-uid os-gid "/.test(arg) &&
-                /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns_servers \d{1,3}\./.test(arg) &&
-                /--data_directory [/\\]mock-home-dir[/\\]\.local[/\\]share[/\\]/.test(arg)
+                /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d{1,3}\./.test(arg) &&
+                /--data-directory [/\\]mock-home-dir[/\\]\.local[/\\]share[/\\]/.test(arg)
             }), { name: 'Substratum Node' }, 'callback'))
           })
         })
@@ -64,8 +64,8 @@ describe('CommandHelper', () => {
           it('executes the command via sudo prompt', () => {
             td.verify(sudoPrompt.exec(td.matchers.argThat(arg => {
               return /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" env-uid env-gid "/.test(arg) &&
-                /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns_servers \d{1,3}\./.test(arg) &&
-                /--data_directory [/\\]mock-home-dir[/\\]\.local[/\\]share[/\\]/.test(arg)
+                /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d{1,3}\./.test(arg) &&
+                /--data-directory [/\\]mock-home-dir[/\\]\.local[/\\]share[/\\]/.test(arg)
             }), { name: 'Substratum Node' }, 'callback'))
           })
         })
@@ -87,8 +87,8 @@ describe('CommandHelper', () => {
           it('executes the command via sudo prompt', () => {
             td.verify(sudoPrompt.exec(td.matchers.argThat(arg => {
               return /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" os-uid os-gid "/.test(arg) &&
-                /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns_servers \d{1,3}\./.test(arg) &&
-                !arg.includes('--data_directory')
+                /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d{1,3}\./.test(arg) &&
+                !arg.includes('--data-directory')
             }), { name: 'Substratum Node' }, 'callback'))
           })
         })
@@ -104,8 +104,8 @@ describe('CommandHelper', () => {
           it('executes the command via sudo prompt', () => {
             td.verify(sudoPrompt.exec(td.matchers.argThat(arg => {
               return /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" env-uid env-gid "/.test(arg) &&
-                /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns_servers \d{1,3}\./.test(arg) &&
-                !arg.includes('--data_directory')
+                /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d{1,3}\./.test(arg) &&
+                !arg.includes('--data-directory')
             }), { name: 'Substratum Node' }, 'callback'))
           })
         })
@@ -204,7 +204,7 @@ describe('CommandHelper', () => {
         })
 
         it('provides wallet address command line argument', () => {
-          td.verify(sudoPrompt.exec(td.matchers.contains('--wallet_address bazinga'), { name: 'Substratum Node' }, 'callback'))
+          td.verify(sudoPrompt.exec(td.matchers.contains('--wallet-address bazinga'), { name: 'Substratum Node' }, 'callback'))
         })
       })
     })
@@ -218,7 +218,7 @@ describe('CommandHelper', () => {
     })
 
     describe('starting', () => {
-      const command = /[/\\]static[/\\]scripts[/\\]substratum_node\.cmd" ".*[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns_servers \d.*/
+      const command = /[/\\]static[/\\]scripts[/\\]substratum_node\.cmd" ".*[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d.*/
 
       beforeEach(() => {
         subject.startSubstratumNode({}, 'callback')
@@ -280,7 +280,7 @@ describe('CommandHelper', () => {
         })
 
         it('provides wallet address command line argument', () => {
-          td.verify(nodeCmd.get(td.matchers.contains('--wallet_address bazinga'), 'callback'))
+          td.verify(nodeCmd.get(td.matchers.contains('--wallet-address bazinga'), 'callback'))
         })
       })
     })

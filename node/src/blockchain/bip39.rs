@@ -1,11 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 #![allow(dead_code)]
-
-use bip39::{Language, Mnemonic, MnemonicType, Seed};
-use rustc_hex::{FromHex, FromHexError, ToHex};
-
 use crate::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
+use bip39::{Language, Mnemonic, MnemonicType, Seed};
+use rustc_hex::{FromHex, FromHexError, ToHex};
 
 #[derive(Debug, PartialEq)]
 pub enum Bip39Error {
@@ -62,6 +60,51 @@ impl<'a> Bip39<'a> {
                 e
             ))),
         }
+    }
+
+    pub fn language_from_name(name: &str) -> Language {
+        match name.to_lowercase().as_str() {
+            "english" => Language::English,
+            "中文(简体)" => Language::ChineseSimplified,
+            "简体" => Language::ChineseSimplified,
+            "中文(繁體)" => Language::ChineseTraditional,
+            "繁體" => Language::ChineseTraditional,
+            "français" => Language::French,
+            "italiano" => Language::Italian,
+            "日本語" => Language::Japanese,
+            "한국어" => Language::Korean,
+            "español" => Language::Spanish,
+            _ => panic!("Unsupported language: {}", name),
+        }
+    }
+
+    pub fn name_from_language(language: Language) -> &'static str {
+        match language {
+            Language::English => "English",
+            Language::ChineseSimplified => "中文(简体)",
+            Language::ChineseTraditional => "中文(繁體)",
+            Language::French => "Français",
+            Language::Italian => "Italiano",
+            Language::Japanese => "日本語",
+            Language::Korean => "한국어",
+            Language::Spanish => "Español",
+        }
+    }
+
+    pub fn possible_language_values() -> Vec<&'static str> {
+        vec![
+            Language::English,
+            Language::ChineseSimplified,
+            Language::ChineseTraditional,
+            Language::French,
+            Language::Italian,
+            Language::Japanese,
+            Language::Korean,
+            Language::Spanish,
+        ]
+        .iter()
+        .map(|language| Self::name_from_language(*language))
+        .collect()
     }
 }
 
@@ -437,5 +480,26 @@ mod tests {
         assert!(result.is_err());
         let e = result.unwrap_err();
         assert_eq!(Bip39Error::NotPresent, e);
+    }
+
+    #[test]
+    fn round_trip_languages_and_names() {
+        for l in &[
+            Language::English,
+            Language::ChineseSimplified,
+            Language::ChineseTraditional,
+            Language::French,
+            Language::Italian,
+            Language::Japanese,
+            Language::Korean,
+            Language::Spanish,
+        ] {
+            assert_eq!(
+                super::Bip39::name_from_language(*l),
+                super::Bip39::name_from_language(super::Bip39::language_from_name(
+                    super::Bip39::name_from_language(*l)
+                ))
+            );
+        }
     }
 }

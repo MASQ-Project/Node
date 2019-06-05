@@ -132,13 +132,13 @@ impl SubstratumNode {
         command.args(&[
             "/c",
             command_to_start,
-            "--dns_servers",
+            "--dns-servers",
             "8.8.8.8",
-            "--crash_point",
+            "--crash-point",
             &crash_point,
-            "--data_directory",
+            "--data-directory",
             bin_dir,
-            "--log_level",
+            "--log-level",
             "trace",
         ]);
         command
@@ -159,13 +159,13 @@ impl SubstratumNode {
         let command_to_start = &format!("{}/SubstratumNode", bin_dir);
         let mut command = Command::new(command_to_start);
         command.args(&[
-            "--dns_servers",
+            "--dns-servers",
             "8.8.8.8",
-            "--crash_point",
+            "--crash-point",
             &crash_point,
-            "--data_directory",
+            "--data-directory",
             bin_dir,
-            "--log_level",
+            "--log-level",
             "trace",
         ]);
         command

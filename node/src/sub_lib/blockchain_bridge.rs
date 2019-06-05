@@ -12,6 +12,7 @@ pub struct BlockchainBridgeConfig {
     pub blockchain_service_url: Option<String>,
     pub contract_address: H160,
     pub consuming_private_key: Option<String>,
+    pub mnemonic_seed: Option<String>,
 }
 
 #[derive(Clone)]

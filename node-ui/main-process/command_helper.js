@@ -3,7 +3,7 @@
 const binaryBasePath = '../dist/static/binaries/'
 const scriptBasePath = '../dist/static/scripts/'
 const runtimeArgs = [
-  '--dns_servers', '1.0.0.1,1.1.1.1,9.9.9.9,8.8.8.8'
+  '--dns-servers', '1.0.0.1,1.1.1.1,9.9.9.9,8.8.8.8'
 ]
 
 module.exports = (() => {
@@ -41,7 +41,7 @@ module.exports = (() => {
       }
 
       if (additionalArgs.walletAddress) {
-        args = args.concat(['--wallet_address', additionalArgs.walletAddress])
+        args = args.concat(['--wallet-address', additionalArgs.walletAddress])
       }
     }
 
@@ -74,7 +74,7 @@ module.exports = (() => {
   }
 
   if (process.platform === 'linux') {
-    runtimeArgs.push('--data_directory')
+    runtimeArgs.push('--data-directory')
     runtimeArgs.push(homePath + '/.local/share/')
   }
   if (process.platform === 'win32') {

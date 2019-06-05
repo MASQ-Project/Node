@@ -30,12 +30,16 @@ where
     P: PrivilegeDropper,
 {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &Vec<String>) -> u8 {
-        self.dns_socket_server
-            .as_mut()
-            .initialize_as_privileged(args, &mut self.logger_initializer_wrapper);
-        self.bootstrapper
-            .as_mut()
-            .initialize_as_privileged(args, &mut self.logger_initializer_wrapper);
+        self.dns_socket_server.as_mut().initialize_as_privileged(
+            args,
+            streams,
+            &mut self.logger_initializer_wrapper,
+        );
+        self.bootstrapper.as_mut().initialize_as_privileged(
+            args,
+            streams,
+            &mut self.logger_initializer_wrapper,
+        );
 
         self.privilege_dropper.drop_privileges();
 
@@ -172,6 +176,7 @@ pub mod tests {
         fn initialize_as_privileged(
             &mut self,
             _args: &Vec<String>,
+            _streams: &mut StdStreams<'_>,
             _logger_initializer: &mut Box<dyn LoggerInitializerWrapper>,
         ) {
         }

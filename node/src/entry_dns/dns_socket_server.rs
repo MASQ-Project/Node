@@ -62,6 +62,7 @@ impl SocketServer for DnsSocketServer {
     fn initialize_as_privileged(
         &mut self,
         _args: &Vec<String>,
+        _streams: &mut StdStreams<'_>,
         _logger_initializer: &mut Box<dyn LoggerInitializerWrapper>,
     ) {
         let socket_addr = SocketAddr::new(V4(Ipv4Addr::from(0)), DNS_PORT);
@@ -205,7 +206,11 @@ mod tests {
 
         let mut log_initializer: Box<LoggerInitializerWrapper> =
             Box::new(LoggerInitializerWrapperMock::new());
-        subject.initialize_as_privileged(&vec![], &mut log_initializer);
+        subject.initialize_as_privileged(
+            &vec![],
+            &mut FakeStreamHolder::new().streams(),
+            &mut log_initializer,
+        );
 
         let unwrapped_guts = socket_wrapper.guts.lock().unwrap();
         let borrowed_guts = unwrapped_guts.borrow();
