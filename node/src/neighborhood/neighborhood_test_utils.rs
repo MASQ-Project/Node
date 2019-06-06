@@ -1,8 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-#![cfg(test)]
-
 use super::neighborhood_database::NeighborhoodDatabase;
 use super::node_record::NodeRecord;
+use crate::neighborhood::gossip::GossipNodeRecord;
 use crate::neighborhood::neighborhood::{AccessibleGossipRecord, Neighborhood};
 use crate::neighborhood::node_record::NodeRecordInner;
 use crate::sub_lib::cryptde::PublicKey;
@@ -13,9 +12,19 @@ use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::test_utils::cryptde;
 use crate::test_utils::test_utils::rate_pack;
+use std::convert::TryFrom;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
+
+impl From<(&NeighborhoodDatabase, &PublicKey, bool)> for AccessibleGossipRecord {
+    fn from(
+        (database, public_key, reveal_node_addr): (&NeighborhoodDatabase, &PublicKey, bool),
+    ) -> Self {
+        let intermediate_gnr = GossipNodeRecord::from((database, public_key, reveal_node_addr));
+        AccessibleGossipRecord::try_from(intermediate_gnr).unwrap()
+    }
+}
 
 pub fn make_node_record(n: u16, has_ip: bool) -> NodeRecord {
     let a = ((n / 1000) % 10) as u8;
@@ -128,6 +137,13 @@ impl NodeRecord {
 
     pub fn resign(&mut self) {
         let cryptde = CryptDENull::from(self.public_key());
+        self.regenerate_signed_gossip(&cryptde);
+    }
+}
+
+impl AccessibleGossipRecord {
+    pub fn resign(&mut self) {
+        let cryptde = CryptDENull::from(&self.inner.public_key);
         self.regenerate_signed_gossip(&cryptde);
     }
 }

@@ -11,8 +11,6 @@ use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::Masquerader;
 use node_lib::neighborhood::gossip::Gossip;
-use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;
-use node_lib::neighborhood::node_record::NodeRecord;
 use node_lib::sub_lib::cryptde::CryptDE;
 use node_lib::sub_lib::cryptde::CryptData;
 use node_lib::sub_lib::cryptde::PlainData;
@@ -38,7 +36,6 @@ use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::net::TcpStream;
 use std::rc::Rc;
-use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 
@@ -69,12 +66,12 @@ impl SubstratumNode for SubstratumMockNode {
         )
     }
 
-    fn public_key(&self) -> &PublicKey {
-        self.cryptde().public_key()
-    }
-
     fn cryptde(&self) -> CryptDENull {
         CryptDENull::from(&self.public_key())
+    }
+
+    fn public_key(&self) -> &PublicKey {
+        self.cryptde().public_key()
     }
 
     fn ip_address(&self) -> IpAddr {
@@ -111,10 +108,11 @@ impl SubstratumNode for SubstratumMockNode {
 }
 
 impl SubstratumMockNode {
-    pub fn start(
+    pub fn start_with_public_key(
         ports: Vec<u16>,
         index: usize,
         host_node_parent_dir: Option<String>,
+        public_key: &PublicKey,
     ) -> SubstratumMockNode {
         let name = format!("mock_node_{}", index);
         let node_addr = NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8)), &ports);
@@ -124,9 +122,8 @@ impl SubstratumMockNode {
         Self::do_docker_run(&node_addr, host_node_parent_dir, &name);
         let wait_addr = SocketAddr::new(node_addr.ip_addr(), CONTROL_STREAM_PORT);
         let control_stream = RefCell::new(Self::wait_for_startup(wait_addr, &name));
-        let mut cryptde = Box::new(CryptDENull::new());
-        cryptde.generate_key_pair();
         let framer = RefCell::new(DataHunkFramer::new());
+        let cryptde = Box::new(CryptDENull::from(public_key));
         let guts = Rc::new(SubstratumMockNodeGuts {
             name,
             node_addr,
@@ -377,17 +374,4 @@ impl Drop for SubstratumMockNodeGuts {
     fn drop(&mut self) {
         SubstratumNodeUtils::stop(self.name.as_str());
     }
-}
-
-pub fn db_from_node(node: &NodeRecord) -> NeighborhoodDatabase {
-    NeighborhoodDatabase::new(
-        node.public_key(),
-        &node.node_addr_opt().unwrap_or(NodeAddr::new(
-            &IpAddr::from_str("200.200.200.200").unwrap(),
-            &vec![200],
-        )),
-        node.earning_wallet(),
-        node.rate_pack().clone(),
-        &CryptDENull::from(node.public_key()),
-    )
 }

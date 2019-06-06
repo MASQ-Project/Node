@@ -292,10 +292,10 @@ impl NodeRecordMetadata {
 
 #[cfg(test)]
 mod tests {
-    use super::super::neighborhood_test_utils::make_node_record;
     use super::*;
     use crate::neighborhood::gossip::GossipBuilder;
     use crate::neighborhood::neighborhood_test_utils::db_from_node;
+    use crate::neighborhood::neighborhood_test_utils::make_node_record;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::neighborhood::ZERO_RATE_PACK;
     use crate::test_utils::test_utils::{assert_contains, cryptde, rate_pack};

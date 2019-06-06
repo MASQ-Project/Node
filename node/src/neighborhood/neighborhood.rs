@@ -400,8 +400,8 @@ impl Neighborhood {
             }
             GossipAcceptanceResult::Ban(reason) => {
                 self.logger.warning(format!(
-                    "Malefactor detected, but malefactor bans not yet implemented; ignoring: {}",
-                    reason
+                    "Malefactor detected at {}, but malefactor bans not yet implemented; ignoring: {}",
+                    gossip_source, reason
                 ));
                 self.handle_gossip_ignored(ignored_node_name, gossip_record_count);
             }
@@ -760,11 +760,8 @@ impl Neighborhood {
         self.send_gossip(next_debut_gossip, relay_target, relay_node_addr);
     }
 
-    fn handle_gossip_ignored(&self, ignored_node_name: String, gossip_record_count: usize) {
-        self.logger.info(format!(
-            "Ignored Gossip about {} Nodes from {}",
-            gossip_record_count, ignored_node_name
-        ));
+    fn handle_gossip_ignored(&self, _ignored_node_name: String, _gossip_record_count: usize) {
+        // Maybe something here eventually for keeping statistics
     }
 
     fn send_gossip(&self, gossip: Gossip, target_key: PublicKey, target_node_addr: NodeAddr) {
@@ -1995,7 +1992,6 @@ mod tests {
 
     #[test]
     fn neighborhood_calls_gossip_acceptor_when_gossip_is_received() {
-        init_test_logging();
         let handle_params_arc = Arc::new(Mutex::new(vec![]));
         let gossip_acceptor = GossipAcceptorMock::new()
             .handle_params(&handle_params_arc)
@@ -2034,13 +2030,6 @@ mod tests {
         assert_eq!(
             subject_node.node_addr_opt().unwrap().ip_addr(),
             call_gossip_source
-        );
-        TestLogHandler::new().exists_log_containing(
-            format!(
-                "INFO: Neighborhood: Ignored Gossip about 1 Nodes from {}",
-                subject_node.public_key()
-            )
-            .as_str(),
         );
     }
 
@@ -2254,7 +2243,6 @@ mod tests {
 
     #[test]
     fn neighborhood_sends_no_gossip_when_gossip_acceptor_ignores() {
-        init_test_logging();
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let neighbor = make_node_record(1000, true);
         let mut subject = neighborhood_from_nodes(&subject_node, Some(&neighbor));
@@ -2278,8 +2266,6 @@ mod tests {
         system.run();
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(0, hopper_recording.len());
-        let tlh = TestLogHandler::new();
-        tlh.exists_log_containing("INFO: Neighborhood: Ignored Gossip about 0 Nodes from 5.5.5.5");
     }
 
     #[test]
@@ -2309,7 +2295,7 @@ mod tests {
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(0, hopper_recording.len());
         let tlh = TestLogHandler::new();
-        tlh.exists_log_containing("WARN: Neighborhood: Malefactor detected, but malefactor bans not yet implemented; ignoring: Bad guy");
+        tlh.exists_log_containing("WARN: Neighborhood: Malefactor detected at 5.5.5.5, but malefactor bans not yet implemented; ignoring: Bad guy");
     }
 
     #[test]

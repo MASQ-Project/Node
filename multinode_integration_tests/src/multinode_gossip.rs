@@ -7,12 +7,10 @@ use node_lib::sub_lib::cryptde::CryptData;
 use node_lib::sub_lib::cryptde::PlainData;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::cryptde_null::CryptDENull;
-use node_lib::sub_lib::neighborhood::DEFAULT_RATE_PACK;
-use node_lib::sub_lib::node_addr::NodeAddr;
-use node_lib::sub_lib::wallet::Wallet;
-use std::collections::BTreeSet;
-use std::convert::TryFrom;
-use std::net::{IpAddr, Ipv4Addr};
+use node_lib::test_utils::test_utils::vec_to_set;
+use std::collections::{BTreeSet, HashSet};
+use std::convert::{TryFrom, TryInto};
+use std::net::IpAddr;
 
 pub enum GossipType {
     DebutGossip(SingleNode),
@@ -22,6 +20,10 @@ pub enum GossipType {
     Unrecognized,
 }
 
+/// Note: this function has no access to the receiver database so as to determine whether the
+/// "introducee" of an Introduction pair is already there or not; therefore, it may misidentify
+/// two-Node Standard Gossip as an Introduction. If you know the Gossip you're getting is Standard
+/// Gossip, even though it has two Nodes, use Standard::from(gossip.try_into().unwrap()) to wrap it.
 pub fn parse_gossip(gossip: &Gossip, sender: IpAddr) -> GossipType {
     let agrs = gossip
         .node_records
@@ -51,6 +53,8 @@ pub fn parse_gossip(gossip: &Gossip, sender: IpAddr) -> GossipType {
 }
 
 pub trait MultinodeGossip {
+    fn len(&self) -> usize;
+    fn key_set(&self) -> HashSet<PublicKey>;
     fn nodes_of_degree(&self, degree: usize) -> Vec<PublicKey>;
     fn gnr(&self, key: &PublicKey) -> Option<GossipNodeRecord>;
     fn agr(&self, key: &PublicKey) -> Option<AccessibleGossipRecord>;
@@ -63,6 +67,14 @@ pub struct SingleNode {
 }
 
 impl MultinodeGossip for SingleNode {
+    fn len(&self) -> usize {
+        1
+    }
+
+    fn key_set(&self) -> HashSet<PublicKey> {
+        vec_to_set(vec![self.node.inner.public_key.clone()])
+    }
+
     fn nodes_of_degree(&self, degree: usize) -> Vec<PublicKey> {
         nodes_of_degree(&vec![self.node.clone()], degree)
     }
@@ -98,6 +110,17 @@ impl MultinodeGossip for SingleNode {
     }
 }
 
+impl From<Gossip> for SingleNode {
+    fn from(gossip: Gossip) -> Self {
+        let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
+        if agrs.len() != 1 {
+            panic! ("Can't create SingleNode from Gossip with {} records, only from Gossip with 1 record", agrs.len())
+        } else {
+            SingleNode::from(&agrs[0])
+        }
+    }
+}
+
 impl From<&AccessibleGossipRecord> for SingleNode {
     fn from(agr: &AccessibleGossipRecord) -> Self {
         SingleNode { node: agr.clone() }
@@ -110,6 +133,10 @@ impl SingleNode {
             node: AccessibleGossipRecord::from(node),
         }
     }
+
+    pub fn key(&self) -> &PublicKey {
+        &self.node.inner.public_key
+    }
 }
 
 pub struct Introduction {
@@ -118,6 +145,17 @@ pub struct Introduction {
 }
 
 impl MultinodeGossip for Introduction {
+    fn len(&self) -> usize {
+        2
+    }
+
+    fn key_set(&self) -> HashSet<PublicKey> {
+        vec_to_set(vec![
+            self.introducer.inner.public_key.clone(),
+            self.introducee.inner.public_key.clone(),
+        ])
+    }
+
     fn nodes_of_degree(&self, degree: usize) -> Vec<PublicKey> {
         nodes_of_degree(
             &vec![self.introducer.clone(), self.introducee.clone()],
@@ -185,6 +223,17 @@ pub struct Standard {
 }
 
 impl MultinodeGossip for Standard {
+    fn len(&self) -> usize {
+        self.nodes.len()
+    }
+
+    fn key_set(&self) -> HashSet<PublicKey> {
+        self.nodes
+            .iter()
+            .map(|agr| agr.inner.public_key.clone())
+            .collect()
+    }
+
     fn nodes_of_degree(&self, degree: usize) -> Vec<PublicKey> {
         nodes_of_degree(&self.nodes, degree)
     }
@@ -248,40 +297,6 @@ impl StandardBuilder {
         StandardBuilder { agrs: vec![] }
     }
 
-    pub fn linear_neighborhood(
-        sender: &SubstratumNode,
-        receiver: &PublicKey,
-        node_count: usize,
-    ) -> StandardBuilder {
-        let builder = StandardBuilder::new()
-            .add_substratum_node(sender, 1)
-            .half_neighbors(sender.public_key(), receiver);
-        (1..node_count)
-            .into_iter()
-            .fold(
-                (builder, sender.public_key().clone()),
-                |(builder, prev_key), index| {
-                    let new_node = fictional_node(index as u8, 1, false);
-                    (
-                        builder
-                            .add_agr(&new_node)
-                            .full_neighbors(&new_node.inner.public_key, &prev_key),
-                        new_node.inner.public_key.clone(),
-                    )
-                },
-            )
-            .0
-    }
-
-    pub fn bridge_girder(
-        _sender: &SubstratumNode,
-        _receiver: &PublicKey,
-        _sender_degree: GirderNodeDegree,
-        _node_count: usize,
-    ) -> StandardBuilder {
-        unimplemented!()
-    }
-
     pub fn add_substratum_node(
         self,
         substratum_node: &SubstratumNode,
@@ -332,36 +347,6 @@ fn nodes_of_degree(nodes: &Vec<AccessibleGossipRecord>, degree: usize) -> Vec<Pu
         .filter(|node| node.inner.neighbors.len() == degree)
         .map(|node| node.inner.public_key.clone())
         .collect::<Vec<PublicKey>>()
-}
-
-fn fictional_node(index: u8, version: u32, expose_node_addr: bool) -> AccessibleGossipRecord {
-    let mut bytes: Vec<u8> = vec![];
-    for _ in 0..32 {
-        bytes.push(index)
-    }
-    let public_key = PublicKey::new(&bytes);
-    let public_key_string = public_key.to_string();
-    let earning_wallet = Wallet::new(&format!("E{}", public_key_string));
-    let rate_pack = DEFAULT_RATE_PACK.clone();
-    let ip_addr = IpAddr::V4(Ipv4Addr::new(172, 200, 18, index));
-    let mut agr = AccessibleGossipRecord {
-        inner: NodeRecordInner {
-            public_key,
-            earning_wallet,
-            rate_pack,
-            neighbors: BTreeSet::new(),
-            version,
-        },
-        node_addr_opt: if expose_node_addr {
-            Some(NodeAddr::new(&ip_addr, &vec![10000]))
-        } else {
-            None
-        },
-        signed_gossip: PlainData::new(b""),
-        signature: CryptData::new(b""),
-    };
-    agr.regenerate_signed_gossip(&CryptDENull::from(&agr.inner.public_key));
-    agr
 }
 
 impl From<&SubstratumNode> for AccessibleGossipRecord {

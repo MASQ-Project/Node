@@ -18,12 +18,10 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
     let mut cluster = SubstratumNodeCluster::start().unwrap();
 
     let originating_node = start_lonely_real_node(&mut cluster);
-    let test_node_3 = start_real_node(&mut cluster, originating_node.node_reference());
-    let test_node_4 = start_real_node(&mut cluster, originating_node.node_reference());
-    let test_node_5 = start_real_node(&mut cluster, test_node_3.node_reference());
-    let test_node_6 = start_real_node(&mut cluster, test_node_4.node_reference());
-    let test_node_7 = start_real_node(&mut cluster, test_node_4.node_reference());
-    let test_node_8 = start_real_node(&mut cluster, test_node_4.node_reference());
+    let non_originating_nodes = (0..6)
+        .into_iter()
+        .map(|_| start_real_node(&mut cluster, originating_node.node_reference()))
+        .collect::<Vec<SubstratumRealNode>>();
 
     thread::sleep(Duration::from_millis(2000));
 
@@ -39,15 +37,6 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
         "Not from example.com:\n{}",
         response
     );
-
-    let non_originating_nodes = vec![
-        test_node_3,
-        test_node_4,
-        test_node_5,
-        test_node_6,
-        test_node_7,
-        test_node_8,
-    ];
 
     // get all payables from originating node
     let payables = non_pending_payables(&originating_node);

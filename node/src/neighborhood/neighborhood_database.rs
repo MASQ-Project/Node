@@ -101,6 +101,9 @@ impl NeighborhoodDatabase {
         };
         let full_degree = target_node.full_neighbors(self).len();
         let keys = self.keys();
+        // If a Node in our database references a Node not in our database, we can't tell
+        // whether that's a half or full neighborship. We assume here for purposes of
+        // degree calculation that it's full.
         let nonexistent_degree = target_node
             .half_neighbor_keys()
             .into_iter()

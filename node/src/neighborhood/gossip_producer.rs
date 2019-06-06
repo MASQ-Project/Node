@@ -36,7 +36,7 @@ impl GossipProducer for GossipProducerReal {
             .flat_map(|k| database.node_by_key(k))
             .fold(GossipBuilder::new(database), |so_far, node_record_ref| {
                 let reveal_node_addr = node_record_ref.public_key() == database.root().public_key()
-                    || target_node_ref.has_half_neighbor(node_record_ref.public_key());
+                    || target_node_ref.has_half_neighbor(node_record_ref.public_key()); // TODO SC-894: Do we really want to reveal this?
                 so_far.node(node_record_ref.public_key(), reveal_node_addr)
             });
         let gossip = builder.build();
@@ -59,8 +59,9 @@ impl GossipProducerReal {
 #[cfg(test)]
 mod tests {
     use super::super::gossip::GossipNodeRecord;
-    use super::super::neighborhood_test_utils::*;
     use super::*;
+    use crate::neighborhood::neighborhood_test_utils::db_from_node;
+    use crate::neighborhood::neighborhood_test_utils::make_node_record;
     use crate::neighborhood::node_record::NodeRecordInner;
     use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::cryptde_null::CryptDENull;

@@ -1,18 +1,14 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::command::Command;
-use crate::multinode_gossip::parse_gossip;
-use crate::multinode_gossip::GossipType;
-use crate::multinode_gossip::StandardBuilder;
 use crate::substratum_mock_node::SubstratumMockNode;
 use crate::substratum_node::SubstratumNode;
 use crate::substratum_real_node::NodeStartupConfig;
-use crate::substratum_real_node::NodeStartupConfigBuilder;
 use crate::substratum_real_node::SubstratumRealNode;
-use node_lib::sub_lib::cryptde::PublicKey;
+use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
+use node_lib::sub_lib::cryptde_null::CryptDENull;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
-use std::time::Duration;
 
 pub struct SubstratumNodeCluster {
     real_nodes: HashMap<String, SubstratumRealNode>,
@@ -54,54 +50,27 @@ impl SubstratumNodeCluster {
     }
 
     pub fn start_mock_node(&mut self, ports: Vec<u16>) -> SubstratumMockNode {
+        let mut cryptde = Box::new(CryptDENull::new());
+        cryptde.generate_key_pair();
+        self.start_mock_node_with_public_key(ports, cryptde.public_key())
+    }
+
+    pub fn start_mock_node_with_public_key(
+        &mut self,
+        ports: Vec<u16>,
+        public_key: &PublicKey,
+    ) -> SubstratumMockNode {
         let index = self.next_index;
         self.next_index += 1;
-        let node = SubstratumMockNode::start(ports, index, self.host_node_parent_dir.clone());
+        let node = SubstratumMockNode::start_with_public_key(
+            ports,
+            index,
+            self.host_node_parent_dir.clone(),
+            public_key,
+        );
         let name = node.name().to_string();
         self.mock_nodes.insert(name.clone(), node);
         self.mock_nodes.get(&name).unwrap().clone()
-    }
-
-    /// This method starts a linear neighborhood with node_count Nodes in it, all but two of which
-    /// are fictional. It looks like this:
-    ///
-    ///   R === M === F === ... === F
-    ///
-    /// where R is a real Node, M is a mock Node, and the Fs are all fictional. The real Node's
-    /// NeighborhoodDatabase will correspond to the diagram above. When it's finished,
-    /// it returns a tuple containing the real Node and the mock Node.
-    pub fn start_linear_neighborhood(
-        &mut self,
-        node_count: usize,
-    ) -> (SubstratumRealNode, SubstratumMockNode) {
-        let mock_node = self.start_mock_node(vec![10000]);
-        let real_node = self.start_real_node(
-            NodeStartupConfigBuilder::standard()
-                .neighbor(mock_node.node_reference())
-                .build(),
-        );
-        let (gossip, ip_addr) = mock_node.wait_for_gossip(Duration::from_secs(2)).unwrap();
-        match parse_gossip(&gossip, ip_addr) {
-            GossipType::DebutGossip(_) => (),
-            _ => panic!(
-                "Expected Debut gossip, but received {}",
-                gossip.to_dot_graph(
-                    ip_addr,
-                    (mock_node.public_key(), &Some(mock_node.node_addr()))
-                )
-            ),
-        }
-        mock_node.transmit_debut(&real_node).unwrap();
-        let standard_gossip = StandardBuilder::linear_neighborhood(
-            &mock_node,
-            real_node.public_key(),
-            node_count - 1,
-        )
-        .build();
-        mock_node
-            .transmit_multinode_gossip(&real_node, &standard_gossip)
-            .unwrap();
-        (real_node, mock_node)
     }
 
     pub fn stop(self) {

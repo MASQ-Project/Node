@@ -1,107 +1,112 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use multinode_integration_tests_lib::multinode_gossip::{
-    parse_gossip, GossipType, MultinodeGossip, SingleNode,
-};
-use multinode_integration_tests_lib::substratum_mock_node::SubstratumMockNode;
-use multinode_integration_tests_lib::substratum_node::{NodeReference, SubstratumNode};
+use multinode_integration_tests_lib::multinode_gossip::{MultinodeGossip, SingleNode, Standard};
+use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
+use multinode_integration_tests_lib::substratum_node::SubstratumNode;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
-use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
-use node_lib::sub_lib::cryptde::PublicKey;
-use node_lib::sub_lib::cryptde_null::CryptDENull;
+use node_lib::neighborhood::gossip::GossipBuilder;
+use node_lib::neighborhood::neighborhood::AccessibleGossipRecord;
+use node_lib::neighborhood::neighborhood_test_utils::{db_from_node, make_node_record};
+use node_lib::neighborhood::node_record::NodeRecord;
+use node_lib::test_utils::test_utils::vec_to_set;
+use std::convert::TryInto;
 use std::time::Duration;
 
 #[test]
-#[ignore]
 fn debut_target_does_not_introduce_known_neighbors() {
     let mut cluster = SubstratumNodeCluster::start().unwrap();
-    let common_neighbor = cluster.start_mock_node(vec![10000]);
-    let subject = cluster.start_real_node(
-        NodeStartupConfigBuilder::standard()
-            .neighbor(common_neighbor.node_reference())
+    let one_common_neighbor = make_node_record(1234, true);
+    let another_common_neighbor = make_node_record(2435, true);
+    let dest_db = {
+        let subject_node_record = make_node_record(3456, true);
+        let mut dest_db = db_from_node(&make_node_record(3456, true));
+        dest_db.add_node(one_common_neighbor.clone()).unwrap();
+        dest_db.add_arbitrary_full_neighbor(
+            subject_node_record.public_key(),
+            one_common_neighbor.public_key(),
+        );
+        dest_db.add_node(another_common_neighbor.clone()).unwrap();
+        dest_db.add_arbitrary_full_neighbor(
+            subject_node_record.public_key(),
+            another_common_neighbor.public_key(),
+        );
+        dest_db
+    };
+    let debuter_mock_node = cluster.start_mock_node(vec![10000]);
+    let debuter_node_record = NodeRecord::from(&debuter_mock_node);
+    let mut src_db = db_from_node(&debuter_node_record);
+    src_db.add_node(one_common_neighbor.clone()).unwrap();
+    src_db.add_arbitrary_full_neighbor(
+        debuter_node_record.public_key(),
+        one_common_neighbor.public_key(),
+    );
+    src_db.add_node(another_common_neighbor.clone()).unwrap();
+    src_db.add_arbitrary_full_neighbor(
+        debuter_node_record.public_key(),
+        another_common_neighbor.public_key(),
+    );
+    let (_, subject_real_node, _) = construct_neighborhood(&mut cluster, dest_db, vec![]);
+    let debut_gossip = SingleNode::from(
+        GossipBuilder::new(&src_db)
+            .node(debuter_mock_node.public_key(), true)
             .build(),
     );
-    let (gossip, ip_addr) = common_neighbor
+
+    debuter_mock_node
+        .transmit_multinode_gossip(&subject_real_node, &debut_gossip)
+        .unwrap();
+    let (result, _) = debuter_mock_node
         .wait_for_gossip(Duration::from_secs(2))
         .unwrap();
-    match parse_gossip(&gossip, ip_addr) {
-        GossipType::DebutGossip(_) => (),
-        _ => panic!(
-            "Unexpected Gossip: {}",
-            gossip.to_dot_graph(
-                ip_addr,
-                (
-                    common_neighbor.public_key(),
-                    &Some(common_neighbor.node_addr())
-                )
-            )
-        ),
-    }
-    common_neighbor.transmit_debut(&subject).unwrap();
-    let debuter = cluster.start_mock_node(vec![10000]);
-    let mut debut = SingleNode::new(&debuter);
-    debut
-        .agr_mut(debuter.public_key())
-        .unwrap()
-        .inner
-        .neighbors
-        .insert(common_neighbor.public_key().clone());
-    debut
-        .agr_mut(debuter.public_key())
-        .unwrap()
-        .regenerate_signed_gossip(&CryptDENull::from(debuter.public_key()));
 
-    debuter.transmit_multinode_gossip(&subject, &debut).unwrap();
+    let agrs: Vec<AccessibleGossipRecord> = result.try_into().unwrap();
 
-    match debuter.wait_for_gossip(Duration::from_secs(2)) {
-        Some(_) => panic!("Subject sent response Gossip when it should have been silent"),
-        None => (), // No Gossip for two seconds: test passes
-    }
+    let standard_gossip = Standard::from(&agrs);
+    assert_eq!(
+        standard_gossip.key_set(),
+        vec_to_set(vec![
+            subject_real_node.public_key().clone(),
+            one_common_neighbor.public_key().clone(),
+            another_common_neighbor.public_key().clone(),
+        ])
+    );
 }
 
 #[test]
-#[ignore]
 fn debut_target_does_not_pass_to_known_neighbors() {
     let mut cluster = SubstratumNodeCluster::start().unwrap();
     let common_neighbors = (0..5)
         .into_iter()
-        .map(|_| cluster.start_mock_node(vec![10000]))
-        .collect::<Vec<SubstratumMockNode>>();
-    let common_node_references = common_neighbors
-        .iter()
-        .map(|n| n.node_reference())
-        .collect::<Vec<NodeReference>>();
-    let subject = cluster.start_real_node(
-        NodeStartupConfigBuilder::standard()
-            .neighbors(common_node_references.clone())
+        .map(|index| make_node_record(1111 + index, true))
+        .collect::<Vec<NodeRecord>>();
+    let dest_db = {
+        let subject_node_record = make_node_record(3456, true);
+        let mut dest_db = db_from_node(&make_node_record(3456, true));
+        common_neighbors.iter().for_each(|node| {
+            dest_db.add_node(node.clone()).unwrap();
+            dest_db
+                .add_arbitrary_full_neighbor(subject_node_record.public_key(), node.public_key());
+        });
+        dest_db
+    };
+    let debuter_mock_node = cluster.start_mock_node(vec![10000]);
+    let debuter_node_record = NodeRecord::from(&debuter_mock_node);
+    let mut src_db = db_from_node(&debuter_node_record);
+    common_neighbors.iter().for_each(|node| {
+        src_db.add_node(node.clone()).unwrap();
+        src_db.add_arbitrary_full_neighbor(debuter_node_record.public_key(), node.public_key());
+    });
+    let (_, subject_real_node, _) = construct_neighborhood(&mut cluster, dest_db, vec![]);
+    let debut_gossip = SingleNode::from(
+        GossipBuilder::new(&src_db)
+            .node(debuter_mock_node.public_key(), true)
             .build(),
     );
-    common_neighbors.iter().for_each(|n| {
-        n.wait_for_gossip(Duration::from_secs(2)).unwrap();
-        n.transmit_debut(&subject).unwrap();
-    });
-    let debuter = cluster.start_mock_node(vec![10000]);
-    let mut debut = SingleNode::new(&debuter);
-    debut
-        .agr_mut(debuter.public_key())
-        .unwrap()
-        .inner
-        .neighbors
-        .extend(
-            common_node_references
-                .into_iter()
-                .map(|node_ref| node_ref.public_key)
-                .collect::<Vec<PublicKey>>(),
-        );
-    debut
-        .agr_mut(debuter.public_key())
-        .unwrap()
-        .regenerate_signed_gossip(&CryptDENull::from(debuter.public_key()));
 
-    debuter.transmit_multinode_gossip(&subject, &debut).unwrap();
+    debuter_mock_node
+        .transmit_multinode_gossip(&subject_real_node, &debut_gossip)
+        .unwrap();
+    let result = debuter_mock_node.wait_for_gossip(Duration::from_secs(2));
 
-    match debuter.wait_for_gossip(Duration::from_secs(2)) {
-        Some(_) => panic!("Subject sent response Gossip when it should have been silent"),
-        None => (), // No Gossip for two seconds: test passes
-    }
+    assert_eq!(result, None); // couldn't pass to anyone for all the common neighbors; no response, test passes
 }
