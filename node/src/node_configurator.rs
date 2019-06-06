@@ -410,18 +410,23 @@ impl NodeConfiguratorReal {
              later)..."
         )
         .expect("Failed console write.");
+        streams.stdout.flush().expect("Failed flush.");
+
         for attempt in &["Try again", "Try again", "Giving up"] {
             write!(streams.stdout, "  Enter password: ").expect("Failed console write.");
+            streams.stdout.flush().expect("Failed flush.");
             let (possible_password, possible_confirm) =
                 match read_password_with_reader(Self::possible_reader_from_stream(streams)) {
                     Ok(password) => {
                         if password.is_empty() {
                             writeln!(streams.stdout, "\nPassword cannot be blank. {}.", attempt)
                                 .expect("Failed console write.");
+                            streams.stdout.flush().expect("Failed flush.");
                             (None, None)
                         } else {
                             write!(streams.stdout, "\nConfirm password: ")
                                 .expect("Failed console write.");
+                            streams.stdout.flush().expect("Failed flush.");
 
                             match read_password_with_reader(Self::possible_reader_from_stream(
                                 streams,
@@ -436,6 +441,7 @@ impl NodeConfiguratorReal {
                                             attempt
                                         )
                                         .expect("Failed console write.");
+                                        streams.stdout.flush().expect("Failed flush.");
 
                                         (None, None)
                                     }
@@ -465,9 +471,12 @@ impl NodeConfiguratorReal {
             encrypt your wallet in a following step...",
         )
             .expect("Failed console write.");
+        streams.stdout.flush().expect("Failed flush.");
+
         for attempts in &["Try again", "Try again", "Giving up"] {
             write!(streams.stdout, "Mnemonic Passphrase (Recommended): ")
                 .expect("Failed console write.");
+            streams.stdout.flush().expect("Failed flush.");
 
             match read_password_with_reader(Self::possible_reader_from_stream(streams)) {
                 Ok(passphrase) => {
@@ -477,12 +486,14 @@ impl NodeConfiguratorReal {
                             "\nWhile ill-advised, proceeding with no mnemonic passphrase.\nPress enter to continue...",
                         )
                             .expect("Failed to write warning.");
+                        streams.stdout.flush().expect("Failed flush.");
 
                         let _ = streams.stdin.read(&mut [0u8]).is_ok();
                         return None;
                     } else {
                         write!(streams.stdout, "Confirm Mnemonic Passphrase: ")
                             .expect("Failed to write confirmation prompt.");
+                        streams.stdout.flush().expect("Failed flush.");
 
                         match read_password_with_reader(Self::possible_reader_from_stream(streams))
                         {
@@ -496,6 +507,7 @@ impl NodeConfiguratorReal {
                                         attempts
                                     )
                                     .expect("Failed to write retry.");
+                                    streams.stdout.flush().expect("Failed flush.");
                                     continue;
                                 }
                             }
@@ -508,6 +520,7 @@ impl NodeConfiguratorReal {
         }
         writeln!(streams.stdout, "Proceeding without a mnemonic passphrase.")
             .expect("Failed console write.");
+        streams.stdout.flush().expect("Failed flush.");
         None
     }
 
