@@ -55,6 +55,10 @@ where
             a
         })
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.a_to_b.is_empty() && self.b_to_a.is_empty()
+    }
 }
 
 #[cfg(test)]
@@ -152,5 +156,21 @@ mod tests {
         subject.remove_a(&"Polly");
 
         assert_eq!(subject.len(), 1);
+    }
+
+    #[test]
+    fn is_empty_when_empty() {
+        let subject = BidiHashMap::<u8, u8>::new();
+
+        assert!(subject.is_empty());
+    }
+
+    #[test]
+    fn is_empty_when_not_empty() {
+        let mut subject = BidiHashMap::new();
+
+        subject.insert("what", "is");
+
+        assert!(!subject.is_empty());
     }
 }

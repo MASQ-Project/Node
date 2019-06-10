@@ -1,30 +1,52 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-
-mod utils;
-
+use multinode_integration_tests_lib::substratum_node::SubstratumNode;
+use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
+use multinode_integration_tests_lib::substratum_real_node::{
+    NodeStartupConfigBuilder, SubstratumRealNode,
+};
 use native_tls::HandshakeError;
 use native_tls::TlsConnector;
 use native_tls::TlsStream;
 use node_lib::test_utils::test_utils::*;
 use std::io::Write;
-use std::net::SocketAddr;
-use std::net::TcpStream;
+use std::net::{SocketAddr, TcpStream};
 use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 
 #[test]
-#[allow(unused_variables)] // 'node' below must not become '_' or disappear, or the
-                           // SubstratumNode will be immediately reclaimed.
-fn tls_through_node_integration() {
-    let node = utils::SubstratumNode::start(None);
+fn tls_end_to_end_routing_test() {
+    let mut cluster = SubstratumNodeCluster::start().unwrap();
+    let first_node = cluster.start_real_node(NodeStartupConfigBuilder::standard().build());
+
+    let nodes = (0..7)
+        .map(|_| {
+            cluster.start_real_node(
+                NodeStartupConfigBuilder::standard()
+                    .neighbor(first_node.node_reference())
+                    .build(),
+            )
+        })
+        .collect::<Vec<SubstratumRealNode>>();
+
+    thread::sleep(Duration::from_millis(500 * (nodes.len() as u64)));
+
     let mut tls_stream = {
         let mut tls_stream: Option<TlsStream<TcpStream>> = None;
-        let stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:443").unwrap())
-            .expect("Could not connect to 127.0.0.1:443");
+        let stream = TcpStream::connect(
+            SocketAddr::from_str(&format!(
+                "{}:{}",
+                &nodes[5].node_addr().ip_addr().to_string(),
+                "8443"
+            ))
+            .unwrap(),
+        )
+        .expect(&format!(
+            "Could not connect to {}:8443",
+            &nodes[5].node_addr().ip_addr().to_string()
+        ));
         stream
-            .set_read_timeout(Some(Duration::from_millis(200)))
-            .expect("Could not set read timeout to 200ms");
+            .set_read_timeout(Some(Duration::from_millis(1000)))
+            .expect("Could not set read timeout to 1000ms");
         let connector = TlsConnector::new().expect("Could not build TlsConnector");
         match connector.connect(
             "example.com",

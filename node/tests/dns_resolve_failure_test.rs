@@ -2,8 +2,7 @@
 
 mod utils;
 
-use crate::utils::read_until_timeout;
-use node_lib::test_utils::test_utils::assert_string_contains;
+use node_lib::test_utils::test_utils::{assert_string_contains, read_until_timeout};
 use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
 use std::str::FromStr;

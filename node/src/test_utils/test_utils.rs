@@ -26,13 +26,13 @@ use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::io::Error;
 use std::io::Read;
 use std::io::Write;
-use std::net::IpAddr;
+use std::io::{Error, ErrorKind};
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::net::UdpSocket;
+use std::net::{IpAddr, Shutdown, TcpStream};
 use std::path::PathBuf;
 use std::str::from_utf8;
 use std::str::FromStr;
@@ -447,6 +447,37 @@ pub fn ensure_node_home_directory_exists(module: &str, name: &str) -> PathBuf {
     let _ = fs::remove_dir_all(&home_dir);
     let _ = fs::create_dir_all(&home_dir);
     home_dir
+}
+
+pub fn read_until_timeout(stream: &mut dyn Read) -> Vec<u8> {
+    let mut response: Vec<u8> = vec![];
+    let mut buf = [0u8; 16384];
+    let mut last_data_at = Instant::now();
+    loop {
+        match stream.read(&mut buf) {
+            Err(ref e)
+                if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) =>
+            {
+                thread::sleep(Duration::from_millis(1000));
+            }
+            Err(ref e) if (e.kind() == ErrorKind::ConnectionReset) && (response.len() > 0) => break,
+            Err(e) => panic!("Read error: {}", e),
+            Ok(len) => {
+                response.extend(&buf[..len]);
+                last_data_at = Instant::now()
+            }
+        }
+        let now = Instant::now();
+        if now.duration_since(last_data_at).subsec_millis() > 500 {
+            break;
+        }
+    }
+    response
+}
+
+pub fn handle_connection_error(stream: TcpStream) {
+    let _ = stream.shutdown(Shutdown::Both).is_ok();
+    thread::sleep(Duration::from_millis(5000));
 }
 
 #[cfg(test)]

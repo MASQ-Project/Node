@@ -2,7 +2,7 @@
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, MessageType};
-use crate::sub_lib::neighborhood::ExpectedService;
+use crate::sub_lib::neighborhood::{ExpectedService, RouteQueryResponse};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
 use crate::sub_lib::sequence_buffer::SequencedPacket;
@@ -44,6 +44,12 @@ pub struct AddReturnRouteMessage {
     pub server_name: Option<String>,
 }
 
+#[derive(Message, Debug, PartialEq)]
+pub struct AddRouteMessage {
+    pub stream_key: StreamKey,
+    pub route: RouteQueryResponse,
+}
+
 #[derive(Clone)]
 pub struct ProxyServerSubs {
     // ProxyServer will handle these messages:
@@ -52,4 +58,5 @@ pub struct ProxyServerSubs {
     pub from_hopper: Recipient<ExpiredCoresPackage<ClientResponsePayload>>,
     pub dns_failure_from_hopper: Recipient<ExpiredCoresPackage<DnsResolveFailure>>,
     pub add_return_route: Recipient<AddReturnRouteMessage>,
+    pub add_route: Recipient<AddRouteMessage>,
 }

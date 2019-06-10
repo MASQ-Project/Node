@@ -4,7 +4,6 @@ use regex;
 use node_lib::sub_lib::crash_point::CrashPoint;
 use std::env;
 use std::fs::File;
-use std::io::ErrorKind;
 use std::io::Read;
 use std::ops::Drop;
 use std::process::Child;
@@ -170,33 +169,6 @@ impl SubstratumNode {
         ]);
         command
     }
-}
-
-#[allow(dead_code)]
-pub fn read_until_timeout(stream: &mut dyn Read) -> Vec<u8> {
-    let mut response: Vec<u8> = vec![];
-    let mut buf = [0u8; 16384];
-    let mut last_data_at = Instant::now();
-    loop {
-        match stream.read(&mut buf) {
-            Err(ref e)
-                if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) =>
-            {
-                thread::sleep(Duration::from_millis(1000));
-            }
-            Err(ref e) if (e.kind() == ErrorKind::ConnectionReset) && (response.len() > 0) => break,
-            Err(e) => panic!("Read error: {}", e),
-            Ok(len) => {
-                response.extend(&buf[..len]);
-                last_data_at = Instant::now()
-            }
-        }
-        let now = Instant::now();
-        if now.duration_since(last_data_at).subsec_millis() > 500 {
-            break;
-        }
-    }
-    response
 }
 
 fn get_command_config(config_opt: Option<CommandConfig>) -> CommandConfig {

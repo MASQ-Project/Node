@@ -390,7 +390,9 @@ mod tests {
     use crate::sub_lib::proxy_client::{
         ClientResponsePayload, DnsResolveFailure, InboundServerData,
     };
-    use crate::sub_lib::proxy_server::{AddReturnRouteMessage, ClientRequestPayload};
+    use crate::sub_lib::proxy_server::{
+        AddReturnRouteMessage, AddRouteMessage, ClientRequestPayload,
+    };
     use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
@@ -474,6 +476,7 @@ mod tests {
                     .clone()
                     .recipient::<ExpiredCoresPackage<DnsResolveFailure>>(),
                 add_return_route: addr.clone().recipient::<AddReturnRouteMessage>(),
+                add_route: addr.clone().recipient::<AddRouteMessage>(),
             }
         }
 
