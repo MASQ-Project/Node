@@ -77,8 +77,7 @@ impl SubstratumCoresServer {
         let local_addr = SocketAddr::new(ip_address, port);
         let listener = TcpListener::bind(local_addr)
             .expect(format!("Couldn't start server on {}", local_addr).as_str());
-        let mut cryptde = CryptDENull::new();
-        cryptde.generate_key_pair();
+        let cryptde = CryptDENull::new();
         let (io_tx, io_rx) = mpsc::channel::<io::Result<Vec<u8>>>();
         let join_handle = thread::spawn(move || loop {
             let (mut stream, _) = match listener.accept() {

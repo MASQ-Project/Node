@@ -503,7 +503,7 @@ mod tests {
 
         let subject = route_to_proxy_client(&key, &cryptde);
 
-        let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(68).collect();
+        let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(107).collect();
         cryptde.random(&mut garbage_can[..]);
         assert_eq!(
             subject.hops,
@@ -527,7 +527,7 @@ mod tests {
 
         let subject = route_from_proxy_client(&key, &cryptde);
 
-        let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(68).collect();
+        let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(107).collect();
         cryptde.random(&mut garbage_can[..]);
         assert_eq!(
             subject.hops,
@@ -551,8 +551,10 @@ mod tests {
 
         let subject = route_to_proxy_server(&key, &cryptde);
 
-        let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(68).collect();
-        cryptde.random(&mut garbage_can[..]);
+        let mut first_garbage_can: Vec<u8> = iter::repeat(0u8).take(107).collect();
+        let mut second_garbage_can: Vec<u8> = iter::repeat(0u8).take(107).collect();
+        cryptde.random(&mut first_garbage_can[..]);
+        cryptde.random(&mut second_garbage_can[..]);
         assert_eq!(
             subject.hops,
             vec!(
@@ -560,8 +562,8 @@ mod tests {
                     .encode(&key, &cryptde)
                     .unwrap(),
                 encrypt_return_route_id(0, &cryptde),
-                CryptData::new(&garbage_can[..]),
-                CryptData::new(&garbage_can[..]),
+                CryptData::new(&first_garbage_can[..]),
+                CryptData::new(&second_garbage_can[..]),
             )
         );
     }

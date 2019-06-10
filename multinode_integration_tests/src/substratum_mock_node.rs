@@ -11,11 +11,11 @@ use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::Masquerader;
 use node_lib::neighborhood::gossip::Gossip;
-use node_lib::sub_lib::cryptde::CryptDE;
 use node_lib::sub_lib::cryptde::CryptData;
-use node_lib::sub_lib::cryptde::PlainData;
 use node_lib::sub_lib::cryptde::PublicKey;
+use node_lib::sub_lib::cryptde::{encodex, CryptDE};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
+use node_lib::sub_lib::cryptde_real::CryptDEReal;
 use node_lib::sub_lib::framer::Framer;
 use node_lib::sub_lib::hopper::{IncipientCoresPackage, MessageType};
 use node_lib::sub_lib::neighborhood::{RatePack, ZERO_RATE_PACK};
@@ -44,6 +44,11 @@ pub struct SubstratumMockNode {
     guts: Rc<SubstratumMockNodeGuts>,
 }
 
+enum CryptDEEnum {
+    Real(CryptDEReal),
+    Fake(CryptDENull),
+}
+
 impl Clone for SubstratumMockNode {
     fn clone(&self) -> Self {
         SubstratumMockNode {
@@ -60,18 +65,28 @@ impl SubstratumNode for SubstratumMockNode {
 
     fn node_reference(&self) -> NodeReference {
         NodeReference::new(
-            self.cryptde().public_key().clone(),
+            self.signing_cryptde().unwrap().public_key().clone(),
             self.node_addr().ip_addr(),
             self.node_addr().ports(),
         )
     }
 
-    fn cryptde(&self) -> CryptDENull {
-        CryptDENull::from(&self.public_key())
+    fn cryptde_null(&self) -> Option<&CryptDENull> {
+        match &self.guts.cryptde_enum {
+            CryptDEEnum::Fake(ref cryptde_null) => Some(cryptde_null),
+            CryptDEEnum::Real(_) => None,
+        }
+    }
+
+    fn signing_cryptde(&self) -> Option<&CryptDE> {
+        match &self.guts.cryptde_enum {
+            CryptDEEnum::Fake(ref cryptde_null) => Some(cryptde_null),
+            CryptDEEnum::Real(ref cryptde_real) => Some(cryptde_real),
+        }
     }
 
     fn public_key(&self) -> &PublicKey {
-        self.cryptde().public_key()
+        self.signing_cryptde().unwrap().public_key()
     }
 
     fn ip_address(&self) -> IpAddr {
@@ -114,6 +129,25 @@ impl SubstratumMockNode {
         host_node_parent_dir: Option<String>,
         public_key: &PublicKey,
     ) -> SubstratumMockNode {
+        let cryptde_enum = CryptDEEnum::Fake(CryptDENull::from(public_key));
+        Self::start_with_cryptde_enum(ports, index, host_node_parent_dir, cryptde_enum)
+    }
+
+    pub fn start(
+        ports: Vec<u16>,
+        index: usize,
+        host_node_parent_dir: Option<String>,
+    ) -> SubstratumMockNode {
+        let cryptde_enum = CryptDEEnum::Real(CryptDEReal::new());
+        Self::start_with_cryptde_enum(ports, index, host_node_parent_dir, cryptde_enum)
+    }
+
+    fn start_with_cryptde_enum(
+        ports: Vec<u16>,
+        index: usize,
+        host_node_parent_dir: Option<String>,
+        cryptde_enum: CryptDEEnum,
+    ) -> SubstratumMockNode {
         let name = format!("mock_node_{}", index);
         let node_addr = NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8)), &ports);
         let earning_wallet = Wallet::new(format!("{}_earning", name).as_str());
@@ -123,18 +157,24 @@ impl SubstratumMockNode {
         let wait_addr = SocketAddr::new(node_addr.ip_addr(), CONTROL_STREAM_PORT);
         let control_stream = RefCell::new(Self::wait_for_startup(wait_addr, &name));
         let framer = RefCell::new(DataHunkFramer::new());
-        let cryptde = Box::new(CryptDENull::from(public_key));
         let guts = Rc::new(SubstratumMockNodeGuts {
             name,
             node_addr,
             earning_wallet,
             consuming_wallet,
-            cryptde,
+            cryptde_enum,
             framer,
         });
         SubstratumMockNode {
             control_stream,
             guts,
+        }
+    }
+
+    pub fn cryptde_real(&self) -> Option<&CryptDEReal> {
+        match &self.guts.cryptde_enum {
+            CryptDEEnum::Fake(_) => None,
+            CryptDEEnum::Real(ref cryptde_real) => Some(cryptde_real),
         }
     }
 
@@ -154,12 +194,9 @@ impl SubstratumMockNode {
         target_key: &PublicKey,
         target_addr: SocketAddr,
     ) -> Result<(), io::Error> {
-        let (lcp, _) = LiveCoresPackage::from_incipient(package, self.cryptde()).unwrap();
-        let lcp_data = serde_cbor::ser::to_vec(&lcp).unwrap();
-        let encrypted_data = self
-            .cryptde()
-            .encode(target_key, &PlainData::new(&lcp_data[..]))
-            .unwrap();
+        let (lcp, _) =
+            LiveCoresPackage::from_incipient(package, self.signing_cryptde().unwrap()).unwrap();
+        let encrypted_data = encodex(self.signing_cryptde().unwrap(), target_key, &lcp).unwrap();
         let masked_data = masquerader.mask(encrypted_data.as_slice()).unwrap();
         let data_hunk = DataHunk::new(
             SocketAddr::new(self.ip_address(), transmit_port),
@@ -177,9 +214,9 @@ impl SubstratumMockNode {
         target_addr: SocketAddr,
     ) -> Result<(), io::Error> {
         let masquerader = JsonMasquerader::new();
-        let route = Route::single_hop(target_key, self.cryptde()).unwrap();
+        let route = Route::single_hop(target_key, self.signing_cryptde().unwrap()).unwrap();
         let package = IncipientCoresPackage::new(
-            self.cryptde(),
+            self.signing_cryptde().unwrap(),
             route,
             MessageType::Gossip(gossip),
             target_key,
@@ -273,7 +310,8 @@ impl SubstratumMockNode {
             )
             .chunk;
         let decrypted_data = self
-            .cryptde()
+            .signing_cryptde()
+            .unwrap()
             .decode(&CryptData::new(&unmasked_data[..]))
             .unwrap();
         let live_cores_package =
@@ -285,7 +323,9 @@ impl SubstratumMockNode {
         let masquerader = JsonMasquerader::new();
         match self.wait_for_package(&masquerader, timeout) {
             Ok((from, _, package)) => {
-                let incoming_cores_package = package.to_expired(from.ip(), self.cryptde()).unwrap();
+                let incoming_cores_package = package
+                    .to_expired(from.ip(), self.signing_cryptde().unwrap())
+                    .unwrap();
                 match incoming_cores_package.payload {
                     MessageType::Gossip(g) => Some((g, from.ip())),
                     _ => panic!("Expected Gossip, got something else"),
@@ -293,10 +333,6 @@ impl SubstratumMockNode {
             }
             Err(_) => None,
         }
-    }
-
-    pub fn cryptde(&self) -> &dyn CryptDE {
-        self.guts.cryptde.as_ref()
     }
 
     fn do_docker_run(node_addr: &NodeAddr, host_node_parent_dir: Option<String>, name: &String) {
@@ -366,7 +402,7 @@ struct SubstratumMockNodeGuts {
     node_addr: NodeAddr,
     earning_wallet: Wallet,
     consuming_wallet: Option<Wallet>,
-    cryptde: Box<dyn CryptDE>,
+    cryptde_enum: CryptDEEnum,
     framer: RefCell<DataHunkFramer>,
 }
 

@@ -27,7 +27,6 @@ use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::cryptde::CryptDE;
-use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::dispatcher::DispatcherSubs;
 use crate::sub_lib::hopper::HopperConfig;
 use crate::sub_lib::hopper::HopperSubs;
@@ -64,8 +63,7 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
         config: BootstrapperConfig,
         actor_factory: Box<dyn ActorFactory>,
     ) -> StreamHandlerPoolSubs {
-        let cryptde: &'static CryptDENull =
-            unsafe { bootstrapper::CRYPT_DE_OPT.as_ref().expect("Internal error") };
+        let cryptde = bootstrapper::cryptde_ref();
         let (tx, rx) = mpsc::channel();
 
         ActorSystemFactoryReal::prepare_initial_messages(cryptde, config, actor_factory, tx);
@@ -368,7 +366,7 @@ mod tests {
     use crate::accountant::accountant::ReceivedPayments;
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
     use crate::blockchain::blockchain_interface::TESTNET_CONTRACT_ADDRESS;
-    use crate::bootstrapper::CRYPT_DE_OPT;
+    use crate::bootstrapper::Bootstrapper;
     use crate::database::db_initializer::test_utils::{ConnectionWrapperMock, DbInitializerMock};
     use crate::database::db_initializer::{ConnectionWrapper, InitializationError};
     use crate::neighborhood::gossip::Gossip;
@@ -381,6 +379,7 @@ mod tests {
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::sub_lib::crash_point::CrashPoint;
     use crate::sub_lib::cryptde::PlainData;
+    use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::InboundClientData;
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
@@ -882,11 +881,10 @@ mod tests {
             port_configurations: HashMap::new(),
             clandestine_port_opt: None,
             data_directory: PathBuf::new(),
+            cryptde_null_opt: None,
         };
+        Bootstrapper::pub_initialize_cryptde_for_testing(&Some(CryptDENull::new()));
         let subject = ActorSystemFactoryReal {};
-        unsafe {
-            CRYPT_DE_OPT = Some(CryptDENull::new());
-        }
 
         let system = System::new("test");
         subject.make_and_start_actors(config, Box::new(actor_factory));
@@ -942,6 +940,7 @@ mod tests {
             port_configurations: HashMap::new(),
             clandestine_port_opt: None,
             data_directory: PathBuf::new(),
+            cryptde_null_opt: None,
         };
         let (tx, rx) = mpsc::channel();
         let system = System::new("SubstratumNode");

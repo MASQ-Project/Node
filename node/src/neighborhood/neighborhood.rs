@@ -53,7 +53,7 @@ pub struct Neighborhood {
     neighborhood_database: NeighborhoodDatabase,
     consuming_wallet_opt: Option<Wallet>,
     next_return_route_id: u32,
-    initial_neighbors: Vec<NodeDescriptor>,
+    initial_neighbors: Vec<String>,
     logger: Logger,
 }
 
@@ -89,14 +89,21 @@ impl Handler<BootstrapNeighborhoodNowMessage> for Neighborhood {
             .gossip_producer
             .produce_debut(&self.neighborhood_database);
         &self.initial_neighbors.iter().for_each(|neighbor| {
+            let node_descriptor = match NodeDescriptor::from_str(self.cryptde, neighbor) {
+                Ok(nd) => nd,
+                Err(e) => panic!(
+                    "--neighbor must be <public key>:<ip address>:<port>;<port>..., not '{}'",
+                    e
+                ),
+            };
             self.hopper_no_lookup
                 .as_ref()
                 .expect("unbound hopper")
                 .try_send(
                     NoLookupIncipientCoresPackage::new(
                         self.cryptde,
-                        &neighbor.public_key,
-                        &neighbor.node_addr,
+                        &node_descriptor.public_key,
+                        &node_descriptor.node_addr,
                         MessageType::Gossip(gossip.clone()),
                     )
                     .expect("Key magically disappeared"),
@@ -106,7 +113,10 @@ impl Handler<BootstrapNeighborhoodNowMessage> for Neighborhood {
                 "Sent Gossip: {}",
                 gossip.to_dot_graph(
                     self.neighborhood_database.root(),
-                    (&neighbor.public_key, &Some(neighbor.node_addr.clone()))
+                    (
+                        &node_descriptor.public_key,
+                        &Some(node_descriptor.node_addr.clone())
+                    )
                 )
             ));
         });
@@ -311,10 +321,6 @@ impl Neighborhood {
             initial_neighbors: config.neighbor_configs,
             logger: Logger::new("Neighborhood"),
         }
-    }
-
-    pub fn initial_neighbors(&self) -> &Vec<NodeDescriptor> {
-        &self.initial_neighbors
     }
 
     pub fn make_subs_from(addr: &Addr<Neighborhood>) -> NeighborhoodSubs {
@@ -958,7 +964,8 @@ mod tests {
                 neighbor_configs: vec![NodeDescriptor {
                     public_key: neighbor.public_key().clone(),
                     node_addr: neighbor.node_addr_opt().unwrap().clone(),
-                }],
+                }
+                .to_string(cryptde)],
                 local_ip_addr: sentinel_ip_addr(),
                 clandestine_port_list: vec![0],
                 earning_wallet: earning_wallet.clone(),
@@ -1030,6 +1037,39 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(
+        expected = "--neighbor must be <public key>:<ip address>:<port>;<port>..., not 'ooga'"
+    )]
+    fn node_with_bad_neighbor_config_panics() {
+        let cryptde = cryptde();
+        let earning_wallet = Wallet::new("earning");
+        let consuming_wallet = Some(Wallet::new("consuming"));
+        let system =
+            System::new("node_with_no_neighbor_configs_ignores_bootstrap_neighborhood_now_message");
+        let subject = Neighborhood::new(
+            cryptde,
+            NeighborhoodConfig {
+                neighbor_configs: vec![String::from("ooga"), String::from("booga")],
+                local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
+                clandestine_port_list: vec![5678],
+                earning_wallet: earning_wallet.clone(),
+                consuming_wallet: consuming_wallet.clone(),
+                rate_pack: rate_pack(100),
+            },
+        );
+        let addr: Addr<Neighborhood> = subject.start();
+        let sub: Recipient<BootstrapNeighborhoodNowMessage> =
+            addr.clone().recipient::<BootstrapNeighborhoodNowMessage>();
+        let peer_actors = peer_actors_builder().build();
+        addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        sub.try_send(BootstrapNeighborhoodNowMessage {}).unwrap();
+
+        System::current().stop_with_code(0);
+        system.run();
+    }
+
+    #[test]
     fn neighborhood_adds_nodes_and_links() {
         let cryptde = cryptde();
         let earning_wallet = Wallet::new("earning");
@@ -1045,11 +1085,13 @@ mod tests {
                     NodeDescriptor {
                         public_key: one_neighbor_node.public_key().clone(),
                         node_addr: one_neighbor_node.node_addr_opt().unwrap().clone(),
-                    },
+                    }
+                    .to_string(cryptde),
                     NodeDescriptor {
                         public_key: another_neighbor_node.public_key().clone(),
                         node_addr: another_neighbor_node.node_addr_opt().unwrap().clone(),
-                    },
+                    }
+                    .to_string(cryptde),
                 ],
                 local_ip_addr: this_node_addr.ip_addr(),
                 clandestine_port_list: this_node_addr.ports().clone(),
@@ -1075,18 +1117,19 @@ mod tests {
             false,
         );
         assert_eq!(
-            subject.initial_neighbors()[0],
-            NodeDescriptor {
-                public_key: one_neighbor_node.public_key().clone(),
-                node_addr: one_neighbor_node.node_addr_opt().unwrap()
-            }
-        );
-        assert_eq!(
-            subject.initial_neighbors()[1],
-            NodeDescriptor {
-                public_key: another_neighbor_node.public_key().clone(),
-                node_addr: another_neighbor_node.node_addr_opt().unwrap()
-            }
+            subject.initial_neighbors,
+            vec![
+                NodeDescriptor {
+                    public_key: one_neighbor_node.public_key().clone(),
+                    node_addr: one_neighbor_node.node_addr_opt().unwrap()
+                }
+                .to_string(cryptde),
+                NodeDescriptor {
+                    public_key: another_neighbor_node.public_key().clone(),
+                    node_addr: another_neighbor_node.node_addr_opt().unwrap()
+                }
+                .to_string(cryptde)
+            ]
         );
     }
 
@@ -1121,7 +1164,8 @@ mod tests {
                         &IpAddr::from_str("1.2.3.4").unwrap(),
                         &vec![1234, 2345],
                     ),
-                }],
+                }
+                .to_string(cryptde)],
                 local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                 clandestine_port_list: vec![5678],
                 earning_wallet: earning_wallet.clone(),
@@ -1152,7 +1196,7 @@ mod tests {
         let mut subject = Neighborhood::new(
             cryptde,
             NeighborhoodConfig {
-                neighbor_configs: vec![node_record_to_neighbor(&one_neighbor)],
+                neighbor_configs: vec![node_record_to_neighbor_config(&one_neighbor, cryptde)],
                 local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                 clandestine_port_list: vec![5678],
                 earning_wallet: earning_wallet.clone(),
@@ -1201,7 +1245,8 @@ mod tests {
                         &IpAddr::from_str("1.2.3.4").unwrap(),
                         &vec![1234, 2345],
                     ),
-                }],
+                }
+                .to_string(cryptde)],
                 local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                 clandestine_port_list: vec![5678],
                 earning_wallet: earning_wallet.clone(),
@@ -1236,7 +1281,8 @@ mod tests {
                 neighbor_configs: vec![NodeDescriptor {
                     public_key: node_record.public_key().clone(),
                     node_addr: node_record.node_addr_opt().unwrap().clone(),
-                }],
+                }
+                .to_string(cryptde)],
                 local_ip_addr: node_record.node_addr_opt().as_ref().unwrap().ip_addr(),
                 clandestine_port_list: node_record
                     .node_addr_opt()
@@ -2185,8 +2231,9 @@ mod tests {
             )
             .as_str(),
         );
-        tlh.exists_log_containing("Sent Gossip: digraph db { \"src\" [label=\"Gossip From:\\n9e7p7un0\\n5.5.5.5\"]; \"dest\" [label=\"Gossip To:\\nAQIDBA\\n1.2.3.4\"]; \"src\" -> \"dest\" [arrowhead=empty]; }");
-        tlh.exists_log_containing("Sent Gossip: digraph db { \"src\" [label=\"Gossip From:\\n9e7p7un0\\n5.5.5.5\"]; \"dest\" [label=\"Gossip To:\\nAgMEBQ\\n2.3.4.5\"]; \"src\" -> \"dest\" [arrowhead=empty]; }");
+        let key_as_str = format!("{}", cryptde().public_key());
+        tlh.exists_log_containing(&format!("Sent Gossip: digraph db {{ \"src\" [label=\"Gossip From:\\n{}\\n5.5.5.5\"]; \"dest\" [label=\"Gossip To:\\nAQIDBA\\n1.2.3.4\"]; \"src\" -> \"dest\" [arrowhead=empty]; }}", &key_as_str[..8]));
+        tlh.exists_log_containing(&format!("Sent Gossip: digraph db {{ \"src\" [label=\"Gossip From:\\n{}\\n5.5.5.5\"]; \"dest\" [label=\"Gossip To:\\nAgMEBQ\\n2.3.4.5\"]; \"src\" -> \"dest\" [arrowhead=empty]; }}", &key_as_str[..8]));
     }
 
     #[test]
@@ -2419,8 +2466,12 @@ mod tests {
 
         tlh.exists_log_containing("Received Gossip: digraph db { ");
         tlh.exists_log_containing("\"AQMCBA\" [label=\"v0\\nAQMCBA\"];");
-        tlh.exists_log_containing("\"9e7p7un06eHs6frl5A\" [label=\"9e7p7un0\"] [shape=none];");
-        tlh.exists_log_containing("\"BAYFBw\" -> \"9e7p7un06eHs6frl5A\";");
+        tlh.exists_log_containing(&format!(
+            "\"{}\" [label=\"{}\"] [shape=none];",
+            cryptde.public_key(),
+            &format!("{}", cryptde.public_key())[..8]
+        ));
+        tlh.exists_log_containing(&format!("\"BAYFBw\" -> \"{}\";", cryptde.public_key()));
         tlh.exists_log_containing("\"AQMCBA\" -> \"BAYFBw\";");
         tlh.exists_log_containing("\"BAYFBw\" -> \"AQMCBA\";");
     }
@@ -2439,7 +2490,8 @@ mod tests {
                 neighbor_configs: vec![NodeDescriptor {
                     public_key: neighbor_inside.public_key().clone(),
                     node_addr: neighbor_inside.node_addr_opt().unwrap().clone(),
-                }],
+                }
+                .to_string(cryptde)],
                 local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                 clandestine_port_list: vec![1234],
                 earning_wallet: NodeRecord::earning_wallet_from_key(&cryptde.public_key()),
@@ -2554,11 +2606,12 @@ mod tests {
         assert_eq!(None, failed_ip_address_query.wait().unwrap());
     }
 
-    fn node_record_to_neighbor(node_record_ref: &NodeRecord) -> NodeDescriptor {
+    fn node_record_to_neighbor_config(node_record_ref: &NodeRecord, cryptde: &CryptDE) -> String {
         NodeDescriptor {
             public_key: node_record_ref.public_key().clone(),
             node_addr: node_record_ref.node_addr_opt().unwrap().clone(),
         }
+        .to_string(cryptde)
     }
 
     #[test]
@@ -2621,7 +2674,8 @@ mod tests {
                             &IpAddr::from_str("1.2.3.4").unwrap(),
                             &vec![1234, 2345],
                         ),
-                    }],
+                    }
+                    .to_string(cryptde)],
                     local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                     clandestine_port_list: vec![5678],
                     earning_wallet: earning_wallet.clone(),
@@ -2678,7 +2732,7 @@ mod tests {
             let mut subject = Neighborhood::new(
                 cryptde,
                 NeighborhoodConfig {
-                    neighbor_configs: vec![node_record_to_neighbor(&one_neighbor)],
+                    neighbor_configs: vec![node_record_to_neighbor_config(&one_neighbor, cryptde)],
                     local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                     clandestine_port_list: vec![5678],
                     earning_wallet: earning_wallet.clone(),
@@ -2738,7 +2792,8 @@ mod tests {
                             &IpAddr::from_str("1.2.3.4").unwrap(),
                             &vec![1234, 2345],
                         ),
-                    }],
+                    }
+                    .to_string(cryptde)],
                     local_ip_addr: IpAddr::from_str("5.4.3.2").unwrap(),
                     clandestine_port_list: vec![5678],
                     earning_wallet: earning_wallet.clone(),
@@ -2798,7 +2853,8 @@ mod tests {
                     neighbor_configs: vec![NodeDescriptor {
                         public_key: node_record.public_key().clone(),
                         node_addr: node_record.node_addr_opt().unwrap().clone(),
-                    }],
+                    }
+                    .to_string(cryptde)],
                     local_ip_addr: node_record.node_addr_opt().as_ref().unwrap().ip_addr(),
                     clandestine_port_list: node_record
                         .node_addr_opt()

@@ -81,7 +81,8 @@ pub fn neighborhood_from_nodes(
                     node_addr: neighbor
                         .node_addr_opt()
                         .expect("Neighbor has to have NodeAddr"),
-                }],
+                }
+                .to_string(cryptde)],
             },
             local_ip_addr: root
                 .node_addr_opt()

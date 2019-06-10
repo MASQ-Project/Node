@@ -4,7 +4,7 @@ use crate::substratum_client::SubstratumNodeClient;
 use base64;
 use base64::STANDARD_NO_PAD;
 use node_lib::persistent_configuration::HIGHEST_USABLE_PORT;
-use node_lib::sub_lib::cryptde::PublicKey;
+use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::neighborhood::RatePack;
 use node_lib::sub_lib::node_addr::NodeAddr;
@@ -139,7 +139,11 @@ pub trait SubstratumNode: Any {
     fn name(&self) -> &str;
     // This is the NodeReference stated by the Node in the console. Its IP address won't be accurate if it's a zero-hop Node.
     fn node_reference(&self) -> NodeReference;
-    fn cryptde(&self) -> CryptDENull;
+    // If this SubstratumNode has a CryptDENull instead of a CryptDEReal, you can get it here.
+    fn cryptde_null(&self) -> Option<&CryptDENull>;
+    // The CryptDE that can be used for signing for this Node, if any. (None if it's a SubstratumRealNode with a CryptDEReal.)
+    fn signing_cryptde(&self) -> Option<&CryptDE>;
+    // A reference to this SubstratumNode's public key.
     fn public_key(&self) -> &PublicKey;
     // This is the IP address of the container in which the Node is running.
     fn ip_address(&self) -> IpAddr;
@@ -152,6 +156,7 @@ pub trait SubstratumNode: Any {
     fn earning_wallet(&self) -> Wallet;
     // This is the wallet address from which this Node expects to pay bills, or None if the Node is earn-only.
     fn consuming_wallet(&self) -> Option<Wallet>;
+    // The RatePack this Node will use to charge fees.
     fn rate_pack(&self) -> RatePack;
 
     fn make_client(&self, port: u16) -> SubstratumNodeClient;

@@ -24,8 +24,11 @@ use std::time::Duration;
 /// The result of this function is a single SubstratumRealNode and a series of SubstratumMockNodes, where the real Node
 /// will contain a database corresponding in structure precisely to the one provided (as long as the one provided
 /// doesn't contain fundamental problems, such as Nodes with degree six or greater, or half-neighbor relationships).
-/// The mock Nodes provided will have the same public keys as the NodeRecords in the provided database, but different
-/// NodeAddrs.
+/// The mock and real Nodes provided will have the same public keys as the NodeRecords in the provided database, but
+/// different NodeAddrs.
+///
+/// Of course, all the SubstratumNodes produced by this function will use CryptDENull, so any other SubstratumNodes
+/// that are intended to communicate with them must use CryptDENull as well.
 ///
 /// # Arguments
 ///
@@ -42,8 +45,8 @@ use std::time::Duration;
 ///                             and NodeAddrs and neighbors and versions changed where appropriate to approximate as
 ///                             closely as possible the database that the SubstratumRealNode will have internally when
 ///                             `construct_neighborhood()` returns.
-/// * `SubstratumRealNode` - The real Node corresponding to the NodeRecord at `model_db.root()`. It will have a different
-///                             public key and a different NodeAddr than the original `model_db.root()` did.
+/// * `SubstratumRealNode` - The real Node corresponding to the NodeRecord at `model_db.root()`. It will have the same
+///                             public key as the original `model_db.root()`, but a different NodeAddr.
 /// * `HashMap<PublicKey, SubstratumMockNode>` The mock Nodes corresponding to other NodeRecords in `model_db`. They
 ///                                             will have the same public keys as the `model_db` NodeRecords they
 ///                                             represent, but different NodeAddrs.
@@ -56,10 +59,14 @@ pub fn construct_neighborhood(
     SubstratumRealNode,
     HashMap<PublicKey, SubstratumMockNode>,
 ) {
-    let real_node = cluster.start_real_node(NodeStartupConfigBuilder::standard().build());
+    let real_node = cluster.start_real_node(
+        NodeStartupConfigBuilder::standard()
+            .fake_public_key(model_db.root().public_key())
+            .build(),
+    );
     let (mock_node_map, adjacent_mock_node_keys) =
         make_mock_node_map(cluster, &model_db, &real_node, additional_keys_to_mock);
-    let modified_nodes = make_modified_node_records(model_db, &mock_node_map, &real_node);
+    let modified_nodes = make_modified_node_records(model_db, &mock_node_map);
     let modified_db = make_modified_db(&real_node, &modified_nodes);
     let gossip_source_mock_node = mock_node_map
         .get(adjacent_mock_node_keys.first().unwrap())
@@ -95,7 +102,6 @@ fn make_mock_node_map(
 fn make_modified_node_records(
     model_db: NeighborhoodDatabase,
     mock_node_map: &HashMap<PublicKey, SubstratumMockNode>,
-    real_node: &SubstratumRealNode,
 ) -> Vec<NodeRecord> {
     model_db
         .keys()
@@ -103,13 +109,7 @@ fn make_modified_node_records(
         .map(|key| {
             let model_node = model_db.node_by_key(key).unwrap();
             let mut modified_node = model_node.clone();
-            modify_node(
-                &mut modified_node,
-                model_node,
-                mock_node_map,
-                model_db.root().public_key(),
-                real_node.public_key(),
-            );
+            modify_node(&mut modified_node, model_node, mock_node_map);
             modified_node
         })
         .collect()
@@ -198,8 +198,6 @@ fn modify_node(
     gossip_node: &mut NodeRecord,
     model_node: &NodeRecord,
     mock_node_map: &HashMap<PublicKey, SubstratumMockNode>,
-    original_root: &PublicKey,
-    new_root: &PublicKey,
 ) {
     let node_addr_opt = match mock_node_map.get(gossip_node.public_key()) {
         Some(mock_node) => Some(mock_node.node_addr()),
@@ -210,17 +208,8 @@ fn modify_node(
     gossip_node.inner.neighbors = model_node
         .half_neighbor_keys()
         .into_iter()
-        .map(|key| {
-            if key == original_root {
-                new_root.clone()
-            } else {
-                key.clone()
-            }
-        })
+        .map(|key| key.clone())
         .collect::<BTreeSet<PublicKey>>();
-    if gossip_node.public_key() == original_root {
-        gossip_node.inner.public_key = new_root.clone();
-    }
     gossip_node.resign();
 }
 

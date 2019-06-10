@@ -1,11 +1,12 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use core::convert::TryInto;
 use multinode_integration_tests_lib::substratum_node::SubstratumNode;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
 use node_lib::neighborhood::neighborhood::AccessibleGossipRecord;
+use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::test_utils::test_utils::find_free_port;
+use std::convert::TryInto;
 use std::time::Duration;
 
 #[test]
@@ -13,23 +14,31 @@ use std::time::Duration;
 fn neighborhood_notified_of_newly_missing_node() {
     // Set up three-Node network, and add a mock witness Node.
     let mut cluster = SubstratumNodeCluster::start().unwrap();
-    let neighbor = cluster.start_real_node(NodeStartupConfigBuilder::standard().build());
+    let neighbor = cluster.start_real_node(
+        NodeStartupConfigBuilder::standard()
+            .fake_public_key(&PublicKey::new(&[1, 2, 3, 4]))
+            .build(),
+    );
     let originating_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .neighbor(neighbor.node_reference())
+            .fake_public_key(&PublicKey::new(&[2, 3, 4, 5]))
             .build(),
     );
     let _staying_up_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .neighbor(neighbor.node_reference())
+            .fake_public_key(&PublicKey::new(&[3, 4, 5, 6]))
             .build(),
     );
     let disappearing_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .neighbor(neighbor.node_reference())
+            .fake_public_key(&PublicKey::new(&[4, 5, 6, 7]))
             .build(),
     );
-    let witness_node = cluster.start_mock_node(vec![find_free_port()]);
+    let witness_node = cluster
+        .start_mock_node_with_public_key(vec![find_free_port()], &PublicKey::new(&[5, 6, 7, 8]));
     witness_node.transmit_debut(&originating_node).unwrap();
     let (introductions, _) = witness_node
         .wait_for_gossip(Duration::from_millis(1000))

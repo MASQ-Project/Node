@@ -10,7 +10,7 @@ pub struct Command {
 }
 
 // Jenkins will fail if you try to println! too many (hundreds of thousands) of characters at once
-const MAX_PRINTED_STRING_SIZE: usize = 32767;
+const MAX_PRINTED_STRING_SIZE: usize = 10000;
 
 impl Command {
     pub fn new(program: &str, args: Vec<String>) -> Command {

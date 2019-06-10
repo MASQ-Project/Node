@@ -4,8 +4,7 @@ use crate::substratum_mock_node::SubstratumMockNode;
 use crate::substratum_node::SubstratumNode;
 use crate::substratum_real_node::NodeStartupConfig;
 use crate::substratum_real_node::SubstratumRealNode;
-use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
-use node_lib::sub_lib::cryptde_null::CryptDENull;
+use node_lib::sub_lib::cryptde::PublicKey;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
@@ -49,10 +48,8 @@ impl SubstratumNodeCluster {
         self.real_nodes.get(&name).unwrap().clone()
     }
 
-    pub fn start_mock_node(&mut self, ports: Vec<u16>) -> SubstratumMockNode {
-        let mut cryptde = Box::new(CryptDENull::new());
-        cryptde.generate_key_pair();
-        self.start_mock_node_with_public_key(ports, cryptde.public_key())
+    pub fn start_mock_node_with_real_cryptde(&mut self, ports: Vec<u16>) -> SubstratumMockNode {
+        self.start_mock_node(ports, None)
     }
 
     pub fn start_mock_node_with_public_key(
@@ -60,14 +57,25 @@ impl SubstratumNodeCluster {
         ports: Vec<u16>,
         public_key: &PublicKey,
     ) -> SubstratumMockNode {
+        self.start_mock_node(ports, Some(public_key))
+    }
+
+    fn start_mock_node(
+        &mut self,
+        ports: Vec<u16>,
+        public_key_opt: Option<&PublicKey>,
+    ) -> SubstratumMockNode {
         let index = self.next_index;
         self.next_index += 1;
-        let node = SubstratumMockNode::start_with_public_key(
-            ports,
-            index,
-            self.host_node_parent_dir.clone(),
-            public_key,
-        );
+        let node = match public_key_opt {
+            Some(public_key) => SubstratumMockNode::start_with_public_key(
+                ports,
+                index,
+                self.host_node_parent_dir.clone(),
+                public_key,
+            ),
+            None => SubstratumMockNode::start(ports, index, self.host_node_parent_dir.clone()),
+        };
         let name = node.name().to_string();
         self.mock_nodes.insert(name.clone(), node);
         self.mock_nodes.get(&name).unwrap().clone()

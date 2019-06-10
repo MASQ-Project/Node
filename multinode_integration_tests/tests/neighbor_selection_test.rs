@@ -8,6 +8,7 @@ use node_lib::neighborhood::gossip::GossipBuilder;
 use node_lib::neighborhood::neighborhood::AccessibleGossipRecord;
 use node_lib::neighborhood::neighborhood_test_utils::{db_from_node, make_node_record};
 use node_lib::neighborhood::node_record::NodeRecord;
+use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::test_utils::test_utils::vec_to_set;
 use std::convert::TryInto;
 use std::time::Duration;
@@ -32,7 +33,8 @@ fn debut_target_does_not_introduce_known_neighbors() {
         );
         dest_db
     };
-    let debuter_mock_node = cluster.start_mock_node(vec![10000]);
+    let debuter_mock_node =
+        cluster.start_mock_node_with_public_key(vec![10000], &PublicKey::new(&[4, 5, 6, 7]));
     let debuter_node_record = NodeRecord::from(&debuter_mock_node);
     let mut src_db = db_from_node(&debuter_node_record);
     src_db.add_node(one_common_neighbor.clone()).unwrap();
@@ -89,7 +91,8 @@ fn debut_target_does_not_pass_to_known_neighbors() {
         });
         dest_db
     };
-    let debuter_mock_node = cluster.start_mock_node(vec![10000]);
+    let debuter_mock_node =
+        cluster.start_mock_node_with_public_key(vec![10000], &PublicKey::new(&[1, 2, 3, 4]));
     let debuter_node_record = NodeRecord::from(&debuter_mock_node);
     let mut src_db = db_from_node(&debuter_node_record);
     common_neighbors.iter().for_each(|node| {

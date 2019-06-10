@@ -384,10 +384,11 @@ pub enum CryptdecError {
     EmptyKey,
     EmptyData,
     InvalidKey(String),
+    InvalidSignature(String),
+    OpeningFailed,
 }
 
 pub trait CryptDE: Send + Sync {
-    fn generate_key_pair(&mut self);
     fn encode(&self, public_key: &PublicKey, data: &PlainData) -> Result<CryptData, CryptdecError>;
     fn decode(&self, data: &CryptData) -> Result<PlainData, CryptdecError>;
     fn random(&self, dest: &mut [u8]);
@@ -403,6 +404,11 @@ pub trait CryptDE: Send + Sync {
         public_key: &PublicKey,
     ) -> bool;
     fn hash(&self, data: &PlainData) -> CryptData;
+    fn public_key_to_descriptor_fragment(&self, public_key: &PublicKey) -> String;
+    fn descriptor_fragment_to_first_contact_public_key(
+        &self,
+        descriptor_fragment: &str,
+    ) -> Result<PublicKey, String>;
 }
 
 pub fn encodex<T>(cryptde: &CryptDE, public_key: &PublicKey, item: &T) -> Result<CryptData, String>

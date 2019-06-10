@@ -23,6 +23,7 @@ use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
 use crate::sub_lib::crash_point::CrashPoint;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde_null::CryptDENull;
+use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::neighborhood::sentinel_ip_addr;
@@ -31,7 +32,6 @@ use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use crate::sub_lib::socket_server::SocketServer;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::ui_gateway::DEFAULT_UI_PORT;
-use base64;
 use futures::try_ready;
 use log::LevelFilter;
 use std::collections::HashMap;
@@ -46,7 +46,16 @@ use tokio::prelude::Async;
 use tokio::prelude::Future;
 use tokio::prelude::Stream;
 
-pub static mut CRYPT_DE_OPT: Option<CryptDENull> = None;
+static mut CRYPTDE_BOX_OPT: Option<Box<CryptDE>> = None;
+
+pub fn cryptde_ref() -> &'static CryptDE {
+    unsafe {
+        CRYPTDE_BOX_OPT
+            .as_ref()
+            .expect("Internal error: CryptDE uninitialized")
+            .as_ref()
+    }
+}
 
 #[derive(Clone)]
 pub struct PortConfiguration {
@@ -82,6 +91,7 @@ pub struct BootstrapperConfig {
     // to an unfortunate ownership and privilege situation for the database file.
     pub clandestine_port_opt: Option<u16>,
     pub data_directory: PathBuf,
+    pub cryptde_null_opt: Option<CryptDENull>,
 }
 
 impl BootstrapperConfig {
@@ -119,6 +129,7 @@ impl BootstrapperConfig {
             port_configurations: HashMap::new(),
             clandestine_port_opt: None,
             data_directory: PathBuf::new(),
+            cryptde_null_opt: None,
         }
     }
 }
@@ -182,8 +193,8 @@ impl SocketServer for Bootstrapper {
         // NOTE: The following line of code is not covered by unit tests
         fdlimit::raise_fd_limit();
         self.establish_clandestine_port();
-        let cryptde_ref = Bootstrapper::initialize_cryptde();
         let config = self.config.as_mut().expect("Configuration missing");
+        let cryptde_ref = Bootstrapper::initialize_cryptde(&config.cryptde_null_opt);
         config.ui_gateway_config.node_descriptor = Bootstrapper::report_local_descriptor(
             cryptde_ref,
             config.neighborhood_config.local_ip_addr,
@@ -218,14 +229,19 @@ impl Bootstrapper {
         }
     }
 
-    fn initialize_cryptde() -> &'static dyn CryptDE {
-        let mut exemplar = CryptDENull::new();
-        exemplar.generate_key_pair();
-        let cryptde: &'static CryptDENull = unsafe {
-            CRYPT_DE_OPT = Some(exemplar);
-            CRYPT_DE_OPT.as_ref().expect("Internal error")
-        };
-        cryptde
+    #[cfg(test)] // The real one is private, but ActorSystemFactory needs to use it for testing
+    pub fn pub_initialize_cryptde_for_testing(
+        cryptde_null_opt: &Option<CryptDENull>,
+    ) -> &'static dyn CryptDE {
+        Self::initialize_cryptde(cryptde_null_opt)
+    }
+
+    fn initialize_cryptde(cryptde_null_opt: &Option<CryptDENull>) -> &'static dyn CryptDE {
+        match cryptde_null_opt {
+            Some(cryptde_null) => unsafe { CRYPTDE_BOX_OPT = Some(Box::new(cryptde_null.clone())) },
+            None => unsafe { CRYPTDE_BOX_OPT = Some(Box::new(CryptDEReal::new())) },
+        }
+        cryptde_ref()
     }
 
     fn report_local_descriptor(
@@ -236,8 +252,7 @@ impl Bootstrapper {
     ) -> String {
         let port_strings: Vec<String> = ports.iter().map(|n| format!("{}", n)).collect();
         let port_list = port_strings.join(",");
-        let encoded_public_key =
-            base64::encode_config(&cryptde.public_key().as_slice(), base64::STANDARD_NO_PAD);
+        let encoded_public_key = cryptde.public_key_to_descriptor_fragment(cryptde.public_key());
         let descriptor = format!("{}:{}:{}", &encoded_public_key, ip_addr, port_list);
         let descriptor_msg = format!("SubstratumNode local descriptor: {}", descriptor);
         writeln!(streams.stdout, "{}", descriptor_msg).expect("Internal error");
@@ -657,6 +672,27 @@ mod tests {
     }
 
     #[test]
+    fn initialize_cryptde_without_cryptde_null_uses_cryptde_real() {
+        let cryptde = Bootstrapper::initialize_cryptde(&None);
+
+        assert_eq!(cryptde_ref().public_key(), cryptde.public_key());
+        // Brittle assertion: this may not be true forever
+        let cryptde_null = CryptDENull::new();
+        assert!(cryptde.public_key().len() > cryptde_null.public_key().len());
+    }
+
+    #[test]
+    fn initialize_cryptde_with_cryptde_null_uses_cryptde_null() {
+        let cryptde_null = CryptDENull::new();
+        let cryptde_null_public_key = cryptde_null.public_key().clone();
+
+        let cryptde = Bootstrapper::initialize_cryptde(&Some(cryptde_null));
+
+        assert_eq!(cryptde.public_key(), &cryptde_null_public_key);
+        assert_eq!(cryptde_ref().public_key(), cryptde.public_key());
+    }
+
+    #[test]
     fn initialize_cryptde_and_report_local_descriptor() {
         let _lock = INITIALIZATION.lock();
         init_test_logging();
@@ -666,19 +702,15 @@ mod tests {
         let cryptde_ref = {
             let mut streams = holder.streams();
 
-            let cryptde_ref = Bootstrapper::initialize_cryptde();
+            let cryptde_ref = Bootstrapper::initialize_cryptde(&None);
             Bootstrapper::report_local_descriptor(cryptde_ref, ip_addr, ports, &mut streams);
 
             cryptde_ref
         };
-        assert_ne!(cryptde_ref.private_key().as_slice(), &b"uninitialized"[..]);
         let stdout_dump = holder.stdout.get_string();
         let expected_descriptor = format!(
             "{}:2.3.4.5:3456,4567",
-            base64::encode_config(
-                &cryptde_ref.public_key().as_slice(),
-                base64::STANDARD_NO_PAD,
-            )
+            cryptde_ref.public_key_to_descriptor_fragment(cryptde_ref.public_key())
         );
         let regex = Regex::new(r"SubstratumNode local descriptor: (.+?)\n").unwrap();
         let captured_descriptor = regex
@@ -859,6 +891,7 @@ mod tests {
 
     #[test]
     fn establish_clandestine_port_handles_specified_port() {
+        let cryptde = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]));
         let listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
         let mut subject = BootstrapperBuilder::new()
             .add_listener_handler(Box::new(listener_handler))
@@ -870,9 +903,10 @@ mod tests {
         );
         config.neighborhood_config.local_ip_addr = IpAddr::from_str("1.2.3.4").unwrap(); // not sentinel
         config.neighborhood_config.neighbor_configs = vec![NodeDescriptor {
-            public_key: PublicKey::new(&[1, 2, 3, 4]),
+            public_key: cryptde.public_key().clone(),
             node_addr: NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
-        }];
+        }
+        .to_string(&cryptde)];
         config.data_directory = home_dir.clone();
         config.clandestine_port_opt = Some(1234);
         subject.config = Some(config);
@@ -915,6 +949,7 @@ mod tests {
 
     #[test]
     fn establish_clandestine_port_handles_unspecified_port() {
+        let cryptde = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]));
         let listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
         let mut subject = BootstrapperBuilder::new()
             .add_listener_handler(Box::new(listener_handler))
@@ -926,9 +961,10 @@ mod tests {
         );
         config.neighborhood_config.local_ip_addr = IpAddr::from_str("1.2.3.4").unwrap(); // not sentinel
         config.neighborhood_config.neighbor_configs = vec![NodeDescriptor {
-            public_key: PublicKey::new(&[1, 2, 3, 4]),
+            public_key: cryptde.public_key().clone(),
             node_addr: NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
-        }];
+        }
+        .to_string(&cryptde)];
         config.data_directory = home_dir.clone();
         config.clandestine_port_opt = None;
         subject.config = Some(config);

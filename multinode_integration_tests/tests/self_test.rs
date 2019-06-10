@@ -4,7 +4,6 @@ use multinode_integration_tests_lib::command::Command;
 use multinode_integration_tests_lib::main::CONTROL_STREAM_PORT;
 use multinode_integration_tests_lib::substratum_cores_client::SubstratumCoresClient;
 use multinode_integration_tests_lib::substratum_cores_server::SubstratumCoresServer;
-use multinode_integration_tests_lib::substratum_node::NodeReference;
 use multinode_integration_tests_lib::substratum_node::PortSelector;
 use multinode_integration_tests_lib::substratum_node::SubstratumNode;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
@@ -14,7 +13,6 @@ use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::dispatcher::Component;
 use node_lib::sub_lib::hopper::IncipientCoresPackage;
-use node_lib::sub_lib::neighborhood::sentinel_ip_addr;
 use node_lib::sub_lib::route::Route;
 use node_lib::sub_lib::route::RouteSegment;
 use node_lib::sub_lib::wallet::Wallet;
@@ -38,14 +36,10 @@ fn establishes_substratum_node_cluster_from_nothing() {
     let second_ip_addr = IpAddr::V4(Ipv4Addr::new(172, 18, 1, 2));
     cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .neighbor(NodeReference::new(
-                PublicKey::new(&[1]),
-                sentinel_ip_addr(),
-                vec![1234],
-            ))
+            .fake_public_key(&PublicKey::new(&[1, 2, 3, 4]))
             .build(),
     );
-    cluster.start_mock_node(vec![2345]);
+    cluster.start_mock_node_with_public_key(vec![2345], &PublicKey::new(&[2, 3, 4, 5]));
 
     let expected_nodes: HashSet<String> =
         vec![real_node_name.to_string(), mock_node_name.to_string()]
@@ -106,8 +100,8 @@ fn server_relays_cores_package() {
 fn one_mock_node_talks_to_another() {
     let masquerader = JsonMasquerader::new();
     let mut cluster = SubstratumNodeCluster::start().unwrap();
-    cluster.start_mock_node(vec![5550]);
-    cluster.start_mock_node(vec![5551]);
+    cluster.start_mock_node_with_public_key(vec![5550], &PublicKey::new(&[1, 2, 3, 4]));
+    cluster.start_mock_node_with_public_key(vec![5551], &PublicKey::new(&[2, 3, 4, 5]));
     let mock_node_1 = cluster.get_mock_node_by_name("mock_node_1").unwrap();
     let mock_node_2 = cluster.get_mock_node_by_name("mock_node_2").unwrap();
     let cryptde = CryptDENull::new();
@@ -141,7 +135,10 @@ fn one_mock_node_talks_to_another() {
         .wait_for_package(&masquerader, Duration::from_millis(1000))
         .unwrap();
     let expired_cores_package = package
-        .to_expired(IpAddr::from_str("1.2.3.4").unwrap(), mock_node_2.cryptde())
+        .to_expired(
+            IpAddr::from_str("1.2.3.4").unwrap(),
+            mock_node_2.signing_cryptde().unwrap(),
+        )
         .unwrap();
 
     assert_eq!(package_from.ip(), mock_node_1.ip_address());

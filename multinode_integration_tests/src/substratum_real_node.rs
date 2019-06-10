@@ -7,7 +7,7 @@ use crate::substratum_node::SubstratumNode;
 use crate::substratum_node::SubstratumNodeUtils;
 use node_lib::sub_lib::accountant;
 use node_lib::sub_lib::accountant::TEMPORARY_CONSUMING_WALLET;
-use node_lib::sub_lib::cryptde::PublicKey;
+use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::neighborhood::sentinel_ip_addr;
 use node_lib::sub_lib::neighborhood::RatePack;
@@ -22,6 +22,7 @@ use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::rc::Rc;
 use std::str::FromStr;
+use std::string::ToString;
 use std::thread;
 use std::time::Duration;
 
@@ -49,6 +50,7 @@ pub struct NodeStartupConfig {
     pub rate_pack: RatePack,
     pub consuming_private_key: Option<String>,
     pub firewall: Option<Firewall>,
+    pub fake_public_key: Option<PublicKey>,
 }
 
 impl NodeStartupConfig {
@@ -66,6 +68,7 @@ impl NodeStartupConfig {
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
             )),
             firewall: None,
+            fake_public_key: None,
         }
     }
 
@@ -99,6 +102,10 @@ impl NodeStartupConfig {
             args.push("--consuming_private_key".to_string());
             args.push(consuming_private_key.clone());
         }
+        if let Some(ref public_key) = self.fake_public_key {
+            args.push("--fake_public_key".to_string());
+            args.push(format!("{}", public_key));
+        }
         args
     }
 
@@ -122,6 +129,7 @@ pub struct NodeStartupConfigBuilder {
     rate_pack: RatePack,
     consuming_private_key: Option<String>,
     firewall: Option<Firewall>,
+    fake_public_key: Option<PublicKey>,
 }
 
 impl NodeStartupConfigBuilder {
@@ -137,6 +145,7 @@ impl NodeStartupConfigBuilder {
             rate_pack: ZERO_RATE_PACK.clone(),
             consuming_private_key: None,
             firewall: None,
+            fake_public_key: None,
         }
     }
 
@@ -154,6 +163,7 @@ impl NodeStartupConfigBuilder {
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
             )),
             firewall: None,
+            fake_public_key: None,
         }
     }
 
@@ -169,6 +179,7 @@ impl NodeStartupConfigBuilder {
             rate_pack: config.rate_pack.clone(),
             consuming_private_key: config.consuming_private_key.clone(),
             firewall: config.firewall.clone(),
+            fake_public_key: config.fake_public_key.clone(),
         }
     }
 
@@ -236,6 +247,11 @@ impl NodeStartupConfigBuilder {
         self
     }
 
+    pub fn fake_public_key(mut self, public_key: &PublicKey) -> NodeStartupConfigBuilder {
+        self.fake_public_key = Some(public_key.clone());
+        self
+    }
+
     pub fn build(self) -> NodeStartupConfig {
         NodeStartupConfig {
             ip_info: self.ip_info,
@@ -248,6 +264,7 @@ impl NodeStartupConfigBuilder {
             rate_pack: self.rate_pack,
             consuming_private_key: self.consuming_private_key,
             firewall: self.firewall,
+            fake_public_key: self.fake_public_key,
         }
     }
 }
@@ -270,8 +287,15 @@ impl SubstratumNode for SubstratumRealNode {
         &self.guts.node_reference.public_key
     }
 
-    fn cryptde(&self) -> CryptDENull {
-        CryptDENull::from(&self.public_key())
+    fn cryptde_null(&self) -> Option<&CryptDENull> {
+        self.guts.cryptde_null.as_ref()
+    }
+
+    fn signing_cryptde(&self) -> Option<&CryptDE> {
+        match self.cryptde_null() {
+            Some(cryptde_null) => Some(cryptde_null),
+            None => None,
+        }
     }
 
     fn ip_address(&self) -> IpAddr {
@@ -351,6 +375,9 @@ impl SubstratumRealNode {
             }
         }
         let node_args = real_startup_config.make_args();
+        let cryptde_null = real_startup_config
+            .fake_public_key
+            .map(|public_key| CryptDENull::from(&public_key));
         let mut command_parts = vec!["/node_root/node/SubstratumNode"];
         command_parts.extend(node_args.iter().map(|s| s.as_str()));
         Self::exec_command_on_container_and_detach(&name, command_parts)
@@ -365,6 +392,7 @@ impl SubstratumRealNode {
             consuming_wallet: Some(TEMPORARY_CONSUMING_WALLET.clone()),
             rate_pack,
             root_dir,
+            cryptde_null,
         });
         SubstratumRealNode { guts }
     }
@@ -553,6 +581,7 @@ struct SubstratumRealNodeGuts {
     consuming_wallet: Option<Wallet>,
     rate_pack: RatePack,
     root_dir: String,
+    cryptde_null: Option<CryptDENull>,
 }
 
 impl Drop for SubstratumRealNodeGuts {
@@ -666,6 +695,7 @@ mod tests {
             firewall: Some(Firewall {
                 ports_to_open: vec![HTTP_PORT, TLS_PORT],
             }),
+            fake_public_key: Some(PublicKey::new(&[1, 2, 3, 4])),
         };
         let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
         let one_neighbor_key = PublicKey::new(&[1, 2, 3, 4]);
@@ -712,6 +742,7 @@ mod tests {
             result.consuming_private_key,
             Some("ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD".to_string())
         );
+        assert_eq!(result.fake_public_key, Some(PublicKey::new(&[1, 2, 3, 4])));
     }
 
     #[test]

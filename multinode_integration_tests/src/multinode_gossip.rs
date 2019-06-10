@@ -134,8 +134,12 @@ impl SingleNode {
         }
     }
 
-    pub fn key(&self) -> &PublicKey {
-        &self.node.inner.public_key
+    pub fn node_agr(&self) -> &AccessibleGossipRecord {
+        &self.node
+    }
+
+    pub fn node_key(&self) -> &PublicKey {
+        &self.node_agr().inner.public_key
     }
 }
 
@@ -215,6 +219,22 @@ impl Introduction {
             introducer: AccessibleGossipRecord::from(introducer),
             introducee: AccessibleGossipRecord::from(introducee),
         }
+    }
+
+    pub fn introducer_agr(&self) -> &AccessibleGossipRecord {
+        &self.introducer
+    }
+
+    pub fn introducee_agr(&self) -> &AccessibleGossipRecord {
+        &self.introducee
+    }
+
+    pub fn introducer_key(&self) -> &PublicKey {
+        &self.introducer_agr().inner.public_key
+    }
+
+    pub fn introducee_key(&self) -> &PublicKey {
+        &self.introducee_agr().inner.public_key
     }
 }
 
@@ -351,6 +371,7 @@ fn nodes_of_degree(nodes: &Vec<AccessibleGossipRecord>, degree: usize) -> Vec<Pu
 
 impl From<&SubstratumNode> for AccessibleGossipRecord {
     fn from(substratum_node: &SubstratumNode) -> Self {
+        let cryptde = substratum_node.signing_cryptde().unwrap_or_else (|| panic! ("You can only make an AccessibleGossipRecord from a SubstratumRealNode if it has a CryptDENull, not a CryptDEReal."));
         let mut agr = AccessibleGossipRecord {
             inner: NodeRecordInner {
                 public_key: substratum_node.public_key().clone(),
@@ -363,7 +384,7 @@ impl From<&SubstratumNode> for AccessibleGossipRecord {
             signed_gossip: PlainData::new(b""),
             signature: CryptData::new(b""),
         };
-        agr.regenerate_signed_gossip(&CryptDENull::from(&agr.inner.public_key));
+        agr.regenerate_signed_gossip(cryptde);
         agr
     }
 }

@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::neighborhood::gossip::Gossip;
-use crate::sub_lib::cryptde::PublicKey;
+use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::dispatcher::Component;
 use crate::sub_lib::hopper::ExpiredCoresPackage;
 use crate::sub_lib::node_addr::NodeAddr;
@@ -47,28 +47,22 @@ pub struct NodeDescriptor {
     pub node_addr: NodeAddr,
 }
 
-impl FromStr for NodeDescriptor {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+impl NodeDescriptor {
+    pub fn from_str(cryptde: &CryptDE, s: &str) -> Result<NodeDescriptor, String> {
         let pieces: Vec<&str> = s.splitn(2, ":").collect();
 
         if pieces.len() != 2 {
             return Err(String::from(s));
         }
 
-        let public_key = match base64::decode(pieces[0]) {
-            Ok(key) => PublicKey::new(&key),
-            Err(_) => return Err(String::from(s)),
+        let public_key = match cryptde.descriptor_fragment_to_first_contact_public_key(pieces[0]) {
+            Err(e) => return Err(format!("{}", e)),
+            Ok(hpk) => hpk,
         };
 
-        if public_key.is_empty() {
-            return Err(String::from(s));
-        }
-
         let node_addr = match NodeAddr::from_str(&pieces[1]) {
-            Ok(node_addr) => node_addr,
             Err(_) => return Err(String::from(s)),
+            Ok(node_addr) => node_addr,
         };
 
         Ok(NodeDescriptor {
@@ -76,11 +70,17 @@ impl FromStr for NodeDescriptor {
             node_addr,
         })
     }
+
+    pub fn to_string(&self, cryptde: &CryptDE) -> String {
+        let contact_public_key_string = cryptde.public_key_to_descriptor_fragment(&self.public_key);
+        let node_addr_string = self.node_addr.to_string();
+        format!("{}:{}", contact_public_key_string, node_addr_string)
+    }
 }
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct NeighborhoodConfig {
-    pub neighbor_configs: Vec<NodeDescriptor>,
+    pub neighbor_configs: Vec<String>,
     pub local_ip_addr: IpAddr,
     pub clandestine_port_list: Vec<u16>,
     pub earning_wallet: Wallet,
@@ -210,6 +210,7 @@ pub struct RatePack {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sub_lib::cryptde_null::CryptDENull;
     use std::str::FromStr;
 
     pub fn rate_pack(base_rate: u64) -> RatePack {
@@ -223,37 +224,42 @@ mod tests {
 
     #[test]
     fn node_descriptor_from_str_requires_two_pieces_to_a_configuration() {
-        let result = NodeDescriptor::from_str("only_one_piece");
+        let result = NodeDescriptor::from_str(&CryptDENull::new(), "only_one_piece");
 
-        assert_eq!(Err(String::from("only_one_piece")), result);
+        assert_eq!(result, Err(String::from("only_one_piece")));
     }
 
     #[test]
     fn node_descriptor_from_str_complains_about_bad_base_64() {
-        let result = NodeDescriptor::from_str("bad_key:1.2.3.4:1234;2345");
+        let result = NodeDescriptor::from_str(&CryptDENull::new(), "bad_key:1.2.3.4:1234;2345");
 
-        assert_eq!(Err(String::from("bad_key:1.2.3.4:1234;2345")), result);
+        assert_eq!(
+            result,
+            Err(String::from("Invalid Base64 value for public key: bad_key"))
+        );
     }
 
     #[test]
     fn node_descriptor_from_str_complains_about_blank_public_key() {
-        let result = NodeDescriptor::from_str(":1.2.3.4:1234;2345");
+        let result = NodeDescriptor::from_str(&CryptDENull::new(), ":1.2.3.4:1234;2345");
 
-        assert_eq!(Err(String::from(":1.2.3.4:1234;2345")), result);
+        assert_eq!(result, Err(String::from("Public key cannot be empty")));
     }
 
     #[test]
     fn node_descriptor_from_str_complains_about_bad_node_addr() {
-        let result = NodeDescriptor::from_str("R29vZEtleQ==:BadNodeAddr");
+        let result = NodeDescriptor::from_str(&CryptDENull::new(), "R29vZEtleQ==:BadNodeAddr");
 
-        assert_eq!(Err(String::from("R29vZEtleQ==:BadNodeAddr")), result);
+        assert_eq!(result, Err(String::from("R29vZEtleQ==:BadNodeAddr")));
     }
 
     #[test]
     fn node_descriptor_from_str_handles_the_happy_path() {
-        let result = NodeDescriptor::from_str("R29vZEtleQ:1.2.3.4:1234;2345;3456");
+        let result =
+            NodeDescriptor::from_str(&CryptDENull::new(), "R29vZEtleQ:1.2.3.4:1234;2345;3456");
 
         assert_eq!(
+            result.unwrap(),
             NodeDescriptor {
                 public_key: PublicKey::new(b"GoodKey"),
                 node_addr: NodeAddr::new(
@@ -261,7 +267,6 @@ mod tests {
                     &vec!(1234, 2345, 3456),
                 )
             },
-            result.unwrap()
         )
     }
 
@@ -283,10 +288,7 @@ mod tests {
     #[test]
     fn neighborhood_config_is_not_decentralized_if_the_sentinel_ip_address_is_used() {
         let subject = NeighborhoodConfig {
-            neighbor_configs: vec![NodeDescriptor {
-                public_key: PublicKey::new(&b"key"[..]),
-                node_addr: NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]),
-            }],
+            neighbor_configs: vec!["booga".to_string()],
             earning_wallet: Wallet::new("router"),
             consuming_wallet: Some(Wallet::new("consumer")),
             rate_pack: rate_pack(100),
@@ -302,10 +304,7 @@ mod tests {
     #[test]
     fn neighborhood_config_is_not_decentralized_if_there_are_no_clandestine_ports() {
         let subject = NeighborhoodConfig {
-            neighbor_configs: vec![NodeDescriptor {
-                public_key: PublicKey::new(&b"key"[..]),
-                node_addr: NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]),
-            }],
+            neighbor_configs: vec!["booga".to_string()],
             earning_wallet: Wallet::new("router"),
             consuming_wallet: Some(Wallet::new("consumer")),
             rate_pack: rate_pack(100),

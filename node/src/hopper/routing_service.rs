@@ -166,10 +166,8 @@ impl RoutingService {
                     return;
                 }
             };
-        self.logger.trace(format!(
-            "Forwarding ExpiredCoresPackage to {:?}: {:?}",
-            component, expired_package
-        ));
+        self.logger
+            .trace(format!("Forwarding ExpiredCoresPackage to {:?}", component));
         match (component, expired_package.payload) {
             (Component::ProxyClient, MessageType::ClientRequest(client_request)) => self
                 .routing_service_subs
@@ -992,7 +990,7 @@ mod tests {
         System::current().stop_with_code(0);
         system.run();
         TestLogHandler::new().exists_log_containing(
-            "ERROR: RoutingService: Invalid 36-byte CORES package: EmptyRoute",
+            "ERROR: RoutingService: Invalid 55-byte CORES package: EmptyRoute",
         );
         assert_eq!(proxy_client_recording_arc.lock().unwrap().len(), 0);
         assert_eq!(proxy_server_recording_arc.lock().unwrap().len(), 0);

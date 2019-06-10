@@ -35,7 +35,7 @@ use crate::sub_lib::crash_point::CrashPoint;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::main_tools::StdStreams;
-use crate::sub_lib::neighborhood::{sentinel_ip_addr, NodeDescriptor};
+use crate::sub_lib::neighborhood::sentinel_ip_addr;
 use crate::sub_lib::ui_gateway::DEFAULT_UI_PORT;
 use crate::sub_lib::wallet::Wallet;
 use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
@@ -299,8 +299,7 @@ impl NodeConfiguratorReal {
                         .value_name("NODE-DESCRIPTORS")
                         .takes_value(true)
                         .use_delimiter(true)
-                        .requires("ip")
-                        .validator(|s| NodeDescriptor::from_str(&s).map(|_| ())),
+                        .requires("ip"),
                 )
                 .arg(
                     Arg::with_name("ui_port")
@@ -352,6 +351,14 @@ impl NodeConfiguratorReal {
                         .possible_values(&CrashPoint::variants())
                         .case_insensitive(true)
                         .hidden(true)
+                        .help("Only used for testing"),
+                )
+                .arg(
+                    Arg::with_name("fake_public_key")
+                        .long("fake-public-key")
+                        .aliases(&["fake-public-key", "fake_public_key"])
+                        .value_name("FAKE-PUBLIC-KEY")
+                        .takes_value(true)
                         .help("Only used for testing"),
                 ),
         }
@@ -569,8 +576,7 @@ impl NodeConfiguratorReal {
         config.log_level =
             value_m!(multi_config, "log_level", LevelFilter).expect("Internal Error");
 
-        config.neighborhood_config.neighbor_configs =
-            values_m!(multi_config, "neighbors", NodeDescriptor);
+        config.neighborhood_config.neighbor_configs = values_m!(multi_config, "neighbors", String);
 
         config.ui_gateway_config.ui_port =
             value_m!(multi_config, "ui_port", u16).expect("Internal Error");
@@ -585,6 +591,18 @@ impl NodeConfiguratorReal {
 
         config.crash_point =
             value_m!(multi_config, "crash_point", CrashPoint).expect("Internal Error");
+
+        match value_m!(multi_config, "fake_public_key", String) {
+            None => (),
+            Some(public_key_str) => {
+                let public_key = match base64::decode(&public_key_str) {
+                    Ok(key) => PublicKey::new(&key),
+                    Err(_) => panic!("Invalid fake public key: {}", public_key_str),
+                };
+                let cryptde_null = CryptDENull::from(&public_key);
+                config.cryptde_null_opt = Some(cryptde_null);
+            }
+        }
 
         // TODO: In real life this should come from a command-line parameter
         config.neighborhood_config.consuming_wallet = Some(TEMPORARY_CONSUMING_WALLET.clone());
@@ -812,7 +830,6 @@ mod tests {
     use crate::multi_config::VirtualCommandLine;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::neighborhood::sentinel_ip_addr;
-    use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::test_utils::{
@@ -1652,6 +1669,8 @@ mod tests {
             "http://127.0.0.1:8545",
             "--log-level",
             "trace",
+            "--fake_public_key",
+            "AQIDBA",
         ]
         .into_iter()
         .map(String::from)
@@ -1675,61 +1694,53 @@ mod tests {
         );
 
         assert_eq!(
+            value_m!(multi_config, "config_file", PathBuf),
             Some(PathBuf::from("specified_config.toml")),
-            value_m!(multi_config, "config_file", PathBuf)
         );
         assert_eq!(
+            config.dns_servers,
             vec!(
                 SocketAddr::from_str("12.34.56.78:53").unwrap(),
                 SocketAddr::from_str("23.45.67.89:53").unwrap()
             ),
-            config.dns_servers,
         );
         assert_eq!(
-            vec!(
-                NodeDescriptor {
-                    public_key: PublicKey::new(b"Bill"),
-                    node_addr: NodeAddr::new(
-                        &IpAddr::from_str("1.2.3.4").unwrap(),
-                        &vec!(1234, 2345),
-                    ),
-                },
-                NodeDescriptor {
-                    public_key: PublicKey::new(b"Ted"),
-                    node_addr: NodeAddr::new(
-                        &IpAddr::from_str("2.3.4.5").unwrap(),
-                        &vec!(3456, 4567),
-                    ),
-                }
-            ),
             config.neighborhood_config.neighbor_configs,
+            vec!(
+                "QmlsbA:1.2.3.4:1234;2345".to_string(),
+                "VGVk:2.3.4.5:3456;4567".to_string()
+            ),
         );
         assert_eq!(
-            IpAddr::V4(Ipv4Addr::new(34, 56, 78, 90)),
             config.neighborhood_config.local_ip_addr,
+            IpAddr::V4(Ipv4Addr::new(34, 56, 78, 90)),
         );
         assert_eq!(config.ui_gateway_config.ui_port, 5335);
         let earning_wallet = Wallet::new("0xbDfeFf9A1f4A1bdF483d680046344316019C58CF");
-        assert_eq!(earning_wallet, config.neighborhood_config.earning_wallet);
-        assert_eq!(earning_wallet, config.accountant_config.earning_wallet);
+        assert_eq!(config.neighborhood_config.earning_wallet, earning_wallet);
+        assert_eq!(config.accountant_config.earning_wallet, earning_wallet);
         assert_eq!(
-            Wallet::new("0xbDfeFf9A1f4A1bdF483d680046344316019C58CF"),
             config.neighborhood_config.earning_wallet,
+            Wallet::new("0xbDfeFf9A1f4A1bdF483d680046344316019C58CF"),
         );
         let expected_port_list: Vec<u16> = vec![];
         assert_eq!(
+            config.neighborhood_config.clandestine_port_list,
             expected_port_list,
-            config.neighborhood_config.clandestine_port_list
         );
         assert_eq!(
+            config.blockchain_bridge_config.blockchain_service_url,
             Some("http://127.0.0.1:8545".to_string()),
-            config.blockchain_bridge_config.blockchain_service_url
         );
         assert_eq!(PathBuf::from("~/.booga"), config.data_directory,);
         assert_eq!(Some(1234u16), config.clandestine_port_opt);
         assert_eq!(
+            config.blockchain_bridge_config.consuming_private_key,
             Some("1234567891123456789212345678913234567894123456789512345678961234".to_string()),
-            config.blockchain_bridge_config.consuming_private_key
+        );
+        assert_eq!(
+            config.cryptde_null_opt.unwrap().public_key(),
+            &PublicKey::new(&[1, 2, 3, 4]),
         );
     }
 
@@ -1775,6 +1786,7 @@ mod tests {
         assert_eq!(sentinel_ip_addr(), config.neighborhood_config.local_ip_addr,);
         assert_eq!(5333, config.ui_gateway_config.ui_port);
         assert_eq!(None, config.blockchain_bridge_config.consuming_private_key);
+        assert!(config.cryptde_null_opt.is_none());
     }
 
     #[test]

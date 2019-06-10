@@ -128,10 +128,6 @@ mod tests {
     }
 
     impl CryptDE for FailingCryptDEMock {
-        fn generate_key_pair(&mut self) {
-            unimplemented!()
-        }
-
         fn encode(
             &self,
             _public_key: &PublicKey,
@@ -174,6 +170,17 @@ mod tests {
         }
 
         fn hash(&self, _data: &PlainData) -> CryptData {
+            unimplemented!()
+        }
+
+        fn public_key_to_descriptor_fragment(&self, _public_key: &PublicKey) -> String {
+            unimplemented!()
+        }
+
+        fn descriptor_fragment_to_first_contact_public_key(
+            &self,
+            _descriptor_fragment: &str,
+        ) -> Result<PublicKey, String> {
             unimplemented!()
         }
     }

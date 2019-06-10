@@ -7,22 +7,13 @@ use crate::sub_lib::cryptde::PrivateKey;
 use crate::sub_lib::cryptde::PublicKey;
 use rand::prelude::*;
 
+#[derive(Debug, Clone)]
 pub struct CryptDENull {
     private_key: PrivateKey,
     public_key: PublicKey,
 }
 
 impl CryptDE for CryptDENull {
-    fn generate_key_pair(&mut self) {
-        let mut private_key = [0; 32];
-        let mut rng = thread_rng();
-        for idx in 0..32 {
-            private_key[idx] = rng.gen();
-        }
-        self.private_key = PrivateKey::from(&private_key[..]);
-        self.public_key = CryptDENull::public_from_private(&self.private_key())
-    }
-
     fn encode(&self, public_key: &PublicKey, data: &PlainData) -> Result<CryptData, CryptdecError> {
         Self::encode_with_key_data(public_key.as_slice(), data)
     }
@@ -80,14 +71,43 @@ impl CryptDE for CryptDENull {
         hash.update(data.as_slice());
         CryptData::new(&hash.digest().bytes())
     }
+
+    fn public_key_to_descriptor_fragment(&self, public_key: &PublicKey) -> String {
+        base64::encode_config(public_key.as_slice(), base64::STANDARD_NO_PAD)
+    }
+
+    fn descriptor_fragment_to_first_contact_public_key(
+        &self,
+        descriptor_fragment: &str,
+    ) -> Result<PublicKey, String> {
+        if descriptor_fragment.is_empty() {
+            return Err(format!("Public key cannot be empty"));
+        }
+        let half_key = match base64::decode_config(descriptor_fragment, base64::STANDARD_NO_PAD) {
+            Ok(half_key) => half_key,
+            Err(_) => {
+                return Err(format!(
+                    "Invalid Base64 value for public key: {}",
+                    descriptor_fragment
+                ))
+            }
+        };
+        Ok(PublicKey::from(half_key))
+    }
 }
 
 impl CryptDENull {
     pub fn new() -> CryptDENull {
-        let key = PrivateKey::new(b"uninitialized");
+        let mut private_key = [0; 32];
+        let mut rng = thread_rng();
+        for idx in 0..32 {
+            private_key[idx] = rng.gen();
+        }
+        let private_key = PrivateKey::from(&private_key[..]);
+        let public_key = CryptDENull::public_from_private(&private_key);
         CryptDENull {
-            private_key: key.clone(),
-            public_key: CryptDENull::public_from_private(&key),
+            private_key,
+            public_key,
         }
     }
 
@@ -252,36 +272,15 @@ mod tests {
     }
 
     #[test]
-    fn private_key_before_generation() {
-        let expected = PrivateKey::new(b"uninitialized");
-        let subject = CryptDENull::new();
+    fn construction_produces_different_keys_each_time() {
+        let subject1 = CryptDENull::new();
+        let subject2 = CryptDENull::new();
 
-        let result = subject.private_key();
+        let first_public = subject1.public_key().clone();
+        let first_private = subject1.private_key().clone();
 
-        assert_eq!(expected, result.clone());
-    }
-
-    #[test]
-    fn public_key_before_generation() {
-        let subject = CryptDENull::new();
-        let expected = CryptDENull::public_from_private(&PrivateKey::new(b"uninitialized"));
-
-        let result = subject.public_key();
-
-        assert_eq!(expected, result.clone());
-    }
-
-    #[test]
-    fn generation_produces_different_keys_each_time() {
-        let mut subject = CryptDENull::new();
-
-        subject.generate_key_pair();
-        let first_public = subject.public_key().clone();
-        let first_private = subject.private_key().clone();
-
-        subject.generate_key_pair();
-        let second_public = subject.public_key().clone();
-        let second_private = subject.private_key().clone();
+        let second_public = subject2.public_key().clone();
+        let second_private = subject2.private_key().clone();
 
         assert_ne!(second_public, first_public);
         assert_ne!(second_private, first_private);
@@ -289,9 +288,7 @@ mod tests {
 
     #[test]
     fn generated_keys_work_with_each_other() {
-        let mut subject = CryptDENull::new();
-
-        subject.generate_key_pair();
+        let subject = CryptDENull::new();
 
         let expected_data = PlainData::new(&b"These are the times that try men's souls"[..]);
         let encrypted_data = subject
@@ -331,13 +328,45 @@ mod tests {
 
     #[test]
     fn dup_works() {
-        let mut subject = CryptDENull::new();
-        subject.generate_key_pair();
+        let subject = CryptDENull::new();
 
         let result = subject.dup();
 
         assert_eq!(result.public_key(), subject.public_key());
         assert_eq!(result.private_key(), subject.private_key());
+    }
+
+    #[test]
+    fn stringifies_public_key_properly() {
+        let subject = CryptDENull::new();
+        let public_key = PublicKey::new(&[1, 2, 3, 4]);
+
+        let result = subject.public_key_to_descriptor_fragment(&public_key);
+
+        assert_eq!(result, "AQIDBA".to_string());
+    }
+
+    #[test]
+    fn destringifies_public_key_properly() {
+        let subject = CryptDENull::new();
+        let half_key = "AQIDBA";
+
+        let result = subject.descriptor_fragment_to_first_contact_public_key(half_key);
+
+        assert_eq!(result, Ok(PublicKey::new(&[1, 2, 3, 4])));
+    }
+
+    #[test]
+    fn fails_to_destringify_public_key_properly() {
+        let subject = CryptDENull::new();
+        let half_key = "((]--$";
+
+        let result = subject.descriptor_fragment_to_first_contact_public_key(half_key);
+
+        assert_eq!(
+            result,
+            Err(String::from("Invalid Base64 value for public key: ((]--$"))
+        );
     }
 
     const HASHABLE_DATA: &str = "Availing himself of the mild, summer-cool weather that now reigned \
