@@ -351,7 +351,7 @@ impl ActorFactory for ActorFactoryReal {
                     Ok(interface) => Box::new(interface),
                     Err(_) => panic!("Invalid blockchain node URL"),
                 },
-                None => Box::new(BlockchainInterfaceClandestine {}),
+                None => Box::new(BlockchainInterfaceClandestine::new()),
             }
         };
         let blockchain_bridge = BlockchainBridge::new(config, blockchain_interface);
