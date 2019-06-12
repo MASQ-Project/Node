@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+
 use crate::neighborhood::node_record::NodeRecordInner;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
@@ -29,7 +30,7 @@ pub fn index_of<T>(haystack: &[T], needle: &[T]) -> Option<usize>
 where
     T: PartialEq,
 {
-    if needle.len() == 0 {
+    if needle.is_empty() {
         return None;
     }
     for h in 0..haystack.len() {
@@ -65,25 +66,6 @@ where
     } else {
         Some(index)
     }
-}
-
-pub fn accumulate<F, R>(mut f: F) -> Vec<R>
-where
-    F: FnMut() -> Option<R>,
-{
-    let mut result: Vec<R> = Vec::new();
-    loop {
-        match f() {
-            Some(r) => result.push(r),
-            None => break,
-        }
-    }
-    result
-}
-
-pub fn make_hex_string(bytes: &[u8]) -> String {
-    let strs: Vec<String> = bytes.iter().map(|b| format!("{:02X}", b)).collect();
-    strs.join("")
 }
 
 pub fn make_printable_string(bytes: &[u8]) -> String {
@@ -264,23 +246,6 @@ pub mod tests {
         let result = index_of_from(&haystack, &3, 0);
 
         assert_eq!(result, Some(3));
-    }
-
-    #[test]
-    fn accumulate_returns_empty_vec_for_immediate_none() {
-        let result: Vec<i32> = accumulate(|| None);
-
-        assert_eq!(result.len(), 0);
-    }
-
-    #[test]
-    fn accumulate_can_mutate_environment() {
-        let mut values = vec![3, 2, 1];
-
-        let result = accumulate(|| values.pop());
-
-        assert_eq!(values, Vec::<i32>::new());
-        assert_eq!(result, vec!(1, 2, 3));
     }
 
     #[test]

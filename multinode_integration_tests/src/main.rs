@@ -28,7 +28,6 @@ use std::thread;
 
 pub const CONTROL_STREAM_PORT: u16 = 42511;
 
-#[allow(dead_code)] // Lint says this isn't used. I say fooey.
 pub fn main() {
     let mut streams: StdStreams<'_> = StdStreams {
         stdin: &mut io::stdin(),

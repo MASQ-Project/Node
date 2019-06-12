@@ -24,6 +24,10 @@ pushd "$CI_DIR/../../port_exposer"
 ci/all.sh
 popd
 
+pushd "$CI_DIR/../../mock_rest_server"
+./build.sh
+popd
+
 cd docker
 ./build.sh
 

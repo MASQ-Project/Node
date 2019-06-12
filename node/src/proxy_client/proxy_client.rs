@@ -55,7 +55,7 @@ impl Handler<BindMessage> for ProxyClient {
     type Result = ();
 
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
-        self.logger.debug(format!("Handling BindMessage"));
+        self.logger.debug("Handling BindMessage".to_string());
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.to_hopper = Some(msg.peer_actors.hopper.from_hopper_client);
         self.to_accountant = Some(msg.peer_actors.accountant.report_exit_service_provided);
@@ -102,9 +102,9 @@ impl Handler<ExpiredCoresPackage<ClientRequestPayload>> for ProxyClient {
                 consuming_wallet: consuming_wallet.clone(),
             };
             self.stream_contexts
-                .insert(payload.stream_key.clone(), latest_stream_context);
+                .insert(payload.stream_key, latest_stream_context);
             pool.process_package(payload, consuming_wallet);
-            self.logger.debug(format!("ExpiredCoresPackage handled"));
+            self.logger.debug("ExpiredCoresPackage handled".to_string());
         } else {
             self.logger.error(format!(
                 "Refusing to provide exit services for CORES package with {}-byte payload without consuming wallet",
@@ -122,7 +122,7 @@ impl Handler<InboundServerData> for ProxyClient {
         let msg_source = msg.source;
         let msg_sequence_number = msg.sequence_number;
         let msg_last_data = msg.last_data;
-        let msg_stream_key = msg.stream_key.clone();
+        let msg_stream_key = msg.stream_key;
         let stream_context = match self.stream_contexts.get(&msg.stream_key) {
             Some(sc) => sc,
             None => {
@@ -147,8 +147,8 @@ impl Handler<DnsResolveFailure> for ProxyClient {
     type Result = ();
 
     fn handle(&mut self, msg: DnsResolveFailure, _ctx: &mut Self::Context) -> Self::Result {
-        let stream_key = &msg.stream_key.clone();
-        let stream_context_opt = self.stream_contexts.get(stream_key);
+        let stream_key = msg.stream_key;
+        let stream_context_opt = self.stream_contexts.get(&stream_key);
         match stream_context_opt {
             Some(stream_context) => {
                 let package = IncipientCoresPackage::new(
@@ -163,7 +163,7 @@ impl Handler<DnsResolveFailure> for ProxyClient {
                     .expect("Hopper is unbound")
                     .try_send(package)
                     .expect("Hopper is dead");
-                self.stream_contexts.remove(stream_key);
+                self.stream_contexts.remove(&stream_key);
             }
             None => self.logger.error(format!(
                 "DNS resolution for nonexistent stream ({:?}) failed.",

@@ -1,12 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::sub_lib::framer::Framer;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::proxy_client::InboundServerData;
 use crate::sub_lib::sequencer::Sequencer;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
+use crate::sub_lib::utils;
 use crate::sub_lib::utils::indicates_dead_stream;
-use crate::sub_lib::utils::to_string;
 use actix::Recipient;
 use std::net::SocketAddr;
 use std::sync::mpsc::Sender;
@@ -19,7 +18,6 @@ pub struct StreamReader {
     stream: Box<dyn ReadHalfWrapper>,
     stream_killer: Sender<StreamKey>,
     peer_addr: SocketAddr,
-    framer: Box<dyn Framer>,
     logger: Logger,
     sequencer: Sequencer,
 }
@@ -43,14 +41,16 @@ impl Future for StreamReader {
                     return Ok(Async::Ready(()));
                 }
                 Ok(Async::Ready(len)) => {
-                    self.logger.trace(format!(
-                        "Read {}-byte chunk from {}: {}",
-                        len,
-                        self.peer_addr,
-                        to_string(&Vec::from(&buf[0..len]))
-                    ));
-                    self.framer.add_data(&buf[0..len]);
-                    self.send_frames_loop();
+                    if self.logger.trace_enabled() {
+                        self.logger.trace(format!(
+                            "Read {}-byte chunk from {}: {}",
+                            len,
+                            self.peer_addr,
+                            utils::to_string(&Vec::from(&buf[0..len]))
+                        ));
+                    }
+                    let stream_key = self.stream_key;
+                    self.send_inbound_server_data(stream_key, Vec::from(&buf[0..len]), false);
                 }
                 Err(e) => {
                     if indicates_dead_stream(e.kind()) {
@@ -78,7 +78,6 @@ impl StreamReader {
         stream: Box<dyn ReadHalfWrapper>,
         stream_killer: Sender<StreamKey>,
         peer_addr: SocketAddr,
-        framer: Box<dyn Framer>,
     ) -> StreamReader {
         StreamReader {
             stream_key,
@@ -86,49 +85,14 @@ impl StreamReader {
             stream,
             stream_killer,
             peer_addr,
-            framer,
             logger: Logger::new(&format!("StreamReader for {:?}/{}", stream_key, peer_addr)[..]),
             sequencer: Sequencer::new(),
         }
     }
 
     fn shutdown(&mut self) {
-        let stream_key = self.stream_key.clone();
-        self.send_inbound_server_data(stream_key, vec![], true);
+        self.send_inbound_server_data(self.stream_key, vec![], true);
         let _ = self.stream_killer.send(self.stream_key);
-    }
-
-    fn send_frames_loop(&mut self) {
-        loop {
-            match self.framer.take_frame() {
-                Some(response_chunk) => {
-                    self.logger.trace(format!(
-                        "Framed {}-byte {} response chunk, '{}'",
-                        response_chunk.chunk.len(),
-                        if response_chunk.last_chunk {
-                            "final"
-                        } else {
-                            "non-final"
-                        },
-                        to_string(&response_chunk.chunk)
-                    ));
-                    let stream_key = self.stream_key.clone();
-                    self.send_inbound_server_data(
-                        stream_key.clone(),
-                        response_chunk.chunk,
-                        response_chunk.last_chunk,
-                    );
-                    if response_chunk.last_chunk {
-                        // FIXME no production framer sets this to true...
-                        self.stream_killer
-                            .send(self.stream_key)
-                            .expect("Internal Error");
-                        break;
-                    }
-                }
-                None => break,
-            }
-        }
     }
 
     fn send_inbound_server_data(&mut self, stream_key: StreamKey, data: Vec<u8>, last_data: bool) {
@@ -147,9 +111,6 @@ impl StreamReader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sub_lib::framer::FramedChunk;
-    use crate::sub_lib::http_packet_framer::HttpPacketFramer;
-    use crate::sub_lib::http_response_start_finder::HttpResponseStartFinder;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::make_recorder;
@@ -163,18 +124,6 @@ mod tests {
     use std::str::FromStr;
     use std::sync::mpsc;
     use std::thread;
-
-    struct StreamEndingFramer {}
-
-    impl Framer for StreamEndingFramer {
-        fn add_data(&mut self, _data: &[u8]) {}
-        fn take_frame(&mut self) -> Option<FramedChunk> {
-            Some(FramedChunk {
-                chunk: vec![],
-                last_chunk: true,
-            })
-        }
-    }
 
     #[test]
     fn stream_reader_assigns_a_sequence_to_client_response_payloads() {
@@ -222,7 +171,6 @@ mod tests {
             stream,
             stream_killer,
             peer_addr: SocketAddr::from_str("8.7.4.3:50").unwrap(),
-            framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
             logger: Logger::new("test"),
             sequencer: Sequencer::new(),
         };
@@ -238,7 +186,7 @@ mod tests {
                 last_data: false,
                 sequence_number: 0,
                 source: SocketAddr::from_str("8.7.4.3:50").unwrap(),
-                data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec()
+                data: b"HTTP/1.1 200".to_vec()
             },
         );
         assert_eq!(
@@ -248,7 +196,7 @@ mod tests {
                 last_data: false,
                 sequence_number: 1,
                 source: SocketAddr::from_str("8.7.4.3:50").unwrap(),
-                data: b"HTTP/1.1 404 File not found\r\n\r\n".to_vec()
+                data: b" OK\r\n\r\nHTTP/1.1 40".to_vec()
             },
         );
         assert_eq!(
@@ -258,7 +206,7 @@ mod tests {
                 last_data: false,
                 sequence_number: 2,
                 source: SocketAddr::from_str("8.7.4.3:50").unwrap(),
-                data: b"HTTP/1.1 503 Server error\r\n\r\n".to_vec()
+                data: b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n".to_vec()
             },
         );
         assert_eq!(
@@ -273,60 +221,6 @@ mod tests {
         );
         let stream_killer_parameters = stream_killer_params.try_recv().unwrap();
         assert_eq!(stream_killer_parameters, make_meaningless_stream_key());
-    }
-
-    #[test]
-    fn when_framer_identifies_last_chunk_stream_reader_takes_down_connection_properly() {
-        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
-        let stream_key = make_meaningless_stream_key();
-        let mut stream = Box::new(ReadHalfWrapperMock::new());
-        stream.poll_read_results = vec![
-            (vec![4], Ok(Async::Ready(1))),
-            (vec![], Ok(Async::NotReady)),
-        ];
-        let (stream_killer, stream_killer_params) = mpsc::channel();
-        let framer = Box::new(StreamEndingFramer {});
-        let logger = Logger::new("test");
-
-        let (tx, rx) = mpsc::channel();
-        thread::spawn(move || {
-            let system = System::new("test");
-            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
-
-            tx.send(peer_actors.proxy_client.inbound_server_data)
-                .expect("Internal Error");
-            system.run();
-        });
-
-        let proxy_client_sub = rx.recv().unwrap();
-        let mut subject = StreamReader {
-            stream_key,
-            proxy_client_sub,
-            stream,
-            stream_killer,
-            peer_addr: SocketAddr::from_str("4.3.6.5:574").unwrap(),
-            framer,
-            logger,
-            sequencer: Sequencer::new(),
-        };
-
-        let result = subject.poll();
-
-        assert_eq!(result, Ok(Async::NotReady));
-        proxy_client_awaiter.await_message_count(1);
-        let kill_stream_key = stream_killer_params.try_recv().unwrap();
-        assert_eq!(kill_stream_key, stream_key.clone());
-        let recording = proxy_client_recording_arc.lock().unwrap();
-        assert_eq!(
-            recording.get_record::<InboundServerData>(0),
-            &InboundServerData {
-                stream_key,
-                last_data: true,
-                sequence_number: 0,
-                source: SocketAddr::from_str("4.3.6.5:574").unwrap(),
-                data: vec![]
-            }
-        );
     }
 
     #[test]
@@ -367,7 +261,6 @@ mod tests {
             stream: Box::new(stream),
             stream_killer,
             peer_addr: SocketAddr::from_str("5.7.9.0:95").unwrap(),
-            framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
             logger: Logger::new("test"),
             sequencer: Sequencer::new(),
         };
@@ -384,7 +277,7 @@ mod tests {
                 last_data: false,
                 sequence_number: 0,
                 source: SocketAddr::from_str("5.7.9.0:95").unwrap(),
-                data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec()
+                data: b"HTTP/1.1 200".to_vec()
             }
         );
         assert_eq!(
@@ -394,7 +287,7 @@ mod tests {
                 last_data: false,
                 sequence_number: 1,
                 source: SocketAddr::from_str("5.7.9.0:95").unwrap(),
-                data: b"HTTP/1.1 404 File not found\r\n\r\n".to_vec()
+                data: b" OK\r\n\r\nHTTP/1.1 40".to_vec()
             }
         );
         assert_eq!(
@@ -404,7 +297,7 @@ mod tests {
                 last_data: false,
                 sequence_number: 2,
                 source: SocketAddr::from_str("5.7.9.0:95").unwrap(),
-                data: b"HTTP/1.1 503 Server error\r\n\r\n".to_vec()
+                data: b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n".to_vec()
             }
         );
         assert_eq!(
@@ -452,7 +345,6 @@ mod tests {
             stream: Box::new(stream),
             stream_killer,
             peer_addr: SocketAddr::from_str("5.3.4.3:654").unwrap(),
-            framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
             logger: Logger::new("test"),
             sequencer: Sequencer::new(),
         };
@@ -511,7 +403,6 @@ mod tests {
             stream: Box::new(stream),
             stream_killer,
             peer_addr: SocketAddr::from_str("6.5.4.1:8325").unwrap(),
-            framer: Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {}))),
             logger: Logger::new("test"),
             sequencer: Sequencer::new(),
         };

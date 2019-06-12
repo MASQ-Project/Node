@@ -28,6 +28,10 @@ impl SubstratumNodeClient {
         }
     }
 
+    pub fn get_stream(&mut self) -> &mut TcpStream {
+        &mut self.stream
+    }
+
     pub fn set_timeout(&mut self, timeout: Duration) {
         self.timeout = timeout
     }

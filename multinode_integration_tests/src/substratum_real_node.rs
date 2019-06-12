@@ -50,6 +50,7 @@ pub struct NodeStartupConfig {
     pub rate_pack: RatePack,
     pub consuming_private_key: Option<String>,
     pub firewall: Option<Firewall>,
+    pub memory: Option<String>,
     pub fake_public_key: Option<PublicKey>,
 }
 
@@ -68,6 +69,7 @@ impl NodeStartupConfig {
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
             )),
             firewall: None,
+            memory: None,
             fake_public_key: None,
         }
     }
@@ -129,6 +131,7 @@ pub struct NodeStartupConfigBuilder {
     rate_pack: RatePack,
     consuming_private_key: Option<String>,
     firewall: Option<Firewall>,
+    memory: Option<String>,
     fake_public_key: Option<PublicKey>,
 }
 
@@ -145,6 +148,7 @@ impl NodeStartupConfigBuilder {
             rate_pack: ZERO_RATE_PACK.clone(),
             consuming_private_key: None,
             firewall: None,
+            memory: None,
             fake_public_key: None,
         }
     }
@@ -163,6 +167,7 @@ impl NodeStartupConfigBuilder {
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
             )),
             firewall: None,
+            memory: None,
             fake_public_key: None,
         }
     }
@@ -179,6 +184,7 @@ impl NodeStartupConfigBuilder {
             rate_pack: config.rate_pack.clone(),
             consuming_private_key: config.consuming_private_key.clone(),
             firewall: config.firewall.clone(),
+            memory: config.memory.clone(),
             fake_public_key: config.fake_public_key.clone(),
         }
     }
@@ -190,6 +196,11 @@ impl NodeStartupConfigBuilder {
 
     pub fn dns_servers(mut self, value: Vec<IpAddr>) -> NodeStartupConfigBuilder {
         self.dns_servers = value;
+        self
+    }
+
+    pub fn memory(mut self, value: &str) -> NodeStartupConfigBuilder {
+        self.memory = Some(value.to_string());
         self
     }
 
@@ -264,6 +275,7 @@ impl NodeStartupConfigBuilder {
             rate_pack: self.rate_pack,
             consuming_private_key: self.consuming_private_key,
             firewall: self.firewall,
+            memory: self.memory,
             fake_public_key: self.fake_public_key,
         }
     }
@@ -357,7 +369,8 @@ impl SubstratumRealNode {
             Some(dir) => dir,
             None => SubstratumNodeUtils::find_project_root(),
         };
-        Self::do_docker_run(&root_dir, ip_addr, &name).unwrap();
+
+        Self::do_docker_run(&root_dir, ip_addr, &name).expect("docker run");
 
         Self::exec_command_on_container_and_detach(
             &name,
@@ -378,12 +391,16 @@ impl SubstratumRealNode {
         let cryptde_null = real_startup_config
             .fake_public_key
             .map(|public_key| CryptDENull::from(&public_key));
-        let mut command_parts = vec!["/node_root/node/SubstratumNode"];
-        command_parts.extend(node_args.iter().map(|s| s.as_str()));
-        Self::exec_command_on_container_and_detach(&name, command_parts)
+
+        let node_command = Self::create_node_command(node_args, startup_config);
+
+        let mut bash_command_parts = vec!["/bin/bash", "-c"];
+        bash_command_parts.extend(vec![node_command.as_str()]);
+        Self::exec_command_on_container_and_detach(&name, bash_command_parts)
             .expect("Couldn't start SubstratumNode");
 
-        let node_reference = SubstratumRealNode::extract_node_reference(&name).unwrap();
+        let node_reference =
+            SubstratumRealNode::extract_node_reference(&name).expect("extracting node reference");
         let guts = Rc::new(SubstratumRealNodeGuts {
             name,
             container_ip: ip_addr,
@@ -395,6 +412,18 @@ impl SubstratumRealNode {
             cryptde_null,
         });
         SubstratumRealNode { guts }
+    }
+
+    fn create_node_command(node_args: Vec<String>, startup_config: NodeStartupConfig) -> String {
+        let mut node_command_parts: Vec<String> = match startup_config.memory {
+            Some(bytes) => vec![format!(
+                "ulimit -v {} && /node_root/node/SubstratumNode",
+                bytes
+            )],
+            None => vec!["/node_root/node/SubstratumNode".to_string()],
+        };
+        node_command_parts.extend(node_args);
+        node_command_parts.join(" ")
     }
 
     pub fn root_dir(&self) -> String {
@@ -611,6 +640,14 @@ mod tests {
     }
 
     #[test]
+    fn node_max_memory_can_be_configured() {
+        let memory = "50mb";
+        let result = NodeStartupConfigBuilder::zero_hop().memory(memory).build();
+
+        assert_eq!(Some(memory.to_string()), result.memory);
+    }
+
+    #[test]
     fn node_startup_config_builder_standard() {
         let result = NodeStartupConfigBuilder::standard().build();
 
@@ -695,6 +732,7 @@ mod tests {
             firewall: Some(Firewall {
                 ports_to_open: vec![HTTP_PORT, TLS_PORT],
             }),
+            memory: Some("32m".to_string()),
             fake_public_key: Some(PublicKey::new(&[1, 2, 3, 4])),
         };
         let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();

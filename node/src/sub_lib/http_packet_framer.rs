@@ -317,27 +317,28 @@ impl HttpPacketFramer {
         if self.framer_state.data_so_far.len() < (chunk_size + CRLF.len()) {
             return None;
         }
-        let temp = self
+        let remaining_data = self
             .framer_state
             .data_so_far
             .split_off(chunk_size + CRLF.len());
-        let mut result_data = self.framer_state.data_so_far.clone();
-        self.framer_state.data_so_far = temp;
-        if &result_data[(result_data.len() - CRLF.len())..] != CRLF {
+        let mut chunk = self.framer_state.data_so_far.clone();
+        self.framer_state.data_so_far = remaining_data;
+        if !chunk.ends_with(CRLF) {
             // If the chunk has no CRLF terminator, rescue the last two characters back into data_so_far
+            // Should we consider aborting malformed data-stream?
             self.framer_state
                 .data_so_far
-                .insert(0, result_data[result_data.len() - 1]);
+                .insert(0, chunk[chunk.len() - 1]);
             self.framer_state
                 .data_so_far
-                .insert(0, result_data[result_data.len() - 2]);
-            let result_data_len = result_data.len();
-            result_data.truncate(result_data_len - 2);
+                .insert(0, chunk[chunk.len() - 2]);
+            let result_data_len = chunk.len();
+            chunk.truncate(result_data_len - 2);
         }
         self.framer_state.chunk_progress_state = ChunkProgressState::SeekingLengthHeader;
         self.framer_state.chunk_size = None;
         Some(FramedChunk {
-            chunk: result_data,
+            chunk,
             last_chunk: false,
         })
     }
@@ -441,7 +442,7 @@ mod framer_tests {
                 transfer_encoding_chunked: ChunkExistenceState::Standard,
                 chunk_progress_state: ChunkProgressState::None,
                 chunk_size: None,
-                lines: vec!(),
+                lines: vec![],
             }
         );
     }
@@ -471,7 +472,7 @@ mod framer_tests {
                 transfer_encoding_chunked: ChunkExistenceState::Standard,
                 chunk_progress_state: ChunkProgressState::None,
                 chunk_size: None,
-                lines: vec!(),
+                lines: vec![],
             }
         );
     }
@@ -501,7 +502,7 @@ mod framer_tests {
                 transfer_encoding_chunked: ChunkExistenceState::ChunkedResponse,
                 chunk_progress_state: ChunkProgressState::SeekingEndOfFinalChunk,
                 chunk_size: Some(200),
-                lines: vec!(vec!(), vec!()),
+                lines: vec![vec![], vec![]],
             }
         );
     }
@@ -531,7 +532,7 @@ mod framer_tests {
                 transfer_encoding_chunked: ChunkExistenceState::ChunkedResponse,
                 chunk_progress_state: ChunkProgressState::SeekingEndOfFinalChunk,
                 chunk_size: Some(200),
-                lines: vec!(vec!(), vec!()),
+                lines: vec![vec![], vec![]],
             }
         );
     }

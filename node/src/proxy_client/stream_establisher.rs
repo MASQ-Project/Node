@@ -6,29 +6,20 @@ use crate::sub_lib::channel_wrappers::FuturesChannelFactory;
 use crate::sub_lib::channel_wrappers::FuturesChannelFactoryReal;
 use crate::sub_lib::channel_wrappers::SenderWrapper;
 use crate::sub_lib::cryptde::CryptDE;
-use crate::sub_lib::framer::Framer;
-use crate::sub_lib::http_packet_framer::HttpPacketFramer;
-use crate::sub_lib::http_response_start_finder::HttpResponseStartFinder;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::proxy_client::{InboundServerData, ProxyClientSubs};
 use crate::sub_lib::proxy_server::ClientRequestPayload;
-use crate::sub_lib::proxy_server::ProxyProtocol;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_connector::StreamConnector;
 use crate::sub_lib::stream_connector::StreamConnectorReal;
 use crate::sub_lib::stream_key::StreamKey;
-use crate::sub_lib::tls_framer::TlsFramer;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use actix::Recipient;
 use std::io;
-use std::io::Error;
-use std::io::ErrorKind;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::sync::mpsc::Sender;
 use tokio;
-use trust_dns_resolver::error::ResolveError;
-use trust_dns_resolver::lookup_ip::LookupIp;
 
 pub struct StreamEstablisher {
     pub cryptde: &'static dyn CryptDE,
@@ -58,33 +49,9 @@ impl StreamEstablisher {
     pub fn establish_stream(
         &mut self,
         payload: &ClientRequestPayload,
-        lookup_result: Result<LookupIp, ResolveError>,
+        ip_addrs: Vec<IpAddr>,
+        target_hostname: String,
     ) -> io::Result<Box<dyn SenderWrapper<SequencedPacket>>> {
-        let target_hostname = match &payload.target_hostname {
-            Some(target_hostname) => target_hostname.clone(),
-            None => {
-                self.logger.error(format!(
-                    "Cannot open new stream with key {:?}: no hostname supplied",
-                    payload.stream_key
-                ));
-                return Err(Error::from(ErrorKind::Other));
-            }
-        };
-        let ip_addrs: Vec<IpAddr> = match lookup_result {
-            Err(e) => {
-                self.logger.error(format!(
-                    "Could not find IP address for host {}: {}",
-                    target_hostname, e
-                ));
-                return Err(Error::from(e));
-            }
-            Ok(lookup_ip) => lookup_ip.iter().map(|x| x).collect(),
-        };
-        self.logger.debug(format!(
-            "Found IP addresses for {}: {:?}",
-            target_hostname, &ip_addrs
-        ));
-
         let connection_info = self.stream_connector.connect_one(
             ip_addrs,
             &target_hostname,
@@ -119,29 +86,17 @@ impl StreamEstablisher {
         read_stream: Box<dyn ReadHalfWrapper>,
         peer_addr: SocketAddr,
     ) -> io::Result<()> {
-        let framer = Self::framer_from_protocol(payload.protocol);
-
         let stream_reader = StreamReader::new(
             payload.stream_key,
             self.proxy_client_sub.clone(),
             read_stream,
             self.stream_killer_tx.clone(),
             peer_addr,
-            framer,
         );
         self.logger
             .debug(format!("Spawning StreamReader for {}", peer_addr));
         tokio::spawn(stream_reader);
         Ok(())
-    }
-
-    pub fn framer_from_protocol(protocol: ProxyProtocol) -> Box<dyn Framer> {
-        match protocol {
-            ProxyProtocol::HTTP => {
-                Box::new(HttpPacketFramer::new(Box::new(HttpResponseStartFinder {})))
-            }
-            ProxyProtocol::TLS => Box::new(TlsFramer::new()),
-        }
     }
 }
 
@@ -191,11 +146,11 @@ mod tests {
     use tokio::prelude::Async;
 
     #[test]
-    fn spawn_stream_reader_handles_http() {
+    fn spawn_stream_reader_handles_data() {
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let (sub_tx, sub_rx) = mpsc::channel();
         thread::spawn(move || {
-            let system = System::new("test");
+            let system = System::new("spawn_stream_reader_handles_data");
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             sub_tx
                 .send(peer_actors.proxy_client.inbound_server_data)
@@ -210,10 +165,10 @@ mod tests {
             let (stream_adder_tx, _stream_adder_rx) = mpsc::channel();
             let (stream_killer_tx, _) = mpsc::channel();
             let mut read_stream = Box::new(ReadHalfWrapperMock::new());
+            let bytes = b"I'm a stream establisher test not a framer test";
             read_stream.poll_read_results = vec![
-                (vec![0x16, 0x03, 0x03, 0x00, 0x00], Ok(Async::Ready(5))),
-                (b"HTTP/1.1 200 OK\r\n\r\n".to_vec(), Ok(Async::Ready(19))),
-                (vec![], Err(Error::from(ErrorKind::BrokenPipe))),
+                (bytes.to_vec(), Ok(Async::Ready(bytes.len()))),
+                (vec![], Err(io::Error::from(ErrorKind::BrokenPipe))),
             ];
 
             let subject = StreamEstablisher {
@@ -266,87 +221,7 @@ mod tests {
                 last_data: false,
                 sequence_number: 0,
                 source: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-                data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec()
-            }
-        );
-    }
-
-    #[test]
-    fn spawn_stream_reader_handles_tls() {
-        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
-        let (sub_tx, sub_rx) = mpsc::channel();
-        thread::spawn(move || {
-            let system = System::new("test");
-            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
-            sub_tx
-                .send(peer_actors.proxy_client.inbound_server_data)
-                .expect("Internal Error");
-            system.run();
-        });
-
-        let (ibsd_tx, ibsd_rx) = mpsc::channel();
-        let test_future = lazy(move || {
-            let proxy_client_sub = sub_rx.recv().unwrap();
-            let mut read_stream = Box::new(ReadHalfWrapperMock::new());
-            read_stream.poll_read_results = vec![
-                (b"HTTP/1.1 200 OK\r\n\r\n".to_vec(), Ok(Async::Ready(19))),
-                (vec![0x16, 0x03, 0x03, 0x00, 0x00], Ok(Async::Ready(5))),
-                (vec![], Err(Error::from(ErrorKind::BrokenPipe))),
-            ];
-            let (stream_adder_tx, _stream_adder_rx) = mpsc::channel();
-            let (stream_killer_tx, _) = mpsc::channel();
-
-            let subject = StreamEstablisher {
-                cryptde: cryptde(),
-                stream_adder_tx,
-                stream_killer_tx,
-                stream_connector: Box::new(StreamConnectorMock::new()), // only used in "establish_stream"
-                proxy_client_sub,
-                logger: Logger::new("Proxy Client"),
-                channel_factory: Box::new(FuturesChannelFactoryReal {}),
-            };
-
-            subject
-                .spawn_stream_reader(
-                    &ClientRequestPayload {
-                        stream_key: make_meaningless_stream_key(),
-                        sequenced_packet: SequencedPacket {
-                            data: vec![],
-                            sequence_number: 0,
-                            last_data: false,
-                        },
-                        target_hostname: None,
-                        target_port: 0,
-                        protocol: ProxyProtocol::TLS,
-                        originator_public_key: subject.cryptde.public_key().clone(),
-                    },
-                    read_stream,
-                    SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-                )
-                .expect("spawn_stream_reader () failed");
-            proxy_client_awaiter.await_message_count(1);
-            let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
-            let record = proxy_client_recording
-                .get_record::<InboundServerData>(0)
-                .clone();
-            ibsd_tx.send(record).unwrap();
-            return Ok(());
-        });
-
-        thread::spawn(move || {
-            tokio::run(test_future);
-        });
-
-        let ibsd = ibsd_rx.recv().unwrap();
-
-        assert_eq!(
-            ibsd,
-            InboundServerData {
-                stream_key: make_meaningless_stream_key(),
-                last_data: false,
-                sequence_number: 0,
-                source: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-                data: vec!(0x16, 0x03, 0x03, 0x00, 0x00)
+                data: b"I'm a stream establisher test not a framer test".to_vec()
             }
         );
     }

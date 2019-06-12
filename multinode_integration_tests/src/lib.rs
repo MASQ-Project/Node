@@ -4,6 +4,7 @@ pub mod command;
 pub mod main;
 pub mod multinode_gossip;
 pub mod neighborhood_constructor;
+pub mod rest_utils;
 pub mod substratum_client;
 pub mod substratum_cores_client;
 pub mod substratum_cores_server;

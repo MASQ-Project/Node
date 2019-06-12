@@ -1,0 +1,9 @@
+[package]
+name = "mock_rest_server"
+version = "0.4.6"
+authors = ["Substratum Services"]
+copyright = "Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved."
+edition = "2018"
+
+[dependencies]
+rocket = "0.4.1"

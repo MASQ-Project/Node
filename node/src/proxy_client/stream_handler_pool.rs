@@ -2,8 +2,8 @@
 #![allow(proc_macro_derive_resolution_fallback)]
 
 use crate::proxy_client::resolver_wrapper::ResolverWrapper;
-use crate::proxy_client::stream_establisher::StreamEstablisherFactory;
 use crate::proxy_client::stream_establisher::StreamEstablisherFactoryReal;
+use crate::proxy_client::stream_establisher::{StreamEstablisher, StreamEstablisherFactory};
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::channel_wrappers::SenderWrapper;
 use crate::sub_lib::cryptde::CryptDE;
@@ -15,15 +15,20 @@ use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
+use futures::future;
 use futures::future::Future;
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::io;
+use std::net::{AddrParseError, IpAddr, SocketAddr};
+use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::prelude::future::FutureResult;
 use tokio::prelude::future::{err, ok};
+use trust_dns_resolver::error::ResolveError;
+use trust_dns_resolver::lookup_ip::LookupIp;
 
 pub trait StreamHandlerPool {
     fn process_package(&self, payload: ClientRequestPayload, consuming_wallet: Option<Wallet>);
@@ -51,7 +56,7 @@ impl StreamHandlerPool for StreamHandlerPoolReal {
         self.do_housekeeping();
 
         if payload.sequenced_packet.last_data
-            && (payload.sequenced_packet.data.len() == 0)
+            && (payload.sequenced_packet.data.is_empty())
             && Self::find_stream_with_key(&payload.stream_key, &self.inner).is_none()
         {
             let inner = self.inner.lock().expect("Stream handler pool is poisoned");
@@ -64,6 +69,9 @@ impl StreamHandlerPool for StreamHandlerPoolReal {
         }
     }
 }
+
+type StreamEstablisherResult =
+    Box<dyn Future<Item = Box<dyn SenderWrapper<SequencedPacket> + 'static>, Error = String>>;
 
 impl StreamHandlerPoolReal {
     pub fn new(
@@ -166,7 +174,7 @@ impl StreamHandlerPoolReal {
         consuming_wallet: Option<Wallet>,
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
     ) -> impl Future<Item = (), Error = String> {
-        let stream_key = payload.stream_key.clone();
+        let stream_key = payload.stream_key;
         let last_data = payload.sequenced_packet.last_data;
         let payload_size = payload.sequenced_packet.data.len();
 
@@ -198,53 +206,136 @@ impl StreamHandlerPoolReal {
     fn make_stream_with_key(
         payload: &ClientRequestPayload,
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
-    ) -> impl Future<Item = Box<dyn SenderWrapper<SequencedPacket> + 'static>, Error = String> {
+    ) -> StreamEstablisherResult {
         // TODO: Figure out what to do if a flurry of requests for a particular stream key
         // come flooding in so densely that several of them arrive in the time it takes to
         // resolve the first one and add it to the stream_writers map.
         let logger = Self::make_logger_copy(&inner_arc);
-        let mut establisher = {
-            let inner = inner_arc
-                .lock()
-                .unwrap_or_else(|_| panic!("Stream handler pool is poisoned"));
-            inner.establisher_factory.make()
-        };
         logger.debug(format!(
             "No stream to {:?} exists; resolving host",
             &payload.target_hostname
         ));
-        let fqdn_opt = Self::make_fqdn(&payload.target_hostname);
 
-        let payload_clone = payload.clone();
+        match payload.target_hostname {
+            Some(ref target_hostname) => match Self::parse_ip(target_hostname) {
+                Ok(socket_addr) => Self::handle_ip(
+                    payload.clone(),
+                    socket_addr,
+                    inner_arc,
+                    target_hostname.to_string(),
+                ),
+                Err(_) => Self::lookup_dns(inner_arc, target_hostname.to_string(), payload.clone()),
+            },
+            None => {
+                logger.error(format!(
+                    "Cannot open new stream with key {:?}: no hostname supplied",
+                    payload.stream_key
+                ));
+                Box::new(future::err::<
+                    Box<dyn SenderWrapper<SequencedPacket> + 'static>,
+                    String,
+                >("No hostname provided".to_string()))
+            }
+        }
+    }
+
+    fn parse_ip(hostname: &str) -> Result<IpAddr, AddrParseError> {
+        let socket_ip = SocketAddr::from_str(hostname).map(|sa| sa.ip());
+        if socket_ip.is_ok() {
+            socket_ip
+        } else {
+            IpAddr::from_str(hostname)
+        }
+    }
+
+    fn make_establisher(inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>) -> StreamEstablisher {
+        let inner = inner_arc
+            .lock()
+            .unwrap_or_else(|_| panic!("Stream handler pool is poisoned"));
+        inner.establisher_factory.make()
+    }
+
+    fn handle_ip(
+        payload: ClientRequestPayload,
+        ip_addr: IpAddr,
+        inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
+        target_hostname: String,
+    ) -> StreamEstablisherResult {
+        let mut stream_establisher = StreamHandlerPoolReal::make_establisher(inner_arc.clone());
+        Box::new(
+            future::lazy(move || {
+                stream_establisher.establish_stream(&payload, vec![ip_addr], target_hostname)
+            })
+            .map_err(|io_error| format!("Could not establish stream: {:?}", io_error)),
+        )
+    }
+
+    fn lookup_dns(
+        inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
+        target_hostname: String,
+        payload: ClientRequestPayload,
+    ) -> StreamEstablisherResult {
+        let fqdn = Self::make_fqdn(&target_hostname);
         let dns_resolve_failed_sub = inner_arc
             .lock()
             .expect("Stream handler pool is poisoned")
             .proxy_client_subs
             .dns_resolve_failed
             .clone();
+        let mut establisher = StreamHandlerPoolReal::make_establisher(inner_arc.clone());
         let stream_key = payload.stream_key;
-
-        inner_arc
-            .lock()
-            .expect("Stream handler pool is poisoned")
-            .resolver
-            .lookup_ip(fqdn_opt.clone())
-            .map_err(move |err| {
-                dns_resolve_failed_sub
-                    .try_send(DnsResolveFailure { stream_key })
-                    .expect("Proxy Client is poisoned");
-                err
-            })
-            .then(move |lookup_result| establisher.establish_stream(&payload_clone, lookup_result))
-            .map_err(|io_error| format!("Could not establish stream: {:?}", io_error))
+        let logger = StreamHandlerPoolReal::make_logger_copy(&inner_arc);
+        Box::new(
+            inner_arc
+                .lock()
+                .expect("Stream handler pool is poisoned")
+                .resolver
+                .lookup_ip(&fqdn)
+                .map_err(move |err| {
+                    dns_resolve_failed_sub
+                        .try_send(DnsResolveFailure { stream_key })
+                        .expect("Proxy Client is poisoned");
+                    err
+                })
+                .then(move |lookup_result| {
+                    Self::handle_lookup_ip(
+                        target_hostname.to_string(),
+                        &payload,
+                        lookup_result,
+                        logger,
+                        &mut establisher,
+                    )
+                })
+                .map_err(|io_error| format!("Could not establish stream: {:?}", io_error)),
+        )
     }
 
-    fn make_fqdn(target_hostname_opt: &Option<String>) -> Option<String> {
-        if let Some(target_hostname) = target_hostname_opt {
-            Some(format!("{}.", target_hostname))
-        } else {
-            None
-        }
+    fn handle_lookup_ip(
+        target_hostname: String,
+        payload: &ClientRequestPayload,
+        lookup_result: Result<LookupIp, ResolveError>,
+        logger: Logger,
+        establisher: &mut StreamEstablisher,
+    ) -> io::Result<Box<dyn SenderWrapper<SequencedPacket>>> {
+        let ip_addrs: Vec<IpAddr> = match lookup_result {
+            Err(e) => {
+                logger.error(format!(
+                    "Could not find IP address for host {}: {}",
+                    target_hostname, e
+                ));
+                return Err(io::Error::from(e));
+            }
+            Ok(lookup_ip) => lookup_ip.iter().map(|x| x).collect(),
+        };
+        logger.debug(format!(
+            "Found IP addresses for {}: {:?}",
+            target_hostname, &ip_addrs
+        ));
+        establisher.establish_stream(&payload, ip_addrs, target_hostname)
+    }
+
+    fn make_fqdn(target_hostname: &str) -> String {
+        format!("{}.", target_hostname)
     }
 
     fn find_stream_with_key(
@@ -270,7 +361,9 @@ impl StreamHandlerPoolReal {
     ) -> FutureResult<(), String> {
         match sender_wrapper.unbounded_send(sequenced_packet) {
             Ok(_) => ok::<(), String>(()),
-            Err(_) => err::<(), String>(format!("Could not queue write to stream; channel full")),
+            Err(_) => {
+                err::<(), String>("Could not queue write to stream; channel full".to_string())
+            }
         }
     }
 
@@ -281,7 +374,7 @@ impl StreamHandlerPoolReal {
     ) {
         proxy_client_sub
             .try_send(InboundServerData {
-                stream_key: stream_key.clone(),
+                stream_key: *stream_key,
                 last_data: true,
                 sequence_number: 0,
                 source,
@@ -297,20 +390,17 @@ impl StreamHandlerPoolReal {
 
     fn clean_up_dead_streams(&self) {
         let mut inner = self.inner.lock().expect("Stream handler pool is poisoned");
-        loop {
-            match self.stream_killer_rx.try_recv() {
-                Ok(stream_key) => match inner.stream_writer_channels.remove(&stream_key) {
-                    Some(writer_channel) => inner.logger.debug(format!(
-                        "Killed StreamWriter to {}",
-                        writer_channel.peer_addr()
-                    )),
-                    None => inner.logger.debug(format!(
-                        "Tried to kill StreamWriter for key {:?}, but it was not found",
-                        stream_key
-                    )),
-                },
-                Err(_) => break,
-            };
+        while let Ok(stream_key) = self.stream_killer_rx.try_recv() {
+            match inner.stream_writer_channels.remove(&stream_key) {
+                Some(writer_channel) => inner.logger.debug(format!(
+                    "Killed StreamWriter to {}",
+                    writer_channel.peer_addr()
+                )),
+                None => inner.logger.debug(format!(
+                    "Tried to kill StreamWriter for key {:?}, but it was not found",
+                    stream_key
+                )),
+            }
         }
     }
 
@@ -623,6 +713,224 @@ mod tests {
     }
 
     #[test]
+    fn when_hostname_is_ip_establish_stream_without_dns_lookup() {
+        let cryptde = cryptde();
+        let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
+        let expected_lookup_ip_parameters = lookup_ip_parameters.clone();
+        let write_parameters = Arc::new(Mutex::new(vec![]));
+        let expected_write_parameters = write_parameters.clone();
+        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
+        thread::spawn(move || {
+            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+            let client_request_payload = ClientRequestPayload {
+                stream_key: make_meaningless_stream_key(),
+                sequenced_packet: SequencedPacket {
+                    data: b"These are the times".to_vec(),
+                    sequence_number: 0,
+                    last_data: false,
+                },
+                target_hostname: Some(String::from("3.4.5.6:80")),
+                target_port: HTTP_PORT,
+                protocol: ProxyProtocol::HTTP,
+                originator_public_key: PublicKey::new(&b"men's souls"[..]),
+            };
+            let package = ExpiredCoresPackage::new(
+                IpAddr::from_str("1.2.3.4").unwrap(),
+                Some(Wallet::new("consuming")),
+                make_meaningless_route(),
+                client_request_payload.into(),
+                0,
+            );
+            let resolver = ResolverWrapperMock::new()
+                .lookup_ip_parameters(&lookup_ip_parameters)
+                .lookup_ip_success(vec![
+                    IpAddr::from_str("2.3.4.5").unwrap(),
+                    IpAddr::from_str("3.4.5.6").unwrap(),
+                ]);
+            let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
+            let first_read_result = b"HTTP/1.1 200 OK\r\n\r\n";
+            let reader = ReadHalfWrapperMock {
+                poll_read_results: vec![
+                    (
+                        first_read_result.to_vec(),
+                        Ok(Async::Ready(first_read_result.len())),
+                    ),
+                    (vec![], Err(Error::from(ErrorKind::ConnectionAborted))),
+                ],
+            };
+            let writer = WriteHalfWrapperMock {
+                poll_write_params: write_parameters,
+                poll_write_results: vec![Ok(Async::Ready(first_read_result.len()))],
+                shutdown_results: Arc::new(Mutex::new(vec![])),
+            };
+            let mut subject = StreamHandlerPoolReal::new(
+                Box::new(resolver),
+                cryptde,
+                peer_actors.accountant.report_exit_service_provided.clone(),
+                peer_actors.proxy_client.clone(),
+                100,
+                200,
+            );
+            let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
+            subject.stream_killer_rx = stream_killer_rx;
+            let (stream_adder_tx, _stream_adder_rx) = mpsc::channel();
+            {
+                let mut inner = subject.inner.lock().unwrap();
+                let establisher = StreamEstablisher {
+                    cryptde,
+                    stream_adder_tx,
+                    stream_killer_tx,
+                    stream_connector: Box::new(StreamConnectorMock::new().with_connection(
+                        peer_addr.clone(),
+                        peer_addr.clone(),
+                        reader,
+                        writer,
+                    )),
+                    proxy_client_sub: inner.proxy_client_subs.inbound_server_data.clone(),
+                    logger: inner.logger.clone(),
+                    channel_factory: Box::new(FuturesChannelFactoryReal {}),
+                };
+
+                inner.establisher_factory = Box::new(StreamEstablisherFactoryMock {
+                    make_results: RefCell::new(vec![establisher]),
+                });
+            }
+
+            run_process_package_in_actix(subject, package);
+        });
+
+        proxy_client_awaiter.await_message_count(1);
+        assert_eq!(
+            expected_lookup_ip_parameters.lock().unwrap().deref(),
+            &(vec![] as Vec<String>)
+        );
+        assert_eq!(
+            expected_write_parameters.lock().unwrap().remove(0),
+            b"These are the times".to_vec()
+        );
+        let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
+        assert_eq!(
+            proxy_client_recording.get_record::<InboundServerData>(0),
+            &InboundServerData {
+                stream_key: make_meaningless_stream_key(),
+                last_data: false,
+                sequence_number: 0,
+                source: SocketAddr::from_str("3.4.5.6:80").unwrap(),
+                data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
+            }
+        );
+    }
+
+    #[test]
+    fn ip_is_parsed_even_without_port() {
+        let cryptde = cryptde();
+        let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
+        let expected_lookup_ip_parameters = lookup_ip_parameters.clone();
+        let write_parameters = Arc::new(Mutex::new(vec![]));
+        let expected_write_parameters = write_parameters.clone();
+        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
+        thread::spawn(move || {
+            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+            let client_request_payload = ClientRequestPayload {
+                stream_key: make_meaningless_stream_key(),
+                sequenced_packet: SequencedPacket {
+                    data: b"These are the times".to_vec(),
+                    sequence_number: 0,
+                    last_data: false,
+                },
+                target_hostname: Some(String::from("3.4.5.6")),
+                target_port: HTTP_PORT,
+                protocol: ProxyProtocol::HTTP,
+                originator_public_key: PublicKey::new(&b"men's souls"[..]),
+            };
+            let package = ExpiredCoresPackage::new(
+                IpAddr::from_str("1.2.3.4").unwrap(),
+                Some(Wallet::new("consuming")),
+                make_meaningless_route(),
+                client_request_payload.into(),
+                0,
+            );
+            let resolver = ResolverWrapperMock::new()
+                .lookup_ip_parameters(&lookup_ip_parameters)
+                .lookup_ip_success(vec![
+                    IpAddr::from_str("2.3.4.5").unwrap(),
+                    IpAddr::from_str("3.4.5.6").unwrap(),
+                ]);
+            let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
+            let first_read_result = b"HTTP/1.1 200 OK\r\n\r\n";
+            let reader = ReadHalfWrapperMock {
+                poll_read_results: vec![
+                    (
+                        first_read_result.to_vec(),
+                        Ok(Async::Ready(first_read_result.len())),
+                    ),
+                    (vec![], Err(Error::from(ErrorKind::ConnectionAborted))),
+                ],
+            };
+            let writer = WriteHalfWrapperMock {
+                poll_write_params: write_parameters,
+                poll_write_results: vec![Ok(Async::Ready(first_read_result.len()))],
+                shutdown_results: Arc::new(Mutex::new(vec![])),
+            };
+            let mut subject = StreamHandlerPoolReal::new(
+                Box::new(resolver),
+                cryptde,
+                peer_actors.accountant.report_exit_service_provided.clone(),
+                peer_actors.proxy_client.clone(),
+                100,
+                200,
+            );
+            let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
+            subject.stream_killer_rx = stream_killer_rx;
+            let (stream_adder_tx, _stream_adder_rx) = mpsc::channel();
+            {
+                let mut inner = subject.inner.lock().unwrap();
+                let establisher = StreamEstablisher {
+                    cryptde,
+                    stream_adder_tx,
+                    stream_killer_tx,
+                    stream_connector: Box::new(StreamConnectorMock::new().with_connection(
+                        peer_addr.clone(),
+                        peer_addr.clone(),
+                        reader,
+                        writer,
+                    )),
+                    proxy_client_sub: inner.proxy_client_subs.inbound_server_data.clone(),
+                    logger: inner.logger.clone(),
+                    channel_factory: Box::new(FuturesChannelFactoryReal {}),
+                };
+
+                inner.establisher_factory = Box::new(StreamEstablisherFactoryMock {
+                    make_results: RefCell::new(vec![establisher]),
+                });
+            }
+
+            run_process_package_in_actix(subject, package);
+        });
+
+        proxy_client_awaiter.await_message_count(1);
+        assert_eq!(
+            expected_lookup_ip_parameters.lock().unwrap().deref(),
+            &(vec![] as Vec<String>)
+        );
+        assert_eq!(
+            expected_write_parameters.lock().unwrap().remove(0),
+            b"These are the times".to_vec()
+        );
+        let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
+        assert_eq!(
+            proxy_client_recording.get_record::<InboundServerData>(0),
+            &InboundServerData {
+                stream_key: make_meaningless_stream_key(),
+                last_data: false,
+                sequence_number: 0,
+                source: SocketAddr::from_str("3.4.5.6:80").unwrap(),
+                data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
+            }
+        );
+    }
+
+    #[test]
     fn missing_hostname_for_nonexistent_stream_generates_log_and_termination_message() {
         init_test_logging();
         let cryptde = cryptde();
@@ -663,10 +971,10 @@ mod tests {
             run_process_package_in_actix(subject, package);
         });
 
-        proxy_client_awaiter.await_message_count(2);
+        proxy_client_awaiter.await_message_count(1);
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(
-            proxy_client_recording.get_record::<InboundServerData>(1),
+            proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
                 stream_key: make_meaningless_stream_key(),
                 last_data: true,
@@ -774,7 +1082,7 @@ mod tests {
         proxy_client_awaiter.await_message_count(1);
         assert_eq!(
             expected_lookup_ip_parameters.lock().unwrap().deref(),
-            &vec!(Some(String::from("that.try.")))
+            &vec!["that.try.".to_string()]
         );
         assert_eq!(
             expected_write_parameters.lock().unwrap().remove(0),
