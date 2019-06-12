@@ -16,9 +16,10 @@ pub fn main() {
         stderr: &mut io::stderr(),
     };
 
-    let mut server_initializer = ServerInitializer::new();
     let streams_ref: &mut StdStreams<'_> = &mut streams;
-    server_initializer.go(streams_ref, &std::env::args().collect());
+    let args = &std::env::args().collect();
+    let mut server_initializer = ServerInitializer::new(args, streams_ref);
+    server_initializer.go(streams_ref, args);
 
     actix::spawn(server_initializer.map_err(|_| {
         System::current().stop();

@@ -3,6 +3,7 @@
 use crate::sub_lib::logger::Logger;
 use clap::{App, ArgMatches};
 use std::collections::HashSet;
+use std::fmt::Debug;
 use std::fs::File;
 use std::io::{ErrorKind, Read};
 use std::path::PathBuf;
@@ -47,14 +48,11 @@ impl<'a> MultiConfig<'a> {
             arg_matches: schema
                 .clone()
                 .get_matches_from_safe(merged.args().into_iter())
-                .unwrap_or_else(|e| match e.kind {
-                    clap::ErrorKind::HelpDisplayed | clap::ErrorKind::VersionDisplayed => e.exit(),
-                    _ => {
-                        if cfg!(test) {
-                            panic!("{}. Note in production this will be an exit.", e)
-                        } else {
-                            e.exit()
-                        }
+                .unwrap_or_else(|e| {
+                    if cfg!(test) {
+                        panic!("{}. --panic to catch for testing--", e)
+                    } else {
+                        e.exit()
                     }
                 }),
         }
@@ -65,9 +63,8 @@ impl<'a> MultiConfig<'a> {
     }
 }
 
-pub trait VclArg {
+pub trait VclArg: Debug {
     fn name(&self) -> &str;
-    fn value(&self) -> &str;
     fn to_args(&self) -> Vec<String>;
     fn dup(&self) -> Box<VclArg>;
 }
@@ -83,7 +80,7 @@ fn vcl_args_to_vcl_args(vcl_args: &Vec<Box<VclArg>>) -> Vec<&VclArg> {
     vcl_args.iter().map(|box_ref| box_ref.as_ref()).collect()
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug, PartialEq)]
 pub struct NameValueVclArg {
     name: String,
     value: String,
@@ -94,16 +91,12 @@ impl VclArg for NameValueVclArg {
         &self.name
     }
 
-    fn value(&self) -> &str {
-        &self.value
-    }
-
     fn to_args(&self) -> Vec<String> {
         vec![self.name.clone(), self.value.clone()]
     }
 
     fn dup(&self) -> Box<VclArg> {
-        Box::new(NameValueVclArg::new(self.name(), self.value()))
+        Box::new(NameValueVclArg::new(self.name(), self.value.as_str()))
     }
 }
 
@@ -112,6 +105,33 @@ impl NameValueVclArg {
         NameValueVclArg {
             name: String::from(name),
             value: String::from(value),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct NameOnlyVclArg {
+    name: String,
+}
+
+impl VclArg for NameOnlyVclArg {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn to_args(&self) -> Vec<String> {
+        vec![self.name.clone()]
+    }
+
+    fn dup(&self) -> Box<VclArg> {
+        Box::new(NameOnlyVclArg::new(self.name.as_str()))
+    }
+}
+
+impl NameOnlyVclArg {
+    pub fn new(name: &str) -> NameOnlyVclArg {
+        NameOnlyVclArg {
+            name: String::from(name),
         }
     }
 }
@@ -175,15 +195,30 @@ impl From<Vec<Box<VclArg>>> for CommandLineVCL {
 impl CommandLineVCL {
     pub fn new(mut args: Vec<String>) -> CommandLineVCL {
         args.remove(0); // remove command
-        let chunks = args.chunks_exact(2);
-        let vcl_args = chunks
-            .into_iter()
-            .map(|chunk| {
-                let result: Box<VclArg> = Box::new(NameValueVclArg::new(&chunk[0], &chunk[1]));
-                result
-            })
-            .collect();
+        let mut vcl_args = vec![];
+        loop {
+            match Self::next_vcl_arg(&mut args) {
+                Some(vcl_arg) => vcl_args.push(vcl_arg),
+                None => break,
+            }
+        }
         CommandLineVCL { vcl_args }
+    }
+
+    fn next_vcl_arg(args: &mut Vec<String>) -> Option<Box<VclArg>> {
+        if args.is_empty() {
+            return None;
+        }
+        let name = args.remove(0);
+        if !name.starts_with("--") {
+            panic!("Expected option beginning with '--', not {}", name)
+        }
+        if args.is_empty() || args[0].starts_with("--") {
+            Some(Box::new(NameOnlyVclArg::new(&name)))
+        } else {
+            let value = args.remove(0);
+            Some(Box::new(NameValueVclArg::new(&name, &value)))
+        }
     }
 }
 
@@ -503,7 +538,83 @@ mod tests {
         assert_eq!(Some(20), result);
     }
 
+    #[test]
+    fn existing_nonvalued_parameter_overrides_nonexistent_nonvalued_parameter() {
+        let schema = App::new("test").arg(
+            Arg::with_name("nonvalued")
+                .long("nonvalued")
+                .takes_value(false),
+        );
+        let vcls: Vec<Box<VirtualCommandLine>> = vec![
+            Box::new(CommandLineVCL::new(vec![String::new()])),
+            Box::new(CommandLineVCL::new(vec![
+                String::new(),
+                "--nonvalued".to_string(),
+            ])),
+        ];
+        let subject = MultiConfig::new(&schema, vcls);
+
+        let result = subject.arg_matches();
+
+        assert!(result.is_present("nonvalued"));
+    }
+
+    #[test]
+    #[should_panic(expected = "The following required arguments were not provided:")]
+    fn clap_match_error_produces_panic() {
+        let schema = App::new("test").arg(
+            Arg::with_name("numeric_arg")
+                .long("numeric_arg")
+                .takes_value(true)
+                .required(true),
+        );
+        let vcls: Vec<Box<VirtualCommandLine>> =
+            vec![Box::new(CommandLineVCL::new(vec![String::new()]))];
+        MultiConfig::new(&schema, vcls);
+    }
+
     //////
+
+    #[test]
+    fn command_line_vcl_differentiates_name_value_from_name_only() {
+        let command_line: Vec<String> = vec![
+            "",
+            "--takes_no_value",
+            "--takes_value",
+            "value",
+            "--other_takes_no_value",
+        ]
+        .into_iter()
+        .map(|s| s.to_string())
+        .collect();
+
+        let subject = CommandLineVCL::new(command_line.clone());
+
+        assert_eq!(
+            subject
+                .vcl_args()
+                .into_iter()
+                .map(|v| v.name())
+                .collect::<Vec<&str>>(),
+            vec![
+                "--takes_no_value",
+                "--takes_value",
+                "--other_takes_no_value"
+            ]
+        );
+        assert_eq!(subject.args(), command_line);
+    }
+
+    #[test]
+    #[should_panic(expected = "Expected option beginning with '--', not value")]
+    fn command_line_vcl_panics_when_given_value_without_name() {
+        let command_line: Vec<String> = vec!["", "value"]
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
+
+        CommandLineVCL::new(command_line.clone());
+    }
 
     #[test]
     fn environment_vcl_works() {
@@ -526,12 +637,12 @@ mod tests {
             subject.args()
         );
         assert_eq!(
-            vec![("--numeric_arg", "47")],
+            vec!["--numeric_arg"],
             subject
                 .vcl_args()
                 .into_iter()
-                .map(|vcl_arg| (vcl_arg.name(), vcl_arg.value()))
-                .collect::<Vec<(&str, &str)>>()
+                .map(|v| v.name())
+                .collect::<Vec<&str>>()
         );
     }
 
@@ -562,16 +673,12 @@ mod tests {
             subject.args()
         );
         assert_eq!(
-            vec![
-                ("--boolean_arg", "true"),
-                ("--numeric_arg", "47"),
-                ("--string_arg", "booga")
-            ],
+            vec!["--boolean_arg", "--numeric_arg", "--string_arg"],
             subject
                 .vcl_args()
                 .into_iter()
-                .map(|vcl_arg| (vcl_arg.name(), vcl_arg.value()))
-                .collect::<Vec<(&str, &str)>>()
+                .map(|v| v.name())
+                .collect::<Vec<&str>>()
         );
     }
 

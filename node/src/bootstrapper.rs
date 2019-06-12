@@ -139,7 +139,7 @@ pub struct Bootstrapper {
     listener_handler_factory: Box<dyn ListenerHandlerFactory>,
     listener_handlers: FuturesUnordered<Box<dyn ListenerHandler<Item = (), Error = ()>>>,
     actor_system_factory: Box<dyn ActorSystemFactory>,
-    config: Option<BootstrapperConfig>,
+    config: BootstrapperConfig,
 }
 
 impl Future for Bootstrapper {
@@ -147,9 +147,7 @@ impl Future for Bootstrapper {
     type Error = ();
 
     fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
-        if let Some(ref bootstrap_config) = self.config {
-            try_ready!(CrashTestDummy::new(bootstrap_config.crash_point.clone()).poll());
-        }
+        try_ready!(CrashTestDummy::new(self.config.crash_point.clone()).poll());
 
         try_ready!(self.listener_handlers.poll());
         Ok(Async::Ready(()))
@@ -163,18 +161,14 @@ impl SocketServer for Bootstrapper {
 
     fn initialize_as_privileged(
         &mut self,
-        args: &Vec<String>,
-        streams: &mut StdStreams<'_>,
         logger_initializer: &mut Box<dyn LoggerInitializerWrapper>,
     ) {
-        let configurator = NodeConfiguratorReal::new();
-        let config = configurator.generate_configuration(args, streams);
-        logger_initializer.init(config.log_level);
+        logger_initializer.init(self.config.log_level);
         self.listener_handlers =
             FuturesUnordered::<Box<dyn ListenerHandler<Item = (), Error = ()>>>::new();
 
-        config
-            .port_configurations
+        let port_configurations = self.config.port_configurations.clone();
+        port_configurations
             .iter()
             .for_each(|(port, port_configuration)| {
                 let mut listener_handler = self.listener_handler_factory.make();
@@ -186,28 +180,25 @@ impl SocketServer for Bootstrapper {
                 }
                 self.listener_handlers.push(listener_handler);
             });
-        self.config = Some(config);
     }
 
     fn initialize_as_unprivileged(&mut self, streams: &mut StdStreams<'_>) {
         // NOTE: The following line of code is not covered by unit tests
         fdlimit::raise_fd_limit();
         self.establish_clandestine_port();
-        let config = self.config.as_mut().expect("Configuration missing");
-        let cryptde_ref = Bootstrapper::initialize_cryptde(&config.cryptde_null_opt);
-        config.ui_gateway_config.node_descriptor = Bootstrapper::report_local_descriptor(
+        let cryptde_ref = Bootstrapper::initialize_cryptde(&self.config.cryptde_null_opt);
+        self.config.ui_gateway_config.node_descriptor = Bootstrapper::report_local_descriptor(
             cryptde_ref,
-            config.neighborhood_config.local_ip_addr,
-            config.neighborhood_config.clandestine_port_list.clone(),
+            self.config.neighborhood_config.local_ip_addr,
+            self.config
+                .neighborhood_config
+                .clandestine_port_list
+                .clone(),
             streams,
         );
-        let stream_handler_pool_subs = self.actor_system_factory.make_and_start_actors(
-            self.config
-                .as_ref()
-                .expect("Missing BootstrapperConfig - call initialize_as_privileged first")
-                .clone(),
-            Box::new(ActorFactoryReal {}),
-        );
+        let stream_handler_pool_subs = self
+            .actor_system_factory
+            .make_and_start_actors(self.config.clone(), Box::new(ActorFactoryReal {}));
         let mut iter_mut = self.listener_handlers.iter_mut();
         loop {
             match iter_mut.next() {
@@ -219,14 +210,22 @@ impl SocketServer for Bootstrapper {
 }
 
 impl Bootstrapper {
-    pub fn new() -> Bootstrapper {
+    pub fn new(args: &Vec<String>, streams: &mut StdStreams<'_>) -> Bootstrapper {
         Bootstrapper {
             listener_handler_factory: Box::new(ListenerHandlerFactoryReal::new()),
             listener_handlers:
                 FuturesUnordered::<Box<dyn ListenerHandler<Item = (), Error = ()>>>::new(),
             actor_system_factory: Box::new(ActorSystemFactoryReal {}),
-            config: None,
+            config: Self::make_bootstrapper_config(args, streams),
         }
+    }
+
+    fn make_bootstrapper_config(
+        args: &Vec<String>,
+        streams: &mut StdStreams<'_>,
+    ) -> BootstrapperConfig {
+        let configurator = NodeConfiguratorReal::new();
+        configurator.generate_configuration(args, streams)
     }
 
     #[cfg(test)] // The real one is private, but ActorSystemFactory needs to use it for testing
@@ -261,19 +260,15 @@ impl Bootstrapper {
     }
 
     fn establish_clandestine_port(&mut self) {
-        let mut config = self
-            .config
-            .as_mut()
-            .expect("Configuration must be established");
-        if Self::is_zero_hop(&config) {
+        if Self::is_zero_hop(&self.config) {
             return;
         }
         let conn = DbInitializerReal::new()
-            .initialize(&config.data_directory)
+            .initialize(&self.config.data_directory)
             .expect("Cannot initialize database");
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
-        if let Some(clandestine_port) = config.clandestine_port_opt {
+        if let Some(clandestine_port) = self.config.clandestine_port_opt {
             persistent_config.set_clandestine_port(clandestine_port)
         }
         let clandestine_port = persistent_config.clandestine_port();
@@ -288,8 +283,8 @@ impl Bootstrapper {
             )
             .expect("Failed to bind ListenerHandler to clandestine port");
         self.listener_handlers.push(listener_handler);
-        config.neighborhood_config.clandestine_port_list = vec![clandestine_port];
-        config
+        self.config.neighborhood_config.clandestine_port_list = vec![clandestine_port];
+        self.config
             .clandestine_discriminator_factories
             .push(Box::new(JsonDiscriminatorFactory::new()));
     }
@@ -485,15 +480,15 @@ mod tests {
             .add_listener_handler(Box::new(first_handler))
             .add_listener_handler(Box::new(second_handler))
             .add_listener_handler(Box::new(third_handler))
+            .config(Bootstrapper::make_bootstrapper_config(
+                &make_default_cli_params(),
+                &mut FakeStreamHolder::new().streams(),
+            ))
             .build();
 
         let mut log_initializer: Box<LoggerInitializerWrapper> =
             Box::new(LoggerInitializerWrapperMock::new());
-        subject.initialize_as_privileged(
-            &make_default_cli_params(),
-            &mut FakeStreamHolder::new().streams(),
-            &mut log_initializer,
-        );
+        subject.initialize_as_privileged(&mut log_initializer);
 
         let mut all_calls = vec![];
         all_calls.extend(first_handler_log.lock().unwrap().dump());
@@ -529,13 +524,9 @@ mod tests {
 
         let mut log_initializer: Box<LoggerInitializerWrapper> =
             Box::new(LoggerInitializerWrapperMock::new());
-        subject.initialize_as_privileged(
-            &make_default_cli_params(),
-            &mut FakeStreamHolder::new().streams(),
-            &mut log_initializer,
-        );
+        subject.initialize_as_privileged(&mut log_initializer);
 
-        let config = subject.config.unwrap();
+        let config = subject.config;
         assert_eq!(
             config.neighborhood_config.clandestine_port_list.is_empty(),
             true
@@ -558,11 +549,11 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         config.clandestine_port_opt = Some(1234);
         config.data_directory = home_dir;
-        subject.config = Some(config);
+        subject.config = config;
 
         subject.initialize_as_unprivileged(&mut FakeStreamHolder::new().streams());
 
-        let config = subject.config.unwrap();
+        let config = subject.config;
         assert!(config.ui_gateway_config.node_descriptor.len() > 0);
     }
 
@@ -577,23 +568,23 @@ mod tests {
             .add_listener_handler(first_handler)
             .add_listener_handler(second_handler)
             .add_listener_handler(third_handler)
+            .config(Bootstrapper::make_bootstrapper_config(
+                &vec![
+                    String::from("SubstratumNode"),
+                    String::from("--dns-servers"),
+                    String::from("222.222.222.222"),
+                    String::from("--clandestine-port"),
+                    String::from("1234"),
+                ],
+                &mut FakeStreamHolder::new().streams(),
+            ))
             .build();
 
         let mut log_initializer: Box<LoggerInitializerWrapper> =
             Box::new(LoggerInitializerWrapperMock::new());
-        subject.initialize_as_privileged(
-            &vec![
-                String::from("SubstratumNode"),
-                String::from("--dns-servers"),
-                String::from("222.222.222.222"),
-                String::from("--clandestine-port"),
-                String::from("1234"),
-            ],
-            &mut FakeStreamHolder::new().streams(),
-            &mut log_initializer,
-        );
+        subject.initialize_as_privileged(&mut log_initializer);
 
-        let config = subject.config.unwrap();
+        let config = subject.config;
         assert!(config.neighborhood_config.clandestine_port_list.is_empty());
         assert_eq!(Some(1234u16), config.clandestine_port_opt);
     }
@@ -616,21 +607,21 @@ mod tests {
             .add_listener_handler(Box::new(
                 ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())),
             ))
+            .config(Bootstrapper::make_bootstrapper_config(
+                &vec![
+                    String::from("SubstratumNode"),
+                    String::from("--dns-servers"),
+                    String::from("1.2.3.4,2.3.4.5"),
+                    String::from("--clandestine-port"),
+                    String::from("1234"),
+                ],
+                &mut holder.streams(),
+            ))
             .build();
 
         let mut log_initializer: Box<LoggerInitializerWrapper> =
             Box::new(LoggerInitializerWrapperMock::new());
-        subject.initialize_as_privileged(
-            &vec![
-                String::from("SubstratumNode"),
-                String::from("--dns-servers"),
-                String::from("1.2.3.4,2.3.4.5"),
-                String::from("--clandestine-port"),
-                String::from("1234"),
-            ],
-            &mut holder.streams(),
-            &mut log_initializer,
-        );
+        subject.initialize_as_privileged(&mut log_initializer);
 
         subject.initialize_as_unprivileged(&mut holder.streams());
 
@@ -656,19 +647,19 @@ mod tests {
             .add_listener_handler(Box::new(
                 ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())),
             ))
+            .config(Bootstrapper::make_bootstrapper_config(
+                &vec![
+                    String::from("SubstratumNode"),
+                    String::from("--dns-servers"),
+                    String::from("1.1.1.1"),
+                ],
+                &mut FakeStreamHolder::new().streams(),
+            ))
             .build();
 
         let mut log_initializer: Box<LoggerInitializerWrapper> =
             Box::new(LoggerInitializerWrapperMock::new());
-        subject.initialize_as_privileged(
-            &vec![
-                String::from("SubstratumNode"),
-                String::from("--dns-servers"),
-                String::from("1.1.1.1"),
-            ],
-            &mut FakeStreamHolder::new().streams(),
-            &mut log_initializer,
-        );
+        subject.initialize_as_privileged(&mut log_initializer);
     }
 
     #[test]
@@ -751,7 +742,7 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         config.data_directory = home_dir;
         config.clandestine_port_opt = Some(1234);
-        subject.config = Some(config);
+        subject.config = config;
 
         subject.initialize_as_unprivileged(&mut FakeStreamHolder::new().streams());
 
@@ -774,13 +765,6 @@ mod tests {
         let another_listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
         let yet_another_listener_handler =
             ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
-        let cli_params = vec![
-            String::from("SubstratumNode"),
-            String::from("--dns-servers"),
-            String::from("222.222.222.222"),
-            String::from("--clandestine-port"),
-            String::from("1234"),
-        ];
         let actor_system_factory = ActorSystemFactoryMock::new();
         let mut subject = BootstrapperBuilder::new()
             .actor_system_factory(Box::new(actor_system_factory))
@@ -790,7 +774,7 @@ mod tests {
             .build();
         let mut log_initializer: Box<LoggerInitializerWrapper> =
             Box::new(LoggerInitializerWrapperMock::new());
-        subject.initialize_as_privileged(&cli_params, &mut holder.streams(), &mut log_initializer);
+        subject.initialize_as_privileged(&mut log_initializer);
 
         subject.initialize_as_unprivileged(&mut holder.streams());
 
@@ -858,15 +842,15 @@ mod tests {
             .actor_system_factory(Box::new(actor_system_factory))
             .add_listener_handler(Box::new(one_listener_handler))
             .add_listener_handler(Box::new(another_listener_handler))
+            .config(Bootstrapper::make_bootstrapper_config(
+                &make_default_cli_params(),
+                &mut holder.streams(),
+            ))
             .build();
 
         let mut log_initializer: Box<LoggerInitializerWrapper> =
             Box::new(LoggerInitializerWrapperMock::new());
-        subject.initialize_as_privileged(
-            &make_default_cli_params(),
-            &mut holder.streams(),
-            &mut log_initializer,
-        );
+        subject.initialize_as_privileged(&mut log_initializer);
         subject.initialize_as_unprivileged(&mut holder.streams());
 
         thread::spawn(|| {
@@ -909,7 +893,7 @@ mod tests {
         .to_string(&cryptde)];
         config.data_directory = home_dir.clone();
         config.clandestine_port_opt = Some(1234);
-        subject.config = Some(config);
+        subject.config = config;
 
         subject.establish_clandestine_port();
 
@@ -919,16 +903,11 @@ mod tests {
         assert_eq!(1234u16, persistent_config.clandestine_port());
         assert_eq!(
             vec![1234u16],
-            subject
-                .config
-                .as_ref()
-                .unwrap()
-                .neighborhood_config
-                .clandestine_port_list
+            subject.config.neighborhood_config.clandestine_port_list
         );
         assert_eq!(1, subject.listener_handlers.len());
 
-        let config = subject.config.unwrap();
+        let config = subject.config;
         let mut clandestine_discriminators = config
             .clandestine_discriminator_factories
             .into_iter()
@@ -967,7 +946,7 @@ mod tests {
         .to_string(&cryptde)];
         config.data_directory = home_dir.clone();
         config.clandestine_port_opt = None;
-        subject.config = Some(config);
+        subject.config = config;
 
         subject.establish_clandestine_port();
 
@@ -977,12 +956,7 @@ mod tests {
         let clandestine_port = persistent_config.clandestine_port();
         assert_eq!(
             vec![clandestine_port],
-            subject
-                .config
-                .as_ref()
-                .unwrap()
-                .neighborhood_config
-                .clandestine_port_list
+            subject.config.neighborhood_config.clandestine_port_list
         );
     }
 
@@ -1002,14 +976,12 @@ mod tests {
         config.neighborhood_config.neighbor_configs = vec![]; // empty
         config.neighborhood_config.local_ip_addr = sentinel_ip_addr(); // sentinel
         config.neighborhood_config.clandestine_port_list = vec![];
-        subject.config = Some(config);
+        subject.config = config;
 
         subject.establish_clandestine_port();
 
         assert!(subject
             .config
-            .as_ref()
-            .unwrap()
             .neighborhood_config
             .clandestine_port_list
             .is_empty());
@@ -1069,6 +1041,7 @@ mod tests {
     struct BootstrapperBuilder {
         actor_system_factory: Box<dyn ActorSystemFactory>,
         listener_handler_factory: ListenerHandlerFactoryMock,
+        config: BootstrapperConfig,
     }
 
     impl BootstrapperBuilder {
@@ -1077,6 +1050,7 @@ mod tests {
                 actor_system_factory: Box::new(ActorSystemFactoryMock::new()),
                 // Don't modify this line unless you've already looked at DispatcherBuilder::add_listener_handler().
                 listener_handler_factory: ListenerHandlerFactoryMock::new(),
+                config: BootstrapperConfig::new(),
             }
         }
 
@@ -1096,6 +1070,11 @@ mod tests {
             self
         }
 
+        fn config(mut self, config: BootstrapperConfig) -> Self {
+            self.config = config;
+            self
+        }
+
         fn build(self) -> Bootstrapper {
             Bootstrapper {
                 actor_system_factory: self.actor_system_factory,
@@ -1103,7 +1082,7 @@ mod tests {
                 listener_handlers: FuturesUnordered::<
                     Box<dyn ListenerHandler<Item = (), Error = ()>>,
                 >::new(),
-                config: None,
+                config: self.config,
             }
         }
     }

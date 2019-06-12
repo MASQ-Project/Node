@@ -308,8 +308,9 @@ impl RoutingService {
             Ok(package) => package,
             Err(e) => {
                 self.logger.error(format!(
-                    "Couldn't decrypt CORES package from {}-byte buffer: {:?}",
+                    "Couldn't decrypt CORES package in {}-byte buffer from {}: {:?}",
                     ibcd.data.len(),
+                    ibcd.peer_addr,
                     e
                 ));
                 return Err(());
@@ -937,7 +938,7 @@ mod tests {
         System::current().stop_with_code(0);
         system.run();
         TestLogHandler::new().exists_log_containing(
-            "ERROR: RoutingService: Couldn't decrypt CORES package from 0-byte buffer: EmptyData",
+            "ERROR: RoutingService: Couldn't decrypt CORES package in 0-byte buffer from 1.2.3.4:5678: EmptyData",
         );
         assert_eq!(proxy_client_recording_arc.lock().unwrap().len(), 0);
         assert_eq!(proxy_server_recording_arc.lock().unwrap().len(), 0);

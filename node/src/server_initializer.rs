@@ -29,17 +29,13 @@ impl<P> Command for ServerInitializer<P>
 where
     P: PrivilegeDropper,
 {
-    fn go(&mut self, streams: &mut StdStreams<'_>, args: &Vec<String>) -> u8 {
-        self.dns_socket_server.as_mut().initialize_as_privileged(
-            args,
-            streams,
-            &mut self.logger_initializer_wrapper,
-        );
-        self.bootstrapper.as_mut().initialize_as_privileged(
-            args,
-            streams,
-            &mut self.logger_initializer_wrapper,
-        );
+    fn go(&mut self, streams: &mut StdStreams<'_>, _args: &Vec<String>) -> u8 {
+        self.dns_socket_server
+            .as_mut()
+            .initialize_as_privileged(&mut self.logger_initializer_wrapper);
+        self.bootstrapper
+            .as_mut()
+            .initialize_as_privileged(&mut self.logger_initializer_wrapper);
 
         self.privilege_dropper.drop_privileges();
 
@@ -72,10 +68,13 @@ where
 }
 
 impl ServerInitializer<PrivilegeDropperReal> {
-    pub fn new() -> ServerInitializer<PrivilegeDropperReal> {
+    pub fn new(
+        args: &Vec<String>,
+        streams: &mut StdStreams<'_>,
+    ) -> ServerInitializer<PrivilegeDropperReal> {
         ServerInitializer {
             dns_socket_server: Box::new(DnsSocketServer::new()),
-            bootstrapper: Box::new(Bootstrapper::new()),
+            bootstrapper: Box::new(Bootstrapper::new(args, streams)),
             privilege_dropper: PrivilegeDropperReal::new(),
             logger_initializer_wrapper: Box::new(LoggerInitializerWrapperReal {}),
         }
@@ -175,8 +174,6 @@ pub mod tests {
 
         fn initialize_as_privileged(
             &mut self,
-            _args: &Vec<String>,
-            _streams: &mut StdStreams<'_>,
             _logger_initializer: &mut Box<dyn LoggerInitializerWrapper>,
         ) {
         }
@@ -210,9 +207,7 @@ pub mod tests {
             stderr,
         };
 
-        let args = vec![String::from("glorp")];
-
-        subject.go(streams, &args);
+        subject.go(streams, &vec![]);
         let res = subject.wait();
 
         assert!(res.is_err());
