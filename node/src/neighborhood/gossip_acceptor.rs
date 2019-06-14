@@ -235,7 +235,7 @@ impl DebutHandler {
                 root_mut.increment_version();
                 root_mut.regenerate_signed_gossip(cryptde);
                 self.logger
-                    .debug(format!("Current database: {}", database.to_dot_graph()));
+                    .trace(format!("Current database: {}", database.to_dot_graph()));
                 if Self::should_not_make_introduction(&database, &debuting_agr) {
                     self.logger.debug (format!("Node {} at {} is responding to first introduction: sending update Gossip instead of further introduction", debuting_agr.inner.public_key, debuting_agr.node_addr_opt.as_ref().expect ("Disappeared").ip_addr()));
                     Ok(GossipAcceptanceResult::Accepted)
@@ -680,7 +680,7 @@ impl IntroductionHandler {
             database.root_mut().regenerate_signed_gossip(cryptde);
         }
         self.logger
-            .debug(format!("Current database: {}", database.to_dot_graph()));
+            .trace(format!("Current database: {}", database.to_dot_graph()));
         Ok(true)
     }
 }
@@ -777,7 +777,7 @@ impl GossipHandler for StandardGossipHandler {
         // Otherwise, return ::Accepted.
         if db_changed {
             self.logger
-                .debug(format!("Current database: {}", database.to_dot_graph()));
+                .trace(format!("Current database: {}", database.to_dot_graph()));
             GossipAcceptanceResult::Accepted
         } else {
             self.logger.debug(

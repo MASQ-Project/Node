@@ -788,7 +788,7 @@ impl Neighborhood {
             .expect("No-lookup Hopper is unbound")
             .try_send(package)
             .expect("Hopper is dead");
-        self.logger.debug(format!(
+        self.logger.trace(format!(
             "Sent Gossip: {}",
             gossip.to_dot_graph(
                 self.neighborhood_database.root(),
