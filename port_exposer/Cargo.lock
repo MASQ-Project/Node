@@ -2,5 +2,5 @@
 # It is not intended for manual editing.
 [[package]]
 name = "port_exposer"
-version = "0.4.5"
+version = "0.4.7"
 
