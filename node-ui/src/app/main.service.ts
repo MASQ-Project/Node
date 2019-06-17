@@ -45,7 +45,11 @@ export class MainService {
   }
 
   lookupIp(): Observable<string> {
-    return of(this.electronService.ipcRenderer.sendSync('ip-lookup'));
+    if (this.configService.getConfig().ip) {
+      return of(this.configService.getConfig().ip);
+    } else {
+      return of(this.electronService.ipcRenderer.sendSync('ip-lookup'));
+    }
   }
 
   private changeNodeState(state, config?: NodeConfiguration): Observable<NodeStatus> {

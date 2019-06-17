@@ -58,6 +58,7 @@ describe('main', () => {
 
     describe('successful', () => {
       beforeEach(() => {
+        mockResponse.statusCode = 200
         td.when(mockResponse.on('data')).thenCallback('1.3.2.4')
         td.when(mockResponse.on('end')).thenCallback()
         ipcMainOnIpLookup.value(event)
@@ -82,6 +83,32 @@ describe('main', () => {
     describe('error', () => {
       beforeEach(() => {
         td.when(mockRequest.on('error')).thenCallback("things didn't work out")
+        ipcMainOnIpLookup.value(event)
+      })
+
+      it('returns empty string', () => {
+        expect(event.returnValue).toBe('')
+      })
+    })
+
+    describe('300 error', () => {
+      beforeEach(() => {
+        mockResponse.statusCode = 300
+        td.when(mockResponse.on('data')).thenCallback('<html><h1>Error: 300</h1></html>')
+        td.when(mockResponse.on('end')).thenCallback()
+        ipcMainOnIpLookup.value(event)
+      })
+
+      it('returns empty string', () => {
+        expect(event.returnValue).toBe('')
+      })
+    })
+
+    describe('503 error', () => {
+      beforeEach(() => {
+        mockResponse.statusCode = 503
+        td.when(mockResponse.on('data')).thenCallback('<html><h1>Error: 503</h1></html>')
+        td.when(mockResponse.on('end')).thenCallback()
         ipcMainOnIpLookup.value(event)
       })
 

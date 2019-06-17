@@ -103,21 +103,31 @@ describe('MainService', () => {
     it('looks up the ip address', () => {
       service.lookupIp().subscribe(result => expect(result).toBe('4.3.2.1'));
     });
+  });
 
-    describe('when configuration exists', () => {
-      const nodeConfig: NodeConfiguration = {ip: 'fake'};
+  describe('when configuration exists', () => {
+    const nodeConfig: NodeConfiguration = {ip: 'fake'};
+    beforeEach(() => {
+      when(mockGetConfig()).thenReturn(nodeConfig);
+      service.serve().subscribe((_) => _);
+      service.consume().subscribe((_) => _);
+    });
+
+    it('is included in serving', () => {
+      verify(mockSendSync('change-node-state', 'serve', nodeConfig));
+    });
+
+    it('is included in consuming', () => {
+      verify(mockSendSync('change-node-state', 'consume', nodeConfig));
+    });
+
+    describe('when lookupIp is called', () => {
       beforeEach(() => {
-        when(mockGetConfig()).thenReturn(nodeConfig);
-        service.serve().subscribe((_) => _);
-        service.consume().subscribe((_) => _);
+        service.lookupIp();
       });
 
-      it('is included in serving', () => {
-        verify(mockSendSync('change-node-state', 'serve', nodeConfig));
-      });
-
-      it('is included in consuming', () => {
-        verify(mockSendSync('change-node-state', 'consume', nodeConfig));
+      it('does not lookup IP', () => {
+        verify(mockSendSync('ip-lookup'), {times: 0});
       });
     });
   });

@@ -103,6 +103,38 @@ describe('Application launch', function () {
       })
   })
 
+  it('persists user entered IP address and neighbor between serving sessions', async () => {
+    let client = this.app.client
+
+    await client.waitUntilWindowLoaded()
+    await indexPage.serving.click()
+    await configComponent.ipInput.setValue('1.2.3.4')
+    await configComponent.neighborInput.setValue('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:1.1.1.1:12345;4321')
+
+    await client.waitUntil(async () => {
+      return configComponent.saveConfig.isEnabled()
+    })
+    client.element('#save-config').click()
+    await client.waitUntilWindowLoaded()
+
+    assert.strictEqual((await client.getText('#node-status-label')).toLocaleLowerCase(), 'serving')
+    await wait(1000)
+    let nodeUp = await uiInterface.verifyNodeUp(10000)
+    printConsoleForDebugging(client, false)
+    assert.strictEqual(nodeUp, true)
+    assert.notStrictEqual(await client.getText('#node-descriptor'), '')
+
+    await client.element('div.node-status__actions button#off').click()
+    await wait(1000)
+    assert.strictEqual(await uiInterface.verifyNodeDown(5000), true)
+
+    await indexPage.serving.click()
+    await client.waitUntilWindowLoaded()
+
+    assert.strictEqual((await client.element('#ip').getValue()), '1.2.3.4')
+    assert.strictEqual((await client.element('#neighbor').getValue()), 'wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:1.1.1.1:12345;4321')
+  })
+
   it('toggles substratum node from off to serving back to off and back on and on again without needing to enter information and then back off again', async () => {
     let client = this.app.client
 

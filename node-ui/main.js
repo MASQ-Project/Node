@@ -103,9 +103,13 @@ ipcMain.on('ip-lookup', async (event, command, args) => {
   let req = http.get(
     { 'host': 'api.ipify.org', 'port': 80, 'path': '/', 'timeout': 1000 },
     resp => {
-      let rawData = ''
-      resp.on('data', chunk => { rawData += chunk })
-      resp.on('end', () => { event.returnValue = rawData })
+      if (resp.statusCode >= 300) {
+        resp.on('end', () => { event.returnValue = '' })
+      } else {
+        let rawData = ''
+        resp.on('data', chunk => { rawData += chunk })
+        resp.on('end', () => { event.returnValue = rawData })
+      }
     })
 
   req.on('timeout', () => { req.abort() })
