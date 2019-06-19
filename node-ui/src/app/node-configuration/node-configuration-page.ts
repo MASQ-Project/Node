@@ -3,16 +3,8 @@ import {NodeConfigurationComponent} from './node-configuration.component';
 
 export class NodeConfigurationPage {
 
-  get consumingWalletBtn(): HTMLButtonElement {
-    return this.query('#consuming-wallet');
-  }
-
   get containerDiv(): HTMLDivElement {
     return this.query('.node-config');
-  }
-
-  get earningWalletBtn(): HTMLButtonElement {
-    return this.query('#earning-wallet');
   }
 
   get ipValidationPatternLi() {
@@ -51,6 +43,10 @@ export class NodeConfigurationPage {
     return this.query('#wallet-address-validation__pattern');
   }
 
+  get cancelBtn(): HTMLButtonElement {
+    return this.query('#cancel');
+  }
+
   get saveConfigBtn(): HTMLButtonElement {
     return this.query('#save-config');
   }
@@ -78,10 +74,6 @@ export class NodeConfigurationPage {
 
   setNeighbor(value: string) {
     NodeConfigurationPage.setInputText(this.neighborTxt, value);
-  }
-
-  setPrivateKey(value: string) {
-    NodeConfigurationPage.setInputText(this.privateKeyTxt, value);
   }
 
   setWalletAddress(value: string) {

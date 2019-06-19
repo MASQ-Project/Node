@@ -55,10 +55,14 @@ module.exports = class NodeActuator {
     if (status === 'Consuming' || status === 'Serving') {
       this.substratumNodeProcess = processList[0]
     } else {
-      this.substratumNodeProcess = null
-      this.webContents.send('node-descriptor', '')
+      this.setStatusOff()
     }
     return this.webContents.send('node-status', status)
+  }
+
+  setStatusOff () {
+    this.substratumNodeProcess = null
+    this.webContents.send('node-descriptor', '')
   }
 
   determineStatus (processList) {

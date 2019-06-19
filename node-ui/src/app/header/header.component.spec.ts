@@ -110,7 +110,20 @@ describe('HeaderComponent', () => {
       });
     });
 
-    describe('clicking a settings link', () => {
+    describe('clicking the settings link', () => {
+      let gotIt = false;
+
+      describe ('Settings', () => {
+        beforeEach (() => {
+          component.openSettingsEvent.subscribe(() => gotIt = true);
+          compiled.querySelector('#open-settings').click();
+        });
+
+        it('opens the serving settings', () => {
+          expect(gotIt).toBe(true);
+        });
+      });
+
       it('opens the beta survey link in an external browser', () => {
         compiled.querySelector('#send-feedback').click();
 

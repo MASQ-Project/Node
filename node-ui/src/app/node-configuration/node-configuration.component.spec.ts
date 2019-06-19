@@ -11,6 +11,8 @@ import {NodeConfiguration} from '../node-configuration';
 import {NodeConfigurationPage} from './node-configuration-page';
 import {of} from 'rxjs/internal/observable/of';
 import {MainService} from '../main.service';
+import {ConfigurationMode} from '../configuration-mode.enum';
+import {NodeStatus} from '../node-status.enum';
 
 describe('NodeConfigurationComponent', () => {
   let component: NodeConfigurationComponent;
@@ -18,26 +20,28 @@ describe('NodeConfigurationComponent', () => {
   let mockConfigService;
   let page: NodeConfigurationPage;
   let mockRouter;
-  let mockSave;
-  let mockLoad;
+  let mockNodeStatus;
   let mockNavigateByUrl;
   let storedConfig: Subject<NodeConfiguration>;
   let mockMainService;
-  let mockLookupIp;
+  let mockConfigMode;
 
   beforeEach(async(() => {
     storedConfig = new BehaviorSubject(new NodeConfiguration());
-    mockSave = func('save');
-    mockLoad = func('load');
+    mockConfigMode = new BehaviorSubject(ConfigurationMode.Hidden);
     mockNavigateByUrl = func('navigateByUrl');
-    mockLookupIp = func('lookupIp');
 
+    mockNodeStatus = new BehaviorSubject(new NodeConfiguration());
     mockMainService = {
-      lookupIp: mockLookupIp
+      save: func('save'),
+      nodeStatus: mockNodeStatus,
+      lookupIp: func('lookupIp')
     };
+
     mockConfigService = {
-      save: mockSave,
-      load: mockLoad
+      save: func('save'),
+      load: func('load'),
+      mode: mockConfigMode,
     };
     mockRouter = {
       navigateByUrl: mockNavigateByUrl
@@ -109,22 +113,22 @@ describe('NodeConfigurationComponent', () => {
         describe('when submitted', () => {
           const expected = {
             ip: '127.0.0.1',
-            neighbor: 'neighbornodedescriptor',
-            walletAddress: 'address',
-            // privateKey: 'private',
+            neighbor: '5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999',
+            walletAddress: '',
             privateKey: '',
           };
 
           beforeEach(() => {
             page.setIp('127.0.0.1');
-            page.setNeighbor('neighbornodedescriptor');
-            // page.setPrivateKey('private');
-            page.setWalletAddress('address');
+            page.setNeighbor('5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999');
+            page.setWalletAddress('');
+            fixture.detectChanges();
             page.saveConfigBtn.click();
+            fixture.detectChanges();
           });
 
           it('persists the values', () => {
-            verify(mockSave(expected));
+            verify(mockConfigService.save(expected));
           });
         });
       });
@@ -135,7 +139,6 @@ describe('NodeConfigurationComponent', () => {
         ip: '127.0.0.1',
         neighbor: 'neighbornodedescriptor',
         walletAddress: 'address',
-        // privateKey: 'private', switch back when consuming is brought in
         privateKey: '',
       };
 
@@ -146,13 +149,11 @@ describe('NodeConfigurationComponent', () => {
       it('is prepopulated with that data', () => {
         expect(page.ipTxt.value).toBe('127.0.0.1');
         expect(page.neighborTxt.value).toBe('neighbornodedescriptor');
-        // expect(page.privateKeyTxt.value).toBe('private');
         expect(page.walletAddressTxt.value).toBe('address');
       });
     });
 
     describe('when clicking the node descriptor help icon', () => {
-
       beforeEach(() => {
         page.nodeDescriptorHelpImg.click();
         fixture.detectChanges();
@@ -198,49 +199,42 @@ describe('NodeConfigurationComponent', () => {
         });
       });
 
-      describe('joint required fields', () => {
-        describe('neither provided', () => {
-          it('should be valid', () => {
-            expect(page.ipValidationRequiredLi).toBeFalsy();
-            expect(page.neighborValidationRequiredLi).toBeFalsy();
-          });
+      describe('neighbor not provided', () => {
+        beforeEach(() => {
+          page.setIp('1.2.3.4');
+          fixture.detectChanges();
         });
 
-        describe('only ip provided', () => {
-          beforeEach(() => {
-            page.setIp('1.2.3.4');
-            fixture.detectChanges();
-          });
+        it('neighbor validation should be invalid', () => {
+          expect(page.neighborValidationRequiredLi).toBeTruthy();
+          expect(page.saveConfigBtn.disabled).toBeTruthy();
+        });
+      });
 
-          it('neighbor validation should be invalid', () => {
-            expect(page.ipValidationRequiredLi).toBeFalsy();
-            expect(page.neighborValidationRequiredLi).toBeTruthy();
-          });
+      describe('only neighbor provided', () => {
+        beforeEach(() => {
+          page.setIp('');
+          page.setNeighbor('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345;4321');
+          fixture.detectChanges();
         });
 
-        describe('only neighbor provided', () => {
-          beforeEach(() => {
-            page.setNeighbor('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345;4321');
-            fixture.detectChanges();
-          });
+        it('ip validation should be invalid', () => {
+          expect(page.ipValidationRequiredLi).toBeTruthy();
+          expect(page.neighborValidationRequiredLi).toBeFalsy();
+          expect(page.saveConfigBtn.disabled).toBeTruthy();
+        });
+      });
 
-          it('ip validation should be invalid', () => {
-            expect(page.ipValidationRequiredLi).toBeTruthy();
-            expect(page.neighborValidationRequiredLi).toBeFalsy();
-          });
+      describe('both provided', () => {
+        beforeEach(() => {
+          page.setIp('1.2.3.4');
+          page.setNeighbor('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345;4321');
+          fixture.detectChanges();
         });
 
-        describe('both provided', () => {
-          beforeEach(() => {
-            page.setIp('1.2.3.4');
-            page.setNeighbor('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345;4321');
-            fixture.detectChanges();
-          });
-
-          it('should be valid', () => {
-            expect(page.ipValidationRequiredLi).toBeFalsy();
-            expect(page.neighborValidationRequiredLi).toBeFalsy();
-          });
+        it('should be valid', () => {
+          expect(page.ipValidationRequiredLi).toBeFalsy();
+          expect(page.neighborValidationRequiredLi).toBeFalsy();
         });
       });
 
@@ -309,6 +303,59 @@ describe('NodeConfigurationComponent', () => {
 
         it('save config button is disabled', () => {
           expect(page.saveConfigBtn.disabled).toBeFalsy();
+        });
+      });
+    });
+
+    describe('Cancel button', () => {
+      let cancelEmitted;
+      beforeEach(() => {
+        cancelEmitted = false;
+        component.cancelled.subscribe(() => {
+          cancelEmitted = true;
+        });
+        page.cancelBtn.click();
+      });
+
+      it('emits cancel event when pressed', () => {
+        expect(cancelEmitted).toBeTruthy();
+      });
+    });
+
+    describe('Save Button', () => {
+      describe('when in configuration mode and the node is running', () => {
+        beforeEach(() => {
+          component.mode = ConfigurationMode.Configuring;
+          component.status = NodeStatus.Serving;
+          fixture.detectChanges();
+        });
+
+        it('Should say "Stop & Save"', () => {
+          expect(page.saveConfigBtn.textContent).toBe('Stop & Save');
+        });
+      });
+
+      describe('when in configuration mode and the node is off', () => {
+        beforeEach(() => {
+          component.mode = ConfigurationMode.Configuring;
+          component.status = NodeStatus.Off;
+          fixture.detectChanges();
+        });
+
+        it('Should say "Save"', () => {
+          expect(page.saveConfigBtn.textContent).toBe('Save');
+        });
+      });
+
+      describe('when in pre-serving or consuming', () => {
+        beforeEach(() => {
+          component.mode = ConfigurationMode.Serving;
+          component.status = NodeStatus.Off;
+          fixture.detectChanges();
+        });
+
+        it('Should say "Start"', () => {
+          expect(page.saveConfigBtn.textContent).toBe('Start');
         });
       });
     });

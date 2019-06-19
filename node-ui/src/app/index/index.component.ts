@@ -1,10 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-import {ApplicationRef, Component, ViewChild} from '@angular/core';
-import {HeaderComponent} from '../header/header.component';
+import {Component, NgZone, Output} from '@angular/core';
 import {NodeStatus} from '../node-status.enum';
 import {MainService} from '../main.service';
 import {ConfigService} from '../config.service';
+import {ConfigurationMode} from '../configuration-mode.enum';
 
 @Component({
   selector: 'app-index',
@@ -12,67 +12,66 @@ import {ConfigService} from '../config.service';
   styleUrls: ['./index.component.scss']
 })
 export class IndexComponent {
-
-  status: NodeStatus = NodeStatus.Off;
-  nodeDescriptor = '';
-  servingConfigurationVisible = false;
-  consumingConfigurationVisible = false;
-
-  constructor(private mainService: MainService, private configService: ConfigService, private app: ApplicationRef) {
-    this.resizeSmall();
+  constructor(private mainService: MainService, private configService: ConfigService, private ngZone: NgZone) {
+    IndexComponent.resizeSmall();
     mainService.nodeStatus.subscribe((newStatus) => {
-      this.status = newStatus;
-      // TODO - is there a nicer way to accomplish this? Forces UI to update right away after change
-      app.tick();
+      ngZone.run(() => {
+        this.status = newStatus;
+      });
     });
     mainService.nodeDescriptor.subscribe((newNodeDescriptor) => {
-      this.nodeDescriptor = newNodeDescriptor;
-      app.tick();
+      ngZone.run(() => {
+        this.nodeDescriptor = newNodeDescriptor;
+      });
     });
   }
 
-  @ViewChild(HeaderComponent)
-  header: HeaderComponent;
+  @Output() status: NodeStatus = NodeStatus.Off;
+  @Output() configurationMode: ConfigurationMode = ConfigurationMode.Hidden;
+  nodeDescriptor = '';
+
+  static resizeSmall() {
+    if (window.outerHeight !== 360) {
+      window.resizeTo(640, 360);
+    }
+  }
+
+  static resizeLarge() {
+    if (window.outerHeight !== 710) {
+      window.resizeTo(640, 710);
+    }
+  }
 
   off() {
-    if (!this.isOff()) {
-      this.resizeSmall();
-      this.servingConfigurationVisible = false;
-      this.consumingConfigurationVisible = false;
+    if (this.isOff()) {
+      if (this.configurationMode === ConfigurationMode.Serving || this.configurationMode === ConfigurationMode.Consuming) {
+        this.openStandardDisplay();
+      }
+    } else {
+      this.mainService.turnOff();
     }
-    this.mainService.turnOff().subscribe(status => {
-      this.status = status;
-    });
   }
 
   serve() {
     if (!this.isServing()) {
-      this.consumingConfigurationVisible = false;
+      this.configurationMode = ConfigurationMode.Hidden;
       if (this.configService.isValidServing()) {
-        this.resizeSmall();
-        this.mainService.serve().subscribe(status => {
-            this.status = status;
-          }
-        );
+        this.openStandardDisplay();
+        this.mainService.serve();
       } else {
-        this.resizeLarge();
-        this.servingConfigurationVisible = true;
+        this.openServingSettings();
       }
     }
   }
 
   consume() {
     if (!this.isConsuming()) {
-      this.servingConfigurationVisible = false;
-
-      if (this.configService.isValidServing()) {
-        this.resizeSmall();
-        this.mainService.consume().subscribe(status => {
-          this.status = status;
-        });
+      this.configurationMode = ConfigurationMode.Hidden;
+      if (this.configService.isValidConsuming()) {
+        this.openStandardDisplay();
+        this.mainService.consume();
       } else {
-        this.resizeLarge();
-        this.consumingConfigurationVisible = true;
+        this.openConsumingSettings();
       }
     }
   }
@@ -81,49 +80,93 @@ export class IndexComponent {
     this.mainService.copyToClipboard(this.nodeDescriptor);
   }
 
+  openStandardDisplay() {
+    IndexComponent.resizeSmall();
+    this.configurationMode = ConfigurationMode.Hidden;
+  }
+
+  openServingSettings() {
+    IndexComponent.resizeLarge();
+    this.configurationMode = ConfigurationMode.Serving;
+  }
+
+  openConsumingSettings() {
+    IndexComponent.resizeLarge();
+    this.configurationMode = ConfigurationMode.Consuming;
+  }
+
   isOff(): boolean {
-    return !(this.isConsuming() || this.isServing() || this.isInvalid());
+    return this.status === NodeStatus.Off;
   }
 
   isServing(): boolean {
-    return (this.status === NodeStatus.Serving || this.servingConfigurationVisible)
-      && !this.consumingConfigurationVisible;
+    return this.status === NodeStatus.Serving;
   }
 
   isConsuming(): boolean {
-    return (this.status === NodeStatus.Consuming || this.consumingConfigurationVisible)
-      && !this.servingConfigurationVisible;
+    return this.status === NodeStatus.Consuming;
   }
 
   isInvalid(): boolean {
     return this.status === NodeStatus.Invalid;
   }
 
+  isConfigurationShown(): boolean {
+    return this.configurationMode !== ConfigurationMode.Hidden;
+  }
+
+  isServingConfigurationShown(): boolean {
+    return this.configurationMode === ConfigurationMode.Serving;
+  }
+
+  isConsumingConfigurationShown(): boolean {
+    return this.configurationMode === ConfigurationMode.Consuming;
+  }
+
   statusText(): string {
     return (this.status === NodeStatus.Invalid) ? 'An error occurred. Choose a state.' : this.status;
   }
 
-  nodeDescriptorText(): string {
-    return this.nodeDescriptor;
+  onConfigurationSaved(mode: ConfigurationMode) {
+    switch (mode) {
+      case ConfigurationMode.Serving:
+        this.onServingSaved();
+        break;
+      case ConfigurationMode.Consuming:
+        this.onConsumingSaved();
+        break;
+      case ConfigurationMode.Configuring:
+        this.configurationSaved();
+        break;
+    }
+  }
+
+  configurationSaved() {
+    this.openStandardDisplay();
+
+    if (this.isServing() || this.isConsuming()) {
+      this.mainService.turnOff();
+    }
   }
 
   onServingSaved() {
-    this.servingConfigurationVisible = false;
-    this.mainService.serve().subscribe(status => this.status = status);
-    this.resizeSmall();
+    this.configurationMode = ConfigurationMode.Hidden;
+    this.mainService.serve();
+    IndexComponent.resizeSmall();
   }
 
   onConsumingSaved() {
-    this.consumingConfigurationVisible = false;
-    this.mainService.consume().subscribe(status => this.status = status);
-    this.resizeSmall();
+    this.configurationMode = ConfigurationMode.Hidden;
+    this.mainService.consume();
+    IndexComponent.resizeSmall();
   }
 
-  resizeSmall() {
-    window.resizeTo(640, 360);
+  onConfigurationMode($event: ConfigurationMode) {
+    IndexComponent.resizeLarge();
+    this.configurationMode = $event;
   }
 
-  resizeLarge() {
-    window.resizeTo(640, 710);
+  onCancelEvent() {
+    this.openStandardDisplay();
   }
 }

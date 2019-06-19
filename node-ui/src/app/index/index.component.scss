@@ -102,6 +102,10 @@
       &:hover {
         color: color('text', 'light');
       }
+
+      &.button-highlit {
+        border: 1px solid color('primary');
+      }
     }
   }
 }

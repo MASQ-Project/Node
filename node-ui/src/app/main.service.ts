@@ -2,10 +2,11 @@
 
 import {Injectable} from '@angular/core';
 import {ElectronService} from './electron.service';
-import {BehaviorSubject, Observable, of} from 'rxjs';
+import {BehaviorSubject, Observable, of, Subject} from 'rxjs';
 import {NodeStatus} from './node-status.enum';
 import {ConfigService} from './config.service';
 import {NodeConfiguration} from './node-configuration';
+import {ChangeNodeStateMessage} from './change-node-state-message.enum';
 
 @Injectable({
   providedIn: 'root'
@@ -13,10 +14,10 @@ import {NodeConfiguration} from './node-configuration';
 
 export class MainService {
 
-  private statusListener: BehaviorSubject<NodeStatus> = new BehaviorSubject(NodeStatus.Off);
+  private statusListener: BehaviorSubject<NodeStatus> = new BehaviorSubject<NodeStatus>(NodeStatus.Off);
   nodeStatus: Observable<NodeStatus> = this.statusListener.asObservable();
 
-  private nodeDescriptorListener: BehaviorSubject<string> = new BehaviorSubject('');
+  private nodeDescriptorListener: Subject<string> = new Subject();
   nodeDescriptor: Observable<string> = this.nodeDescriptorListener.asObservable();
 
   constructor(private electronService: ElectronService, private configService: ConfigService) {
@@ -28,16 +29,16 @@ export class MainService {
     });
   }
 
-  turnOff(): Observable<NodeStatus> {
-    return this.changeNodeState('turn-off');
+  turnOff(): void {
+    this.changeNodeState(ChangeNodeStateMessage.TurnOff);
   }
 
-  serve(): Observable<NodeStatus> {
-    return this.changeNodeState('serve', this.configService.getConfig());
+  serve(): void {
+    this.changeNodeState(ChangeNodeStateMessage.Serve, this.configService.getConfig());
   }
 
-  consume(): Observable<NodeStatus> {
-    return this.changeNodeState('consume', this.configService.getConfig());
+  consume(): void {
+    this.changeNodeState(ChangeNodeStateMessage.Consume, this.configService.getConfig());
   }
 
   copyToClipboard(text: string) {
@@ -45,14 +46,16 @@ export class MainService {
   }
 
   lookupIp(): Observable<string> {
-    if (this.configService.getConfig().ip) {
-      return of(this.configService.getConfig().ip);
+    const ip = this.configService.getConfig().ip;
+    if (ip) {
+      return of(ip);
     } else {
       return of(this.electronService.ipcRenderer.sendSync('ip-lookup'));
     }
   }
 
-  private changeNodeState(state, config?: NodeConfiguration): Observable<NodeStatus> {
-    return of(this.electronService.ipcRenderer.sendSync('change-node-state', state, config));
+  private changeNodeState(state, config?: NodeConfiguration): void {
+    this.statusListener.next(this.electronService.ipcRenderer.sendSync('change-node-state', state, config));
   }
 }
+

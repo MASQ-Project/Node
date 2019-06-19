@@ -28,6 +28,22 @@
   }
 }
 
+.section-first {
+  border-top: 1px solid color('background','xlight');
+}
+
+.section-last {
+  border-bottom: 1px solid color('background','xlight');
+}
+
+.grayed-out {
+  color: color('text','light');
+
+  &:hover {
+    background-color: color('background', 'xlight');
+  }
+}
+
 .settings-menu {
   background: color('white');
   border-radius: $border-radius;
@@ -48,14 +64,6 @@
       background-color: color('primary');
       color: color('white');
       border-color: rgba(color('background','xlight'), 0);
-    }
-
-    &:first-child {
-      border-bottom: 1px solid color('background','xlight');
-    }
-
-    &:last-child {
-      border-top: 1px solid color('background','xlight');
     }
   }
 

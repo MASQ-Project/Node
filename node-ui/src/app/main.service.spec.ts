@@ -6,6 +6,7 @@ import {ElectronService} from './electron.service';
 import {func, matchers, object, reset, verify, when} from 'testdouble';
 import {NodeConfiguration} from './node-configuration';
 import {ConfigService} from './config.service';
+import {NodeStatus} from './node-status.enum';
 
 describe('MainService', () => {
   let stubElectronService;
@@ -75,28 +76,46 @@ describe('MainService', () => {
 
   describe('user actions', () => {
     beforeEach(() => {
-      when(mockGetConfig()).thenReturn(new NodeConfiguration());
-      when(mockSendSync('change-node-state', 'turn-off', matchers.anything())).thenReturn('Off');
-      when(mockSendSync('change-node-state', 'serve', matchers.anything())).thenReturn('Serving');
+      when(mockConfigService.getConfig()).thenReturn(new NodeConfiguration());
       when(mockSendSync('change-node-state', 'consume', matchers.anything())).thenReturn('Consuming');
+      when(mockSendSync('change-node-state', 'serve', matchers.anything())).thenReturn('Serving');
+      when(mockSendSync('change-node-state', 'turn-off', matchers.anything())).thenReturn('Off');
       when(mockSendSync('ip-lookup')).thenReturn('4.3.2.1');
     });
 
-    it('tells the main to turn off', () => {
-      service.turnOff().subscribe((v) => {
-        expect(v).toBe('Off');
+    describe('when telling the main to switch off', () => {
+      beforeEach(() => {
+        service.turnOff();
+      });
+
+      it('updates the status with the response', () => {
+        service.nodeStatus.subscribe((status) => {
+          expect(status).toBe(NodeStatus.Off);
+        });
       });
     });
 
-    it('tells the main to switch to serving', () => {
-      service.serve().subscribe((v) => {
-        expect(v).toBe('Serving');
+    describe('when telling the main to switch to serving', () => {
+      beforeEach(() => {
+        service.serve();
+      });
+
+      it('updates the status with the response', () => {
+        service.nodeStatus.subscribe((status) => {
+          expect(status).toBe(NodeStatus.Serving);
+        });
       });
     });
 
-    it('tells the main to switch to consuming', () => {
-      service.consume().subscribe((v) => {
-        expect(v).toBe('Consuming');
+    describe('tells the main to switch to consuming', () => {
+      beforeEach(() => {
+        service.consume();
+      });
+
+      it('updates the status with the response', () => {
+        service.nodeStatus.subscribe((status) => {
+          expect(status).toBe(NodeStatus.Consuming);
+        });
       });
     });
 
@@ -109,8 +128,8 @@ describe('MainService', () => {
     const nodeConfig: NodeConfiguration = {ip: 'fake'};
     beforeEach(() => {
       when(mockGetConfig()).thenReturn(nodeConfig);
-      service.serve().subscribe((_) => _);
-      service.consume().subscribe((_) => _);
+      service.serve();
+      service.consume();
     });
 
     it('is included in serving', () => {

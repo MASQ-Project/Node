@@ -14,8 +14,8 @@
       <li class="validation-error" id="ip-validation__pattern" *ngIf="ip.errors?.pattern">
         Incorrect Format. Should be IPv4 (i.e. 86.75.30.9).
       </li>
-      <li class="validation-error" id="ip-validation__required" *ngIf="nodeConfig.errors?.ipRequired">
-        IP Address is required when neighbor is provided.
+      <li class="validation-error" id="ip-validation__required" *ngIf="ip.errors?.required">
+        IP Address is required.
       </li>
     </ul>
 
@@ -40,8 +40,8 @@
       <li class="validation-error" id="neighbor-validation__pattern" *ngIf="neighbor.errors?.pattern">
         Node descriptor not in the correct format.
       </li>
-      <li class="validation-error" id="neighbor-validation__required" *ngIf="nodeConfig.errors?.neighborRequired">
-        Node descriptor is required when ip address is provided.
+      <li class="validation-error" id="neighbor-validation__required" *ngIf="neighbor.errors?.required">
+        Node descriptor is required.
       </li>
     </ul>
 
@@ -69,11 +69,10 @@
     </div>
 
     <div class="node-config__actions node-config__inset">
+      <button id="cancel" type="button" (click)="cancel()">Cancel</button>
       <div class="node-config__empty-flex"></div>
-      <button id="save-config" class="node-config__to-action" [disabled]="nodeConfig.invalid" type="submit">
-        Start
-      </button>
-      <div class="node-config__empty-flex"></div>
+      <button id="save-config" class="node-config__to-action" [disabled]="nodeConfig.invalid"
+              type="submit">{{saveText()}}</button>
     </div>
   </form>
 </div>

@@ -11,10 +11,13 @@ import {RElement} from '@angular/core/src/render3/interfaces/renderer';
 import {Router} from '@angular/router';
 import {FormsModule, ReactiveFormsModule} from '@angular/forms';
 import {ConfigService} from '../config.service';
-import {Component} from '@angular/core';
+import {Component, Input} from '@angular/core';
+import {ConfigurationMode} from '../configuration-mode.enum';
 
 @Component({selector: 'app-node-configuration', template: '<div id="node-config"></div>'})
 class NodeConfigurationStubComponent {
+  @Input() mode: ConfigurationMode;
+  @Input() status: NodeStatus;
 }
 
 @Component({selector: 'app-header', template: ''})
@@ -27,39 +30,32 @@ describe('IndexComponent', () => {
   let compiled;
   let mockMainService;
   let mockConfigService;
-  let mockTurnOff;
-  let mockServe;
-  let mockConsume;
-  let mockCopyToClipboard;
-  let mockIsValidServing;
-  let mockGetConfig;
   let mockStatus: BehaviorSubject<NodeStatus>;
   let mockNodeDescriptor: BehaviorSubject<string>;
   let offButton;
   let servingButton;
   let consumingButton;
+  let mockMode;
 
   beforeEach(async(() => {
-    mockTurnOff = func('turnOff');
-    mockServe = func('serve');
-    mockConsume = func('consume');
-    mockCopyToClipboard = func('copyToClipboard');
     mockStatus = new BehaviorSubject(NodeStatus.Off);
+    mockMode = new BehaviorSubject(ConfigurationMode.Hidden);
     mockNodeDescriptor = new BehaviorSubject('');
-    mockGetConfig = func('getConfig');
-    mockIsValidServing = func('isValidServing');
     mockMainService = {
-      turnOff: mockTurnOff,
-      serve: mockServe,
-      consume: mockConsume,
-      copyToClipboard: mockCopyToClipboard,
+      turnOff: func('turnOff'),
+      serve: func('serve'),
+      consume: func('consume'),
+      copyToClipboard: func('copyToClipboard'),
       nodeStatus: mockStatus.asObservable(),
       nodeDescriptor: mockNodeDescriptor.asObservable(),
       lookupIp: () => of('')
     };
     mockConfigService = {
-      getConfig: mockGetConfig,
-      isValidServing: mockIsValidServing
+      getConfig: func('getConfig'),
+      isValidServing: func('isValidServing'),
+      isValidConsuming: func('isValidConsuming'),
+      mode: mockMode,
+      setMode: func('setMode'),
     };
     TestBed.configureTestingModule({
       declarations: [
@@ -92,6 +88,9 @@ describe('IndexComponent', () => {
     offButton = compiled.querySelector('#off');
     servingButton = compiled.querySelector('#serving');
     consumingButton = compiled.querySelector('#consuming');
+    when(mockMainService.serve()).thenDo(() => mockStatus.next(NodeStatus.Serving));
+    when(mockMainService.consume()).thenDo(() => mockStatus.next(NodeStatus.Consuming));
+    when(mockMainService.turnOff()).thenDo(() => mockStatus.next(NodeStatus.Off));
     fixture.detectChanges();
   });
 
@@ -112,7 +111,7 @@ describe('IndexComponent', () => {
     describe('when node is off', () => {
       beforeEach(() => {
         mockNodeDescriptor.next('beggin for help');
-        when(mockTurnOff()).thenReturn(of(NodeStatus.Off));
+        when(mockMainService.turnOff()).thenReturn(of(NodeStatus.Off));
         offButton.click();
         fixture.detectChanges();
       });
@@ -124,12 +123,19 @@ describe('IndexComponent', () => {
 
     describe('when serving is selected with configuration shown', () => {
       beforeEach(() => {
+        when(mockConfigService.isValidServing()).thenReturn(false);
+        component.status = NodeStatus.Off;
         servingButton.click();
         fixture.detectChanges();
       });
+
+      it('shows the configuration and highlights serving', () => {
+        expect(offButton.classList).toContain('button-active');
+        expect(servingButton.classList).toContain('button-highlit');
+      });
+
       describe('and off is selected again', () => {
         beforeEach(() => {
-          when(mockTurnOff()).thenReturn(of(NodeStatus.Off));
           offButton.click();
           fixture.detectChanges();
         });
@@ -137,6 +143,20 @@ describe('IndexComponent', () => {
         it('hides the configuration and reverts to off', () => {
           expect(offButton.classList).toContain('button-active');
           expect(servingButton.classList).not.toContain('button-active');
+          expect(servingButton.classList).not.toContain('button-highlit');
+        });
+      });
+
+      describe('and cancel is clicked', () => {
+        beforeEach(() => {
+          component.onCancelEvent();
+          fixture.detectChanges();
+        });
+
+        it('hides the configuration and reverts to off', () => {
+          expect(offButton.classList).toContain('button-active');
+          expect(servingButton.classList).not.toContain('button-active');
+          expect(servingButton.classList).not.toContain('button-highlit');
         });
       });
     });
@@ -146,17 +166,136 @@ describe('IndexComponent', () => {
         consumingButton.click();
         fixture.detectChanges();
       });
+
       describe('and off is selected again', () => {
         beforeEach(() => {
-          when(mockTurnOff()).thenReturn(of(NodeStatus.Off));
           offButton.click();
+          fixture.detectChanges();
+        });
+
+        it('hides the configuration', () => {
+          expect(component.configurationMode).toBe(ConfigurationMode.Hidden);
+        });
+
+        it('and reverts to off', () => {
+          expect(offButton.classList).toContain('button-active');
+          expect(consumingButton.classList).not.toContain('button-active');
+          expect(consumingButton.classList).not.toContain('button-highlit');
+        });
+      });
+
+      describe('and cancel is clicked', () => {
+        beforeEach(() => {
+          component.onCancelEvent();
           fixture.detectChanges();
         });
 
         it('hides the configuration and reverts to off', () => {
           expect(offButton.classList).toContain('button-active');
           expect(consumingButton.classList).not.toContain('button-active');
+          expect(consumingButton.classList).not.toContain('button-highlit');
         });
+      });
+    });
+  });
+
+  describe('calling openServingSettings', () => {
+    function checkEndState() {
+      it('shows the serving configuration component', () => {
+        expect(compiled.querySelector('#node-config')).toBeTruthy();
+      });
+
+      it('does not activate the serving button', () => {
+        expect(offButton.classList).toContain('button-active');
+        expect(servingButton.classList).not.toContain('button-active');
+        expect(consumingButton.classList).not.toContain('button-active');
+      });
+    }
+
+    describe('when neither serving settings nor consuming settings are displayed', () => {
+      beforeEach(() => {
+        component.configurationMode = ConfigurationMode.Hidden;
+        component.openServingSettings();
+        fixture.detectChanges();
+      });
+
+      checkEndState();
+    });
+
+    describe('when serving settings are already displayed', () => {
+      beforeEach(() => {
+        component.configurationMode = ConfigurationMode.Serving;
+        component.openServingSettings();
+        fixture.detectChanges();
+      });
+
+      checkEndState();
+    });
+
+    describe('when consuming settings are already displayed', () => {
+      beforeEach(() => {
+        component.configurationMode = ConfigurationMode.Consuming;
+        component.openServingSettings();
+        fixture.detectChanges();
+      });
+
+      checkEndState();
+    });
+  });
+
+  describe('calling openConsumingSettings', () => {
+    function checkStatusIsOffAndConfigShown() {
+      it('shows the consuming configuration component', () => {
+        expect(compiled.querySelector('#node-config')).toBeTruthy();
+      });
+
+      it('does not activate the serving button', () => {
+        expect(offButton.classList).toContain('button-active');
+        expect(servingButton.classList).not.toContain('button-active');
+        expect(consumingButton.classList).not.toContain('button-active');
+      });
+    }
+
+    describe('when neither serving settings nor consuming settings are displayed', () => {
+      beforeEach(() => {
+        component.configurationMode = ConfigurationMode.Hidden;
+        component.openConsumingSettings();
+        fixture.detectChanges();
+      });
+
+      checkStatusIsOffAndConfigShown();
+    });
+
+    describe('when serving settings are already displayed', () => {
+      beforeEach(() => {
+        component.configurationMode = ConfigurationMode.Serving;
+        component.openConsumingSettings();
+        fixture.detectChanges();
+      });
+
+      checkStatusIsOffAndConfigShown();
+    });
+
+    describe('when consuming settings are already displayed', () => {
+      beforeEach(() => {
+        component.configurationMode = ConfigurationMode.Consuming;
+        component.openConsumingSettings();
+        fixture.detectChanges();
+      });
+
+      checkStatusIsOffAndConfigShown();
+    });
+
+    describe('and cancel is clicked', () => {
+      beforeEach(() => {
+        component.onCancelEvent();
+        fixture.detectChanges();
+      });
+
+      it('hides the configuration and reverts to off', () => {
+        expect(offButton.classList).toContain('button-active');
+        expect(consumingButton.classList).not.toContain('button-active');
+        expect(consumingButton.classList).not.toContain('button-highlit');
       });
     });
   });
@@ -173,13 +312,12 @@ describe('IndexComponent', () => {
         expect(compiled.querySelector('#node-config')).toBeTruthy();
       });
 
-      it('highlights serving as active despite node not being active yet', () => {
-        expect(servingButton.classList).toContain('button-active');
+      it('highlights serving to indicate that is what is being configured', () => {
+        expect(servingButton.classList).toContain('button-highlit');
       });
 
       describe('configuration telling us it is save', () => {
         beforeEach(() => {
-          when(mockServe()).thenReturn(of(NodeStatus.Serving));
           component.onServingSaved();
           fixture.detectChanges();
         });
@@ -194,19 +332,25 @@ describe('IndexComponent', () => {
 
         describe('clicking serving again', () => {
           beforeEach(() => {
-            when(mockServe()).thenReturn(of(NodeStatus.Serving));
+            when(mockMainService.serve()).thenReturn(of(NodeStatus.Serving));
             servingButton.click();
             fixture.detectChanges();
           });
 
           it('does nothing', () => {
-            expect(component.consumingConfigurationVisible).toBeFalsy();
+            expect(component.configurationMode).toBe(ConfigurationMode.Hidden);
           });
         });
-        describe('switching to consuming', () => {
+
+        describe('switching to consuming while configuration is valid', () => {
           beforeEach(() => {
+            when(mockConfigService.isValidConsuming()).thenReturn(true);
             consumingButton.click();
             fixture.detectChanges();
+          });
+
+          it('configuration is hidden', () => {
+            expect(component.configurationMode).toBe(ConfigurationMode.Hidden);
           });
 
           it('consuming is active', () => {
@@ -233,22 +377,19 @@ describe('IndexComponent', () => {
 
       it('does not show the configuration and starts the node', () => {
         verify(mockMainService.serve());
-        expect(component.servingConfigurationVisible).toBeFalsy();
+        expect(component.configurationMode).toBe(ConfigurationMode.Hidden);
       });
     });
 
     describe('switching to consuming', () => {
       beforeEach(() => {
-        when(mockConfigService.isValidServing()).thenReturn(false);
+        when(mockConfigService.isValidConsuming()).thenReturn(false);
         consumingButton.click();
         fixture.detectChanges();
       });
-      it('hides the serving configuration', () => {
-        expect(component.servingConfigurationVisible).toBeFalsy();
-      });
 
       it('shows the consuming configuration', () => {
-        expect(component.consumingConfigurationVisible).toBeTruthy();
+        expect(component.configurationMode).toBe(ConfigurationMode.Consuming);
       });
     });
   });
@@ -256,25 +397,28 @@ describe('IndexComponent', () => {
   describe('clicking consuming', () => {
     describe('when not configured', () => {
       beforeEach(() => {
-        when(mockConfigService.isValidServing()).thenReturn(false);
-        when(mockConsume()).thenReturn(of(NodeStatus.Consuming));
+        when(mockConfigService.isValidConsuming()).thenReturn(false);
         consumingButton.click();
         fixture.detectChanges();
       });
 
-      it('shows the configuration modal', () => {
-        expect(component.consumingConfigurationVisible).toBeTruthy();
+      it('shows the configuration component', () => {
+        expect(component.configurationMode).toBe(ConfigurationMode.Consuming);
         expect(compiled.querySelector('#node-config')).toBeTruthy();
       });
 
-      describe('clicking save', () => {
+      it('highlights consuming', () => {
+        expect(consumingButton.classList).toContain('button-highlit');
+      });
+
+      describe('then clicking save', () => {
         beforeEach(() => {
           component.onConsumingSaved();
           fixture.detectChanges();
         });
 
         it('hides the configuration modal', () => {
-          expect(component.consumingConfigurationVisible).toBeFalsy();
+          expect(component.configurationMode).toBe(ConfigurationMode.Hidden);
           expect(compiled.querySelector('#node-config')).toBeFalsy();
         });
 
@@ -284,17 +428,20 @@ describe('IndexComponent', () => {
 
         describe('clicking consuming again', () => {
           beforeEach(() => {
+            component.configurationMode = ConfigurationMode.Hidden;
+            component.status = NodeStatus.Consuming;
             consumingButton.click();
             fixture.detectChanges();
           });
 
           it('does nothing', () => {
-            expect(component.consumingConfigurationVisible).toBeFalsy();
+            expect(component.configurationMode).toBe(ConfigurationMode.Hidden);
           });
         });
 
         describe('switching to serving', () => {
           beforeEach(() => {
+            when(mockConfigService.isValidServing()).thenReturn(true);
             servingButton.click();
             fixture.detectChanges();
           });
@@ -319,27 +466,27 @@ describe('IndexComponent', () => {
           servingButton.click();
           fixture.detectChanges();
         });
-        it('hides the consuming configuration', () => {
-          expect(component.consumingConfigurationVisible).toBeFalsy();
-        });
 
         it('shows the serving configuration', () => {
-          expect(component.servingConfigurationVisible).toBeTruthy();
+          expect(component.configurationMode).toBe(ConfigurationMode.Serving);
         });
 
+        it('highlights serving', () => {
+          expect(servingButton.classList).toContain('button-highlit');
+        });
       });
     });
 
     describe('when already configured', () => {
       beforeEach(() => {
-        when(mockConfigService.isValidServing()).thenReturn(true);
+        when(mockConfigService.isValidConsuming()).thenReturn(true);
         consumingButton.click();
         fixture.detectChanges();
       });
 
       it('does not show the configuration and starts the node', () => {
         verify(mockMainService.consume());
-        expect(component.consumingConfigurationVisible).toBeFalsy();
+        expect(component.configurationMode).toBe(ConfigurationMode.Hidden);
       });
     });
   });
@@ -352,7 +499,7 @@ describe('IndexComponent', () => {
     });
 
     it('copies the node descriptor', () => {
-      verify(mockCopyToClipboard('let me out'));
+      verify(mockMainService.copyToClipboard('let me out'));
     });
   });
 
@@ -379,6 +526,71 @@ describe('IndexComponent', () => {
       expect(desired.classList).toContain('node-status__actions--invalid');
       const activeButtons: Element = compiled.querySelector('#node-status-buttons .button-active');
       expect(activeButtons).toBeFalsy();
+    });
+  });
+
+  describe('configuration mode is configuring', () => {
+    describe('and is saved while node is off', () => {
+      beforeEach(() => {
+        mockStatus.next(NodeStatus.Off);
+        component.onConfigurationSaved(ConfigurationMode.Configuring);
+        fixture.detectChanges();
+      });
+
+      it('does not change the node state', () => {
+        verify(mockMainService.turnOff(), {times: 0});
+        verify(mockMainService.serve(), {times: 0});
+        verify(mockMainService.consume(), {times: 0});
+      });
+
+      it('changes the configuration mode to hidden', () => {
+        expect(component.configurationMode).toBe(ConfigurationMode.Hidden);
+      });
+    });
+
+    describe('and is saved while node is serving', () => {
+      beforeEach(() => {
+        mockStatus.next(NodeStatus.Serving);
+        component.configurationMode = ConfigurationMode.Serving;
+        component.onConfigurationSaved(ConfigurationMode.Configuring);
+        fixture.detectChanges();
+      });
+
+      it('stops the node', () => {
+        verify(mockMainService.turnOff());
+      });
+
+      it('hides the configuration', () => {
+        expect(component.configurationMode).toBe(ConfigurationMode.Hidden);
+      });
+    });
+
+    describe('and is saved while node is consuming', () => {
+      beforeEach(() => {
+        mockStatus.next(NodeStatus.Consuming);
+        component.onConfigurationSaved(ConfigurationMode.Configuring);
+        fixture.detectChanges();
+      });
+
+      it('stops the node', () => {
+        verify(mockMainService.turnOff());
+      });
+
+      it('hides the configuration', () => {
+        expect(component.configurationMode).toBe(ConfigurationMode.Hidden);
+      });
+    });
+
+    describe('and is saved while in pure configuration', () => {
+      beforeEach(() => {
+        mockStatus.next(NodeStatus.Off);
+        component.onConfigurationSaved(ConfigurationMode.Configuring);
+        fixture.detectChanges();
+      });
+
+      it('hides the configuration', () => {
+        expect(component.configurationMode).toBe(ConfigurationMode.Hidden);
+      });
     });
   });
 });

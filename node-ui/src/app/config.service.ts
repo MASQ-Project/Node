@@ -1,3 +1,5 @@
+// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+
 import {Injectable} from '@angular/core';
 import {NodeConfiguration} from './node-configuration';
 import {BehaviorSubject, Observable} from 'rxjs';
@@ -11,7 +13,7 @@ export class ConfigService {
   constructor() {
   }
 
-  private configSubject: BehaviorSubject<NodeConfiguration> = new BehaviorSubject<NodeConfiguration>({});
+  private configSubject: BehaviorSubject<NodeConfiguration> = new BehaviorSubject({});
   readonly config = this.configSubject.asObservable();
 
   static testRegEx(input: string, pattern: string): boolean {
@@ -33,9 +35,13 @@ export class ConfigService {
 
   isValidServing(): boolean {
     const currentConfig = this.getConfig();
-
     return ConfigService.testRegEx(currentConfig.ip, ipPattern) &&
-      ConfigService.testRegEx(currentConfig.walletAddress, walletPattern) &&
+      (currentConfig.walletAddress === '' || ConfigService.testRegEx(currentConfig.walletAddress, walletPattern)) &&
       ConfigService.testRegEx(currentConfig.neighbor, neighborPattern);
+  }
+
+
+  isValidConsuming(): boolean {
+    return this.isValidServing();
   }
 }

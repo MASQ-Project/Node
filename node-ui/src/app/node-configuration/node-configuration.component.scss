@@ -24,8 +24,14 @@ $right-corners-nubbed: 0 $border-radius $border-radius 0;
 }
 
 #node-config {
-  border-top: 1px solid color('background','light');
+  border-top: 1px solid color('background', 'light');
   display: block;
+}
+
+#cancel {
+  @include action-button;
+  color: color('text');
+  border-color: color('text');
 }
 
 .node-config {

@@ -87,7 +87,7 @@ describe('Application launch', function () {
         await configComponent.ipInput.setValue('')
         await client.keys(['a', 'Backspace'])
         await client.waitUntil(async () => {
-          return configComponent.saveConfig.isEnabled()
+          return configComponent.ipRequiredValidation.isEnabled()
         })
       })
   })
@@ -128,7 +128,8 @@ describe('Application launch', function () {
     await wait(1000)
     assert.strictEqual(await uiInterface.verifyNodeDown(5000), true)
 
-    await indexPage.serving.click()
+    await indexPage.settingsButton.click()
+    await indexPage.openSettings.click()
     await client.waitUntilWindowLoaded()
 
     assert.strictEqual((await client.element('#ip').getValue()), '1.2.3.4')
@@ -175,6 +176,41 @@ describe('Application launch', function () {
     await wait(1000)
     assert.strictEqual(await uiInterface.verifyNodeDown(5000), true)
   })
+
+  it('Changing configuration while node is running turns off the node', async () => {
+    let client = this.app.client
+
+    await client.waitUntilWindowLoaded()
+    await indexPage.serving.click()
+    await configComponent.ipInput.setValue('1.2.3.4')
+    await configComponent.neighborInput.setValue('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:1.1.1.1:12345;4321')
+    await configComponent.walletAddress.setValue('0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
+    await client.waitUntil(async () => {
+      return configComponent.saveConfig.isEnabled()
+    })
+    client.element('#save-config').click()
+    await client.waitUntilWindowLoaded()
+
+    assert.strictEqual((await client.getText('#node-status-label')), 'Serving')
+    await wait(1000)
+    let nodeUp = await uiInterface.verifyNodeUp(10000)
+    printConsoleForDebugging(client, false)
+    assert.ok(nodeUp)
+    assert.notStrictEqual(await client.getText('#node-descriptor'), '')
+
+    await indexPage.settingsButton.click()
+    await indexPage.openSettings.click()
+    await client.waitUntilWindowLoaded()
+
+    client.element('#save-config').click()
+    await client.waitUntilWindowLoaded()
+    assert.strictEqual((await client.getText('#node-status-label')), 'Off')
+    await wait(1000)
+    let nodeDown = await uiInterface.verifyNodeDown(10000)
+    printConsoleForDebugging(client, false)
+    assert.ok(nodeDown)
+    assert.strictEqual(await client.getText('#node-descriptor'), '')
+  })
 })
 
 function wait (ms) {
@@ -202,6 +238,14 @@ class IndexPage {
   get serving () {
     return this.client.element('#serving')
   }
+
+  get settingsButton () {
+    return this.client.element('#settings-button')
+  }
+
+  get openSettings () {
+    return this.client.element('#open-settings')
+  }
 }
 
 class ConfigComponent {
@@ -211,6 +255,10 @@ class ConfigComponent {
 
   get ipInput () {
     return this.client.element('#ip')
+  }
+
+  get ipRequiredValidation () {
+    return this.client.element('#ip-validation__required')
   }
 
   get neighborInput () {

@@ -1,7 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-import {Component, ElementRef, HostListener, ViewChild} from '@angular/core';
+import {Component, ElementRef, EventEmitter, HostListener, Output, ViewChild} from '@angular/core';
 import {ElectronService} from '../electron.service';
+import {ConfigurationMode} from '../configuration-mode.enum';
 
 @Component({
   selector: 'app-header',
@@ -11,6 +12,8 @@ import {ElectronService} from '../electron.service';
 export class HeaderComponent {
   visibleSettings: boolean;
   visibleModalHelp: boolean;
+
+  @Output() openSettingsEvent = new EventEmitter<ConfigurationMode>();
 
   @ViewChild('settingsbutton')
   settings_button: ElementRef;
@@ -25,6 +28,10 @@ export class HeaderComponent {
 
   toggleSettings() {
     this.visibleSettings = !this.visibleSettings;
+  }
+
+  openSettings() {
+    this.openSettingsEvent.emit(ConfigurationMode.Configuring);
   }
 
   hideSettings(e) {

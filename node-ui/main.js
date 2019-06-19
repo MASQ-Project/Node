@@ -127,8 +127,8 @@ ipcMain.on('change-node-state', (event, command, args) => {
 })
 
 let assignStatus = (event, promise) => {
-  promise.then(val => {
-    event.returnValue = val
+  promise.then(newStatus => {
+    event.returnValue = newStatus
   }).catch(() => {
     event.returnValue = Invalid
   })

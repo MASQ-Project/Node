@@ -105,3 +105,4 @@ docker/node
 SubstratumNode.log
 node.log
 lnk*.tmp
+node-data.db
