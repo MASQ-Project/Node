@@ -61,7 +61,7 @@ impl BannedCacheLoader for BannedCacheLoaderReal {
     }
 }
 
-pub trait BannedDao {
+pub trait BannedDao: Send {
     fn ban_list(&self) -> Vec<Wallet>;
     fn ban(&self, wallet_address: &Wallet);
     fn unban(&self, wallet_address: &Wallet);

@@ -20,7 +20,7 @@ pub struct ReceivableAccount {
     pub last_received_timestamp: SystemTime,
 }
 
-pub trait ReceivableDao {
+pub trait ReceivableDao: Send {
     fn more_money_receivable(&self, wallet_address: &Wallet, amount: u64);
 
     fn more_money_received(

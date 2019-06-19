@@ -10,7 +10,7 @@ pub enum ConfigDaoError {
     DatabaseError(String),
 }
 
-pub trait ConfigDao {
+pub trait ConfigDao: Send {
     fn get_string(&self, name: &str) -> Result<String, ConfigDaoError>;
     fn set_string(&self, name: &str, value: &str) -> Result<(), ConfigDaoError>;
     fn get_u64(&self, name: &str) -> Result<u64, ConfigDaoError>;

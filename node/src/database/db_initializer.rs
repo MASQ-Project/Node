@@ -19,7 +19,7 @@ pub const DATABASE_FILE: &str = "node-data.db";
 pub const CURRENT_SCHEMA_VERSION: &str = "0.0.5";
 pub const ROPSTEN_CONTRACT_CREATION_BLOCK: u64 = 4647463;
 
-pub trait ConnectionWrapper: Debug {
+pub trait ConnectionWrapper: Debug + Send {
     fn prepare(&self, query: &str) -> Result<Statement, rusqlite::Error>;
     fn transaction(&mut self) -> Result<Transaction, rusqlite::Error>;
 }
@@ -276,6 +276,8 @@ pub mod test_utils {
         pub prepare_results: RefCell<Vec<Result<Statement<'a>, Error>>>,
         pub transaction_results: RefCell<Vec<Result<Transaction<'a>, Error>>>,
     }
+
+    unsafe impl<'a> Send for ConnectionWrapperMock<'a> {}
 
     impl<'a> ConnectionWrapperMock<'a> {
         pub fn prepare_result(self, result: Result<Statement<'a>, Error>) -> Self {

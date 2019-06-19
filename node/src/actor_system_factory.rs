@@ -40,9 +40,9 @@ use crate::sub_lib::proxy_client::ProxyClientSubs;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
-use actix::Actor;
 use actix::Addr;
 use actix::Recipient;
+use actix::{Actor, Arbiter};
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
@@ -314,7 +314,7 @@ impl ActorFactory for ActorFactoryReal {
             banned_dao,
             persistent_configuration,
         );
-        let addr: Addr<Accountant> = accountant.start();
+        let addr: Addr<Accountant> = Arbiter::start(|_| accountant);
         Accountant::make_subs_from(&addr)
     }
 
@@ -708,6 +708,8 @@ mod tests {
 
     #[test]
     fn make_and_start_accountant_creates_connections_for_daos_and_banned_cache() {
+        let _system =
+            System::new("make_and_start_accountant_creates_connections_for_daos_and_banned_cache");
         let subject = ActorFactoryReal {};
 
         let db_initializer_mock = DbInitializerMock::new()

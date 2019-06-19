@@ -15,7 +15,7 @@ pub struct PayableAccount {
     pub pending_payment_transaction: Option<String>,
 }
 
-pub trait PayableDao: Debug {
+pub trait PayableDao: Debug + Send {
     fn more_money_payable(&self, wallet_address: &Wallet, amount: u64);
 
     fn payment_sent(&self, wallet_address: &Wallet, pending_payment_transaction: &str);

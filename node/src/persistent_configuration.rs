@@ -10,7 +10,7 @@ pub const HIGHEST_USABLE_PORT: u16 = 65535;
 pub const HTTP_PORT: u16 = 80;
 pub const TLS_PORT: u16 = 443;
 
-pub trait PersistentConfiguration {
+pub trait PersistentConfiguration: Send {
     fn current_schema_version(&self) -> String;
     fn clandestine_port(&self) -> u16;
     fn set_clandestine_port(&self, port: u16);
