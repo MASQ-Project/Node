@@ -213,6 +213,7 @@ impl ProxyClient {
         let msg_source = msg.source;
         let msg_sequence_number = msg.sequence_number;
         let payload = MessageType::ClientResponse(ClientResponsePayload {
+            version: ClientResponsePayload::version(),
             stream_key: msg.stream_key,
             sequenced_packet: SequencedPacket {
                 data: msg.data,
@@ -492,6 +493,7 @@ mod tests {
     #[should_panic(expected = "StreamHandlerPool unbound")]
     fn panics_if_unbound() {
         let request = ClientRequestPayload {
+            version: ClientRequestPayload::version(),
             stream_key: make_meaningless_stream_key(),
             sequenced_packet: SequencedPacket {
                 data: b"HEAD http://www.nyan.cat/ HTTP/1.1\r\n\r\n".to_vec(),
@@ -545,9 +547,7 @@ mod tests {
 
             subject_subs
                 .dns_resolve_failed
-                .try_send(DnsResolveFailure {
-                    stream_key: stream_key_inner,
-                })
+                .try_send(DnsResolveFailure::new(stream_key_inner))
                 .unwrap();
 
             system.run();
@@ -599,16 +599,12 @@ mod tests {
 
             subject_subs
                 .dns_resolve_failed
-                .try_send(DnsResolveFailure {
-                    stream_key: stream_key_inner,
-                })
+                .try_send(DnsResolveFailure::new(stream_key_inner))
                 .unwrap();
 
             subject_subs
                 .dns_resolve_failed
-                .try_send(DnsResolveFailure {
-                    stream_key: stream_key_inner,
-                })
+                .try_send(DnsResolveFailure::new(stream_key_inner))
                 .unwrap();
 
             system.run();
@@ -616,7 +612,7 @@ mod tests {
 
         hopper_awaiter.await_message_count(1);
 
-        let message_type: MessageType = DnsResolveFailure { stream_key }.into();
+        let message_type: MessageType = DnsResolveFailure::new(stream_key).into();
         assert_eq!(
             &IncipientCoresPackage::new(cryptde, return_route, message_type, &originator_key)
                 .unwrap(),
@@ -638,6 +634,7 @@ mod tests {
     fn data_from_hopper_is_relayed_to_stream_handler_pool() {
         let cryptde = cryptde();
         let request = ClientRequestPayload {
+            version: ClientRequestPayload::version(),
             stream_key: make_meaningless_stream_key(),
             sequenced_packet: SequencedPacket {
                 data: b"inbound data".to_vec(),
@@ -693,6 +690,7 @@ mod tests {
         init_test_logging();
         let cryptde = cryptde();
         let request = ClientRequestPayload {
+            version: ClientRequestPayload::version(),
             stream_key: make_meaningless_stream_key(),
             sequenced_packet: SequencedPacket {
                 data: b"inbound data".to_vec(),
@@ -747,6 +745,7 @@ mod tests {
     fn does_provide_zero_hop_exit_services_with_no_consuming_wallet() {
         let cryptde = cryptde();
         let request = ClientRequestPayload {
+            version: ClientRequestPayload::version(),
             stream_key: make_meaningless_stream_key(),
             sequenced_packet: SequencedPacket {
                 data: b"inbound data".to_vec(),
@@ -864,6 +863,7 @@ mod tests {
                 cryptde(),
                 make_meaningless_route(),
                 MessageType::ClientResponse(ClientResponsePayload {
+                    version: ClientResponsePayload::version(),
                     stream_key: stream_key.clone(),
                     sequenced_packet: SequencedPacket {
                         data: Vec::from(data),
@@ -881,6 +881,7 @@ mod tests {
                 cryptde(),
                 make_meaningless_route(),
                 MessageType::ClientResponse(ClientResponsePayload {
+                    version: ClientResponsePayload::version(),
                     stream_key: stream_key.clone(),
                     sequenced_packet: SequencedPacket {
                         data: Vec::from(data),
@@ -1053,6 +1054,7 @@ mod tests {
             .build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         let payload = ClientRequestPayload {
+            version: ClientRequestPayload::version(),
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
                 data: vec![],
@@ -1095,6 +1097,7 @@ mod tests {
             cryptde,
             new_return_route,
             MessageType::ClientResponse(ClientResponsePayload {
+                version: ClientResponsePayload::version(),
                 stream_key,
                 sequenced_packet: SequencedPacket {
                     data: Vec::from(data.clone()),

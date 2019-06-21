@@ -7,6 +7,7 @@ use crate::neighborhood::dot_graph::{
 use crate::neighborhood::neighborhood::AccessibleGossipRecord;
 use crate::neighborhood::neighborhood_database::NeighborhoodDatabase;
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData, PublicKey};
+use crate::sub_lib::data_version::DataVersion;
 use crate::sub_lib::hopper::MessageType;
 use crate::sub_lib::node_addr::NodeAddr;
 use serde_derive::{Deserialize, Serialize};
@@ -112,6 +113,7 @@ impl GossipNodeRecord {
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Gossip {
+    pub version: DataVersion,
     pub node_records: Vec<GossipNodeRecord>,
 }
 
@@ -272,6 +274,17 @@ impl DotRenderable for SrcDestEdgeRenderable {
 }
 
 impl Gossip {
+    pub fn version() -> DataVersion {
+        DataVersion::new(0, 0).expect("Internal Error")
+    }
+
+    pub fn new(node_records: Vec<GossipNodeRecord>) -> Self {
+        Self {
+            version: Self::version(),
+            node_records,
+        }
+    }
+
     // Pass in:
     //   &NodeRecord, or
     //   &GossipNodeRecord, or
@@ -364,17 +377,13 @@ impl<'a> GossipBuilder<'a> {
     pub fn new(db: &NeighborhoodDatabase) -> GossipBuilder {
         GossipBuilder {
             db,
-            gossip: Gossip {
-                node_records: vec![],
-            },
+            gossip: Gossip::new(vec![]),
             keys_so_far: HashSet::new(),
         }
     }
 
     pub fn empty() -> Gossip {
-        Gossip {
-            node_records: vec![],
-        }
+        Gossip::new(vec![])
     }
 
     pub fn node(mut self, public_key_ref: &PublicKey, reveal_node_addr: bool) -> GossipBuilder<'a> {
@@ -552,11 +561,11 @@ mod tests {
             "\nGossipNodeRecord {{{}{}{}{}\n}}",
             "\n\tinner: NodeRecordInner {\n\t\tpublic_key: AQIDBA,\n\t\tnode_addr_opt: Some(1.2.3.4:[1234]),\n\t\tearning_wallet: Wallet { kind: Address(0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0) },\n\t\trate_pack: RatePack { routing_byte_rate: 1235, routing_service_rate: 1236, exit_byte_rate: 1237, exit_service_rate: 1238 },\n\t\tneighbors: [],\n\t\tversion: 2,\n\t},",
             "\n\tnode_addr_opt: Some(1.2.3.4:[1234]),",
-            "\n\tsigned_data: PlainData { data: [165, 106, 112, 117, 98, 108, 105, 99, 95, 107, 101, 121, 68, 1, 2, 3, 4, 110, 101, 97, 114, 110, 105, 110, 103, 95, 119, 97, 108, 108, 101, 116, 161, 100, 107, 105, 110, 100, 130, 103, 65, 100, 100, 114, 101, 115, 115, 120, 42, 48, 120, 53, 52, 54, 57, 48, 48, 100, 98, 56, 100, 54, 101, 48, 57, 51, 55, 52, 57, 55, 49, 51, 51, 100, 49, 97, 101, 54, 102, 100, 102, 53, 102, 52, 98, 55, 53, 98, 99, 100, 48, 105, 114, 97, 116, 101, 95, 112, 97, 99, 107, 164, 113, 114, 111, 117, 116, 105, 110, 103, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 25, 4, 211, 116, 114, 111, 117, 116, 105, 110, 103, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 25, 4, 212, 110, 101, 120, 105, 116, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 25, 4, 213, 113, 101, 120, 105, 116, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 25, 4, 214, 105, 110, 101, 105, 103, 104, 98, 111, 114, 115, 128, 103, 118, 101, 114, 115, 105, 111, 110, 2] },",
-            "\n\tsignature: CryptData { data: [1, 2, 3, 4, 100, 55, 124, 24, 31, 212, 163, 223, 138, 37, 2, 242, 97, 100, 22, 113, 103, 137, 231, 82] },"
+            "\n\tsigned_data: PlainData { data: [166, 108, 100, 97, 116, 97, 95, 118, 101, 114, 115, 105, 111, 110, 131, 0, 0, 0, 106, 112, 117, 98, 108, 105, 99, 95, 107, 101, 121, 68, 1, 2, 3, 4, 110, 101, 97, 114, 110, 105, 110, 103, 95, 119, 97, 108, 108, 101, 116, 161, 100, 107, 105, 110, 100, 130, 103, 65, 100, 100, 114, 101, 115, 115, 120, 42, 48, 120, 53, 52, 54, 57, 48, 48, 100, 98, 56, 100, 54, 101, 48, 57, 51, 55, 52, 57, 55, 49, 51, 51, 100, 49, 97, 101, 54, 102, 100, 102, 53, 102, 52, 98, 55, 53, 98, 99, 100, 48, 105, 114, 97, 116, 101, 95, 112, 97, 99, 107, 164, 113, 114, 111, 117, 116, 105, 110, 103, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 25, 4, 211, 116, 114, 111, 117, 116, 105, 110, 103, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 25, 4, 212, 110, 101, 120, 105, 116, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 25, 4, 213, 113, 101, 120, 105, 116, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 25, 4, 214, 105, 110, 101, 105, 103, 104, 98, 111, 114, 115, 128, 103, 118, 101, 114, 115, 105, 111, 110, 2] },",
+            "\n\tsignature: CryptData { data: [1, 2, 3, 4, 124, 134, 51, 248, 9, 34, 80, 244, 128, 249, 249, 241, 51, 27, 158, 3, 159, 123, 199, 114] },"
         );
 
-        assert_eq!(expected, result);
+        assert_eq!(result, expected);
     }
 
     #[test]
@@ -600,6 +609,7 @@ mod tests {
         let neighbor_gnr = GossipNodeRecord::from((&db, neighbor.public_key(), true));
 
         let gossip = Gossip {
+            version: Gossip::version(),
             node_records: vec![
                 GossipNodeRecord::from((&db, db.root().public_key(), true)),
                 GossipNodeRecord::from((&db, target_node.public_key(), true)),

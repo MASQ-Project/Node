@@ -2108,12 +2108,7 @@ mod tests {
         let system = System::new("");
         subject.hopper_no_lookup = Some(peer_actors.hopper.from_hopper_client_no_lookup);
 
-        subject.handle_gossip(
-            Gossip {
-                node_records: vec![],
-            },
-            IpAddr::from_str("1.1.1.1").unwrap(),
-        );
+        subject.handle_gossip(Gossip::new(vec![]), IpAddr::from_str("1.1.1.1").unwrap());
 
         System::current().stop();
         system.run();
@@ -2156,9 +2151,7 @@ mod tests {
         let gossip_acceptor =
             GossipAcceptorMock::new().handle_result(GossipAcceptanceResult::Accepted);
         subject.gossip_acceptor = Box::new(gossip_acceptor);
-        let gossip = Gossip {
-            node_records: vec![],
-        };
+        let gossip = Gossip::new(vec![]);
         let produce_params_arc = Arc::new(Mutex::new(vec![]));
         let gossip_producer = GossipProducerMock::new()
             .produce_params(&produce_params_arc)
@@ -2172,12 +2165,7 @@ mod tests {
         let system = System::new("");
         subject.hopper = Some(peer_actors.hopper.from_hopper_client);
 
-        subject.handle_gossip(
-            Gossip {
-                node_records: vec![],
-            },
-            IpAddr::from_str("1.1.1.1").unwrap(),
-        );
+        subject.handle_gossip(Gossip::new(vec![]), IpAddr::from_str("1.1.1.1").unwrap());
 
         System::current().stop();
         system.run();
@@ -2259,9 +2247,7 @@ mod tests {
 
         subject.handle_gossip(
             // In real life this would be Relay Gossip from gossip_source to debut_node.
-            Gossip {
-                node_records: vec![],
-            },
+            Gossip::new(vec![]),
             gossip_source,
         );
 
@@ -2302,9 +2288,7 @@ mod tests {
         subject.hopper = Some(peer_actors.hopper.from_hopper_client);
 
         subject.handle_gossip(
-            Gossip {
-                node_records: vec![],
-            },
+            Gossip::new(vec![]),
             subject_node.node_addr_opt().unwrap().ip_addr(),
         );
 
@@ -2330,9 +2314,7 @@ mod tests {
         subject.hopper = Some(peer_actors.hopper.from_hopper_client);
 
         subject.handle_gossip(
-            Gossip {
-                node_records: vec![],
-            },
+            Gossip::new(vec![]),
             subject_node.node_addr_opt().unwrap().ip_addr(),
         );
 

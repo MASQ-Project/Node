@@ -65,6 +65,7 @@ impl ClientRequestPayloadFactory {
             None => (None, origin_port),
         };
         Some(ClientRequestPayload {
+            version: ClientRequestPayload::version(),
             stream_key,
             sequenced_packet: SequencedPacket {
                 data: ibcd.data.clone(),
@@ -111,6 +112,7 @@ mod tests {
         assert_eq!(
             result,
             Some(ClientRequestPayload {
+                version: ClientRequestPayload::version(),
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
                     data: data.into(),
@@ -145,6 +147,7 @@ mod tests {
         assert_eq!(
             result,
             Some(ClientRequestPayload {
+                version: ClientRequestPayload::version(),
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
                     data: data.into(),
@@ -199,6 +202,7 @@ mod tests {
         assert_eq!(
             result,
             Some(ClientRequestPayload {
+                version: ClientRequestPayload::version(),
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
                     data: data.into(),
@@ -246,6 +250,7 @@ mod tests {
         assert_eq!(
             result,
             Some(ClientRequestPayload {
+                version: ClientRequestPayload::version(),
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
                     data: data.into(),

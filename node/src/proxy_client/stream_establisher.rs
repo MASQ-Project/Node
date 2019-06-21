@@ -183,6 +183,7 @@ mod tests {
             subject
                 .spawn_stream_reader(
                     &ClientRequestPayload {
+                        version: ClientRequestPayload::version(),
                         stream_key: make_meaningless_stream_key(),
                         sequenced_packet: SequencedPacket {
                             data: vec![],

@@ -209,10 +209,7 @@ pub fn make_meaningless_stream_key() -> StreamKey {
 }
 
 pub fn make_meaningless_message_type() -> MessageType {
-    DnsResolveFailure {
-        stream_key: make_meaningless_stream_key(),
-    }
-    .into()
+    DnsResolveFailure::new(make_meaningless_stream_key()).into()
 }
 
 pub fn make_meaningless_route() -> Route {
@@ -290,6 +287,7 @@ pub fn make_garbage_data(bytes: usize) -> Vec<u8> {
 
 pub fn make_request_payload(bytes: usize, cryptde: &CryptDE) -> ClientRequestPayload {
     ClientRequestPayload {
+        version: ClientRequestPayload::version(),
         stream_key: StreamKey::new(
             cryptde.public_key().clone(),
             SocketAddr::from_str("1.2.3.4:5678").unwrap(),
@@ -304,6 +302,7 @@ pub fn make_request_payload(bytes: usize, cryptde: &CryptDE) -> ClientRequestPay
 
 pub fn make_response_payload(bytes: usize, cryptde: &CryptDE) -> ClientResponsePayload {
     ClientResponsePayload {
+        version: ClientResponsePayload::version(),
         stream_key: StreamKey::new(
             cryptde.public_key().clone(),
             SocketAddr::from_str("1.2.3.4:5678").unwrap(),

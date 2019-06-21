@@ -495,6 +495,7 @@ impl ProxyServer {
             }
             Some(payload) => match tunnelled_host {
                 Some(hostname) => Ok(ClientRequestPayload {
+                    version: ClientRequestPayload::version(),
                     target_hostname: Some(hostname.clone()),
                     ..payload
                 }),
@@ -947,6 +948,7 @@ mod tests {
         let key = cryptde.public_key();
         let route = zero_hop_route_response(&key, cryptde).route;
         let expected_payload = ClientRequestPayload {
+            version: ClientRequestPayload::version(),
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
                 data: expected_http_request.into(),
@@ -1039,6 +1041,7 @@ mod tests {
         };
 
         let expected_payload = ClientRequestPayload {
+            version: ClientRequestPayload::version(),
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
                 data: b"client hello".to_vec(),
@@ -1138,6 +1141,7 @@ mod tests {
         };
 
         let client_response_payload = ClientResponsePayload {
+            version: ClientResponsePayload::version(),
             stream_key,
             sequenced_packet: SequencedPacket {
                 data: b"some data".to_vec(),
@@ -1329,6 +1333,7 @@ mod tests {
         let key = cryptde.public_key();
         let route = zero_hop_route_response(&key, cryptde).route;
         let expected_payload = ClientRequestPayload {
+            version: ClientRequestPayload::version(),
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
                 data: expected_http_request.into(),
@@ -1436,6 +1441,7 @@ mod tests {
         let expected_http_request = PlainData::new(http_request);
         let key = cryptde.public_key();
         let expected_payload = ClientRequestPayload {
+            version: ClientRequestPayload::version(),
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
                 data: expected_http_request.into(),
@@ -1562,6 +1568,7 @@ mod tests {
             data: expected_data.clone(),
         };
         let expected_payload = ClientRequestPayload {
+            version: ClientRequestPayload::version(),
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
                 data: PlainData::new(http_request).into(),
@@ -1668,6 +1675,7 @@ mod tests {
             .hopper(hopper_mock)
             .build();
         let payload = ClientRequestPayload {
+            version: ClientRequestPayload::version(),
             stream_key,
             sequenced_packet: SequencedPacket::new(expected_data, 0, false),
             target_hostname: Some("nowhere.com".to_string()),
@@ -1960,6 +1968,7 @@ mod tests {
             ]),
         };
         let payload = ClientRequestPayload {
+            version: ClientRequestPayload::version(),
             stream_key: make_meaningless_stream_key(),
             sequenced_packet: SequencedPacket {
                 data: vec![],
@@ -2100,6 +2109,7 @@ mod tests {
         let key = cryptde.public_key();
         let route = zero_hop_route_response(&key, cryptde).route;
         let expected_payload = ClientRequestPayload {
+            version: ClientRequestPayload::version(),
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
                 data: expected_tls_request.into(),
@@ -2169,6 +2179,7 @@ mod tests {
         let key = cryptde.public_key();
         let route = zero_hop_route_response(&key, cryptde).route;
         let expected_payload = ClientRequestPayload {
+            version: ClientRequestPayload::version(),
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
                 data: expected_tls_request.into(),
@@ -2236,6 +2247,7 @@ mod tests {
         let key = cryptde.public_key();
         let route = zero_hop_route_response(&key, cryptde).route;
         let expected_payload = ClientRequestPayload {
+            version: ClientRequestPayload::version(),
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
                 data: expected_tls_request.into(),
@@ -2367,6 +2379,7 @@ mod tests {
         let subject_addr: Addr<ProxyServer> = subject.start();
         let remaining_route = return_route_with_id(cryptde, 1234);
         let client_response_payload = ClientResponsePayload {
+            version: ClientResponsePayload::version(),
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
                 data: b"16 bytes of data".to_vec(),
@@ -2431,6 +2444,7 @@ mod tests {
         );
 
         let client_response_payload = ClientResponsePayload {
+            version: ClientResponsePayload::version(),
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket::new(vec![], 1, true),
         };
@@ -2530,6 +2544,7 @@ mod tests {
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
         let first_client_response_payload = ClientResponsePayload {
+            version: ClientResponsePayload::version(),
             stream_key,
             sequenced_packet: SequencedPacket {
                 data: b"some data".to_vec(),
@@ -2549,6 +2564,7 @@ mod tests {
         let routing_size = first_expired_cores_package.payload_len;
 
         let second_client_response_payload = ClientResponsePayload {
+            version: ClientResponsePayload::version(),
             stream_key,
             sequenced_packet: SequencedPacket {
                 data: b"other data".to_vec(),
@@ -2660,7 +2676,7 @@ mod tests {
 
         let subject_addr: Addr<ProxyServer> = subject.start();
 
-        let dns_resolve_failure = DnsResolveFailure { stream_key };
+        let dns_resolve_failure = DnsResolveFailure::new(stream_key);
 
         let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
             ExpiredCoresPackage::new(
@@ -2752,7 +2768,7 @@ mod tests {
         );
 
         let subject_addr: Addr<ProxyServer> = subject.start();
-        let dns_resolve_failure_payload = DnsResolveFailure { stream_key };
+        let dns_resolve_failure_payload = DnsResolveFailure::new(stream_key);
 
         let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
             ExpiredCoresPackage::new(
@@ -2834,7 +2850,7 @@ mod tests {
 
         let subject_addr: Addr<ProxyServer> = subject.start();
 
-        let dns_resolve_failure = DnsResolveFailure { stream_key };
+        let dns_resolve_failure = DnsResolveFailure::new(stream_key);
 
         let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
             ExpiredCoresPackage::new(
@@ -2901,7 +2917,7 @@ mod tests {
 
         let subject_addr: Addr<ProxyServer> = subject.start();
 
-        let dns_resolve_failure = DnsResolveFailure { stream_key };
+        let dns_resolve_failure = DnsResolveFailure::new(stream_key);
 
         let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
             ExpiredCoresPackage::new(
@@ -2970,7 +2986,7 @@ mod tests {
 
         let subject_addr: Addr<ProxyServer> = subject.start();
 
-        let dns_resolve_failure = DnsResolveFailure { stream_key };
+        let dns_resolve_failure = DnsResolveFailure::new(stream_key);
 
         let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
             ExpiredCoresPackage::new(
@@ -3043,7 +3059,7 @@ mod tests {
                 server_name: None,
             },
         );
-        let dns_resolve_failure = DnsResolveFailure { stream_key };
+        let dns_resolve_failure = DnsResolveFailure::new(stream_key);
 
         let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
             ExpiredCoresPackage::new(
@@ -3085,6 +3101,7 @@ mod tests {
         let subject_addr: Addr<ProxyServer> = subject.start();
 
         let client_response_payload = ClientResponsePayload {
+            version: ClientResponsePayload::version(),
             stream_key,
             sequenced_packet: SequencedPacket {
                 data: b"data".to_vec(),
@@ -3150,6 +3167,7 @@ mod tests {
             .build();
         peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
         let client_response_payload = ClientResponsePayload {
+            version: ClientResponsePayload::version(),
             stream_key,
             sequenced_packet: SequencedPacket {
                 data: b"some data".to_vec(),
@@ -3195,6 +3213,7 @@ mod tests {
             .build();
         peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
         let client_response_payload = ClientResponsePayload {
+            version: ClientResponsePayload::version(),
             stream_key,
             sequenced_packet: SequencedPacket {
                 data: b"some data".to_vec(),
@@ -3261,6 +3280,7 @@ mod tests {
         thread::sleep(Duration::from_millis(300));
 
         let client_response_payload = ClientResponsePayload {
+            version: ClientResponsePayload::version(),
             stream_key,
             sequenced_packet: SequencedPacket {
                 data: b"some data".to_vec(),

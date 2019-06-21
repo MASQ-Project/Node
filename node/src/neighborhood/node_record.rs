@@ -4,6 +4,7 @@ use crate::neighborhood::gossip::GossipNodeRecord;
 use crate::neighborhood::neighborhood::AccessibleGossipRecord;
 use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, NeighborhoodDatabaseError};
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData, PublicKey};
+use crate::sub_lib::data_version::DataVersion;
 use crate::sub_lib::neighborhood::RatePack;
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::utils::regenerate_signed_gossip;
@@ -16,11 +17,18 @@ use std::iter::FromIterator;
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct NodeRecordInner {
+    pub data_version: DataVersion,
     pub public_key: PublicKey,
     pub earning_wallet: Wallet,
     pub rate_pack: RatePack,
     pub neighbors: BTreeSet<PublicKey>,
     pub version: u32,
+}
+
+impl NodeRecordInner {
+    pub fn data_version() -> DataVersion {
+        DataVersion::new(0, 0).expect("Internal Error")
+    }
 }
 
 impl TryFrom<GossipNodeRecord> for NodeRecordInner {
@@ -66,6 +74,7 @@ impl NodeRecord {
         let mut node_record = NodeRecord {
             metadata: NodeRecordMetadata::new(),
             inner: NodeRecordInner {
+                data_version: NodeRecordInner::data_version(),
                 public_key: public_key.clone(),
                 earning_wallet,
                 rate_pack,

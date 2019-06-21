@@ -3,6 +3,7 @@
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{decodex, CryptDE};
+use crate::sub_lib::data_version::DataVersion;
 use crate::sub_lib::hop::LiveHop;
 use crate::sub_lib::hopper::IncipientCoresPackage;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, MessageType, NoLookupIncipientCoresPackage};
@@ -13,13 +14,22 @@ use std::net::IpAddr;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LiveCoresPackage {
+    pub version: DataVersion,
     pub route: Route,
     pub payload: CryptData,
 }
 
 impl LiveCoresPackage {
+    pub fn version() -> DataVersion {
+        DataVersion::new(0, 0).expect("Internal Error")
+    }
+
     pub fn new(route: Route, payload: CryptData) -> LiveCoresPackage {
-        LiveCoresPackage { route, payload }
+        Self {
+            version: Self::version(),
+            route,
+            payload,
+        }
     }
 
     pub fn to_next_live(
@@ -349,10 +359,8 @@ mod tests {
 
     #[test]
     fn live_cores_package_serialization_deserialization() {
-        let original = LiveCoresPackage {
-            route: make_meaningless_route(),
-            payload: CryptData::new(&[1, 2, 3, 4]),
-        };
+        let original =
+            LiveCoresPackage::new(make_meaningless_route(), CryptData::new(&[1, 2, 3, 4]));
 
         let serialized = serde_cbor::ser::to_vec(&original).unwrap();
 

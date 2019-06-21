@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::sub_lib::cryptde::PublicKey;
+use crate::sub_lib::data_version::DataVersion;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, MessageType};
 use crate::sub_lib::neighborhood::{ExpectedService, RouteQueryResponse};
@@ -22,6 +23,7 @@ pub enum ProxyProtocol {
 // expensively-cloned SequencedPacket.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct ClientRequestPayload {
+    pub version: DataVersion,
     pub stream_key: StreamKey,
     pub sequenced_packet: SequencedPacket,
     pub target_hostname: Option<String>,
@@ -33,6 +35,12 @@ pub struct ClientRequestPayload {
 impl Into<MessageType> for ClientRequestPayload {
     fn into(self) -> MessageType {
         MessageType::ClientRequest(self)
+    }
+}
+
+impl ClientRequestPayload {
+    pub fn version() -> DataVersion {
+        DataVersion::new(0, 0).expect("Internal Error")
     }
 }
 

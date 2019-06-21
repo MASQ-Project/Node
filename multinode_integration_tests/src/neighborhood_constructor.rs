@@ -235,6 +235,7 @@ impl From<&SubstratumRealNode> for NodeRecord {
 fn from_substratum_node_to_node_record(substratum_node: &SubstratumNode) -> NodeRecord {
     let mut result = NodeRecord {
         inner: NodeRecordInner {
+            data_version: NodeRecordInner::data_version(),
             public_key: substratum_node.public_key().clone(),
             earning_wallet: substratum_node.earning_wallet(),
             rate_pack: substratum_node.rate_pack(),

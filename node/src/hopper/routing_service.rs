@@ -362,7 +362,7 @@ mod tests {
         let cryptde = cryptde();
         let route = route_to_proxy_server(&cryptde.public_key(), cryptde);
         let stream_key = make_meaningless_stream_key();
-        let dns_resolve_failure = DnsResolveFailure { stream_key };
+        let dns_resolve_failure = DnsResolveFailure::new(stream_key);
         let lcp = LiveCoresPackage::new(
             route,
             encodex(
@@ -990,7 +990,7 @@ mod tests {
         System::current().stop_with_code(0);
         system.run();
         TestLogHandler::new().exists_log_containing(
-            "ERROR: RoutingService: Invalid 55-byte CORES package: EmptyRoute",
+            "ERROR: RoutingService: Invalid 67-byte CORES package: EmptyRoute",
         );
         assert_eq!(proxy_client_recording_arc.lock().unwrap().len(), 0);
         assert_eq!(proxy_server_recording_arc.lock().unwrap().len(), 0);

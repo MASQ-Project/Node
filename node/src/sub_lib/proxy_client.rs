@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::sub_lib::cryptde::CryptDE;
+use crate::sub_lib::data_version::DataVersion;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, MessageType};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_server::ClientRequestPayload;
@@ -26,13 +27,28 @@ pub struct ProxyClientConfig {
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct ClientResponsePayload {
+    pub version: DataVersion,
     pub stream_key: StreamKey,
     pub sequenced_packet: SequencedPacket,
 }
 
 #[derive(Message, Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct DnsResolveFailure {
+    pub version: DataVersion,
     pub stream_key: StreamKey,
+}
+
+impl DnsResolveFailure {
+    pub fn version() -> DataVersion {
+        DataVersion::new(0, 0).expect("Internal Error")
+    }
+
+    pub fn new(stream_key: StreamKey) -> Self {
+        Self {
+            version: Self::version(),
+            stream_key,
+        }
+    }
 }
 
 impl Into<MessageType> for ClientResponsePayload {
@@ -58,6 +74,7 @@ pub struct ProxyClientSubs {
 impl ClientResponsePayload {
     pub fn make_terminating_payload(stream_key: StreamKey) -> ClientResponsePayload {
         ClientResponsePayload {
+            version: Self::version(),
             stream_key,
             sequenced_packet: SequencedPacket {
                 data: vec![],
@@ -65,6 +82,10 @@ impl ClientResponsePayload {
                 last_data: true,
             },
         }
+    }
+
+    pub fn version() -> DataVersion {
+        DataVersion::new(0, 0).expect("Internal Error")
     }
 }
 
@@ -91,6 +112,7 @@ mod tests {
         assert_eq!(
             payload,
             ClientResponsePayload {
+                version: ClientResponsePayload::version(),
                 stream_key,
                 sequenced_packet: SequencedPacket {
                     data: vec!(),

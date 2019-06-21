@@ -104,9 +104,7 @@ impl MultinodeGossip for SingleNode {
     }
 
     fn render(&self) -> Gossip {
-        Gossip {
-            node_records: vec![GossipNodeRecord::from(self.node.clone())],
-        }
+        Gossip::new(vec![GossipNodeRecord::from(self.node.clone())])
     }
 }
 
@@ -196,6 +194,7 @@ impl MultinodeGossip for Introduction {
 
     fn render(&self) -> Gossip {
         Gossip {
+            version: Gossip::version(),
             node_records: vec![
                 GossipNodeRecord::from(self.introducer.clone()),
                 GossipNodeRecord::from(self.introducee.clone()),
@@ -282,13 +281,12 @@ impl MultinodeGossip for Standard {
     }
 
     fn render(&self) -> Gossip {
-        Gossip {
-            node_records: self
-                .nodes
+        Gossip::new(
+            self.nodes
                 .iter()
                 .map(|agr| GossipNodeRecord::from(agr.clone()))
                 .collect(),
-        }
+        )
     }
 }
 
@@ -374,6 +372,7 @@ impl From<&SubstratumNode> for AccessibleGossipRecord {
         let cryptde = substratum_node.signing_cryptde().unwrap_or_else (|| panic! ("You can only make an AccessibleGossipRecord from a SubstratumRealNode if it has a CryptDENull, not a CryptDEReal."));
         let mut agr = AccessibleGossipRecord {
             inner: NodeRecordInner {
+                data_version: NodeRecordInner::data_version(),
                 public_key: substratum_node.public_key().clone(),
                 earning_wallet: substratum_node.earning_wallet(),
                 rate_pack: substratum_node.rate_pack(),
