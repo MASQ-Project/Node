@@ -49,22 +49,17 @@ impl BannedCacheLoader for BannedCacheLoaderReal {
         let mut stmt = conn
             .prepare("select wallet_address from banned")
             .expect("Failed to prepare statement");
-        stmt.query_map(NO_PARAMS, |row| {
-            Ok(Wallet::new(
-                &row.get::<usize, String>(0)
-                    .expect("Failed to extract wallet_address from Row"),
-            ))
-        })
-        .expect("Failed to query banned table")
-        .map(|p| p.expect("query_map magically returned an Err"))
-        .for_each(|wallet| BAN_CACHE.insert(wallet));
+        stmt.query_map(NO_PARAMS, |row| row.get::<usize, Wallet>(0))
+            .expect("Failed to query banned table")
+            .map(|p| p.expect("query_map magically returned an Err"))
+            .for_each(|wallet| BAN_CACHE.insert(wallet));
     }
 }
 
 pub trait BannedDao: Send {
     fn ban_list(&self) -> Vec<Wallet>;
-    fn ban(&self, wallet_address: &Wallet);
-    fn unban(&self, wallet_address: &Wallet);
+    fn ban(&self, wallet: &Wallet);
+    fn unban(&self, wallet: &Wallet);
 }
 
 pub struct BannedDaoReal {
@@ -83,20 +78,14 @@ impl BannedDao for BannedDaoReal {
             .conn
             .prepare("select wallet_address from banned")
             .expect("Failed to prepare a statement");
-        stmt.query_map(NO_PARAMS, |row| {
-            let wallet_address: String = row
-                .get(0)
-                .expect("Database is corrupt: BANNED table columns and/or types");
-            Ok(Wallet::new(&wallet_address))
-        })
-        .expect("Couldn't retrieve delinquency-ban list: database corrupt")
-        .into_iter()
-        .flat_map(|v| v)
-        .collect()
+        stmt.query_map(NO_PARAMS, |row| row.get(0))
+            .expect("Couldn't retrieve delinquency-ban list: database corrupt")
+            .flat_map(|v| v)
+            .collect()
     }
 
-    fn ban(&self, wallet_address: &Wallet) {
-        if BAN_CACHE.is_banned(wallet_address) {
+    fn ban(&self, wallet: &Wallet) {
+        if BAN_CACHE.is_banned(wallet) {
             return;
         }
 
@@ -104,23 +93,23 @@ impl BannedDao for BannedDaoReal {
             .conn
             .prepare("insert into banned (wallet_address) values (?)")
             .expect("Failed to prepare a statement");
-        let params: &[&ToSql] = &[&wallet_address.address];
+        let params: &[&dyn ToSql] = &[&wallet];
         match stmt.execute(params) {
-            Ok(_) => BAN_CACHE.insert(wallet_address.clone()),
+            Ok(_) => BAN_CACHE.insert(wallet.clone()),
             Err(e) => match e {
                 Error::SqliteFailure(e, _) if e.code == ErrorCode::ConstraintViolation => {
-                    BAN_CACHE.insert(wallet_address.clone())
+                    BAN_CACHE.insert(wallet.clone())
                 }
                 _ => panic!(format!(
                     "Could not initiate delinquency ban for {} because of database corruption: {}",
-                    wallet_address, e
+                    wallet, e
                 )),
             },
         }
     }
 
-    fn unban(&self, wallet_address: &Wallet) {
-        if !BAN_CACHE.is_banned(wallet_address) {
+    fn unban(&self, wallet: &Wallet) {
+        if !BAN_CACHE.is_banned(wallet) {
             return;
         }
 
@@ -128,12 +117,12 @@ impl BannedDao for BannedDaoReal {
             .conn
             .prepare("delete from banned where wallet_address = ?")
             .expect("Failed to prepare a statement");
-        let params: &[&ToSql] = &[&wallet_address.address];
+        let params: &[&dyn ToSql] = &[&wallet];
         match stmt.execute(params) {
-            Ok(_) => BAN_CACHE.remove(&wallet_address),
+            Ok(_) => BAN_CACHE.remove(&wallet),
             Err(e) => panic!(format!(
                 "Could not terminate delinquency ban for {} because of database corruption: {}",
-                wallet_address, e
+                wallet, e
             )),
         }
     }
@@ -144,7 +133,7 @@ mod tests {
     use super::*;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::test_utils::test_utils::{
-        ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
+        ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists, make_wallet,
     };
     use rusqlite::NO_PARAMS;
 
@@ -160,13 +149,13 @@ mod tests {
             BannedDaoReal::new(conn)
         };
 
-        subject.ban(&Wallet::new("donalddrumph"));
+        subject.ban(&make_wallet("donalddrumph"));
 
         let conn = db_initializer.initialize(&home_dir).unwrap();
         let mut stmt = conn.prepare("select wallet_address from banned").unwrap();
         let mut banned_addresses = stmt.query(NO_PARAMS).unwrap();
         assert_eq!(
-            "donalddrumph",
+            "0x0000000000000000646f6e616c646472756d7068",
             banned_addresses
                 .next()
                 .unwrap()
@@ -184,11 +173,11 @@ mod tests {
             BannedDaoReal::new(conn)
         };
 
-        subject.ban(&Wallet::new("no_duplicate_wallets"));
-        subject.ban(&Wallet::new("no_duplicate_wallets"));
+        subject.ban(&make_wallet("no_duplicate_wallets"));
+        subject.ban(&make_wallet("no_duplicate_wallets"));
 
         let ban_list = subject.ban_list();
-        assert_eq!(vec![Wallet::new("no_duplicate_wallets")], ban_list);
+        assert_eq!(vec![make_wallet("no_duplicate_wallets")], ban_list);
     }
 
     #[test]
@@ -201,7 +190,7 @@ mod tests {
             BannedDaoReal::new(conn)
         };
 
-        subject.ban(&Wallet::new("forgot_to_init"));
+        subject.ban(&make_wallet("forgot_to_init"));
     }
 
     #[test]
@@ -213,25 +202,21 @@ mod tests {
         let db_initializer = DbInitializerReal::new();
 
         let conn = db_initializer.initialize(&home_dir).unwrap();
-        let wallet_address = &Wallet::new("booga");
+        let wallet = &make_wallet("booga");
         conn.prepare("insert into banned (wallet_address) values (?)")
             .unwrap()
-            .execute(&[&wallet_address.address])
+            .execute(&[&wallet])
             .unwrap();
-        BAN_CACHE
-            .cache
-            .write()
-            .unwrap()
-            .insert(wallet_address.clone());
+        BAN_CACHE.cache.write().unwrap().insert(wallet.clone());
         let subject = BannedDaoReal::new(conn);
 
-        subject.unban(wallet_address);
+        subject.unban(wallet);
 
         let conn = db_initializer.initialize(&home_dir).unwrap();
         let mut stmt = conn
             .prepare("select wallet_address from banned where wallet_address = ?")
             .unwrap();
-        let params: &[&ToSql] = &[&"booga"];
+        let params: &[&dyn ToSql] = &[&"booga"];
         let mut results = stmt.query(params).unwrap();
         assert!(results.next().unwrap().is_none());
     }
@@ -245,7 +230,7 @@ mod tests {
         let conn = db_initializer.initialize(&home_dir).unwrap();
         let subject = BannedDaoReal::new(conn);
 
-        subject.unban(&Wallet::new("hey_im_not_banned"));
+        subject.unban(&make_wallet("hey_im_not_banned"));
 
         // No panic: test passes
     }
@@ -259,20 +244,20 @@ mod tests {
         let db_initializer = DbInitializerReal::new();
 
         let conn = db_initializer.initialize(&home_dir).unwrap();
-        conn.prepare("insert into banned (wallet_address) values ('I_AM_BANNED')")
+        conn.prepare("insert into banned (wallet_address) values ('0x000000000000000000495f414d5f42414e4e4544')")
             .unwrap()
             .execute(NO_PARAMS)
             .unwrap();
         BannedCacheLoaderReal {}.load(conn);
 
-        let result = BAN_CACHE.is_banned(&Wallet::new("I_AM_BANNED"));
+        let result = BAN_CACHE.is_banned(&make_wallet("I_AM_BANNED"));
 
         assert!(result);
     }
 
     #[test]
     fn is_banned_returns_false_for_nonbanned() {
-        let result = BAN_CACHE.is_banned(&Wallet::new("I_AM_BANNED"));
+        let result = BAN_CACHE.is_banned(&make_wallet("I_AM_BANNED"));
 
         assert_eq!(false, result);
     }
@@ -286,7 +271,7 @@ mod tests {
         let conn = db_initializer.initialize(&home_dir).unwrap();
         let subject = BannedDaoReal::new(conn);
 
-        let ban_me_baby = Wallet::new("BAN_ME_BABY");
+        let ban_me_baby = make_wallet("BAN_ME_BABY");
         subject.ban(&ban_me_baby.clone());
 
         assert!(BAN_CACHE.cache.read().unwrap().contains(&ban_me_baby))
@@ -298,7 +283,7 @@ mod tests {
             ensure_node_home_directory_does_not_exist("banned_dao", "unban_removes_from_ban_cache");
         let db_initializer = DbInitializerReal::new();
         let conn = db_initializer.initialize(&home_dir).unwrap();
-        let unban_me_baby = Wallet::new("UNBAN_ME_BABY");
+        let unban_me_baby = make_wallet("UNBAN_ME_BABY");
         conn.prepare("insert into banned (wallet_address) values ('UNBAN_ME_BABY')")
             .unwrap()
             .execute(NO_PARAMS)
@@ -317,7 +302,7 @@ mod tests {
 
     #[test]
     fn insert_adds_a_wallet_to_the_cache() {
-        let now_banned_wallet = Wallet::new("NOW_BANNED_WALLET");
+        let now_banned_wallet = make_wallet("NOW_BANNED_WALLET");
 
         BAN_CACHE.insert(now_banned_wallet.clone());
 
@@ -326,7 +311,7 @@ mod tests {
 
     #[test]
     fn remove_removes_a_wallet_from_the_cache() {
-        let already_banned_wallet = Wallet::new("ALREADY_BANNED_YO");
+        let already_banned_wallet = make_wallet("ALREADY_BANNED_YO");
 
         BAN_CACHE
             .cache

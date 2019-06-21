@@ -295,12 +295,12 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::test_utils::make_meaningless_route;
     use crate::test_utils::test_utils::make_meaningless_stream_key;
     use crate::test_utils::test_utils::rate_pack_exit;
     use crate::test_utils::test_utils::rate_pack_exit_byte;
     use crate::test_utils::test_utils::route_to_proxy_client;
     use crate::test_utils::test_utils::{cryptde, make_meaningless_public_key};
+    use crate::test_utils::test_utils::{make_meaningless_route, make_wallet};
     use actix::System;
     use std::cell::RefCell;
     use std::net::IpAddr;
@@ -506,7 +506,7 @@ mod tests {
         let cryptde = cryptde();
         let package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
-            Some(Wallet::new("consuming")),
+            Some(make_wallet("consuming")),
             route_to_proxy_client(&cryptde.public_key(), cryptde),
             request,
             0,
@@ -651,7 +651,7 @@ mod tests {
         };
         let package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
-            Some(Wallet::new("consuming")),
+            Some(make_wallet("consuming")),
             make_meaningless_route(),
             request.clone().into(),
             0,
@@ -685,7 +685,7 @@ mod tests {
         System::current().stop_with_code(0);
         system.run();
         let parameter = process_package_parameters.lock().unwrap().remove(0);
-        assert_eq!(parameter, (request, Some(Wallet::new("consuming")),));
+        assert_eq!(parameter, (request, Some(make_wallet("consuming")),));
     }
 
     #[test]
@@ -816,7 +816,7 @@ mod tests {
             StreamContext {
                 return_route: make_meaningless_route(),
                 payload_destination_key: PublicKey::new(&b"abcd"[..]),
-                consuming_wallet: Some(Wallet::new("consuming")),
+                consuming_wallet: Some(make_wallet("consuming")),
             },
         );
         let subject_addr: Addr<ProxyClient> = subject.start();
@@ -898,7 +898,7 @@ mod tests {
         assert_eq!(
             accountant_recording.get_record::<ReportExitServiceProvidedMessage>(0),
             &ReportExitServiceProvidedMessage {
-                consuming_wallet: Wallet::new("consuming"),
+                consuming_wallet: make_wallet("consuming"),
                 payload_size: data.len(),
                 service_rate: 100,
                 byte_rate: 200,
@@ -907,7 +907,7 @@ mod tests {
         assert_eq!(
             accountant_recording.get_record::<ReportExitServiceProvidedMessage>(1),
             &ReportExitServiceProvidedMessage {
-                consuming_wallet: Wallet::new("consuming"),
+                consuming_wallet: make_wallet("consuming"),
                 payload_size: data.len(),
                 service_rate: 100,
                 byte_rate: 200,
@@ -985,7 +985,7 @@ mod tests {
             StreamContext {
                 return_route: make_meaningless_route(),
                 payload_destination_key: PublicKey::new(&[]),
-                consuming_wallet: Some(Wallet::new("consuming")),
+                consuming_wallet: Some(make_wallet("consuming")),
             },
         );
         let subject_addr: Addr<ProxyClient> = subject.start();
@@ -1042,7 +1042,7 @@ mod tests {
             StreamContext {
                 return_route: old_return_route,
                 payload_destination_key: originator_public_key.clone(),
-                consuming_wallet: Some(Wallet::new("consuming")),
+                consuming_wallet: Some(make_wallet("consuming")),
             },
         );
         subject.stream_handler_pool_factory = Box::new(pool_factory);
@@ -1068,7 +1068,7 @@ mod tests {
         subject_addr
             .try_send(ExpiredCoresPackage::new(
                 IpAddr::from_str("2.3.4.5").unwrap(),
-                Some(Wallet::new("gnimusnoc")),
+                Some(make_wallet("gnimusnoc")),
                 new_return_route.clone(),
                 payload.clone().into(),
                 0,
@@ -1089,7 +1089,7 @@ mod tests {
         let mut process_package_params = process_package_params_arc.lock().unwrap();
         let (actual_payload, consuming_wallet_opt) = process_package_params.remove(0);
         assert_eq!(actual_payload, payload);
-        assert_eq!(consuming_wallet_opt, Some(Wallet::new("gnimusnoc")));
+        assert_eq!(consuming_wallet_opt, Some(make_wallet("gnimusnoc")));
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let expected_icp = IncipientCoresPackage::new(
             cryptde,
@@ -1114,7 +1114,7 @@ mod tests {
         assert_eq!(
             accountant_recording.get_record::<ReportExitServiceProvidedMessage>(0),
             &ReportExitServiceProvidedMessage {
-                consuming_wallet: Wallet::new("gnimusnoc"),
+                consuming_wallet: make_wallet("gnimusnoc"),
                 payload_size: data.len(),
                 service_rate: 100,
                 byte_rate: 200,

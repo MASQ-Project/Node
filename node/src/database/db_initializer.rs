@@ -98,13 +98,10 @@ impl DbInitializerReal {
     fn create_data_directory_if_necessary(data_directory: &PathBuf) {
         match fs::read_dir(data_directory) {
             Ok(_) => (),
-            Err(_) => fs::create_dir_all(data_directory).expect(
-                format!(
-                    "Cannot create specified data directory at {:?}",
-                    data_directory
-                )
-                .as_str(),
-            ),
+            Err(_) => fs::create_dir_all(data_directory).expect(&format!(
+                "Cannot create specified data directory at {:?}",
+                data_directory
+            )),
         }
     }
 
@@ -534,7 +531,6 @@ mod tests {
     #[test]
     fn choose_clandestine_port_chooses_different_unused_ports_each_time() {
         let _listeners = (0..10)
-            .into_iter()
             .map(|_| {
                 let port = DbInitializerReal::choose_clandestine_port();
                 TcpListener::bind(&SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::from(0), port)))
@@ -603,7 +599,7 @@ mod tests {
         );
         {
             let mut file = File::create(data_dir.join("booga.txt")).unwrap();
-            file.write(b"unmolested").unwrap();
+            file.write_all(b"unmolested").unwrap();
         }
 
         DbInitializerReal::create_data_directory_if_necessary(&data_dir);

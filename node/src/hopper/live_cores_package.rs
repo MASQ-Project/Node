@@ -92,9 +92,8 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
-    use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::test_utils::{
-        cryptde, make_meaningless_message_type, make_meaningless_route,
+        cryptde, make_meaningless_message_type, make_meaningless_route, make_wallet,
     };
     use std::str::FromStr;
 
@@ -102,7 +101,7 @@ mod tests {
     fn live_cores_package_can_be_constructed_from_scratch() {
         let payload = CryptData::new(&[5, 6]);
         let cryptde = cryptde();
-        let consuming_wallet = Wallet::new("wallet");
+        let consuming_wallet = make_wallet("wallet");
         let route = Route::one_way(
             RouteSegment::new(
                 vec![&PublicKey::new(&[1, 2]), &PublicKey::new(&[3, 4])],
@@ -130,7 +129,7 @@ mod tests {
         let encrypted_payload = cryptde
             .encode(&destination_key, &PlainData::new(&serialized_payload))
             .unwrap();
-        let consuming_wallet = Wallet::new("wallet");
+        let consuming_wallet = make_wallet("wallet");
         let route = Route::one_way(
             RouteSegment::new(vec![&relay_key, &destination_key], Component::Neighborhood),
             cryptde,
@@ -145,7 +144,7 @@ mod tests {
             next_hop,
             LiveHop::new(
                 &destination_key,
-                Some(Wallet::new("wallet")),
+                Some(make_wallet("wallet")),
                 Component::Hopper,
             )
         );
@@ -155,7 +154,7 @@ mod tests {
             route.shift(&destination_cryptde).unwrap(),
             LiveHop::new(
                 &PublicKey::new(&[]),
-                Some(Wallet::new("wallet")),
+                Some(make_wallet("wallet")),
                 Component::Neighborhood,
             )
         );
@@ -218,7 +217,7 @@ mod tests {
     #[test]
     fn live_cores_package_can_be_constructed_from_incipient_cores_package() {
         let cryptde = cryptde();
-        let consuming_wallet = Wallet::new("wallet");
+        let consuming_wallet = make_wallet("wallet");
         let key12 = cryptde.public_key();
         let key34 = PublicKey::new(&[3, 4]);
         let key56 = PublicKey::new(&[5, 6]);
@@ -278,7 +277,7 @@ mod tests {
         let second_stop_cryptde = CryptDENull::from(&second_stop_key);
         let cryptde = cryptde();
         let encrypted_payload = encodex(cryptde, &first_stop_key, &payload).unwrap();
-        let consuming_wallet = Wallet::new("wallet");
+        let consuming_wallet = make_wallet("wallet");
         let mut route = Route::round_trip(
             RouteSegment::new(vec![&relay_key, &first_stop_key], Component::Neighborhood),
             RouteSegment::new(
@@ -298,14 +297,14 @@ mod tests {
             .unwrap();
 
         assert_eq!(result.immediate_neighbor_ip, immediate_neighbor_ip);
-        assert_eq!(result.consuming_wallet, Some(Wallet::new("wallet")));
+        assert_eq!(result.consuming_wallet, Some(make_wallet("wallet")));
         assert_eq!(result.payload, payload);
         let mut route = result.remaining_route.clone();
         assert_eq!(
             route.shift(&first_stop_cryptde).unwrap(),
             LiveHop::new(
                 &relay_key,
-                Some(Wallet::new("wallet")),
+                Some(make_wallet("wallet")),
                 Component::Neighborhood,
             )
         );
@@ -313,7 +312,7 @@ mod tests {
             route.shift(&relay_cryptde).unwrap(),
             LiveHop::new(
                 &second_stop_key,
-                Some(Wallet::new("wallet")),
+                Some(make_wallet("wallet")),
                 Component::Hopper,
             )
         );
@@ -321,7 +320,7 @@ mod tests {
             route.shift(&second_stop_cryptde).unwrap(),
             LiveHop::new(
                 &PublicKey::new(&[]),
-                Some(Wallet::new("wallet")),
+                Some(make_wallet("wallet")),
                 Component::ProxyServer,
             )
         );

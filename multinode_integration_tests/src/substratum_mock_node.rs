@@ -25,6 +25,7 @@ use node_lib::sub_lib::utils::indicates_dead_stream;
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils::data_hunk::DataHunk;
 use node_lib::test_utils::data_hunk_framer::DataHunkFramer;
+use node_lib::test_utils::test_utils::make_wallet;
 use pretty_hex::*;
 use serde_cbor;
 use std::cell::RefCell;
@@ -150,8 +151,8 @@ impl SubstratumMockNode {
     ) -> SubstratumMockNode {
         let name = format!("mock_node_{}", index);
         let node_addr = NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8)), &ports);
-        let earning_wallet = Wallet::new(format!("{}_earning", name).as_str());
-        let consuming_wallet = Some(Wallet::new(format!("{}_consuming", name).as_str()));
+        let earning_wallet = make_wallet(format!("{}_earning", name).as_str());
+        let consuming_wallet = Some(make_wallet(format!("{}_consuming", name).as_str()));
         SubstratumNodeUtils::clean_up_existing_container(&name[..]);
         Self::do_docker_run(&node_addr, host_node_parent_dir, &name);
         let wait_addr = SocketAddr::new(node_addr.ip_addr(), CONTROL_STREAM_PORT);

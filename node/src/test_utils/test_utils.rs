@@ -21,6 +21,7 @@ use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
 use lazy_static::lazy_static;
 use regex::Regex;
+use rustc_hex::ToHex;
 use std::cmp::min;
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
@@ -224,7 +225,7 @@ pub fn make_meaningless_route() -> Route {
             Component::ProxyClient,
         ),
         &CryptDENull::new(),
-        Some(Wallet::new("irrelevant")),
+        Some(make_wallet("irrelevant")),
     )
     .unwrap()
 }
@@ -478,6 +479,26 @@ pub fn read_until_timeout(stream: &mut dyn Read) -> Vec<u8> {
 pub fn handle_connection_error(stream: TcpStream) {
     let _ = stream.shutdown(Shutdown::Both).is_ok();
     thread::sleep(Duration::from_millis(5000));
+}
+
+pub fn dummy_address_to_hex(dummy_address: &str) -> String {
+    let s = if dummy_address.len() > 20 {
+        &dummy_address[..20]
+    } else {
+        dummy_address
+    };
+
+    let fragment = String::from(s).as_bytes().to_hex::<String>();
+
+    format!(
+        "0x{}{}",
+        String::from("0".repeat(40 - fragment.len())),
+        fragment
+    )
+}
+
+pub fn make_wallet(address: &str) -> Wallet {
+    Wallet::from_str(&dummy_address_to_hex(address)).unwrap()
 }
 
 #[cfg(test)]

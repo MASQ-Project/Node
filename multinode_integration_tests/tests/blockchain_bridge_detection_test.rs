@@ -4,8 +4,6 @@ use multinode_integration_tests_lib::substratum_node::SubstratumNode;
 use multinode_integration_tests_lib::substratum_node::SubstratumNodeUtils;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
-use node_lib::sub_lib::cryptde::{CryptDE, PlainData};
-use node_lib::sub_lib::cryptde_null::CryptDENull;
 use regex::escape;
 use std::time::Duration;
 
@@ -18,11 +16,10 @@ fn blockchain_bridge_logs_when_started() {
             .consuming_private_key(private_key)
             .build(),
     );
-    let hash = CryptDENull::new().hash(&PlainData::new(private_key.as_bytes()));
 
     let escaped_pattern = escape(&format!(
-        "DEBUG: BlockchainBridge: Received BindMessage; consuming private key that hashes to {:?}",
-        hash
+        "DEBUG: BlockchainBridge: Received BindMessage; consuming wallet address {}",
+        subject.consuming_wallet().unwrap()
     ));
     SubstratumNodeUtils::wrote_log_containing(
         subject.name(),

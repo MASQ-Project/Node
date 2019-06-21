@@ -192,7 +192,7 @@ impl ProxyServer {
         }
     }
 
-    fn handle_dns_resolve_failure(&mut self, msg: &ExpiredCoresPackage<DnsResolveFailure>) -> () {
+    fn handle_dns_resolve_failure(&mut self, msg: &ExpiredCoresPackage<DnsResolveFailure>) {
         let return_route_info = match self.get_return_route_info(&msg.remaining_route) {
             Some(rri) => rri,
             None => return, // TODO: Eventually we'll have to do something better here, but we'll probably need some heuristics.
@@ -259,10 +259,7 @@ impl ProxyServer {
         }
     }
 
-    fn handle_client_response_payload(
-        &mut self,
-        msg: &ExpiredCoresPackage<ClientResponsePayload>,
-    ) -> () {
+    fn handle_client_response_payload(&mut self, msg: &ExpiredCoresPackage<ClientResponsePayload>) {
         let payload_data_len = msg.payload_len;
         let response = &msg.payload;
         self.logger.debug(format!(
@@ -806,7 +803,6 @@ mod tests {
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
-    use crate::test_utils::test_utils::cryptde;
     use crate::test_utils::test_utils::make_meaningless_route;
     use crate::test_utils::test_utils::make_meaningless_stream_key;
     use crate::test_utils::test_utils::rate_pack;
@@ -815,6 +811,7 @@ mod tests {
     use crate::test_utils::test_utils::rate_pack_routing;
     use crate::test_utils::test_utils::rate_pack_routing_byte;
     use crate::test_utils::test_utils::zero_hop_route_response;
+    use crate::test_utils::test_utils::{cryptde, make_wallet};
     use actix::System;
     use std::cell::RefCell;
     use std::net::IpAddr;
@@ -1152,7 +1149,7 @@ mod tests {
         let expired_cores_package: ExpiredCoresPackage<ClientResponsePayload> =
             ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
-                Some(Wallet::new("irrelevant")),
+                Some(make_wallet("irrelevant")),
                 return_route_with_id(cryptde, 1234),
                 client_response_payload.into(),
                 0,
@@ -1375,8 +1372,8 @@ mod tests {
     fn proxy_server_receives_http_request_from_dispatcher_then_sends_multihop_cores_package_to_hopper(
     ) {
         let cryptde = cryptde();
-        let consuming_wallet = Wallet::new("consuming wallet");
-        let earning_wallet = Wallet::new("earning wallet");
+        let consuming_wallet = make_wallet("consuming wallet");
+        let earning_wallet = make_wallet("earning wallet");
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let hopper_mock = Recorder::new();
         let hopper_log_arc = hopper_mock.get_recording();
@@ -1613,9 +1610,9 @@ mod tests {
     #[test]
     fn proxy_server_sends_message_to_accountant_for_request_routing_service_consumed() {
         let cryptde = cryptde();
-        let exit_earning_wallet = Wallet::new("exit earning wallet");
-        let route_1_earning_wallet = Wallet::new("route 1 earning wallet");
-        let route_2_earning_wallet = Wallet::new("route 2 earning wallet");
+        let exit_earning_wallet = make_wallet("exit earning wallet");
+        let route_1_earning_wallet = make_wallet("route 1 earning wallet");
+        let route_2_earning_wallet = make_wallet("route 2 earning wallet");
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let (accountant_mock, _, accountant_recording_arc) = make_recorder();
         let (hopper_mock, _, hopper_recording_arc) = make_recorder();
@@ -1769,7 +1766,7 @@ mod tests {
     #[test]
     fn proxy_server_sends_message_to_accountant_for_request_exit_service_consumed() {
         let cryptde = cryptde();
-        let earning_wallet = Wallet::new("earning wallet");
+        let earning_wallet = make_wallet("earning wallet");
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let (accountant_mock, accountant_awaiter, accountant_log_arc) = make_recorder();
         let (neighborhood_mock, _, _) = make_recorder();
@@ -1947,17 +1944,17 @@ mod tests {
                 ExpectedService::Nothing,
                 ExpectedService::Routing(
                     PublicKey::new(&[1]),
-                    Wallet::new("earning wallet 1"),
+                    make_wallet("earning wallet 1"),
                     rate_pack(101),
                 ),
                 ExpectedService::Routing(
                     PublicKey::new(&[2]),
-                    Wallet::new("earning wallet 2"),
+                    make_wallet("earning wallet 2"),
                     rate_pack(102),
                 ),
                 ExpectedService::Exit(
                     PublicKey::new(&[3]),
-                    Wallet::new("exit earning wallet"),
+                    make_wallet("exit earning wallet"),
                     rate_pack(103),
                 ),
             ]),
@@ -2379,7 +2376,7 @@ mod tests {
         };
         let first_expired_cores_package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
-            Some(Wallet::new("consuming")),
+            Some(make_wallet("consuming")),
             remaining_route,
             client_response_payload,
             0,
@@ -2447,7 +2444,7 @@ mod tests {
         let expired_cores_package: ExpiredCoresPackage<ClientResponsePayload> =
             ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
-                Some(Wallet::new("irrelevant")),
+                Some(make_wallet("irrelevant")),
                 return_route_with_id(cryptde, 1234),
                 client_response_payload.into(),
                 0,
@@ -2473,9 +2470,9 @@ mod tests {
         subject
             .keys_and_addrs
             .insert(stream_key.clone(), socket_addr.clone());
-        let incoming_route_d_wallet = Wallet::new("D Earning");
-        let incoming_route_e_wallet = Wallet::new("E Earning");
-        let incoming_route_f_wallet = Wallet::new("F Earning");
+        let incoming_route_d_wallet = make_wallet("D Earning");
+        let incoming_route_e_wallet = make_wallet("E Earning");
+        let incoming_route_f_wallet = make_wallet("F Earning");
         subject.route_ids_to_return_routes.insert(
             1234,
             AddReturnRouteMessage {
@@ -2502,9 +2499,9 @@ mod tests {
                 server_name: None,
             },
         );
-        let incoming_route_g_wallet = Wallet::new("G Earning");
-        let incoming_route_h_wallet = Wallet::new("H Earning");
-        let incoming_route_i_wallet = Wallet::new("I Earning");
+        let incoming_route_g_wallet = make_wallet("G Earning");
+        let incoming_route_h_wallet = make_wallet("H Earning");
+        let incoming_route_i_wallet = make_wallet("I Earning");
         subject.route_ids_to_return_routes.insert(
             1235,
             AddReturnRouteMessage {
@@ -2544,7 +2541,7 @@ mod tests {
         let first_expired_cores_package: ExpiredCoresPackage<ClientResponsePayload> =
             ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
-                Some(Wallet::new("irrelevant")),
+                Some(make_wallet("irrelevant")),
                 return_route_with_id(cryptde, 1234),
                 first_client_response_payload.into(),
                 0,
@@ -2563,7 +2560,7 @@ mod tests {
         let second_expired_cores_package: ExpiredCoresPackage<ClientResponsePayload> =
             ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.5").unwrap(),
-                Some(Wallet::new("irrelevant")),
+                Some(make_wallet("irrelevant")),
                 return_route_with_id(cryptde, 1235),
                 second_client_response_payload.into(),
                 0,
@@ -2659,7 +2656,7 @@ mod tests {
             .insert(stream_key.clone(), socket_addr.clone());
 
         let exit_public_key = PublicKey::from(&b"exit_key"[..]);
-        let exit_wallet = Wallet::new("exit wallet");
+        let exit_wallet = make_wallet("exit wallet");
 
         let subject_addr: Addr<ProxyServer> = subject.start();
 
@@ -2668,7 +2665,7 @@ mod tests {
         let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
             ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
-                Some(Wallet::new("irrelevant")),
+                Some(make_wallet("irrelevant")),
                 return_route_with_id(cryptde, 1234),
                 dns_resolve_failure.into(),
                 0,
@@ -2724,9 +2721,9 @@ mod tests {
         subject
             .keys_and_addrs
             .insert(stream_key.clone(), socket_addr.clone());
-        let incoming_route_d_wallet = Wallet::new("D Earning");
-        let incoming_route_e_wallet = Wallet::new("E Earning");
-        let incoming_route_f_wallet = Wallet::new("F Earning");
+        let incoming_route_d_wallet = make_wallet("D Earning");
+        let incoming_route_e_wallet = make_wallet("E Earning");
+        let incoming_route_f_wallet = make_wallet("F Earning");
         subject.route_ids_to_return_routes.insert(
             1234,
             AddReturnRouteMessage {
@@ -2760,7 +2757,7 @@ mod tests {
         let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
             ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
-                Some(Wallet::new("irrelevant")),
+                Some(make_wallet("irrelevant")),
                 return_route_with_id(cryptde, 1234),
                 dns_resolve_failure_payload.into(),
                 0,
@@ -2820,7 +2817,7 @@ mod tests {
             .insert(stream_key.clone(), socket_addr.clone());
 
         let exit_public_key = PublicKey::from(&b"exit_key"[..]);
-        let exit_wallet = Wallet::new("exit wallet");
+        let exit_wallet = make_wallet("exit wallet");
         subject.route_ids_to_return_routes.insert(
             1234,
             AddReturnRouteMessage {
@@ -2842,7 +2839,7 @@ mod tests {
         let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
             ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
-                Some(Wallet::new("irrelevant")),
+                Some(make_wallet("irrelevant")),
                 return_route_with_id(cryptde, 1234),
                 dns_resolve_failure.into(),
                 0,
@@ -2887,7 +2884,7 @@ mod tests {
             .insert(stream_key.clone(), socket_addr.clone());
 
         let exit_public_key = PublicKey::from(&b"exit_key"[..]);
-        let exit_wallet = Wallet::new("exit wallet");
+        let exit_wallet = make_wallet("exit wallet");
         subject.route_ids_to_return_routes.insert(
             return_route_id,
             AddReturnRouteMessage {
@@ -2909,7 +2906,7 @@ mod tests {
         let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
             ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
-                Some(Wallet::new("irrelevant")),
+                Some(make_wallet("irrelevant")),
                 return_route_with_id(cryptde, return_route_id),
                 dns_resolve_failure.into(),
                 0,
@@ -2956,7 +2953,7 @@ mod tests {
             .insert(stream_key.clone(), socket_addr.clone());
 
         let exit_public_key = PublicKey::from(&b"exit_key"[..]);
-        let exit_wallet = Wallet::new("exit wallet");
+        let exit_wallet = make_wallet("exit wallet");
         subject.route_ids_to_return_routes.insert(
             return_route_id,
             AddReturnRouteMessage {
@@ -2978,7 +2975,7 @@ mod tests {
         let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
             ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
-                Some(Wallet::new("irrelevant")),
+                Some(make_wallet("irrelevant")),
                 return_route_with_id(cryptde, return_route_id),
                 dns_resolve_failure.into(),
                 0,
@@ -3051,7 +3048,7 @@ mod tests {
         let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
             ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
-                Some(Wallet::new("irrelevant")),
+                Some(make_wallet("irrelevant")),
                 return_route_with_id(cryptde, 1234),
                 dns_resolve_failure.into(),
                 0,
@@ -3097,7 +3094,7 @@ mod tests {
         };
         let expired_cores_package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
-            Some(Wallet::new("consuming")),
+            Some(make_wallet("consuming")),
             remaining_route,
             client_response_payload,
             0,
@@ -3162,7 +3159,7 @@ mod tests {
         };
         let expired_cores_package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
-            Some(Wallet::new("irrelevant")),
+            Some(make_wallet("irrelevant")),
             return_route_with_id(cryptde, 1234),
             client_response_payload,
             0,
@@ -3207,7 +3204,7 @@ mod tests {
         };
         let expired_cores_package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
-            Some(Wallet::new("irrelevant")),
+            Some(make_wallet("irrelevant")),
             Route {
                 hops: vec![make_cover_hop(cryptde), CryptData::new(&[0])],
             },
@@ -3273,7 +3270,7 @@ mod tests {
         };
         let expired_cores_package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
-            Some(Wallet::new("irrelevant")),
+            Some(make_wallet("irrelevant")),
             return_route_with_id(cryptde, 1234),
             client_response_payload,
             0,

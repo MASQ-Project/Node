@@ -211,6 +211,7 @@ pub struct RatePack {
 mod tests {
     use super::*;
     use crate::sub_lib::cryptde_null::CryptDENull;
+    use crate::test_utils::test_utils::make_wallet;
     use std::str::FromStr;
 
     pub fn rate_pack(base_rate: u64) -> RatePack {
@@ -289,8 +290,8 @@ mod tests {
     fn neighborhood_config_is_not_decentralized_if_the_sentinel_ip_address_is_used() {
         let subject = NeighborhoodConfig {
             neighbor_configs: vec!["booga".to_string()],
-            earning_wallet: Wallet::new("router"),
-            consuming_wallet: Some(Wallet::new("consumer")),
+            earning_wallet: make_wallet("router"),
+            consuming_wallet: Some(make_wallet("consumer")),
             rate_pack: rate_pack(100),
             local_ip_addr: sentinel_ip_addr(),
             clandestine_port_list: vec![1234],
@@ -305,8 +306,8 @@ mod tests {
     fn neighborhood_config_is_not_decentralized_if_there_are_no_clandestine_ports() {
         let subject = NeighborhoodConfig {
             neighbor_configs: vec!["booga".to_string()],
-            earning_wallet: Wallet::new("router"),
-            consuming_wallet: Some(Wallet::new("consumer")),
+            earning_wallet: make_wallet("router"),
+            consuming_wallet: Some(make_wallet("consumer")),
             rate_pack: rate_pack(100),
             local_ip_addr: IpAddr::from_str("1.2.3.4").unwrap(),
             clandestine_port_list: vec![],
@@ -321,8 +322,8 @@ mod tests {
     fn neighborhood_config_is_decentralized_if_local_ip_addr_and_clandestine_port() {
         let subject = NeighborhoodConfig {
             neighbor_configs: vec![],
-            earning_wallet: Wallet::new("router"),
-            consuming_wallet: Some(Wallet::new("consumer")),
+            earning_wallet: make_wallet("router"),
+            consuming_wallet: Some(make_wallet("consumer")),
             rate_pack: rate_pack(100),
             local_ip_addr: IpAddr::from_str("1.2.3.4").unwrap(),
             clandestine_port_list: vec![1234],

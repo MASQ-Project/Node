@@ -325,7 +325,7 @@ impl RoutingService {
                     return Err(());
                 }
             };
-        return Ok(live_package);
+        Ok(live_package)
     }
 }
 
@@ -342,14 +342,13 @@ mod tests {
     use crate::sub_lib::proxy_server::ClientRequestPayload;
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
-    use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
-    use crate::test_utils::test_utils::make_meaningless_message_type;
     use crate::test_utils::test_utils::route_to_proxy_server;
     use crate::test_utils::test_utils::{cryptde, make_request_payload};
+    use crate::test_utils::test_utils::{make_meaningless_message_type, make_wallet};
     use crate::test_utils::test_utils::{make_meaningless_stream_key, route_to_proxy_client};
     use crate::test_utils::test_utils::{make_response_payload, rate_pack_routing};
     use crate::test_utils::test_utils::{rate_pack_routing_byte, route_from_proxy_client};
@@ -679,7 +678,7 @@ mod tests {
     #[test]
     fn passes_on_inbound_client_data_not_meant_for_this_node() {
         let cryptde = cryptde();
-        let consuming_wallet = Wallet::new("wallet");
+        let consuming_wallet = make_wallet("wallet");
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let next_key = PublicKey::new(&[65, 65, 65]);
@@ -760,7 +759,7 @@ mod tests {
     #[test]
     fn reprocesses_inbound_client_data_meant_for_this_node_and_destined_for_hopper() {
         let cryptde = cryptde();
-        let consuming_wallet = Wallet::new("wallet");
+        let consuming_wallet = make_wallet("wallet");
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let route = Route::one_way(
             RouteSegment::new(

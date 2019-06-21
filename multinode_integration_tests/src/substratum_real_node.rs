@@ -5,6 +5,7 @@ use crate::substratum_node::NodeReference;
 use crate::substratum_node::PortSelector;
 use crate::substratum_node::SubstratumNode;
 use crate::substratum_node::SubstratumNodeUtils;
+use node_lib::blockchain::bip32::Bip32ECKeyPair;
 use node_lib::sub_lib::accountant;
 use node_lib::sub_lib::accountant::TEMPORARY_CONSUMING_WALLET;
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
@@ -16,6 +17,7 @@ use node_lib::sub_lib::neighborhood::ZERO_RATE_PACK;
 use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::sub_lib::wallet::Wallet;
 use regex::Regex;
+use rustc_hex::FromHex;
 use std::fmt::Display;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -90,8 +92,8 @@ impl NodeStartupConfig {
             args.push("--neighbors".to_string());
             args.push(Self::join_strings(&self.neighbors));
         }
-        args.push("--wallet-address".to_string());
-        args.push(format!("{}", self.earning_wallet.address));
+        args.push("--earning-wallet".to_string());
+        args.push(format!("{}", self.earning_wallet));
         if let Some(clandestine_port) = self.clandestine_port_opt {
             args.push("--clandestine-port".to_string());
             args.push(format!("{}", clandestine_port));
@@ -101,7 +103,7 @@ impl NodeStartupConfig {
         args.push("--data-directory".to_string());
         args.push("/node_root/home".to_string());
         if let Some(ref consuming_private_key) = self.consuming_private_key {
-            args.push("--consuming_private_key".to_string());
+            args.push("--consuming-private-key".to_string());
             args.push(consuming_private_key.clone());
         }
         if let Some(ref public_key) = self.fake_public_key {
@@ -117,6 +119,21 @@ impl NodeStartupConfig {
             .map(|item| format!("{}", item))
             .collect::<Vec<String>>()
             .join(",")
+    }
+
+    fn get_consuming_wallet(&self) -> Option<Wallet> {
+        match &self.consuming_private_key {
+            Some(key) => match key.from_hex::<Vec<u8>>() {
+                Ok(secret_key_bytes) => {
+                    match Bip32ECKeyPair::from_raw_secret(secret_key_bytes.as_slice()) {
+                        Ok(keypair) => Some(Wallet::from(keypair)),
+                        Err(_) => Some(TEMPORARY_CONSUMING_WALLET.clone()),
+                    }
+                }
+                Err(_) => Some(TEMPORARY_CONSUMING_WALLET.clone()),
+            },
+            None => None,
+        }
     }
 }
 
@@ -295,10 +312,6 @@ impl SubstratumNode for SubstratumRealNode {
         self.guts.node_reference.clone()
     }
 
-    fn public_key(&self) -> &PublicKey {
-        &self.guts.node_reference.public_key
-    }
-
     fn cryptde_null(&self) -> Option<&CryptDENull> {
         self.guts.cryptde_null.as_ref()
     }
@@ -308,6 +321,10 @@ impl SubstratumNode for SubstratumRealNode {
             Some(cryptde_null) => Some(cryptde_null),
             None => None,
         }
+    }
+
+    fn public_key(&self) -> &PublicKey {
+        &self.guts.node_reference.public_key
     }
 
     fn ip_address(&self) -> IpAddr {
@@ -387,11 +404,11 @@ impl SubstratumRealNode {
                 });
             }
         }
+        let consuming_wallet = real_startup_config.get_consuming_wallet();
         let node_args = real_startup_config.make_args();
         let cryptde_null = real_startup_config
             .fake_public_key
             .map(|public_key| CryptDENull::from(&public_key));
-
         let node_command = Self::create_node_command(node_args, startup_config);
 
         let mut bash_command_parts = vec!["/bin/bash", "-c"];
@@ -406,7 +423,7 @@ impl SubstratumRealNode {
             container_ip: ip_addr,
             node_reference,
             earning_wallet,
-            consuming_wallet: Some(TEMPORARY_CONSUMING_WALLET.clone()),
+            consuming_wallet,
             rate_pack,
             root_dir,
             cryptde_null,
@@ -576,12 +593,13 @@ impl SubstratumRealNode {
         let regex = Regex::new(r"SubstratumNode local descriptor: ([^:]+:[\d.]+:[\d,]*)").unwrap();
         let mut retries_left = 5;
         loop {
-            thread::sleep(Duration::from_millis(100));
             println!("Checking for {} startup", name);
+            thread::sleep(Duration::from_millis(100));
             let output = Self::exec_command_on_container_and_wait(
                 name,
                 vec!["cat", "/tmp/SubstratumNode.log"],
-            )?;
+            )
+            .expect("Failed to read /tmp/SubstratumNode.log");
             match regex.captures(output.as_str()) {
                 Some(captures) => {
                     let node_reference =
@@ -623,6 +641,7 @@ impl Drop for SubstratumRealNodeGuts {
 mod tests {
     use super::*;
     use node_lib::persistent_configuration::{HTTP_PORT, TLS_PORT};
+    use node_lib::test_utils::test_utils::make_wallet;
 
     #[test]
     fn node_startup_config_builder_zero_hop() {
@@ -719,7 +738,7 @@ mod tests {
             clandestine_port_opt: Some(1234),
             dns_target: IpAddr::from_str("255.255.255.255").unwrap(),
             dns_port: 54,
-            earning_wallet: Wallet::new("booga"),
+            earning_wallet: make_wallet("booga"),
             rate_pack: RatePack {
                 routing_byte_rate: 10,
                 routing_service_rate: 20,
@@ -775,7 +794,7 @@ mod tests {
         assert_eq!(result.clandestine_port_opt, Some(1234));
         assert_eq!(result.dns_target, dns_target);
         assert_eq!(result.dns_port, 35);
-        assert_eq!(result.earning_wallet, Wallet::new("booga"));
+        assert_eq!(result.earning_wallet, make_wallet("booga"));
         assert_eq!(
             result.consuming_private_key,
             Some("ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD".to_string())
@@ -813,13 +832,13 @@ mod tests {
                 "8.8.8.8",
                 "--neighbors",
                 format!("{},{}", one_neighbor, another_neighbor).as_str(),
-                "--wallet-address",
-                accountant::DEFAULT_EARNING_WALLET.address.as_str(),
+                "--earning-wallet",
+                &format!("{}", &accountant::DEFAULT_EARNING_WALLET.clone()),
                 "--log-level",
                 "trace",
                 "--data-directory",
                 "/node_root/home",
-                "--consuming_private_key",
+                "--consuming-private-key",
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
             ))
         );

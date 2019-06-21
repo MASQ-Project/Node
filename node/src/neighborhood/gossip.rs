@@ -550,10 +550,10 @@ mod tests {
         let result = format!("{:?}", gossip);
         let expected = format!(
             "\nGossipNodeRecord {{{}{}{}{}\n}}",
-            "\n\tinner: NodeRecordInner {\n\t\tpublic_key: AQIDBA,\n\t\tnode_addr_opt: Some(1.2.3.4:[1234]),\n\t\tearning_wallet: Wallet { address: \"0x1234\" },\n\t\trate_pack: RatePack { routing_byte_rate: 1235, routing_service_rate: 1236, exit_byte_rate: 1237, exit_service_rate: 1238 },\n\t\tneighbors: [],\n\t\tversion: 2,\n\t},",
+            "\n\tinner: NodeRecordInner {\n\t\tpublic_key: AQIDBA,\n\t\tnode_addr_opt: Some(1.2.3.4:[1234]),\n\t\tearning_wallet: Wallet { kind: Address(0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0) },\n\t\trate_pack: RatePack { routing_byte_rate: 1235, routing_service_rate: 1236, exit_byte_rate: 1237, exit_service_rate: 1238 },\n\t\tneighbors: [],\n\t\tversion: 2,\n\t},",
             "\n\tnode_addr_opt: Some(1.2.3.4:[1234]),",
-            "\n\tsigned_data: PlainData { data: [165, 106, 112, 117, 98, 108, 105, 99, 95, 107, 101, 121, 68, 1, 2, 3, 4, 110, 101, 97, 114, 110, 105, 110, 103, 95, 119, 97, 108, 108, 101, 116, 161, 103, 97, 100, 100, 114, 101, 115, 115, 102, 48, 120, 49, 50, 51, 52, 105, 114, 97, 116, 101, 95, 112, 97, 99, 107, 164, 113, 114, 111, 117, 116, 105, 110, 103, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 25, 4, 211, 116, 114, 111, 117, 116, 105, 110, 103, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 25, 4, 212, 110, 101, 120, 105, 116, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 25, 4, 213, 113, 101, 120, 105, 116, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 25, 4, 214, 105, 110, 101, 105, 103, 104, 98, 111, 114, 115, 128, 103, 118, 101, 114, 115, 105, 111, 110, 2] },",
-            "\n\tsignature: CryptData { data: [1, 2, 3, 4, 221, 118, 156, 174, 211, 238, 116, 131, 74, 226, 85, 191, 47, 206, 212, 217, 156, 75, 51, 224] },"
+            "\n\tsigned_data: PlainData { data: [165, 106, 112, 117, 98, 108, 105, 99, 95, 107, 101, 121, 68, 1, 2, 3, 4, 110, 101, 97, 114, 110, 105, 110, 103, 95, 119, 97, 108, 108, 101, 116, 161, 100, 107, 105, 110, 100, 130, 103, 65, 100, 100, 114, 101, 115, 115, 120, 42, 48, 120, 53, 52, 54, 57, 48, 48, 100, 98, 56, 100, 54, 101, 48, 57, 51, 55, 52, 57, 55, 49, 51, 51, 100, 49, 97, 101, 54, 102, 100, 102, 53, 102, 52, 98, 55, 53, 98, 99, 100, 48, 105, 114, 97, 116, 101, 95, 112, 97, 99, 107, 164, 113, 114, 111, 117, 116, 105, 110, 103, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 25, 4, 211, 116, 114, 111, 117, 116, 105, 110, 103, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 25, 4, 212, 110, 101, 120, 105, 116, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 25, 4, 213, 113, 101, 120, 105, 116, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 25, 4, 214, 105, 110, 101, 105, 103, 104, 98, 111, 114, 115, 128, 103, 118, 101, 114, 115, 105, 111, 110, 2] },",
+            "\n\tsignature: CryptData { data: [1, 2, 3, 4, 100, 55, 124, 24, 31, 212, 163, 223, 138, 37, 2, 242, 97, 100, 22, 113, 103, 137, 231, 82] },"
         );
 
         assert_eq!(expected, result);
@@ -656,7 +656,7 @@ mod tests {
 
         let result = gossip.to_dot_graph(&source_gnr, &dest_gnr);
 
-        assert_eq! (String::from ("digraph db { \"src\" [label=\"Gossip From:\\nAQIDBA\\n1.2.3.4\"]; \"dest\" [label=\"Gossip To:\\nAgMEBQ\\nUnknown\"]; \"src\" -> \"dest\" [arrowhead=empty]; }"), result)
+        assert_eq!(String::from("digraph db { \"src\" [label=\"Gossip From:\\nAQIDBA\\n1.2.3.4\"]; \"dest\" [label=\"Gossip To:\\nAgMEBQ\\nUnknown\"]; \"src\" -> \"dest\" [arrowhead=empty]; }"), result)
     }
 
     #[test]
@@ -669,7 +669,7 @@ mod tests {
 
         let result = gossip.to_dot_graph((&db, source.public_key()), (&db, dest.public_key()));
 
-        assert_eq! (String::from ("digraph db { \"src\" [label=\"Gossip From:\\nAQIDBA\\n1.2.3.4\"]; \"dest\" [label=\"Gossip To:\\nAgMEBQ\\nUnknown\"]; \"src\" -> \"dest\" [arrowhead=empty]; }"), result)
+        assert_eq!(String::from("digraph db { \"src\" [label=\"Gossip From:\\nAQIDBA\\n1.2.3.4\"]; \"dest\" [label=\"Gossip To:\\nAgMEBQ\\nUnknown\"]; \"src\" -> \"dest\" [arrowhead=empty]; }"), result)
     }
 
     #[test]
@@ -683,7 +683,7 @@ mod tests {
             (dest.public_key(), &dest.node_addr_opt()),
         );
 
-        assert_eq! (String::from ("digraph db { \"src\" [label=\"Gossip From:\\nAQIDBA\\n1.2.3.4\"]; \"dest\" [label=\"Gossip To:\\nAgMEBQ\\nUnknown\"]; \"src\" -> \"dest\" [arrowhead=empty]; }"), result)
+        assert_eq!(String::from("digraph db { \"src\" [label=\"Gossip From:\\nAQIDBA\\n1.2.3.4\"]; \"dest\" [label=\"Gossip To:\\nAgMEBQ\\nUnknown\"]; \"src\" -> \"dest\" [arrowhead=empty]; }"), result)
     }
 
     #[test]
@@ -694,7 +694,7 @@ mod tests {
 
         let result = gossip.to_dot_graph(source.public_key(), dest.public_key());
 
-        assert_eq! (String::from ("digraph db { \"src\" [label=\"Gossip From:\\nAQIDBA\\nUnknown\"]; \"dest\" [label=\"Gossip To:\\nAgMEBQ\\nUnknown\"]; \"src\" -> \"dest\" [arrowhead=empty]; }"), result)
+        assert_eq!(String::from("digraph db { \"src\" [label=\"Gossip From:\\nAQIDBA\\nUnknown\"]; \"dest\" [label=\"Gossip To:\\nAgMEBQ\\nUnknown\"]; \"src\" -> \"dest\" [arrowhead=empty]; }"), result)
     }
 
     #[test]
@@ -705,6 +705,6 @@ mod tests {
 
         let result = gossip.to_dot_graph(source, dest);
 
-        assert_eq! (String::from ("digraph db { \"src\" [label=\"Gossip From:\\n\\n1.2.3.4\"]; \"dest\" [label=\"Gossip To:\\n\\n2.3.4.5\"]; \"src\" -> \"dest\" [arrowhead=empty]; }"), result)
+        assert_eq!(String::from("digraph db { \"src\" [label=\"Gossip From:\\n\\n1.2.3.4\"]; \"dest\" [label=\"Gossip To:\\n\\n2.3.4.5\"]; \"src\" -> \"dest\" [arrowhead=empty]; }"), result)
     }
 }

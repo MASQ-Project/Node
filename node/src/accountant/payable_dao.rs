@@ -9,25 +9,25 @@ use std::time::SystemTime;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PayableAccount {
-    pub wallet_address: Wallet,
+    pub wallet: Wallet,
     pub balance: i64,
     pub last_paid_timestamp: SystemTime,
     pub pending_payment_transaction: Option<String>,
 }
 
 pub trait PayableDao: Debug + Send {
-    fn more_money_payable(&self, wallet_address: &Wallet, amount: u64);
+    fn more_money_payable(&self, wallet: &Wallet, amount: u64);
 
-    fn payment_sent(&self, wallet_address: &Wallet, pending_payment_transaction: &str);
+    fn payment_sent(&self, wallet: &Wallet, pending_payment_transaction: &str);
 
     fn payment_confirmed(
         &self,
-        wallet_address: &Wallet,
+        wallet: &Wallet,
         amount: u64,
         confirmation_noticed_timestamp: &SystemTime,
     );
 
-    fn account_status(&self, wallet_address: &Wallet) -> Option<PayableAccount>;
+    fn account_status(&self, wallet: &Wallet) -> Option<PayableAccount>;
 
     fn non_pending_payables(&self) -> Vec<PayableAccount>;
 }
@@ -38,10 +38,10 @@ pub struct PayableDaoReal {
 }
 
 impl PayableDao for PayableDaoReal {
-    fn more_money_payable(&self, wallet_address: &Wallet, amount: u64) {
-        match self.try_update(wallet_address, amount) {
+    fn more_money_payable(&self, wallet: &Wallet, amount: u64) {
+        match self.try_update(wallet, amount) {
             Ok(true) => (),
-            Ok(false) => match self.try_insert(wallet_address, amount) {
+            Ok(false) => match self.try_insert(wallet, amount) {
                 Ok(_) => (),
                 Err(e) => panic!("Database is corrupt: {}", e),
             },
@@ -49,25 +49,25 @@ impl PayableDao for PayableDaoReal {
         };
     }
 
-    fn payment_sent(&self, _wallet_address: &Wallet, _pending_payment_transaction: &str) {
+    fn payment_sent(&self, _wallet: &Wallet, _pending_payment_transaction: &str) {
         unimplemented!()
     }
 
     fn payment_confirmed(
         &self,
-        _wallet_address: &Wallet,
+        _wallet: &Wallet,
         _amount: u64,
         _confirmation_noticed_timestamp: &SystemTime,
     ) {
         unimplemented!()
     }
 
-    fn account_status(&self, wallet_address: &Wallet) -> Option<PayableAccount> {
+    fn account_status(&self, wallet: &Wallet) -> Option<PayableAccount> {
         let mut stmt = self.conn
             .prepare("select balance, last_paid_timestamp, pending_payment_transaction from payable where wallet_address = ?")
             .expect("Internal error");
         match stmt
-            .query_row(&[wallet_address.address.clone()], |row| {
+            .query_row(&[&wallet], |row| {
                 let balance_result = row.get(0);
                 let last_paid_timestamp_result = row.get(1);
                 let pending_payment_transaction_result = row.get(2);
@@ -78,7 +78,7 @@ impl PayableDao for PayableDaoReal {
                 ) {
                     (Ok(balance), Ok(last_paid_timestamp), Ok(pending_payment_transaction)) => {
                         Ok(PayableAccount {
-                            wallet_address: wallet_address.clone(),
+                            wallet: wallet.clone(),
                             balance,
                             last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
                             pending_payment_transaction,
@@ -102,14 +102,10 @@ impl PayableDao for PayableDaoReal {
         stmt.query_map(NO_PARAMS, |row| {
             let balance_result = row.get(0);
             let last_paid_timestamp_result = row.get(1);
-            let wallet_address_result: Result<String, rusqlite::Error> = row.get(2);
-            match (
-                balance_result,
-                last_paid_timestamp_result,
-                wallet_address_result,
-            ) {
-                (Ok(balance), Ok(last_paid_timestamp), Ok(wallet_address)) => Ok(PayableAccount {
-                    wallet_address: Wallet::new(wallet_address.as_str()),
+            let wallet_result: Result<Wallet, rusqlite::Error> = row.get(2);
+            match (balance_result, last_paid_timestamp_result, wallet_result) {
+                (Ok(balance), Ok(last_paid_timestamp), Ok(wallet)) => Ok(PayableAccount {
+                    wallet,
                     balance,
                     last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
                     pending_payment_transaction: None,
@@ -129,12 +125,12 @@ impl PayableDaoReal {
         PayableDaoReal { conn }
     }
 
-    fn try_update(&self, wallet_address: &Wallet, amount: u64) -> Result<bool, String> {
+    fn try_update(&self, wallet: &Wallet, amount: u64) -> Result<bool, String> {
         let mut stmt = self
             .conn
             .prepare("update payable set balance = balance + ? where wallet_address = ?")
             .expect("Internal error");
-        let params: &[&ToSql] = &[&(amount as i64), &wallet_address.address];
+        let params: &[&dyn ToSql] = &[&(amount as i64), &wallet];
         match stmt.execute(params) {
             Ok(0) => Ok(false),
             Ok(_) => Ok(true),
@@ -142,16 +138,12 @@ impl PayableDaoReal {
         }
     }
 
-    fn try_insert(&self, wallet_address: &Wallet, amount: u64) -> Result<(), String> {
+    fn try_insert(&self, wallet: &Wallet, amount: u64) -> Result<(), String> {
         let timestamp = dao_utils::to_time_t(&SystemTime::now());
         let mut stmt = self.conn
             .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_transaction) values (?, ?, ?, null)")
             .expect("Internal error");
-        let params: &[&ToSql] = &[
-            &wallet_address.address,
-            &(amount as i64),
-            &(timestamp as i64),
-        ];
+        let params: &[&dyn ToSql] = &[&wallet, &(amount as i64), &(timestamp as i64)];
         match stmt.execute(params) {
             Ok(_) => Ok(()),
             Err(e) => Err(format!("{}", e)),
@@ -165,7 +157,7 @@ mod tests {
     use crate::database::dao_utils::from_time_t;
     use crate::database::db_initializer;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::test_utils::test_utils::ensure_node_home_directory_exists;
+    use crate::test_utils::test_utils::{ensure_node_home_directory_exists, make_wallet};
     use rusqlite::NO_PARAMS;
     use rusqlite::{Connection, OpenFlags};
 
@@ -176,7 +168,7 @@ mod tests {
             "more_money_payable_works_for_new_address",
         );
         let before = dao_utils::to_time_t(&SystemTime::now());
-        let wallet = Wallet::new("booga");
+        let wallet = make_wallet("booga");
         let status = {
             let subject =
                 PayableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
@@ -186,7 +178,7 @@ mod tests {
         };
 
         let after = dao_utils::to_time_t(&SystemTime::now());
-        assert_eq!(status.wallet_address, wallet);
+        assert_eq!(status.wallet, wallet);
         assert_eq!(status.balance, 1234);
         let timestamp = dao_utils::to_time_t(&status.last_paid_timestamp);
         assert!(
@@ -209,7 +201,7 @@ mod tests {
             "accountant",
             "more_money_payable_works_for_existing_address",
         );
-        let wallet = Wallet::new("booga");
+        let wallet = make_wallet("booga");
         let subject = {
             let subject =
                 PayableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
@@ -220,7 +212,7 @@ mod tests {
                 Connection::open_with_flags(&home_dir.join(db_initializer::DATABASE_FILE), flags)
                     .unwrap();
             conn.execute(
-                "update payable set last_paid_timestamp = 0 where wallet_address = 'booga'",
+                "update payable set last_paid_timestamp = 0 where wallet_address = '0x000000000000000000000000000000626f6f6761'",
                 NO_PARAMS,
             )
             .unwrap();
@@ -232,7 +224,7 @@ mod tests {
             subject.account_status(&wallet).unwrap()
         };
 
-        assert_eq!(status.wallet_address, wallet);
+        assert_eq!(status.wallet, wallet);
         assert_eq!(status.balance, 3579);
         assert_eq!(status.last_paid_timestamp, SystemTime::UNIX_EPOCH);
     }
@@ -243,7 +235,7 @@ mod tests {
             "accountant",
             "payable_account_status_works_when_account_doesnt_exist",
         );
-        let wallet = Wallet::new("booga");
+        let wallet = make_wallet("booga");
         let subject = PayableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
 
         let result = subject.account_status(&wallet);
@@ -278,7 +270,7 @@ mod tests {
             Connection::open_with_flags(&home_dir.join(db_initializer::DATABASE_FILE), flags)
                 .unwrap();
         let insert = |wallet: &str, balance: i64, pending_payment_transaction: Option<&str>| {
-            let params: &[&ToSql] = &[&wallet, &balance, &0i64, &pending_payment_transaction];
+            let params: &[&dyn ToSql] = &[&wallet, &balance, &0i64, &pending_payment_transaction];
 
             conn
                 .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_transaction) values (?, ?, ?, ?)")
@@ -287,10 +279,18 @@ mod tests {
                 .unwrap();
         };
 
-        insert("foo", 42, Some("0x155553215215"));
-        insert("bar", 24, Some("0x689477777623"));
-        insert("foobar", 44, None);
-        insert("barfoo", 22, None);
+        insert(
+            "0x0000000000000000000000000000000000666f6f",
+            42,
+            Some("0x155553215215"),
+        );
+        insert(
+            "0x0000000000000000000000000000000000626172",
+            24,
+            Some("0x689477777623"),
+        );
+        insert("0x0000000000000000000000000000666f6f626172", 44, None);
+        insert("0x0000000000000000000000000000626172666f6f", 22, None);
 
         let result = subject.non_pending_payables();
 
@@ -298,13 +298,13 @@ mod tests {
             result,
             vec![
                 PayableAccount {
-                    wallet_address: Wallet::new("foobar"),
+                    wallet: make_wallet("foobar"),
                     balance: 44,
                     last_paid_timestamp: from_time_t(0),
                     pending_payment_transaction: None
                 },
                 PayableAccount {
-                    wallet_address: Wallet::new("barfoo"),
+                    wallet: make_wallet("barfoo"),
                     balance: 22,
                     last_paid_timestamp: from_time_t(0),
                     pending_payment_transaction: None

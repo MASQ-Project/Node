@@ -137,7 +137,7 @@ mod tests {
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::route::RouteSegment;
-    use crate::test_utils::test_utils::make_meaningless_message_type;
+    use crate::test_utils::test_utils::{make_meaningless_message_type, make_wallet};
     use std::str::FromStr;
 
     #[test]
@@ -184,7 +184,7 @@ mod tests {
     #[test]
     fn incipient_cores_package_is_created_correctly() {
         let cryptde = CryptDENull::new();
-        let consuming_wallet = Wallet::new("wallet");
+        let consuming_wallet = make_wallet("wallet");
         let key12 = cryptde.public_key();
         let key34 = PublicKey::new(&[3, 4]);
         let key56 = PublicKey::new(&[5, 6]);
@@ -235,7 +235,7 @@ mod tests {
         let a_key = PublicKey::new(&[65, 65, 65]);
         let b_key = PublicKey::new(&[66, 66, 66]);
         let cryptde = CryptDENull::new();
-        let consuming_wallet = Wallet::new("wallet");
+        let consuming_wallet = make_wallet("wallet");
         let route = Route::one_way(
             RouteSegment::new(vec![&a_key, &b_key], Component::Neighborhood),
             &cryptde,
@@ -253,7 +253,7 @@ mod tests {
         );
 
         assert_eq!(subject.immediate_neighbor_ip, immediate_neighbor_ip);
-        assert_eq!(subject.consuming_wallet, Some(Wallet::new("wallet")));
+        assert_eq!(subject.consuming_wallet, Some(make_wallet("wallet")));
         assert_eq!(subject.remaining_route, route);
         assert_eq!(subject.payload, payload);
         assert_eq!(subject.payload_len, 42);

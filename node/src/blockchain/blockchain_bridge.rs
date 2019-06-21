@@ -4,9 +4,6 @@ use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainInterfa
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
-use crate::sub_lib::cryptde::CryptDE;
-use crate::sub_lib::cryptde::PlainData;
-use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::wallet::Wallet;
@@ -30,18 +27,17 @@ impl Handler<BindMessage> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, _msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
-        match self.config.consuming_private_key.as_ref() {
-            Some(key) => {
-                // This is hashing the UTF-8 bytes of the string, not the actual bytes encoded as hex
-                let hash = CryptDENull::new().hash(&PlainData::new(key.as_bytes()));
+        match self.config.consuming_wallet.as_ref() {
+            Some(wallet) => {
                 self.logger.debug(format!(
-                    "Received BindMessage; consuming private key that hashes to {:?}",
-                    hash
+                    "Received BindMessage; consuming wallet address {}",
+                    wallet
                 ));
             }
             None => {
-                self.logger
-                    .debug("Received BindMessage; no consuming private key specified".to_string());
+                self.logger.debug(
+                    "Received BindMessage; no consuming wallet address specified".to_string(),
+                );
             }
         }
     }
@@ -105,16 +101,19 @@ impl BlockchainBridge {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::blockchain::blockchain_interface::{
         Balance, BlockchainError, Transaction, Transactions, TESTNET_CONTRACT_ADDRESS,
     };
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::peer_actors_builder;
-    use crate::test_utils::test_utils::cryptde;
+    use crate::test_utils::test_utils::make_wallet;
     use actix::Addr;
     use actix::System;
+    use ethsign::SecretKey;
     use futures::future::Future;
+    use rustc_hex::FromHex;
     use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
 
@@ -125,15 +124,18 @@ mod tests {
     #[test]
     fn blockchain_bridge_receives_bind_message_with_consuming_private_key() {
         init_test_logging();
+        let secret: Vec<u8> = "cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9"
+            .from_hex()
+            .unwrap();
+        let consuming_private_key = SecretKey::from_raw(&secret).unwrap();
 
-        let consuming_private_key =
-            "cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9".to_string();
+        let consuming_wallet = Wallet::from(Bip32ECKeyPair::from(consuming_private_key));
         let subject = BlockchainBridge::new(
             BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 contract_address: TESTNET_CONTRACT_ADDRESS,
-                consuming_private_key: Some(consuming_private_key.clone()),
-                mnemonic_seed: None,
+                consuming_wallet: Some(consuming_wallet.clone()),
+                mnemonic_seed: Some(String::from("cc43146a8987a33d2ef331dd6fde88b0656a1c288e00546ccf12ad333560ba6e5bff098071a3c5a9d24a79f78f40ce07614c2e70ff111e52441f1360fea44127")),
             },
             stub_bi(),
         );
@@ -148,9 +150,10 @@ mod tests {
 
         System::current().stop();
         system.run();
-        let hash = cryptde().hash(&PlainData::new(consuming_private_key.as_bytes()));
-        TestLogHandler::new()
-            .exists_log_containing(&format!("DEBUG: BlockchainBridge: Received BindMessage; consuming private key that hashes to {:?}", hash));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: BlockchainBridge: Received BindMessage; consuming wallet address {}",
+            consuming_wallet
+        ));
     }
 
     #[test]
@@ -161,7 +164,7 @@ mod tests {
             BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 contract_address: TESTNET_CONTRACT_ADDRESS,
-                consuming_private_key: None,
+                consuming_wallet: None,
                 mnemonic_seed: None,
             },
             stub_bi(),
@@ -178,7 +181,7 @@ mod tests {
         System::current().stop();
         system.run();
         TestLogHandler::new().exists_log_containing(
-            "DEBUG: BlockchainBridge: Received BindMessage; no consuming private key specified",
+            "DEBUG: BlockchainBridge: Received BindMessage; no consuming wallet address specified",
         );
     }
 
@@ -190,7 +193,7 @@ mod tests {
             BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 contract_address: TESTNET_CONTRACT_ADDRESS,
-                consuming_private_key: None,
+                consuming_wallet: None,
                 mnemonic_seed: None,
             },
             stub_bi(),
@@ -230,7 +233,7 @@ mod tests {
             self.retrieve_transactions_parameters
                 .lock()
                 .unwrap()
-                .push((start_block.clone(), recipient.clone()));
+                .push((start_block, recipient.clone()));
             self.retrieve_transactions_results.borrow_mut().remove(0)
         }
 
@@ -249,13 +252,11 @@ mod tests {
         let block_no = 37;
         let expected_results = vec![Transaction {
             block_number: 42u64,
-            from: Wallet::new("some_address"),
+            from: make_wallet("some_address"),
             gwei_amount: 21,
         }];
         let result = Ok(expected_results.clone());
-        let wallet = Wallet {
-            address: "smelly".to_string(),
-        };
+        let wallet = make_wallet("smelly");
         let blockchain_interface_mock =
             BlockchainInterfaceMock::default().retrieve_transactions_result(result);
         let retrieve_transactions_parameters = blockchain_interface_mock
@@ -265,7 +266,7 @@ mod tests {
             BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 contract_address: TESTNET_CONTRACT_ADDRESS,
-                consuming_private_key: None,
+                consuming_wallet: None,
                 mnemonic_seed: None,
             },
             Box::new(blockchain_interface_mock),

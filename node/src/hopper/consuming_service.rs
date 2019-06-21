@@ -131,12 +131,11 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
-    use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
-    use crate::test_utils::test_utils::{cryptde, make_meaningless_message_type};
+    use crate::test_utils::test_utils::{cryptde, make_meaningless_message_type, make_wallet};
     use actix::System;
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
@@ -209,7 +208,7 @@ mod tests {
     #[test]
     fn consume_converts_incipient_message_to_live_and_sends_to_dispatcher() {
         let cryptde = cryptde();
-        let consuming_wallet = Wallet::new("wallet");
+        let consuming_wallet = make_wallet("wallet");
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let destination_key = PublicKey::new(&[65, 65, 65]);
         let route = Route::one_way(
@@ -255,7 +254,7 @@ mod tests {
     #[test]
     fn consume_sends_zero_hop_incipient_directly_to_hopper() {
         let cryptde = cryptde();
-        let consuming_wallet = Wallet::new("wallet");
+        let consuming_wallet = make_wallet("wallet");
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let destination_key = cryptde.public_key();
         let route = Route::one_way(

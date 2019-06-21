@@ -16,13 +16,14 @@ base64 = "0.10.0"
 bytes = "0.4.11"
 chrono = "0.4.6"
 clap = "2.33.0"
-dirs = "1.0.5"
+dirs = "2.0.1"
 fdlimit = "0.1.1"
 flexi_logger = "0.10.0"
 futures = "0.1.25"
 http = "0.1.17"
 indoc = "0.3"
 lazy_static = "1.2.0"
+libsecp256k1 = "0.2.2"
 log = "0.4.6"
 pretty-hex = "0.1.0"
 rand = "0.5.5"
@@ -36,11 +37,17 @@ serde_cbor = "0.9.0"
 sha1 = "0.6.0"
 sodiumoxide = "0.2.2"
 tiny-bip39 = "0.6.2"
+tiny-hderive = "0.2.0"
 tokio = "0.1.15"
 tokio-core = "0.1.12"
 toml = "0.5.1"
 trust-dns = "0.16.0"
 trust-dns-resolver = "0.10.3"
+
+[dependencies.ethsign]
+version = "0.6.1"
+default-features = false
+features = ["pure-rust"]
 
 [dependencies.rusqlite]
 version = "0.18.0"
@@ -57,11 +64,12 @@ default-features = false
 features = ["async", "sync"]
 
 [dev-dependencies]
+base58 = "0.1.0"
 native-tls = "0.2.3"
-trust-dns-proto = "0.4.0"
 simple-server = "0.4.0"
 serial_test_derive = "0.2.0"
 serial_test = "0.2.0"
+trust-dns-proto = "0.4.0"
 
 [target.'cfg(unix)'.dependencies]
 daemonize = "0.3.0"

@@ -4,7 +4,7 @@
 pub mod accountant;
 mod actor_system_factory;
 mod banned_dao;
-mod blockchain;
+pub mod blockchain;
 mod bootstrapper;
 mod config_dao;
 mod crash_test_dummy;

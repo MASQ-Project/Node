@@ -1,28 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use std::io::Read;
-use std::net::IpAddr;
-use std::net::SocketAddr;
-use std::path::PathBuf;
-use std::str::FromStr;
-
-use bip39::{Language, Mnemonic, MnemonicType};
-use clap::{
-    crate_authors, crate_description, crate_version, value_t, values_t, App, AppSettings, Arg,
-};
-use dirs::data_dir;
-use log::LevelFilter;
-use regex::Regex;
-use rpassword;
-use rpassword::read_password_with_reader;
-use rustc_hex::ToHex;
-
-use indoc::indoc;
-use lazy_static::lazy_static;
-
-use crate::blockchain::bip39::Bip39;
+use crate::blockchain::bip32::Bip32ECKeyPair;
+use crate::blockchain::bip39::{Bip39, Bip39Error};
 use crate::bootstrapper::{BootstrapperConfig, PortConfiguration};
 use crate::config_dao::ConfigDaoReal;
+use crate::database::db_initializer;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
 use crate::multi_config::{
@@ -32,13 +14,31 @@ use crate::persistent_configuration::{PersistentConfigurationReal, HTTP_PORT, TL
 use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
 use crate::sub_lib::accountant::TEMPORARY_CONSUMING_WALLET;
 use crate::sub_lib::crash_point::CrashPoint;
-use crate::sub_lib::cryptde::{CryptDE, PublicKey};
+use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::neighborhood::sentinel_ip_addr;
 use crate::sub_lib::ui_gateway::DEFAULT_UI_PORT;
 use crate::sub_lib::wallet::Wallet;
 use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
+use bip39::{Language, Mnemonic, MnemonicType};
+use clap::{
+    crate_authors, crate_description, crate_version, value_t, values_t, App, AppSettings, Arg,
+};
+use dirs::data_local_dir;
+use indoc::indoc;
+use lazy_static::lazy_static;
+use log::LevelFilter;
+use regex::Regex;
+use rpassword;
+use rpassword::read_password_with_reader;
+use rustc_hex::{FromHex, ToHex};
+use std::io::Read;
+use std::net::IpAddr;
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::str::FromStr;
+use tiny_hderive::bip44::DerivationPath;
 
 pub const LOWEST_USABLE_INSECURE_PORT: u16 = 1025;
 pub const HIGHEST_USABLE_PORT: u16 = 65535;
@@ -79,8 +79,7 @@ impl NodeConfigurator for NodeConfiguratorReal {
 
 lazy_static! {
     static ref DEFAULT_UI_PORT_VALUE: String = DEFAULT_UI_PORT.to_string();
-    static ref DEFAULT_EARNING_WALLET_VALUE: String =
-        String::from(DEFAULT_EARNING_WALLET.clone().address);
+    static ref DEFAULT_EARNING_WALLET_VALUE: String = format!("{}", DEFAULT_EARNING_WALLET.clone());
     static ref DEFAULT_CRASH_POINT_VALUE: String = format!("{}", CrashPoint::None);
     static ref DEFAULT_IP_VALUE: String = sentinel_ip_addr().to_string();
     static ref DEFAULT_DATA_DIR_VALUE: String =
@@ -118,8 +117,10 @@ const MNEMONIC_PASSPHRASE_HELP: &str =
 const WALLET_PASSWORD: &str =
     "A password or phrase to encrypt your wallet or decrypt a keystore file. Can be changed \
      later and still produce the same addresses.";
-const WALLET_ADDRESS_HELP: &str =
-    "Must begin with 0x followed by 40 hexadecimal digits (case-insensitive)";
+const CONSUMING_WALLET_HELP: &str = "A BIP32 derivation path (e.g. m/44'/60'/0'/0/0)";
+const EARNING_WALLET_HELP: &str =
+    "May either be a BIP32 derivation path (e.g. m/44'/60'/0'/0/0) or an Ethereum address. \
+     Addresses must begin with 0x followed by 40 hexadecimal digits (case-insensitive)";
 const WORD_COUNT_HELP: &str =
     "The number of words in the mnemonic phrase. Ropsten defaults to 12 words. \
      Mainnet defaults to 24 words.";
@@ -197,6 +198,15 @@ impl NodeConfiguratorReal {
                         .validator(Validators::validate_clandestine_port)
                         .help(&CLANDESTINE_PORT_HELP),
                 )
+                .arg(
+                    Arg::with_name("consuming_wallet")
+                        .long("consuming-wallet")
+                        .aliases(&["consuming-wallet", "consuming_wallet"])
+                        .value_name("CONSUMING-WALLET")
+                        .empty_values(false)
+                        .validator(Validators::validate_derivation_path)
+                        .help(&CONSUMING_WALLET_HELP),
+                )
                 .arg(data_directory_arg())
                 .arg(
                     Arg::with_name("dns_servers")
@@ -215,15 +225,8 @@ impl NodeConfiguratorReal {
                         .aliases(&["generate-wallet", "generate_wallet"])
                         .value_name("GENERATE-WALLET")
                         .required(false)
-                        .takes_value(true)
-                        .min_values(0)
-                        .max_values(1)
-                        .conflicts_with_all(&[
-                            "dns_servers",
-                            "neighbors",
-                            "wallet_address",
-                            "mnemonic",
-                        ])
+                        .takes_value(false)
+                        .conflicts_with_all(&["dns_servers", "neighbors", "mnemonic"])
                         .requires_all(&["language", "word-count"])
                         .help(GENERATE_WALLET_HELP),
                 )
@@ -283,7 +286,7 @@ impl NodeConfiguratorReal {
                         .help(MNEMONIC_PASSPHRASE_HELP),
                 )
                 .arg(
-                    Arg::with_name("wallet-password")
+                    Arg::with_name("wallet_password")
                         .long("wallet-password")
                         .aliases(&["wallet-password", "wallet_password"])
                         .value_name("WALLET-PASSWORD")
@@ -312,15 +315,20 @@ impl NodeConfiguratorReal {
                         .help(&UI_PORT_HELP),
                 )
                 .arg(
-                    Arg::with_name("wallet_address")
-                        .long("wallet-address")
-                        .aliases(&["wallet-address", "wallet_address"])
-                        .value_name("WALLET-ADDRESS")
+                    Arg::with_name("earning_wallet")
+                        .long("earning-wallet")
+                        .aliases(&[
+                            "earning-wallet",
+                            "earning_wallet",
+                            "wallet-address",
+                            "wallet_address",
+                        ])
+                        .value_name("EARNING-WALLET")
                         .required(false)
                         .takes_value(true)
                         .default_value(&DEFAULT_EARNING_WALLET_VALUE)
-                        .validator(Validators::validate_ethereum_address)
-                        .help(WALLET_ADDRESS_HELP),
+                        .validator(Validators::validate_earning_wallet)
+                        .help(EARNING_WALLET_HELP),
                 )
                 .arg(
                     Arg::with_name("word-count")
@@ -410,17 +418,23 @@ impl NodeConfiguratorReal {
         (data_directory.join(config_file_path), user_specified)
     }
 
-    fn request_wallet_encryption_password(&self, streams: &mut StdStreams) -> Option<String> {
-        writeln!(
-            streams.stdout,
-            "\n\nPlease provide a password to encrypt your wallet (This password can be changed \
-             later)..."
-        )
-        .expect("Failed console write.");
-        streams.stdout.flush().expect("Failed flush.");
+    fn request_wallet_encryption_password(
+        &self,
+        streams: &mut StdStreams,
+        possible_preamble: Option<&str>,
+        prompt: &str,
+        confirmation_prompt: &str,
+    ) -> Option<String> {
+        match possible_preamble {
+            Some(preamble) => {
+                writeln!(streams.stdout, "{}", preamble).expect("Failed console write.");
+                streams.stdout.flush().expect("Failed flush.");
+            }
+            None => {}
+        }
 
         for attempt in &["Try again", "Try again", "Giving up"] {
-            write!(streams.stdout, "  Enter password: ").expect("Failed console write.");
+            write!(streams.stdout, "{}", prompt).expect("Failed console write.");
             streams.stdout.flush().expect("Failed flush.");
             let (possible_password, possible_confirm) =
                 match read_password_with_reader(Self::possible_reader_from_stream(streams)) {
@@ -431,7 +445,7 @@ impl NodeConfiguratorReal {
                             streams.stdout.flush().expect("Failed flush.");
                             (None, None)
                         } else {
-                            write!(streams.stdout, "\nConfirm password: ")
+                            write!(streams.stdout, "{}", confirmation_prompt)
                                 .expect("Failed console write.");
                             streams.stdout.flush().expect("Failed flush.");
 
@@ -470,6 +484,22 @@ impl NodeConfiguratorReal {
         None
     }
 
+    fn request_wallet_decryption_password(
+        &self,
+        preamble: &str,
+        prompt: &str,
+        streams: &mut StdStreams,
+    ) -> Option<String> {
+        write!(streams.stdout, "{}", preamble).expect("Failed console write.");
+        streams.stdout.flush().expect("Failed flush.");
+        write!(streams.stdout, "{}", prompt).expect("Failed console write.");
+        streams.stdout.flush().expect("Failed flush.");
+        match read_password_with_reader(Self::possible_reader_from_stream(streams)) {
+            Ok(password) => Some(password),
+            Err(e) => panic!("Fatal error: {:?}", e),
+        }
+    }
+
     fn request_mnemonic_passphrase(&self, streams: &mut StdStreams) -> Option<String> {
         writeln!(
             streams.stdout,
@@ -480,7 +510,7 @@ impl NodeConfiguratorReal {
             .expect("Failed console write.");
         streams.stdout.flush().expect("Failed flush.");
 
-        for attempts in &["Try again", "Try again", "Giving up"] {
+        for attempt in &["Try again", "Try again", "Giving up"] {
             write!(streams.stdout, "Mnemonic Passphrase (Recommended): ")
                 .expect("Failed console write.");
             streams.stdout.flush().expect("Failed flush.");
@@ -511,7 +541,7 @@ impl NodeConfiguratorReal {
                                     writeln!(
                                         streams.stdout,
                                         "\nPassphrases do not match. {}.",
-                                        attempts
+                                        attempt
                                     )
                                     .expect("Failed to write retry.");
                                     streams.stdout.flush().expect("Failed flush.");
@@ -581,13 +611,127 @@ impl NodeConfiguratorReal {
         config.ui_gateway_config.ui_port =
             value_m!(multi_config, "ui_port", u16).expect("Internal Error");
 
-        let earning_wallet = Wallet::new(
-            value_m!(multi_config, "wallet_address", String)
-                .expect("Internal Error")
-                .as_str(),
-        );
-        config.neighborhood_config.earning_wallet = earning_wallet.clone();
-        config.accountant_config.earning_wallet = earning_wallet;
+        let (mut possible_wallet_password, prompt_for_password) =
+            value_user_specified_m!(multi_config, "wallet_password", String);
+        let database_exists = config
+            .data_directory
+            .join(db_initializer::DATABASE_FILE)
+            .exists();
+        if config.blockchain_bridge_config.mnemonic_seed.is_none() && database_exists {
+            let bip39 = Self::get_bip39(&config.data_directory);
+            let mut attempts = vec!["Giving up.", "Try again.", "Try again."];
+            while !&attempts.is_empty() {
+                match possible_wallet_password {
+                    Some(ref wallet_password) => {
+                        match bip39.read(wallet_password.clone().into_bytes()) {
+                            Ok(plain_data) => {
+                                config.blockchain_bridge_config.mnemonic_seed =
+                                    Some(plain_data.as_slice().to_hex::<String>());
+                                attempts.clear();
+                            }
+                            Err(Bip39Error::ConversionError(msg)) => {
+                                panic!(
+                                    "Mnemonic seed conversion error. Database is corrupt: {}",
+                                    msg
+                                );
+                            }
+                            Err(Bip39Error::DecryptionFailure(_msg)) => {
+                                if prompt_for_password {
+                                    writeln!(
+                                        streams.stdout,
+                                        "Invalid password. {}",
+                                        &attempts.pop().expect("Internal error")
+                                    )
+                                    .expect("Failed console write");
+                                    streams.stdout.flush().expect("Failed flush");
+                                    if !attempts.is_empty() {
+                                        possible_wallet_password = self
+                                            .request_wallet_decryption_password(
+                                                "",
+                                                "\nEnter password: ",
+                                                streams,
+                                            );
+                                    }
+                                } else {
+                                    attempts.clear();
+                                }
+                            }
+                            Err(Bip39Error::DeserializationFailure(msg)) => panic!(
+                                "Mnemonic seed deserialization error. Database is corrupt: {}",
+                                msg
+                            ),
+                            Err(Bip39Error::NotPresent) => {
+                                writeln!(streams.stdout,
+                                    "Mnemonic seed not found... confirm --data-directory is correct and contains node-data.db, use --mnemonic to recover a wallet, or --generate-wallet to establish one."
+                                ).expect("Failed console write");
+                                streams.stdout.flush().expect("Failed flush");
+                                attempts.clear();
+                            }
+                            Err(e) => {
+                                panic!("Internal error {:?} {}:{}", e, file!(), line!());
+                            }
+                        }
+                    }
+                    None => {
+                        if prompt_for_password {
+                            possible_wallet_password = self.request_wallet_decryption_password(
+                                "\nDecrypt wallet",
+                                "\nEnter password: ",
+                                streams,
+                            );
+                        } else {
+                            attempts.clear();
+                        }
+                    }
+                }
+            }
+        }
+
+        match value_user_specified_m!(multi_config, "earning_wallet", String) {
+            (Some(ref wallet), true) if &wallet[0..2] == "0x" => {
+                dbg!(wallet);
+                if multi_config.arg_matches().is_present("generate-wallet") {
+                    panic!("error: The argument '--earning-wallet <EARNING-WALLET>' cannot be used with '--generate-wallet' as an address. Use an m/44'/60'/0'... path instead.")
+                }
+                let earning_wallet =
+                    Wallet::from_str(wallet).expect("Not a valid earning wallet address");
+                config.neighborhood_config.earning_wallet = earning_wallet.clone();
+                config.accountant_config.earning_wallet = earning_wallet;
+            }
+            (Some(ref derivation_path), true) if &derivation_path[0..2] == "m/" => {
+                match &config.blockchain_bridge_config.mnemonic_seed {
+                    Some(seed) => {
+                        let seed_bytes = seed.from_hex::<Vec<u8>>().expect("Internal Error");
+                        let keypair =
+                            Bip32ECKeyPair::from_raw(seed_bytes.as_slice(), derivation_path)
+                                .expect("Internal Error");
+                        let earning_wallet = Wallet::from(keypair.address());
+                        config.neighborhood_config.earning_wallet = earning_wallet.clone();
+                        config.accountant_config.earning_wallet = earning_wallet;
+                    }
+                    _ => {
+                        if !(multi_config.arg_matches().is_present("generate-wallet")) {
+                            writeln!(
+                            streams.stdout,
+                            "A valid mnemonic seed is required when specifying an earning wallet derivation path {}",
+                            derivation_path
+                        )
+                            .expect("Failed console write");
+                            streams.stdout.flush().expect("Failed flush");
+                            config.neighborhood_config.earning_wallet =
+                                DEFAULT_EARNING_WALLET.clone();
+                            config.accountant_config.earning_wallet =
+                                DEFAULT_EARNING_WALLET.clone();
+                        } else {
+                        }
+                    }
+                }
+            }
+            _ => {
+                config.neighborhood_config.earning_wallet = DEFAULT_EARNING_WALLET.clone();
+                config.accountant_config.earning_wallet = DEFAULT_EARNING_WALLET.clone();
+            }
+        }
 
         config.crash_point =
             value_m!(multi_config, "crash_point", CrashPoint).expect("Internal Error");
@@ -604,11 +748,53 @@ impl NodeConfiguratorReal {
             }
         }
 
-        // TODO: In real life this should come from a command-line parameter
-        config.neighborhood_config.consuming_wallet = Some(TEMPORARY_CONSUMING_WALLET.clone());
+        match value_m!(multi_config, "consuming_wallet", String) {
+            Some(ref derivation_path) => match &config.blockchain_bridge_config.mnemonic_seed {
+                Some(seed) => {
+                    let seed_bytes = seed.from_hex::<Vec<u8>>().expect("Internal Error");
+                    let keypair = Bip32ECKeyPair::from_raw(seed_bytes.as_slice(), derivation_path)
+                        .expect("Internal Error");
+                    config.neighborhood_config.consuming_wallet =
+                        Some(Wallet::from(keypair.address()));
+                    config.blockchain_bridge_config.consuming_wallet = Some(Wallet::from(keypair));
+                }
+                _ => {
+                    if !(multi_config.arg_matches().is_present("generate-wallet")) {
+                        writeln!(
+                            streams.stdout,
+                            "A valid mnemonic seed is required when specifying a consuming wallet derivation path {}",
+                            derivation_path
+                        )
+                            .expect("Failed console write");
+                        streams.stdout.flush().expect("Failed flush");
+                    }
+                }
+            },
+            None => {}
+        }
 
-        config.blockchain_bridge_config.consuming_private_key =
-            value_m!(multi_config, "consuming_private_key", String);
+        if config.blockchain_bridge_config.consuming_wallet.is_none() {
+            match value_m!(multi_config, "consuming_private_key", String) {
+                Some(private_key) => match private_key.from_hex::<Vec<u8>>() {
+                    Ok(raw_secret) => match Bip32ECKeyPair::from_raw_secret(&raw_secret[..]) {
+                        Ok(keypair) => {
+                            let wallet = Wallet::from(keypair);
+                            config.blockchain_bridge_config.consuming_wallet = Some(wallet.clone());
+                            config.neighborhood_config.consuming_wallet =
+                                Some(Wallet::from(wallet.address()));
+                        }
+                        Err(e) => panic!("Cannot create consuming wallet from private key {}", e),
+                    },
+                    Err(e) => panic!("Unable to parse private key {}", e),
+                },
+                None => {
+                    config.neighborhood_config.consuming_wallet =
+                        Some(TEMPORARY_CONSUMING_WALLET.clone());
+                    config.blockchain_bridge_config.consuming_wallet =
+                        Some(TEMPORARY_CONSUMING_WALLET.clone())
+                }
+            };
+        }
 
         let phrase_words: Vec<String> = values_m!(multi_config, "mnemonic", String);
         if !(phrase_words.is_empty()) {
@@ -625,8 +811,63 @@ impl NodeConfiguratorReal {
 
         let matches = multi_config.arg_matches();
         if matches.is_present("generate-wallet") {
-            let _ = self.generate_wallet(config, multi_config, streams);
+            match self.generate_wallet(config, multi_config, streams) {
+                Ok(()) => match &config.blockchain_bridge_config.mnemonic_seed {
+                    Some(seed_hex) => {
+                        let seed_bytes = seed_hex.from_hex::<Vec<u8>>().expect("Internal error");
+                        let primary_derivation_path =
+                            value_m!(multi_config, "consuming_wallet", String)
+                                .unwrap_or(String::from("m/44'/60'/0'/0/0"));
+                        let earning_keypair =
+                            Bip32ECKeyPair::from_raw(&seed_bytes[..], &primary_derivation_path)
+                                .unwrap();
+                        let earning_wallet = Wallet::from(earning_keypair);
+
+                        let secondary_derivation_path =
+                            value_m!(multi_config, "earning_wallet", String)
+                                .filter(|path| &path[..2] == "m/")
+                                .unwrap_or(String::from("m/44'/60'/0'/0/1"));
+                        let consuming_keypair =
+                            Bip32ECKeyPair::from_raw(&seed_bytes[..], &secondary_derivation_path)
+                                .unwrap();
+                        let consuming_wallet = Wallet::from(consuming_keypair);
+                        writeln!(
+                            streams.stdout,
+                            "Consuming Wallet ({}): {}",
+                            primary_derivation_path, consuming_wallet
+                        )
+                        .expect("Console write failed");
+                        streams.stdout.flush().expect("Flush failed");
+
+                        writeln!(
+                            streams.stdout,
+                            "  Earning Wallet ({}): {}",
+                            secondary_derivation_path, earning_wallet
+                        )
+                        .expect("Console write failed");
+                        streams.stdout.flush().expect("Flush failed");
+                    }
+                    None => {
+                        writeln!(
+                            streams.stdout,
+                            "No mnemonic seed defined. Cannot display wallet addresses.",
+                        )
+                        .expect("Console write failed");
+                        streams.stdout.flush().expect("Flush failed");
+                    }
+                },
+                _ => {}
+            }
         }
+    }
+
+    fn get_bip39(data_directory: &PathBuf) -> Bip39 {
+        let conn = DbInitializerReal::new()
+            .initialize(data_directory)
+            .expect("Cannot initialize database");
+        Bip39::new(Box::new(PersistentConfigurationReal::new(Box::new(
+            ConfigDaoReal::new(conn),
+        ))))
     }
 
     fn generate_wallet(
@@ -654,55 +895,36 @@ impl NodeConfiguratorReal {
             match (possible_mnemonic_type, possible_language) {
                 (Some(mnemonic_type), Some(language)) => {
                     let possible_wallet_password =
-                        value_m!(multi_config, "wallet-password", String);
+                        value_m!(multi_config, "wallet_password", String);
                     match if possible_wallet_password.is_none() {
-                        self.request_wallet_encryption_password(streams)
+                        self.request_wallet_encryption_password(streams, Some("\n\nPlease provide a password to encrypt your wallet (This password can be changed \
+                         later)..."), "  Enter password: ", "\nConfirm password: ")
                     } else {
                         possible_wallet_password
                     } {
                         Some(password) => {
-                            let db_initializer = DbInitializerReal::new();
-                            let possible_connection =
-                                db_initializer.initialize(&config.data_directory);
-                            match possible_connection {
-                                Ok(conn) => {
-                                    let public_key = PublicKey::from(CryptDENull::other_key_data(
-                                        password.as_bytes(),
-                                    ));
-                                    let cryptde: &CryptDE = &CryptDENull::from(&public_key);
-                                    let bip39 = Bip39::new(
-                                        Box::new(PersistentConfigurationReal::new(Box::new(
-                                            ConfigDaoReal::new(conn),
-                                        ))),
-                                        cryptde,
-                                    );
-                                    let mnemonic = bip39.mnemonic(mnemonic_type, language);
-                                    writeln!(
-                                        streams.stdout,
-                                        "\n\nRecord the following mnemonic recovery \
-                                         phrase in the sequence provided and keep it secret! \
-                                         You cannot recover your wallet without these words \
-                                         plus your mnemonic passphrase if you provided one.\n",
-                                    )
-                                    .expect("Failed console write.");
-                                    writeln!(streams.stdout, "{}", mnemonic.phrase())
-                                        .expect("Failed console write.");
-                                    writeln!(streams.stdout, "\n\n")
-                                        .expect("Failed console write.");
-                                    let mnemonic_passphrase =
-                                        possible_mnemonic_passphrase.unwrap_or("".to_string());
-                                    let seed = bip39.seed(&mnemonic, &mnemonic_passphrase);
-                                    match bip39.store(&seed) {
-                                        Ok(()) => {
-                                            config.blockchain_bridge_config.mnemonic_seed =
-                                                Some(seed.as_bytes().to_hex())
-                                        }
-                                        Err(e) => panic!("Could not store mnemonic seed: {:?}", e),
-                                    }
+                            let bip39 = Self::get_bip39(&config.data_directory);
+                            let mnemonic = bip39.mnemonic(mnemonic_type, language);
+                            writeln!(
+                                streams.stdout,
+                                "\n\nRecord the following mnemonic recovery \
+                                 phrase in the sequence provided and keep it secret! \
+                                 You cannot recover your wallet without these words \
+                                 plus your mnemonic passphrase if you provided one.\n",
+                            )
+                            .expect("Failed console write.");
+                            writeln!(streams.stdout, "{}", mnemonic.phrase())
+                                .expect("Failed console write.");
+                            writeln!(streams.stdout, "\n\n").expect("Failed console write.");
+                            let mnemonic_passphrase =
+                                possible_mnemonic_passphrase.unwrap_or("".to_string());
+                            let seed = bip39.seed(&mnemonic, &mnemonic_passphrase);
+                            match bip39.store(&seed, password.as_bytes().to_vec()) {
+                                Ok(()) => {
+                                    config.blockchain_bridge_config.mnemonic_seed =
+                                        Some(seed.as_bytes().to_hex())
                                 }
-                                Err(e) => {
-                                    panic!("Could not connect and initialize the database. {:?}", e)
-                                }
+                                Err(e) => panic!("Could not store mnemonic seed: {:?}", e),
                             }
                         }
                         None => panic!("Wallet Encryption Password is required!"),
@@ -727,6 +949,10 @@ impl NodeConfiguratorReal {
 struct Validators {}
 
 impl Validators {
+    fn validate_earning_wallet(value: String) -> Result<(), String> {
+        Self::validate_ethereum_address(value.clone()).or(Self::validate_derivation_path(value))
+    }
+
     fn validate_ethereum_address(address: String) -> Result<(), String> {
         match Regex::new("^0x[0-9a-fA-F]{40}$")
             .expect("Failed to compile regular expression")
@@ -734,6 +960,33 @@ impl Validators {
         {
             true => Ok(()),
             false => Err(address),
+        }
+    }
+
+    fn validate_derivation_path(path: String) -> Result<(), String> {
+        let possible_path = path.parse::<DerivationPath>();
+
+        match possible_path {
+            Ok(derivation_path) => {
+                Self::validate_derivation_path_is_sufficiently_hardened(derivation_path, path)
+            }
+            Err(e) => Err(format!("{} is not valid: {:?}", path, e)),
+        }
+    }
+
+    fn validate_derivation_path_is_sufficiently_hardened(
+        derivation_path: DerivationPath,
+        path: String,
+    ) -> Result<(), String> {
+        if derivation_path
+            .iter()
+            .filter(|child_nbr| child_nbr.is_hardened())
+            .count()
+            > 2
+        {
+            Ok(())
+        } else {
+            Err(format!("{} may be too weak", path))
         }
     }
 
@@ -811,33 +1064,34 @@ trait DirsWrapper {
 
 impl DirsWrapper for RealDirsWrapper {
     fn data_dir(&self) -> Option<PathBuf> {
-        data_dir()
+        data_local_dir()
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::blockchain::bip32::Bip32ECKeyPair;
+    use crate::multi_config::tests::FauxEnvironmentVCL;
+    use crate::multi_config::{NameValueVclArg, VirtualCommandLine};
+    use crate::persistent_configuration::PersistentConfiguration;
+    use crate::sub_lib::cryptde::{CryptDE, PlainData, PublicKey};
+    use crate::sub_lib::neighborhood::sentinel_ip_addr;
+    use crate::sub_lib::wallet::Wallet;
+    use crate::test_utils::environment_guard::EnvironmentGuard;
+    use crate::test_utils::test_utils::ensure_node_home_directory_exists;
+    use crate::test_utils::test_utils::{ByteArrayWriter, FakeStreamHolder};
+    use bip39::Seed;
+    use ethsign::keyfile::Crypto;
+    use ethsign::Protected;
+    use rustc_hex::{FromHex, ToHex};
     use std::fs::File;
     use std::io::Cursor;
     use std::io::Write;
     use std::net::Ipv4Addr;
     use std::net::SocketAddr;
+    use std::num::NonZeroU32;
     use std::str::FromStr;
-
-    use bip39::Seed;
-    use rustc_hex::ToHex;
-
-    use crate::multi_config::VirtualCommandLine;
-    use crate::sub_lib::cryptde::PublicKey;
-    use crate::sub_lib::neighborhood::sentinel_ip_addr;
-    use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::environment_guard::EnvironmentGuard;
-    use crate::test_utils::test_utils::{
-        ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
-    };
-    use crate::test_utils::test_utils::{ByteArrayWriter, FakeStreamHolder};
-
-    use super::*;
 
     struct MockDirsWrapper {}
 
@@ -946,6 +1200,97 @@ mod tests {
     }
 
     #[test]
+    fn validate_derivation_path_happy() {
+        assert_eq!(
+            Ok(()),
+            Validators::validate_derivation_path("m/44'/60'/0'/0/0".to_string())
+        );
+    }
+
+    #[test]
+    fn validate_derivation_path_sad_eth_address() {
+        assert_eq!(
+            Err(
+                "0xbDfeFf9A1f4A1bdF483d680046344316019C58CF is not valid: InvalidDerivationPath"
+                    .to_string()
+            ),
+            Validators::validate_derivation_path(
+                "0xbDfeFf9A1f4A1bdF483d680046344316019C58CF".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn validate_derivation_path_sad_malformed_with_backslashes() {
+        assert_eq!(
+            Err(r"m\44'\60'\0'\0\0 is not valid: InvalidDerivationPath".to_string()),
+            Validators::validate_derivation_path(r"m\44'\60'\0'\0\0".to_string())
+        );
+    }
+
+    #[test]
+    fn validate_derivation_path_sad_malformed_missing_m() {
+        assert_eq!(
+            Err("/44'/60'/0'/0/0 is not valid: InvalidDerivationPath".to_string()),
+            Validators::validate_derivation_path("/44'/60'/0'/0/0".to_string())
+        );
+    }
+
+    #[test]
+    fn validate_derivation_path_sad_insufficiently_hardened() {
+        assert_eq!(
+            Validators::validate_derivation_path("m/44/60/0/0/0".to_string()),
+            Err("m/44/60/0/0/0 may be too weak".to_string()),
+        );
+    }
+
+    #[test]
+    fn validate_derivation_path_is_sufficiently_hardened_happy() {
+        assert!(
+            Validators::validate_derivation_path_is_sufficiently_hardened(
+                "m/44'/60'/0'/0/0".parse::<DerivationPath>().unwrap(),
+                "m/44'/60'/0'/0/0".to_string()
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn validate_derivation_path_is_sufficiently_hardened_sad() {
+        assert_eq!(
+            Err("m/44'/60'/0/0/0 may be too weak".to_string()),
+            Validators::validate_derivation_path_is_sufficiently_hardened(
+                "m/44'/60'/0/0/0".parse::<DerivationPath>().unwrap(),
+                "m/44'/60'/0/0/0".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn validate_derivation_path_is_sufficiently_hardened_very_sad() {
+        assert_eq!(
+            Err("m/44/60/0/0/0 may be too weak".to_string()),
+            Validators::validate_derivation_path_is_sufficiently_hardened(
+                "m/44/60/0/0/0".parse::<DerivationPath>().unwrap(),
+                "m/44/60/0/0/0".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn validate_earning_wallet_works_with_address() {
+        assert!(Validators::validate_earning_wallet(String::from(
+            "0xbDfeFf9A1f4A1bdF483d680046344316019C58CF"
+        ))
+        .is_ok());
+    }
+
+    #[test]
+    fn validate_earning_wallet_works_with_derivation_path() {
+        assert!(Validators::validate_earning_wallet(String::from("m/44'/60'/0'/0/0")).is_ok());
+    }
+
+    #[test]
     fn parse_complains_about_non_numeric_ui_port() {
         let result = Validators::validate_ui_port(String::from("booga"));
 
@@ -1020,6 +1365,7 @@ mod tests {
 
     #[test]
     fn determine_config_file_path_finds_path_in_args() {
+        let _guard = EnvironmentGuard::new();
         let args: Vec<String> = vec![
             "SubstratumNode",
             "--clandestine_port",
@@ -1070,6 +1416,7 @@ mod tests {
     #[cfg(not(windows))]
     #[test]
     fn determine_config_file_path_ignores_data_dir_if_config_file_has_root() {
+        let _guard = EnvironmentGuard::new();
         let args: Vec<String> = vec![
             "SubstratumNode",
             "--data_directory",
@@ -1096,6 +1443,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn determine_config_file_path_ignores_data_dir_if_config_file_has_separator_root() {
+        let _guard = EnvironmentGuard::new();
         let args: Vec<String> = vec![
             "SubstratumNode",
             "--data_directory",
@@ -1122,6 +1470,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn determine_config_file_path_ignores_data_dir_if_config_file_has_drive_root() {
+        let _guard = EnvironmentGuard::new();
         let args: Vec<String> = vec![
             "SubstratumNode",
             "--data_directory",
@@ -1148,6 +1497,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn determine_config_file_path_ignores_data_dir_if_config_file_has_network_root() {
+        let _guard = EnvironmentGuard::new();
         let args: Vec<String> = vec![
             "SubstratumNode",
             "--data_directory",
@@ -1175,6 +1525,7 @@ mod tests {
     #[test]
     fn determine_config_file_path_ignores_data_dir_if_config_file_has_drive_letter_but_no_separator(
     ) {
+        let _guard = EnvironmentGuard::new();
         let args: Vec<String> = vec![
             "SubstratumNode",
             "--data_directory",
@@ -1513,7 +1864,11 @@ mod tests {
             stderr: &mut ByteArrayWriter::new(),
         };
 
-        let actual = subject.request_wallet_encryption_password(streams);
+        let actual = subject.request_wallet_encryption_password(
+            streams,
+            Some("\n\nPlease provide a password to encrypt your wallet (This password can be changed \
+             later)..."), "  Enter password: ", "\nConfirm password: ",
+        );
 
         assert_eq!(actual, None);
         assert_eq!(
@@ -1544,7 +1899,11 @@ mod tests {
             stderr: &mut ByteArrayWriter::new(),
         };
 
-        let actual = subject.request_wallet_encryption_password(streams);
+        let actual = subject.request_wallet_encryption_password(
+            streams,
+            Some("\n\nPlease provide a password to encrypt your wallet (This password can be changed \
+             later)..."), "  Enter password: ", "\nConfirm password: ",
+        );
 
         assert_eq!(actual, Some("Too Many S3cr3ts!".to_string()));
         assert_eq!(
@@ -1569,7 +1928,11 @@ mod tests {
             stderr: &mut ByteArrayWriter::new(),
         };
 
-        let actual = subject.request_wallet_encryption_password(streams);
+        let actual = subject.request_wallet_encryption_password(
+            streams,
+            Some("\n\nPlease provide a password to encrypt your wallet (This password can be changed \
+             later)..."), "  Enter password: ", "\nConfirm password: ",
+        );
 
         assert_eq!(actual, None);
         assert_eq!(
@@ -1595,7 +1958,11 @@ mod tests {
             stderr: &mut ByteArrayWriter::new(),
         };
 
-        let actual = subject.request_wallet_encryption_password(streams);
+        let actual = subject.request_wallet_encryption_password(
+            streams,
+            Some("\n\nPlease provide a password to encrypt your wallet (This password can be changed \
+             later)..."), "  Enter password: ", "\nConfirm password: ",
+        );
 
         assert_eq!(actual, None);
         assert_eq!(
@@ -1610,6 +1977,56 @@ mod tests {
                 \n  Enter password: \
                 \nConfirm password: \
                 \nPasswords do not match. Giving up.\n"
+                .to_string()
+        );
+    }
+
+    #[test]
+    fn request_wallet_decryption_password_happy_path() {
+        let subject = NodeConfiguratorReal::new();
+        let stdout_writer = &mut ByteArrayWriter::new();
+        let streams = &mut StdStreams {
+            stdin: &mut Cursor::new(&b"Too Many S3cr3ts!\n"[..]),
+            stdout: stdout_writer,
+            stderr: &mut ByteArrayWriter::new(),
+        };
+
+        let actual = subject.request_wallet_decryption_password(
+            "\nDecrypt wallet",
+            "\nEnter password: ",
+            streams,
+        );
+
+        assert_eq!(actual, Some("Too Many S3cr3ts!".to_string()));
+        assert_eq!(
+            stdout_writer.get_string(),
+            "\nDecrypt wallet\
+             \nEnter password: "
+                .to_string()
+        );
+    }
+
+    #[test]
+    fn request_wallet_decryption_password_allows_blank_password() {
+        let subject = NodeConfiguratorReal::new();
+        let stdout_writer = &mut ByteArrayWriter::new();
+        let streams = &mut StdStreams {
+            stdin: &mut Cursor::new(&b"\n"[..]),
+            stdout: stdout_writer,
+            stderr: &mut ByteArrayWriter::new(),
+        };
+
+        let actual = subject.request_wallet_decryption_password(
+            "\nDecrypt wallet",
+            "\nEnter password: ",
+            streams,
+        );
+
+        assert_eq!(actual, Some("".to_string()));
+        assert_eq!(
+            stdout_writer.get_string(),
+            "\nDecrypt wallet\
+             \nEnter password: "
                 .to_string()
         );
     }
@@ -1645,8 +2062,120 @@ mod tests {
     }
 
     #[test]
+    fn can_read_wallet_parameters_from_config_file() {
+        let home_dir = ensure_node_home_directory_exists(
+            "node_configurator",
+            "can_read_wallet_parameters_from_config_file",
+        );
+        let password = "You-Sh0uld-Ch4nge-Me-Now!!";
+        let bip39_helper = Bip39::new(Box::new(PersistentConfigurationReal::new(Box::new(
+            ConfigDaoReal::new(
+                DbInitializerReal::new()
+                    .initialize(&home_dir.clone())
+                    .unwrap(),
+            ),
+        ))));
+        let mnemonic_value = bip39_helper.mnemonic(MnemonicType::Words12, Language::English);
+
+        let expected_seed = bip39_helper.seed(&mnemonic_value, "Test123!Test456!");
+
+        assert!(bip39_helper
+            .store(&expected_seed, password.as_bytes().to_vec())
+            .is_ok());
+
+        let actual_seed_plain_data: PlainData =
+            bip39_helper.read(password.as_bytes().to_vec()).unwrap();
+
+        let config_file_path = home_dir.join("config.toml");
+        {
+            let mut config_file = File::create(&config_file_path).unwrap();
+            config_file
+                .write_all(b"dns_servers = \"1.2.3.4\"\nearning-wallet = \"m/44'/60'/0'/0/0\"\nconsuming-wallet = \"m/44'/60'/0'/0/1\"\n")
+                .unwrap();
+        }
+        let subject = NodeConfiguratorReal::new();
+
+        let args: Vec<String> = vec![
+            "SubstratumNode",
+            "--data_directory",
+            home_dir.to_str().unwrap(),
+            "--wallet-password",
+            password,
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+
+        let mut bootstrapper_config = BootstrapperConfig::new();
+        let multi_config = MultiConfig::new(
+            &subject.app,
+            vec![
+                Box::new(CommandLineVCL::new(args.clone())),
+                Box::new(ConfigFileVCL::new(&config_file_path, false)),
+            ],
+        );
+        subject.parse_args(
+            &multi_config,
+            &mut bootstrapper_config,
+            &mut FakeStreamHolder::new().streams(),
+        );
+
+        assert_eq!(
+            vec![SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), 53)],
+            bootstrapper_config.dns_servers
+        );
+
+        let seed_bytes = bootstrapper_config
+            .blockchain_bridge_config
+            .mnemonic_seed
+            .unwrap()
+            .from_hex::<Vec<u8>>()
+            .unwrap();
+        assert_eq!(seed_bytes, actual_seed_plain_data.as_slice().to_vec());
+        let earning_keypair = Bip32ECKeyPair::from_raw(&seed_bytes, "m/44'/60'/0'/0/0").unwrap();
+        assert_eq!(
+            Wallet::from(earning_keypair.address()),
+            bootstrapper_config.neighborhood_config.earning_wallet
+        );
+
+        let consuming_keypair = Bip32ECKeyPair::from_raw(&seed_bytes, "m/44'/60'/0'/0/1").unwrap();
+        assert_eq!(
+            Some(Wallet::from(consuming_keypair.address())),
+            bootstrapper_config.neighborhood_config.consuming_wallet
+        );
+    }
+
+    #[test]
     fn parse_args_creates_configurations() {
-        let _guard = EnvironmentGuard::new();
+        let home_dir = ensure_node_home_directory_exists(
+            "node_configurator",
+            "parse_args_creates_configurations",
+        );
+
+        let bip39_helper = Bip39::new(Box::new(PersistentConfigurationReal::new(Box::new(
+            ConfigDaoReal::new(
+                DbInitializerReal::new()
+                    .initialize(&home_dir.clone())
+                    .unwrap(),
+            ),
+        ))));
+        let mnemonic_value = bip39_helper.mnemonic(MnemonicType::Words12, Language::English);
+
+        let expected_seed = bip39_helper.seed(&mnemonic_value, "Test123!Test456!");
+
+        let password = "secret-wallet-password";
+        assert!(bip39_helper
+            .store(&expected_seed, password.as_bytes().to_vec())
+            .is_ok());
+
+        let actual_seed_plain_data: PlainData =
+            bip39_helper.read(password.as_bytes().to_vec()).unwrap();
+
+        assert_eq!(
+            expected_seed.as_bytes().to_vec(),
+            actual_seed_plain_data.as_slice().to_vec()
+        );
+
         let args: Vec<String> = vec![
             "SubstratumNode",
             "--config-file",
@@ -1661,28 +2190,34 @@ mod tests {
             "1234",
             "--ui-port",
             "5335",
-            "--wallet-address",
+            "--earning-wallet",
             "0xbDfeFf9A1f4A1bdF483d680046344316019C58CF",
             "--data-directory",
-            "~/.booga",
+            home_dir.to_str().unwrap(),
             "--blockchain-service-url",
             "http://127.0.0.1:8545",
             "--log-level",
             "trace",
             "--fake_public_key",
             "AQIDBA",
+            "--wallet-password",
+            password,
         ]
         .into_iter()
         .map(String::from)
         .collect();
-        std::env::set_var(
-            "SUB_CONSUMING_PRIVATE_KEY",
-            "1234567891123456789212345678913234567894123456789512345678961234",
-        );
+
+        let vcl_args: Vec<Box<VclArg>> = vec![Box::new(NameValueVclArg::new(
+            &"--consuming_wallet", // this is equal to SUB_CONSUMING_WALLET
+            &"m/44'/60'/0'/0/0",
+        ))];
+
+        let faux_environment = FauxEnvironmentVCL { vcl_args };
+
         let mut config = BootstrapperConfig::new();
         let subject = NodeConfiguratorReal::new();
-        let vcls: Vec<Box<VirtualCommandLine>> = vec![
-            Box::new(EnvironmentVCL::new(&subject.app)),
+        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
+            Box::new(faux_environment),
             Box::new(CommandLineVCL::new(args)),
         ];
         let multi_config = MultiConfig::new(&subject.app, vcls);
@@ -1716,12 +2251,13 @@ mod tests {
             IpAddr::V4(Ipv4Addr::new(34, 56, 78, 90)),
         );
         assert_eq!(config.ui_gateway_config.ui_port, 5335);
-        let earning_wallet = Wallet::new("0xbDfeFf9A1f4A1bdF483d680046344316019C58CF");
+        let earning_wallet =
+            Wallet::from_str("0xbDfeFf9A1f4A1bdF483d680046344316019C58CF").unwrap();
         assert_eq!(config.neighborhood_config.earning_wallet, earning_wallet);
         assert_eq!(config.accountant_config.earning_wallet, earning_wallet);
         assert_eq!(
+            Wallet::from_str("0xbDfeFf9A1f4A1bdF483d680046344316019C58CF").unwrap(),
             config.neighborhood_config.earning_wallet,
-            Wallet::new("0xbDfeFf9A1f4A1bdF483d680046344316019C58CF"),
         );
         let expected_port_list: Vec<u16> = vec![];
         assert_eq!(
@@ -1732,31 +2268,167 @@ mod tests {
             config.blockchain_bridge_config.blockchain_service_url,
             Some("http://127.0.0.1:8545".to_string()),
         );
-        assert_eq!(PathBuf::from("~/.booga"), config.data_directory,);
+        assert_eq!(config.data_directory, home_dir);
         assert_eq!(Some(1234u16), config.clandestine_port_opt);
-        assert_eq!(
-            config.blockchain_bridge_config.consuming_private_key,
-            Some("1234567891123456789212345678913234567894123456789512345678961234".to_string()),
-        );
+        assert!(&config.blockchain_bridge_config.mnemonic_seed.is_some());
         assert_eq!(
             config.cryptde_null_opt.unwrap().public_key(),
             &PublicKey::new(&[1, 2, 3, 4]),
         );
+        assert_eq!(
+            Some(Wallet::from(
+                Bip32ECKeyPair::from_raw(
+                    &config
+                        .blockchain_bridge_config
+                        .mnemonic_seed
+                        .unwrap()
+                        .from_hex::<Vec<u8>>()
+                        .unwrap(),
+                    "m/44'/60'/0'/0/0"
+                )
+                .unwrap()
+            )),
+            config.blockchain_bridge_config.consuming_wallet
+        );
+    }
+
+    #[test]
+    fn parse_args_complains_when_missing_password() {
+        let home_directory = ensure_node_home_directory_exists(
+            "node_configurator",
+            "parse_args_complains_when_missing_password",
+        );
+
+        let args: Vec<String> = vec![
+            "SubstratumNode",
+            "--config-file",
+            "specified_config.toml",
+            "--dns-servers",
+            "12.34.56.78,23.45.67.89",
+            "--neighbors",
+            "QmlsbA:1.2.3.4:1234;2345,VGVk:2.3.4.5:3456;4567",
+            "--ip",
+            "34.56.78.90",
+            "--clandestine-port",
+            "1234",
+            "--ui-port",
+            "5335",
+            "--earning-wallet",
+            "0xbDfeFf9A1f4A1bdF483d680046344316019C58CF",
+            "--data-directory",
+            home_directory.to_str().unwrap(),
+            "--blockchain-service-url",
+            "http://127.0.0.1:8545",
+            "--log-level",
+            "trace",
+            "--wallet-password",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+
+        let vcl_args: Vec<Box<dyn VclArg>> = vec![Box::new(NameValueVclArg::new(
+            &"--consuming_wallet", // this is equal to SUB_CONSUMING_WALLET
+            &"m/44'/60'/0'/0/0",
+        ))];
+
+        let faux_environment = FauxEnvironmentVCL { vcl_args };
+
+        let mut config = BootstrapperConfig::new();
+        let subject = NodeConfiguratorReal::new();
+        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
+            Box::new(faux_environment),
+            Box::new(CommandLineVCL::new(args)),
+        ];
+        let multi_config = MultiConfig::new(&subject.app, vcls);
+        let stdout_writer = &mut ByteArrayWriter::new();
+        let mut streams = &mut StdStreams {
+            stdin: &mut Cursor::new(&b""[..]),
+            stdout: stdout_writer,
+            stderr: &mut ByteArrayWriter::new(),
+        };
+        subject.parse_args(&multi_config, &mut config, &mut streams);
+
+        let captured_output = stdout_writer.get_string();
+        let expected_output = "A valid mnemonic seed is required when specifying a consuming wallet derivation path m/44\'/60\'/0\'/0/0\n";
+
+        assert_eq!(captured_output, expected_output);
+    }
+
+    #[test]
+    fn parse_args_complains_when_missing_mnemonic_seed() {
+        let home_directory = ensure_node_home_directory_exists(
+            "node_configurator",
+            "parse_args_complains_when_missing_mnemonic_seed",
+        );
+
+        let args: Vec<String> = vec![
+            "SubstratumNode",
+            "--config-file",
+            "specified_config.toml",
+            "--dns-servers",
+            "12.34.56.78,23.45.67.89",
+            "--neighbors",
+            "QmlsbA:1.2.3.4:1234;2345,VGVk:2.3.4.5:3456;4567",
+            "--ip",
+            "34.56.78.90",
+            "--clandestine-port",
+            "1234",
+            "--ui-port",
+            "5335",
+            "--earning-wallet",
+            "0xbDfeFf9A1f4A1bdF483d680046344316019C58CF",
+            "--data-directory",
+            home_directory.to_str().unwrap(),
+            "--blockchain-service-url",
+            "http://127.0.0.1:8545",
+            "--log-level",
+            "trace",
+            "--wallet-password",
+            "secret-wallet-password",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+
+        let vcl_args: Vec<Box<dyn VclArg>> = vec![Box::new(NameValueVclArg::new(
+            &"--consuming_wallet", // this is equal to SUB_CONSUMING_WALLET
+            &"m/44'/60'/0'/0/0",
+        ))];
+
+        let faux_environment = FauxEnvironmentVCL { vcl_args };
+
+        let mut config = BootstrapperConfig::new();
+        let subject = NodeConfiguratorReal::new();
+        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
+            Box::new(faux_environment),
+            Box::new(CommandLineVCL::new(args)),
+        ];
+        let multi_config = MultiConfig::new(&subject.app, vcls);
+        let stdout_writer = &mut ByteArrayWriter::new();
+        let mut streams = &mut StdStreams {
+            stdin: &mut Cursor::new(&b""[..]),
+            stdout: stdout_writer,
+            stderr: &mut ByteArrayWriter::new(),
+        };
+        subject.parse_args(&multi_config, &mut config, &mut streams);
+
+        let captured_output = stdout_writer.get_string();
+        let expected_output = "A valid mnemonic seed is required when specifying a consuming wallet derivation path m/44\'/60\'/0\'/0/0\n";
+
+        assert_eq!(captured_output, expected_output);
     }
 
     #[test]
     fn parse_args_creates_configuration_with_defaults() {
-        let _guard = EnvironmentGuard::new();
         let args: Vec<String> = vec!["SubstratumNode", "--dns-servers", "12.34.56.78,23.45.67.89"]
             .into_iter()
             .map(String::from)
             .collect();
+
         let mut config = BootstrapperConfig::new();
         let subject = NodeConfiguratorReal::new();
-        let vcls: Vec<Box<VirtualCommandLine>> = vec![
-            Box::new(CommandLineVCL::new(args)),
-            Box::new(EnvironmentVCL::new(&subject.app)),
-        ];
+        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVCL::new(args))];
         let multi_config = MultiConfig::new(&subject.app, vcls);
 
         subject.parse_args(
@@ -1780,25 +2452,27 @@ mod tests {
         assert_eq!(CrashPoint::None, config.crash_point);
         assert!(config.data_directory.is_dir());
         assert_eq!(
-            Wallet::new("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+            Wallet::from_str("0x47fB8671Db83008d382C2e6EA67fA377378c0CeA").unwrap(),
             config.neighborhood_config.earning_wallet,
         );
         assert_eq!(sentinel_ip_addr(), config.neighborhood_config.local_ip_addr,);
         assert_eq!(5333, config.ui_gateway_config.ui_port);
-        assert_eq!(None, config.blockchain_bridge_config.consuming_private_key);
+        assert_eq!(
+            Some(TEMPORARY_CONSUMING_WALLET.clone()),
+            config.blockchain_bridge_config.consuming_wallet
+        );
         assert!(config.cryptde_null_opt.is_none());
     }
 
     #[test]
     #[should_panic(
-        expected = "error: The argument '--wallet-address <WALLET-ADDRESS>' cannot be used with '--generate-wallet <GENERATE-WALLET>'"
+        expected = "error: The argument '--earning-wallet <EARNING-WALLET>' cannot be used with '--generate-wallet' as an address. Use an m/44'/60'/0'... path instead."
     )]
     fn parse_args_enforces_conflicting_wallet_options() {
         let args: Vec<String> = vec![
             "SubstratumNode",
             "--generate-wallet",
-            "ignored",
-            "--wallet-address",
+            "--earning-wallet",
             "0x0123456789abcdefcafebabefeedfacedeadbeef",
         ]
         .into_iter()
@@ -1818,13 +2492,12 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "error: The argument '--mnemonic <MNEMONIC-WORDS>' cannot be used with '--generate-wallet <GENERATE-WALLET>'"
+        expected = "error: The argument '--mnemonic <MNEMONIC-WORDS>' cannot be used with '--generate-wallet'"
     )]
     fn parse_args_enforces_conflicting_wallet_options_with_conflict_panic() {
         let args: Vec<String> = vec![
             "SubstratumNode",
             "--generate-wallet",
-            "ignored",
             "--mnemonic",
             "\"one two three toy frame can photo viola string crop circle zoo\"",
         ]
@@ -1845,11 +2518,7 @@ mod tests {
 
     #[test]
     fn parse_args_allows_generate_wallet_and_passphrase_happy_path() {
-        ensure_node_home_directory_does_not_exist(
-            "node_configurator",
-            "parse_args_allows_generate_wallet_and_passphrase_happy_path",
-        );
-        let node_home_directory = ensure_node_home_directory_exists(
+        let data_directory = ensure_node_home_directory_exists(
             "node_configurator",
             "parse_args_allows_generate_wallet_and_passphrase_happy_path",
         );
@@ -1857,9 +2526,8 @@ mod tests {
         let args: Vec<String> = vec![
             "SubstratumNode",
             "--data-directory",
-            node_home_directory.to_str().unwrap(),
+            data_directory.to_str().unwrap(),
             "--generate-wallet",
-            "yes",
             "--language",
             "english",
             "--word-count",
@@ -1895,28 +2563,36 @@ mod tests {
         words plus your mnemonic passphrase if you provided one.\n\n";
 
         assert_eq!(&captured_output[..expected_output.len()], expected_output);
-        assert!(dbg!(config
-            .blockchain_bridge_config
-            .mnemonic_seed
-            .is_some()));
+        assert!(config.blockchain_bridge_config.mnemonic_seed.is_some());
 
-        let mnemonic = captured_output[expected_output.len()..].trim();
+        let lines: Vec<&str> = captured_output[expected_output.len()..]
+            .split("\n")
+            .collect::<Vec<&str>>();
+        let mnemonic = *lines.get(0).unwrap();
         match Mnemonic::from_phrase(mnemonic, Language::English) {
             Ok(m) => assert_eq!(
                 Some(Seed::new(&m, "very poor passphrase").as_bytes().to_hex()),
                 config.blockchain_bridge_config.mnemonic_seed
             ),
-            _ => assert!(false),
+            _ => assert!(
+                false,
+                format!("Invalid mnemonic from end of captured_output {}", mnemonic)
+            ),
         }
+
+        assert_eq!(
+            &lines.get(4).unwrap()[..39],
+            "Consuming Wallet (m/44'/60'/0'/0/0): 0x"
+        );
+        assert_eq!(
+            &lines.get(5).unwrap()[..39],
+            "  Earning Wallet (m/44'/60'/0'/0/1): 0x"
+        );
     }
 
     #[test]
     fn parse_args_allows_generate_wallet_with_blank_mnemonic_passphrase() {
-        ensure_node_home_directory_does_not_exist(
-            "node_configurator",
-            "parse_args_allows_generate_wallet_with_blank_mnemonic_passphrase",
-        );
-        let node_home_directory = ensure_node_home_directory_exists(
+        let data_directory = ensure_node_home_directory_exists(
             "node_configurator",
             "parse_args_allows_generate_wallet_with_blank_mnemonic_passphrase",
         );
@@ -1924,9 +2600,8 @@ mod tests {
         let args: Vec<String> = vec![
             "SubstratumNode",
             "--data-directory",
-            node_home_directory.to_str().unwrap(),
+            data_directory.to_str().unwrap(),
             "--generate-wallet",
-            "please",
             "--language",
             "english",
             "--word-count",
@@ -1964,7 +2639,10 @@ mod tests {
 
         assert_eq!(&captured_output[..expected_output.len()], expected_output);
         assert!(config.blockchain_bridge_config.mnemonic_seed.is_some());
-        let mnemonic = captured_output[expected_output.len()..].trim();
+        let lines: Vec<&str> = captured_output[expected_output.len()..]
+            .split("\n")
+            .collect::<Vec<&str>>();
+        let mnemonic = *lines.get(0).unwrap();
         match Mnemonic::from_phrase(mnemonic, Language::English) {
             Ok(m) => assert_eq!(
                 Some(Seed::new(&m, "").as_bytes().to_hex()),
@@ -1975,34 +2653,43 @@ mod tests {
                 format!("Invalid mnemonic from end of captured_output {}", mnemonic)
             ),
         }
+
+        assert_eq!(
+            &lines.get(4).unwrap()[..39],
+            "Consuming Wallet (m/44'/60'/0'/0/0): 0x"
+        );
+        assert_eq!(
+            &lines.get(5).unwrap()[..39],
+            "  Earning Wallet (m/44'/60'/0'/0/1): 0x"
+        );
     }
 
     #[test]
     #[should_panic(expected = "Wallet Encryption Password is required!")]
     fn generate_wallet_panics_after_three_password_mismatches() {
-        let _guard = EnvironmentGuard::new();
         let subject = NodeConfiguratorReal::new();
-        let stdout_writer = &mut ByteArrayWriter::new();
         let streams = &mut StdStreams {
             stdin: &mut Cursor::new(&b"one\n\ntwo\n\nthree\n\n"[..]),
-            stdout: stdout_writer,
+            stdout: &mut ByteArrayWriter::new(),
             stderr: &mut ByteArrayWriter::new(),
         };
 
-        let args: Vec<String> = vec!["SubstratumNode", "--generate-wallet", "ignored"]
+        let args: Vec<String> = vec!["SubstratumNode", "--generate-wallet"]
             .into_iter()
             .map(String::from)
             .collect();
-        subject.generate_configuration(&args, streams);
+
+        let mut bootstrapper_config = BootstrapperConfig::new();
+        let multi_config = MultiConfig::new(
+            &subject.app,
+            vec![Box::new(CommandLineVCL::new(args.clone()))],
+        );
+        subject.parse_args(&multi_config, &mut bootstrapper_config, streams);
     }
 
     #[test]
     fn parse_args_allows_generate_wallet_with_value_less_passphrase_blank_passphrase() {
-        ensure_node_home_directory_does_not_exist(
-            "node_configurator",
-            "parse_args_allows_generate_wallet_with_value_less_passphrase_blank_passphrase",
-        );
-        let node_home_directory = ensure_node_home_directory_exists(
+        let data_directory = ensure_node_home_directory_exists(
             "node_configurator",
             "parse_args_allows_generate_wallet_with_value_less_passphrase_blank_passphrase",
         );
@@ -2010,9 +2697,8 @@ mod tests {
         let args: Vec<String> = vec![
             "SubstratumNode",
             "--data-directory",
-            node_home_directory.to_str().unwrap(),
+            data_directory.to_str().unwrap(),
             "--generate-wallet",
-            "please",
             "--language",
             "english",
             "--word-count",
@@ -2052,7 +2738,11 @@ mod tests {
 
         assert_eq!(&captured_output[..expected_output.len()], expected_output);
         assert!(config.blockchain_bridge_config.mnemonic_seed.is_some());
-        let mnemonic = captured_output[expected_output.len()..].trim();
+
+        let lines: Vec<&str> = captured_output[expected_output.len()..]
+            .split("\n")
+            .collect::<Vec<&str>>();
+        let mnemonic = *lines.get(0).unwrap();
         match Mnemonic::from_phrase(mnemonic, Language::English) {
             Ok(m) => assert_eq!(
                 Some(Seed::new(&m, "").as_bytes().to_hex()),
@@ -2063,6 +2753,96 @@ mod tests {
                 format!("Invalid mnemonic from end of captured_output {}", mnemonic)
             ),
         }
+
+        assert_eq!(
+            &lines.get(4).unwrap()[..39],
+            "Consuming Wallet (m/44'/60'/0'/0/0): 0x"
+        );
+        assert_eq!(
+            &lines.get(5).unwrap()[..39],
+            "  Earning Wallet (m/44'/60'/0'/0/1): 0x"
+        );
+    }
+
+    #[test]
+    fn parse_args_allows_generate_wallet_with_custom_derivation_paths() {
+        let data_directory = ensure_node_home_directory_exists(
+            "node_configurator",
+            "parse_args_allows_generate_wallet_with_custom_derivation_paths",
+        );
+
+        let args: Vec<String> = vec![
+            "SubstratumNode",
+            "--data-directory",
+            data_directory.to_str().unwrap(),
+            "--generate-wallet",
+            "--language",
+            "english",
+            "--word-count",
+            "12",
+            "--consuming-wallet",
+            "m/44'/60'/0'/1/77",
+            "--earning-wallet",
+            "m/44'/60'/0'/2/77",
+            "--mnemonic-passphrase",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+
+        let mut config = BootstrapperConfig::new();
+        let subject = NodeConfiguratorReal::new();
+        let stdout_writer = &mut ByteArrayWriter::new();
+        let mut streams = &mut StdStreams {
+            stdin: &mut Cursor::new(
+                &b"\n\na terrible wallet password\na terrible wallet password\n"[..],
+            ),
+            stdout: stdout_writer,
+            stderr: &mut ByteArrayWriter::new(),
+        };
+        let vcl = Box::new(CommandLineVCL::new(args));
+        let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
+
+        subject.parse_args(&multi_config, &mut config, &mut streams);
+
+        let captured_output = stdout_writer.get_string();
+        let expected_output = "\nPlease provide an extra mnemonic passphrase to ensure your wallet is unique (NOTE: This passphrase \
+                cannot be changed later and still produce the same addresses). You will encrypt your wallet in a following step...\
+                \nMnemonic Passphrase (Recommended): \nWhile ill-advised, proceeding with no mnemonic passphrase.\
+        \nPress enter to continue...\
+        \n\nPlease provide a password to encrypt your wallet (This password can be changed later)...\
+        \n  Enter password: \
+        \nConfirm password: \
+        \n\nRecord the following mnemonic recovery phrase in the sequence provided and keep it \
+        secret! You cannot recover your wallet without these words plus your mnemonic passphrase \
+        if you provided one.\n\n";
+
+        assert_eq!(&captured_output[..expected_output.len()], expected_output);
+        assert!(config.blockchain_bridge_config.mnemonic_seed.is_some());
+
+        let lines: Vec<&str> = captured_output[expected_output.len()..]
+            .split("\n")
+            .collect::<Vec<&str>>();
+        let mnemonic = *lines.get(0).unwrap();
+        match Mnemonic::from_phrase(mnemonic, Language::English) {
+            Ok(m) => assert_eq!(
+                Some(Seed::new(&m, "").as_bytes().to_hex()),
+                config.blockchain_bridge_config.mnemonic_seed
+            ),
+            _ => assert!(
+                false,
+                format!("Invalid mnemonic from end of captured_output {}", mnemonic)
+            ),
+        }
+
+        assert_eq!(
+            &lines.get(4).unwrap()[..40],
+            "Consuming Wallet (m/44'/60'/0'/1/77): 0x"
+        );
+        assert_eq!(
+            &lines.get(5).unwrap()[..40],
+            "  Earning Wallet (m/44'/60'/0'/2/77): 0x"
+        );
     }
 
     #[test]
@@ -2079,19 +2859,251 @@ mod tests {
 
         let mut config = BootstrapperConfig::new();
         let subject = NodeConfiguratorReal::new();
+        let vcl = Box::new(CommandLineVCL::new(args));
+        let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
+
+        subject.parse_args(
+            &multi_config,
+            &mut config,
+            &mut FakeStreamHolder::new().streams(),
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "error: Invalid value for '--consuming-private-key <PRIVATE-KEY>': not valid hex"
+    )]
+    fn parse_args_with_invalid_consuming_wallet_private_key_panics_correctly() {
+        let home_directory = ensure_node_home_directory_exists(
+            "node_configurator",
+            "parse_args_with_invalid_consuming_wallet_private_key_panics_correctly",
+        );
+
+        let args: Vec<String> = vec![
+            "SubstratumNode",
+            "--dns-servers",
+            "12.34.56.78,23.45.67.89",
+            "--data-directory",
+            home_directory.to_str().unwrap(),
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+
+        let vcl_args: Vec<Box<dyn VclArg>> = vec![Box::new(NameValueVclArg::new(
+            &"--consuming_private_key", // this is equal to SUB_CONSUMING_PRIVATE_KEY
+            &"not valid hex",
+        ))];
+
+        let faux_environment = FauxEnvironmentVCL { vcl_args };
+
+        let mut config = BootstrapperConfig::new();
+        let subject = NodeConfiguratorReal::new();
+        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
+            Box::new(faux_environment),
+            Box::new(CommandLineVCL::new(args)),
+        ];
+        let multi_config = MultiConfig::new(&subject.app, vcls);
+
+        subject.parse_args(
+            &multi_config,
+            &mut config,
+            &mut FakeStreamHolder::new().streams(),
+        );
+    }
+
+    #[test]
+    fn parse_args_consuming_private_key_happy_path() {
+        let home_directory = ensure_node_home_directory_exists(
+            "node_configurator",
+            "parse_args_consuming_private_key_happy_path",
+        );
+
+        let args: Vec<String> = vec![
+            "SubstratumNode",
+            "--dns-servers",
+            "12.34.56.78,23.45.67.89",
+            "--data-directory",
+            home_directory.to_str().unwrap(),
+            "--earning-wallet",
+            "0x8e4d2317e56c8fd1fc9f13ba2aa62df1c5a542a7",
+            "--wallet-password",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+
+        let vcl_args: Vec<Box<dyn VclArg>> = vec![Box::new(NameValueVclArg::new(
+            &"--consuming_private_key", // this is equal to SUB_CONSUMING_PRIVATE_KEY
+            &"cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9",
+        ))];
+
+        let faux_environment = FauxEnvironmentVCL { vcl_args };
+
+        let mut config = BootstrapperConfig::new();
+        let subject = NodeConfiguratorReal::new();
+        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
+            Box::new(faux_environment),
+            Box::new(CommandLineVCL::new(args)),
+        ];
+        let multi_config = MultiConfig::new(&subject.app, vcls);
         let stdout_writer = &mut ByteArrayWriter::new();
         let mut streams = &mut StdStreams {
-            stdin: &mut Cursor::new(
-                &b"\n\na terrible wallet password\na terrible wallet password\n"[..],
+            stdin: &mut Cursor::new(&b""[..]),
+            stdout: stdout_writer,
+            stderr: &mut ByteArrayWriter::new(),
+        };
+        subject.parse_args(&multi_config, &mut config, &mut streams);
+
+        let captured_output = stdout_writer.get_string();
+        let expected_output = "";
+        assert!(config.blockchain_bridge_config.consuming_wallet.is_some());
+        assert_eq!(
+            format!(
+                "{}",
+                config.blockchain_bridge_config.consuming_wallet.unwrap()
             ),
+            "0x8e4d2317e56c8fd1fc9f13ba2aa62df1c5a542a7".to_string()
+        );
+        assert_eq!(captured_output, expected_output);
+        assert!(config.blockchain_bridge_config.mnemonic_seed.is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "Mnemonic seed conversion error. Database is corrupt: ")]
+    fn invalid_mnemonic_seed_causes_conversion_error_and_panics() {
+        let data_directory = ensure_node_home_directory_exists(
+            "node_configurator",
+            "invalid_mnemonic_seed_causes_conversion_error_and_panics",
+        );
+
+        let conn = db_initializer::DbInitializerReal::new()
+            .initialize(&data_directory)
+            .unwrap();
+        let persistent_configuration =
+            PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(conn)));
+
+        persistent_configuration.set_mnemonic_seed(String::from("never gonna give you up"));
+        let mut args = make_default_cli_params();
+        args.extend(
+            vec![
+                "--data-directory",
+                data_directory.to_str().unwrap(),
+                "--wallet-password",
+                "rick-rolled",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<String>>(),
+        );
+        let mut config = BootstrapperConfig::new();
+        let subject = NodeConfiguratorReal::new();
+        let vcl = Box::new(CommandLineVCL::new(args));
+        let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
+
+        subject.parse_args(
+            &multi_config,
+            &mut config,
+            &mut FakeStreamHolder::new().streams(),
+        );
+    }
+
+    #[test]
+    fn wallet_password_prompt_gives_up_after_three_attempts() {
+        let data_directory = ensure_node_home_directory_exists(
+            "node_configurator",
+            "wallet_password_prompt_gives_up_after_three_attempts",
+        );
+
+        let conn = db_initializer::DbInitializerReal::new()
+            .initialize(&data_directory)
+            .unwrap();
+        let persistent_configuration =
+            PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(conn)));
+
+        let crypto = Crypto::encrypt(
+            b"never gonna give you up",
+            &Protected::new("ricked rolled"),
+            NonZeroU32::new(1024).unwrap(),
+        )
+        .unwrap();
+
+        persistent_configuration
+            .set_mnemonic_seed(serde_cbor::to_vec(&crypto).unwrap().to_hex::<String>());
+        let mut args = make_default_cli_params();
+        args.extend(
+            vec![
+                "--data-directory",
+                data_directory.to_str().unwrap(),
+                "--wallet_password",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<String>>(),
+        );
+        let mut config = BootstrapperConfig::new();
+        let subject = NodeConfiguratorReal::new();
+        let vcl = Box::new(CommandLineVCL::new(args));
+        let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
+        let stdout_writer = &mut ByteArrayWriter::new();
+        let mut streams = &mut StdStreams {
+            stdin: &mut Cursor::new(&b"wrong password\nbad guess\nsuch failure\n"[..]),
             stdout: stdout_writer,
             stderr: &mut ByteArrayWriter::new(),
         };
 
+        subject.parse_args(&multi_config, &mut config, &mut streams);
+
+        let captured_output = stdout_writer.get_string();
+        assert_eq!(captured_output, "\nDecrypt wallet\nEnter password: Invalid password. Try again.\n\nEnter password: Invalid password. Try again.\n\nEnter password: Invalid password. Giving up.\n");
+    }
+
+    #[test]
+    #[should_panic(expected = "Mnemonic seed deserialization error. Database is corrupt: ")]
+    fn mnemonic_seed_deserialization_failure_aborts_as_expected() {
+        let data_directory = ensure_node_home_directory_exists(
+            "node_configurator",
+            "mnemonic_seed_deserialization_failure_aborts_as_expected",
+        );
+
+        let conn = db_initializer::DbInitializerReal::new()
+            .initialize(&data_directory)
+            .unwrap();
+        let persistent_configuration =
+            PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(conn)));
+
+        let crypto = Crypto::encrypt(
+            b"never gonna give you up",
+            &Protected::new("ricked rolled"),
+            NonZeroU32::new(1024).unwrap(),
+        )
+        .unwrap();
+        let mut crypto_seed = serde_cbor::to_vec(&crypto).unwrap();
+        crypto_seed.extend_from_slice(&b"choke on these extra bytes"[..]);
+        let mnemonic_seed_with_extras = crypto_seed.to_hex::<String>();
+
+        persistent_configuration.set_mnemonic_seed(mnemonic_seed_with_extras);
+        let mut args = make_default_cli_params();
+        args.extend(
+            vec![
+                "--data-directory",
+                data_directory.to_str().unwrap(),
+                "--wallet-password",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<String>>(),
+        );
+        let mut config = BootstrapperConfig::new();
+        let subject = NodeConfiguratorReal::new();
         let vcl = Box::new(CommandLineVCL::new(args));
         let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
 
-        subject.parse_args(&multi_config, &mut config, &mut streams);
+        subject.parse_args(
+            &multi_config,
+            &mut config,
+            &mut FakeStreamHolder::new().streams(),
+        );
     }
 
     #[test]

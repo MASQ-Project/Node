@@ -7,7 +7,7 @@ use futures::{future, Future};
 use std::convert::TryFrom;
 use web3::contract::{Contract, Options};
 use web3::transports::{EventLoopHandle, Http};
-use web3::types::{Address, BlockNumber, FilterBuilder, Log, H160, H256, U256};
+use web3::types::{Address, BlockNumber, FilterBuilder, Log, H256, U256};
 use web3::Web3;
 
 // HOT (Ropsten)
@@ -27,14 +27,6 @@ const TRANSACTION_LITERAL: H256 = H256 {
         0xb3, 0xef,
     ],
 };
-
-fn remove_0x(s: &str) -> &str {
-    if s.starts_with("0x") {
-        &s[2..]
-    } else {
-        s
-    }
-}
 
 #[derive(Clone, Debug, Eq, Message, PartialEq)]
 pub struct Transaction {
@@ -123,11 +115,6 @@ fn to_gwei(wei: U256) -> Option<u64> {
 
 impl BlockchainInterface for BlockchainInterfaceRpc {
     fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> Transactions {
-        let to_address = match remove_0x(&recipient.address).parse::<H160>() {
-            Ok(x) => x.into(),
-            Err(_) => return Err(BlockchainError::InvalidAddress),
-        };
-
         let filter = FilterBuilder::default()
             .address(vec![self.contract_address])
             .from_block(BlockNumber::Number(start_block))
@@ -135,7 +122,7 @@ impl BlockchainInterface for BlockchainInterfaceRpc {
             .topics(
                 Some(vec![TRANSACTION_LITERAL]),
                 None,
-                Some(vec![to_address]),
+                Some(vec![recipient.address().into()]),
                 None,
             )
             .build();
@@ -174,27 +161,25 @@ impl BlockchainInterface for BlockchainInterfaceRpc {
             .wait()
     }
 
-    fn get_eth_balance(&self, address: &Wallet) -> Balance {
-        match remove_0x(&address.address).parse() {
-            Ok(address) => self
-                .web3
-                .eth()
-                .balance(address, None)
-                .map_err(|_| BlockchainError::QueryFailed)
-                .wait(),
-            Err(_) => Err(BlockchainError::InvalidAddress),
-        }
+    fn get_eth_balance(&self, wallet: &Wallet) -> Balance {
+        self.web3
+            .eth()
+            .balance(wallet.address(), None)
+            .map_err(|_| BlockchainError::QueryFailed)
+            .wait()
     }
 
-    fn get_token_balance(&self, address: &Wallet) -> Balance {
-        match remove_0x(&address.address).parse::<Address>() {
-            Ok(address) => self
-                .contract
-                .query("balanceOf", address, None, Options::with(|_| {}), None)
-                .map_err(|_| BlockchainError::QueryFailed)
-                .wait(),
-            Err(_) => Err(BlockchainError::InvalidAddress),
-        }
+    fn get_token_balance(&self, wallet: &Wallet) -> Balance {
+        self.contract
+            .query(
+                "balanceOf",
+                wallet.address(),
+                None,
+                Options::with(|_| {}),
+                None,
+            )
+            .map_err(|_| BlockchainError::QueryFailed)
+            .wait()
     }
 }
 
@@ -228,6 +213,7 @@ mod tests {
     use crate::test_utils::test_utils::find_free_port;
     use serde_json::Value;
     use simple_server::Server;
+    use std::str::FromStr;
     use std::sync::mpsc;
     use std::thread;
 
@@ -240,7 +226,7 @@ mod tests {
         thread::spawn(move || {
             Server::new(move |req, mut rsp| {
                 tx.send(req.body().clone()).unwrap();
-                Ok(rsp.body(r#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.as_bytes().to_vec())?)
+                Ok(rsp.body(br#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_vec())?)
             }).listen("127.0.0.1", &format!("{}", port));
         });
 
@@ -253,7 +239,7 @@ mod tests {
         let result = subject
             .retrieve_transactions(
                 42,
-                &Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"),
+                &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
             )
             .unwrap();
 
@@ -265,7 +251,7 @@ mod tests {
         assert_eq!(
             vec![Transaction {
                 block_number: 4_974_179u64,
-                from: Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"),
+                from: Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
                 gwei_amount: 4_503_599u64,
             }],
             result,
@@ -284,6 +270,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "No address for an uninitialized wallet!")]
     fn blockchain_interface_rpc_retrieve_transactions_returns_an_error_if_the_to_address_is_invalid(
     ) {
         let subject = BlockchainInterfaceRpc::new(
@@ -308,7 +295,7 @@ mod tests {
 
         thread::spawn(move || {
             Server::new(|_req, mut rsp| {
-                Ok(rsp.body(r#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d63100000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.as_bytes().to_vec())?)
+                Ok(rsp.body(br#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d63100000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_vec())?)
             })
                 .listen("127.0.0.1", &format!("{}", port));
         });
@@ -321,7 +308,7 @@ mod tests {
 
         let result = subject.retrieve_transactions(
             42,
-            &Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"),
+            &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
         assert_eq!(
@@ -337,7 +324,7 @@ mod tests {
 
         thread::spawn(move || {
             Server::new(move |_req, mut rsp| {
-                Ok(rsp.body(r#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d6310000001","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.as_bytes().to_vec())?)
+                Ok(rsp.body(br#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d6310000001","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_vec())?)
             }).listen("127.0.0.1", &format!("{}", port));
         });
 
@@ -349,7 +336,7 @@ mod tests {
 
         let result = subject.retrieve_transactions(
             42,
-            &Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"),
+            &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
         assert_eq!(Err(BlockchainError::InvalidResponse), result);
@@ -362,7 +349,7 @@ mod tests {
 
         thread::spawn(move || {
             Server::new(|_req, mut rsp| {
-                Ok(rsp.body(r#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.as_bytes().to_vec())?)
+                Ok(rsp.body(br#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_vec())?)
             })
                 .listen("127.0.0.1", &format!("{}", port));
         });
@@ -375,7 +362,7 @@ mod tests {
 
         let result = subject.retrieve_transactions(
             42,
-            &Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"),
+            &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
         assert_eq!(Ok(vec![]), result);
@@ -387,7 +374,7 @@ mod tests {
 
         thread::spawn(move || {
             Server::new(|_req, mut rsp| {
-                Ok(rsp.body(r#"{"jsonrpc":"2.0","id":0,"result":"0xFFFF"}"#.as_bytes().to_vec())?)
+                Ok(rsp.body(br#"{"jsonrpc":"2.0","id":0,"result":"0xFFFF"}"#.to_vec())?)
             })
             .listen("127.0.0.1", &format!("{}", port));
         });
@@ -398,13 +385,15 @@ mod tests {
         )
         .unwrap();
 
-        let result =
-            subject.get_eth_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"));
+        let result = subject.get_eth_balance(
+            &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
+        );
 
         assert_eq!(U256::from(65535), result.unwrap());
     }
 
     #[test]
+    #[should_panic(expected = "No address for an uninitialized wallet!")]
     fn blockchain_interface_rpc_returns_an_error_when_requesting_eth_balance_of_an_invalid_wallet()
     {
         let subject = BlockchainInterfaceRpc::new(
@@ -426,7 +415,7 @@ mod tests {
 
         thread::spawn(move || {
             Server::new(|_req, mut rsp| {
-                Ok(rsp.body(r#"{"jsonrpc":"2.0","id":0,"result":"0xFFFQ"}"#.as_bytes().to_vec())?)
+                Ok(rsp.body(br#"{"jsonrpc":"2.0","id":0,"result":"0xFFFQ"}"#.to_vec())?)
             })
             .listen("127.0.0.1", &format!("{}", port));
         });
@@ -437,8 +426,9 @@ mod tests {
         )
         .unwrap();
 
-        let result =
-            subject.get_eth_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"));
+        let result = subject.get_eth_balance(
+            &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
+        );
 
         assert_eq!(Err(BlockchainError::QueryFailed), result);
     }
@@ -450,8 +440,7 @@ mod tests {
         thread::spawn(move || {
             Server::new(|_req, mut rsp| {
                 Ok(rsp.body(
-                    r#"{"jsonrpc":"2.0","id":0,"result":"0x000000000000000000000000000000000000000000000000000000000000FFFF"}"#
-                        .as_bytes()
+                    br#"{"jsonrpc":"2.0","id":0,"result":"0x000000000000000000000000000000000000000000000000000000000000FFFF"}"#
                         .to_vec(),
                 )?)
             })
@@ -464,13 +453,15 @@ mod tests {
         )
         .unwrap();
 
-        let result =
-            subject.get_token_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"));
+        let result = subject.get_token_balance(
+            &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
+        );
 
         assert_eq!(U256::from(65535), result.unwrap());
     }
 
     #[test]
+    #[should_panic(expected = "No address for an uninitialized wallet!")]
     fn blockchain_interface_rpc_returns_an_error_when_requesting_token_balance_of_an_invalid_wallet(
     ) {
         let subject = BlockchainInterfaceRpc::new(
@@ -493,8 +484,7 @@ mod tests {
         thread::spawn(move || {
             Server::new(|_req, mut rsp| {
                 Ok(rsp.body(
-                    r#"{"jsonrpc":"2.0","id":0,"result":"0x000000000000000000000000000000000000000000000000000000000000FFFQ"}"#
-                        .as_bytes()
+                    br#"{"jsonrpc":"2.0","id":0,"result":"0x000000000000000000000000000000000000000000000000000000000000FFFQ"}"#
                         .to_vec(),
                 )?)
             })
@@ -507,8 +497,9 @@ mod tests {
         )
         .unwrap();
 
-        let result =
-            subject.get_token_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"));
+        let result = subject.get_token_balance(
+            &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
+        );
 
         assert_eq!(Err(BlockchainError::QueryFailed), result);
     }
@@ -520,8 +511,7 @@ mod tests {
         thread::spawn(move || {
             Server::new(|_req, mut rsp| {
                 Ok(rsp.body(
-                    r#"{"jsonrpc":"2.0","id":0,"result":"0x0000000000000000000000000000000000000000000000000000000000000001"}"#
-                        .as_bytes()
+                    br#"{"jsonrpc":"2.0","id":0,"result":"0x0000000000000000000000000000000000000000000000000000000000000001"}"#
                         .to_vec(),
                 )?)
             })
@@ -534,8 +524,8 @@ mod tests {
         )
         .unwrap();
 
-        let results: (Balance, Balance) =
-            subject.get_balances(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"));
+        let results: (Balance, Balance) = subject
+            .get_balances(&Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap());
         let eth_balance = results.0.unwrap();
         let token_balance = results.1.unwrap();
 

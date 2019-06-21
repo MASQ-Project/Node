@@ -138,7 +138,7 @@ impl Handler<ReportRoutingServiceProvidedMessage> for Accountant {
     ) -> Self::Result {
         self.logger.debug(format!(
             "Charging routing of {} bytes to wallet {}",
-            msg.payload_size, msg.consuming_wallet.address
+            msg.payload_size, msg.consuming_wallet
         ));
         self.record_service_provided(
             msg.service_rate,
@@ -159,7 +159,7 @@ impl Handler<ReportExitServiceProvidedMessage> for Accountant {
     ) -> Self::Result {
         self.logger.debug(format!(
             "Charging exit service for {} bytes to wallet {} at {} per service and {} per byte",
-            msg.payload_size, msg.consuming_wallet.address, msg.service_rate, msg.byte_rate
+            msg.payload_size, msg.consuming_wallet, msg.service_rate, msg.byte_rate
         ));
         self.record_service_provided(
             msg.service_rate,
@@ -180,7 +180,7 @@ impl Handler<ReportRoutingServiceConsumedMessage> for Accountant {
     ) -> Self::Result {
         self.logger.debug(format!(
             "Accruing debt to wallet {} for consuming routing service {} bytes",
-            msg.earning_wallet.address, msg.payload_size
+            msg.earning_wallet, msg.payload_size
         ));
         self.record_service_consumed(
             msg.service_rate,
@@ -201,7 +201,7 @@ impl Handler<ReportExitServiceConsumedMessage> for Accountant {
     ) -> Self::Result {
         self.logger.debug(format!(
             "Accruing debt to wallet {} for consuming exit service {} bytes",
-            msg.earning_wallet.address, msg.payload_size
+            msg.earning_wallet, msg.payload_size
         ));
         self.record_service_consumed(
             msg.service_rate,
@@ -273,14 +273,14 @@ impl Accountant {
     fn scan_for_delinquencies(&mut self) {
         let now = SystemTime::now();
         self.receivable_dao
-            .new_delinquencies(now.clone(), &PAYMENT_CURVES)
+            .new_delinquencies(now, &PAYMENT_CURVES)
             .into_iter()
             .for_each(|account| {
-                self.banned_dao.ban(&account.wallet_address);
+                self.banned_dao.ban(&account.wallet);
                 let (balance, age) = Self::balance_and_age(&account);
                 self.logger.info(format!(
                     "Wallet {} (balance: {} SUB, age: {} sec) banned for delinquency",
-                    account.wallet_address,
+                    account.wallet,
                     balance,
                     age.as_secs()
                 ))
@@ -290,18 +290,18 @@ impl Accountant {
             .paid_delinquencies(&PAYMENT_CURVES)
             .into_iter()
             .for_each(|account| {
-                self.banned_dao.unban(&account.wallet_address);
+                self.banned_dao.unban(&account.wallet);
                 let (balance, age) = Self::balance_and_age(&account);
                 self.logger.info(format!(
                     "Wallet {} (balance: {} SUB, age: {} sec) is no longer delinquent: unbanned",
-                    account.wallet_address,
+                    account.wallet,
                     balance,
                     age.as_secs()
                 ))
             });
     }
 
-    fn scan_for_received_payments(&mut self) -> () {
+    fn scan_for_received_payments(&mut self) {
         let future_logger = self.logger.clone();
         self.logger.debug("Scanning for payments".to_string());
         let future_report_new_payments_sub = self.report_new_payments_sub.clone();
@@ -345,7 +345,7 @@ impl Accountant {
         let age = account
             .last_received_timestamp
             .elapsed()
-            .unwrap_or(Duration::new(0, 0));
+            .unwrap_or_else(|_| Duration::new(0, 0));
         (balance, age)
     }
 
@@ -426,6 +426,7 @@ pub mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
+    use crate::test_utils::test_utils::make_wallet;
     use actix::System;
     use std::cell::RefCell;
     use std::sync::Mutex;
@@ -441,27 +442,27 @@ pub mod tests {
     }
 
     impl PayableDao for PayableDaoMock {
-        fn more_money_payable(&self, wallet_address: &Wallet, amount: u64) {
+        fn more_money_payable(&self, wallet: &Wallet, amount: u64) {
             self.more_money_payable_parameters
                 .lock()
                 .unwrap()
-                .push((wallet_address.clone(), amount));
+                .push((wallet.clone(), amount));
         }
 
-        fn payment_sent(&self, _wallet_address: &Wallet, _pending_payment_transaction: &str) {
+        fn payment_sent(&self, _wallet: &Wallet, _pending_payment_transaction: &str) {
             unimplemented!()
         }
 
         fn payment_confirmed(
             &self,
-            _wallet_address: &Wallet,
+            _wallet: &Wallet,
             _amount: u64,
             _confirmation_noticed_timestamp: &SystemTime,
         ) {
             unimplemented!()
         }
 
-        fn account_status(&self, _wallet_address: &Wallet) -> Option<PayableAccount> {
+        fn account_status(&self, _wallet: &Wallet) -> Option<PayableAccount> {
             unimplemented!()
         }
 
@@ -503,11 +504,11 @@ pub mod tests {
     }
 
     impl ReceivableDao for ReceivableDaoMock {
-        fn more_money_receivable(&self, wallet_address: &Wallet, amount: u64) {
+        fn more_money_receivable(&self, wallet: &Wallet, amount: u64) {
             self.more_money_receivable_parameters
                 .lock()
                 .unwrap()
-                .push((wallet_address.clone(), amount));
+                .push((wallet.clone(), amount));
         }
 
         fn more_money_received(
@@ -521,7 +522,7 @@ pub mod tests {
                 .push(transactions);
         }
 
-        fn account_status(&self, _wallet_address: &Wallet) -> Option<ReceivableAccount> {
+        fn account_status(&self, _wallet: &Wallet) -> Option<ReceivableAccount> {
             unimplemented!()
         }
 
@@ -611,18 +612,12 @@ pub mod tests {
             self.ban_list_results.borrow_mut().remove(0)
         }
 
-        fn ban(&self, wallet_address: &Wallet) {
-            self.ban_parameters
-                .lock()
-                .unwrap()
-                .push(wallet_address.clone());
+        fn ban(&self, wallet: &Wallet) {
+            self.ban_parameters.lock().unwrap().push(wallet.clone());
         }
 
-        fn unban(&self, wallet_address: &Wallet) {
-            self.unban_parameters
-                .lock()
-                .unwrap()
-                .push(wallet_address.clone());
+        fn unban(&self, wallet: &Wallet) {
+            self.unban_parameters.lock().unwrap().push(wallet.clone());
         }
     }
 
@@ -655,8 +650,8 @@ pub mod tests {
     #[test]
     fn accountant_payment_received_scan_timer_triggers_scanning_for_payments() {
         init_test_logging();
-        let payee_wallet = Wallet::new("wallet0");
-        let earning_wallet = Wallet::new("earner3000");
+        let payee_wallet = make_wallet("wallet0");
+        let earning_wallet = make_wallet("earner3000");
         let amount = 42u64;
         let expected_transactions = vec![Transaction {
             block_number: 7u64,
@@ -731,7 +726,7 @@ pub mod tests {
     #[test]
     fn accountant_logs_if_no_transactions_were_detected() {
         init_test_logging();
-        let earning_wallet = Wallet::new("earner3000");
+        let earning_wallet = make_wallet("earner3000");
         let blockchain_bridge = Recorder::new().retrieve_transactions_response(Ok(vec![]));
         let blockchain_bridge_awaiter = blockchain_bridge.get_awaiter();
         let blockchain_bridge_recording = blockchain_bridge.get_recording();
@@ -790,7 +785,7 @@ pub mod tests {
     #[test]
     fn accountant_logs_error_when_blockchain_bridge_responds_with_error() {
         init_test_logging();
-        let earning_wallet = Wallet::new("earner3000");
+        let earning_wallet = make_wallet("earner3000");
         let blockchain_bridge =
             Recorder::new().retrieve_transactions_response(Err(BlockchainError::QueryFailed));
         let blockchain_bridge_awaiter = blockchain_bridge.get_awaiter();
@@ -841,8 +836,8 @@ pub mod tests {
 
     #[test]
     fn accountant_receives_new_payments_to_the_receivables_dao() {
-        let wallet = Wallet::new("wallet0");
-        let earning_wallet = Wallet::new("earner3000");
+        let wallet = make_wallet("wallet0");
+        let earning_wallet = make_wallet("earner3000");
         let gwei_amount = 42u64;
         let expected_payment = Transaction {
             block_number: 7u64,
@@ -906,12 +901,12 @@ pub mod tests {
             let config = AccountantConfig {
                 payable_scan_interval: Duration::from_millis(100),
                 payment_received_scan_interval: Duration::from_secs(100),
-                earning_wallet: Wallet::new("hi"),
+                earning_wallet: make_wallet("hi"),
             };
             let now = to_time_t(&SystemTime::now());
             // slightly above minimum balance, to the right of the curve (time intersection)
             let account0 = PayableAccount {
-                wallet_address: Wallet::new("wallet0"),
+                wallet: make_wallet("wallet0"),
                 balance: PAYMENT_CURVES.permanent_debt_allowed_gwub + 1,
                 last_paid_timestamp: from_time_t(
                     now - PAYMENT_CURVES.balance_decreases_for_sec - 10,
@@ -919,7 +914,7 @@ pub mod tests {
                 pending_payment_transaction: None,
             };
             let account1 = PayableAccount {
-                wallet_address: Wallet::new("wallet1"),
+                wallet: make_wallet("wallet1"),
                 balance: PAYMENT_CURVES.permanent_debt_allowed_gwub + 2,
                 last_paid_timestamp: from_time_t(
                     now - PAYMENT_CURVES.balance_decreases_for_sec - 12,
@@ -962,13 +957,13 @@ pub mod tests {
         let config = AccountantConfig {
             payable_scan_interval: Duration::from_secs(100),
             payment_received_scan_interval: Duration::from_secs(1000),
-            earning_wallet: Wallet::new("mine"),
+            earning_wallet: make_wallet("mine"),
         };
         let now = to_time_t(&SystemTime::now());
         let accounts = vec![
             // below minimum balance, to the right of time intersection (inside buffer zone)
             PayableAccount {
-                wallet_address: Wallet::new("wallet0"),
+                wallet: make_wallet("wallet0"),
                 balance: PAYMENT_CURVES.permanent_debt_allowed_gwub - 1,
                 last_paid_timestamp: from_time_t(
                     now - PAYMENT_CURVES.balance_decreases_for_sec - 10,
@@ -977,7 +972,7 @@ pub mod tests {
             },
             // above balance intersection, to the left of minimum time (inside buffer zone)
             PayableAccount {
-                wallet_address: Wallet::new("wallet1"),
+                wallet: make_wallet("wallet1"),
                 balance: PAYMENT_CURVES.balance_to_decrease_from_gwub + 1,
                 last_paid_timestamp: from_time_t(
                     now - PAYMENT_CURVES.payment_suggested_after_sec + 10,
@@ -986,7 +981,7 @@ pub mod tests {
             },
             // above minimum balance, to the right of minimum time (not in buffer zone, below the curve)
             PayableAccount {
-                wallet_address: Wallet::new("wallet2"),
+                wallet: make_wallet("wallet2"),
                 balance: PAYMENT_CURVES.balance_to_decrease_from_gwub - 1000,
                 last_paid_timestamp: from_time_t(
                     now - PAYMENT_CURVES.payment_suggested_after_sec - 1,
@@ -1027,13 +1022,13 @@ pub mod tests {
         let config = AccountantConfig {
             payable_scan_interval: Duration::from_secs(100),
             payment_received_scan_interval: Duration::from_secs(1000),
-            earning_wallet: Wallet::new("mine"),
+            earning_wallet: make_wallet("mine"),
         };
         let now = to_time_t(&SystemTime::now());
         let accounts = vec![
             // slightly above minimum balance, to the right of the curve (time intersection)
             PayableAccount {
-                wallet_address: Wallet::new("wallet0"),
+                wallet: make_wallet("wallet0"),
                 balance: PAYMENT_CURVES.permanent_debt_allowed_gwub + 1,
                 last_paid_timestamp: from_time_t(
                     now - PAYMENT_CURVES.balance_decreases_for_sec - 10,
@@ -1042,7 +1037,7 @@ pub mod tests {
             },
             // slightly above the curve (balance intersection), to the right of minimum time
             PayableAccount {
-                wallet_address: Wallet::new("wallet1"),
+                wallet: make_wallet("wallet1"),
                 balance: PAYMENT_CURVES.balance_to_decrease_from_gwub + 1,
                 last_paid_timestamp: from_time_t(
                     now - PAYMENT_CURVES.payment_suggested_after_sec - 10,
@@ -1092,7 +1087,7 @@ pub mod tests {
             let config = AccountantConfig {
                 payable_scan_interval: Duration::from_secs(10_000),
                 payment_received_scan_interval: Duration::from_millis(100),
-                earning_wallet: Wallet::new("hi"),
+                earning_wallet: make_wallet("hi"),
             };
 
             let payable_dao = Box::new(PayableDaoMock::new());
@@ -1130,7 +1125,10 @@ pub mod tests {
         thread::sleep(Duration::from_millis(200));
 
         let ban_parameters = ban_parameters_arc.lock().unwrap();
-        assert_eq!("wallet1234d", &ban_parameters[0].address);
+        assert_eq!(
+            "0x00000000000000000077616c6c65743132333464",
+            &format!("{:#x}", &ban_parameters[0].address())
+        );
     }
 
     #[test]
@@ -1139,7 +1137,7 @@ pub mod tests {
         let config = AccountantConfig {
             payable_scan_interval: Duration::from_secs(100),
             payment_received_scan_interval: Duration::from_secs(1000),
-            earning_wallet: Wallet::new("mine"),
+            earning_wallet: make_wallet("mine"),
         };
         let newly_banned_1 = make_receivable_account(1234, true);
         let newly_banned_2 = make_receivable_account(2345, true);
@@ -1176,18 +1174,18 @@ pub mod tests {
             paid_delinquencies_parameters_arc.lock().unwrap();
         assert_eq!(PAYMENT_CURVES.clone(), paid_delinquencies_parameters[0]);
         let ban_parameters = ban_parameters_arc.lock().unwrap();
-        assert!(ban_parameters.contains(&newly_banned_1.wallet_address));
-        assert!(ban_parameters.contains(&newly_banned_2.wallet_address));
+        assert!(ban_parameters.contains(&newly_banned_1.wallet));
+        assert!(ban_parameters.contains(&newly_banned_2.wallet));
         assert_eq!(2, ban_parameters.len());
         let unban_parameters = unban_parameters_arc.lock().unwrap();
-        assert!(unban_parameters.contains(&newly_unbanned_1.wallet_address));
-        assert!(unban_parameters.contains(&newly_unbanned_2.wallet_address));
+        assert!(unban_parameters.contains(&newly_unbanned_1.wallet));
+        assert!(unban_parameters.contains(&newly_unbanned_2.wallet));
         assert_eq!(2, unban_parameters.len());
         let tlh = TestLogHandler::new();
-        tlh.exists_log_matching ("INFO: Accountant: Wallet wallet1234d \\(balance: 1234 SUB, age: \\d+ sec\\) banned for delinquency");
-        tlh.exists_log_matching ("INFO: Accountant: Wallet wallet2345d \\(balance: 2345 SUB, age: \\d+ sec\\) banned for delinquency");
-        tlh.exists_log_matching ("INFO: Accountant: Wallet wallet3456n \\(balance: 3456 SUB, age: \\d+ sec\\) is no longer delinquent: unbanned");
-        tlh.exists_log_matching ("INFO: Accountant: Wallet wallet4567n \\(balance: 4567 SUB, age: \\d+ sec\\) is no longer delinquent: unbanned");
+        tlh.exists_log_matching ("INFO: Accountant: Wallet 0x00000000000000000077616c6c65743132333464 \\(balance: 1234 SUB, age: \\d+ sec\\) banned for delinquency");
+        tlh.exists_log_matching ("INFO: Accountant: Wallet 0x00000000000000000077616c6c65743233343564 \\(balance: 2345 SUB, age: \\d+ sec\\) banned for delinquency");
+        tlh.exists_log_matching ("INFO: Accountant: Wallet 0x00000000000000000077616c6c6574333435366e \\(balance: 3456 SUB, age: \\d+ sec\\) is no longer delinquent: unbanned");
+        tlh.exists_log_matching ("INFO: Accountant: Wallet 0x00000000000000000077616c6c6574343536376e \\(balance: 4567 SUB, age: \\d+ sec\\) is no longer delinquent: unbanned");
     }
 
     #[test]
@@ -1196,7 +1194,7 @@ pub mod tests {
         let config = AccountantConfig {
             payable_scan_interval: Duration::from_secs(100),
             payment_received_scan_interval: Duration::from_secs(100),
-            earning_wallet: Wallet::new("hi"),
+            earning_wallet: make_wallet("hi"),
         };
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = Box::new(PayableDaoMock::new());
@@ -1222,7 +1220,7 @@ pub mod tests {
 
         subject_addr
             .try_send(ReportRoutingServiceProvidedMessage {
-                consuming_wallet: Wallet::new("booga"),
+                consuming_wallet: make_wallet("booga"),
                 payload_size: 1234,
                 service_rate: 42,
                 byte_rate: 24,
@@ -1234,10 +1232,10 @@ pub mod tests {
         let more_money_receivable_parameters = more_money_receivable_parameters_arc.lock().unwrap();
         assert_eq!(
             more_money_receivable_parameters[0],
-            (Wallet::new("booga"), (1 * 42) + (1234 * 24))
+            (make_wallet("booga"), (1 * 42) + (1234 * 24))
         );
         TestLogHandler::new().exists_log_containing(
-            "DEBUG: Accountant: Charging routing of 1234 bytes to wallet booga",
+            "DEBUG: Accountant: Charging routing of 1234 bytes to wallet 0x000000000000000000000000000000626f6f6761",
         );
     }
 
@@ -1247,7 +1245,7 @@ pub mod tests {
         let config = AccountantConfig {
             payable_scan_interval: Duration::from_secs(100),
             payment_received_scan_interval: Duration::from_secs(100),
-            earning_wallet: Wallet::new("hi"),
+            earning_wallet: make_wallet("hi"),
         };
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = Box::new(
@@ -1273,7 +1271,7 @@ pub mod tests {
 
         subject_addr
             .try_send(ReportRoutingServiceConsumedMessage {
-                earning_wallet: Wallet::new("booga"),
+                earning_wallet: make_wallet("booga"),
                 payload_size: 1234,
                 service_rate: 42,
                 byte_rate: 24,
@@ -1285,10 +1283,10 @@ pub mod tests {
         let more_money_payable_parameters = more_money_payable_parameters_arc.lock().unwrap();
         assert_eq!(
             more_money_payable_parameters[0],
-            (Wallet::new("booga"), (1 * 42) + (1234 * 24))
+            (make_wallet("booga"), (1 * 42) + (1234 * 24))
         );
         TestLogHandler::new().exists_log_containing(
-            "DEBUG: Accountant: Accruing debt to wallet booga for consuming routing service 1234 bytes",
+            "DEBUG: Accountant: Accruing debt to wallet 0x000000000000000000000000000000626f6f6761 for consuming routing service 1234 bytes",
         );
     }
 
@@ -1298,7 +1296,7 @@ pub mod tests {
         let config = AccountantConfig {
             payable_scan_interval: Duration::from_secs(100),
             payment_received_scan_interval: Duration::from_secs(100),
-            earning_wallet: Wallet::new("hi"),
+            earning_wallet: make_wallet("hi"),
         };
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = Box::new(PayableDaoMock::new());
@@ -1324,7 +1322,7 @@ pub mod tests {
 
         subject_addr
             .try_send(ReportExitServiceProvidedMessage {
-                consuming_wallet: Wallet::new("booga"),
+                consuming_wallet: make_wallet("booga"),
                 payload_size: 1234,
                 service_rate: 42,
                 byte_rate: 24,
@@ -1336,10 +1334,10 @@ pub mod tests {
         let more_money_receivable_parameters = more_money_receivable_parameters_arc.lock().unwrap();
         assert_eq!(
             more_money_receivable_parameters[0],
-            (Wallet::new("booga"), (1 * 42) + (1234 * 24))
+            (make_wallet("booga"), (1 * 42) + (1234 * 24))
         );
         TestLogHandler::new().exists_log_containing(
-            "DEBUG: Accountant: Charging exit service for 1234 bytes to wallet booga",
+            "DEBUG: Accountant: Charging exit service for 1234 bytes to wallet 0x000000000000000000000000000000626f6f6761",
         );
     }
 
@@ -1349,7 +1347,7 @@ pub mod tests {
         let config = AccountantConfig {
             payable_scan_interval: Duration::from_secs(100),
             payment_received_scan_interval: Duration::from_secs(100),
-            earning_wallet: Wallet::new("hi"),
+            earning_wallet: make_wallet("hi"),
         };
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = Box::new(
@@ -1375,7 +1373,7 @@ pub mod tests {
 
         subject_addr
             .try_send(ReportExitServiceConsumedMessage {
-                earning_wallet: Wallet::new("booga"),
+                earning_wallet: make_wallet("booga"),
                 payload_size: 1234,
                 service_rate: 42,
                 byte_rate: 24,
@@ -1387,10 +1385,10 @@ pub mod tests {
         let more_money_payable_parameters = more_money_payable_parameters_arc.lock().unwrap();
         assert_eq!(
             more_money_payable_parameters[0],
-            (Wallet::new("booga"), (1 * 42) + (1234 * 24))
+            (make_wallet("booga"), (1 * 42) + (1234 * 24))
         );
         TestLogHandler::new().exists_log_containing(
-            "DEBUG: Accountant: Accruing debt to wallet booga for consuming exit service 1234 bytes",
+            "DEBUG: Accountant: Accruing debt to wallet 0x000000000000000000000000000000626f6f6761 for consuming exit service 1234 bytes",
         );
     }
 

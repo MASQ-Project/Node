@@ -10,8 +10,8 @@ use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::neighborhood::{NeighborhoodConfig, NodeDescriptor};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
-use crate::test_utils::test_utils::cryptde;
 use crate::test_utils::test_utils::rate_pack;
+use crate::test_utils::test_utils::{cryptde, make_wallet};
 use std::convert::TryFrom;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -90,7 +90,7 @@ pub fn neighborhood_from_nodes(
                 .ip_addr(),
             clandestine_port_list: root.node_addr_opt().unwrap().ports(),
             earning_wallet: root.earning_wallet(),
-            consuming_wallet: Some(Wallet::new("consuming")),
+            consuming_wallet: Some(make_wallet("consuming")),
             rate_pack: root.rate_pack().clone(),
         },
     )
@@ -98,21 +98,22 @@ pub fn neighborhood_from_nodes(
 
 impl NodeRecord {
     pub fn earning_wallet_from_key(public_key: &PublicKey) -> Wallet {
-        let mut result = String::from("0x");
-        for i in public_key.as_slice() {
-            result.push_str(&format!("{:x}", i));
+        match Self::consuming_wallet_from_key(public_key) {
+            Some(wallet) => wallet,
+            None => panic!("Failed to create earning wallet"),
         }
-        Wallet { address: result }
     }
 
     pub fn consuming_wallet_from_key(public_key: &PublicKey) -> Option<Wallet> {
-        let mut result = String::from("0x");
-        let mut reversed_public_key_data = Vec::from(public_key.as_slice());
-        reversed_public_key_data.reverse();
-        for i in &reversed_public_key_data {
-            result.push_str(&format!("{:x}", i));
+        let mut data = [0u8; 64];
+        let key_slice = public_key.as_slice();
+        data[64 - key_slice.len()..].copy_from_slice(key_slice);
+        match ethsign::PublicKey::from_slice(&data) {
+            Ok(public) => Some(Wallet::from(web3::types::Address {
+                0: *public.address(),
+            })),
+            Err(_) => None,
         }
-        Some(Wallet { address: result })
     }
 
     pub fn new_for_tests(

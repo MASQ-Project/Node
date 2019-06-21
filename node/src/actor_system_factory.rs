@@ -344,7 +344,7 @@ impl ActorFactory for ActorFactoryReal {
         config: BlockchainBridgeConfig,
     ) -> BlockchainBridgeSubs {
         let blockchain_service_url = config.blockchain_service_url.clone();
-        let contract_address = config.contract_address.clone();
+        let contract_address = config.contract_address;
         let blockchain_interface: Box<dyn BlockchainInterface> = {
             match blockchain_service_url {
                 Some(url) => match BlockchainInterfaceRpc::new(url, contract_address) {
@@ -397,15 +397,14 @@ mod tests {
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
     use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage};
-    use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
-    use crate::test_utils::test_utils::cryptde;
     use crate::test_utils::test_utils::rate_pack;
     use crate::test_utils::test_utils::rate_pack_exit;
     use crate::test_utils::test_utils::rate_pack_exit_byte;
     use crate::test_utils::test_utils::rate_pack_routing;
     use crate::test_utils::test_utils::rate_pack_routing_byte;
+    use crate::test_utils::test_utils::{cryptde, make_wallet};
     use actix::System;
     use log::LevelFilter;
     use std::cell::RefCell;
@@ -722,7 +721,7 @@ mod tests {
         let config = AccountantConfig {
             payable_scan_interval: Duration::from_secs(9),
             payment_received_scan_interval: Duration::from_secs(100),
-            earning_wallet: Wallet::new("hi"),
+            earning_wallet: make_wallet("hi"),
         };
 
         let banned_cache_loader = &BannedCacheLoaderMock::default();
@@ -754,7 +753,7 @@ mod tests {
         let config = AccountantConfig {
             payable_scan_interval: Duration::from_secs(6),
             payment_received_scan_interval: Duration::from_secs(100),
-            earning_wallet: Wallet::new("hi"),
+            earning_wallet: make_wallet("hi"),
         };
         let db_initializer_mock =
             DbInitializerMock::new().initialize_result(Err(InitializationError::SqliteError(
@@ -775,7 +774,7 @@ mod tests {
         let config = AccountantConfig {
             payable_scan_interval: Duration::from_secs(6),
             payment_received_scan_interval: Duration::from_secs(100),
-            earning_wallet: Wallet::new("hi"),
+            earning_wallet: make_wallet("hi"),
         };
         let db_initializer_mock = DbInitializerMock::new()
             .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
@@ -797,7 +796,7 @@ mod tests {
         let config = AccountantConfig {
             payable_scan_interval: Duration::from_secs(6),
             payment_received_scan_interval: Duration::from_secs(1000),
-            earning_wallet: Wallet::new("mine"),
+            earning_wallet: make_wallet("mine"),
         };
         let db_initializer_mock = DbInitializerMock::new()
             .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
@@ -820,7 +819,7 @@ mod tests {
         let config = AccountantConfig {
             payable_scan_interval: Duration::from_secs(6),
             payment_received_scan_interval: Duration::from_secs(1000),
-            earning_wallet: Wallet::new("mine"),
+            earning_wallet: make_wallet("mine"),
         };
         let db_initializer_mock = DbInitializerMock::new()
             .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
@@ -844,7 +843,7 @@ mod tests {
         let config = BlockchainBridgeConfig {
             blockchain_service_url: Some("http://λ:8545".to_string()),
             contract_address: TESTNET_CONTRACT_ADDRESS,
-            consuming_private_key: None,
+            consuming_wallet: None,
             mnemonic_seed: None,
         };
         let subject = ActorFactoryReal {};
@@ -863,14 +862,14 @@ mod tests {
                 neighbor_configs: vec![],
                 local_ip_addr: IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
                 clandestine_port_list: vec![],
-                earning_wallet: Wallet::new("router"),
-                consuming_wallet: Some(Wallet::new("consumer")),
+                earning_wallet: make_wallet("router"),
+                consuming_wallet: Some(make_wallet("consumer")),
                 rate_pack: rate_pack(100),
             },
             accountant_config: AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
                 payment_received_scan_interval: Duration::from_secs(100),
-                earning_wallet: Wallet::new("hi"),
+                earning_wallet: make_wallet("hi"),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig {
@@ -880,7 +879,7 @@ mod tests {
             blockchain_bridge_config: BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 contract_address: TESTNET_CONTRACT_ADDRESS,
-                consuming_private_key: None,
+                consuming_wallet: None,
                 mnemonic_seed: None,
             },
             port_configurations: HashMap::new(),
@@ -922,14 +921,14 @@ mod tests {
                 neighbor_configs: vec![],
                 local_ip_addr: IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
                 clandestine_port_list: vec![],
-                earning_wallet: Wallet::new("router"),
-                consuming_wallet: Some(Wallet::new("consumer")),
+                earning_wallet: make_wallet("router"),
+                consuming_wallet: Some(make_wallet("consumer")),
                 rate_pack: rate_pack(100),
             },
             accountant_config: AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
                 payment_received_scan_interval: Duration::from_secs(100),
-                earning_wallet: Wallet::new("hi"),
+                earning_wallet: make_wallet("hi"),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig {
@@ -939,7 +938,7 @@ mod tests {
             blockchain_bridge_config: BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 contract_address: TESTNET_CONTRACT_ADDRESS,
-                consuming_private_key: None,
+                consuming_wallet: None,
                 mnemonic_seed: None,
             },
             port_configurations: HashMap::new(),
@@ -990,7 +989,7 @@ mod tests {
             BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 contract_address: TESTNET_CONTRACT_ADDRESS,
-                consuming_private_key: None,
+                consuming_wallet: None,
                 mnemonic_seed: None,
             }
         );

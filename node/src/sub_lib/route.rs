@@ -248,6 +248,7 @@ pub enum RouteError {
 mod tests {
     use super::*;
     use crate::sub_lib::cryptde_null::CryptDENull;
+    use crate::test_utils::test_utils::make_wallet;
     use serde_cbor;
 
     #[test]
@@ -288,7 +289,7 @@ mod tests {
     #[test]
     fn construct_does_not_like_route_segments_with_too_few_keys() {
         let cryptde = CryptDENull::new();
-        let consuming_wallet = Wallet::new("wallet");
+        let consuming_wallet = make_wallet("wallet");
         let result = Route::one_way(
             RouteSegment::new(vec![], Component::ProxyClient),
             &cryptde,
@@ -307,7 +308,7 @@ mod tests {
         let c_key = PublicKey::new(&[67, 67, 67]);
         let d_key = PublicKey::new(&[68, 68, 68]);
         let cryptde = CryptDENull::new();
-        let consuming_wallet = Wallet::new("wallet");
+        let consuming_wallet = make_wallet("wallet");
 
         let result = Route::round_trip(
             RouteSegment::new(vec![&a_key, &b_key], Component::ProxyClient),
@@ -354,7 +355,7 @@ mod tests {
         let f_key = PublicKey::new(&[70, 70, 70]);
 
         let cryptde = CryptDENull::new();
-        let consuming_wallet = Wallet::new("wallet");
+        let consuming_wallet = make_wallet("wallet");
         let return_route_id = 4321;
 
         let subject = Route::round_trip(
@@ -442,7 +443,7 @@ mod tests {
         let a_key = PublicKey::new(&[65, 65, 65]);
         let b_key = PublicKey::new(&[66, 66, 66]);
         let cryptde = CryptDENull::new();
-        let consuming_wallet = Wallet::new("wallet");
+        let consuming_wallet = make_wallet("wallet");
 
         let subject = Route::one_way(
             RouteSegment::new(vec![&a_key, &b_key], Component::Neighborhood),
@@ -471,7 +472,7 @@ mod tests {
     #[test]
     fn next_hop_decodes_top_hop() {
         let cryptde = CryptDENull::new();
-        let consuming_wallet = Wallet::new("wallet");
+        let consuming_wallet = make_wallet("wallet");
         let key12 = cryptde.public_key();
         let key34 = PublicKey::new(&[3, 4]);
         let key56 = PublicKey::new(&[5, 6]);
@@ -511,7 +512,7 @@ mod tests {
     #[test]
     fn shift_returns_next_hop_and_adds_garbage_at_the_bottom() {
         let cryptde = CryptDENull::new();
-        let consuming_wallet = Wallet::new("wallet");
+        let consuming_wallet = make_wallet("wallet");
         let key12 = cryptde.public_key();
         let key34 = PublicKey::new(&[3, 4]);
         let key56 = PublicKey::new(&[5, 6]);
@@ -574,7 +575,7 @@ mod tests {
         let key1 = PublicKey::new(&[1, 2, 3, 4]);
         let key2 = PublicKey::new(&[4, 3, 2, 1]);
         let cryptde = CryptDENull::new();
-        let consuming_wallet = Wallet::new("wallet");
+        let consuming_wallet = make_wallet("wallet");
         let original = Route::round_trip(
             RouteSegment::new(vec![&key1, &key2], Component::ProxyClient),
             RouteSegment::new(vec![&key2, &key1], Component::ProxyServer),

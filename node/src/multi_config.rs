@@ -20,6 +20,17 @@ macro_rules! value_m {
     }};
 }
 
+macro_rules! value_user_specified_m {
+    ($m:ident, $v:expr, $t:ty) => {{
+        let matches = $m.arg_matches();
+        let user_specified = matches.occurrences_of($v) > 0;
+        match value_t!(matches, $v, $t) {
+            Ok(v) => (Some(v), user_specified),
+            Err(_) => (None, user_specified),
+        }
+    }};
+}
+
 macro_rules! values_m {
     ($m:ident, $v:expr, $t:ty) => {{
         let matches = $m.arg_matches();
@@ -39,8 +50,9 @@ impl<'a> MultiConfig<'a> {
     /// several VirtualCommandLine objects in increasing priority order. That is, values found in
     /// VirtualCommandLine objects placed later in the list will override values found in
     /// VirtualCommandLine objects placed earlier.
-    pub fn new(schema: &App<'a, 'a>, vcls: Vec<Box<VirtualCommandLine>>) -> MultiConfig<'a> {
-        let initial: Box<VirtualCommandLine> = Box::new(CommandLineVCL::new(vec![String::new()]));
+    pub fn new(schema: &App<'a, 'a>, vcls: Vec<Box<dyn VirtualCommandLine>>) -> MultiConfig<'a> {
+        let initial: Box<dyn VirtualCommandLine> =
+            Box::new(CommandLineVCL::new(vec![String::new()]));
         let merged = vcls
             .into_iter()
             .fold(initial, |so_far, vcl| merge(so_far, vcl));
@@ -66,17 +78,17 @@ impl<'a> MultiConfig<'a> {
 pub trait VclArg: Debug {
     fn name(&self) -> &str;
     fn to_args(&self) -> Vec<String>;
-    fn dup(&self) -> Box<VclArg>;
+    fn dup(&self) -> Box<dyn VclArg>;
 }
 
-fn vcl_args_to_args(vcl_args: &Vec<Box<VclArg>>) -> Vec<String> {
+fn vcl_args_to_args(vcl_args: &[Box<dyn VclArg>]) -> Vec<String> {
     vec![String::new()] // ersatz command
         .into_iter()
         .chain(vcl_args.iter().flat_map(|va| va.to_args()))
         .collect()
 }
 
-fn vcl_args_to_vcl_args(vcl_args: &Vec<Box<VclArg>>) -> Vec<&VclArg> {
+fn vcl_args_to_vcl_args(vcl_args: &[Box<dyn VclArg>]) -> Vec<&dyn VclArg> {
     vcl_args.iter().map(|box_ref| box_ref.as_ref()).collect()
 }
 
@@ -95,7 +107,7 @@ impl VclArg for NameValueVclArg {
         vec![self.name.clone(), self.value.clone()]
     }
 
-    fn dup(&self) -> Box<VclArg> {
+    fn dup(&self) -> Box<dyn VclArg> {
         Box::new(NameValueVclArg::new(self.name(), self.value.as_str()))
     }
 }
@@ -137,19 +149,19 @@ impl NameOnlyVclArg {
 }
 
 pub trait VirtualCommandLine {
-    fn vcl_args(&self) -> Vec<&VclArg>;
+    fn vcl_args(&self) -> Vec<&dyn VclArg>;
     fn args(&self) -> Vec<String>;
 }
 
 pub fn merge(
-    lower_priority: Box<VirtualCommandLine>,
-    higher_priority: Box<VirtualCommandLine>,
-) -> Box<VirtualCommandLine> {
+    lower_priority: Box<dyn VirtualCommandLine>,
+    higher_priority: Box<dyn VirtualCommandLine>,
+) -> Box<dyn VirtualCommandLine> {
     let combined_vcl_args = higher_priority
         .vcl_args()
         .into_iter()
         .chain(lower_priority.vcl_args().into_iter())
-        .collect::<Vec<&VclArg>>();
+        .collect::<Vec<&dyn VclArg>>();
     let mut names = combined_vcl_args
         .iter()
         .map(|vcl_arg| vcl_arg.name().to_string())
@@ -166,18 +178,18 @@ pub fn merge(
             }
         })
         .map(|vcl_arg_ref| vcl_arg_ref.dup())
-        .collect::<Vec<Box<VclArg>>>();
+        .collect::<Vec<Box<dyn VclArg>>>();
     Box::new(CommandLineVCL {
         vcl_args: prioritized_vcl_args,
     })
 }
 
 pub struct CommandLineVCL {
-    vcl_args: Vec<Box<VclArg>>,
+    vcl_args: Vec<Box<dyn VclArg>>,
 }
 
 impl VirtualCommandLine for CommandLineVCL {
-    fn vcl_args(&self) -> Vec<&VclArg> {
+    fn vcl_args(&self) -> Vec<&dyn VclArg> {
         vcl_args_to_vcl_args(&self.vcl_args)
     }
 
@@ -186,8 +198,8 @@ impl VirtualCommandLine for CommandLineVCL {
     }
 }
 
-impl From<Vec<Box<VclArg>>> for CommandLineVCL {
-    fn from(vcl_args: Vec<Box<VclArg>>) -> Self {
+impl From<Vec<Box<dyn VclArg>>> for CommandLineVCL {
+    fn from(vcl_args: Vec<Box<dyn VclArg>>) -> Self {
         CommandLineVCL { vcl_args }
     }
 }
@@ -205,7 +217,7 @@ impl CommandLineVCL {
         CommandLineVCL { vcl_args }
     }
 
-    fn next_vcl_arg(args: &mut Vec<String>) -> Option<Box<VclArg>> {
+    fn next_vcl_arg(args: &mut Vec<String>) -> Option<Box<dyn VclArg>> {
         if args.is_empty() {
             return None;
         }
@@ -223,11 +235,11 @@ impl CommandLineVCL {
 }
 
 pub struct EnvironmentVCL {
-    vcl_args: Vec<Box<VclArg>>,
+    vcl_args: Vec<Box<dyn VclArg>>,
 }
 
 impl VirtualCommandLine for EnvironmentVCL {
-    fn vcl_args(&self) -> Vec<&VclArg> {
+    fn vcl_args(&self) -> Vec<&dyn VclArg> {
         vcl_args_to_vcl_args(&self.vcl_args)
     }
 
@@ -244,7 +256,7 @@ impl EnvironmentVCL {
             .iter()
             .map(|opt| opt.b.name.to_string())
             .collect();
-        let mut vcl_args: Vec<Box<VclArg>> = vec![];
+        let mut vcl_args: Vec<Box<dyn VclArg>> = vec![];
         for (upper_name, value) in std::env::vars() {
             if (upper_name.len() < 4) || (&upper_name[0..4] != "SUB_") {
                 continue;
@@ -260,11 +272,11 @@ impl EnvironmentVCL {
 }
 
 pub struct ConfigFileVCL {
-    vcl_args: Vec<Box<VclArg>>,
+    vcl_args: Vec<Box<dyn VclArg>>,
 }
 
 impl VirtualCommandLine for ConfigFileVCL {
-    fn vcl_args(&self) -> Vec<&VclArg> {
+    fn vcl_args(&self) -> Vec<&dyn VclArg> {
         vcl_args_to_vcl_args(&self.vcl_args)
     }
 
@@ -306,7 +318,7 @@ impl ConfigFileVCL {
             ),
             Ok(table) => table,
         };
-        let vcl_args: Vec<Box<VclArg>> = table
+        let vcl_args: Vec<Box<dyn VclArg>> = table
             .keys()
             .map(|key| {
                 let name = format!("--{}", key);
@@ -317,7 +329,8 @@ impl ConfigFileVCL {
                     Value::String(v) => v.as_str().to_string(),
                     v => v.to_string(),
                 };
-                let result: Box<VclArg> = Box::new(NameValueVclArg::new(&name, &value.to_string()));
+                let result: Box<dyn VclArg> =
+                    Box::new(NameValueVclArg::new(&name, &value.to_string()));
                 result
             })
             .collect();
@@ -331,7 +344,7 @@ impl ConfigFileVCL {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -339,6 +352,20 @@ mod tests {
     use clap::Arg;
     use std::fs::File;
     use std::io::Write;
+
+    pub struct FauxEnvironmentVCL {
+        pub vcl_args: Vec<Box<dyn VclArg>>,
+    }
+
+    impl VirtualCommandLine for FauxEnvironmentVCL {
+        fn vcl_args(&self) -> Vec<&dyn VclArg> {
+            vcl_args_to_vcl_args(&self.vcl_args)
+        }
+
+        fn args(&self) -> Vec<String> {
+            vcl_args_to_args(&self.vcl_args)
+        }
+    }
 
     #[test]
     fn double_provided_optional_single_valued_parameter_with_no_default_produces_second_value() {
@@ -348,7 +375,7 @@ mod tests {
                 .takes_value(true)
                 .required(false),
         );
-        let vcls: Vec<Box<VirtualCommandLine>> = vec![
+        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(CommandLineVCL::new(vec![
                 String::new(),
                 "--numeric_arg".to_string(),
@@ -375,7 +402,7 @@ mod tests {
                 .takes_value(true)
                 .required(false),
         );
-        let vcls: Vec<Box<VirtualCommandLine>> = vec![
+        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(CommandLineVCL::new(vec![
                 String::new(),
                 "--numeric_arg".to_string(),
@@ -398,7 +425,7 @@ mod tests {
                 .takes_value(true)
                 .required(false),
         );
-        let vcls: Vec<Box<VirtualCommandLine>> = vec![
+        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(CommandLineVCL::new(vec![String::new()])),
             Box::new(CommandLineVCL::new(vec![
                 String::new(),
@@ -423,7 +450,7 @@ mod tests {
                 .multiple(true)
                 .use_delimiter(true),
         );
-        let vcls: Vec<Box<VirtualCommandLine>> = vec![
+        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(CommandLineVCL::new(vec![
                 String::new(),
                 "--numeric_arg".to_string(),
@@ -452,7 +479,7 @@ mod tests {
                 .multiple(true)
                 .use_delimiter(true),
         );
-        let vcls: Vec<Box<VirtualCommandLine>> = vec![
+        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(CommandLineVCL::new(vec![
                 String::new(),
                 "--numeric_arg".to_string(),
@@ -477,7 +504,7 @@ mod tests {
                 .multiple(true)
                 .use_delimiter(true),
         );
-        let vcls: Vec<Box<VirtualCommandLine>> = vec![
+        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(CommandLineVCL::new(vec![String::new()])),
             Box::new(CommandLineVCL::new(vec![
                 String::new(),
@@ -500,7 +527,7 @@ mod tests {
                 .takes_value(true)
                 .required(true),
         );
-        let vcls: Vec<Box<VirtualCommandLine>> = vec![
+        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(CommandLineVCL::new(vec![
                 String::new(),
                 "--numeric_arg".to_string(),
@@ -523,7 +550,7 @@ mod tests {
                 .takes_value(true)
                 .required(true),
         );
-        let vcls: Vec<Box<VirtualCommandLine>> = vec![
+        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(CommandLineVCL::new(vec![String::new()])),
             Box::new(CommandLineVCL::new(vec![
                 String::new(),
@@ -539,13 +566,100 @@ mod tests {
     }
 
     #[test]
+    fn first_provided_required_single_valued_parameter_with_no_default_produces_provided_value_with_user_specified_flag(
+    ) {
+        let schema = App::new("test").arg(
+            Arg::with_name("numeric_arg")
+                .long("numeric_arg")
+                .takes_value(true)
+                .required(true),
+        );
+        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
+            Box::new(CommandLineVCL::new(vec![
+                String::new(),
+                "--numeric_arg".to_string(),
+                "20".to_string(),
+            ])),
+            Box::new(CommandLineVCL::new(vec![String::new()])),
+        ];
+        let subject = MultiConfig::new(&schema, vcls);
+
+        let (result, user_specified) = value_user_specified_m!(subject, "numeric_arg", u64);
+
+        assert_eq!(Some(20), result);
+        assert!(user_specified);
+    }
+
+    #[test]
+    fn second_provided_required_single_valued_parameter_with_no_default_produces_provided_value_with_user_specified_flag(
+    ) {
+        let schema = App::new("test").arg(
+            Arg::with_name("numeric_arg")
+                .long("numeric_arg")
+                .takes_value(true)
+                .required(true),
+        );
+        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
+            Box::new(CommandLineVCL::new(vec![String::new()])),
+            Box::new(CommandLineVCL::new(vec![
+                String::new(),
+                "--numeric_arg".to_string(),
+                "20".to_string(),
+            ])),
+        ];
+        let subject = MultiConfig::new(&schema, vcls);
+
+        let (result, user_specified) = value_user_specified_m!(subject, "numeric_arg", u64);
+
+        assert_eq!(Some(20), result);
+        assert!(user_specified);
+    }
+
+    #[test]
+    fn optional_single_valued_parameter_with_default_produces_provided_value_with_user_specified_flag(
+    ) {
+        let schema = App::new("test")
+            .arg(
+                Arg::with_name("numeric-arg")
+                    .long("numeric-arg")
+                    .takes_value(true)
+                    .required(false)
+                    .default_value("20"),
+            )
+            .arg(
+                Arg::with_name("missing-arg")
+                    .long("missing-arg")
+                    .takes_value(true)
+                    .required(false)
+                    .default_value("88"),
+            );
+        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVCL::new(vec![
+            String::new(),
+            "--numeric-arg".to_string(),
+            "20".to_string(),
+        ]))];
+        let subject = MultiConfig::new(&schema, vcls);
+
+        let (numeric_arg_result, user_specified_numeric) =
+            value_user_specified_m!(subject, "numeric-arg", u64);
+        let (missing_arg_result, user_specified_missing) =
+            value_user_specified_m!(subject, "missing-arg", u64);
+
+        assert_eq!(Some(20), numeric_arg_result);
+        assert!(user_specified_numeric);
+        assert_eq!(Some(88), missing_arg_result);
+        assert!(!user_specified_missing);
+        assert!(subject.arg_matches().is_present("missing-arg"));
+    }
+
+    #[test]
     fn existing_nonvalued_parameter_overrides_nonexistent_nonvalued_parameter() {
         let schema = App::new("test").arg(
             Arg::with_name("nonvalued")
                 .long("nonvalued")
                 .takes_value(false),
         );
-        let vcls: Vec<Box<VirtualCommandLine>> = vec![
+        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(CommandLineVCL::new(vec![String::new()])),
             Box::new(CommandLineVCL::new(vec![
                 String::new(),
@@ -568,7 +682,7 @@ mod tests {
                 .takes_value(true)
                 .required(true),
         );
-        let vcls: Vec<Box<VirtualCommandLine>> =
+        let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVCL::new(vec![String::new()]))];
         MultiConfig::new(&schema, vcls);
     }

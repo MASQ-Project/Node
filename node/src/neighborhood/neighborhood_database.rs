@@ -395,7 +395,7 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             this_node.public_key(),
             &this_node.node_addr_opt().unwrap(),
-            Wallet::new("0x1234"),
+            Wallet::from_str("0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0").unwrap(),
             rate_pack(1234),
             &CryptDENull::from(this_node.public_key()),
         );
@@ -450,7 +450,7 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             this_node.public_key(),
             &this_node.node_addr_opt().unwrap(),
-            Wallet::new("0x1234"),
+            Wallet::from_str("0x0000000000000000000000000000000000001234").unwrap(),
             rate_pack(100),
             &CryptDENull::from(this_node.public_key()),
         );
@@ -579,7 +579,7 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             this_node.public_key(),
             &this_node.node_addr_opt().unwrap(),
-            Wallet::new("0x1234"),
+            Wallet::from_str("0x0000000000000000000000000000000000001234").unwrap(),
             rate_pack(100),
             &CryptDENull::from(this_node.public_key()),
         );
@@ -693,7 +693,7 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             this_node.public_key(),
             &this_node.node_addr_opt().unwrap(),
-            Wallet::new("0x123"),
+            Wallet::from_str("0x0000000000000000000000000000000000000123").unwrap(),
             rate_pack(100),
             &CryptDENull::from(this_node.public_key()),
         );
@@ -740,7 +740,7 @@ mod tests {
         let mut subject = NeighborhoodDatabase::new(
             this_node.public_key(),
             &this_node.node_addr_opt().unwrap(),
-            Wallet::new("0x123"),
+            Wallet::from_str("0x0000000000000000000000000000000000000123").unwrap(),
             rate_pack(100),
             &CryptDENull::from(this_node.public_key()),
         );

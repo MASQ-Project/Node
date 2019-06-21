@@ -2,13 +2,13 @@
 
 use crate::accountant::receivable_dao::ReceivableAccount;
 use crate::database::dao_utils::{from_time_t, to_time_t};
-use crate::sub_lib::wallet::Wallet;
+use crate::test_utils::test_utils::make_wallet;
 use std::time::SystemTime;
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
     let now = to_time_t(&SystemTime::now());
     ReceivableAccount {
-        wallet_address: Wallet::new(&format!(
+        wallet: make_wallet(&format!(
             "wallet{}{}",
             n,
             if expected_delinquent { "d" } else { "n" }

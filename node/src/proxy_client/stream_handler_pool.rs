@@ -472,7 +472,6 @@ mod tests {
     use crate::sub_lib::hopper::ExpiredCoresPackage;
     use crate::sub_lib::hopper::MessageType;
     use crate::sub_lib::proxy_server::ProxyProtocol;
-    use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::channel_wrapper_mocks::FuturesChannelFactoryMock;
     use crate::test_utils::channel_wrapper_mocks::ReceiverWrapperMock;
     use crate::test_utils::channel_wrapper_mocks::SenderWrapperMock;
@@ -481,10 +480,10 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::stream_connector_mock::StreamConnectorMock;
-    use crate::test_utils::test_utils::await_messages;
     use crate::test_utils::test_utils::cryptde;
     use crate::test_utils::test_utils::make_meaningless_route;
     use crate::test_utils::test_utils::make_meaningless_stream_key;
+    use crate::test_utils::test_utils::{await_messages, make_wallet};
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use actix::System;
@@ -612,7 +611,7 @@ mod tests {
 
         let package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
-            Some(Wallet::new("consuming")),
+            Some(make_wallet("consuming")),
             make_meaningless_route(),
             client_request_payload.clone().into(),
             0,
@@ -667,7 +666,7 @@ mod tests {
             };
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
-                Some(Wallet::new("consuming")),
+                Some(make_wallet("consuming")),
                 make_meaningless_route(),
                 client_request_payload.clone().into(),
                 0,
@@ -736,7 +735,7 @@ mod tests {
             };
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
-                Some(Wallet::new("consuming")),
+                Some(make_wallet("consuming")),
                 make_meaningless_route(),
                 client_request_payload.into(),
                 0,
@@ -845,7 +844,7 @@ mod tests {
             };
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
-                Some(Wallet::new("consuming")),
+                Some(make_wallet("consuming")),
                 make_meaningless_route(),
                 client_request_payload.into(),
                 0,
@@ -952,7 +951,7 @@ mod tests {
             };
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
-                Some(Wallet::new("consuming")),
+                Some(make_wallet("consuming")),
                 make_meaningless_route(),
                 client_request_payload.into(),
                 0,
@@ -1016,7 +1015,7 @@ mod tests {
             };
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
-                Some(Wallet::new("consuming")),
+                Some(make_wallet("consuming")),
                 make_meaningless_route(),
                 client_request_payload.into(),
                 0,
@@ -1124,7 +1123,7 @@ mod tests {
             };
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
-                Some(Wallet::new("consuming")),
+                Some(make_wallet("consuming")),
                 make_meaningless_route(),
                 client_request_payload.into(),
                 0,
@@ -1211,7 +1210,7 @@ mod tests {
 
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
-                Some(Wallet::new("consuming")),
+                Some(make_wallet("consuming")),
                 make_meaningless_route(),
                 client_request_payload.into(),
                 0,
@@ -1320,7 +1319,7 @@ mod tests {
             };
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
-                Some(Wallet::new("consuming")),
+                Some(make_wallet("consuming")),
                 make_meaningless_route(),
                 client_request_payload.into(),
                 0,
@@ -1381,7 +1380,7 @@ mod tests {
         };
         let package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
-            Some(Wallet::new("consuming")),
+            Some(make_wallet("consuming")),
             make_meaningless_route(),
             client_request_payload.into(),
             0,
@@ -1453,7 +1452,7 @@ mod tests {
         };
         let package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
-            Some(Wallet::new("consuming")),
+            Some(make_wallet("consuming")),
             make_meaningless_route(),
             client_request_payload.into(),
             0,
@@ -1524,7 +1523,7 @@ mod tests {
             };
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
-                Some(Wallet::new("consuming")),
+                Some(make_wallet("consuming")),
                 make_meaningless_route(),
                 client_request_payload.into(),
                 0,

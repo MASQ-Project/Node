@@ -13,7 +13,7 @@ use std::time::Duration;
 #[test]
 fn downloading_a_file_larger_than_available_memory_doesnt_kill_node_but_makes_it_stronger() {
     let mut cluster = SubstratumNodeCluster::start().expect("starting cluster");
-    let maximum_kbytes = "51200";
+    let maximum_kbytes = "142640";
     let originating_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .memory(maximum_kbytes)

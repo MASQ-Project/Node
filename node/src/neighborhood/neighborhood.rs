@@ -834,18 +834,17 @@ mod tests {
     use crate::sub_lib::neighborhood::sentinel_ip_addr;
     use crate::sub_lib::neighborhood::ExpectedServices;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
-    use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
-    use crate::test_utils::test_utils::assert_contains;
     use crate::test_utils::test_utils::cryptde;
     use crate::test_utils::test_utils::make_meaningless_route;
     use crate::test_utils::test_utils::rate_pack;
     use crate::test_utils::test_utils::vec_to_set;
+    use crate::test_utils::test_utils::{assert_contains, make_wallet};
     use actix::dev::{MessageResponse, ResponseChannel};
     use actix::Message;
     use actix::Recipient;
@@ -954,8 +953,8 @@ mod tests {
     )]
     fn neighborhood_cannot_be_created_with_neighbors_and_default_ip() {
         let cryptde = cryptde();
-        let earning_wallet = Wallet::new("earning");
-        let consuming_wallet = Some(Wallet::new("consuming"));
+        let earning_wallet = make_wallet("earning");
+        let consuming_wallet = Some(make_wallet("consuming"));
         let neighbor = make_node_record(1234, true);
 
         Neighborhood::new(
@@ -978,7 +977,7 @@ mod tests {
     #[test]
     fn node_neighborhood_creates_single_node_database() {
         let cryptde = cryptde();
-        let earning_wallet = Wallet::new("earning");
+        let earning_wallet = make_wallet("earning");
         let this_node_addr = NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]);
 
         let subject = Neighborhood::new(
@@ -1004,8 +1003,8 @@ mod tests {
     fn node_with_no_neighbor_configs_ignores_bootstrap_neighborhood_now_message() {
         init_test_logging();
         let cryptde = cryptde();
-        let earning_wallet = Wallet::new("earning");
-        let consuming_wallet = Some(Wallet::new("consuming"));
+        let earning_wallet = make_wallet("earning");
+        let consuming_wallet = Some(make_wallet("consuming"));
         let system =
             System::new("node_with_no_neighbor_configs_ignores_bootstrap_neighborhood_now_message");
         let subject = Neighborhood::new(
@@ -1042,8 +1041,8 @@ mod tests {
     )]
     fn node_with_bad_neighbor_config_panics() {
         let cryptde = cryptde();
-        let earning_wallet = Wallet::new("earning");
-        let consuming_wallet = Some(Wallet::new("consuming"));
+        let earning_wallet = make_wallet("earning");
+        let consuming_wallet = Some(make_wallet("consuming"));
         let system =
             System::new("node_with_no_neighbor_configs_ignores_bootstrap_neighborhood_now_message");
         let subject = Neighborhood::new(
@@ -1072,8 +1071,8 @@ mod tests {
     #[test]
     fn neighborhood_adds_nodes_and_links() {
         let cryptde = cryptde();
-        let earning_wallet = Wallet::new("earning");
-        let consuming_wallet = Some(Wallet::new("consuming"));
+        let earning_wallet = make_wallet("earning");
+        let consuming_wallet = Some(make_wallet("consuming"));
         let one_neighbor_node = make_node_record(3456, true);
         let another_neighbor_node = make_node_record(4567, true);
         let this_node_addr = NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]);
@@ -1151,8 +1150,8 @@ mod tests {
     #[test]
     fn node_query_responds_with_none_when_key_query_matches_no_configured_data() {
         let cryptde = cryptde();
-        let earning_wallet = Wallet::new("earning");
-        let consuming_wallet = Some(Wallet::new("consuming"));
+        let earning_wallet = make_wallet("earning");
+        let consuming_wallet = Some(make_wallet("consuming"));
         let system =
             System::new("node_query_responds_with_none_when_key_query_matches_no_configured_data");
         let subject = Neighborhood::new(
@@ -1187,8 +1186,8 @@ mod tests {
     #[test]
     fn node_query_responds_with_result_when_key_query_matches_configured_data() {
         let cryptde = cryptde();
-        let earning_wallet = Wallet::new("earning");
-        let consuming_wallet = Some(Wallet::new("consuming"));
+        let earning_wallet = make_wallet("earning");
+        let consuming_wallet = Some(make_wallet("consuming"));
         let system =
             System::new("node_query_responds_with_result_when_key_query_matches_configured_data");
         let one_neighbor = make_node_record(2345, true);
@@ -1231,8 +1230,8 @@ mod tests {
     #[test]
     fn node_query_responds_with_none_when_ip_address_query_matches_no_configured_data() {
         let cryptde = cryptde();
-        let earning_wallet = Wallet::new("earning");
-        let consuming_wallet = Some(Wallet::new("consuming"));
+        let earning_wallet = make_wallet("earning");
+        let consuming_wallet = Some(make_wallet("consuming"));
         let system = System::new(
             "node_query_responds_with_none_when_ip_address_query_matches_no_configured_data",
         );
@@ -1354,7 +1353,7 @@ mod tests {
     #[test]
     fn route_query_succeeds_when_asked_for_one_hop_round_trip_route_without_consuming_wallet() {
         let cryptde = cryptde();
-        let earning_wallet = Wallet::new("earning");
+        let earning_wallet = make_wallet("earning");
         let system = System::new(
             "route_query_succeeds_when_asked_for_one_hop_round_trip_route_without_consuming_wallet",
         );
@@ -1554,7 +1553,7 @@ mod tests {
     #[test]
     fn route_query_messages() {
         let cryptde = cryptde();
-        let earning_wallet = Wallet::new("earning");
+        let earning_wallet = make_wallet("earning");
         let system = System::new("route_query_messages");
         let mut subject = make_standard_subject();
         subject
@@ -1925,8 +1924,8 @@ mod tests {
     fn gossips_after_removing_a_neighbor() {
         let (hopper, hopper_awaiter, hopper_recording) = make_recorder();
         let cryptde = cryptde();
-        let earning_wallet = Wallet::new("earning");
-        let consuming_wallet = Some(Wallet::new("consuming"));
+        let earning_wallet = make_wallet("earning");
+        let consuming_wallet = Some(make_wallet("consuming"));
         let this_node = NodeRecord::new_for_tests(
             &cryptde.public_key(),
             Some(&NodeAddr::new(
@@ -2428,7 +2427,7 @@ mod tests {
             .build();
         let cores_package = ExpiredCoresPackage {
             immediate_neighbor_ip: IpAddr::from_str("1.2.3.4").unwrap(),
-            consuming_wallet: Some(Wallet::new("consuming")),
+            consuming_wallet: Some(make_wallet("consuming")),
             remaining_route: make_meaningless_route(),
             payload: gossip,
             payload_len: 0,
@@ -2656,8 +2655,8 @@ mod tests {
     fn neighborhood_sends_node_query_response_with_none_when_key_query_matches_no_configured_data()
     {
         let cryptde = cryptde();
-        let earning_wallet = Wallet::new("earning");
-        let consuming_wallet = Some(Wallet::new("consuming"));
+        let earning_wallet = make_wallet("earning");
+        let consuming_wallet = Some(make_wallet("consuming"));
         let (recorder, awaiter, recording_arc) = make_recorder();
         thread::spawn(move || {
             let system = System::new ("neighborhood_sends_node_query_response_with_none_when_key_query_matches_no_configured_data");
@@ -2712,8 +2711,8 @@ mod tests {
     #[test]
     fn neighborhood_sends_node_query_response_with_result_when_key_query_matches_configured_data() {
         let cryptde = cryptde();
-        let earning_wallet = Wallet::new("earning");
-        let consuming_wallet = Some(Wallet::new("consuming"));
+        let earning_wallet = make_wallet("earning");
+        let consuming_wallet = Some(make_wallet("consuming"));
         let (recorder, awaiter, recording_arc) = make_recorder();
         let one_neighbor = make_node_record(2345, true);
         let another_neighbor = make_node_record(3456, true);
@@ -2775,8 +2774,8 @@ mod tests {
     fn neighborhood_sends_node_query_response_with_none_when_ip_address_query_matches_no_configured_data(
     ) {
         let cryptde = cryptde();
-        let earning_wallet = Wallet::new("earning");
-        let consuming_wallet = Some(Wallet::new("consuming"));
+        let earning_wallet = make_wallet("earning");
+        let consuming_wallet = Some(make_wallet("consuming"));
         let (recorder, awaiter, recording_arc) = make_recorder();
         thread::spawn(move || {
             let system = System::new("neighborhood_sends_node_query_response_with_none_when_ip_address_query_matches_no_configured_data");

@@ -44,12 +44,13 @@ impl LiveHop {
 mod tests {
     use super::*;
     use crate::sub_lib::cryptde_null::CryptDENull;
+    use crate::test_utils::test_utils::make_wallet;
 
     #[test]
     fn can_construct_hop() {
         let subject = LiveHop::new(
             &PublicKey::new("key".as_bytes()),
-            Some(Wallet::new("wallet")),
+            Some(make_wallet("wallet")),
             Component::Neighborhood,
         );
 
@@ -76,7 +77,7 @@ mod tests {
     #[test]
     fn encode_decode() {
         let cryptde = CryptDENull::new();
-        let consuming_wallet = Wallet::new("wallet");
+        let consuming_wallet = make_wallet("wallet");
         let encode_key = cryptde.public_key();
         let hopper_hop = LiveHop::new(
             &&PublicKey::new(&[4, 3, 2, 1]),

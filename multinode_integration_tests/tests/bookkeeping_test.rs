@@ -10,6 +10,7 @@ use node_lib::accountant::receivable_dao::{ReceivableAccount, ReceivableDao, Rec
 use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
 use node_lib::sub_lib::wallet::Wallet;
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 
@@ -68,7 +69,7 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
     payables.iter().for_each(|payable| {
         assert_eq!(
             &payable.balance,
-            receivable_balances.get(&payable.wallet_address).unwrap(),
+            receivable_balances.get(&payable.wallet).unwrap(),
         );
     });
 }
@@ -130,5 +131,5 @@ fn make_wallet_from(n: usize) -> Wallet {
     for _ in 0..40 {
         address.push(((n + '0' as usize) as u8) as char);
     }
-    Wallet::new(address.as_str())
+    Wallet::from_str(&address).unwrap()
 }

@@ -123,7 +123,7 @@ impl BootstrapperConfig {
             blockchain_bridge_config: BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 contract_address: TESTNET_CONTRACT_ADDRESS,
-                consuming_private_key: None,
+                consuming_wallet: None,
                 mnemonic_seed: None,
             },
             port_configurations: HashMap::new(),
@@ -357,7 +357,7 @@ mod tests {
 
     impl ListenerHandlerFactory for ListenerHandlerFactoryMock {
         fn make(&self) -> Box<dyn ListenerHandler<Item = (), Error = ()>> {
-            self.log.log(format!("make ()"));
+            self.log.log(String::from("make ()"));
             self.mocks.borrow_mut().remove(0)
         }
     }
@@ -402,7 +402,7 @@ mod tests {
 
         fn bind_subs(&mut self, add_stream_sub: Recipient<AddStreamMsg>) {
             let logger = Logger::new("ListenerHandler");
-            logger.error(format!("bind_subscribers (add_stream_sub)"));
+            logger.error(String::from("bind_subscribers (add_stream_sub)"));
 
             self.add_stream_sub = Some(add_stream_sub);
         }
@@ -413,7 +413,7 @@ mod tests {
         type Error = ();
 
         fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
-            self.log.lock().unwrap().log(format!("poll (...)"));
+            self.log.lock().unwrap().log(String::from("poll (...)"));
             let mut add_stream_msgs = self.add_stream_msgs.lock().unwrap();
             let add_stream_sub = self.add_stream_sub.as_ref().unwrap();
             while add_stream_msgs.len() > 0 {
@@ -541,20 +541,20 @@ mod tests {
             "bootstrapper",
             "initialize_as_unprivileged_passes_node_descriptor_to_ui_config",
         );
+        let mut config = BootstrapperConfig::new();
+        config.clandestine_port_opt = Some(1234);
+        config.data_directory = home_dir;
         let mut subject = BootstrapperBuilder::new()
             .add_listener_handler(Box::new(
                 ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())),
             ))
+            .config(config)
             .build();
-        let mut config = BootstrapperConfig::new();
-        config.clandestine_port_opt = Some(1234);
-        config.data_directory = home_dir;
-        subject.config = config;
 
         subject.initialize_as_unprivileged(&mut FakeStreamHolder::new().streams());
 
         let config = subject.config;
-        assert!(config.ui_gateway_config.node_descriptor.len() > 0);
+        assert!(!config.ui_gateway_config.node_descriptor.is_empty());
     }
 
     #[test]
@@ -736,13 +736,13 @@ mod tests {
         );
         let (listener_handler, listener_handler_log_arc) =
             extract_log(ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())));
-        let mut subject = BootstrapperBuilder::new()
-            .add_listener_handler(Box::new(listener_handler))
-            .build();
         let mut config = BootstrapperConfig::new();
         config.data_directory = home_dir;
         config.clandestine_port_opt = Some(1234);
-        subject.config = config;
+        let mut subject = BootstrapperBuilder::new()
+            .add_listener_handler(Box::new(listener_handler))
+            .config(config)
+            .build();
 
         subject.initialize_as_unprivileged(&mut FakeStreamHolder::new().streams());
 
@@ -759,6 +759,7 @@ mod tests {
     #[test]
     fn initialize_as_unprivileged_moves_streams_from_listener_handlers_to_stream_handler_pool() {
         let _lock = INITIALIZATION.lock();
+        let home_dir = ensure_node_home_directory_exists("bootstrapper", "initialize_as_unprivileged_moves_streams_from_listener_handlers_to_stream_handler_pool");
         init_test_logging();
         let mut holder = FakeStreamHolder::new();
         let one_listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
@@ -766,11 +767,14 @@ mod tests {
         let yet_another_listener_handler =
             ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
         let actor_system_factory = ActorSystemFactoryMock::new();
+        let mut config = BootstrapperConfig::new();
+        config.data_directory = home_dir;
         let mut subject = BootstrapperBuilder::new()
             .actor_system_factory(Box::new(actor_system_factory))
             .add_listener_handler(Box::new(one_listener_handler))
             .add_listener_handler(Box::new(another_listener_handler))
             .add_listener_handler(Box::new(yet_another_listener_handler))
+            .config(config)
             .build();
         let mut log_initializer: Box<LoggerInitializerWrapper> =
             Box::new(LoggerInitializerWrapperMock::new());
@@ -862,7 +866,6 @@ mod tests {
         let recording = recording_arc.lock().unwrap();
         assert_eq!(recording.len(), number_of_expected_messages);
         let actual_ports: Vec<String> = (0..number_of_expected_messages)
-            .into_iter()
             .map(|i| {
                 let record = recording.get_record::<AddStreamMsg>(i);
                 format!("{:?}", record.origin_port)
@@ -875,16 +878,12 @@ mod tests {
 
     #[test]
     fn establish_clandestine_port_handles_specified_port() {
-        let cryptde = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]));
-        let listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
-        let mut subject = BootstrapperBuilder::new()
-            .add_listener_handler(Box::new(listener_handler))
-            .build();
-        let mut config = BootstrapperConfig::new();
         let home_dir = ensure_node_home_directory_exists(
             "bootstrapper",
             "establish_clandestine_port_handles_specified_port",
         );
+        let cryptde = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]));
+        let mut config = BootstrapperConfig::new();
         config.neighborhood_config.local_ip_addr = IpAddr::from_str("1.2.3.4").unwrap(); // not sentinel
         config.neighborhood_config.neighbor_configs = vec![NodeDescriptor {
             public_key: cryptde.public_key().clone(),
@@ -893,7 +892,11 @@ mod tests {
         .to_string(&cryptde)];
         config.data_directory = home_dir.clone();
         config.clandestine_port_opt = Some(1234);
-        subject.config = config;
+        let listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
+        let mut subject = BootstrapperBuilder::new()
+            .add_listener_handler(Box::new(listener_handler))
+            .config(config)
+            .build();
 
         subject.establish_clandestine_port();
 
@@ -929,15 +932,11 @@ mod tests {
     #[test]
     fn establish_clandestine_port_handles_unspecified_port() {
         let cryptde = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]));
-        let listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
-        let mut subject = BootstrapperBuilder::new()
-            .add_listener_handler(Box::new(listener_handler))
-            .build();
-        let mut config = BootstrapperConfig::new();
         let home_dir = ensure_node_home_directory_exists(
             "bootstrapper",
             "establish_clandestine_port_handles_unspecified_port",
         );
+        let mut config = BootstrapperConfig::new();
         config.neighborhood_config.local_ip_addr = IpAddr::from_str("1.2.3.4").unwrap(); // not sentinel
         config.neighborhood_config.neighbor_configs = vec![NodeDescriptor {
             public_key: cryptde.public_key().clone(),
@@ -946,7 +945,11 @@ mod tests {
         .to_string(&cryptde)];
         config.data_directory = home_dir.clone();
         config.clandestine_port_opt = None;
-        subject.config = config;
+        let listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
+        let mut subject = BootstrapperBuilder::new()
+            .add_listener_handler(Box::new(listener_handler))
+            .config(config)
+            .build();
 
         subject.establish_clandestine_port();
 
@@ -962,21 +965,21 @@ mod tests {
 
     #[test]
     fn establish_clandestine_port_handles_zero_hop() {
-        let listener_handler = ListenerHandlerNull::new(vec![]);
-        let mut subject = BootstrapperBuilder::new()
-            .add_listener_handler(Box::new(listener_handler))
-            .build();
-        let mut config = BootstrapperConfig::new();
         let home_dir = ensure_node_home_directory_exists(
             "bootstrapper",
             "establish_clandestine_port_handles_zero_hop",
         );
+        let mut config = BootstrapperConfig::new();
         config.data_directory = home_dir.clone();
         config.clandestine_port_opt = None;
         config.neighborhood_config.neighbor_configs = vec![]; // empty
         config.neighborhood_config.local_ip_addr = sentinel_ip_addr(); // sentinel
         config.neighborhood_config.clandestine_port_list = vec![];
-        subject.config = config;
+        let listener_handler = ListenerHandlerNull::new(vec![]);
+        let mut subject = BootstrapperBuilder::new()
+            .add_listener_handler(Box::new(listener_handler))
+            .config(config)
+            .build();
 
         subject.establish_clandestine_port();
 

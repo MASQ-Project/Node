@@ -298,7 +298,7 @@ mod tests {
     use crate::neighborhood::neighborhood_test_utils::make_node_record;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::neighborhood::ZERO_RATE_PACK;
-    use crate::test_utils::test_utils::{assert_contains, cryptde, rate_pack};
+    use crate::test_utils::test_utils::{assert_contains, cryptde, make_wallet, rate_pack};
     use std::net::IpAddr;
     use std::str::FromStr;
 
@@ -505,7 +505,7 @@ mod tests {
 
     #[test]
     fn node_record_partial_eq() {
-        let earning_wallet = Wallet::new("wallet");
+        let earning_wallet = make_wallet("wallet");
         let exemplar = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             earning_wallet.clone(),
@@ -552,7 +552,7 @@ mod tests {
             .unwrap();
         let mod_earning_wallet = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
-            Wallet::new("booga"),
+            make_wallet("booga"),
             rate_pack(100),
             0,
             cryptde(),
@@ -629,21 +629,37 @@ mod tests {
     #[test]
     fn set_earning_wallet_returns_true_when_the_earning_wallet_changes() {
         let mut this_node = make_node_record(1234, true);
-        assert_eq!(this_node.earning_wallet(), Wallet::new("0x1234"));
+        assert_eq!(
+            this_node.earning_wallet(),
+            Wallet::from_str("0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0").unwrap()
+        );
 
-        assert!(this_node.set_earning_wallet(Wallet::new("0x2345")));
+        assert!(this_node.set_earning_wallet(
+            Wallet::from_str("0x2955a94429b1e8213f6df9c463cc2b9087b059ce").unwrap()
+        ));
 
-        assert_eq!(this_node.earning_wallet(), Wallet::new("0x2345"));
+        assert_eq!(
+            this_node.earning_wallet(),
+            Wallet::from_str("0x2955a94429b1e8213f6df9c463cc2b9087b059ce").unwrap()
+        );
     }
 
     #[test]
     fn set_earning_wallet_returns_false_when_the_wallet_does_not_change() {
         let mut this_node = make_node_record(1234, true);
-        assert_eq!(this_node.earning_wallet(), Wallet::new("0x1234"));
+        assert_eq!(
+            this_node.earning_wallet(),
+            Wallet::from_str("0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0").unwrap()
+        );
 
-        assert!(!this_node.set_earning_wallet(Wallet::new("0x1234")));
+        assert!(!this_node.set_earning_wallet(
+            Wallet::from_str("0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0").unwrap()
+        ));
 
-        assert_eq!(this_node.earning_wallet(), Wallet::new("0x1234"));
+        assert_eq!(
+            this_node.earning_wallet(),
+            Wallet::from_str("0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0").unwrap()
+        );
     }
 
     #[test]

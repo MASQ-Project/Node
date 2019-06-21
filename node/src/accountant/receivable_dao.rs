@@ -15,13 +15,13 @@ use std::time::SystemTime;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReceivableAccount {
-    pub wallet_address: Wallet,
+    pub wallet: Wallet,
     pub balance: i64,
     pub last_received_timestamp: SystemTime,
 }
 
 pub trait ReceivableDao: Send {
-    fn more_money_receivable(&self, wallet_address: &Wallet, amount: u64);
+    fn more_money_receivable(&self, wallet: &Wallet, amount: u64);
 
     fn more_money_received(
         &mut self,
@@ -29,7 +29,7 @@ pub trait ReceivableDao: Send {
         transactions: Vec<Transaction>,
     );
 
-    fn account_status(&self, wallet_address: &Wallet) -> Option<ReceivableAccount>;
+    fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount>;
 
     fn receivables(&self) -> Vec<ReceivableAccount>;
 
@@ -48,10 +48,10 @@ pub struct ReceivableDaoReal {
 }
 
 impl ReceivableDao for ReceivableDaoReal {
-    fn more_money_receivable(&self, wallet_address: &Wallet, amount: u64) {
-        match self.try_update(wallet_address, amount) {
+    fn more_money_receivable(&self, wallet: &Wallet, amount: u64) {
+        match self.try_update(wallet, amount) {
             Ok(true) => (),
-            Ok(false) => match self.try_insert(wallet_address, amount) {
+            Ok(false) => match self.try_insert(wallet, amount) {
                 Ok(_) => (),
                 Err(e) => panic!("Database is corrupt: {}", e),
             },
@@ -71,17 +71,14 @@ impl ReceivableDao for ReceivableDaoReal {
             });
     }
 
-    fn account_status(&self, wallet_address: &Wallet) -> Option<ReceivableAccount> {
+    fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount> {
         let mut stmt = self
             .conn
             .prepare(
                 "select wallet_address, balance, last_received_timestamp from receivable where wallet_address = ?",
             )
             .expect("Internal error");
-        match stmt
-            .query_row(&[wallet_address.address.clone()], Self::row_to_account)
-            .optional()
-        {
+        match stmt.query_row(&[&wallet], Self::row_to_account).optional() {
             Ok(value) => value,
             Err(e) => panic!("Database is corrupt: {:?}", e),
         }
@@ -96,19 +93,13 @@ impl ReceivableDao for ReceivableDaoReal {
         stmt.query_map(NO_PARAMS, |row| {
             let balance_result = row.get(0);
             let last_received_timestamp_result = row.get(1);
-            let wallet_address_result: Result<String, rusqlite::Error> = row.get(2);
-            match (
-                balance_result,
-                last_received_timestamp_result,
-                wallet_address_result,
-            ) {
-                (Ok(balance), Ok(last_received_timestamp), Ok(wallet_address)) => {
-                    Ok(ReceivableAccount {
-                        wallet_address: Wallet::new(wallet_address.as_str()),
-                        balance,
-                        last_received_timestamp: dao_utils::from_time_t(last_received_timestamp),
-                    })
-                }
+            let wallet: Result<Wallet, rusqlite::Error> = row.get(2);
+            match (balance_result, last_received_timestamp_result, wallet) {
+                (Ok(balance), Ok(last_received_timestamp), Ok(wallet)) => Ok(ReceivableAccount {
+                    wallet,
+                    balance,
+                    last_received_timestamp: dao_utils::from_time_t(last_received_timestamp),
+                }),
                 _ => panic!("Database is corrupt: RECEIVABLE table columns and/or types"),
             }
         })
@@ -180,12 +171,12 @@ impl ReceivableDaoReal {
         }
     }
 
-    fn try_update(&self, wallet_address: &Wallet, amount: u64) -> Result<bool, String> {
+    fn try_update(&self, wallet: &Wallet, amount: u64) -> Result<bool, String> {
         let mut stmt = self
             .conn
             .prepare("update receivable set balance = balance + ? where wallet_address = ?")
             .expect("Internal error");
-        let params: &[&ToSql] = &[&(amount as i64), &wallet_address.address];
+        let params: &[&dyn ToSql] = &[&(amount as i64), &wallet];
         match stmt.execute(params) {
             Ok(0) => Ok(false),
             Ok(_) => Ok(true),
@@ -193,14 +184,10 @@ impl ReceivableDaoReal {
         }
     }
 
-    fn try_insert(&self, wallet_address: &Wallet, amount: u64) -> Result<(), String> {
+    fn try_insert(&self, wallet: &Wallet, amount: u64) -> Result<(), String> {
         let timestamp = dao_utils::to_time_t(&SystemTime::now());
         let mut stmt = self.conn.prepare ("insert into receivable (wallet_address, balance, last_received_timestamp) values (?, ?, ?)").expect ("Internal error");
-        let params: &[&ToSql] = &[
-            &wallet_address.address,
-            &(amount as i64),
-            &(timestamp as i64),
-        ];
+        let params: &[&dyn ToSql] = &[&wallet, &(amount as i64), &(timestamp as i64)];
         match stmt.execute(params) {
             Ok(_) => Ok(()),
             Err(e) => Err(format!("{}", e)),
@@ -227,13 +214,12 @@ impl ReceivableDaoReal {
 
         {
             let mut stmt = tx.prepare("update receivable set balance = balance - ?, last_received_timestamp = ? where wallet_address = ?").expect("Internal error");
-
             for transaction in payments {
                 let timestamp = dao_utils::now_time_t();
-                let params: &[&ToSql] = &[
+                let params: &[&dyn ToSql] = &[
                     &(transaction.gwei_amount as i64),
                     &(timestamp as i64),
-                    &transaction.from.address,
+                    &transaction.from,
                 ];
                 stmt.execute(params).map_err(|e| e.to_string())?;
             }
@@ -242,21 +228,15 @@ impl ReceivableDaoReal {
     }
 
     fn row_to_account(row: &Row) -> rusqlite::Result<ReceivableAccount> {
-        let wallet_address_result: Result<String, rusqlite::Error> = row.get(0);
+        let wallet: Result<Wallet, rusqlite::Error> = row.get(0);
         let balance_result = row.get(1);
         let last_received_timestamp_result = row.get(2);
-        match (
-            wallet_address_result,
-            balance_result,
-            last_received_timestamp_result,
-        ) {
-            (Ok(wallet_address), Ok(balance), Ok(last_received_timestamp)) => {
-                Ok(ReceivableAccount {
-                    wallet_address: Wallet::new(wallet_address.as_str()),
-                    balance,
-                    last_received_timestamp: dao_utils::from_time_t(last_received_timestamp),
-                })
-            }
+        match (wallet, balance_result, last_received_timestamp_result) {
+            (Ok(wallet), Ok(balance), Ok(last_received_timestamp)) => Ok(ReceivableAccount {
+                wallet,
+                balance,
+                last_received_timestamp: dao_utils::from_time_t(last_received_timestamp),
+            }),
             _ => panic!("Database is corrupt: RECEIVABLE table columns and/or types"),
         }
     }
@@ -276,7 +256,9 @@ mod tests {
     use crate::test_utils::logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::test_utils::{assert_contains, ensure_node_home_directory_exists};
+    use crate::test_utils::test_utils::{
+        assert_contains, ensure_node_home_directory_exists, make_wallet,
+    };
     use rusqlite::NO_PARAMS;
     use rusqlite::{Connection, Error, OpenFlags};
 
@@ -287,7 +269,7 @@ mod tests {
             "more_money_receivable_works_for_new_address",
         );
         let before = dao_utils::to_time_t(&SystemTime::now());
-        let wallet = Wallet::new("booga");
+        let wallet = make_wallet("booga");
         let status = {
             let subject =
                 ReceivableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
@@ -297,7 +279,7 @@ mod tests {
         };
 
         let after = dao_utils::to_time_t(&SystemTime::now());
-        assert_eq!(status.wallet_address, wallet);
+        assert_eq!(status.wallet, wallet);
         assert_eq!(status.balance, 1234);
         let timestamp = dao_utils::to_time_t(&status.last_received_timestamp);
         assert!(
@@ -320,7 +302,7 @@ mod tests {
             "accountant",
             "more_money_receivable_works_for_existing_address",
         );
-        let wallet = Wallet::new("booga");
+        let wallet = make_wallet("booga");
         let subject = {
             let subject =
                 ReceivableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
@@ -331,7 +313,7 @@ mod tests {
                 Connection::open_with_flags(&home_dir.join(db_initializer::DATABASE_FILE), flags)
                     .unwrap();
             conn.execute(
-                "update receivable set last_received_timestamp = 0 where wallet_address = 'booga'",
+                "update receivable set last_received_timestamp = 0 where wallet_address = '0x000000000000000000000000000000626f6f6761'",
                 NO_PARAMS,
             )
             .unwrap();
@@ -343,7 +325,7 @@ mod tests {
             subject.account_status(&wallet).unwrap()
         };
 
-        assert_eq!(status.wallet_address, wallet);
+        assert_eq!(status.wallet, wallet);
         assert_eq!(status.balance, 3579);
         assert_eq!(status.last_received_timestamp, SystemTime::UNIX_EPOCH);
     }
@@ -355,8 +337,8 @@ mod tests {
             "accountant",
             "more_money_received_works_for_existing_address",
         );
-        let debtor1 = Wallet::new("debtor1");
-        let debtor2 = Wallet::new("debtor2");
+        let debtor1 = make_wallet("debtor1");
+        let debtor2 = make_wallet("debtor2");
         let mut subject = {
             let subject =
                 ReceivableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
@@ -393,13 +375,13 @@ mod tests {
             )
         };
 
-        assert_eq!(status1.wallet_address, debtor1);
+        assert_eq!(status1.wallet, debtor1);
         assert_eq!(status1.balance, 34);
         let timestamp1 = dao_utils::to_time_t(&status1.last_received_timestamp);
         assert!(timestamp1 >= before);
         assert!(timestamp1 <= dao_utils::to_time_t(&SystemTime::now()));
 
-        assert_eq!(status2.wallet_address, debtor2);
+        assert_eq!(status2.wallet, debtor2);
         assert_eq!(status2.balance, 45);
         let timestamp2 = dao_utils::to_time_t(&status2.last_received_timestamp);
         assert!(timestamp2 >= before);
@@ -415,7 +397,7 @@ mod tests {
             "accountant",
             "more_money_received_throws_away_payments_from_unknown_addresses",
         );
-        let debtor = Wallet::new("unknown_wallet");
+        let debtor = make_wallet("unknown_wallet");
         let mut subject =
             ReceivableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
 
@@ -494,7 +476,7 @@ mod tests {
             .set_start_block_transactionally_result(Err("BOOM".to_string()));
 
         let payments = vec![Transaction {
-            from: Wallet::new("foobar"),
+            from: make_wallet("foobar"),
             gwei_amount: 2300u64,
             block_number: 33u64,
         }];
@@ -515,7 +497,7 @@ mod tests {
             "accountant",
             "receivable_account_status_works_when_account_doesnt_exist",
         );
-        let wallet = Wallet::new("booga");
+        let wallet = make_wallet("booga");
         let subject =
             ReceivableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
 
@@ -530,8 +512,8 @@ mod tests {
             "accountant",
             "receivables_fetches_all_receivable_accounts",
         );
-        let wallet1 = Wallet::new("wallet1");
-        let wallet2 = Wallet::new("wallet2");
+        let wallet1 = make_wallet("wallet1");
+        let wallet2 = make_wallet("wallet2");
         let time_stub = SystemTime::now();
 
         let subject =
@@ -552,12 +534,12 @@ mod tests {
         assert_eq!(
             vec![
                 ReceivableAccount {
-                    wallet_address: wallet1,
+                    wallet: wallet1,
                     balance: 1234,
                     last_received_timestamp: time_stub
                 },
                 ReceivableAccount {
-                    wallet_address: wallet2,
+                    wallet: wallet2,
                     balance: 2345,
                     last_received_timestamp: time_stub
                 },
@@ -779,8 +761,8 @@ mod tests {
 
     fn add_receivable_account(conn: &Box<ConnectionWrapper>, account: &ReceivableAccount) {
         let mut stmt = conn.prepare ("insert into receivable (wallet_address, balance, last_received_timestamp) values (?, ?, ?)").unwrap();
-        let params: &[&ToSql] = &[
-            &account.wallet_address.address,
+        let params: &[&dyn ToSql] = &[
+            &account.wallet,
             &account.balance,
             &to_time_t(&account.last_received_timestamp),
         ];
@@ -791,6 +773,6 @@ mod tests {
         let mut stmt = conn
             .prepare("insert into banned (wallet_address) values (?)")
             .unwrap();
-        stmt.execute(&[&account.wallet_address.address]).unwrap();
+        stmt.execute(&[&account.wallet]).unwrap();
     }
 }

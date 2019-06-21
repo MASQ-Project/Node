@@ -125,9 +125,8 @@ mod tests {
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
-    use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::test_utils::{
-        cryptde, make_meaningless_message_type, route_to_proxy_client,
+        cryptde, make_meaningless_message_type, make_wallet, route_to_proxy_client,
     };
     use actix::Actor;
     use actix::System;
@@ -180,7 +179,7 @@ mod tests {
     #[should_panic(expected = "Hopper unbound: no ConsumingService")]
     fn panics_if_consuming_service_is_unbound() {
         let cryptde = cryptde();
-        let consuming_wallet = Wallet::new("wallet");
+        let consuming_wallet = make_wallet("wallet");
         let next_key = PublicKey::new(&[65, 65, 65]);
         let route = Route::one_way(
             RouteSegment::new(
