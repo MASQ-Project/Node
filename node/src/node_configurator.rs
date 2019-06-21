@@ -689,7 +689,6 @@ impl NodeConfiguratorReal {
 
         match value_user_specified_m!(multi_config, "earning_wallet", String) {
             (Some(ref wallet), true) if &wallet[0..2] == "0x" => {
-                dbg!(wallet);
                 if multi_config.arg_matches().is_present("generate-wallet") {
                     panic!("error: The argument '--earning-wallet <EARNING-WALLET>' cannot be used with '--generate-wallet' as an address. Use an m/44'/60'/0'... path instead.")
                 }
