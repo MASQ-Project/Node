@@ -1,3 +1,5 @@
+// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+
 use crate::neighborhood::gossip::{Gossip, GossipBuilder};
 use crate::neighborhood::neighborhood::AccessibleGossipRecord;
 use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, NeighborhoodDatabaseError};
@@ -15,10 +17,14 @@ pub const MAX_DEGREE: usize = 5;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum GossipAcceptanceResult {
-    Accepted, // There are database changes. Generate standard Gossip and broadcast.
-    Reply(Gossip, PublicKey, NodeAddr), // Don't generate Gossip from the database: instead, send this Gossip to the provided key and NodeAddr.
-    Ignored,                            // Don't send out any Gossip because of this.
-    Ban(String), // Gossip was ignored because it was evil: ban the sender of the Gossip as a malefactor.
+    // There are database changes. Generate standard Gossip and broadcast.
+    Accepted,
+    // Don't generate Gossip from the database: instead, send this Gossip to the provided key and NodeAddr.
+    Reply(Gossip, PublicKey, NodeAddr),
+    // Don't send out any Gossip because of this.
+    Ignored,
+    // Gossip was ignored because it was evil: ban the sender of the Gossip as a malefactor.
+    Ban(String),
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -189,7 +195,7 @@ impl DebutHandler {
                 if database.gossip_target_degree(key)
                     >= database.gossip_target_degree(database.root().public_key()) =>
             {
-                self.logger.debug (format!("No neighbors of degree 3 or greater are less-connected than this Node: can't find more-appropriate neighbor"));
+                self.logger.debug(format!("No neighbors of degree 3 or greater are less-connected than this Node: can't find more-appropriate neighbor"));
                 None
             }
             // Neighbor of degree 3 or greater less connected than I am
@@ -236,8 +242,10 @@ impl DebutHandler {
                 root_mut.regenerate_signed_gossip(cryptde);
                 self.logger
                     .trace(format!("Current database: {}", database.to_dot_graph()));
-                if Self::should_not_make_introduction(&database, &debuting_agr) {
-                    self.logger.debug (format!("Node {} at {} is responding to first introduction: sending update Gossip instead of further introduction", debuting_agr.inner.public_key, debuting_agr.node_addr_opt.as_ref().expect ("Disappeared").ip_addr()));
+                if Self::should_not_make_introduction(&debuting_agr) {
+                    self.logger.debug(format!("Node {} at {} is responding to first introduction: sending update Gossip instead of further introduction",
+                                              debuting_agr.inner.public_key,
+                                              debuting_agr.node_addr_opt.as_ref().expect("Disappeared").ip_addr()));
                     Ok(GossipAcceptanceResult::Accepted)
                 } else {
                     match self.make_introduction(database, &debuting_agr) {
@@ -339,22 +347,8 @@ impl DebutHandler {
         keys
     }
 
-    /// `should_not_make_introduction` when we have exactly one neighbor (namely, the neighbor
-    /// that Introduced us to it), and that neighbor is in our database. In that case, we won't
-    /// want to Introduce this Node again; serial Introductions like that can lead to overconnection.
-    fn should_not_make_introduction(
-        database: &NeighborhoodDatabase,
-        debuting_agr: &AccessibleGossipRecord,
-    ) -> bool {
-        debuting_agr.inner.neighbors.len() == 1
-            && database.root().has_half_neighbor(
-                debuting_agr
-                    .inner
-                    .neighbors
-                    .iter()
-                    .next()
-                    .expect("Disappeared"),
-            )
+    fn should_not_make_introduction(debuting_agr: &AccessibleGossipRecord) -> bool {
+        !debuting_agr.inner.neighbors.is_empty()
     }
 
     fn make_pass_gossip(database: &NeighborhoodDatabase, pass_target: &PublicKey) -> Gossip {
@@ -492,7 +486,7 @@ impl GossipHandler for IntroductionHandler {
                     return GossipAcceptanceResult::Ban(format!(
                         "Introducer {} tried changing immutable characteristic: {}",
                         introducer_key, e
-                    ))
+                    ));
                 }
             }
             let (debut, target_key, target_node_addr) =
@@ -721,11 +715,14 @@ impl GossipHandler for StandardGossipHandler {
         }
         let root_node = database.root();
         match agrs_next_door.iter()
-            .find (|agr| Self::ip_of(agr) == root_node.node_addr_opt().expect("Root Node must have NodeAddr").ip_addr())
-        {
-            Some(impostor) => return Qualification::Malformed(format!("Standard Gossip from {} contains a record claiming that {} has this Node's IP address", gossip_source, impostor.inner.public_key)),
-            None => (),
-        }
+            .find(|agr| Self::ip_of(agr) == root_node.node_addr_opt().expect("Root Node must have NodeAddr").ip_addr())
+            {
+                Some(impostor) => return Qualification::Malformed(
+                    format!("Standard Gossip from {} contains a record claiming that {} has this Node's IP address",
+                            gossip_source,
+                            impostor.inner.public_key)),
+                None => (),
+            }
         if agrs
             .iter()
             .any(|agr| &agr.inner.public_key == root_node.public_key())
@@ -1010,7 +1007,7 @@ impl<'a> GossipAcceptorReal<'a> {
                 return Err(format!(
                     "Can't generate debut to {}: no IP address supplied",
                     debut_target.inner.public_key
-                ))
+                ));
             }
             Some(node_addr) => {
                 if node_addr.ports().is_empty() {
@@ -1071,7 +1068,7 @@ mod tests {
             GossipAcceptanceResult::Reply(
                 introduction,
                 new_node.public_key().clone(),
-                new_node.node_addr_opt().unwrap()
+                new_node.node_addr_opt().unwrap(),
             ),
             handle_result
         );
@@ -1208,7 +1205,8 @@ mod tests {
     }
 
     #[test]
-    fn debut_of_should_not_make_introduction_node_produces_acceptance_not_introduction() {
+    fn debut_of_already_connected_node_produces_accepted_result_instead_of_introduction_to_prevent_overconnection(
+    ) {
         let src_root = make_node_record(1234, true);
         let mut src_db = db_from_node(&src_root);
         let dest_root = make_node_record(2345, true);
@@ -1258,7 +1256,7 @@ mod tests {
             GossipAcceptanceResult::Reply(
                 debut,
                 pass_target.public_key().clone(),
-                pass_target.node_addr_opt().unwrap().clone()
+                pass_target.node_addr_opt().unwrap().clone(),
             ),
             handle_result
         );
@@ -1545,7 +1543,7 @@ mod tests {
             GossipAcceptanceResult::Reply(
                 debut,
                 agrs[1].inner.public_key.clone(),
-                agrs[1].node_addr_opt.clone().unwrap()
+                agrs[1].node_addr_opt.clone().unwrap(),
             ),
             handle_result
         );
@@ -1609,7 +1607,7 @@ mod tests {
             GossipAcceptanceResult::Reply(
                 debut,
                 agrs[1].inner.public_key.clone(),
-                agrs[1].node_addr_opt.clone().unwrap()
+                agrs[1].node_addr_opt.clone().unwrap(),
             ),
             handle_result
         );
@@ -1651,7 +1649,7 @@ mod tests {
             GossipAcceptanceResult::Reply(
                 debut,
                 agrs[1].inner.public_key.clone(),
-                agrs[1].node_addr_opt.clone().unwrap()
+                agrs[1].node_addr_opt.clone().unwrap(),
             ),
             handle_result
         );
@@ -2012,7 +2010,7 @@ mod tests {
             GossipAcceptanceResult::Reply(
                 expected_acceptance_gossip,
                 debut_node.public_key().clone(),
-                debut_node.node_addr_opt().unwrap()
+                debut_node.node_addr_opt().unwrap(),
             ),
             result
         );
@@ -2245,7 +2243,7 @@ mod tests {
             GossipAcceptanceResult::Reply(
                 expected_acceptance_gossip,
                 debut_node.public_key().clone(),
-                debut_node.node_addr_opt().unwrap()
+                debut_node.node_addr_opt().unwrap(),
             ),
             result
         );
@@ -2346,7 +2344,7 @@ mod tests {
             GossipAcceptanceResult::Reply(
                 expected_relay_gossip,
                 pass_target.public_key().clone(),
-                pass_target.node_addr_opt().unwrap()
+                pass_target.node_addr_opt().unwrap(),
             ),
             result
         );

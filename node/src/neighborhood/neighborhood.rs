@@ -402,6 +402,8 @@ impl Neighborhood {
                 self.handle_gossip_reply(next_debut, relay_target, relay_node_addr)
             }
             GossipAcceptanceResult::Ignored => {
+                self.logger
+                    .trace(format!("Gossip from {} ignored", gossip_source));
                 self.handle_gossip_ignored(ignored_node_name, gossip_record_count)
             }
             GossipAcceptanceResult::Ban(reason) => {
