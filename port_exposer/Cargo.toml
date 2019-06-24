@@ -1,6 +1,6 @@
 [package]
 name = "port_exposer"
-version = "0.4.7"
+version = "0.4.8"
 authors = ["Substratum Developer <substratum@substratum.net>"]
 license = "GPL-3.0-only"
 copyright = "Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved."

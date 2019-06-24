@@ -27,7 +27,7 @@ dependencies = [
 
 [[package]]
 name = "dns_utility"
-version = "0.4.7"
+version = "0.4.8"
 dependencies = [
  "core-foundation 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.50 (registry+https://github.com/rust-lang/crates.io-index)",
