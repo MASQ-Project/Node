@@ -25,7 +25,7 @@ use node_lib::sub_lib::route::{Route, RouteSegment};
 use node_lib::sub_lib::sequence_buffer::SequencedPacket;
 use node_lib::sub_lib::stream_key::StreamKey;
 use node_lib::sub_lib::wallet::Wallet;
-use node_lib::test_utils::test_utils::{make_meaningless_stream_key, make_wallet, find_free_port};
+use node_lib::test_utils::test_utils::{find_free_port, make_meaningless_stream_key, make_wallet};
 use std::io;
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -422,7 +422,10 @@ fn wait_for_server_shutdown(real_node: &SubstratumRealNode, server_port: u16) {
     // work, but it serves the purpose.
     SubstratumNodeUtils::wrote_log_containing(
         real_node.name(),
-        &format!("Shutting down stream to server at 172.18.0.1:{} in response to client-drop report", server_port),
+        &format!(
+            "Shutting down stream to server at 172.18.0.1:{} in response to client-drop report",
+            server_port
+        ),
         Duration::from_secs(1),
     );
 }
