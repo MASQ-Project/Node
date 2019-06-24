@@ -24,7 +24,7 @@ use tokio;
 pub struct StreamEstablisher {
     pub cryptde: &'static dyn CryptDE,
     pub stream_adder_tx: Sender<(StreamKey, Box<dyn SenderWrapper<SequencedPacket>>)>,
-    pub stream_killer_tx: Sender<StreamKey>,
+    pub stream_killer_tx: Sender<(StreamKey, u64)>,
     pub stream_connector: Box<dyn StreamConnector>,
     pub proxy_client_sub: Recipient<InboundServerData>,
     pub logger: Logger,
@@ -107,7 +107,7 @@ pub trait StreamEstablisherFactory: Send {
 pub struct StreamEstablisherFactoryReal {
     pub cryptde: &'static dyn CryptDE,
     pub stream_adder_tx: Sender<(StreamKey, Box<dyn SenderWrapper<SequencedPacket>>)>,
-    pub stream_killer_tx: Sender<StreamKey>,
+    pub stream_killer_tx: Sender<(StreamKey, u64)>,
     pub proxy_client_subs: ProxyClientSubs,
     pub logger: Logger,
 }

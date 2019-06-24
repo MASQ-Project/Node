@@ -2,7 +2,6 @@
 use crate::command::Command;
 use crate::main::CONTROL_STREAM_PORT;
 use crate::multinode_gossip::{Introduction, MultinodeGossip, SingleNode};
-use crate::substratum_client::SubstratumNodeClient;
 use crate::substratum_node::NodeReference;
 use crate::substratum_node::PortSelector;
 use crate::substratum_node::SubstratumNode;
@@ -116,10 +115,6 @@ impl SubstratumNode for SubstratumMockNode {
 
     fn rate_pack(&self) -> RatePack {
         ZERO_RATE_PACK.clone()
-    }
-
-    fn make_client(&self, _port: u16) -> SubstratumNodeClient {
-        unimplemented!()
     }
 }
 

@@ -2,13 +2,14 @@
 use crate::proxy_server::client_request_payload_factory::ClientRequestPayloadFactory;
 use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
 use crate::proxy_server::protocol_pack::{for_protocol, ProtocolPack};
+use crate::stream_messages::RemovedStreamType;
 use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
 use crate::sub_lib::bidi_hashmap::BidiHashMap;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::PublicKey;
-use crate::sub_lib::dispatcher::Endpoint;
 use crate::sub_lib::dispatcher::InboundClientData;
+use crate::sub_lib::dispatcher::{Endpoint, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, IncipientCoresPackage};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::ExpectedServices;
@@ -41,22 +42,25 @@ use tokio::prelude::Future;
 
 pub const RETURN_ROUTE_TTL: Duration = Duration::from_secs(120);
 
+struct ProxyServerOutSubs {
+    dispatcher: Recipient<TransmitDataMsg>,
+    hopper: Recipient<IncipientCoresPackage>,
+    accountant_exit: Recipient<ReportExitServiceConsumedMessage>,
+    accountant_routing: Recipient<ReportRoutingServiceConsumedMessage>,
+    route_source: Recipient<RouteQueryMessage>,
+    update_node_record_metadata: Recipient<NodeRecordMetadataMessage>,
+    add_return_route: Recipient<AddReturnRouteMessage>,
+    add_route: Recipient<AddRouteMessage>,
+}
+
 pub struct ProxyServer {
-    dispatcher: Option<Recipient<TransmitDataMsg>>,
-    hopper: Option<Recipient<IncipientCoresPackage>>,
-    accountant_exit: Option<Recipient<ReportExitServiceConsumedMessage>>,
-    accountant_routing: Option<Recipient<ReportRoutingServiceConsumedMessage>>,
-    route_source: Option<Recipient<RouteQueryMessage>>,
-    update_node_record_metadata: Option<Recipient<NodeRecordMetadataMessage>>,
-    add_return_route: Option<Recipient<AddReturnRouteMessage>>,
-    add_route: Option<Recipient<AddRouteMessage>>,
+    subs: Option<ProxyServerOutSubs>,
     client_request_payload_factory: ClientRequestPayloadFactory,
     stream_key_factory: Box<dyn StreamKeyFactory>,
     keys_and_addrs: BidiHashMap<StreamKey, SocketAddr>,
     tunneled_hosts: HashMap<StreamKey, String>,
     stream_key_routes: HashMap<StreamKey, RouteQueryResponse>,
     is_decentralized: bool,
-    // TODO: This should be replaced by something more general and configurable.
     cryptde: &'static dyn CryptDE,
     logger: Logger,
     route_ids_to_return_routes: TtlHashMap<u32, AddReturnRouteMessage>,
@@ -72,15 +76,17 @@ impl Handler<BindMessage> for ProxyServer {
 
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
-        self.dispatcher = Some(msg.peer_actors.dispatcher.from_dispatcher_client);
-        self.hopper = Some(msg.peer_actors.hopper.from_hopper_client);
-        self.accountant_exit = Some(msg.peer_actors.accountant.report_exit_service_consumed);
-        self.accountant_routing = Some(msg.peer_actors.accountant.report_routing_service_consumed);
-        self.route_source = Some(msg.peer_actors.neighborhood.route_query);
-        self.update_node_record_metadata =
-            Some(msg.peer_actors.neighborhood.update_node_record_metadata);
-        self.add_return_route = Some(msg.peer_actors.proxy_server.add_return_route);
-        self.add_route = Some(msg.peer_actors.proxy_server.add_route);
+        let subs = ProxyServerOutSubs {
+            dispatcher: msg.peer_actors.dispatcher.from_dispatcher_client,
+            hopper: msg.peer_actors.hopper.from_hopper_client,
+            accountant_exit: msg.peer_actors.accountant.report_exit_service_consumed,
+            accountant_routing: msg.peer_actors.accountant.report_routing_service_consumed,
+            route_source: msg.peer_actors.neighborhood.route_query,
+            update_node_record_metadata: msg.peer_actors.neighborhood.update_node_record_metadata,
+            add_return_route: msg.peer_actors.proxy_server.add_return_route,
+            add_route: msg.peer_actors.proxy_server.add_route,
+        };
+        self.subs = Some(subs);
     }
 }
 
@@ -153,17 +159,18 @@ impl Handler<ExpiredCoresPackage<ClientResponsePayload>> for ProxyServer {
     }
 }
 
+impl Handler<StreamShutdownMsg> for ProxyServer {
+    type Result = ();
+
+    fn handle(&mut self, _msg: StreamShutdownMsg, _ctx: &mut Self::Context) -> Self::Result {
+        self.handle_stream_shutdown_msg(_msg)
+    }
+}
+
 impl ProxyServer {
     pub fn new(cryptde: &'static dyn CryptDE, is_decentralized: bool) -> ProxyServer {
         ProxyServer {
-            dispatcher: None,
-            hopper: None,
-            accountant_exit: None,
-            accountant_routing: None,
-            route_source: None,
-            update_node_record_metadata: None,
-            add_return_route: None,
-            add_route: None,
+            subs: None,
             client_request_payload_factory: ClientRequestPayloadFactory::new(),
             stream_key_factory: Box::new(StreamKeyFactoryReal {}),
             keys_and_addrs: BidiHashMap::new(),
@@ -189,6 +196,7 @@ impl ProxyServer {
                 .recipient::<ExpiredCoresPackage<DnsResolveFailure>>(),
             add_return_route: addr.clone().recipient::<AddReturnRouteMessage>(),
             add_route: addr.clone().recipient::<AddRouteMessage>(),
+            stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
         }
     }
 
@@ -217,9 +225,10 @@ impl ProxyServer {
         let response = &msg.payload;
         match self.keys_and_addrs.a_to_b(&response.stream_key) {
             Some(socket_addr) => {
-                self.update_node_record_metadata
+                self.subs
                     .as_ref()
-                    .expect("Neighborhood is unbound in ProxyServer")
+                    .expect("Neighborhood unbound in ProxyServer")
+                    .update_node_record_metadata
                     .try_send(NodeRecordMetadataMessage::Desirable(
                         exit_public_key.clone(),
                         false,
@@ -228,9 +237,10 @@ impl ProxyServer {
 
                 self.report_response_services_consumed(&return_route_info, 0, msg.payload_len);
 
-                self.dispatcher
+                self.subs
                     .as_ref()
                     .expect("Dispatcher unbound in ProxyServer")
+                    .dispatcher
                     .try_send(TransmitDataMsg {
                         endpoint: Endpoint::Socket(socket_addr),
                         last_data: true,
@@ -260,10 +270,15 @@ impl ProxyServer {
     }
 
     fn handle_client_response_payload(&mut self, msg: &ExpiredCoresPackage<ClientResponsePayload>) {
+        self.logger.debug(format!(
+            "ExpiredCoresPackage remaining_route: {}",
+            msg.remaining_route
+                .to_string(vec![self.cryptde, self.cryptde])
+        ));
         let payload_data_len = msg.payload_len;
         let response = &msg.payload;
         self.logger.debug(format!(
-            "Relaying {}-byte ExpiredCoresPackage payload from Hopper to Dispatcher",
+            "Relaying {}-byte ExpiredCoresPackage payload from Hopper to Dispatcher for client",
             response.sequenced_packet.data.len()
         ));
         let return_route_info = match self.get_return_route_info(&msg.remaining_route) {
@@ -283,9 +298,11 @@ impl ProxyServer {
                     response.sequenced_packet.sequence_number
                         + self.browser_proxy_sequence_offset as u64,
                 );
-                self.dispatcher
+                self
+                    .subs
                     .as_ref()
                     .expect("Dispatcher unbound in ProxyServer")
+                    .dispatcher
                     .try_send(TransmitDataMsg {
                         endpoint: Endpoint::Socket(socket_addr),
                         last_data,
@@ -298,7 +315,7 @@ impl ProxyServer {
                 }
             }
             None => self.logger.error(format!(
-                "Discarding {}-byte packet {} from an unrecognized stream key: {:?}",
+                "Discarding {}-byte packet {} from an unrecognized stream key: {:?}; don't know whom to pay for what services",
                 response.sequenced_packet.data.len(),
                 response.sequenced_packet.sequence_number,
                 response.stream_key
@@ -312,9 +329,10 @@ impl ProxyServer {
             Some(ref host) if host.port == Some(443) => {
                 let stream_key = self.make_stream_key(&msg);
                 self.tunneled_hosts.insert(stream_key, host.name.clone());
-                self.dispatcher
+                self.subs
                     .as_ref()
                     .expect("Dispatcher unbound in ProxyServer")
+                    .dispatcher
                     .try_send(TransmitDataMsg {
                         endpoint: Endpoint::Socket(msg.peer_addr),
                         last_data: false,
@@ -324,9 +342,10 @@ impl ProxyServer {
                     .expect("Dispatcher is dead");
             }
             _ => {
-                self.dispatcher
+                self.subs
                     .as_ref()
                     .expect("Dispatcher unbound in ProxyServer")
+                    .dispatcher
                     .try_send(TransmitDataMsg {
                         endpoint: Endpoint::Socket(msg.peer_addr),
                         last_data: true,
@@ -340,39 +359,46 @@ impl ProxyServer {
 
     fn handle_normal_client_data(&mut self, msg: InboundClientData) {
         let route_source = self
-            .route_source
+            .subs
             .as_ref()
             .expect("Neighborhood unbound in ProxyServer")
+            .route_source
             .clone();
         let hopper = self
-            .hopper
+            .subs
             .as_ref()
             .expect("Hopper unbound in ProxyServer")
+            .hopper
             .clone();
         let accountant_exit_sub = self
-            .accountant_exit
+            .subs
             .as_ref()
             .expect("Accountant unbound in ProxyServer")
+            .accountant_exit
             .clone();
         let accountant_routing_sub = self
-            .accountant_routing
+            .subs
             .as_ref()
             .expect("Accountant unbound in ProxyServer")
+            .accountant_routing
             .clone();
         let dispatcher = self
-            .dispatcher
+            .subs
             .as_ref()
             .expect("Dispatcher unbound in ProxyServer")
+            .dispatcher
             .clone();
         let add_return_route_sub = self
-            .add_return_route
+            .subs
             .as_ref()
             .expect("ProxyServer unbound in ProxyServer")
+            .add_return_route
             .clone();
         let add_route_sub = self
-            .add_route
+            .subs
             .as_ref()
             .expect("ProxyServer unbound in ProxyServer")
+            .add_route
             .clone();
         let source_addr = msg.peer_addr;
         let stream_key = self.make_stream_key(&msg);
@@ -453,6 +479,31 @@ impl ProxyServer {
         }
     }
 
+    fn handle_stream_shutdown_msg(&mut self, msg: StreamShutdownMsg) {
+        let nca = match msg.stream_type {
+            RemovedStreamType::Clandestine => {
+                panic!("Proxy Server should never get ShutdownStreamMsg about clandestine stream")
+            }
+            RemovedStreamType::NonClandestine(nca) => nca,
+        };
+        let stream_key = match self.keys_and_addrs.b_to_a(&msg.peer_addr) {
+            None => return,
+            Some(sk) => sk,
+        };
+        if msg.report_to_counterpart {
+            let ibcd = InboundClientData {
+                peer_addr: msg.peer_addr,
+                reception_port: Some(nca.reception_port),
+                last_data: true,
+                is_clandestine: false,
+                sequence_number: Some(nca.sequence_number),
+                data: vec![],
+            };
+            self.handle_normal_client_data(ibcd);
+        }
+        self.purge_stream_key(&stream_key);
+    }
+
     fn make_stream_key(&mut self, ibcd: &InboundClientData) -> StreamKey {
         match self.keys_and_addrs.b_to_a(&ibcd.peer_addr) {
             Some(stream_key) => stream_key,
@@ -467,9 +518,9 @@ impl ProxyServer {
     }
 
     fn purge_stream_key(&mut self, stream_key: &StreamKey) {
-        self.keys_and_addrs.remove_a(stream_key);
-        self.stream_key_routes.remove(stream_key);
-        self.tunneled_hosts.remove(stream_key);
+        let _ = self.keys_and_addrs.remove_a(stream_key);
+        let _ = self.stream_key_routes.remove(stream_key);
+        let _ = self.tunneled_hosts.remove(stream_key);
     }
 
     fn make_payload(&mut self, ibcd: InboundClientData) -> Result<ClientRequestPayload, ()> {
@@ -737,9 +788,10 @@ impl ProxyServer {
             .for_each(|service| match service {
                 ExpectedService::Nothing => (),
                 ExpectedService::Exit(_, wallet, rate_pack) => self
-                    .accountant_exit
+                    .subs
                     .as_ref()
                     .expect("ProxyServer unbound")
+                    .accountant_exit
                     .try_send(ReportExitServiceConsumedMessage {
                         earning_wallet: wallet.clone(),
                         payload_size: exit_size,
@@ -748,9 +800,10 @@ impl ProxyServer {
                     })
                     .expect("Accountant is dead"),
                 ExpectedService::Routing(_, wallet, rate_pack) => self
-                    .accountant_routing
+                    .subs
                     .as_ref()
                     .expect("ProxyServer unbound")
+                    .accountant_routing
                     .try_send(ReportRoutingServiceConsumedMessage {
                         earning_wallet: wallet.clone(),
                         payload_size: routing_size,
@@ -782,14 +835,18 @@ mod tests {
     use crate::proxy_server::protocol_pack::ServerImpersonator;
     use crate::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
     use crate::proxy_server::server_impersonator_tls::ServerImpersonatorTls;
+    use crate::stream_messages::{NonClandestineAttributes, RemovedStreamType};
     use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
-    use crate::sub_lib::cryptde::CryptData;
+    use crate::sub_lib::cryptde::{decodex, CryptData};
     use crate::sub_lib::cryptde::{encodex, PlainData};
+    use crate::sub_lib::cryptde_null::CryptDENull;
+    use crate::sub_lib::data_version::DataVersion;
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::hop::LiveHop;
-    use crate::sub_lib::neighborhood::ExpectedService;
+    use crate::sub_lib::hopper::MessageType;
     use crate::sub_lib::neighborhood::ExpectedServices;
     use crate::sub_lib::neighborhood::RatePack;
+    use crate::sub_lib::neighborhood::{ExpectedService, DEFAULT_RATE_PACK};
     use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
     use crate::sub_lib::proxy_server::ClientRequestPayload;
     use crate::sub_lib::proxy_server::ProxyProtocol;
@@ -823,6 +880,25 @@ mod tests {
     use std::sync::Mutex;
     use std::sync::MutexGuard;
     use std::thread;
+
+    impl Default for ProxyServerOutSubs {
+        fn default() -> Self {
+            let recorder = Recorder::new();
+            let addr = recorder.start();
+            ProxyServerOutSubs {
+                dispatcher: addr.clone().recipient::<TransmitDataMsg>(),
+                hopper: addr.clone().recipient::<IncipientCoresPackage>(),
+                accountant_exit: addr.clone().recipient::<ReportExitServiceConsumedMessage>(),
+                accountant_routing: addr
+                    .clone()
+                    .recipient::<ReportRoutingServiceConsumedMessage>(),
+                route_source: addr.clone().recipient::<RouteQueryMessage>(),
+                update_node_record_metadata: addr.clone().recipient::<NodeRecordMetadataMessage>(),
+                add_return_route: addr.clone().recipient::<AddReturnRouteMessage>(),
+                add_route: addr.clone().recipient::<AddRouteMessage>(),
+            }
+        }
+    }
 
     struct StreamKeyFactoryMock {
         make_parameters: Arc<Mutex<Vec<(PublicKey, SocketAddr)>>>,
@@ -2417,6 +2493,7 @@ mod tests {
     fn handle_client_response_payload_purges_stream_keys_for_terminal_response() {
         let cryptde = cryptde();
         let mut subject = ProxyServer::new(cryptde, false);
+        subject.subs = Some(ProxyServerOutSubs::default());
 
         let stream_key = make_meaningless_stream_key();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -2453,7 +2530,7 @@ mod tests {
 
         let peer_actors = peer_actors_builder().dispatcher(dispatcher_mock).build();
 
-        subject.dispatcher = Some(peer_actors.dispatcher.from_dispatcher_client);
+        subject.subs.as_mut().unwrap().dispatcher = peer_actors.dispatcher.from_dispatcher_client;
 
         let expired_cores_package: ExpiredCoresPackage<ClientResponsePayload> =
             ExpiredCoresPackage::new(
@@ -3026,14 +3103,15 @@ mod tests {
         let (dispatcher_mock, _, _) = make_recorder();
 
         let mut subject = ProxyServer::new(cryptde, false);
+        subject.subs = Some(ProxyServerOutSubs::default());
 
         let peer_actors = peer_actors_builder()
             .neighborhood(neighborhood_mock)
             .dispatcher(dispatcher_mock)
             .build();
-        subject.update_node_record_metadata =
-            Some(peer_actors.neighborhood.update_node_record_metadata);
-        subject.dispatcher = Some(peer_actors.dispatcher.from_dispatcher_client);
+        subject.subs.as_mut().unwrap().update_node_record_metadata =
+            peer_actors.neighborhood.update_node_record_metadata;
+        subject.subs.as_mut().unwrap().dispatcher = peer_actors.dispatcher.from_dispatcher_client;
 
         let stream_key = make_meaningless_stream_key();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -3298,5 +3376,320 @@ mod tests {
         subject_addr.try_send(expired_cores_package).unwrap();
 
         TestLogHandler::new().await_log_containing("ERROR: Proxy Server: Can't report services consumed: received response with bogus return-route ID 1234. Ignoring", 1000);
+    }
+
+    #[test]
+    fn handle_stream_shutdown_msg_handles_unknown_peer_addr() {
+        let mut subject = ProxyServer::new(cryptde(), true);
+        let unaffected_socket_addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
+        let unaffected_stream_key =
+            StreamKey::new(cryptde().public_key().clone(), unaffected_socket_addr);
+        subject
+            .keys_and_addrs
+            .insert(unaffected_stream_key, unaffected_socket_addr);
+        subject.stream_key_routes.insert(
+            unaffected_stream_key,
+            RouteQueryResponse {
+                route: Route { hops: vec![] },
+                expected_services: ExpectedServices::RoundTrip(vec![], vec![], 1234),
+            },
+        );
+        subject
+            .tunneled_hosts
+            .insert(unaffected_stream_key, "blah".to_string());
+
+        subject.handle_stream_shutdown_msg(StreamShutdownMsg {
+            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
+                reception_port: HTTP_PORT,
+                sequence_number: 1234,
+            }),
+            report_to_counterpart: true,
+        });
+
+        // Subject is unbound but didn't panic; therefore, no attempt to send to Hopper: perfect!
+        assert!(subject
+            .keys_and_addrs
+            .a_to_b(&unaffected_stream_key)
+            .is_some());
+        assert!(subject
+            .stream_key_routes
+            .contains_key(&unaffected_stream_key));
+        assert!(subject.tunneled_hosts.contains_key(&unaffected_stream_key));
+    }
+
+    #[test]
+    fn handle_stream_shutdown_msg_reports_to_counterpart_through_tunnel_when_necessary() {
+        let system = System::new("test");
+        let mut subject = ProxyServer::new(cryptde(), true);
+        let unaffected_socket_addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
+        let unaffected_stream_key =
+            StreamKey::new(cryptde().public_key().clone(), unaffected_socket_addr);
+        let affected_socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
+        let affected_stream_key =
+            StreamKey::new(cryptde().public_key().clone(), affected_socket_addr);
+        let affected_cryptde = CryptDENull::from(&PublicKey::new(b"affected"));
+        subject
+            .keys_and_addrs
+            .insert(unaffected_stream_key, unaffected_socket_addr);
+        subject
+            .keys_and_addrs
+            .insert(affected_stream_key, affected_socket_addr);
+        subject.stream_key_routes.insert(
+            unaffected_stream_key,
+            RouteQueryResponse {
+                route: Route { hops: vec![] },
+                expected_services: ExpectedServices::RoundTrip(vec![], vec![], 1234),
+            },
+        );
+        let affected_route = Route::round_trip(
+            RouteSegment::new(
+                vec![cryptde().public_key(), affected_cryptde.public_key()],
+                Component::ProxyClient,
+            ),
+            RouteSegment::new(
+                vec![affected_cryptde.public_key(), cryptde().public_key()],
+                Component::ProxyServer,
+            ),
+            cryptde(),
+            Some(Wallet::new("consuming")),
+            1234,
+        )
+        .unwrap();
+        let affected_expected_services = vec![ExpectedService::Exit(
+            affected_cryptde.public_key().clone(),
+            Wallet::new("1234"),
+            DEFAULT_RATE_PACK,
+        )];
+        subject.stream_key_routes.insert(
+            affected_stream_key,
+            RouteQueryResponse {
+                route: affected_route.clone(),
+                expected_services: ExpectedServices::RoundTrip(
+                    affected_expected_services,
+                    vec![],
+                    1234,
+                ),
+            },
+        );
+        subject
+            .tunneled_hosts
+            .insert(unaffected_stream_key, "blah".to_string());
+        subject
+            .tunneled_hosts
+            .insert(affected_stream_key, "tunneled.com".to_string());
+        let subject_addr = subject.start();
+        let (hopper, _, hopper_recording_arc) = make_recorder();
+        let peer_actors = peer_actors_builder().hopper(hopper).build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(StreamShutdownMsg {
+                peer_addr: affected_socket_addr,
+                stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
+                    reception_port: TLS_PORT,
+                    sequence_number: 1234,
+                }),
+                report_to_counterpart: true,
+            })
+            .unwrap();
+
+        System::current().stop_with_code(0);
+        system.run();
+        let hopper_recording = hopper_recording_arc.lock().unwrap();
+        let icp = hopper_recording.get_record::<IncipientCoresPackage>(0);
+        assert_eq!(icp.route, affected_route);
+        let payload = decodex::<MessageType>(&affected_cryptde, &icp.payload).unwrap();
+        match payload {
+            MessageType::ClientRequest(payload) => assert_eq!(
+                payload,
+                ClientRequestPayload {
+                    version: DataVersion::new(0, 0).unwrap(),
+                    stream_key: affected_stream_key,
+                    sequenced_packet: SequencedPacket::new(vec![], 1234, true),
+                    target_hostname: Some(String::from("tunneled.com")),
+                    target_port: 443,
+                    protocol: ProxyProtocol::TLS,
+                    originator_public_key: cryptde().public_key().clone(),
+                }
+            ),
+            other => panic!("Wrong payload type: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn handle_stream_shutdown_msg_reports_to_counterpart_without_tunnel_when_necessary() {
+        let system = System::new("test");
+        let mut subject = ProxyServer::new(cryptde(), true);
+        let unaffected_socket_addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
+        let unaffected_stream_key =
+            StreamKey::new(cryptde().public_key().clone(), unaffected_socket_addr);
+        let affected_socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
+        let affected_stream_key =
+            StreamKey::new(cryptde().public_key().clone(), affected_socket_addr);
+        let affected_cryptde = CryptDENull::from(&PublicKey::new(b"affected"));
+        subject
+            .keys_and_addrs
+            .insert(unaffected_stream_key, unaffected_socket_addr);
+        subject
+            .keys_and_addrs
+            .insert(affected_stream_key, affected_socket_addr);
+        subject.stream_key_routes.insert(
+            unaffected_stream_key,
+            RouteQueryResponse {
+                route: Route { hops: vec![] },
+                expected_services: ExpectedServices::RoundTrip(vec![], vec![], 1234),
+            },
+        );
+        let affected_route = Route::round_trip(
+            RouteSegment::new(
+                vec![cryptde().public_key(), affected_cryptde.public_key()],
+                Component::ProxyClient,
+            ),
+            RouteSegment::new(
+                vec![affected_cryptde.public_key(), cryptde().public_key()],
+                Component::ProxyServer,
+            ),
+            cryptde(),
+            Some(Wallet::new("consuming")),
+            1234,
+        )
+        .unwrap();
+        let affected_expected_services = vec![ExpectedService::Exit(
+            affected_cryptde.public_key().clone(),
+            Wallet::new("1234"),
+            DEFAULT_RATE_PACK,
+        )];
+        subject.stream_key_routes.insert(
+            affected_stream_key,
+            RouteQueryResponse {
+                route: affected_route.clone(),
+                expected_services: ExpectedServices::RoundTrip(
+                    affected_expected_services,
+                    vec![],
+                    1234,
+                ),
+            },
+        );
+        let subject_addr = subject.start();
+        let (hopper, _, hopper_recording_arc) = make_recorder();
+        let peer_actors = peer_actors_builder().hopper(hopper).build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(StreamShutdownMsg {
+                peer_addr: affected_socket_addr,
+                stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
+                    reception_port: HTTP_PORT,
+                    sequence_number: 1234,
+                }),
+                report_to_counterpart: true,
+            })
+            .unwrap();
+
+        System::current().stop_with_code(0);
+        system.run();
+        let hopper_recording = hopper_recording_arc.lock().unwrap();
+        let icp = hopper_recording.get_record::<IncipientCoresPackage>(0);
+        assert_eq!(icp.route, affected_route);
+        let payload = decodex::<MessageType>(&affected_cryptde, &icp.payload).unwrap();
+        match payload {
+            MessageType::ClientRequest(payload) => assert_eq!(
+                payload,
+                ClientRequestPayload {
+                    version: DataVersion::new(0, 0).unwrap(),
+                    stream_key: affected_stream_key,
+                    sequenced_packet: SequencedPacket::new(vec![], 1234, true),
+                    target_hostname: None,
+                    target_port: HTTP_PORT,
+                    protocol: ProxyProtocol::HTTP,
+                    originator_public_key: cryptde().public_key().clone(),
+                }
+            ),
+            other => panic!("Wrong payload type: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn handle_stream_shutdown_msg_does_not_report_to_counterpart_when_unnecessary() {
+        let mut subject = ProxyServer::new(cryptde(), true);
+        let unaffected_socket_addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
+        let unaffected_stream_key =
+            StreamKey::new(cryptde().public_key().clone(), unaffected_socket_addr);
+        let affected_socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
+        let affected_stream_key =
+            StreamKey::new(cryptde().public_key().clone(), affected_socket_addr);
+        subject
+            .keys_and_addrs
+            .insert(unaffected_stream_key, unaffected_socket_addr);
+        subject
+            .keys_and_addrs
+            .insert(affected_stream_key, affected_socket_addr);
+        subject.stream_key_routes.insert(
+            unaffected_stream_key,
+            RouteQueryResponse {
+                route: Route { hops: vec![] },
+                expected_services: ExpectedServices::RoundTrip(vec![], vec![], 1234),
+            },
+        );
+        subject.stream_key_routes.insert(
+            affected_stream_key,
+            RouteQueryResponse {
+                route: Route { hops: vec![] },
+                expected_services: ExpectedServices::RoundTrip(vec![], vec![], 1234),
+            },
+        );
+        subject
+            .tunneled_hosts
+            .insert(unaffected_stream_key, "blah".to_string());
+        subject
+            .tunneled_hosts
+            .insert(affected_stream_key, "blah".to_string());
+
+        subject.handle_stream_shutdown_msg(StreamShutdownMsg {
+            peer_addr: affected_socket_addr,
+            stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
+                reception_port: HTTP_PORT,
+                sequence_number: 1234,
+            }),
+            report_to_counterpart: false,
+        });
+
+        // Subject is unbound but didn't panic; therefore, no attempt to send to Hopper: perfect!
+        assert!(subject
+            .keys_and_addrs
+            .a_to_b(&unaffected_stream_key)
+            .is_some());
+        assert!(subject
+            .stream_key_routes
+            .contains_key(&unaffected_stream_key));
+        assert!(subject.tunneled_hosts.contains_key(&unaffected_stream_key));
+        assert!(subject
+            .keys_and_addrs
+            .a_to_b(&affected_stream_key)
+            .is_none());
+        assert!(!subject.stream_key_routes.contains_key(&affected_stream_key));
+        assert!(!subject.tunneled_hosts.contains_key(&affected_stream_key));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Proxy Server should never get ShutdownStreamMsg about clandestine stream"
+    )]
+    fn handle_stream_shutdown_complains_about_clandestine_message() {
+        let system = System::new("test");
+        let subject = ProxyServer::new(cryptde(), true);
+        let subject_addr = subject.start();
+
+        subject_addr
+            .try_send(StreamShutdownMsg {
+                peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+                stream_type: RemovedStreamType::Clandestine,
+                report_to_counterpart: false,
+            })
+            .unwrap();
+
+        System::current().stop_with_code(0);
+        system.run();
     }
 }

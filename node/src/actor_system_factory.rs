@@ -380,7 +380,7 @@ mod tests {
     use crate::sub_lib::crash_point::CrashPoint;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::sub_lib::dispatcher::InboundClientData;
+    use crate::sub_lib::dispatcher::{InboundClientData, StreamShutdownMsg};
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
     use crate::sub_lib::neighborhood::NodeQueryMessage;
@@ -450,6 +450,7 @@ mod tests {
                 ibcd_sub: addr.clone().recipient::<InboundClientData>(),
                 bind: addr.clone().recipient::<BindMessage>(),
                 from_dispatcher_client: addr.clone().recipient::<TransmitDataMsg>(),
+                stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
             };
             (dispatcher_subs, addr.recipient::<PoolBindMessage>())
         }
@@ -476,6 +477,7 @@ mod tests {
                     .recipient::<ExpiredCoresPackage<DnsResolveFailure>>(),
                 add_return_route: addr.clone().recipient::<AddReturnRouteMessage>(),
                 add_route: addr.clone().recipient::<AddRouteMessage>(),
+                stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
             }
         }
 
@@ -516,6 +518,7 @@ mod tests {
                 from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip>>(),
                 dispatcher_node_query: addr.clone().recipient::<DispatcherNodeQueryMessage>(),
                 remove_neighbor: addr.clone().recipient::<RemoveNeighborMessage>(),
+                stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
             }
         }
 

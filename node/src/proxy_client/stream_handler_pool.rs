@@ -37,7 +37,7 @@ pub trait StreamHandlerPool {
 pub struct StreamHandlerPoolReal {
     inner: Arc<Mutex<StreamHandlerPoolRealInner>>,
     stream_adder_rx: Receiver<(StreamKey, Box<dyn SenderWrapper<SequencedPacket>>)>,
-    stream_killer_rx: Receiver<StreamKey>,
+    stream_killer_rx: Receiver<(StreamKey, u64)>,
 }
 
 struct StreamHandlerPoolRealInner {
@@ -54,19 +54,7 @@ struct StreamHandlerPoolRealInner {
 impl StreamHandlerPool for StreamHandlerPoolReal {
     fn process_package(&self, payload: ClientRequestPayload, consuming_wallet: Option<Wallet>) {
         self.do_housekeeping();
-
-        if payload.sequenced_packet.last_data
-            && (payload.sequenced_packet.data.is_empty())
-            && Self::find_stream_with_key(&payload.stream_key, &self.inner).is_none()
-        {
-            let inner = self.inner.lock().expect("Stream handler pool is poisoned");
-            inner.logger.debug(format!(
-                "Empty last_data message received for nonexistent stream {:?} - ignoring",
-                payload.stream_key
-            ));
-        } else {
-            Self::process_package(payload, consuming_wallet, self.inner.clone())
-        }
+        Self::process_package(payload, consuming_wallet, self.inner.clone())
     }
 }
 
@@ -124,22 +112,34 @@ impl StreamHandlerPoolReal {
                 actix::spawn(future);
             }
             None => {
-                let future = Self::make_stream_with_key(&payload, inner_arc_1.clone())
-                    .and_then(move |sender_wrapper| {
-                        Self::write_and_tend(sender_wrapper, payload, consuming_wallet, inner_arc)
-                    })
-                    .map_err(move |error| {
-                        // TODO: This ends up sending an empty response back to the browser and terminating
-                        // the stream. User deserves better than that. Send back a response from the
-                        // proper ServerImpersonator describing the error.
-                        Self::clean_up_bad_stream(
-                            inner_arc_1,
-                            &stream_key,
-                            error_socket_addr(),
-                            error,
-                        );
-                    });
-                actix::spawn(future);
+                if payload.sequenced_packet.data.is_empty() {
+                    Self::make_logger_copy(&inner_arc_1).debug(format!(
+                        "Empty request payload received for nonexistent stream {:?} - ignoring",
+                        payload.stream_key
+                    ))
+                } else {
+                    let future = Self::make_stream_with_key(&payload, inner_arc_1.clone())
+                        .and_then(move |sender_wrapper| {
+                            Self::write_and_tend(
+                                sender_wrapper,
+                                payload,
+                                consuming_wallet,
+                                inner_arc,
+                            )
+                        })
+                        .map_err(move |error| {
+                            // TODO: This ends up sending an empty response back to the browser and terminating
+                            // the stream. User deserves better than that. Send back a response from the
+                            // proper ServerImpersonator describing the error.
+                            Self::clean_up_bad_stream(
+                                inner_arc_1,
+                                &stream_key,
+                                error_socket_addr(),
+                                error,
+                            );
+                        });
+                    actix::spawn(future);
+                }
             }
         };
     }
@@ -181,23 +181,35 @@ impl StreamHandlerPoolReal {
         Self::perform_write(payload.sequenced_packet, sender_wrapper.clone()).and_then(move |_| {
             let mut inner = inner_arc.lock().expect("Stream handler pool is poisoned");
             if last_data {
-                inner.stream_writer_channels.remove(&stream_key);
+                match inner.stream_writer_channels.remove(&stream_key) {
+                    Some(channel) => inner.logger.debug(format!(
+                        "Removing StreamWriter {:?} to {}",
+                        stream_key,
+                        channel.peer_addr()
+                    )),
+                    None => inner.logger.debug(format!(
+                        "Trying to remove StreamWriter {:?}, but it's already gone",
+                        stream_key
+                    )),
+                }
             }
-            match consuming_wallet {
-                Some(wallet) => inner
-                    .accountant_sub
-                    .try_send(ReportExitServiceProvidedMessage {
-                        consuming_wallet: wallet,
-                        payload_size,
-                        service_rate: inner.exit_service_rate,
-                        byte_rate: inner.exit_byte_rate,
-                    })
-                    .expect("Accountant is dead"),
-                // This log is here mostly for testing, to prove that no Accountant message is sent in the no-wallet case
-                None => inner.logger.debug(format!(
-                    "Sent {}-byte request without consuming wallet for free",
-                    payload_size
-                )),
+            if payload_size > 0 {
+                match consuming_wallet {
+                    Some(wallet) => inner
+                        .accountant_sub
+                        .try_send(ReportExitServiceProvidedMessage {
+                            consuming_wallet: wallet,
+                            payload_size,
+                            service_rate: inner.exit_service_rate,
+                            byte_rate: inner.exit_byte_rate,
+                        })
+                        .expect("Accountant is dead"),
+                    // This log is here mostly for testing, to prove that no Accountant message is sent in the no-wallet case
+                    None => inner.logger.debug(format!(
+                        "Sent {}-byte request without consuming wallet for free",
+                        payload_size
+                    )),
+                }
             }
             Ok(())
         })
@@ -390,14 +402,27 @@ impl StreamHandlerPoolReal {
 
     fn clean_up_dead_streams(&self) {
         let mut inner = self.inner.lock().expect("Stream handler pool is poisoned");
-        while let Ok(stream_key) = self.stream_killer_rx.try_recv() {
+        while let Ok((stream_key, sequence_number)) = self.stream_killer_rx.try_recv() {
             match inner.stream_writer_channels.remove(&stream_key) {
-                Some(writer_channel) => inner.logger.debug(format!(
-                    "Killed StreamWriter to {}",
-                    writer_channel.peer_addr()
-                )),
+                Some(writer_channel) => {
+                    inner
+                        .proxy_client_subs
+                        .inbound_server_data
+                        .try_send(InboundServerData {
+                            stream_key,
+                            last_data: true,
+                            sequence_number,
+                            source: writer_channel.peer_addr(),
+                            data: vec![],
+                        })
+                        .expect("Proxy Client is dead");
+                    inner.logger.debug(format!(
+                        "Killed StreamWriter to {} and sent server-drop report",
+                        writer_channel.peer_addr()
+                    ))
+                }
                 None => inner.logger.debug(format!(
-                    "Tried to kill StreamWriter for key {:?}, but it was not found",
+                    "Tried to kill StreamWriter for key {:?}, but it was already gone",
                     stream_key
                 )),
             }
@@ -467,7 +492,6 @@ mod tests {
     use crate::proxy_client::local_test_utils::ResolverWrapperMock;
     use crate::proxy_client::stream_establisher::StreamEstablisher;
     use crate::sub_lib::channel_wrappers::FuturesChannelFactoryReal;
-    use crate::sub_lib::channel_wrappers::SenderWrapperReal;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::hopper::ExpiredCoresPackage;
     use crate::sub_lib::hopper::MessageType;
@@ -487,9 +511,6 @@ mod tests {
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use actix::System;
-    use futures::lazy;
-    use futures::sync::mpsc::unbounded;
-    use futures::Stream;
     use std::cell::RefCell;
     use std::io::Error;
     use std::io::ErrorKind;
@@ -500,7 +521,6 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
-    use std::time::Duration;
     use tokio;
     use tokio::prelude::Async;
     use trust_dns_resolver::error::ResolveErrorKind;
@@ -565,7 +585,7 @@ mod tests {
             let payload = ClientRequestPayload {
                 version: ClientRequestPayload::version(),
                 stream_key,
-                sequenced_packet: Default::default(),
+                sequenced_packet: SequencedPacket::new(b"booga".to_vec(), 0, false),
                 target_hostname: Some("www.example.com".to_string()),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
@@ -605,11 +625,12 @@ mod tests {
             protocol: ProxyProtocol::HTTP,
             originator_public_key: PublicKey::new(&b"men's souls"[..]),
         };
-        let mut tx_to_write = Box::new(SenderWrapperMock::new(
-            SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-        ));
-        tx_to_write.unbounded_send_results = RefCell::new(vec![Ok(())]);
-        let write_parameters = tx_to_write.unbounded_send_params.clone();
+        let write_parameters = Arc::new(Mutex::new(vec![]));
+        let tx_to_write = Box::new(
+            SenderWrapperMock::new(SocketAddr::from_str("1.2.3.4:5678").unwrap())
+                .unbounded_send_result(Ok(()))
+                .unbounded_send_params(&write_parameters),
+        );
 
         let package = ExpiredCoresPackage::new(
             IpAddr::from_str("1.2.3.4").unwrap(),
@@ -677,11 +698,11 @@ mod tests {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_success(vec![IpAddr::from_str("2.3.4.5").unwrap()]);
-            let mut tx_to_write: SenderWrapperMock<SequencedPacket> =
-                SenderWrapperMock::new(SocketAddr::from_str("2.3.4.5:80").unwrap());
-            tx_to_write.unbounded_send_results = RefCell::new(vec![make_send_error(
-                client_request_payload.sequenced_packet.clone(),
-            )]);
+
+            let tx_to_write = SenderWrapperMock::new(SocketAddr::from_str("2.3.4.5:80").unwrap())
+                .unbounded_send_result(make_send_error(
+                    client_request_payload.sequenced_packet.clone(),
+                ));
 
             let subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
@@ -1254,11 +1275,10 @@ mod tests {
             );
 
             let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
-            let disconnected_sender = Box::new(SenderWrapperMock {
-                peer_addr,
-                unbounded_send_params: Arc::new(Mutex::new(vec![])),
-                unbounded_send_results: RefCell::new(vec![make_send_error(sequenced_packet)]),
-            });
+            let disconnected_sender = Box::new(
+                SenderWrapperMock::new(peer_addr)
+                    .unbounded_send_result(make_send_error(sequenced_packet)),
+            );
 
             let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
             subject.stream_killer_rx = stream_killer_rx;
@@ -1368,79 +1388,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // TODO: Play SC-696 card to re-write this test -- it is flaky
-    fn after_writing_last_data_the_stream_should_close() {
-        init_test_logging();
-        let cryptde = cryptde();
-        let stream_key = make_meaningless_stream_key();
-        let (proxy_client, _, _) = make_recorder();
-        let (tx_to_write, mut rx_to_write) = unbounded();
-        let sequenced_packet = SequencedPacket {
-            data: b"These are the times".to_vec(),
-            sequence_number: 0,
-            last_data: true,
-        };
-        let client_request_payload = ClientRequestPayload {
-            version: ClientRequestPayload::version(),
-            stream_key: stream_key.clone(),
-            sequenced_packet: sequenced_packet.clone(),
-            target_hostname: Some(String::from("that.try")),
-            target_port: HTTP_PORT,
-            protocol: ProxyProtocol::HTTP,
-            originator_public_key: PublicKey::new(&b"men's souls"[..]),
-        };
-        let package = ExpiredCoresPackage::new(
-            IpAddr::from_str("1.2.3.4").unwrap(),
-            Some(make_wallet("consuming")),
-            make_meaningless_route(),
-            client_request_payload.into(),
-            0,
-        );
-        let (tx, rx) = mpsc::channel();
-        thread::spawn(move || {
-            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
-            let resolver = ResolverWrapperMock::new();
-            let subject = StreamHandlerPoolReal::new(
-                Box::new(resolver),
-                cryptde,
-                peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client.clone(),
-                100,
-                200,
-            );
-            subject.inner.lock().unwrap().stream_writer_channels.insert(
-                stream_key,
-                Box::new(SenderWrapperReal::new(
-                    SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-                    tx_to_write,
-                )),
-            );
-
-            run_process_package_in_actix(subject, package);
-        });
-
-        let test_future = lazy(move || {
-            let _ = tx.send(rx_to_write.poll());
-            let _ = tx.send(rx_to_write.poll());
-            Ok(())
-        });
-
-        thread::spawn(move || {
-            thread::sleep(Duration::from_millis(100));
-            tokio::run(test_future);
-        });
-
-        let rx_to_write_params = rx.recv().unwrap();
-        assert_eq!(rx_to_write_params, Ok(Async::Ready(Some(sequenced_packet))));
-
-        let tlh = TestLogHandler::new();
-        tlh.exists_log_containing("Removing stream writer for 1.2.3.4:5678");
-
-        let rx_to_write_result = rx.recv().unwrap();
-        assert_eq!(rx_to_write_result, Ok(Async::Ready(None))); // Ok(Async::Ready(None)) indicates that all TXs to the channel are gone
-    }
-
-    #[test]
     fn error_from_tx_to_writer_removes_stream() {
         init_test_logging();
         let cryptde = cryptde();
@@ -1469,11 +1416,10 @@ mod tests {
             client_request_payload.into(),
             0,
         );
-        let mut sender_wrapper =
-            SenderWrapperMock::new(SocketAddr::from_str("1.2.3.4:5678").unwrap());
-        sender_wrapper.unbounded_send_results =
-            RefCell::new(vec![make_send_error(sequenced_packet.clone())]);
-        let send_params = sender_wrapper.unbounded_send_params.clone();
+        let send_params = Arc::new(Mutex::new(vec![]));
+        let sender_wrapper = SenderWrapperMock::new(SocketAddr::from_str("1.2.3.4:5678").unwrap())
+            .unbounded_send_params(&send_params)
+            .unbounded_send_result(make_send_error(sequenced_packet.clone()));
         thread::spawn(move || {
             let resolver = ResolverWrapperMock::new();
             let peer_actors = peer_actors_builder()
@@ -1508,18 +1454,16 @@ mod tests {
     }
 
     #[test]
-    fn process_package_does_not_create_new_connection_for_last_data_message_with_no_data_and_sends_no_response(
+    fn process_package_does_not_create_new_connection_for_zero_length_data_with_unfamiliar_stream_key(
     ) {
         init_test_logging();
         let cryptde = cryptde();
-        let (proxy_client, _, _) = make_recorder();
         let (hopper, _, hopper_recording_arc) = make_recorder();
-        let (accountant, _, _) = make_recorder();
+        let (accountant, _, accountant_recording_arc) = make_recorder();
         thread::spawn(move || {
             let peer_actors = peer_actors_builder()
                 .hopper(hopper)
                 .accountant(accountant)
-                .proxy_client(proxy_client)
                 .build();
             let client_request_payload = ClientRequestPayload {
                 version: ClientRequestPayload::version(),
@@ -1527,12 +1471,12 @@ mod tests {
                 sequenced_packet: SequencedPacket {
                     data: vec![],
                     sequence_number: 0,
-                    last_data: true,
+                    last_data: false,
                 },
                 target_hostname: None,
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
-                originator_public_key: PublicKey::new(&b"men's souls"[..]),
+                originator_public_key: PublicKey::new(&b"booga"[..]),
             };
             let package = ExpiredCoresPackage::new(
                 IpAddr::from_str("1.2.3.4").unwrap(),
@@ -1562,13 +1506,83 @@ mod tests {
         let tlh = TestLogHandler::new();
         tlh.await_log_containing(
             &format!(
-                "Empty last_data message received for nonexistent stream {:?} - ignoring",
+                "Empty request payload received for nonexistent stream {:?} - ignoring",
                 make_meaningless_stream_key()
             )[..],
             2000,
         );
-
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        assert_eq!(accountant_recording.len(), 0);
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(hopper_recording.len(), 0);
+    }
+
+    #[test]
+    fn clean_up_dead_streams_sends_server_drop_report_if_dead_stream_is_in_map() {
+        let system = System::new("test");
+        let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
+        let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+        let mut subject = StreamHandlerPoolReal::new(
+            Box::new(ResolverWrapperMock::new()),
+            cryptde(),
+            peer_actors.accountant.report_exit_service_provided,
+            peer_actors.proxy_client,
+            0,
+            0,
+        );
+        let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
+        subject.stream_killer_rx = stream_killer_rx;
+        let stream_key = make_meaningless_stream_key();
+        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        {
+            let mut inner = subject.inner.lock().unwrap();
+            inner
+                .stream_writer_channels
+                .insert(stream_key, Box::new(SenderWrapperMock::new(peer_addr)));
+        }
+        stream_killer_tx.send((stream_key, 47)).unwrap();
+
+        subject.clean_up_dead_streams();
+
+        System::current().stop_with_code(0);
+        system.run();
+        let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
+        let report = proxy_client_recording.get_record::<InboundServerData>(0);
+        assert_eq!(
+            report,
+            &InboundServerData {
+                stream_key,
+                last_data: true,
+                sequence_number: 47,
+                source: peer_addr,
+                data: vec![]
+            }
+        );
+    }
+
+    #[test]
+    fn clean_up_dead_streams_does_not_send_server_drop_report_if_dead_stream_is_gone_already() {
+        let system = System::new("test");
+        let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
+        let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+        let mut subject = StreamHandlerPoolReal::new(
+            Box::new(ResolverWrapperMock::new()),
+            cryptde(),
+            peer_actors.accountant.report_exit_service_provided,
+            peer_actors.proxy_client,
+            0,
+            0,
+        );
+        let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
+        subject.stream_killer_rx = stream_killer_rx;
+        let stream_key = make_meaningless_stream_key();
+        stream_killer_tx.send((stream_key, 47)).unwrap();
+
+        subject.clean_up_dead_streams();
+
+        System::current().stop_with_code(0);
+        system.run();
+        let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
+        assert_eq!(proxy_client_recording.len(), 0);
     }
 }

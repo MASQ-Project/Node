@@ -8,6 +8,7 @@ use node_lib::sub_lib::cryptde::PublicKey;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
+use std::net::{IpAddr, Ipv4Addr};
 
 pub struct SubstratumNodeCluster {
     real_nodes: HashMap<String, SubstratumRealNode>,
@@ -33,6 +34,14 @@ impl SubstratumNodeCluster {
             host_node_parent_dir,
             next_index: 1,
         })
+    }
+
+    pub fn host_ip_addr() -> IpAddr {
+        if Self::is_in_jenkins() {
+            IpAddr::V4(Ipv4Addr::new(172, 18, 0, 2))
+        } else {
+            IpAddr::V4(Ipv4Addr::new(172, 18, 0, 1))
+        }
     }
 
     pub fn next_index(&self) -> usize {

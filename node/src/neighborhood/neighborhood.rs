@@ -8,9 +8,10 @@ use super::node_record::NodeRecord;
 use crate::neighborhood::gossip::{DotGossipEndpoint, Gossip, GossipNodeRecord};
 use crate::neighborhood::gossip_acceptor::GossipAcceptanceResult;
 use crate::neighborhood::node_record::NodeRecordInner;
+use crate::stream_messages::RemovedStreamType;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
-use crate::sub_lib::dispatcher::Component;
+use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
 use crate::sub_lib::logger::Logger;
@@ -261,6 +262,14 @@ impl Handler<NodeRecordMetadataMessage> for Neighborhood {
     }
 }
 
+impl Handler<StreamShutdownMsg> for Neighborhood {
+    type Result = ();
+
+    fn handle(&mut self, msg: StreamShutdownMsg, _ctx: &mut Self::Context) -> Self::Result {
+        self.handle_stream_shutdown_msg(msg);
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct AccessibleGossipRecord {
     pub signed_gossip: PlainData,
@@ -333,6 +342,7 @@ impl Neighborhood {
             from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip>>(),
             dispatcher_node_query: addr.clone().recipient::<DispatcherNodeQueryMessage>(),
             remove_neighbor: addr.clone().recipient::<RemoveNeighborMessage>(),
+            stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
         }
     }
 
@@ -815,6 +825,42 @@ impl Neighborhood {
             None => format!("{}", gossip_source),
         }
     }
+
+    fn handle_stream_shutdown_msg(&mut self, msg: StreamShutdownMsg) {
+        if msg.stream_type != RemovedStreamType::Clandestine {
+            panic!("Neighborhood should never get ShutdownStreamMsg about non-clandestine stream")
+        }
+        let (neighbor_key, neighbor_node_addr) = match self
+            .neighborhood_database
+            .node_by_ip(&msg.peer_addr.ip())
+        {
+            None => {
+                self.logger.debug (format!("Received shutdown notification for stream to {}, but no neighbor found there - ignoring", msg.peer_addr));
+                return;
+            }
+            Some(n) => (
+                n.public_key().clone(),
+                n.node_addr_opt().expect("NodeAddr suddenly disappeared"),
+            ),
+        };
+        if !neighbor_node_addr.ports().contains(&msg.peer_addr.port()) {
+            self.logger.debug (format!("Received shutdown notification for stream to {}, but no neighbor found there - ignoring", msg.peer_addr));
+            return;
+        }
+        match self.neighborhood_database.remove_neighbor(&neighbor_key) {
+            Err(_) => panic!("Node suddenly disappeared"),
+            Ok(true) => {
+                self.logger.debug(format!(
+                    "Received shutdown notification for {} at {}",
+                    neighbor_key, msg.peer_addr
+                ));
+                self.gossip_to_neighbors()
+            }
+            Ok(false) => {
+                self.logger.debug (format! ("Received shutdown notification for {} at {}, but that Node is already isolated - ignoring", neighbor_key, msg.peer_addr));
+            }
+        };
+    }
 }
 
 #[cfg(test)]
@@ -828,6 +874,8 @@ mod tests {
         db_from_node, make_global_cryptde_node_record, neighborhood_from_nodes,
     };
     use crate::neighborhood::node_record::NodeRecordInner;
+    use crate::persistent_configuration::TLS_PORT;
+    use crate::stream_messages::{NonClandestineAttributes, RemovedStreamType};
     use crate::sub_lib::cryptde::{decodex, encodex, CryptData};
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::Endpoint;
@@ -854,7 +902,7 @@ mod tests {
     use serde_cbor;
     use std::cell::RefCell;
     use std::convert::TryInto;
-    use std::net::IpAddr;
+    use std::net::{IpAddr, SocketAddr};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
@@ -2982,6 +3030,212 @@ mod tests {
             PublicKey::new(b""),
         ];
         assert_eq!(expected_public_keys, actual_keys);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Neighborhood should never get ShutdownStreamMsg about non-clandestine stream"
+    )]
+    fn handle_stream_shutdown_complains_about_non_clandestine_message() {
+        let subject_node = make_global_cryptde_node_record(1345, true);
+        let mut subject = neighborhood_from_nodes(&subject_node, None);
+
+        subject.handle_stream_shutdown_msg(StreamShutdownMsg {
+            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
+                reception_port: TLS_PORT,
+                sequence_number: 1234,
+            }),
+            report_to_counterpart: false,
+        });
+    }
+
+    #[test]
+    fn handle_stream_shutdown_handles_socket_addr_with_unknown_ip() {
+        init_test_logging();
+        let (hopper, _, hopper_recording_arc) = make_recorder();
+        let system = System::new("test");
+        let unrecognized_node = make_node_record(3123, true);
+        let unrecognized_node_addr = unrecognized_node.node_addr_opt().unwrap();
+        let unrecognized_socket_addr = SocketAddr::new(
+            unrecognized_node_addr.ip_addr(),
+            unrecognized_node_addr.ports()[0],
+        );
+        let subject_node = make_global_cryptde_node_record(1345, true);
+        let mut subject = neighborhood_from_nodes(&subject_node, None);
+        let peer_actors = peer_actors_builder().hopper(hopper).build();
+        subject.hopper = Some(peer_actors.hopper.from_hopper_client);
+
+        subject.handle_stream_shutdown_msg(StreamShutdownMsg {
+            peer_addr: unrecognized_socket_addr,
+            stream_type: RemovedStreamType::Clandestine,
+            report_to_counterpart: true,
+        });
+
+        System::current().stop_with_code(0);
+        system.run();
+
+        assert_eq!(subject.neighborhood_database.keys().len(), 1);
+        let hopper_recording = hopper_recording_arc.lock().unwrap();
+        assert_eq!(hopper_recording.len(), 0);
+        TestLogHandler::new ().exists_log_containing (&format!("DEBUG: Neighborhood: Received shutdown notification for stream to {}, but no neighbor found there - ignoring", unrecognized_socket_addr));
+    }
+
+    #[test]
+    fn handle_stream_shutdown_handles_socket_addr_with_unknown_port() {
+        init_test_logging();
+        let (hopper, _, hopper_recording_arc) = make_recorder();
+        let system = System::new("test");
+        let neighbor_node = make_node_record(3123, true);
+        let neighbor_node_addr = neighbor_node.node_addr_opt().unwrap();
+        let neighbor_node_socket_addr =
+            SocketAddr::new(neighbor_node_addr.ip_addr(), neighbor_node_addr.ports()[0]);
+        let unrecognized_socket_addr = SocketAddr::new(
+            neighbor_node_socket_addr.ip(),
+            neighbor_node_socket_addr.port() + 1,
+        );
+        let subject_node = make_global_cryptde_node_record(1345, true);
+        let mut subject = neighborhood_from_nodes(&subject_node, None);
+        subject
+            .neighborhood_database
+            .add_node(neighbor_node.clone())
+            .unwrap();
+        subject
+            .neighborhood_database
+            .add_arbitrary_full_neighbor(subject_node.public_key(), neighbor_node.public_key());
+        let peer_actors = peer_actors_builder().hopper(hopper).build();
+        subject.hopper = Some(peer_actors.hopper.from_hopper_client);
+
+        subject.handle_stream_shutdown_msg(StreamShutdownMsg {
+            peer_addr: SocketAddr::new(
+                neighbor_node_socket_addr.ip(),
+                neighbor_node_socket_addr.port() + 1,
+            ),
+            stream_type: RemovedStreamType::Clandestine,
+            report_to_counterpart: false,
+        });
+
+        System::current().stop_with_code(0);
+        system.run();
+
+        assert_eq!(subject.neighborhood_database.keys().len(), 2);
+        let hopper_recording = hopper_recording_arc.lock().unwrap();
+        assert_eq!(hopper_recording.len(), 0);
+        TestLogHandler::new ().exists_log_containing (&format!("DEBUG: Neighborhood: Received shutdown notification for stream to {}, but no neighbor found there - ignoring", unrecognized_socket_addr));
+    }
+
+    #[test]
+    fn handle_stream_shutdown_handles_already_inactive_node() {
+        init_test_logging();
+        let (hopper, _, hopper_recording_arc) = make_recorder();
+        let system = System::new("test");
+        let gossip_neighbor_node = make_node_record(2456, true);
+        let inactive_neighbor_node = make_node_record(3123, true);
+        let inactive_neighbor_node_addr = inactive_neighbor_node.node_addr_opt().unwrap();
+        let inactive_neighbor_node_socket_addr = SocketAddr::new(
+            inactive_neighbor_node_addr.ip_addr(),
+            inactive_neighbor_node_addr.ports()[0],
+        );
+        let subject_node = make_global_cryptde_node_record(1345, true);
+        let mut subject = neighborhood_from_nodes(&subject_node, None);
+        subject
+            .neighborhood_database
+            .add_node(gossip_neighbor_node.clone())
+            .unwrap();
+        subject
+            .neighborhood_database
+            .add_node(inactive_neighbor_node.clone())
+            .unwrap();
+        subject.neighborhood_database.add_arbitrary_full_neighbor(
+            subject_node.public_key(),
+            gossip_neighbor_node.public_key(),
+        );
+        subject.neighborhood_database.add_arbitrary_half_neighbor(
+            inactive_neighbor_node.public_key(),
+            subject_node.public_key(),
+        );
+        let peer_actors = peer_actors_builder().hopper(hopper).build();
+        subject.hopper = Some(peer_actors.hopper.from_hopper_client);
+
+        subject.handle_stream_shutdown_msg(StreamShutdownMsg {
+            peer_addr: inactive_neighbor_node_socket_addr,
+            stream_type: RemovedStreamType::Clandestine,
+            report_to_counterpart: true,
+        });
+
+        System::current().stop_with_code(0);
+        system.run();
+
+        assert_eq!(subject.neighborhood_database.keys().len(), 3);
+        assert_eq!(
+            subject.neighborhood_database.has_half_neighbor(
+                subject_node.public_key(),
+                inactive_neighbor_node.public_key()
+            ),
+            false
+        );
+        let hopper_recording = hopper_recording_arc.lock().unwrap();
+        assert_eq!(hopper_recording.len(), 0);
+        TestLogHandler::new ().exists_log_containing (&format!("DEBUG: Neighborhood: Received shutdown notification for {} at {}, but that Node is already isolated - ignoring", inactive_neighbor_node.public_key(), inactive_neighbor_node_socket_addr));
+    }
+
+    #[test]
+    fn handle_stream_shutdown_handles_existing_socket_addr() {
+        init_test_logging();
+        let (hopper, _, hopper_recording_arc) = make_recorder();
+        let system = System::new("test");
+        let gossip_neighbor_node = make_node_record(2456, true);
+        let shutdown_neighbor_node = make_node_record(3123, true);
+        let shutdown_neighbor_node_addr = shutdown_neighbor_node.node_addr_opt().unwrap();
+        let shutdown_neighbor_node_socket_addr = SocketAddr::new(
+            shutdown_neighbor_node_addr.ip_addr(),
+            shutdown_neighbor_node_addr.ports()[0],
+        );
+        let subject_node = make_global_cryptde_node_record(1345, true);
+        let mut subject = neighborhood_from_nodes(&subject_node, None);
+        subject
+            .neighborhood_database
+            .add_node(gossip_neighbor_node.clone())
+            .unwrap();
+        subject
+            .neighborhood_database
+            .add_node(shutdown_neighbor_node.clone())
+            .unwrap();
+        subject.neighborhood_database.add_arbitrary_full_neighbor(
+            subject_node.public_key(),
+            gossip_neighbor_node.public_key(),
+        );
+        subject.neighborhood_database.add_arbitrary_full_neighbor(
+            subject_node.public_key(),
+            shutdown_neighbor_node.public_key(),
+        );
+        let peer_actors = peer_actors_builder().hopper(hopper).build();
+        subject.hopper = Some(peer_actors.hopper.from_hopper_client);
+
+        subject.handle_stream_shutdown_msg(StreamShutdownMsg {
+            peer_addr: shutdown_neighbor_node_socket_addr,
+            stream_type: RemovedStreamType::Clandestine,
+            report_to_counterpart: true,
+        });
+
+        System::current().stop_with_code(0);
+        system.run();
+
+        assert_eq!(subject.neighborhood_database.keys().len(), 3);
+        assert_eq!(
+            subject.neighborhood_database.has_half_neighbor(
+                subject_node.public_key(),
+                shutdown_neighbor_node.public_key()
+            ),
+            false
+        );
+        let hopper_recording = hopper_recording_arc.lock().unwrap();
+        assert_eq!(hopper_recording.len(), 1);
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: Neighborhood: Received shutdown notification for {} at {}",
+            shutdown_neighbor_node.public_key(),
+            shutdown_neighbor_node_socket_addr
+        ));
     }
 
     pub struct NeighborhoodDatabaseMessage {}

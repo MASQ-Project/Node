@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::stream_messages::PoolBindMessage;
-use crate::sub_lib::dispatcher::DispatcherSubs;
+use crate::stream_messages::{PoolBindMessage, RemovedStreamType};
 use crate::sub_lib::dispatcher::InboundClientData;
+use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
@@ -12,9 +12,15 @@ use actix::Context;
 use actix::Handler;
 use actix::Recipient;
 
+struct DispatcherOutSubs {
+    to_proxy_server: Recipient<InboundClientData>,
+    to_hopper: Recipient<InboundClientData>,
+    proxy_server_stream_shutdown_sub: Recipient<StreamShutdownMsg>,
+    neighborhood_stream_shutdown_sub: Recipient<StreamShutdownMsg>,
+}
+
 pub struct Dispatcher {
-    to_proxy_server: Option<Recipient<InboundClientData>>,
-    to_hopper: Option<Recipient<InboundClientData>>,
+    subs: Option<DispatcherOutSubs>,
     to_stream: Option<Recipient<TransmitDataMsg>>,
     logger: Logger,
 }
@@ -28,8 +34,13 @@ impl Handler<BindMessage> for Dispatcher {
 
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) {
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
-        self.to_proxy_server = Some(msg.peer_actors.proxy_server.from_dispatcher);
-        self.to_hopper = Some(msg.peer_actors.hopper.from_dispatcher);
+        let subs = DispatcherOutSubs {
+            to_proxy_server: msg.peer_actors.proxy_server.from_dispatcher,
+            to_hopper: msg.peer_actors.hopper.from_dispatcher,
+            proxy_server_stream_shutdown_sub: msg.peer_actors.proxy_server.stream_shutdown_sub,
+            neighborhood_stream_shutdown_sub: msg.peer_actors.neighborhood.stream_shutdown_sub,
+        };
+        self.subs = Some(subs);
     }
 }
 
@@ -46,15 +57,17 @@ impl Handler<InboundClientData> for Dispatcher {
 
     fn handle(&mut self, msg: InboundClientData, _ctx: &mut Self::Context) {
         if msg.is_clandestine {
-            self.to_hopper
+            self.subs
                 .as_ref()
                 .expect("Hopper unbound in Dispatcher")
+                .to_hopper
                 .try_send(msg)
                 .expect("Hopper is dead");
         } else {
-            self.to_proxy_server
+            self.subs
                 .as_ref()
                 .expect("ProxyServer unbound in Dispatcher")
+                .to_proxy_server
                 .try_send(msg)
                 .expect("ProxyServer is dead");
         }
@@ -78,12 +91,19 @@ impl Handler<TransmitDataMsg> for Dispatcher {
     }
 }
 
+impl Handler<StreamShutdownMsg> for Dispatcher {
+    type Result = ();
+
+    fn handle(&mut self, msg: StreamShutdownMsg, _ctx: &mut Self::Context) -> Self::Result {
+        self.handle_stream_shutdown_msg(msg)
+    }
+}
+
 impl Dispatcher {
     pub fn new() -> Dispatcher {
         Dispatcher {
-            to_proxy_server: None,
+            subs: None,
             to_stream: None,
-            to_hopper: None,
             logger: Logger::new("Dispatcher"),
         }
     }
@@ -93,6 +113,21 @@ impl Dispatcher {
             ibcd_sub: addr.clone().recipient::<InboundClientData>(),
             bind: addr.clone().recipient::<BindMessage>(),
             from_dispatcher_client: addr.clone().recipient::<TransmitDataMsg>(),
+            stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
+        }
+    }
+
+    fn handle_stream_shutdown_msg(&mut self, msg: StreamShutdownMsg) {
+        let subs = self.subs.as_ref().expect("Dispatcher is unbound");
+        match msg.stream_type {
+            RemovedStreamType::Clandestine => subs
+                .neighborhood_stream_shutdown_sub
+                .try_send(msg)
+                .expect("Neighborhood is dead"),
+            RemovedStreamType::NonClandestine(_) => subs
+                .proxy_server_stream_shutdown_sub
+                .try_send(msg)
+                .expect("Proxy Server is dead"),
         }
     }
 }
@@ -101,9 +136,11 @@ impl Dispatcher {
 mod tests {
     use super::*;
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
+    use crate::persistent_configuration::HTTP_PORT;
+    use crate::stream_messages::NonClandestineAttributes;
     use crate::sub_lib::dispatcher::Endpoint;
-    use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
+    use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use actix::Addr;
     use actix::System;
     use std::net::SocketAddr;
@@ -155,10 +192,7 @@ mod tests {
         let system = System::new("test");
         let subject = Dispatcher::new();
         let subject_addr: Addr<Dispatcher> = subject.start();
-        let subject_ibcd = subject_addr.clone().recipient::<InboundClientData>();
-        let hopper = Recorder::new();
-        let recording_arc = hopper.get_recording();
-        let awaiter = hopper.get_awaiter();
+        let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let reception_port = Some(8080);
         let data: Vec<u8> = vec![9, 10, 11];
@@ -174,21 +208,21 @@ mod tests {
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
-        subject_ibcd.try_send(ibcd_in).unwrap();
+        subject_addr.try_send(ibcd_in).unwrap();
 
         System::current().stop_with_code(0);
         system.run();
 
-        awaiter.await_message_count(1);
-        let recording = recording_arc.lock().unwrap();
+        hopper_awaiter.await_message_count(1);
+        let hopper_recording = hopper_recording_arc.lock().unwrap();
 
-        let message = recording.get_record::<InboundClientData>(0);
+        let message = hopper_recording.get_record::<InboundClientData>(0);
         let actual_socket_addr = message.peer_addr.clone();
         let actual_data = message.data.clone();
 
         assert_eq!(actual_socket_addr, peer_addr);
         assert_eq!(actual_data, data);
-        assert_eq!(recording.len(), 1);
+        assert_eq!(hopper_recording.len(), 1);
     }
 
     #[test]
@@ -308,5 +342,70 @@ mod tests {
         assert_eq!(actual_endpoint, Endpoint::Socket(socket_addr));
         assert_eq!(actual_data, data);
         assert_eq!(recording.len(), 1);
+    }
+
+    #[test]
+    fn handle_stream_shutdown_msg_routes_non_clandestine_to_proxy_server() {
+        let system = System::new("test");
+        let subject = Dispatcher::new();
+        let addr = subject.start();
+        let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
+        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
+        let peer_actors = peer_actors_builder()
+            .proxy_server(proxy_server)
+            .neighborhood(neighborhood)
+            .build();
+        addr.try_send(BindMessage { peer_actors }).unwrap();
+        let msg = StreamShutdownMsg {
+            peer_addr: SocketAddr::from_str("7.8.9.0:6543").unwrap(),
+            stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
+                reception_port: HTTP_PORT,
+                sequence_number: 1234,
+            }),
+            report_to_counterpart: true,
+        };
+
+        addr.try_send(msg.clone()).unwrap();
+
+        System::current().stop_with_code(0);
+        system.run();
+        let proxy_server_recording = proxy_server_recording_arc.lock().unwrap();
+        assert_eq!(
+            proxy_server_recording.get_record::<StreamShutdownMsg>(0),
+            &msg
+        );
+        let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
+        assert_eq!(neighborhood_recording.len(), 0);
+    }
+
+    #[test]
+    fn handle_stream_shutdown_msg_routes_clandestine_to_neighborhood() {
+        let system = System::new("test");
+        let subject = Dispatcher::new();
+        let addr = subject.start();
+        let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
+        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
+        let peer_actors = peer_actors_builder()
+            .proxy_server(proxy_server)
+            .neighborhood(neighborhood)
+            .build();
+        addr.try_send(BindMessage { peer_actors }).unwrap();
+        let msg = StreamShutdownMsg {
+            peer_addr: SocketAddr::from_str("7.8.9.0:6543").unwrap(),
+            stream_type: RemovedStreamType::Clandestine,
+            report_to_counterpart: false,
+        };
+
+        addr.try_send(msg.clone()).unwrap();
+
+        System::current().stop_with_code(0);
+        system.run();
+        let proxy_server_recording = proxy_server_recording_arc.lock().unwrap();
+        assert_eq!(proxy_server_recording.len(), 0);
+        let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
+        assert_eq!(
+            neighborhood_recording.get_record::<StreamShutdownMsg>(0),
+            &msg
+        );
     }
 }

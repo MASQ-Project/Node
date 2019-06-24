@@ -32,6 +32,7 @@ impl Future for StreamWriterUnsorted {
                     }
                 }
                 Some(packet) => {
+                    // TODO in SC-646: handle packet.last_data = true here
                     self.logger.debug(format!(
                         "Transmitting {} bytes of clandestine data",
                         packet.data.len()

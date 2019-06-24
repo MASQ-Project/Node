@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::neighborhood::gossip::Gossip;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
-use crate::sub_lib::dispatcher::Component;
+use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::ExpiredCoresPackage;
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::BindMessage;
@@ -104,6 +104,7 @@ pub struct NeighborhoodSubs {
     pub from_hopper: Recipient<ExpiredCoresPackage<Gossip>>,
     pub dispatcher_node_query: Recipient<DispatcherNodeQueryMessage>,
     pub remove_neighbor: Recipient<RemoveNeighborMessage>,
+    pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

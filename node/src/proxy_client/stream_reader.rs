@@ -16,7 +16,7 @@ pub struct StreamReader {
     stream_key: StreamKey,
     proxy_client_sub: Recipient<InboundServerData>,
     stream: Box<dyn ReadHalfWrapper>,
-    stream_killer: Sender<StreamKey>,
+    stream_killer: Sender<(StreamKey, u64)>,
     peer_addr: SocketAddr,
     logger: Logger,
     sequencer: Sequencer,
@@ -76,7 +76,7 @@ impl StreamReader {
         stream_key: StreamKey,
         proxy_client_sub: Recipient<InboundServerData>,
         stream: Box<dyn ReadHalfWrapper>,
-        stream_killer: Sender<StreamKey>,
+        stream_killer: Sender<(StreamKey, u64)>,
         peer_addr: SocketAddr,
     ) -> StreamReader {
         StreamReader {
@@ -91,8 +91,9 @@ impl StreamReader {
     }
 
     fn shutdown(&mut self) {
-        self.send_inbound_server_data(self.stream_key, vec![], true);
-        let _ = self.stream_killer.send(self.stream_key);
+        let _ = self
+            .stream_killer
+            .send((self.stream_key, self.sequencer.next_sequence_number()));
     }
 
     fn send_inbound_server_data(&mut self, stream_key: StreamKey, data: Vec<u8>, last_data: bool) {
@@ -177,7 +178,7 @@ mod tests {
 
         let _res = subject.poll();
 
-        proxy_client_awaiter.await_message_count(4);
+        proxy_client_awaiter.await_message_count(3);
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
@@ -209,18 +210,8 @@ mod tests {
                 data: b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n".to_vec()
             },
         );
-        assert_eq!(
-            proxy_client_recording.get_record::<InboundServerData>(3),
-            &InboundServerData {
-                stream_key: make_meaningless_stream_key(),
-                last_data: true,
-                sequence_number: 3,
-                source: SocketAddr::from_str("8.7.4.3:50").unwrap(),
-                data: vec![]
-            },
-        );
         let stream_killer_parameters = stream_killer_params.try_recv().unwrap();
-        assert_eq!(stream_killer_parameters, make_meaningless_stream_key());
+        assert_eq!(stream_killer_parameters, (make_meaningless_stream_key(), 3));
     }
 
     #[test]
@@ -268,7 +259,7 @@ mod tests {
         let result = subject.poll();
 
         assert_eq!(result, Err(()));
-        proxy_client_awaiter.await_message_count(4);
+        proxy_client_awaiter.await_message_count(3);
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
@@ -300,71 +291,44 @@ mod tests {
                 data: b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n".to_vec()
             }
         );
-        assert_eq!(
-            proxy_client_recording.get_record::<InboundServerData>(3),
-            &InboundServerData {
-                stream_key: make_meaningless_stream_key(),
-                last_data: true,
-                sequence_number: 3,
-                source: SocketAddr::from_str("5.7.9.0:95").unwrap(),
-                data: vec!()
-            }
-        );
 
         let kill_stream_msg = stream_killer_params
             .try_recv()
             .expect("stream was not killed");
-        assert_eq!(kill_stream_msg, make_meaningless_stream_key());
+        assert_eq!(kill_stream_msg, (make_meaningless_stream_key(), 3));
         assert!(stream_killer_params.try_recv().is_err());
     }
 
     #[test]
-    fn receiving_0_bytes_sends_empty_cores_response_and_kills_stream() {
+    fn receiving_0_bytes_kills_stream() {
         init_test_logging();
-        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let stream_key = make_meaningless_stream_key();
         let (stream_killer, kill_stream_params) = mpsc::channel();
         let mut stream = ReadHalfWrapperMock::new();
         stream.poll_read_results = vec![(vec![], Ok(Async::Ready(0)))];
 
-        let (tx, rx) = mpsc::channel();
-        thread::spawn(move || {
-            let system =
-                System::new("receiving_0_bytes_sends_empty_cores_response_and_kills_stream");
-            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+        let system = System::new("receiving_0_bytes_sends_empty_cores_response_and_kills_stream");
+        let peer_actors = peer_actors_builder().build();
+        let mut sequencer = Sequencer::new();
+        sequencer.next_sequence_number();
+        sequencer.next_sequence_number();
 
-            tx.send(peer_actors.proxy_client.inbound_server_data)
-                .expect("Internal Error");
-            system.run();
-        });
-
-        let proxy_client_sub = rx.recv().unwrap();
         let mut subject = StreamReader {
             stream_key,
-            proxy_client_sub,
+            proxy_client_sub: peer_actors.proxy_client.inbound_server_data,
             stream: Box::new(stream),
             stream_killer,
             peer_addr: SocketAddr::from_str("5.3.4.3:654").unwrap(),
             logger: Logger::new("test"),
-            sequencer: Sequencer::new(),
+            sequencer,
         };
+        System::current().stop_with_code(0);
+        system.run();
 
         let result = subject.poll();
 
         assert_eq!(result, Ok(Async::Ready(())));
-        proxy_client_awaiter.await_message_count(1);
-        assert_eq!(kill_stream_params.try_recv().unwrap(), stream_key);
-        let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
-        assert_eq!(
-            proxy_client_recording.get_record::<InboundServerData>(0),
-            &InboundServerData {
-                stream_key: make_meaningless_stream_key(),
-                last_data: true,
-                sequence_number: 0,
-                source: SocketAddr::from_str("5.3.4.3:654").unwrap(),
-                data: vec![]
-            }
-        );
+        assert_eq!(kill_stream_params.try_recv().unwrap(), (stream_key, 2));
         TestLogHandler::new()
             .exists_log_containing("Stream from 5.3.4.3:654 was closed: (0-byte read)");
     }

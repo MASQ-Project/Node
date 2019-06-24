@@ -17,7 +17,6 @@ use crate::test_utils::logging::TestLog;
 use crate::test_utils::recorder::Recorder;
 use actix::Actor;
 use actix::Addr;
-use actix::Handler;
 use std::cell::RefCell;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -158,30 +157,6 @@ impl NullDiscriminatorFactory {
     pub fn discriminator_nature(self, data: Vec<Vec<u8>>) -> NullDiscriminatorFactory {
         self.discriminator_natures.borrow_mut().push(data);
         self
-    }
-}
-
-impl Handler<AddStreamMsg> for Recorder {
-    type Result = ();
-
-    fn handle(&mut self, msg: AddStreamMsg, _ctx: &mut Self::Context) {
-        self.record(msg);
-    }
-}
-
-impl Handler<RemoveStreamMsg> for Recorder {
-    type Result = ();
-
-    fn handle(&mut self, msg: RemoveStreamMsg, _ctx: &mut Self::Context) {
-        self.record(msg);
-    }
-}
-
-impl Handler<PoolBindMessage> for Recorder {
-    type Result = ();
-
-    fn handle(&mut self, msg: PoolBindMessage, _ctx: &mut Self::Context) {
-        self.record(msg);
     }
 }
 

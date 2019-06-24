@@ -38,9 +38,7 @@ fn end_to_end_routing_test() {
     thread::sleep(Duration::from_millis(500));
 
     let mut client = last_node.make_client(8080);
-    client.send_chunk(Vec::from(
-        &b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n"[..],
-    ));
+    client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
     let response = client.wait_for_chunk();
 
     // If this fails (sporadically) check if there are only 6 nodes in the network and find a better way to wait
@@ -70,9 +68,7 @@ fn http_routing_failure_produces_internal_error_response() {
 
     let mut client = originating_node.make_client(8080);
 
-    client.send_chunk(Vec::from(
-        &b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n"[..],
-    ));
+    client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
     let response = client.wait_for_chunk();
 
     let expected_response =
@@ -120,7 +116,7 @@ fn tls_routing_failure_produces_internal_error_response() {
         'o' as u8, 'm' as u8, // server_name
     ];
 
-    client.send_chunk(client_hello);
+    client.send_chunk(&client_hello);
     let response = client.wait_for_chunk();
 
     assert_eq!(
@@ -142,12 +138,8 @@ fn multiple_stream_zero_hop_test() {
     let mut one_client = zero_hop_node.make_client(8080);
     let mut another_client = zero_hop_node.make_client(8080);
 
-    one_client.send_chunk(Vec::from(
-        &b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n"[..],
-    ));
-    another_client.send_chunk(Vec::from(
-        &b"GET / HTTP/1.1\r\nHost: www.fallingfalling.com\r\n\r\n"[..],
-    ));
+    one_client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
+    another_client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.fallingfalling.com\r\n\r\n");
 
     let one_response = one_client.wait_for_chunk();
     let another_response = another_client.wait_for_chunk();

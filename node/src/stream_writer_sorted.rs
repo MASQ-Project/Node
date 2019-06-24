@@ -130,6 +130,7 @@ impl StreamWriterSorted {
                                     packet.last_data,
                                 ));
                             } else if packet.last_data {
+                                self.logger.debug (format!("Shutting down stream to client at {} in response to server-drop report", self.peer_addr));
                                 self.shutting_down = true;
                                 return match self.stream.shutdown() {
                                     Ok(Async::NotReady) => WriteBufferStatus::BufferNotEmpty,

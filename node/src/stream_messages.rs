@@ -1,10 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::bootstrapper::PortConfiguration;
 use crate::stream_handler_pool::StreamHandlerPoolSubs;
-use crate::sub_lib::dispatcher::DispatcherSubs;
+use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
 use crate::sub_lib::stream_connector::ConnectionInfo;
-use actix::Message;
+use actix::{Message, Recipient};
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
@@ -31,9 +31,33 @@ impl AddStreamMsg {
     }
 }
 
-#[derive(Debug, Message, PartialEq)]
+#[derive(PartialEq, Debug, Clone)]
+pub struct NonClandestineAttributes {
+    pub reception_port: u16,
+    pub sequence_number: u64,
+}
+
+#[derive(PartialEq, Debug, Clone)]
+pub enum RemovedStreamType {
+    Clandestine,
+    NonClandestine(NonClandestineAttributes),
+}
+
+#[derive(PartialEq, Message)]
 pub struct RemoveStreamMsg {
     pub socket_addr: SocketAddr,
+    pub stream_type: RemovedStreamType,
+    pub sub: Recipient<StreamShutdownMsg>,
+}
+
+impl Debug for RemoveStreamMsg {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        write!(
+            f,
+            "RemoveStreamMsg {{ socket_addr: {}, stream_type: {:?}, sub: <unprintable> }}",
+            self.socket_addr, self.stream_type
+        )
+    }
 }
 
 #[derive(Message, Clone)]

@@ -34,7 +34,7 @@ impl ConsumingService {
 
     pub fn consume_no_lookup(&self, incipient_cores_package: NoLookupIncipientCoresPackage) {
         self.logger.debug(format!(
-            "Received NoLookupIncipientCoresPackage with {}-byte payload",
+            "Instructed to send NoLookupIncipientCoresPackage with {}-byte payload",
             incipient_cores_package.payload.len()
         ));
         let target_key = incipient_cores_package.public_key.clone();
@@ -66,7 +66,7 @@ impl ConsumingService {
 
     pub fn consume(&self, incipient_cores_package: IncipientCoresPackage) {
         self.logger.debug(format!(
-            "Received IncipientCoresPackage with {}-byte payload",
+            "Instructed to send IncipientCoresPackage with {}-byte payload",
             incipient_cores_package.payload.len()
         ));
         match LiveCoresPackage::from_incipient(incipient_cores_package, self.cryptde.borrow()) {

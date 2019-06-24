@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
+use crate::stream_messages::RemovedStreamType;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
@@ -15,7 +16,6 @@ use serde::Serializer;
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
-use std::net::IpAddr;
 use std::net::SocketAddr;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -79,7 +79,6 @@ impl<'a> Visitor<'a> for ComponentVisitor {
 #[derive(Clone, PartialEq, Eq)]
 pub enum Endpoint {
     Key(PublicKey),
-    Ip(IpAddr),
     Socket(SocketAddr),
 }
 
@@ -87,7 +86,6 @@ impl fmt::Debug for Endpoint {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             &Endpoint::Key(ref key) => write!(f, "PublicKey({})", key),
-            &Endpoint::Ip(ref ip_addr) => write!(f, "Ip({})", *ip_addr),
             &Endpoint::Socket(ref socket_addr) => write!(f, "Socket({})", *socket_addr),
         }
     }
@@ -151,10 +149,18 @@ impl InboundClientData {
     }
 }
 
+#[derive(PartialEq, Clone, Message, Debug)]
+pub struct StreamShutdownMsg {
+    pub peer_addr: SocketAddr,
+    pub stream_type: RemovedStreamType,
+    pub report_to_counterpart: bool,
+}
+
 pub struct DispatcherSubs {
     pub ibcd_sub: Recipient<InboundClientData>,
     pub bind: Recipient<BindMessage>,
     pub from_dispatcher_client: Recipient<TransmitDataMsg>,
+    pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
 }
 
 impl Clone for DispatcherSubs {
@@ -163,6 +169,7 @@ impl Clone for DispatcherSubs {
             ibcd_sub: self.ibcd_sub.clone(),
             bind: self.bind.clone(),
             from_dispatcher_client: self.from_dispatcher_client.clone(),
+            stream_shutdown_sub: self.stream_shutdown_sub.clone(),
         }
     }
 }
@@ -189,15 +196,6 @@ mod tests {
         let result = format!("{:?}", subject);
 
         assert_eq!(result, String::from("PublicKey(wME)"))
-    }
-
-    #[test]
-    fn debug_string_for_endpoint_with_ip() {
-        let subject = Endpoint::Ip(IpAddr::from_str("1.2.3.4").unwrap());
-
-        let result = format!("{:?}", subject);
-
-        assert_eq!(result, String::from("Ip(1.2.3.4)"))
     }
 
     #[test]

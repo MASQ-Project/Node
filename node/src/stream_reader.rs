@@ -4,6 +4,7 @@ use crate::discriminator::DiscriminatorFactory;
 use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
 use crate::stream_messages::*;
 use crate::sub_lib::dispatcher;
+use crate::sub_lib::dispatcher::StreamShutdownMsg;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::sequencer::Sequencer;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
@@ -20,6 +21,7 @@ pub struct StreamReaderReal {
     reception_port: Option<u16>,
     ibcd_sub: Recipient<dispatcher::InboundClientData>,
     remove_sub: Recipient<RemoveStreamMsg>,
+    stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     discriminators: Vec<Discriminator>,
     is_clandestine: bool,
     logger: Logger,
@@ -76,6 +78,7 @@ impl StreamReaderReal {
         reception_port: Option<u16>,
         ibcd_sub: Recipient<dispatcher::InboundClientData>,
         remove_sub: Recipient<RemoveStreamMsg>,
+        stream_shutdown_sub: Recipient<StreamShutdownMsg>,
         discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
         is_clandestine: bool,
         peer_addr: SocketAddr,
@@ -96,6 +99,7 @@ impl StreamReaderReal {
             reception_port,
             ibcd_sub,
             remove_sub,
+            stream_shutdown_sub,
             discriminators,
             is_clandestine,
             logger: Logger::new(&name),
@@ -127,7 +131,7 @@ impl StreamReaderReal {
                         Some(self.sequencer.next_sequence_number())
                     } else if is_connect {
                         // This case needs to explicitly be Some(0) instead of None so that the StreamHandlerPool does
-                        // not JsonMasquerade it.
+                        // not masquerade it.
                         Some(0)
                     } else {
                         None
@@ -165,13 +169,23 @@ impl StreamReaderReal {
     }
 
     fn shutdown(&mut self) {
+        self.logger.debug (format! ("Directing removal of {}clandestine StreamReader with reception_port {:?} on {} listening to {}", if self.is_clandestine {""} else {"non-"}, self.reception_port, self.local_addr, self.peer_addr));
         self.remove_sub
             .try_send(RemoveStreamMsg {
                 socket_addr: self.peer_addr,
+                stream_type: if self.is_clandestine {
+                    RemovedStreamType::Clandestine
+                } else {
+                    RemovedStreamType::NonClandestine(NonClandestineAttributes {
+                        reception_port: self.reception_port.expect(
+                            "Non-clandestine StreamReader should always have a reception_port",
+                        ),
+                        sequence_number: self.sequencer.next_sequence_number(),
+                    })
+                },
+                sub: self.stream_shutdown_sub.clone(),
             })
             .expect("StreamHandlerPool is dead");
-        // No echo of last_data = true to take down other end: what gets us here is a signal
-        // that the other end is already down.
     }
 }
 
@@ -183,7 +197,9 @@ mod tests {
     use crate::json_masquerader::JsonMasquerader;
     use crate::masquerader::Masquerader;
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
+    use crate::persistent_configuration::HTTP_PORT;
     use crate::stream_handler_pool::StreamHandlerPoolSubs;
+    use crate::stream_messages::RemovedStreamType::NonClandestine;
     use crate::sub_lib::dispatcher::DispatcherSubs;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -230,9 +246,10 @@ mod tests {
 
         let mut subject = StreamReaderReal::new(
             Box::new(reader),
-            Some(1234 as u16),
+            None,
             dispatcher_subs.ibcd_sub,
             stream_handler_pool_subs.remove_sub,
+            dispatcher_subs.stream_shutdown_sub.clone(),
             discriminator_factories,
             true,
             peer_addr,
@@ -248,7 +265,9 @@ mod tests {
         assert_eq!(
             shp_recording.get_record::<RemoveStreamMsg>(0),
             &RemoveStreamMsg {
-                socket_addr: peer_addr
+                socket_addr: peer_addr,
+                stream_type: RemovedStreamType::Clandestine,
+                sub: dispatcher_subs.stream_shutdown_sub,
             }
         );
 
@@ -275,9 +294,10 @@ mod tests {
 
         let mut subject = StreamReaderReal::new(
             Box::new(reader),
-            Some(1234 as u16),
+            None,
             dispatcher_subs.ibcd_sub,
             stream_handler_pool_subs.remove_sub,
+            dispatcher_subs.stream_shutdown_sub.clone(),
             discriminator_factories,
             true,
             peer_addr,
@@ -293,7 +313,9 @@ mod tests {
         assert_eq!(
             shp_recording.get_record::<RemoveStreamMsg>(0),
             &RemoveStreamMsg {
-                socket_addr: peer_addr
+                socket_addr: peer_addr,
+                stream_type: RemovedStreamType::Clandestine,
+                sub: dispatcher_subs.stream_shutdown_sub,
             }
         );
 
@@ -323,6 +345,7 @@ mod tests {
             Some(1234 as u16),
             dispatcher_subs.ibcd_sub,
             stream_handler_pool_subs.remove_sub,
+            dispatcher_subs.stream_shutdown_sub,
             discriminator_factories,
             true,
             peer_addr,
@@ -365,6 +388,7 @@ mod tests {
             Some(1234 as u16),
             dispatcher_subs.ibcd_sub,
             stream_handler_pool_subs.remove_sub,
+            dispatcher_subs.stream_shutdown_sub,
             discriminator_factories,
             true,
             peer_addr,
@@ -404,6 +428,7 @@ mod tests {
             Some(1234 as u16),
             dispatcher_subs.ibcd_sub,
             stream_handler_pool_subs.remove_sub,
+            dispatcher_subs.stream_shutdown_sub,
             discriminator_factories,
             true,
             peer_addr,
@@ -442,6 +467,7 @@ mod tests {
             Some(1234 as u16),
             dispatcher_subs.ibcd_sub,
             stream_handler_pool_subs.remove_sub,
+            dispatcher_subs.stream_shutdown_sub,
             discriminator_factories,
             true,
             peer_addr,
@@ -504,6 +530,7 @@ mod tests {
             Some(1234 as u16),
             dispatcher_subs.ibcd_sub,
             stream_handler_pool_subs.remove_sub,
+            dispatcher_subs.stream_shutdown_sub,
             discriminator_factories,
             false,
             peer_addr,
@@ -555,6 +582,7 @@ mod tests {
             Some(1234 as u16),
             dispatcher_subs.ibcd_sub,
             stream_handler_pool_subs.remove_sub,
+            dispatcher_subs.stream_shutdown_sub,
             discriminator_factories,
             false,
             peer_addr,
@@ -594,7 +622,7 @@ mod tests {
     }
 
     #[test]
-    fn stream_reader_does_not_assign_sequence_to_inbound_client_data_that_is_not_marked_as_sequenece(
+    fn stream_reader_does_not_assign_sequence_to_inbound_client_data_that_is_not_marked_as_sequence(
     ) {
         let system = System::new("test");
         let (_, stream_handler_pool_subs) = stream_handler_pool_stuff();
@@ -621,6 +649,7 @@ mod tests {
             Some(1234 as u16),
             dispatcher_subs.ibcd_sub,
             stream_handler_pool_subs.remove_sub,
+            dispatcher_subs.stream_shutdown_sub,
             discriminator_factories,
             true,
             peer_addr,
@@ -642,6 +671,86 @@ mod tests {
                 is_clandestine: true,
                 sequence_number: None,
                 data: Vec::from("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes()),
+            }
+        );
+    }
+
+    #[test]
+    fn shutdown_produces_the_correct_stream_shutdown_msg_for_clandestine_reader() {
+        let (shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
+        let (_, dispatcher_subs) = dispatcher_stuff();
+        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let system = System::new("test");
+        let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
+        let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
+            vec![Box::new(JsonDiscriminatorFactory::new())];
+        let reader = ReadHalfWrapperMock::new().poll_read_result(vec![], Ok(Async::Ready(0)));
+        let mut subject = StreamReaderReal::new(
+            Box::new(reader),
+            None,
+            dispatcher_subs.ibcd_sub,
+            stream_handler_pool_subs.remove_sub,
+            dispatcher_subs.stream_shutdown_sub.clone(),
+            discriminator_factories,
+            true,
+            peer_addr,
+            local_addr,
+        );
+
+        subject.shutdown();
+
+        System::current().stop_with_code(0);
+        system.run();
+        let shp_recording = shp_recording_arc.lock().unwrap();
+        let remove_stream_msg = shp_recording.get_record::<RemoveStreamMsg>(0);
+        assert_eq!(
+            remove_stream_msg,
+            &RemoveStreamMsg {
+                socket_addr: peer_addr,
+                stream_type: RemovedStreamType::Clandestine,
+                sub: dispatcher_subs.stream_shutdown_sub,
+            }
+        );
+    }
+
+    #[test]
+    fn shutdown_produces_the_correct_stream_shutdown_msg_for_non_clandestine_reader() {
+        let (shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
+        let (_, dispatcher_subs) = dispatcher_stuff();
+        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let system = System::new("test");
+        let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
+        let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
+            vec![Box::new(JsonDiscriminatorFactory::new())];
+        let reader = ReadHalfWrapperMock::new().poll_read_result(vec![], Ok(Async::Ready(0)));
+        let mut subject = StreamReaderReal::new(
+            Box::new(reader),
+            Some(HTTP_PORT),
+            dispatcher_subs.ibcd_sub,
+            stream_handler_pool_subs.remove_sub,
+            dispatcher_subs.stream_shutdown_sub.clone(),
+            discriminator_factories,
+            false,
+            peer_addr,
+            local_addr,
+        );
+        subject.sequencer.next_sequence_number(); // just so it's not 0
+
+        subject.shutdown();
+
+        System::current().stop_with_code(0);
+        system.run();
+        let shp_recording = shp_recording_arc.lock().unwrap();
+        let remove_stream_msg = shp_recording.get_record::<RemoveStreamMsg>(0);
+        assert_eq!(
+            remove_stream_msg,
+            &RemoveStreamMsg {
+                socket_addr: peer_addr,
+                stream_type: NonClandestine(NonClandestineAttributes {
+                    reception_port: HTTP_PORT,
+                    sequence_number: 1,
+                }),
+                sub: dispatcher_subs.stream_shutdown_sub,
             }
         );
     }

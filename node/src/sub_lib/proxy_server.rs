@@ -2,6 +2,7 @@
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::data_version::DataVersion;
 use crate::sub_lib::dispatcher::InboundClientData;
+use crate::sub_lib::dispatcher::StreamShutdownMsg;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, MessageType};
 use crate::sub_lib::neighborhood::{ExpectedService, RouteQueryResponse};
 use crate::sub_lib::peer_actors::BindMessage;
@@ -67,4 +68,5 @@ pub struct ProxyServerSubs {
     pub dns_failure_from_hopper: Recipient<ExpiredCoresPackage<DnsResolveFailure>>,
     pub add_return_route: Recipient<AddReturnRouteMessage>,
     pub add_route: Recipient<AddRouteMessage>,
+    pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
 }

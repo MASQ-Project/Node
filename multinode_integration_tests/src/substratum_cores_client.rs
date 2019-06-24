@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::substratum_client::SubstratumNodeClient;
+use crate::substratum_node_client::SubstratumNodeClient;
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::Masquerader;
@@ -40,7 +40,7 @@ impl<'a> SubstratumCoresClient<'a> {
         let masqueraded = masquerader
             .mask(encoded_serialized_package.as_slice())
             .expect(format!("Masquerading {}-byte serialized LCP", serialized_lcp.len()).as_str());
-        self.delegate.send_chunk(masqueraded);
+        self.delegate.send_chunk(&masqueraded);
     }
 
     pub fn masquerade_live_cores_package(

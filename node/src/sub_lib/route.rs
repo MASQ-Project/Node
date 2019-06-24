@@ -8,6 +8,7 @@ use crate::sub_lib::dispatcher::Component;
 use crate::sub_lib::hop::LiveHop;
 use crate::sub_lib::wallet::Wallet;
 use serde_derive::{Deserialize, Serialize};
+use std::cmp::min;
 use std::iter;
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -43,7 +44,7 @@ impl Route {
     pub fn round_trip(
         route_segment_over: RouteSegment,
         route_segment_back: RouteSegment,
-        cryptde: &dyn CryptDE, // Any CryptDE can go here; it's only used to encrypt to public keys.
+        cryptde: &dyn CryptDE, // Must be the CryptDE of the originating Node: used to encrypt return_route_id.
         consuming_wallet: Option<Wallet>,
         return_route_id: u32,
     ) -> Result<Route, String> {
@@ -85,6 +86,48 @@ impl Route {
         self.hops.push(CryptData::new(&garbage_can[..]));
 
         return Ok(next_hop);
+    }
+
+    pub fn to_string(&self, cryptdes: Vec<&CryptDE>) -> String {
+        let item_count = min(cryptdes.len(), self.hops.len());
+        if item_count == 0 {
+            return String::from("\n");
+        }
+        let mut most_hops_enc: Vec<CryptData> =
+            self.hops[0..item_count].iter().map(|x| x.clone()).collect();
+        let mut most_cryptdes: Vec<&CryptDE> = cryptdes[0..item_count].to_vec();
+        let last_hop_enc = most_hops_enc.remove(item_count - 1);
+        let last_cryptde = most_cryptdes.remove(item_count - 1);
+        let most_strings = (0..(item_count - 1))
+            .into_iter()
+            .fold(String::new(), |sofar, index| {
+                let hop_enc = &most_hops_enc[index];
+                let cryptde = most_cryptdes[index];
+                let live_hop_str = match decodex::<LiveHop>(cryptde, hop_enc) {
+                    Ok(live_hop) => {
+                        format!("Encrypted with {}: {:?}", cryptde.public_key(), live_hop)
+                    }
+                    Err(e) => format!("Error: {}", e),
+                };
+                format!("{}\n{}", sofar, live_hop_str)
+            });
+        match decodex::<LiveHop>(last_cryptde, &last_hop_enc) {
+            Ok(live_hop) => format!(
+                "{}\nEncrypted with {}: {:?}\n",
+                most_strings,
+                last_cryptde.public_key(),
+                live_hop
+            ),
+            Err(outside) => match decodex::<u32>(last_cryptde, &last_hop_enc) {
+                Ok(return_route_id) => format!(
+                    "{}\nEncrypted with {}: Return Route ID: {}\n",
+                    most_strings,
+                    last_cryptde.public_key(),
+                    return_route_id
+                ),
+                Err(inside) => format!("{}\nError: {:?} / {}", most_strings, outside, inside),
+            },
+        }
     }
 
     fn construct(
@@ -590,5 +633,74 @@ mod tests {
         let deserialized = serde_cbor::de::from_slice::<Route>(&serialized[..]).unwrap();
 
         assert_eq!(deserialized, original);
+    }
+
+    #[test]
+    fn to_string_works_with_one_way_route() {
+        let key1 = PublicKey::new(&[1, 2, 3, 4]);
+        let key2 = PublicKey::new(&[2, 3, 4, 5]);
+        let key3 = PublicKey::new(&[3, 4, 5, 6]);
+        let consuming_wallet = Wallet::new("wallet");
+        let subject = Route::one_way(
+            RouteSegment::new(vec![&key1, &key2, &key3], Component::Neighborhood),
+            &CryptDENull::new(),
+            Some(consuming_wallet),
+        )
+        .unwrap();
+
+        let result = subject.to_string(vec![
+            &CryptDENull::from(&key1),
+            &CryptDENull::from(&key2),
+            &CryptDENull::from(&key3),
+        ]);
+
+        assert_eq!(result, String::from("
+Encrypted with AQIDBA: LiveHop { public_key: AgMEBQ, consuming_wallet: Some(Wallet { kind: Uninitialized }), component: Hopper }
+Encrypted with AgMEBQ: LiveHop { public_key: AwQFBg, consuming_wallet: Some(Wallet { kind: Uninitialized }), component: Hopper }
+Encrypted with AwQFBg: LiveHop { public_key: , consuming_wallet: Some(Wallet { kind: Uninitialized }), component: Neighborhood }
+"));
+    }
+
+    #[test]
+    fn to_string_works_with_round_trip_route() {
+        let key1 = PublicKey::new(&[1, 2, 3, 4]);
+        let key2 = PublicKey::new(&[2, 3, 4, 5]);
+        let key3 = PublicKey::new(&[3, 4, 5, 6]);
+        let consuming_wallet = Wallet::new("wallet");
+        let subject = Route::round_trip(
+            RouteSegment::new(vec![&key1, &key2, &key3], Component::ProxyClient),
+            RouteSegment::new(vec![&key3, &key2, &key1], Component::ProxyServer),
+            &CryptDENull::from(&key1),
+            Some(consuming_wallet),
+            1234,
+        )
+        .unwrap();
+
+        let result = subject.to_string(vec![
+            &CryptDENull::from(&key1),
+            &CryptDENull::from(&key2),
+            &CryptDENull::from(&key3),
+            &CryptDENull::from(&key2),
+            &CryptDENull::from(&key1),
+            &CryptDENull::from(&key1),
+        ]);
+
+        assert_eq!(result, String::from("
+Encrypted with AQIDBA: LiveHop { public_key: AgMEBQ, consuming_wallet: Some(Wallet { kind: Uninitialized }), component: Hopper }
+Encrypted with AgMEBQ: LiveHop { public_key: AwQFBg, consuming_wallet: Some(Wallet { kind: Uninitialized }), component: Hopper }
+Encrypted with AwQFBg: LiveHop { public_key: AgMEBQ, consuming_wallet: Some(Wallet { kind: Uninitialized }), component: ProxyClient }
+Encrypted with AgMEBQ: LiveHop { public_key: AQIDBA, consuming_wallet: Some(Wallet { kind: Uninitialized }), component: Hopper }
+Encrypted with AQIDBA: LiveHop { public_key: , consuming_wallet: Some(Wallet { kind: Uninitialized }), component: ProxyServer }
+Encrypted with AQIDBA: Return Route ID: 1234
+"));
+    }
+
+    #[test]
+    fn to_string_works_with_zero_length_data() {
+        let subject = Route { hops: vec![] };
+
+        let result = subject.to_string(vec![]);
+
+        assert_eq!(result, String::from("\n"));
     }
 }

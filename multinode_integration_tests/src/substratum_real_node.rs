@@ -1,10 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::command::Command;
-use crate::substratum_client::SubstratumNodeClient;
 use crate::substratum_node::NodeReference;
 use crate::substratum_node::PortSelector;
 use crate::substratum_node::SubstratumNode;
 use crate::substratum_node::SubstratumNodeUtils;
+use crate::substratum_node_client::SubstratumNodeClient;
+use crate::substratum_node_server::SubstratumNodeServer;
 use node_lib::blockchain::bip32::Bip32ECKeyPair;
 use node_lib::sub_lib::accountant;
 use node_lib::sub_lib::accountant::TEMPORARY_CONSUMING_WALLET;
@@ -354,11 +355,6 @@ impl SubstratumNode for SubstratumRealNode {
     fn rate_pack(&self) -> RatePack {
         self.guts.rate_pack.clone()
     }
-
-    fn make_client(&self, port: u16) -> SubstratumNodeClient {
-        let socket_addr = SocketAddr::new(self.ip_address(), port);
-        SubstratumNodeClient::new(socket_addr)
-    }
 }
 
 impl SubstratumRealNode {
@@ -466,6 +462,15 @@ impl SubstratumRealNode {
             Err(_) => Err(()),
             Ok(_) => Ok(()),
         }
+    }
+
+    pub fn make_client(&self, port: u16) -> SubstratumNodeClient {
+        let socket_addr = SocketAddr::new(self.ip_address(), port);
+        SubstratumNodeClient::new(socket_addr)
+    }
+
+    pub fn make_server(&self, port: u16) -> SubstratumNodeServer {
+        SubstratumNodeServer::new(port)
     }
 
     fn do_docker_run(

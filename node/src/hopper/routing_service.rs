@@ -1,9 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use super::live_cores_package::LiveCoresPackage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
-use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::CryptdecError;
 use crate::sub_lib::cryptde::PlainData;
+use crate::sub_lib::cryptde::{decodex, CryptData};
 use crate::sub_lib::cryptde::{encodex, CryptDE};
 use crate::sub_lib::dispatcher::Component;
 use crate::sub_lib::dispatcher::Endpoint;
@@ -56,16 +56,26 @@ impl RoutingService {
     pub fn route(&self, ibcd: InboundClientData) {
         let data_size = ibcd.data.len();
         self.logger.debug(format!(
-            "Received {} bytes of InboundClientData ({}) from Dispatcher",
+            "Instructed to route {} bytes of InboundClientData ({}) from Dispatcher",
             data_size, ibcd.peer_addr
         ));
         let peer_addr = ibcd.peer_addr;
         let last_data = ibcd.last_data;
         let ibcd_but_data = ibcd.clone_but_data();
-        let live_package = match self.decrypt_and_deserialize_lcp(ibcd) {
-            Ok(package) => package,
-            Err(_) => return, // log already written
-        };
+
+        let live_package =
+            match decodex::<LiveCoresPackage>(self.cryptde, &CryptData::new(&ibcd.data[..])) {
+                Ok(lcp) => lcp,
+                Err(e) => {
+                    self.logger.error(format!(
+                        "Couldn't decode CORES package in {}-byte buffer from {}: {}",
+                        ibcd.data.len(),
+                        ibcd.peer_addr,
+                        e
+                    ));
+                    return;
+                }
+            };
 
         let next_hop = match live_package.route.next_hop(self.cryptde.borrow()) {
             Ok(hop) => hop,
@@ -96,8 +106,18 @@ impl RoutingService {
         ibcd_but_data: &InboundClientData,
     ) {
         if (next_hop.component == Component::Hopper) && (!self.is_destined_for_here(&next_hop)) {
+            self.logger.debug(format!(
+                "Routing LiveCoresPackage with {}-byte payload to {}",
+                live_package.payload.len(),
+                next_hop.public_key
+            ));
             self.route_data_externally(live_package, next_hop.consuming_wallet, last_data);
         } else {
+            self.logger.debug(format!(
+                "Transferring LiveCoresPackage with {}-byte payload to {:?}",
+                live_package.payload.len(),
+                next_hop.component
+            ));
             self.route_data_internally(next_hop.component, sender_ip, live_package, ibcd_but_data)
         }
     }
@@ -127,12 +147,13 @@ impl RoutingService {
     ) {
         let (_, next_lcp) = match live_package.to_next_live(self.cryptde) {
             Ok(x) => x,
-            Err(_) => unimplemented!(),
+            Err(e) => {
+                self.logger.error(format!("bad zero-hop route: {:?}", e));
+                return;
+            }
         };
-        let payload = match encodex(self.cryptde, &self.cryptde.public_key(), &next_lcp) {
-            Ok(lcp) => lcp,
-            Err(_) => unimplemented!(),
-        };
+        let payload = encodex(self.cryptde, &self.cryptde.public_key(), &next_lcp)
+            .expect("Encryption of LiveCoresPackage failed");
         let inbound_client_data = InboundClientData {
             peer_addr: ibcd_but_data.peer_addr,
             reception_port: ibcd_but_data.reception_port,
@@ -259,7 +280,7 @@ impl RoutingService {
         };
 
         self.logger.debug(format!(
-            "Relaying {}-byte LiveCoresPackage Dispatcher inside a TransmitDataMsg",
+            "Relaying {}-byte LiveCoresPackage to Dispatcher inside a TransmitDataMsg",
             transmit_msg.data.len()
         ));
         self.routing_service_subs
@@ -301,31 +322,6 @@ impl RoutingService {
 
     fn should_route_data(&self, _peer_addr: SocketAddr, _component: Component) -> bool {
         true // Eventually use this place to drop packets from banned nodes
-    }
-
-    fn decrypt_and_deserialize_lcp(&self, ibcd: InboundClientData) -> Result<LiveCoresPackage, ()> {
-        let decrypted_package = match self.cryptde.decode(&CryptData::new(&ibcd.data[..])) {
-            Ok(package) => package,
-            Err(e) => {
-                self.logger.error(format!(
-                    "Couldn't decrypt CORES package in {}-byte buffer from {}: {:?}",
-                    ibcd.data.len(),
-                    ibcd.peer_addr,
-                    e
-                ));
-                return Err(());
-            }
-        };
-        let live_package =
-            match serde_cbor::de::from_slice::<LiveCoresPackage>(decrypted_package.as_slice()) {
-                Ok(package) => package,
-                Err(e) => {
-                    self.logger
-                        .error(format!("Couldn't deserialize CORES package: {}", e));
-                    return Err(());
-                }
-            };
-        Ok(live_package)
     }
 }
 
@@ -937,7 +933,7 @@ mod tests {
         System::current().stop_with_code(0);
         system.run();
         TestLogHandler::new().exists_log_containing(
-            "ERROR: RoutingService: Couldn't decrypt CORES package in 0-byte buffer from 1.2.3.4:5678: EmptyData",
+            "ERROR: RoutingService: Couldn't decode CORES package in 0-byte buffer from 1.2.3.4:5678: Decryption error: EmptyData",
         );
         assert_eq!(proxy_client_recording_arc.lock().unwrap().len(), 0);
         assert_eq!(proxy_server_recording_arc.lock().unwrap().len(), 0);
@@ -996,5 +992,38 @@ mod tests {
         assert_eq!(proxy_server_recording_arc.lock().unwrap().len(), 0);
         assert_eq!(neighborhood_recording_arc.lock().unwrap().len(), 0);
         assert_eq!(dispatcher_recording_arc.lock().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn route_data_around_again_logs_and_ignores_bad_lcp() {
+        init_test_logging();
+        let peer_actors = peer_actors_builder().build();
+        let subject = RoutingService::new(
+            cryptde(),
+            RoutingServiceSubs {
+                proxy_client_subs: peer_actors.proxy_client,
+                proxy_server_subs: peer_actors.proxy_server,
+                neighborhood_subs: peer_actors.neighborhood,
+                hopper_subs: peer_actors.hopper,
+                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+            },
+            100,
+            200,
+        );
+        let lcp = LiveCoresPackage::new(Route { hops: vec![] }, CryptData::new(&[]));
+        let ibcd = InboundClientData {
+            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            reception_port: None,
+            last_data: true,
+            is_clandestine: true,
+            sequence_number: None,
+            data: vec![],
+        };
+
+        subject.route_data_around_again(lcp, &ibcd);
+
+        TestLogHandler::new()
+            .exists_log_containing("ERROR: RoutingService: bad zero-hop route: EmptyRoute");
     }
 }

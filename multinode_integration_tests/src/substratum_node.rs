@@ -1,6 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::command::Command;
-use crate::substratum_client::SubstratumNodeClient;
 use base64;
 use base64::STANDARD_NO_PAD;
 use node_lib::persistent_configuration::HIGHEST_USABLE_PORT;
@@ -158,8 +157,6 @@ pub trait SubstratumNode: Any {
     fn consuming_wallet(&self) -> Option<Wallet>;
     // The RatePack this Node will use to charge fees.
     fn rate_pack(&self) -> RatePack;
-
-    fn make_client(&self, port: u16) -> SubstratumNodeClient;
 }
 
 pub struct SubstratumNodeUtils {}

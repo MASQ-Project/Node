@@ -42,7 +42,7 @@ fn downloading_a_file_larger_than_available_memory_doesnt_kill_node_but_makes_it
     );
 
     let mut client = originating_node.make_client(8080);
-    client.send_chunk(Vec::from(get.as_bytes()));
+    client.send_chunk(get.as_bytes());
     let response = read_until_timeout(client.get_stream());
 
     assert!(

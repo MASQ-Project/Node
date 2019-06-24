@@ -12,6 +12,7 @@ use tokio::prelude::Future;
 
 pub struct StreamWriter {
     stream: Box<dyn WriteHalfWrapper>,
+    peer_addr: SocketAddr,
     logger: Logger,
     sequence_buffer: SequenceBuffer,
     rx_to_write: Box<dyn ReceiverWrapper<SequencedPacket>>,
@@ -49,6 +50,7 @@ impl StreamWriter {
         let logger = Logger::new(&name[..]);
         StreamWriter {
             stream,
+            peer_addr,
             logger,
             sequence_buffer: SequenceBuffer::new(),
             rx_to_write,
@@ -133,6 +135,7 @@ impl StreamWriter {
                                     packet.last_data,
                                 ));
                             } else if packet.last_data {
+                                self.logger.debug (format!("Shutting down stream to server at {} in response to client-drop report", self.peer_addr));
                                 self.shutting_down = true;
                                 return self.shutdown();
                             }
@@ -396,9 +399,7 @@ mod tests {
             }))),
             Ok(Async::Ready(None)),
         ];
-        let writer = WriteHalfWrapperMock::new()
-            .poll_write_result(Ok(Async::Ready(19)))
-            .poll_write_result(Err(Error::from(ErrorKind::BrokenPipe)));
+        let writer = WriteHalfWrapperMock::new().poll_write_result(Ok(Async::Ready(19)));
 
         let peer_addr = SocketAddr::from_str("1.2.3.4:999").unwrap();
 

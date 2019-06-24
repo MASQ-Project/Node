@@ -54,9 +54,9 @@ impl<T> ReceiverWrapperMock<T> {
 
 #[derive(Debug)]
 pub struct SenderWrapperMock<T> {
-    pub peer_addr: SocketAddr,
-    pub unbounded_send_params: Arc<Mutex<Vec<T>>>,
-    pub unbounded_send_results: RefCell<Vec<Result<(), SendError<T>>>>,
+    peer_addr_result: SocketAddr,
+    unbounded_send_params: Arc<Mutex<Vec<T>>>,
+    unbounded_send_results: RefCell<Vec<Result<(), SendError<T>>>>,
 }
 
 impl<T: 'static + Clone + Debug + Send> SenderWrapper<T> for SenderWrapperMock<T> {
@@ -70,12 +70,12 @@ impl<T: 'static + Clone + Debug + Send> SenderWrapper<T> for SenderWrapperMock<T
     }
 
     fn peer_addr(&self) -> SocketAddr {
-        self.peer_addr
+        self.peer_addr_result
     }
 
     fn clone(&self) -> Box<dyn SenderWrapper<T>> {
         Box::new(SenderWrapperMock {
-            peer_addr: self.peer_addr,
+            peer_addr_result: self.peer_addr_result,
             unbounded_send_params: self.unbounded_send_params.clone(),
             unbounded_send_results: self.unbounded_send_results.clone(),
         })
@@ -85,9 +85,19 @@ impl<T: 'static + Clone + Debug + Send> SenderWrapper<T> for SenderWrapperMock<T
 impl<T> SenderWrapperMock<T> {
     pub fn new(peer_addr: SocketAddr) -> SenderWrapperMock<T> {
         SenderWrapperMock {
-            peer_addr,
+            peer_addr_result: peer_addr,
             unbounded_send_params: Arc::new(Mutex::new(vec![])),
             unbounded_send_results: RefCell::new(vec![]),
         }
+    }
+
+    pub fn unbounded_send_params(mut self, params: &Arc<Mutex<Vec<T>>>) -> SenderWrapperMock<T> {
+        self.unbounded_send_params = params.clone();
+        self
+    }
+
+    pub fn unbounded_send_result(self, result: Result<(), SendError<T>>) -> SenderWrapperMock<T> {
+        self.unbounded_send_results.borrow_mut().push(result);
+        self
     }
 }
