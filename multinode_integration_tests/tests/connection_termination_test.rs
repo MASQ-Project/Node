@@ -25,7 +25,7 @@ use node_lib::sub_lib::route::{Route, RouteSegment};
 use node_lib::sub_lib::sequence_buffer::SequencedPacket;
 use node_lib::sub_lib::stream_key::StreamKey;
 use node_lib::sub_lib::wallet::Wallet;
-use node_lib::test_utils::test_utils::{make_meaningless_stream_key, make_wallet};
+use node_lib::test_utils::test_utils::{make_meaningless_stream_key, make_wallet, find_free_port};
 use std::io;
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -44,7 +44,8 @@ fn actual_client_drop() {
     let mut cluster = SubstratumNodeCluster::start().unwrap();
     let (real_node, mock_node, exit_key) = create_neighborhood(&mut cluster);
     let exit_cryptde = CryptDENull::from(&exit_key);
-    let mut client = real_node.make_client(8080);
+    let client_port = find_free_port();
+    let mut client = real_node.make_client(client_port);
     let masquerader = JsonMasquerader::new();
     client.send_chunk(HTTP_REQUEST);
     mock_node
@@ -74,7 +75,8 @@ fn reported_server_drop() {
     let mut cluster = SubstratumNodeCluster::start().unwrap();
     let (real_node, mock_node, exit_key) = create_neighborhood(&mut cluster);
     let exit_cryptde = CryptDENull::from(&exit_key);
-    let mut client = real_node.make_client(8080);
+    let client_port = find_free_port();
+    let mut client = real_node.make_client(client_port);
     let masquerader = JsonMasquerader::new();
     client.send_chunk(HTTP_REQUEST);
     let (_, _, lcp) = mock_node
@@ -105,7 +107,8 @@ fn reported_server_drop() {
 fn actual_server_drop() {
     let mut cluster = SubstratumNodeCluster::start().unwrap();
     let (real_node, mock_node, _) = create_neighborhood(&mut cluster);
-    let mut server = real_node.make_server(8080);
+    let server_port = find_free_port();
+    let mut server = real_node.make_server(server_port);
     let masquerader = JsonMasquerader::new();
     let (stream_key, return_route_id) = arbitrary_context();
     mock_node
@@ -156,7 +159,8 @@ fn actual_server_drop() {
 fn reported_client_drop() {
     let mut cluster = SubstratumNodeCluster::start().unwrap();
     let (real_node, mock_node, _) = create_neighborhood(&mut cluster);
-    let mut server = real_node.make_server(8080);
+    let server_port = find_free_port();
+    let mut server = real_node.make_server(server_port);
     let masquerader = JsonMasquerader::new();
     let (stream_key, return_route_id) = arbitrary_context();
     mock_node
@@ -184,7 +188,7 @@ fn reported_client_drop() {
         )
         .unwrap();
 
-    wait_for_server_shutdown(&real_node);
+    wait_for_server_shutdown(&real_node, server_port);
     ensure_no_further_traffic(&mock_node, &masquerader);
 }
 
@@ -413,12 +417,12 @@ fn wait_for_client_shutdown(real_node: &SubstratumRealNode) {
     );
 }
 
-fn wait_for_server_shutdown(real_node: &SubstratumRealNode) {
+fn wait_for_server_shutdown(real_node: &SubstratumRealNode, server_port: u16) {
     // This is a jury-rigged way to wait for a shutdown, since server.wait_for_shutdown() doesn't
     // work, but it serves the purpose.
     SubstratumNodeUtils::wrote_log_containing(
         real_node.name(),
-        "Shutting down stream to server at 172.18.0.1:8080 in response to client-drop report",
+        &format!("Shutting down stream to server at 172.18.0.1:{} in response to client-drop report", server_port),
         Duration::from_secs(1),
     );
 }
