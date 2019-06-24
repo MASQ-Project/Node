@@ -254,7 +254,9 @@ mod tests {
 
         assert_eq!(result, Ok(Async::Ready(())));
 
-        TestLogHandler::new().exists_log_matching("ThreadId\\(\\d+\\): DEBUG: StreamReader for 1\\.2\\.3\\.4:5678: Stream on port 6789 has shut down \\(0-byte read\\)");
+        TestLogHandler::new().exists_log_containing(
+            "DEBUG: StreamReader for 1.2.3.4:5678: Stream on port 6789 has shut down (0-byte read)",
+        );
     }
 
     #[test]
@@ -297,7 +299,9 @@ mod tests {
 
         assert_eq!(result, Err(()));
 
-        TestLogHandler::new().exists_log_matching("ThreadId\\(\\d+\\): DEBUG: StreamReader for 1\\.2\\.3\\.4:5678: Stream on port 6789 is dead: broken pipe");
+        TestLogHandler::new().exists_log_containing(
+            "DEBUG: StreamReader for 1.2.3.4:5678: Stream on port 6789 is dead: broken pipe",
+        );
     }
 
     #[test]
@@ -372,7 +376,7 @@ mod tests {
         System::current().stop_with_code(0);
         system.run();
 
-        TestLogHandler::new().await_log_matching("ThreadId\\(\\d+\\): WARN: StreamReader for 1\\.2\\.3\\.4:5678: Continuing after read error on port 6789: other os error", 1000);
+        TestLogHandler::new().await_log_containing("WARN: StreamReader for 1.2.3.4:5678: Continuing after read error on port 6789: other os error", 1000);
 
         let shp_recording = shp_recording_arc.lock().unwrap();
         assert_eq!(shp_recording.len(), 0);
@@ -462,8 +466,12 @@ mod tests {
             }
         );
 
-        TestLogHandler::new().exists_log_matching("ThreadId\\(\\d+\\): DEBUG: StreamReader for 1\\.2\\.3\\.4:5678: Read 14-byte chunk from port 6789");
-        TestLogHandler::new().exists_log_matching("ThreadId\\(\\d+\\): DEBUG: StreamReader for 1\\.2\\.3\\.4:5678: Read 18-byte chunk from port 6789");
+        TestLogHandler::new().exists_log_containing(
+            "DEBUG: StreamReader for 1.2.3.4:5678: Read 14-byte chunk from port 6789",
+        );
+        TestLogHandler::new().exists_log_containing(
+            "DEBUG: StreamReader for 1.2.3.4:5678: Read 18-byte chunk from port 6789",
+        );
     }
 
     #[test]

@@ -1,12 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use chrono::format::strftime::StrftimeItems;
-use chrono::NaiveDateTime;
 use log::Level;
 use log::Record;
 use log::{logger, Metadata};
-use std::thread;
-use std::time::SystemTime;
-use std::time::UNIX_EPOCH;
 
 #[derive(Clone)]
 pub struct Logger {
@@ -40,28 +35,12 @@ impl Logger {
         self.generic_log(Level::Error, string);
     }
 
-    pub fn timestamp_as_string(timestamp: &SystemTime) -> String {
-        let time_t = timestamp
-            .duration_since(UNIX_EPOCH)
-            .expect("SystemTime before UNIX EPOCH!");
-        let naive_date_time =
-            NaiveDateTime::from_timestamp(time_t.as_secs() as i64, time_t.subsec_nanos());
-        let fmt = StrftimeItems::new("%Y-%m-%d %H:%M:%S%.3f");
-        naive_date_time.format_with_items(fmt).to_string()
-    }
-
     fn generic_log(&self, level: Level, string: String) {
         let logger = logger();
         logger.log(
             &Record::builder()
-                .args(format_args!(
-                    "{} {:?}: {}: {}: {}",
-                    Logger::timestamp_as_string(&SystemTime::now()),
-                    thread::current().id(),
-                    level,
-                    self.name,
-                    string
-                ))
+                .args(format_args!("{}", string))
+                .module_path(Some(&self.name))
                 .level(level)
                 .build(),
         );
@@ -97,6 +76,11 @@ mod tests {
     use super::*;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
+    use chrono::format::StrftimeItems;
+    use chrono::{DateTime, Local};
+    use std::thread;
+    use std::thread::ThreadId;
+    use std::time::SystemTime;
 
     #[test]
     fn logger_format_is_correct() {
@@ -110,36 +94,49 @@ mod tests {
         let after = SystemTime::now();
 
         let tlh = TestLogHandler::new();
-        let prefix_len = "0000-00-00 00:00:00.000".len();
+        let prefix_len = "0000-00-00T00:00:00.000".len();
         let thread_id = thread::current().id();
         let one_log = tlh.get_log_at(tlh.exists_log_containing(&format!(
-            " {:?}: ERROR: logger_format_is_correct_one: one log",
-            thread_id
+            " Thd{}: ERROR: logger_format_is_correct_one: one log",
+            thread_id_as_string(thread_id)
         )));
         let another_log = tlh.get_log_at(tlh.exists_log_containing(&format!(
-            " {:?}: ERROR: logger_format_is_correct_another: another log",
-            thread_id
+            " Thd{}: ERROR: logger_format_is_correct_another: another log",
+            thread_id_as_string(thread_id)
         )));
-        let before_str = Logger::timestamp_as_string(&before);
-        let after_str = Logger::timestamp_as_string(&after);
+        let before_str = timestamp_as_string(&before);
+        let after_str = timestamp_as_string(&after);
         assert_between(&one_log[..prefix_len], &before_str, &after_str);
         assert_between(&another_log[..prefix_len], &before_str, &after_str);
+    }
+
+    fn timestamp_as_string(timestamp: &SystemTime) -> String {
+        let date_time: DateTime<Local> = DateTime::from(timestamp.clone());
+        let fmt = StrftimeItems::new("%Y-%m-%dT%H:%M:%S%.3f");
+        date_time.format_with_items(fmt).to_string()
+    }
+
+    fn thread_id_as_string(thread_id: ThreadId) -> String {
+        let thread_id_str = format!("{:?}", thread_id);
+        String::from(&thread_id_str[9..(thread_id_str.len() - 1)])
     }
 
     fn assert_between(candidate: &str, before: &str, after: &str) {
         assert_eq!(
             candidate >= before,
             true,
-            "{} is not equal to or after {}",
+            "{} is before the interval {} - {}",
             candidate,
-            before
+            before,
+            after,
         );
         assert_eq!(
             candidate <= after,
             true,
-            "{} is not before or equal to {}",
+            "{} is after the interval {} - {}",
             candidate,
-            after
+            before,
+            after,
         );
     }
 }

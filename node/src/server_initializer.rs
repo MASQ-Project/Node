@@ -6,12 +6,14 @@ use crate::entry_dns::dns_socket_server::DnsSocketServer;
 use crate::sub_lib::main_tools::Command;
 use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::socket_server::SocketServer;
-use flexi_logger::Duplicate;
+use chrono::{DateTime, Local};
 use flexi_logger::LevelFilter;
 use flexi_logger::LogSpecification;
 use flexi_logger::Logger;
+use flexi_logger::{DeferredNow, Duplicate, Record};
 use futures::try_ready;
 use std::env::temp_dir;
+use std::{io, thread};
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 
@@ -95,12 +97,39 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
             .print_message()
             .duplicate_to_stderr(Duplicate::Info)
             .suppress_timestamp()
+            .format(format_function)
             .start()
         {
             Ok(_) => true,
             Err(_) => false,
         }
     }
+}
+
+// DeferredNow can't be constructed in a test; therefore this function is untestable.
+fn format_function(
+    write: &mut io::Write,
+    now: &mut DeferredNow,
+    record: &Record,
+) -> Result<(), io::Error> {
+    real_format_function(write, now.now(), record)
+}
+
+pub fn real_format_function(
+    write: &mut io::Write,
+    timestamp: &DateTime<Local>,
+    record: &Record,
+) -> Result<(), io::Error> {
+    let timestamp = timestamp.naive_local().format("%Y-%m-%dT%H:%M:%S%.3f");
+    let thread_id_str = format!("{:?}", thread::current().id());
+    let thread_id = &thread_id_str[9..(thread_id_str.len() - 1)];
+    let level = record.level();
+    let name = record.module_path().unwrap_or("<unnamed>");
+    write.write_fmt(format_args!(
+        "{} Thd{}: {}: {}: ",
+        timestamp, thread_id, level, name
+    ))?;
+    write.write_fmt(*record.args())
 }
 
 #[cfg(test)]

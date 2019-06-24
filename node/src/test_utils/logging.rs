@@ -1,5 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::test_utils::test_utils::to_millis;
+use crate::server_initializer::real_format_function;
+use crate::test_utils::test_utils::{to_millis, ByteArrayWriter};
+use chrono::DateTime;
 use log::set_logger;
 use log::Log;
 use log::Metadata;
@@ -10,8 +12,8 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
 use std::thread;
-use std::time::Duration;
 use std::time::Instant;
+use std::time::{Duration, SystemTime};
 
 static mut TEST_LOGS_ARC: Option<Arc<Mutex<Vec<String>>>> = None;
 static TEST_LOGGER: TestLogger = TestLogger {};
@@ -268,8 +270,10 @@ impl Log for TestLogger {
     }
 
     fn log(&self, record: &Record<'_>) {
-        let string = format!("{}", record.args());
-        TestLogHandler::new().add_log(string);
+        let mut buffer = ByteArrayWriter::new();
+        let now = DateTime::from(SystemTime::now());
+        real_format_function(&mut buffer, &now, record).unwrap();
+        TestLogHandler::new().add_log(buffer.get_string());
     }
 
     fn flush(&self) {}

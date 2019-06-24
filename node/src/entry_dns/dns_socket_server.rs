@@ -293,7 +293,10 @@ mod tests {
         let facade = PacketFacade::new(&mut buf, 12);
         assert_eq!(Some(0x1234), facade.get_transaction_id());
         assert_eq!(Some(ResponseCode::NoError.low()), facade.get_rcode());
-        TestLogHandler::new ().await_log_matching (r"\d\d\d\d-\d\d-\d\d \d\d:\d\d:\d\d\.\d\d\d ThreadId\(\d+\): TRACE: EntryDnsServer: \d+ns: 0\.0\.0\.0:0 Query \(\) -> No Error \(\)", 1000);
+        TestLogHandler::new().await_log_matching(
+            r"TRACE: EntryDnsServer: \d+ns: 0\.0\.0\.0:0 Query \(\) -> No Error \(\)",
+            1000,
+        );
     }
 
     #[test]
@@ -314,7 +317,10 @@ mod tests {
         let result = subject.poll();
 
         assert!(result.is_err());
-        TestLogHandler::new().await_log_matching(r"\d\d\d\d-\d\d-\d\d \d\d:\d\d:\d\d\.\d\d\d ThreadId\(\d+\): ERROR: EntryDnsServer: Unrecoverable error receiving from UdpSocket: broken pipe", 1000);
+        TestLogHandler::new().await_log_containing(
+            "ERROR: EntryDnsServer: Unrecoverable error receiving from UdpSocket: broken pipe",
+            1000,
+        );
     }
 
     #[test]
@@ -343,7 +349,10 @@ mod tests {
         let result = subject.poll();
 
         assert!(result.is_err());
-        TestLogHandler::new().await_log_matching(r"\d\d\d\d-\d\d-\d\d \d\d:\d\d:\d\d\.\d\d\d ThreadId\(\d+\): ERROR: EntryDnsServer: Unrecoverable error sending to UdpSocket: broken pipe", 1000);
+        TestLogHandler::new().await_log_containing(
+            "ERROR: EntryDnsServer: Unrecoverable error sending to UdpSocket: broken pipe",
+            1000,
+        );
     }
 
     fn make_socket_wrapper_mock() -> Box<UdpSocketWrapperMock> {
