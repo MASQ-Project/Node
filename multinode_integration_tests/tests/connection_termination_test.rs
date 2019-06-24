@@ -44,8 +44,7 @@ fn actual_client_drop() {
     let mut cluster = SubstratumNodeCluster::start().unwrap();
     let (real_node, mock_node, exit_key) = create_neighborhood(&mut cluster);
     let exit_cryptde = CryptDENull::from(&exit_key);
-    let client_port = find_free_port();
-    let mut client = real_node.make_client(client_port);
+    let mut client = real_node.make_client(8080);
     let masquerader = JsonMasquerader::new();
     client.send_chunk(HTTP_REQUEST);
     mock_node
@@ -75,8 +74,7 @@ fn reported_server_drop() {
     let mut cluster = SubstratumNodeCluster::start().unwrap();
     let (real_node, mock_node, exit_key) = create_neighborhood(&mut cluster);
     let exit_cryptde = CryptDENull::from(&exit_key);
-    let client_port = find_free_port();
-    let mut client = real_node.make_client(client_port);
+    let mut client = real_node.make_client(8080);
     let masquerader = JsonMasquerader::new();
     client.send_chunk(HTTP_REQUEST);
     let (_, _, lcp) = mock_node
@@ -423,7 +421,8 @@ fn wait_for_server_shutdown(real_node: &SubstratumRealNode, server_port: u16) {
     SubstratumNodeUtils::wrote_log_containing(
         real_node.name(),
         &format!(
-            "Shutting down stream to server at 172.18.0.1:{} in response to client-drop report",
+            "Shutting down stream to server at {}:{} in response to client-drop report",
+            SubstratumNodeCluster::host_ip_addr(),
             server_port
         ),
         Duration::from_secs(1),
