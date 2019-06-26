@@ -33,37 +33,44 @@ impl Future for StreamWriterUnsorted {
                 }
                 Some(packet) => {
                     // TODO in SC-646: handle packet.last_data = true here
-                    self.logger.debug(format!(
-                        "Transmitting {} bytes of clandestine data",
-                        packet.data.len()
-                    ));
+                    debug!(
+                        self.logger,
+                        format!(
+                            "Transmitting {} bytes of clandestine data",
+                            packet.data.len()
+                        )
+                    );
                     match self.stream.poll_write(&packet.data) {
                         Err(e) => {
                             if indicates_dead_stream(e.kind()) {
-                                self.logger.error(format!(
-                                    "Cannot transmit {} bytes: {}",
-                                    packet.data.len(),
-                                    e
-                                ));
+                                error!(
+                                    self.logger,
+                                    format!("Cannot transmit {} bytes: {}", packet.data.len(), e)
+                                );
                                 return Err(());
                             } else {
                                 self.buf = Some(packet);
                                 // TODO this could be... inefficient, if we keep getting non-dead-stream errors. (we do not return)
-                                self.logger
-                                    .warning(format!("Continuing after write error: {}", e));
+                                warning!(
+                                    self.logger,
+                                    format!("Continuing after write error: {}", e)
+                                );
                             }
                         }
                         Ok(Async::Ready(len)) => {
-                            self.logger.debug(format!(
-                                "Wrote {}/{} bytes of clandestine data",
-                                len,
-                                &packet.data.len()
-                            ));
+                            debug!(
+                                self.logger,
+                                format!(
+                                    "Wrote {}/{} bytes of clandestine data",
+                                    len,
+                                    &packet.data.len()
+                                )
+                            );
                             if len != packet.data.len() {
-                                self.logger.debug(format!(
-                                    "rescheduling {} bytes",
-                                    &packet.data.len() - len
-                                ));
+                                debug!(
+                                    self.logger,
+                                    format!("rescheduling {} bytes", &packet.data.len() - len)
+                                );
                                 self.buf = Some(SequencedPacket::new(
                                     packet.data.iter().skip(len).map(|p| p.clone()).collect(),
                                     packet.sequence_number,

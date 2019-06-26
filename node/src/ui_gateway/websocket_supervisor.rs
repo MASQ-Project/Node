@@ -101,9 +101,10 @@ impl WebSocketSupervisorReal {
         tokio::spawn(foreach_result.then(move |result| match result {
             Ok(_) => Ok(()),
             Err(_) => {
-                logger_1.error(
+                error!(
+                    logger_1,
                     "WebSocketSupervisor experienced unprintable error accepting connection"
-                        .to_string(),
+                        .to_string()
                 );
                 Err(())
             }
@@ -120,7 +121,10 @@ impl WebSocketSupervisorReal {
             .then(move |result| match result {
                 Ok(x) => ok::<Option<I>, E>(Some(x)),
                 Err(_) => {
-                    logger_clone.info("Unsuccessful connection to UI port detected".to_string());
+                    info!(
+                        logger_clone,
+                        "Unsuccessful connection to UI port detected".to_string()
+                    );
                     ok::<Option<I>, E>(None)
                 }
             })
@@ -151,7 +155,7 @@ impl WebSocketSupervisorReal {
         logger: &Logger,
     ) {
         let logger_clone = logger.clone();
-        logger_clone.info(format!("UI connected at {}", socket_addr));
+        info!(logger_clone, format!("UI connected at {}", socket_addr));
         let upgrade_future =
             upgrade
                 .use_protocol("SubstratumNode-UI")
@@ -168,10 +172,13 @@ impl WebSocketSupervisorReal {
     }
 
     fn reject_upgrade_request(upgrade: WsUpgrade<TcpStream, BytesMut>, logger: &Logger) {
-        logger.info(format!(
-            "UI attempted connection without protocol SubstratumNode-UI: {:?}",
-            upgrade.protocols()
-        ));
+        info!(
+            logger,
+            format!(
+                "UI attempted connection without protocol SubstratumNode-UI: {:?}",
+                upgrade.protocols()
+            )
+        );
         tokio::spawn(upgrade.reject().then(|_| ok::<(), ()>(())));
     }
 
@@ -228,9 +235,10 @@ impl WebSocketSupervisorReal {
         let locked_inner = inner_arc.lock().expect("WebSocketSupervisor is poisoned");
         match locked_inner.client_id_by_socket_addr.get(&socket_addr) {
             None => {
-                logger.warning(
+                warning!(
+                    logger,
                     "WebSocketSupervisor got a message from a client that never connected!"
-                        .to_string(),
+                        .to_string()
                 );
                 err::<(), ()>(()) // end the stream
             }
@@ -252,7 +260,7 @@ impl WebSocketSupervisorReal {
         logger: &Logger,
         socket_addr: SocketAddr,
     ) -> FutureResult<(), ()> {
-        logger.info(format!("UI at {} disconnected", socket_addr));
+        info!(logger, format!("UI at {} disconnected", socket_addr));
         let mut locked_inner = inner_arc.lock().expect("WebSocketSupervisor is poisoned");
         let client_id = match locked_inner.client_id_by_socket_addr.remove(&socket_addr) {
             None => {
@@ -270,10 +278,13 @@ impl WebSocketSupervisorReal {
         socket_addr: SocketAddr,
         message_type: &str,
     ) -> FutureResult<(), ()> {
-        logger.info(format!(
-            "UI at {} sent unexpected {} message; ignoring",
-            socket_addr, message_type
-        ));
+        info!(
+            logger,
+            format!(
+                "UI at {} sent unexpected {} message; ignoring",
+                socket_addr, message_type
+            )
+        );
         ok::<(), ()>(())
     }
 
@@ -284,10 +295,10 @@ impl WebSocketSupervisorReal {
     ) -> FutureResult<I, ()> {
         match result {
             Err(_e) => {
-                logger.warning(format!(
-                    "UI at {} violated protocol: terminating",
-                    socket_addr
-                ));
+                warning!(
+                    logger,
+                    format!("UI at {} violated protocol: terminating", socket_addr)
+                );
                 err::<I, ()>(())
             }
             Ok(msg) => ok::<I, ()>(msg),
@@ -305,10 +316,13 @@ impl WebSocketSupervisorReal {
             Some(client) => client,
         };
         match client.send(OwnedMessage::Close(None)) {
-            Err(e) => logger.warning(format!(
-                "Error acknowledging connection closure from UI at {}: {:?}",
-                socket_addr, e
-            )),
+            Err(e) => warning!(
+                logger,
+                format!(
+                    "Error acknowledging connection closure from UI at {}: {:?}",
+                    socket_addr, e
+                )
+            ),
             Ok(_) => client
                 .flush()
                 .expect(format!("Couldn't flush transmission to UI at {}", socket_addr).as_str()),

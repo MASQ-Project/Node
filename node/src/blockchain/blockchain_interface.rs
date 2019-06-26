@@ -76,26 +76,33 @@ impl BlockchainInterfaceClandestine {
 
 impl BlockchainInterface for BlockchainInterfaceClandestine {
     fn retrieve_transactions(&self, _start_block: u64, _recipient: &Wallet) -> Transactions {
-        self.logger.info(
+        info!(
+            self.logger,
             "Could not retrieve transactions since blockchain_service_url was not specified"
-                .to_string(),
+                .to_string()
         );
         Ok(vec![])
     }
 
     fn get_eth_balance(&self, address: &Wallet) -> Balance {
-        self.logger.info(format!(
-            "Could not get eth balance for {:?} since blockchain_service_url was not specified",
-            address
-        ));
+        info!(
+            self.logger,
+            format!(
+                "Could not get eth balance for {:?} since blockchain_service_url was not specified",
+                address
+            )
+        );
         Ok(0.into())
     }
 
     fn get_token_balance(&self, address: &Wallet) -> Balance {
-        self.logger.info(format!(
+        info!(
+            self.logger,
+            format!(
             "Could not get token balance for {:?} since blockchain_service_url was not specified",
             address
-        ));
+        )
+        );
         Ok(0.into())
     }
 }

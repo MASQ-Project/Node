@@ -32,10 +32,10 @@ impl Future for DnsSocketServer {
                 Ok(Async::Ready((len, socket_addr))) => (len, socket_addr),
                 Ok(Async::NotReady) => return Ok(Async::NotReady),
                 Err(e) => {
-                    logger.error(format!(
-                        "Unrecoverable error receiving from UdpSocket: {}",
-                        e
-                    ));
+                    error!(
+                        logger,
+                        format!("Unrecoverable error receiving from UdpSocket: {}", e)
+                    );
                     return Err(());
                 }
             };
@@ -45,7 +45,10 @@ impl Future for DnsSocketServer {
                 .send_to(&buffer[0..response_length], socket_addr)
             {
                 Err(e) => {
-                    logger.error(format!("Unrecoverable error sending to UdpSocket: {}", e));
+                    error!(
+                        logger,
+                        format!("Unrecoverable error sending to UdpSocket: {}", e)
+                    );
                     return Err(());
                 }
                 Ok(_) => {}

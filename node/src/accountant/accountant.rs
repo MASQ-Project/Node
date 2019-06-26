@@ -110,7 +110,7 @@ impl Handler<BindMessage> for Accountant {
             },
         );
 
-        self.logger.info(String::from("Accountant bound"));
+        info!(self.logger, String::from("Accountant bound"));
     }
 }
 
@@ -136,10 +136,13 @@ impl Handler<ReportRoutingServiceProvidedMessage> for Accountant {
         msg: ReportRoutingServiceProvidedMessage,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        self.logger.debug(format!(
-            "Charging routing of {} bytes to wallet {}",
-            msg.payload_size, msg.consuming_wallet
-        ));
+        debug!(
+            self.logger,
+            format!(
+                "Charging routing of {} bytes to wallet {}",
+                msg.payload_size, msg.consuming_wallet
+            )
+        );
         self.record_service_provided(
             msg.service_rate,
             msg.byte_rate,
@@ -157,10 +160,13 @@ impl Handler<ReportExitServiceProvidedMessage> for Accountant {
         msg: ReportExitServiceProvidedMessage,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        self.logger.debug(format!(
-            "Charging exit service for {} bytes to wallet {} at {} per service and {} per byte",
-            msg.payload_size, msg.consuming_wallet, msg.service_rate, msg.byte_rate
-        ));
+        debug!(
+            self.logger,
+            format!(
+                "Charging exit service for {} bytes to wallet {} at {} per service and {} per byte",
+                msg.payload_size, msg.consuming_wallet, msg.service_rate, msg.byte_rate
+            )
+        );
         self.record_service_provided(
             msg.service_rate,
             msg.byte_rate,
@@ -178,10 +184,13 @@ impl Handler<ReportRoutingServiceConsumedMessage> for Accountant {
         msg: ReportRoutingServiceConsumedMessage,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        self.logger.debug(format!(
-            "Accruing debt to wallet {} for consuming routing service {} bytes",
-            msg.earning_wallet, msg.payload_size
-        ));
+        debug!(
+            self.logger,
+            format!(
+                "Accruing debt to wallet {} for consuming routing service {} bytes",
+                msg.earning_wallet, msg.payload_size
+            )
+        );
         self.record_service_consumed(
             msg.service_rate,
             msg.byte_rate,
@@ -199,10 +208,13 @@ impl Handler<ReportExitServiceConsumedMessage> for Accountant {
         msg: ReportExitServiceConsumedMessage,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        self.logger.debug(format!(
-            "Accruing debt to wallet {} for consuming exit service {} bytes",
-            msg.earning_wallet, msg.payload_size
-        ));
+        debug!(
+            self.logger,
+            format!(
+                "Accruing debt to wallet {} for consuming exit service {} bytes",
+                msg.earning_wallet, msg.payload_size
+            )
+        );
         self.record_service_consumed(
             msg.service_rate,
             msg.byte_rate,
@@ -253,7 +265,7 @@ impl Accountant {
     }
 
     fn scan_for_payables(&mut self) {
-        self.logger.debug("Scanning for payables".to_string());
+        debug!(self.logger, "Scanning for payables".to_string());
         let payables = self
             .payable_dao
             .non_pending_payables()
@@ -278,12 +290,15 @@ impl Accountant {
             .for_each(|account| {
                 self.banned_dao.ban(&account.wallet);
                 let (balance, age) = Self::balance_and_age(&account);
-                self.logger.info(format!(
-                    "Wallet {} (balance: {} SUB, age: {} sec) banned for delinquency",
-                    account.wallet,
-                    balance,
-                    age.as_secs()
-                ))
+                info!(
+                    self.logger,
+                    format!(
+                        "Wallet {} (balance: {} SUB, age: {} sec) banned for delinquency",
+                        account.wallet,
+                        balance,
+                        age.as_secs()
+                    )
+                )
             });
 
         self.receivable_dao
@@ -292,18 +307,21 @@ impl Accountant {
             .for_each(|account| {
                 self.banned_dao.unban(&account.wallet);
                 let (balance, age) = Self::balance_and_age(&account);
-                self.logger.info(format!(
+                info!(
+                    self.logger,
+                    format!(
                     "Wallet {} (balance: {} SUB, age: {} sec) is no longer delinquent: unbanned",
                     account.wallet,
                     balance,
                     age.as_secs()
-                ))
+                )
+                )
             });
     }
 
     fn scan_for_received_payments(&mut self) {
         let future_logger = self.logger.clone();
-        self.logger.debug("Scanning for payments".to_string());
+        debug!(self.logger, "Scanning for payments".to_string());
         let future_report_new_payments_sub = self.report_new_payments_sub.clone();
         let start_block = self.persistent_configuration.start_block();
         let future = self
@@ -316,7 +334,7 @@ impl Accountant {
             })
             .then(move |transactions_possibly| match transactions_possibly {
                 Ok(Ok(ref vec)) if vec.is_empty() => {
-                    future_logger.debug("No payments detected".to_string());
+                    debug!(future_logger, "No payments detected".to_string());
                     Ok(())
                 }
                 Ok(Ok(transactions)) => {
@@ -329,10 +347,13 @@ impl Accountant {
                     Ok(())
                 }
                 Ok(Err(e)) => {
-                    future_logger.warning(format!(
-                        "Unable to retrieve transactions from Blockchain Bridge: {:?}",
-                        e
-                    ));
+                    warning!(
+                        future_logger,
+                        format!(
+                            "Unable to retrieve transactions from Blockchain Bridge: {:?}",
+                            e
+                        )
+                    );
                     Err(())
                 }
                 _ => unimplemented!(),

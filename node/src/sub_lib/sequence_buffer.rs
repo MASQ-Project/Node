@@ -172,10 +172,13 @@ impl SequenceBuffer {
             self.seen_sequence_numbers.push(packet.sequence_number);
             self.buffer.push(packet);
         } else {
-            self.logger.warning(format!(
-                "Dropping packet with duplicate sequence number {}",
-                packet.sequence_number
-            ));
+            warning!(
+                self.logger,
+                format!(
+                    "Dropping packet with duplicate sequence number {}",
+                    packet.sequence_number
+                )
+            );
         }
     }
 
@@ -198,10 +201,13 @@ impl SequenceBuffer {
 
                 packet
             } else {
-                self.logger.debug(format!(
-                    "Buffer waiting for packet #{}",
-                    self.next_expected_sequence_number
-                ));
+                debug!(
+                    self.logger,
+                    format!(
+                        "Buffer waiting for packet #{}",
+                        self.next_expected_sequence_number
+                    )
+                );
                 None
             }
         }

@@ -81,8 +81,7 @@ impl Handler<BootstrapNeighborhoodNowMessage> for Neighborhood {
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         if self.initial_neighbors.is_empty() {
-            self.logger
-                .info(format!("No Nodes to report to; continuing"));
+            info!(self.logger, format!("No Nodes to report to; continuing"));
             return;
         }
 
@@ -110,16 +109,19 @@ impl Handler<BootstrapNeighborhoodNowMessage> for Neighborhood {
                     .expect("Key magically disappeared"),
                 )
                 .expect("hopper is dead");
-            self.logger.trace(format!(
-                "Sent Gossip: {}",
-                gossip.to_dot_graph(
-                    self.neighborhood_database.root(),
-                    (
-                        &node_descriptor.public_key,
-                        &Some(node_descriptor.node_addr.clone())
+            trace!(
+                self.logger,
+                format!(
+                    "Sent Gossip: {}",
+                    gossip.to_dot_graph(
+                        self.neighborhood_database.root(),
+                        (
+                            &node_descriptor.public_key,
+                            &Some(node_descriptor.node_addr.clone())
+                        )
                     )
                 )
-            ));
+            );
         });
     }
 }
@@ -203,13 +205,14 @@ impl Handler<RouteQueryMessage> for Neighborhood {
         };
         MessageResult(match result {
             Ok(response) => {
-                self.logger
-                    .debug(format!("Processed {} into {:?}", msg_str, response.clone()));
+                debug!(
+                    self.logger,
+                    format!("Processed {} into {:?}", msg_str, response.clone())
+                );
                 Some(response)
             }
             Err(msg) => {
-                self.logger
-                    .error(format!("Unsatisfied route query: {}", msg));
+                error!(self.logger, format!("Unsatisfied route query: {}", msg));
                 None
             }
         })
@@ -236,12 +239,14 @@ impl Handler<RemoveNeighborMessage> for Neighborhood {
     fn handle(&mut self, msg: RemoveNeighborMessage, _ctx: &mut Self::Context) -> Self::Result {
         let public_key = &msg.public_key;
         match self.neighborhood_database.remove_neighbor(public_key) {
-            Err(s) => self.logger.error(s),
+            Err(s) => error!(self.logger, s),
             Ok(db_changed) => {
                 if db_changed {
                     self.gossip_to_neighbors();
-                    self.logger
-                        .info(format!("removed neighbor by public key: {}", public_key))
+                    info!(
+                        self.logger,
+                        format!("removed neighbor by public key: {}", public_key)
+                    )
                 }
             }
         }
@@ -351,17 +356,23 @@ impl Neighborhood {
             Some(node) => DotGossipEndpoint::from(node),
             None => DotGossipEndpoint::from(gossip_source),
         };
-        self.logger.trace(format!(
-            "Received Gossip: {}",
-            incoming_gossip.to_dot_graph(source, self.neighborhood_database.root())
-        ));
+        trace!(
+            self.logger,
+            format!(
+                "Received Gossip: {}",
+                incoming_gossip.to_dot_graph(source, self.neighborhood_database.root())
+            )
+        );
     }
 
     fn handle_gossip(&mut self, incoming_gossip: Gossip, gossip_source: IpAddr) {
-        self.logger.info(format!(
-            "Processing Gossip about {} Nodes",
-            incoming_gossip.node_records.len()
-        ));
+        info!(
+            self.logger,
+            format!(
+                "Processing Gossip about {} Nodes",
+                incoming_gossip.node_records.len()
+            )
+        );
 
         let record_count = incoming_gossip.node_records.len();
         let agrs: Vec<AccessibleGossipRecord> = incoming_gossip
@@ -372,10 +383,10 @@ impl Neighborhood {
 
         if agrs.len() < record_count {
             // TODO: Instead of ignoring non-deserializable Gossip, ban the Node that sent it
-            self.logger.error(format!(
-                "Received non-deserializable Gossip from {}",
-                gossip_source
-            ));
+            error!(
+                self.logger,
+                format!("Received non-deserializable Gossip from {}", gossip_source)
+            );
             self.announce_gossip_handling_completion(record_count);
             return;
         }
@@ -388,10 +399,13 @@ impl Neighborhood {
             )
         }) {
             // TODO: Instead of ignoring badly-signed Gossip, ban the Node that sent it
-            self.logger.error(format!(
-                "Received Gossip with invalid signature from {}",
-                gossip_source
-            ));
+            error!(
+                self.logger,
+                format!(
+                    "Received Gossip with invalid signature from {}",
+                    gossip_source
+                )
+            );
             self.announce_gossip_handling_completion(record_count);
             return;
         }
@@ -412,12 +426,14 @@ impl Neighborhood {
                 self.handle_gossip_reply(next_debut, relay_target, relay_node_addr)
             }
             GossipAcceptanceResult::Ignored => {
-                self.logger
-                    .trace(format!("Gossip from {} ignored", gossip_source));
+                trace!(
+                    self.logger,
+                    format!("Gossip from {} ignored", gossip_source)
+                );
                 self.handle_gossip_ignored(ignored_node_name, gossip_record_count)
             }
             GossipAcceptanceResult::Ban(reason) => {
-                self.logger.warning(format!(
+                warning!(self.logger, format!(
                     "Malefactor detected at {}, but malefactor bans not yet implemented; ignoring: {}",
                     gossip_source, reason
                 ));
@@ -427,10 +443,10 @@ impl Neighborhood {
     }
 
     fn announce_gossip_handling_completion(&self, record_count: usize) {
-        self.logger.info(format!(
-            "Finished processing Gossip about {} Nodes",
-            record_count,
-        ));
+        info!(
+            self.logger,
+            format!("Finished processing Gossip about {} Nodes", record_count,)
+        );
     }
 
     fn gossip_to_neighbors(&mut self) {
@@ -447,24 +463,30 @@ impl Neighborhood {
             let package =
                 IncipientCoresPackage::new(self.cryptde, route, gossip.clone().into(), neighbor)
                     .expect("Key magically disappeared");
-            self.logger.info(format!(
-                "Sending update Gossip about {} Nodes to Node {}",
-                gossip_len, neighbor
-            ));
+            info!(
+                self.logger,
+                format!(
+                    "Sending update Gossip about {} Nodes to Node {}",
+                    gossip_len, neighbor
+                )
+            );
             self.hopper
                 .as_ref()
                 .expect("unbound hopper")
                 .try_send(package)
                 .expect("hopper is dead");
-            self.logger.trace(format!(
-                "Sent Gossip: {}",
-                gossip.to_dot_graph(
-                    self.neighborhood_database.root(),
-                    self.neighborhood_database
-                        .node_by_key(*neighbor)
-                        .expect("Node magically disappeared")
+            trace!(
+                self.logger,
+                format!(
+                    "Sent Gossip: {}",
+                    gossip.to_dot_graph(
+                        self.neighborhood_database.root(),
+                        self.neighborhood_database
+                            .node_by_key(*neighbor)
+                            .expect("Node magically disappeared")
+                    )
                 )
-            ));
+            );
         });
     }
 
@@ -517,7 +539,7 @@ impl Neighborhood {
             msg.target_component,
             false,
         )?;
-        self.logger.debug(format!("Route over: {:?}", over));
+        debug!(self.logger, format!("Route over: {:?}", over));
         let back = self.make_route_segment(
             over.keys.last().expect("Empty segment"),
             Some(&self.cryptde.public_key()),
@@ -525,7 +547,7 @@ impl Neighborhood {
             msg.return_component_opt.expect("No return component"),
             true,
         )?;
-        self.logger.debug(format!("Route back: {:?}", back));
+        debug!(self.logger, format!("Route back: {:?}", back));
         self.compose_route_query_response(over, back)
     }
 
@@ -791,7 +813,7 @@ impl Neighborhood {
         ) {
             Ok(p) => p,
             Err(e) => {
-                self.logger.error(e);
+                error!(self.logger, e);
                 return;
             }
         };
@@ -800,13 +822,16 @@ impl Neighborhood {
             .expect("No-lookup Hopper is unbound")
             .try_send(package)
             .expect("Hopper is dead");
-        self.logger.trace(format!(
-            "Sent Gossip: {}",
-            gossip.to_dot_graph(
-                self.neighborhood_database.root(),
-                (&target_key, &Some(target_node_addr))
+        trace!(
+            self.logger,
+            format!(
+                "Sent Gossip: {}",
+                gossip.to_dot_graph(
+                    self.neighborhood_database.root(),
+                    (&target_key, &Some(target_node_addr))
+                )
             )
-        ));
+        );
     }
 
     fn gossip_source_name(
@@ -835,7 +860,7 @@ impl Neighborhood {
             .node_by_ip(&msg.peer_addr.ip())
         {
             None => {
-                self.logger.debug (format!("Received shutdown notification for stream to {}, but no neighbor found there - ignoring", msg.peer_addr));
+                debug!(self.logger, format!("Received shutdown notification for stream to {}, but no neighbor found there - ignoring", msg.peer_addr));
                 return;
             }
             Some(n) => (
@@ -844,20 +869,23 @@ impl Neighborhood {
             ),
         };
         if !neighbor_node_addr.ports().contains(&msg.peer_addr.port()) {
-            self.logger.debug (format!("Received shutdown notification for stream to {}, but no neighbor found there - ignoring", msg.peer_addr));
+            debug!(self.logger, format!("Received shutdown notification for stream to {}, but no neighbor found there - ignoring", msg.peer_addr));
             return;
         }
         match self.neighborhood_database.remove_neighbor(&neighbor_key) {
             Err(_) => panic!("Node suddenly disappeared"),
             Ok(true) => {
-                self.logger.debug(format!(
-                    "Received shutdown notification for {} at {}",
-                    neighbor_key, msg.peer_addr
-                ));
+                debug!(
+                    self.logger,
+                    format!(
+                        "Received shutdown notification for {} at {}",
+                        neighbor_key, msg.peer_addr
+                    )
+                );
                 self.gossip_to_neighbors()
             }
             Ok(false) => {
-                self.logger.debug (format! ("Received shutdown notification for {} at {}, but that Node is already isolated - ignoring", neighbor_key, msg.peer_addr));
+                debug!(self.logger, format! ("Received shutdown notification for {} at {}, but that Node is already isolated - ignoring", neighbor_key, msg.peer_addr));
             }
         };
     }

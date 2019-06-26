@@ -33,10 +33,13 @@ impl ConsumingService {
     }
 
     pub fn consume_no_lookup(&self, incipient_cores_package: NoLookupIncipientCoresPackage) {
-        self.logger.debug(format!(
-            "Instructed to send NoLookupIncipientCoresPackage with {}-byte payload",
-            incipient_cores_package.payload.len()
-        ));
+        debug!(
+            self.logger,
+            format!(
+                "Instructed to send NoLookupIncipientCoresPackage with {}-byte payload",
+                incipient_cores_package.payload.len()
+            )
+        );
         let target_key = incipient_cores_package.public_key.clone();
         let target_node_addr = incipient_cores_package.node_addr.clone();
         match LiveCoresPackage::from_no_lookup_incipient(incipient_cores_package, self.cryptde) {
@@ -44,10 +47,10 @@ impl ConsumingService {
                 let encrypted_package = match encodex(self.cryptde, &target_key, &live_package) {
                     Ok(p) => p,
                     Err(e) => {
-                        self.logger.error(format!(
-                            "Could not accept CORES package for transmission: {}",
-                            e
-                        ));
+                        error!(
+                            self.logger,
+                            format!("Could not accept CORES package for transmission: {}", e)
+                        );
                         return;
                     }
                 };
@@ -56,26 +59,29 @@ impl ConsumingService {
                 self.launch_lcp(encrypted_package, Endpoint::Socket(socket_addrs[0]));
             }
             Err(e) => {
-                self.logger.error(format!(
-                    "Could not accept CORES package for transmission: {}",
-                    e
-                ));
+                error!(
+                    self.logger,
+                    format!("Could not accept CORES package for transmission: {}", e)
+                );
             }
         };
     }
 
     pub fn consume(&self, incipient_cores_package: IncipientCoresPackage) {
-        self.logger.debug(format!(
-            "Instructed to send IncipientCoresPackage with {}-byte payload",
-            incipient_cores_package.payload.len()
-        ));
+        debug!(
+            self.logger,
+            format!(
+                "Instructed to send IncipientCoresPackage with {}-byte payload",
+                incipient_cores_package.payload.len()
+            )
+        );
         match LiveCoresPackage::from_incipient(incipient_cores_package, self.cryptde.borrow()) {
             Ok((live_package, next_hop)) => {
                 let encrypted_package =
                     match encodex(self.cryptde, &next_hop.public_key, &live_package) {
                         Ok(p) => p,
                         Err(e) => {
-                            self.logger.error(format!("Couldn't encode package: {}", e));
+                            error!(self.logger, format!("Couldn't encode package: {}", e));
                             return;
                         }
                     };
@@ -85,7 +91,7 @@ impl ConsumingService {
                     self.launch_lcp(encrypted_package, Endpoint::Key(next_hop.public_key));
                 }
             }
-            Err(e) => self.logger.error(e),
+            Err(e) => error!(self.logger, e),
         };
     }
 
@@ -98,10 +104,13 @@ impl ConsumingService {
             sequence_number: None,
             data: encrypted_package.into(),
         };
-        self.logger.debug(format!(
-            "Sending zero-hop InboundClientData with {}-byte payload back to Hopper",
-            ibcd.data.len()
-        ));
+        debug!(
+            self.logger,
+            format!(
+                "Sending zero-hop InboundClientData with {}-byte payload back to Hopper",
+                ibcd.data.len()
+            )
+        );
         self.to_hopper.try_send(ibcd).expect("Hopper is dead");
     }
 
@@ -113,10 +122,13 @@ impl ConsumingService {
             sequence_number: None,
         };
 
-        self.logger.debug(format!(
-            "Sending TransmitDataMsg with {}-byte payload to Dispatcher",
-            transmit_msg.data.len()
-        ));
+        debug!(
+            self.logger,
+            format!(
+                "Sending TransmitDataMsg with {}-byte payload to Dispatcher",
+                transmit_msg.data.len()
+            )
+        );
         self.to_dispatcher
             .try_send(transmit_msg)
             .expect("Dispatcher is dead");

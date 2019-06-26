@@ -119,7 +119,7 @@ impl GossipHandler for DebutHandler {
                 .node_addr_opt()
                 .expect("Disappeared")
                 .ip_addr();
-            self.logger.debug(format!(
+            debug!(self.logger, format!(
                 "DebutHandler is commissioning Pass of {} at {} to more appropriate neighbor {} at {}",
                 source_key,
                 source_node_addr.ip_addr(),
@@ -135,10 +135,10 @@ impl GossipHandler for DebutHandler {
         if let Ok(result) = self.try_accept_debut(cryptde, database, &source_agr) {
             return result;
         }
-        self.logger.debug(format!("Seeking neighbor for Pass"));
+        debug!(self.logger, format!("Seeking neighbor for Pass"));
         let lcn_key = match Self::find_least_connected_neighbor_excluding(database, &source_agr) {
             None => {
-                self.logger.debug(format!(
+                debug!(self.logger, format!(
                     "Neighbor count at maximum, but no non-common neighbors. DebutHandler is reluctantly ignoring debut from {} at {}",
                     source_key, source_node_addr
                 ));
@@ -152,13 +152,16 @@ impl GossipHandler for DebutHandler {
             .node_addr_opt()
             .expect("Disappeared")
             .ip_addr();
-        self.logger.debug(format!(
-            "DebutHandler is commissioning Pass of {} at {} to {} at {}",
-            source_key,
-            source_node_addr.ip_addr(),
-            lcn_key,
-            lcn_ip
-        ));
+        debug!(
+            self.logger,
+            format!(
+                "DebutHandler is commissioning Pass of {} at {} to {} at {}",
+                source_key,
+                source_node_addr.ip_addr(),
+                lcn_key,
+                lcn_ip
+            )
+        );
         GossipAcceptanceResult::Reply(
             Self::make_pass_gossip(database, lcn_key),
             source_key,
@@ -185,9 +188,12 @@ impl DebutHandler {
         match neighbors_3_or_greater_vec.first().map(|kr| *kr) {
             // No neighbors of degree 3 or greater
             None => {
-                self.logger.debug(format!(
-                    "No degree-3-or-greater neighbors; can't find more-appropriate neighbor"
-                ));
+                debug!(
+                    self.logger,
+                    format!(
+                        "No degree-3-or-greater neighbors; can't find more-appropriate neighbor"
+                    )
+                );
                 None
             }
             // Neighbor of degree 3 or greater, but not less connected than I am
@@ -195,13 +201,12 @@ impl DebutHandler {
                 if database.gossip_target_degree(key)
                     >= database.gossip_target_degree(database.root().public_key()) =>
             {
-                self.logger.debug(format!("No neighbors of degree 3 or greater are less-connected than this Node: can't find more-appropriate neighbor"));
+                debug!(self.logger, format!("No neighbors of degree 3 or greater are less-connected than this Node: can't find more-appropriate neighbor"));
                 None
             }
             // Neighbor of degree 3 or greater less connected than I am
             Some(key) => {
-                self.logger
-                    .debug(format!("Found more-appropriate neighbor"));
+                debug!(self.logger, format!("Found more-appropriate neighbor"));
                 Some(key)
             }
         }
@@ -214,8 +219,7 @@ impl DebutHandler {
         debuting_agr: &AccessibleGossipRecord,
     ) -> Result<GossipAcceptanceResult, ()> {
         if database.gossip_target_degree(database.root().public_key()) >= MAX_DEGREE {
-            self.logger
-                .debug(format!("Neighbor count already at maximum"));
+            debug!(self.logger, format!("Neighbor count already at maximum"));
             return Err(());
         }
         let debut_node_addr = debuting_agr
@@ -240,10 +244,12 @@ impl DebutHandler {
                 let root_mut = database.root_mut();
                 root_mut.increment_version();
                 root_mut.regenerate_signed_gossip(cryptde);
-                self.logger
-                    .trace(format!("Current database: {}", database.to_dot_graph()));
+                trace!(
+                    self.logger,
+                    format!("Current database: {}", database.to_dot_graph())
+                );
                 if Self::should_not_make_introduction(&debuting_agr) {
-                    self.logger.debug(format!("Node {} at {} is responding to first introduction: sending update Gossip instead of further introduction",
+                    debug!(self.logger, format!("Node {} at {} is responding to first introduction: sending update Gossip instead of further introduction",
                                               debuting_agr.inner.public_key,
                                               debuting_agr.node_addr_opt.as_ref().expect("Disappeared").ip_addr()));
                     Ok(GossipAcceptanceResult::Accepted)
@@ -257,7 +263,7 @@ impl DebutHandler {
                             ))
                         }
                         None => {
-                            self.logger.debug(format!("DebutHandler can't make an introduction, but is accepting {} at {} and broadcasting change", &debut_node_key, debut_node_addr.ip_addr()));
+                            debug!(self.logger, format!("DebutHandler can't make an introduction, but is accepting {} at {} and broadcasting change", &debut_node_key, debut_node_addr.ip_addr()));
                             Ok(GossipAcceptanceResult::Accepted)
                         }
                     }
@@ -280,10 +286,13 @@ impl DebutHandler {
                 .node_addr_opt()
                 .expect("Disappeared");
             let debut_node_addr = debuting_agr.node_addr_opt.clone().expect("Disappeared");
-            self.logger.debug(format!(
-                "DebutHandler commissioning Introduction of {} at {} to {} at {}",
-                lcn_key, lcn_node_addr, &debuting_agr.inner.public_key, debut_node_addr
-            ));
+            debug!(
+                self.logger,
+                format!(
+                    "DebutHandler commissioning Introduction of {} at {} to {} at {}",
+                    lcn_key, lcn_node_addr, &debuting_agr.inner.public_key, debut_node_addr
+                )
+            );
             Some((
                 GossipBuilder::new(database)
                     .node(database.root().public_key(), true)
@@ -641,26 +650,34 @@ impl IntroductionHandler {
         match database.node_by_key_mut(introducer_key) {
             Some(existing_introducer_ref) => {
                 if existing_introducer_ref.version() < introducer.inner.version {
-                    self.logger.debug(format!(
-                        "Updating obsolete introducer {} from version {} to version {}",
-                        introducer_key,
-                        existing_introducer_ref.version(),
-                        introducer.inner.version
-                    ));
+                    debug!(
+                        self.logger,
+                        format!(
+                            "Updating obsolete introducer {} from version {} to version {}",
+                            introducer_key,
+                            existing_introducer_ref.version(),
+                            introducer.inner.version
+                        )
+                    );
                     existing_introducer_ref.update(introducer)?;
                 } else {
-                    self.logger.debug(format!(
-                        "Preserving existing introducer {} at version {}",
-                        introducer_key,
-                        existing_introducer_ref.version()
-                    ));
+                    debug!(
+                        self.logger,
+                        format!(
+                            "Preserving existing introducer {} at version {}",
+                            introducer_key,
+                            existing_introducer_ref.version()
+                        )
+                    );
                     return Ok(false);
                 }
             }
             None => {
                 let new_introducer = NodeRecord::from(introducer);
-                self.logger
-                    .debug(format!("Adding introducer {} to database", introducer_key));
+                debug!(
+                    self.logger,
+                    format!("Adding introducer {} to database", introducer_key)
+                );
                 database
                     .add_node(new_introducer)
                     .expect("add_node should always work here");
@@ -673,8 +690,10 @@ impl IntroductionHandler {
             database.root_mut().increment_version();
             database.root_mut().regenerate_signed_gossip(cryptde);
         }
-        self.logger
-            .trace(format!("Current database: {}", database.to_dot_graph()));
+        trace!(
+            self.logger,
+            format!("Current database: {}", database.to_dot_graph())
+        );
         Ok(true)
     }
 }
@@ -773,12 +792,15 @@ impl GossipHandler for StandardGossipHandler {
         // If no Nodes need updating, return ::Ignored and don't change the database.
         // Otherwise, return ::Accepted.
         if db_changed {
-            self.logger
-                .trace(format!("Current database: {}", database.to_dot_graph()));
+            trace!(
+                self.logger,
+                format!("Current database: {}", database.to_dot_graph())
+            );
             GossipAcceptanceResult::Accepted
         } else {
-            self.logger.debug(
-                "Gossip contained nothing new: StandardGossipHandler is ignoring it".to_string(),
+            debug!(
+                self.logger,
+                "Gossip contained nothing new: StandardGossipHandler is ignoring it".to_string()
             );
             GossipAcceptanceResult::Ignored
         }
@@ -970,8 +992,10 @@ impl<'a> GossipAcceptor for GossipAcceptorReal<'a> {
             .expect("gossip_handlers should intercept everything");
         match qualification {
             Qualification::Matched => {
-                self.logger
-                    .debug(format!("Gossip delegated to {}", handler_ref.type_name()));
+                debug!(
+                    self.logger,
+                    format!("Gossip delegated to {}", handler_ref.type_name())
+                );
                 handler_ref.handle(self.cryptde, database, agrs, gossip_source)
             }
             Qualification::Unmatched => {

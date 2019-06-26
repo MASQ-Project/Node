@@ -73,7 +73,7 @@ impl Handler<UiCarrierMessage> for UiGateway {
     fn handle(&mut self, msg: UiCarrierMessage, _ctx: &mut Self::Context) -> Self::Result {
         match msg.data {
             UiMessage::ShutdownMessage => {
-                self.logger.info(String::from("Received shutdown order"));
+                info!(self.logger, String::from("Received shutdown order"));
                 self.shutdown_supervisor.shutdown();
             }
             UiMessage::GetNodeDescriptor => self
@@ -106,10 +106,10 @@ impl Handler<FromUiMessage> for UiGateway {
     // JSON messages from external UIs come in here, are translated to UiMessages, and sent to the handler above
     fn handle(&mut self, msg: FromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         match self.converter.unmarshal(&msg.json) {
-            Err(e) => self.logger.warning(format!(
-                "Error unmarshalling message from UI - ignoring: '{}'",
-                e
-            )),
+            Err(e) => warning!(
+                self.logger,
+                format!("Error unmarshalling message from UI - ignoring: '{}'", e)
+            ),
             Ok(ui_message) => self
                 .ui_message_sub
                 .as_ref()

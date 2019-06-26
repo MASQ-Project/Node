@@ -33,37 +33,45 @@ impl Future for StreamReader {
                 Ok(Async::NotReady) => return Ok(Async::NotReady),
                 Ok(Async::Ready(0)) => {
                     // see RETURN VALUE section of recv man page (Unix)
-                    self.logger.debug(format!(
-                        "Stream from {} was closed: (0-byte read)",
-                        self.peer_addr
-                    ));
+                    debug!(
+                        self.logger,
+                        format!("Stream from {} was closed: (0-byte read)", self.peer_addr)
+                    );
                     self.shutdown();
                     return Ok(Async::Ready(()));
                 }
                 Ok(Async::Ready(len)) => {
                     if self.logger.trace_enabled() {
-                        self.logger.trace(format!(
-                            "Read {}-byte chunk from {}: {}",
-                            len,
-                            self.peer_addr,
-                            utils::to_string(&Vec::from(&buf[0..len]))
-                        ));
+                        trace!(
+                            self.logger,
+                            format!(
+                                "Read {}-byte chunk from {}: {}",
+                                len,
+                                self.peer_addr,
+                                utils::to_string(&Vec::from(&buf[0..len]))
+                            )
+                        );
                     }
                     let stream_key = self.stream_key;
                     self.send_inbound_server_data(stream_key, Vec::from(&buf[0..len]), false);
                 }
                 Err(e) => {
                     if indicates_dead_stream(e.kind()) {
-                        self.logger
-                            .debug(format!("Stream from {} was closed: {}", self.peer_addr, e));
+                        debug!(
+                            self.logger,
+                            format!("Stream from {} was closed: {}", self.peer_addr, e)
+                        );
                         self.shutdown();
                         return Err(());
                     } else {
                         // TODO this could be exploitable and inefficient: if we keep getting non-dead-stream errors, we go into a tight loop and do not return
-                        self.logger.warning(format!(
-                            "Continuing after read error on stream from {}: {}",
-                            self.peer_addr, e
-                        ));
+                        warning!(
+                            self.logger,
+                            format!(
+                                "Continuing after read error on stream from {}: {}",
+                                self.peer_addr, e
+                            )
+                        );
                     }
                 }
             }

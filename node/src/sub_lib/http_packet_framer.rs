@@ -182,7 +182,7 @@ impl HttpPacketFramer {
             while self.framer_state.lines.len() > 0 {
                 request.extend(self.framer_state.lines.remove(0))
             }
-            self.logger.info(summarize_http_packet(&request));
+            info!(self.logger, summarize_http_packet(&request));
             Some(request)
         } else {
             None

@@ -55,10 +55,13 @@ impl RoutingService {
 
     pub fn route(&self, ibcd: InboundClientData) {
         let data_size = ibcd.data.len();
-        self.logger.debug(format!(
-            "Instructed to route {} bytes of InboundClientData ({}) from Dispatcher",
-            data_size, ibcd.peer_addr
-        ));
+        debug!(
+            self.logger,
+            format!(
+                "Instructed to route {} bytes of InboundClientData ({}) from Dispatcher",
+                data_size, ibcd.peer_addr
+            )
+        );
         let peer_addr = ibcd.peer_addr;
         let last_data = ibcd.last_data;
         let ibcd_but_data = ibcd.clone_but_data();
@@ -67,12 +70,15 @@ impl RoutingService {
             match decodex::<LiveCoresPackage>(self.cryptde, &CryptData::new(&ibcd.data[..])) {
                 Ok(lcp) => lcp,
                 Err(e) => {
-                    self.logger.error(format!(
-                        "Couldn't decode CORES package in {}-byte buffer from {}: {}",
-                        ibcd.data.len(),
-                        ibcd.peer_addr,
-                        e
-                    ));
+                    error!(
+                        self.logger,
+                        format!(
+                            "Couldn't decode CORES package in {}-byte buffer from {}: {}",
+                            ibcd.data.len(),
+                            ibcd.peer_addr,
+                            e
+                        )
+                    );
                     return;
                 }
             };
@@ -80,8 +86,10 @@ impl RoutingService {
         let next_hop = match live_package.route.next_hop(self.cryptde.borrow()) {
             Ok(hop) => hop,
             Err(e) => {
-                self.logger
-                    .error(format!("Invalid {}-byte CORES package: {:?}", data_size, e));
+                error!(
+                    self.logger,
+                    format!("Invalid {}-byte CORES package: {:?}", data_size, e)
+                );
                 return;
             }
         };
@@ -106,18 +114,24 @@ impl RoutingService {
         ibcd_but_data: &InboundClientData,
     ) {
         if (next_hop.component == Component::Hopper) && (!self.is_destined_for_here(&next_hop)) {
-            self.logger.debug(format!(
-                "Routing LiveCoresPackage with {}-byte payload to {}",
-                live_package.payload.len(),
-                next_hop.public_key
-            ));
+            debug!(
+                self.logger,
+                format!(
+                    "Routing LiveCoresPackage with {}-byte payload to {}",
+                    live_package.payload.len(),
+                    next_hop.public_key
+                )
+            );
             self.route_data_externally(live_package, next_hop.consuming_wallet, last_data);
         } else {
-            self.logger.debug(format!(
-                "Transferring LiveCoresPackage with {}-byte payload to {:?}",
-                live_package.payload.len(),
-                next_hop.component
-            ));
+            debug!(
+                self.logger,
+                format!(
+                    "Transferring LiveCoresPackage with {}-byte payload to {:?}",
+                    live_package.payload.len(),
+                    next_hop.component
+                )
+            );
             self.route_data_internally(next_hop.component, sender_ip, live_package, ibcd_but_data)
         }
     }
@@ -148,7 +162,7 @@ impl RoutingService {
         let (_, next_lcp) = match live_package.to_next_live(self.cryptde) {
             Ok(x) => x,
             Err(e) => {
-                self.logger.error(format!("bad zero-hop route: {:?}", e));
+                error!(self.logger, format!("bad zero-hop route: {:?}", e));
                 return;
             }
         };
@@ -180,15 +194,20 @@ impl RoutingService {
             match live_package.to_expired(immediate_neighbor_ip, self.cryptde.borrow()) {
                 Ok(pkg) => pkg,
                 Err(e) => {
-                    self.logger.error(format!(
-                        "Couldn't expire CORES package with {}-byte payload: {:?}",
-                        data_len, e
-                    ));
+                    error!(
+                        self.logger,
+                        format!(
+                            "Couldn't expire CORES package with {}-byte payload: {:?}",
+                            data_len, e
+                        )
+                    );
                     return;
                 }
             };
-        self.logger
-            .trace(format!("Forwarding ExpiredCoresPackage to {:?}", component));
+        trace!(
+            self.logger,
+            format!("Forwarding ExpiredCoresPackage to {:?}", component)
+        );
         match (component, expired_package.payload) {
             (Component::ProxyClient, MessageType::ClientRequest(client_request)) => self
                 .routing_service_subs
@@ -238,10 +257,13 @@ impl RoutingService {
                     expired_package.payload_len,
                 ))
                 .expect("Neighborhood is dead"),
-            (destination, payload) => self.logger.error(format!(
-                "Attempt to send invalid combination {:?} to {:?}",
-                payload, destination
-            )),
+            (destination, payload) => error!(
+                self.logger,
+                format!(
+                    "Attempt to send invalid combination {:?} to {:?}",
+                    payload, destination
+                )
+            ),
         };
     }
 
@@ -265,10 +287,13 @@ impl RoutingService {
                     .expect("Accountant is dead");
             }
             None => {
-                self.logger.error(format!(
+                error!(
+                    self.logger,
+                    format!(
                     "Refusing to route CORES package with {}-byte payload without consuming wallet",
                     payload_size
-                ));
+                )
+                );
                 return;
             }
         }
@@ -279,10 +304,13 @@ impl RoutingService {
             Ok(m) => m,
         };
 
-        self.logger.debug(format!(
-            "Relaying {}-byte LiveCoresPackage to Dispatcher inside a TransmitDataMsg",
-            transmit_msg.data.len()
-        ));
+        debug!(
+            self.logger,
+            format!(
+                "Relaying {}-byte LiveCoresPackage to Dispatcher inside a TransmitDataMsg",
+                transmit_msg.data.len()
+            )
+        );
         self.routing_service_subs
             .to_dispatcher
             .try_send(transmit_msg)

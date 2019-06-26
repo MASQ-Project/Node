@@ -260,7 +260,7 @@ impl ProxyServer {
                     Some(name) => format!("\"{}\"", name),
                     None => "<unspecified server>".to_string(),
                 };
-                self.logger.error(format!(
+                error!(self.logger, format!(
                     "Discarding DnsResolveFailure message for {} from an unrecognized stream key {:?}",
                     server_name,
                     &response.stream_key
@@ -270,17 +270,23 @@ impl ProxyServer {
     }
 
     fn handle_client_response_payload(&mut self, msg: &ExpiredCoresPackage<ClientResponsePayload>) {
-        self.logger.debug(format!(
-            "ExpiredCoresPackage remaining_route: {}",
-            msg.remaining_route
-                .to_string(vec![self.cryptde, self.cryptde])
-        ));
+        debug!(
+            self.logger,
+            format!(
+                "ExpiredCoresPackage remaining_route: {}",
+                msg.remaining_route
+                    .to_string(vec![self.cryptde, self.cryptde])
+            )
+        );
         let payload_data_len = msg.payload_len;
         let response = &msg.payload;
-        self.logger.debug(format!(
-            "Relaying {}-byte ExpiredCoresPackage payload from Hopper to Dispatcher for client",
-            response.sequenced_packet.data.len()
-        ));
+        debug!(
+            self.logger,
+            format!(
+                "Relaying {}-byte ExpiredCoresPackage payload from Hopper to Dispatcher for client",
+                response.sequenced_packet.data.len()
+            )
+        );
         let return_route_info = match self.get_return_route_info(&msg.remaining_route) {
             Some(rri) => rri,
             None => return,
@@ -314,7 +320,7 @@ impl ProxyServer {
                     self.purge_stream_key(&response.stream_key);
                 }
             }
-            None => self.logger.error(format!(
+            None => error!(self.logger, format!(
                 "Discarding {}-byte packet {} from an unrecognized stream key: {:?}; don't know whom to pay for what services",
                 response.sequenced_packet.data.len(),
                 response.sequenced_packet.sequence_number,
@@ -469,7 +475,7 @@ impl ProxyServer {
                                         "Neighborhood refused to answer route request: {}",
                                         e
                                     );
-                                    logger.error(msg);
+                                    error!(logger, msg);
                                 }
                             };
                             Ok(())
@@ -540,8 +546,7 @@ impl ProxyServer {
             &self.logger,
         ) {
             None => {
-                self.logger
-                    .error(format!("Couldn't create ClientRequestPayload"));
+                error!(self.logger, format!("Couldn't create ClientRequestPayload"));
                 Err(())
             }
             Some(payload) => match tunnelled_host {
@@ -575,10 +580,13 @@ impl ProxyServer {
                     protocol: payload.protocol,
                     server_name: payload.target_hostname.clone(),
                 };
-                logger.debug(format!(
-                    "Adding expectant return route info: {:?}",
-                    return_route_info
-                ));
+                debug!(
+                    logger,
+                    format!(
+                        "Adding expectant return route info: {:?}",
+                        return_route_info
+                    )
+                );
                 add_return_route_sub
                     .try_send(return_route_info)
                     .expect("ProxyServer is dead");
@@ -621,7 +629,7 @@ impl ProxyServer {
             })
             .collect();
         if earning_wallets_and_rates.is_empty() {
-            logger.debug("No routing services requested.".to_string());
+            debug!(logger, "No routing services requested.".to_string());
         }
         earning_wallets_and_rates
             .into_iter()
@@ -664,7 +672,7 @@ impl ProxyServer {
                     .try_send(report_exit_service_consumed_message)
                     .expect("Accountant is dead");
             }
-            None => logger.debug("No exit service requested.".to_string()),
+            None => debug!(logger, "No exit service requested.".to_string()),
         };
     }
 
@@ -697,10 +705,13 @@ impl ProxyServer {
         match destination_key_opt {
             None => ProxyServer::handle_route_failure(payload, &logger, source_addr, dispatcher),
             Some(payload_destination_key) => {
-                logger.debug(format!(
-                    "transmit to hopper with destination key {:?}",
-                    payload_destination_key
-                ));
+                debug!(
+                    logger,
+                    format!(
+                        "transmit to hopper with destination key {:?}",
+                        payload_destination_key
+                    )
+                );
                 let pkg = IncipientCoresPackage::new(
                     cryptde.as_ref(),
                     route.clone(),
@@ -727,7 +738,10 @@ impl ProxyServer {
     ) {
         let target_hostname = ProxyServer::hostname(&payload);
         ProxyServer::send_route_failure(payload, source_addr, dispatcher);
-        logger.error(format!("Failed to find route to {}", target_hostname));
+        error!(
+            logger,
+            format!("Failed to find route to {}", target_hostname)
+        );
     }
 
     fn send_route_failure(
@@ -762,15 +776,17 @@ impl ProxyServer {
         let return_route_id = match mut_remaining_route.id(self.cryptde) {
             Ok(rri) => rri,
             Err(e) => {
-                self.logger
-                    .error(format!("Can't report services consumed: {}", e));
+                error!(
+                    self.logger,
+                    format!("Can't report services consumed: {}", e)
+                );
                 return None;
             }
         };
         match self.route_ids_to_return_routes.get(&return_route_id) {
             Some(rri) => Some(rri),
             None => {
-                self.logger.error(format!("Can't report services consumed: received response with bogus return-route ID {}. Ignoring", return_route_id));
+                error!(self.logger, format!("Can't report services consumed: received response with bogus return-route ID {}. Ignoring", return_route_id));
                 None
             }
         }

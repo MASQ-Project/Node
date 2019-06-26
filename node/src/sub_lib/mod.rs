@@ -1,4 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+
+#[macro_use]
+pub mod logger;
+
 pub mod accountant;
 pub mod bidi_hashmap;
 pub mod binary_traverser;
@@ -17,7 +21,6 @@ pub mod hopper;
 pub mod http_packet_framer;
 pub mod http_response_start_finder;
 pub mod limiter;
-pub mod logger;
 pub mod main_tools;
 pub mod neighborhood;
 pub mod node_addr;

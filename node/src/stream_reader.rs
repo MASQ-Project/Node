@@ -40,31 +40,38 @@ impl Future for StreamReaderReal {
                 Ok(Async::NotReady) => return Ok(Async::NotReady),
                 Ok(Async::Ready(0)) => {
                     // see RETURN VALUE section of recv man page (Unix)
-                    self.logger.debug(format!(
-                        "Stream on port {} has shut down (0-byte read)",
-                        port
-                    ));
+                    debug!(
+                        self.logger,
+                        format!("Stream on port {} has shut down (0-byte read)", port)
+                    );
                     self.shutdown();
                     return Ok(Async::Ready(()));
                 }
                 Ok(Async::Ready(length)) => {
-                    self.logger
-                        .debug(format!("Read {}-byte chunk from port {}", length, port));
+                    debug!(
+                        self.logger,
+                        format!("Read {}-byte chunk from port {}", length, port)
+                    );
                     self.wrangle_discriminators(&buf, length)
                 }
                 Err(e) => {
                     if indicates_dead_stream(e.kind()) {
-                        self.logger
-                            .debug(format!("Stream on port {} is dead: {}", port, e));
+                        debug!(
+                            self.logger,
+                            format!("Stream on port {} is dead: {}", port, e)
+                        );
                         self.shutdown();
                         return Err(());
                     } else {
                         // TODO this could be exploitable and inefficient: if we keep getting non-dead-stream errors, we go into a tight loop and do not return
-                        self.logger.warning(format!(
-                            "Continuing after read error on port {}: {}",
-                            port,
-                            e.to_string()
-                        ))
+                        warning!(
+                            self.logger,
+                            format!(
+                                "Continuing after read error on port {}: {}",
+                                port,
+                                e.to_string()
+                            )
+                        )
                     }
                 }
             }
@@ -116,8 +123,10 @@ impl StreamReaderReal {
             &mut self.discriminators[0]
         };
 
-        self.logger
-            .debug(format!("Adding {} bytes to discriminator", length));
+        debug!(
+            self.logger,
+            format!("Adding {} bytes to discriminator", length)
+        );
         chosen_discriminator.add_data(&buf[..length]);
         loop {
             match chosen_discriminator.take_chunk() {
@@ -137,15 +146,21 @@ impl StreamReaderReal {
                         None
                     };
                     match sequence_number {
-                        Some(num) => self.logger.debug(format!(
-                            "Read {} bytes of clear data (#{})",
-                            unmasked_chunk.chunk.len(),
-                            num
-                        )),
-                        None => self.logger.debug(format!(
-                            "Read {} bytes of clandestine data",
-                            unmasked_chunk.chunk.len()
-                        )),
+                        Some(num) => debug!(
+                            self.logger,
+                            format!(
+                                "Read {} bytes of clear data (#{})",
+                                unmasked_chunk.chunk.len(),
+                                num
+                            )
+                        ),
+                        None => debug!(
+                            self.logger,
+                            format!(
+                                "Read {} bytes of clandestine data",
+                                unmasked_chunk.chunk.len()
+                            )
+                        ),
                     };
                     let msg = dispatcher::InboundClientData {
                         peer_addr: self.peer_addr,
@@ -155,13 +170,15 @@ impl StreamReaderReal {
                         sequence_number,
                         data: unmasked_chunk.chunk.clone(),
                     };
-                    self.logger.debug(format!("Discriminator framed and unmasked {} bytes for {}; transmitting via Hopper",
+                    debug!(self.logger, format!("Discriminator framed and unmasked {} bytes for {}; transmitting via Hopper",
                                               unmasked_chunk.chunk.len(), msg.peer_addr));
                     self.ibcd_sub.try_send(msg).expect("Dispatcher is dead");
                 }
                 None => {
-                    self.logger
-                        .debug(format!("Discriminator has no more data framed"));
+                    debug!(
+                        self.logger,
+                        format!("Discriminator has no more data framed")
+                    );
                     break;
                 }
             }
@@ -169,7 +186,7 @@ impl StreamReaderReal {
     }
 
     fn shutdown(&mut self) {
-        self.logger.debug (format! ("Directing removal of {}clandestine StreamReader with reception_port {:?} on {} listening to {}", if self.is_clandestine {""} else {"non-"}, self.reception_port, self.local_addr, self.peer_addr));
+        debug!(self.logger, format! ("Directing removal of {}clandestine StreamReader with reception_port {:?} on {} listening to {}", if self.is_clandestine {""} else {"non-"}, self.reception_port, self.local_addr, self.peer_addr));
         self.remove_sub
             .try_send(RemoveStreamMsg {
                 socket_addr: self.peer_addr,

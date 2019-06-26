@@ -29,14 +29,15 @@ impl Handler<BindMessage> for BlockchainBridge {
     fn handle(&mut self, _msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
         match self.config.consuming_wallet.as_ref() {
             Some(wallet) => {
-                self.logger.debug(format!(
-                    "Received BindMessage; consuming wallet address {}",
-                    wallet
-                ));
+                debug!(
+                    self.logger,
+                    format!("Received BindMessage; consuming wallet address {}", wallet)
+                );
             }
             None => {
-                self.logger.debug(
-                    "Received BindMessage; no consuming wallet address specified".to_string(),
+                debug!(
+                    self.logger,
+                    "Received BindMessage; no consuming wallet address specified".to_string()
                 );
             }
         }
@@ -72,8 +73,10 @@ impl Handler<ReportAccountsPayable> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, _msg: ReportAccountsPayable, _ctx: &mut Self::Context) -> Self::Result {
-        self.logger
-            .debug("Received ReportAccountsPayable message".to_string());
+        debug!(
+            self.logger,
+            "Received ReportAccountsPayable message".to_string()
+        );
     }
 }
 

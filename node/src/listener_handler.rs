@@ -73,10 +73,13 @@ impl Future for ListenerHandlerReal {
                         match self.stream_connector.split_stream(stream, &self.logger) {
                             Some(ci) => ci,
                             None => {
-                                self.logger.error(format!(
-                                    "Connection from {} was closed before it could be accepted",
-                                    socket_addr
-                                ));
+                                error!(
+                                    self.logger,
+                                    format!(
+                                        "Connection from {} was closed before it could be accepted",
+                                        socket_addr
+                                    )
+                                );
                                 return Ok(Async::NotReady);
                             }
                         };
@@ -96,8 +99,7 @@ impl Future for ListenerHandlerReal {
                 Err(e) => {
                     // TODO FIXME we should kill the entire Node if there is a fatal error in a listener_handler
                     // TODO this could be exploitable and inefficient: if we keep getting errors, we go into a tight loop and do not return
-                    self.logger
-                        .error(format!("Could not accept connection: {}", e));
+                    error!(self.logger, format!("Could not accept connection: {}", e));
                 }
                 Ok(Async::NotReady) => return Ok(Async::NotReady),
             }

@@ -94,17 +94,22 @@ impl StreamWriterSorted {
                     match self.stream.poll_write(&packet.data) {
                         Err(e) => {
                             if indicates_dead_stream(e.kind()) {
-                                self.logger.error(format!(
-                                    "Error writing {} bytes to {}: {}",
-                                    packet.data.len(),
-                                    self.peer_addr,
-                                    e
-                                ));
+                                error!(
+                                    self.logger,
+                                    format!(
+                                        "Error writing {} bytes to {}: {}",
+                                        packet.data.len(),
+                                        self.peer_addr,
+                                        e
+                                    )
+                                );
                                 return WriteBufferStatus::StreamInError;
                             } else {
                                 // TODO this could be exploitable and inefficient: if we keep getting non-dead-stream errors, we go into a tight loop and do not return
-                                self.logger
-                                    .warning(format!("Continuing after write error: {}", e));
+                                warning!(
+                                    self.logger,
+                                    format!("Continuing after write error: {}", e)
+                                );
                                 self.sequence_buffer.repush(packet);
                             }
                         }
@@ -113,24 +118,27 @@ impl StreamWriterSorted {
                             return WriteBufferStatus::BufferNotEmpty;
                         }
                         Ok(Async::Ready(len)) => {
-                            self.logger.debug(format!(
-                                "Wrote {}/{} bytes of clear data (#{})",
-                                len,
-                                &packet.data.len(),
-                                &packet.sequence_number
-                            ));
+                            debug!(
+                                self.logger,
+                                format!(
+                                    "Wrote {}/{} bytes of clear data (#{})",
+                                    len,
+                                    &packet.data.len(),
+                                    &packet.sequence_number
+                                )
+                            );
                             if len != packet.data.len() {
-                                self.logger.debug(format!(
-                                    "rescheduling {} bytes",
-                                    &packet.data.len() - len
-                                ));
+                                debug!(
+                                    self.logger,
+                                    format!("rescheduling {} bytes", &packet.data.len() - len)
+                                );
                                 self.sequence_buffer.repush(SequencedPacket::new(
                                     packet.data.iter().skip(len).map(|p| p.clone()).collect(),
                                     packet.sequence_number,
                                     packet.last_data,
                                 ));
                             } else if packet.last_data {
-                                self.logger.debug (format!("Shutting down stream to client at {} in response to server-drop report", self.peer_addr));
+                                debug!(self.logger, format!("Shutting down stream to client at {} in response to server-drop report", self.peer_addr));
                                 self.shutting_down = true;
                                 return match self.stream.shutdown() {
                                     Ok(Async::NotReady) => WriteBufferStatus::BufferNotEmpty,

@@ -66,8 +66,10 @@ impl ReceivableDao for ReceivableDaoReal {
     ) {
         self.try_multi_insert_payment(persistent_configuration, payments)
             .unwrap_or_else(|e| {
-                self.logger
-                    .warning(format!("Transaction failed, rolling back: {}", e));
+                warning!(
+                    self.logger,
+                    format!("Transaction failed, rolling back: {}", e)
+                );
             });
     }
 

@@ -24,11 +24,14 @@ impl ClientRequestPayloadFactory {
     ) -> Option<ClientRequestPayload> {
         let origin_port = match ibcd.reception_port {
             None => {
-                logger.error(format!(
-                    "No origin port specified with {}-byte packet: {:?}",
-                    ibcd.data.len(),
-                    ibcd.data
-                ));
+                error!(
+                    logger,
+                    format!(
+                        "No origin port specified with {}-byte packet: {:?}",
+                        ibcd.data.len(),
+                        ibcd.data
+                    )
+                );
                 return None;
             }
             Some(origin_port) => origin_port,
@@ -36,22 +39,28 @@ impl ClientRequestPayloadFactory {
         let protocol_pack = match for_standard_port(origin_port) {
             Some(pp) => pp,
             None => {
-                logger.error(format!(
-                    "No protocol associated with origin port {} for {}-byte packet: {:?}",
-                    origin_port,
-                    ibcd.data.len(),
-                    &ibcd.data
-                ));
+                error!(
+                    logger,
+                    format!(
+                        "No protocol associated with origin port {} for {}-byte packet: {:?}",
+                        origin_port,
+                        ibcd.data.len(),
+                        &ibcd.data
+                    )
+                );
                 return None;
             }
         };
         let sequence_number = match ibcd.sequence_number {
             Some(sequence_number) => sequence_number,
             None => {
-                logger.error(format!(
-                    "internal error: got IBCD with no sequence number and {} bytes",
-                    ibcd.data.len()
-                ));
+                error!(
+                    logger,
+                    format!(
+                        "internal error: got IBCD with no sequence number and {} bytes",
+                        ibcd.data.len()
+                    )
+                );
                 return None;
             }
         };

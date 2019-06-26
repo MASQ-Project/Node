@@ -55,14 +55,16 @@ impl Handler<BindMessage> for ProxyClient {
     type Result = ();
 
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
-        self.logger.debug("Handling BindMessage".to_string());
+        debug!(self.logger, "Handling BindMessage".to_string());
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.to_hopper = Some(msg.peer_actors.hopper.from_hopper_client);
         self.to_accountant = Some(msg.peer_actors.accountant.report_exit_service_provided);
         let mut config = ResolverConfig::new();
         for dns_server_ref in &self.dns_servers {
-            self.logger
-                .info(format!("Adding DNS server: {}", dns_server_ref.ip()));
+            info!(
+                self.logger,
+                format!("Adding DNS server: {}", dns_server_ref.ip())
+            );
             config.add_name_server(NameServerConfig {
                 socket_addr: *dns_server_ref,
                 protocol: Protocol::Udp,
@@ -104,9 +106,9 @@ impl Handler<ExpiredCoresPackage<ClientRequestPayload>> for ProxyClient {
             self.stream_contexts
                 .insert(payload.stream_key, latest_stream_context);
             pool.process_package(payload, consuming_wallet);
-            self.logger.debug("ExpiredCoresPackage handled".to_string());
+            debug!(self.logger, "ExpiredCoresPackage handled".to_string());
         } else {
-            self.logger.error(format!(
+            error!(self.logger, format!(
                 "Refusing to provide exit services for CORES package with {}-byte payload without consuming wallet",
                 payload.sequenced_packet.data.len()
             ));
@@ -126,10 +128,13 @@ impl Handler<InboundServerData> for ProxyClient {
         let stream_context = match self.stream_contexts.get(&msg.stream_key) {
             Some(sc) => sc,
             None => {
-                self.logger.error(format!(
-                    "Received unsolicited {}-byte response from {}, seq {}: ignoring",
-                    msg_data_len, msg_source, msg_sequence_number
-                ));
+                error!(
+                    self.logger,
+                    format!(
+                        "Received unsolicited {}-byte response from {}, seq {}: ignoring",
+                        msg_data_len, msg_source, msg_sequence_number
+                    )
+                );
                 return;
             }
         };
@@ -165,10 +170,13 @@ impl Handler<DnsResolveFailure> for ProxyClient {
                     .expect("Hopper is dead");
                 self.stream_contexts.remove(&stream_key);
             }
-            None => self.logger.error(format!(
-                "DNS resolution for nonexistent stream ({:?}) failed.",
-                msg.stream_key
-            )),
+            None => error!(
+                self.logger,
+                format!(
+                    "DNS resolution for nonexistent stream ({:?}) failed.",
+                    msg.stream_key
+                )
+            ),
         }
     }
 }
@@ -229,7 +237,7 @@ impl ProxyClient {
         ) {
             Ok(icp) => icp,
             Err(err) => {
-                self.logger.error(format!("Could not create CORES package for {}-byte response from {}, seq {}: {} - ignoring", msg_data_len, msg_source, msg_sequence_number, err));
+                error!(self.logger, format!("Could not create CORES package for {}-byte response from {}, seq {}: {} - ignoring", msg_data_len, msg_source, msg_sequence_number, err));
                 return Err(());
             }
         };
@@ -259,10 +267,13 @@ impl ProxyClient {
                 .try_send(exit_report)
                 .expect("Accountant is dead");
         } else {
-            self.logger.debug(format!(
-                "Relayed {}-byte response without consuming wallet for free",
-                msg_data_len
-            ));
+            debug!(
+                self.logger,
+                format!(
+                    "Relayed {}-byte response without consuming wallet for free",
+                    msg_data_len
+                )
+            );
         }
     }
 }
