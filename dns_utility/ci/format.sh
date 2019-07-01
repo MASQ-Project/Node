@@ -2,8 +2,6 @@
 # Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 
-cd "$CI_DIR"/../node
-
 cargo fmt --all -- --check
 exit_code="$?"
 if [[ "$exit_code" != "0" ]]; then

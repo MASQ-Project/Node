@@ -4,7 +4,7 @@ pub mod port_exposer;
 use crate::port_exposer::PortExposer;
 
 fn main() {
-    eprintln! ("port_exposer started");
+    eprintln!("port_exposer started");
 
     let command = PortExposer::new();
     let exit_code = command.go(std::env::args().collect());

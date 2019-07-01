@@ -3,8 +3,6 @@
 CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 PARENT_DIR="$1"
 
-"$CI_DIR"/format.sh
-
 # Remove these two lines to slow down the build
 which sccache || cargo install sccache || echo "Skipping sccache installation"  # Should do significant work only once
 sccache --start-server || echo "sccache server already running"
