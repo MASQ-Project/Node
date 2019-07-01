@@ -126,6 +126,16 @@ ipcMain.on('change-node-state', (event, command, args) => {
   }
 })
 
+ipcMain.on('set-consuming-wallet-password', (event, password, args) => {
+  event.returnValue = 42 // 42 is meaningless here; if we do not set returnValue, sendSync will block the render process forever
+
+  nodeActuator.setConsumingWalletPassword(password).then(success => {
+    mainWindow.webContents.send('set-consuming-wallet-password-response', success)
+  }).catch(() => {
+    mainWindow.webContents.send('set-consuming-wallet-password-response', false)
+  })
+})
+
 let assignStatus = (event, promise) => {
   promise.then(newStatus => {
     event.returnValue = newStatus

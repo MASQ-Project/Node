@@ -8,6 +8,7 @@ module.exports = (() => {
   const UI_PROTOCOL = 'SubstratumNode-UI'
   let webSocket = null
   let getNodeDescriptorCallbackPair = null
+  let setConsumingWalletPasswordCallbackPair = null
 
   function connect () {
     return new Promise((resolve, reject) => {
@@ -23,11 +24,21 @@ module.exports = (() => {
         if (nodeDescriptor) {
           getNodeDescriptorCallbackPair.resolve(nodeDescriptor)
         }
+
+        const success = data['SetWalletPasswordResponse']
+        if (success !== undefined) {
+          setConsumingWalletPasswordCallbackPair.resolve(success)
+        }
       }
       ws.onerror = (event) => {
         if (getNodeDescriptorCallbackPair) {
           getNodeDescriptorCallbackPair.reject()
         }
+
+        if (setConsumingWalletPasswordCallbackPair) {
+          setConsumingWalletPasswordCallbackPair.reject()
+        }
+
         webSocket = null
         reject(event)
       }
@@ -120,6 +131,24 @@ module.exports = (() => {
     })
   }
 
+  async function setConsumingWalletPassword (password) {
+    if (setConsumingWalletPasswordCallbackPair) {
+      return Promise.reject(Error('CallAlreadyInProgress'))
+    }
+    return new Promise((resolve, reject) => {
+      setConsumingWalletPasswordCallbackPair = {
+        resolve: (success) => {
+          setConsumingWalletPasswordCallbackPair = null
+          resolve(success)
+        },
+        reject: (e) => {
+          reject(e)
+        }
+      }
+      webSocket.send(`{"SetWalletPassword": "${password}"}`)
+    })
+  }
+
   function createSocket (port) {
     return webSocketWrapper.create(`${UI_INTERFACE_URL}:${port}`, UI_PROTOCOL)
   }
@@ -133,6 +162,7 @@ module.exports = (() => {
     verifyNodeUp: verifyNodeUp,
     verifyNodeDown: verifyNodeDown,
     shutdown: shutdown,
-    getNodeDescriptor: getNodeDescriptor
+    getNodeDescriptor: getNodeDescriptor,
+    setConsumingWalletPassword: setConsumingWalletPassword
   }
 })()

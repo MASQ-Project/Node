@@ -321,7 +321,7 @@ impl ProxyServer {
                 }
             }
             None => error!(self.logger, format!(
-                "Discarding {}-byte packet {} from an unrecognized stream key: {:?}; don't know whom to pay for what services",
+                "Discarding {}-byte packet {} from an unrecognized stream key: {:?}; can't send response back to client",
                 response.sequenced_packet.data.len(),
                 response.sequenced_packet.sequence_number,
                 response.stream_key

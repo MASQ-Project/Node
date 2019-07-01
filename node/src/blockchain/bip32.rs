@@ -149,6 +149,9 @@ impl Hash for Bip32ECKeyPair {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sub_lib::wallet::{
+        DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
+    };
     use bip39::{Language, Mnemonic};
 
     #[test]
@@ -161,7 +164,7 @@ mod tests {
         .unwrap();
         let seed = Seed::new(&mnemonic, "Test123!");
         let bip32eckey_pair =
-            Bip32ECKeyPair::try_from((seed.as_ref(), "m/44'/60'/0'/0/0")).unwrap();
+            Bip32ECKeyPair::try_from((seed.as_ref(), DEFAULT_CONSUMING_DERIVATION_PATH)).unwrap();
         let address: Address = bip32eckey_pair.address();
         let expected_address: Address =
             serde_json::from_str::<Address>("\"0x2DCfb0B4c2515Ae04dCB2A36e9d7d4251B3611BC\"")
@@ -179,7 +182,7 @@ mod tests {
         .unwrap();
         let seed = Seed::new(&mnemonic, "Test123!");
         let bip32eckey_pair =
-            Bip32ECKeyPair::try_from((seed.as_ref(), "m/44'/60'/0'/0/1")).unwrap();
+            Bip32ECKeyPair::try_from((seed.as_ref(), DEFAULT_EARNING_DERIVATION_PATH)).unwrap();
         let address: Address = bip32eckey_pair.address();
         let expected_address: Address =
             serde_json::from_str::<Address>("\"0x20eF925bBbFca786bd426BaED8c6Ae45e4284e12\"")
@@ -198,14 +201,16 @@ mod tests {
         let mnemonic = Mnemonic::from_phrase(phrase, Language::English).unwrap();
         let seed = Seed::new(&mnemonic, "");
 
-        let key_pair = Bip32ECKeyPair::try_from((seed.as_bytes(), "m/44'/60'/0'/0/0")).unwrap();
+        let key_pair =
+            Bip32ECKeyPair::try_from((seed.as_bytes(), DEFAULT_CONSUMING_DERIVATION_PATH)).unwrap();
 
         assert_eq!(
             format!("{:?}", SecretKey::from_raw(expected_secret_key).unwrap()),
             format!("{:?}", key_pair.secret)
         );
 
-        let account = ExtendedPrivKey::derive(seed.as_bytes(), "m/44'/60'/0'/0/0").unwrap();
+        let account =
+            ExtendedPrivKey::derive(seed.as_bytes(), DEFAULT_CONSUMING_DERIVATION_PATH).unwrap();
 
         assert_eq!(
             expected_secret_key,
@@ -237,7 +242,7 @@ mod tests {
     #[test]
     fn bip32_try_from_errors_with_empty_seed() {
         assert_eq!(
-            Bip32ECKeyPair::try_from(("".as_ref(), "m/44'/60'/0'/0/0")).unwrap_err(),
+            Bip32ECKeyPair::try_from(("".as_ref(), DEFAULT_CONSUMING_DERIVATION_PATH)).unwrap_err(),
             "Invalid Seed Length: 0".to_string()
         );
     }

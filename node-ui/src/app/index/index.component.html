@@ -18,7 +18,7 @@
     </div>
   </div>
 
-  <div class="node-field" *ngIf="!this.isConfigurationShown()">
+  <div class="node-field" *ngIf="!(this.isConfigurationShown() || this.isConsumingWalletPasswordPromptShown)">
     <div class="node-field__display">
       <span class="node-field__display-label">Node Descriptor:</span>
     </div>
@@ -27,6 +27,8 @@
       <button (click)="copyNodeDescriptor()" id="copy">Copy</button>
     </div>
   </div>
+
+  <app-consuming-wallet-password-prompt id="password-prompt" *ngIf="this.isConsumingWalletPasswordPromptShown" (unlock)="this.onConsumingWalletPasswordUnlock($event)" [unlockFailed]="this.unlockFailed"></app-consuming-wallet-password-prompt>
 
   <app-node-configuration *ngIf="this.isConfigurationShown()"
                           [mode]="configurationMode"

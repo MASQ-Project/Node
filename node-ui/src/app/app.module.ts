@@ -11,6 +11,7 @@ import {ElectronService} from './electron.service';
 import {NodeConfigurationComponent} from './node-configuration/node-configuration.component';
 import {FormsModule, ReactiveFormsModule} from '@angular/forms';
 import {NetworkHelpComponent} from './network-help/network-help.component';
+import {ConsumingWalletPasswordPromptComponent} from './consuming-wallet-password-prompt/consuming-wallet-password-prompt.component';
 
 @NgModule({
   declarations: [
@@ -19,7 +20,8 @@ import {NetworkHelpComponent} from './network-help/network-help.component';
     HeaderComponent,
     FooterComponent,
     NodeConfigurationComponent,
-    NetworkHelpComponent
+    NetworkHelpComponent,
+    ConsumingWalletPasswordPromptComponent
   ],
   imports: [
     BrowserModule,

@@ -15,6 +15,10 @@ module.exports = class NodeActuator {
     this.webContents = webContents
   }
 
+  setConsumingWalletPassword (password) {
+    return uiInterface.setConsumingWalletPassword(password)
+  }
+
   async setStatusToOffThenRevert () {
     this.substratumNodeProcess = null
 

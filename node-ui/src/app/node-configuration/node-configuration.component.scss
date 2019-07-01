@@ -2,26 +2,10 @@
 @import '../../styles/variables';
 @import '../../styles/colors';
 @import '../../styles/mixins';
+@import '../../styles/form';
 
 $left-corners-nubbed: $border-radius 0 0 $border-radius;
 $right-corners-nubbed: 0 $border-radius $border-radius 0;
-
-@mixin action-button() {
-  padding: 0 24px;
-  background: color('background');
-  border: 1.5px solid color('green');
-  border-radius: 30px;
-  color: color('green');
-  font-size: fontSize('base');
-  height: 40px;
-  text-transform: uppercase;
-  flex: 2;
-
-  &:disabled {
-    color: color('background', 'dark');
-    border: 1.5px solid color('background', 'dark');
-  }
-}
 
 #node-config {
   border-top: 1px solid color('background', 'light');
@@ -35,103 +19,7 @@ $right-corners-nubbed: 0 $border-radius $border-radius 0;
 }
 
 .node-config {
-  background: color('background');
-  padding: 24px 18px 0 18px;
-  text-align: center;
-
-  .tooltip {
-    position: relative;
-    display: inline-block;
-  }
-
-  &__clippy {
-    background: color('background', 'light');
-    color: color('text', 'light');
-    position: absolute;
-    z-index: 1;
-    padding: 15px;
-    top: -45px;
-    right: 150%;
-    text-align: left;
-    border-radius: $border-radius;
-    width: 515px;
-  }
-
-  &__clippy::after {
-    content: " ";
-    position: absolute;
-    top: 50%;
-    left: 100%; /* To the right of the tooltip */
-    margin-top: -5px;
-    border-width: 5px;
-    border-style: solid;
-    border-color: transparent transparent transparent color('background', 'light');
-  }
-
-  &__inset {
-    flex: 4;
-  }
-
-  &__empty-flex {
-    flex: 1;
-  }
-
-  input {
-    height: 40px;
-    padding: 0 18px;
-    font-size: fontSize('base');
-    background: color('background', 'dark');
-    border: none;
-    color: color('text', 'light');
-    flex: 1;
-    border-radius: $border-radius;
-  }
-
-  .input-invalid {
-    border: 1px solid color('primary');
-  }
-
-  .validation-error {
-    text-align: left;
-    font-size: fontSize('diminished');
-  }
-
-  &__to-action {
-    @include action-button();
-  }
-
-  &__display {
-    display: flex;
-    justify-content: space-between;
-
-    &-label {
-      text-align: center;
-      color: color('text');
-      font-size: fontSize('diminished');
-      text-transform: uppercase;
-      letter-spacing: fontSize('letter-spacing');
-      font-weight: normal;
-      flex: 1;
-    }
-
-    &-status {
-      color: color('white');
-      font-size: fontSize('base');
-      text-align: right;
-      flex: 1;
-    }
-  }
-
-  &__actions {
-    display: flex;
-    margin-bottom: 20px;
-
-    &--invalid {
-      border: 3px solid color('primary');
-      border-radius: $error-radius;
-    }
-
-  }
+  @include node-form;
 }
 
 @mixin toggle-button() {

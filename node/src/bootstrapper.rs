@@ -32,6 +32,7 @@ use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use crate::sub_lib::socket_server::SocketServer;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::ui_gateway::DEFAULT_UI_PORT;
+use crate::sub_lib::wallet::DEFAULT_CONSUMING_DERIVATION_PATH;
 use futures::try_ready;
 use log::LevelFilter;
 use std::collections::HashMap;
@@ -124,6 +125,7 @@ impl BootstrapperConfig {
                 blockchain_service_url: None,
                 contract_address: TESTNET_CONTRACT_ADDRESS,
                 consuming_wallet: None,
+                consuming_wallet_derivation_path: String::from(DEFAULT_CONSUMING_DERIVATION_PATH),
                 mnemonic_seed: None,
             },
             port_configurations: HashMap::new(),

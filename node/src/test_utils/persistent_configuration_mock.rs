@@ -6,6 +6,7 @@ use std::cell::RefCell;
 pub struct PersistentConfigurationMock {
     start_block_results: RefCell<Vec<u64>>,
     set_start_block_transactionally_results: RefCell<Vec<Result<(), String>>>,
+    mnemonic_seed_results: RefCell<Vec<Option<String>>>,
 }
 
 impl PersistentConfigurationMock {
@@ -15,6 +16,11 @@ impl PersistentConfigurationMock {
 
     pub fn start_block_result(self, start_block: u64) -> Self {
         self.start_block_results.borrow_mut().push(start_block);
+        self
+    }
+
+    pub fn mnemonic_seed_result(self, result: Option<String>) -> Self {
+        self.mnemonic_seed_results.borrow_mut().push(result);
         self
     }
 
@@ -40,7 +46,7 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     }
 
     fn mnemonic_seed(&self) -> Option<String> {
-        unimplemented!()
+        self.mnemonic_seed_results.borrow_mut().remove(0)
     }
 
     fn set_mnemonic_seed(&self, _seed: String) {

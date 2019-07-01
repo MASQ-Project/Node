@@ -17,6 +17,9 @@ export class IndexComponent {
     mainService.nodeStatus.subscribe((newStatus) => {
       ngZone.run(() => {
         this.status = newStatus;
+
+        if (newStatus !== NodeStatus.Consuming) { this.isConsumingWalletPasswordPromptShown = false; }
+        if (newStatus === NodeStatus.Off) { this.unlocked = false; }
       });
     });
     mainService.nodeDescriptor.subscribe((newNodeDescriptor) => {
@@ -24,15 +27,34 @@ export class IndexComponent {
         this.nodeDescriptor = newNodeDescriptor;
       });
     });
+    mainService.setConsumingWalletPasswordResponse.subscribe(success => {
+      ngZone.run(() => {
+        if (success) {
+          this.isConsumingWalletPasswordPromptShown = false;
+          this.unlocked = true;
+          IndexComponent.resizeSmall();
+        }
+        this.unlockFailed = !success;
+      });
+    });
   }
 
   @Output() status: NodeStatus = NodeStatus.Off;
   @Output() configurationMode: ConfigurationMode = ConfigurationMode.Hidden;
+  isConsumingWalletPasswordPromptShown: boolean;
+  unlockFailed: boolean;
+  unlocked: boolean;
   nodeDescriptor = '';
 
   static resizeSmall() {
     if (window.outerHeight !== 360) {
       window.resizeTo(640, 360);
+    }
+  }
+
+  static resizeMedium() {
+    if (window.outerHeight !== 450) {
+      window.resizeTo(640, 450);
     }
   }
 
@@ -56,11 +78,13 @@ export class IndexComponent {
     if (!this.isServing()) {
       this.configurationMode = ConfigurationMode.Hidden;
       if (this.configService.isValidServing()) {
-        this.openStandardDisplay();
         this.mainService.serve();
+        this.configurationMode = ConfigurationMode.Hidden;
+        IndexComponent.resizeSmall();
       } else {
         this.openServingSettings();
       }
+      this.isConsumingWalletPasswordPromptShown = false;
     }
   }
 
@@ -68,12 +92,15 @@ export class IndexComponent {
     if (!this.isConsuming()) {
       this.configurationMode = ConfigurationMode.Hidden;
       if (this.configService.isValidConsuming()) {
-        this.openStandardDisplay();
-        this.mainService.consume();
+        this.onConsumingSaved();
       } else {
         this.openConsumingSettings();
       }
     }
+  }
+
+  onConsumingWalletPasswordUnlock($event) {
+    this.mainService.setConsumingWalletPassword($event);
   }
 
   copyNodeDescriptor() {
@@ -81,7 +108,11 @@ export class IndexComponent {
   }
 
   openStandardDisplay() {
-    IndexComponent.resizeSmall();
+    if (this.isConsumingWalletPasswordPromptShown) {
+      IndexComponent.resizeMedium();
+    } else {
+      IndexComponent.resizeSmall();
+    }
     this.configurationMode = ConfigurationMode.Hidden;
   }
 
@@ -157,8 +188,14 @@ export class IndexComponent {
 
   onConsumingSaved() {
     this.configurationMode = ConfigurationMode.Hidden;
+    if (!this.unlocked) { this.isConsumingWalletPasswordPromptShown = true; }
     this.mainService.consume();
-    IndexComponent.resizeSmall();
+
+    if (this.isConsumingWalletPasswordPromptShown) {
+      IndexComponent.resizeMedium();
+    } else {
+      IndexComponent.resizeSmall();
+    }
   }
 
   onConfigurationMode($event: ConfigurationMode) {

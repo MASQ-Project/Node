@@ -12,6 +12,9 @@ use std::result::Result;
 use std::str::FromStr;
 use web3::types::{Address, H256};
 
+pub const DEFAULT_CONSUMING_DERIVATION_PATH: &str = "m/44'/60'/0'/0/0";
+pub const DEFAULT_EARNING_DERIVATION_PATH: &str = "m/44'/60'/0'/0/1";
+
 #[derive(Debug, PartialEq)]
 pub enum WalletError {
     InvalidAddress,
@@ -260,7 +263,8 @@ mod tests {
         )
         .unwrap();
         let seed = Seed::new(&mnemonic, "Test123!");
-        let keypair = Bip32ECKeyPair::try_from((seed.as_ref(), "m/44'/60'/0'/0/0")).unwrap();
+        let keypair =
+            Bip32ECKeyPair::try_from((seed.as_ref(), DEFAULT_CONSUMING_DERIVATION_PATH)).unwrap();
 
         let expected_wallet = Wallet::from(keypair);
         let error = serde_cbor::to_vec(&expected_wallet).unwrap_err();
@@ -280,7 +284,8 @@ mod tests {
         )
         .unwrap();
         let seed = Seed::new(&mnemonic, "Test123!");
-        let keypair = Bip32ECKeyPair::try_from((seed.as_ref(), "m/44'/60'/0'/0/0")).unwrap();
+        let keypair =
+            Bip32ECKeyPair::try_from((seed.as_ref(), DEFAULT_CONSUMING_DERIVATION_PATH)).unwrap();
 
         let expected_wallet = Wallet::from(keypair);
         let error = serde_json::to_string(&expected_wallet).unwrap_err();

@@ -3,7 +3,7 @@
 import {async, ComponentFixture, TestBed} from '@angular/core/testing';
 import {IndexComponent} from './index.component';
 import {FooterComponent} from '../footer/footer.component';
-import {func, reset, verify, when} from 'testdouble';
+import {func, object, reset, verify, when} from 'testdouble';
 import {MainService} from '../main.service';
 import {BehaviorSubject, of} from 'rxjs';
 import {NodeStatus} from '../node-status.enum';
@@ -13,6 +13,7 @@ import {FormsModule, ReactiveFormsModule} from '@angular/forms';
 import {ConfigService} from '../config.service';
 import {Component, Input} from '@angular/core';
 import {ConfigurationMode} from '../configuration-mode.enum';
+import {ConsumingWalletPasswordPromptComponent} from '../consuming-wallet-password-prompt/consuming-wallet-password-prompt.component';
 
 @Component({selector: 'app-node-configuration', template: '<div id="node-config"></div>'})
 class NodeConfigurationStubComponent {
@@ -32,6 +33,7 @@ describe('IndexComponent', () => {
   let mockConfigService;
   let mockStatus: BehaviorSubject<NodeStatus>;
   let mockNodeDescriptor: BehaviorSubject<string>;
+  let mockSetWalletPasswordResponse: BehaviorSubject<boolean>;
   let offButton;
   let servingButton;
   let consumingButton;
@@ -41,13 +43,16 @@ describe('IndexComponent', () => {
     mockStatus = new BehaviorSubject(NodeStatus.Off);
     mockMode = new BehaviorSubject(ConfigurationMode.Hidden);
     mockNodeDescriptor = new BehaviorSubject('');
+    mockSetWalletPasswordResponse = new BehaviorSubject(false);
     mockMainService = {
       turnOff: func('turnOff'),
       serve: func('serve'),
       consume: func('consume'),
       copyToClipboard: func('copyToClipboard'),
+      setConsumingWalletPassword: func('setConsumingWalletPassword'),
       nodeStatus: mockStatus.asObservable(),
       nodeDescriptor: mockNodeDescriptor.asObservable(),
+      setConsumingWalletPasswordResponse: mockSetWalletPasswordResponse.asObservable(),
       lookupIp: () => of('')
     };
     mockConfigService = {
@@ -62,6 +67,7 @@ describe('IndexComponent', () => {
         IndexComponent,
         HeaderStubComponent,
         NodeConfigurationStubComponent,
+        ConsumingWalletPasswordPromptComponent,
         FooterComponent,
       ],
       imports: [
@@ -92,6 +98,17 @@ describe('IndexComponent', () => {
     when(mockMainService.consume()).thenDo(() => mockStatus.next(NodeStatus.Consuming));
     when(mockMainService.turnOff()).thenDo(() => mockStatus.next(NodeStatus.Off));
     fixture.detectChanges();
+  });
+
+  describe('when node dies', () => {
+    beforeEach(() => {
+      component.unlocked = true;
+      mockStatus.next(NodeStatus.Off);
+    });
+
+    it('marks the wallet as locked', () => {
+      expect(component.unlocked).toBe(false);
+    });
   });
 
   it('should create', () => {
@@ -422,57 +439,213 @@ describe('IndexComponent', () => {
           expect(compiled.querySelector('#node-config')).toBeFalsy();
         });
 
+        it('shows the password prompt', () => {
+          expect(component.isConsumingWalletPasswordPromptShown).toBe(true);
+        });
+
+        it('hides the node descriptor', () => {
+          expect(compiled.querySelector('#node-descriptor')).toBeFalsy();
+        });
+
         it('sets the consuming button to active', () => {
           expect(consumingButton.classList).toContain('button-active');
         });
 
-        describe('clicking consuming again', () => {
+        describe('fails to subvert or start node', () => {
           beforeEach(() => {
-            component.configurationMode = ConfigurationMode.Hidden;
-            component.status = NodeStatus.Consuming;
-            consumingButton.click();
+            mockStatus.next(NodeStatus.Serving);
+          });
+
+          it('hides the password prompt', () => {
+            expect(component.isConsumingWalletPasswordPromptShown).toBe(false);
+          });
+        });
+
+        describe('then clicking unlock with the correct password', () => {
+          beforeEach(() => {
+            compiled.querySelector('#password').value = 'blah';
+            compiled.querySelector('#password').dispatchEvent(new Event('input'));
+            mockSetWalletPasswordResponse.next(true);
+            compiled.querySelector('#unlock').click();
             fixture.detectChanges();
           });
 
-          it('does nothing', () => {
-            expect(component.configurationMode).toBe(ConfigurationMode.Hidden);
+          it('send the password to the Node', () => {
+            verify(mockMainService.setConsumingWalletPassword('blah'));
+          });
+
+          it('hides the password prompt', () => {
+            expect(component.isConsumingWalletPasswordPromptShown).toBe(false);
+          });
+
+          describe('clicking consuming again', () => {
+            beforeEach(() => {
+              component.configurationMode = ConfigurationMode.Hidden;
+              component.status = NodeStatus.Consuming;
+              consumingButton.click();
+              fixture.detectChanges();
+            });
+
+            it('does nothing', () => {
+              expect(component.configurationMode).toBe(ConfigurationMode.Hidden);
+              expect(component.isConsumingWalletPasswordPromptShown).toBe(false);
+            });
+          });
+
+          describe('switching to serving', () => {
+            beforeEach(() => {
+              when(mockConfigService.isValidServing()).thenReturn(true);
+              servingButton.click();
+              fixture.detectChanges();
+            });
+
+            it('serving is active', () => {
+              expect(servingButton.classList).toContain('button-active');
+            });
+
+            it('off is inactive', () => {
+              expect(offButton.classList).not.toContain('button-active');
+            });
+
+            it('consuming is inactive', () => {
+              expect(consumingButton.classList).not.toContain('button-active');
+            });
+
+            describe('and then back to consuming', () => {
+              beforeEach(() => {
+                when(mockConfigService.isValidConsuming()).thenReturn(true);
+                consumingButton.click();
+                fixture.detectChanges();
+              });
+
+              it('does not show the password prompt again', () => {
+                expect(component.isConsumingWalletPasswordPromptShown).toBe(false);
+              });
+            });
+          });
+
+          describe('switching to off and then back to consuming', () => {
+            beforeEach(() => {
+              offButton.click();
+              fixture.detectChanges();
+              when(mockConfigService.isValidConsuming()).thenReturn(true);
+              consumingButton.click();
+              fixture.detectChanges();
+            });
+
+            it('serving is inactive', () => {
+              expect(servingButton.classList).not.toContain('button-active');
+            });
+
+            it('off is inactive', () => {
+              expect(offButton.classList).not.toContain('button-active');
+            });
+
+            it('consuming is active', () => {
+              expect(consumingButton.classList).toContain('button-active');
+            });
+
+            it('shows the password prompt again', () => {
+              expect(component.isConsumingWalletPasswordPromptShown).toBe(true);
+            });
+          });
+        });
+
+        describe('then clicking unlock with the incorrect password', () => {
+          beforeEach(() => {
+            compiled.querySelector('#password').value = 'booga';
+            compiled.querySelector('#password').dispatchEvent(new Event('input'));
+            mockSetWalletPasswordResponse.next(false);
+            compiled.querySelector('#unlock').click();
+            fixture.detectChanges();
+          });
+
+          it('send the password to the Node', () => {
+            verify(mockMainService.setConsumingWalletPassword('booga'));
+          });
+
+          it('does not hide the password prompt', () => {
+            expect(component.isConsumingWalletPasswordPromptShown).toBe(true);
+          });
+
+          it('shows the bad password message', () => {
+            expect(compiled.querySelector('#bad-password-message')).toBeTruthy();
+          });
+
+          describe('clicking consuming again', () => {
+            beforeEach(() => {
+              component.configurationMode = ConfigurationMode.Hidden;
+              component.status = NodeStatus.Consuming;
+              consumingButton.click();
+              fixture.detectChanges();
+            });
+
+            it('does nothing', () => {
+              expect(component.configurationMode).toBe(ConfigurationMode.Hidden);
+            });
+          });
+
+          describe('switching to serving', () => {
+            beforeEach(() => {
+              when(mockConfigService.isValidServing()).thenReturn(true);
+              servingButton.click();
+              fixture.detectChanges();
+            });
+
+            it('serving is active', () => {
+              expect(servingButton.classList).toContain('button-active');
+            });
+
+            it('off is inactive', () => {
+              expect(offButton.classList).not.toContain('button-active');
+            });
+
+            it('consuming is inactive', () => {
+              expect(consumingButton.classList).not.toContain('button-active');
+            });
+          });
+
+          describe('switching to off', () => {
+            beforeEach(() => {
+              offButton.click();
+              fixture.detectChanges();
+            });
+
+            it('hides the password prompt', () => {
+              expect(component.isConsumingWalletPasswordPromptShown).toBe(false);
+            });
           });
         });
 
         describe('switching to serving', () => {
           beforeEach(() => {
-            when(mockConfigService.isValidServing()).thenReturn(true);
+            when(mockConfigService.isValidServing()).thenReturn(false);
             servingButton.click();
             fixture.detectChanges();
           });
 
-          it('serving is active', () => {
-            expect(servingButton.classList).toContain('button-active');
+          it('hides the password prompt', () => {
+            expect(component.isConsumingWalletPasswordPromptShown).toBe(false);
           });
 
-          it('off is inactive', () => {
-            expect(offButton.classList).not.toContain('button-active');
+          it('shows the serving configuration', () => {
+            expect(component.configurationMode).toBe(ConfigurationMode.Serving);
           });
 
-          it('consuming is inactive', () => {
-            expect(consumingButton.classList).not.toContain('button-active');
+          it('highlights serving', () => {
+            expect(servingButton.classList).toContain('button-highlit');
           });
         });
-      });
 
-      describe('switching to serving', () => {
-        beforeEach(() => {
-          when(mockConfigService.isValidServing()).thenReturn(false);
-          servingButton.click();
-          fixture.detectChanges();
-        });
+        describe('switching to off', () => {
+          beforeEach(() => {
+            offButton.click();
+            fixture.detectChanges();
+          });
 
-        it('shows the serving configuration', () => {
-          expect(component.configurationMode).toBe(ConfigurationMode.Serving);
-        });
-
-        it('highlights serving', () => {
-          expect(servingButton.classList).toContain('button-highlit');
+          it('hides the password prompt', () => {
+            expect(component.isConsumingWalletPasswordPromptShown).toBe(false);
+          });
         });
       });
     });
@@ -568,6 +741,7 @@ describe('IndexComponent', () => {
     describe('and is saved while node is consuming', () => {
       beforeEach(() => {
         mockStatus.next(NodeStatus.Consuming);
+        component.unlocked = true;
         component.onConfigurationSaved(ConfigurationMode.Configuring);
         fixture.detectChanges();
       });
@@ -578,6 +752,11 @@ describe('IndexComponent', () => {
 
       it('hides the configuration', () => {
         expect(component.configurationMode).toBe(ConfigurationMode.Hidden);
+      });
+
+      it('resets the wallet password prompt', () => {
+        expect(component.unlocked).toBeFalsy();
+        expect(component.isConsumingWalletPasswordPromptShown).toBeFalsy();
       });
     });
 

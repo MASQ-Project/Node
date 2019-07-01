@@ -19,6 +19,7 @@ describe('MainService', () => {
   let mockOn;
   let nodeStatusListener;
   let nodeDescriptorListener;
+  let setConsumingWalletResponseListener;
 
   beforeEach(() => {
     mockSendSync = func('sendSync');
@@ -27,6 +28,7 @@ describe('MainService', () => {
     mockOn = func('on');
     nodeStatusListener = matchers.captor();
     nodeDescriptorListener = matchers.captor();
+    setConsumingWalletResponseListener = matchers.captor();
     stubClipboard = {
       writeText: mockWriteText
     };
@@ -62,16 +64,29 @@ describe('MainService', () => {
   it('creates listeners', () => {
     verify(mockOn('node-status', nodeStatusListener.capture()));
     verify(mockOn('node-descriptor', nodeDescriptorListener.capture()));
+    verify(mockOn('set-consuming-wallet-password-response', setConsumingWalletResponseListener.capture()));
+
+    let status;
+    let descriptor;
+    let success;
+
+    service.nodeStatus.subscribe(_status => {
+      status = _status;
+    });
+    service.nodeDescriptor.subscribe(_descriptor => {
+      descriptor = _descriptor;
+    });
+    service.setConsumingWalletPasswordResponse.subscribe(_success => {
+      success = _success;
+    });
 
     nodeStatusListener.value('', 'the status');
     nodeDescriptorListener.value('', 'the descriptor');
+    setConsumingWalletResponseListener.value('', true);
 
-    service.nodeStatus.subscribe(status => {
-      expect(status).toEqual('the status');
-    });
-    service.nodeDescriptor.subscribe(descriptor => {
-      expect(descriptor).toEqual('the descriptor');
-    });
+    expect(status).toEqual('the status');
+    expect(descriptor).toEqual('the descriptor');
+    expect(success).toEqual(true);
   });
 
   describe('user actions', () => {

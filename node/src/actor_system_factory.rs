@@ -15,6 +15,7 @@ use super::ui_gateway::ui_gateway::UiGateway;
 use crate::accountant::payable_dao::PayableDaoReal;
 use crate::accountant::receivable_dao::ReceivableDaoReal;
 use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal, BannedDaoReal};
+use crate::blockchain::bip39::Bip39;
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
 use crate::blockchain::blockchain_interface::{
     BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceRpc,
@@ -106,8 +107,11 @@ impl ActorSystemFactoryReal {
         let ui_gateway_subs = actor_factory.make_and_start_ui_gateway(config.ui_gateway_config);
         let stream_handler_pool_subs = actor_factory
             .make_and_start_stream_handler_pool(config.clandestine_discriminator_factories);
-        let blockchain_bridge_subs =
-            actor_factory.make_and_start_blockchain_bridge(config.blockchain_bridge_config);
+        let blockchain_bridge_subs = actor_factory.make_and_start_blockchain_bridge(
+            config.blockchain_bridge_config,
+            &config.data_directory,
+            &db_initializer,
+        );
 
         // collect all the subs
         let peer_actors = PeerActors {
@@ -233,6 +237,8 @@ pub trait ActorFactory: Send {
     fn make_and_start_blockchain_bridge(
         &self,
         config: BlockchainBridgeConfig,
+        data_directory: &PathBuf,
+        db_initializer: &dyn DbInitializer,
     ) -> BlockchainBridgeSubs;
 }
 
@@ -342,6 +348,8 @@ impl ActorFactory for ActorFactoryReal {
     fn make_and_start_blockchain_bridge(
         &self,
         config: BlockchainBridgeConfig,
+        data_directory: &PathBuf,
+        db_initializer: &dyn DbInitializer,
     ) -> BlockchainBridgeSubs {
         let blockchain_service_url = config.blockchain_service_url.clone();
         let contract_address = config.contract_address;
@@ -354,7 +362,13 @@ impl ActorFactory for ActorFactoryReal {
                 None => Box::new(BlockchainInterfaceClandestine::new()),
             }
         };
-        let blockchain_bridge = BlockchainBridge::new(config, blockchain_interface);
+        let config_dao = Box::new(ConfigDaoReal::new(
+            db_initializer
+                .initialize(data_directory)
+                .expect("Failed to connect to database"),
+        ));
+        let bip39_helper = Bip39::new(Box::new(PersistentConfigurationReal::new(config_dao)));
+        let blockchain_bridge = BlockchainBridge::new(config, blockchain_interface, bip39_helper);
         let addr: Addr<BlockchainBridge> = blockchain_bridge.start();
         BlockchainBridge::make_subs_from(&addr)
     }
@@ -376,7 +390,7 @@ mod tests {
     use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
     use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
     use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
-    use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
+    use crate::sub_lib::blockchain_bridge::{ReportAccountsPayable, SetWalletPasswordMsg};
     use crate::sub_lib::crash_point::CrashPoint;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -397,6 +411,7 @@ mod tests {
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
     use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage};
+    use crate::sub_lib::wallet::DEFAULT_CONSUMING_DERIVATION_PATH;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::test_utils::rate_pack;
@@ -601,6 +616,8 @@ mod tests {
         fn make_and_start_blockchain_bridge(
             &self,
             config: BlockchainBridgeConfig,
+            _data_directory: &PathBuf,
+            _db_initializer: &dyn DbInitializer,
         ) -> BlockchainBridgeSubs {
             self.parameters
                 .blockchain_bridge_params
@@ -612,6 +629,7 @@ mod tests {
                 bind: addr.clone().recipient::<BindMessage>(),
                 report_accounts_payable: addr.clone().recipient::<ReportAccountsPayable>(),
                 retrieve_transactions: addr.clone().recipient::<RetrieveTransactions>(),
+                set_consuming_wallet_password_sub: addr.clone().recipient::<SetWalletPasswordMsg>(),
             }
         }
     }
@@ -847,10 +865,15 @@ mod tests {
             blockchain_service_url: Some("http://λ:8545".to_string()),
             contract_address: TESTNET_CONTRACT_ADDRESS,
             consuming_wallet: None,
+            consuming_wallet_derivation_path: String::from(DEFAULT_CONSUMING_DERIVATION_PATH),
             mnemonic_seed: None,
         };
         let subject = ActorFactoryReal {};
-        subject.make_and_start_blockchain_bridge(config);
+        subject.make_and_start_blockchain_bridge(
+            config,
+            &PathBuf::new(),
+            &DbInitializerMock::new(),
+        );
     }
 
     #[test]
@@ -883,6 +906,7 @@ mod tests {
                 blockchain_service_url: None,
                 contract_address: TESTNET_CONTRACT_ADDRESS,
                 consuming_wallet: None,
+                consuming_wallet_derivation_path: String::from(DEFAULT_CONSUMING_DERIVATION_PATH),
                 mnemonic_seed: None,
             },
             port_configurations: HashMap::new(),
@@ -942,6 +966,7 @@ mod tests {
                 blockchain_service_url: None,
                 contract_address: TESTNET_CONTRACT_ADDRESS,
                 consuming_wallet: None,
+                consuming_wallet_derivation_path: String::from(DEFAULT_CONSUMING_DERIVATION_PATH),
                 mnemonic_seed: None,
             },
             port_configurations: HashMap::new(),
@@ -993,6 +1018,7 @@ mod tests {
                 blockchain_service_url: None,
                 contract_address: TESTNET_CONTRACT_ADDRESS,
                 consuming_wallet: None,
+                consuming_wallet_derivation_path: String::from(DEFAULT_CONSUMING_DERIVATION_PATH),
                 mnemonic_seed: None,
             }
         );

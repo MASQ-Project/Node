@@ -861,6 +861,18 @@ describe('NodeActuator', () => {
     })
   })
 
+  describe('setting consuming wallet password', () => {
+    const expected = "i'm dying in a vat in the garage"
+
+    beforeEach(() => {
+      subject.setConsumingWalletPassword(expected)
+    })
+
+    it('calls setConsumingWalletPassword on ui_interface', () => {
+      td.verify(mockUiInterface.setConsumingWalletPassword(expected))
+    })
+  })
+
   describe('shutdown when reversion is successful', () => {
     beforeEach(async () => {
       td.when(mockUiInterface.isConnected()).thenReturn(true)

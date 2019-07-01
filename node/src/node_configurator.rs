@@ -19,7 +19,9 @@ use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::neighborhood::sentinel_ip_addr;
 use crate::sub_lib::ui_gateway::DEFAULT_UI_PORT;
-use crate::sub_lib::wallet::Wallet;
+use crate::sub_lib::wallet::{
+    Wallet, DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
+};
 use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
 use bip39::{Language, Mnemonic, MnemonicType};
 use clap::{
@@ -756,6 +758,9 @@ impl NodeConfiguratorReal {
                     config.neighborhood_config.consuming_wallet =
                         Some(Wallet::from(keypair.address()));
                     config.blockchain_bridge_config.consuming_wallet = Some(Wallet::from(keypair));
+                    config
+                        .blockchain_bridge_config
+                        .consuming_wallet_derivation_path = derivation_path.to_string();
                 }
                 _ => {
                     if !(multi_config.arg_matches().is_present("generate-wallet")) {
@@ -767,9 +772,17 @@ impl NodeConfiguratorReal {
                             .expect("Failed console write");
                         streams.stdout.flush().expect("Failed flush");
                     }
+                    config
+                        .blockchain_bridge_config
+                        .consuming_wallet_derivation_path = derivation_path.to_string();
                 }
             },
-            None => {}
+            None => {
+                config
+                    .blockchain_bridge_config
+                    .consuming_wallet_derivation_path =
+                    String::from(DEFAULT_CONSUMING_DERIVATION_PATH);
+            }
         }
 
         if config.blockchain_bridge_config.consuming_wallet.is_none() {
@@ -816,7 +829,7 @@ impl NodeConfiguratorReal {
                         let seed_bytes = seed_hex.from_hex::<Vec<u8>>().expect("Internal error");
                         let primary_derivation_path =
                             value_m!(multi_config, "consuming_wallet", String)
-                                .unwrap_or(String::from("m/44'/60'/0'/0/0"));
+                                .unwrap_or(String::from(DEFAULT_CONSUMING_DERIVATION_PATH));
                         let earning_keypair =
                             Bip32ECKeyPair::from_raw(&seed_bytes[..], &primary_derivation_path)
                                 .unwrap();
@@ -825,7 +838,7 @@ impl NodeConfiguratorReal {
                         let secondary_derivation_path =
                             value_m!(multi_config, "earning_wallet", String)
                                 .filter(|path| &path[..2] == "m/")
-                                .unwrap_or(String::from("m/44'/60'/0'/0/1"));
+                                .unwrap_or(String::from(DEFAULT_EARNING_DERIVATION_PATH));
                         let consuming_keypair =
                             Bip32ECKeyPair::from_raw(&seed_bytes[..], &secondary_derivation_path)
                                 .unwrap();
@@ -1076,7 +1089,9 @@ mod tests {
     use crate::persistent_configuration::PersistentConfiguration;
     use crate::sub_lib::cryptde::{CryptDE, PlainData, PublicKey};
     use crate::sub_lib::neighborhood::sentinel_ip_addr;
-    use crate::sub_lib::wallet::Wallet;
+    use crate::sub_lib::wallet::{
+        Wallet, DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
+    };
     use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::test_utils::ensure_node_home_directory_exists;
     use crate::test_utils::test_utils::{ByteArrayWriter, FakeStreamHolder};
@@ -1202,7 +1217,7 @@ mod tests {
     fn validate_derivation_path_happy() {
         assert_eq!(
             Ok(()),
-            Validators::validate_derivation_path("m/44'/60'/0'/0/0".to_string())
+            Validators::validate_derivation_path(DEFAULT_CONSUMING_DERIVATION_PATH.to_string())
         );
     }
 
@@ -1247,8 +1262,10 @@ mod tests {
     fn validate_derivation_path_is_sufficiently_hardened_happy() {
         assert!(
             Validators::validate_derivation_path_is_sufficiently_hardened(
-                "m/44'/60'/0'/0/0".parse::<DerivationPath>().unwrap(),
-                "m/44'/60'/0'/0/0".to_string()
+                DEFAULT_CONSUMING_DERIVATION_PATH
+                    .parse::<DerivationPath>()
+                    .unwrap(),
+                DEFAULT_CONSUMING_DERIVATION_PATH.to_string()
             )
             .is_ok()
         );
@@ -1286,7 +1303,10 @@ mod tests {
 
     #[test]
     fn validate_earning_wallet_works_with_derivation_path() {
-        assert!(Validators::validate_earning_wallet(String::from("m/44'/60'/0'/0/0")).is_ok());
+        assert!(
+            Validators::validate_earning_wallet(String::from(DEFAULT_EARNING_DERIVATION_PATH))
+                .is_ok()
+        );
     }
 
     #[test]
@@ -2089,7 +2109,7 @@ mod tests {
         {
             let mut config_file = File::create(&config_file_path).unwrap();
             config_file
-                .write_all(b"dns_servers = \"1.2.3.4\"\nearning-wallet = \"m/44'/60'/0'/0/0\"\nconsuming-wallet = \"m/44'/60'/0'/0/1\"\n")
+                .write_all(b"dns_servers = \"1.2.3.4\"\nearning-wallet = \"m/44'/60'/0'/0/1\"\nconsuming-wallet = \"m/44'/60'/0'/0/0\"\n")
                 .unwrap();
         }
         let subject = NodeConfiguratorReal::new();
@@ -2120,8 +2140,8 @@ mod tests {
         );
 
         assert_eq!(
+            bootstrapper_config.dns_servers,
             vec![SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), 53)],
-            bootstrapper_config.dns_servers
         );
 
         let seed_bytes = bootstrapper_config
@@ -2131,16 +2151,24 @@ mod tests {
             .from_hex::<Vec<u8>>()
             .unwrap();
         assert_eq!(seed_bytes, actual_seed_plain_data.as_slice().to_vec());
-        let earning_keypair = Bip32ECKeyPair::from_raw(&seed_bytes, "m/44'/60'/0'/0/0").unwrap();
+        let earning_keypair =
+            Bip32ECKeyPair::from_raw(&seed_bytes, DEFAULT_EARNING_DERIVATION_PATH).unwrap();
         assert_eq!(
+            bootstrapper_config.neighborhood_config.earning_wallet,
             Wallet::from(earning_keypair.address()),
-            bootstrapper_config.neighborhood_config.earning_wallet
         );
 
-        let consuming_keypair = Bip32ECKeyPair::from_raw(&seed_bytes, "m/44'/60'/0'/0/1").unwrap();
+        let consuming_keypair =
+            Bip32ECKeyPair::from_raw(&seed_bytes, DEFAULT_CONSUMING_DERIVATION_PATH).unwrap();
         assert_eq!(
+            bootstrapper_config.neighborhood_config.consuming_wallet,
             Some(Wallet::from(consuming_keypair.address())),
-            bootstrapper_config.neighborhood_config.consuming_wallet
+        );
+        assert_eq!(
+            bootstrapper_config
+                .blockchain_bridge_config
+                .consuming_wallet_derivation_path,
+            DEFAULT_CONSUMING_DERIVATION_PATH.to_string(),
         );
     }
 
@@ -2171,8 +2199,8 @@ mod tests {
             bip39_helper.read(password.as_bytes().to_vec()).unwrap();
 
         assert_eq!(
+            actual_seed_plain_data.as_slice().to_vec(),
             expected_seed.as_bytes().to_vec(),
-            actual_seed_plain_data.as_slice().to_vec()
         );
 
         let args: Vec<String> = vec![
@@ -2208,7 +2236,7 @@ mod tests {
 
         let vcl_args: Vec<Box<VclArg>> = vec![Box::new(NameValueVclArg::new(
             &"--consuming_wallet", // this is equal to SUB_CONSUMING_WALLET
-            &"m/44'/60'/0'/0/0",
+            &"m/44'/45'/46'/47/48",
         ))];
 
         let faux_environment = FauxEnvironmentVCL { vcl_args };
@@ -2255,8 +2283,8 @@ mod tests {
         assert_eq!(config.neighborhood_config.earning_wallet, earning_wallet);
         assert_eq!(config.accountant_config.earning_wallet, earning_wallet);
         assert_eq!(
-            Wallet::from_str("0xbDfeFf9A1f4A1bdF483d680046344316019C58CF").unwrap(),
             config.neighborhood_config.earning_wallet,
+            Wallet::from_str("0xbDfeFf9A1f4A1bdF483d680046344316019C58CF").unwrap(),
         );
         let expected_port_list: Vec<u16> = vec![];
         assert_eq!(
@@ -2268,13 +2296,14 @@ mod tests {
             Some("http://127.0.0.1:8545".to_string()),
         );
         assert_eq!(config.data_directory, home_dir);
-        assert_eq!(Some(1234u16), config.clandestine_port_opt);
+        assert_eq!(config.clandestine_port_opt, Some(1234u16));
         assert!(&config.blockchain_bridge_config.mnemonic_seed.is_some());
         assert_eq!(
             config.cryptde_null_opt.unwrap().public_key(),
             &PublicKey::new(&[1, 2, 3, 4]),
         );
         assert_eq!(
+            config.blockchain_bridge_config.consuming_wallet,
             Some(Wallet::from(
                 Bip32ECKeyPair::from_raw(
                     &config
@@ -2283,12 +2312,17 @@ mod tests {
                         .unwrap()
                         .from_hex::<Vec<u8>>()
                         .unwrap(),
-                    "m/44'/60'/0'/0/0"
+                    "m/44'/45'/46'/47/48"
                 )
                 .unwrap()
             )),
-            config.blockchain_bridge_config.consuming_wallet
         );
+        assert_eq!(
+            config
+                .blockchain_bridge_config
+                .consuming_wallet_derivation_path,
+            "m/44'/45'/46'/47/48".to_string(),
+        )
     }
 
     #[test]
@@ -2328,7 +2362,7 @@ mod tests {
 
         let vcl_args: Vec<Box<dyn VclArg>> = vec![Box::new(NameValueVclArg::new(
             &"--consuming_wallet", // this is equal to SUB_CONSUMING_WALLET
-            &"m/44'/60'/0'/0/0",
+            &DEFAULT_CONSUMING_DERIVATION_PATH,
         ))];
 
         let faux_environment = FauxEnvironmentVCL { vcl_args };
@@ -2392,7 +2426,7 @@ mod tests {
 
         let vcl_args: Vec<Box<dyn VclArg>> = vec![Box::new(NameValueVclArg::new(
             &"--consuming_wallet", // this is equal to SUB_CONSUMING_WALLET
-            &"m/44'/60'/0'/0/0",
+            &DEFAULT_CONSUMING_DERIVATION_PATH,
         ))];
 
         let faux_environment = FauxEnvironmentVCL { vcl_args };
@@ -2437,28 +2471,34 @@ mod tests {
         );
 
         assert_eq!(
+            value_m!(multi_config, "config_file", PathBuf),
             Some(PathBuf::from("config.toml")),
-            value_m!(multi_config, "config_file", PathBuf)
         );
         assert_eq!(
-            config.dns_servers,
             vec!(
                 SocketAddr::from_str("12.34.56.78:53").unwrap(),
                 SocketAddr::from_str("23.45.67.89:53").unwrap()
-            )
+            ),
+            config.dns_servers,
         );
-        assert_eq!(None, config.clandestine_port_opt);
-        assert_eq!(CrashPoint::None, config.crash_point);
+        assert_eq!(config.clandestine_port_opt, None);
+        assert_eq!(config.crash_point, CrashPoint::None);
         assert!(config.data_directory.is_dir());
         assert_eq!(
-            Wallet::from_str("0x47fB8671Db83008d382C2e6EA67fA377378c0CeA").unwrap(),
             config.neighborhood_config.earning_wallet,
+            Wallet::from_str("0x47fB8671Db83008d382C2e6EA67fA377378c0CeA").unwrap(),
         );
-        assert_eq!(sentinel_ip_addr(), config.neighborhood_config.local_ip_addr,);
-        assert_eq!(5333, config.ui_gateway_config.ui_port);
+        assert_eq!(config.neighborhood_config.local_ip_addr, sentinel_ip_addr());
+        assert_eq!(config.ui_gateway_config.ui_port, 5333);
         assert_eq!(
+            config.blockchain_bridge_config.consuming_wallet,
             Some(TEMPORARY_CONSUMING_WALLET.clone()),
-            config.blockchain_bridge_config.consuming_wallet
+        );
+        assert_eq!(
+            config
+                .blockchain_bridge_config
+                .consuming_wallet_derivation_path,
+            String::from(DEFAULT_CONSUMING_DERIVATION_PATH),
         );
         assert!(config.cryptde_null_opt.is_none());
     }
@@ -2817,6 +2857,12 @@ mod tests {
         if you provided one.\n\n";
 
         assert_eq!(&captured_output[..expected_output.len()], expected_output);
+        assert_eq!(
+            config
+                .blockchain_bridge_config
+                .consuming_wallet_derivation_path,
+            String::from("m/44'/60'/0'/1/77")
+        );
         assert!(config.blockchain_bridge_config.mnemonic_seed.is_some());
 
         let lines: Vec<&str> = captured_output[expected_output.len()..]

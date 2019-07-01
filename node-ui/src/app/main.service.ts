@@ -20,12 +20,18 @@ export class MainService {
   private nodeDescriptorListener: Subject<string> = new Subject();
   nodeDescriptor: Observable<string> = this.nodeDescriptorListener.asObservable();
 
+  private setConsumingWalletPasswordResponseListener: Subject<boolean> = new Subject();
+  setConsumingWalletPasswordResponse: Observable<boolean> = this.setConsumingWalletPasswordResponseListener.asObservable();
+
   constructor(private electronService: ElectronService, private configService: ConfigService) {
     this.electronService.ipcRenderer.on('node-status', (event, args: string) => {
       this.statusListener.next(args as NodeStatus);
     });
     this.electronService.ipcRenderer.on('node-descriptor', (_, descriptor: string) => {
       this.nodeDescriptorListener.next(descriptor);
+    });
+    this.electronService.ipcRenderer.on('set-consuming-wallet-password-response', (_, success: boolean) => {
+      this.setConsumingWalletPasswordResponseListener.next(success);
     });
   }
 
@@ -52,6 +58,10 @@ export class MainService {
     } else {
       return of(this.electronService.ipcRenderer.sendSync('ip-lookup'));
     }
+  }
+
+  setConsumingWalletPassword(password: string) {
+    this.electronService.ipcRenderer.sendSync('set-consuming-wallet-password', password);
   }
 
   private changeNodeState(state, config?: NodeConfiguration): void {
