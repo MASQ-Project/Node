@@ -132,7 +132,7 @@ impl StreamReaderReal {
             match chosen_discriminator.take_chunk() {
                 Some(unmasked_chunk) => {
                     // For Proxy Clients that send an Http Connect message via TLS, sequence_number
-                    // should be Some(0). The next message the Proxy Client will send begins the TLS
+                    // should be Some(0). The next message the ProxyClient will send begins the TLS
                     // handshake and should start the sequence at Some(0) as well, the ProxyServer will
                     // handle the sequenced packet offset before sending them through the stream_writer
                     // and avoid dropping duplicate packets.

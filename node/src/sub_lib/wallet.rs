@@ -1,12 +1,16 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::blockchain::bip32::Bip32ECKeyPair;
-use ethsign::PublicKey;
+use crate::blockchain::payer::Payer;
+use crate::sub_lib::cryptde::PublicKey as SubPublicKey;
+use ethsign::{PublicKey, Signature};
+use ethsign_crypto::{self, Keccak256};
 use rusqlite::types::{FromSql, FromSqlError, ToSqlOutput, Value, ValueRef};
 use rusqlite::ToSql;
 use rustc_hex::ToHex;
-use serde_derive::{Deserialize, Serialize};
+use serde::Serialize;
+use serde::{ser::SerializeStruct, Serializer};
 use std::fmt;
-use std::fmt::{Display, Error, Formatter};
+use std::fmt::{Debug, Display, Error, Formatter};
 use std::hash::{Hash, Hasher};
 use std::result::Result;
 use std::str::FromStr;
@@ -18,24 +22,24 @@ pub const DEFAULT_EARNING_DERIVATION_PATH: &str = "m/44'/60'/0'/0/1";
 #[derive(Debug, PartialEq)]
 pub enum WalletError {
     InvalidAddress,
+    Signature(String),
 }
 
 impl std::error::Error for WalletError {}
 
 impl Display for WalletError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match *self {
+        match self {
             WalletError::InvalidAddress => write!(f, "Invalid address"),
+            WalletError::Signature(msg) => write!(f, "{}", msg),
         }
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug)]
 pub enum WalletKind {
     Address(Address),
-    #[serde(skip)] // Deliberate. Don't leak the secret key
     KeyPair(Bip32ECKeyPair),
-    #[serde(skip)] // 3rd party crate doesn't implement Serialize
     PublicKey(PublicKey),
     Uninitialized,
 }
@@ -94,7 +98,7 @@ impl Hash for WalletKind {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Eq, Hash)]
 pub struct Wallet {
     kind: WalletKind,
 }
@@ -118,6 +122,50 @@ impl Wallet {
             WalletKind::KeyPair(key_pair) => key_pair.address(),
             WalletKind::Uninitialized => panic!("No address for an uninitialized wallet!"),
         }
+    }
+
+    pub fn sign(&self, msg: &dyn AsRef<[u8]>) -> Result<Signature, WalletError> {
+        match self.kind {
+            WalletKind::KeyPair(ref key_pair) => {
+                let digest = msg.keccak256();
+                key_pair
+                    .sign(&digest)
+                    .map_err(|e| WalletError::Signature(format!("{:?}", e)))
+            }
+            _ => Err(WalletError::Signature(format!(
+                "Cannot sign with non-keypair wallet: {:?}.",
+                self.kind
+            ))),
+        }
+    }
+
+    pub fn verify(&self, signature: &Signature, msg: &dyn AsRef<[u8]>) -> bool {
+        match self.kind {
+            WalletKind::KeyPair(ref key_pair) => {
+                let digest = msg.keccak256();
+                match &key_pair.verify(signature, &digest) {
+                    Ok(result) => *result,
+                    Err(_log_this) => false,
+                }
+            }
+            _ => panic!("Keypair wallet required"),
+        }
+    }
+
+    pub fn as_payer(&self, public_key: &SubPublicKey) -> Payer {
+        match self.sign(public_key) {
+            Ok(proof) => Payer::new(self, &proof),
+            Err(e) => panic!("Trying to sign for {:?} encountered {:?}", public_key, e),
+        }
+    }
+}
+
+impl PartialEq for Wallet {
+    fn eq(&self, other: &Self) -> bool {
+        self.kind == other.kind
+            || (self.kind != WalletKind::Uninitialized
+                && other.kind != WalletKind::Uninitialized
+                && self.address() == other.address())
     }
 }
 
@@ -171,6 +219,12 @@ impl Display for Wallet {
     }
 }
 
+impl Debug for Wallet {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        write!(f, "{{ address: \"{:#x}\" }}", self.address())
+    }
+}
+
 impl ToSql for Wallet {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
         Ok(ToSqlOutput::Owned(Value::Text(format!(
@@ -189,10 +243,178 @@ impl FromSql for Wallet {
     }
 }
 
+impl<'de> serde::Deserialize<'de> for Wallet {
+    fn deserialize<D>(deserializer: D) -> serde::export::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        enum WalletField {
+            Address,
+            __Ignore,
+        }
+        struct WalletFieldVisitor;
+        impl<'de> serde::de::Visitor<'de> for WalletFieldVisitor {
+            type Value = WalletField;
+            fn expecting(
+                &self,
+                formatter: &mut serde::export::Formatter,
+            ) -> serde::export::fmt::Result {
+                serde::export::Formatter::write_str(formatter, "field identifier")
+            }
+            fn visit_u64<E>(self, value: u64) -> serde::export::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    0u64 => serde::export::Ok(WalletField::Address),
+                    _ => serde::export::Err(serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Unsigned(value),
+                        &"field index 0 <= i < 1",
+                    )),
+                }
+            }
+            fn visit_str<E>(self, value: &str) -> serde::export::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "address" => serde::export::Ok(WalletField::Address),
+                    _ => serde::export::Ok(WalletField::__Ignore),
+                }
+            }
+            fn visit_bytes<E>(self, value: &[u8]) -> serde::export::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    b"address" => serde::export::Ok(WalletField::Address),
+                    _ => serde::export::Ok(WalletField::__Ignore),
+                }
+            }
+        }
+        impl<'de> serde::Deserialize<'de> for WalletField {
+            #[inline]
+            fn deserialize<D>(deserializer: D) -> serde::export::Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                serde::Deserializer::deserialize_identifier(deserializer, WalletFieldVisitor)
+            }
+        }
+        struct WalletVisitor<'de> {
+            marker: serde::export::PhantomData<Wallet>,
+            lifetime: serde::export::PhantomData<&'de ()>,
+            human_readable: bool,
+        }
+        impl<'de> serde::de::Visitor<'de> for WalletVisitor<'de> {
+            type Value = Wallet;
+            fn expecting(
+                &self,
+                formatter: &mut serde::export::Formatter,
+            ) -> serde::export::fmt::Result {
+                serde::export::Formatter::write_str(formatter, "struct Wallet")
+            }
+            #[inline]
+            fn visit_seq<A>(self, mut seq: A) -> serde::export::Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                let address = match serde::de::SeqAccess::next_element::<Address>(&mut seq)? {
+                    serde::export::Some(address) => address,
+                    serde::export::None => {
+                        return serde::export::Err(serde::de::Error::invalid_length(
+                            0usize,
+                            &"struct Wallet with 1 element",
+                        ));
+                    }
+                };
+                serde::export::Ok(Wallet {
+                    kind: WalletKind::Address(address),
+                })
+            }
+            #[inline]
+            fn visit_map<A>(self, mut map: A) -> serde::export::Result<Self::Value, A::Error>
+            where
+                A: serde::de::MapAccess<'de>,
+            {
+                let mut possible_address: serde::export::Option<Address> = serde::export::None;
+                while let serde::export::Some(key) =
+                    serde::de::MapAccess::next_key::<WalletField>(&mut map)?
+                {
+                    match key {
+                        WalletField::Address => {
+                            if serde::export::Option::is_some(&possible_address) {
+                                return serde::export::Err(
+                                    <A::Error as serde::de::Error>::duplicate_field("address"),
+                                );
+                            }
+                            possible_address = match &self.human_readable {
+                                true => {
+                                    serde::export::Some(
+                                        serde::de::MapAccess::next_value::<Address>(&mut map)?,
+                                    )
+                                }
+                                false => {
+                                    let bytes =
+                                        serde::de::MapAccess::next_value::<Vec<u8>>(&mut map)?;
+                                    let mut address = [0u8; 20];
+                                    address.copy_from_slice(bytes.as_slice());
+                                    serde::export::Some(Address { 0: address })
+                                }
+                            }
+                        }
+                        _ => {
+                            let _ = serde::de::MapAccess::next_value::<serde::de::IgnoredAny>(
+                                &mut map,
+                            )?;
+                        }
+                    }
+                }
+                let address = match possible_address {
+                    serde::export::Some(address) => address,
+                    serde::export::None => serde::private::de::missing_field("address")?,
+                };
+                serde::export::Ok(Wallet {
+                    kind: WalletKind::Address(address),
+                })
+            }
+        }
+        const FIELDS: &'static [&'static str] = &["address"];
+        let human_readable = deserializer.is_human_readable();
+        serde::Deserializer::deserialize_struct(
+            deserializer,
+            "Wallet",
+            FIELDS,
+            WalletVisitor {
+                marker: serde::export::PhantomData::<Wallet>,
+                lifetime: serde::export::PhantomData,
+                human_readable,
+            },
+        )
+    }
+}
+
+impl Serialize for Wallet {
+    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
+    where
+        S: Serializer,
+    {
+        let human_readable = serializer.is_human_readable();
+        let mut wallet_serializer: <S as Serializer>::SerializeStruct =
+            serializer.serialize_struct("Wallet", 1)?;
+        if human_readable {
+            wallet_serializer.serialize_field("address", &self.address())?;
+        } else {
+            wallet_serializer.serialize_field("address", &self.address().0.to_vec())?;
+        }
+        wallet_serializer.end()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::test_utils::make_wallet;
+    use crate::test_utils::test_utils::{make_paying_wallet, make_wallet};
     use bip39::{Language, Mnemonic, Seed};
     use rusqlite::Connection;
     use serde_cbor;
@@ -255,7 +477,7 @@ mod tests {
     }
 
     #[test]
-    fn serialization_with_cbor_fails_to_roundtrip_wallet_with_keypair() {
+    fn serialization_with_cbor_asymmetrically_roundtrips_keypair_to_address_only() {
         let mnemonic = Mnemonic::from_phrase(
             "timber cage wide hawk phone shaft pattern movie army dizzy hen tackle lamp \
              absent write kind term toddler sphere ripple idle dragon curious hold",
@@ -266,17 +488,16 @@ mod tests {
         let keypair =
             Bip32ECKeyPair::try_from((seed.as_ref(), DEFAULT_CONSUMING_DERIVATION_PATH)).unwrap();
 
-        let expected_wallet = Wallet::from(keypair);
-        let error = serde_cbor::to_vec(&expected_wallet).unwrap_err();
-        assert!(error.is_data());
-        assert_eq!(
-            error.to_string(),
-            "the enum variant WalletKind::KeyPair cannot be serialized",
-        );
+        let expected = Wallet::from(keypair);
+        let serialized = serde_cbor::to_vec(&expected).unwrap();
+        let actual = serde_cbor::from_slice::<Wallet>(&serialized[..]).unwrap();
+
+        assert_ne!(actual.kind, expected.kind);
+        assert_eq!(actual, expected);
     }
 
     #[test]
-    fn serialization_with_json_fails_to_roundtrip_wallet_with_keypair() {
+    fn serialization_with_json_asymmetrically_roundtrips_keypair_to_address_only() {
         let mnemonic = Mnemonic::from_phrase(
             "timber cage wide hawk phone shaft pattern movie army dizzy hen tackle lamp \
              absent write kind term toddler sphere ripple idle dragon curious hold",
@@ -287,52 +508,47 @@ mod tests {
         let keypair =
             Bip32ECKeyPair::try_from((seed.as_ref(), DEFAULT_CONSUMING_DERIVATION_PATH)).unwrap();
 
-        let expected_wallet = Wallet::from(keypair);
-        let error = serde_json::to_string(&expected_wallet).unwrap_err();
-        assert!(error.is_data());
-        assert_eq!(
-            error.to_string(),
-            "the enum variant WalletKind::KeyPair cannot be serialized",
-        );
+        let expected = Wallet::from(keypair);
+        let result = serde_json::to_string(&expected).unwrap();
+        let actual = serde_json::from_str::<Wallet>(&result).unwrap();
+
+        assert_ne!(actual.kind, expected.kind);
+        assert_eq!(actual, expected);
     }
 
     #[test]
-    fn serialization_with_json_fails_to_roundtrip_wallet_with_public_key() {
+    fn serialization_with_json_asymmetrically_roundtrips_public_key_to_address_only() {
         let slice = [0u8; 64];
         let key = PublicKey::from_slice(&slice[..]).unwrap();
-        let expected_wallet = Wallet::from(key);
+        let expected = Wallet::from(key);
 
-        let error = serde_json::to_string(&expected_wallet).unwrap_err();
+        let result = serde_json::to_string(&expected).unwrap();
+        let actual = serde_json::from_str::<Wallet>(&result).unwrap();
 
-        assert!(error.is_data());
-        assert_eq!(
-            error.to_string(),
-            "the enum variant WalletKind::PublicKey cannot be serialized",
-        );
+        assert_ne!(actual.kind, expected.kind);
+        assert_eq!(actual, expected);
     }
 
     #[test]
-    fn serialization_with_cbor_fails_to_roundtrip_wallet_with_public_key() {
+    fn serialization_with_cbor_asymmetrically_roundtrips_public_key_to_address_only() {
         let slice = [0u8; 64];
         let key = PublicKey::from_slice(&slice[..]).unwrap();
-        let expected_wallet = Wallet::from(key);
+        let expected = Wallet::from(key);
 
-        let error = serde_cbor::to_vec(&expected_wallet).unwrap_err();
+        let result = serde_cbor::to_vec(&expected).unwrap();
+        let actual = serde_cbor::from_slice::<Wallet>(&result).unwrap();
 
-        assert!(error.is_data());
-        assert_eq!(
-            error.to_string(),
-            "the enum variant WalletKind::PublicKey cannot be serialized",
-        );
+        assert_ne!(actual.kind, expected.kind);
+        assert_eq!(actual, expected);
     }
 
     #[test]
     #[should_panic(expected = "No address for an uninitialized wallet!")]
     fn serialization_with_json_to_roundtrip_wallet_uninitialized() {
         let expected_wallet = Wallet::new(&"");
-        let serialized_data = serde_json::to_string(&expected_wallet).unwrap();
+        let result = serde_json::to_string(&expected_wallet).unwrap();
 
-        let actual_wallet = serde_json::from_str(&serialized_data).unwrap();
+        let actual_wallet = serde_json::from_str(&result).unwrap();
 
         assert_eq!(expected_wallet, actual_wallet);
         expected_wallet.address();
@@ -376,5 +592,28 @@ mod tests {
             .unwrap();
 
         assert_eq!(result, vec![wallet]);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = r#"Trying to sign for AQID encountered Signature("Cannot sign with non-keypair wallet: Uninitialized.")"#
+    )]
+    fn sign_with_uninitialized_wallets_panic() {
+        Wallet::new("").as_payer(&SubPublicKey::new(&[1, 2, 3]));
+    }
+
+    #[test]
+    fn roundtrip_wallets_do_not_leak_secret_key() {
+        let expected = make_paying_wallet(b"this is quite some secret");
+
+        let serialized = serde_cbor::to_vec(&expected).unwrap();
+        let actual = serde_cbor::from_slice::<Wallet>(&serialized[..]).unwrap();
+
+        assert_eq!(actual, expected);
+        assert_ne!(actual.kind, expected.kind);
+        match actual.kind {
+            WalletKind::Address(address) => assert_eq!(address, expected.address()),
+            _ => assert!(false, "Failed to match expected WalletKind::Address"),
+        }
     }
 }

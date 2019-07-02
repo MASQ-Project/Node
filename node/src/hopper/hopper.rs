@@ -20,6 +20,7 @@ pub struct Hopper {
     routing_service: Option<RoutingService>,
     per_routing_service: u64,
     per_routing_byte: u64,
+    is_decentralized: bool,
 }
 
 impl Actor for Hopper {
@@ -48,6 +49,7 @@ impl Handler<BindMessage> for Hopper {
             },
             self.per_routing_service,
             self.per_routing_byte,
+            self.is_decentralized,
         ));
     }
 }
@@ -70,7 +72,7 @@ impl Handler<NoLookupIncipientCoresPackage> for Hopper {
     }
 }
 
-// TODO: Make this message return a Future, so that the Proxy Server (or whatever) can tell if its
+// TODO: Make this message return a Future, so that the ProxyServer (or whatever) can tell if its
 // message didn't go through.
 impl Handler<IncipientCoresPackage> for Hopper {
     type Result = ();
@@ -102,6 +104,7 @@ impl Hopper {
             routing_service: None,
             per_routing_service: config.per_routing_service,
             per_routing_byte: config.per_routing_byte,
+            is_decentralized: config.is_decentralized,
         }
     }
 
@@ -126,7 +129,7 @@ mod tests {
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
     use crate::test_utils::test_utils::{
-        cryptde, make_meaningless_message_type, make_wallet, route_to_proxy_client,
+        cryptde, make_meaningless_message_type, make_paying_wallet, route_to_proxy_client,
     };
     use actix::Actor;
     use actix::System;
@@ -166,6 +169,7 @@ mod tests {
             cryptde,
             per_routing_service: 100,
             per_routing_byte: 200,
+            is_decentralized: false,
         });
         let subject_addr: Addr<Hopper> = subject.start();
 
@@ -179,7 +183,7 @@ mod tests {
     #[should_panic(expected = "Hopper unbound: no ConsumingService")]
     fn panics_if_consuming_service_is_unbound() {
         let cryptde = cryptde();
-        let consuming_wallet = make_wallet("wallet");
+        let paying_wallet = make_paying_wallet(b"wallet");
         let next_key = PublicKey::new(&[65, 65, 65]);
         let route = Route::one_way(
             RouteSegment::new(
@@ -187,7 +191,7 @@ mod tests {
                 Component::Neighborhood,
             ),
             cryptde,
-            Some(consuming_wallet),
+            Some(paying_wallet),
         )
         .unwrap();
         let incipient_package = IncipientCoresPackage::new(
@@ -202,6 +206,7 @@ mod tests {
             cryptde,
             per_routing_service: 100,
             per_routing_byte: 200,
+            is_decentralized: false,
         });
         let subject_addr: Addr<Hopper> = subject.start();
 

@@ -1,11 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::blockchain::payer::Payer;
 use crate::sub_lib::cryptde::decodex;
 use crate::sub_lib::cryptde::encodex;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::dispatcher::Component;
-use crate::sub_lib::wallet::Wallet;
 use serde_derive::{Deserialize, Serialize};
 
 // This structure is the one that will travel from Node to Node in a CORES package.
@@ -14,15 +14,15 @@ use serde_derive::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct LiveHop {
     pub public_key: PublicKey,
-    pub consuming_wallet: Option<Wallet>,
+    pub payer: Option<Payer>,
     pub component: Component,
 }
 
 impl LiveHop {
-    pub fn new(key: &PublicKey, consuming_wallet: Option<Wallet>, component: Component) -> Self {
+    pub fn new(key: &PublicKey, payer: Option<Payer>, component: Component) -> Self {
         LiveHop {
             public_key: key.clone(),
-            consuming_wallet: consuming_wallet.clone(),
+            payer,
             component,
         }
     }
@@ -38,23 +38,32 @@ impl LiveHop {
     ) -> Result<CryptData, String> {
         encodex(cryptde, public_key, &self)
     }
+
+    pub fn payer_owns_secret_key(&self, public_key: &PublicKey) -> bool {
+        match &self.payer {
+            Some(p) => p.owns_secret_key(public_key),
+            None => false,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::test_utils::test_utils::make_wallet;
+    use crate::test_utils::test_utils::make_paying_wallet;
 
     #[test]
     fn can_construct_hop() {
+        let key = PublicKey::new(b"key");
+
         let subject = LiveHop::new(
-            &PublicKey::new("key".as_bytes()),
-            Some(make_wallet("wallet")),
+            &key,
+            Some(make_paying_wallet(b"wallet")).map(|w| w.as_payer(&key)),
             Component::Neighborhood,
         );
 
-        assert_eq!(subject.public_key, PublicKey::new("key".as_bytes()));
+        assert_eq!(subject.public_key, key);
         assert_eq!(subject.component, Component::Neighborhood);
     }
 
@@ -77,31 +86,31 @@ mod tests {
     #[test]
     fn encode_decode() {
         let cryptde = CryptDENull::new();
-        let consuming_wallet = make_wallet("wallet");
+        let paying_wallet = make_paying_wallet(b"wallet");
         let encode_key = cryptde.public_key();
         let hopper_hop = LiveHop::new(
-            &&PublicKey::new(&[4, 3, 2, 1]),
-            Some(consuming_wallet.clone()),
+            &PublicKey::new(&[4, 3, 2, 1]),
+            Some(paying_wallet.clone()).map(|w| w.as_payer(&PublicKey::new(&[4, 3, 2, 1]))),
             Component::Hopper,
         );
         let neighborhood_hop = LiveHop::new(
             &PublicKey::new(&[1, 2, 3, 4]),
-            Some(consuming_wallet.clone()),
+            Some(paying_wallet.clone()).map(|w| w.as_payer(&PublicKey::new(&[1, 2, 3, 4]))),
             Component::Neighborhood,
         );
         let proxy_server_hop = LiveHop::new(
             &PublicKey::new(&[127, 128]),
-            Some(consuming_wallet.clone()),
+            Some(paying_wallet.clone()).map(|w| w.as_payer(&PublicKey::new(&[127, 128]))),
             Component::ProxyServer,
         );
         let proxy_client_hop = LiveHop::new(
             &PublicKey::new(&[253, 254, 255]),
-            Some(consuming_wallet.clone()),
+            Some(paying_wallet.clone()).map(|w| w.as_payer(&PublicKey::new(&[253, 254, 255]))),
             Component::ProxyClient,
         );
         let relay_hop = LiveHop::new(
             &PublicKey::new(&[123]),
-            Some(consuming_wallet.clone()),
+            Some(paying_wallet.clone()).map(|w| w.as_payer(&PublicKey::new(&[123]))),
             Component::Hopper,
         );
 

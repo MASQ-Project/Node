@@ -10,8 +10,7 @@ use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::neighborhood::{NeighborhoodConfig, NodeDescriptor};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
-use crate::test_utils::test_utils::rate_pack;
-use crate::test_utils::test_utils::{cryptde, make_wallet};
+use crate::test_utils::test_utils::{cryptde, make_paying_wallet, rate_pack};
 use std::convert::TryFrom;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -90,7 +89,7 @@ pub fn neighborhood_from_nodes(
                 .ip_addr(),
             clandestine_port_list: root.node_addr_opt().unwrap().ports(),
             earning_wallet: root.earning_wallet(),
-            consuming_wallet: Some(make_wallet("consuming")),
+            consuming_wallet: Some(make_paying_wallet(b"consuming")),
             rate_pack: root.rate_pack().clone(),
         },
     )

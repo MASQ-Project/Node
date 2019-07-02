@@ -24,8 +24,9 @@ use node_lib::sub_lib::proxy_server::{ClientRequestPayload, ProxyProtocol};
 use node_lib::sub_lib::route::{Route, RouteSegment};
 use node_lib::sub_lib::sequence_buffer::SequencedPacket;
 use node_lib::sub_lib::stream_key::StreamKey;
-use node_lib::sub_lib::wallet::Wallet;
-use node_lib::test_utils::test_utils::{find_free_port, make_meaningless_stream_key, make_wallet};
+use node_lib::test_utils::test_utils::{
+    find_free_port, make_meaningless_stream_key, make_paying_wallet,
+};
 use std::io;
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -48,13 +49,13 @@ fn actual_client_drop() {
     let masquerader = JsonMasquerader::new();
     client.send_chunk(HTTP_REQUEST);
     mock_node
-        .wait_for_package(&masquerader, Duration::from_secs(1))
+        .wait_for_package(&masquerader, Duration::from_secs(2))
         .unwrap();
 
     client.shutdown();
 
     let (_, _, lcp) = mock_node
-        .wait_for_package(&masquerader, Duration::from_secs(1))
+        .wait_for_package(&masquerader, Duration::from_secs(2))
         .unwrap();
     let payload = match decodex::<MessageType>(&exit_cryptde, &lcp.payload).unwrap() {
         MessageType::ClientRequest(p) => p,
@@ -78,7 +79,7 @@ fn reported_server_drop() {
     let masquerader = JsonMasquerader::new();
     client.send_chunk(HTTP_REQUEST);
     let (_, _, lcp) = mock_node
-        .wait_for_package(&masquerader, Duration::from_secs(1))
+        .wait_for_package(&masquerader, Duration::from_secs(2))
         .unwrap();
     let (stream_key, return_route_id) =
         context_from_request_lcp(lcp, real_node.cryptde_null().unwrap(), &exit_cryptde);
@@ -121,7 +122,7 @@ fn actual_server_drop() {
     server.wait_for_chunk(Duration::from_secs(1)).unwrap();
     server.send_chunk(HTTP_RESPONSE);
     mock_node
-        .wait_for_package(&masquerader, Duration::from_secs(1))
+        .wait_for_package(&masquerader, Duration::from_secs(2))
         .unwrap();
 
     server.shutdown();
@@ -259,7 +260,7 @@ fn create_request_icp(
                 Component::ProxyServer,
             ),
             &CryptDENull::new(),
-            Some(make_wallet("blah")),
+            Some(make_paying_wallet(b"blah")),
             return_route_id,
         )
         .unwrap(),
@@ -295,7 +296,7 @@ fn create_meaningless_icp(
                 Component::ProxyServer,
             ),
             &CryptDENull::new(),
-            Some(make_wallet("blah")),
+            Some(make_paying_wallet(b"blah")),
             1357,
         )
         .unwrap(),
@@ -329,9 +330,7 @@ fn create_server_drop_report(
             Component::ProxyServer,
         ),
         originating_node.cryptde_null().unwrap(),
-        Some(Wallet::from(
-            originating_node.consuming_wallet().unwrap().address(),
-        )),
+        originating_node.consuming_wallet(),
         return_route_id,
     )
     .unwrap();
@@ -369,9 +368,7 @@ fn create_client_drop_report(
             Component::ProxyServer,
         ),
         originating_node.cryptde_null().unwrap(),
-        Some(Wallet::from(
-            originating_node.consuming_wallet().unwrap().address(),
-        )),
+        originating_node.consuming_wallet(),
         return_route_id,
     )
     .unwrap();

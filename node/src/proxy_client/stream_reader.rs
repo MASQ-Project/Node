@@ -113,7 +113,7 @@ impl StreamReader {
                 source: self.peer_addr,
                 data,
             })
-            .expect("Proxy Client is dead");
+            .expect("ProxyClient is dead");
     }
 }
 

@@ -429,9 +429,9 @@ impl SubstratumRealNode {
 
     fn create_node_command(node_args: Vec<String>, startup_config: NodeStartupConfig) -> String {
         let mut node_command_parts: Vec<String> = match startup_config.memory {
-            Some(bytes) => vec![format!(
-                "ulimit -v {} && /node_root/node/SubstratumNode",
-                bytes
+            Some(kbytes) => vec![format!(
+                "ulimit -v {} -m {} && /node_root/node/SubstratumNode",
+                kbytes, kbytes
             )],
             None => vec!["/node_root/node/SubstratumNode".to_string()],
         };

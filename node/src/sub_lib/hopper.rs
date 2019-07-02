@@ -91,7 +91,7 @@ impl IncipientCoresPackage {
 #[derive(Clone, Debug, PartialEq, Message)]
 pub struct ExpiredCoresPackage<T> {
     pub immediate_neighbor_ip: IpAddr,
-    pub consuming_wallet: Option<Wallet>,
+    pub paying_wallet: Option<Wallet>,
     pub remaining_route: Route, // This is topped by the hop that brought the package here, not the next hop
     pub payload: T,
     pub payload_len: usize,
@@ -100,14 +100,14 @@ pub struct ExpiredCoresPackage<T> {
 impl<T> ExpiredCoresPackage<T> {
     pub fn new(
         immediate_neighbor_ip: IpAddr,
-        consuming_wallet: Option<Wallet>,
+        paying_wallet: Option<Wallet>,
         remaining_route: Route,
         payload: T,
         payload_len: usize,
     ) -> Self {
         ExpiredCoresPackage {
             immediate_neighbor_ip,
-            consuming_wallet,
+            paying_wallet,
             remaining_route,
             payload,
             payload_len,
@@ -120,6 +120,7 @@ pub struct HopperConfig {
     pub cryptde: &'static dyn CryptDE,
     pub per_routing_service: u64,
     pub per_routing_byte: u64,
+    pub is_decentralized: bool,
 }
 
 #[derive(Clone)]
@@ -137,7 +138,7 @@ mod tests {
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::route::RouteSegment;
-    use crate::test_utils::test_utils::{make_meaningless_message_type, make_wallet};
+    use crate::test_utils::test_utils::{make_meaningless_message_type, make_paying_wallet};
     use std::str::FromStr;
 
     #[test]
@@ -184,14 +185,14 @@ mod tests {
     #[test]
     fn incipient_cores_package_is_created_correctly() {
         let cryptde = CryptDENull::new();
-        let consuming_wallet = make_wallet("wallet");
+        let paying_wallet = make_paying_wallet(b"wallet");
         let key12 = cryptde.public_key();
         let key34 = PublicKey::new(&[3, 4]);
         let key56 = PublicKey::new(&[5, 6]);
         let route = Route::one_way(
             RouteSegment::new(vec![&key12, &key34, &key56], Component::ProxyClient),
             &cryptde,
-            Some(consuming_wallet),
+            Some(paying_wallet),
         )
         .unwrap();
         let payload = make_meaningless_message_type();
@@ -235,25 +236,25 @@ mod tests {
         let a_key = PublicKey::new(&[65, 65, 65]);
         let b_key = PublicKey::new(&[66, 66, 66]);
         let cryptde = CryptDENull::new();
-        let consuming_wallet = make_wallet("wallet");
+        let paying_wallet = make_paying_wallet(b"wallet");
         let route = Route::one_way(
             RouteSegment::new(vec![&a_key, &b_key], Component::Neighborhood),
             &cryptde,
-            Some(consuming_wallet.clone()),
+            Some(paying_wallet.clone()),
         )
         .unwrap();
         let payload = make_meaningless_message_type();
 
         let subject: ExpiredCoresPackage<MessageType> = ExpiredCoresPackage::new(
             immediate_neighbor_ip,
-            Some(consuming_wallet),
+            Some(paying_wallet),
             route.clone(),
             payload.clone().into(),
             42,
         );
 
         assert_eq!(subject.immediate_neighbor_ip, immediate_neighbor_ip);
-        assert_eq!(subject.consuming_wallet, Some(make_wallet("wallet")));
+        assert_eq!(subject.paying_wallet, Some(make_paying_wallet(b"wallet")));
         assert_eq!(subject.remaining_route, route);
         assert_eq!(subject.payload, payload);
         assert_eq!(subject.payload_len, 42);

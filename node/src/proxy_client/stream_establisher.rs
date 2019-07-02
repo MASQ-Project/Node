@@ -179,7 +179,7 @@ mod tests {
                 stream_killer_tx,
                 stream_connector: Box::new(StreamConnectorMock::new()), // only used in "establish_stream"
                 proxy_client_sub,
-                logger: Logger::new("Proxy Client"),
+                logger: Logger::new("ProxyClient"),
                 channel_factory: Box::new(FuturesChannelFactoryReal {}),
             };
             subject

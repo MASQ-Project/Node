@@ -1,4 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::blockchain::bip32::Bip32ECKeyPair;
+use crate::blockchain::payer::Payer;
 use crate::persistent_configuration::HTTP_PORT;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
@@ -19,12 +21,14 @@ use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
+use ethsign_crypto::Keccak256;
 use lazy_static::lazy_static;
 use regex::Regex;
 use rustc_hex::ToHex;
 use std::cmp::min;
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
+use std::convert::From;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::io::Read;
@@ -222,7 +226,7 @@ pub fn make_meaningless_route() -> Route {
             Component::ProxyClient,
         ),
         &CryptDENull::new(),
-        Some(make_wallet("irrelevant")),
+        Some(make_paying_wallet(b"irrelevant")),
     )
     .unwrap()
 }
@@ -496,6 +500,18 @@ pub fn dummy_address_to_hex(dummy_address: &str) -> String {
     )
 }
 
+pub fn make_payer(secret: &[u8], public_key: &PublicKey) -> Payer {
+    let wallet = make_paying_wallet(secret);
+    wallet.as_payer(public_key)
+}
+
+pub fn make_paying_wallet(secret: &[u8]) -> Wallet {
+    let digest = secret.keccak256();
+    Wallet::from(
+        Bip32ECKeyPair::from_raw_secret(&digest).expect("Invalid Secret for Bip32ECKeyPair"),
+    )
+}
+
 pub fn make_wallet(address: &str) -> Wallet {
     Wallet::from_str(&dummy_address_to_hex(address)).unwrap()
 }
@@ -554,7 +570,7 @@ mod tests {
 
         let subject = route_to_proxy_client(&key, &cryptde);
 
-        let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(107).collect();
+        let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
         cryptde.random(&mut garbage_can[..]);
         assert_eq!(
             subject.hops,
@@ -578,7 +594,7 @@ mod tests {
 
         let subject = route_from_proxy_client(&key, &cryptde);
 
-        let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(107).collect();
+        let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
         cryptde.random(&mut garbage_can[..]);
         assert_eq!(
             subject.hops,
@@ -602,8 +618,8 @@ mod tests {
 
         let subject = route_to_proxy_server(&key, &cryptde);
 
-        let mut first_garbage_can: Vec<u8> = iter::repeat(0u8).take(107).collect();
-        let mut second_garbage_can: Vec<u8> = iter::repeat(0u8).take(107).collect();
+        let mut first_garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
+        let mut second_garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
         cryptde.random(&mut first_garbage_can[..]);
         cryptde.random(&mut second_garbage_can[..]);
         assert_eq!(

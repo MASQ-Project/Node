@@ -82,7 +82,7 @@ impl LiveCoresPackage {
         decodex::<MessageType>(cryptde, &self.payload).map(|decoded_payload| {
             ExpiredCoresPackage::new(
                 immediate_neighbor_ip,
-                top_hop.consuming_wallet,
+                top_hop.payer.map(|p| p.wallet),
                 self.route,
                 decoded_payload,
                 self.payload.len(),
@@ -103,7 +103,7 @@ mod tests {
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
     use crate::test_utils::test_utils::{
-        cryptde, make_meaningless_message_type, make_meaningless_route, make_wallet,
+        cryptde, make_meaningless_message_type, make_meaningless_route, make_paying_wallet,
     };
     use std::str::FromStr;
 
@@ -111,14 +111,14 @@ mod tests {
     fn live_cores_package_can_be_constructed_from_scratch() {
         let payload = CryptData::new(&[5, 6]);
         let cryptde = cryptde();
-        let consuming_wallet = make_wallet("wallet");
+        let paying_wallet = make_paying_wallet(b"wallet");
         let route = Route::one_way(
             RouteSegment::new(
                 vec![&PublicKey::new(&[1, 2]), &PublicKey::new(&[3, 4])],
                 Component::Neighborhood,
             ),
             cryptde,
-            Some(consuming_wallet),
+            Some(paying_wallet),
         )
         .unwrap();
 
@@ -139,11 +139,11 @@ mod tests {
         let encrypted_payload = cryptde
             .encode(&destination_key, &PlainData::new(&serialized_payload))
             .unwrap();
-        let consuming_wallet = make_wallet("wallet");
+        let paying_wallet = make_paying_wallet(b"wallet");
         let route = Route::one_way(
             RouteSegment::new(vec![&relay_key, &destination_key], Component::Neighborhood),
             cryptde,
-            Some(consuming_wallet),
+            Some(paying_wallet.clone()),
         )
         .unwrap();
         let subject = LiveCoresPackage::new(route.clone(), encrypted_payload.clone());
@@ -154,17 +154,18 @@ mod tests {
             next_hop,
             LiveHop::new(
                 &destination_key,
-                Some(make_wallet("wallet")),
+                Some(paying_wallet.clone().as_payer(&relay_key)),
                 Component::Hopper,
             )
         );
         assert_eq!(next_pkg.payload, encrypted_payload);
         let mut route = next_pkg.route.clone();
+        let public_key = PublicKey::new(&[]);
         assert_eq!(
             route.shift(&destination_cryptde).unwrap(),
             LiveHop::new(
-                &PublicKey::new(&[]),
-                Some(make_wallet("wallet")),
+                &public_key,
+                Some(paying_wallet.as_payer(&destination_key)),
                 Component::Neighborhood,
             )
         );
@@ -227,14 +228,14 @@ mod tests {
     #[test]
     fn live_cores_package_can_be_constructed_from_incipient_cores_package() {
         let cryptde = cryptde();
-        let consuming_wallet = make_wallet("wallet");
+        let paying_wallet = make_paying_wallet(b"wallet");
         let key12 = cryptde.public_key();
         let key34 = PublicKey::new(&[3, 4]);
         let key56 = PublicKey::new(&[5, 6]);
         let mut route = Route::one_way(
             RouteSegment::new(vec![&key12, &key34, &key56], Component::Neighborhood),
             cryptde,
-            Some(consuming_wallet.clone()),
+            Some(paying_wallet.clone()),
         )
         .unwrap();
         let payload = make_meaningless_message_type();
@@ -245,8 +246,8 @@ mod tests {
 
         assert_eq!(
             LiveHop {
-                public_key: key34,
-                consuming_wallet: Some(consuming_wallet),
+                public_key: key34.clone(),
+                payer: Some(paying_wallet.as_payer(&key12)),
                 component: Component::Hopper
             },
             next_stop
@@ -287,7 +288,7 @@ mod tests {
         let second_stop_cryptde = CryptDENull::from(&second_stop_key);
         let cryptde = cryptde();
         let encrypted_payload = encodex(cryptde, &first_stop_key, &payload).unwrap();
-        let consuming_wallet = make_wallet("wallet");
+        let paying_wallet = make_paying_wallet(b"wallet");
         let mut route = Route::round_trip(
             RouteSegment::new(vec![&relay_key, &first_stop_key], Component::Neighborhood),
             RouteSegment::new(
@@ -295,7 +296,7 @@ mod tests {
                 Component::ProxyServer,
             ),
             cryptde,
-            Some(consuming_wallet),
+            Some(paying_wallet.clone()),
             1234,
         )
         .unwrap();
@@ -307,30 +308,31 @@ mod tests {
             .unwrap();
 
         assert_eq!(result.immediate_neighbor_ip, immediate_neighbor_ip);
-        assert_eq!(result.consuming_wallet, Some(make_wallet("wallet")));
+        assert_eq!(result.paying_wallet, Some(paying_wallet.clone()));
         assert_eq!(result.payload, payload);
         let mut route = result.remaining_route.clone();
         assert_eq!(
             route.shift(&first_stop_cryptde).unwrap(),
             LiveHop::new(
                 &relay_key,
-                Some(make_wallet("wallet")),
+                Some(paying_wallet.clone().as_payer(&first_stop_key)),
                 Component::Neighborhood,
             )
         );
+        let empty_public_key = PublicKey::new(&[]);
         assert_eq!(
             route.shift(&relay_cryptde).unwrap(),
             LiveHop::new(
                 &second_stop_key,
-                Some(make_wallet("wallet")),
+                Some(paying_wallet.clone().as_payer(&relay_key)),
                 Component::Hopper,
             )
         );
         assert_eq!(
             route.shift(&second_stop_cryptde).unwrap(),
             LiveHop::new(
-                &PublicKey::new(&[]),
-                Some(make_wallet("wallet")),
+                &empty_public_key,
+                Some(paying_wallet.clone().as_payer(&second_stop_key)),
                 Component::ProxyServer,
             )
         );

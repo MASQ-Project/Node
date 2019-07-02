@@ -92,7 +92,7 @@ impl Handler<BootstrapNeighborhoodNowMessage> for Neighborhood {
             let node_descriptor = match NodeDescriptor::from_str(self.cryptde, neighbor) {
                 Ok(nd) => nd,
                 Err(e) => panic!(
-                    "--neighbor must be <public key>:<ip address>:<port>;<port>..., not '{}'",
+                    "--neighbors must be <public key>:<ip address>:<port>;<port>..., not '{}'",
                     e
                 ),
             };
@@ -1115,7 +1115,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "--neighbor must be <public key>:<ip address>:<port>;<port>..., not 'ooga'"
+        expected = "--neighbors must be <public key>:<ip address>:<port>;<port>..., not 'ooga'"
     )]
     fn node_with_bad_neighbor_config_panics() {
         let cryptde = cryptde();
@@ -2128,7 +2128,7 @@ mod tests {
             .build();
         let cores_package = ExpiredCoresPackage {
             immediate_neighbor_ip: subject_node.node_addr_opt().unwrap().ip_addr(),
-            consuming_wallet: None,
+            paying_wallet: None,
             remaining_route: make_meaningless_route(),
             payload: gossip.clone(),
             payload_len: 0,
@@ -2487,7 +2487,7 @@ mod tests {
             .build();
         let cores_package = ExpiredCoresPackage {
             immediate_neighbor_ip: IpAddr::from_str("1.2.3.4").unwrap(),
-            consuming_wallet: Some(make_wallet("consuming")),
+            paying_wallet: Some(make_wallet("consuming")),
             remaining_route: make_meaningless_route(),
             payload: gossip,
             payload_len: 0,

@@ -130,7 +130,7 @@ impl Dispatcher {
             RemovedStreamType::NonClandestine(_) => subs
                 .proxy_server_stream_shutdown_sub
                 .try_send(msg)
-                .expect("Proxy Server is dead"),
+                .expect("ProxyServer is dead"),
         }
     }
 }

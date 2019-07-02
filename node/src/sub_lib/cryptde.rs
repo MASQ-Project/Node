@@ -137,6 +137,12 @@ impl Into<Vec<u8>> for PublicKey {
     }
 }
 
+impl AsRef<[u8]> for PublicKey {
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
 impl PublicKey {
     pub fn new(data: &[u8]) -> PublicKey {
         PublicKey {

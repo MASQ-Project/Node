@@ -95,6 +95,7 @@ impl ActorSystemFactoryReal {
             cryptde,
             per_routing_service: config.neighborhood_config.rate_pack.routing_service_rate,
             per_routing_byte: config.neighborhood_config.rate_pack.routing_byte_rate,
+            is_decentralized: config.neighborhood_config.is_decentralized(),
         });
         let neighborhood_subs =
             actor_factory.make_and_start_neighborhood(cryptde, config.neighborhood_config);
@@ -139,14 +140,14 @@ impl ActorSystemFactoryReal {
             .try_send(BindMessage {
                 peer_actors: peer_actors.clone(),
             })
-            .expect("Proxy Server is dead");
+            .expect("ProxyServer is dead");
         peer_actors
             .proxy_client
             .bind
             .try_send(BindMessage {
                 peer_actors: peer_actors.clone(),
             })
-            .expect("Proxy Client is dead");
+            .expect("ProxyClient is dead");
         peer_actors
             .hopper
             .bind

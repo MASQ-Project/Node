@@ -178,7 +178,7 @@ impl ProxyServer {
             stream_key_routes: HashMap::new(),
             is_decentralized,
             cryptde,
-            logger: Logger::new("Proxy Server"),
+            logger: Logger::new("ProxyServer"),
             route_ids_to_return_routes: TtlHashMap::new(RETURN_ROUTE_TTL),
             browser_proxy_sequence_offset: false,
         }
@@ -488,7 +488,7 @@ impl ProxyServer {
     fn handle_stream_shutdown_msg(&mut self, msg: StreamShutdownMsg) {
         let nca = match msg.stream_type {
             RemovedStreamType::Clandestine => {
-                panic!("Proxy Server should never get ShutdownStreamMsg about clandestine stream")
+                panic!("ProxyServer should never get ShutdownStreamMsg about clandestine stream")
             }
             RemovedStreamType::NonClandestine(nca) => nca,
         };
@@ -877,7 +877,6 @@ mod tests {
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
-    use crate::test_utils::test_utils::make_meaningless_route;
     use crate::test_utils::test_utils::make_meaningless_stream_key;
     use crate::test_utils::test_utils::rate_pack;
     use crate::test_utils::test_utils::rate_pack_exit;
@@ -886,6 +885,7 @@ mod tests {
     use crate::test_utils::test_utils::rate_pack_routing_byte;
     use crate::test_utils::test_utils::zero_hop_route_response;
     use crate::test_utils::test_utils::{cryptde, make_wallet};
+    use crate::test_utils::test_utils::{make_meaningless_route, make_paying_wallet};
     use actix::System;
     use std::cell::RefCell;
     use std::net::IpAddr;
@@ -972,7 +972,7 @@ mod tests {
             &cryptde.public_key(),
             &LiveHop {
                 public_key: cryptde.public_key().clone(),
-                consuming_wallet: None,
+                payer: None,
                 component: Component::ProxyServer,
             },
         )
@@ -1469,7 +1469,7 @@ mod tests {
     fn proxy_server_receives_http_request_from_dispatcher_then_sends_multihop_cores_package_to_hopper(
     ) {
         let cryptde = cryptde();
-        let consuming_wallet = make_wallet("consuming wallet");
+        let consuming_wallet = make_paying_wallet(b"paying wallet");
         let earning_wallet = make_wallet("earning wallet");
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let hopper_mock = Recorder::new();
@@ -1858,7 +1858,7 @@ mod tests {
         });
 
         TestLogHandler::new()
-            .await_log_containing("DEBUG: Proxy Server: No routing services requested.", 1000);
+            .await_log_containing("DEBUG: ProxyServer: No routing services requested.", 1000);
 
         assert_eq!(accountant_log_arc.lock().unwrap().len(), 0);
     }
@@ -1973,7 +1973,7 @@ mod tests {
         });
 
         TestLogHandler::new()
-            .await_log_containing("DEBUG: Proxy Server: No exit service requested.", 1000);
+            .await_log_containing("DEBUG: ProxyServer: No exit service requested.", 1000);
 
         assert_eq!(accountant_log_arc.lock().unwrap().len(), 0);
     }
@@ -2028,7 +2028,7 @@ mod tests {
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(record, &RouteQueryMessage::data_indefinite_route_request(3));
         TestLogHandler::new()
-            .exists_log_containing("ERROR: Proxy Server: Failed to find route to nowhere.com");
+            .exists_log_containing("ERROR: ProxyServer: Failed to find route to nowhere.com");
     }
 
     #[test]
@@ -2153,7 +2153,7 @@ mod tests {
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(record, &RouteQueryMessage::data_indefinite_route_request(3));
         TestLogHandler::new()
-            .exists_log_containing("ERROR: Proxy Server: Failed to find route to nowhere.com");
+            .exists_log_containing("ERROR: ProxyServer: Failed to find route to nowhere.com");
     }
 
     #[test]
@@ -2444,7 +2444,7 @@ mod tests {
         assert_eq!(record, &expected_msg);
 
         TestLogHandler::new()
-            .exists_log_containing("ERROR: Proxy Server: Failed to find route to server.com");
+            .exists_log_containing("ERROR: ProxyServer: Failed to find route to server.com");
     }
 
     #[test]
@@ -2502,7 +2502,7 @@ mod tests {
         assert_eq!(record.endpoint, Endpoint::Socket(socket_addr));
         assert_eq!(record.last_data, true);
         assert_eq!(record.data, b"16 bytes of data".to_vec());
-        TestLogHandler::new().exists_log_containing(&format!("ERROR: Proxy Server: Discarding 16-byte packet 12345678 from an unrecognized stream key: {:?}", stream_key));
+        TestLogHandler::new().exists_log_containing(&format!("ERROR: ProxyServer: Discarding 16-byte packet 12345678 from an unrecognized stream key: {:?}", stream_key));
     }
 
     #[test]
@@ -3282,7 +3282,7 @@ mod tests {
 
         System::current().stop_with_code(0);
         system.run();
-        TestLogHandler::new().exists_log_containing("ERROR: Proxy Server: Can't report services consumed: received response with bogus return-route ID 1234. Ignoring");
+        TestLogHandler::new().exists_log_containing("ERROR: ProxyServer: Can't report services consumed: received response with bogus return-route ID 1234. Ignoring");
         assert_eq!(dispatcher_recording_arc.lock().unwrap().len(), 0);
         assert_eq!(accountant_recording_arc.lock().unwrap().len(), 0);
     }
@@ -3331,7 +3331,7 @@ mod tests {
         System::current().stop_with_code(0);
         system.run();
         TestLogHandler::new().exists_log_containing(
-            "ERROR: Proxy Server: Can't report services consumed: Decryption error: InvalidKey(\"Could not decrypt with",
+            "ERROR: ProxyServer: Can't report services consumed: Decryption error: InvalidKey(\"Could not decrypt with",
         );
         assert_eq!(dispatcher_recording_arc.lock().unwrap().len(), 0);
         assert_eq!(accountant_recording_arc.lock().unwrap().len(), 0);
@@ -3391,7 +3391,7 @@ mod tests {
         );
         subject_addr.try_send(expired_cores_package).unwrap();
 
-        TestLogHandler::new().await_log_containing("ERROR: Proxy Server: Can't report services consumed: received response with bogus return-route ID 1234. Ignoring", 1000);
+        TestLogHandler::new().await_log_containing("ERROR: ProxyServer: Can't report services consumed: received response with bogus return-route ID 1234. Ignoring", 1000);
     }
 
     #[test]
@@ -3468,13 +3468,13 @@ mod tests {
                 Component::ProxyServer,
             ),
             cryptde(),
-            Some(Wallet::new("consuming")),
+            Some(make_paying_wallet(b"consuming")),
             1234,
         )
         .unwrap();
         let affected_expected_services = vec![ExpectedService::Exit(
             affected_cryptde.public_key().clone(),
-            Wallet::new("1234"),
+            make_paying_wallet(b"1234"),
             DEFAULT_RATE_PACK,
         )];
         subject.stream_key_routes.insert(
@@ -3567,13 +3567,13 @@ mod tests {
                 Component::ProxyServer,
             ),
             cryptde(),
-            Some(Wallet::new("consuming")),
+            Some(make_paying_wallet(b"consuming")),
             1234,
         )
         .unwrap();
         let affected_expected_services = vec![ExpectedService::Exit(
             affected_cryptde.public_key().clone(),
-            Wallet::new("1234"),
+            make_paying_wallet(b"1234"),
             DEFAULT_RATE_PACK,
         )];
         subject.stream_key_routes.insert(
@@ -3690,7 +3690,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Proxy Server should never get ShutdownStreamMsg about clandestine stream"
+        expected = "ProxyServer should never get ShutdownStreamMsg about clandestine stream"
     )]
     fn handle_stream_shutdown_complains_about_clandestine_message() {
         let system = System::new("test");

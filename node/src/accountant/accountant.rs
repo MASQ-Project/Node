@@ -140,14 +140,14 @@ impl Handler<ReportRoutingServiceProvidedMessage> for Accountant {
             self.logger,
             format!(
                 "Charging routing of {} bytes to wallet {}",
-                msg.payload_size, msg.consuming_wallet
+                msg.payload_size, msg.paying_wallet
             )
         );
         self.record_service_provided(
             msg.service_rate,
             msg.byte_rate,
             msg.payload_size,
-            &msg.consuming_wallet,
+            &msg.paying_wallet,
         );
     }
 }
@@ -164,14 +164,14 @@ impl Handler<ReportExitServiceProvidedMessage> for Accountant {
             self.logger,
             format!(
                 "Charging exit service for {} bytes to wallet {} at {} per service and {} per byte",
-                msg.payload_size, msg.consuming_wallet, msg.service_rate, msg.byte_rate
+                msg.payload_size, msg.paying_wallet, msg.service_rate, msg.byte_rate
             )
         );
         self.record_service_provided(
             msg.service_rate,
             msg.byte_rate,
             msg.payload_size,
-            &msg.consuming_wallet,
+            &msg.paying_wallet,
         );
     }
 }
@@ -671,12 +671,12 @@ pub mod tests {
     #[test]
     fn accountant_payment_received_scan_timer_triggers_scanning_for_payments() {
         init_test_logging();
-        let payee_wallet = make_wallet("wallet0");
+        let paying_wallet = make_wallet("wallet0");
         let earning_wallet = make_wallet("earner3000");
         let amount = 42u64;
         let expected_transactions = vec![Transaction {
             block_number: 7u64,
-            from: payee_wallet.clone(),
+            from: paying_wallet.clone(),
             gwei_amount: amount,
         }];
         let blockchain_bridge =
@@ -1241,7 +1241,7 @@ pub mod tests {
 
         subject_addr
             .try_send(ReportRoutingServiceProvidedMessage {
-                consuming_wallet: make_wallet("booga"),
+                paying_wallet: make_wallet("booga"),
                 payload_size: 1234,
                 service_rate: 42,
                 byte_rate: 24,
@@ -1343,7 +1343,7 @@ pub mod tests {
 
         subject_addr
             .try_send(ReportExitServiceProvidedMessage {
-                consuming_wallet: make_wallet("booga"),
+                paying_wallet: make_wallet("booga"),
                 payload_size: 1234,
                 service_rate: 42,
                 byte_rate: 24,

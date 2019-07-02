@@ -31,7 +31,7 @@ use trust_dns_resolver::error::ResolveError;
 use trust_dns_resolver::lookup_ip::LookupIp;
 
 pub trait StreamHandlerPool {
-    fn process_package(&self, payload: ClientRequestPayload, consuming_wallet: Option<Wallet>);
+    fn process_package(&self, payload: ClientRequestPayload, paying_wallet: Option<Wallet>);
 }
 
 pub struct StreamHandlerPoolReal {
@@ -52,9 +52,9 @@ struct StreamHandlerPoolRealInner {
 }
 
 impl StreamHandlerPool for StreamHandlerPoolReal {
-    fn process_package(&self, payload: ClientRequestPayload, consuming_wallet: Option<Wallet>) {
+    fn process_package(&self, payload: ClientRequestPayload, paying_wallet: Option<Wallet>) {
         self.do_housekeeping();
-        Self::process_package(payload, consuming_wallet, self.inner.clone())
+        Self::process_package(payload, paying_wallet, self.inner.clone())
     }
 }
 
@@ -79,13 +79,13 @@ impl StreamHandlerPoolReal {
                     stream_adder_tx,
                     stream_killer_tx,
                     proxy_client_subs: proxy_client_subs.clone(),
-                    logger: Logger::new("Proxy Client"),
+                    logger: Logger::new("ProxyClient"),
                 }),
                 accountant_sub,
                 proxy_client_subs,
                 stream_writer_channels: HashMap::new(),
                 resolver,
-                logger: Logger::new("Proxy Client"),
+                logger: Logger::new("ProxyClient"),
                 exit_service_rate,
                 exit_byte_rate,
             })),
@@ -96,7 +96,7 @@ impl StreamHandlerPoolReal {
 
     fn process_package(
         payload: ClientRequestPayload,
-        consuming_wallet: Option<Wallet>,
+        paying_wallet: Option<Wallet>,
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
     ) {
         let stream_key = payload.stream_key;
@@ -105,7 +105,7 @@ impl StreamHandlerPoolReal {
             Some(sender_wrapper) => {
                 let source = sender_wrapper.peer_addr();
                 let future =
-                    Self::write_and_tend(sender_wrapper, payload, consuming_wallet, inner_arc)
+                    Self::write_and_tend(sender_wrapper, payload, paying_wallet, inner_arc)
                         .map_err(move |error| {
                             Self::clean_up_bad_stream(inner_arc_1, &stream_key, source, error)
                         });
@@ -123,12 +123,7 @@ impl StreamHandlerPoolReal {
                 } else {
                     let future = Self::make_stream_with_key(&payload, inner_arc_1.clone())
                         .and_then(move |sender_wrapper| {
-                            Self::write_and_tend(
-                                sender_wrapper,
-                                payload,
-                                consuming_wallet,
-                                inner_arc,
-                            )
+                            Self::write_and_tend(sender_wrapper, payload, paying_wallet, inner_arc)
                         })
                         .map_err(move |error| {
                             // TODO: This ends up sending an empty response back to the browser and terminating
@@ -174,7 +169,7 @@ impl StreamHandlerPoolReal {
     fn write_and_tend(
         sender_wrapper: Box<dyn SenderWrapper<SequencedPacket>>,
         payload: ClientRequestPayload,
-        consuming_wallet: Option<Wallet>,
+        paying_wallet: Option<Wallet>,
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
     ) -> impl Future<Item = (), Error = String> {
         let stream_key = payload.stream_key;
@@ -203,11 +198,11 @@ impl StreamHandlerPoolReal {
                 }
             }
             if payload_size > 0 {
-                match consuming_wallet {
+                match paying_wallet {
                     Some(wallet) => inner
                         .accountant_sub
                         .try_send(ReportExitServiceProvidedMessage {
-                            consuming_wallet: wallet,
+                            paying_wallet: wallet,
                             payload_size,
                             service_rate: inner.exit_service_rate,
                             byte_rate: inner.exit_byte_rate,
@@ -324,7 +319,7 @@ impl StreamHandlerPoolReal {
                 .map_err(move |err| {
                     dns_resolve_failed_sub
                         .try_send(DnsResolveFailure::new(stream_key))
-                        .expect("Proxy Client is poisoned");
+                        .expect("ProxyClient is poisoned");
                     err
                 })
                 .then(move |lookup_result| {
@@ -416,7 +411,7 @@ impl StreamHandlerPoolReal {
                 source,
                 data: vec![],
             })
-            .expect("Proxy Client is dead");
+            .expect("ProxyClient is dead");
     }
 
     fn do_housekeeping(&self) {
@@ -439,7 +434,7 @@ impl StreamHandlerPoolReal {
                             source: writer_channel.peer_addr(),
                             data: vec![],
                         })
-                        .expect("Proxy Client is dead");
+                        .expect("ProxyClient is dead");
                     debug!(
                         inner.logger,
                         format!(
@@ -572,13 +567,13 @@ mod tests {
         subject: StreamHandlerPoolReal,
         package: ExpiredCoresPackage<MessageType>,
     ) {
-        let consuming_wallet = package.consuming_wallet.clone();
+        let paying_wallet = package.paying_wallet.clone();
         let payload = match package.payload {
             MessageType::ClientRequest(r) => r,
             _ => panic!("Expected MessageType::ClientRequest, got something else"),
         };
         actix::run(move || {
-            subject.process_package(payload, consuming_wallet);
+            subject.process_package(payload, paying_wallet);
             ok(())
         })
     }
@@ -1044,7 +1039,7 @@ mod tests {
         );
         TestLogHandler::new().exists_log_containing(
             format!(
-                "ERROR: Proxy Client: Cannot open new stream with key {:?}: no hostname supplied",
+                "ERROR: ProxyClient: Cannot open new stream with key {:?}: no hostname supplied",
                 make_meaningless_stream_key()
             )
             .as_str(),
@@ -1403,7 +1398,7 @@ mod tests {
             run_process_package_in_actix(subject, package);
         });
         TestLogHandler::new().await_log_containing(
-            "ERROR: Proxy Client: Could not find IP address for host that.try: io error",
+            "ERROR: ProxyClient: Could not find IP address for host that.try: io error",
             1000,
         );
         proxy_client_awaiter.await_message_count(2);

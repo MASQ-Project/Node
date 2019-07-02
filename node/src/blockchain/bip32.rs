@@ -2,7 +2,7 @@
 use bip39;
 use bip39::Seed;
 use ethsign::keyfile::Crypto;
-use ethsign::{Protected, PublicKey, SecretKey};
+use ethsign::{Protected, PublicKey, SecretKey, Signature};
 use serde::de;
 use serde::ser;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -55,6 +55,16 @@ impl Bip32ECKeyPair {
 
     pub fn secret(&self) -> &SecretKey {
         &self.secret
+    }
+
+    pub fn sign(&self, msg: &[u8]) -> Result<Signature, String> {
+        self.secret.sign(msg).map_err(|e| format!("{:?}", e))
+    }
+
+    pub fn verify(&self, signature: &Signature, msg: &[u8]) -> Result<bool, String> {
+        self.public
+            .verify(signature, msg)
+            .map_err(|e| format!("{:?}", e))
     }
 
     pub fn clone_secret(&self) -> SecretKey {

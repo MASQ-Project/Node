@@ -753,11 +753,12 @@ impl NodeConfiguratorReal {
             Some(ref derivation_path) => match &config.blockchain_bridge_config.mnemonic_seed {
                 Some(seed) => {
                     let seed_bytes = seed.from_hex::<Vec<u8>>().expect("Internal Error");
-                    let keypair = Bip32ECKeyPair::from_raw(seed_bytes.as_slice(), derivation_path)
-                        .expect("Internal Error");
-                    config.neighborhood_config.consuming_wallet =
-                        Some(Wallet::from(keypair.address()));
-                    config.blockchain_bridge_config.consuming_wallet = Some(Wallet::from(keypair));
+                    let wallet = Wallet::from(
+                        Bip32ECKeyPair::from_raw(seed_bytes.as_slice(), derivation_path)
+                            .expect("Internal Error"),
+                    );
+                    config.neighborhood_config.consuming_wallet = Some(wallet.clone());
+                    config.blockchain_bridge_config.consuming_wallet = Some(wallet);
                     config
                         .blockchain_bridge_config
                         .consuming_wallet_derivation_path = derivation_path.to_string();
@@ -792,8 +793,7 @@ impl NodeConfiguratorReal {
                         Ok(keypair) => {
                             let wallet = Wallet::from(keypair);
                             config.blockchain_bridge_config.consuming_wallet = Some(wallet.clone());
-                            config.neighborhood_config.consuming_wallet =
-                                Some(Wallet::from(wallet.address()));
+                            config.neighborhood_config.consuming_wallet = Some(wallet);
                         }
                         Err(e) => panic!("Cannot create consuming wallet from private key {}", e),
                     },
@@ -1089,9 +1089,6 @@ mod tests {
     use crate::persistent_configuration::PersistentConfiguration;
     use crate::sub_lib::cryptde::{CryptDE, PlainData, PublicKey};
     use crate::sub_lib::neighborhood::sentinel_ip_addr;
-    use crate::sub_lib::wallet::{
-        Wallet, DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
-    };
     use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::test_utils::ensure_node_home_directory_exists;
     use crate::test_utils::test_utils::{ByteArrayWriter, FakeStreamHolder};
@@ -2169,6 +2166,17 @@ mod tests {
                 .blockchain_bridge_config
                 .consuming_wallet_derivation_path,
             DEFAULT_CONSUMING_DERIVATION_PATH.to_string(),
+        );
+
+        let public_key = PublicKey::new(&[1, 2, 3]);
+        let payer = bootstrapper_config
+            .neighborhood_config
+            .consuming_wallet
+            .unwrap()
+            .as_payer(&public_key);
+        assert!(
+            payer.owns_secret_key(&public_key),
+            "Neighborhood config should have a WalletKind::KeyPair wallet"
         );
     }
 

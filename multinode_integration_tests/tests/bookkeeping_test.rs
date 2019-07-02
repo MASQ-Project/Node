@@ -9,7 +9,9 @@ use node_lib::accountant::payable_dao::{PayableAccount, PayableDao, PayableDaoRe
 use node_lib::accountant::receivable_dao::{ReceivableAccount, ReceivableDao, ReceivableDaoReal};
 use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
 use node_lib::sub_lib::wallet::Wallet;
+use rustc_hex::ToHex;
 use std::collections::HashMap;
+use std::io::{repeat, Read};
 use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
@@ -109,6 +111,7 @@ pub fn start_lonely_real_node(cluster: &mut SubstratumNodeCluster) -> Substratum
     cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .earning_wallet(make_wallet_from(index))
+            .consuming_private_key(&make_secret_key_from(index))
             .build(),
     )
 }
@@ -132,4 +135,12 @@ fn make_wallet_from(n: usize) -> Wallet {
         address.push(((n + '0' as usize) as u8) as char);
     }
     Wallet::from_str(&address).unwrap()
+}
+
+fn make_secret_key_from(n: usize) -> String {
+    let mut secret = [0u8; 32];
+    repeat((n + '0' as usize) as u8)
+        .read_exact(&mut secret)
+        .unwrap();
+    secret.to_vec().to_hex::<String>()
 }

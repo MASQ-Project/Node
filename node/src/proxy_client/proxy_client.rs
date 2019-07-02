@@ -93,23 +93,22 @@ impl Handler<ExpiredCoresPackage<ClientRequestPayload>> for ProxyClient {
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         let payload = msg.payload;
-        let consuming_wallet = msg.consuming_wallet;
-        if consuming_wallet.is_some() || &payload.originator_public_key == self.cryptde.public_key()
-        {
+        let paying_wallet = msg.paying_wallet;
+        if paying_wallet.is_some() || &payload.originator_public_key == self.cryptde.public_key() {
             let pool = self.pool.as_mut().expect("StreamHandlerPool unbound");
             let return_route = msg.remaining_route;
             let latest_stream_context = StreamContext {
                 return_route,
                 payload_destination_key: payload.originator_public_key.clone(),
-                consuming_wallet: consuming_wallet.clone(),
+                paying_wallet: paying_wallet.clone(),
             };
             self.stream_contexts
                 .insert(payload.stream_key, latest_stream_context);
-            pool.process_package(payload, consuming_wallet);
+            pool.process_package(payload, paying_wallet);
             debug!(self.logger, "ExpiredCoresPackage handled".to_string());
         } else {
-            error!(self.logger, format!(
-                "Refusing to provide exit services for CORES package with {}-byte payload without consuming wallet",
+            warning!(self.logger, format!(
+                "Refusing to provide exit services for CORES package with {}-byte payload without paying wallet",
                 payload.sequenced_packet.data.len()
             ));
         }
@@ -184,7 +183,7 @@ impl Handler<DnsResolveFailure> for ProxyClient {
 impl ProxyClient {
     pub fn new(config: ProxyClientConfig) -> ProxyClient {
         if config.dns_servers.is_empty() {
-            panic!("Proxy Client requires at least one DNS server IP address after the --dns-servers parameter")
+            panic!("ProxyClient requires at least one DNS server IP address after the --dns-servers parameter")
         }
         ProxyClient {
             dns_servers: config.dns_servers,
@@ -197,7 +196,7 @@ impl ProxyClient {
             stream_contexts: HashMap::new(),
             exit_service_rate: config.exit_service_rate,
             exit_byte_rate: config.exit_byte_rate,
-            logger: Logger::new("Proxy Client"),
+            logger: Logger::new("ProxyClient"),
         }
     }
 
@@ -254,9 +253,9 @@ impl ProxyClient {
         stream_context: &StreamContext,
         msg_data_len: usize,
     ) {
-        if let Some(consuming_wallet) = stream_context.consuming_wallet.clone() {
+        if let Some(paying_wallet) = stream_context.paying_wallet.clone() {
             let exit_report = ReportExitServiceProvidedMessage {
-                consuming_wallet,
+                paying_wallet,
                 payload_size: msg_data_len,
                 service_rate: self.exit_service_rate,
                 byte_rate: self.exit_byte_rate,
@@ -270,7 +269,7 @@ impl ProxyClient {
             debug!(
                 self.logger,
                 format!(
-                    "Relayed {}-byte response without consuming wallet for free",
+                    "Relayed {}-byte response without paying wallet for free",
                     msg_data_len
                 )
             );
@@ -281,7 +280,7 @@ impl ProxyClient {
 struct StreamContext {
     return_route: Route,
     payload_destination_key: PublicKey,
-    consuming_wallet: Option<Wallet>,
+    paying_wallet: Option<Wallet>,
 }
 
 #[cfg(test)]
@@ -331,11 +330,11 @@ mod tests {
     }
 
     impl StreamHandlerPool for StreamHandlerPoolMock {
-        fn process_package(&self, payload: ClientRequestPayload, consuming_wallet: Option<Wallet>) {
+        fn process_package(&self, payload: ClientRequestPayload, paying_wallet: Option<Wallet>) {
             self.process_package_parameters
                 .lock()
                 .unwrap()
-                .push((payload, consuming_wallet));
+                .push((payload, paying_wallet));
         }
     }
 
@@ -431,7 +430,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Proxy Client requires at least one DNS server IP address after the --dns-servers parameter"
+        expected = "ProxyClient requires at least one DNS server IP address after the --dns-servers parameter"
     )]
     fn at_least_one_dns_server_must_be_provided() {
         ProxyClient::new(ProxyClientConfig {
@@ -565,7 +564,7 @@ mod tests {
         });
         TestLogHandler::new().await_log_containing(
             &format!(
-                "ERROR: Proxy Client: DNS resolution for nonexistent stream ({:?}) failed.",
+                "ERROR: ProxyClient: DNS resolution for nonexistent stream ({:?}) failed.",
                 stream_key
             ),
             1000,
@@ -597,7 +596,7 @@ mod tests {
                 StreamContext {
                     return_route: return_route_inner,
                     payload_destination_key: originator_key_inner,
-                    consuming_wallet: None,
+                    paying_wallet: None,
                 },
             );
             let subject_addr = subject.start();
@@ -634,7 +633,7 @@ mod tests {
         );
         TestLogHandler::new().await_log_containing(
             &format!(
-                "ERROR: Proxy Client: DNS resolution for nonexistent stream ({:?}) failed.",
+                "ERROR: ProxyClient: DNS resolution for nonexistent stream ({:?}) failed.",
                 stream_key
             ),
             1000,
@@ -697,7 +696,7 @@ mod tests {
     }
 
     #[test]
-    fn refuse_to_provide_exit_services_with_no_consuming_wallet() {
+    fn refuse_to_provide_exit_services_with_no_paying_wallet() {
         init_test_logging();
         let cryptde = cryptde();
         let request = ClientRequestPayload {
@@ -722,7 +721,7 @@ mod tests {
         );
         let hopper = Recorder::new();
 
-        let system = System::new("refuse_to_provide_exit_services_with_no_consuming_wallet");
+        let system = System::new("refuse_to_provide_exit_services_with_no_paying_wallet");
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let mut process_package_parameters = Arc::new(Mutex::new(vec![]));
         let pool = Box::new(
@@ -749,11 +748,11 @@ mod tests {
         System::current().stop();
         system.run();
         assert_eq!(0, process_package_parameters.lock().unwrap().len());
-        TestLogHandler::new().exists_log_containing(format!("Refusing to provide exit services for CORES package with 12-byte payload without consuming wallet").as_str());
+        TestLogHandler::new().exists_log_containing(format!("WARN: ProxyClient: Refusing to provide exit services for CORES package with 12-byte payload without paying wallet").as_str());
     }
 
     #[test]
-    fn does_provide_zero_hop_exit_services_with_no_consuming_wallet() {
+    fn does_provide_zero_hop_exit_services_with_no_paying_wallet() {
         let cryptde = cryptde();
         let request = ClientRequestPayload {
             version: ClientRequestPayload::version(),
@@ -826,7 +825,7 @@ mod tests {
             StreamContext {
                 return_route: make_meaningless_route(),
                 payload_destination_key: PublicKey::new(&b"abcd"[..]),
-                consuming_wallet: Some(make_wallet("consuming")),
+                paying_wallet: Some(make_wallet("paying")),
             },
         );
         let subject_addr: Addr<ProxyClient> = subject.start();
@@ -910,7 +909,7 @@ mod tests {
         assert_eq!(
             accountant_recording.get_record::<ReportExitServiceProvidedMessage>(0),
             &ReportExitServiceProvidedMessage {
-                consuming_wallet: make_wallet("consuming"),
+                paying_wallet: make_wallet("paying"),
                 payload_size: data.len(),
                 service_rate: 100,
                 byte_rate: 200,
@@ -919,18 +918,18 @@ mod tests {
         assert_eq!(
             accountant_recording.get_record::<ReportExitServiceProvidedMessage>(1),
             &ReportExitServiceProvidedMessage {
-                consuming_wallet: make_wallet("consuming"),
+                paying_wallet: make_wallet("paying"),
                 payload_size: data.len(),
                 service_rate: 100,
                 byte_rate: 200,
             }
         );
         assert_eq!(accountant_recording.len(), 2);
-        TestLogHandler::new().exists_log_containing(format!("ERROR: Proxy Client: Received unsolicited {}-byte response from 1.2.3.4:5678, seq 1236: ignoring", data.len()).as_str());
+        TestLogHandler::new().exists_log_containing(format!("ERROR: ProxyClient: Received unsolicited {}-byte response from 1.2.3.4:5678, seq 1236: ignoring", data.len()).as_str());
     }
 
     #[test]
-    fn inbound_server_data_without_consuming_wallet_does_not_report_exit_service() {
+    fn inbound_server_data_without_paying_wallet_does_not_report_exit_service() {
         init_test_logging();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let stream_key = make_meaningless_stream_key();
@@ -947,7 +946,7 @@ mod tests {
             StreamContext {
                 return_route: make_meaningless_route(),
                 payload_destination_key: PublicKey::new(&b"abcd"[..]),
-                consuming_wallet: None,
+                paying_wallet: None,
             },
         );
         let subject_addr: Addr<ProxyClient> = subject.start();
@@ -971,7 +970,7 @@ mod tests {
         assert_eq!(accountant_recording.len(), 0);
         TestLogHandler::new().exists_log_containing(
             format!(
-                "DEBUG: Proxy Client: Relayed {}-byte response without consuming wallet for free",
+                "DEBUG: ProxyClient: Relayed {}-byte response without paying wallet for free",
                 data.len()
             )
             .as_str(),
@@ -997,7 +996,7 @@ mod tests {
             StreamContext {
                 return_route: make_meaningless_route(),
                 payload_destination_key: PublicKey::new(&[]),
-                consuming_wallet: Some(make_wallet("consuming")),
+                paying_wallet: Some(make_wallet("consuming")),
             },
         );
         let subject_addr: Addr<ProxyClient> = subject.start();
@@ -1023,7 +1022,7 @@ mod tests {
         assert_eq!(hopper_recording.len(), 0);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0);
-        TestLogHandler::new().exists_log_containing(format!("ERROR: Proxy Client: Could not create CORES package for {}-byte response from 1.2.3.4:5678, seq 1234: Could not encrypt payload: \"Encryption error: EmptyKey\" - ignoring", data.len()).as_str());
+        TestLogHandler::new().exists_log_containing(format!("ERROR: ProxyClient: Could not create CORES package for {}-byte response from 1.2.3.4:5678, seq 1234: Could not encrypt payload: \"Encryption error: EmptyKey\" - ignoring", data.len()).as_str());
     }
 
     #[test]
@@ -1054,7 +1053,7 @@ mod tests {
             StreamContext {
                 return_route: old_return_route,
                 payload_destination_key: originator_public_key.clone(),
-                consuming_wallet: Some(make_wallet("consuming")),
+                paying_wallet: Some(make_wallet("consuming")),
             },
         );
         subject.stream_handler_pool_factory = Box::new(pool_factory);
@@ -1100,9 +1099,9 @@ mod tests {
         System::current().stop_with_code(0);
         system.run();
         let mut process_package_params = process_package_params_arc.lock().unwrap();
-        let (actual_payload, consuming_wallet_opt) = process_package_params.remove(0);
+        let (actual_payload, paying_wallet_opt) = process_package_params.remove(0);
         assert_eq!(actual_payload, payload);
-        assert_eq!(consuming_wallet_opt, Some(make_wallet("gnimusnoc")));
+        assert_eq!(paying_wallet_opt, Some(make_wallet("gnimusnoc")));
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let expected_icp = IncipientCoresPackage::new(
             cryptde,
@@ -1128,7 +1127,7 @@ mod tests {
         assert_eq!(
             accountant_recording.get_record::<ReportExitServiceProvidedMessage>(0),
             &ReportExitServiceProvidedMessage {
-                consuming_wallet: make_wallet("gnimusnoc"),
+                paying_wallet: make_wallet("gnimusnoc"),
                 payload_size: data.len(),
                 service_rate: 100,
                 byte_rate: 200,
