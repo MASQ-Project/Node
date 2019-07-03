@@ -6,10 +6,6 @@ use crate::main_tools::Command;
 use crate::main_tools::StdStreams;
 use std::io::Write;
 
-pub struct DnsUtility {
-    factory: Box<dyn DnsModifierFactory>,
-}
-
 enum Action {
     Subvert,
     Revert,
@@ -17,14 +13,26 @@ enum Action {
     Status,
 }
 
+pub struct DnsUtility {
+    factory: Box<dyn DnsModifierFactory>,
+}
+
+impl Default for DnsUtility {
+    fn default() -> Self {
+        DnsUtility {
+            factory: Box::new(DnsModifierFactoryReal::new()),
+        }
+    }
+}
+
 impl Command for DnsUtility {
-    fn go(&mut self, streams: &mut StdStreams<'_>, args: &Vec<String>) -> u8 {
+    fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8 {
         let action = match args {
             a if a.len() < 2 => return DnsUtility::usage(streams),
-            a if a[1] == String::from("subvert") => Action::Subvert,
-            a if a[1] == String::from("revert") => Action::Revert,
-            a if a[1] == String::from("inspect") => Action::Inspect,
-            a if a[1] == String::from("status") => Action::Status,
+            a if a[1] == "subvert" => Action::Subvert,
+            a if a[1] == "revert" => Action::Revert,
+            a if a[1] == "inspect" => Action::Inspect,
+            a if a[1] == "status" => Action::Status,
             _ => return DnsUtility::usage(streams),
         };
         self.perform_action(action, streams)
@@ -32,10 +40,8 @@ impl Command for DnsUtility {
 }
 
 impl DnsUtility {
-    pub fn new() -> DnsUtility {
-        DnsUtility {
-            factory: Box::new(DnsModifierFactoryReal::new()),
-        }
+    pub fn new() -> Self {
+        Default::default()
     }
 
     fn perform_action(&self, action: Action, streams: &mut StdStreams<'_>) -> u8 {
@@ -77,9 +83,12 @@ impl DnsUtility {
         modifier.inspect(&mut stream_buf)?;
         let status = match String::from_utf8(stream_buf) {
             Ok(s) => self.status_from_inspect(s)?,
-            Err(_) => panic!("Internal error: UTF-8 String suddenly became non-UTF-8"),
+            Err(e) => panic!(
+                "Internal error: UTF-8 String suddenly became non-UTF-8: {}",
+                e
+            ),
         };
-        write!(stdout, "{}\n", status).expect("write doesn't work");
+        writeln!(stdout, "{}", status).expect("write doesn't work");
         Ok(())
     }
 
@@ -165,6 +174,7 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
     pub struct DnsModifierFactoryMock {
         make_results: RefCell<Vec<Option<Box<dyn DnsModifier>>>>,
     }

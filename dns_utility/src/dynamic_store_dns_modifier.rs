@@ -61,11 +61,17 @@ impl DnsModifier for DynamicStoreDnsModifier {
     }
 }
 
-impl DynamicStoreDnsModifier {
-    pub fn new() -> DynamicStoreDnsModifier {
-        DynamicStoreDnsModifier {
+impl Default for DynamicStoreDnsModifier {
+    fn default() -> Self {
+        Self {
             store: Box::new(StoreWrapperReal::new("SubstratumNode")),
         }
+    }
+}
+
+impl DynamicStoreDnsModifier {
+    pub fn new() -> Self {
+        Default::default()
     }
 
     fn get_dns_info(
@@ -119,11 +125,10 @@ impl DynamicStoreDnsModifier {
                 result.insert(String::from(SERVER_ADDRESSES), sa);
             }
         }
-        match self.get_server_addresses(&dns_map, &dns_base_path, SERVER_ADDRESSES_BAK, for_write) {
-            Ok(Some(sa)) => {
-                result.insert(String::from(SERVER_ADDRESSES_BAK), sa);
-            }
-            _ => (),
+        if let Ok(Some(sa)) =
+            self.get_server_addresses(&dns_map, &dns_base_path, SERVER_ADDRESSES_BAK, for_write)
+        {
+            result.insert(String::from(SERVER_ADDRESSES_BAK), sa);
         }
         Ok((dns_base_path, result))
     }
@@ -157,14 +162,15 @@ impl DynamicStoreDnsModifier {
             })
             .collect();
 
-        match self.store.set_dictionary_string_cfpl(
+        if self.store.set_dictionary_string_cfpl(
             &dns_base_path[..],
             HashMap::from_iter(keys_and_values.into_iter()),
         ) {
-            true => Ok(()),
-            false => Err(String::from(
+            Ok(())
+        } else {
+            Err(String::from(
                 "Error changing DNS settings. Are you sure you ran me with sudo?",
-            )),
+            ))
         }
     }
 
@@ -241,7 +247,7 @@ impl DynamicStoreDnsModifier {
     fn get_server_addresses(
         &self,
         dns_map: &HashMap<String, CFPropertyList>,
-        dns_base_path: &String,
+        dns_base_path: &str,
         dns_leaf: &str,
         for_write: bool,
     ) -> Result<Option<Vec<String>>, String> {
@@ -320,7 +326,7 @@ impl StoreWrapper for StoreWrapperReal {
             let (keys, values) = cf_dictionary.get_keys_and_values();
             let keys_and_values: Vec<(*const libc::c_void, *const libc::c_void)> =
                 keys.into_iter().zip(values).collect();
-            Some(HashMap::from(
+            Some(
                 keys_and_values
                     .into_iter()
                     .map(|key_and_value| {
@@ -331,7 +337,7 @@ impl StoreWrapper for StoreWrapperReal {
                         })
                     })
                     .collect(),
-            ))
+            )
         } else {
             None
         }
@@ -352,8 +358,7 @@ impl StoreWrapper for StoreWrapperReal {
             })
             .collect();
         let dictionary_cfpl = CFDictionary::from_CFType_pairs(pairs.as_slice());
-        let result = self.store.set(path, dictionary_cfpl.clone());
-        result
+        self.store.set(path, dictionary_cfpl.clone())
     }
 
     fn cfpl_to_vec(&self, cfpl: &CFPropertyList) -> Result<Vec<CFPropertyList>, String> {

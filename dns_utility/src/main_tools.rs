@@ -9,5 +9,5 @@ pub struct StdStreams<'a> {
 }
 
 pub trait Command {
-    fn go(&mut self, streams: &mut StdStreams<'_>, args: &Vec<String>) -> u8;
+    fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8;
 }

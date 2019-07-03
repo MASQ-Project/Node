@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-#![cfg (unix)]
+#![cfg(unix)]
 use crate::dns_modifier::DnsModifier;
 use regex::Regex;
 use std::fs::File;
@@ -41,6 +41,12 @@ impl DnsModifier for ResolvConfDnsModifier {
     fn inspect(&self, stdout: &mut (dyn io::Write + Send)) -> Result<(), String> {
         let (_, contents) = self.open_resolv_conf(false)?;
         self.inspect_contents(contents, stdout)
+    }
+}
+
+impl Default for ResolvConfDnsModifier {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -158,11 +164,11 @@ impl ResolvConfDnsModifier {
         let regex = Regex::new(r"^\s*nameserver\s+([^\s#]*)").expect("Regex syntax error");
         let captures = regex
             .captures(nameserver_line.as_str())
-            .expect(format!("Badly formatted nameserver line: {}", nameserver_line).as_str());
+            .unwrap_or_else(|| panic!("Badly formatted nameserver line: {}", nameserver_line));
         String::from(
             captures
                 .get(1)
-                .expect(format!("Regex had no capture group").as_str())
+                .expect("Regex had no capture group")
                 .as_str(),
         )
     }
@@ -208,7 +214,7 @@ impl ResolvConfDnsModifier {
         let mut results: Vec<(usize, usize)> = capture_matches
             .map(|captures| {
                 let capture = captures.get(2).expect("Inconsistent regex code");
-                ((capture.start(), capture.as_str().len()))
+                (capture.start(), capture.as_str().len())
             })
             .collect();
         match results.len() {
@@ -230,12 +236,12 @@ impl ResolvConfDnsModifier {
 
     fn replace_contents_system(&self, mut file: File, contents: String) -> io::Result<()> {
         let _ = file.seek(SeekFrom::Start(0))?;
-        let _ = file.set_len(0)?;
+        file.set_len(0)?;
         let _ = file.write(&contents[..].as_bytes())?;
         Ok(())
     }
 
-    fn check_disconnected(&self, active_nameservers: &Vec<(String, usize)>) -> Result<(), String> {
+    fn check_disconnected(&self, active_nameservers: &[(String, usize)]) -> Result<(), String> {
         if active_nameservers.is_empty() {
             Err(String::from(
                 "This system does not appear to be connected to a network",
@@ -245,7 +251,7 @@ impl ResolvConfDnsModifier {
         }
     }
 
-    fn check_already_subverted(&self, active_nameservers: &Vec<(String, usize)>) -> bool {
+    fn check_already_subverted(&self, active_nameservers: &[(String, usize)]) -> bool {
         let first_active_nameserver = active_nameservers
             .first()
             .expect("Internal error")
@@ -254,11 +260,10 @@ impl ResolvConfDnsModifier {
         ResolvConfDnsModifier::is_substratum_ip(&first_active_nameserver)
     }
 
-    fn check_for_nonsense(&self, active_nameservers: &Vec<(String, usize)>) -> Result<(), String> {
+    fn check_for_nonsense(&self, active_nameservers: &[(String, usize)]) -> Result<(), String> {
         if active_nameservers
             .iter()
-            .find(|tuple| ResolvConfDnsModifier::is_substratum_ip(&tuple.0))
-            .is_some()
+            .any(|tuple| ResolvConfDnsModifier::is_substratum_ip(&tuple.0))
         {
             Err(String::from(
                 "This system's DNS settings don't make sense; aborting",

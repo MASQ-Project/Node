@@ -20,7 +20,6 @@ fn resolv_conf_subvert_and_revert_sudo_integration() {
         }
     };
     check_for_subversion(&file_contents, false, "Already subverted");
-
     let mut subvert_command = TestCommand::start("dns_utility", vec!["subvert"]);
     let exit_status = subvert_command.wait();
     assert_eq!(exit_status, Some(0), "{}", subvert_command.output());

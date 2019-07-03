@@ -38,7 +38,7 @@ impl DnsModifier for WinRegDnsModifier {
                 if error_opt.is_some() {
                     (overhang, error_opt)
                 } else {
-                    match self.subvert_interface(&interface) {
+                    match self.subvert_interface(interface.as_ref()) {
                         Ok(_) => (plus(overhang, interface), error_opt),
                         Err(msg) => (plus(overhang, interface), Some(msg)),
                     }
@@ -49,7 +49,7 @@ impl DnsModifier for WinRegDnsModifier {
             Some(msg) => {
                 overhang
                     .into_iter()
-                    .for_each(|interface| self.roll_back_subvert(&interface));
+                    .for_each(|interface| self.roll_back_subvert(interface.as_ref()));
                 Err(msg)
             }
             None => Ok(()),
@@ -66,7 +66,7 @@ impl DnsModifier for WinRegDnsModifier {
                 if error_opt.is_some() {
                     (overhang, error_opt)
                 } else {
-                    match self.revert_interface(&interface) {
+                    match self.revert_interface(interface.as_ref()) {
                         Ok(_) => (plus(overhang, interface), error_opt),
                         Err(msg) => (plus(overhang, interface), Some(msg)),
                     }
@@ -77,7 +77,7 @@ impl DnsModifier for WinRegDnsModifier {
             Some(msg) => {
                 overhang
                     .into_iter()
-                    .for_each(|interface| self.roll_back_revert(&interface));
+                    .for_each(|interface| self.roll_back_revert(interface.as_ref()));
                 Err(msg)
             }
             None => Ok(()),
@@ -87,30 +87,34 @@ impl DnsModifier for WinRegDnsModifier {
     fn inspect(&self, stdout: &mut (dyn io::Write + Send)) -> Result<(), String> {
         let interfaces = self.find_interfaces_to_inspect()?;
         let dns_server_list_csv = self.find_dns_server_list(interfaces)?;
-        let dns_server_list = dns_server_list_csv.split(",");
-        let output = dns_server_list
-            .into_iter()
-            .fold(String::new(), |so_far, dns_server| {
-                format!("{}{}\n", so_far, dns_server)
-            });
+        let dns_server_list = dns_server_list_csv.split(',');
+        let output = dns_server_list.fold(String::new(), |so_far, dns_server| {
+            format!("{}{}\n", so_far, dns_server)
+        });
         write!(stdout, "{}", output).expect("write is broken");
         Ok(())
     }
 }
 
-impl WinRegDnsModifier {
+impl Default for WinRegDnsModifier {
     #[cfg(windows)]
-    pub fn new() -> WinRegDnsModifier {
+    fn default() -> Self {
         WinRegDnsModifier {
             hive: Box::new(RegKeyReal::new(RegKey::predef(HKEY_LOCAL_MACHINE))),
         }
     }
 
     #[cfg(not(windows))]
-    pub fn new() -> WinRegDnsModifier {
+    fn default() -> Self {
         WinRegDnsModifier {
             hive: Box::new(RegKeyReal {}),
         }
+    }
+}
+
+impl WinRegDnsModifier {
+    pub fn new() -> WinRegDnsModifier {
+        Default::default()
     }
 
     fn find_interfaces_to_subvert(&self) -> Result<Vec<Box<dyn RegKeyTrait>>, String> {
@@ -157,7 +161,7 @@ impl WinRegDnsModifier {
                 interface_key.open_subkey_with_flags(&interface_name[..], access_required)
             })
             .filter(|interface| {
-                WinRegDnsModifier::get_default_gateway(interface).is_some()
+                WinRegDnsModifier::get_default_gateway(interface.as_ref()).is_some()
                     && interface.get_value("NameServer").is_ok()
             })
             .collect();
@@ -166,7 +170,7 @@ impl WinRegDnsModifier {
         }
         let distinct_gateway_ips: HashSet<String> = gateway_interfaces
             .iter()
-            .flat_map(|interface| WinRegDnsModifier::get_default_gateway(interface))
+            .flat_map(|interface| WinRegDnsModifier::get_default_gateway(interface.as_ref()))
             .collect();
         if distinct_gateway_ips.len() > 1 {
             let msg = match access_required {
@@ -174,8 +178,8 @@ impl WinRegDnsModifier {
                 KEY_READ => "Cannot summarize DNS settings.",
                 _ => "",
             };
-            return Err (String::from (format! ("This system has {} active network interfaces configured with {} different default gateways. {}",
-                                               gateway_interfaces.len (), distinct_gateway_ips.len (), msg)));
+            return Err (format! ("This system has {} active network interfaces configured with {} different default gateways. {}",
+                                               gateway_interfaces.len (), distinct_gateway_ips.len (), msg));
         }
         Ok(gateway_interfaces)
     }
@@ -191,9 +195,9 @@ impl WinRegDnsModifier {
             .collect();
         let errors: Vec<String> = list_result_vec
             .iter()
-            .flat_map(|result_ref| match result_ref {
-                &Err(ref e) => Some(e.clone()),
-                &Ok(_) => None,
+            .flat_map(|result_ref| match *result_ref {
+                Err(ref e) => Some(e.clone()),
+                Ok(_) => None,
             })
             .collect();
         if !errors.is_empty() {
@@ -202,7 +206,7 @@ impl WinRegDnsModifier {
         let list_set: HashSet<String> = list_result_vec
             .into_iter()
             .flat_map(|result| match result {
-                Err(_) => panic!("Error magically appeared"),
+                Err(e) => panic!("Error magically appeared: {}", e),
                 Ok(list) => Some(list),
             })
             .collect();
@@ -236,7 +240,7 @@ impl WinRegDnsModifier {
         }
     }
 
-    fn subvert_interface(&self, interface: &Box<dyn RegKeyTrait>) -> Result<(), String> {
+    fn subvert_interface(&self, interface: &dyn RegKeyTrait) -> Result<(), String> {
         let name_servers = interface
             .get_value("NameServer")
             .expect("Interface became unsubvertible. Check your DNS settings manually.");
@@ -255,7 +259,7 @@ impl WinRegDnsModifier {
         self.handle_reg_error(false, interface.set_value("NameServer", "127.0.0.1"))
     }
 
-    fn roll_back_subvert(&self, interface: &Box<dyn RegKeyTrait>) {
+    fn roll_back_subvert(&self, interface: &dyn RegKeyTrait) {
         let old_nameservers = match interface.get_value("NameServerBak") {
             Err(_) => return, // Not yet backed up; no rollback necessary
             Ok(s) => s,
@@ -273,7 +277,7 @@ impl WinRegDnsModifier {
         );
     }
 
-    fn revert_interface(&self, interface: &Box<dyn RegKeyTrait>) -> Result<(), String> {
+    fn revert_interface(&self, interface: &dyn RegKeyTrait) -> Result<(), String> {
         let old_name_servers = interface
             .get_value("NameServerBak")
             .expect("Interface became unrevertible. Check your DNS settings manually.");
@@ -292,7 +296,7 @@ impl WinRegDnsModifier {
         self.handle_reg_error(false, interface.delete_value("NameServerBak"))
     }
 
-    fn roll_back_revert(&self, interface: &Box<dyn RegKeyTrait>) {
+    fn roll_back_revert(&self, interface: &dyn RegKeyTrait) {
         let old_nameservers = match interface.get_value("NameServer") {
             Err(_) => return, // No NameServer; no rollback necessary
             Ok(s) => s,
@@ -313,33 +317,26 @@ impl WinRegDnsModifier {
     fn handle_reg_error<T>(&self, read_only: bool, result: io::Result<T>) -> Result<T, String> {
         match result {
             Ok(retval) => Ok(retval),
-            Err(ref e) if e.raw_os_error() == Some(PERMISSION_DENIED) => {
-                return Err(String::from(
-                    "You must have administrative privilege to modify your DNS settings",
-                ));
-            }
-            Err(ref e) if e.raw_os_error() == Some(NOT_FOUND) => {
-                return Err(format!(
-                    "Registry contains no DNS information {}",
-                    if read_only { "to display" } else { "to modify" }
-                ));
-            }
-            Err(ref e) => return Err(format!("Unexpected error: {:?}", e)),
+            Err(ref e) if e.raw_os_error() == Some(PERMISSION_DENIED) => Err(String::from(
+                "You must have administrative privilege to modify your DNS settings",
+            )),
+            Err(ref e) if e.raw_os_error() == Some(NOT_FOUND) => Err(format!(
+                "Registry contains no DNS information {}",
+                if read_only { "to display" } else { "to modify" }
+            )),
+            Err(ref e) => Err(format!("Unexpected error: {:?}", e)),
         }
     }
 
-    fn is_subverted(name_servers: &String) -> bool {
+    fn is_subverted(name_servers: &str) -> bool {
         name_servers == "127.0.0.1" || name_servers.starts_with("127.0.0.1,")
     }
 
-    fn makes_no_sense(name_servers: &String) -> bool {
-        name_servers
-            .split(",")
-            .collect::<Vec<&str>>()
-            .contains(&"127.0.0.1")
+    fn makes_no_sense(name_servers: &str) -> bool {
+        name_servers.split(',').any(|ip| ip == "127.0.0.1")
     }
 
-    fn get_default_gateway(interface: &Box<dyn RegKeyTrait>) -> Option<String> {
+    fn get_default_gateway(interface: &dyn RegKeyTrait) -> Option<String> {
         let string_opt = match (
             interface.get_value("DefaultGateway"),
             interface.get_value("DhcpDefaultGateway"),
@@ -390,7 +387,7 @@ impl RegKeyTrait for RegKeyReal {
 
     fn open_subkey_with_flags(&self, path: &str, perms: u32) -> io::Result<Box<RegKeyTrait>> {
         match self.delegate.open_subkey_with_flags(path, perms) {
-            Ok(delegate) => Ok(Box::new(RegKeyReal { delegate: delegate })),
+            Ok(delegate) => Ok(Box::new(RegKeyReal { delegate })),
             Err(e) => Err(e),
         }
     }
@@ -674,7 +671,7 @@ mod tests {
                 .get_value_result("DhcpDefaultGateway", Ok(String::from("DhcpDefaultGateway"))),
         );
 
-        let result = WinRegDnsModifier::get_default_gateway(&interface);
+        let result = WinRegDnsModifier::get_default_gateway(interface.as_ref());
 
         assert_eq!(result, Some(String::from("DhcpDefaultGateway")))
     }
@@ -690,7 +687,7 @@ mod tests {
                 ),
         );
 
-        let result = WinRegDnsModifier::get_default_gateway(&interface);
+        let result = WinRegDnsModifier::get_default_gateway(interface.as_ref());
 
         assert_eq!(result, Some(String::from("DefaultGateway")))
     }
@@ -703,7 +700,7 @@ mod tests {
                 .get_value_result("DhcpDefaultGateway", Ok(String::from("DhcpDefaultGateway"))),
         );
 
-        let result = WinRegDnsModifier::get_default_gateway(&interface);
+        let result = WinRegDnsModifier::get_default_gateway(interface.as_ref());
 
         assert_eq!(result, Some(String::from("DhcpDefaultGateway")))
     }
@@ -719,7 +716,7 @@ mod tests {
                 ),
         );
 
-        let result = WinRegDnsModifier::get_default_gateway(&interface);
+        let result = WinRegDnsModifier::get_default_gateway(interface.as_ref());
 
         assert_eq!(result, None)
     }

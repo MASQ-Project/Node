@@ -18,6 +18,7 @@ pub trait DnsModifierFactory {
     fn make(&self) -> Option<Box<dyn DnsModifier>>;
 }
 
+#[derive(Default)]
 pub struct DnsModifierFactoryReal {}
 
 impl DnsModifierFactory for DnsModifierFactoryReal {
@@ -30,8 +31,8 @@ impl DnsModifierFactory for DnsModifierFactoryReal {
 }
 
 impl DnsModifierFactoryReal {
-    pub fn new() -> DnsModifierFactoryReal {
-        DnsModifierFactoryReal {}
+    pub fn new() -> Self {
+        Default::default()
     }
 }
 

@@ -14,6 +14,7 @@ pub fn main() {
 
     let mut command = DnsUtility::new();
     let streams_ref: &mut StdStreams<'_> = &mut streams;
-    let exit_code = command.go(streams_ref, &std::env::args().collect());
-    ::std::process::exit(exit_code as i32);
+    let args: Vec<String> = std::env::args().collect();
+    let exit_code = command.go(streams_ref, &args);
+    ::std::process::exit(i32::from(exit_code));
 }
