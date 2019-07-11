@@ -5,6 +5,7 @@ use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
 use lazy_static::lazy_static;
+use serde_derive::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -30,6 +31,7 @@ pub struct AccountantSubs {
     pub report_routing_service_consumed: Recipient<ReportRoutingServiceConsumedMessage>,
     pub report_exit_service_consumed: Recipient<ReportExitServiceConsumedMessage>,
     pub report_new_payments: Recipient<ReceivedPayments>,
+    pub get_financial_statistics_sub: Recipient<GetFinancialStatisticsMessage>,
 }
 
 #[derive(Clone, PartialEq, Debug, Message)]
@@ -62,4 +64,16 @@ pub struct ReportExitServiceConsumedMessage {
     pub payload_size: usize,
     pub service_rate: u64,
     pub byte_rate: u64,
+}
+
+#[derive(Clone, PartialEq, Debug, Message)]
+pub struct GetFinancialStatisticsMessage {
+    pub client_id: u64,
+}
+
+#[derive(Clone, PartialEq, Debug, Message, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FinancialStatisticsMessage {
+    pub pending_credit: i64,
+    pub pending_debt: i64,
 }

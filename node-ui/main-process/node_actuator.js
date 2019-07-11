@@ -19,6 +19,10 @@ module.exports = class NodeActuator {
     return uiInterface.setConsumingWalletPassword(password)
   }
 
+  getFinancialStatistics () {
+    return uiInterface.getFinancialStatistics()
+  }
+
   async setStatusToOffThenRevert () {
     this.substratumNodeProcess = null
 

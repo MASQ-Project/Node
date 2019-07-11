@@ -8,15 +8,16 @@ use crate::banned_dao::BannedDao;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::blockchain::blockchain_interface::Transaction;
 use crate::persistent_configuration::PersistentConfiguration;
-use crate::sub_lib::accountant::AccountantConfig;
-use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
+use crate::sub_lib::accountant::{AccountantConfig, GetFinancialStatisticsMessage};
+use crate::sub_lib::accountant::{AccountantSubs, FinancialStatisticsMessage};
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
+use crate::sub_lib::ui_gateway::{UiCarrierMessage, UiMessage};
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
@@ -75,6 +76,7 @@ pub struct Accountant {
     report_accounts_payable_sub: Option<Recipient<ReportAccountsPayable>>,
     retrieve_transactions_sub: Option<Recipient<RetrieveTransactions>>,
     report_new_payments_sub: Option<Recipient<ReceivedPayments>>,
+    ui_carrier_message_sub: Option<Recipient<UiCarrierMessage>>,
     logger: Logger,
 }
 
@@ -96,6 +98,7 @@ impl Handler<BindMessage> for Accountant {
         self.retrieve_transactions_sub =
             Some(msg.peer_actors.blockchain_bridge.retrieve_transactions);
         self.report_new_payments_sub = Some(msg.peer_actors.accountant.report_new_payments);
+        self.ui_carrier_message_sub = Some(msg.peer_actors.ui_gateway.ui_message_sub.clone());
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
 
         ctx.run_interval(self.config.payable_scan_interval, |accountant, _ctx| {
@@ -224,6 +227,40 @@ impl Handler<ReportExitServiceConsumedMessage> for Accountant {
     }
 }
 
+impl Handler<GetFinancialStatisticsMessage> for Accountant {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: GetFinancialStatisticsMessage,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let pending_credit = self
+            .receivable_dao
+            .receivables()
+            .into_iter()
+            .map(|account| account.balance)
+            .sum();
+        let pending_debt = self
+            .payable_dao
+            .non_pending_payables()
+            .into_iter()
+            .map(|account| account.balance)
+            .sum();
+        self.ui_carrier_message_sub
+            .as_ref()
+            .expect("UiGateway is unbound")
+            .try_send(UiCarrierMessage {
+                client_id: msg.client_id,
+                data: UiMessage::FinancialStatisticsResponse(FinancialStatisticsMessage {
+                    pending_credit,
+                    pending_debt,
+                }),
+            })
+            .expect("UiGateway is dead");
+    }
+}
+
 impl Accountant {
     pub fn new(
         config: AccountantConfig,
@@ -241,6 +278,7 @@ impl Accountant {
             report_accounts_payable_sub: None,
             retrieve_transactions_sub: None,
             report_new_payments_sub: None,
+            ui_carrier_message_sub: None,
             logger: Logger::new("Accountant"),
         }
     }
@@ -261,6 +299,7 @@ impl Accountant {
                 .clone()
                 .recipient::<ReportExitServiceConsumedMessage>(),
             report_new_payments: addr.clone().recipient::<ReceivedPayments>(),
+            get_financial_statistics_sub: addr.clone().recipient::<GetFinancialStatisticsMessage>(),
         }
     }
 
@@ -433,13 +472,17 @@ pub mod tests {
     use super::super::payable_dao::PayableAccount;
     use super::*;
     use crate::accountant::receivable_dao::ReceivableAccount;
+    use crate::accountant::test_utils::make_payable_account;
     use crate::accountant::test_utils::make_receivable_account;
     use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::blockchain::blockchain_interface::Transaction;
     use crate::database::dao_utils::from_time_t;
     use crate::database::dao_utils::to_time_t;
-    use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
+    use crate::sub_lib::accountant::{
+        FinancialStatisticsMessage, ReportRoutingServiceConsumedMessage,
+    };
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
+    use crate::sub_lib::ui_gateway::{UiCarrierMessage, UiMessage};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -518,6 +561,7 @@ pub mod tests {
     pub struct ReceivableDaoMock {
         more_money_receivable_parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
         more_money_received_parameters: Arc<Mutex<Vec<Vec<Transaction>>>>,
+        receivables_results: RefCell<Vec<Vec<ReceivableAccount>>>,
         new_delinquencies_parameters: Arc<Mutex<Vec<(SystemTime, PaymentCurves)>>>,
         new_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
         paid_delinquencies_parameters: Arc<Mutex<Vec<PaymentCurves>>>,
@@ -548,7 +592,7 @@ pub mod tests {
         }
 
         fn receivables(&self) -> Vec<ReceivableAccount> {
-            unimplemented!()
+            self.receivables_results.borrow_mut().remove(0)
         }
 
         fn new_delinquencies(
@@ -618,6 +662,11 @@ pub mod tests {
             self.paid_delinquencies_results.borrow_mut().push(result);
             self
         }
+
+        fn receivables_result(self, result: Vec<ReceivableAccount>) -> ReceivableDaoMock {
+            self.receivables_results.borrow_mut().push(result);
+            self
+        }
     }
 
     struct BannedDaoMock {
@@ -666,6 +715,65 @@ pub mod tests {
             self.unban_parameters = parameters.clone();
             self
         }
+    }
+
+    #[test]
+    fn accountant_responds_with_financial_statistics_when_instructed() {
+        let config = AccountantConfig {
+            payable_scan_interval: Duration::from_secs(10_000),
+            payment_received_scan_interval: Duration::from_secs(10_000),
+            earning_wallet: make_wallet("blah"),
+        };
+        let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
+
+        thread::spawn(move || {
+            let system =
+                System::new("accountant_responds_with_financial_statistics_when_instructed");
+            let payable_dao = PayableDaoMock::new().non_pending_payables_result(vec![
+                make_payable_account(20),
+                make_payable_account(20),
+                make_payable_account(2),
+            ]);
+            let receivable_dao = ReceivableDaoMock::new().receivables_result(vec![
+                make_receivable_account(35, false),
+                make_receivable_account(30, false),
+                make_receivable_account(4, false),
+            ]);
+
+            let subject = Accountant::new(
+                config,
+                Box::new(payable_dao),
+                Box::new(receivable_dao),
+                Box::new(BannedDaoMock::new()),
+                Box::new(PersistentConfigurationMock::new()),
+            );
+            let addr = subject.start();
+            let subject_subs = Accountant::make_subs_from(&addr);
+            let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+            subject_subs
+                .bind
+                .try_send(BindMessage { peer_actors })
+                .unwrap();
+
+            addr.try_send(GetFinancialStatisticsMessage { client_id: 1234 })
+                .unwrap();
+
+            system.run();
+        });
+
+        ui_gateway_awaiter.await_message_count(1);
+
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        assert_eq!(
+            ui_gateway_recording.get_record::<UiCarrierMessage>(0),
+            &UiCarrierMessage {
+                client_id: 1234,
+                data: UiMessage::FinancialStatisticsResponse(FinancialStatisticsMessage {
+                    pending_credit: 69_000_000_000,
+                    pending_debt: 42_000_000_000
+                })
+            }
+        );
     }
 
     #[test]
@@ -869,6 +977,7 @@ pub mod tests {
         let receivable_dao = Box::new(ReceivableDaoMock {
             more_money_receivable_parameters: Default::default(),
             more_money_received_parameters: more_money_received_mock.clone(),
+            receivables_results: Default::default(),
             new_delinquencies_parameters: Default::default(),
             new_delinquencies_results: Default::default(),
             paid_delinquencies_parameters: Default::default(),

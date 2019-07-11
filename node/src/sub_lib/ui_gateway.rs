@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::sub_lib::accountant::FinancialStatisticsMessage;
 use crate::sub_lib::peer_actors::BindMessage;
 use actix::Message;
 use actix::Recipient;
@@ -29,6 +30,8 @@ pub struct UiCarrierMessage {
 pub enum UiMessage {
     SetWalletPassword(String),
     SetWalletPasswordResponse(bool),
+    GetFinancialStatisticsMessage,
+    FinancialStatisticsResponse(FinancialStatisticsMessage),
     ShutdownMessage,
     GetNodeDescriptor,
     NodeDescriptor(String),

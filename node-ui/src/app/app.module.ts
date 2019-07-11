@@ -12,6 +12,9 @@ import {NodeConfigurationComponent} from './node-configuration/node-configuratio
 import {FormsModule, ReactiveFormsModule} from '@angular/forms';
 import {NetworkHelpComponent} from './network-help/network-help.component';
 import {ConsumingWalletPasswordPromptComponent} from './consuming-wallet-password-prompt/consuming-wallet-password-prompt.component';
+import {FinancialStatisticsComponent} from './financial-statistics/financial-statistics.component';
+import {TabsComponent} from './tabs/tabs.component';
+import {TabComponent} from './tabs/tab.component';
 
 @NgModule({
   declarations: [
@@ -21,7 +24,10 @@ import {ConsumingWalletPasswordPromptComponent} from './consuming-wallet-passwor
     FooterComponent,
     NodeConfigurationComponent,
     NetworkHelpComponent,
-    ConsumingWalletPasswordPromptComponent
+    ConsumingWalletPasswordPromptComponent,
+    FinancialStatisticsComponent,
+    TabsComponent,
+    TabComponent,
   ],
   imports: [
     BrowserModule,
@@ -32,5 +38,4 @@ import {ConsumingWalletPasswordPromptComponent} from './consuming-wallet-passwor
   providers: [ElectronService],
   bootstrap: [AppComponent]
 })
-export class AppModule {
-}
+export class AppModule {}

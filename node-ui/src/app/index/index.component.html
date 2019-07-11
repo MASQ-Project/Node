@@ -3,37 +3,42 @@
 <div id="index-component">
   <app-header (openSettingsEvent)="this.onConfigurationMode($event)"></app-header>
 
-  <div class="node-status">
-    <div class="node-status__display">
-      <span class="node-status__display-label">Node Status:</span>
-      <span class="node-status__display-status" id="node-status-label">{{statusText()}}</span>
-    </div>
+  <app-tabs [selectConfigurationTab]="this.configurationTabSelected">
+    <app-tab tabTitle="Status">
+      <div class="node-status">
+        <div class="node-status__display">
+          <span class="node-status__display-label">Node Status:</span>
+          <span class="node-status__display-status" id="node-status-label">{{statusText()}}</span>
+        </div>
 
-    <div class="node-status__actions" [class.node-status__actions--invalid]="isInvalid()" id="node-status-buttons">
-      <button (click)="off()" id="off" [class.button-active]="isOff()">Off</button>
-      <button (click)="serve()" id="serving" [class.button-active]="isServing()"
-              [class.button-highlit]="this.isServingConfigurationShown()">{{isServing() ? "Serving" : "Serve"}}</button>
-      <button (click)="consume()" id="consuming" [class.button-active]="isConsuming()"
-              [class.button-highlit]="this.isConsumingConfigurationShown()">{{isConsuming() ? "Consuming" : "Consume"}}</button>
-    </div>
-  </div>
+        <div class="node-status__actions" [class.node-status__actions--invalid]="isInvalid()" id="node-status-buttons">
+          <button (click)="off()" id="off" [class.button-active]="isOff()">Off</button>
+          <button (click)="serve()" id="serving" [class.button-active]="isServing()"
+                  [class.button-highlit]="this.isServingConfigurationShown()">{{isServing() ? "Serving" : "Serve"}}</button>
+          <button (click)="consume()" id="consuming" [class.button-active]="isConsuming()"
+                  [class.button-highlit]="this.isConsumingConfigurationShown()">{{isConsuming() ? "Consuming" : "Consume"}}</button>
+        </div>
+      </div>
 
-  <div class="node-field" *ngIf="!(this.isConfigurationShown() || this.isConsumingWalletPasswordPromptShown)">
-    <div class="node-field__display">
-      <span class="node-field__display-label">Node Descriptor:</span>
-    </div>
-    <div class="node-field__display">
-      <span id="node-descriptor" class="node-field__display-text">{{nodeDescriptor}}</span>
-      <button (click)="copyNodeDescriptor()" id="copy">Copy</button>
-    </div>
-  </div>
+      <div class="node-field" *ngIf="!(this.isConfigurationShown() || this.isConsumingWalletPasswordPromptShown)">
+        <div class="node-field__display">
+          <span class="node-field__display-label">Node Descriptor:</span>
+        </div>
+        <div class="node-field__display">
+          <span id="node-descriptor" class="node-field__display-text">{{nodeDescriptor}}</span>
+          <button (click)="copyNodeDescriptor()" id="copy">Copy</button>
+        </div>
+      </div>
 
-  <app-consuming-wallet-password-prompt id="password-prompt" *ngIf="this.isConsumingWalletPasswordPromptShown" (unlock)="this.onConsumingWalletPasswordUnlock($event)" [unlockFailed]="this.unlockFailed"></app-consuming-wallet-password-prompt>
+      <app-consuming-wallet-password-prompt id="password-prompt" *ngIf="this.isConsumingWalletPasswordPromptShown" (unlock)="this.onConsumingWalletPasswordUnlock($event)" [unlockFailed]="this.unlockFailed"></app-consuming-wallet-password-prompt>
+      <app-node-configuration *ngIf="this.isConfigurationShown()"
+                              [mode]="configurationMode"
+                              [status]="status"
+                              (cancelled)="onCancelEvent()"
+                              (saved)="this.onConfigurationSaved($event)"></app-node-configuration>
 
-  <app-node-configuration *ngIf="this.isConfigurationShown()"
-                          [mode]="configurationMode"
-                          [status]="status"
-                          (cancelled)="onCancelEvent()"
-                          (saved)="this.onConfigurationSaved($event)"></app-node-configuration>
+    </app-tab>
+    <app-tab tabTitle="Financials"><app-financial-statistics [status]="status"></app-financial-statistics></app-tab>
+  </app-tabs>
   <app-footer></app-footer>
 </div>

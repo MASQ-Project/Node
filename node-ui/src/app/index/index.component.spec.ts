@@ -3,7 +3,7 @@
 import {async, ComponentFixture, TestBed} from '@angular/core/testing';
 import {IndexComponent} from './index.component';
 import {FooterComponent} from '../footer/footer.component';
-import {func, object, reset, verify, when} from 'testdouble';
+import {func, reset, verify, when} from 'testdouble';
 import {MainService} from '../main.service';
 import {BehaviorSubject, of} from 'rxjs';
 import {NodeStatus} from '../node-status.enum';
@@ -14,6 +14,8 @@ import {ConfigService} from '../config.service';
 import {Component, Input} from '@angular/core';
 import {ConfigurationMode} from '../configuration-mode.enum';
 import {ConsumingWalletPasswordPromptComponent} from '../consuming-wallet-password-prompt/consuming-wallet-password-prompt.component';
+import {TabsComponent} from '../tabs/tabs.component';
+import {TabComponent} from '../tabs/tab.component';
 
 @Component({selector: 'app-node-configuration', template: '<div id="node-config"></div>'})
 class NodeConfigurationStubComponent {
@@ -23,6 +25,11 @@ class NodeConfigurationStubComponent {
 
 @Component({selector: 'app-header', template: ''})
 class HeaderStubComponent {
+}
+
+@Component({selector: 'app-financial-statistics', template: ''})
+class FinancialStatisticsStubComponent {
+  @Input() status: NodeStatus;
 }
 
 describe('IndexComponent', () => {
@@ -53,7 +60,7 @@ describe('IndexComponent', () => {
       nodeStatus: mockStatus.asObservable(),
       nodeDescriptor: mockNodeDescriptor.asObservable(),
       setConsumingWalletPasswordResponse: mockSetWalletPasswordResponse.asObservable(),
-      lookupIp: () => of('')
+      lookupIp: () => of(''),
     };
     mockConfigService = {
       getConfig: func('getConfig'),
@@ -68,6 +75,9 @@ describe('IndexComponent', () => {
         HeaderStubComponent,
         NodeConfigurationStubComponent,
         ConsumingWalletPasswordPromptComponent,
+        FinancialStatisticsStubComponent,
+        TabsComponent,
+        TabComponent,
         FooterComponent,
       ],
       imports: [
@@ -769,6 +779,27 @@ describe('IndexComponent', () => {
 
       it('hides the configuration', () => {
         expect(component.configurationMode).toBe(ConfigurationMode.Hidden);
+      });
+    });
+  });
+
+  describe('onConfigurationMode', () => {
+    beforeEach(() => {
+      component.onConfigurationMode(ConfigurationMode.Configuring);
+    });
+    it('sets configurationTabSelected', () => {
+      expect(component.configurationTabSelected).toBeTruthy();
+    });
+    it('sets configurationMode', () => {
+      expect(component.configurationMode).toBe(ConfigurationMode.Configuring);
+    });
+
+    describe('when called again', () => {
+      beforeEach(() => {
+        component.onConfigurationMode(ConfigurationMode.Hidden);
+      });
+      it('sets configurationTabSelected back to false', () => {
+        expect(component.configurationTabSelected).toBeFalsy();
       });
     });
   });

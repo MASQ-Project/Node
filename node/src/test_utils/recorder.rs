@@ -4,11 +4,11 @@ use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
 use crate::neighborhood::gossip::Gossip;
 use crate::stream_messages::{AddStreamMsg, PoolBindMessage, RemoveStreamMsg};
-use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
+use crate::sub_lib::accountant::{AccountantSubs, GetFinancialStatisticsMessage};
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, SetWalletPasswordMsg};
 use crate::sub_lib::dispatcher::InboundClientData;
@@ -98,6 +98,7 @@ recorder_message_handler!(DispatcherNodeQueryResponse);
 recorder_message_handler!(DispatcherNodeQueryMessage);
 recorder_message_handler!(UiCarrierMessage);
 recorder_message_handler!(FromUiMessage);
+recorder_message_handler!(GetFinancialStatisticsMessage);
 recorder_message_handler!(ReportRoutingServiceProvidedMessage);
 recorder_message_handler!(ReportExitServiceProvidedMessage);
 recorder_message_handler!(ReportRoutingServiceConsumedMessage);
@@ -350,6 +351,7 @@ pub fn make_accountant_subs_from(addr: &Addr<Recorder>) -> AccountantSubs {
             .recipient::<ReportRoutingServiceConsumedMessage>(),
         report_exit_service_consumed: addr.clone().recipient::<ReportExitServiceConsumedMessage>(),
         report_new_payments: addr.clone().recipient::<ReceivedPayments>(),
+        get_financial_statistics_sub: addr.clone().recipient::<GetFinancialStatisticsMessage>(),
     }
 }
 

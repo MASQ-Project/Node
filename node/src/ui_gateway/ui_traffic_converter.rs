@@ -23,7 +23,6 @@ impl UiTrafficConverter for UiTrafficConverterReal {
 }
 
 impl UiTrafficConverterReal {
-    #[allow(dead_code)]
     pub fn new() -> UiTrafficConverterReal {
         UiTrafficConverterReal {}
     }

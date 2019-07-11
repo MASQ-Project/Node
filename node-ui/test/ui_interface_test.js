@@ -253,6 +253,65 @@ describe('Given a mock WebSocket', () => {
           })
         })
 
+        describe('when it is directed to send a GetFinancialStatisticsMessage message', () => {
+          let mockCallback = td.function()
+          let failure = false
+          beforeEach(() => {
+            subject.getFinancialStatistics().then(descriptor => mockCallback(descriptor), () => { failure = true })
+          })
+
+          describe('and immediately directed to send another before the first response arrives', () => {
+            let actualError, unexpectedSuccess
+            beforeEach((done) => {
+              subject.getFinancialStatistics()
+                .then(success => {
+                  unexpectedSuccess = success
+                  done()
+                })
+                .catch((e) => {
+                  actualError = e
+                  done()
+                })
+            })
+
+            it('does not succeed', () => {
+              assert.strictEqual(unexpectedSuccess, undefined)
+            })
+
+            it('fails because another call is already in progress', () => {
+              assert.strictEqual(actualError.message, 'CallAlreadyInProgress')
+            })
+          })
+
+          it('the WebSocket client is instructed to send the proper message', () => {
+            let captor = td.matchers.captor()
+            td.verify(webSocketClient.send(captor.capture()))
+            assert.deepStrictEqual(JSON.parse(captor.value), 'GetFinancialStatisticsMessage')
+          })
+
+          describe('when onmessage is invoked', () => {
+            beforeEach(async () => {
+              webSocketClient.onmessage({ data: '{"FinancialStatisticsResponse": "second_descriptor"}' })
+              await connectPromise
+            })
+
+            it('fires the callback', () => {
+              td.verify(mockCallback('second_descriptor'))
+            })
+          })
+
+          describe('when onerror is invoked', () => {
+            beforeEach(async () => {
+              webSocketClient.onerror('the error')
+              await connectPromise
+            })
+
+            it('rejects the pending GetFinancialStatisticsMessage', () => {
+              assert.strictEqual(failure, true)
+            })
+          })
+        })
+
         describe('then experiences a connection error', () => {
           beforeEach(async () => {
             webSocketClient.onerror('My tummy hurts')

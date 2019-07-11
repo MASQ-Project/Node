@@ -1,0 +1,32 @@
+// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+@import '../../styles/variables';
+@import '../../styles/colors';
+@import '../../styles/mixins';
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  padding-left: 5px;
+  margin-top: 5px;
+  margin-bottom: 0;
+  list-style: none;
+  border-bottom: 1px solid color('text', 'light');
+  text-transform: uppercase;
+  font-family: inherit;
+  letter-spacing: fontSize('letter-spacing');
+  font-weight: normal;
+}
+
+.tab-item {
+  padding: 7px;
+  margin-bottom: -1px;
+}
+
+.tab-item.active {
+  background-color: color('background', 'medium');
+  border-color: #dee2e6 #dee2e6 #DDDDDD;
+  border: 1px solid;
+  border-top-left-radius: 3px;
+  border-top-right-radius: 3px;
+  color: color('text', 'light');
+}

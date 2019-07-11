@@ -873,6 +873,16 @@ describe('NodeActuator', () => {
     })
   })
 
+  describe('get financial statistics', () => {
+    beforeEach(() => {
+      subject.getFinancialStatistics()
+    })
+
+    it('calls getFinancialStatistics on ui_interface', () => {
+      td.verify(mockUiInterface.getFinancialStatistics())
+    })
+  })
+
   describe('shutdown when reversion is successful', () => {
     beforeEach(async () => {
       td.when(mockUiInterface.isConnected()).thenReturn(true)

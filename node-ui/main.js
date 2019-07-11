@@ -127,12 +127,18 @@ ipcMain.on('change-node-state', (event, command, args) => {
 })
 
 ipcMain.on('set-consuming-wallet-password', (event, password, args) => {
-  event.returnValue = 42 // 42 is meaningless here; if we do not set returnValue, sendSync will block the render process forever
-
   nodeActuator.setConsumingWalletPassword(password).then(success => {
     mainWindow.webContents.send('set-consuming-wallet-password-response', success)
   }).catch(() => {
     mainWindow.webContents.send('set-consuming-wallet-password-response', false)
+  })
+})
+
+ipcMain.on('get-financial-statistics', (event, data, args) => {
+  nodeActuator.getFinancialStatistics().then(result => {
+    mainWindow.webContents.send('get-financial-statistics-response', result)
+  }).catch((error) => {
+    mainWindow.webContents.send('get-financial-statistics-response-error', error)
   })
 })
 

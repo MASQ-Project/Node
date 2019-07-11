@@ -9,6 +9,7 @@ module.exports = (() => {
   let webSocket = null
   let getNodeDescriptorCallbackPair = null
   let setConsumingWalletPasswordCallbackPair = null
+  let getFinancialStatisticsCallbackPair = null
 
   function connect () {
     return new Promise((resolve, reject) => {
@@ -29,6 +30,11 @@ module.exports = (() => {
         if (success !== undefined) {
           setConsumingWalletPasswordCallbackPair.resolve(success)
         }
+
+        const financialStatistics = data['FinancialStatisticsResponse']
+        if (financialStatistics) {
+          getFinancialStatisticsCallbackPair.resolve(financialStatistics)
+        }
       }
       ws.onerror = (event) => {
         if (getNodeDescriptorCallbackPair) {
@@ -37,6 +43,10 @@ module.exports = (() => {
 
         if (setConsumingWalletPasswordCallbackPair) {
           setConsumingWalletPasswordCallbackPair.reject()
+        }
+
+        if (getFinancialStatisticsCallbackPair) {
+          getFinancialStatisticsCallbackPair.reject()
         }
 
         webSocket = null
@@ -149,6 +159,24 @@ module.exports = (() => {
     })
   }
 
+  async function getFinancialStatistics () {
+    if (getFinancialStatisticsCallbackPair) {
+      return Promise.reject(Error('CallAlreadyInProgress'))
+    }
+    return new Promise((resolve, reject) => {
+      getFinancialStatisticsCallbackPair = {
+        resolve: (success) => {
+          getFinancialStatisticsCallbackPair = null
+          resolve(success)
+        },
+        reject: (e) => {
+          reject(e)
+        }
+      }
+      webSocket.send('"GetFinancialStatisticsMessage"')
+    })
+  }
+
   function createSocket (port) {
     return webSocketWrapper.create(`${UI_INTERFACE_URL}:${port}`, UI_PROTOCOL)
   }
@@ -163,6 +191,7 @@ module.exports = (() => {
     verifyNodeDown: verifyNodeDown,
     shutdown: shutdown,
     getNodeDescriptor: getNodeDescriptor,
-    setConsumingWalletPassword: setConsumingWalletPassword
+    setConsumingWalletPassword: setConsumingWalletPassword,
+    getFinancialStatistics: getFinancialStatistics
   }
 })()

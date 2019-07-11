@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::sub_lib::accountant::GetFinancialStatisticsMessage;
 use crate::sub_lib::blockchain_bridge::SetWalletPasswordMsg;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
@@ -20,6 +21,7 @@ use actix::Recipient;
 struct UiGatewayOutSubs {
     ui_message_sub: Recipient<UiCarrierMessage>,
     blockchain_bridge_set_consuming_wallet_password_sub: Recipient<SetWalletPasswordMsg>,
+    accountant_get_financial_statistics_sub: Recipient<GetFinancialStatisticsMessage>,
 }
 
 pub struct UiGateway {
@@ -70,13 +72,17 @@ impl Handler<BindMessage> for UiGateway {
                 .blockchain_bridge
                 .set_consuming_wallet_password_sub
                 .clone(),
+            accountant_get_financial_statistics_sub: msg
+                .peer_actors
+                .accountant
+                .get_financial_statistics_sub
+                .clone(),
         };
         self.subs = Some(subs);
         self.websocket_supervisor = Some(Box::new(WebSocketSupervisorReal::new(
             self.port,
             msg.peer_actors.ui_gateway.from_ui_message_sub.clone(),
         )));
-        ()
     }
 }
 
@@ -97,6 +103,15 @@ impl Handler<UiCarrierMessage> for UiGateway {
                     })
                     .expect("Blockchain Bridge is dead");
             }
+            UiMessage::GetFinancialStatisticsMessage => self
+                .subs
+                .as_ref()
+                .expect("UiGateway is unbound")
+                .accountant_get_financial_statistics_sub
+                .try_send(GetFinancialStatisticsMessage {
+                    client_id: msg.client_id,
+                })
+                .expect("Accountant is dead"),
             UiMessage::ShutdownMessage => {
                 info!(self.logger, String::from("Received shutdown order"));
                 self.shutdown_supervisor.shutdown();
@@ -111,7 +126,9 @@ impl Handler<UiCarrierMessage> for UiGateway {
                     data: UiMessage::NodeDescriptor(self.node_descriptor.clone()),
                 })
                 .expect("UiGateway is dead"),
-            UiMessage::NodeDescriptor(_) | UiMessage::SetWalletPasswordResponse(_) => {
+            UiMessage::NodeDescriptor(_)
+            | UiMessage::SetWalletPasswordResponse(_)
+            | UiMessage::FinancialStatisticsResponse(_) => {
                 let marshalled = self
                     .converter
                     .marshal(msg.data)
@@ -154,6 +171,7 @@ impl Handler<FromUiMessage> for UiGateway {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sub_lib::accountant::{FinancialStatisticsMessage, GetFinancialStatisticsMessage};
     use crate::sub_lib::blockchain_bridge::SetWalletPasswordMsg;
     use crate::sub_lib::ui_gateway::UiMessage;
     use crate::test_utils::logging::init_test_logging;
@@ -178,6 +196,9 @@ mod tests {
                     .clone()
                     .recipient::<SetWalletPasswordMsg>(
                 ),
+                accountant_get_financial_statistics_sub: addr
+                    .clone()
+                    .recipient::<GetFinancialStatisticsMessage>(),
             }
         }
     }
@@ -297,6 +318,37 @@ mod tests {
             self.shutdown_parameters = parameters.clone();
             self
         }
+    }
+
+    #[test]
+    fn receiving_a_get_financial_statistics_message_sends_traffic_to_the_accountant() {
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let subject = UiGateway::new(&UiGatewayConfig {
+            ui_port: find_free_port(),
+            node_descriptor: String::from(""),
+        });
+        let system = System::new(
+            "receiving_a_get_financial_statistics_message_sends_traffic_to_the_accountant",
+        );
+        let addr: Addr<UiGateway> = subject.start();
+        let mut peer_actors = peer_actors_builder().accountant(accountant).build();
+        peer_actors.ui_gateway = UiGateway::make_subs_from(&addr);
+        addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        addr.try_send(UiCarrierMessage {
+            client_id: 3,
+            data: UiMessage::GetFinancialStatisticsMessage,
+        })
+        .unwrap();
+
+        System::current().stop();
+        system.run();
+
+        let accountant_recorder = accountant_recording_arc.lock().unwrap();
+        assert_eq!(
+            accountant_recorder.get_record::<GetFinancialStatisticsMessage>(0),
+            &GetFinancialStatisticsMessage { client_id: 3 }
+        )
     }
 
     #[test]
@@ -513,6 +565,66 @@ mod tests {
             &(
                 1234 as u64,
                 serde_json::to_string(&UiMessage::SetWalletPasswordResponse(true)).unwrap()
+            )
+        )
+    }
+
+    #[test]
+    fn financial_statistics_response_message_is_directed_to_websocket_supervisor() {
+        let (ui_gateway_recorder, _, _) = make_recorder();
+        let receive_parameters_arc = Arc::new(Mutex::new(vec![]));
+
+        let system = System::new(
+            "financial_statistics_response_message_is_directed_to_websocket_supervisor",
+        );
+        let mut subject = UiGateway::new(&UiGatewayConfig {
+            ui_port: find_free_port(),
+            node_descriptor: String::from(""),
+        });
+        subject.websocket_supervisor = Some(Box::new(
+            WebSocketSupervisorMock::new().send_parameters(&receive_parameters_arc),
+        ));
+        let ui_gateway_recorder_addr = ui_gateway_recorder.start();
+        subject.subs = Some(UiGatewayOutSubs {
+            ui_message_sub: ui_gateway_recorder_addr.recipient::<UiCarrierMessage>(),
+            ..Default::default()
+        });
+        let subject_addr = subject.start();
+        let subject_subs = UiGateway::make_subs_from(&subject_addr);
+
+        subject_subs
+            .ui_message_sub
+            .try_send(UiCarrierMessage {
+                client_id: 1234,
+                data: UiMessage::FinancialStatisticsResponse(FinancialStatisticsMessage {
+                    pending_credit: 1_000_000_001,
+                    pending_debt: 2_000_000_001,
+                }),
+            })
+            .unwrap();
+
+        System::current().stop();
+        system.run();
+
+        wait_for(None, None, || {
+            receive_parameters_arc.lock().unwrap().len() > 0
+        });
+        assert_eq!(
+            receive_parameters_arc
+                .clone()
+                .lock()
+                .unwrap()
+                .get(0)
+                .unwrap(),
+            &(
+                1234 as u64,
+                serde_json::to_string(&UiMessage::FinancialStatisticsResponse(
+                    FinancialStatisticsMessage {
+                        pending_credit: 1_000_000_001,
+                        pending_debt: 2_000_000_001
+                    }
+                ))
+                .unwrap()
             )
         )
     }

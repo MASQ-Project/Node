@@ -387,10 +387,12 @@ mod tests {
     use crate::neighborhood::gossip::Gossip;
     use crate::stream_messages::AddStreamMsg;
     use crate::stream_messages::RemoveStreamMsg;
-    use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
     use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
     use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
     use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
+    use crate::sub_lib::accountant::{
+        GetFinancialStatisticsMessage, ReportExitServiceConsumedMessage,
+    };
     use crate::sub_lib::blockchain_bridge::{ReportAccountsPayable, SetWalletPasswordMsg};
     use crate::sub_lib::crash_point::CrashPoint;
     use crate::sub_lib::cryptde::PlainData;
@@ -566,6 +568,9 @@ mod tests {
                     .clone()
                     .recipient::<ReportExitServiceConsumedMessage>(),
                 report_new_payments: addr.clone().recipient::<ReceivedPayments>(),
+                get_financial_statistics_sub: addr
+                    .clone()
+                    .recipient::<GetFinancialStatisticsMessage>(),
             }
         }
 

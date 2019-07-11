@@ -61,7 +61,7 @@ export class MainService {
   }
 
   setConsumingWalletPassword(password: string) {
-    this.electronService.ipcRenderer.sendSync('set-consuming-wallet-password', password);
+    this.electronService.ipcRenderer.send('set-consuming-wallet-password', password);
   }
 
   private changeNodeState(state, config?: NodeConfiguration): void {

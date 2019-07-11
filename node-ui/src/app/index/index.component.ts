@@ -41,26 +41,27 @@ export class IndexComponent {
 
   @Output() status: NodeStatus = NodeStatus.Off;
   @Output() configurationMode: ConfigurationMode = ConfigurationMode.Hidden;
+  @Output() configurationTabSelected: boolean;
   isConsumingWalletPasswordPromptShown: boolean;
   unlockFailed: boolean;
   unlocked: boolean;
   nodeDescriptor = '';
 
   static resizeSmall() {
-    if (window.outerHeight !== 360) {
-      window.resizeTo(640, 360);
+    if (window.outerHeight !== 410) {
+      window.resizeTo(640, 410);
     }
   }
 
   static resizeMedium() {
-    if (window.outerHeight !== 450) {
-      window.resizeTo(640, 450);
+    if (window.outerHeight !== 500) {
+      window.resizeTo(640, 500);
     }
   }
 
   static resizeLarge() {
-    if (window.outerHeight !== 710) {
-      window.resizeTo(640, 710);
+    if (window.outerHeight !== 760) {
+      window.resizeTo(640, 760);
     }
   }
 
@@ -200,6 +201,7 @@ export class IndexComponent {
 
   onConfigurationMode($event: ConfigurationMode) {
     IndexComponent.resizeLarge();
+    this.configurationTabSelected = !this.configurationTabSelected;
     this.configurationMode = $event;
   }
 

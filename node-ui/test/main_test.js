@@ -5,22 +5,24 @@
 const td = require('testdouble')
 
 describe('main', () => {
-  let mockApp, mockDialog, mockEvent, mockHttp, mockIpcMain, mockMenu, mainWindowOnClose, MockNodeActuator, appOnReady, ipcMainOnIpLookup, ipcMainOnChangeNodeState, process
+  let mockApp, mockDialog, mockEvent, mockHttp, mockIpcMain, mockMenu, mainWindow, webContents, mainWindowOnClose, MockNodeActuator, appOnReady, ipcMainOnIpLookup, ipcMainOnChangeNodeState, ipcMainOnGetFinancialStatistics, ipcMainOnSetConsumingWalletPassword, process
 
   beforeEach(() => {
     mockEvent = td.object(['preventDefault'])
     mockApp = td.object(['getName', 'on', 'quit'])
     mockDialog = td.object(['showErrorBox'])
     mockIpcMain = td.object(['on'])
-    MockNodeActuator = td.constructor(['shutdown', 'off', 'serving', 'consuming'])
+    MockNodeActuator = td.constructor(['shutdown', 'off', 'serving', 'consuming', 'getFinancialStatistics', 'setConsumingWalletPassword'])
     mockMenu = td.object(['setApplicationMenu', 'buildFromTemplate'])
     td.replace('../main-process/node_actuator', MockNodeActuator)
     mockHttp = td.replace('http')
     process = td.replace('../main-process/wrappers/process_wrapper')
 
-    const MockBrowserWindow = td.constructor(['on', 'loadURL'])
+    webContents = td.object(['send'])
+    mainWindow = td.constructor(['on', 'loadURL'])
+    mainWindow.prototype.webContents = webContents
     mainWindowOnClose = td.matchers.captor()
-    td.when(MockBrowserWindow.prototype.on('close', mainWindowOnClose.capture())).thenReturn()
+    td.when(mainWindow.prototype.on('close', mainWindowOnClose.capture())).thenReturn()
 
     appOnReady = td.matchers.captor()
     td.when(mockApp.on('ready', appOnReady.capture())).thenReturn(mockApp)
@@ -31,9 +33,15 @@ describe('main', () => {
     ipcMainOnChangeNodeState = td.matchers.captor()
     td.when(mockIpcMain.on('change-node-state', ipcMainOnChangeNodeState.capture())).thenReturn(mockIpcMain)
 
+    ipcMainOnGetFinancialStatistics = td.matchers.captor()
+    td.when(mockIpcMain.on('get-financial-statistics', ipcMainOnGetFinancialStatistics.capture())).thenReturn(mockIpcMain)
+
+    ipcMainOnSetConsumingWalletPassword = td.matchers.captor()
+    td.when(mockIpcMain.on('set-consuming-wallet-password', ipcMainOnSetConsumingWalletPassword.capture())).thenReturn(mockIpcMain)
+
     td.replace('electron', {
       app: mockApp,
-      BrowserWindow: MockBrowserWindow,
+      BrowserWindow: mainWindow,
       dialog: mockDialog,
       ipcMain: mockIpcMain,
       Menu: mockMenu
@@ -208,6 +216,56 @@ describe('main', () => {
         it("returns 'Invalid'", () => {
           expect(event.returnValue).toBe('Invalid')
         })
+      })
+    })
+  })
+
+  describe('get-financial-statistics', () => {
+    beforeEach(() => {
+      appOnReady.value()
+    })
+
+    describe('success', () => {
+      beforeEach(async () => {
+        td.when(MockNodeActuator.prototype.getFinancialStatistics()).thenResolve('results')
+        await ipcMainOnGetFinancialStatistics.value({}, {}, {})
+      })
+      it('sends get-financial-statistics-response', () => {
+        td.verify(mainWindow.prototype.webContents.send('get-financial-statistics-response', 'results'))
+      })
+    })
+    describe('failure', () => {
+      beforeEach(async () => {
+        td.when(MockNodeActuator.prototype.getFinancialStatistics()).thenReject('error')
+        await ipcMainOnGetFinancialStatistics.value({}, {}, {})
+      })
+      it('sends get-financial-statistics-error', () => {
+        td.verify(mainWindow.prototype.webContents.send('get-financial-statistics-response-error', 'error'))
+      })
+    })
+  })
+
+  describe('set-consuming-wallet-password', () => {
+    beforeEach(() => {
+      appOnReady.value()
+    })
+
+    describe('success', () => {
+      beforeEach(async () => {
+        td.when(MockNodeActuator.prototype.setConsumingWalletPassword('secret')).thenResolve(true)
+        await ipcMainOnSetConsumingWalletPassword.value({}, 'secret', {})
+      })
+      it('sends set-consuming-wallet-password-response', () => {
+        td.verify(mainWindow.prototype.webContents.send('set-consuming-wallet-password-response', true))
+      })
+    })
+    describe('failure', () => {
+      beforeEach(async () => {
+        td.when(MockNodeActuator.prototype.setConsumingWalletPassword('badsecret')).thenReject(false)
+        await ipcMainOnSetConsumingWalletPassword.value({}, 'badsecret', {})
+      })
+      it('sends get-financial-statistics-error', () => {
+        td.verify(mainWindow.prototype.webContents.send('set-consuming-wallet-password-response', false))
       })
     })
   })
