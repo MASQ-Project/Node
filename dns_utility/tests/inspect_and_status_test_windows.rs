@@ -4,13 +4,13 @@ extern crate dns_utility_lib;
 
 mod utils;
 
-use dns_utility_lib::winreg_dns_modifier::WinRegDnsModifier;
+use dns_utility_lib::win_dns_modifier::WinDnsModifier;
 use utils::TestCommand;
 
 #[test]
 // Any integration tests that should be run without root should have names ending in '_user_integration'
 fn winreg_inspect_and_status_user_integration() {
-    let modifier = WinRegDnsModifier::new();
+    let modifier = WinDnsModifier::default();
     let interfaces = modifier.find_interfaces_to_inspect().unwrap();
     let dns_server_list_csv = modifier.find_dns_server_list(interfaces).unwrap();
     let dns_server_list = dns_server_list_csv.split(",");

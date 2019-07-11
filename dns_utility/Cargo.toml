@@ -10,6 +10,7 @@ edition = "2018"
 [dependencies]
 regex = "1.0.5"
 libc = "0.2.43"
+ipconfig = "0.2.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 system-configuration = "0.1.0"

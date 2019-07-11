@@ -1,18 +1,17 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-#![allow (unused_imports)]
-
 use crate::dns_modifier::DnsModifier;
+#[cfg(target_os = "linux")]
 use std::fs::File;
+#[cfg(target_os = "linux")]
 use std::path::Path;
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 use crate::resolv_conf_dns_modifier::ResolvConfDnsModifier;
-
-#[cfg(windows)]
-use crate::winreg_dns_modifier::WinRegDnsModifier;
 
 #[cfg(target_os = "macos")]
 use crate::dynamic_store_dns_modifier::DynamicStoreDnsModifier;
+#[cfg(windows)]
+use crate::win_dns_modifier::WinDnsModifier;
 
 pub trait DnsModifierFactory {
     fn make(&self) -> Option<Box<dyn DnsModifier>>;
@@ -38,7 +37,7 @@ impl DnsModifierFactoryReal {
 
 const QUALIFIER_FACTORIES: [&dyn QualifierFactory; 3] = [
     &DynamicStoreQualifierFactory {},
-    &WinRegQualifierFactory {},
+    &WinQualifierFactory {},
     &ResolvConfQualifierFactory {},
 ];
 
@@ -57,6 +56,7 @@ impl QualifierFactory for ResolvConfQualifierFactory {
         Box::new(ResolvConfDnsModifier::new())
     }
 }
+
 #[cfg(not(target_os = "linux"))]
 impl QualifierFactory for ResolvConfQualifierFactory {
     fn system_qualifies(&self) -> bool {
@@ -67,18 +67,20 @@ impl QualifierFactory for ResolvConfQualifierFactory {
     }
 }
 
-struct WinRegQualifierFactory;
+struct WinQualifierFactory {}
 #[cfg(windows)]
-impl QualifierFactory for WinRegQualifierFactory {
+impl QualifierFactory for WinQualifierFactory {
     fn system_qualifies(&self) -> bool {
         true
     }
+
     fn make(&self) -> Box<DnsModifier> {
-        Box::new(WinRegDnsModifier::new())
+        Box::new(WinDnsModifier::default())
     }
 }
+
 #[cfg(not(windows))]
-impl QualifierFactory for WinRegQualifierFactory {
+impl QualifierFactory for WinQualifierFactory {
     fn system_qualifies(&self) -> bool {
         false
     }
@@ -133,8 +135,8 @@ mod tests {
     }
 
     #[test]
-    fn win_reg_qualifier_factory_works_on_this_os() {
-        let subject = WinRegQualifierFactory {};
+    fn win_qualifier_factory_works_on_this_os() {
+        let subject = WinQualifierFactory {};
 
         let result = subject.system_qualifies();
 
@@ -167,11 +169,10 @@ mod tests {
     }
 
     #[test]
-    #[allow(unused_variables)]
     fn dns_modifier_factory_makes_something_on_this_os() {
         let subject = DnsModifierFactoryReal::new();
 
-        let result = subject.make();
+        let _result = subject.make();
 
         // no panic; test passes
     }
