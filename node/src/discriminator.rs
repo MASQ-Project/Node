@@ -65,7 +65,6 @@ impl Discriminator {
                 Err(MasqueradeError::NotThisMasquerader) => (),
                 Err(e) => {
                     warning!(self.logger, e.to_string());
-                    ()
                 }
             }
         }

@@ -33,8 +33,14 @@ impl Masquerader for JsonMasquerader {
     }
 }
 
+impl Default for JsonMasquerader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl JsonMasquerader {
-    #[allow(dead_code)] // Remove this after Release 2
+    // Remove this after Release 2
     pub fn new() -> JsonMasquerader {
         JsonMasquerader {
             logger: Logger::new("JsonMasquerader"),
@@ -76,11 +82,11 @@ impl JsonMasquerader {
         match parse_result {
             Ok(json_structure) => Ok(json_structure),
             Err(e) => Err(MasqueradeError::MidLevelDataError(if e.is_syntax() {
-                format!("Data is not JSON")
+                "Data is not JSON".to_string()
             } else if e.is_data() {
-                format!("JSON does not match schema")
+                "JSON does not match schema".to_string()
             } else if e.is_eof() {
-                format!("JSON was truncated")
+                "JSON was truncated".to_string()
             } else {
                 format!("Unexpected JSON parsing error: {}", e)
             })),
@@ -99,12 +105,12 @@ impl JsonMasquerader {
                     data
                 ))),
             },
-            (Some(_), Some(_)) => Err(MasqueradeError::HighLevelDataError(format!(
-                "Found both bodyText and bodyData; can't choose"
-            ))),
-            (None, None) => Err(MasqueradeError::HighLevelDataError(format!(
-                "Found neither bodyText nor bodyData; need one"
-            ))),
+            (Some(_), Some(_)) => Err(MasqueradeError::HighLevelDataError(
+                "Found both bodyText and bodyData; can't choose".to_string(),
+            )),
+            (None, None) => Err(MasqueradeError::HighLevelDataError(
+                "Found neither bodyText nor bodyData; need one".to_string(),
+            )),
         }
     }
 }

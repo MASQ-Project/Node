@@ -7,8 +7,7 @@ PARENT_DIR="$1"
 which sccache || cargo install sccache || echo "Skipping sccache installation"  # Should do significant work only once
 sccache --start-server || echo "sccache server already running"
 export RUSTC_WRAPPER=sccache
-# TODO remove -Aproc-macro-derive-resolution-fallback when they are promoted to errors
-export RUSTFLAGS="-D warnings -Anon-snake-case -Aproc-macro-derive-resolution-fallback"
+export RUSTFLAGS="-D warnings -Anon-snake-case"
 
 echo "*********************************************************************************************************"
 echo "***                                               NODE HEAD                                           ***"

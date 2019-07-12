@@ -350,7 +350,7 @@ impl PlainData {
         if (idx + 1) >= self.data.len() {
             None
         } else {
-            Some(((self.data[idx] as u16) << 8) | (self.data[idx + 1] as u16))
+            Some((u16::from(self.data[idx]) << 8) | u16::from(self.data[idx + 1]))
         }
     }
 
@@ -359,9 +359,9 @@ impl PlainData {
             None
         } else {
             Some(
-                ((self.data[idx] as u32) << 16)
-                    | ((self.data[idx + 1] as u32) << 8)
-                    | (self.data[idx + 2] as u32),
+                (u32::from(self.data[idx]) << 16)
+                    | (u32::from(self.data[idx + 1]) << 8)
+                    | u32::from(self.data[idx + 2]),
             )
         }
     }
@@ -371,10 +371,10 @@ impl PlainData {
             None
         } else {
             Some(
-                ((self.data[idx] as u32) << 24)
-                    | ((self.data[idx + 1] as u32) << 16)
-                    | ((self.data[idx + 2] as u32) << 8)
-                    | (self.data[idx + 3] as u32),
+                (u32::from(self.data[idx]) << 24)
+                    | (u32::from(self.data[idx + 1]) << 16)
+                    | (u32::from(self.data[idx + 2]) << 8)
+                    | u32::from(self.data[idx + 3]),
             )
         }
     }

@@ -24,7 +24,7 @@ use node_lib::sub_lib::proxy_server::{ClientRequestPayload, ProxyProtocol};
 use node_lib::sub_lib::route::{Route, RouteSegment};
 use node_lib::sub_lib::sequence_buffer::SequencedPacket;
 use node_lib::sub_lib::stream_key::StreamKey;
-use node_lib::test_utils::test_utils::{find_free_port, make_meaningless_stream_key};
+use node_lib::test_utils::{find_free_port, make_meaningless_stream_key};
 use std::io;
 use std::net::SocketAddr;
 use std::str::FromStr;

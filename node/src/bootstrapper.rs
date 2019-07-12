@@ -1,7 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::accountant::accountant::{
-    DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
-};
+use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL};
 use crate::actor_system_factory::ActorFactoryReal;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
@@ -14,10 +12,10 @@ use crate::json_discriminator_factory::JsonDiscriminatorFactory;
 use crate::listener_handler::ListenerHandler;
 use crate::listener_handler::ListenerHandlerFactory;
 use crate::listener_handler::ListenerHandlerFactoryReal;
-use crate::node_configurator::node_configurator::NodeConfigurator;
 use crate::node_configurator::node_configurator_standard::{
     NodeConfiguratorStandardPrivileged, NodeConfiguratorStandardUnprivileged,
 };
+use crate::node_configurator::NodeConfigurator;
 use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 use crate::server_initializer::LoggerInitializerWrapper;
 use crate::sub_lib::accountant;
@@ -98,6 +96,12 @@ pub struct BootstrapperConfig {
     pub clandestine_port_opt: Option<u16>,
     pub consuming_wallet: Option<Wallet>,
     pub earning_wallet: Wallet,
+}
+
+impl Default for BootstrapperConfig {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl BootstrapperConfig {
@@ -213,12 +217,9 @@ impl SocketServer for Bootstrapper {
         let stream_handler_pool_subs = self
             .actor_system_factory
             .make_and_start_actors(self.config.clone(), Box::new(ActorFactoryReal {}));
-        let mut iter_mut = self.listener_handlers.iter_mut();
-        loop {
-            match iter_mut.next() {
-                Some(f) => f.bind_subs(stream_handler_pool_subs.add_sub.clone()),
-                None => break,
-            }
+
+        for f in self.listener_handlers.iter_mut() {
+            f.bind_subs(stream_handler_pool_subs.add_sub.clone());
         }
     }
 }
@@ -329,10 +330,10 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::RecordAwaiter;
     use crate::test_utils::recorder::Recording;
-    use crate::test_utils::test_utils::FakeStreamHolder;
-    use crate::test_utils::test_utils::{assert_contains, ensure_node_home_directory_exists};
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
+    use crate::test_utils::FakeStreamHolder;
+    use crate::test_utils::{assert_contains, ensure_node_home_directory_exists};
     use actix::Recipient;
     use actix::System;
     use lazy_static::lazy_static;

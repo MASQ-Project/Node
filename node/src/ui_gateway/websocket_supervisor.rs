@@ -91,7 +91,7 @@ impl WebSocketSupervisorReal {
         let logger_1 = logger.clone();
         let server_address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
         let server = Server::bind(server_address, &Handle::default())
-            .expect(format!("Could not start UI server at {}", server_address).as_str());
+            .unwrap_or_else(|_| panic!("Could not start UI server at {}", server_address));
         let upgrade_tuple_stream = Self::remove_failures(server.incoming(), &logger);
         let inner_clone = inner.clone();
         let foreach_result = upgrade_tuple_stream.for_each(move |(upgrade, socket_addr)| {
@@ -325,7 +325,7 @@ impl WebSocketSupervisorReal {
             ),
             Ok(_) => client
                 .flush()
-                .expect(format!("Couldn't flush transmission to UI at {}", socket_addr).as_str()),
+                .unwrap_or_else(|_| panic!("Couldn't flush transmission to UI at {}", socket_addr)),
         }
     }
 }
@@ -334,12 +334,12 @@ impl WebSocketSupervisorReal {
 mod tests {
     use super::*;
     use crate::sub_lib::ui_gateway::FromUiMessage;
+    use crate::test_utils::find_free_port;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::test_utils::find_free_port;
-    use crate::test_utils::test_utils::wait_for;
+    use crate::test_utils::wait_for;
     use actix::Actor;
     use actix::Addr;
     use actix::System;

@@ -12,6 +12,7 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
+#[derive(Default)]
 pub struct TcpStreamWrapperFactoryMock {
     tcp_stream_wrappers: Arc<Mutex<Vec<TcpStreamWrapperMock>>>,
 }
@@ -29,8 +30,8 @@ impl TcpStreamWrapperFactory for TcpStreamWrapperFactoryMock {
 }
 
 impl TcpStreamWrapperFactoryMock {
-    pub fn new() -> TcpStreamWrapperFactoryMock {
-        TcpStreamWrapperFactoryMock {
+    pub fn new() -> Self {
+        Self {
             tcp_stream_wrappers: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -112,9 +113,9 @@ impl TcpStreamWrapper for TcpStreamWrapperMock {
 
     fn peer_addr(&self) -> io::Result<SocketAddr> {
         let guts = self.results.lock().unwrap();
-        match &guts.peer_addr_result {
-            &Ok(ref x) => Ok(x.clone()),
-            &Err(ref e) => Err(io::Error::from(e.kind())),
+        match guts.peer_addr_result {
+            Ok(ref x) => Ok(*x),
+            Err(ref e) => Err(io::Error::from(e.kind())),
         }
     }
 
@@ -157,11 +158,9 @@ impl Read for TcpStreamWrapperMock {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let mut results = self.results.lock().unwrap();
         thread::sleep(Duration::from_millis(results.read_delay));
-        if results.read_buffers.len() > 0 {
+        if !results.read_buffers.is_empty() {
             let chunk = results.read_buffers.remove(0);
-            for index in 0..chunk.len() {
-                buf[index] = chunk[index]
-            }
+            buf[..chunk.len()].clone_from_slice(&chunk[..])
         }
 
         if results.read_results.is_empty() {
@@ -179,6 +178,12 @@ impl Write for TcpStreamWrapperMock {
 
     fn flush(&mut self) -> io::Result<()> {
         unimplemented!()
+    }
+}
+
+impl Default for TcpStreamWrapperMock {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

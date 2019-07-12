@@ -49,14 +49,14 @@ pub struct NodeDescriptor {
 
 impl NodeDescriptor {
     pub fn from_str(cryptde: &CryptDE, s: &str) -> Result<NodeDescriptor, String> {
-        let pieces: Vec<&str> = s.splitn(2, ":").collect();
+        let pieces: Vec<&str> = s.splitn(2, ':').collect();
 
         if pieces.len() != 2 {
             return Err(String::from(s));
         }
 
         let public_key = match cryptde.descriptor_fragment_to_first_contact_public_key(pieces[0]) {
-            Err(e) => return Err(format!("{}", e)),
+            Err(e) => return Err(e.to_string()),
             Ok(hpk) => hpk,
         };
 

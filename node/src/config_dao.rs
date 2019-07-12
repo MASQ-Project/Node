@@ -122,7 +122,7 @@ mod tests {
     use crate::database::db_initializer::{
         DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION,
     };
-    use crate::test_utils::test_utils::ensure_node_home_directory_exists;
+    use crate::test_utils::ensure_node_home_directory_exists;
     use rusqlite::NO_PARAMS;
 
     #[test]

@@ -11,7 +11,7 @@ use native_tls::TlsStream;
 use node_lib::proxy_server::protocol_pack::ServerImpersonator;
 use node_lib::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
 use node_lib::sub_lib::utils::index_of;
-use node_lib::test_utils::test_utils::{handle_connection_error, read_until_timeout};
+use node_lib::test_utils::{handle_connection_error, read_until_timeout};
 use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
 use std::str::FromStr;

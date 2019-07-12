@@ -208,11 +208,8 @@ impl CommandLineVCL {
     pub fn new(mut args: Vec<String>) -> CommandLineVCL {
         args.remove(0); // remove command
         let mut vcl_args = vec![];
-        loop {
-            match Self::next_vcl_arg(&mut args) {
-                Some(vcl_arg) => vcl_args.push(vcl_arg),
-                None => break,
-            }
+        while let Some(vcl_arg) = Self::next_vcl_arg(&mut args) {
+            vcl_args.push(vcl_arg);
         }
         CommandLineVCL { vcl_args }
     }
@@ -349,9 +346,9 @@ impl ConfigFileVCL {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::test_utils::ensure_node_home_directory_exists;
     use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
-    use crate::test_utils::test_utils::ensure_node_home_directory_exists;
     use clap::Arg;
     use std::fs::File;
     use std::io::Write;

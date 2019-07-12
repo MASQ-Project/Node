@@ -32,14 +32,10 @@ impl Future for StreamWriterSorted {
 
         match (read_result, write_result) {
             // read_result can only be NotReady or Ready; write_result can only be Err, NotReady, or Ready
-            (_, WriteBufferStatus::StreamInError) => return Err(()), // dead stream error, shut down (this must be first in the match)
-            (ReadChannelStatus::StillOpen, _) => return Ok(Async::NotReady), // may receive more data, don't shut down
-            (ReadChannelStatus::Closed, WriteBufferStatus::BufferNotEmpty) => {
-                return Ok(Async::NotReady);
-            } // still have packets to write, don't shut down yet
-            (ReadChannelStatus::Closed, WriteBufferStatus::BufferEmpty) => {
-                return Ok(Async::Ready(()));
-            } // all done, shut down
+            (_, WriteBufferStatus::StreamInError) => Err(()), // dead stream error, shut down (this must be first in the match)
+            (ReadChannelStatus::StillOpen, _) => Ok(Async::NotReady), // may receive more data, don't shut down
+            (ReadChannelStatus::Closed, WriteBufferStatus::BufferNotEmpty) => Ok(Async::NotReady), // still have packets to write, don't shut down yet
+            (ReadChannelStatus::Closed, WriteBufferStatus::BufferEmpty) => Ok(Async::Ready(())), // all done, shut down
         }
     }
 }
@@ -78,9 +74,10 @@ impl StreamWriterSorted {
                 }
                 Ok(Async::Ready(None)) => return ReadChannelStatus::Closed,
                 Ok(Async::NotReady) => return ReadChannelStatus::StillOpen,
-                Err(_) => {
-                    panic!("got an error from an unbounded channel which cannot return error")
-                }
+                Err(e) => panic!(
+                    "got an error from an unbounded channel which cannot return error: {:?}",
+                    e
+                ),
             }
         }
     }
@@ -130,10 +127,10 @@ impl StreamWriterSorted {
                             if len != packet.data.len() {
                                 debug!(
                                     self.logger,
-                                    format!("rescheduling {} bytes", &packet.data.len() - len)
+                                    format!("rescheduling {} bytes", packet.data.len() - len)
                                 );
                                 self.sequence_buffer.repush(SequencedPacket::new(
-                                    packet.data.iter().skip(len).map(|p| p.clone()).collect(),
+                                    packet.data.iter().skip(len).cloned().collect(),
                                     packet.sequence_number,
                                     packet.last_data,
                                 ));

@@ -10,7 +10,7 @@ impl FromStr for DataVersion {
     type Err = String;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let parts = value.split(".").collect::<Vec<&str>>();
+        let parts = value.split('.').collect::<Vec<&str>>();
         if parts.len() == 2 {
             let major = match parts[0].parse::<u16>() {
                 Ok(v) => v,
@@ -58,12 +58,12 @@ impl DataVersion {
         Ok(DataVersion([a as u8, b as u8, c as u8]))
     }
 
-    pub fn major(&self) -> u16 {
-        ((self.0[0] as u16) << 4) | (((self.0[1] as u16) & 0xF0) >> 4)
+    pub fn major(self) -> u16 {
+        (u16::from(self.0[0]) << 4) | ((u16::from(self.0[1]) & 0xF0) >> 4)
     }
 
-    pub fn minor(&self) -> u16 {
-        ((self.0[1] as u16 & 0x0F) << 8) | (self.0[2] as u16)
+    pub fn minor(self) -> u16 {
+        ((u16::from(self.0[1]) & 0x0F) << 8) | u16::from(self.0[2])
     }
 }
 

@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::server_initializer::real_format_function;
-use crate::test_utils::test_utils::{to_millis, ByteArrayWriter};
+use crate::test_utils::{to_millis, ByteArrayWriter};
 use chrono::DateTime;
 use log::set_logger;
 use log::Log;
@@ -18,6 +18,7 @@ use std::time::{Duration, SystemTime};
 static mut TEST_LOGS_ARC: Option<Arc<Mutex<Vec<String>>>> = None;
 static TEST_LOGGER: TestLogger = TestLogger {};
 
+#[derive(Default)]
 pub struct TestLog {
     ref_log: RefCell<Vec<String>>,
 }
@@ -26,10 +27,8 @@ unsafe impl Sync for TestLog {}
 unsafe impl Send for TestLog {}
 
 impl TestLog {
-    pub fn new() -> TestLog {
-        TestLog {
-            ref_log: RefCell::new(vec![]),
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn log(&self, log: String) {
@@ -41,11 +40,12 @@ impl TestLog {
     }
 }
 
+#[derive(Default)]
 pub struct TestLogHandler {}
 
 impl TestLogHandler {
-    pub fn new() -> TestLogHandler {
-        TestLogHandler {}
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn add_log(&self, log: String) {
@@ -87,14 +87,13 @@ impl TestLogHandler {
     }
 
     pub fn exists_no_log_matching(&self, pattern: &str) {
-        match self.logs_match(pattern) {
-            Some(index) => panic!(
+        if let Some(index) = self.logs_match(pattern) {
+            panic!(
                 "Log at index {} matches '{}':\n{}",
                 index,
                 pattern,
                 self.get_log_at(index)
-            ),
-            None => (),
+            )
         }
     }
 
@@ -110,14 +109,13 @@ impl TestLogHandler {
     }
 
     pub fn exists_no_log_containing(&self, fragment: &str) {
-        match self.logs_contain(fragment) {
-            Some(index) => panic!(
+        if let Some(index) = self.logs_contain(fragment) {
+            panic!(
                 "Log at index {} contains '{}':\n{}",
                 index,
                 fragment,
                 self.get_log_at(index)
-            ),
-            None => (),
+            )
         }
     }
 
@@ -206,9 +204,9 @@ impl TestLogHandler {
         None
     }
 
-    fn in_order(&self, indexes: &Vec<usize>) -> bool {
-        let mut prev_index: usize = 0;
-        for index in indexes.clone() {
+    fn in_order(&self, indexes: &[usize]) -> bool {
+        let mut prev_index: &usize = &0;
+        for index in indexes {
             if index < prev_index {
                 return false;
             }
@@ -217,7 +215,7 @@ impl TestLogHandler {
         true
     }
 
-    fn complain_about_order(&self, indexes: &Vec<usize>, matchers: &Vec<&str>) {
+    fn complain_about_order(&self, indexes: &[usize], matchers: &[&str]) {
         let mut msg = String::from("Logs were found, but not in specified order:\n");
         for index in 0..indexes.len() {
             msg.push_str(&format!("  {}: '{}'\n", indexes[index], matchers[index])[..])
@@ -249,19 +247,16 @@ impl TestLogHandler {
 
 pub fn init_test_logging() -> bool {
     let tlh = TestLogHandler::new();
-    let result = if tlh.logs_initialized() {
+
+    if tlh.logs_initialized() {
         true
     } else {
         tlh.initialize_logs();
-        match set_logger(&TEST_LOGGER) {
-            Ok(_) => true,
-            Err(_) => false,
-        }
-    };
-    result
+        set_logger(&TEST_LOGGER).is_ok()
+    }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct TestLogger {}
 
 impl Log for TestLogger {

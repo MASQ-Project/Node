@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 // Because we have conditional compilation going on in this file:
-#![allow (unreachable_code)]
-#![allow (dead_code)]
+#![allow(unreachable_code)]
+#![allow(dead_code)]
 
 #[cfg(unix)]
 extern "C" {
@@ -88,7 +88,7 @@ impl PrivilegeDropper for PrivilegeDropperReal {
         {
             let sudo_gid = self.id_from_env("SUDO_GID");
             let sudo_uid = self.id_from_env("SUDO_UID");
-            let gid = sudo_gid.unwrap_or(self.id_wrapper.getgid());
+            let gid = sudo_gid.unwrap_or_else(|| self.id_wrapper.getgid());
             let gid_result = self.id_wrapper.setgid(gid);
             if gid_result != 0 {
                 panic!("Error code {} resetting group id", gid_result)
@@ -97,7 +97,8 @@ impl PrivilegeDropper for PrivilegeDropperReal {
                 panic!("Attempt to drop group privileges failed: still root")
             }
 
-            let uid = sudo_uid.unwrap_or(self.id_wrapper.getuid());
+            let uid = sudo_uid.unwrap_or_else(|| self.id_wrapper.getuid());
+            dbg!(sudo_uid);
             let uid_result = self.id_wrapper.setuid(uid);
             if uid_result != 0 {
                 panic!("Error code {} resetting user id", uid_result)
@@ -129,11 +130,18 @@ impl PrivilegeDropperReal {
     }
 }
 
+impl Default for PrivilegeDropperReal {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::cell::RefCell;
 
+    #[derive(Default)]
     struct IdWrapperMock {
         pub uids: RefCell<Vec<i32>>,
         pub uid_results: RefCell<Vec<i32>>,
@@ -160,21 +168,28 @@ mod tests {
     }
 
     impl IdWrapperMock {
-        fn new(
-            uid_initial: i32,
-            uid_result: i32,
-            uid_final: i32,
-            gid_initial: i32,
-            gid_result: i32,
-            gid_final: i32,
-        ) -> IdWrapperMock {
-            IdWrapperMock {
-                uids: RefCell::new(vec![uid_final, uid_initial]),
-                uid_results: RefCell::new(vec![uid_result]),
-                gids: RefCell::new(vec![gid_final, gid_initial]),
-                gid_results: RefCell::new(vec![gid_result]),
-                log: RefCell::new(vec![]),
-            }
+        fn new() -> Self {
+            Default::default()
+        }
+
+        fn uid(self, uid: i32) -> Self {
+            self.uids.borrow_mut().push(uid);
+            self
+        }
+
+        fn uid_result(self, uid_result: i32) -> Self {
+            self.uid_results.borrow_mut().push(uid_result);
+            self
+        }
+
+        fn gid(self, gid: i32) -> Self {
+            self.gids.borrow_mut().push(gid);
+            self
+        }
+
+        fn gid_result(self, gid_result: i32) -> Self {
+            self.gid_results.borrow_mut().push(gid_result);
+            self
         }
     }
 
@@ -212,7 +227,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Error code 47 resetting group id")]
     fn gid_error_code_causes_panic() {
-        let id_wrapper = IdWrapperMock::new(0, 0, 1000, 0, 47, 0);
+        let id_wrapper = IdWrapperMock::new().gid_result(47);
         let environment_wrapper = EnvironmentWrapperMock::new(Some("1000"), Some("1000"));
         let subject = PrivilegeDropperReal {
             id_wrapper: Box::new(id_wrapper),
@@ -226,7 +241,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Error code 47 resetting user id")]
     fn uid_error_code_causes_panic() {
-        let id_wrapper = IdWrapperMock::new(0, 47, 0, 0, 0, 1000);
+        let id_wrapper = IdWrapperMock::new().gid_result(0).gid(1000).uid_result(47);
         let environment_wrapper = EnvironmentWrapperMock::new(Some("1000"), Some("1000"));
         let subject = PrivilegeDropperReal {
             id_wrapper: Box::new(id_wrapper),
@@ -240,7 +255,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Attempt to drop group privileges failed: still root")]
     fn final_gid_of_0_causes_panic() {
-        let id_wrapper = IdWrapperMock::new(0, 0, 1000, 0, 0, 0);
+        let id_wrapper = IdWrapperMock::new().gid_result(0).gid(0);
         let environment_wrapper = EnvironmentWrapperMock::new(Some("1000"), Some("1000"));
         let subject = PrivilegeDropperReal {
             id_wrapper: Box::new(id_wrapper),
@@ -254,7 +269,11 @@ mod tests {
     #[test]
     #[should_panic(expected = "Attempt to drop user privileges failed: still root")]
     fn final_uid_of_0_causes_panic() {
-        let id_wrapper = IdWrapperMock::new(0, 0, 0, 0, 0, 1000);
+        let id_wrapper = IdWrapperMock::new()
+            .gid_result(0)
+            .gid(1000)
+            .uid_result(0)
+            .uid(0);
         let environment_wrapper = EnvironmentWrapperMock::new(Some("1000"), Some("1000"));
         let subject = PrivilegeDropperReal {
             id_wrapper: Box::new(id_wrapper),

@@ -12,6 +12,16 @@ where
     b_to_a: HashMap<B, A>,
 }
 
+impl<A, B> Default for BidiHashMap<A, B>
+where
+    A: Hash + Eq + Clone,
+    B: Hash + Eq + Clone,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<A, B> BidiHashMap<A, B>
 where
     A: Hash + Eq + Clone,
@@ -35,11 +45,11 @@ where
     }
 
     pub fn a_to_b(&self, a: &A) -> Option<B> {
-        self.a_to_b.get(a).map(|b| b.clone())
+        self.a_to_b.get(a).cloned()
     }
 
     pub fn b_to_a(&self, b: &B) -> Option<A> {
-        self.b_to_a.get(b).map(|a| a.clone())
+        self.b_to_a.get(b).cloned()
     }
 
     pub fn remove_a(&mut self, a: &A) -> Option<B> {

@@ -6,6 +6,8 @@ use rusqlite::Transaction;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
+type MnemonicSeedParam = (Vec<u8>, String);
+
 #[derive(Clone, Default)]
 pub struct PersistentConfigurationMock {
     current_schema_version_results: RefCell<Vec<String>>,
@@ -14,7 +16,7 @@ pub struct PersistentConfigurationMock {
     encrypted_mnemonic_seed_results: RefCell<Vec<Option<String>>>,
     mnemonic_seed_params: Arc<Mutex<Vec<String>>>,
     mnemonic_seed_results: RefCell<Vec<Result<PlainData, Bip39Error>>>,
-    set_mnemonic_seed_params: Arc<Mutex<Vec<(Vec<u8>, String)>>>,
+    set_mnemonic_seed_params: Arc<Mutex<Vec<MnemonicSeedParam>>>,
     consuming_wallet_private_public_key_results: RefCell<Vec<Option<String>>>,
     consuming_wallet_private_public_key_params: Arc<Mutex<Vec<String>>>,
     consuming_wallet_derivation_path_results: RefCell<Vec<Option<String>>>,
@@ -175,7 +177,7 @@ impl PersistentConfigurationMock {
 
     pub fn set_mnemonic_seed_params(
         mut self,
-        params: &Arc<Mutex<Vec<(Vec<u8>, String)>>>,
+        params: &Arc<Mutex<Vec<MnemonicSeedParam>>>,
     ) -> PersistentConfigurationMock {
         self.set_mnemonic_seed_params = params.clone();
         self

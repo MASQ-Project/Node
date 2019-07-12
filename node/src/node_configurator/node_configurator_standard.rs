@@ -1,8 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use crate::bootstrapper::BootstrapperConfig;
-use crate::node_configurator::node_configurator;
-use crate::node_configurator::node_configurator::{
+use crate::node_configurator;
+use crate::node_configurator::{
     common_validators, config_file_arg, data_directory_arg, earning_wallet_arg,
     initialize_database, make_multi_config, wallet_password_arg, NodeConfigurator,
 };
@@ -234,7 +234,7 @@ mod standard {
     use crate::bootstrapper::PortConfiguration;
     use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
     use crate::multi_config::MultiConfig;
-    use crate::node_configurator::node_configurator::request_wallet_decryption_password;
+    use crate::node_configurator::request_wallet_decryption_password;
     use crate::persistent_configuration::{PersistentConfiguration, HTTP_PORT, TLS_PORT};
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
@@ -452,12 +452,13 @@ mod standard {
                 Err(Bip39Error::NotPresent) => None,
                 Ok(mnemonic_seed) => {
                     let keypair =
-                        Bip32ECKeyPair::from_raw(mnemonic_seed.as_ref(), &derivation_path).expect(
-                            &format!(
-                                "Error making keypair from mnemonic seed and derivation path {}",
-                                derivation_path
-                            ),
-                        );
+                        Bip32ECKeyPair::from_raw(mnemonic_seed.as_ref(), &derivation_path)
+                            .unwrap_or_else(|_| {
+                                panic!(
+                            "Error making keypair from mnemonic seed and derivation path {}",
+                            derivation_path
+                        )
+                            });
                     Some(Wallet::from(keypair))
                 }
                 Err(e) => panic!("Error retrieving mnemonic seed from database: {:?}", e),
@@ -573,8 +574,8 @@ mod tests {
     use crate::sub_lib::neighborhood::sentinel_ip_addr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::environment_guard::EnvironmentGuard;
-    use crate::test_utils::test_utils::{ensure_node_home_directory_exists, make_wallet};
-    use crate::test_utils::test_utils::{ByteArrayWriter, FakeStreamHolder};
+    use crate::test_utils::{ensure_node_home_directory_exists, make_wallet};
+    use crate::test_utils::{ByteArrayWriter, FakeStreamHolder};
 
     use super::*;
     use crate::blockchain::bip39::{Bip39, Bip39Error};
@@ -582,8 +583,8 @@ mod tests {
     use crate::persistent_configuration::PersistentConfigurationReal;
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
     use crate::sub_lib::crash_point::CrashPoint;
+    use crate::test_utils::make_default_persistent_configuration;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::test_utils::make_default_persistent_configuration;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
 

@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::accountant::accountant::ReceivedPayments;
+use crate::accountant::ReceivedPayments;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
 use crate::neighborhood::gossip::Gossip;
@@ -34,7 +34,7 @@ use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage};
-use crate::test_utils::test_utils::to_millis;
+use crate::test_utils::to_millis;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
@@ -217,7 +217,11 @@ impl Recorder {
 
 impl Recording {
     pub fn len(&self) -> usize {
-        return self.messages.len();
+        self.messages.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     pub fn get<T: Any + Send + Clone>(recording_arc: &Arc<Mutex<Recording>>, index: usize) -> T {
@@ -239,11 +243,14 @@ impl Recording {
             ),
         };
         let item_opt = item_box.downcast_ref::<T>();
-        let item_success_ref = match item_opt {
+
+        match item_opt {
             Some(item) => item,
-            None => panic!("Message {} could not be downcast to the expected type"),
-        };
-        item_success_ref
+            None => panic!(
+                "Message {:?} could not be downcast to the expected type",
+                item_box
+            ),
+        }
     }
 }
 
@@ -376,6 +383,7 @@ pub fn peer_actors_builder() -> PeerActorsBuilder {
     PeerActorsBuilder::new()
 }
 
+#[derive(Default)]
 pub struct PeerActorsBuilder {
     proxy_server: Recorder,
     dispatcher: Recorder,

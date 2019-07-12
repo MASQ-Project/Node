@@ -101,7 +101,7 @@ pub struct InboundServerData {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::test_utils::make_meaningless_stream_key;
+    use crate::test_utils::make_meaningless_stream_key;
 
     #[test]
     fn make_terminating_payload_makes_terminating_payload() {

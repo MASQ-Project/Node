@@ -11,13 +11,14 @@ pub trait UdpSocketWrapperTrait: Sync + Send {
     fn send_to(&mut self, buf: &[u8], addr: SocketAddr) -> Result<Async<usize>, io::Error>;
 }
 
+#[derive(Default)]
 pub struct UdpSocketWrapperReal {
     delegate: Option<UdpSocket>,
 }
 
 impl UdpSocketWrapperReal {
-    pub fn new() -> UdpSocketWrapperReal {
-        UdpSocketWrapperReal { delegate: None }
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 

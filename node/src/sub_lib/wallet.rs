@@ -391,7 +391,7 @@ impl<'de> serde::Deserialize<'de> for Wallet {
                 })
             }
         }
-        const FIELDS: &'static [&'static str] = &["address"];
+        const FIELDS: &[&str] = &["address"];
         let human_readable = deserializer.is_human_readable();
         serde::Deserializer::deserialize_struct(
             deserializer,
@@ -426,7 +426,7 @@ impl Serialize for Wallet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::test_utils::{make_paying_wallet, make_wallet};
+    use crate::test_utils::{make_paying_wallet, make_wallet};
     use bip39::{Language, Mnemonic, Seed};
     use rusqlite::Connection;
     use rustc_hex::FromHex;

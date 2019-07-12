@@ -17,7 +17,7 @@ use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node-data.db";
 pub const CURRENT_SCHEMA_VERSION: &str = "0.0.6";
-pub const ROPSTEN_CONTRACT_CREATION_BLOCK: u64 = 4647463;
+pub const ROPSTEN_CONTRACT_CREATION_BLOCK: u64 = 4_647_463;
 
 pub trait ConnectionWrapper: Debug + Send {
     fn prepare(&self, query: &str) -> Result<Statement, rusqlite::Error>;
@@ -55,6 +55,7 @@ pub trait DbInitializer {
     fn initialize(&self, path: &PathBuf) -> Result<Box<ConnectionWrapper>, InitializationError>;
 }
 
+#[derive(Default)]
 pub struct DbInitializerReal {}
 
 impl DbInitializer for DbInitializerReal {
@@ -91,18 +92,20 @@ impl DbInitializer for DbInitializerReal {
 }
 
 impl DbInitializerReal {
-    pub fn new() -> DbInitializerReal {
-        DbInitializerReal {}
+    pub fn new() -> Self {
+        Self::default()
     }
 
     fn create_data_directory_if_necessary(data_directory: &PathBuf) {
         match fs::read_dir(data_directory) {
             Ok(_) => (),
             Err(ref e) if e.kind() == ErrorKind::NotFound => fs::create_dir_all(data_directory)
-                .expect(&format!(
-                    "Cannot create specified data directory at {:?}",
-                    data_directory
-                )),
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "Cannot create specified data directory at {:?}",
+                        data_directory
+                    )
+                }),
             Err(e) => panic!(
                 "Error checking data directory at {:?}: {}",
                 data_directory, e
@@ -240,7 +243,6 @@ impl DbInitializerReal {
             Ok(rows) => rows,
             Err(e) => panic!("Error retrieving configuration: {}", e),
         }
-        .into_iter()
         .map(|row| match row {
             Ok((Ok(name), Ok(value))) => (name, Some(value)),
             Ok((Ok(name), Err(InvalidColumnType(1, _)))) => (name, None),
@@ -300,7 +302,7 @@ impl DbInitializerReal {
             .as_str(),
             NO_PARAMS,
         )
-        .expect(&format!("Can't preload config table with {}", readable));
+        .unwrap_or_else(|_| panic!("Can't preload config table with {}", readable));
     }
 }
 
@@ -392,7 +394,7 @@ pub mod test_utils {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::test_utils::{
+    use crate::test_utils::{
         ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
     };
     use rusqlite::types::Type::Null;
@@ -667,27 +669,21 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    #[should_panic(
-        expected = "Os { code: 13, kind: PermissionDenied, message: \"Permission denied\" }"
-    )]
+    #[should_panic(expected = "Cannot create specified data directory at ")]
     fn linux_panic_if_directory_is_nonexistent_and_cant_be_created() {
         panic_if_directory_is_nonexistent_and_cant_be_created(&create_read_only_directory())
     }
 
     #[cfg(target_os = "macos")]
     #[test]
-    #[should_panic(
-        expected = "Os { code: 13, kind: PermissionDenied, message: \"Permission denied\" }"
-    )]
+    #[should_panic(expected = "Cannot create specified data directory at ")]
     fn macos_panic_if_directory_is_nonexistent_and_cant_be_created() {
         panic_if_directory_is_nonexistent_and_cant_be_created(&create_read_only_directory())
     }
 
     #[cfg(target_os = "windows")]
     #[test]
-    #[should_panic(
-        expected = "Custom { kind: Other, error: StringError(\"failed to create whole tree\") }"
-    )]
+    #[should_panic(expected = "Cannot create specified data directory at ")]
     fn windows_panic_if_directory_is_nonexistent_and_cant_be_created() {
         let base_path = PathBuf::from("M:\\nonexistent");
         panic_if_directory_is_nonexistent_and_cant_be_created(&base_path);

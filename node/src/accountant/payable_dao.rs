@@ -24,7 +24,7 @@ pub trait PayableDao: Debug + Send {
         &self,
         wallet: &Wallet,
         amount: u64,
-        confirmation_noticed_timestamp: &SystemTime,
+        confirmation_noticed_timestamp: SystemTime,
     );
 
     fn account_status(&self, wallet: &Wallet) -> Option<PayableAccount>;
@@ -57,7 +57,7 @@ impl PayableDao for PayableDaoReal {
         &self,
         _wallet: &Wallet,
         _amount: u64,
-        _confirmation_noticed_timestamp: &SystemTime,
+        _confirmation_noticed_timestamp: SystemTime,
     ) {
         unimplemented!()
     }
@@ -114,7 +114,6 @@ impl PayableDao for PayableDaoReal {
             }
         })
         .expect("Database is corrupt")
-        .into_iter()
         .flat_map(|v| v)
         .collect()
     }
@@ -139,7 +138,7 @@ impl PayableDaoReal {
     }
 
     fn try_insert(&self, wallet: &Wallet, amount: u64) -> Result<(), String> {
-        let timestamp = dao_utils::to_time_t(&SystemTime::now());
+        let timestamp = dao_utils::to_time_t(SystemTime::now());
         let mut stmt = self.conn
             .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_transaction) values (?, ?, ?, null)")
             .expect("Internal error");
@@ -157,7 +156,7 @@ mod tests {
     use crate::database::dao_utils::from_time_t;
     use crate::database::db_initializer;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::test_utils::test_utils::{ensure_node_home_directory_exists, make_wallet};
+    use crate::test_utils::{ensure_node_home_directory_exists, make_wallet};
     use rusqlite::NO_PARAMS;
     use rusqlite::{Connection, OpenFlags};
 
@@ -167,7 +166,7 @@ mod tests {
             "accountant",
             "more_money_payable_works_for_new_address",
         );
-        let before = dao_utils::to_time_t(&SystemTime::now());
+        let before = dao_utils::to_time_t(SystemTime::now());
         let wallet = make_wallet("booga");
         let status = {
             let subject =
@@ -177,10 +176,10 @@ mod tests {
             subject.account_status(&wallet).unwrap()
         };
 
-        let after = dao_utils::to_time_t(&SystemTime::now());
+        let after = dao_utils::to_time_t(SystemTime::now());
         assert_eq!(status.wallet, wallet);
         assert_eq!(status.balance, 1234);
-        let timestamp = dao_utils::to_time_t(&status.last_paid_timestamp);
+        let timestamp = dao_utils::to_time_t(status.last_paid_timestamp);
         assert!(
             timestamp >= before,
             "{:?} should be on or after {:?}",

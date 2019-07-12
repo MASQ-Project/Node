@@ -138,6 +138,7 @@ impl ListenerHandlerFactoryReal {
 mod tests {
     use super::*;
     use crate::node_test_utils::NullDiscriminatorFactory;
+    use crate::test_utils::find_free_port;
     use crate::test_utils::little_tcp_server::LittleTcpServer;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLog;
@@ -145,7 +146,6 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::stream_connector_mock::StreamConnectorMock;
-    use crate::test_utils::test_utils::find_free_port;
     use actix::Actor;
     use actix::Addr;
     use actix::System;

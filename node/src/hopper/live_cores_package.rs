@@ -102,7 +102,7 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
-    use crate::test_utils::test_utils::{
+    use crate::test_utils::{
         cryptde, make_meaningless_message_type, make_meaningless_route, make_paying_wallet,
     };
     use std::str::FromStr;
@@ -338,7 +338,7 @@ mod tests {
         );
         assert_eq!(
             route.hops[0],
-            crate::test_utils::test_utils::encrypt_return_route_id(1234, cryptde),
+            crate::test_utils::encrypt_return_route_id(1234, cryptde),
         );
         route.hops.remove(0);
         assert_eq!(

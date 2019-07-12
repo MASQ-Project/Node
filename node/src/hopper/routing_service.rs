@@ -399,13 +399,9 @@ mod tests {
     use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
     use crate::sub_lib::proxy_server::ClientRequestPayload;
     use crate::sub_lib::route::{Route, RouteSegment};
-    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
-    use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
-    use crate::test_utils::test_utils::{
-        cryptde, make_meaningless_message_type, make_meaningless_stream_key, make_paying_wallet,
-        make_request_payload, make_response_payload, rate_pack_routing, rate_pack_routing_byte,
-        route_from_proxy_client, route_to_proxy_client, route_to_proxy_server,
-    };
+    use crate::test_utils::logging::*;
+    use crate::test_utils::recorder::*;
+    use crate::test_utils::*;
     use actix::System;
     use std::net::SocketAddr;
     use std::str::FromStr;

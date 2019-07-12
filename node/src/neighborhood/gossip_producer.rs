@@ -28,7 +28,7 @@ impl GossipProducer for GossipProducerReal {
     fn produce(&self, database: &NeighborhoodDatabase, target: &PublicKey) -> Gossip {
         let target_node_ref = database
             .node_by_key(target)
-            .expect(format!("Target node {:?} not in NeighborhoodDatabase", target).as_str());
+            .unwrap_or_else(|| panic!("Target node {:?} not in NeighborhoodDatabase", target));
         let builder = database
             .keys()
             .into_iter()
@@ -39,8 +39,7 @@ impl GossipProducer for GossipProducerReal {
                     || target_node_ref.has_half_neighbor(node_record_ref.public_key()); // TODO SC-894: Do we really want to reveal this?
                 so_far.node(node_record_ref.public_key(), reveal_node_addr)
             });
-        let gossip = builder.build();
-        gossip
+        builder.build()
     }
 
     fn produce_debut(&self, database: &NeighborhoodDatabase) -> Gossip {

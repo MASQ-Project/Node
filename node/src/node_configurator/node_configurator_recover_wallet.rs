@@ -2,7 +2,7 @@
 
 use crate::blockchain::bip39::Bip39;
 use crate::multi_config::MultiConfig;
-use crate::node_configurator::node_configurator::{
+use crate::node_configurator::{
     common_validators, config_file_arg, consuming_wallet_arg, create_wallet, data_directory_arg,
     earning_wallet_arg, flushed_write, initialize_database, language_arg, make_multi_config,
     mnemonic_passphrase_arg, request_existing_password, wallet_password_arg, Either,
@@ -89,6 +89,12 @@ impl WalletCreationConfigMaker for NodeConfiguratorRecoverWallet {
     }
 }
 
+impl Default for NodeConfiguratorRecoverWallet {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NodeConfiguratorRecoverWallet {
     pub fn new() -> NodeConfiguratorRecoverWallet {
         NodeConfiguratorRecoverWallet {
@@ -143,9 +149,8 @@ impl NodeConfiguratorRecoverWallet {
         streams: &mut StdStreams<'_>,
         persistent_config: &PersistentConfiguration,
     ) -> WalletCreationConfig {
-        match persistent_config.encrypted_mnemonic_seed() {
-            Some(_) => panic!("Can't recover wallets: mnemonic seed has already been created"),
-            None => (),
+        if persistent_config.encrypted_mnemonic_seed().is_some() {
+            panic!("Can't recover wallets: mnemonic seed has already been created")
         }
         self.make_wallet_creation_config(multi_config, streams)
     }
@@ -199,11 +204,7 @@ impl NodeConfiguratorRecoverWallet {
                 .expect("Mnemonic may not contain non-UTF-8 characters"),
             Err(e) => panic!("{:?}", e),
         };
-        phrase
-            .split(" ")
-            .into_iter()
-            .map(|s| String::from(s))
-            .collect()
+        phrase.split(' ').map(|s| s.to_string()).collect()
     }
 }
 
@@ -230,15 +231,14 @@ mod tests {
     use crate::database::db_initializer;
     use crate::database::db_initializer::DbInitializer;
     use crate::multi_config::{CommandLineVCL, VirtualCommandLine};
-    use crate::node_configurator::node_configurator::DerivationPathWalletInfo;
+    use crate::node_configurator::DerivationPathWalletInfo;
     use crate::persistent_configuration::PersistentConfigurationReal;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::wallet::{
         DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
     };
-    use crate::test_utils::test_utils::ensure_node_home_directory_exists;
-    use crate::test_utils::test_utils::make_default_persistent_configuration;
-    use crate::test_utils::test_utils::{ByteArrayWriter, FakeStreamHolder};
+    use crate::test_utils::ensure_node_home_directory_exists;
+    use crate::test_utils::*;
     use bip39::Seed;
     use std::io::Cursor;
 

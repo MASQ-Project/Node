@@ -15,7 +15,7 @@ use node_lib::sub_lib::dispatcher::Component;
 use node_lib::sub_lib::hopper::IncipientCoresPackage;
 use node_lib::sub_lib::route::Route;
 use node_lib::sub_lib::route::RouteSegment;
-use node_lib::test_utils::test_utils::{make_meaningless_message_type, make_paying_wallet};
+use node_lib::test_utils::*;
 use std::collections::HashSet;
 use std::io::ErrorKind;
 use std::net::IpAddr;

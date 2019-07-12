@@ -8,11 +8,12 @@ use crate::sub_lib::proxy_server::ClientRequestPayload;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 
+#[derive(Default)]
 pub struct ClientRequestPayloadFactory {}
 
 impl ClientRequestPayloadFactory {
-    pub fn new() -> ClientRequestPayloadFactory {
-        ClientRequestPayloadFactory {}
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn make(
@@ -97,7 +98,7 @@ mod tests {
     use crate::sub_lib::proxy_server::ProxyProtocol;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
-    use crate::test_utils::test_utils::make_meaningless_stream_key;
+    use crate::test_utils::make_meaningless_stream_key;
     use std::net::SocketAddr;
     use std::str::FromStr;
 

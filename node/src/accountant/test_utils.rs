@@ -3,11 +3,11 @@
 use crate::accountant::payable_dao::PayableAccount;
 use crate::accountant::receivable_dao::ReceivableAccount;
 use crate::database::dao_utils::{from_time_t, to_time_t};
-use crate::test_utils::test_utils::make_wallet;
+use crate::test_utils::make_wallet;
 use std::time::SystemTime;
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
-    let now = to_time_t(&SystemTime::now());
+    let now = to_time_t(SystemTime::now());
     ReceivableAccount {
         wallet: make_wallet(&format!(
             "wallet{}{}",
@@ -20,7 +20,7 @@ pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableA
 }
 
 pub fn make_payable_account(n: u64) -> PayableAccount {
-    let now = to_time_t(&SystemTime::now());
+    let now = to_time_t(SystemTime::now());
     PayableAccount {
         wallet: make_wallet(&format!("wallet{}", n)),
         balance: (n * 1_000_000_000) as i64,

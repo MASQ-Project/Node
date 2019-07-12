@@ -51,7 +51,7 @@ impl LiveHop {
 mod tests {
     use super::*;
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::test_utils::test_utils::make_paying_wallet;
+    use crate::test_utils::make_paying_wallet;
 
     #[test]
     fn can_construct_hop() {

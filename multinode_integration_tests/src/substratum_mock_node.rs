@@ -24,7 +24,7 @@ use node_lib::sub_lib::utils::indicates_dead_stream;
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils::data_hunk::DataHunk;
 use node_lib::test_utils::data_hunk_framer::DataHunkFramer;
-use node_lib::test_utils::test_utils::{make_paying_wallet, make_wallet};
+use node_lib::test_utils::{make_paying_wallet, make_wallet};
 use serde_cbor;
 use std::cell::RefCell;
 use std::io;

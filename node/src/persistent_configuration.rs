@@ -60,8 +60,8 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                 e
             ),
         };
-        if (unchecked_port < LOWEST_USABLE_INSECURE_PORT as u64)
-            || (unchecked_port > HIGHEST_USABLE_PORT as u64)
+        if (unchecked_port < u64::from(LOWEST_USABLE_INSECURE_PORT))
+            || (unchecked_port > u64::from(HIGHEST_USABLE_PORT))
         {
             panic! ("Can't continue; clandestine port configuration is incorrect. Must be between {} and {}, not {}. Specify --clandestine-port <p> where <p> is an unused port.",
                 LOWEST_USABLE_INSECURE_PORT,
@@ -85,7 +85,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
             panic! ("Can't continue; clandestine port configuration is incorrect. Must be between {} and {}, not {}. Specify --clandestine-port <p> where <p> is an unused port.",
                     LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT, port);
         }
-        match self.dao.set_u64("clandestine_port", port as u64) {
+        match self.dao.set_u64("clandestine_port", u64::from(port)) {
             Ok(_) => (),
             Err(e) => panic!(
                 "Can't continue; clandestine port configuration is inaccessible: {:?}",
@@ -198,7 +198,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                     match Bip39::decrypt_bytes(&mnemonic_seed_str, db_password) {
                         Ok(mnemonic_seed) => {
                             let keypair = Bip32ECKeyPair::from_raw (mnemonic_seed.as_ref(), &derivation_path)
-                            .expect (&format!("Couldn't construct keypair from mnemonic seed and derivation path '{}'", derivation_path));
+                            .unwrap_or_else(|_| panic!("Couldn't construct keypair from mnemonic seed and derivation path '{}'", derivation_path));
                             Some(Wallet::from(keypair))
                         }
                         Err(Bip39Error::DecryptionFailure(_)) => {
@@ -225,10 +225,12 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn earning_wallet_from_address(&self) -> Option<Wallet> {
         match self.dao.get_string("earning_wallet_address") {
-            Ok(address) => Some(Wallet::from_str(&address).expect(&format!(
-                "Database corrupt: invalid earning wallet address: '{}'",
-                address
-            ))),
+            Ok(address) => Some(Wallet::from_str(&address).unwrap_or_else(|_| {
+                panic!(
+                    "Database corrupt: invalid earning wallet address: '{}'",
+                    address
+                )
+            })),
             Err(ConfigDaoError::NotPresent) => None,
             Err(e) => panic!("Error trying to retrieve earning wallet address: {:?}", e),
         }
@@ -357,7 +359,7 @@ mod tests {
     use crate::blockchain::test_utils::make_meaningless_seed;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::test_utils::config_dao_mock::ConfigDaoMock;
-    use crate::test_utils::test_utils::ensure_node_home_directory_exists;
+    use crate::test_utils::ensure_node_home_directory_exists;
     use bip39::{Language, Mnemonic, MnemonicType, Seed};
     use ethsign::keyfile::Crypto;
     use ethsign::Protected;

@@ -26,8 +26,8 @@ impl Future for StreamWriterUnsorted {
                         Ok(Async::Ready(Some(data))) => Some(data),
                         Ok(Async::Ready(None)) => return Ok(Async::Ready(())), // the channel has been closed on the tx side
                         Ok(Async::NotReady) => return Ok(Async::NotReady),
-                        Err(_) => panic!(
-                            "got an error from an unbounded channel which cannot return error"
+                        Err(e) => panic!(
+                            "got an error from an unbounded channel which cannot return error: {:?}", e
                         ),
                     }
                 }
@@ -69,10 +69,10 @@ impl Future for StreamWriterUnsorted {
                             if len != packet.data.len() {
                                 debug!(
                                     self.logger,
-                                    format!("rescheduling {} bytes", &packet.data.len() - len)
+                                    format!("rescheduling {} bytes", packet.data.len() - len)
                                 );
                                 self.buf = Some(SequencedPacket::new(
-                                    packet.data.iter().skip(len).map(|p| p.clone()).collect(),
+                                    packet.data.iter().skip(len).cloned().collect(),
                                     packet.sequence_number,
                                     false,
                                 ));

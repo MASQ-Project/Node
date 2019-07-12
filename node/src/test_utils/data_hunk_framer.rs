@@ -2,7 +2,7 @@
 use crate::sub_lib::framer::FramedChunk;
 use crate::sub_lib::framer::Framer;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct DataHunkFramer {
     data_so_far: Vec<u8>,
 }
@@ -32,20 +32,18 @@ impl Framer for DataHunkFramer {
 }
 
 impl DataHunkFramer {
-    pub fn new() -> DataHunkFramer {
-        DataHunkFramer {
-            data_so_far: vec![],
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
 
     fn length_of_oldest_frame(&self) -> Option<usize> {
         if self.data_so_far.len() < 16 {
             return None;
         }
-        let b1 = (self.data_so_far[12] as u32) << 24;
-        let b2 = (self.data_so_far[13] as u32) << 16;
-        let b3 = (self.data_so_far[14] as u32) << 8;
-        let b4 = (self.data_so_far[15] as u32) << 0;
+        let b1 = (u32::from(self.data_so_far[12])) << 24;
+        let b2 = (u32::from(self.data_so_far[13])) << 16;
+        let b3 = (u32::from(self.data_so_far[14])) << 8;
+        let b4 = u32::from(self.data_so_far[15]);
         let body_len = b1 + b2 + b3 + b4;
         let total_len = 16 + body_len;
         Some(total_len as usize)

@@ -15,13 +15,11 @@ pub enum MasqueradeError {
 
 impl Display for MasqueradeError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            &MasqueradeError::LowLevelDataError(ref s) => write!(f, "Low-level data error: {}", s),
-            &MasqueradeError::MidLevelDataError(ref s) => write!(f, "Mid-level data error: {}", s),
-            &MasqueradeError::HighLevelDataError(ref s) => {
-                write!(f, "High-level data error: {}", s)
-            }
-            &MasqueradeError::NotThisMasquerader => write!(f, "Data not for this masquerader"),
+        match *self {
+            MasqueradeError::LowLevelDataError(ref s) => write!(f, "Low-level data error: {}", s),
+            MasqueradeError::MidLevelDataError(ref s) => write!(f, "Mid-level data error: {}", s),
+            MasqueradeError::HighLevelDataError(ref s) => write!(f, "High-level data error: {}", s),
+            MasqueradeError::NotThisMasquerader => write!(f, "Data not for this masquerader"),
         }
     }
 }

@@ -198,7 +198,7 @@ mod tests {
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
-    use crate::test_utils::test_utils::{make_default_persistent_configuration, make_wallet};
+    use crate::test_utils::*;
     use actix::Addr;
     use actix::System;
     use bip39::{Language, Mnemonic, Seed};

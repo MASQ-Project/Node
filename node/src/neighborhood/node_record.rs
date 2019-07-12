@@ -1,8 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use crate::neighborhood::gossip::GossipNodeRecord;
-use crate::neighborhood::neighborhood::AccessibleGossipRecord;
 use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, NeighborhoodDatabaseError};
+use crate::neighborhood::AccessibleGossipRecord;
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData, PublicKey};
 use crate::sub_lib::data_version::DataVersion;
 use crate::sub_lib::neighborhood::RatePack;
@@ -148,7 +148,7 @@ impl NodeRecord {
         keys.into_iter()
             .map(|k| {
                 db.node_by_key(k)
-                    .expect(format!("Node with key {} magically disappeared", k).as_str())
+                    .unwrap_or_else(|| panic!("Node with key {} magically disappeared", k))
             })
             .collect()
     }
@@ -159,8 +159,7 @@ impl NodeRecord {
             .into_iter()
             .filter(|k| {
                 if let Some(node_record_ref) = db.node_by_key(k) {
-                    let result = node_record_ref.has_half_neighbor(self.public_key());
-                    result
+                    node_record_ref.has_half_neighbor(self.public_key())
                 } else {
                     false
                 }
@@ -209,13 +208,12 @@ impl NodeRecord {
     }
 
     pub fn set_earning_wallet(&mut self, earning_wallet: Wallet) -> bool {
-        let change = if self.inner.earning_wallet == earning_wallet {
+        if self.inner.earning_wallet == earning_wallet {
             false
         } else {
             self.inner.earning_wallet = earning_wallet;
             true
-        };
-        change
+        }
     }
 
     pub fn rate_pack(&self) -> &RatePack {
@@ -284,7 +282,7 @@ impl TryFrom<&GossipNodeRecord> for NodeRecord {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct NodeRecordMetadata {
     pub desirable: bool,
     pub node_addr_opt: Option<NodeAddr>,
@@ -307,7 +305,7 @@ mod tests {
     use crate::neighborhood::neighborhood_test_utils::make_node_record;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::neighborhood::ZERO_RATE_PACK;
-    use crate::test_utils::test_utils::{assert_contains, cryptde, make_wallet, rate_pack};
+    use crate::test_utils::{assert_contains, cryptde, make_wallet, rate_pack};
     use std::net::IpAddr;
     use std::str::FromStr;
 

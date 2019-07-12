@@ -132,11 +132,11 @@ impl StreamEstablisherFactory for StreamEstablisherFactoryReal {
 mod tests {
     use super::*;
     use crate::sub_lib::proxy_server::ProxyProtocol;
+    use crate::test_utils::cryptde;
+    use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::stream_connector_mock::StreamConnectorMock;
-    use crate::test_utils::test_utils::cryptde;
-    use crate::test_utils::test_utils::make_meaningless_stream_key;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use actix::System;
     use futures::future::lazy;

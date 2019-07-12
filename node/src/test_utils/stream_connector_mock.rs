@@ -15,6 +15,7 @@ use std::sync::Mutex;
 use tokio::net::TcpStream;
 use tokio::prelude::Async;
 
+#[derive(Default)]
 pub struct StreamConnectorMock {
     connect_pair_params: Arc<Mutex<Vec<SocketAddr>>>,
     connect_pair_results: RefCell<Vec<Result<ConnectionInfo, io::Error>>>,
@@ -43,6 +44,9 @@ impl StreamConnector for StreamConnectorMock {
     }
 }
 
+type StreamConnectorMockRead = (Vec<u8>, Result<Async<usize>, io::Error>);
+type StreamConnectorMockWrite = Result<Async<usize>, io::Error>;
+
 impl StreamConnectorMock {
     pub fn new() -> StreamConnectorMock {
         Self {
@@ -56,8 +60,8 @@ impl StreamConnectorMock {
         self,
         local_addr: SocketAddr,
         peer_addr: SocketAddr,
-        reads: Vec<(Vec<u8>, Result<Async<usize>, io::Error>)>,
-        writes: Vec<Result<Async<usize>, io::Error>>,
+        reads: Vec<StreamConnectorMockRead>,
+        writes: Vec<StreamConnectorMockWrite>,
     ) -> StreamConnectorMock {
         let read_half = reads
             .into_iter()

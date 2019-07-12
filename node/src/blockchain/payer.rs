@@ -54,7 +54,7 @@ impl Clone for Payer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::test_utils::make_payer;
+    use crate::test_utils::make_payer;
     use rustc_hex::FromHex;
 
     #[test]

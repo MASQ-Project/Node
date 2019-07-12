@@ -121,7 +121,7 @@ impl SequencedPacketVisitor {
         }
         let mut result = 0u64;
         for byte in bytes {
-            result = (result << 8) + (*byte as u64)
+            result = (result << 8) + u64::from(*byte)
         }
         Ok(result)
     }
@@ -139,7 +139,7 @@ impl SequencedPacketVisitor {
         let mut remaining = value;
         for idx in 0usize..8usize {
             buf[7 - idx] = (remaining & 0xFF) as u8;
-            remaining = remaining >> 8
+            remaining >>= 8
         }
         Ok(())
     }
@@ -153,6 +153,12 @@ pub struct SequenceBuffer {
     next_expected_sequence_number: u64,
     seen_sequence_numbers: Vec<u64>,
     logger: Logger,
+}
+
+impl Default for SequenceBuffer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SequenceBuffer {
@@ -229,6 +235,10 @@ impl SequenceBuffer {
 
     pub fn len(&self) -> usize {
         self.buffer.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 

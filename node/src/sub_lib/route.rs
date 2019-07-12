@@ -86,7 +86,7 @@ impl Route {
         cryptde.random(&mut garbage_can[..]);
         self.hops.push(CryptData::new(&garbage_can[..]));
 
-        return Ok(next_hop);
+        Ok(next_hop)
     }
 
     pub fn to_string(&self, cryptdes: Vec<&CryptDE>) -> String {
@@ -94,24 +94,19 @@ impl Route {
         if item_count == 0 {
             return String::from("\n");
         }
-        let mut most_hops_enc: Vec<CryptData> =
-            self.hops[0..item_count].iter().map(|x| x.clone()).collect();
+        let mut most_hops_enc: Vec<CryptData> = self.hops[0..item_count].to_vec();
         let mut most_cryptdes: Vec<&CryptDE> = cryptdes[0..item_count].to_vec();
         let last_hop_enc = most_hops_enc.remove(item_count - 1);
         let last_cryptde = most_cryptdes.remove(item_count - 1);
-        let most_strings = (0..(item_count - 1))
-            .into_iter()
-            .fold(String::new(), |sofar, index| {
-                let hop_enc = &most_hops_enc[index];
-                let cryptde = most_cryptdes[index];
-                let live_hop_str = match decodex::<LiveHop>(cryptde, hop_enc) {
-                    Ok(live_hop) => {
-                        format!("Encrypted with {}: {:?}", cryptde.public_key(), live_hop)
-                    }
-                    Err(e) => format!("Error: {}", e),
-                };
-                format!("{}\n{}", sofar, live_hop_str)
-            });
+        let most_strings = (0..(item_count - 1)).fold(String::new(), |sofar, index| {
+            let hop_enc = &most_hops_enc[index];
+            let cryptde = most_cryptdes[index];
+            let live_hop_str = match decodex::<LiveHop>(cryptde, hop_enc) {
+                Ok(live_hop) => format!("Encrypted with {}: {:?}", cryptde.public_key(), live_hop),
+                Err(e) => format!("Error: {}", e),
+            };
+            format!("{}\n{}", sofar, live_hop_str)
+        });
         match decodex::<LiveHop>(last_cryptde, &last_hop_enc) {
             Ok(live_hop) => format!(
                 "{}\nEncrypted with {}: {:?}\n",
@@ -317,7 +312,7 @@ pub enum RouteError {
 mod tests {
     use super::*;
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::test_utils::test_utils::{make_paying_wallet, make_wallet};
+    use crate::test_utils::{make_paying_wallet, make_wallet};
     use serde_cbor;
 
     #[test]

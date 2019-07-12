@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::accountant::accountant::PaymentCurves;
+use crate::accountant::PaymentCurves;
 use crate::blockchain::blockchain_interface::Transaction;
 use crate::database::dao_utils;
 use crate::database::dao_utils::to_time_t;
@@ -25,7 +25,7 @@ pub trait ReceivableDao: Send {
 
     fn more_money_received(
         &mut self,
-        persistent_configuration: &Box<dyn PersistentConfiguration>,
+        persistent_configuration: &dyn PersistentConfiguration,
         transactions: Vec<Transaction>,
     );
 
@@ -71,7 +71,7 @@ impl ReceivableDao for ReceivableDaoReal {
 
     fn more_money_received(
         &mut self,
-        persistent_configuration: &Box<dyn PersistentConfiguration>,
+        persistent_configuration: &dyn PersistentConfiguration,
         payments: Vec<Transaction>,
     ) {
         self.try_multi_insert_payment(persistent_configuration, payments)
@@ -125,7 +125,7 @@ impl ReceivableDao for ReceivableDaoReal {
         system_now: SystemTime,
         payment_curves: &PaymentCurves,
     ) -> Vec<ReceivableAccount> {
-        let now = to_time_t(&system_now);
+        let now = to_time_t(system_now);
         let slope = (payment_curves.permanent_debt_allowed_gwub as f64
             - payment_curves.balance_to_decrease_from_gwub as f64)
             / (payment_curves.balance_decreases_for_sec as f64);
@@ -197,7 +197,7 @@ impl ReceivableDaoReal {
     }
 
     fn try_insert(&self, wallet: &Wallet, amount: u64) -> Result<(), String> {
-        let timestamp = dao_utils::to_time_t(&SystemTime::now());
+        let timestamp = dao_utils::to_time_t(SystemTime::now());
         let mut stmt = self.conn.prepare ("insert into receivable (wallet_address, balance, last_received_timestamp) values (?, ?, ?)").expect ("Internal error");
         let params: &[&dyn ToSql] = &[&wallet, &(amount as i64), &(timestamp as i64)];
         match stmt.execute(params) {
@@ -208,7 +208,7 @@ impl ReceivableDaoReal {
 
     fn try_multi_insert_payment(
         &mut self,
-        persistent_configuration: &Box<dyn PersistentConfiguration>,
+        persistent_configuration: &dyn PersistentConfiguration,
         payments: Vec<Transaction>,
     ) -> Result<(), String> {
         let tx = match self.conn.transaction() {
@@ -268,9 +268,7 @@ mod tests {
     use crate::test_utils::logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::test_utils::{
-        assert_contains, ensure_node_home_directory_exists, make_wallet,
-    };
+    use crate::test_utils::{assert_contains, ensure_node_home_directory_exists, make_wallet};
     use rusqlite::NO_PARAMS;
     use rusqlite::{Connection, Error, OpenFlags};
 
@@ -280,7 +278,7 @@ mod tests {
             "accountant",
             "more_money_receivable_works_for_new_address",
         );
-        let before = dao_utils::to_time_t(&SystemTime::now());
+        let before = dao_utils::to_time_t(SystemTime::now());
         let wallet = make_wallet("booga");
         let status = {
             let subject =
@@ -290,10 +288,10 @@ mod tests {
             subject.account_status(&wallet).unwrap()
         };
 
-        let after = dao_utils::to_time_t(&SystemTime::now());
+        let after = dao_utils::to_time_t(SystemTime::now());
         assert_eq!(status.wallet, wallet);
         assert_eq!(status.balance, 1234);
-        let timestamp = dao_utils::to_time_t(&status.last_received_timestamp);
+        let timestamp = dao_utils::to_time_t(status.last_received_timestamp);
         assert!(
             timestamp >= before,
             "{:?} should be on or after {:?}",
@@ -344,7 +342,7 @@ mod tests {
 
     #[test]
     fn more_money_received_works_for_existing_addresses() {
-        let before = dao_utils::to_time_t(&SystemTime::now());
+        let before = dao_utils::to_time_t(SystemTime::now());
         let home_dir = ensure_node_home_directory_exists(
             "accountant",
             "more_money_received_works_for_existing_address",
@@ -380,7 +378,7 @@ mod tests {
                 },
             ];
 
-            subject.more_money_received(&persistent_config, transactions);
+            subject.more_money_received(persistent_config.as_ref(), transactions);
             (
                 subject.account_status(&debtor1).unwrap(),
                 subject.account_status(&debtor2).unwrap(),
@@ -389,15 +387,15 @@ mod tests {
 
         assert_eq!(status1.wallet, debtor1);
         assert_eq!(status1.balance, 34);
-        let timestamp1 = dao_utils::to_time_t(&status1.last_received_timestamp);
+        let timestamp1 = dao_utils::to_time_t(status1.last_received_timestamp);
         assert!(timestamp1 >= before);
-        assert!(timestamp1 <= dao_utils::to_time_t(&SystemTime::now()));
+        assert!(timestamp1 <= dao_utils::to_time_t(SystemTime::now()));
 
         assert_eq!(status2.wallet, debtor2);
         assert_eq!(status2.balance, 45);
-        let timestamp2 = dao_utils::to_time_t(&status2.last_received_timestamp);
+        let timestamp2 = dao_utils::to_time_t(status2.last_received_timestamp);
         assert!(timestamp2 >= before);
-        assert!(timestamp2 <= dao_utils::to_time_t(&SystemTime::now()));
+        assert!(timestamp2 <= dao_utils::to_time_t(SystemTime::now()));
 
         let start_block = persistent_config.start_block();
         assert_eq!(57u64, start_block);
@@ -424,7 +422,7 @@ mod tests {
                 gwei_amount: 2300u64,
                 block_number: 33u64,
             }];
-            subject.more_money_received(&persistent_config, transactions);
+            subject.more_money_received(persistent_config.as_ref(), transactions);
             subject.account_status(&debtor)
         };
 
@@ -442,7 +440,7 @@ mod tests {
         let persistent_configuration: Box<dyn PersistentConfiguration> =
             Box::new(PersistentConfigurationMock::new());
 
-        receivable_dao.more_money_received(&persistent_configuration, vec![]);
+        receivable_dao.more_money_received(persistent_configuration.as_ref(), vec![]);
 
         TestLogHandler::new().exists_log_containing(&format!(
             "WARN: ReceivableDaoReal: Transaction failed, rolling back: {}",
@@ -465,7 +463,7 @@ mod tests {
         let persistent_configuration: Box<dyn PersistentConfiguration> =
             Box::new(PersistentConfigurationMock::new());
 
-        receivable_dao.more_money_received(&persistent_configuration, vec![]);
+        receivable_dao.more_money_received(persistent_configuration.as_ref(), vec![]);
 
         TestLogHandler::new().exists_log_containing(
             "WARN: ReceivableDaoReal: Transaction failed, rolling back: no payments given",
@@ -496,7 +494,7 @@ mod tests {
         let persistent_configuration: Box<dyn PersistentConfiguration> =
             Box::new(persistent_configuration_mock);
 
-        receivable_dao.more_money_received(&persistent_configuration, payments);
+        receivable_dao.more_money_received(persistent_configuration.as_ref(), payments);
 
         TestLogHandler::new().exists_log_containing(
             r#"WARN: ReceivableDaoReal: Transaction failed, rolling back: BOOM"#,
@@ -776,7 +774,7 @@ mod tests {
         let params: &[&dyn ToSql] = &[
             &account.wallet,
             &account.balance,
-            &to_time_t(&account.last_received_timestamp),
+            &to_time_t(account.last_received_timestamp),
         ];
         stmt.execute(params).unwrap();
     }

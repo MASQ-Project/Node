@@ -138,7 +138,7 @@ mod tests {
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::route::RouteSegment;
-    use crate::test_utils::test_utils::{make_meaningless_message_type, make_paying_wallet};
+    use crate::test_utils::{make_meaningless_message_type, make_paying_wallet};
     use std::str::FromStr;
 
     #[test]

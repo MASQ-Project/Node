@@ -74,6 +74,12 @@ impl BlockchainInterfaceClandestine {
     }
 }
 
+impl Default for BlockchainInterfaceClandestine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BlockchainInterface for BlockchainInterfaceClandestine {
     fn retrieve_transactions(&self, _start_block: u64, _recipient: &Wallet) -> Transactions {
         info!(
@@ -217,7 +223,7 @@ impl BlockchainInterfaceRpc {
 mod tests {
     use super::*;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::test_utils::find_free_port;
+    use crate::test_utils::find_free_port;
     use serde_json::Value;
     use simple_server::Server;
     use std::str::FromStr;

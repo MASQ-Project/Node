@@ -11,8 +11,11 @@ use tokio::io::AsyncRead;
 use tokio::io::AsyncWrite;
 use tokio::prelude::Async;
 
+type PollReadResult = (Vec<u8>, Result<Async<usize>, io::Error>);
+
+#[derive(Default)]
 pub struct ReadHalfWrapperMock {
-    pub poll_read_results: Vec<(Vec<u8>, Result<Async<usize>, io::Error>)>,
+    pub poll_read_results: Vec<PollReadResult>,
 }
 
 impl ReadHalfWrapper for ReadHalfWrapperMock {}
@@ -30,17 +33,15 @@ impl AsyncRead for ReadHalfWrapperMock {
         }
         let (to_buf, ret_val) = self.poll_read_results.remove(0);
         buf.as_mut()
-            .write(to_buf.as_slice())
-            .expect("Internal Error");
+            .write_all(to_buf.as_slice())
+            .expect("couldn't write_all");
         ret_val
     }
 }
 
 impl ReadHalfWrapperMock {
-    pub fn new() -> ReadHalfWrapperMock {
-        ReadHalfWrapperMock {
-            poll_read_results: vec![],
-        }
+    pub fn new() -> Self {
+        Default::default()
     }
 
     pub fn poll_read_result(
@@ -57,10 +58,13 @@ impl ReadHalfWrapperMock {
     }
 }
 
+type ShutdownResuls = Vec<Result<Async<()>, io::Error>>;
+
+#[derive(Default)]
 pub struct WriteHalfWrapperMock {
     pub poll_write_params: Arc<Mutex<Vec<Vec<u8>>>>,
     pub poll_write_results: Vec<Result<Async<usize>, io::Error>>,
-    pub shutdown_results: Arc<Mutex<Vec<Result<Async<()>, io::Error>>>>,
+    pub shutdown_results: Arc<Mutex<ShutdownResuls>>,
 }
 
 impl WriteHalfWrapper for WriteHalfWrapperMock {}

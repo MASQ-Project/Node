@@ -2,7 +2,7 @@
 
 mod utils;
 
-use node_lib::test_utils::test_utils::read_until_timeout;
+use node_lib::test_utils::read_until_timeout;
 use std::io::Write;
 use std::net::SocketAddr;
 use std::net::TcpStream;

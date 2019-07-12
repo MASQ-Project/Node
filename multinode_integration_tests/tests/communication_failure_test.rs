@@ -3,9 +3,9 @@
 use multinode_integration_tests_lib::substratum_node::SubstratumNode;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
-use node_lib::neighborhood::neighborhood::AccessibleGossipRecord;
+use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::PublicKey;
-use node_lib::test_utils::test_utils::find_free_port;
+use node_lib::test_utils::find_free_port;
 use std::convert::TryInto;
 use std::time::Duration;
 

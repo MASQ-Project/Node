@@ -2,7 +2,7 @@
 use std::time::Duration;
 use std::time::SystemTime;
 
-pub fn to_time_t(system_time: &SystemTime) -> i64 {
+pub fn to_time_t(system_time: SystemTime) -> i64 {
     match system_time.duration_since(SystemTime::UNIX_EPOCH) {
         Err(e) => unimplemented!("{}", e),
         Ok(d) => d.as_secs() as i64,
@@ -10,7 +10,7 @@ pub fn to_time_t(system_time: &SystemTime) -> i64 {
 }
 
 pub fn now_time_t() -> i64 {
-    to_time_t(&SystemTime::now())
+    to_time_t(SystemTime::now())
 }
 
 pub fn from_time_t(time_t: i64) -> SystemTime {

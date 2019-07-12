@@ -147,9 +147,7 @@ mod tests {
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
-    use crate::test_utils::test_utils::{
-        cryptde, make_meaningless_message_type, make_paying_wallet,
-    };
+    use crate::test_utils::{cryptde, make_meaningless_message_type, make_paying_wallet};
     use actix::System;
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;

@@ -25,6 +25,7 @@ pub trait TokioListenerWrapperFactory {
     fn make(&self) -> Box<dyn TokioListenerWrapper>;
 }
 
+#[derive(Default)]
 pub struct TokioListenerWrapperReal {
     delegate: Option<TcpListener>,
 }
@@ -110,8 +111,8 @@ impl TokioListenerWrapperFactory for TokioListenerWrapperFactoryReal {
 }
 
 impl TokioListenerWrapperReal {
-    pub fn new() -> TokioListenerWrapperReal {
-        TokioListenerWrapperReal { delegate: None }
+    pub fn new() -> Self {
+        Self::default()
     }
 
     fn delegate_mut(&mut self) -> &mut TcpListener {

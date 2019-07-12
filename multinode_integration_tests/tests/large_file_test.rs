@@ -6,7 +6,7 @@ use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeClus
 use multinode_integration_tests_lib::substratum_real_node::{
     make_consuming_wallet_info, NodeStartupConfigBuilder, SubstratumRealNode,
 };
-use node_lib::test_utils::test_utils::read_until_timeout;
+use node_lib::test_utils::read_until_timeout;
 use std::thread;
 use std::time::Duration;
 

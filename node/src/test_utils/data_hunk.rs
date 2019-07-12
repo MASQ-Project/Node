@@ -33,16 +33,16 @@ fn from(binary: &[u8], type_name: &str) -> DataHunk {
     }
     let from = SocketAddr::new(
         IpAddr::V4(Ipv4Addr::new(binary[0], binary[1], binary[2], binary[3])),
-        ((binary[4] as u16) << 8) + (binary[5] as u16),
+        (u16::from(binary[4]) << 8) + u16::from(binary[5]),
     );
     let to = SocketAddr::new(
         IpAddr::V4(Ipv4Addr::new(binary[6], binary[7], binary[8], binary[9])),
-        ((binary[10] as u16) << 8) + (binary[11] as u16),
+        (u16::from(binary[10]) << 8) + u16::from(binary[11]),
     );
-    let length = ((binary[12] as u32) << 24)
-        + ((binary[13] as u32) << 16)
-        + ((binary[14] as u32) << 8)
-        + ((binary[15] as u32) << 0);
+    let length = (u32::from(binary[12]) << 24)
+        + (u32::from(binary[13]) << 16)
+        + (u32::from(binary[14]) << 8)
+        + u32::from(binary[15]);
     if binary.len() != (16 + (length as usize)) {
         panic! ("Binary data suggested that a DataHunk payload should be {} bytes long, but {} bytes were provided",
                 length, binary.len () - 16)
@@ -68,10 +68,10 @@ impl From<DataHunk> for Vec<u8> {
         binary.extend(to_ip.octets().iter());
         binary.push((data_hunk.to.port() >> 8) as u8);
         binary.push((data_hunk.to.port() & 0x00FF) as u8);
-        binary.push((data_hunk.data.len() >> 24 & 0x000000FF) as u8);
-        binary.push((data_hunk.data.len() >> 16 & 0x000000FF) as u8);
-        binary.push((data_hunk.data.len() >> 8 & 0x000000FF) as u8);
-        binary.push((data_hunk.data.len() >> 0 & 0x000000FF) as u8);
+        binary.push((data_hunk.data.len() >> 24 & 0x0000_00FF) as u8);
+        binary.push((data_hunk.data.len() >> 16 & 0x0000_00FF) as u8);
+        binary.push((data_hunk.data.len() >> 8 & 0x0000_00FF) as u8);
+        binary.push((data_hunk.data.len() & 0x0000_00FF) as u8);
         binary.extend(data_hunk.data);
         binary
     }

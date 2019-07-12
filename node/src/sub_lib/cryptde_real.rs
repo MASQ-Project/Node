@@ -131,6 +131,12 @@ impl CryptDE for CryptDEReal {
     }
 }
 
+impl Default for CryptDEReal {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CryptDEReal {
     pub fn new() -> Self {
         let (e_public, e_secret) = encryption::gen_keypair();

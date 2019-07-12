@@ -1,17 +1,17 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use super::accountant::accountant::Accountant;
+use super::accountant::Accountant;
 use super::bootstrapper;
 use super::bootstrapper::BootstrapperConfig;
 use super::discriminator::DiscriminatorFactory;
 use super::dispatcher::Dispatcher;
-use super::hopper::hopper::Hopper;
-use super::neighborhood::neighborhood::Neighborhood;
-use super::proxy_client::proxy_client::ProxyClient;
-use super::proxy_server::proxy_server::ProxyServer;
+use super::hopper::Hopper;
+use super::neighborhood::Neighborhood;
+use super::proxy_client::ProxyClient;
+use super::proxy_server::ProxyServer;
 use super::stream_handler_pool::StreamHandlerPool;
 use super::stream_handler_pool::StreamHandlerPoolSubs;
 use super::stream_messages::PoolBindMessage;
-use super::ui_gateway::ui_gateway::UiGateway;
+use super::ui_gateway::UiGateway;
 use crate::accountant::payable_dao::PayableDaoReal;
 use crate::accountant::receivable_dao::ReceivableDaoReal;
 use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal, BannedDaoReal};
@@ -281,32 +281,54 @@ impl ActorFactory for ActorFactoryReal {
         banned_cache_loader: &dyn BannedCacheLoader,
     ) -> AccountantSubs {
         let payable_dao = Box::new(PayableDaoReal::new(
-            db_initializer.initialize(data_directory).expect(&format!(
-                "Failed to connect to database at {:?}",
-                data_directory.join(DATABASE_FILE)
-            )),
+            db_initializer
+                .initialize(data_directory)
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "Failed to connect to database at {:?}",
+                        data_directory.join(DATABASE_FILE)
+                    )
+                }),
         ));
         let receivable_dao = Box::new(ReceivableDaoReal::new(
-            db_initializer.initialize(data_directory).expect(&format!(
-                "Failed to connect to database at {:?}",
-                data_directory.join(DATABASE_FILE)
-            )),
+            db_initializer
+                .initialize(data_directory)
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "Failed to connect to database at {:?}",
+                        data_directory.join(DATABASE_FILE)
+                    )
+                }),
         ));
         let banned_dao = Box::new(BannedDaoReal::new(
-            db_initializer.initialize(data_directory).expect(&format!(
-                "Failed to connect to database at {:?}",
-                data_directory.join(DATABASE_FILE)
-            )),
+            db_initializer
+                .initialize(data_directory)
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "Failed to connect to database at {:?}",
+                        data_directory.join(DATABASE_FILE)
+                    )
+                }),
         ));
-        banned_cache_loader.load(db_initializer.initialize(data_directory).expect(&format!(
-            "Failed to connect to database at {:?}",
-            data_directory.join(DATABASE_FILE)
-        )));
+        banned_cache_loader.load(
+            db_initializer
+                .initialize(data_directory)
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "Failed to connect to database at {:?}",
+                        data_directory.join(DATABASE_FILE)
+                    )
+                }),
+        );
         let config_dao = Box::new(ConfigDaoReal::new(
-            db_initializer.initialize(data_directory).expect(&format!(
-                "Failed to connect to database at {:?}",
-                data_directory.join(DATABASE_FILE)
-            )),
+            db_initializer
+                .initialize(data_directory)
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "Failed to connect to database at {:?}",
+                        data_directory.join(DATABASE_FILE)
+                    )
+                }),
         ));
         let persistent_configuration = Box::new(PersistentConfigurationReal::new(config_dao));
         let accountant = Accountant::new(
@@ -350,7 +372,7 @@ impl ActorFactory for ActorFactoryReal {
             .blockchain_bridge_config
             .blockchain_service_url
             .clone();
-        let contract_address = config.blockchain_bridge_config.contract_address.clone();
+        let contract_address = config.blockchain_bridge_config.contract_address;
         let blockchain_interface: Box<dyn BlockchainInterface> = {
             match blockchain_service_url {
                 Some(url) => match BlockchainInterfaceRpc::new(url, contract_address) {
@@ -363,10 +385,12 @@ impl ActorFactory for ActorFactoryReal {
         let config_dao = Box::new(ConfigDaoReal::new(
             db_initializer
                 .initialize(&config.data_directory)
-                .expect(&format!(
-                    "Failed to connect to database at {:?}",
-                    &config.data_directory.join(DATABASE_FILE)
-                )),
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "Failed to connect to database at {:?}",
+                        &config.data_directory.join(DATABASE_FILE)
+                    )
+                }),
         ));
         let persistent_config = Box::new(PersistentConfigurationReal::new(config_dao));
         let blockchain_bridge =
@@ -379,7 +403,7 @@ impl ActorFactory for ActorFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::accountant::ReceivedPayments;
+    use crate::accountant::ReceivedPayments;
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
     use crate::blockchain::blockchain_interface::TESTNET_CONTRACT_ADDRESS;
     use crate::bootstrapper::Bootstrapper;
@@ -419,12 +443,7 @@ mod tests {
     use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage};
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
-    use crate::test_utils::test_utils::rate_pack;
-    use crate::test_utils::test_utils::rate_pack_exit;
-    use crate::test_utils::test_utils::rate_pack_exit_byte;
-    use crate::test_utils::test_utils::rate_pack_routing;
-    use crate::test_utils::test_utils::rate_pack_routing_byte;
-    use crate::test_utils::test_utils::{cryptde, make_wallet};
+    use crate::test_utils::*;
     use actix::System;
     use log::LevelFilter;
     use std::cell::RefCell;
@@ -776,9 +795,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Failed to connect to database at \"node-data.db\": SqliteError(InvalidColumnName(\"booga\"))"
-    )]
+    #[should_panic(expected = "Failed to connect to database at \"node-data.db\"")]
     fn failed_payable_initialization_produces_panic() {
         let aconfig = AccountantConfig {
             payable_scan_interval: Duration::from_secs(6),
@@ -801,9 +818,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Failed to connect to database at \"node-data.db\": SqliteError(InvalidQuery)"
-    )]
+    #[should_panic(expected = "Failed to connect to database at \"node-data.db\"")]
     fn failed_receivable_initialization_produces_panic() {
         let aconfig = AccountantConfig {
             payable_scan_interval: Duration::from_secs(6),
@@ -828,9 +843,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Failed to connect to database at \"node-data.db\": SqliteError(InvalidQuery)"
-    )]
+    #[should_panic(expected = "Failed to connect to database at \"node-data.db\"")]
     fn failed_banned_dao_initialization_produces_panic() {
         let aconfig = AccountantConfig {
             payable_scan_interval: Duration::from_secs(6),
@@ -855,9 +868,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Failed to connect to database at \"node-data.db\": SqliteError(InvalidQuery)"
-    )]
+    #[should_panic(expected = "Failed to connect to database at \"node-data.db\"")]
     fn failed_ban_cache_initialization_produces_panic() {
         let aconfig = AccountantConfig {
             payable_scan_interval: Duration::from_secs(6),

@@ -39,18 +39,15 @@ impl Future for DnsSocketServer {
                 }
             };
             let response_length = processing::process(&mut buffer, len, &socket_addr, &logger);
-            match self
+            if let Err(e) = self
                 .socket_wrapper
                 .send_to(&buffer[0..response_length], socket_addr)
             {
-                Err(e) => {
-                    error!(
-                        logger,
-                        format!("Unrecoverable error sending to UdpSocket: {}", e)
-                    );
-                    return Err(());
-                }
-                Ok(_) => {}
+                error!(
+                    logger,
+                    format!("Unrecoverable error sending to UdpSocket: {}", e)
+                );
+                return Err(());
             }
         }
     }
@@ -66,7 +63,7 @@ impl SocketServer for DnsSocketServer {
         // The following expect() will cause an appropriate panic if the port can't be opened
         self.socket_wrapper
             .bind(socket_addr)
-            .expect(&format!("Cannot bind socket to {:?}", socket_addr));
+            .unwrap_or_else(|_| panic!("Cannot bind socket to {:?}", socket_addr));
     }
 
     fn initialize_as_unprivileged(&mut self, _args: &Vec<String>, _streams: &mut StdStreams<'_>) {
@@ -83,6 +80,12 @@ impl DnsSocketServer {
     }
 }
 
+impl Default for DnsSocketServer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::packet_facade::PacketFacade;
@@ -90,7 +93,7 @@ mod tests {
     use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
-    use crate::test_utils::test_utils::FakeStreamHolder;
+    use crate::test_utils::FakeStreamHolder;
     use std::borrow::Borrow;
     use std::borrow::BorrowMut;
     use std::clone::Clone;

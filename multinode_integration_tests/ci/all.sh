@@ -33,6 +33,5 @@ popd
 cd docker
 ./build.sh
 
-# TODO remove -Aproc-macro-derive-resolution-fallback when they are promoted to errors
-export RUSTFLAGS="-D warnings -Anon-snake-case -Aproc-macro-derive-resolution-fallback"
+export RUSTFLAGS="-D warnings -Anon-snake-case"
 cargo test --release -- --nocapture --test-threads=1

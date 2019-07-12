@@ -83,7 +83,7 @@ pub fn render_dot_graph(renderables: Vec<Box<DotRenderable>>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::test_utils::assert_string_contains;
+    use crate::test_utils::assert_string_contains;
 
     #[test]
     fn truncation_works_for_long_keys() {

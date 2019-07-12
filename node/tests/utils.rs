@@ -1,5 +1,4 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use regex;
 
 use std::env;
 use std::fs::File;
@@ -71,7 +70,6 @@ impl SubstratumNode {
             .into_boxed_path()
     }
 
-    #[allow(dead_code)]
     pub fn path_to_database() -> Box<Path> {
         Self::data_dir().join("node-data.db").into_boxed_path()
     }
@@ -187,7 +185,6 @@ impl SubstratumNode {
         stream_string.push_str(&increment[..])
     }
 
-    #[allow(dead_code)]
     fn millis_since(started_at: Instant) -> u64 {
         let interval = Instant::now().duration_since(started_at);
         let second_milliseconds = interval.as_secs() * 1000;
@@ -195,7 +192,6 @@ impl SubstratumNode {
         second_milliseconds + nanosecond_milliseconds
     }
 
-    #[allow(dead_code)]
     fn make_node_command(config: Option<CommandConfig>) -> Command {
         Self::remove_database();
         let mut command = command_to_start();
@@ -205,7 +201,6 @@ impl SubstratumNode {
         command
     }
 
-    #[allow(dead_code)]
     fn make_generate_command(config: CommandConfig) -> Command {
         Self::remove_database();
         let mut command = command_to_start();
@@ -215,7 +210,6 @@ impl SubstratumNode {
         command
     }
 
-    #[allow(dead_code)]
     fn make_recover_command(config: CommandConfig) -> Command {
         Self::remove_database();
         let mut command = command_to_start();

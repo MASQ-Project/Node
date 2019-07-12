@@ -340,8 +340,8 @@ impl MockNode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use node_lib::test_utils::test_utils::find_free_port;
-    use node_lib::test_utils::test_utils::FakeStreamHolder;
+    use node_lib::test_utils::find_free_port;
+    use node_lib::test_utils::FakeStreamHolder;
     use std::io::Read;
     use std::io::Write;
     use std::net::IpAddr;

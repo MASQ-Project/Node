@@ -69,7 +69,7 @@ where
                     let (_, timestamp) = data.get(key).expect("Key magically disappeared");
                     now.duration_since(*timestamp) > self.ttl
                 })
-                .map(|key| key.clone())
+                .cloned()
                 .collect()
         };
 

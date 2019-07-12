@@ -109,15 +109,12 @@ impl HttpPacketFramer {
     }
 
     fn take_packet_frame(&mut self) -> Option<FramedChunk> {
-        if self.framer_state.packet_progress_state == PacketProgressState::SeekingPacketStart {
-            if !self.start_finder.seek_packet_start(&mut self.framer_state) {
-                return None;
-            }
-        }
-        if self.framer_state.packet_progress_state == PacketProgressState::SeekingBodyStart {
-            if !self.seek_body_start() {
-                return None;
-            }
+        if self.framer_state.packet_progress_state == PacketProgressState::SeekingPacketStart
+            && !self.start_finder.seek_packet_start(&mut self.framer_state)
+            || self.framer_state.packet_progress_state == PacketProgressState::SeekingBodyStart
+                && !self.seek_body_start()
+        {
+            return None;
         }
         if self.framer_state.packet_progress_state == PacketProgressState::SeekingBodyEnd {
             match self.seek_body_end() {
@@ -179,7 +176,7 @@ impl HttpPacketFramer {
             }
             self.framer_state.content_length = 0;
             let mut request = vec![];
-            while self.framer_state.lines.len() > 0 {
+            while !self.framer_state.lines.is_empty() {
                 request.extend(self.framer_state.lines.remove(0))
             }
             info!(self.logger, summarize_http_packet(&request));
@@ -190,7 +187,7 @@ impl HttpPacketFramer {
     }
 
     fn check_for_content_length(&mut self, line: &Vec<u8>) {
-        if !line.starts_with("Content-Length:".as_bytes()) {
+        if !line.starts_with(b"Content-Length:") {
             return;
         }
         let string = match String::from_utf8(line.clone()) {
@@ -222,7 +219,7 @@ impl HttpPacketFramer {
     }
 
     fn check_for_transfer_encoding(&mut self, line: &Vec<u8>) {
-        if !line.starts_with("Transfer-Encoding:".as_bytes()) {
+        if !line.starts_with(b"Transfer-Encoding:") {
             return;
         }
         let string = match String::from_utf8(line.clone()) {

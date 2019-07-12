@@ -35,16 +35,13 @@ impl Bip39 {
             &Protected::new(db_password.as_bytes()),
             NonZeroU32::new(10240).expect("Internal error"),
         ) {
-            Ok(crypto) => {
-                let result = match serde_cbor::to_vec(&crypto) {
-                    Ok(cipher_seed) => Ok(cipher_seed.to_hex()),
-                    Err(e) => Err(Bip39Error::SerializationFailure(format!(
-                        "Failed to serialize: {:?}",
-                        e
-                    ))),
-                };
-                result
-            }
+            Ok(crypto) => match serde_cbor::to_vec(&crypto) {
+                Ok(cipher_seed) => Ok(cipher_seed.to_hex()),
+                Err(e) => Err(Bip39Error::SerializationFailure(format!(
+                    "Failed to serialize: {:?}",
+                    e
+                ))),
+            },
             Err(e) => Err(Bip39Error::EncryptionFailure(format!(
                 "Failed to encrypt: {:?}",
                 e
@@ -119,7 +116,7 @@ mod tests {
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
     use crate::test_utils::config_dao_mock::ConfigDaoMock;
-    use crate::test_utils::test_utils::ensure_node_home_directory_exists;
+    use crate::test_utils::ensure_node_home_directory_exists;
     use std::sync::{Arc, Mutex};
 
     #[test]

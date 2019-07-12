@@ -48,13 +48,12 @@ impl StreamConnector for StreamConnectorReal {
             Timeout::new(
                 TcpStream::connect(&socket_addr).then(move |result| match result {
                     Ok(stream) => {
-                        let local_addr = stream.local_addr().expect(
-                            format!(
+                        let local_addr = stream.local_addr().unwrap_or_else(|_| {
+                            panic!(
                                 "Newly-connected stream to {} has no local_addr",
                                 socket_addr
                             )
-                            .as_str(),
-                        );
+                        });
                         let peer_addr = match stream.peer_addr() {
                             Ok(addr) => addr,
                             // Untested code below: we couldn't figure out how to make this happen in captivity
@@ -112,9 +111,9 @@ impl StreamConnector for StreamConnectorReal {
                     debug!(logger, format!("Connected new stream to {}", socket_addr));
                     let tokio_stream = TcpStream::from_std(stream, &Handle::default())
                         .expect("Tokio could not create a TcpStream");
-                    return Ok(self
-                        .split_stream(tokio_stream, logger)
-                        .expect(&format!("Stream to {} could not be split", socket_addr)));
+                    return Ok(self.split_stream(tokio_stream, logger).unwrap_or_else(|| {
+                        panic!("Stream to {} could not be split", socket_addr)
+                    }));
                 }
                 Err(e) => {
                     last_error = e;
@@ -161,10 +160,10 @@ impl StreamConnector for StreamConnectorReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::find_free_port;
     use crate::test_utils::little_tcp_server::LittleTcpServer;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
-    use crate::test_utils::test_utils::find_free_port;
     use futures::future::lazy;
     use futures::future::ok;
     use std::net::{IpAddr, Shutdown};

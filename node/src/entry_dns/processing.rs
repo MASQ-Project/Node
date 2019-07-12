@@ -21,7 +21,7 @@ pub fn process(buf: &mut [u8], length: usize, addr: &SocketAddr, logger: &Logger
     let request_record = RequestRecord {
         timestamp: Instant::now(),
         opcode: facade.get_opcode().unwrap_or(0xFF),
-        queries: facade.get_queries().unwrap_or(vec![]),
+        queries: facade.get_queries().unwrap_or_else(|| vec![]),
     };
 
     let response_size = make_response(&mut facade);
@@ -30,7 +30,7 @@ pub fn process(buf: &mut [u8], length: usize, addr: &SocketAddr, logger: &Logger
     let response_record = ResponseRecord {
         latency_ns: latency.as_nanos() as u64,
         rcode: facade.get_rcode().unwrap_or(0xFF),
-        answers: facade.get_answers().unwrap_or(vec![]),
+        answers: facade.get_answers().unwrap_or_else(|| vec![]),
     };
     write_log(&request_record, &response_record, addr, logger);
     response_size
@@ -42,13 +42,15 @@ fn make_response(mut facade: &mut PacketFacade) -> usize {
         Some(opcode) if opcode == u8::from(OpCode::Query) => (),
         Some(_) => return make_not_implemented_error(facade),
     }
-    let _ = (facade.set_query(false)
+    if !(facade.set_query(false)
         && facade.set_authoritative_answer(false)
         && facade.set_truncated(false)
         && facade.set_recursion_available(true)
         && facade.set_authenticated_data(false)
         && facade.set_checking_disabled(false))
-        || return make_format_error(facade);
+    {
+        return make_format_error(facade);
+    }
     let queries = match facade.get_queries() {
         None => return make_format_error(facade),
         Some(q) => q,

@@ -2,6 +2,7 @@
 use crate::sub_lib::framer::FramedChunk;
 use crate::sub_lib::framer::Framer;
 
+#[derive(Default)]
 pub struct JsonFramer {
     possible_start: Option<usize>,
     possible_end: Option<usize>,
@@ -22,15 +23,12 @@ impl Framer for JsonFramer {
         for i in 0..self.data_so_far.len() {
             let byte = self.data_so_far[i];
             self.update_state(byte, i);
-            match self.check_data_chunk() {
-                Some(chunk) => {
-                    self.data_so_far = Vec::from(&self.data_so_far[(i + 1)..]);
-                    return Some(FramedChunk {
-                        chunk,
-                        last_chunk: true,
-                    });
-                }
-                None => (),
+            if let Some(chunk) = self.check_data_chunk() {
+                self.data_so_far = Vec::from(&self.data_so_far[(i + 1)..]);
+                return Some(FramedChunk {
+                    chunk,
+                    last_chunk: true,
+                });
             }
         }
         match (self.possible_start, self.possible_end) {

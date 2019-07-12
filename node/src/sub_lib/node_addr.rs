@@ -79,7 +79,7 @@ impl FromStr for NodeAddr {
     type Err = String;
 
     fn from_str(input: &str) -> Result<NodeAddr, String> {
-        let pieces: Vec<&str> = input.split(":").collect();
+        let pieces: Vec<&str> = input.split(':').collect();
         if pieces.len() != 2 {
             return Err(format!(
                 "NodeAddr should be expressed as '<IP address>:<port>;<port>,...', not '{}'",
@@ -96,7 +96,7 @@ impl FromStr for NodeAddr {
             Ok(ip_addr) => ip_addr,
         };
         let ports: Vec<u16> = match pieces[1]
-            .split(";")
+            .split(';')
             .map(|s| match s.parse::<u16>() {
                 Err(_) => Err(format!(
                     "NodeAddr must have port numbers between {} and {}, not '{}'",

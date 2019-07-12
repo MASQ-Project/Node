@@ -7,8 +7,7 @@ KIND="$1" # should be either 'sudo' or 'user'
 export PATH="$PATH:$HOME/.cargo/bin"
 
 export RUST_BACKTRACE=full
-# TODO remove -Aproc-macro-derive-resolution-fallback when they are promoted to errors
-export RUSTFLAGS="-D warnings -Anon-snake-case -Aproc-macro-derive-resolution-fallback"
+export RUSTFLAGS="-D warnings -Anon-snake-case"
 umask 000
 
 cargo test --release -- --nocapture "_${KIND}_integration"

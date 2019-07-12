@@ -5,6 +5,7 @@ use crate::sub_lib::utils::index_of;
 
 const PRESERVE_HEADER_LEN: usize = 4;
 
+#[derive(Default)]
 pub struct TlsFramer {
     data_so_far: Vec<u8>,
 }
@@ -47,10 +48,8 @@ impl Framer for TlsFramer {
 }
 
 impl TlsFramer {
-    pub fn new() -> TlsFramer {
-        TlsFramer {
-            data_so_far: Vec::new(),
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
 
     fn find_frame_offset(data: &[u8]) -> Option<usize> {
@@ -74,7 +73,7 @@ impl TlsFramer {
                 if offset + 4 >= data.len() {
                     return Err(0);
                 } // Err (0) means don't bother trying again
-                if TlsFramer::is_valid_content_type(data[offset + 0])
+                if TlsFramer::is_valid_content_type(data[offset])
                     && TlsFramer::is_valid_protocol_version(data[offset + 1], data[offset + 2])
                 {
                     Ok(offset)

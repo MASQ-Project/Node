@@ -5,7 +5,7 @@ mod utils;
 use native_tls::HandshakeError;
 use native_tls::TlsConnector;
 use native_tls::TlsStream;
-use node_lib::test_utils::test_utils::*;
+use node_lib::test_utils::*;
 use std::io::Write;
 use std::net::SocketAddr;
 use std::net::TcpStream;

@@ -1,8 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::node_configurator::node_configurator::{NodeConfigurator, WalletCreationConfig};
 use crate::node_configurator::node_configurator_generate_wallet::NodeConfiguratorGenerateWallet;
 use crate::node_configurator::node_configurator_recover_wallet::NodeConfiguratorRecoverWallet;
+use crate::node_configurator::{NodeConfigurator, WalletCreationConfig};
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::server_initializer::ServerInitializer;
 use crate::sub_lib::main_tools::{Command, StdStreams};

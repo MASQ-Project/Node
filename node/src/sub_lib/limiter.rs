@@ -4,6 +4,12 @@ pub struct Limiter {
     iterations_remaining: i32,
 }
 
+impl Default for Limiter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Limiter {
     pub fn new() -> Limiter {
         Limiter {

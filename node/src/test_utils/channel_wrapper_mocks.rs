@@ -9,9 +9,11 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::prelude::Async;
 
+type FuturesChannelFactoryMockResult<T> = (Box<dyn SenderWrapper<T>>, Box<dyn ReceiverWrapper<T>>);
+
 #[derive(Default)]
 pub struct FuturesChannelFactoryMock<T> {
-    pub results: Vec<(Box<dyn SenderWrapper<T>>, Box<dyn ReceiverWrapper<T>>)>,
+    pub results: Vec<FuturesChannelFactoryMockResult<T>>,
 }
 
 impl<T: 'static + Clone + Debug + Send> FuturesChannelFactory<T> for FuturesChannelFactoryMock<T> {
@@ -30,6 +32,7 @@ impl<T: 'static + Clone + Debug + Send> FuturesChannelFactory<T> for FuturesChan
     }
 }
 
+#[derive(Default)]
 pub struct ReceiverWrapperMock<T> {
     pub poll_results: Vec<Result<Async<Option<T>>, ()>>,
 }
@@ -45,8 +48,8 @@ impl<T: Send> ReceiverWrapper<T> for ReceiverWrapperMock<T> {
 }
 
 impl<T> ReceiverWrapperMock<T> {
-    pub fn new() -> ReceiverWrapperMock<T> {
-        ReceiverWrapperMock {
+    pub fn new() -> Self {
+        Self {
             poll_results: vec![],
         }
     }

@@ -48,7 +48,7 @@ impl HttpPacketStartFinder for HttpRequestStartFinder {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct HttpRequestDiscriminatorFactory {}
 
 impl DiscriminatorFactory for HttpRequestDiscriminatorFactory {

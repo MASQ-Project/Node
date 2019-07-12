@@ -54,11 +54,11 @@ impl Query {
 
     fn find_end(buf: &[u8], offset: usize, length: usize) -> Option<usize> {
         let query_end = try_opt!(PacketFacade::find_string_seq_end(buf, offset, length)) + 4;
-        return if query_end > length {
+        if query_end > length {
             None
         } else {
             Some(query_end)
-        };
+        }
     }
 
     pub fn get_query_name(&self) -> &str {
@@ -504,7 +504,7 @@ impl<'a> PacketFacade<'a> {
         if buflen < start + 2 {
             return None;
         }
-        Some(((buf[start] as u16) << 8) + (buf[start + 1] as u16))
+        Some((u16::from(buf[start]) << 8) + u16::from(buf[start + 1]))
     }
 
     fn u16_to(value: u16, buf: &mut [u8], start: usize) -> bool {
@@ -517,8 +517,8 @@ impl<'a> PacketFacade<'a> {
     }
 
     fn u32_from(buf: &[u8], start: usize, buflen: usize) -> Option<u32> {
-        let high_word = try_opt!(PacketFacade::u16_from(buf, start, buflen)) as u32;
-        let low_word = try_opt!(PacketFacade::u16_from(buf, start + 2, buflen)) as u32;
+        let high_word = u32::from(PacketFacade::u16_from(buf, start, buflen)?);
+        let low_word = u32::from(PacketFacade::u16_from(buf, start + 2, buflen)?);
         Some((high_word << 16) | low_word)
     }
 
@@ -555,9 +555,7 @@ impl<'a> PacketFacade<'a> {
         if rdata_end > self.buf.len() {
             return None;
         };
-        for i in 0..rdata.len() {
-            self.buf[rdata_begin + i] = rdata[i]
-        }
+        self.buf[rdata_begin..(rdata.len() + rdata_begin)].clone_from_slice(&rdata[..]);
         self.establish_high_water(rdata_end);
         Some(rdata_end - start)
     }
@@ -587,7 +585,7 @@ impl<'a> PacketFacade<'a> {
             if length == 0x00 {
                 return Some((result, local_offset + 1));
             }
-            if result.len() > 0 {
+            if !result.is_empty() {
                 result = result.add(".");
             }
             let end = local_offset + 1 + length;
@@ -604,7 +602,7 @@ impl<'a> PacketFacade<'a> {
 
     fn add_string_seq(buf: &mut [u8], offset: usize, string: &str) -> Option<usize> {
         let mut local_offset = offset;
-        if string.len() > 0 {
+        if !string.is_empty() {
             for part in string.split('.') {
                 let bytes = part.as_bytes();
                 if (local_offset + bytes.len() + 1) > buf.len() {

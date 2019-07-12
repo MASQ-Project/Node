@@ -32,7 +32,7 @@ impl Future for StreamWriter {
         let write_result = self.write_from_buffer_to_stream();
 
         match (read_result, write_result) {
-            (_, Err(e)) => Err(e),
+            (_, Err(_)) => Err(()),
             (Ok(Async::NotReady), _) => Ok(Async::NotReady),
             _ => write_result,
         }
@@ -128,7 +128,7 @@ impl StreamWriter {
                                     self.logger,
                                     format!(
                                         "rescheduling {} bytes",
-                                        &packet.data.len() - bytes_written_count
+                                        packet.data.len() - bytes_written_count
                                     )
                                 );
                                 self.sequence_buffer.repush(SequencedPacket::new(
@@ -136,7 +136,7 @@ impl StreamWriter {
                                         .data
                                         .iter()
                                         .skip(bytes_written_count)
-                                        .map(|p| p.clone())
+                                        .cloned()
                                         .collect(),
                                     packet.sequence_number,
                                     packet.last_data,
@@ -161,7 +161,7 @@ mod tests {
     use crate::test_utils::channel_wrapper_mocks::ReceiverWrapperMock;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
-    use crate::test_utils::test_utils::make_meaningless_stream_key;
+    use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use std::io::Error;
     use std::io::ErrorKind;

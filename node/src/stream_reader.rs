@@ -177,7 +177,7 @@ impl StreamReaderReal {
                 None => {
                     debug!(
                         self.logger,
-                        format!("Discriminator has no more data framed")
+                        "Discriminator has no more data framed".to_string()
                     );
                     break;
                 }

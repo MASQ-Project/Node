@@ -1,14 +1,13 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+#[derive(Default)]
 pub struct Sequencer {
     current_sequence_number: u64,
 }
 
 impl Sequencer {
-    pub fn new() -> Sequencer {
-        Sequencer {
-            current_sequence_number: 0,
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn next_sequence_number(&mut self) -> u64 {

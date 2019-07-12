@@ -32,6 +32,7 @@ pub trait TcpStreamWrapperFactory: Send {
     fn dup(&self) -> Box<dyn TcpStreamWrapperFactory>;
 }
 
+#[derive(Default)]
 pub struct TcpStreamWrapperReal {
     delegate: Option<TcpStream>,
 }
@@ -140,8 +141,8 @@ impl TcpStreamWrapperFactory for TcpStreamWrapperFactoryReal {
 }
 
 impl TcpStreamWrapperReal {
-    pub fn new() -> TcpStreamWrapperReal {
-        TcpStreamWrapperReal { delegate: None }
+    pub fn new() -> Self {
+        Self::default()
     }
 
     fn delegate(&self) -> &TcpStream {

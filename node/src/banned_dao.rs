@@ -132,7 +132,7 @@ impl BannedDao for BannedDaoReal {
 mod tests {
     use super::*;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::test_utils::test_utils::{
+    use crate::test_utils::{
         ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists, make_wallet,
     };
     use rusqlite::NO_PARAMS;

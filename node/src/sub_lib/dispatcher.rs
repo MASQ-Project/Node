@@ -69,7 +69,7 @@ impl<'a> Visitor<'a> for ComponentVisitor {
             2 => Ok(Component::ProxyServer),
             3 => Ok(Component::ProxyClient),
             _ => Err(serde::de::Error::invalid_value(
-                serde::de::Unexpected::Unsigned(v as u64),
+                serde::de::Unexpected::Unsigned(u64::from(v)),
                 &self,
             )),
         }
@@ -84,9 +84,9 @@ pub enum Endpoint {
 
 impl fmt::Debug for Endpoint {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            &Endpoint::Key(ref key) => write!(f, "PublicKey({})", key),
-            &Endpoint::Socket(ref socket_addr) => write!(f, "Socket({})", *socket_addr),
+        match *self {
+            Endpoint::Key(ref key) => write!(f, "PublicKey({})", key),
+            Endpoint::Socket(ref socket_addr) => write!(f, "Socket({})", *socket_addr),
         }
     }
 }

@@ -3,7 +3,7 @@
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
 use crate::multi_config::MultiConfig;
-use crate::node_configurator::node_configurator::{
+use crate::node_configurator::{
     common_validators, config_file_arg, consuming_wallet_arg, create_wallet, data_directory_arg,
     earning_wallet_arg, flushed_write, initialize_database, language_arg, make_multi_config,
     mnemonic_passphrase_arg, request_new_password, wallet_password_arg, Either, NodeConfigurator,
@@ -112,6 +112,12 @@ impl WalletCreationConfigMaker for NodeConfiguratorGenerateWallet {
     }
 }
 
+impl Default for NodeConfiguratorGenerateWallet {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NodeConfiguratorGenerateWallet {
     pub fn new() -> Self {
         Self {
@@ -164,9 +170,8 @@ impl NodeConfiguratorGenerateWallet {
         streams: &mut StdStreams<'_>,
         persistent_config: &PersistentConfiguration,
     ) -> WalletCreationConfig {
-        match persistent_config.encrypted_mnemonic_seed() {
-            Some(_) => panic!("Can't generate wallets: mnemonic seed has already been created"),
-            None => (),
+        if persistent_config.encrypted_mnemonic_seed().is_some() {
+            panic!("Can't generate wallets: mnemonic seed has already been created")
         }
         self.make_wallet_creation_config(multi_config, streams)
     }
@@ -214,13 +219,15 @@ impl NodeConfiguratorGenerateWallet {
              You cannot recover your wallet without these words \
              plus your mnemonic passphrase if you provided one.\n\n",
         );
-        flushed_write(streams.stdout, &format!("{}", mnemonic.phrase()));
+        flushed_write(streams.stdout, mnemonic.phrase());
         flushed_write(streams.stdout, "\n\n");
         let consuming_keypair = Bip32ECKeyPair::from_raw(seed.as_ref(), &consuming_derivation_path)
-            .expect(&format!(
-                "Couldn't make key pair from consuming derivation path '{}'",
-                consuming_derivation_path
-            ));
+            .unwrap_or_else(|_| {
+                panic!(
+                    "Couldn't make key pair from consuming derivation path '{}'",
+                    consuming_derivation_path
+                )
+            });
         let consuming_wallet = Wallet::from(consuming_keypair);
         flushed_write(
             streams.stdout,
@@ -240,12 +247,13 @@ impl NodeConfiguratorGenerateWallet {
             }
             Either::Right(earning_derivation_path) => {
                 let earning_keypair =
-                    Bip32ECKeyPair::from_raw(seed.as_ref(), &earning_derivation_path).expect(
-                        &format!(
-                            "Couldn't make key pair from earning derivation path '{}'",
-                            earning_derivation_path
-                        ),
-                    );
+                    Bip32ECKeyPair::from_raw(seed.as_ref(), &earning_derivation_path)
+                        .unwrap_or_else(|_| {
+                            panic!(
+                                "Couldn't make key pair from earning derivation path '{}'",
+                                earning_derivation_path
+                            )
+                        });
                 let earning_wallet = Wallet::from(earning_keypair.address());
                 flushed_write(
                     streams.stdout,
@@ -266,14 +274,12 @@ mod tests {
     use crate::database::db_initializer;
     use crate::database::db_initializer::DbInitializer;
     use crate::multi_config::{CommandLineVCL, VirtualCommandLine};
-    use crate::node_configurator::node_configurator::DerivationPathWalletInfo;
+    use crate::node_configurator::DerivationPathWalletInfo;
     use crate::persistent_configuration::PersistentConfigurationReal;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::wallet::DEFAULT_CONSUMING_DERIVATION_PATH;
     use crate::sub_lib::wallet::DEFAULT_EARNING_DERIVATION_PATH;
-    use crate::test_utils::test_utils::make_default_persistent_configuration;
-    use crate::test_utils::test_utils::{assert_eq_debug, ensure_node_home_directory_exists};
-    use crate::test_utils::test_utils::{ByteArrayWriter, FakeStreamHolder};
+    use crate::test_utils::*;
     use bip39::Seed;
     use std::cell::RefCell;
     use std::io::Cursor;

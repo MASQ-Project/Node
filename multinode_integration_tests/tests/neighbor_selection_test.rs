@@ -5,11 +5,11 @@ use multinode_integration_tests_lib::neighborhood_constructor::construct_neighbo
 use multinode_integration_tests_lib::substratum_node::SubstratumNode;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use node_lib::neighborhood::gossip::GossipBuilder;
-use node_lib::neighborhood::neighborhood::AccessibleGossipRecord;
 use node_lib::neighborhood::neighborhood_test_utils::{db_from_node, make_node_record};
 use node_lib::neighborhood::node_record::NodeRecord;
+use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::PublicKey;
-use node_lib::test_utils::test_utils::vec_to_set;
+use node_lib::test_utils::vec_to_set;
 use std::convert::TryInto;
 use std::time::Duration;
 

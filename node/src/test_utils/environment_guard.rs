@@ -5,7 +5,7 @@ use std::ffi::OsString;
 use std::sync::{Mutex, MutexGuard};
 
 lazy_static! {
-    static ref ENVIRONMENT_GUARD_MUTEX: Mutex<bool> = Mutex::new(true);
+    static ref ENVIRONMENT_GUARD_MUTEX: Mutex<()> = Mutex::new(());
 }
 
 /// Create one of these at the beginning of a test scope that manipulates the environment, with a variable name beginning
@@ -16,7 +16,7 @@ lazy_static! {
 /// Also, if all your test scopes that manipulate the environment protect themselves with EnvironmentGuards, the
 /// EnvironmentGuards will use a Mutex to prevent the test scopes from competing with each other over the environment.
 pub struct EnvironmentGuard<'a> {
-    _lock: MutexGuard<'a, bool>,
+    _lock: MutexGuard<'a, ()>,
     environment: Vec<(OsString, OsString)>,
 }
 
@@ -36,7 +36,13 @@ impl<'a> EnvironmentGuard<'a> {
                 Ok(guard) => guard,
                 Err(poisoned) => poisoned.into_inner(), // A poisoned mutex just means some other test failed in a guarded scope
             },
-            environment: std::env::vars_os().into_iter().collect(),
+            environment: std::env::vars_os().collect(),
         }
+    }
+}
+
+impl<'a> Default for EnvironmentGuard<'a> {
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -1,9 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use crate::neighborhood::gossip::{Gossip, GossipBuilder};
-use crate::neighborhood::neighborhood::AccessibleGossipRecord;
 use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, NeighborhoodDatabaseError};
 use crate::neighborhood::node_record::NodeRecord;
+use crate::neighborhood::AccessibleGossipRecord;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::node_addr::NodeAddr;
@@ -135,7 +135,7 @@ impl GossipHandler for DebutHandler {
         if let Ok(result) = self.try_accept_debut(cryptde, database, &source_agr) {
             return result;
         }
-        debug!(self.logger, format!("Seeking neighbor for Pass"));
+        debug!(self.logger, "Seeking neighbor for Pass".to_string());
         let lcn_key = match Self::find_least_connected_neighbor_excluding(database, &source_agr) {
             None => {
                 debug!(self.logger, format!(
@@ -185,14 +185,13 @@ impl DebutHandler {
             .into_iter()
             .skip_while(|k| database.gossip_target_degree(*k) <= 2)
             .collect();
-        match neighbors_3_or_greater_vec.first().map(|kr| *kr) {
+        match neighbors_3_or_greater_vec.first().cloned() {
             // No neighbors of degree 3 or greater
             None => {
                 debug!(
                     self.logger,
-                    format!(
-                        "No degree-3-or-greater neighbors; can't find more-appropriate neighbor"
-                    )
+                    "No degree-3-or-greater neighbors; can't find more-appropriate neighbor"
+                        .to_string()
                 );
                 None
             }
@@ -201,12 +200,12 @@ impl DebutHandler {
                 if database.gossip_target_degree(key)
                     >= database.gossip_target_degree(database.root().public_key()) =>
             {
-                debug!(self.logger, format!("No neighbors of degree 3 or greater are less-connected than this Node: can't find more-appropriate neighbor"));
+                debug!(self.logger, "No neighbors of degree 3 or greater are less-connected than this Node: can't find more-appropriate neighbor".to_string());
                 None
             }
             // Neighbor of degree 3 or greater less connected than I am
             Some(key) => {
-                debug!(self.logger, format!("Found more-appropriate neighbor"));
+                debug!(self.logger, "Found more-appropriate neighbor".to_string());
                 Some(key)
             }
         }
@@ -219,7 +218,7 @@ impl DebutHandler {
         debuting_agr: &AccessibleGossipRecord,
     ) -> Result<GossipAcceptanceResult, ()> {
         if database.gossip_target_degree(database.root().public_key()) >= MAX_DEGREE {
-            debug!(self.logger, format!("Neighbor count already at maximum"));
+            debug!(self.logger, "Neighbor count already at maximum".to_string());
             return Err(());
         }
         let debut_node_addr = debuting_agr
@@ -314,7 +313,7 @@ impl DebutHandler {
         let excluded_keys = Self::node_and_neighbor_keys(excluded);
         Self::keys_ordered_by_degree_excluding(database, keys, excluded_keys)
             .first()
-            .map(|lcn| *lcn)
+            .cloned()
     }
 
     fn keys_ordered_by_degree_excluding<'b>(
@@ -322,11 +321,7 @@ impl DebutHandler {
         keys: HashSet<&'b PublicKey>,
         excluding: HashSet<&'b PublicKey>,
     ) -> Vec<&'b PublicKey> {
-        let mut neighbor_keys_vec: Vec<&PublicKey> = keys
-            .difference(&excluding)
-            .into_iter()
-            .map(|refref| *refref)
-            .collect();
+        let mut neighbor_keys_vec: Vec<&PublicKey> = keys.difference(&excluding).cloned().collect();
         neighbor_keys_vec.sort_unstable_by(|a, b| {
             database
                 .gossip_target_degree(*a)
@@ -552,17 +547,14 @@ impl IntroductionHandler {
         mut agrs: Vec<AccessibleGossipRecord>,
         gossip_source: IpAddr,
     ) -> Result<(AccessibleGossipRecord, AccessibleGossipRecord), Qualification> {
-        let pair = match Self::order_is_introducee_introducer(&agrs, gossip_source)? {
-            true => {
-                let introducer = agrs.remove(0);
-                let introducee = agrs.remove(0);
-                (introducer, introducee)
-            }
-            false => {
-                let introducee = agrs.remove(0);
-                let introducer = agrs.remove(0);
-                (introducer, introducee)
-            }
+        let pair = if Self::order_is_introducee_introducer(&agrs, gossip_source)? {
+            let introducer = agrs.remove(0);
+            let introducee = agrs.remove(0);
+            (introducer, introducee)
+        } else {
+            let introducee = agrs.remove(0);
+            let introducer = agrs.remove(0);
+            (introducer, introducee)
         };
         Ok(pair)
     }
@@ -733,15 +725,18 @@ impl GossipHandler for StandardGossipHandler {
             ));
         }
         let root_node = database.root();
-        match agrs_next_door.iter()
-            .find(|agr| Self::ip_of(agr) == root_node.node_addr_opt().expect("Root Node must have NodeAddr").ip_addr())
-            {
-                Some(impostor) => return Qualification::Malformed(
+        if let Some(impostor) = agrs_next_door.iter().find(|agr| {
+            Self::ip_of(agr)
+                == root_node
+                    .node_addr_opt()
+                    .expect("Root Node must have NodeAddr")
+                    .ip_addr()
+        }) {
+            return Qualification::Malformed(
                     format!("Standard Gossip from {} contains a record claiming that {} has this Node's IP address",
                             gossip_source,
-                            impostor.inner.public_key)),
-                None => (),
-            }
+                            impostor.inner.public_key));
+        }
         if agrs
             .iter()
             .any(|agr| &agr.inner.public_key == root_node.public_key())
@@ -821,7 +816,7 @@ impl StandardGossipHandler {
         let all_keys = database
             .keys()
             .into_iter()
-            .map(|x| x.clone())
+            .cloned()
             .collect::<HashSet<PublicKey>>();
         agrs.iter()
             .filter(|agr| !all_keys.contains(&agr.inner.public_key))
@@ -889,17 +884,15 @@ impl StandardGossipHandler {
         let existing_node_record = database
             .node_by_key_mut(&agr.inner.public_key)
             .expect("Node magically disappeared");
-        match (
+        if let (None, Some(new_node_addr)) = (
             existing_node_record.node_addr_opt(),
             agr.node_addr_opt.clone(),
         ) {
-            (None, Some(new_node_addr)) => {
-                existing_node_record
-                    .set_node_addr(&new_node_addr)
-                    .expect("Unexpected complaint about changing NodeAddr");
-            }
-            _ => (), // Maybe we eventually want to detect errors here and abort the change, returning false.
-        }
+            existing_node_record
+                .set_node_addr(&new_node_addr)
+                .expect("Unexpected complaint about changing NodeAddr");
+        } // Maybe we eventually want to detect errors here and abort the change, returning false.
+
         existing_node_record.inner = agr.inner.clone();
         existing_node_record.signed_gossip = agr.signed_gossip.clone();
         existing_node_record.signature = agr.signature.clone();
@@ -907,7 +900,7 @@ impl StandardGossipHandler {
     }
 
     fn add_ip_addr(set: HashSet<IpAddr>, ip_addr: IpAddr) -> HashSet<IpAddr> {
-        let mut result = HashSet::from(set);
+        let mut result = set;
         result.insert(ip_addr);
         result
     }
@@ -1065,7 +1058,7 @@ mod tests {
     };
     use crate::neighborhood::node_record::NodeRecord;
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::test_utils::test_utils::{assert_contains, cryptde};
+    use crate::test_utils::{assert_contains, cryptde};
     use std::convert::TryInto;
     use std::str::FromStr;
 

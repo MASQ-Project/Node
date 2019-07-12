@@ -81,7 +81,7 @@ impl CryptDE for CryptDENull {
         descriptor_fragment: &str,
     ) -> Result<PublicKey, String> {
         if descriptor_fragment.is_empty() {
-            return Err(format!("Public key cannot be empty"));
+            return Err("Public key cannot be empty".to_string());
         }
         let half_key = match base64::decode_config(descriptor_fragment, base64::STANDARD_NO_PAD) {
             Ok(half_key) => half_key,
@@ -93,6 +93,12 @@ impl CryptDE for CryptDENull {
             }
         };
         Ok(PublicKey::from(half_key))
+    }
+}
+
+impl Default for CryptDENull {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

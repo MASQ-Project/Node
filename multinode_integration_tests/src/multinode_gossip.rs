@@ -1,13 +1,13 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::substratum_node::SubstratumNode;
 use node_lib::neighborhood::gossip::{Gossip, GossipNodeRecord};
-use node_lib::neighborhood::neighborhood::AccessibleGossipRecord;
 use node_lib::neighborhood::node_record::NodeRecordInner;
+use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::CryptData;
 use node_lib::sub_lib::cryptde::PlainData;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::cryptde_null::CryptDENull;
-use node_lib::test_utils::test_utils::vec_to_set;
+use node_lib::test_utils::vec_to_set;
 use std::collections::{BTreeSet, HashSet};
 use std::convert::{TryFrom, TryInto};
 use std::net::IpAddr;

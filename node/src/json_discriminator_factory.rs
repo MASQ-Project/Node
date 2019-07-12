@@ -4,7 +4,7 @@ use crate::discriminator::DiscriminatorFactory;
 use crate::json_framer::JsonFramer;
 use crate::json_masquerader::JsonMasquerader;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct JsonDiscriminatorFactory {}
 
 impl DiscriminatorFactory for JsonDiscriminatorFactory {

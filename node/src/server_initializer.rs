@@ -78,6 +78,12 @@ impl ServerInitializer<PrivilegeDropperReal> {
     }
 }
 
+impl Default for ServerInitializer<PrivilegeDropperReal> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub trait LoggerInitializerWrapper: Send {
     fn init(&mut self, log_level: LevelFilter) -> bool;
 }
@@ -86,7 +92,7 @@ pub struct LoggerInitializerWrapperReal {}
 
 impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
     fn init(&mut self, log_level: LevelFilter) -> bool {
-        match Logger::with(LogSpecification::default(log_level).finalize())
+        Logger::with(LogSpecification::default(log_level).finalize())
             .log_to_file()
             .directory(&temp_dir().to_str().expect("Bad temporary filename")[..])
             .print_message()
@@ -94,10 +100,7 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
             .suppress_timestamp()
             .format(format_function)
             .start()
-        {
-            Ok(_) => true,
-            Err(_) => false,
-        }
+            .is_ok()
     }
 }
 
@@ -187,8 +190,8 @@ pub mod tests {
         LoggerInitializerWrapperMock, PrivilegeDropperMock,
     };
     use crate::sub_lib::crash_point::CrashPoint;
-    use crate::test_utils::test_utils::ByteArrayReader;
-    use crate::test_utils::test_utils::ByteArrayWriter;
+    use crate::test_utils::ByteArrayReader;
+    use crate::test_utils::ByteArrayWriter;
     use std::sync::Arc;
     use std::sync::Mutex;
 

@@ -4,8 +4,8 @@ use super::node_record::NodeRecordInner;
 use crate::neighborhood::dot_graph::{
     render_dot_graph, DotRenderable, EdgeRenderable, NodeRenderable,
 };
-use crate::neighborhood::neighborhood::AccessibleGossipRecord;
 use crate::neighborhood::neighborhood_database::NeighborhoodDatabase;
+use crate::neighborhood::AccessibleGossipRecord;
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData, PublicKey};
 use crate::sub_lib::data_version::DataVersion;
 use crate::sub_lib::hopper::MessageType;
@@ -130,15 +130,14 @@ impl TryInto<Vec<AccessibleGossipRecord>> for Gossip {
         let results: Vec<Result<AccessibleGossipRecord, String>> = self
             .node_records
             .into_iter()
-            .map(|gnr| AccessibleGossipRecord::try_from(gnr))
+            .map(AccessibleGossipRecord::try_from)
             .collect();
-        match results.iter().find(|result| result.is_err()) {
-            Some(Err(msg)) => return Err(msg.clone()),
-            _ => (),
+        if let Some(Err(msg)) = results.iter().find(|result| result.is_err()) {
+            return Err(msg.clone());
         }
         Ok(results
             .into_iter()
-            .map(|result| result.ok().expect("Success suddenly turned bad"))
+            .map(|result| result.expect("Success suddenly turned bad"))
             .collect())
     }
 }
@@ -338,12 +337,12 @@ impl Gossip {
                 version: Some(nri.version),
                 public_key: nri.public_key.clone(),
                 node_addr: addr.clone(),
-                known_source: &nri.public_key == &source.public_key,
-                known_target: &nri.public_key == &target.public_key,
+                known_source: nri.public_key == source.public_key,
+                known_target: nri.public_key == target.public_key,
                 is_present: true,
             });
         });
-        mentioned.difference(&present).into_iter().for_each(|k| {
+        mentioned.difference(&present).for_each(|k| {
             node_renderables.push(NodeRenderable {
                 version: None,
                 public_key: k.clone(),
@@ -418,7 +417,7 @@ mod tests {
     use super::super::neighborhood_test_utils::make_node_record;
     use super::*;
     use crate::neighborhood::neighborhood_test_utils::db_from_node;
-    use crate::test_utils::test_utils::{assert_string_contains, vec_to_btset};
+    use crate::test_utils::{assert_string_contains, vec_to_btset};
     use std::str::FromStr;
 
     #[test]

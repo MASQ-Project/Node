@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::node_configurator::node_configurator::DirsWrapper;
+use crate::node_configurator::DirsWrapper;
 use std::path::PathBuf;
 
 pub struct MockDirsWrapper {}

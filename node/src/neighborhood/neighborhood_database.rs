@@ -65,7 +65,7 @@ impl NeighborhoodDatabase {
     }
 
     pub fn keys(&self) -> HashSet<&PublicKey> {
-        self.by_public_key.keys().into_iter().collect()
+        self.by_public_key.keys().collect()
     }
 
     pub fn node_by_key(&self, public_key: &PublicKey) -> Option<&NodeRecord> {
@@ -173,12 +173,11 @@ impl NeighborhoodDatabase {
             None => None,
         };
 
-        match self.root_mut().remove_half_neighbor_key(node_key) {
-            true => {
-                self.root_mut().increment_version();
-                Ok(true)
-            }
-            false => Ok(false),
+        if self.root_mut().remove_half_neighbor_key(node_key) {
+            self.root_mut().increment_version();
+            Ok(true)
+        } else {
+            Ok(false)
         }
     }
 
@@ -216,7 +215,7 @@ impl NeighborhoodDatabase {
                 is_present: true,
             });
         });
-        mentioned.difference(&present).into_iter().for_each(|k| {
+        mentioned.difference(&present).for_each(|k| {
             node_renderables.push(NodeRenderable {
                 version: None,
                 public_key: k.clone(),
@@ -284,7 +283,7 @@ mod tests {
     use super::*;
     use crate::neighborhood::neighborhood_test_utils::db_from_node;
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::test_utils::test_utils::{assert_string_contains, rate_pack};
+    use crate::test_utils::{assert_string_contains, rate_pack};
     use std::iter::FromIterator;
     use std::str::FromStr;
 
