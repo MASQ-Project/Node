@@ -1,6 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::masquerader::Masquerader;
+use crate::masquerader::{MasqueradeError, Masquerader};
 use crate::sub_lib::framer::Framer;
+use crate::sub_lib::logger::Logger;
+use serde::export::fmt::Debug;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct UnmaskedChunk {
@@ -19,7 +21,7 @@ impl UnmaskedChunk {
     }
 }
 
-pub trait DiscriminatorFactory: Send {
+pub trait DiscriminatorFactory: Send + Sync + Debug {
     fn make(&self) -> Discriminator;
     fn duplicate(&self) -> Box<dyn DiscriminatorFactory>;
 }
@@ -33,6 +35,7 @@ impl Clone for Box<dyn DiscriminatorFactory> {
 pub struct Discriminator {
     framer: Box<dyn Framer>,
     masqueraders: Vec<Box<dyn Masquerader>>,
+    logger: Logger,
 }
 
 impl Discriminator {
@@ -43,6 +46,7 @@ impl Discriminator {
         Discriminator {
             framer,
             masqueraders,
+            logger: Logger::new("Discriminator"),
         }
     }
 
@@ -57,8 +61,12 @@ impl Discriminator {
         };
         for masquerader in &self.masqueraders {
             match masquerader.try_unmask(&frame.chunk[..]) {
-                Some(chunk) => return Some(chunk),
-                None => (),
+                Ok(chunk) => return Some(chunk),
+                Err(MasqueradeError::NotThisMasquerader) => (),
+                Err(e) => {
+                    warning!(self.logger, e.to_string());
+                    ()
+                }
             }
         }
         None
@@ -70,6 +78,7 @@ mod tests {
     use super::*;
     use crate::masquerader::MasqueradeError;
     use crate::sub_lib::framer::FramedChunk;
+    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::cell::RefCell;
     use std::ops::DerefMut;
     use std::sync::Arc;
@@ -102,13 +111,14 @@ mod tests {
         }
     }
 
+    // TODO: Remove this struct and replace with the MasqueraderMock from node_test_utils
     pub struct MasqueraderMock {
-        try_unmask_results: RefCell<Vec<Option<UnmaskedChunk>>>,
+        try_unmask_results: RefCell<Vec<Result<UnmaskedChunk, MasqueradeError>>>,
         try_unmask_parameters: RefCell<Arc<Mutex<Vec<Vec<u8>>>>>,
     }
 
     impl Masquerader for MasqueraderMock {
-        fn try_unmask(&self, item: &[u8]) -> Option<UnmaskedChunk> {
+        fn try_unmask(&self, item: &[u8]) -> Result<UnmaskedChunk, MasqueradeError> {
             let mut try_unmask_parameters_ref = self.try_unmask_parameters.borrow_mut();
             try_unmask_parameters_ref
                 .deref_mut()
@@ -131,7 +141,10 @@ mod tests {
             }
         }
 
-        pub fn try_unmask_result(self, result: Option<UnmaskedChunk>) -> MasqueraderMock {
+        pub fn try_unmask_result(
+            self,
+            result: Result<UnmaskedChunk, MasqueradeError>,
+        ) -> MasqueraderMock {
             self.try_unmask_results.borrow_mut().push(result);
             self
         }
@@ -169,12 +182,12 @@ mod tests {
         let mut first_try_unmask_parameters: Arc<Mutex<Vec<Vec<u8>>>> =
             Arc::new(Mutex::new(vec![]));
         let first_masquerader = MasqueraderMock::new()
-            .try_unmask_result(None)
+            .try_unmask_result(Err(MasqueradeError::NotThisMasquerader))
             .try_unmask_parameters(&mut first_try_unmask_parameters);
         let mut second_try_unmask_parameters: Arc<Mutex<Vec<Vec<u8>>>> =
             Arc::new(Mutex::new(vec![]));
         let second_masquerader = MasqueraderMock::new()
-            .try_unmask_result(None)
+            .try_unmask_result(Err(MasqueradeError::NotThisMasquerader))
             .try_unmask_parameters(&mut second_try_unmask_parameters);
         let mut subject = Discriminator::new(
             Box::new(framer),
@@ -202,20 +215,20 @@ mod tests {
         let mut second_try_unmask_parameters: Arc<Mutex<Vec<Vec<u8>>>> =
             Arc::new(Mutex::new(vec![]));
         let first_masquerader = MasqueraderMock::new()
-            .try_unmask_result(Some(UnmaskedChunk::new(
+            .try_unmask_result(Ok(UnmaskedChunk::new(
                 Vec::from(&b"choose me"[..]),
                 true,
                 true,
             )))
-            .try_unmask_result(None)
+            .try_unmask_result(Err(MasqueradeError::NotThisMasquerader))
             .try_unmask_parameters(&mut first_try_unmask_parameters);
         let second_masquerader = MasqueraderMock::new()
-            .try_unmask_result(Some(UnmaskedChunk::new(
+            .try_unmask_result(Ok(UnmaskedChunk::new(
                 Vec::from(&b"don't choose me"[..]),
                 true,
                 true,
             )))
-            .try_unmask_result(None)
+            .try_unmask_result(Err(MasqueradeError::NotThisMasquerader))
             .try_unmask_parameters(&mut second_try_unmask_parameters);
         let mut subject = Discriminator::new(
             Box::new(framer),
@@ -236,27 +249,35 @@ mod tests {
     }
 
     #[test]
-    fn returns_second_data_if_first_masquerader_says_no() {
+    fn returns_third_data_if_first_masquerader_says_no_and_second_blows_up() {
+        init_test_logging();
         let mut framer = FramerMock::new();
         framer.add_data(&b"booga"[..]);
         let mut first_try_unmask_parameters: Arc<Mutex<Vec<Vec<u8>>>> =
             Arc::new(Mutex::new(vec![]));
-        let mut second_try_unmask_parameters: Arc<Mutex<Vec<Vec<u8>>>> =
+        let mut third_try_unmask_parameters: Arc<Mutex<Vec<Vec<u8>>>> =
             Arc::new(Mutex::new(vec![]));
         let first_masquerader = MasqueraderMock::new()
-            .try_unmask_result(None)
+            .try_unmask_result(Err(MasqueradeError::NotThisMasquerader))
             .try_unmask_parameters(&mut first_try_unmask_parameters);
-        let second_masquerader = MasqueraderMock::new()
-            .try_unmask_result(Some(UnmaskedChunk::new(
+        let second_masquerader = MasqueraderMock::new().try_unmask_result(Err(
+            MasqueradeError::HighLevelDataError("that didn't work".to_string()),
+        ));
+        let third_masquerader = MasqueraderMock::new()
+            .try_unmask_result(Ok(UnmaskedChunk::new(
                 Vec::from(&b"choose me"[..]),
                 true,
                 true,
             )))
-            .try_unmask_result(None)
-            .try_unmask_parameters(&mut second_try_unmask_parameters);
+            .try_unmask_result(Err(MasqueradeError::NotThisMasquerader))
+            .try_unmask_parameters(&mut third_try_unmask_parameters);
         let mut subject = Discriminator::new(
             Box::new(framer),
-            vec![Box::new(first_masquerader), Box::new(second_masquerader)],
+            vec![
+                Box::new(first_masquerader),
+                Box::new(second_masquerader),
+                Box::new(third_masquerader),
+            ],
         );
 
         let result = subject.take_chunk();
@@ -265,5 +286,7 @@ mod tests {
             result,
             Some(UnmaskedChunk::new(Vec::from(&b"choose me"[..]), true, true))
         );
+        TestLogHandler::new()
+            .exists_log_containing("WARN: Discriminator: High-level data error: that didn't work");
     }
 }

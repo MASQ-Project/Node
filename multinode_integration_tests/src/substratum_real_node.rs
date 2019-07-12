@@ -6,9 +6,9 @@ use crate::substratum_node::SubstratumNode;
 use crate::substratum_node::SubstratumNodeUtils;
 use crate::substratum_node_client::SubstratumNodeClient;
 use crate::substratum_node_server::SubstratumNodeServer;
+use bip39::{Language, Mnemonic, Seed};
 use node_lib::blockchain::bip32::Bip32ECKeyPair;
-use node_lib::sub_lib::accountant;
-use node_lib::sub_lib::accountant::TEMPORARY_CONSUMING_WALLET;
+use node_lib::sub_lib::accountant::DEFAULT_EARNING_WALLET;
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::neighborhood::sentinel_ip_addr;
@@ -16,9 +16,11 @@ use node_lib::sub_lib::neighborhood::RatePack;
 use node_lib::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use node_lib::sub_lib::neighborhood::ZERO_RATE_PACK;
 use node_lib::sub_lib::node_addr::NodeAddr;
-use node_lib::sub_lib::wallet::Wallet;
+use node_lib::sub_lib::wallet::{
+    Wallet, DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
+};
 use regex::Regex;
-use rustc_hex::FromHex;
+use rustc_hex::{FromHex, ToHex};
 use std::fmt::Display;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -41,6 +43,66 @@ pub enum LocalIpInfo {
     DistributedKnown(IpAddr),
 }
 
+pub const DEFAULT_MNEMONIC_PHRASE: &str =
+    "lamp sadness busy twist illegal task neither survey copper object room project";
+pub const DEFAULT_MNEMONIC_PASSPHRASE: &str = "weenie";
+
+#[derive(PartialEq, Clone, Debug)]
+pub enum EarningWalletInfo {
+    None,
+    Address(String), // wallet address in string form: "0x<40 hex chars>"
+    DerivationPath(String, String), // mnemonic phrase, derivation path
+}
+
+pub fn default_earning_wallet_info() -> EarningWalletInfo {
+    EarningWalletInfo::Address(DEFAULT_EARNING_WALLET.to_string())
+}
+
+pub fn meaningless_earning_derivation_path_info() -> EarningWalletInfo {
+    EarningWalletInfo::DerivationPath(
+        DEFAULT_MNEMONIC_PHRASE.to_string(),
+        DEFAULT_EARNING_DERIVATION_PATH.to_string(),
+    )
+}
+
+pub fn make_earning_wallet_info(token: &str) -> EarningWalletInfo {
+    let address = format!(
+        "0x{}{}",
+        token.to_string().as_bytes().to_hex::<String>(),
+        "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    );
+    EarningWalletInfo::Address(address[0..42].to_string().to_lowercase())
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub enum ConsumingWalletInfo {
+    None,
+    PrivateKey(String), // private address in string form, 64 hex characters
+    DerivationPath(String, String), // mnemonic phrase, derivation path
+}
+
+pub fn default_consuming_wallet_info() -> ConsumingWalletInfo {
+    ConsumingWalletInfo::PrivateKey(
+        "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC".to_string(),
+    )
+}
+
+pub fn meaningless_consuming_derivation_path_info() -> ConsumingWalletInfo {
+    ConsumingWalletInfo::DerivationPath(
+        DEFAULT_MNEMONIC_PHRASE.to_string(),
+        DEFAULT_CONSUMING_DERIVATION_PATH.to_string(),
+    )
+}
+
+pub fn make_consuming_wallet_info(token: &str) -> ConsumingWalletInfo {
+    let address = format!(
+        "{}{}",
+        token.to_string().as_bytes().to_hex::<String>(),
+        "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+    );
+    ConsumingWalletInfo::PrivateKey(address[0..64].to_string())
+}
+
 #[derive(PartialEq, Clone)]
 pub struct NodeStartupConfig {
     pub ip_info: LocalIpInfo,
@@ -49,9 +111,9 @@ pub struct NodeStartupConfig {
     pub clandestine_port_opt: Option<u16>,
     pub dns_target: IpAddr,
     pub dns_port: u16,
-    pub earning_wallet: Wallet,
+    pub earning_wallet_info: EarningWalletInfo,
+    pub consuming_wallet_info: ConsumingWalletInfo,
     pub rate_pack: RatePack,
-    pub consuming_private_key: Option<String>,
     pub firewall: Option<Firewall>,
     pub memory: Option<String>,
     pub fake_public_key: Option<PublicKey>,
@@ -66,11 +128,9 @@ impl NodeStartupConfig {
             clandestine_port_opt: None,
             dns_target: sentinel_ip_addr(),
             dns_port: 0,
-            earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
+            earning_wallet_info: EarningWalletInfo::None,
+            consuming_wallet_info: ConsumingWalletInfo::None,
             rate_pack: DEFAULT_RATE_PACK,
-            consuming_private_key: Some(String::from(
-                "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
-            )),
             firewall: None,
             memory: None,
             fake_public_key: None,
@@ -93,8 +153,6 @@ impl NodeStartupConfig {
             args.push("--neighbors".to_string());
             args.push(Self::join_strings(&self.neighbors));
         }
-        args.push("--earning-wallet".to_string());
-        args.push(format!("{}", self.earning_wallet));
         if let Some(clandestine_port) = self.clandestine_port_opt {
             args.push("--clandestine-port".to_string());
             args.push(format!("{}", clandestine_port));
@@ -103,15 +161,122 @@ impl NodeStartupConfig {
         args.push("trace".to_string());
         args.push("--data-directory".to_string());
         args.push("/node_root/home".to_string());
-        if let Some(ref consuming_private_key) = self.consuming_private_key {
+        if let EarningWalletInfo::Address(ref address) = self.earning_wallet_info {
+            args.push("--earning-wallet".to_string());
+            args.push(address.to_string());
+        }
+        if let ConsumingWalletInfo::PrivateKey(ref key) = self.consuming_wallet_info {
             args.push("--consuming-private-key".to_string());
-            args.push(consuming_private_key.clone());
+            args.push(key.to_string());
         }
         if let Some(ref public_key) = self.fake_public_key {
             args.push("--fake_public_key".to_string());
             args.push(format!("{}", public_key));
         }
         args
+    }
+
+    fn make_establish_wallet_args(&self) -> Option<Vec<String>> {
+        fn to_strings(strs: Vec<&str>) -> Vec<String> {
+            strs.into_iter().map(|x| x.to_string()).collect()
+        };
+        let args = match (&self.earning_wallet_info, &self.consuming_wallet_info) {
+            (EarningWalletInfo::None, ConsumingWalletInfo::None) => return None,
+            (EarningWalletInfo::None, ConsumingWalletInfo::PrivateKey(_)) => return None,
+            (EarningWalletInfo::None, ConsumingWalletInfo::DerivationPath(phrase, path)) => {
+                to_strings(vec![
+                    "--recover-wallet",
+                    "--data-directory",
+                    "/node_root/home",
+                    "--mnemonic",
+                    &format!("\"{}\"", &phrase),
+                    "--mnemonic-passphrase",
+                    "passphrase",
+                    "--consuming-wallet",
+                    &path,
+                    "--wallet-password",
+                    "password",
+                ])
+            }
+            (EarningWalletInfo::Address(_), ConsumingWalletInfo::None) => return None,
+            (EarningWalletInfo::Address(_), ConsumingWalletInfo::PrivateKey(_)) => return None,
+            (
+                EarningWalletInfo::Address(address),
+                ConsumingWalletInfo::DerivationPath(phrase, path),
+            ) => to_strings(vec![
+                "--recover-wallet",
+                "--data-directory",
+                "/node_root/home",
+                "--mnemonic",
+                &format!("\"{}\"", &phrase),
+                "--mnemonic-passphrase",
+                "passphrase",
+                "--consuming-wallet",
+                &path,
+                "--wallet-password",
+                "password",
+                "--earning-wallet",
+                &address,
+            ]),
+            (EarningWalletInfo::DerivationPath(phrase, path), ConsumingWalletInfo::None) => {
+                to_strings(vec![
+                    "--recover-wallet",
+                    "--data-directory",
+                    "/node_root/home",
+                    "--mnemonic",
+                    &format!("\"{}\"", &phrase),
+                    "--mnemonic-passphrase",
+                    "passphrase",
+                    "--wallet-password",
+                    "password",
+                    "--earning-wallet",
+                    &path,
+                ])
+            }
+            (
+                EarningWalletInfo::DerivationPath(phrase, path),
+                ConsumingWalletInfo::PrivateKey(_),
+            ) => to_strings(vec![
+                "--recover-wallet",
+                "--data-directory",
+                "/node_root/home",
+                "--mnemonic",
+                &format!("\"{}\"", &phrase),
+                "--mnemonic-passphrase",
+                "passphrase",
+                "--wallet-password",
+                "password",
+                "--earning-wallet",
+                &path,
+            ]),
+            (
+                EarningWalletInfo::DerivationPath(ephrase, epath),
+                ConsumingWalletInfo::DerivationPath(cphrase, cpath),
+            ) => {
+                if ephrase != cphrase {
+                    panic!(
+                        "{:?} does not match {:?}",
+                        self.earning_wallet_info, self.consuming_wallet_info
+                    )
+                }
+                to_strings(vec![
+                    "--recover-wallet",
+                    "--data-directory",
+                    "/node_root/home",
+                    "--mnemonic",
+                    &format!("\"{}\"", &ephrase),
+                    "--mnemonic-passphrase",
+                    "passphrase",
+                    "--wallet-password",
+                    "password",
+                    "--earning-wallet",
+                    &epath,
+                    "--consuming-wallet",
+                    &cpath,
+                ])
+            }
+        };
+        Some(args)
     }
 
     fn join_strings<T: Display>(items: &Vec<T>) -> String {
@@ -122,18 +287,40 @@ impl NodeStartupConfig {
             .join(",")
     }
 
+    fn get_earning_wallet(&self) -> Wallet {
+        match &self.earning_wallet_info {
+            EarningWalletInfo::None => DEFAULT_EARNING_WALLET.clone(),
+            EarningWalletInfo::Address(address) => Wallet::from_str(address).unwrap(),
+            EarningWalletInfo::DerivationPath(phrase, derivation_path) => {
+                let mnemonic = Mnemonic::from_phrase(phrase.as_str(), Language::English).unwrap();
+                let keypair = Bip32ECKeyPair::from_raw(
+                    Seed::new(&mnemonic, "passphrase").as_ref(),
+                    derivation_path,
+                )
+                .unwrap();
+                Wallet::from(keypair)
+            }
+        }
+    }
+
     fn get_consuming_wallet(&self) -> Option<Wallet> {
-        match &self.consuming_private_key {
-            Some(key) => match key.from_hex::<Vec<u8>>() {
-                Ok(secret_key_bytes) => {
-                    match Bip32ECKeyPair::from_raw_secret(secret_key_bytes.as_slice()) {
-                        Ok(keypair) => Some(Wallet::from(keypair)),
-                        Err(_) => Some(TEMPORARY_CONSUMING_WALLET.clone()),
-                    }
-                }
-                Err(_) => Some(TEMPORARY_CONSUMING_WALLET.clone()),
-            },
-            None => None,
+        match &self.consuming_wallet_info {
+            ConsumingWalletInfo::None => None,
+            ConsumingWalletInfo::PrivateKey(key) => {
+                let key_bytes = key.from_hex::<Vec<u8>>().unwrap();
+                let keypair = Bip32ECKeyPair::from_raw_secret(&key_bytes).unwrap();
+                Some(Wallet::from(keypair))
+            }
+            ConsumingWalletInfo::DerivationPath(phrase, derivation_path) => {
+                let mnemonic =
+                    Mnemonic::from_phrase(phrase.to_string(), Language::English).unwrap();
+                let keypair = Bip32ECKeyPair::from_raw(
+                    Seed::new(&mnemonic, "passphrase").as_ref(),
+                    derivation_path,
+                )
+                .unwrap();
+                Some(Wallet::from(keypair))
+            }
         }
     }
 }
@@ -145,9 +332,9 @@ pub struct NodeStartupConfigBuilder {
     clandestine_port_opt: Option<u16>,
     dns_target: IpAddr,
     dns_port: u16,
-    earning_wallet: Wallet,
+    earning_wallet_info: EarningWalletInfo,
+    consuming_wallet_info: ConsumingWalletInfo,
     rate_pack: RatePack,
-    consuming_private_key: Option<String>,
     firewall: Option<Firewall>,
     memory: Option<String>,
     fake_public_key: Option<PublicKey>,
@@ -162,9 +349,9 @@ impl NodeStartupConfigBuilder {
             clandestine_port_opt: None,
             dns_target: IpAddr::from_str("127.0.0.1").unwrap(),
             dns_port: 53,
-            earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
+            earning_wallet_info: EarningWalletInfo::None,
+            consuming_wallet_info: ConsumingWalletInfo::None,
             rate_pack: ZERO_RATE_PACK.clone(),
-            consuming_private_key: None,
             firewall: None,
             memory: None,
             fake_public_key: None,
@@ -179,11 +366,9 @@ impl NodeStartupConfigBuilder {
             clandestine_port_opt: None,
             dns_target: IpAddr::from_str("127.0.0.1").unwrap(),
             dns_port: 53,
-            earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
+            earning_wallet_info: EarningWalletInfo::None,
+            consuming_wallet_info: ConsumingWalletInfo::None,
             rate_pack: DEFAULT_RATE_PACK.clone(),
-            consuming_private_key: Some(String::from(
-                "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
-            )),
             firewall: None,
             memory: None,
             fake_public_key: None,
@@ -198,9 +383,9 @@ impl NodeStartupConfigBuilder {
             clandestine_port_opt: config.clandestine_port_opt,
             dns_target: config.dns_target.clone(),
             dns_port: config.dns_port,
-            earning_wallet: config.earning_wallet.clone(),
+            earning_wallet_info: config.earning_wallet_info.clone(),
+            consuming_wallet_info: config.consuming_wallet_info.clone(),
             rate_pack: config.rate_pack.clone(),
-            consuming_private_key: config.consuming_private_key.clone(),
             firewall: config.firewall.clone(),
             memory: config.memory.clone(),
             fake_public_key: config.fake_public_key.clone(),
@@ -247,18 +432,18 @@ impl NodeStartupConfigBuilder {
         self
     }
 
-    pub fn earning_wallet(mut self, value: Wallet) -> NodeStartupConfigBuilder {
-        self.earning_wallet = value;
+    pub fn earning_wallet_info(mut self, value: EarningWalletInfo) -> NodeStartupConfigBuilder {
+        self.earning_wallet_info = value;
+        self
+    }
+
+    pub fn consuming_wallet_info(mut self, value: ConsumingWalletInfo) -> NodeStartupConfigBuilder {
+        self.consuming_wallet_info = value;
         self
     }
 
     pub fn rate_pack(mut self, value: RatePack) -> NodeStartupConfigBuilder {
         self.rate_pack = value;
-        self
-    }
-
-    pub fn consuming_private_key(mut self, value: &str) -> NodeStartupConfigBuilder {
-        self.consuming_private_key = Some(String::from(value));
         self
     }
 
@@ -289,9 +474,9 @@ impl NodeStartupConfigBuilder {
             clandestine_port_opt: self.clandestine_port_opt,
             dns_target: self.dns_target,
             dns_port: self.dns_port,
-            earning_wallet: self.earning_wallet,
+            earning_wallet_info: self.earning_wallet_info,
+            consuming_wallet_info: self.consuming_wallet_info,
             rate_pack: self.rate_pack,
-            consuming_private_key: self.consuming_private_key,
             firewall: self.firewall,
             memory: self.memory,
             fake_public_key: self.fake_public_key,
@@ -349,7 +534,7 @@ impl SubstratumNode for SubstratumRealNode {
     }
 
     fn consuming_wallet(&self) -> Option<Wallet> {
-        self.guts.consuming_wallet.clone()
+        self.guts.consuming_wallet_opt.clone()
     }
 
     fn rate_pack(&self) -> RatePack {
@@ -365,7 +550,6 @@ impl SubstratumRealNode {
     ) -> SubstratumRealNode {
         let ip_addr = IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8));
         let name = format!("test_node_{}", index);
-        let earning_wallet = startup_config.earning_wallet.clone();
         let rate_pack = startup_config.rate_pack.clone();
         SubstratumNodeUtils::clean_up_existing_container(&name[..]);
         let real_startup_config = match startup_config.ip_info {
@@ -400,10 +584,11 @@ impl SubstratumRealNode {
                 });
             }
         }
-        let consuming_wallet = real_startup_config.get_consuming_wallet();
+        Self::establish_wallet_info(&name, &real_startup_config);
         let node_args = real_startup_config.make_args();
         let cryptde_null = real_startup_config
             .fake_public_key
+            .clone()
             .map(|public_key| CryptDENull::from(&public_key));
         let node_command = Self::create_node_command(node_args, startup_config);
 
@@ -418,13 +603,25 @@ impl SubstratumRealNode {
             name,
             container_ip: ip_addr,
             node_reference,
-            earning_wallet,
-            consuming_wallet,
+            earning_wallet: real_startup_config.get_earning_wallet(),
+            consuming_wallet_opt: real_startup_config.get_consuming_wallet(),
             rate_pack,
             root_dir,
             cryptde_null,
         });
         SubstratumRealNode { guts }
+    }
+
+    fn establish_wallet_info(name: &str, startup_config: &NodeStartupConfig) {
+        let args = match startup_config.make_establish_wallet_args() {
+            None => return,
+            Some(args) => args.join(" "),
+        };
+        let node_command = format!("/node_root/node/SubstratumNode {}", args);
+        let mut bash_command_parts = vec!["/bin/bash", "-c"];
+        bash_command_parts.extend(vec![node_command.as_str()]);
+        Self::exec_command_on_container_and_wait(name, bash_command_parts)
+            .expect("Couldn't establish wallet info");
     }
 
     fn create_node_command(node_args: Vec<String>, startup_config: NodeStartupConfig) -> String {
@@ -630,7 +827,7 @@ struct SubstratumRealNodeGuts {
     container_ip: IpAddr,
     node_reference: NodeReference,
     earning_wallet: Wallet,
-    consuming_wallet: Option<Wallet>,
+    consuming_wallet_opt: Option<Wallet>,
     rate_pack: RatePack,
     root_dir: String,
     cryptde_null: Option<CryptDENull>,
@@ -646,7 +843,6 @@ impl Drop for SubstratumRealNodeGuts {
 mod tests {
     use super::*;
     use node_lib::persistent_configuration::{HTTP_PORT, TLS_PORT};
-    use node_lib::test_utils::test_utils::make_wallet;
 
     #[test]
     fn node_startup_config_builder_zero_hop() {
@@ -743,16 +939,14 @@ mod tests {
             clandestine_port_opt: Some(1234),
             dns_target: IpAddr::from_str("255.255.255.255").unwrap(),
             dns_port: 54,
-            earning_wallet: make_wallet("booga"),
+            earning_wallet_info: make_earning_wallet_info("booga"),
+            consuming_wallet_info: make_consuming_wallet_info("booga"),
             rate_pack: RatePack {
                 routing_byte_rate: 10,
                 routing_service_rate: 20,
                 exit_byte_rate: 30,
                 exit_service_rate: 40,
             },
-            consuming_private_key: Some(String::from(
-                "ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD",
-            )),
             firewall: Some(Firewall {
                 ports_to_open: vec![HTTP_PORT, TLS_PORT],
             }),
@@ -799,10 +993,13 @@ mod tests {
         assert_eq!(result.clandestine_port_opt, Some(1234));
         assert_eq!(result.dns_target, dns_target);
         assert_eq!(result.dns_port, 35);
-        assert_eq!(result.earning_wallet, make_wallet("booga"));
         assert_eq!(
-            result.consuming_private_key,
-            Some("ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD".to_string())
+            result.earning_wallet_info,
+            make_earning_wallet_info("booga")
+        );
+        assert_eq!(
+            result.consuming_wallet_info,
+            make_consuming_wallet_info("booga")
         );
         assert_eq!(result.fake_public_key, Some(PublicKey::new(&[1, 2, 3, 4])));
     }
@@ -824,6 +1021,7 @@ mod tests {
             .ip(IpAddr::from_str("1.3.5.7").unwrap())
             .neighbor(one_neighbor.clone())
             .neighbor(another_neighbor.clone())
+            .consuming_wallet_info(default_consuming_wallet_info())
             .build();
 
         let result = subject.make_args();
@@ -837,8 +1035,6 @@ mod tests {
                 "8.8.8.8",
                 "--neighbors",
                 format!("{},{}", one_neighbor, another_neighbor).as_str(),
-                "--earning-wallet",
-                &format!("{}", &accountant::DEFAULT_EARNING_WALLET.clone()),
                 "--log-level",
                 "trace",
                 "--data-directory",

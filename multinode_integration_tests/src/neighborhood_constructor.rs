@@ -4,9 +4,8 @@ use crate::multinode_gossip::{Standard, StandardBuilder};
 use crate::substratum_mock_node::SubstratumMockNode;
 use crate::substratum_node::SubstratumNode;
 use crate::substratum_node_cluster::SubstratumNodeCluster;
-use crate::substratum_real_node::NodeStartupConfigBuilder;
 use crate::substratum_real_node::SubstratumRealNode;
-use ethsign_crypto::Keccak256;
+use crate::substratum_real_node::{make_consuming_wallet_info, NodeStartupConfigBuilder};
 use node_lib::neighborhood::gossip::Gossip;
 use node_lib::neighborhood::gossip_producer::{GossipProducer, GossipProducerReal};
 use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;
@@ -14,7 +13,6 @@ use node_lib::neighborhood::neighborhood_test_utils::db_from_node;
 use node_lib::neighborhood::node_record::{NodeRecord, NodeRecordInner, NodeRecordMetadata};
 use node_lib::sub_lib::cryptde::{CryptData, PlainData, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
-use rustc_hex::ToHex;
 use std::collections::{BTreeSet, HashMap};
 use std::convert::TryInto;
 use std::time::Duration;
@@ -64,14 +62,9 @@ pub fn construct_neighborhood(
     let real_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .fake_public_key(model_db.root().public_key())
-            .consuming_private_key(
-                model_db
-                    .root()
-                    .public_key()
-                    .keccak256()
-                    .to_hex::<String>()
-                    .as_str(),
-            )
+            .consuming_wallet_info(make_consuming_wallet_info(
+                model_db.root().public_key().to_string().as_str(),
+            ))
             .build(),
     );
     let (mock_node_map, adjacent_mock_node_keys) =

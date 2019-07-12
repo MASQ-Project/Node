@@ -42,6 +42,12 @@ macro_rules! error {
     };
 }
 
+macro_rules! fatal {
+    ($logger: expr, $log_expr: expr) => {
+        $logger.fatal(|| $log_expr)
+    };
+}
+
 impl Logger {
     pub fn new(name: &str) -> Logger {
         Logger {
@@ -86,6 +92,15 @@ impl Logger {
         self.generic_log(Level::Error, log_function);
     }
 
+    pub fn fatal<F>(&self, log_function: F) -> !
+    where
+        F: FnOnce() -> String,
+    {
+        let msg = log_function();
+        self.log(Level::Error, msg.clone());
+        panic!("{}", msg);
+    }
+
     pub fn trace_enabled(&self) -> bool {
         self.level_enabled(Level::Trace)
     }
@@ -124,9 +139,13 @@ impl Logger {
             return;
         }
         let string = log_function();
+        self.log(level, string)
+    }
+
+    pub fn log(&self, level: Level, msg: String) {
         logger().log(
             &Record::builder()
-                .args(format_args!("{}", string))
+                .args(format_args!("{}", msg))
                 .module_path(Some(&self.name))
                 .level(level)
                 .build(),

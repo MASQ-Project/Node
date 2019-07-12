@@ -8,7 +8,7 @@ use crate::substratum_node::SubstratumNode;
 use crate::substratum_node::SubstratumNodeUtils;
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
-use node_lib::masquerader::Masquerader;
+use node_lib::masquerader::{MasqueradeError, Masquerader};
 use node_lib::neighborhood::gossip::Gossip;
 use node_lib::sub_lib::cryptde::CryptData;
 use node_lib::sub_lib::cryptde::PublicKey;
@@ -25,19 +25,19 @@ use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils::data_hunk::DataHunk;
 use node_lib::test_utils::data_hunk_framer::DataHunkFramer;
 use node_lib::test_utils::test_utils::{make_paying_wallet, make_wallet};
-use pretty_hex::*;
 use serde_cbor;
 use std::cell::RefCell;
 use std::io;
-use std::io::Read;
 use std::io::Write;
+use std::io::{Error, ErrorKind, Read};
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::net::TcpStream;
+use std::ops::Add;
 use std::rc::Rc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub struct SubstratumMockNode {
     control_stream: RefCell<TcpStream>,
@@ -292,27 +292,44 @@ impl SubstratumMockNode {
         masquerader: &dyn Masquerader,
         timeout: Duration,
     ) -> Result<(SocketAddr, SocketAddr, LiveCoresPackage), io::Error> {
-        let data_hunk = self.wait_for_data(timeout)?;
-        let unmasked_data = masquerader
-            .try_unmask(&data_hunk.data[..])
-            .expect(
-                format!(
-                    "Could not unmask DataHunk from {} to {}:\n{:?}",
-                    data_hunk.from,
-                    data_hunk.to,
-                    data_hunk.data.hex_dump()
-                )
-                .as_str(),
-            )
-            .chunk;
+        let stop_at = Instant::now().add(timeout);
+        let mut accumulated_data: Vec<u8> = vec![];
+        // dunno why these are a problem; they _are_ used on the last line of the function.
+        #[allow(unused_assignments)]
+        let mut from_opt: Option<SocketAddr> = None;
+        #[allow(unused_assignments)]
+        let mut to_opt: Option<SocketAddr> = None;
+        let unmasked_chunk: Vec<u8> = loop {
+            match self.wait_for_data(Duration::from_millis(100)) {
+                Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
+                    if Instant::now() > stop_at {
+                        return Err(Error::from(ErrorKind::WouldBlock));
+                    }
+                    continue;
+                }
+                Err(e) => return Err(e),
+                Ok(data_hunk) => {
+                    accumulated_data.extend(data_hunk.data);
+                    from_opt = Some(data_hunk.from);
+                    to_opt = Some(data_hunk.to);
+                    match masquerader.try_unmask(&accumulated_data) {
+                        Err(MasqueradeError::NotThisMasquerader) => {
+                            panic!("Wrong Masquerader supplied to wait_for_package")
+                        }
+                        Err(_) => continue,
+                        Ok(unmasked_chunk) => break unmasked_chunk.chunk,
+                    }
+                }
+            }
+        };
         let decrypted_data = self
             .signing_cryptde()
             .unwrap()
-            .decode(&CryptData::new(&unmasked_data[..]))
+            .decode(&CryptData::new(&unmasked_chunk[..]))
             .unwrap();
         let live_cores_package =
             serde_cbor::de::from_slice::<LiveCoresPackage>(decrypted_data.as_slice()).unwrap();
-        Ok((data_hunk.from, data_hunk.to, live_cores_package))
+        Ok((from_opt.unwrap(), to_opt.unwrap(), live_cores_package))
     }
 
     pub fn wait_for_gossip(&self, timeout: Duration) -> Option<(Gossip, IpAddr)> {

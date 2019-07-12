@@ -1,11 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use regex;
 
-use node_lib::sub_lib::crash_point::CrashPoint;
 use std::env;
 use std::fs::File;
-use std::io::Read;
+use std::io::{ErrorKind, Read};
 use std::ops::Drop;
+use std::path::Path;
 use std::process::Child;
 use std::process::Command;
 use std::thread;
@@ -19,16 +19,40 @@ pub struct SubstratumNode {
 }
 
 pub struct CommandConfig {
-    pub crash_point: CrashPoint,
+    pub args: Vec<String>,
 }
 
 impl CommandConfig {
     pub fn new() -> CommandConfig {
-        CommandConfig {
-            crash_point: CrashPoint::None,
-        }
+        CommandConfig { args: vec![] }
+    }
+
+    #[allow(dead_code)]
+    pub fn opt(mut self, option: &str) -> CommandConfig {
+        self.args.push(option.to_string());
+        self
+    }
+
+    pub fn pair(mut self, option: &str, value: &str) -> CommandConfig {
+        self.args.push(option.to_string());
+        self.args.push(value.to_string());
+        self
     }
 }
+//
+//pub struct NodeKiller {}
+//
+//impl Drop for NodeKiller {
+//    fn drop(&mut self) {
+//        unimplemented!()
+//    }
+//}
+//
+//impl NodeKiller {
+//    pub fn new() -> NodeKiller {
+//        NodeKiller {}
+//    }
+//}
 
 impl Drop for SubstratumNode {
     fn drop(&mut self) {
@@ -37,19 +61,53 @@ impl Drop for SubstratumNode {
 }
 
 impl SubstratumNode {
-    pub fn start(config: Option<CommandConfig>) -> SubstratumNode {
-        let mut logfile_path_buf = env::temp_dir();
-        logfile_path_buf.push("SubstratumNode.log");
-        let logfile_path = logfile_path_buf.into_boxed_path();
+    pub fn data_dir() -> Box<Path> {
+        env::temp_dir().into_boxed_path()
+    }
+
+    pub fn path_to_logfile() -> Box<Path> {
+        Self::data_dir()
+            .join("SubstratumNode.log")
+            .into_boxed_path()
+    }
+
+    #[allow(dead_code)]
+    pub fn path_to_database() -> Box<Path> {
+        Self::data_dir().join("node-data.db").into_boxed_path()
+    }
+
+    #[allow(dead_code)]
+    pub fn start_standard(config: Option<CommandConfig>) -> SubstratumNode {
         let mut command = SubstratumNode::make_node_command(config);
         let child = command.spawn().unwrap();
+        eprintln!("\n------\nSTARTED SUBSTRATUMNODE {}\n------", child.id());
         thread::sleep(Duration::from_millis(500)); // needs time to open logfile and sockets
-        let stream = File::open(logfile_path.to_str().unwrap()).unwrap();
+        let stream = File::open(Self::path_to_logfile().to_str().unwrap()).unwrap();
         SubstratumNode {
             logfile_stream: Box::new(stream),
             logfile_contents: String::new(),
             child,
         }
+    }
+
+    #[allow(dead_code)]
+    pub fn run_generate(config: CommandConfig) -> String {
+        let mut command = SubstratumNode::make_generate_command(config);
+        let _output = command.output().unwrap();
+        let mut stream = File::open(Self::path_to_logfile().to_str().unwrap()).unwrap();
+        let mut console_contents = String::new();
+        stream.read_to_string(&mut console_contents).unwrap();
+        console_contents
+    }
+
+    #[allow(dead_code)]
+    pub fn run_recover(config: CommandConfig) -> String {
+        let mut command = SubstratumNode::make_recover_command(config);
+        let _output = command.output().unwrap();
+        let mut stream = File::open(Self::path_to_logfile().to_str().unwrap()).unwrap();
+        let mut console_contents = String::new();
+        stream.read_to_string(&mut console_contents).unwrap();
+        console_contents
     }
 
     #[allow(dead_code)]
@@ -95,7 +153,30 @@ impl SubstratumNode {
     }
 
     pub fn kill(&mut self) {
-        let _ = self.child.kill();
+        eprintln!("\n------\nKILLING SUBSTRATUMNODE {}...", self.child.id());
+        match self.child.kill() {
+            Ok(_) => {
+                eprintln!("...waiting...");
+                match self.child.wait() {
+                    Ok(_) => eprintln!("...dead."),
+                    Err(e) => eprintln!("...nope: {:?}", e),
+                }
+            }
+            Err(e) => eprintln!("...wups: {:?}", e),
+        }
+        eprintln!("------");
+    }
+
+    pub fn remove_database() {
+        let database = Self::path_to_database();
+        match std::fs::remove_file(database.clone()) {
+            Ok(_) => (),
+            Err(ref e) if e.kind() == ErrorKind::NotFound => (),
+            Err(e) => panic!(
+                "Couldn't remove preexisting database at {:?}: {}",
+                database, e
+            ),
+        }
     }
 
     #[allow(dead_code)]
@@ -114,63 +195,147 @@ impl SubstratumNode {
         second_milliseconds + nanosecond_milliseconds
     }
 
-    #[cfg(windows)]
+    #[allow(dead_code)]
     fn make_node_command(config: Option<CommandConfig>) -> Command {
-        let config = get_command_config(config);
-        let crash_point = format!("{}", config.crash_point);
-        let test_command = env::args().next().unwrap();
-        let debug_or_release = test_command
-            .split("\\")
-            .skip_while(|s| s != &"target")
-            .skip(1)
-            .next()
-            .unwrap();
-        let bin_dir = &format!("target\\{}", debug_or_release);
-        let command_to_start = &format!("{}\\SubstratumNode.exe", bin_dir);
-        let mut command = Command::new("cmd");
-        command.args(&[
-            "/c",
-            command_to_start,
-            "--dns-servers",
-            "8.8.8.8",
-            "--crash-point",
-            &crash_point,
-            "--data-directory",
-            bin_dir,
-            "--log-level",
-            "trace",
-        ]);
+        Self::remove_database();
+        let mut command = command_to_start();
+        let mut args = standard_args();
+        args.extend(get_extra_args(config));
+        command.args(&args);
         command
     }
 
-    #[cfg(unix)]
-    fn make_node_command(config: Option<CommandConfig>) -> Command {
-        let config = get_command_config(config);
-        let crash_point = format!("{}", config.crash_point);
-        let test_command = env::args().next().unwrap();
-        let debug_or_release = test_command
-            .split("/")
-            .skip_while(|s| s != &"target")
-            .skip(1)
-            .next()
-            .unwrap();
-        let bin_dir = &format!("target/{}", debug_or_release);
-        let command_to_start = &format!("{}/SubstratumNode", bin_dir);
-        let mut command = Command::new(command_to_start);
-        command.args(&[
-            "--dns-servers",
-            "8.8.8.8",
-            "--crash-point",
-            &crash_point,
-            "--data-directory",
-            bin_dir,
-            "--log-level",
-            "trace",
-        ]);
+    #[allow(dead_code)]
+    fn make_generate_command(config: CommandConfig) -> Command {
+        Self::remove_database();
+        let mut command = command_to_start();
+        let mut args = generate_args();
+        args.extend(get_extra_args(Some(config)));
+        command.args(&args);
+        command
+    }
+
+    #[allow(dead_code)]
+    fn make_recover_command(config: CommandConfig) -> Command {
+        Self::remove_database();
+        let mut command = command_to_start();
+        let mut args = recover_args();
+        args.extend(get_extra_args(Some(config)));
+        command.args(&args);
         command
     }
 }
 
-fn get_command_config(config_opt: Option<CommandConfig>) -> CommandConfig {
-    config_opt.unwrap_or(CommandConfig::new())
+#[cfg(windows)]
+fn command_to_start() -> Command {
+    Command::new("cmd")
+}
+
+#[cfg(windows)]
+#[allow(dead_code)]
+fn standard_args() -> Vec<String> {
+    let args = CommandConfig::new()
+        .pair("/c", &node_command())
+        .pair("--dns-servers", "8.8.8.8")
+        .pair(
+            "--data-directory",
+            &SubstratumNode::data_dir().to_string_lossy().to_string(),
+        )
+        .pair("--log-level", "trace");
+    args.args
+}
+
+#[cfg(windows)]
+#[allow(dead_code)]
+fn generate_args() -> Vec<String> {
+    let args = CommandConfig::new()
+        .pair("/c", &node_command())
+        .pair(
+            "--data-directory",
+            &SubstratumNode::data_dir().to_string_lossy().to_string(),
+        )
+        .opt("--generate-wallet");
+    args.args
+}
+
+#[cfg(windows)]
+#[allow(dead_code)]
+fn recover_args() -> Vec<String> {
+    let args = CommandConfig::new()
+        .pair("/c", &node_command())
+        .pair(
+            "--data-directory",
+            &SubstratumNode::data_dir().to_string_lossy().to_string(),
+        )
+        .opt("--recover-wallet");
+    args.args
+}
+
+#[cfg(windows)]
+#[allow(dead_code)]
+fn node_command() -> String {
+    let test_command = env::args().next().unwrap();
+    let debug_or_release = test_command
+        .split("\\")
+        .skip_while(|s| s != &"target")
+        .skip(1)
+        .next()
+        .unwrap();
+    let bin_dir = &format!("target\\{}", debug_or_release);
+    format!("{}\\SubstratumNode.exe", bin_dir)
+}
+
+#[cfg(not(windows))]
+fn command_to_start() -> Command {
+    let test_command = env::args().next().unwrap();
+    let debug_or_release = test_command
+        .split("/")
+        .skip_while(|s| s != &"target")
+        .skip(1)
+        .next()
+        .unwrap();
+    let bin_dir = &format!("target/{}", debug_or_release);
+    let command_to_start = &format!("{}/SubstratumNode", bin_dir);
+    Command::new(command_to_start)
+}
+
+#[cfg(not(windows))]
+#[allow(dead_code)]
+fn standard_args() -> Vec<String> {
+    let args = CommandConfig::new()
+        .pair("--dns-servers", "8.8.8.8")
+        .pair(
+            "--data-directory",
+            &SubstratumNode::data_dir().to_string_lossy().to_string(),
+        )
+        .pair("--log-level", "trace");
+    args.args
+}
+
+#[cfg(not(windows))]
+#[allow(dead_code)]
+fn generate_args() -> Vec<String> {
+    let args = CommandConfig::new()
+        .pair(
+            "--data-directory",
+            &SubstratumNode::data_dir().to_string_lossy().to_string(),
+        )
+        .opt("--generate-wallet");
+    args.args
+}
+
+#[cfg(not(windows))]
+#[allow(dead_code)]
+fn recover_args() -> Vec<String> {
+    let args = CommandConfig::new()
+        .pair(
+            "--data-directory",
+            &SubstratumNode::data_dir().to_string_lossy().to_string(),
+        )
+        .opt("--recover-wallet");
+    args.args
+}
+
+fn get_extra_args(config_opt: Option<CommandConfig>) -> Vec<String> {
+    config_opt.unwrap_or(CommandConfig::new()).args
 }

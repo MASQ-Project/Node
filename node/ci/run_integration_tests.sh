@@ -9,7 +9,7 @@ export RUST_BACKTRACE=full
 export RUSTFLAGS="-D warnings -Anon-snake-case -Aproc-macro-derive-resolution-fallback"
 umask 000
 
-cargo test --release -- --nocapture _integration
+cargo test --release -- --nocapture --test-threads=1 _integration
 BUILD_RESULT=$?
 chmod -R 777 "$CI_DIR/../target"
 exit "$BUILD_RESULT"

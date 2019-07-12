@@ -1,14 +1,12 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use ethsign_crypto::Keccak256;
 use multinode_integration_tests_lib::rest_utils::RestServer;
 use multinode_integration_tests_lib::substratum_node::SubstratumNode;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::substratum_real_node::{
-    NodeStartupConfigBuilder, SubstratumRealNode,
+    make_consuming_wallet_info, NodeStartupConfigBuilder, SubstratumRealNode,
 };
 use node_lib::test_utils::test_utils::read_until_timeout;
-use rustc_hex::ToHex;
 use std::thread;
 use std::time::Duration;
 
@@ -19,7 +17,7 @@ fn downloading_a_file_larger_than_available_memory_doesnt_kill_node_but_makes_it
     let originating_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .memory(maximum_kbytes)
-            .consuming_private_key(maximum_kbytes.keccak256().to_hex::<String>().as_str())
+            .consuming_wallet_info(make_consuming_wallet_info(&maximum_kbytes.to_string()))
             .build(),
     );
 

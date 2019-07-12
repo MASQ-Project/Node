@@ -7,26 +7,27 @@ use std::marker::Send;
 
 #[derive(Debug, PartialEq)]
 pub enum MasqueradeError {
-    LowLevelDataError(String),
-    MidLevelDataError(String),
-    HighLevelDataError(String),
-    UnexpectedComponent(String),
+    NotThisMasquerader, // This masquerader can't unmask this data. Try another one.
+    LowLevelDataError(String), // Error below the level of the masquerade protocol.
+    MidLevelDataError(String), // Error in the syntax or semantics of the masquerade protocol.
+    HighLevelDataError(String), // Error extracting a LiveCoresPackage from the masquerade.
 }
 
 impl Display for MasqueradeError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let (prefix, payload) = match self {
-            &MasqueradeError::LowLevelDataError(ref s) => ("Low-level data error", s),
-            &MasqueradeError::MidLevelDataError(ref s) => ("Mid-level data error", s),
-            &MasqueradeError::HighLevelDataError(ref s) => ("High-level data error", s),
-            &MasqueradeError::UnexpectedComponent(ref s) => ("Unexpected component indicator", s),
-        };
-        write!(f, "{}: {}", prefix, payload)
+        match self {
+            &MasqueradeError::LowLevelDataError(ref s) => write!(f, "Low-level data error: {}", s),
+            &MasqueradeError::MidLevelDataError(ref s) => write!(f, "Mid-level data error: {}", s),
+            &MasqueradeError::HighLevelDataError(ref s) => {
+                write!(f, "High-level data error: {}", s)
+            }
+            &MasqueradeError::NotThisMasquerader => write!(f, "Data not for this masquerader"),
+        }
     }
 }
 
 pub trait Masquerader: Send {
-    fn try_unmask(&self, item: &[u8]) -> Option<UnmaskedChunk>;
+    fn try_unmask(&self, item: &[u8]) -> Result<UnmaskedChunk, MasqueradeError>;
     fn mask(&self, data: &[u8]) -> Result<Vec<u8>, MasqueradeError>;
 }
 
@@ -58,11 +59,8 @@ mod tests {
             "High-level data error: blah"
         );
         assert_eq!(
-            &format!(
-                "{}",
-                MasqueradeError::UnexpectedComponent(String::from("blah"))
-            ),
-            "Unexpected component indicator: blah"
+            &format!("{}", MasqueradeError::NotThisMasquerader),
+            "Data not for this masquerader"
         );
     }
 }

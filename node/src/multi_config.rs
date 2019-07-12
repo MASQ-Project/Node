@@ -261,7 +261,7 @@ impl EnvironmentVCL {
             if (upper_name.len() < 4) || (&upper_name[0..4] != "SUB_") {
                 continue;
             }
-            let lower_name = upper_name[4..].to_lowercase();
+            let lower_name = str::replace(&upper_name[4..].to_lowercase(), "_", "-");
             if opt_names.contains(&lower_name) {
                 let name = format!("--{}", lower_name);
                 vcl_args.push(Box::new(NameValueVclArg::new(&name, &value)));
@@ -373,26 +373,26 @@ pub(crate) mod tests {
     #[test]
     fn double_provided_optional_single_valued_parameter_with_no_default_produces_second_value() {
         let schema = App::new("test").arg(
-            Arg::with_name("numeric_arg")
-                .long("numeric_arg")
+            Arg::with_name("numeric-arg")
+                .long("numeric-arg")
                 .takes_value(true)
                 .required(false),
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(CommandLineVCL::new(vec![
                 String::new(),
-                "--numeric_arg".to_string(),
+                "--numeric-arg".to_string(),
                 "10".to_string(),
             ])),
             Box::new(CommandLineVCL::new(vec![
                 String::new(),
-                "--numeric_arg".to_string(),
+                "--numeric-arg".to_string(),
                 "20".to_string(),
             ])),
         ];
         let subject = MultiConfig::new(&schema, vcls);
 
-        let result = value_m!(subject, "numeric_arg", u64);
+        let result = value_m!(subject, "numeric-arg", u64);
 
         assert_eq!(Some(20), result);
     }
@@ -400,22 +400,22 @@ pub(crate) mod tests {
     #[test]
     fn first_provided_optional_single_valued_parameter_with_no_default_produces_provided_value() {
         let schema = App::new("test").arg(
-            Arg::with_name("numeric_arg")
-                .long("numeric_arg")
+            Arg::with_name("numeric-arg")
+                .long("numeric-arg")
                 .takes_value(true)
                 .required(false),
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(CommandLineVCL::new(vec![
                 String::new(),
-                "--numeric_arg".to_string(),
+                "--numeric-arg".to_string(),
                 "20".to_string(),
             ])),
             Box::new(CommandLineVCL::new(vec![String::new()])),
         ];
         let subject = MultiConfig::new(&schema, vcls);
 
-        let result = value_m!(subject, "numeric_arg", u64);
+        let result = value_m!(subject, "numeric-arg", u64);
 
         assert_eq!(Some(20), result);
     }
@@ -423,8 +423,8 @@ pub(crate) mod tests {
     #[test]
     fn second_provided_optional_single_valued_parameter_with_no_default_produces_provided_value() {
         let schema = App::new("test").arg(
-            Arg::with_name("numeric_arg")
-                .long("numeric_arg")
+            Arg::with_name("numeric-arg")
+                .long("numeric-arg")
                 .takes_value(true)
                 .required(false),
         );
@@ -432,13 +432,13 @@ pub(crate) mod tests {
             Box::new(CommandLineVCL::new(vec![String::new()])),
             Box::new(CommandLineVCL::new(vec![
                 String::new(),
-                "--numeric_arg".to_string(),
+                "--numeric-arg".to_string(),
                 "20".to_string(),
             ])),
         ];
         let subject = MultiConfig::new(&schema, vcls);
 
-        let result = value_m!(subject, "numeric_arg", u64);
+        let result = value_m!(subject, "numeric-arg", u64);
 
         assert_eq!(Some(20), result);
     }
@@ -446,8 +446,8 @@ pub(crate) mod tests {
     #[test]
     fn double_provided_optional_multivalued_parameter_with_no_default_produces_second_value() {
         let schema = App::new("test").arg(
-            Arg::with_name("numeric_arg")
-                .long("numeric_arg")
+            Arg::with_name("numeric-arg")
+                .long("numeric-arg")
                 .takes_value(true)
                 .required(false)
                 .multiple(true)
@@ -456,18 +456,18 @@ pub(crate) mod tests {
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(CommandLineVCL::new(vec![
                 String::new(),
-                "--numeric_arg".to_string(),
+                "--numeric-arg".to_string(),
                 "10,11".to_string(),
             ])),
             Box::new(CommandLineVCL::new(vec![
                 String::new(),
-                "--numeric_arg".to_string(),
+                "--numeric-arg".to_string(),
                 "20,21".to_string(),
             ])),
         ];
         let subject = MultiConfig::new(&schema, vcls);
 
-        let result = values_m!(subject, "numeric_arg", u64);
+        let result = values_m!(subject, "numeric-arg", u64);
 
         assert_eq!(vec![20, 21], result);
     }
@@ -475,8 +475,8 @@ pub(crate) mod tests {
     #[test]
     fn first_provided_optional_multivalued_parameter_with_no_default_produces_provided_value() {
         let schema = App::new("test").arg(
-            Arg::with_name("numeric_arg")
-                .long("numeric_arg")
+            Arg::with_name("numeric-arg")
+                .long("numeric-arg")
                 .takes_value(true)
                 .required(false)
                 .multiple(true)
@@ -485,14 +485,14 @@ pub(crate) mod tests {
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(CommandLineVCL::new(vec![
                 String::new(),
-                "--numeric_arg".to_string(),
+                "--numeric-arg".to_string(),
                 "20,21".to_string(),
             ])),
             Box::new(CommandLineVCL::new(vec![String::new()])),
         ];
         let subject = MultiConfig::new(&schema, vcls);
 
-        let result = values_m!(subject, "numeric_arg", u64);
+        let result = values_m!(subject, "numeric-arg", u64);
 
         assert_eq!(vec![20, 21], result);
     }
@@ -500,8 +500,8 @@ pub(crate) mod tests {
     #[test]
     fn second_provided_optional_multivalued_parameter_with_no_default_produces_provided_value() {
         let schema = App::new("test").arg(
-            Arg::with_name("numeric_arg")
-                .long("numeric_arg")
+            Arg::with_name("numeric-arg")
+                .long("numeric-arg")
                 .takes_value(true)
                 .required(false)
                 .multiple(true)
@@ -511,13 +511,13 @@ pub(crate) mod tests {
             Box::new(CommandLineVCL::new(vec![String::new()])),
             Box::new(CommandLineVCL::new(vec![
                 String::new(),
-                "--numeric_arg".to_string(),
+                "--numeric-arg".to_string(),
                 "20,21".to_string(),
             ])),
         ];
         let subject = MultiConfig::new(&schema, vcls);
 
-        let result = values_m!(subject, "numeric_arg", u64);
+        let result = values_m!(subject, "numeric-arg", u64);
 
         assert_eq!(vec![20, 21], result);
     }
@@ -525,22 +525,22 @@ pub(crate) mod tests {
     #[test]
     fn first_provided_required_single_valued_parameter_with_no_default_produces_provided_value() {
         let schema = App::new("test").arg(
-            Arg::with_name("numeric_arg")
-                .long("numeric_arg")
+            Arg::with_name("numeric-arg")
+                .long("numeric-arg")
                 .takes_value(true)
                 .required(true),
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(CommandLineVCL::new(vec![
                 String::new(),
-                "--numeric_arg".to_string(),
+                "--numeric-arg".to_string(),
                 "20".to_string(),
             ])),
             Box::new(CommandLineVCL::new(vec![String::new()])),
         ];
         let subject = MultiConfig::new(&schema, vcls);
 
-        let result = value_m!(subject, "numeric_arg", u64);
+        let result = value_m!(subject, "numeric-arg", u64);
 
         assert_eq!(Some(20), result);
     }
@@ -548,8 +548,8 @@ pub(crate) mod tests {
     #[test]
     fn second_provided_required_single_valued_parameter_with_no_default_produces_provided_value() {
         let schema = App::new("test").arg(
-            Arg::with_name("numeric_arg")
-                .long("numeric_arg")
+            Arg::with_name("numeric-arg")
+                .long("numeric-arg")
                 .takes_value(true)
                 .required(true),
         );
@@ -557,13 +557,13 @@ pub(crate) mod tests {
             Box::new(CommandLineVCL::new(vec![String::new()])),
             Box::new(CommandLineVCL::new(vec![
                 String::new(),
-                "--numeric_arg".to_string(),
+                "--numeric-arg".to_string(),
                 "20".to_string(),
             ])),
         ];
         let subject = MultiConfig::new(&schema, vcls);
 
-        let result = value_m!(subject, "numeric_arg", u64);
+        let result = value_m!(subject, "numeric-arg", u64);
 
         assert_eq!(Some(20), result);
     }
@@ -572,22 +572,22 @@ pub(crate) mod tests {
     fn first_provided_required_single_valued_parameter_with_no_default_produces_provided_value_with_user_specified_flag(
     ) {
         let schema = App::new("test").arg(
-            Arg::with_name("numeric_arg")
-                .long("numeric_arg")
+            Arg::with_name("numeric-arg")
+                .long("numeric-arg")
                 .takes_value(true)
                 .required(true),
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(CommandLineVCL::new(vec![
                 String::new(),
-                "--numeric_arg".to_string(),
+                "--numeric-arg".to_string(),
                 "20".to_string(),
             ])),
             Box::new(CommandLineVCL::new(vec![String::new()])),
         ];
         let subject = MultiConfig::new(&schema, vcls);
 
-        let (result, user_specified) = value_user_specified_m!(subject, "numeric_arg", u64);
+        let (result, user_specified) = value_user_specified_m!(subject, "numeric-arg", u64);
 
         assert_eq!(Some(20), result);
         assert!(user_specified);
@@ -597,8 +597,8 @@ pub(crate) mod tests {
     fn second_provided_required_single_valued_parameter_with_no_default_produces_provided_value_with_user_specified_flag(
     ) {
         let schema = App::new("test").arg(
-            Arg::with_name("numeric_arg")
-                .long("numeric_arg")
+            Arg::with_name("numeric-arg")
+                .long("numeric-arg")
                 .takes_value(true)
                 .required(true),
         );
@@ -606,13 +606,13 @@ pub(crate) mod tests {
             Box::new(CommandLineVCL::new(vec![String::new()])),
             Box::new(CommandLineVCL::new(vec![
                 String::new(),
-                "--numeric_arg".to_string(),
+                "--numeric-arg".to_string(),
                 "20".to_string(),
             ])),
         ];
         let subject = MultiConfig::new(&schema, vcls);
 
-        let (result, user_specified) = value_user_specified_m!(subject, "numeric_arg", u64);
+        let (result, user_specified) = value_user_specified_m!(subject, "numeric-arg", u64);
 
         assert_eq!(Some(20), result);
         assert!(user_specified);
@@ -680,8 +680,8 @@ pub(crate) mod tests {
     #[should_panic(expected = "The following required arguments were not provided:")]
     fn clap_match_error_produces_panic() {
         let schema = App::new("test").arg(
-            Arg::with_name("numeric_arg")
-                .long("numeric_arg")
+            Arg::with_name("numeric-arg")
+                .long("numeric-arg")
                 .takes_value(true)
                 .required(true),
         );
@@ -737,8 +737,8 @@ pub(crate) mod tests {
     fn environment_vcl_works() {
         let _guard = EnvironmentGuard::new();
         let schema = App::new("test").arg(
-            Arg::with_name("numeric_arg")
-                .long("numeric_arg")
+            Arg::with_name("numeric-arg")
+                .long("numeric-arg")
                 .takes_value(true),
         );
         std::env::set_var("SUB_NUMERIC_ARG", "47");
@@ -748,13 +748,13 @@ pub(crate) mod tests {
         assert_eq!(
             vec![
                 "".to_string(),
-                "--numeric_arg".to_string(),
+                "--numeric-arg".to_string(),
                 "47".to_string()
             ],
             subject.args()
         );
         assert_eq!(
-            vec!["--numeric_arg"],
+            vec!["--numeric-arg"],
             subject
                 .vcl_args()
                 .into_iter()
@@ -771,7 +771,7 @@ pub(crate) mod tests {
         {
             let mut toml_file = File::create(&file_path).unwrap();
             toml_file
-                .write_all(b"numeric_arg = 47\nstring_arg = \"booga\"\nboolean_arg = true\n")
+                .write_all(b"numeric-arg = 47\nstring-arg = \"booga\"\nboolean-arg = true\n")
                 .unwrap();
         }
 
@@ -780,17 +780,17 @@ pub(crate) mod tests {
         assert_eq!(
             vec![
                 "".to_string(),
-                "--boolean_arg".to_string(),
+                "--boolean-arg".to_string(),
                 "true".to_string(),
-                "--numeric_arg".to_string(),
+                "--numeric-arg".to_string(),
                 "47".to_string(),
-                "--string_arg".to_string(),
+                "--string-arg".to_string(),
                 "booga".to_string(),
             ],
             subject.args()
         );
         assert_eq!(
-            vec!["--boolean_arg", "--numeric_arg", "--string_arg"],
+            vec!["--boolean-arg", "--numeric-arg", "--string-arg"],
             subject
                 .vcl_args()
                 .into_iter()

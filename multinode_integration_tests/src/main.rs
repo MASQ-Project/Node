@@ -173,14 +173,22 @@ impl MockNode {
                                 }
                                 Ok(s) => s,
                             };
-                            write_streams.insert(data_hunk.to, stream.try_clone().unwrap());
+                            write_streams.insert(
+                                data_hunk.to,
+                                stream
+                                    .try_clone()
+                                    .expect(&format!("Cloning stream to {} failed", data_hunk.to)),
+                            );
                             Self::start_stream_reader(
                                 stream,
                                 self.write_control_stream_arc(),
                                 data_hunk.to,
                             );
                         }
-                        let write_stream = write_streams.get_mut(&data_hunk.to).unwrap();
+                        let write_stream = write_streams.get_mut(&data_hunk.to).expect(&format!(
+                            "Couldn't find write stream keyed by {}",
+                            data_hunk.to
+                        ));
                         if !Self::write_with_retry(write_stream, &data_hunk.data[..], data_hunk.to)
                         {
                             return 1;
@@ -191,9 +199,7 @@ impl MockNode {
             match self.read_control_stream().read(&mut buf) {
                 Err(ref e) if indicates_dead_stream(e.kind()) => {
                     writeln!(stderr, "Read error from control stream: {}", e).unwrap();
-                    self.write_control_stream()
-                        .shutdown(Shutdown::Both)
-                        .unwrap();
+                    let _ = self.write_control_stream().shutdown(Shutdown::Both);
                     break;
                 }
                 Ok(len) => framer.add_data(&buf[..len]),
@@ -253,7 +259,12 @@ impl MockNode {
                 let mut write_streams = write_streams_arc
                     .lock()
                     .expect("write_streams_arc is poisoned");
-                write_streams.insert(peer_addr, stream.try_clone().unwrap());
+                write_streams.insert(
+                    peer_addr,
+                    stream
+                        .try_clone()
+                        .expect(&format!("Error cloning stream to {}", peer_addr)),
+                );
             }
             Self::start_stream_reader(stream, write_control_stream_arc.clone(), peer_addr);
         });
@@ -280,9 +291,12 @@ impl MockNode {
                         break;
                     }
                     Ok(len) => {
+                        eprintln!("Received {} bytes from {}", len, peer_addr);
                         let data_hunk = DataHunk::new(
                             peer_addr,
-                            stream.local_addr().unwrap(),
+                            stream.local_addr().expect(
+                                "Error getting local_addr for stream; probably shut down already",
+                            ),
                             Vec::from(&buf[..len]),
                         );
                         let serialized: Vec<u8> = data_hunk.into();
@@ -298,6 +312,10 @@ impl MockNode {
                             ) {
                                 break;
                             }
+                            eprintln!(
+                                "Relayed {}-byte DataHunk to test through control stream",
+                                serialized.len()
+                            );
                         }
                     }
                     _ => (),

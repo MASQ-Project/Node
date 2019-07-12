@@ -7,7 +7,7 @@ use serde_derive::{Deserialize, Serialize};
 
 pub const DEFAULT_UI_PORT: u16 = 5333;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct UiGatewayConfig {
     pub ui_port: u16,
     pub node_descriptor: String,

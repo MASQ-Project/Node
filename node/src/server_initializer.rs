@@ -24,29 +24,28 @@ where
     dns_socket_server: Box<dyn SocketServer<Item = (), Error = ()>>,
     bootstrapper: Box<dyn SocketServer<Item = (), Error = ()>>,
     privilege_dropper: P,
-    logger_initializer_wrapper: Box<dyn LoggerInitializerWrapper>,
 }
 
 impl<P> Command for ServerInitializer<P>
 where
     P: PrivilegeDropper,
 {
-    fn go(&mut self, streams: &mut StdStreams<'_>, _args: &Vec<String>) -> u8 {
+    fn go(&mut self, streams: &mut StdStreams<'_>, args: &Vec<String>) -> u8 {
         self.dns_socket_server
             .as_mut()
-            .initialize_as_privileged(&mut self.logger_initializer_wrapper);
+            .initialize_as_privileged(args, streams);
         self.bootstrapper
             .as_mut()
-            .initialize_as_privileged(&mut self.logger_initializer_wrapper);
+            .initialize_as_privileged(args, streams);
 
         self.privilege_dropper.drop_privileges();
 
         self.dns_socket_server
             .as_mut()
-            .initialize_as_unprivileged(streams);
+            .initialize_as_unprivileged(args, streams);
         self.bootstrapper
             .as_mut()
-            .initialize_as_unprivileged(streams);
+            .initialize_as_unprivileged(args, streams);
 
         1
     }
@@ -70,15 +69,11 @@ where
 }
 
 impl ServerInitializer<PrivilegeDropperReal> {
-    pub fn new(
-        args: &Vec<String>,
-        streams: &mut StdStreams<'_>,
-    ) -> ServerInitializer<PrivilegeDropperReal> {
+    pub fn new() -> ServerInitializer<PrivilegeDropperReal> {
         ServerInitializer {
             dns_socket_server: Box::new(DnsSocketServer::new()),
-            bootstrapper: Box::new(Bootstrapper::new(args, streams)),
+            bootstrapper: Box::new(Bootstrapper::new(Box::new(LoggerInitializerWrapperReal {}))),
             privilege_dropper: PrivilegeDropperReal::new(),
-            logger_initializer_wrapper: Box::new(LoggerInitializerWrapperReal {}),
         }
     }
 }
@@ -87,7 +82,7 @@ pub trait LoggerInitializerWrapper: Send {
     fn init(&mut self, log_level: LevelFilter) -> bool;
 }
 
-struct LoggerInitializerWrapperReal {}
+pub struct LoggerInitializerWrapperReal {}
 
 impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
     fn init(&mut self, log_level: LevelFilter) -> bool {
@@ -106,7 +101,7 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
     }
 }
 
-// DeferredNow can't be constructed in a test; therefore this function is untestable.
+// DeferredNow can't be constructed in a test; therefore this function is untestable...
 fn format_function(
     write: &mut io::Write,
     now: &mut DeferredNow,
@@ -115,6 +110,7 @@ fn format_function(
     real_format_function(write, now.now(), record)
 }
 
+// ...but this one isn't.
 pub fn real_format_function(
     write: &mut io::Write,
     timestamp: &DateTime<Local>,
@@ -201,13 +197,15 @@ pub mod tests {
             String::from("crash test SocketServer")
         }
 
-        fn initialize_as_privileged(
-            &mut self,
-            _logger_initializer: &mut Box<dyn LoggerInitializerWrapper>,
-        ) {
+        fn initialize_as_privileged(&mut self, _args: &Vec<String>, _streams: &mut StdStreams<'_>) {
         }
 
-        fn initialize_as_unprivileged(&mut self, _streams: &mut StdStreams<'_>) {}
+        fn initialize_as_unprivileged(
+            &mut self,
+            _args: &Vec<String>,
+            _streams: &mut StdStreams<'_>,
+        ) {
+        }
     }
 
     #[test]
@@ -224,7 +222,6 @@ pub mod tests {
             dns_socket_server: Box::new(dns_socket_server),
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper,
-            logger_initializer_wrapper: Box::new(logger_initializer_wrapper_mock),
         };
 
         let stdin = &mut ByteArrayReader::new(&[0; 0]);
@@ -252,7 +249,6 @@ pub mod tests {
             dns_socket_server: Box::new(dns_socket_server),
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper,
-            logger_initializer_wrapper: Box::new(LoggerInitializerWrapperMock::new()),
         };
 
         let result = subject.poll();
@@ -271,7 +267,6 @@ pub mod tests {
             )),
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper,
-            logger_initializer_wrapper: Box::new(LoggerInitializerWrapperMock::new()),
         };
 
         let _ = subject.poll();
@@ -288,7 +283,6 @@ pub mod tests {
                 "BootstrapperMock was instructed to panic".to_string(),
             )),
             privilege_dropper,
-            logger_initializer_wrapper: Box::new(LoggerInitializerWrapperMock::new()),
         };
 
         let _ = subject.poll();
@@ -313,7 +307,6 @@ pub mod tests {
             dns_socket_server: Box::new(CrashTestDummy::new(CrashPoint::None)),
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper,
-            logger_initializer_wrapper: Box::new(LoggerInitializerWrapperMock::new()),
         };
 
         subject.go(streams, &vec![]);

@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use super::neighborhood_database::NeighborhoodDatabase;
 use super::node_record::NodeRecord;
+use crate::bootstrapper::BootstrapperConfig;
 use crate::neighborhood::gossip::GossipNodeRecord;
 use crate::neighborhood::neighborhood::{AccessibleGossipRecord, Neighborhood};
 use crate::neighborhood::node_record::NodeRecordInner;
@@ -70,29 +71,28 @@ pub fn neighborhood_from_nodes(
     if root.public_key() != cryptde.public_key() {
         panic!("Neighborhood must be built on root node with public key from cryptde()");
     }
-    Neighborhood::new(
-        cryptde,
-        NeighborhoodConfig {
-            neighbor_configs: match neighbor_opt {
-                None => vec![],
-                Some(neighbor) => vec![NodeDescriptor {
-                    public_key: neighbor.public_key().clone(),
-                    node_addr: neighbor
-                        .node_addr_opt()
-                        .expect("Neighbor has to have NodeAddr"),
-                }
-                .to_string(cryptde)],
-            },
-            local_ip_addr: root
-                .node_addr_opt()
-                .expect("Root has to have NodeAddr")
-                .ip_addr(),
-            clandestine_port_list: root.node_addr_opt().unwrap().ports(),
-            earning_wallet: root.earning_wallet(),
-            consuming_wallet: Some(make_paying_wallet(b"consuming")),
-            rate_pack: root.rate_pack().clone(),
+    let mut config = BootstrapperConfig::new();
+    config.neighborhood_config = NeighborhoodConfig {
+        neighbor_configs: match neighbor_opt {
+            None => vec![],
+            Some(neighbor) => vec![NodeDescriptor {
+                public_key: neighbor.public_key().clone(),
+                node_addr: neighbor
+                    .node_addr_opt()
+                    .expect("Neighbor has to have NodeAddr"),
+            }
+            .to_string(cryptde)],
         },
-    )
+        local_ip_addr: root
+            .node_addr_opt()
+            .expect("Root has to have NodeAddr")
+            .ip_addr(),
+        clandestine_port_list: root.node_addr_opt().unwrap().ports(),
+        rate_pack: root.rate_pack().clone(),
+    };
+    config.earning_wallet = root.earning_wallet();
+    config.consuming_wallet = Some(make_paying_wallet(b"consuming"));
+    Neighborhood::new(cryptde, &config)
 }
 
 impl NodeRecord {

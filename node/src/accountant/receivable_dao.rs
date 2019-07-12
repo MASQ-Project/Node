@@ -53,9 +53,19 @@ impl ReceivableDao for ReceivableDaoReal {
             Ok(true) => (),
             Ok(false) => match self.try_insert(wallet, amount) {
                 Ok(_) => (),
-                Err(e) => panic!("Database is corrupt: {}", e),
+                Err(e) => {
+                    fatal!(
+                        self.logger,
+                        format!("Couldn't insert; database is corrupt: {}", e)
+                    );
+                }
             },
-            Err(e) => panic!("Database is corrupt: {}", e),
+            Err(e) => {
+                fatal!(
+                    self.logger,
+                    format!("Couldn't update: database is corrupt: {}", e)
+                );
+            }
         };
     }
 

@@ -5,3 +5,6 @@ pub mod blockchain_bridge;
 pub mod blockchain_interface;
 pub mod payer;
 pub mod signature;
+
+#[cfg(test)]
+pub mod test_utils;

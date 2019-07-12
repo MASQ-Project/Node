@@ -20,7 +20,6 @@ lazy_static! {
 pub struct AccountantConfig {
     pub payable_scan_interval: Duration,
     pub payment_received_scan_interval: Duration,
-    pub earning_wallet: Wallet,
 }
 
 #[derive(Clone)]

@@ -76,7 +76,6 @@ impl ConfigDaoMock {
         self
     }
 
-    #[allow(dead_code)]
     pub fn set_string_params(
         mut self,
         params_arc: &Arc<Mutex<Vec<(String, String)>>>,
@@ -85,7 +84,6 @@ impl ConfigDaoMock {
         self
     }
 
-    #[allow(dead_code)]
     pub fn set_string_result(self, result: Result<(), ConfigDaoError>) -> ConfigDaoMock {
         self.set_string_results.borrow_mut().push(result);
         self

@@ -39,12 +39,12 @@ where
 
 pub struct MasqueraderMock {
     log: Arc<Mutex<TestLog>>,
-    try_unmask_results: RefCell<Vec<Option<UnmaskedChunk>>>,
+    try_unmask_results: RefCell<Vec<Result<UnmaskedChunk, MasqueradeError>>>,
     mask_results: RefCell<Vec<Result<Vec<u8>, MasqueradeError>>>,
 }
 
 impl Masquerader for MasqueraderMock {
-    fn try_unmask(&self, item: &[u8]) -> Option<UnmaskedChunk> {
+    fn try_unmask(&self, item: &[u8]) -> Result<UnmaskedChunk, MasqueradeError> {
         self.log.lock().unwrap().log(format!(
             "try_unmask (\"{}\")",
             String::from_utf8(Vec::from(item)).unwrap()
@@ -78,12 +78,12 @@ impl MasqueraderMock {
     }
 
     #[allow(dead_code)]
-    pub fn add_try_unmask_result(&mut self, result: Option<UnmaskedChunk>) {
+    pub fn try_unmask_result(&mut self, result: Result<UnmaskedChunk, MasqueradeError>) {
         self.try_unmask_results.borrow_mut().push(result);
     }
 
     #[allow(dead_code)]
-    pub fn add_mask_result(&mut self, result: Result<Vec<u8>, MasqueradeError>) {
+    pub fn mask_result(&mut self, result: Result<Vec<u8>, MasqueradeError>) {
         self.mask_results.borrow_mut().push(result);
     }
 }
@@ -131,12 +131,13 @@ pub fn make_null_discriminator(data: Vec<Vec<u8>>) -> Discriminator {
 
 #[derive(Debug, Clone)]
 pub struct NullDiscriminatorFactory {
-    discriminator_natures: RefCell<Vec<Vec<Vec<u8>>>>,
+    discriminator_natures: Arc<Mutex<Vec<Vec<Vec<u8>>>>>,
 }
 
 impl DiscriminatorFactory for NullDiscriminatorFactory {
     fn make(&self) -> Discriminator {
-        let data = self.discriminator_natures.borrow_mut().remove(0);
+        let mut natures = self.discriminator_natures.lock().unwrap();
+        let data = natures.remove(0);
         make_null_discriminator(data)
     }
 
@@ -150,12 +151,12 @@ impl DiscriminatorFactory for NullDiscriminatorFactory {
 impl NullDiscriminatorFactory {
     pub fn new() -> NullDiscriminatorFactory {
         NullDiscriminatorFactory {
-            discriminator_natures: RefCell::new(vec![]),
+            discriminator_natures: Arc::new(Mutex::new(vec![])),
         }
     }
 
     pub fn discriminator_nature(self, data: Vec<Vec<u8>>) -> NullDiscriminatorFactory {
-        self.discriminator_natures.borrow_mut().push(data);
+        self.discriminator_natures.lock().unwrap().push(data);
         self
     }
 }
@@ -182,7 +183,7 @@ pub fn make_stream_handler_pool_subs_from(
 pub struct FailingMasquerader {}
 
 impl Masquerader for FailingMasquerader {
-    fn try_unmask(&self, _item: &[u8]) -> Option<UnmaskedChunk> {
+    fn try_unmask(&self, _item: &[u8]) -> Result<UnmaskedChunk, MasqueradeError> {
         unimplemented!()
     }
 

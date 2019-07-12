@@ -21,6 +21,7 @@ use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
+use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 use ethsign_crypto::Keccak256;
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -34,6 +35,7 @@ use std::hash::Hash;
 use std::io::Read;
 use std::io::Write;
 use std::io::{Error, ErrorKind};
+use std::iter::repeat;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::net::UdpSocket;
@@ -233,6 +235,24 @@ pub fn make_meaningless_route() -> Route {
 
 pub fn make_meaningless_public_key() -> PublicKey {
     PublicKey::new(&make_garbage_data(8))
+}
+
+pub fn make_meaningless_wallet_private_key() -> PlainData {
+    PlainData::from(
+        repeat(vec![0xABu8, 0xCDu8])
+            .take(16)
+            .flat_map(|x| x)
+            .collect::<Vec<u8>>(),
+    )
+}
+
+pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
+    PersistentConfigurationMock::new()
+        .consuming_wallet_derivation_path_result(None)
+        .consuming_wallet_private_public_key_result(None)
+        .earning_wallet_from_derivation_path_result(None)
+        .earning_wallet_from_address_result(None)
+        .encrypted_mnemonic_seed_result(None)
 }
 
 pub fn route_to_proxy_client(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {
@@ -514,6 +534,12 @@ pub fn make_paying_wallet(secret: &[u8]) -> Wallet {
 
 pub fn make_wallet(address: &str) -> Wallet {
     Wallet::from_str(&dummy_address_to_hex(address)).unwrap()
+}
+
+pub fn assert_eq_debug<T: Debug>(a: T, b: T) {
+    let a_str = format!("{:?}", a);
+    let b_str = format!("{:?}", b);
+    assert_eq!(a_str, b_str);
 }
 
 #[cfg(test)]

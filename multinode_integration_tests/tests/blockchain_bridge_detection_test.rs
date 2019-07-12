@@ -3,7 +3,9 @@
 use multinode_integration_tests_lib::substratum_node::SubstratumNode;
 use multinode_integration_tests_lib::substratum_node::SubstratumNodeUtils;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
-use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
+use multinode_integration_tests_lib::substratum_real_node::{
+    ConsumingWalletInfo, NodeStartupConfigBuilder,
+};
 use regex::escape;
 use std::time::Duration;
 
@@ -13,7 +15,7 @@ fn blockchain_bridge_logs_when_started() {
     let private_key = "0011223300112233001122330011223300112233001122330011223300112233";
     let subject = cluster.start_real_node(
         NodeStartupConfigBuilder::zero_hop()
-            .consuming_private_key(private_key)
+            .consuming_wallet_info(ConsumingWalletInfo::PrivateKey(private_key.to_string()))
             .build(),
     );
 

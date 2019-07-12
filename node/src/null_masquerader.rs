@@ -6,8 +6,8 @@ use crate::masquerader::Masquerader;
 pub struct NullMasquerader {}
 
 impl Masquerader for NullMasquerader {
-    fn try_unmask(&self, item: &[u8]) -> Option<UnmaskedChunk> {
-        Some(UnmaskedChunk::new(Vec::from(item), true, true))
+    fn try_unmask(&self, item: &[u8]) -> Result<UnmaskedChunk, MasqueradeError> {
+        Ok(UnmaskedChunk::new(Vec::from(item), true, true))
     }
 
     fn mask(&self, data: &[u8]) -> Result<Vec<u8>, MasqueradeError> {

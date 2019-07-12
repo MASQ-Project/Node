@@ -13,7 +13,7 @@ use websocket::OwnedMessage;
 #[test]
 fn ui_gateway_message_integration() {
     fdlimit::raise_fd_limit();
-    let mut node = utils::SubstratumNode::start(None);
+    let mut node = utils::SubstratumNode::start_standard(None);
 
     let descriptor_client =
         ClientBuilder::new(format!("ws://127.0.0.1:{}", DEFAULT_UI_PORT).as_str())

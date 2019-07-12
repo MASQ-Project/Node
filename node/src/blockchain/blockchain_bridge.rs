@@ -1,8 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use crate::blockchain::bip32::Bip32ECKeyPair;
-use crate::blockchain::bip39::Bip39;
+use crate::blockchain::bip39::Bip39Error;
 use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainInterface, Transaction};
+use crate::bootstrapper::BootstrapperConfig;
+use crate::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::blockchain_bridge::{BlockchainBridgeConfig, SetWalletPasswordMsg};
@@ -17,10 +19,11 @@ use actix::{Actor, MessageResult};
 use actix::{Addr, Recipient};
 
 pub struct BlockchainBridge {
-    config: BlockchainBridgeConfig,
+    _config: BlockchainBridgeConfig, // TODO: Why is this not used? That seems wrong.
+    consuming_wallet: Option<Wallet>,
     blockchain_interface: Box<dyn BlockchainInterface>,
     logger: Logger,
-    bip39_helper: Bip39,
+    persistent_config: Box<PersistentConfiguration>,
     ui_carrier_message_sub: Option<Recipient<UiCarrierMessage>>,
 }
 
@@ -33,7 +36,7 @@ impl Handler<BindMessage> for BlockchainBridge {
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.ui_carrier_message_sub = Some(msg.peer_actors.ui_gateway.ui_message_sub.clone());
-        match self.config.consuming_wallet.as_ref() {
+        match self.consuming_wallet.as_ref() {
             Some(wallet) => {
                 debug!(
                     self.logger,
@@ -90,37 +93,13 @@ impl Handler<SetWalletPasswordMsg> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: SetWalletPasswordMsg, _ctx: &mut Self::Context) -> Self::Result {
-        let decrypted = match self.bip39_helper.read(Vec::from(msg.password)) {
-            Ok(plain_data) => {
-                let key_pair = Bip32ECKeyPair::from_raw(
-                    &plain_data.as_slice(),
-                    self.config.consuming_wallet_derivation_path.as_str(),
-                )
-                .expect("Internal Error");
-                self.config.consuming_wallet = Some(Wallet::from(key_pair));
-                debug!(
-                    self.logger,
-                    format!(
-                        "unlocked consuming wallet address {:?}",
-                        &self.config.consuming_wallet
-                    )
-                );
-                true
-            }
-            Err(e) => {
-                warning!(
-                    self.logger,
-                    format!("failed to unlock consuming wallet: {:?}", e)
-                );
-                false
-            }
-        };
+        let password_accepted = self.accept_wallet_password(&msg.password);
         self.ui_carrier_message_sub
             .as_ref()
             .expect("UiGateway is unbound")
             .try_send(UiCarrierMessage {
                 client_id: msg.client_id,
-                data: UiMessage::SetWalletPasswordResponse(decrypted),
+                data: UiMessage::SetWalletPasswordResponse(password_accepted),
             })
             .expect("UiGateway is dead");
     }
@@ -128,15 +107,16 @@ impl Handler<SetWalletPasswordMsg> for BlockchainBridge {
 
 impl BlockchainBridge {
     pub fn new(
-        config: BlockchainBridgeConfig,
+        config: &BootstrapperConfig,
         blockchain_interface: Box<dyn BlockchainInterface>,
-        bip39_helper: Bip39,
+        persistent_config: Box<PersistentConfiguration>,
     ) -> BlockchainBridge {
         BlockchainBridge {
-            config,
+            _config: config.blockchain_bridge_config.clone(),
+            consuming_wallet: config.consuming_wallet.clone(),
             blockchain_interface,
             logger: Logger::new("BlockchainBridge"),
-            bip39_helper,
+            persistent_config,
             ui_carrier_message_sub: None,
         }
     }
@@ -149,12 +129,65 @@ impl BlockchainBridge {
             set_consuming_wallet_password_sub: addr.clone().recipient::<SetWalletPasswordMsg>(),
         }
     }
+
+    fn accept_wallet_password(&mut self, password: &str) -> bool {
+        if self.consuming_wallet.is_some() {
+            error!(
+                self.logger,
+                "Wallet password rejected: consuming wallet already active".to_string()
+            );
+            return false;
+        }
+        let consuming_wallet_derivation_path = match self
+            .persistent_config
+            .consuming_wallet_derivation_path()
+        {
+            Some(cwdp) => cwdp,
+            None => {
+                error!(self.logger, "Wallet password rejected: no consuming wallet derivation path has been configured".to_string());
+                return false;
+            }
+        };
+        match self.persistent_config.mnemonic_seed(password) {
+            Ok(plain_data) => {
+                let key_pair = Bip32ECKeyPair::from_raw(
+                    &plain_data.as_slice(),
+                    &consuming_wallet_derivation_path,
+                )
+                .expect("Internal Error");
+                self.consuming_wallet = Some(Wallet::from(key_pair));
+                debug!(
+                    self.logger,
+                    format!(
+                        "unlocked consuming wallet address {:?}",
+                        &self.consuming_wallet
+                    )
+                );
+                true
+            }
+            Err(Bip39Error::NotPresent) => {
+                error!(
+                    self.logger,
+                    "Wallet password rejected: no mnemonic phrase has been configured".to_string()
+                );
+                false
+            }
+            Err(e) => {
+                warning!(
+                    self.logger,
+                    format!("failed to unlock consuming wallet: {:?}", e)
+                );
+                false
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::blockchain::bip32::Bip32ECKeyPair;
+    use crate::blockchain::bip39::{Bip39, Bip39Error};
     use crate::blockchain::blockchain_interface::{
         Balance, BlockchainError, Transaction, Transactions, TESTNET_CONTRACT_ADDRESS,
     };
@@ -165,14 +198,14 @@ mod tests {
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
-    use crate::test_utils::test_utils::make_wallet;
+    use crate::test_utils::test_utils::{make_default_persistent_configuration, make_wallet};
     use actix::Addr;
     use actix::System;
     use bip39::{Language, Mnemonic, Seed};
     use ethsign::keyfile::Crypto;
     use ethsign::{Protected, SecretKey};
     use futures::future::Future;
-    use rustc_hex::{FromHex, ToHex};
+    use rustc_hex::FromHex;
     use std::cell::RefCell;
     use std::num::NonZeroU32;
     use std::sync::{Arc, Mutex};
@@ -195,10 +228,10 @@ mod tests {
         )
         .unwrap();
         let seed = Seed::new(&mnemonic, "some passphrase");
-        let seed_bytes = seed.as_bytes();
+        let seed_bytes = seed.as_bytes().to_vec();
         let encrypted_seed = serde_cbor::to_vec(
             &Crypto::encrypt(
-                seed_bytes,
+                &seed_bytes,
                 &Protected::new(password.as_bytes()),
                 NonZeroU32::new(10240).expect("Internal error"),
             )
@@ -218,20 +251,24 @@ mod tests {
 
         thread::spawn(move || {
             let persistent_config_mock = PersistentConfigurationMock::default()
-                .mnemonic_seed_result(Some(encrypted_seed.to_hex()));
+                .encrypted_mnemonic_seed_result(Some(
+                    Bip39::encrypt_bytes(&seed_bytes, password).unwrap(),
+                ))
+                .mnemonic_seed_result(Ok(PlainData::from(seed_bytes)))
+                .consuming_wallet_derivation_path_result(Some(
+                    DEFAULT_CONSUMING_DERIVATION_PATH.to_string(),
+                ));
 
             let subject = BlockchainBridge::new(
-                BlockchainBridgeConfig {
-                    blockchain_service_url: None,
-                    contract_address: TESTNET_CONTRACT_ADDRESS,
-                    consuming_wallet: None,
-                    consuming_wallet_derivation_path: String::from(
-                        DEFAULT_CONSUMING_DERIVATION_PATH,
-                    ),
-                    mnemonic_seed: None,
-                },
+                &bc_from_bbc_plus(
+                    BlockchainBridgeConfig {
+                        blockchain_service_url: None,
+                        contract_address: TESTNET_CONTRACT_ADDRESS,
+                    },
+                    None,
+                ),
                 stub_bi(),
-                Bip39::new(Box::new(persistent_config_mock)),
+                Box::new(persistent_config_mock),
             );
 
             let system = System::new("blockchain_bridge_sets_wallet_when_password_is_received");
@@ -271,41 +308,25 @@ mod tests {
         init_test_logging();
         let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
 
-        let password = "ilikecheetos";
-        let mnemonic = Mnemonic::from_phrase(
-            "timber cage wide hawk phone shaft pattern movie army dizzy hen tackle lamp \
-             absent write kind term toddler sphere ripple idle dragon curious hold",
-            Language::English,
-        )
-        .unwrap();
-        let seed = Seed::new(&mnemonic, "some passphrase");
-        let seed_bytes = seed.as_bytes();
-        let encrypted_seed = serde_cbor::to_vec(
-            &Crypto::encrypt(
-                seed_bytes,
-                &Protected::new(password.as_bytes()),
-                NonZeroU32::new(10240).expect("Internal error"),
-            )
-            .unwrap(),
-        )
-        .unwrap();
-
         thread::spawn(move || {
             let persistent_config_mock = PersistentConfigurationMock::default()
-                .mnemonic_seed_result(Some(encrypted_seed.to_hex()));
+                .mnemonic_seed_result(Err(Bip39Error::DecryptionFailure(
+                    "InvalidPassword".to_string(),
+                )))
+                .consuming_wallet_derivation_path_result(Some(
+                    DEFAULT_CONSUMING_DERIVATION_PATH.to_string(),
+                ));
 
             let subject = BlockchainBridge::new(
-                BlockchainBridgeConfig {
-                    blockchain_service_url: None,
-                    contract_address: TESTNET_CONTRACT_ADDRESS,
-                    consuming_wallet: None,
-                    consuming_wallet_derivation_path: String::from(
-                        DEFAULT_CONSUMING_DERIVATION_PATH,
-                    ),
-                    mnemonic_seed: None,
-                },
+                &bc_from_bbc_plus(
+                    BlockchainBridgeConfig {
+                        blockchain_service_url: None,
+                        contract_address: TESTNET_CONTRACT_ADDRESS,
+                    },
+                    None,
+                ),
                 stub_bi(),
-                Bip39::new(Box::new(persistent_config_mock)),
+                Box::new(persistent_config_mock),
             );
 
             let system = System::new("blockchain_bridge_sets_wallet_when_password_is_received");
@@ -317,7 +338,7 @@ mod tests {
             .unwrap();
             addr.try_send(SetWalletPasswordMsg {
                 client_id: 42,
-                password: "ilikecheetos2".to_string(),
+                password: "ihatecheetos".to_string(),
             })
             .unwrap();
 
@@ -340,6 +361,164 @@ mod tests {
     }
 
     #[test]
+    fn blockchain_bridge_logs_error_when_setting_wallet_password_when_wallet_already_exists() {
+        init_test_logging();
+        let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
+        thread::spawn(move || {
+            let persistent_config_mock = PersistentConfigurationMock::default();
+
+            let subject = BlockchainBridge::new(
+                &bc_from_bbc_plus(
+                    BlockchainBridgeConfig {
+                        blockchain_service_url: None,
+                        contract_address: TESTNET_CONTRACT_ADDRESS,
+                    },
+                    Some(Wallet::new("0x0000000000000000000000000000000000000000")),
+                ),
+                stub_bi(),
+                Box::new(persistent_config_mock),
+            );
+
+            let system = System::new(
+                "blockchain_bridge_logs_error_when_setting_wallet_password_when_wallet_already_exists",
+            );
+            let addr = subject.start();
+
+            addr.try_send(BindMessage {
+                peer_actors: peer_actors_builder().ui_gateway(ui_gateway).build(),
+            })
+            .unwrap();
+            addr.try_send(SetWalletPasswordMsg {
+                client_id: 42,
+                password: "ilikecheetos".to_string(),
+            })
+            .unwrap();
+
+            system.run();
+        });
+
+        ui_gateway_awaiter.await_message_count(1);
+
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        assert_eq!(
+            ui_gateway_recording.get_record::<UiCarrierMessage>(0),
+            &UiCarrierMessage {
+                client_id: 42,
+                data: UiMessage::SetWalletPasswordResponse(false)
+            }
+        );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "Wallet password rejected: consuming wallet already active"
+        ));
+    }
+
+    #[test]
+    fn blockchain_bridge_logs_error_when_setting_wallet_password_when_no_consuming_wallet_derivation_path(
+    ) {
+        init_test_logging();
+        let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
+        thread::spawn(move || {
+            let persistent_config_mock =
+                PersistentConfigurationMock::new().consuming_wallet_derivation_path_result(None);
+
+            let subject = BlockchainBridge::new(
+                &bc_from_bbc_plus(
+                    BlockchainBridgeConfig {
+                        blockchain_service_url: None,
+                        contract_address: TESTNET_CONTRACT_ADDRESS,
+                    },
+                    None,
+                ),
+                stub_bi(),
+                Box::new(persistent_config_mock),
+            );
+
+            let system = System::new("blockchain_bridge_logs_error_when_setting_wallet_password_when_no_consuming_wallet_derivation_path");
+            let addr = subject.start();
+
+            addr.try_send(BindMessage {
+                peer_actors: peer_actors_builder().ui_gateway(ui_gateway).build(),
+            })
+            .unwrap();
+            addr.try_send(SetWalletPasswordMsg {
+                client_id: 42,
+                password: "ilikecheetos".to_string(),
+            })
+            .unwrap();
+
+            system.run();
+        });
+
+        ui_gateway_awaiter.await_message_count(1);
+
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        assert_eq!(
+            ui_gateway_recording.get_record::<UiCarrierMessage>(0),
+            &UiCarrierMessage {
+                client_id: 42,
+                data: UiMessage::SetWalletPasswordResponse(false)
+            }
+        );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "Wallet password rejected: no consuming wallet derivation path has been configured"
+        ));
+    }
+
+    #[test]
+    fn blockchain_bridge_logs_error_when_setting_wallet_password_when_no_mnemonic_seed() {
+        init_test_logging();
+        let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
+        thread::spawn(move || {
+            let persistent_config_mock = PersistentConfigurationMock::new()
+                .consuming_wallet_derivation_path_result(Some("m/44'/60'/1'/2/3".to_string()))
+                .mnemonic_seed_result(Err(Bip39Error::NotPresent));
+
+            let subject = BlockchainBridge::new(
+                &bc_from_bbc_plus(
+                    BlockchainBridgeConfig {
+                        blockchain_service_url: None,
+                        contract_address: TESTNET_CONTRACT_ADDRESS,
+                    },
+                    None,
+                ),
+                stub_bi(),
+                Box::new(persistent_config_mock),
+            );
+
+            let system = System::new(
+                "blockchain_bridge_logs_error_when_setting_wallet_password_when_no_mnemonic_seed",
+            );
+            let addr = subject.start();
+
+            addr.try_send(BindMessage {
+                peer_actors: peer_actors_builder().ui_gateway(ui_gateway).build(),
+            })
+            .unwrap();
+            addr.try_send(SetWalletPasswordMsg {
+                client_id: 42,
+                password: "ilikecheetos".to_string(),
+            })
+            .unwrap();
+
+            system.run();
+        });
+
+        ui_gateway_awaiter.await_message_count(1);
+
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        assert_eq!(
+            ui_gateway_recording.get_record::<UiCarrierMessage>(0),
+            &UiCarrierMessage {
+                client_id: 42,
+                data: UiMessage::SetWalletPasswordResponse(false)
+            }
+        );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "Wallet password rejected: no mnemonic phrase has been configured"
+        ));
+    }
+
+    #[test]
     fn blockchain_bridge_receives_bind_message_with_consuming_private_key() {
         init_test_logging();
         let secret: Vec<u8> = "cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9"
@@ -349,14 +528,15 @@ mod tests {
 
         let consuming_wallet = Wallet::from(Bip32ECKeyPair::from(consuming_private_key));
         let subject = BlockchainBridge::new(
-            BlockchainBridgeConfig {
-                blockchain_service_url: None,
-                contract_address: TESTNET_CONTRACT_ADDRESS,
-                consuming_wallet: Some(consuming_wallet.clone()),
-                consuming_wallet_derivation_path: String::from(DEFAULT_CONSUMING_DERIVATION_PATH),
-                mnemonic_seed: Some(String::from("cc43146a8987a33d2ef331dd6fde88b0656a1c288e00546ccf12ad333560ba6e5bff098071a3c5a9d24a79f78f40ce07614c2e70ff111e52441f1360fea44127")),
-            },
-            stub_bi(), Bip39::new(Box::new(PersistentConfigurationMock::default()))
+            &bc_from_bbc_plus(
+                BlockchainBridgeConfig {
+                    blockchain_service_url: None,
+                    contract_address: TESTNET_CONTRACT_ADDRESS,
+                },
+                Some(consuming_wallet.clone()),
+            ),
+            stub_bi(),
+            Box::new(make_default_persistent_configuration()),
         );
 
         let system = System::new("blockchain_bridge_receives_bind_message");
@@ -380,15 +560,15 @@ mod tests {
         init_test_logging();
 
         let subject = BlockchainBridge::new(
-            BlockchainBridgeConfig {
-                blockchain_service_url: None,
-                contract_address: TESTNET_CONTRACT_ADDRESS,
-                consuming_wallet: None,
-                consuming_wallet_derivation_path: String::from(DEFAULT_CONSUMING_DERIVATION_PATH),
-                mnemonic_seed: None,
-            },
+            &bc_from_bbc_plus(
+                BlockchainBridgeConfig {
+                    blockchain_service_url: None,
+                    contract_address: TESTNET_CONTRACT_ADDRESS,
+                },
+                None,
+            ),
             stub_bi(),
-            Bip39::new(Box::new(PersistentConfigurationMock::default())),
+            Box::new(PersistentConfigurationMock::default()),
         );
 
         let system = System::new("blockchain_bridge_receives_bind_message");
@@ -411,15 +591,15 @@ mod tests {
         init_test_logging();
 
         let subject = BlockchainBridge::new(
-            BlockchainBridgeConfig {
-                blockchain_service_url: None,
-                contract_address: TESTNET_CONTRACT_ADDRESS,
-                consuming_wallet: None,
-                consuming_wallet_derivation_path: String::from(DEFAULT_CONSUMING_DERIVATION_PATH),
-                mnemonic_seed: None,
-            },
+            &bc_from_bbc_plus(
+                BlockchainBridgeConfig {
+                    blockchain_service_url: None,
+                    contract_address: TESTNET_CONTRACT_ADDRESS,
+                },
+                None,
+            ),
             stub_bi(),
-            Bip39::new(Box::new(PersistentConfigurationMock::default())),
+            Box::new(PersistentConfigurationMock::default()),
         );
 
         let system = System::new("blockchain_bridge_receives_report_accounts_payable_message");
@@ -486,15 +666,15 @@ mod tests {
             .retrieve_transactions_parameters
             .clone();
         let subject = BlockchainBridge::new(
-            BlockchainBridgeConfig {
-                blockchain_service_url: None,
-                contract_address: TESTNET_CONTRACT_ADDRESS,
-                consuming_wallet: None,
-                consuming_wallet_derivation_path: String::from(DEFAULT_CONSUMING_DERIVATION_PATH),
-                mnemonic_seed: None,
-            },
+            &bc_from_bbc_plus(
+                BlockchainBridgeConfig {
+                    blockchain_service_url: None,
+                    contract_address: TESTNET_CONTRACT_ADDRESS,
+                },
+                None,
+            ),
             Box::new(blockchain_interface_mock),
-            Bip39::new(Box::new(PersistentConfigurationMock::default())),
+            Box::new(PersistentConfigurationMock::default()),
         );
         let addr: Addr<BlockchainBridge> = subject.start();
 
@@ -510,5 +690,15 @@ mod tests {
 
         let result = request.wait().unwrap().unwrap();
         assert_eq!(expected_results, result);
+    }
+
+    fn bc_from_bbc_plus(
+        bbc: BlockchainBridgeConfig,
+        consuming_wallet: Option<Wallet>,
+    ) -> BootstrapperConfig {
+        let mut bc = BootstrapperConfig::new();
+        bc.blockchain_bridge_config = bbc;
+        bc.consuming_wallet = consuming_wallet;
+        bc
     }
 }

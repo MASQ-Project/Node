@@ -4,6 +4,7 @@ use crate::discriminator::DiscriminatorFactory;
 use crate::null_masquerader::NullMasquerader;
 use crate::sub_lib::tls_framer::TlsFramer;
 
+#[derive(Debug)]
 pub struct TlsDiscriminatorFactory {}
 
 impl DiscriminatorFactory for TlsDiscriminatorFactory {

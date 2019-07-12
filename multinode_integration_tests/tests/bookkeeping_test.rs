@@ -3,16 +3,15 @@ use multinode_integration_tests_lib::substratum_node::{
     NodeReference, SubstratumNode, SubstratumNodeUtils,
 };
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
-use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
 use multinode_integration_tests_lib::substratum_real_node::SubstratumRealNode;
+use multinode_integration_tests_lib::substratum_real_node::{
+    make_consuming_wallet_info, make_earning_wallet_info, NodeStartupConfigBuilder,
+};
 use node_lib::accountant::payable_dao::{PayableAccount, PayableDao, PayableDaoReal};
 use node_lib::accountant::receivable_dao::{ReceivableAccount, ReceivableDao, ReceivableDaoReal};
 use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
 use node_lib::sub_lib::wallet::Wallet;
-use rustc_hex::ToHex;
 use std::collections::HashMap;
-use std::io::{repeat, Read};
-use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 
@@ -110,8 +109,8 @@ pub fn start_lonely_real_node(cluster: &mut SubstratumNodeCluster) -> Substratum
     let index = cluster.next_index();
     cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .earning_wallet(make_wallet_from(index))
-            .consuming_private_key(&make_secret_key_from(index))
+            .earning_wallet_info(make_earning_wallet_info(&index.to_string()))
+            .consuming_wallet_info(make_consuming_wallet_info(&index.to_string()))
             .build(),
     )
 }
@@ -124,23 +123,7 @@ pub fn start_real_node(
     cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .neighbor(neighbor)
-            .earning_wallet(make_wallet_from(index))
+            .earning_wallet_info(make_earning_wallet_info(&index.to_string()))
             .build(),
     )
-}
-
-fn make_wallet_from(n: usize) -> Wallet {
-    let mut address = String::from("0x");
-    for _ in 0..40 {
-        address.push(((n + '0' as usize) as u8) as char);
-    }
-    Wallet::from_str(&address).unwrap()
-}
-
-fn make_secret_key_from(n: usize) -> String {
-    let mut secret = [0u8; 32];
-    repeat((n + '0' as usize) as u8)
-        .read_exact(&mut secret)
-        .unwrap();
-    secret.to_vec().to_hex::<String>()
 }

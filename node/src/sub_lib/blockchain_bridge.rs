@@ -3,7 +3,6 @@
 use crate::accountant::payable_dao::PayableAccount;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
 use web3::types::Address;
@@ -12,9 +11,6 @@ use web3::types::Address;
 pub struct BlockchainBridgeConfig {
     pub blockchain_service_url: Option<String>,
     pub contract_address: Address,
-    pub consuming_wallet: Option<Wallet>,
-    pub consuming_wallet_derivation_path: String,
-    pub mnemonic_seed: Option<String>,
 }
 
 #[derive(Clone)]

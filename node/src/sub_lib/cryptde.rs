@@ -227,6 +227,12 @@ impl ToHex for CryptData {
     }
 }
 
+impl AsRef<[u8]> for CryptData {
+    fn as_ref(&self) -> &[u8] {
+        &self.data
+    }
+}
+
 impl CryptData {
     pub fn new(data: &[u8]) -> CryptData {
         CryptData {
@@ -302,6 +308,12 @@ impl From<Vec<u8>> for PlainData {
 impl Into<Vec<u8>> for PlainData {
     fn into(self) -> Vec<u8> {
         self.data
+    }
+}
+
+impl AsRef<[u8]> for PlainData {
+    fn as_ref(&self) -> &[u8] {
+        &self.data
     }
 }
 
@@ -392,6 +404,7 @@ pub enum CryptdecError {
     InvalidKey(String),
     InvalidSignature(String),
     OpeningFailed,
+    OtherError(String),
 }
 
 pub trait CryptDE: Send + Sync {

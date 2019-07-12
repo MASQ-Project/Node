@@ -2,7 +2,7 @@
 use super::live_cores_package::LiveCoresPackage;
 use crate::blockchain::payer::Payer;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
-use crate::sub_lib::cryptde::{decodex, encodex, CryptDE, CryptData, CryptdecError, PlainData};
+use crate::sub_lib::cryptde::{decodex, encodex, CryptDE, CryptData, CryptdecError};
 use crate::sub_lib::dispatcher::{Component, Endpoint, InboundClientData};
 use crate::sub_lib::hop::LiveHop;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, HopperSubs, MessageType};
@@ -296,15 +296,19 @@ impl RoutingService {
         match payer {
             Some(payer) => {
                 if payer.owns_secret_key(&self.cryptde.public_key()) {
-                    self.routing_service_subs
-                        .to_accountant_routing
-                        .try_send(ReportRoutingServiceProvidedMessage {
+                    match self.routing_service_subs.to_accountant_routing.try_send(
+                        ReportRoutingServiceProvidedMessage {
                             paying_wallet: payer.wallet,
                             payload_size,
                             service_rate: self.per_routing_service,
                             byte_rate: self.per_routing_byte,
-                        })
-                        .expect("Accountant is dead");
+                        },
+                    ) {
+                        Ok(_) => (),
+                        Err(e) => {
+                            fatal!(self.logger, format!("Accountant is dead: {:?}", e));
+                        }
+                    }
                 } else {
                     warning!(self.logger, format!(
                         "Refusing to route CORES package with {}-byte payload without proof of {} paying wallet ownership.",
@@ -326,9 +330,11 @@ impl RoutingService {
         }
 
         let transmit_msg = match self.to_transmit_data_msg(live_package, last_data) {
-            // crashpoint - need to figure out how to bubble up different kinds of errors, or just log and return
-            Err(_) => unimplemented!(),
             Ok(m) => m,
+            Err(e) => {
+                error!(self.logger, format!("{:?}", e));
+                return;
+            }
         };
 
         debug!(
@@ -350,23 +356,25 @@ impl RoutingService {
         last_data: bool,
     ) -> Result<TransmitDataMsg, CryptdecError> {
         let (next_hop, next_live_package) = match live_package.to_next_live(self.cryptde.borrow()) {
-            // crashpoint - log error and return None?
-            Err(_) => unimplemented!(),
+            Err(e) => {
+                let msg = format!(
+                    "Couldn't get next hop and outgoing LCP from incoming LCP: {:?}",
+                    e
+                );
+                error!(self.logger, msg.clone());
+                return Err(CryptdecError::OtherError(msg));
+            }
             Ok(p) => p,
         };
-        let next_live_package_ser = match serde_cbor::ser::to_vec(&next_live_package) {
-            // crashpoint - log error and return None?
-            Err(_) => unimplemented!(),
-            Ok(p) => p,
-        };
-        let next_live_package_enc = match self.cryptde.encode(
-            &next_hop.public_key,
-            &PlainData::new(&next_live_package_ser[..]),
-        ) {
-            // crashpoint - log error and return None?
-            Err(_) => unimplemented!(),
-            Ok(p) => p,
-        };
+        let next_live_package_enc =
+            match encodex(self.cryptde, &next_hop.public_key, &next_live_package) {
+                Ok(nlpe) => nlpe,
+                Err(e) => {
+                    let msg = format!("Couldn't serialize or encrypt outgoing LCP: {}", e);
+                    error!(self.logger, msg.clone());
+                    return Err(CryptdecError::OtherError(msg));
+                }
+            };
         Ok(TransmitDataMsg {
             endpoint: Endpoint::Key(next_hop.public_key),
             last_data,
@@ -385,7 +393,7 @@ mod tests {
     use super::*;
     use crate::neighborhood::gossip::{Gossip, GossipBuilder};
     use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
-    use crate::sub_lib::cryptde::{encodex, PublicKey};
+    use crate::sub_lib::cryptde::{encodex, PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType, MessageType::ClientRequest};
     use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};

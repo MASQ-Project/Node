@@ -7,6 +7,7 @@ use crate::accountant::receivable_dao::ReceivableAccount;
 use crate::banned_dao::BannedDao;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::blockchain::blockchain_interface::Transaction;
+use crate::bootstrapper::BootstrapperConfig;
 use crate::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
@@ -69,6 +70,7 @@ impl PaymentCurves {
 
 pub struct Accountant {
     config: AccountantConfig,
+    earning_wallet: Wallet,
     payable_dao: Box<PayableDao>,
     receivable_dao: Box<ReceivableDao>,
     banned_dao: Box<BannedDao>,
@@ -263,14 +265,15 @@ impl Handler<GetFinancialStatisticsMessage> for Accountant {
 
 impl Accountant {
     pub fn new(
-        config: AccountantConfig,
+        config: &BootstrapperConfig,
         payable_dao: Box<PayableDao>,
         receivable_dao: Box<ReceivableDao>,
         banned_dao: Box<BannedDao>,
         persistent_configuration: Box<dyn PersistentConfiguration>,
     ) -> Accountant {
         Accountant {
-            config,
+            config: config.accountant_config.clone(),
+            earning_wallet: config.earning_wallet.clone(),
             payable_dao,
             receivable_dao,
             banned_dao,
@@ -369,7 +372,7 @@ impl Accountant {
             .expect("BlockchainBridge is unbound")
             .send(RetrieveTransactions {
                 start_block,
-                recipient: self.config.earning_wallet.clone(),
+                recipient: self.earning_wallet.clone(),
             })
             .then(move |transactions_possibly| match transactions_possibly {
                 Ok(Ok(ref vec)) if vec.is_empty() => {
@@ -722,7 +725,6 @@ pub mod tests {
         let config = AccountantConfig {
             payable_scan_interval: Duration::from_secs(10_000),
             payment_received_scan_interval: Duration::from_secs(10_000),
-            earning_wallet: make_wallet("blah"),
         };
         let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
 
@@ -741,7 +743,7 @@ pub mod tests {
             ]);
 
             let subject = Accountant::new(
-                config,
+                &bc_from_ac_plus(config, make_wallet("blah")),
                 Box::new(payable_dao),
                 Box::new(receivable_dao),
                 Box::new(BannedDaoMock::new()),
@@ -792,11 +794,13 @@ pub mod tests {
         let blockchain_bridge_awaiter = blockchain_bridge.get_awaiter();
         let blockchain_bridge_recording = blockchain_bridge.get_recording();
         let (accountant_mock, accountant_awaiter, accountant_recording_arc) = make_recorder();
-        let config = AccountantConfig {
-            payable_scan_interval: Duration::from_secs(10_000),
-            payment_received_scan_interval: Duration::from_millis(100),
-            earning_wallet: earning_wallet.clone(),
-        };
+        let config = bc_from_ac_plus(
+            AccountantConfig {
+                payable_scan_interval: Duration::from_secs(10_000),
+                payment_received_scan_interval: Duration::from_millis(100),
+            },
+            earning_wallet.clone(),
+        );
 
         thread::spawn(move || {
             let system = System::new(
@@ -810,8 +814,13 @@ pub mod tests {
             );
             let config_mock = Box::new(PersistentConfigurationMock::new().start_block_result(5));
             let banned_dao = Box::new(BannedDaoMock::new());
-            let subject =
-                Accountant::new(config, payable_dao, receivable_dao, banned_dao, config_mock);
+            let subject = Accountant::new(
+                &config,
+                payable_dao,
+                receivable_dao,
+                banned_dao,
+                config_mock,
+            );
             let peer_actors = peer_actors_builder()
                 .blockchain_bridge(blockchain_bridge)
                 .accountant(accountant_mock)
@@ -860,11 +869,13 @@ pub mod tests {
         let blockchain_bridge_awaiter = blockchain_bridge.get_awaiter();
         let blockchain_bridge_recording = blockchain_bridge.get_recording();
         let (accountant_mock, _, accountant_recording_arc) = make_recorder();
-        let config = AccountantConfig {
-            payable_scan_interval: Duration::from_secs(10_000),
-            payment_received_scan_interval: Duration::from_millis(100),
-            earning_wallet: earning_wallet.clone(),
-        };
+        let config = bc_from_ac_plus(
+            AccountantConfig {
+                payable_scan_interval: Duration::from_secs(10_000),
+                payment_received_scan_interval: Duration::from_millis(100),
+            },
+            earning_wallet.clone(),
+        );
 
         thread::spawn(move || {
             let system = System::new("accountant_logs_if_no_transactions_were_detected");
@@ -876,8 +887,13 @@ pub mod tests {
             );
             let config_mock = Box::new(PersistentConfigurationMock::new().start_block_result(5));
             let banned_dao = Box::new(BannedDaoMock::new());
-            let subject =
-                Accountant::new(config, payable_dao, receivable_dao, banned_dao, config_mock);
+            let subject = Accountant::new(
+                &config,
+                payable_dao,
+                receivable_dao,
+                banned_dao,
+                config_mock,
+            );
             let peer_actors = peer_actors_builder()
                 .blockchain_bridge(blockchain_bridge)
                 .accountant(accountant_mock)
@@ -919,11 +935,13 @@ pub mod tests {
             Recorder::new().retrieve_transactions_response(Err(BlockchainError::QueryFailed));
         let blockchain_bridge_awaiter = blockchain_bridge.get_awaiter();
         let blockchain_bridge_recording = blockchain_bridge.get_recording();
-        let config = AccountantConfig {
-            payable_scan_interval: Duration::from_secs(10_000),
-            payment_received_scan_interval: Duration::from_millis(100),
-            earning_wallet: earning_wallet.clone(),
-        };
+        let config = bc_from_ac_plus(
+            AccountantConfig {
+                payable_scan_interval: Duration::from_secs(10_000),
+                payment_received_scan_interval: Duration::from_millis(100),
+            },
+            earning_wallet.clone(),
+        );
 
         thread::spawn(move || {
             let system =
@@ -936,8 +954,13 @@ pub mod tests {
             );
             let config_mock = Box::new(PersistentConfigurationMock::new().start_block_result(0));
             let banned_dao = Box::new(BannedDaoMock::new());
-            let subject =
-                Accountant::new(config, payable_dao, receivable_dao, banned_dao, config_mock);
+            let subject = Accountant::new(
+                &config,
+                payable_dao,
+                receivable_dao,
+                banned_dao,
+                config_mock,
+            );
             let peer_actors = peer_actors_builder()
                 .blockchain_bridge(blockchain_bridge)
                 .build();
@@ -985,11 +1008,13 @@ pub mod tests {
         });
         let banned_dao = Box::new(BannedDaoMock::new());
         let accountant = Accountant::new(
-            AccountantConfig {
-                payable_scan_interval: Duration::from_secs(10_000),
-                payment_received_scan_interval: Duration::from_secs(10_000),
-                earning_wallet: earning_wallet.clone(),
-            },
+            &bc_from_ac_plus(
+                AccountantConfig {
+                    payable_scan_interval: Duration::from_secs(10_000),
+                    payment_received_scan_interval: Duration::from_secs(10_000),
+                },
+                earning_wallet.clone(),
+            ),
             Box::new(PayableDaoMock::new()),
             receivable_dao,
             banned_dao,
@@ -1028,11 +1053,13 @@ pub mod tests {
         thread::spawn(move || {
             let system =
                 System::new("accountant_payable_scan_timer_triggers_scanning_for_payables");
-            let config = AccountantConfig {
-                payable_scan_interval: Duration::from_millis(100),
-                payment_received_scan_interval: Duration::from_secs(100),
-                earning_wallet: make_wallet("hi"),
-            };
+            let config = bc_from_ac_plus(
+                AccountantConfig {
+                    payable_scan_interval: Duration::from_millis(100),
+                    payment_received_scan_interval: Duration::from_secs(100),
+                },
+                make_wallet("hi"),
+            );
             let now = to_time_t(&SystemTime::now());
             // slightly above minimum balance, to the right of the curve (time intersection)
             let account0 = PayableAccount {
@@ -1057,7 +1084,7 @@ pub mod tests {
             let receivable_dao = Box::new(ReceivableDaoMock::new());
             let banned_dao = Box::new(BannedDaoMock::new());
             let subject = Accountant::new(
-                config,
+                &config,
                 payable_dao,
                 receivable_dao,
                 banned_dao,
@@ -1084,11 +1111,13 @@ pub mod tests {
     #[test]
     fn scan_for_payables_message_does_not_trigger_payment_for_balances_below_the_curve() {
         init_test_logging();
-        let config = AccountantConfig {
-            payable_scan_interval: Duration::from_secs(100),
-            payment_received_scan_interval: Duration::from_secs(1000),
-            earning_wallet: make_wallet("mine"),
-        };
+        let config = bc_from_ac_plus(
+            AccountantConfig {
+                payable_scan_interval: Duration::from_secs(100),
+                payment_received_scan_interval: Duration::from_secs(1000),
+            },
+            make_wallet("mine"),
+        );
         let now = to_time_t(&SystemTime::now());
         let accounts = vec![
             // below minimum balance, to the right of time intersection (inside buffer zone)
@@ -1130,7 +1159,7 @@ pub mod tests {
         let report_accounts_payable_sub =
             blockchain_bridge_addr.recipient::<ReportAccountsPayable>();
         let mut subject = Accountant::new(
-            config,
+            &config,
             Box::new(payable_dao),
             Box::new(receivable_dao),
             Box::new(banned_dao),
@@ -1149,11 +1178,13 @@ pub mod tests {
     #[test]
     fn scan_for_payables_message_triggers_payment_for_balances_over_the_curve() {
         init_test_logging();
-        let config = AccountantConfig {
-            payable_scan_interval: Duration::from_secs(100),
-            payment_received_scan_interval: Duration::from_secs(1000),
-            earning_wallet: make_wallet("mine"),
-        };
+        let config = bc_from_ac_plus(
+            AccountantConfig {
+                payable_scan_interval: Duration::from_secs(100),
+                payment_received_scan_interval: Duration::from_secs(1000),
+            },
+            make_wallet("mine"),
+        );
         let now = to_time_t(&SystemTime::now());
         let accounts = vec![
             // slightly above minimum balance, to the right of the curve (time intersection)
@@ -1186,7 +1217,7 @@ pub mod tests {
         let report_accounts_payable_sub =
             blockchain_bridge_addr.recipient::<ReportAccountsPayable>();
         let mut subject = Accountant::new(
-            config,
+            &config,
             Box::new(payable_dao),
             Box::new(receivable_dao),
             Box::new(banned_dao),
@@ -1214,11 +1245,13 @@ pub mod tests {
         let blockchain_bridge = Recorder::new().retrieve_transactions_response(Ok(vec![]));
         thread::spawn(move || {
             let system = System::new("payment_received_scan_triggers_scan_for_delinquencies");
-            let config = AccountantConfig {
-                payable_scan_interval: Duration::from_secs(10_000),
-                payment_received_scan_interval: Duration::from_millis(100),
-                earning_wallet: make_wallet("hi"),
-            };
+            let config = bc_from_ac_plus(
+                AccountantConfig {
+                    payable_scan_interval: Duration::from_secs(10_000),
+                    payment_received_scan_interval: Duration::from_millis(100),
+                },
+                make_wallet("hi"),
+            );
 
             let payable_dao = Box::new(PayableDaoMock::new());
             let receivable_dao = Box::new(
@@ -1232,7 +1265,7 @@ pub mod tests {
                     .ban_parameters(&ban_parameters_arc_inner),
             );
             let subject = Accountant::new(
-                config,
+                &config,
                 payable_dao,
                 receivable_dao,
                 banned_dao,
@@ -1264,11 +1297,13 @@ pub mod tests {
     #[test]
     fn scan_for_delinquencies_triggers_bans_and_unbans() {
         init_test_logging();
-        let config = AccountantConfig {
-            payable_scan_interval: Duration::from_secs(100),
-            payment_received_scan_interval: Duration::from_secs(1000),
-            earning_wallet: make_wallet("mine"),
-        };
+        let config = bc_from_ac_plus(
+            AccountantConfig {
+                payable_scan_interval: Duration::from_secs(100),
+                payment_received_scan_interval: Duration::from_secs(1000),
+            },
+            make_wallet("mine"),
+        );
         let newly_banned_1 = make_receivable_account(1234, true);
         let newly_banned_2 = make_receivable_account(2345, true);
         let newly_unbanned_1 = make_receivable_account(3456, false);
@@ -1288,7 +1323,7 @@ pub mod tests {
             .ban_parameters(&ban_parameters_arc)
             .unban_parameters(&unban_parameters_arc);
         let mut subject = Accountant::new(
-            config,
+            &config,
             Box::new(payable_dao),
             Box::new(receivable_dao),
             Box::new(banned_dao),
@@ -1321,11 +1356,13 @@ pub mod tests {
     #[test]
     fn report_routing_service_provided_message_is_received() {
         init_test_logging();
-        let config = AccountantConfig {
-            payable_scan_interval: Duration::from_secs(100),
-            payment_received_scan_interval: Duration::from_secs(100),
-            earning_wallet: make_wallet("hi"),
-        };
+        let config = bc_from_ac_plus(
+            AccountantConfig {
+                payable_scan_interval: Duration::from_secs(100),
+                payment_received_scan_interval: Duration::from_secs(100),
+            },
+            make_wallet("hi"),
+        );
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = Box::new(PayableDaoMock::new());
         let receivable_dao_mock = Box::new(
@@ -1334,7 +1371,7 @@ pub mod tests {
         );
         let banned_dao_mock = Box::new(BannedDaoMock::new());
         let subject = Accountant::new(
-            config,
+            &config,
             payable_dao_mock,
             receivable_dao_mock,
             banned_dao_mock,
@@ -1372,11 +1409,13 @@ pub mod tests {
     #[test]
     fn report_routing_service_consumed_message_is_received() {
         init_test_logging();
-        let config = AccountantConfig {
-            payable_scan_interval: Duration::from_secs(100),
-            payment_received_scan_interval: Duration::from_secs(100),
-            earning_wallet: make_wallet("hi"),
-        };
+        let config = bc_from_ac_plus(
+            AccountantConfig {
+                payable_scan_interval: Duration::from_secs(100),
+                payment_received_scan_interval: Duration::from_secs(100),
+            },
+            make_wallet("hi"),
+        );
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = Box::new(
             PayableDaoMock::new()
@@ -1385,7 +1424,7 @@ pub mod tests {
         let receivable_dao_mock = Box::new(ReceivableDaoMock::new());
         let banned_dao_mock = Box::new(BannedDaoMock::new());
         let subject = Accountant::new(
-            config,
+            &config,
             payable_dao_mock,
             receivable_dao_mock,
             banned_dao_mock,
@@ -1423,11 +1462,13 @@ pub mod tests {
     #[test]
     fn report_exit_service_provided_message_is_received() {
         init_test_logging();
-        let config = AccountantConfig {
-            payable_scan_interval: Duration::from_secs(100),
-            payment_received_scan_interval: Duration::from_secs(100),
-            earning_wallet: make_wallet("hi"),
-        };
+        let config = bc_from_ac_plus(
+            AccountantConfig {
+                payable_scan_interval: Duration::from_secs(100),
+                payment_received_scan_interval: Duration::from_secs(100),
+            },
+            make_wallet("hi"),
+        );
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = Box::new(PayableDaoMock::new());
         let receivable_dao_mock = Box::new(
@@ -1436,7 +1477,7 @@ pub mod tests {
         );
         let banned_dao_mock = Box::new(BannedDaoMock::new());
         let subject = Accountant::new(
-            config,
+            &config,
             payable_dao_mock,
             receivable_dao_mock,
             banned_dao_mock,
@@ -1474,11 +1515,13 @@ pub mod tests {
     #[test]
     fn report_exit_service_consumed_message_is_received() {
         init_test_logging();
-        let config = AccountantConfig {
-            payable_scan_interval: Duration::from_secs(100),
-            payment_received_scan_interval: Duration::from_secs(100),
-            earning_wallet: make_wallet("hi"),
-        };
+        let config = bc_from_ac_plus(
+            AccountantConfig {
+                payable_scan_interval: Duration::from_secs(100),
+                payment_received_scan_interval: Duration::from_secs(100),
+            },
+            make_wallet("hi"),
+        );
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = Box::new(
             PayableDaoMock::new()
@@ -1487,7 +1530,7 @@ pub mod tests {
         let receivable_dao_mock = Box::new(ReceivableDaoMock::new());
         let banned_dao_mock = Box::new(BannedDaoMock::new());
         let subject = Accountant::new(
-            config,
+            &config,
             payable_dao_mock,
             receivable_dao_mock,
             banned_dao_mock,
@@ -1520,6 +1563,13 @@ pub mod tests {
         TestLogHandler::new().exists_log_containing(
             "DEBUG: Accountant: Accruing debt to wallet 0x000000000000000000000000000000626f6f6761 for consuming exit service 1234 bytes",
         );
+    }
+
+    fn bc_from_ac_plus(ac: AccountantConfig, earning_wallet: Wallet) -> BootstrapperConfig {
+        let mut bc = BootstrapperConfig::new();
+        bc.accountant_config = ac;
+        bc.earning_wallet = earning_wallet;
+        bc
     }
 
     fn null_config() -> Box<dyn PersistentConfiguration> {

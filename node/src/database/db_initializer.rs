@@ -5,18 +5,18 @@ use crate::persistent_configuration::{
 use rand::rngs::SmallRng;
 use rand::FromEntropy;
 use rand::Rng;
-use rusqlite::{
-    Connection, Error, OpenFlags, OptionalExtension, Statement, Transaction, NO_PARAMS,
-};
+use rusqlite::Error::InvalidColumnType;
+use rusqlite::{Connection, Error, OpenFlags, Statement, Transaction, NO_PARAMS};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::fs;
+use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
 use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node-data.db";
-pub const CURRENT_SCHEMA_VERSION: &str = "0.0.5";
+pub const CURRENT_SCHEMA_VERSION: &str = "0.0.6";
 pub const ROPSTEN_CONTRACT_CREATION_BLOCK: u64 = 4647463;
 
 pub trait ConnectionWrapper: Debug + Send {
@@ -47,7 +47,7 @@ impl ConnectionWrapperReal {
 
 #[derive(Debug, PartialEq)]
 pub enum InitializationError {
-    IncompatibleVersion,
+    IncompatibleVersion(String),
     SqliteError(rusqlite::Error),
 }
 
@@ -69,7 +69,7 @@ impl DbInitializer for DbInitializerReal {
         match Connection::open_with_flags(database_file_path, flags) {
             Ok(conn) => {
                 let config = self.extract_configurations(&conn);
-                match self.check_version(config.get(&String::from("schema_version"))) {
+                match self.check_version(config.get("schema_version")) {
                     Ok(_) => Ok(Box::new(ConnectionWrapperReal::new(conn))),
                     Err(e) => Err(e),
                 }
@@ -98,10 +98,15 @@ impl DbInitializerReal {
     fn create_data_directory_if_necessary(data_directory: &PathBuf) {
         match fs::read_dir(data_directory) {
             Ok(_) => (),
-            Err(_) => fs::create_dir_all(data_directory).expect(&format!(
-                "Cannot create specified data directory at {:?}",
-                data_directory
-            )),
+            Err(ref e) if e.kind() == ErrorKind::NotFound => fs::create_dir_all(data_directory)
+                .expect(&format!(
+                    "Cannot create specified data directory at {:?}",
+                    data_directory
+                )),
+            Err(e) => panic!(
+                "Error checking data directory at {:?}: {}",
+                data_directory, e
+            ),
         }
     }
 
@@ -131,38 +136,49 @@ impl DbInitializerReal {
     }
 
     fn initialize_config(&self, conn: &Connection) -> Result<(), InitializationError> {
-        conn.execute(
-            format!(
-                "insert into config (name, value) values ('schema_version', '{}')",
-                CURRENT_SCHEMA_VERSION
-            )
-            .as_str(),
-            NO_PARAMS,
-        )
-        .expect("Can't preload config table with database version");
-        conn.execute(
-            format!(
-                "insert into config (name, value) values ('clandestine_port', '{}')",
-                Self::choose_clandestine_port().to_string(),
-            )
-            .as_str(),
-            NO_PARAMS,
-        )
-        .expect("Can't preload config table with clandestine port");
-        conn.execute(
-            "insert into config (name, value) values ('seed', null)",
-            NO_PARAMS,
-        )
-        .expect("Can't preload config table with mnemonic seed");
-        conn.execute(
-            format!(
-                "insert into config (name, value) values ('start_block', '{}')",
-                ROPSTEN_CONTRACT_CREATION_BLOCK,
-            )
-            .as_str(),
-            NO_PARAMS,
-        )
-        .expect("Can't preload config table with ropsten start block");
+        Self::set_config_value(
+            conn,
+            "clandestine_port",
+            Some(&Self::choose_clandestine_port().to_string()),
+            "clandestine port",
+        );
+        Self::set_config_value(
+            conn,
+            "consuming_wallet_derivation_path",
+            None,
+            "consuming wallet derivation path",
+        );
+        Self::set_config_value(
+            conn,
+            "consuming_wallet_private_public_key",
+            None,
+            "public key for the consuming wallet private key",
+        );
+        Self::set_config_value(
+            conn,
+            "earning_wallet_address",
+            None,
+            "earning wallet address",
+        );
+        Self::set_config_value(
+            conn,
+            "earning_wallet_derivation_path",
+            None,
+            "earning wallet derivation path",
+        );
+        Self::set_config_value(
+            conn,
+            "schema_version",
+            Some(CURRENT_SCHEMA_VERSION),
+            "database version",
+        );
+        Self::set_config_value(conn, "seed", None, "mnemonic seed");
+        Self::set_config_value(
+            conn,
+            "start_block",
+            Some(&ROPSTEN_CONTRACT_CREATION_BLOCK.to_string()),
+            "Ropsten start block",
+        );
         Ok(())
     }
 
@@ -217,27 +233,40 @@ impl DbInitializerReal {
         Ok(())
     }
 
-    fn extract_configurations(&self, conn: &Connection) -> HashMap<String, String> {
+    fn extract_configurations(&self, conn: &Connection) -> HashMap<String, Option<String>> {
         let mut stmt = conn.prepare("select name, value from config").unwrap();
-        match stmt
-            .query_row(NO_PARAMS, |row| Ok((row.get(0), row.get(1))))
-            .optional()
-        {
-            Ok(Some((Ok(name), Ok(value)))) => Some((name, value)),
-            _ => None,
+        let query_result = stmt.query_map(NO_PARAMS, |row| Ok((row.get(0), row.get(1))));
+        match query_result {
+            Ok(rows) => rows,
+            Err(e) => panic!("Error retrieving configuration: {}", e),
         }
         .into_iter()
-        .collect::<HashMap<String, String>>()
+        .map(|row| match row {
+            Ok((Ok(name), Ok(value))) => (name, Some(value)),
+            Ok((Ok(name), Err(InvalidColumnType(1, _)))) => (name, None),
+            e => panic!("Error retrieving configuration: {:?}", e),
+        })
+        .collect::<HashMap<String, Option<String>>>()
     }
 
-    fn check_version(&self, version: Option<&String>) -> Result<(), InitializationError> {
+    fn check_version(&self, version: Option<&Option<String>>) -> Result<(), InitializationError> {
         match version {
-            None => Err(InitializationError::IncompatibleVersion),
-            Some(v_ref) => {
+            None => Err(InitializationError::IncompatibleVersion(format!(
+                "Need {}, found nothing",
+                CURRENT_SCHEMA_VERSION
+            ))),
+            Some(None) => Err(InitializationError::IncompatibleVersion(format!(
+                "Need {}, found nothing",
+                CURRENT_SCHEMA_VERSION
+            ))),
+            Some(Some(v_ref)) => {
                 if *v_ref == CURRENT_SCHEMA_VERSION {
                     Ok(())
                 } else {
-                    Err(InitializationError::IncompatibleVersion)
+                    Err(InitializationError::IncompatibleVersion(format!(
+                        "Need {}, found {}",
+                        CURRENT_SCHEMA_VERSION, v_ref
+                    )))
                 }
             }
         }
@@ -256,6 +285,22 @@ impl DbInitializerReal {
                 Err(_) => continue,
             }
         }
+    }
+
+    fn set_config_value(conn: &Connection, name: &str, value: Option<&str>, readable: &str) {
+        conn.execute(
+            format!(
+                "insert into config (name, value) values ('{}', {})",
+                name,
+                match value {
+                    Some(value) => format!("'{}'", value),
+                    None => "null".to_string(),
+                },
+            )
+            .as_str(),
+            NO_PARAMS,
+        )
+        .expect(&format!("Can't preload config table with {}", readable));
     }
 }
 
@@ -442,36 +487,40 @@ mod tests {
         let mut flags = OpenFlags::empty();
         flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
         let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
-        let mut stmt = conn
-            .prepare("select name, value from config order by name")
-            .unwrap();
-        let mut config_contents = stmt
-            .query_map(NO_PARAMS, |row| Ok((row.get(0), row.get(1))))
-            .unwrap();
-        let (name, _) = config_contents.next().unwrap().unwrap();
-        assert!(name.is_ok());
-        assert_eq!("clandestine_port", name.unwrap());
-        assert_eq!(
-            (Ok("preexisting".to_string()), Ok("yes".to_string())),
-            config_contents.next().unwrap().unwrap(),
+        let config_map = subject.extract_configurations(&conn);
+        let mut config_vec: Vec<(String, Option<String>)> = config_map.into_iter().collect();
+        config_vec.sort_by_key(|(name, _)| name.clone());
+        let verify = |cv: &mut Vec<(String, Option<String>)>, name: &str, value: Option<&str>| {
+            let actual = cv.remove(0);
+            let expected = (name.to_string(), value.map(|v| v.to_string()));
+            assert_eq!(actual, expected)
+        };
+        let verify_name = |cv: &mut Vec<(String, Option<String>)>, expected_name: &str| {
+            let (actual_name, value) = cv.remove(0);
+            assert_eq!(actual_name, expected_name);
+            value
+        };
+        let clandestine_port_str_opt = verify_name(&mut config_vec, "clandestine_port");
+        let clandestine_port: u16 = clandestine_port_str_opt.unwrap().parse().unwrap();
+        assert!(clandestine_port >= 1025);
+        assert!(clandestine_port < 10000);
+        verify(&mut config_vec, "consuming_wallet_derivation_path", None);
+        verify(&mut config_vec, "consuming_wallet_private_public_key", None);
+        verify(&mut config_vec, "earning_wallet_address", None);
+        verify(&mut config_vec, "earning_wallet_derivation_path", None);
+        verify(&mut config_vec, "preexisting", Some("yes")); // makes sure we just created this database
+        verify(
+            &mut config_vec,
+            "schema_version",
+            Some(CURRENT_SCHEMA_VERSION),
         );
-        assert_eq!(
-            Ok((
-                Ok(String::from("schema_version")),
-                Ok(String::from(CURRENT_SCHEMA_VERSION))
-            )),
-            config_contents.next().unwrap(),
+        verify(&mut config_vec, "seed", None);
+        verify(
+            &mut config_vec,
+            "start_block",
+            Some(&format!("{}", ROPSTEN_CONTRACT_CREATION_BLOCK)),
         );
-        let (result, _) = config_contents.next().unwrap().unwrap();
-        assert_eq!(result, Ok(String::from("seed")));
-        assert_eq!(
-            (
-                Ok("start_block".to_string()),
-                Ok(format!("{}", ROPSTEN_CONTRACT_CREATION_BLOCK))
-            ),
-            config_contents.next().unwrap().unwrap(),
-        );
-        assert!(config_contents.next().is_none());
+        assert_eq!(config_vec, vec![]);
     }
 
     #[test]
@@ -496,8 +545,11 @@ mod tests {
         let result = subject.initialize(&home_dir);
 
         assert_eq!(
-            InitializationError::IncompatibleVersion,
             result.err().unwrap(),
+            InitializationError::IncompatibleVersion(format!(
+                "Need {}, found nothing",
+                CURRENT_SCHEMA_VERSION
+            )),
         );
     }
 
@@ -523,8 +575,11 @@ mod tests {
         let result = subject.initialize(&home_dir);
 
         assert_eq!(
-            InitializationError::IncompatibleVersion,
             result.err().unwrap(),
+            InitializationError::IncompatibleVersion(format!(
+                "Need {}, found 0.0.0",
+                CURRENT_SCHEMA_VERSION
+            )),
         );
     }
 

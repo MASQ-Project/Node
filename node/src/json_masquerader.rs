@@ -12,12 +12,12 @@ pub struct JsonMasquerader {
 }
 
 impl Masquerader for JsonMasquerader {
-    fn try_unmask(&self, item: &[u8]) -> Option<UnmaskedChunk> {
+    fn try_unmask(&self, item: &[u8]) -> Result<UnmaskedChunk, MasqueradeError> {
         match self.unmask(item) {
-            Ok(chunk) => Some(chunk),
+            Ok(chunk) => Ok(chunk),
             Err(err) => {
                 error!(self.logger, format!("{}", err));
-                None
+                Err(err)
             }
         }
     }
@@ -158,7 +158,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Some(UnmaskedChunk::new(
+            Ok(UnmaskedChunk::new(
                 Vec::from("\\}\"{'".as_bytes()),
                 true,
                 false
@@ -267,7 +267,7 @@ mod tests {
 
         let result = subject.try_unmask(data);
 
-        assert_eq!(result, None);
+        assert!(result.is_err(), "{:?}", result);
         TestLogHandler::new().exists_log_containing(msg_suffix);
     }
 }

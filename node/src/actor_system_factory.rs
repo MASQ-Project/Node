@@ -15,24 +15,20 @@ use super::ui_gateway::ui_gateway::UiGateway;
 use crate::accountant::payable_dao::PayableDaoReal;
 use crate::accountant::receivable_dao::ReceivableDaoReal;
 use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal, BannedDaoReal};
-use crate::blockchain::bip39::Bip39;
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
 use crate::blockchain::blockchain_interface::{
     BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceRpc,
 };
 use crate::config_dao::ConfigDaoReal;
-use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
 use crate::persistent_configuration::PersistentConfigurationReal;
-use crate::sub_lib::accountant::AccountantConfig;
 use crate::sub_lib::accountant::AccountantSubs;
-use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::dispatcher::DispatcherSubs;
 use crate::sub_lib::hopper::HopperConfig;
 use crate::sub_lib::hopper::HopperSubs;
 use crate::sub_lib::neighborhood::BootstrapNeighborhoodNowMessage;
-use crate::sub_lib::neighborhood::NeighborhoodConfig;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::peer_actors::PeerActors;
@@ -87,7 +83,7 @@ impl ActorSystemFactoryReal {
             .make_and_start_proxy_server(cryptde, config.neighborhood_config.is_decentralized());
         let proxy_client_subs = actor_factory.make_and_start_proxy_client(ProxyClientConfig {
             cryptde,
-            dns_servers: config.dns_servers,
+            dns_servers: config.dns_servers.clone(),
             exit_service_rate: config.neighborhood_config.rate_pack.exit_service_rate,
             exit_byte_rate: config.neighborhood_config.rate_pack.exit_byte_rate,
         });
@@ -97,22 +93,19 @@ impl ActorSystemFactoryReal {
             per_routing_byte: config.neighborhood_config.rate_pack.routing_byte_rate,
             is_decentralized: config.neighborhood_config.is_decentralized(),
         });
-        let neighborhood_subs =
-            actor_factory.make_and_start_neighborhood(cryptde, config.neighborhood_config);
+        let neighborhood_subs = actor_factory.make_and_start_neighborhood(cryptde, &config);
         let accountant_subs = actor_factory.make_and_start_accountant(
-            config.accountant_config,
-            &config.data_directory,
+            &config,
+            &config.data_directory.clone(),
             &db_initializer,
             &BannedCacheLoaderReal {},
         );
-        let ui_gateway_subs = actor_factory.make_and_start_ui_gateway(config.ui_gateway_config);
+        let ui_gateway_subs =
+            actor_factory.make_and_start_ui_gateway(config.ui_gateway_config.clone());
         let stream_handler_pool_subs = actor_factory
-            .make_and_start_stream_handler_pool(config.clandestine_discriminator_factories);
-        let blockchain_bridge_subs = actor_factory.make_and_start_blockchain_bridge(
-            config.blockchain_bridge_config,
-            &config.data_directory,
-            &db_initializer,
-        );
+            .make_and_start_stream_handler_pool(config.clandestine_discriminator_factories.clone());
+        let blockchain_bridge_subs =
+            actor_factory.make_and_start_blockchain_bridge(&config, &db_initializer);
 
         // collect all the subs
         let peer_actors = PeerActors {
@@ -220,11 +213,11 @@ pub trait ActorFactory: Send {
     fn make_and_start_neighborhood(
         &self,
         cryptde: &'static dyn CryptDE,
-        config: NeighborhoodConfig,
+        config: &BootstrapperConfig,
     ) -> NeighborhoodSubs;
     fn make_and_start_accountant(
         &self,
-        config: AccountantConfig,
+        config: &BootstrapperConfig,
         data_directory: &PathBuf,
         db_initializer: &dyn DbInitializer,
         banned_cache_loader: &dyn BannedCacheLoader,
@@ -237,8 +230,7 @@ pub trait ActorFactory: Send {
     fn make_and_start_proxy_client(&self, config: ProxyClientConfig) -> ProxyClientSubs;
     fn make_and_start_blockchain_bridge(
         &self,
-        config: BlockchainBridgeConfig,
-        data_directory: &PathBuf,
+        config: &BootstrapperConfig,
         db_initializer: &dyn DbInitializer,
     ) -> BlockchainBridgeSubs;
 }
@@ -274,7 +266,7 @@ impl ActorFactory for ActorFactoryReal {
     fn make_and_start_neighborhood(
         &self,
         cryptde: &'static dyn CryptDE,
-        config: NeighborhoodConfig,
+        config: &BootstrapperConfig,
     ) -> NeighborhoodSubs {
         let neighborhood = Neighborhood::new(cryptde, config);
         let addr: Addr<Neighborhood> = neighborhood.start();
@@ -283,35 +275,38 @@ impl ActorFactory for ActorFactoryReal {
 
     fn make_and_start_accountant(
         &self,
-        config: AccountantConfig,
+        config: &BootstrapperConfig,
         data_directory: &PathBuf,
         db_initializer: &dyn DbInitializer,
         banned_cache_loader: &dyn BannedCacheLoader,
     ) -> AccountantSubs {
         let payable_dao = Box::new(PayableDaoReal::new(
-            db_initializer
-                .initialize(data_directory)
-                .expect("Failed to connect to database"),
+            db_initializer.initialize(data_directory).expect(&format!(
+                "Failed to connect to database at {:?}",
+                data_directory.join(DATABASE_FILE)
+            )),
         ));
         let receivable_dao = Box::new(ReceivableDaoReal::new(
-            db_initializer
-                .initialize(data_directory)
-                .expect("Failed to connect to database"),
+            db_initializer.initialize(data_directory).expect(&format!(
+                "Failed to connect to database at {:?}",
+                data_directory.join(DATABASE_FILE)
+            )),
         ));
         let banned_dao = Box::new(BannedDaoReal::new(
-            db_initializer
-                .initialize(data_directory)
-                .expect("Failed to connect to database"),
+            db_initializer.initialize(data_directory).expect(&format!(
+                "Failed to connect to database at {:?}",
+                data_directory.join(DATABASE_FILE)
+            )),
         ));
-        banned_cache_loader.load(
-            db_initializer
-                .initialize(data_directory)
-                .expect("Failed to connect to database"),
-        );
+        banned_cache_loader.load(db_initializer.initialize(data_directory).expect(&format!(
+            "Failed to connect to database at {:?}",
+            data_directory.join(DATABASE_FILE)
+        )));
         let config_dao = Box::new(ConfigDaoReal::new(
-            db_initializer
-                .initialize(data_directory)
-                .expect("Failed to connect to database"),
+            db_initializer.initialize(data_directory).expect(&format!(
+                "Failed to connect to database at {:?}",
+                data_directory.join(DATABASE_FILE)
+            )),
         ));
         let persistent_configuration = Box::new(PersistentConfigurationReal::new(config_dao));
         let accountant = Accountant::new(
@@ -348,12 +343,14 @@ impl ActorFactory for ActorFactoryReal {
 
     fn make_and_start_blockchain_bridge(
         &self,
-        config: BlockchainBridgeConfig,
-        data_directory: &PathBuf,
+        config: &BootstrapperConfig,
         db_initializer: &dyn DbInitializer,
     ) -> BlockchainBridgeSubs {
-        let blockchain_service_url = config.blockchain_service_url.clone();
-        let contract_address = config.contract_address;
+        let blockchain_service_url = config
+            .blockchain_bridge_config
+            .blockchain_service_url
+            .clone();
+        let contract_address = config.blockchain_bridge_config.contract_address.clone();
         let blockchain_interface: Box<dyn BlockchainInterface> = {
             match blockchain_service_url {
                 Some(url) => match BlockchainInterfaceRpc::new(url, contract_address) {
@@ -365,11 +362,15 @@ impl ActorFactory for ActorFactoryReal {
         };
         let config_dao = Box::new(ConfigDaoReal::new(
             db_initializer
-                .initialize(data_directory)
-                .expect("Failed to connect to database"),
+                .initialize(&config.data_directory)
+                .expect(&format!(
+                    "Failed to connect to database at {:?}",
+                    &config.data_directory.join(DATABASE_FILE)
+                )),
         ));
-        let bip39_helper = Bip39::new(Box::new(PersistentConfigurationReal::new(config_dao)));
-        let blockchain_bridge = BlockchainBridge::new(config, blockchain_interface, bip39_helper);
+        let persistent_config = Box::new(PersistentConfigurationReal::new(config_dao));
+        let blockchain_bridge =
+            BlockchainBridge::new(config, blockchain_interface, persistent_config);
         let addr: Addr<BlockchainBridge> = blockchain_bridge.start();
         BlockchainBridge::make_subs_from(&addr)
     }
@@ -387,23 +388,25 @@ mod tests {
     use crate::neighborhood::gossip::Gossip;
     use crate::stream_messages::AddStreamMsg;
     use crate::stream_messages::RemoveStreamMsg;
-    use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
     use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
     use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
+    use crate::sub_lib::accountant::{AccountantConfig, GetFinancialStatisticsMessage};
     use crate::sub_lib::accountant::{
-        GetFinancialStatisticsMessage, ReportExitServiceConsumedMessage,
+        ReportExitServiceConsumedMessage, ReportExitServiceProvidedMessage,
     };
-    use crate::sub_lib::blockchain_bridge::{ReportAccountsPayable, SetWalletPasswordMsg};
+    use crate::sub_lib::blockchain_bridge::{
+        BlockchainBridgeConfig, ReportAccountsPayable, SetWalletPasswordMsg,
+    };
     use crate::sub_lib::crash_point::CrashPoint;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::{InboundClientData, StreamShutdownMsg};
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
-    use crate::sub_lib::neighborhood::NodeQueryMessage;
     use crate::sub_lib::neighborhood::RemoveNeighborMessage;
     use crate::sub_lib::neighborhood::RouteQueryMessage;
     use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, NodeRecordMetadataMessage};
+    use crate::sub_lib::neighborhood::{NeighborhoodConfig, NodeQueryMessage};
     use crate::sub_lib::proxy_client::{
         ClientResponsePayload, DnsResolveFailure, InboundServerData,
     };
@@ -414,7 +417,6 @@ mod tests {
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
     use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage};
-    use crate::sub_lib::wallet::DEFAULT_CONSUMING_DERIVATION_PATH;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::test_utils::rate_pack;
@@ -519,13 +521,13 @@ mod tests {
         fn make_and_start_neighborhood(
             &self,
             cryptde: &'a dyn CryptDE,
-            config: NeighborhoodConfig,
+            config: &BootstrapperConfig,
         ) -> NeighborhoodSubs {
             self.parameters
                 .neighborhood_params
                 .lock()
                 .unwrap()
-                .get_or_insert((cryptde, config));
+                .get_or_insert((cryptde, config.clone()));
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.neighborhood);
             NeighborhoodSubs {
                 bind: addr.clone().recipient::<BindMessage>(),
@@ -542,7 +544,7 @@ mod tests {
 
         fn make_and_start_accountant(
             &self,
-            config: AccountantConfig,
+            config: &BootstrapperConfig,
             data_directory: &PathBuf,
             _db_initializer: &dyn DbInitializer,
             _banned_cache_loader: &dyn BannedCacheLoader,
@@ -551,7 +553,7 @@ mod tests {
                 .accountant_params
                 .lock()
                 .unwrap()
-                .get_or_insert((config, data_directory.clone()));
+                .get_or_insert((config.clone(), data_directory.clone()));
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.accountant);
             AccountantSubs {
                 bind: addr.clone().recipient::<BindMessage>(),
@@ -621,15 +623,14 @@ mod tests {
 
         fn make_and_start_blockchain_bridge(
             &self,
-            config: BlockchainBridgeConfig,
-            _data_directory: &PathBuf,
+            config: &BootstrapperConfig,
             _db_initializer: &dyn DbInitializer,
         ) -> BlockchainBridgeSubs {
             self.parameters
                 .blockchain_bridge_params
                 .lock()
                 .unwrap()
-                .get_or_insert(config);
+                .get_or_insert(config.clone());
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.blockchain_bridge);
             BlockchainBridgeSubs {
                 bind: addr.clone().recipient::<BindMessage>(),
@@ -657,10 +658,10 @@ mod tests {
         proxy_client_params: Arc<Mutex<Option<(ProxyClientConfig)>>>,
         proxy_server_params: Arc<Mutex<Option<(&'a dyn CryptDE, bool)>>>,
         hopper_params: Arc<Mutex<Option<HopperConfig>>>,
-        neighborhood_params: Arc<Mutex<Option<(&'a dyn CryptDE, NeighborhoodConfig)>>>,
-        accountant_params: Arc<Mutex<Option<(AccountantConfig, PathBuf)>>>,
+        neighborhood_params: Arc<Mutex<Option<(&'a dyn CryptDE, BootstrapperConfig)>>>,
+        accountant_params: Arc<Mutex<Option<(BootstrapperConfig, PathBuf)>>>,
         ui_gateway_params: Arc<Mutex<Option<UiGatewayConfig>>>,
-        blockchain_bridge_params: Arc<Mutex<Option<BlockchainBridgeConfig>>>,
+        blockchain_bridge_params: Arc<Mutex<Option<BootstrapperConfig>>>,
     }
 
     impl<'a> Parameters<'a> {
@@ -745,16 +746,18 @@ mod tests {
             .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
             .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())));
         let data_directory = PathBuf::from_str("yeet_home").unwrap();
-        let config = AccountantConfig {
+        let aconfig = AccountantConfig {
             payable_scan_interval: Duration::from_secs(9),
             payment_received_scan_interval: Duration::from_secs(100),
-            earning_wallet: make_wallet("hi"),
         };
+        let mut config = BootstrapperConfig::new();
+        config.accountant_config = aconfig;
+        config.consuming_wallet = Some(make_wallet("hi"));
 
         let banned_cache_loader = &BannedCacheLoaderMock::default();
 
         subject.make_and_start_accountant(
-            config.clone(),
+            &config,
             &data_directory,
             &db_initializer_mock,
             banned_cache_loader,
@@ -774,21 +777,23 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Failed to connect to database: SqliteError(InvalidColumnName(\"booga\"))"
+        expected = "Failed to connect to database at \"node-data.db\": SqliteError(InvalidColumnName(\"booga\"))"
     )]
     fn failed_payable_initialization_produces_panic() {
-        let config = AccountantConfig {
+        let aconfig = AccountantConfig {
             payable_scan_interval: Duration::from_secs(6),
             payment_received_scan_interval: Duration::from_secs(100),
-            earning_wallet: make_wallet("hi"),
         };
+        let mut config = BootstrapperConfig::new();
+        config.accountant_config = aconfig;
+        config.earning_wallet = make_wallet("hi");
         let db_initializer_mock =
             DbInitializerMock::new().initialize_result(Err(InitializationError::SqliteError(
                 rusqlite::Error::InvalidColumnName("booga".to_string()),
             )));
         let subject = ActorFactoryReal {};
         subject.make_and_start_accountant(
-            config,
+            &config,
             &PathBuf::new(),
             &db_initializer_mock,
             &BannedCacheLoaderMock::default(),
@@ -796,21 +801,26 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Failed to connect to database: SqliteError(InvalidQuery)")]
+    #[should_panic(
+        expected = "Failed to connect to database at \"node-data.db\": SqliteError(InvalidQuery)"
+    )]
     fn failed_receivable_initialization_produces_panic() {
-        let config = AccountantConfig {
+        let aconfig = AccountantConfig {
             payable_scan_interval: Duration::from_secs(6),
             payment_received_scan_interval: Duration::from_secs(100),
-            earning_wallet: make_wallet("hi"),
         };
+        let mut config = BootstrapperConfig::new();
+        config.accountant_config = aconfig;
+        config.earning_wallet = make_wallet("hi");
         let db_initializer_mock = DbInitializerMock::new()
             .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
             .initialize_result(Err(InitializationError::SqliteError(
                 rusqlite::Error::InvalidQuery,
             )));
         let subject = ActorFactoryReal {};
+
         subject.make_and_start_accountant(
-            config,
+            &config,
             &PathBuf::new(),
             &db_initializer_mock,
             &BannedCacheLoaderMock::default(),
@@ -818,13 +828,17 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Failed to connect to database: SqliteError(InvalidQuery)")]
+    #[should_panic(
+        expected = "Failed to connect to database at \"node-data.db\": SqliteError(InvalidQuery)"
+    )]
     fn failed_banned_dao_initialization_produces_panic() {
-        let config = AccountantConfig {
+        let aconfig = AccountantConfig {
             payable_scan_interval: Duration::from_secs(6),
             payment_received_scan_interval: Duration::from_secs(1000),
-            earning_wallet: make_wallet("mine"),
         };
+        let mut config = BootstrapperConfig::new();
+        config.accountant_config = aconfig;
+        config.earning_wallet = make_wallet("mine");
         let db_initializer_mock = DbInitializerMock::new()
             .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
             .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
@@ -833,7 +847,7 @@ mod tests {
             )));
         let subject = ActorFactoryReal {};
         subject.make_and_start_accountant(
-            config,
+            &config,
             &PathBuf::new(),
             &db_initializer_mock,
             &BannedCacheLoaderMock::default(),
@@ -841,13 +855,17 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Failed to connect to database: SqliteError(InvalidQuery)")]
+    #[should_panic(
+        expected = "Failed to connect to database at \"node-data.db\": SqliteError(InvalidQuery)"
+    )]
     fn failed_ban_cache_initialization_produces_panic() {
-        let config = AccountantConfig {
+        let aconfig = AccountantConfig {
             payable_scan_interval: Duration::from_secs(6),
             payment_received_scan_interval: Duration::from_secs(1000),
-            earning_wallet: make_wallet("mine"),
         };
+        let mut config = BootstrapperConfig::new();
+        config.accountant_config = aconfig;
+        config.earning_wallet = make_wallet("mine");
         let db_initializer_mock = DbInitializerMock::new()
             .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
             .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
@@ -857,7 +875,7 @@ mod tests {
             )));
         let subject = ActorFactoryReal {};
         subject.make_and_start_accountant(
-            config,
+            &config,
             &PathBuf::new(),
             &db_initializer_mock,
             &BannedCacheLoaderMock::default(),
@@ -867,19 +885,15 @@ mod tests {
     #[test]
     #[should_panic(expected = "Invalid blockchain node URL")]
     fn invalid_blockchain_url_produces_panic() {
-        let config = BlockchainBridgeConfig {
+        let bbconfig = BlockchainBridgeConfig {
             blockchain_service_url: Some("http://λ:8545".to_string()),
             contract_address: TESTNET_CONTRACT_ADDRESS,
-            consuming_wallet: None,
-            consuming_wallet_derivation_path: String::from(DEFAULT_CONSUMING_DERIVATION_PATH),
-            mnemonic_seed: None,
         };
+        let mut config = BootstrapperConfig::new();
+        config.blockchain_bridge_config = bbconfig;
+        config.consuming_wallet = None;
         let subject = ActorFactoryReal {};
-        subject.make_and_start_blockchain_bridge(
-            config,
-            &PathBuf::new(),
-            &DbInitializerMock::new(),
-        );
+        subject.make_and_start_blockchain_bridge(&config, &DbInitializerMock::new());
     }
 
     #[test]
@@ -894,14 +908,11 @@ mod tests {
                 neighbor_configs: vec![],
                 local_ip_addr: IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
                 clandestine_port_list: vec![],
-                earning_wallet: make_wallet("router"),
-                consuming_wallet: Some(make_wallet("consumer")),
                 rate_pack: rate_pack(100),
             },
             accountant_config: AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
                 payment_received_scan_interval: Duration::from_secs(100),
-                earning_wallet: make_wallet("hi"),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig {
@@ -911,12 +922,11 @@ mod tests {
             blockchain_bridge_config: BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 contract_address: TESTNET_CONTRACT_ADDRESS,
-                consuming_wallet: None,
-                consuming_wallet_derivation_path: String::from(DEFAULT_CONSUMING_DERIVATION_PATH),
-                mnemonic_seed: None,
             },
             port_configurations: HashMap::new(),
             clandestine_port_opt: None,
+            earning_wallet: make_wallet("earning"),
+            consuming_wallet: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
             cryptde_null_opt: None,
         };
@@ -954,14 +964,11 @@ mod tests {
                 neighbor_configs: vec![],
                 local_ip_addr: IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
                 clandestine_port_list: vec![],
-                earning_wallet: make_wallet("router"),
-                consuming_wallet: Some(make_wallet("consumer")),
                 rate_pack: rate_pack(100),
             },
             accountant_config: AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
                 payment_received_scan_interval: Duration::from_secs(100),
-                earning_wallet: make_wallet("hi"),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig {
@@ -971,12 +978,11 @@ mod tests {
             blockchain_bridge_config: BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 contract_address: TESTNET_CONTRACT_ADDRESS,
-                consuming_wallet: None,
-                consuming_wallet_derivation_path: String::from(DEFAULT_CONSUMING_DERIVATION_PATH),
-                mnemonic_seed: None,
             },
             port_configurations: HashMap::new(),
             clandestine_port_opt: None,
+            earning_wallet: make_wallet("earning"),
+            consuming_wallet: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
             cryptde_null_opt: None,
         };
@@ -1013,20 +1019,28 @@ mod tests {
         assert_eq!(actual_is_decentralized, false);
         let (cryptde, neighborhood_config) = Parameters::get(parameters.neighborhood_params);
         check_cryptde(cryptde);
-        assert_eq!(neighborhood_config, config.neighborhood_config);
+        assert_eq!(
+            neighborhood_config.neighborhood_config,
+            config.neighborhood_config
+        );
+        assert_eq!(
+            neighborhood_config.consuming_wallet,
+            config.consuming_wallet
+        );
         let ui_gateway_config = Parameters::get(parameters.ui_gateway_params);
         assert_eq!(ui_gateway_config.ui_port, 5335);
         assert_eq!(ui_gateway_config.node_descriptor, "NODE-DESCRIPTOR");
-        let blockchain_bridge_config = Parameters::get(parameters.blockchain_bridge_params);
+        let bootstrapper_config = Parameters::get(parameters.blockchain_bridge_params);
         assert_eq!(
-            blockchain_bridge_config,
+            bootstrapper_config.blockchain_bridge_config,
             BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 contract_address: TESTNET_CONTRACT_ADDRESS,
-                consuming_wallet: None,
-                consuming_wallet_derivation_path: String::from(DEFAULT_CONSUMING_DERIVATION_PATH),
-                mnemonic_seed: None,
             }
+        );
+        assert_eq!(
+            bootstrapper_config.consuming_wallet,
+            Some(make_wallet("consuming"))
         );
         let _stream_handler_pool_subs = rx.recv().unwrap();
         // more...more...what? How to check contents of _stream_handler_pool_subs?

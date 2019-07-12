@@ -9,6 +9,7 @@ use rusqlite::ToSql;
 use rustc_hex::ToHex;
 use serde::Serialize;
 use serde::{ser::SerializeStruct, Serializer};
+use std::convert::TryInto;
 use std::fmt;
 use std::fmt::{Debug, Display, Error, Formatter};
 use std::hash::{Hash, Hasher};
@@ -243,6 +244,17 @@ impl FromSql for Wallet {
     }
 }
 
+impl TryInto<Bip32ECKeyPair> for Wallet {
+    type Error = String;
+
+    fn try_into(self) -> Result<Bip32ECKeyPair, Self::Error> {
+        match self.kind {
+            WalletKind::KeyPair(keypair) => Ok(keypair),
+            _ => Err("Wallet contains no secret key: can't convert to Bip32KeyPair".to_string()),
+        }
+    }
+}
+
 impl<'de> serde::Deserialize<'de> for Wallet {
     fn deserialize<D>(deserializer: D) -> serde::export::Result<Self, D::Error>
     where
@@ -417,6 +429,7 @@ mod tests {
     use crate::test_utils::test_utils::{make_paying_wallet, make_wallet};
     use bip39::{Language, Mnemonic, Seed};
     use rusqlite::Connection;
+    use rustc_hex::FromHex;
     use serde_cbor;
     use serde_json;
     use std::convert::TryFrom;
@@ -592,6 +605,34 @@ mod tests {
             .unwrap();
 
         assert_eq!(result, vec![wallet]);
+    }
+
+    #[test]
+    fn can_convert_to_keypair_if_came_from_keypair() {
+        let secret_key_text = "0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc";
+        let keypair =
+            Bip32ECKeyPair::from_raw_secret(&secret_key_text.from_hex::<Vec<u8>>().unwrap())
+                .unwrap();
+        let expected_keypair =
+            Bip32ECKeyPair::from_raw_secret(&secret_key_text.from_hex::<Vec<u8>>().unwrap())
+                .unwrap();
+        let subject = Wallet::from(keypair);
+
+        let result: Bip32ECKeyPair = subject.try_into().unwrap();
+
+        assert_eq!(result, expected_keypair);
+    }
+
+    #[test]
+    fn cant_convert_to_keypair_if_didnt_come_from_keypair() {
+        let subject = Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
+
+        let result: Result<Bip32ECKeyPair, String> = subject.try_into();
+
+        assert_eq!(
+            result,
+            Err("Wallet contains no secret key: can't convert to Bip32KeyPair".to_string())
+        );
     }
 
     #[test]

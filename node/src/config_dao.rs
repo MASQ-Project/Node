@@ -68,6 +68,12 @@ impl ConfigDao for ConfigDaoReal {
     }
 }
 
+impl From<Box<ConnectionWrapper>> for ConfigDaoReal {
+    fn from(conn: Box<ConnectionWrapper>) -> Self {
+        ConfigDaoReal::new(conn)
+    }
+}
+
 impl ConfigDaoReal {
     pub fn new(conn: Box<ConnectionWrapper>) -> ConfigDaoReal {
         ConfigDaoReal { conn }
@@ -79,8 +85,12 @@ impl ConfigDaoReal {
             Err(e) => return Err(ConfigDaoError::DatabaseError(format!("{}", e))),
         };
         match stmt.query_row(&[name], |row| row.get(0)).optional() {
-            Ok(Some(value)) => Ok(value),
-            Ok(None) => Err(ConfigDaoError::NotPresent),
+            Ok(Some(Some(value))) => Ok(value),
+            Ok(Some(None)) => Err(ConfigDaoError::NotPresent),
+            Ok(None) => Err(ConfigDaoError::DatabaseError(format!(
+                "Bad schema: config row for '{}' not present",
+                name
+            ))),
             Err(e) => Err(ConfigDaoError::DatabaseError(format!("{}", e))), // Don't know how to trigger this
         }
     }
@@ -116,14 +126,28 @@ mod tests {
     use rusqlite::NO_PARAMS;
 
     #[test]
-    fn get_string_does_not_find_nonexistent_string() {
-        let home_dir = ensure_node_home_directory_exists(
-            "node",
-            "get_string_does_not_find_nonexistent_string",
-        );
+    fn get_string_complains_about_nonexistent_row() {
+        let home_dir =
+            ensure_node_home_directory_exists("node", "get_string_complains_about_nonexistent_row");
         let subject = ConfigDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
 
         let result = subject.get_string("booga");
+
+        assert_eq!(
+            Err(ConfigDaoError::DatabaseError(
+                "Bad schema: config row for 'booga' not present".to_string()
+            )),
+            result
+        );
+    }
+
+    #[test]
+    fn get_string_does_not_find_null_value() {
+        let home_dir =
+            ensure_node_home_directory_exists("node", "get_string_does_not_find_null_value");
+        let subject = ConfigDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+
+        let result = subject.get_string("seed");
 
         assert_eq!(Err(ConfigDaoError::NotPresent), result);
     }
