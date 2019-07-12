@@ -38,20 +38,6 @@ impl CommandConfig {
         self
     }
 }
-//
-//pub struct NodeKiller {}
-//
-//impl Drop for NodeKiller {
-//    fn drop(&mut self) {
-//        unimplemented!()
-//    }
-//}
-//
-//impl NodeKiller {
-//    pub fn new() -> NodeKiller {
-//        NodeKiller {}
-//    }
-//}
 
 impl Drop for SubstratumNode {
     fn drop(&mut self) {
@@ -78,7 +64,6 @@ impl SubstratumNode {
     pub fn start_standard(config: Option<CommandConfig>) -> SubstratumNode {
         let mut command = SubstratumNode::make_node_command(config);
         let child = command.spawn().unwrap();
-        eprintln!("\n------\nSTARTED SUBSTRATUMNODE {}\n------", child.id());
         thread::sleep(Duration::from_millis(500)); // needs time to open logfile and sockets
         let stream = File::open(Self::path_to_logfile().to_str().unwrap()).unwrap();
         SubstratumNode {
@@ -152,7 +137,11 @@ impl SubstratumNode {
 
     #[cfg(not(windows))]
     pub fn kill(&mut self) {
-        self.child.kill().expect("Kill failed");
+        match self.child.kill() {
+            Ok(_) => (),
+            Err(ref e) if e.kind() == ErrorKind::InvalidInput => (),
+            Err(e) => panic!("Couldn't kill running node: {}", e),
+        }
         self.child.wait().expect("Wait failed");
     }
 
