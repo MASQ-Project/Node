@@ -91,7 +91,7 @@ impl WebSocketSupervisorReal {
         let logger_1 = logger.clone();
         let server_address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
         let server = Server::bind(server_address, &Handle::default())
-            .unwrap_or_else(|_| panic!("Could not start UI server at {}", server_address));
+            .unwrap_or_else(|e| panic!("Could not start UI server at {}: {}", server_address, e));
         let upgrade_tuple_stream = Self::remove_failures(server.incoming(), &logger);
         let inner_clone = inner.clone();
         let foreach_result = upgrade_tuple_stream.for_each(move |(upgrade, socket_addr)| {
