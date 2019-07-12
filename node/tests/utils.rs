@@ -150,19 +150,17 @@ impl SubstratumNode {
         );
     }
 
+    #[cfg(not(windows))]
     pub fn kill(&mut self) {
-        eprintln!("\n------\nKILLING SUBSTRATUMNODE {}...", self.child.id());
-        match self.child.kill() {
-            Ok(_) => {
-                eprintln!("...waiting...");
-                match self.child.wait() {
-                    Ok(_) => eprintln!("...dead."),
-                    Err(e) => eprintln!("...nope: {:?}", e),
-                }
-            }
-            Err(e) => eprintln!("...wups: {:?}", e),
-        }
-        eprintln!("------");
+        self.child.kill().expect("Kill failed");
+        self.child.wait().expect("Wait failed");
+    }
+
+    #[cfg(windows)]
+    pub fn kill(&mut self) {
+        let mut command = Command::new("taskkill");
+        command.args(&vec!["/IM", "SubstratumNode.exe", "/F"]);
+        let _ = command.output().expect("Couldn't kill SubstratumNode.exe");
     }
 
     pub fn remove_database() {
