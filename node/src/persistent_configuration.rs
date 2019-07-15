@@ -23,15 +23,17 @@ pub trait PersistentConfiguration: Send {
     fn clandestine_port(&self) -> u16;
     fn set_clandestine_port(&self, port: u16);
     fn encrypted_mnemonic_seed(&self) -> Option<String>;
-    fn mnemonic_seed(&self, db_password: &str) -> Result<PlainData, Bip39Error>;
-    fn set_mnemonic_seed(&self, seed: &AsRef<[u8]>, db_password: &str);
-    fn consuming_wallet_private_public_key(&self) -> Option<String>;
+    fn mnemonic_seed(&self, wallet_password: &str) -> Result<PlainData, Bip39Error>;
+    fn set_mnemonic_seed(&self, seed: &AsRef<[u8]>, wallet_password: &str);
+    fn consuming_wallet_public_key(&self) -> Option<String>;
     fn consuming_wallet_derivation_path(&self) -> Option<String>;
-    fn set_consuming_wallet_derivation_path(&self, derivation_path: &str);
-    fn set_consuming_wallet_private_public_key(&self, public_key: &PlainData);
-    fn earning_wallet_from_derivation_path(&self, db_password: &str) -> Option<Wallet>;
+    fn set_consuming_wallet_derivation_path(&self, derivation_path: &str, wallet_password: &str);
+    fn set_consuming_wallet_public_key(&self, public_key: &PlainData);
+    fn earning_wallet_from_derivation_path(&self, wallet_password: &str) -> Option<Wallet>;
     fn earning_wallet_from_address(&self) -> Option<Wallet>;
-    fn set_earning_wallet_derivation_path(&self, derivation_path: &str);
+    fn earning_wallet_derivation_path(&self) -> Option<String>;
+    fn earning_wallet_address(&self) -> Option<String>;
+    fn set_earning_wallet_derivation_path(&self, derivation_path: &str, wallet_password: &str);
     fn set_earning_wallet_address(&self, address: &str);
     fn start_block(&self) -> u64;
     fn set_start_block_transactionally(&self, tx: &Transaction, value: u64) -> Result<(), String>;
@@ -102,15 +104,15 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         }
     }
 
-    fn mnemonic_seed(&self, db_password: &str) -> Result<PlainData, Bip39Error> {
+    fn mnemonic_seed(&self, wallet_password: &str) -> Result<PlainData, Bip39Error> {
         match self.encrypted_mnemonic_seed() {
             None => Err(Bip39Error::NotPresent),
-            Some(ems) => Ok(Bip39::decrypt_bytes(&ems, db_password)?),
+            Some(ems) => Ok(Bip39::decrypt_bytes(&ems, wallet_password)?),
         }
     }
 
-    fn set_mnemonic_seed(&self, seed: &AsRef<[u8]>, db_password: &str) {
-        let encrypted_mnemonic_seed = Bip39::encrypt_bytes(seed, db_password)
+    fn set_mnemonic_seed(&self, seed: &AsRef<[u8]>, wallet_password: &str) {
+        let encrypted_mnemonic_seed = Bip39::encrypt_bytes(seed, wallet_password)
             .expect("Can't continue; encryption of mnemonic seed failed");
         match self.dao.set_string("seed", &encrypted_mnemonic_seed) {
             Ok(_) => (),
@@ -121,9 +123,9 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         }
     }
 
-    fn consuming_wallet_private_public_key(&self) -> Option<String> {
+    fn consuming_wallet_public_key(&self) -> Option<String> {
         match (
-            self.dao.get_string("consuming_wallet_private_public_key"),
+            self.dao.get_string("consuming_wallet_public_key"),
             self.dao.get_string("consuming_wallet_derivation_path"),
         ) {
             (Err(ConfigDaoError::NotPresent), Err(ConfigDaoError::NotPresent)) => None,
@@ -132,7 +134,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
             (key_err, path_err) => Self::handle_config_pair_result(
                 key_err,
                 path_err,
-                "consuming wallet private public key",
+                "consuming wallet public key",
                 "consuming wallet derivation path",
             ),
         }
@@ -140,7 +142,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn consuming_wallet_derivation_path(&self) -> Option<String> {
         match (
-            self.dao.get_string("consuming_wallet_private_public_key"),
+            self.dao.get_string("consuming_wallet_public_key"),
             self.dao.get_string("consuming_wallet_derivation_path"),
         ) {
             (Err(ConfigDaoError::NotPresent), Err(ConfigDaoError::NotPresent)) => None,
@@ -149,53 +151,79 @@ impl PersistentConfiguration for PersistentConfigurationReal {
             (key_err, path_err) => Self::handle_config_pair_result(
                 key_err,
                 path_err,
-                "consuming wallet private public key",
+                "consuming wallet public key",
                 "consuming wallet derivation path",
             ),
         }
     }
 
-    fn set_consuming_wallet_derivation_path(&self, derivation_path: &str) {
+    fn set_consuming_wallet_derivation_path(&self, derivation_path: &str, wallet_password: &str) {
         match (
-            self.dao.get_string("consuming_wallet_private_public_key"),
+            self.dao.get_string("consuming_wallet_public_key"),
             self.dao.get_string("consuming_wallet_derivation_path"),
         ) {
             (Err(ConfigDaoError::NotPresent), Err(ConfigDaoError::NotPresent)) => self
                 .dao
                 .set_string("consuming_wallet_derivation_path", derivation_path)
                 .expect("Database is corrupt"),
-            (Ok(_), Err(ConfigDaoError::NotPresent)) => panic!(
-                "Cannot set consuming wallet derivation path: consuming private key is already set"
-            ),
-            (Err(ConfigDaoError::NotPresent), Ok(path)) => panic!(
-                "Cannot set consuming wallet derivation path: already set to {}",
-                path
-            ),
+            (Ok(private_public_key), Err(ConfigDaoError::NotPresent)) => {
+                let seed = match self.mnemonic_seed(wallet_password) {
+                    Ok(seed) => seed,
+                    Err(Bip39Error::NotPresent) => {
+                        panic!("Can't set consuming wallet derivation path without a mnemonic seed")
+                    }
+                    Err(e) => panic!("Can't read mnemonic seed: {:?}", e),
+                };
+                let keypair = Bip32ECKeyPair::from_raw(seed.as_ref(), derivation_path)
+                    .unwrap_or_else(|_| {
+                        panic!("Bad consuming derivation path: {}", derivation_path)
+                    });
+                let existing_public_key = keypair.secret().public().bytes().to_hex::<String>();
+                if private_public_key == existing_public_key {
+                    return;
+                }
+                panic!(
+                    "Cannot set consuming wallet derivation path: consuming private key is already set"
+                )
+            }
+            (Err(ConfigDaoError::NotPresent), Ok(existing_path)) => {
+                if derivation_path == existing_path {
+                    return;
+                } else {
+                    panic!(
+                        "Cannot set consuming wallet derivation path: already set to {}",
+                        existing_path
+                    )
+                }
+            }
             (key_err, path_err) => Self::handle_config_pair_result(
                 key_err,
                 path_err,
-                "consuming wallet private public key",
+                "consuming wallet public key",
                 "consuming wallet derivation path",
             ),
         }
     }
 
-    // TODO: This method should return quietly if the public key matches what's already in the database: SC-930
-    fn set_consuming_wallet_private_public_key(&self, public_key: &PlainData) {
+    fn set_consuming_wallet_public_key(&self, public_key: &PlainData) {
         let public_key_text: String = public_key.as_slice().to_hex();
-        match (self.dao.get_string("consuming_wallet_private_public_key"), self.dao.get_string ("consuming_wallet_derivation_path")) {
-            (_ /* for SC-930) Err(ConfigDaoError::NotPresent)*/, Err(ConfigDaoError::NotPresent)) => self.dao.set_string("consuming_wallet_private_public_key", &public_key_text).expect ("Database is corrupt"),
-//(SC-930)  (Ok(_), Err(ConfigDaoError::NotPresent)) => panic! ("Cannot set consuming wallet private public key: already set"),
-            (Err(ConfigDaoError::NotPresent), Ok(path)) => panic! ("Cannot set consuming wallet private public key: consuming derivation path is already set to {}", path),
-            (key_err, path_err) => Self::handle_config_pair_result(key_err, path_err, "consuming wallet private public key", "consuming wallet derivation path")
+        match (self.dao.get_string("consuming_wallet_public_key"), self.dao.get_string ("consuming_wallet_derivation_path")) {
+            (Err(ConfigDaoError::NotPresent), Err(ConfigDaoError::NotPresent)) => self.dao.set_string("consuming_wallet_public_key", &public_key_text).expect ("Database is corrupt"),
+            (Ok(existing_public_key_text), Err(ConfigDaoError::NotPresent)) =>  {
+                if public_key_text != existing_public_key_text {
+                    panic!("Cannot set consuming wallet public key: already set")
+                }
+            },
+            (Err(ConfigDaoError::NotPresent), Ok(path)) => panic! ("Cannot set consuming wallet public key: consuming derivation path is already set to {}", path),
+            (key_err, path_err) => Self::handle_config_pair_result(key_err, path_err, "consuming wallet public key", "consuming wallet derivation path")
         }
     }
 
-    fn earning_wallet_from_derivation_path(&self, db_password: &str) -> Option<Wallet> {
+    fn earning_wallet_from_derivation_path(&self, wallet_password: &str) -> Option<Wallet> {
         match self.dao.get_string("earning_wallet_derivation_path") {
             Ok(derivation_path) => match self.dao.get_string("seed") {
                 Ok(mnemonic_seed_str) => {
-                    match Bip39::decrypt_bytes(&mnemonic_seed_str, db_password) {
+                    match Bip39::decrypt_bytes(&mnemonic_seed_str, wallet_password) {
                         Ok(mnemonic_seed) => {
                             let keypair = Bip32ECKeyPair::from_raw (mnemonic_seed.as_ref(), &derivation_path)
                             .unwrap_or_else(|_| panic!("Couldn't construct keypair from mnemonic seed and derivation path '{}'", derivation_path));
@@ -236,7 +264,26 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         }
     }
 
-    fn set_earning_wallet_derivation_path(&self, derivation_path: &str) {
+    fn earning_wallet_derivation_path(&self) -> Option<String> {
+        match self.dao.get_string("earning_wallet_derivation_path") {
+            Ok(derivation_path) => Some(derivation_path),
+            Err(ConfigDaoError::NotPresent) => None,
+            Err(e) => panic!(
+                "Error trying to retrieve earning wallet derivation path: {:?}",
+                e
+            ),
+        }
+    }
+
+    fn earning_wallet_address(&self) -> Option<String> {
+        match self.dao.get_string("earning_wallet_address") {
+            Ok(address) => Some(address),
+            Err(ConfigDaoError::NotPresent) => None,
+            Err(e) => panic!("Error trying to retrieve earning wallet address: {:?}", e),
+        }
+    }
+
+    fn set_earning_wallet_derivation_path(&self, derivation_path: &str, wallet_password: &str) {
         match DerivationPath::from_str(derivation_path) {
             Ok(_) => (),
             Err(_) => panic!(
@@ -244,17 +291,32 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                 derivation_path
             ),
         }
-        if self.encrypted_mnemonic_seed().is_none() {
-            panic!("Can't set earning wallet derivation path without a mnemonic seed")
-        }
+        let seed = match self.mnemonic_seed(wallet_password) {
+            Ok(seed) => seed,
+            Err(Bip39Error::NotPresent) => {
+                panic!("Can't set earning wallet derivation path without a mnemonic seed")
+            }
+            Err(e) => panic!("Can't read mnemonic seed: {:?}", e),
+        };
         if let Ok(existing_path) = self.dao.get_string("earning_wallet_derivation_path") {
-            panic!(
-                "Can't overwrite existing earning wallet derivation path '{}'",
-                existing_path
-            )
+            if derivation_path != existing_path {
+                panic!(
+                    "Can't overwrite existing earning wallet derivation path '{}'",
+                    existing_path
+                )
+            } else {
+                return;
+            }
         }
         if let Ok(existing_address) = self.dao.get_string("earning_wallet_address") {
-            panic! ("Can't set earning wallet derivation path: earning wallet address '{}' already exists", existing_address)
+            let keypair = Bip32ECKeyPair::from_raw(seed.as_slice(), derivation_path)
+                .expect("Couldn't form keypair");
+            let address = Wallet::from(keypair).to_string();
+            if address != existing_address {
+                panic!("Can't set earning wallet derivation path: earning wallet address '{}' already exists", existing_address)
+            } else {
+                return;
+            }
         }
         match self
             .dao
@@ -609,8 +671,8 @@ mod tests {
     #[test]
     fn set_mnemonic_seed_succeeds() {
         let seed = make_meaningless_seed();
-        let db_password = "seed password";
-        let encrypted_seed = Bip39::encrypt_bytes(&seed, db_password).unwrap();
+        let wallet_password = "seed password";
+        let encrypted_seed = Bip39::encrypt_bytes(&seed, wallet_password).unwrap();
         let expected_params = ("seed".to_string(), encrypted_seed);
         let set_string_params_arc = Arc::new(Mutex::new(vec![expected_params.clone()]));
         let config_dao = ConfigDaoMock::new()
@@ -618,7 +680,7 @@ mod tests {
             .set_string_result(Ok(()));
 
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-        subject.set_mnemonic_seed(&seed, db_password);
+        subject.set_mnemonic_seed(&seed, wallet_password);
 
         let set_string_params = set_string_params_arc.lock().unwrap();
 
@@ -685,7 +747,7 @@ mod tests {
     }
 
     #[test]
-    fn consuming_wallet_private_public_key_works_if_key_is_set() {
+    fn consuming_wallet_public_key_works_if_key_is_set() {
         let get_string_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao = ConfigDaoMock::new()
             .get_string_params(&get_string_params_arc)
@@ -693,21 +755,21 @@ mod tests {
             .get_string_result(Err(ConfigDaoError::NotPresent));
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
-        let result = subject.consuming_wallet_private_public_key();
+        let result = subject.consuming_wallet_public_key();
 
         assert_eq!(result, Some("encrypted private key".to_string()));
         let get_string_params = get_string_params_arc.lock().unwrap();
         assert_eq!(
             *get_string_params,
             vec![
-                "consuming_wallet_private_public_key",
+                "consuming_wallet_public_key",
                 "consuming_wallet_derivation_path"
             ]
         )
     }
 
     #[test]
-    fn consuming_wallet_private_public_key_works_if_neither_key_nor_path_is_set() {
+    fn consuming_wallet_public_key_works_if_neither_key_nor_path_is_set() {
         let get_string_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao = ConfigDaoMock::new()
             .get_string_params(&get_string_params_arc)
@@ -715,21 +777,21 @@ mod tests {
             .get_string_result(Err(ConfigDaoError::NotPresent));
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
-        let result = subject.consuming_wallet_private_public_key();
+        let result = subject.consuming_wallet_public_key();
 
         assert_eq!(result, None);
         let get_string_params = get_string_params_arc.lock().unwrap();
         assert_eq!(
             *get_string_params,
             vec![
-                "consuming_wallet_private_public_key",
+                "consuming_wallet_public_key",
                 "consuming_wallet_derivation_path"
             ]
         )
     }
 
     #[test]
-    fn consuming_wallet_private_public_key_works_if_path_but_not_key_is_set() {
+    fn consuming_wallet_public_key_works_if_path_but_not_key_is_set() {
         let get_string_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao = ConfigDaoMock::new()
             .get_string_params(&get_string_params_arc)
@@ -737,14 +799,14 @@ mod tests {
             .get_string_result(Ok("derivation path".to_string()));
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
-        let result = subject.consuming_wallet_private_public_key();
+        let result = subject.consuming_wallet_public_key();
 
         assert_eq!(result, None);
         let get_string_params = get_string_params_arc.lock().unwrap();
         assert_eq!(
             *get_string_params,
             vec![
-                "consuming_wallet_private_public_key",
+                "consuming_wallet_public_key",
                 "consuming_wallet_derivation_path"
             ]
         )
@@ -752,15 +814,15 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Database is corrupt: both consuming wallet private public key and consuming wallet derivation path are set"
+        expected = "Database is corrupt: both consuming wallet public key and consuming wallet derivation path are set"
     )]
-    fn consuming_wallet_private_public_key_complains_if_both_key_and_path_are_set() {
+    fn consuming_wallet_public_key_complains_if_both_key_and_path_are_set() {
         let config_dao = ConfigDaoMock::new()
-            .get_string_result(Ok("private public key".to_string()))
+            .get_string_result(Ok("public key".to_string()))
             .get_string_result(Ok("derivation path".to_string()));
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
-        subject.consuming_wallet_private_public_key();
+        subject.consuming_wallet_public_key();
     }
 
     #[test]
@@ -779,7 +841,7 @@ mod tests {
         assert_eq!(
             *get_string_params,
             vec![
-                "consuming_wallet_private_public_key",
+                "consuming_wallet_public_key",
                 "consuming_wallet_derivation_path"
             ]
         )
@@ -801,7 +863,7 @@ mod tests {
         assert_eq!(
             *get_string_params,
             vec![
-                "consuming_wallet_private_public_key",
+                "consuming_wallet_public_key",
                 "consuming_wallet_derivation_path"
             ]
         )
@@ -823,7 +885,7 @@ mod tests {
         assert_eq!(
             *get_string_params,
             vec![
-                "consuming_wallet_private_public_key",
+                "consuming_wallet_public_key",
                 "consuming_wallet_derivation_path"
             ]
         )
@@ -831,7 +893,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Database is corrupt: both consuming wallet private public key and consuming wallet derivation path are set"
+        expected = "Database is corrupt: both consuming wallet public key and consuming wallet derivation path are set"
     )]
     fn consuming_wallet_derivation_path_complains_if_both_key_and_path_are_set() {
         let config_dao = ConfigDaoMock::new()
@@ -856,13 +918,13 @@ mod tests {
         );
         let subject = PersistentConfigurationReal::from(config_dao);
 
-        subject.set_consuming_wallet_derivation_path("derivation path");
+        subject.set_consuming_wallet_derivation_path("derivation path", "password");
 
         let get_string_params = get_string_params_arc.lock().unwrap();
         assert_eq!(
             *get_string_params,
             vec![
-                "consuming_wallet_private_public_key".to_string(),
+                "consuming_wallet_public_key".to_string(),
                 "consuming_wallet_derivation_path".to_string()
             ]
         );
@@ -877,18 +939,90 @@ mod tests {
     }
 
     #[test]
+    fn set_consuming_wallet_derivation_path_works_if_path_is_already_set_to_same() {
+        let consuming_path = "m/44'/60'/1'/2/3";
+        let get_string_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_string_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao: Box<ConfigDao> = Box::new(
+            ConfigDaoMock::new()
+                .get_string_params(&get_string_params_arc)
+                .get_string_result(Err(ConfigDaoError::NotPresent))
+                .get_string_result(Ok(consuming_path.to_string()))
+                .set_string_params(&set_string_params_arc)
+                .set_string_result(Ok(())),
+        );
+        let subject = PersistentConfigurationReal::from(config_dao);
+
+        subject.set_consuming_wallet_derivation_path(consuming_path, "password");
+
+        let get_string_params = get_string_params_arc.lock().unwrap();
+        assert_eq!(
+            *get_string_params,
+            vec![
+                "consuming_wallet_public_key".to_string(),
+                "consuming_wallet_derivation_path".to_string()
+            ]
+        );
+        let set_string_params = set_string_params_arc.lock().unwrap();
+        assert_eq!(set_string_params.len(), 0)
+    }
+
+    #[test]
+    fn set_consuming_wallet_derivation_path_works_if_key_is_already_set_to_same() {
+        let consuming_path = "m/44'/60'/1'/2/3";
+        let password = "password";
+        let mnemonic = Mnemonic::new(MnemonicType::Words24, Language::English);
+        let seed = Seed::new(&mnemonic, "passphrase");
+        let encrypted_seed = Bip39::encrypt_bytes(&seed, password).unwrap();
+        let keypair = Bip32ECKeyPair::from_raw(seed.as_ref(), consuming_path).unwrap();
+        let private_public_key = keypair.secret().public().bytes().to_hex::<String>();
+        let get_string_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_string_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao: Box<ConfigDao> = Box::new(
+            ConfigDaoMock::new()
+                .get_string_params(&get_string_params_arc)
+                .get_string_result(Ok(private_public_key))
+                .get_string_result(Err(ConfigDaoError::NotPresent))
+                .get_string_result(Ok(encrypted_seed))
+                .set_string_params(&set_string_params_arc)
+                .set_string_result(Ok(())),
+        );
+        let subject = PersistentConfigurationReal::from(config_dao);
+
+        subject.set_consuming_wallet_derivation_path(consuming_path, password);
+
+        let get_string_params = get_string_params_arc.lock().unwrap();
+        assert_eq!(
+            *get_string_params,
+            vec![
+                "consuming_wallet_public_key".to_string(),
+                "consuming_wallet_derivation_path".to_string(),
+                "seed".to_string(),
+            ]
+        );
+        let set_string_params = set_string_params_arc.lock().unwrap();
+        assert_eq!(set_string_params.len(), 0)
+    }
+
+    #[test]
     #[should_panic(
         expected = "Cannot set consuming wallet derivation path: consuming private key is already set"
     )]
     fn set_consuming_wallet_derivation_path_complains_if_key_is_already_set() {
+        let consuming_path = "m/44'/60'/1'/2/3";
+        let password = "password";
+        let mnemonic = Mnemonic::new(MnemonicType::Words24, Language::English);
+        let seed = Seed::new(&mnemonic, "passphrase");
+        let encrypted_seed = Bip39::encrypt_bytes(&seed, password).unwrap();
         let config_dao: Box<ConfigDao> = Box::new(
             ConfigDaoMock::new()
                 .get_string_result(Ok("consuming private key".to_string()))
-                .get_string_result(Err(ConfigDaoError::NotPresent)),
+                .get_string_result(Err(ConfigDaoError::NotPresent))
+                .get_string_result(Ok(encrypted_seed.to_string())),
         );
         let subject = PersistentConfigurationReal::from(config_dao);
 
-        subject.set_consuming_wallet_derivation_path("derivation path");
+        subject.set_consuming_wallet_derivation_path(consuming_path, password);
     }
 
     #[test]
@@ -903,12 +1037,12 @@ mod tests {
         );
         let subject = PersistentConfigurationReal::from(config_dao);
 
-        subject.set_consuming_wallet_derivation_path("derivation path");
+        subject.set_consuming_wallet_derivation_path("derivation path", "password");
     }
 
     #[test]
     #[should_panic(
-        expected = "Database is corrupt: both consuming wallet private public key and consuming wallet derivation path are set"
+        expected = "Database is corrupt: both consuming wallet public key and consuming wallet derivation path are set"
     )]
     fn set_consuming_wallet_derivation_path_complains_if_both_are_already_set() {
         let config_dao: Box<ConfigDao> = Box::new(
@@ -918,11 +1052,11 @@ mod tests {
         );
         let subject = PersistentConfigurationReal::from(config_dao);
 
-        subject.set_consuming_wallet_derivation_path("derivation path");
+        subject.set_consuming_wallet_derivation_path("derivation path", "password");
     }
 
     #[test]
-    fn set_consuming_wallet_private_public_key_works_if_no_preexisting_info() {
+    fn set_consuming_wallet_public_key_works_if_no_preexisting_info() {
         let get_string_params_arc = Arc::new(Mutex::new(vec![]));
         let set_string_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao: Box<ConfigDao> = Box::new(
@@ -934,44 +1068,63 @@ mod tests {
                 .set_string_result(Ok(())),
         );
         let subject = PersistentConfigurationReal::from(config_dao);
-        let public_key = PlainData::new(b"private public key");
+        let public_key = PlainData::new(b"public key");
 
-        subject.set_consuming_wallet_private_public_key(&public_key);
+        subject.set_consuming_wallet_public_key(&public_key);
 
         let get_string_params = get_string_params_arc.lock().unwrap();
         assert_eq!(
             *get_string_params,
             vec![
-                "consuming_wallet_private_public_key".to_string(),
+                "consuming_wallet_public_key".to_string(),
                 "consuming_wallet_derivation_path".to_string()
             ]
         );
         let set_string_params = set_string_params_arc.lock().unwrap();
         let (name, public_key_text) = &set_string_params[0];
-        assert_eq!(name, "consuming_wallet_private_public_key");
+        assert_eq!(name, "consuming_wallet_public_key");
         let public_key_bytes: Vec<u8> = public_key_text.from_hex().unwrap();
-        assert_eq!(public_key_bytes, b"private public key".to_vec());
+        assert_eq!(public_key_bytes, b"public key".to_vec());
     }
 
     #[test]
-    #[should_panic(expected = "Cannot set consuming wallet private public key: already set")]
-    #[ignore] // TODO: Until SC-930
-    fn set_consuming_wallet_private_public_key_complains_if_key_is_already_set() {
+    #[should_panic(expected = "Cannot set consuming wallet public key: already set")]
+    fn set_consuming_wallet_public_key_complains_if_key_is_already_set_to_different_value() {
         let config_dao: Box<ConfigDao> = Box::new(
             ConfigDaoMock::new()
-                .get_string_result(Ok("consuming private public key".to_string()))
-                .get_string_result(Err(ConfigDaoError::NotPresent)),
+                .get_string_result(Ok("consuming public key".to_string()))
+                .get_string_result(Err(ConfigDaoError::NotPresent))
+                .set_string_result(Ok(())),
         );
         let subject = PersistentConfigurationReal::from(config_dao);
 
-        subject.set_consuming_wallet_private_public_key(&PlainData::new(b"private public key"));
+        subject.set_consuming_wallet_public_key(&PlainData::new(b"public key"));
+    }
+
+    #[test]
+    fn set_consuming_wallet_public_key_does_not_complain_if_key_is_already_set_to_same_value() {
+        let set_string_params_arc = Arc::new(Mutex::new(vec![]));
+        let private_public_key_text = b"public key".to_hex::<String>();
+        let config_dao: Box<ConfigDao> = Box::new(
+            ConfigDaoMock::new()
+                .get_string_result(Ok(private_public_key_text.clone()))
+                .get_string_result(Err(ConfigDaoError::NotPresent))
+                .set_string_params(&set_string_params_arc)
+                .set_string_result(Ok(())),
+        );
+        let subject = PersistentConfigurationReal::from(config_dao);
+
+        subject.set_consuming_wallet_public_key(&PlainData::new(b"public key"));
+
+        let set_string_params = set_string_params_arc.lock().unwrap();
+        assert_eq!(*set_string_params, vec![]); // no changes
     }
 
     #[test]
     #[should_panic(
-        expected = "Cannot set consuming wallet private public key: consuming derivation path is already set to existing derivation path"
+        expected = "Cannot set consuming wallet public key: consuming derivation path is already set to existing derivation path"
     )]
-    fn set_consuming_wallet_private_public_key_complains_if_path_is_already_set() {
+    fn set_consuming_wallet_public_key_complains_if_path_is_already_set() {
         let config_dao: Box<ConfigDao> = Box::new(
             ConfigDaoMock::new()
                 .get_string_result(Err(ConfigDaoError::NotPresent))
@@ -979,14 +1132,14 @@ mod tests {
         );
         let subject = PersistentConfigurationReal::from(config_dao);
 
-        subject.set_consuming_wallet_private_public_key(&PlainData::new(b"private public key"));
+        subject.set_consuming_wallet_public_key(&PlainData::new(b"public key"));
     }
 
     #[test]
     #[should_panic(
-        expected = "Database is corrupt: both consuming wallet private public key and consuming wallet derivation path are set"
+        expected = "Database is corrupt: both consuming wallet public key and consuming wallet derivation path are set"
     )]
-    fn set_consuming_wallet_private_public_key_complains_if_both_are_already_set() {
+    fn set_consuming_wallet_public_key_complains_if_both_are_already_set() {
         let config_dao: Box<ConfigDao> = Box::new(
             ConfigDaoMock::new()
                 .get_string_result(Ok("existing private key".to_string()))
@@ -994,7 +1147,7 @@ mod tests {
         );
         let subject = PersistentConfigurationReal::from(config_dao);
 
-        subject.set_consuming_wallet_private_public_key(&PlainData::new(b"private public key"));
+        subject.set_consuming_wallet_public_key(&PlainData::new(b"public key"));
     }
 
     #[test]
@@ -1136,12 +1289,15 @@ mod tests {
 
     #[test]
     fn set_earning_wallet_derivation_path_happy_path() {
+        let mnemonic = Mnemonic::new(MnemonicType::Words24, Language::English);
+        let seed = Seed::new(&mnemonic, "passphrase");
+        let encrypted_seed = Bip39::encrypt_bytes(&seed, "password").unwrap();
         let get_string_params_arc = Arc::new(Mutex::new(vec![]));
         let set_string_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao: Box<ConfigDao> = Box::new(
             ConfigDaoMock::new()
                 .get_string_params(&get_string_params_arc)
-                .get_string_result(Ok("encrypted mnemonic seed".to_string()))
+                .get_string_result(Ok(encrypted_seed))
                 .get_string_result(Err(ConfigDaoError::NotPresent))
                 .get_string_result(Err(ConfigDaoError::NotPresent))
                 .set_string_params(&set_string_params_arc)
@@ -1149,7 +1305,7 @@ mod tests {
         );
         let subject = PersistentConfigurationReal::new(config_dao);
 
-        subject.set_earning_wallet_derivation_path("m/44'/60'/3'/2/1");
+        subject.set_earning_wallet_derivation_path("m/44'/60'/3'/2/1", "password");
 
         let get_string_params = get_string_params_arc.lock().unwrap();
         assert_eq!(
@@ -1171,12 +1327,78 @@ mod tests {
     }
 
     #[test]
+    fn set_earning_wallet_derivation_path_with_preexisting_path_if_two_are_same() {
+        let earning_path = "m/44'/60'/3'/2/1";
+        let mnemonic = Mnemonic::new(MnemonicType::Words24, Language::English);
+        let seed = Seed::new(&mnemonic, "passphrase");
+        let encrypted_seed = Bip39::encrypt_bytes(&seed, "password").unwrap();
+        let get_string_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_string_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao: Box<ConfigDao> = Box::new(
+            ConfigDaoMock::new()
+                .get_string_params(&get_string_params_arc)
+                .get_string_result(Ok(encrypted_seed))
+                .get_string_result(Ok(earning_path.to_string()))
+                .set_string_params(&set_string_params_arc),
+        );
+        let subject = PersistentConfigurationReal::new(config_dao);
+
+        subject.set_earning_wallet_derivation_path(earning_path, "password");
+
+        let get_string_params = get_string_params_arc.lock().unwrap();
+        assert_eq!(
+            *get_string_params,
+            vec![
+                "seed".to_string(),
+                "earning_wallet_derivation_path".to_string(),
+            ]
+        );
+        let set_string_params = set_string_params_arc.lock().unwrap();
+        assert!(set_string_params.is_empty()) // no changes to database
+    }
+
+    #[test]
+    fn set_earning_wallet_derivation_path_with_preexisting_address_if_two_are_same() {
+        let earning_path = "m/44'/60'/3'/2/1";
+        let mnemonic = Mnemonic::new(MnemonicType::Words24, Language::English);
+        let seed = Seed::new(&mnemonic, "passphrase");
+        let encrypted_seed = Bip39::encrypt_bytes(&seed, "password").unwrap();
+        let keypair = Bip32ECKeyPair::from_raw(seed.as_ref(), earning_path).unwrap();
+        let address = Wallet::from(keypair.address()).to_string();
+        let get_string_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_string_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao: Box<ConfigDao> = Box::new(
+            ConfigDaoMock::new()
+                .get_string_params(&get_string_params_arc)
+                .get_string_result(Ok(encrypted_seed))
+                .get_string_result(Err(ConfigDaoError::NotPresent))
+                .get_string_result(Ok(address))
+                .set_string_params(&set_string_params_arc),
+        );
+        let subject = PersistentConfigurationReal::new(config_dao);
+
+        subject.set_earning_wallet_derivation_path(earning_path, "password");
+
+        let get_string_params = get_string_params_arc.lock().unwrap();
+        assert_eq!(
+            *get_string_params,
+            vec![
+                "seed".to_string(),
+                "earning_wallet_derivation_path".to_string(),
+                "earning_wallet_address".to_string(),
+            ]
+        );
+        let set_string_params = set_string_params_arc.lock().unwrap();
+        assert!(set_string_params.is_empty()) // no changes to database
+    }
+
+    #[test]
     #[should_panic(expected = "Invalid earning wallet derivation path 'booga'")]
     fn set_earning_wallet_derivation_path_bad_path() {
         let config_dao: Box<ConfigDao> = Box::new(ConfigDaoMock::new().set_string_result(Ok(())));
         let subject = PersistentConfigurationReal::new(config_dao);
 
-        subject.set_earning_wallet_derivation_path("booga");
+        subject.set_earning_wallet_derivation_path("booga", "password");
     }
 
     #[test]
@@ -1186,20 +1408,24 @@ mod tests {
             Box::new(ConfigDaoMock::new().get_string_result(Err(ConfigDaoError::NotPresent)));
         let subject = PersistentConfigurationReal::new(config_dao);
 
-        subject.set_earning_wallet_derivation_path("m/44'/60'/3'/2/1");
+        subject.set_earning_wallet_derivation_path("m/44'/60'/3'/2/1", "password");
     }
 
     #[test]
     #[should_panic(expected = "Can't overwrite existing earning wallet derivation path 'booga'")]
     fn set_earning_wallet_derivation_path_existing_derivation_path() {
+        let earning_path = "m/44'/60'/3'/2/1";
+        let mnemonic = Mnemonic::new(MnemonicType::Words24, Language::English);
+        let seed = Seed::new(&mnemonic, "passphrase");
+        let encrypted_seed = Bip39::encrypt_bytes(&seed, "password").unwrap();
         let config_dao: Box<ConfigDao> = Box::new(
             ConfigDaoMock::new()
-                .get_string_result(Ok("encrypted mnemonic seed".to_string()))
+                .get_string_result(Ok(encrypted_seed))
                 .get_string_result(Ok("booga".to_string())),
         );
         let subject = PersistentConfigurationReal::new(config_dao);
 
-        subject.set_earning_wallet_derivation_path("m/44'/60'/3'/2/1");
+        subject.set_earning_wallet_derivation_path(earning_path, "password");
     }
 
     #[test]
@@ -1207,15 +1433,19 @@ mod tests {
         expected = "Can't set earning wallet derivation path: earning wallet address 'booga' already exists"
     )]
     fn set_earning_wallet_derivation_path_existing_address() {
+        let earning_path = "m/44'/60'/3'/2/1";
+        let mnemonic = Mnemonic::new(MnemonicType::Words24, Language::English);
+        let seed = Seed::new(&mnemonic, "passphrase");
+        let encrypted_seed = Bip39::encrypt_bytes(&seed, "password").unwrap();
         let config_dao: Box<ConfigDao> = Box::new(
             ConfigDaoMock::new()
-                .get_string_result(Ok("encrypted mnemonic seed".to_string()))
+                .get_string_result(Ok(encrypted_seed))
                 .get_string_result(Err(ConfigDaoError::NotPresent))
                 .get_string_result(Ok("booga".to_string())),
         );
         let subject = PersistentConfigurationReal::new(config_dao);
 
-        subject.set_earning_wallet_derivation_path("m/44'/60'/3'/2/1");
+        subject.set_earning_wallet_derivation_path(earning_path, "password");
     }
 
     #[test]

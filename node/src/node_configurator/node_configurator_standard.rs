@@ -3,14 +3,14 @@
 use crate::bootstrapper::BootstrapperConfig;
 use crate::node_configurator;
 use crate::node_configurator::{
-    common_validators, config_file_arg, data_directory_arg, earning_wallet_arg,
+    app_head, common_validators, config_file_arg, data_directory_arg, earning_wallet_arg,
     initialize_database, make_multi_config, wallet_password_arg, NodeConfigurator,
 };
 use crate::sub_lib::crash_point::CrashPoint;
 use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::neighborhood::sentinel_ip_addr;
 use crate::sub_lib::ui_gateway::DEFAULT_UI_PORT;
-use clap::{crate_authors, crate_description, crate_version, App, AppSettings, Arg};
+use clap::{App, Arg};
 use indoc::indoc;
 use lazy_static::lazy_static;
 
@@ -54,11 +54,16 @@ lazy_static! {
     static ref DEFAULT_CRASH_POINT_VALUE: String = format!("{}", CrashPoint::None);
     static ref DEFAULT_IP_VALUE: String = sentinel_ip_addr().to_string();
     static ref UI_PORT_HELP: String = format!(
-        "Must be between {} and {}",
+        "The port at which user interfaces will connect to the Node. Best to accept the default unless \
+        you know what you're doing. Must be between {} and {}.",
         LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
     );
     static ref CLANDESTINE_PORT_HELP: String = format!(
-        "Must be between {} and {} [default: last used port]",
+        "The port this Node will advertise to other Nodes at which clandestine traffic will be \
+         received. If you don't specify a clandestine port, the Node will choose an unused \
+         one at random on first startup, then use that one for every subsequent run unless \
+         you change it by specifying a different clandestine port here. \
+         Must be between {} and {} [default: last used port]",
         LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
     );
 }
@@ -69,14 +74,28 @@ const BLOCKCHAIN_SERVICE_HELP: &str =
      https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID).";
 const DNS_SERVERS_HELP: &str =
     "IP addresses of DNS Servers for host name look-up while providing exit \
-     services for other SubstratumNodes (e.g. 1.0.0.1, 1.1.1.1, 8.8.8.8, 9.9.9.9, etc.)";
-pub const EARNING_WALLET_HELP: &str =
+     services for other SubstratumNodes (e.g. 1.0.0.1,1.1.1.1,8.8.8.8,9.9.9.9, etc.)";
+const EARNING_WALLET_HELP: &str =
     "An Ethereum wallet address. Addresses must begin with 0x followed by 40 hexadecimal digits \
      (case-insensitive). If you already have a derivation-path earning wallet, don't supply this. \
      If you have supplied an earning wallet address before, either don't supply it again or be \
      careful to supply exactly the same one you supplied before.";
 const IP_ADDRESS_HELP: &str = "The public IP address of your SubstratumNode: that is, the IPv4 \
-                               address at which other SubstratumNodes can contact yours.";
+     address at which other SubstratumNodes can contact yours. If you're running your Node behind \
+     a router, this will be the IP address of the router. If this IP address starts with 192.168 or 10.0, \
+     it's a local address rather than a public address, and other Nodes won't be able to see yours.";
+const LOG_LEVEL_HELP: &str =
+    "The minimum severity of the logs that should appear in the Node's logfile. You should probably not specify \
+     a level lower than the default unless you're doing testing or forensics: a Node at the 'trace' log level \
+     generates a lot of log traffic. This will both consume your disk space and degrade your Node's performance. \
+     You should probably not specify a level higher than the default unless you have security concerns about \
+     persistent logs being kept on your computer: if your Node crashes, it's good to know why.";
+const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes in the Substratum \
+     Network to which you'd like your Node to connect on startup. A Node descriptor looks like \
+     this:\n\ngBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg/EN6zQ:86.75.30.9:5542\n\nIf you have more than one, \
+     separate them with commas (but no spaces). There is no default value; if you don't specify \
+     a neighbor, your Node will start without being connected to any Substratum Network, although \
+     other Nodes will be able to connect to yours if they know your Node's descriptor.";
 const WALLET_PASSWORD_HELP: &str =
     "A password or phrase to decrypt your consuming wallet or a keystore file. Can be changed \
      later and still produce the same addresses.";
@@ -87,7 +106,7 @@ const HELP_TEXT: &str = indoc!(
 
         SubstratumNode --help --generate-wallet
 
-    If you already have a set of wallets, try:
+    If you already have a set of wallets you want SubstratumNode to use, try:
 
         SubstratumNode --help --recover-wallet
 
@@ -108,20 +127,11 @@ const HELP_TEXT: &str = indoc!(
 );
 
 fn app() -> App<'static, 'static> {
-    App::new("SubstratumNode")
-        .global_settings(if cfg!(test) {
-            &[AppSettings::ColorNever]
-        } else {
-            &[AppSettings::ColorAuto, AppSettings::ColoredHelp]
-        })
-        .version(crate_version!())
-        .author(crate_authors!("\n"))
-        .about(crate_description!())
+    app_head()
         .after_help(HELP_TEXT)
         .arg(
             Arg::with_name("blockchain-service-url")
                 .long("blockchain-service-url")
-                .aliases(&["blockchain-service-url", "blockchain_service_url"])
                 .empty_values(false)
                 .value_name("URL")
                 .takes_value(true)
@@ -130,7 +140,6 @@ fn app() -> App<'static, 'static> {
         .arg(
             Arg::with_name("clandestine-port")
                 .long("clandestine-port")
-                .aliases(&["clandestine-port", "clandestine_port"])
                 .value_name("CLANDESTINE-PORT")
                 .empty_values(false)
                 .validator(validators::validate_clandestine_port)
@@ -140,7 +149,6 @@ fn app() -> App<'static, 'static> {
         .arg(
             Arg::with_name("consuming-private-key")
                 .long("consuming-private-key")
-                .aliases(&["consuming-private-key", "consuming_private_key"])
                 .value_name("PRIVATE-KEY")
                 .takes_value(true)
                 .validator(validators::validate_private_key)
@@ -149,7 +157,6 @@ fn app() -> App<'static, 'static> {
         .arg(
             Arg::with_name("crash-point")
                 .long("crash-point")
-                .aliases(&["crash-point", "crash_point"])
                 .value_name("CRASH-POINT")
                 .takes_value(true)
                 .default_value(&DEFAULT_CRASH_POINT_VALUE)
@@ -161,7 +168,6 @@ fn app() -> App<'static, 'static> {
         .arg(
             Arg::with_name("dns-servers")
                 .long("dns-servers")
-                .aliases(&["dns-servers", "dns_servers"])
                 .value_name("DNS-SERVERS")
                 .takes_value(true)
                 .use_delimiter(true)
@@ -175,7 +181,6 @@ fn app() -> App<'static, 'static> {
         .arg(
             Arg::with_name("fake-public-key")
                 .long("fake-public-key")
-                .aliases(&["fake-public-key", "fake_public_key"])
                 .value_name("FAKE-PUBLIC-KEY")
                 .takes_value(true)
                 .hidden(true),
@@ -192,12 +197,12 @@ fn app() -> App<'static, 'static> {
         .arg(
             Arg::with_name("log-level")
                 .long("log-level")
-                .aliases(&["log-level", "log_level"])
                 .value_name("FILTER")
                 .takes_value(true)
-                .possible_values(&["error", "warn", "info", "debug", "trace", "off"])
+                .possible_values(&["off", "error", "warn", "info", "debug", "trace"])
                 .default_value("warn")
-                .case_insensitive(true),
+                .case_insensitive(true)
+                .help(LOG_LEVEL_HELP),
         )
         .arg(
             Arg::with_name("neighbors")
@@ -205,12 +210,12 @@ fn app() -> App<'static, 'static> {
                 .value_name("NODE-DESCRIPTORS")
                 .takes_value(true)
                 .use_delimiter(true)
-                .requires("ip"),
+                .requires("ip")
+                .help(NEIGHBORS_HELP),
         )
         .arg(
             Arg::with_name("ui-port")
                 .long("ui-port")
-                .aliases(&["ui-port", "ui_port"])
                 .value_name("UI-PORT")
                 .takes_value(true)
                 .default_value(&DEFAULT_UI_PORT_VALUE)
@@ -241,8 +246,9 @@ mod standard {
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::wallet::Wallet;
     use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
-    use rustc_hex::FromHex;
+    use rustc_hex::{FromHex, ToHex};
     use std::convert::TryInto;
+    use std::fs;
     use std::str::FromStr;
 
     pub fn establish_port_configurations(config: &mut BootstrapperConfig) {
@@ -318,6 +324,11 @@ mod standard {
 
         config.data_directory =
             value_m!(multi_config, "data-directory", PathBuf).expect("Internal Error");
+        if !config.data_directory.is_dir() {
+            fs::create_dir_all(config.data_directory.as_path().clone()).unwrap_or_else(|_| {
+                panic!("Couldn't create data directory {:?}", config.data_directory)
+            });
+        }
 
         get_wallets(streams, multi_config, persistent_config, config);
     }
@@ -329,18 +340,28 @@ mod standard {
         if let Some(port) = config.clandestine_port_opt {
             persistent_config.set_clandestine_port(port)
         }
+        if persistent_config.earning_wallet_derivation_path().is_none()
+            && persistent_config.earning_wallet_address().is_none()
+        {
+            persistent_config.set_earning_wallet_address(&config.earning_wallet.to_string());
+        }
         match &config.consuming_wallet {
-            Some(wallet) => {
-                let keypair_opt: Option<Bip32ECKeyPair> = match wallet.clone().try_into() {
-                    Ok(kp) => Some(kp),
-                    Err(_) => None,
+            Some(consuming_wallet)
+                if persistent_config
+                    .consuming_wallet_derivation_path()
+                    .is_none()
+                    && persistent_config.consuming_wallet_public_key().is_none() =>
+            {
+                let keypair: Bip32ECKeyPair = match consuming_wallet.clone().try_into() {
+                    Err(_) => {
+                        panic!("Internal error: consuming wallet must be derived from keypair")
+                    }
+                    Ok(keypair) => keypair,
                 };
-                if let Some(keypair) = keypair_opt {
-                    let public_key = PlainData::new(keypair.secret().public().bytes());
-                    persistent_config.set_consuming_wallet_private_public_key(&public_key);
-                }
+                let public_key = PlainData::new(keypair.secret().public().bytes());
+                persistent_config.set_consuming_wallet_public_key(&public_key)
             }
-            None => (),
+            _ => (),
         }
     }
 
@@ -353,7 +374,7 @@ mod standard {
         let mut earning_wallet_opt =
             standard::get_earning_wallet_from_address(multi_config, persistent_config);
         let mut consuming_wallet_opt =
-            standard::get_consuming_wallet_from_private_key(multi_config);
+            standard::get_consuming_wallet_from_private_key(multi_config, persistent_config);
         let encrypted_mnemonic_seed = persistent_config.encrypted_mnemonic_seed();
         if earning_wallet_opt.is_some()
             && consuming_wallet_opt.is_some()
@@ -466,12 +487,27 @@ mod standard {
         }
     }
 
-    fn get_consuming_wallet_from_private_key(multi_config: &MultiConfig) -> Option<Wallet> {
+    fn get_consuming_wallet_from_private_key(
+        multi_config: &MultiConfig,
+        persistent_config: &PersistentConfiguration,
+    ) -> Option<Wallet> {
         match value_m!(multi_config, "consuming-private-key", String) {
             Some(consuming_private_key_string) => {
                 match consuming_private_key_string.from_hex::<Vec<u8>>() {
                     Ok(raw_secret) => match Bip32ECKeyPair::from_raw_secret(&raw_secret[..]) {
-                        Ok(keypair) => Some(Wallet::from(keypair)),
+                        Ok(keypair) => {
+                            match persistent_config.consuming_wallet_public_key() {
+                                None => (),
+                                Some(established_public_key_hex) => {
+                                    let proposed_public_key_hex =
+                                        keypair.secret().public().bytes().to_hex::<String>();
+                                    if proposed_public_key_hex != established_public_key_hex {
+                                        panic! ("The specified --consuming-private-key does not denote the same consuming wallet you have used in the past.")
+                                    }
+                                }
+                            }
+                            Some(Wallet::from(keypair))
+                        }
                         Err(e) => panic!("Cannot create consuming wallet from private key {}", e),
                     },
                     Err(e) => panic!("Unable to parse private key {}", e),
@@ -744,7 +780,7 @@ mod tests {
             let mut config_file = File::create(&config_file_path).unwrap();
             writeln!(
                 config_file,
-                "dns_servers = \"1.2.3.4\"\nconsuming-private-key = \"{}\"",
+                "dns-servers = \"1.2.3.4\"\nconsuming-private-key = \"{}\"",
                 consuming_private_key
             )
             .unwrap();
@@ -1003,7 +1039,6 @@ mod tests {
             )
         );
         assert_eq!(CrashPoint::None, config.crash_point);
-        assert!(config.data_directory.is_dir());
         assert_eq!(sentinel_ip_addr(), config.neighborhood_config.local_ip_addr,);
         assert_eq!(5333, config.ui_gateway_config.ui_port);
         assert!(config.cryptde_null_opt.is_none());
@@ -1047,7 +1082,7 @@ mod tests {
 
     fn make_persistent_config(
         mnemonic_seed_prefix_and_password_opt: Option<(&str, &str)>,
-        consuming_wallet_private_public_key_opt: Option<&str>,
+        consuming_wallet_private_key_opt: Option<&str>,
         consuming_wallet_derivation_path_opt: Option<&str>,
         earning_wallet_address_opt: Option<&str>,
         earning_wallet_derivation_path_opt: Option<&str>,
@@ -1062,8 +1097,21 @@ mod tests {
                     (Ok(mnemonic_seed), Some(encrypted_mnemonic_seed))
                 }
             };
-        let consuming_wallet_private_public_key_opt =
-            consuming_wallet_private_public_key_opt.map(|x| make_wallet(x).to_string());
+        let consuming_wallet_public_key_opt = match consuming_wallet_private_key_opt {
+            None => None,
+            Some(consuming_wallet_private_key_hex) => {
+                let consuming_wallet_private_key = consuming_wallet_private_key_hex
+                    .from_hex::<Vec<u8>>()
+                    .unwrap();
+                let keypair =
+                    Bip32ECKeyPair::from_raw_secret(&consuming_wallet_private_key).unwrap();
+                let consuming_wallet_public_key = keypair.secret().public();
+                let consuming_wallet_public_key_bytes = consuming_wallet_public_key.bytes();
+                let consuming_wallet_public_key_hex =
+                    consuming_wallet_public_key_bytes.to_hex::<String>();
+                Some(consuming_wallet_public_key_hex)
+            }
+        };
         let consuming_wallet_derivation_path_opt =
             consuming_wallet_derivation_path_opt.map(|x| x.to_string());
         let earning_wallet_from_address_opt = match earning_wallet_address_opt {
@@ -1082,7 +1130,7 @@ mod tests {
         PersistentConfigurationMock::new()
             .mnemonic_seed_result(mnemonic_seed_result)
             .encrypted_mnemonic_seed_result(encrypted_mnemonic_seed_opt)
-            .consuming_wallet_private_public_key_result(consuming_wallet_private_public_key_opt)
+            .consuming_wallet_public_key_result(consuming_wallet_public_key_opt)
             .consuming_wallet_derivation_path_result(consuming_wallet_derivation_path_opt)
             .earning_wallet_from_address_result(earning_wallet_from_address_opt)
             .earning_wallet_from_derivation_path_result(earning_wallet_from_derivation_path_opt)
@@ -1316,9 +1364,64 @@ mod tests {
         assert_eq!(config.earning_wallet, expected_earning_wallet);
     }
 
-    // TODO consuming_private_key_matches_database: SC-930
+    #[test]
+    fn consuming_private_key_matches_database() {
+        let consuming_private_key_hex =
+            "ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD";
+        let multi_config = make_multi_config(vec![
+            "--wallet-password",
+            "password",
+            "--consuming-private-key",
+            consuming_private_key_hex,
+        ]);
+        let persistent_config =
+            make_persistent_config(None, Some(consuming_private_key_hex), None, None, None);
+        let mut config = BootstrapperConfig::new();
 
-    // TODO consuming_private_key_doesnt_match_database: SC-930
+        standard::get_wallets(
+            &mut FakeStreamHolder::new().streams(),
+            &multi_config,
+            &persistent_config,
+            &mut config,
+        );
+
+        let keypair = Bip32ECKeyPair::from_raw_secret(
+            &consuming_private_key_hex.from_hex::<Vec<u8>>().unwrap(),
+        )
+        .unwrap();
+        let expected_consuming_wallet = Wallet::from(keypair);
+        assert_eq!(config.consuming_wallet, Some(expected_consuming_wallet));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "The specified --consuming-private-key does not denote the same consuming wallet you have used in the past."
+    )]
+    fn consuming_private_key_doesnt_match_database() {
+        let good_consuming_private_key_hex =
+            "ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD";
+        let mut bad_consuming_private_key = good_consuming_private_key_hex
+            .from_hex::<Vec<u8>>()
+            .unwrap();
+        bad_consuming_private_key[0] ^= 0x80; // one bit different
+        let bad_consuming_private_key_hex = bad_consuming_private_key.to_hex::<String>();
+        let multi_config = make_multi_config(vec![
+            "--wallet-password",
+            "password",
+            "--consuming-private-key",
+            &bad_consuming_private_key_hex,
+        ]);
+        let persistent_config =
+            make_persistent_config(None, Some(good_consuming_private_key_hex), None, None, None);
+        let mut config = BootstrapperConfig::new();
+
+        standard::get_wallets(
+            &mut FakeStreamHolder::new().streams(),
+            &multi_config,
+            &persistent_config,
+            &mut config,
+        );
+    }
 
     #[test]
     fn consuming_wallet_derivation_path_plus_earning_wallet_address_plus_mnemonic_seed() {
@@ -1404,7 +1507,7 @@ mod tests {
         .collect();
 
         let vcl_args: Vec<Box<dyn VclArg>> = vec![Box::new(NameValueVclArg::new(
-            &"--consuming_private_key", // this is equal to SUB_CONSUMING_PRIVATE_KEY
+            &"--consuming-private-key", // this is equal to SUB_CONSUMING_PRIVATE_KEY
             &"not valid hex",
         ))];
 
@@ -1445,7 +1548,7 @@ mod tests {
         .collect();
 
         let vcl_args: Vec<Box<dyn VclArg>> = vec![Box::new(NameValueVclArg::new(
-            &"--consuming_private_key", // this is equal to SUB_CONSUMING_PRIVATE_KEY
+            &"--consuming-private-key", // this is equal to SUB_CONSUMING_PRIVATE_KEY
             &"cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9",
         ))];
 
@@ -1643,79 +1746,135 @@ mod tests {
     }
 
     #[test]
-    fn configure_database_with_data_specified() {
+    fn configure_database_with_data_specified_on_command_line_but_not_in_database_without_seed() {
         let mut config = BootstrapperConfig::new();
         config.clandestine_port_opt = Some(1234);
-        let secret_key_text = "ABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EF";
-        let secret_key = PlainData::from(secret_key_text.from_hex::<Vec<u8>>().unwrap());
-        let keypair = Bip32ECKeyPair::from_raw_secret(secret_key.as_slice()).unwrap();
-        let public_key = keypair.secret().public();
+        let earning_address = "0x0123456789012345678901234567890123456789";
+        let consuming_private_key_text =
+            "ABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EF";
+        let consuming_private_key =
+            PlainData::from(consuming_private_key_text.from_hex::<Vec<u8>>().unwrap());
+        let keypair = Bip32ECKeyPair::from_raw_secret(consuming_private_key.as_slice()).unwrap();
+        let consuming_public_key = keypair.secret().public();
+        let consuming_public_key_bytes = consuming_public_key.bytes();
+        config.earning_wallet = Wallet::new(earning_address);
         config.consuming_wallet = Some(Wallet::from(keypair));
         let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
-        let set_consuming_private_public_key_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_earning_wallet_address_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_consuming_public_key_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
+            .earning_wallet_address_result(None)
+            .earning_wallet_derivation_path_result(None)
+            .consuming_wallet_public_key_result(None)
+            .consuming_wallet_derivation_path_result(None)
             .set_clandestine_port_params(&set_clandestine_port_params_arc)
-            .set_consuming_wallet_private_public_key_params(
-                &set_consuming_private_public_key_params_arc,
-            );
+            .set_earning_wallet_address_params(&set_earning_wallet_address_params_arc)
+            .set_consuming_wallet_public_key_params(&set_consuming_public_key_params_arc);
 
         standard::configure_database(&config, &persistent_config);
 
         let set_clandestine_port_params = set_clandestine_port_params_arc.lock().unwrap();
         assert_eq!(*set_clandestine_port_params, vec![1234]);
-        let set_consuming_private_public_key_params =
-            set_consuming_private_public_key_params_arc.lock().unwrap();
+        let set_earning_wallet_address_params =
+            set_earning_wallet_address_params_arc.lock().unwrap();
         assert_eq!(
-            *set_consuming_private_public_key_params,
-            vec![PlainData::new(public_key.bytes())]
+            *set_earning_wallet_address_params,
+            vec![earning_address.to_string()]
+        );
+        let set_consuming_public_key_params = set_consuming_public_key_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_consuming_public_key_params,
+            vec![PlainData::new(consuming_public_key_bytes)]
         );
     }
 
     #[test]
-    fn configure_database_with_non_keypair_wallet() {
+    fn configure_database_with_data_specified_on_command_line_and_in_database_without_seed() {
+        let mut config = BootstrapperConfig::new();
+        config.clandestine_port_opt = Some(1234);
+        let earning_address = "0x0123456789012345678901234567890123456789";
+        let consuming_private_key_text =
+            "ABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EF";
+        let consuming_private_key =
+            PlainData::from(consuming_private_key_text.from_hex::<Vec<u8>>().unwrap());
+        let keypair = Bip32ECKeyPair::from_raw_secret(consuming_private_key.as_slice()).unwrap();
+        let consuming_public_key = keypair.secret().public();
+        let consuming_public_key_text = consuming_public_key.bytes().to_hex::<String>();
+        config.consuming_wallet = Some(Wallet::from(keypair));
+        let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_earning_wallet_address_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_consuming_public_key_params_arc = Arc::new(Mutex::new(vec![]));
+        let persistent_config = PersistentConfigurationMock::new()
+            .earning_wallet_address_result(Some(earning_address.to_string()))
+            .earning_wallet_derivation_path_result(None)
+            .consuming_wallet_public_key_result(Some(consuming_public_key_text))
+            .consuming_wallet_derivation_path_result(None)
+            .set_clandestine_port_params(&set_clandestine_port_params_arc)
+            .set_earning_wallet_address_params(&set_earning_wallet_address_params_arc)
+            .set_consuming_wallet_public_key_params(&set_consuming_public_key_params_arc);
+
+        standard::configure_database(&config, &persistent_config);
+
+        let set_clandestine_port_params = set_clandestine_port_params_arc.lock().unwrap();
+        assert_eq!(*set_clandestine_port_params, vec![1234]);
+        let set_earning_wallet_address_params =
+            set_earning_wallet_address_params_arc.lock().unwrap();
+        assert_eq!(set_earning_wallet_address_params.len(), 0);
+        let set_consuming_public_key_params = set_consuming_public_key_params_arc.lock().unwrap();
+        assert_eq!(set_consuming_public_key_params.len(), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Internal error: consuming wallet must be derived from keypair")]
+    fn configure_database_with_non_keypair_consuming_wallet() {
         let mut config = BootstrapperConfig::new();
         config.clandestine_port_opt = Some(1234);
         config.consuming_wallet =
             Some(Wallet::from_str("0x0123456789ABCDEF0123456789ABCDEF01234567").unwrap());
         let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
-        let set_consuming_private_public_key_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_consuming_public_key_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
+            .earning_wallet_address_result(None)
+            .earning_wallet_derivation_path_result(None)
+            .consuming_wallet_public_key_result(None)
+            .consuming_wallet_derivation_path_result(None)
             .set_clandestine_port_params(&set_clandestine_port_params_arc)
-            .set_consuming_wallet_private_public_key_params(
-                &set_consuming_private_public_key_params_arc,
-            );
+            .set_consuming_wallet_public_key_params(&set_consuming_public_key_params_arc);
 
         standard::configure_database(&config, &persistent_config);
-
-        let set_clandestine_port_params = set_clandestine_port_params_arc.lock().unwrap();
-        assert_eq!(*set_clandestine_port_params, vec![1234]);
-        let set_consuming_private_public_key_params =
-            set_consuming_private_public_key_params_arc.lock().unwrap();
-        let no_keys: Vec<PlainData> = vec![];
-        assert_eq!(*set_consuming_private_public_key_params, no_keys);
     }
 
     #[test]
-    fn configure_database_with_data_unspecified() {
+    fn configure_database_with_no_data_specified() {
         let mut config = BootstrapperConfig::new();
         config.clandestine_port_opt = None;
         config.consuming_wallet = None;
+        config.earning_wallet = DEFAULT_EARNING_WALLET.clone();
         let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
-        let set_consuming_private_public_key_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_consuming_public_key_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_earning_wallet_address_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
+            .earning_wallet_address_result(None)
+            .earning_wallet_derivation_path_result(None)
+            .consuming_wallet_public_key_result(None)
+            .consuming_wallet_derivation_path_result(None)
             .set_clandestine_port_params(&set_clandestine_port_params_arc)
-            .set_consuming_wallet_private_public_key_params(
-                &set_consuming_private_public_key_params_arc,
-            );
+            .set_consuming_wallet_public_key_params(&set_consuming_public_key_params_arc)
+            .set_earning_wallet_address_params(&set_earning_wallet_address_params_arc);
 
         standard::configure_database(&config, &persistent_config);
 
         let set_clandestine_port_params = set_clandestine_port_params_arc.lock().unwrap();
         let no_ports: Vec<u16> = vec![];
         assert_eq!(*set_clandestine_port_params, no_ports);
-        let set_consuming_private_public_key_params =
-            set_consuming_private_public_key_params_arc.lock().unwrap();
+        let set_consuming_public_key_params = set_consuming_public_key_params_arc.lock().unwrap();
         let no_keys: Vec<PlainData> = vec![];
-        assert_eq!(*set_consuming_private_public_key_params, no_keys);
+        assert_eq!(*set_consuming_public_key_params, no_keys);
+        let set_earning_wallet_address_params =
+            set_earning_wallet_address_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_earning_wallet_address_params,
+            vec![DEFAULT_EARNING_WALLET.to_string()]
+        )
     }
 }

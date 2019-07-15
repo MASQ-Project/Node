@@ -3,19 +3,17 @@
 use crate::blockchain::bip39::Bip39;
 use crate::multi_config::MultiConfig;
 use crate::node_configurator::{
-    common_validators, config_file_arg, consuming_wallet_arg, create_wallet, data_directory_arg,
-    earning_wallet_arg, flushed_write, initialize_database, language_arg, make_multi_config,
-    mnemonic_passphrase_arg, request_existing_password, wallet_password_arg, Either,
-    NodeConfigurator, WalletCreationConfig, WalletCreationConfigMaker, EARNING_WALLET_HELP,
+    app_head, common_validators, config_file_arg, consuming_wallet_arg, create_wallet,
+    data_directory_arg, earning_wallet_arg, flushed_write, initialize_database, language_arg,
+    make_multi_config, mnemonic_passphrase_arg, request_existing_password, wallet_password_arg,
+    Either, NodeConfigurator, WalletCreationConfig, WalletCreationConfigMaker, EARNING_WALLET_HELP,
     WALLET_PASSWORD_HELP,
 };
 use crate::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::main_tools::StdStreams;
 use bip39::{Language, Mnemonic};
-use clap::{
-    crate_authors, crate_description, crate_version, value_t, values_t, App, AppSettings, Arg,
-};
+use clap::{value_t, values_t, App, Arg};
 use indoc::indoc;
 
 pub const LOWEST_USABLE_INSECURE_PORT: u16 = 1025;
@@ -43,14 +41,16 @@ const RECOVER_WALLET_HELP: &str =
      BIP39 predefined list of words. Not valid as a configuration file item nor an \
      environment variable";
 const MNEMONIC_HELP: &str =
-    "An HD wallet mnemonic recovery phrase using predefined BIP39 word lists. Not valid as a \
-     configuration file item nor an environment variable.";
+    "An HD wallet mnemonic recovery phrase using predefined BIP39 word lists. This is a secret; providing it on the \
+     command line or in a cofig file is insecure and unwise. If you don't specify it anywhere, you'll be prompted \
+     for it at the console. If you do specify it on the command line or in the environment or a config file, be sure \
+     to surround it with double quotes.";
 
 const HELP_TEXT: &str = indoc!(
     r"ADDITIONAL HELP:
-    If you already have a set of wallets, try:
+    If you want to generate wallets to earn money into and spend money from, try:
 
-        SubstratumNode --help --recover-wallet
+        SubstratumNode --help --generate-wallet
 
     If the Node is already configured with your wallets, and you want to start the Node so that it
     stays running:
@@ -98,20 +98,11 @@ impl Default for NodeConfiguratorRecoverWallet {
 impl NodeConfiguratorRecoverWallet {
     pub fn new() -> NodeConfiguratorRecoverWallet {
         NodeConfiguratorRecoverWallet {
-            app: App::new("SubstratumNode")
-                .global_settings(if cfg!(test) {
-                    &[AppSettings::ColorNever]
-                } else {
-                    &[AppSettings::ColorAuto, AppSettings::ColoredHelp]
-                })
-                .version(crate_version!())
-                .author(crate_authors!("\n"))
-                .about(crate_description!())
+            app: app_head()
                 .after_help(HELP_TEXT)
                 .arg(
                     Arg::with_name("recover-wallet")
                         .long("recover-wallet")
-                        .aliases(&["recover-wallet", "recover_wallet"])
                         .required(true)
                         .takes_value(false)
                         .requires_all(&["language"])
@@ -135,7 +126,6 @@ impl NodeConfiguratorRecoverWallet {
                         .value_delimiter(" ")
                         .min_values(12)
                         .max_values(24)
-                        //                        .validator(Validators::validate_mnemonic_word)
                         .help(MNEMONIC_HELP),
                 )
                 .arg(mnemonic_passphrase_arg())

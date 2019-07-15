@@ -31,23 +31,30 @@ where
     P: PrivilegeDropper,
 {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &Vec<String>) -> u8 {
-        self.dns_socket_server
-            .as_mut()
-            .initialize_as_privileged(args, streams);
-        self.bootstrapper
-            .as_mut()
-            .initialize_as_privileged(args, streams);
+        if args.contains(&"--help".to_string()) || args.contains(&"--version".to_string()) {
+            self.privilege_dropper.drop_privileges();
+            self.bootstrapper
+                .as_mut()
+                .initialize_as_unprivileged(args, streams);
+            0
+        } else {
+            self.dns_socket_server
+                .as_mut()
+                .initialize_as_privileged(args, streams);
+            self.bootstrapper
+                .as_mut()
+                .initialize_as_privileged(args, streams);
 
-        self.privilege_dropper.drop_privileges();
+            self.privilege_dropper.drop_privileges();
 
-        self.dns_socket_server
-            .as_mut()
-            .initialize_as_unprivileged(args, streams);
-        self.bootstrapper
-            .as_mut()
-            .initialize_as_unprivileged(args, streams);
-
-        1
+            self.dns_socket_server
+                .as_mut()
+                .initialize_as_unprivileged(args, streams);
+            self.bootstrapper
+                .as_mut()
+                .initialize_as_unprivileged(args, streams);
+            1
+        }
     }
 }
 
@@ -190,8 +197,8 @@ pub mod tests {
         LoggerInitializerWrapperMock, PrivilegeDropperMock,
     };
     use crate::sub_lib::crash_point::CrashPoint;
-    use crate::test_utils::ByteArrayReader;
     use crate::test_utils::ByteArrayWriter;
+    use crate::test_utils::{ByteArrayReader, FakeStreamHolder};
     use std::sync::Arc;
     use std::sync::Mutex;
 
@@ -208,6 +215,65 @@ pub mod tests {
             _args: &Vec<String>,
             _streams: &mut StdStreams<'_>,
         ) {
+        }
+    }
+
+    struct SocketServerMock {
+        initialize_as_privileged_params: Arc<Mutex<Vec<Vec<String>>>>,
+        initialize_as_unprivileged_params: Arc<Mutex<Vec<Vec<String>>>>,
+    }
+
+    impl Future for SocketServerMock {
+        type Item = ();
+        type Error = ();
+
+        fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
+            unimplemented!()
+        }
+    }
+
+    impl SocketServer for SocketServerMock {
+        fn name(&self) -> String {
+            return "mock".to_string();
+        }
+
+        fn initialize_as_privileged(&mut self, args: &Vec<String>, _streams: &mut StdStreams) {
+            self.initialize_as_privileged_params
+                .lock()
+                .unwrap()
+                .push(args.clone());
+        }
+
+        fn initialize_as_unprivileged(&mut self, args: &Vec<String>, _streams: &mut StdStreams) {
+            self.initialize_as_unprivileged_params
+                .lock()
+                .unwrap()
+                .push(args.clone());
+        }
+    }
+
+    impl SocketServerMock {
+        pub fn new() -> SocketServerMock {
+            SocketServerMock {
+                initialize_as_privileged_params: Arc::new(Mutex::new(vec![])),
+                initialize_as_unprivileged_params: Arc::new(Mutex::new(vec![])),
+            }
+        }
+
+        pub fn initialize_as_privileged_params(
+            mut self,
+            params: &Arc<Mutex<Vec<Vec<String>>>>,
+        ) -> Self {
+            self.initialize_as_privileged_params = params.clone();
+            self
+        }
+
+        pub fn initialize_as_unprivileged_params(
+            mut self,
+            params: &Arc<Mutex<Vec<Vec<String>>>>,
+        ) -> Self {
+            self.initialize_as_unprivileged_params = params.clone();
+            self
         }
     }
 
@@ -315,5 +381,62 @@ pub mod tests {
         subject.go(streams, &vec![]);
 
         assert_eq!(*call_count.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn go_with_help_should_drop_privileges_and_call_initialize_as_unprivileged() {
+        go_with_something_should_drop_privileges_and_call_initialize_as_unprivileged("--help");
+    }
+
+    #[test]
+    fn go_with_version_should_drop_privileges_and_call_initialize_as_unprivileged() {
+        go_with_something_should_drop_privileges_and_call_initialize_as_unprivileged("--version");
+    }
+
+    fn go_with_something_should_drop_privileges_and_call_initialize_as_unprivileged(
+        something: &str,
+    ) {
+        let dns_initialize_as_privileged_params_arc = Arc::new(Mutex::new(vec![]));
+        let dns_initialize_as_unprivileged_params_arc = Arc::new(Mutex::new(vec![]));
+        let dns_socket_server = SocketServerMock::new()
+            .initialize_as_privileged_params(&dns_initialize_as_privileged_params_arc)
+            .initialize_as_unprivileged_params(&dns_initialize_as_unprivileged_params_arc);
+        let boot_initialize_as_privileged_params_arc = Arc::new(Mutex::new(vec![]));
+        let boot_initialize_as_unprivileged_params_arc = Arc::new(Mutex::new(vec![]));
+        let bootstrapper = SocketServerMock::new()
+            .initialize_as_privileged_params(&boot_initialize_as_privileged_params_arc)
+            .initialize_as_unprivileged_params(&boot_initialize_as_unprivileged_params_arc);
+        let privilege_dropper = PrivilegeDropperMock::new();
+        let call_count_arc = Arc::clone(&privilege_dropper.call_count);
+        let mut subject = ServerInitializer {
+            dns_socket_server: Box::new(dns_socket_server),
+            bootstrapper: Box::new(bootstrapper),
+            privilege_dropper,
+        };
+        let args = vec!["SubstratumNode".to_string(), something.to_string()];
+
+        subject.go(&mut FakeStreamHolder::new().streams(), &args);
+
+        let call_count = call_count_arc.lock().unwrap();
+        assert_eq!(*call_count, 1);
+        let empty_string_vec: Vec<Vec<String>> = vec![];
+        let dns_initialize_as_privileged_params =
+            dns_initialize_as_privileged_params_arc.lock().unwrap();
+        assert_eq!(
+            *dns_initialize_as_privileged_params,
+            empty_string_vec.clone()
+        );
+        let dns_initialize_as_unprivileged_params =
+            dns_initialize_as_unprivileged_params_arc.lock().unwrap();
+        assert_eq!(
+            *dns_initialize_as_unprivileged_params,
+            empty_string_vec.clone()
+        );
+        let boot_initialize_as_privileged_params =
+            boot_initialize_as_privileged_params_arc.lock().unwrap();
+        assert_eq!(*boot_initialize_as_privileged_params, empty_string_vec);
+        let boot_initialize_as_unprivileged_params =
+            boot_initialize_as_unprivileged_params_arc.lock().unwrap();
+        assert_eq!(*boot_initialize_as_unprivileged_params, vec![args]);
     }
 }

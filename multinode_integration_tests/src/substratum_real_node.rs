@@ -170,7 +170,7 @@ impl NodeStartupConfig {
             args.push(key.to_string());
         }
         if let Some(ref public_key) = self.fake_public_key {
-            args.push("--fake_public_key".to_string());
+            args.push("--fake-public-key".to_string());
             args.push(format!("{}", public_key));
         }
         args

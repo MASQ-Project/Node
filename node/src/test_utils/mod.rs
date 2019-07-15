@@ -264,7 +264,7 @@ pub fn make_meaningless_wallet_private_key() -> PlainData {
 pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
     PersistentConfigurationMock::new()
         .consuming_wallet_derivation_path_result(None)
-        .consuming_wallet_private_public_key_result(None)
+        .consuming_wallet_public_key_result(None)
         .earning_wallet_from_derivation_path_result(None)
         .earning_wallet_from_address_result(None)
         .encrypted_mnemonic_seed_result(None)

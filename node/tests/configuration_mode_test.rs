@@ -62,10 +62,7 @@ fn create_database_recovering_both_derivation_paths_integration() {
         Some(CONSUMING_PATH.to_string())
     );
     assert_eq!(persistent_config.earning_wallet_from_address(), None);
-    assert_eq!(
-        persistent_config.consuming_wallet_private_public_key(),
-        None
-    );
+    assert_eq!(persistent_config.consuming_wallet_public_key(), None);
 }
 
 #[test]
@@ -97,10 +94,7 @@ fn create_database_recovering_neither_derivation_path_integration() {
         Some(DEFAULT_CONSUMING_DERIVATION_PATH.to_string())
     );
     assert_eq!(persistent_config.earning_wallet_from_address(), None);
-    assert_eq!(
-        persistent_config.consuming_wallet_private_public_key(),
-        None
-    );
+    assert_eq!(persistent_config.consuming_wallet_public_key(), None);
 }
 
 #[test]
@@ -132,10 +126,7 @@ fn create_database_recovering_only_earning_derivation_path_integration() {
         Some(DEFAULT_CONSUMING_DERIVATION_PATH.to_string())
     );
     assert_eq!(persistent_config.earning_wallet_from_address(), None);
-    assert_eq!(
-        persistent_config.consuming_wallet_private_public_key(),
-        None
-    );
+    assert_eq!(persistent_config.consuming_wallet_public_key(), None);
 }
 
 #[test]
@@ -168,10 +159,7 @@ fn create_database_recovering_only_earning_address_integration() {
         persistent_config.earning_wallet_from_address(),
         Some(Wallet::from_str(EARNING_ADDRESS).unwrap())
     );
-    assert_eq!(
-        persistent_config.consuming_wallet_private_public_key(),
-        None
-    );
+    assert_eq!(persistent_config.consuming_wallet_public_key(), None);
 }
 
 #[test]
@@ -204,10 +192,7 @@ fn create_database_recovering_only_consuming_derivation_path_integration() {
         Some(CONSUMING_PATH.to_string())
     );
     assert_eq!(persistent_config.earning_wallet_from_address(), None);
-    assert_eq!(
-        persistent_config.consuming_wallet_private_public_key(),
-        None
-    );
+    assert_eq!(persistent_config.consuming_wallet_public_key(), None);
 }
 
 #[test]
@@ -234,10 +219,7 @@ fn create_database_generating_both_derivation_paths_integration() {
         Some(CONSUMING_PATH.to_string())
     );
     assert_eq!(persistent_config.earning_wallet_from_address(), None);
-    assert_eq!(
-        persistent_config.consuming_wallet_private_public_key(),
-        None
-    );
+    assert_eq!(persistent_config.consuming_wallet_public_key(), None);
 }
 
 #[test]
@@ -263,10 +245,7 @@ fn create_database_generating_neither_derivation_path_integration() {
         Some(DEFAULT_CONSUMING_DERIVATION_PATH.to_string())
     );
     assert_eq!(persistent_config.earning_wallet_from_address(), None);
-    assert_eq!(
-        persistent_config.consuming_wallet_private_public_key(),
-        None
-    );
+    assert_eq!(persistent_config.consuming_wallet_public_key(), None);
 }
 
 #[test]
@@ -292,10 +271,7 @@ fn create_database_generating_only_earning_derivation_path_integration() {
         Some(DEFAULT_CONSUMING_DERIVATION_PATH.to_string())
     );
     assert_eq!(persistent_config.earning_wallet_from_address(), None);
-    assert_eq!(
-        persistent_config.consuming_wallet_private_public_key(),
-        None
-    );
+    assert_eq!(persistent_config.consuming_wallet_public_key(), None);
 }
 
 #[test]
@@ -321,10 +297,7 @@ fn create_database_generating_only_earning_address_integration() {
         Some(DEFAULT_CONSUMING_DERIVATION_PATH.to_string())
     );
     assert_eq!(persistent_config.earning_wallet_from_address(), None);
-    assert_eq!(
-        persistent_config.consuming_wallet_private_public_key(),
-        None
-    );
+    assert_eq!(persistent_config.consuming_wallet_public_key(), None);
 }
 
 #[test]
@@ -351,8 +324,5 @@ fn create_database_generating_only_consuming_derivation_path_integration() {
         Some(CONSUMING_PATH.to_string())
     );
     assert_eq!(persistent_config.earning_wallet_from_address(), None);
-    assert_eq!(
-        persistent_config.consuming_wallet_private_public_key(),
-        None
-    );
+    assert_eq!(persistent_config.consuming_wallet_public_key(), None);
 }

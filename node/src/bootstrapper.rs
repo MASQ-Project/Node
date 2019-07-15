@@ -731,30 +731,47 @@ mod tests {
             "bootstrapper",
             "initialize_as_unprivileged_binds_clandestine_port",
         );
-        let (listener_handler, listener_handler_log_arc) =
+        let (one_listener_handler, _) =
+            extract_log(ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())));
+        let (another_listener_handler, _) =
+            extract_log(ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())));
+        let (clandestine_listener_handler, clandestine_listener_handler_log_arc) =
             extract_log(ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())));
         let mut subject = BootstrapperBuilder::new()
-            .add_listener_handler(Box::new(listener_handler))
+            .add_listener_handler(Box::new(one_listener_handler))
+            .add_listener_handler(Box::new(another_listener_handler))
+            .add_listener_handler(Box::new(clandestine_listener_handler))
             .build();
+        let mut holder = FakeStreamHolder::new();
 
+        subject.initialize_as_privileged(
+            &vec![
+                "SubstratumNode".to_string(),
+                "--dns-servers".to_string(),
+                "1.1.1.1".to_string(),
+                "--ip".to_string(),
+                "1.2.3.4".to_string(),
+                "--data-directory".to_string(),
+                home_dir.display().to_string(),
+            ],
+            &mut holder.streams(),
+        );
         subject.initialize_as_unprivileged(
             &vec![
                 "SubstratumNode".to_string(),
-                "--data-directory".to_string(),
-                home_dir.display().to_string(),
                 "--clandestine-port".to_string(),
                 "1234".to_string(),
             ],
-            &mut FakeStreamHolder::new().streams(),
+            &mut holder.streams(),
         );
 
-        let calls = listener_handler_log_arc.lock().unwrap().dump();
+        let calls = clandestine_listener_handler_log_arc.lock().unwrap().dump();
         assert_eq!(
+            calls,
             vec![
                 "bind_port_and_configuration (1234, PortConfiguration {is_clandestine: true, ...})"
                     .to_string()
             ],
-            calls
         );
     }
 

@@ -4,18 +4,18 @@ use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
 use crate::multi_config::MultiConfig;
 use crate::node_configurator::{
-    common_validators, config_file_arg, consuming_wallet_arg, create_wallet, data_directory_arg,
-    earning_wallet_arg, flushed_write, initialize_database, language_arg, make_multi_config,
-    mnemonic_passphrase_arg, request_new_password, wallet_password_arg, Either, NodeConfigurator,
-    PasswordError, WalletCreationConfig, WalletCreationConfigMaker, EARNING_WALLET_HELP,
-    WALLET_PASSWORD_HELP,
+    app_head, common_validators, config_file_arg, consuming_wallet_arg, create_wallet,
+    data_directory_arg, earning_wallet_arg, flushed_write, initialize_database, language_arg,
+    make_multi_config, mnemonic_passphrase_arg, request_new_password, wallet_password_arg, Either,
+    NodeConfigurator, PasswordError, WalletCreationConfig, WalletCreationConfigMaker,
+    EARNING_WALLET_HELP, WALLET_PASSWORD_HELP,
 };
 use crate::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::wallet::Wallet;
 use bip39::{Language, Mnemonic, MnemonicType};
-use clap::{crate_authors, crate_description, crate_version, value_t, App, AppSettings, Arg};
+use clap::{value_t, App, Arg};
 use indoc::indoc;
 use std::str::FromStr;
 
@@ -59,9 +59,9 @@ const WORD_COUNT_HELP: &str =
 
 const HELP_TEXT: &str = indoc!(
     r"ADDITIONAL HELP:
-    If you want to generate wallets to earn money into and spend money from, try:
+    If you already have a set of wallets you want SubstratumNode to use, try:
 
-        SubstratumNode --help --generate-wallet
+        SubstratumNode --help --recover-wallet
 
     If the Node is already configured with your wallets, and you want to start the Node so that it
     stays running:
@@ -121,20 +121,11 @@ impl Default for NodeConfiguratorGenerateWallet {
 impl NodeConfiguratorGenerateWallet {
     pub fn new() -> Self {
         Self {
-            app: App::new("SubstratumNode")
-                .global_settings(if cfg!(test) {
-                    &[AppSettings::ColorNever]
-                } else {
-                    &[AppSettings::ColorAuto, AppSettings::ColoredHelp]
-                })
-                .version(crate_version!())
-                .author(crate_authors!("\n"))
-                .about(crate_description!())
+            app: app_head()
                 .after_help(HELP_TEXT)
                 .arg(
                     Arg::with_name("generate-wallet")
                         .long("generate-wallet")
-                        .aliases(&["generate-wallet", "generate_wallet"])
                         .required(true)
                         .takes_value(false)
                         .requires_all(&["language", "word-count"])
@@ -153,7 +144,6 @@ impl NodeConfiguratorGenerateWallet {
                 .arg(
                     Arg::with_name("word-count")
                         .long("word-count")
-                        .aliases(&["word-count", "word_count"])
                         .required(true)
                         .value_name("WORD-COUNT")
                         .possible_values(&["12", "15", "18", "21", "24"])
@@ -242,7 +232,7 @@ impl NodeConfiguratorGenerateWallet {
                     Wallet::from_str(address).expect("Address doesn't work anymore");
                 flushed_write(
                     streams.stdout,
-                    &format!("  Earning Wallet: {}", earning_wallet),
+                    &format!("  Earning Wallet: {}\n", earning_wallet),
                 );
             }
             Either::Right(earning_derivation_path) => {
@@ -258,7 +248,7 @@ impl NodeConfiguratorGenerateWallet {
                 flushed_write(
                     streams.stdout,
                     &format!(
-                        "  Earning Wallet ({}): {}",
+                        "  Earning Wallet ({}): {}\n",
                         earning_derivation_path, earning_wallet
                     ),
                 );

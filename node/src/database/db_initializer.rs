@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node-data.db";
-pub const CURRENT_SCHEMA_VERSION: &str = "0.0.6";
+pub const CURRENT_SCHEMA_VERSION: &str = "0.0.7";
 pub const ROPSTEN_CONTRACT_CREATION_BLOCK: u64 = 4_647_463;
 
 pub trait ConnectionWrapper: Debug + Send {
@@ -153,7 +153,7 @@ impl DbInitializerReal {
         );
         Self::set_config_value(
             conn,
-            "consuming_wallet_private_public_key",
+            "consuming_wallet_public_key",
             None,
             "public key for the consuming wallet private key",
         );
@@ -507,7 +507,7 @@ mod tests {
         assert!(clandestine_port >= 1025);
         assert!(clandestine_port < 10000);
         verify(&mut config_vec, "consuming_wallet_derivation_path", None);
-        verify(&mut config_vec, "consuming_wallet_private_public_key", None);
+        verify(&mut config_vec, "consuming_wallet_public_key", None);
         verify(&mut config_vec, "earning_wallet_address", None);
         verify(&mut config_vec, "earning_wallet_derivation_path", None);
         verify(&mut config_vec, "preexisting", Some("yes")); // makes sure we just created this database

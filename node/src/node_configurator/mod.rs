@@ -17,7 +17,7 @@ use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::wallet::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
 use bip39::Language;
-use clap::{value_t, App, Arg};
+use clap::{crate_authors, crate_description, crate_version, value_t, App, AppSettings, Arg};
 use dirs::data_local_dir;
 use lazy_static::lazy_static;
 use rpassword;
@@ -38,35 +38,68 @@ lazy_static! {
     static ref DEFAULT_DATA_DIR_VALUE: String = data_directory_default(&RealDirsWrapper {});
 }
 
-pub const CONSUMING_PRIVATE_KEY_HELP: &str = "Must be 64 hexadecimal digits (case-insensitive)";
-pub const CONSUMING_WALLET_HELP: &str = "The BIP32 derivation path for the wallet from which SubstratumNode should pay others. Defaults to m/44'/60'/0'/0/0";
+pub const CONFIG_FILE_HELP: &str =
+    "Optional TOML file containing configuration that doesn't often change. Should contain only \
+     scalar items, string or numeric, whose names are exactly the same as the command-line parameters \
+     they replace (except no '--' prefix). If you specify a relative path, or no path, the Node will \
+     look for your config file starting in the --data-directory. If you specify an absolute path, \
+     --data-directory will be ignored when searching for the config file. A few parameters \
+     (such as --config-file, --generate-wallet, and --recover-wallet) must not be specified in a config file.";
+pub const CONSUMING_PRIVATE_KEY_HELP: &str = "The private key for the Ethereum wallet from which you wish to pay \
+     other Nodes for routing and exit services. Mostly this is used for testing; be careful using it for real \
+     traffic, because this value is very sensitive: anyone who sees it can use it to drain your consuming wallet. \
+     If you use it, don't put it on the command line (the environment is good, the config file is less so), \
+     make sure you haven't already set up a consuming wallet with a derivation path, and make sure that you always \
+     supply exactly the same private key every time you run the Node. A consuming private key is 64 case-insensitive \
+     hexadecimal digits.";
+pub const CONSUMING_WALLET_HELP: &str = "The BIP32 derivation path for the wallet from which your Node \
+     should pay other Nodes for routing and exit services. (If the path includes single quotes, enclose it in \
+     double quotes.) Defaults to m/44'/60'/0'/0/0.";
+pub const DATA_DIRECTORY_HELP: &str =
+    "Directory in which the Node will store its persistent state, including at \
+     least its database and by default its configuration file as well.";
 pub const EARNING_WALLET_HELP: &str =
-    "Denotes the wallet into which other SubstratumNodes will pay. May either be a BIP32 derivation path (defaults to m/44'/60'/0'/0/1) or an Ethereum wallet address. \
-     Addresses must begin with 0x followed by 40 hexadecimal digits (case-insensitive)";
+    "Denotes the wallet into which other Nodes will pay yours for its routing and exit services. May either be a \
+     BIP32 derivation path (defaults to m/44'/60'/0'/0/1) or an Ethereum wallet address. (If the derivation path \
+     includes single quotes, enclose it in double quotes.) Addresses must begin with 0x followed by 40 hexadecimal \
+     digits (case-insensitive)";
 pub const LANGUAGE_HELP: &str = "The language of the mnemonic phrase.";
 pub const MNEMONIC_PASSPHRASE_HELP: &str =
-    "A passphrase for the mnemonic phrase. Cannot be changed later and still produce \
-     the same addresses. Not valid as a configuration file item nor an environment variable.";
+    "A passphrase for the mnemonic phrase. Cannot be changed later and still produce the same addresses. This is a \
+     secret; providing it on the command line or in a config file is insecure and unwise. If you don't specify it anywhere, \
+     you'll be prompted for it at the console.";
 pub const WALLET_PASSWORD_HELP: &str =
     "A password or phrase to encrypt your consuming wallet in the SubstratumNode database or decrypt a keystore file. Can be changed \
-     later and still produce the same addresses.";
+     later and still produce the same addresses. This is a secret; providing it on the command line or in a cofig file is \
+     insecure and unwise. If you don't specify it anywhere, you'll be prompted for it at the console.";
+
+pub fn app_head() -> App<'static, 'static> {
+    App::new("SubstratumNode")
+        .global_settings(if cfg!(test) {
+            &[AppSettings::ColorNever]
+        } else {
+            &[AppSettings::ColorAuto, AppSettings::ColoredHelp]
+        })
+        .version(crate_version!())
+        .author(crate_authors!("\n"))
+        .about(crate_description!())
+}
 
 // These Args are needed in more than one clap schema. To avoid code duplication, they're defined here and referred
 // to from multiple places.
 pub fn config_file_arg<'a>() -> Arg<'a, 'a> {
     Arg::with_name("config-file")
         .long("config-file")
-        .aliases(&["config-file", "config_file"])
         .value_name("FILE-PATH")
         .default_value("config.toml")
         .takes_value(true)
         .required(false)
+        .help(CONFIG_FILE_HELP)
 }
 
 pub fn consuming_wallet_arg<'a>() -> Arg<'a, 'a> {
     Arg::with_name("consuming-wallet")
         .long("consuming-wallet")
-        .aliases(&["consuming-wallet", "consuming_wallet"])
         .value_name("CONSUMING-WALLET")
         .empty_values(false)
         .validator(common_validators::validate_derivation_path)
@@ -76,12 +109,12 @@ pub fn consuming_wallet_arg<'a>() -> Arg<'a, 'a> {
 pub fn data_directory_arg<'a>() -> Arg<'a, 'a> {
     Arg::with_name("data-directory")
         .long("data-directory")
-        .aliases(&["data-directory", "data_directory"])
         .value_name("DATA-DIRECTORY")
         .required(false)
         .takes_value(true)
         .empty_values(false)
         .default_value(&DEFAULT_DATA_DIR_VALUE)
+        .help(DATA_DIRECTORY_HELP)
 }
 
 pub fn earning_wallet_arg<F>(help: &str, validator: F) -> Arg
@@ -91,12 +124,6 @@ where
 {
     Arg::with_name("earning-wallet")
         .long("earning-wallet")
-        .aliases(&[
-            "earning-wallet",
-            "earning_wallet",
-            "wallet-address",
-            "wallet_address",
-        ])
         .value_name("EARNING-WALLET")
         .required(false)
         .takes_value(true)
@@ -119,7 +146,6 @@ pub fn language_arg<'a>() -> Arg<'a, 'a> {
 pub fn mnemonic_passphrase_arg<'a>() -> Arg<'a, 'a> {
     Arg::with_name("mnemonic-passphrase")
         .long("mnemonic-passphrase")
-        .aliases(&["mnemonic-passphrase", "mnemonic_passphrase"])
         .value_name("MNEMONIC-PASSPHRASE")
         .required(false)
         .takes_value(true)
@@ -131,7 +157,6 @@ pub fn mnemonic_passphrase_arg<'a>() -> Arg<'a, 'a> {
 pub fn wallet_password_arg(help: &str) -> Arg {
     Arg::with_name("wallet-password")
         .long("wallet-password")
-        .aliases(&["wallet-password", "wallet_password"])
         .value_name("WALLET-PASSWORD")
         .required(false)
         .takes_value(true)
@@ -198,10 +223,16 @@ pub fn create_wallet(config: &WalletCreationConfig, persistent_config: &Persiste
         );
         if let Some(consuming_derivation_path) = &derivation_path_info.consuming_derivation_path_opt
         {
-            persistent_config.set_consuming_wallet_derivation_path(consuming_derivation_path)
+            persistent_config.set_consuming_wallet_derivation_path(
+                consuming_derivation_path,
+                &derivation_path_info.wallet_password,
+            )
         }
         if let Some(earning_derivation_path) = &derivation_path_info.earning_derivation_path_opt {
-            persistent_config.set_earning_wallet_derivation_path(earning_derivation_path)
+            persistent_config.set_earning_wallet_derivation_path(
+                earning_derivation_path,
+                &derivation_path_info.wallet_password,
+            )
         }
     }
 }
@@ -257,7 +288,7 @@ pub fn request_wallet_decryption_password(
     encrypted_mnemonic_seed: &str,
 ) -> Option<String> {
     if let Some(preamble) = possible_preamble {
-        flushed_write(streams.stdout, preamble)
+        flushed_write(streams.stdout, &format!("{}\n", preamble))
     };
     let verifier = move |password: &str| {
         if password.is_empty() {
@@ -387,12 +418,13 @@ pub fn possible_reader_from_stream(
 }
 
 pub fn data_directory_default(dirs_wrapper: &DirsWrapper) -> String {
-    dirs_wrapper
-        .data_dir()
-        .unwrap_or_else(|| PathBuf::from(""))
-        .to_str()
-        .expect("Internal Error")
-        .to_string()
+    match dirs_wrapper.data_dir() {
+        Some(path) => path.join("Substratum"),
+        None => PathBuf::from(""),
+    }
+    .to_str()
+    .expect("Internal Error")
+    .to_string()
 }
 
 pub fn flushed_write(target: &mut io::Write, string: &str) {
@@ -733,7 +765,8 @@ mod tests {
 
         let result = data_directory_default(&mock_dirs_wrapper);
 
-        assert_eq!(String::from("mocked/path"), result);
+        let expected = PathBuf::from("mocked/path").join("Substratum");
+        assert_eq!(result, expected.as_path().to_str().unwrap().to_string());
     }
 
     fn determine_config_file_path_app() -> App<'static, 'static> {
@@ -747,7 +780,7 @@ mod tests {
         let _guard = EnvironmentGuard::new();
         let args: Vec<String> = vec![
             "SubstratumNode",
-            "--clandestine_port",
+            "--clandestine-port",
             "2345",
             "--data-directory",
             "data-dir",
@@ -953,7 +986,7 @@ mod tests {
         assert_eq!(actual, Some("Too Many S3cr3ts!".to_string()));
         assert_eq!(
             stdout_writer.get_string(),
-            "Decrypt wallet\
+            "Decrypt wallet\n\
              Enter password: "
                 .to_string()
         );
@@ -983,7 +1016,7 @@ mod tests {
         assert_eq!(actual, Some("booga".to_string()));
         assert_eq!(
             stdout_writer.get_string(),
-            "Decrypt wallet\
+            "Decrypt wallet\n\
              Enter password: \
              Password must not be blank. Try again.\n\
              Enter password: "
@@ -1018,7 +1051,7 @@ mod tests {
         assert_eq!(actual, None);
         assert_eq!(
             stdout_writer.get_string(),
-            "Decrypt wallet\
+            "Decrypt wallet\n\
              Enter password: \
              Incorrect password. Try again.\n\
              Enter password: \
@@ -1340,7 +1373,10 @@ mod tests {
                 .unwrap();
         assert_eq!(
             *set_consuming_wallet_derivation_path_params,
-            vec!["m/44'/60'/1'/2/3".to_string()]
+            vec![(
+                "m/44'/60'/1'/2/3".to_string(),
+                "wallet password".to_string()
+            )]
         );
         let set_earning_wallet_derivation_path_params =
             set_earning_wallet_derivation_path_params_arc
@@ -1348,7 +1384,10 @@ mod tests {
                 .unwrap();
         assert_eq!(
             *set_earning_wallet_derivation_path_params,
-            vec!["m/44'/60'/3'/2/1".to_string()]
+            vec![(
+                "m/44'/60'/3'/2/1".to_string(),
+                "wallet password".to_string()
+            )]
         );
     }
 
@@ -1388,7 +1427,10 @@ mod tests {
                 .unwrap();
         assert_eq!(
             *set_consuming_wallet_derivation_path_params,
-            vec!["m/44'/60'/1'/2/3".to_string()]
+            vec![(
+                "m/44'/60'/1'/2/3".to_string(),
+                "wallet password".to_string()
+            )]
         );
         let set_earning_wallet_address_params =
             set_earning_wallet_address_params_arc.lock().unwrap();

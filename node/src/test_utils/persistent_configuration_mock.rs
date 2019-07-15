@@ -17,15 +17,17 @@ pub struct PersistentConfigurationMock {
     mnemonic_seed_params: Arc<Mutex<Vec<String>>>,
     mnemonic_seed_results: RefCell<Vec<Result<PlainData, Bip39Error>>>,
     set_mnemonic_seed_params: Arc<Mutex<Vec<MnemonicSeedParam>>>,
-    consuming_wallet_private_public_key_results: RefCell<Vec<Option<String>>>,
-    consuming_wallet_private_public_key_params: Arc<Mutex<Vec<String>>>,
+    consuming_wallet_public_key_results: RefCell<Vec<Option<String>>>,
+    consuming_wallet_public_key_params: Arc<Mutex<Vec<String>>>,
     consuming_wallet_derivation_path_results: RefCell<Vec<Option<String>>>,
-    set_consuming_wallet_derivation_path_params: Arc<Mutex<Vec<String>>>,
-    set_consuming_wallet_private_public_key_params: Arc<Mutex<Vec<PlainData>>>,
+    set_consuming_wallet_derivation_path_params: Arc<Mutex<Vec<(String, String)>>>,
+    set_consuming_wallet_public_key_params: Arc<Mutex<Vec<PlainData>>>,
     earning_wallet_from_derivation_path_params: Arc<Mutex<Vec<String>>>,
     earning_wallet_from_derivation_path_results: RefCell<Vec<Option<Wallet>>>,
     earning_wallet_from_address_results: RefCell<Vec<Option<Wallet>>>,
-    set_earning_wallet_derivation_path_params: Arc<Mutex<Vec<String>>>,
+    earning_wallet_derivation_path_results: RefCell<Vec<Option<String>>>,
+    earning_wallet_address_results: RefCell<Vec<Option<String>>>,
+    set_earning_wallet_derivation_path_params: Arc<Mutex<Vec<(String, String)>>>,
     set_earning_wallet_address_params: Arc<Mutex<Vec<String>>>,
     start_block_results: RefCell<Vec<u64>>,
     set_start_block_transactionally_results: RefCell<Vec<Result<(), String>>>,
@@ -48,48 +50,48 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         Self::result_from(&self.encrypted_mnemonic_seed_results)
     }
 
-    fn mnemonic_seed(&self, db_password: &str) -> Result<PlainData, Bip39Error> {
+    fn mnemonic_seed(&self, wallet_password: &str) -> Result<PlainData, Bip39Error> {
         self.mnemonic_seed_params
             .lock()
             .unwrap()
-            .push(db_password.to_string());
+            .push(wallet_password.to_string());
         Self::result_from(&self.mnemonic_seed_results)
     }
 
-    fn set_mnemonic_seed(&self, seed: &AsRef<[u8]>, db_password: &str) {
+    fn set_mnemonic_seed(&self, seed: &AsRef<[u8]>, wallet_password: &str) {
         self.set_mnemonic_seed_params
             .lock()
             .unwrap()
-            .push((seed.as_ref().to_vec(), db_password.to_string()));
+            .push((seed.as_ref().to_vec(), wallet_password.to_string()));
     }
 
-    fn consuming_wallet_private_public_key(&self) -> Option<String> {
-        Self::result_from(&self.consuming_wallet_private_public_key_results)
+    fn consuming_wallet_public_key(&self) -> Option<String> {
+        Self::result_from(&self.consuming_wallet_public_key_results)
     }
 
     fn consuming_wallet_derivation_path(&self) -> Option<String> {
         Self::result_from(&self.consuming_wallet_derivation_path_results)
     }
 
-    fn set_consuming_wallet_derivation_path(&self, derivation_path: &str) {
+    fn set_consuming_wallet_derivation_path(&self, derivation_path: &str, wallet_password: &str) {
         self.set_consuming_wallet_derivation_path_params
             .lock()
             .unwrap()
-            .push(derivation_path.to_string());
+            .push((derivation_path.to_string(), wallet_password.to_string()));
     }
 
-    fn set_consuming_wallet_private_public_key(&self, public_key: &PlainData) {
-        self.set_consuming_wallet_private_public_key_params
+    fn set_consuming_wallet_public_key(&self, public_key: &PlainData) {
+        self.set_consuming_wallet_public_key_params
             .lock()
             .unwrap()
             .push(public_key.clone());
     }
 
-    fn earning_wallet_from_derivation_path(&self, db_password: &str) -> Option<Wallet> {
+    fn earning_wallet_from_derivation_path(&self, wallet_password: &str) -> Option<Wallet> {
         self.earning_wallet_from_derivation_path_params
             .lock()
             .unwrap()
-            .push(db_password.to_string());
+            .push(wallet_password.to_string());
         Self::result_from(&self.earning_wallet_from_derivation_path_results)
     }
 
@@ -97,11 +99,19 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         Self::result_from(&self.earning_wallet_from_address_results)
     }
 
-    fn set_earning_wallet_derivation_path(&self, derivation_path: &str) {
+    fn earning_wallet_derivation_path(&self) -> Option<String> {
+        Self::result_from(&self.earning_wallet_derivation_path_results)
+    }
+
+    fn earning_wallet_address(&self) -> Option<String> {
+        Self::result_from(&self.earning_wallet_address_results)
+    }
+
+    fn set_earning_wallet_derivation_path(&self, derivation_path: &str, wallet_password: &str) {
         self.set_earning_wallet_derivation_path_params
             .lock()
             .unwrap()
-            .push(derivation_path.to_string());
+            .push((derivation_path.to_string(), wallet_password.to_string()));
     }
 
     fn set_earning_wallet_address(&self, address: &str) {
@@ -183,21 +193,21 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn consuming_wallet_private_public_key_result(
+    pub fn consuming_wallet_public_key_result(
         self,
         result: Option<String>,
     ) -> PersistentConfigurationMock {
-        self.consuming_wallet_private_public_key_results
+        self.consuming_wallet_public_key_results
             .borrow_mut()
             .push(result);
         self
     }
 
-    pub fn consuming_wallet_private_public_key_params(
+    pub fn consuming_wallet_public_key_params(
         mut self,
         params: &Arc<Mutex<Vec<String>>>,
     ) -> PersistentConfigurationMock {
-        self.consuming_wallet_private_public_key_params = params.clone();
+        self.consuming_wallet_public_key_params = params.clone();
         self
     }
 
@@ -213,17 +223,17 @@ impl PersistentConfigurationMock {
 
     pub fn set_consuming_wallet_derivation_path_params(
         mut self,
-        params: &Arc<Mutex<Vec<String>>>,
+        params: &Arc<Mutex<Vec<(String, String)>>>,
     ) -> PersistentConfigurationMock {
         self.set_consuming_wallet_derivation_path_params = params.clone();
         self
     }
 
-    pub fn set_consuming_wallet_private_public_key_params(
+    pub fn set_consuming_wallet_public_key_params(
         mut self,
         params: &Arc<Mutex<Vec<PlainData>>>,
     ) -> PersistentConfigurationMock {
-        self.set_consuming_wallet_private_public_key_params = params.clone();
+        self.set_consuming_wallet_public_key_params = params.clone();
         self
     }
 
@@ -247,9 +257,29 @@ impl PersistentConfigurationMock {
         self
     }
 
+    pub fn earning_wallet_address_result(
+        self,
+        result: Option<String>,
+    ) -> PersistentConfigurationMock {
+        self.earning_wallet_address_results
+            .borrow_mut()
+            .push(result);
+        self
+    }
+
+    pub fn earning_wallet_derivation_path_result(
+        self,
+        result: Option<String>,
+    ) -> PersistentConfigurationMock {
+        self.earning_wallet_derivation_path_results
+            .borrow_mut()
+            .push(result);
+        self
+    }
+
     pub fn set_earning_wallet_derivation_path_params(
         mut self,
-        params: &Arc<Mutex<Vec<String>>>,
+        params: &Arc<Mutex<Vec<(String, String)>>>,
     ) -> PersistentConfigurationMock {
         self.set_earning_wallet_derivation_path_params = params.clone();
         self

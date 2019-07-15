@@ -207,6 +207,7 @@ impl SubstratumNode {
         let mut command = command_to_start();
         let mut args = generate_args();
         args.extend(get_extra_args(Some(config)));
+        eprintln!("{:?}", args);
         command.args(&args);
         command
     }
@@ -216,6 +217,7 @@ impl SubstratumNode {
         let mut command = command_to_start();
         let mut args = recover_args();
         args.extend(get_extra_args(Some(config)));
+        eprintln!("{:?}", args);
         command.args(&args);
         command
     }

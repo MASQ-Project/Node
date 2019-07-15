@@ -98,7 +98,6 @@ impl PrivilegeDropper for PrivilegeDropperReal {
             }
 
             let uid = sudo_uid.unwrap_or_else(|| self.id_wrapper.getuid());
-            dbg!(sudo_uid);
             let uid_result = self.id_wrapper.setuid(uid);
             if uid_result != 0 {
                 panic!("Error code {} resetting user id", uid_result)
