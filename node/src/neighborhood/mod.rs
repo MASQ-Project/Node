@@ -43,6 +43,7 @@ use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
+use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::utils::regenerate_signed_gossip;
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
@@ -87,6 +88,14 @@ impl Handler<BindMessage> for Neighborhood {
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.hopper = Some(msg.peer_actors.hopper.from_hopper_client);
         self.hopper_no_lookup = Some(msg.peer_actors.hopper.from_hopper_client_no_lookup);
+    }
+}
+
+impl Handler<SetConsumingWalletMessage> for Neighborhood {
+    type Result = ();
+
+    fn handle(&mut self, msg: SetConsumingWalletMessage, _ctx: &mut Self::Context) -> Self::Result {
+        self.consuming_wallet_opt = Some(msg.wallet);
     }
 }
 
@@ -372,6 +381,7 @@ impl Neighborhood {
             dispatcher_node_query: addr.clone().recipient::<DispatcherNodeQueryMessage>(),
             remove_neighbor: addr.clone().recipient::<RemoveNeighborMessage>(),
             stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
+            set_consuming_wallet_sub: addr.clone().recipient::<SetConsumingWalletMessage>(),
         }
     }
 
@@ -949,95 +959,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use tokio::prelude::Future;
-
-    fn make_standard_subject() -> Neighborhood {
-        let root_node = make_global_cryptde_node_record(9999, true);
-        let neighbor_node = make_node_record(9998, true);
-        neighborhood_from_nodes(&root_node, Some(&neighbor_node))
-    }
-
-    pub struct GossipAcceptorMock {
-        handle_params: Arc<Mutex<Vec<(NeighborhoodDatabase, Vec<AccessibleGossipRecord>, IpAddr)>>>,
-        handle_results: RefCell<Vec<GossipAcceptanceResult>>,
-    }
-
-    impl GossipAcceptor for GossipAcceptorMock {
-        fn handle(
-            &self,
-            database: &mut NeighborhoodDatabase,
-            agrs: Vec<AccessibleGossipRecord>,
-            gossip_source: IpAddr,
-        ) -> GossipAcceptanceResult {
-            self.handle_params
-                .lock()
-                .unwrap()
-                .push((database.clone(), agrs, gossip_source));
-            self.handle_results.borrow_mut().remove(0)
-        }
-    }
-
-    impl GossipAcceptorMock {
-        pub fn new() -> GossipAcceptorMock {
-            GossipAcceptorMock {
-                handle_params: Arc::new(Mutex::new(vec![])),
-                handle_results: RefCell::new(vec![]),
-            }
-        }
-
-        pub fn handle_params(
-            mut self,
-            params_arc: &Arc<
-                Mutex<Vec<(NeighborhoodDatabase, Vec<AccessibleGossipRecord>, IpAddr)>>,
-            >,
-        ) -> GossipAcceptorMock {
-            self.handle_params = params_arc.clone();
-            self
-        }
-
-        pub fn handle_result(self, result: GossipAcceptanceResult) -> GossipAcceptorMock {
-            self.handle_results.borrow_mut().push(result);
-            self
-        }
-    }
-
-    #[derive(Default)]
-    pub struct GossipProducerMock {
-        produce_params: Arc<Mutex<Vec<(NeighborhoodDatabase, PublicKey)>>>,
-        produce_results: RefCell<Vec<Gossip>>,
-    }
-
-    impl GossipProducer for GossipProducerMock {
-        fn produce(&self, database: &NeighborhoodDatabase, target: &PublicKey) -> Gossip {
-            self.produce_params
-                .lock()
-                .unwrap()
-                .push((database.clone(), target.clone()));
-            self.produce_results.borrow_mut().remove(0)
-        }
-
-        fn produce_debut(&self, _database: &NeighborhoodDatabase) -> Gossip {
-            unimplemented!()
-        }
-    }
-
-    impl GossipProducerMock {
-        pub fn new() -> GossipProducerMock {
-            Self::default()
-        }
-
-        pub fn produce_params(
-            mut self,
-            params_arc: &Arc<Mutex<Vec<(NeighborhoodDatabase, PublicKey)>>>,
-        ) -> GossipProducerMock {
-            self.produce_params = params_arc.clone();
-            self
-        }
-
-        pub fn produce_result(self, result: Gossip) -> GossipProducerMock {
-            self.produce_results.borrow_mut().push(result);
-            self
-        }
-    }
 
     #[test]
     #[should_panic(
@@ -1699,18 +1620,12 @@ mod tests {
 
         System::current().stop_with_code(0);
         system.run();
-        let segment = |nodes: Vec<&NodeRecord>, component: Component| {
-            RouteSegment::new(
-                nodes.into_iter().map(|n| n.public_key()).collect(),
-                component,
-            )
-        };
 
         let result = data_route.wait().unwrap().unwrap();
         let expected_response = RouteQueryResponse {
             route: Route::round_trip(
-                segment(vec![p, q, r], Component::ProxyClient),
-                segment(vec![r, q, p], Component::ProxyServer),
+                segment(&[p, q, r], &Component::ProxyClient),
+                segment(&[r, q, p], &Component::ProxyServer),
                 cryptde,
                 consuming_wallet_opt,
                 0,
@@ -1885,20 +1800,7 @@ mod tests {
     fn return_route_ids_increase() {
         let cryptde = cryptde();
         let system = System::new("return_route_ids_increase");
-        let mut subject = make_standard_subject();
-        let o = &subject.neighborhood_database.root().clone();
-        let r = &make_node_record(4567, false);
-        let e = &make_node_record(5678, false);
-        {
-            let db = &mut subject.neighborhood_database;
-            db.add_node(r.clone()).unwrap();
-            db.add_node(e.clone()).unwrap();
-            let mut dual_edge = |a: &NodeRecord, b: &NodeRecord| {
-                db.add_arbitrary_full_neighbor(a.public_key(), b.public_key())
-            };
-            dual_edge(o, r);
-            dual_edge(r, e);
-        }
+        let (_, _, _, subject) = make_o_r_e_subject();
 
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
@@ -1924,6 +1826,48 @@ mod tests {
         };
         assert_eq!(juicy_parts(result_0), (0, 0));
         assert_eq!(juicy_parts(result_1), (1, 1));
+    }
+
+    #[test]
+    fn can_update_consuming_wallet() {
+        let cryptde = cryptde();
+        let system = System::new("can_update_consuming_wallet");
+        let (o, r, e, subject) = make_o_r_e_subject();
+        let addr: Addr<Neighborhood> = subject.start();
+        let set_wallet_sub = addr.clone().recipient::<SetConsumingWalletMessage>();
+        let route_sub = addr.recipient::<RouteQueryMessage>();
+        let expected_new_wallet = make_paying_wallet(b"new consuming wallet");
+        let expected_before_route = Route::round_trip(
+            segment(&[&o, &r, &e], &Component::ProxyClient),
+            segment(&[&e, &r, &o], &Component::ProxyServer),
+            cryptde,
+            Some(make_paying_wallet(b"consuming")),
+            0,
+        )
+        .unwrap();
+        let expected_after_route = Route::round_trip(
+            segment(&[&o, &r, &e], &Component::ProxyClient),
+            segment(&[&e, &r, &o], &Component::ProxyServer),
+            cryptde,
+            Some(expected_new_wallet.clone()),
+            1,
+        )
+        .unwrap();
+
+        let route_request_1 = route_sub.send(RouteQueryMessage::data_indefinite_route_request(2));
+        let _ = set_wallet_sub.try_send(SetConsumingWalletMessage {
+            wallet: expected_new_wallet,
+        });
+        let route_request_2 = route_sub.send(RouteQueryMessage::data_indefinite_route_request(2));
+
+        System::current().stop();
+        system.run();
+
+        let route_1 = route_request_1.wait().unwrap().unwrap().route;
+        let route_2 = route_request_2.wait().unwrap().unwrap().route;
+
+        assert_eq!(route_1, expected_before_route);
+        assert_eq!(route_2, expected_after_route);
     }
 
     #[test]
@@ -3311,6 +3255,120 @@ mod tests {
             shutdown_neighbor_node.public_key(),
             shutdown_neighbor_node_socket_addr
         ));
+    }
+
+    fn make_standard_subject() -> Neighborhood {
+        let root_node = make_global_cryptde_node_record(9999, true);
+        let neighbor_node = make_node_record(9998, true);
+        neighborhood_from_nodes(&root_node, Some(&neighbor_node))
+    }
+
+    fn make_o_r_e_subject() -> (NodeRecord, NodeRecord, NodeRecord, Neighborhood) {
+        let mut subject = make_standard_subject();
+        let o = &subject.neighborhood_database.root().clone();
+        let r = &make_node_record(4567, false);
+        let e = &make_node_record(5678, false);
+        {
+            let db = &mut subject.neighborhood_database;
+            db.add_node(r.clone()).unwrap();
+            db.add_node(e.clone()).unwrap();
+            let mut dual_edge = |a: &NodeRecord, b: &NodeRecord| {
+                db.add_arbitrary_full_neighbor(a.public_key(), b.public_key())
+            };
+            dual_edge(o, r);
+            dual_edge(r, e);
+        }
+        (o.clone(), r.clone(), e.clone(), subject)
+    }
+
+    fn segment(nodes: &[&NodeRecord], component: &Component) -> RouteSegment {
+        RouteSegment::new(
+            nodes.into_iter().map(|n| n.public_key()).collect(),
+            component.clone(),
+        )
+    }
+
+    pub struct GossipAcceptorMock {
+        handle_params: Arc<Mutex<Vec<(NeighborhoodDatabase, Vec<AccessibleGossipRecord>, IpAddr)>>>,
+        handle_results: RefCell<Vec<GossipAcceptanceResult>>,
+    }
+
+    impl GossipAcceptor for GossipAcceptorMock {
+        fn handle(
+            &self,
+            database: &mut NeighborhoodDatabase,
+            agrs: Vec<AccessibleGossipRecord>,
+            gossip_source: IpAddr,
+        ) -> GossipAcceptanceResult {
+            self.handle_params
+                .lock()
+                .unwrap()
+                .push((database.clone(), agrs, gossip_source));
+            self.handle_results.borrow_mut().remove(0)
+        }
+    }
+
+    impl GossipAcceptorMock {
+        pub fn new() -> GossipAcceptorMock {
+            GossipAcceptorMock {
+                handle_params: Arc::new(Mutex::new(vec![])),
+                handle_results: RefCell::new(vec![]),
+            }
+        }
+
+        pub fn handle_params(
+            mut self,
+            params_arc: &Arc<
+                Mutex<Vec<(NeighborhoodDatabase, Vec<AccessibleGossipRecord>, IpAddr)>>,
+            >,
+        ) -> GossipAcceptorMock {
+            self.handle_params = params_arc.clone();
+            self
+        }
+
+        pub fn handle_result(self, result: GossipAcceptanceResult) -> GossipAcceptorMock {
+            self.handle_results.borrow_mut().push(result);
+            self
+        }
+    }
+
+    #[derive(Default)]
+    pub struct GossipProducerMock {
+        produce_params: Arc<Mutex<Vec<(NeighborhoodDatabase, PublicKey)>>>,
+        produce_results: RefCell<Vec<Gossip>>,
+    }
+
+    impl GossipProducer for GossipProducerMock {
+        fn produce(&self, database: &NeighborhoodDatabase, target: &PublicKey) -> Gossip {
+            self.produce_params
+                .lock()
+                .unwrap()
+                .push((database.clone(), target.clone()));
+            self.produce_results.borrow_mut().remove(0)
+        }
+
+        fn produce_debut(&self, _database: &NeighborhoodDatabase) -> Gossip {
+            unimplemented!()
+        }
+    }
+
+    impl GossipProducerMock {
+        pub fn new() -> GossipProducerMock {
+            Self::default()
+        }
+
+        pub fn produce_params(
+            mut self,
+            params_arc: &Arc<Mutex<Vec<(NeighborhoodDatabase, PublicKey)>>>,
+        ) -> GossipProducerMock {
+            self.produce_params = params_arc.clone();
+            self
+        }
+
+        pub fn produce_result(self, result: Gossip) -> GossipProducerMock {
+            self.produce_results.borrow_mut().push(result);
+            self
+        }
     }
 
     fn bc_from_nc_plus(

@@ -30,6 +30,7 @@ use crate::sub_lib::proxy_client::{ClientResponsePayload, InboundServerData};
 use crate::sub_lib::proxy_client::{DnsResolveFailure, ProxyClientSubs};
 use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::proxy_server::{AddReturnRouteMessage, AddRouteMessage, ClientRequestPayload};
+use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
@@ -105,6 +106,7 @@ recorder_message_handler!(ReportRoutingServiceConsumedMessage);
 recorder_message_handler!(ReportExitServiceConsumedMessage);
 recorder_message_handler!(ReportAccountsPayable);
 recorder_message_handler!(SetWalletPasswordMsg);
+recorder_message_handler!(SetConsumingWalletMessage);
 recorder_message_handler!(DnsResolveFailure);
 recorder_message_handler!(NodeRecordMetadataMessage);
 recorder_message_handler!(ReceivedPayments);
@@ -343,6 +345,7 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
         dispatcher_node_query: addr.clone().recipient::<DispatcherNodeQueryMessage>(),
         remove_neighbor: addr.clone().recipient::<RemoveNeighborMessage>(),
         stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
+        set_consuming_wallet_sub: addr.clone().recipient::<SetConsumingWalletMessage>(),
     }
 }
 

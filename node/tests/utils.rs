@@ -1,12 +1,12 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use std::env;
-use std::fs::File;
-use std::io::{ErrorKind, Read};
+use std::fs::OpenOptions;
+use std::io;
+use std::io::Read;
 use std::ops::Drop;
 use std::path::Path;
-use std::process::Child;
-use std::process::Command;
+use std::process;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
@@ -14,7 +14,7 @@ use std::time::Instant;
 pub struct SubstratumNode {
     logfile_stream: Box<dyn Read>,
     logfile_contents: String,
-    child: Child,
+    child: process::Child,
 }
 
 pub struct CommandConfig {
@@ -41,7 +41,7 @@ impl CommandConfig {
 
 impl Drop for SubstratumNode {
     fn drop(&mut self) {
-        self.kill();
+        let _ = self.kill();
     }
 }
 
@@ -65,7 +65,13 @@ impl SubstratumNode {
         let mut command = SubstratumNode::make_node_command(config);
         let child = command.spawn().unwrap();
         thread::sleep(Duration::from_millis(500)); // needs time to open logfile and sockets
-        let stream = File::open(Self::path_to_logfile().to_str().unwrap()).unwrap();
+        let stream = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(Self::path_to_logfile().to_str().unwrap())
+            .unwrap();
         SubstratumNode {
             logfile_stream: Box::new(stream),
             logfile_contents: String::new(),
@@ -77,7 +83,13 @@ impl SubstratumNode {
     pub fn run_generate(config: CommandConfig) -> String {
         let mut command = SubstratumNode::make_generate_command(config);
         let _output = command.output().unwrap();
-        let mut stream = File::open(Self::path_to_logfile().to_str().unwrap()).unwrap();
+        let mut stream = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(Self::path_to_logfile().to_str().unwrap())
+            .unwrap();
         let mut console_contents = String::new();
         stream.read_to_string(&mut console_contents).unwrap();
         console_contents
@@ -87,7 +99,13 @@ impl SubstratumNode {
     pub fn run_recover(config: CommandConfig) -> String {
         let mut command = SubstratumNode::make_recover_command(config);
         let _output = command.output().unwrap();
-        let mut stream = File::open(Self::path_to_logfile().to_str().unwrap()).unwrap();
+        let mut stream = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(Self::path_to_logfile().to_str().unwrap())
+            .unwrap();
         let mut console_contents = String::new();
         stream.read_to_string(&mut console_contents).unwrap();
         console_contents
@@ -136,18 +154,14 @@ impl SubstratumNode {
     }
 
     #[cfg(not(windows))]
-    pub fn kill(&mut self) {
-        match self.child.kill() {
-            Ok(_) => (),
-            Err(ref e) if e.kind() == ErrorKind::InvalidInput => (),
-            Err(e) => panic!("Couldn't kill running node: {}", e),
-        }
-        self.child.wait().expect("Wait failed");
+    pub fn kill(&mut self) -> Result<process::ExitStatus, io::Error> {
+        self.child.kill()?;
+        self.child.wait()
     }
 
     #[cfg(windows)]
     pub fn kill(&mut self) {
-        let mut command = Command::new("taskkill");
+        let mut command = process::Command::new("taskkill");
         command.args(&vec!["/IM", "SubstratumNode.exe", "/F"]);
         let _ = command.output().expect("Couldn't kill SubstratumNode.exe");
     }
@@ -156,7 +170,7 @@ impl SubstratumNode {
         let database = Self::path_to_database();
         match std::fs::remove_file(database.clone()) {
             Ok(_) => (),
-            Err(ref e) if e.kind() == ErrorKind::NotFound => (),
+            Err(ref e) if e.kind() == io::ErrorKind::NotFound => (),
             Err(e) => panic!(
                 "Couldn't remove preexisting database at {:?}: {}",
                 database, e
@@ -179,7 +193,7 @@ impl SubstratumNode {
         second_milliseconds + nanosecond_milliseconds
     }
 
-    fn make_node_command(config: Option<CommandConfig>) -> Command {
+    fn make_node_command(config: Option<CommandConfig>) -> process::Command {
         Self::remove_database();
         let mut command = command_to_start();
         let mut args = standard_args();
@@ -188,7 +202,7 @@ impl SubstratumNode {
         command
     }
 
-    fn make_generate_command(config: CommandConfig) -> Command {
+    fn make_generate_command(config: CommandConfig) -> process::Command {
         Self::remove_database();
         let mut command = command_to_start();
         let mut args = generate_args();
@@ -197,7 +211,7 @@ impl SubstratumNode {
         command
     }
 
-    fn make_recover_command(config: CommandConfig) -> Command {
+    fn make_recover_command(config: CommandConfig) -> process::Command {
         Self::remove_database();
         let mut command = command_to_start();
         let mut args = recover_args();
@@ -208,8 +222,8 @@ impl SubstratumNode {
 }
 
 #[cfg(windows)]
-fn command_to_start() -> Command {
-    Command::new("cmd")
+fn command_to_start() -> process::Command {
+    process::Command::new("cmd")
 }
 
 #[cfg(windows)]
@@ -267,7 +281,7 @@ fn node_command() -> String {
 }
 
 #[cfg(not(windows))]
-fn command_to_start() -> Command {
+fn command_to_start() -> process::Command {
     let test_command = env::args().next().unwrap();
     let debug_or_release = test_command
         .split("/")
@@ -277,7 +291,7 @@ fn command_to_start() -> Command {
         .unwrap();
     let bin_dir = &format!("target/{}", debug_or_release);
     let command_to_start = &format!("{}/SubstratumNode", bin_dir);
-    Command::new(command_to_start)
+    process::Command::new(command_to_start)
 }
 
 #[cfg(not(windows))]

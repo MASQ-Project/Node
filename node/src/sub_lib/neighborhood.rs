@@ -6,6 +6,7 @@ use crate::sub_lib::hopper::ExpiredCoresPackage;
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::route::Route;
+use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::wallet::Wallet;
@@ -103,6 +104,7 @@ pub struct NeighborhoodSubs {
     pub dispatcher_node_query: Recipient<DispatcherNodeQueryMessage>,
     pub remove_neighbor: Recipient<RemoveNeighborMessage>,
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
+    pub set_consuming_wallet_sub: Recipient<SetConsumingWalletMessage>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

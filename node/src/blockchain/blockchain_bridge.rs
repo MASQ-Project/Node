@@ -10,6 +10,7 @@ use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::blockchain_bridge::{BlockchainBridgeConfig, SetWalletPasswordMsg};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
+use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::ui_gateway::{UiCarrierMessage, UiMessage};
 use crate::sub_lib::wallet::Wallet;
 use actix::Context;
@@ -25,6 +26,7 @@ pub struct BlockchainBridge {
     logger: Logger,
     persistent_config: Box<PersistentConfiguration>,
     ui_carrier_message_sub: Option<Recipient<UiCarrierMessage>>,
+    set_consuming_wallet_sub: Option<Recipient<SetConsumingWalletMessage>>,
 }
 
 impl Actor for BlockchainBridge {
@@ -36,6 +38,12 @@ impl Handler<BindMessage> for BlockchainBridge {
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.ui_carrier_message_sub = Some(msg.peer_actors.ui_gateway.ui_message_sub.clone());
+        self.set_consuming_wallet_sub = Some(
+            msg.peer_actors
+                .neighborhood
+                .set_consuming_wallet_sub
+                .clone(),
+        );
         match self.consuming_wallet.as_ref() {
             Some(wallet) => {
                 debug!(
@@ -118,6 +126,7 @@ impl BlockchainBridge {
             logger: Logger::new("BlockchainBridge"),
             persistent_config,
             ui_carrier_message_sub: None,
+            set_consuming_wallet_sub: None,
         }
     }
 
@@ -155,7 +164,15 @@ impl BlockchainBridge {
                     &consuming_wallet_derivation_path,
                 )
                 .expect("Internal Error");
-                self.consuming_wallet = Some(Wallet::from(key_pair));
+                let consuming_wallet = Wallet::from(key_pair);
+                self.set_consuming_wallet_sub
+                    .as_ref()
+                    .expect("Neighborhood is unbound in Blockchain Bridge")
+                    .try_send(SetConsumingWalletMessage {
+                        wallet: consuming_wallet.clone(),
+                    })
+                    .expect("Neighborhood is dead");
+                self.consuming_wallet = Some(consuming_wallet);
                 debug!(
                     self.logger,
                     format!(
@@ -192,6 +209,7 @@ mod tests {
         Balance, BlockchainError, Transaction, Transactions, TESTNET_CONTRACT_ADDRESS,
     };
     use crate::sub_lib::cryptde::PlainData;
+    use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
     use crate::sub_lib::ui_gateway::UiMessage;
     use crate::sub_lib::wallet::DEFAULT_CONSUMING_DERIVATION_PATH;
     use crate::test_utils::logging::init_test_logging;
@@ -219,6 +237,7 @@ mod tests {
     fn blockchain_bridge_sets_wallet_when_password_is_received() {
         init_test_logging();
         let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
+        let (neighborhood, neighborhood_awaiter, neighborhood_recording_arc) = make_recorder();
 
         let password = "ilikecheetos";
         let mnemonic = Mnemonic::from_phrase(
@@ -275,7 +294,10 @@ mod tests {
             let addr = subject.start();
 
             addr.try_send(BindMessage {
-                peer_actors: peer_actors_builder().ui_gateway(ui_gateway).build(),
+                peer_actors: peer_actors_builder()
+                    .neighborhood(neighborhood)
+                    .ui_gateway(ui_gateway)
+                    .build(),
             })
             .unwrap();
             addr.try_send(SetWalletPasswordMsg {
@@ -299,8 +321,17 @@ mod tests {
         );
         TestLogHandler::new().exists_log_containing(&format!(
             "unlocked consuming wallet address {:?}",
-            expected_wallet
+            &expected_wallet
         ));
+
+        neighborhood_awaiter.await_message_count(1);
+        let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
+        assert_eq!(
+            neighborhood_recording.get_record::<SetConsumingWalletMessage>(0),
+            &SetConsumingWalletMessage {
+                wallet: expected_wallet.unwrap()
+            }
+        );
     }
 
     #[test]
