@@ -20,11 +20,11 @@ use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{Endpoint, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, IncipientCoresPackage};
 use crate::sub_lib::logger::Logger;
-use crate::sub_lib::neighborhood::ExpectedServices;
 use crate::sub_lib::neighborhood::RatePack;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::{ExpectedService, NodeRecordMetadataMessage};
+use crate::sub_lib::neighborhood::{ExpectedServices, DEFAULT_RATE_PACK};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
 use crate::sub_lib::proxy_server::ClientRequestPayload;
@@ -644,12 +644,12 @@ impl ProxyServer {
         }
         earning_wallets_and_rates
             .into_iter()
-            .for_each(|earning_wallet_and_rate| {
+            .for_each(|(earning_wallet, _rate_pack)| {
                 let report_routing_service_consumed = ReportRoutingServiceConsumedMessage {
-                    earning_wallet: earning_wallet_and_rate.0.clone(),
+                    earning_wallet: earning_wallet.clone(),
                     payload_size,
-                    service_rate: earning_wallet_and_rate.1.routing_service_rate,
-                    byte_rate: earning_wallet_and_rate.1.routing_byte_rate,
+                    service_rate: DEFAULT_RATE_PACK.routing_service_rate,
+                    byte_rate: DEFAULT_RATE_PACK.routing_byte_rate,
                 };
                 accountant_routing_sub
                     .try_send(report_routing_service_consumed)
@@ -671,13 +671,13 @@ impl ProxyServer {
                 }
                 _ => None,
             }) {
-            Some((earning_wallet, rate_pack)) => {
+            Some((earning_wallet, _rate_pack)) => {
                 let payload_size = payload.sequenced_packet.data.len();
                 let report_exit_service_consumed_message = ReportExitServiceConsumedMessage {
                     earning_wallet: earning_wallet.clone(),
                     payload_size,
-                    service_rate: rate_pack.exit_service_rate,
-                    byte_rate: rate_pack.exit_byte_rate,
+                    service_rate: DEFAULT_RATE_PACK.exit_service_rate,
+                    byte_rate: DEFAULT_RATE_PACK.exit_byte_rate,
                 };
                 accountant_exit_sub
                     .try_send(report_exit_service_consumed_message)
@@ -814,7 +814,7 @@ impl ProxyServer {
             .iter()
             .for_each(|service| match service {
                 ExpectedService::Nothing => (),
-                ExpectedService::Exit(_, wallet, rate_pack) => self
+                ExpectedService::Exit(_, wallet, _rate_pack) => self
                     .subs
                     .as_ref()
                     .expect("ProxyServer unbound")
@@ -822,11 +822,11 @@ impl ProxyServer {
                     .try_send(ReportExitServiceConsumedMessage {
                         earning_wallet: wallet.clone(),
                         payload_size: exit_size,
-                        service_rate: rate_pack.exit_service_rate,
-                        byte_rate: rate_pack.exit_byte_rate,
+                        service_rate: DEFAULT_RATE_PACK.exit_service_rate,
+                        byte_rate: DEFAULT_RATE_PACK.exit_byte_rate,
                     })
                     .expect("Accountant is dead"),
-                ExpectedService::Routing(_, wallet, rate_pack) => self
+                ExpectedService::Routing(_, wallet, _rate_pack) => self
                     .subs
                     .as_ref()
                     .expect("ProxyServer unbound")
@@ -834,8 +834,8 @@ impl ProxyServer {
                     .try_send(ReportRoutingServiceConsumedMessage {
                         earning_wallet: wallet.clone(),
                         payload_size: routing_size,
-                        service_rate: rate_pack.routing_service_rate,
-                        byte_rate: rate_pack.routing_byte_rate,
+                        service_rate: DEFAULT_RATE_PACK.routing_service_rate,
+                        byte_rate: DEFAULT_RATE_PACK.routing_byte_rate,
                     })
                     .expect("Accountant is dead"),
             });
@@ -872,7 +872,6 @@ mod tests {
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::hopper::MessageType;
     use crate::sub_lib::neighborhood::ExpectedServices;
-    use crate::sub_lib::neighborhood::RatePack;
     use crate::sub_lib::neighborhood::{ExpectedService, DEFAULT_RATE_PACK};
     use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
     use crate::sub_lib::proxy_server::ClientRequestPayload;
@@ -886,10 +885,6 @@ mod tests {
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::rate_pack;
-    use crate::test_utils::rate_pack_exit;
-    use crate::test_utils::rate_pack_exit_byte;
-    use crate::test_utils::rate_pack_routing;
-    use crate::test_utils::rate_pack_routing_byte;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
@@ -995,15 +990,14 @@ mod tests {
         idx: usize,
         wallet: &Wallet,
         payload_size: usize,
-        rate_pack: &RatePack,
     ) {
         assert_eq!(
             accountant_recording.get_record::<ReportExitServiceConsumedMessage>(idx),
             &ReportExitServiceConsumedMessage {
                 earning_wallet: wallet.clone(),
                 payload_size,
-                service_rate: rate_pack.exit_service_rate,
-                byte_rate: rate_pack.exit_byte_rate,
+                service_rate: DEFAULT_RATE_PACK.exit_service_rate,
+                byte_rate: DEFAULT_RATE_PACK.exit_byte_rate,
             }
         );
     }
@@ -1013,15 +1007,14 @@ mod tests {
         idx: usize,
         wallet: &Wallet,
         payload_size: usize,
-        rate_pack: &RatePack,
     ) {
         assert_eq!(
             accountant_recording.get_record::<ReportRoutingServiceConsumedMessage>(idx),
             &ReportRoutingServiceConsumedMessage {
                 earning_wallet: wallet.clone(),
                 payload_size,
-                service_rate: rate_pack.routing_service_rate,
-                byte_rate: rate_pack.routing_byte_rate,
+                service_rate: DEFAULT_RATE_PACK.routing_service_rate,
+                byte_rate: DEFAULT_RATE_PACK.routing_byte_rate,
             }
         );
     }
@@ -1814,8 +1807,8 @@ mod tests {
             &ReportRoutingServiceConsumedMessage {
                 earning_wallet: route_1_earning_wallet,
                 payload_size: payload_enc.len(),
-                service_rate: rate_pack_routing(101),
-                byte_rate: rate_pack_routing_byte(101),
+                service_rate: DEFAULT_RATE_PACK.routing_service_rate,
+                byte_rate: DEFAULT_RATE_PACK.routing_byte_rate,
             }
         );
         let record = accountant_recording.get_record::<ReportRoutingServiceConsumedMessage>(2);
@@ -1824,8 +1817,8 @@ mod tests {
             &ReportRoutingServiceConsumedMessage {
                 earning_wallet: route_2_earning_wallet,
                 payload_size: payload_enc.len(),
-                service_rate: rate_pack_routing(102),
-                byte_rate: rate_pack_routing_byte(102),
+                service_rate: DEFAULT_RATE_PACK.routing_service_rate,
+                byte_rate: DEFAULT_RATE_PACK.routing_byte_rate,
             }
         );
     }
@@ -1939,8 +1932,8 @@ mod tests {
             &ReportExitServiceConsumedMessage {
                 earning_wallet,
                 payload_size: expected_data.len(),
-                service_rate: rate_pack_exit(101),
-                byte_rate: rate_pack_exit_byte(101),
+                service_rate: DEFAULT_RATE_PACK.exit_service_rate,
+                byte_rate: DEFAULT_RATE_PACK.exit_byte_rate,
             }
         );
     }
@@ -2718,21 +2711,18 @@ mod tests {
             0,
             &incoming_route_d_wallet,
             first_exit_size,
-            &rate_pack(101),
         );
         check_routing_report(
             &accountant_recording,
             1,
             &incoming_route_e_wallet,
             routing_size,
-            &rate_pack(102),
         );
         check_routing_report(
             &accountant_recording,
             2,
             &incoming_route_f_wallet,
             routing_size,
-            &rate_pack(103),
         );
         let routing_size = second_expired_cores_package.payload_len;
         check_exit_report(
@@ -2740,21 +2730,18 @@ mod tests {
             3,
             &incoming_route_g_wallet,
             second_exit_size,
-            &rate_pack(104),
         );
         check_routing_report(
             &accountant_recording,
             4,
             &incoming_route_h_wallet,
             routing_size,
-            &rate_pack(105),
         );
         check_routing_report(
             &accountant_recording,
             5,
             &incoming_route_i_wallet,
             routing_size,
-            &rate_pack(106),
         );
         assert_eq!(accountant_recording.len(), 6);
     }
@@ -2896,26 +2883,18 @@ mod tests {
         system.run();
 
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        check_exit_report(
-            &accountant_recording,
-            0,
-            &incoming_route_d_wallet,
-            0,
-            &rate_pack(101),
-        );
+        check_exit_report(&accountant_recording, 0, &incoming_route_d_wallet, 0);
         check_routing_report(
             &accountant_recording,
             1,
             &incoming_route_e_wallet,
             routing_size,
-            &rate_pack(102),
         );
         check_routing_report(
             &accountant_recording,
             2,
             &incoming_route_f_wallet,
             routing_size,
-            &rate_pack(103),
         );
         assert_eq!(accountant_recording.len(), 3);
     }
