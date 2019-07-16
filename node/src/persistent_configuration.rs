@@ -341,9 +341,8 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                     "Can't overwrite existing earning wallet address '{}'",
                     existing_address
                 )
-            }
-            else {
-                return
+            } else {
+                return;
             }
         }
         match self.dao.set_string("earning_wallet_address", address) {
@@ -1499,10 +1498,11 @@ mod tests {
     #[test]
     #[should_panic(expected = "Can't overwrite existing earning wallet address 'booga'")]
     fn set_earning_wallet_address_existing_unequal_address() {
-        let config_dao: Box<ConfigDao> =
-            Box::new(ConfigDaoMock::new()
+        let config_dao: Box<ConfigDao> = Box::new(
+            ConfigDaoMock::new()
                 .get_string_result(Err(ConfigDaoError::NotPresent))
-                .get_string_result(Ok("booga".to_string())));
+                .get_string_result(Ok("booga".to_string())),
+        );
         let subject = PersistentConfigurationReal::new(config_dao);
 
         subject.set_earning_wallet_address("0xcafedeadbeefbabefacecafedeadbeefbabeface");
@@ -1511,17 +1511,18 @@ mod tests {
     #[test]
     fn set_earning_wallet_address_existing_equal_address() {
         let set_string_params_arc = Arc::new(Mutex::new(vec![]));
-        let config_dao: Box<ConfigDao> =
-            Box::new(ConfigDaoMock::new()
+        let config_dao: Box<ConfigDao> = Box::new(
+            ConfigDaoMock::new()
                 .get_string_result(Err(ConfigDaoError::NotPresent))
                 .get_string_result(Ok("0xcafedeadbeefbabefacecafedeadbeefBABEFACE".to_string()))
-                .set_string_params (&set_string_params_arc));
+                .set_string_params(&set_string_params_arc),
+        );
         let subject = PersistentConfigurationReal::new(config_dao);
 
         subject.set_earning_wallet_address("0xcafeDEADBEEFbabefacecafedeadbeefbabeface");
 
         let set_string_params = set_string_params_arc.lock().unwrap();
-        assert_eq! (set_string_params.len(), 0);
+        assert_eq!(set_string_params.len(), 0);
     }
 
     #[test]
@@ -1532,7 +1533,7 @@ mod tests {
         let config_dao: Box<ConfigDao> = Box::new(
             ConfigDaoMock::new()
                 .get_string_result(Ok("booga".to_string()))
-                .get_string_result(Err(ConfigDaoError::NotPresent))
+                .get_string_result(Err(ConfigDaoError::NotPresent)),
         );
         let subject = PersistentConfigurationReal::new(config_dao);
 
