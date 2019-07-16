@@ -204,7 +204,7 @@ describe('CommandHelper', () => {
         })
 
         it('provides wallet address command line argument', () => {
-          td.verify(sudoPrompt.exec(td.matchers.contains('--wallet-address bazinga'), { name: 'Substratum Node' }, 'callback'))
+          td.verify(sudoPrompt.exec(td.matchers.contains('--earning-wallet bazinga'), { name: 'Substratum Node' }, 'callback'))
         })
       })
     })
@@ -280,7 +280,7 @@ describe('CommandHelper', () => {
         })
 
         it('provides wallet address command line argument', () => {
-          td.verify(nodeCmd.get(td.matchers.contains('--wallet-address bazinga'), 'callback'))
+          td.verify(nodeCmd.get(td.matchers.contains('--earning-wallet bazinga'), 'callback'))
         })
       })
     })

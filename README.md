@@ -179,33 +179,122 @@ for more information._
 
 #### Running a Decentralized SubstratumNode locally
 
-There are several more options that are available for running decentralized. Here is a list of them and their meanings:
+Decentralized operation is much more complex than zero-hop operation, so there are many more options that are available.
 
-* `--help` As of v0.4.6 SubstratumNode CLI displays usage, flags, and options. NOTE: Run with `sudo` and to see the full 
-help you may need to include --dns-servers 1.1.1.1 while we resolve an issue with our argument parser.
+In order to run decentralized, a Node needs at least an earning wallet (an Ethereum wallet into which other Nodes
+will make payments for the services your Node provides). If you plan to use your Node to consume data with a browser
+or other network application, it will also need to be configured with a funded consuming wallet (an Ethereum wallet
+from which it will make payments for the services other Nodes provide).
 
-* `--blockchain-service-url <url>` An optional URL that should point to an Infura, Geth, or Parity HTTP endpoint. Not 
+Configuring wallets is not a trivial task, so the Node provides two special execution modes to help you do this, in
+addition to the normal long-running Service mode.
+
+1. __Generate mode -__ When you start the Node in Generate mode, it will generate a new BIP39 mnemonic phrase compatible 
+with wallet software (*e.g.* Metamask, MEW) or hardware devices (*e.g.* Ledger, Trezor) and new earning and consuming wallets
+for you based on BIP44 derivation paths. It will display this information on the console, and immediately terminate.
+You **MUST** record the mnemonic phrase exactly as displayed along with the mnemonic passphrase you provide and 
+keep it in a secure location. When it is displayed, that is your only opportunity to record the words. For security 
+purposes they cannot be displayed again. Record the words on paper, etch them in metal or stone and secure them in a safe
+deposit box or other secure offsite location.
+
+1. __Recover mode -__ If you already have existing earning and consuming wallets that you'd like the Node to use, you
+can start it in Recover mode and tell it about those wallets. It will store the information you give it and immediately
+terminate.
+
+1. __Service mode -__ When started in Service mode, the Node will come up, join the Substratum Network, and start
+serving and consuming clandestine data until you stop it. Since Service mode requires listening on low-numbered
+restricted ports, starting the Node in Service mode requires administrative privilege (`sudo` on Linux or Mac, a
+command window started as Administrator in Windows).
+
+##### Generate and Recover Modes
+
+* `--generate-wallet` (Generate mode only) This flag tells the Node that it will be operating in Generate mode. No
+value can be supplied for this flag, and it cannot be given in the environment.
+
+* `--recover-wallet` (Recover mode only) This flag tells the Node that it will be operating in Recover mode. No
+value can be supplied for this flag, and it cannot be given in the environment.
+
+* `--help` Displays help for the mode you're running in. Used by itself, it will show help for Service mode; used
+with `--generate-wallet` or `--recover-wallet` it will show help for the appropriate initialization mode. Cannot be 
+specified in the environment.
+
+* `--data-directory <DIRECTORY>` Operates the same for initialization modes as for Service mode. See below.
+
+* `--consuming-wallet <BIP44 DERIVATION PATH>` The HD derivation path for the consuming wallet that either 
+you're directing to be generated (Generate mode) or you already have (Recover mode). It defaults to m/44'/60'/0'/0/0. 
+Note that a derivation path will almost always have single quotes in it, so double-quote it on the command
+line to avoid unpleasantness.
+
+* `--earning-wallet <BIP44 DERIVATION PATH>` The HD derivation path for the earning wallet that either you're 
+directing to be generated (Generate mode) or you already have (Recover mode). It defaults to m/44'/60'/0'/0/1. Note
+that a derivation path will almost always have single quotes in it, so double-quote it on the command
+line to avoid unpleasantness.
+
+* `--language <English | 中文(简体) | 中文(繁體) | Français | Italiano | 日本語 | 한국어 | Español>` HD wallets spring from a 
+single master keypair, which takes friendly form as a "mnemonic
+phrase" consisting of some number of standardized words in a particular order. Each word represents a
+particular bit pattern in the keypair. SubstratumNode supports mnemonic phrases in a variety of languages.
+Specify the language in which you wish the mnemonic phrase to be generated (Generate mode) or in which
+you wish to supply the mnemonic phrase (Recover mode) with the `--language` parameter. Defaults to
+English.
+
+* `--word-count <12 | 15 | 18 | 21 | 24>` (Generate mode only) The mnemonic phrase that represents your master keypair can have
+different numbers of words in it. Shorter phrases are easier to remember; longer phrases are more secure.
+This is the number of words you want to be in the mnemonic phrase the Node generates for you. Default is 12 for the 
+Ropsten testnet, and 24 for the Ethereum mainnet. 
+
+* `--mnemonic <BIP39 WORDS>` (Recover mode only) Specify the mnemonic phrase from which the consuming and earning wallets
+are derived. Remember to double-quote the phrase. Do not include the mnemonic passphrase here. Keep in mind
+that this is highly sensitive information; if it is compromised, the entire derivation tree is compromised.
+You can provide it on the command line if you wish, but keep in mind that command lines can frequently be
+seen by anyone who has enough privilege to get a list of running processes on the system. If you start Node
+in Recover mode and don't supply a `--mnemonic`, you'll be prompted to type it in at the console. This is
+much safer.
+
+* `--mnemonic-passphrase <MNEMONIC-PASSPHRASE>` This is a word or phrase that you make up that is used along with the mnemonic
+passphrase to generate the keypair that will serve as the root of your derivation tree. If you're in
+Recover mode and the mnemonic phrase you're entering doesn't have a mnemonic passphrase, you can leave it
+blank, but if you're in Generate mode we recommend that you select a passphrase to further obfuscate your
+seed. You'll only have to enter this whenever you generate or specify your mnemonic phrase. It's sensitive
+information, and if you don't specify it on the command line, you'll be prompted for it at the console. This
+is much safer.
+
+* `--wallet-password <PASSWORD>` The Node has to store your root keypair in a database on disk. However, since it's
+sensitive information, it's important that it not be available to anyone who might hack into or steal your
+computer. Therefore, the Node needs to use a password to encrypt the key. The Node won't store the password,
+so you'll need to choose it when you initialize in Generate or Recover mode, and then supply it again whenever
+it's needed in Service mode.
+
+##### Service Mode
+
+* `--help` Displays command help and stops. Does not require administrative privilege. Cannot be specified in the
+environment or config file.
+
+* `--version` Displays the currently-running version of SubstratumNode and stops. Does not require 
+administrative privilege. Cannot be specified in the environment or config file.
+
+* `--blockchain-service-url <URL>` An optional URL that should point to an Infura, Geth, or Parity HTTP endpoint. Not 
 supplying a URL will direct blockchain traffic through the Substratum Network, allowing those nodes that do supply the 
 URL to talk to the blockchain on your behalf.
 
-* `--ip <IP address>` This is the public IP address of your SubstratumNode: that is, the IP address at which other
+* `--ip <IP ADDRESS>` This is the public IP address of your SubstratumNode: that is, the IP address at which other
 SubstratumNodes can contact yours. If you're in a fairly standard residential situation, then this will be the IP
 address issued to your router by your ISP, and in order to receive data you'll need to create holes in your router's
 firewall to enable incoming data to reach you on your clandestine ports (see below).  In the future, this will be taken
 care of for you (if you haven't turned off UPnP on your router), but right now it's manual.
 
-* `--dns-servers <IP address>,...` This is the same list of DNS servers needed for zero-hop operation. Whenever your
+* `--dns-servers <IP ADDRESS>,...` This is the same list of DNS servers needed for zero-hop operation. Whenever your
 SubstratumNode is used as an exit node, it will contact these DNS servers to find the host the client is trying to reach.
 
-* `--neighbors <public key>:<IP address>:<port>[;<port>;...][,<public key>:<IP address>:<port>[;<port>;...],...`
+* `--neighbors <PUBLIC KEY>:<IP ADDRESS>:<PORT>[;<PORT>;...][,<PUBLIC KEY>:<IP ADDRESS>:<PORT>[;<PORT>;...],...`
 This is how you tell SubstratumNode about its initial neighbors. You can specify as many neighbors as you like, with the
-descriptors separated by commas but no spaces. The `<public key>` in a descriptor is the Base64-encoded public key of the
-neighbor in question. The `<IP address>` is the public IP address of that neighbor, and the `<port>` numbers are the
+descriptors separated by commas but no spaces. The `<PUBLIC KEY>` in a descriptor is the Base64-encoded public key of the
+neighbor in question. The `<IP ADDRESS>` is the public IP address of that neighbor, and the `<PORT>` numbers are the
 clandestine ports on which the neighbor is listening.  If the neighbor node is one you're running yourself, you'll see it
 print this information to the console when it comes up.  If it's somewhere else on the Internet, you'll probably receive
 this information in an email or chat message to copy/paste onto your command line.
 
-* `--clandestine-port <n>`
+* `--clandestine-port <PORT>`
 This is an optional parameter. If you don't specify a clandestine port, your node will use the same clandestine port it
 used last time it ran, if that port is still available. If the port is no longer available, SubstratumNode will refuse to
 start until either it is available or until you specify a `--clandestine-port`, whereupon it will use the new port
@@ -216,23 +305,6 @@ is, it will be printed in the log and to the console as part of the node descrip
 This is a temporary parameter; the concept of a special clandestine port will go away someday, and node descriptors will
 look different.
 
-* `--generate-wallet <yes | true>`
-This is an optional parameter that is mutually exclusive with options concerned with starting and running SubstratumNode. 
-Use this to generate a new BIP39 mnemonic phrase compatible with wallet software (*e.g.* Metamask, MEW) or hardware 
-devices (*e.g.* Ledger, Trezor). You may use this phrase to later recover your wallet addresses if, for example, you 
-replace your computer. While this option produces a recovery mnemonic phrase, internally it generates a mnemonic seed 
-encrypted with a password you provide. This mnemonic seed is used to derive consuming and earning wallet addresses along 
-with their corresponding public and private key pairs necessary to sign, verify, encrypt and decrypt data while 
-SubstratumNode operates. The value you provide with the parameter is a placeholder and can be any value for the same 
-result. You **MUST** record the mnemonic phrase exactly as displayed along with the mnemonic-passphrase you provide and 
-keep it in a secure location. When it is displayed that is your only opportunity to record the words. For security 
-purposes they cannot be displayed again. Record the words on paper, etch them in metal or stone and secure them in a safe
-deposit box or other secure offsite location.
-
-* `--language <English | 中文(简体) | 中文(繁體) | Français | Italiano | 日本語 | 한국어 | Español>`
-The optional parameter to indicate the language in which to generate the BIP39 mnemonic phrase. Defaults to English.
-This parameter is only used with `--generate-wallet` and `--mnemonic`.
-
 * `--log-level <off | error | warn | info | debug | trace>`
 SubstratumNode has the potential to log a lot of data. (A _lot_ of data: a busy node can fill your disk in a few 
 minutes.) This parameter allows you to specify how much of that potential will be realized. `trace` will encourage 
@@ -240,52 +312,60 @@ SubstratumNode to reach its full potential, and should probably only be used whe
 for a few seconds to try one thing that's been giving you problems, and then shut it off to look at the logs. `error` 
 logs only the most serious of errors, and the other values are in-between compromise points. Default is `warn`.
 
-* `--mnemonic <BIP39 WORDS>`
-This optional parameter allows you to recover a wallet or to match a hardware wallet using a valid mnemonic recovery
-phrase consisting of valid BIP39 word-list words. The words must be consistent with the language specified with `--language`,
-otherwise the phrase will be rejected. The phrase must also meet the BIP39 checksum requirement of the final word --
-order is significant.
-
-* `--mnemonic-passphrase [MNEMONIC-PASSPHRASE]`
-This optional parameter allows you to specify extra words to generate a unique wallet. If either the value or the option
-are omitted, SubstratumNode will prompt for a mnemonic passphrase and prompt for confirmation. For security purposes the
-characters you type will not display. We strongly recommend you provide a mnemonic passphrase, but it is not required. 
-An empty passphrase allows you to match an existing hardware wallet initialization. NOTE: This mnemonic passphrase cannot
-be changed and still produce the same set of wallet addresses. 
-
-* `--ui-port <UI-PORT>`
+* `--ui-port <PORT>`
 This is how you tell SubstratumNode which port it should listen on for local WebSocket connections to the UI gateway. 
 This allows SubstratumNode to be controlled and inspected by other programs, such as the SubstratumNode UI. The default 
 port is 5333; in most cases, this will not need to be changed.
 
 * `--data-directory <DIRECTORY>`
 This is the directory in which SubstratumNode will keep the state that needs to persist from run to run. If it's not specified, the
-default is `$XDG_DATA_HOME` or `$HOME/.local/share` on Linux, `%APPDATA%` on Windows, and
-`$HOME/Library/Application Support` on macOS. If it is specified but doesn't exist, SubstratumNode will try to create 
+default is `$XDG_DATA_HOME/Substratum` or `$HOME/.local/share/Substratum` on Linux, `%APPDATA%/Substratum` on Windows, and
+`$HOME/Library/Application Support/Substratum` on macOS. If it is specified but doesn't exist, SubstratumNode will try to create 
 the directory and abort if it fails. If persistent state exists in the directory, but it was created by a version of 
 SubstratumNode that is incompatible with the version you're trying to start, SubstratumNode will abort. If this is the 
 case, either remove the existing state and restart SubstratumNode, or specify a different `--data-directory` directory.
 
-* `--wallet-address <WALLET-ADDRESS>` 
-This is the Ethereum address of your earning wallet--that is, the wallet other
-Nodes will pay SUB into when they use your routing and exit services. It must begin with 0x followed by 40 hexadecimal 
-digits. The parameter is optional; if you don't specify it, a hard-coded default willbe used, and the money for the 
-services you provide will go to Substratum instead of to you.
+* `--config-file <FILENAME OR PATH>`
+Rather than specifying the same parameter values over and over when you start the Node in Service mode, you can put parameters that
+rarely or never change in a TOML file as strings or numeric values. The entries in the config file should have
+exactly the same names they would have on the command line, without the `--` prefix. For example, instead of specifying
 
-* `--wallet-password <PASSORD>`
-An optional parameter to provide a password to decrypt the mnemonic seed to unlock your consuming and earning wallets.
-For better security omit this parameter to have SubstratumNode prompt you when unlocking your wallet is necessary. This
-password -- not to be confused with the mnemonic-passphrase -- can be changed later and still produce the same wallet
-addresses. This password can also be thought of as a passphrase because it can contain any characters
+  `--dns-servers 1.1.1.1,8.8.8.8`
 
-* `--word-count <12 | 15 | 18 | 21 | 24>`
-This parameter is optional an only used with `--generate-wallet` to determine the number of words to generate for the
-BIP39 mnemonic phrase. The default value for testnet is 12 and mainnet is 24. 24 is recommended with a mnemonic 
-passphrase for the most security. NOTE that Metamask allows 12 words and MEW allows 12 and 24 words. Please choose 
-according to your compatibility needs.
+  on the command line, you could put
 
-* `--version`
-An optional parameter. Displays the version of SubstratumNode and exits. The version is also displayed with `--help`.
+  `dns-servers = "1.1.1.1,8.8.8.8"`
+
+  in the config file.
+
+  If you name the file `config.toml` and put it in
+either the default data directory or the directory specified by `--data-directory` (see above), the Node will find and
+employ it automatically. If it has a different name or location, specify that with `--config-file`. If the path you
+specify is relative, it will be interpreted starting with the active data directory. If it's absolute, it will be
+evaluated without reference to the data directory. If you specify a `--config-file` and the Node can't find it, it will
+abort its startup with an error.
+
+* `--consuming-private-key <64-CHARACTER HEX KEY>`
+This allows you to specify the private key of your consuming wallet without having it related to your earning wallet by
+derivation path. While this method is fully functional, it's mostly useful for testing. If you do use it, keep in mind
+that your consuming wallet private key is sensitive information: anyone who gets hold of it can drain all your funds.
+It's best to specify it in the environment (as SUB_CONSUMING_PRIVATE_KEY) rather than on the command line or in the
+config file. You won't be allowed to use this parameter if you've already specified a consuming wallet derivation path
+in Generate or Recover mode; and if you do use this parameter, you must specify exactly the same private key every time
+you run your Node. If you always use `--consuming-private-key` and `--earning-wallet` with an address, you can use the Node in
+Service mode without having to go through Generate or Recover mode first, and without supplying a wallet password.
+
+* `--earning-wallet <WALLET-ADDRESS> | <BIP44 DERIVATION PATH>` 
+If you specify this with an Ethereum address ("0x" followed by 40 hexadecimal digits), the Node will use the address to
+identify your earning wallet. You must not have previously specified an earning wallet derivation path, and you must
+always specify the same Ethereum address for your earning wallet.
+
+  If you specify this with a derivation path, you must have previously set up a master keypair with Generate or Recover mode,
+and you'll need to supply a wallet password so that Node can decrypt the master keypair.
+
+  If you don't have an earning wallet set up at all, and you don't specify this either, a default earning wallet will be
+used, in which case the funds you earn will go to Substratum instead of to you: so unless you're in a philanthropic mood,
+you should be sure to set up or specify your earning wallet.
 
 In order to run decentralized, the SubstratumNode _must_ know the IP address others can use to contact it. Therefore,
 you must supply `--ip`. If you don't supply `--ip`, your node will come up in zero-hop mode and never route through

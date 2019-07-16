@@ -9,9 +9,7 @@ mod test_utils;
 
 use crate::blockchain::bip39::{Bip39, Bip39Error};
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
-use crate::multi_config::{
-    merge, CommandLineVCL, ConfigFileVCL, EnvironmentVCL, MultiConfig, VclArg,
-};
+use crate::multi_config::{merge, CommandLineVCL, EnvironmentVCL, MultiConfig, VclArg};
 use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::main_tools::StdStreams;
@@ -165,14 +163,12 @@ pub fn wallet_password_arg(help: &str) -> Arg {
         .help(help)
 }
 
-pub fn make_multi_config<'a>(app: &'a App, args: &Vec<String>) -> MultiConfig<'a> {
-    let (config_file_path, user_specified) = determine_config_file_path(app, args);
+pub fn make_initialize_mode_multi_config<'a>(app: &'a App, args: &Vec<String>) -> MultiConfig<'a> {
     MultiConfig::new(
         &app,
         vec![
             Box::new(CommandLineVCL::new(args.clone())),
             Box::new(EnvironmentVCL::new(&app)),
-            Box::new(ConfigFileVCL::new(&config_file_path, user_specified)),
         ],
     )
 }

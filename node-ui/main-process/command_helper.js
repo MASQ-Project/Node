@@ -41,7 +41,7 @@ module.exports = (() => {
       }
 
       if (additionalArgs.walletAddress) {
-        args = args.concat(['--wallet-address', additionalArgs.walletAddress])
+        args = args.concat(['--earning-wallet', additionalArgs.walletAddress])
       }
     }
 

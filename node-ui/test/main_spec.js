@@ -143,7 +143,6 @@ describe('Application launch', function () {
     await indexPage.serving.click()
     await configComponent.ipInput.setValue('1.2.3.4')
     await configComponent.neighborInput.setValue('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:1.1.1.1:12345;4321')
-    await configComponent.walletAddress.setValue('0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
     await client.waitUntil(async () => {
       return configComponent.saveConfig.isEnabled()
     })
@@ -184,7 +183,6 @@ describe('Application launch', function () {
     await indexPage.serving.click()
     await configComponent.ipInput.setValue('1.2.3.4')
     await configComponent.neighborInput.setValue('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:1.1.1.1:12345;4321')
-    await configComponent.walletAddress.setValue('0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
     await client.waitUntil(async () => {
       return configComponent.saveConfig.isEnabled()
     })

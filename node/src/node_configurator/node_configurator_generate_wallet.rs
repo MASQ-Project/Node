@@ -4,11 +4,11 @@ use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
 use crate::multi_config::MultiConfig;
 use crate::node_configurator::{
-    app_head, common_validators, config_file_arg, consuming_wallet_arg, create_wallet,
-    data_directory_arg, earning_wallet_arg, flushed_write, initialize_database, language_arg,
-    make_multi_config, mnemonic_passphrase_arg, request_new_password, wallet_password_arg, Either,
-    NodeConfigurator, PasswordError, WalletCreationConfig, WalletCreationConfigMaker,
-    EARNING_WALLET_HELP, WALLET_PASSWORD_HELP,
+    app_head, common_validators, consuming_wallet_arg, create_wallet, data_directory_arg,
+    earning_wallet_arg, flushed_write, initialize_database, language_arg,
+    make_initialize_mode_multi_config, mnemonic_passphrase_arg, request_new_password,
+    wallet_password_arg, Either, NodeConfigurator, PasswordError, WalletCreationConfig,
+    WalletCreationConfigMaker, EARNING_WALLET_HELP, WALLET_PASSWORD_HELP,
 };
 use crate::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::cryptde::PlainData;
@@ -26,7 +26,7 @@ pub struct NodeConfiguratorGenerateWallet {
 
 impl NodeConfigurator<WalletCreationConfig> for NodeConfiguratorGenerateWallet {
     fn configure(&self, args: &Vec<String>, streams: &mut StdStreams<'_>) -> WalletCreationConfig {
-        let multi_config = make_multi_config(&self.app, args);
+        let multi_config = make_initialize_mode_multi_config(&self.app, args);
         let persistent_config = initialize_database(&multi_config);
 
         let config = self.parse_args(&multi_config, streams, persistent_config.as_ref());
@@ -51,8 +51,7 @@ impl MnemonicFactory for MnemonicFactoryReal {
 
 const GENERATE_WALLET_HELP: &str =
     "Generate a new set of HD wallets with mnemonic recovery phrase from the standard \
-     BIP39 predefined list of words. Not valid as a configuration file item nor an \
-     environment variable";
+     BIP39 predefined list of words. Not valid as an environment variable";
 const WORD_COUNT_HELP: &str =
     "The number of words in the mnemonic phrase. Ropsten defaults to 12 words. \
      Mainnet defaults to 24 words.";
@@ -131,7 +130,6 @@ impl NodeConfiguratorGenerateWallet {
                         .requires_all(&["language", "word-count"])
                         .help(GENERATE_WALLET_HELP),
                 )
-                .arg(config_file_arg())
                 .arg(consuming_wallet_arg())
                 .arg(data_directory_arg())
                 .arg(earning_wallet_arg(
@@ -325,8 +323,6 @@ mod tests {
         let args: Vec<String> = vec![
             "SubstratumNode",
             "--generate-wallet",
-            "--config-file",
-            "specified_config.toml",
             "--data-directory",
             home_dir.to_str().unwrap(),
             "--wallet-password",
@@ -520,22 +516,5 @@ mod tests {
             &mut FakeStreamHolder::new().streams(),
             &PersistentConfigurationReal::new(Box::new(config_dao)),
         );
-    }
-
-    #[test]
-    #[should_panic(expected = "could not be read: ")]
-    fn configure_senses_when_user_specifies_config_file() {
-        let subject = NodeConfiguratorGenerateWallet::new();
-        let args = vec![
-            "SubstratumNode",
-            "--dns-servers",
-            "1.2.3.4",
-            "--config-file",
-            "booga.toml", // nonexistent config file: should stimulate panic because user-specified
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect::<Vec<String>>();
-        subject.configure(&args, &mut FakeStreamHolder::new().streams());
     }
 }

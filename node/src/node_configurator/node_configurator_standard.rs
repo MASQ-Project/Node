@@ -4,7 +4,7 @@ use crate::bootstrapper::BootstrapperConfig;
 use crate::node_configurator;
 use crate::node_configurator::{
     app_head, common_validators, config_file_arg, data_directory_arg, earning_wallet_arg,
-    initialize_database, make_multi_config, wallet_password_arg, NodeConfigurator,
+    initialize_database, wallet_password_arg, NodeConfigurator,
 };
 use crate::sub_lib::crash_point::CrashPoint;
 use crate::sub_lib::main_tools::StdStreams;
@@ -22,7 +22,7 @@ pub struct NodeConfiguratorStandardPrivileged {}
 impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardPrivileged {
     fn configure(&self, args: &Vec<String>, streams: &mut StdStreams) -> BootstrapperConfig {
         let app = app();
-        let multi_config = make_multi_config(&app, args);
+        let multi_config = standard::make_service_mode_multi_config(&app, args);
         let mut bootstrapper_config = BootstrapperConfig::new();
         standard::establish_port_configurations(&mut bootstrapper_config);
         standard::privileged_parse_args(&multi_config, &mut bootstrapper_config, streams);
@@ -35,7 +35,7 @@ pub struct NodeConfiguratorStandardUnprivileged {}
 impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileged {
     fn configure(&self, args: &Vec<String>, streams: &mut StdStreams<'_>) -> BootstrapperConfig {
         let app = app();
-        let multi_config = make_multi_config(&app, args);
+        let multi_config = standard::make_service_mode_multi_config(&app, args);
         let persistent_config = initialize_database(&multi_config);
         let mut bootstrapper_config = BootstrapperConfig::new();
         standard::unprivileged_parse_args(
@@ -238,8 +238,10 @@ mod standard {
     use crate::blockchain::bip39::{Bip39, Bip39Error};
     use crate::bootstrapper::PortConfiguration;
     use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
-    use crate::multi_config::MultiConfig;
-    use crate::node_configurator::request_wallet_decryption_password;
+    use crate::multi_config::{CommandLineVCL, ConfigFileVCL, EnvironmentVCL, MultiConfig};
+    use crate::node_configurator::{
+        determine_config_file_path, request_wallet_decryption_password,
+    };
     use crate::persistent_configuration::{PersistentConfiguration, HTTP_PORT, TLS_PORT};
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
@@ -250,6 +252,18 @@ mod standard {
     use std::convert::TryInto;
     use std::fs;
     use std::str::FromStr;
+
+    pub fn make_service_mode_multi_config<'a>(app: &'a App, args: &Vec<String>) -> MultiConfig<'a> {
+        let (config_file_path, user_specified) = determine_config_file_path(app, args);
+        MultiConfig::new(
+            &app,
+            vec![
+                Box::new(CommandLineVCL::new(args.clone())),
+                Box::new(EnvironmentVCL::new(&app)),
+                Box::new(ConfigFileVCL::new(&config_file_path, user_specified)),
+            ],
+        )
+    }
 
     pub fn establish_port_configurations(config: &mut BootstrapperConfig) {
         config.port_configurations.insert(

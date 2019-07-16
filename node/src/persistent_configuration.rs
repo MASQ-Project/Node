@@ -332,14 +332,19 @@ impl PersistentConfiguration for PersistentConfigurationReal {
             Ok(_) => (),
             Err(_) => panic!("Invalid earning wallet address '{}'", address),
         }
-        if let Ok(existing_address) = self.dao.get_string("earning_wallet_address") {
-            panic!(
-                "Can't overwrite existing earning wallet address '{}'",
-                existing_address
-            )
-        }
         if let Ok(existing_path) = self.dao.get_string("earning_wallet_derivation_path") {
             panic! ("Can't set earning wallet address: earning wallet derivation path '{}' already exists", existing_path)
+        }
+        if let Ok(existing_address) = self.dao.get_string("earning_wallet_address") {
+            if address.to_lowercase() != existing_address.to_lowercase() {
+                panic!(
+                    "Can't overwrite existing earning wallet address '{}'",
+                    existing_address
+                )
+            }
+            else {
+                return
+            }
         }
         match self.dao.set_string("earning_wallet_address", address) {
             Ok(_) => (),
@@ -1468,8 +1473,8 @@ mod tests {
         assert_eq!(
             *get_string_params,
             vec![
-                "earning_wallet_address".to_string(),
                 "earning_wallet_derivation_path".to_string(),
+                "earning_wallet_address".to_string(),
             ]
         );
         let set_string_params = set_string_params_arc.lock().unwrap();
@@ -1493,12 +1498,30 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "Can't overwrite existing earning wallet address 'booga'")]
-    fn set_earning_wallet_address_existing_address() {
+    fn set_earning_wallet_address_existing_unequal_address() {
         let config_dao: Box<ConfigDao> =
-            Box::new(ConfigDaoMock::new().get_string_result(Ok("booga".to_string())));
+            Box::new(ConfigDaoMock::new()
+                .get_string_result(Err(ConfigDaoError::NotPresent))
+                .get_string_result(Ok("booga".to_string())));
         let subject = PersistentConfigurationReal::new(config_dao);
 
         subject.set_earning_wallet_address("0xcafedeadbeefbabefacecafedeadbeefbabeface");
+    }
+
+    #[test]
+    fn set_earning_wallet_address_existing_equal_address() {
+        let set_string_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao: Box<ConfigDao> =
+            Box::new(ConfigDaoMock::new()
+                .get_string_result(Err(ConfigDaoError::NotPresent))
+                .get_string_result(Ok("0xcafedeadbeefbabefacecafedeadbeefBABEFACE".to_string()))
+                .set_string_params (&set_string_params_arc));
+        let subject = PersistentConfigurationReal::new(config_dao);
+
+        subject.set_earning_wallet_address("0xcafeDEADBEEFbabefacecafedeadbeefbabeface");
+
+        let set_string_params = set_string_params_arc.lock().unwrap();
+        assert_eq! (set_string_params.len(), 0);
     }
 
     #[test]
@@ -1508,8 +1531,8 @@ mod tests {
     fn set_earning_wallet_address_existing_derivation_path() {
         let config_dao: Box<ConfigDao> = Box::new(
             ConfigDaoMock::new()
+                .get_string_result(Ok("booga".to_string()))
                 .get_string_result(Err(ConfigDaoError::NotPresent))
-                .get_string_result(Ok("booga".to_string())),
         );
         let subject = PersistentConfigurationReal::new(config_dao);
 
