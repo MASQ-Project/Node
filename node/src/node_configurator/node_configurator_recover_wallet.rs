@@ -192,7 +192,11 @@ impl NodeConfiguratorRecoverWallet {
                 .expect("Mnemonic may not contain non-UTF-8 characters"),
             Err(e) => panic!("{:?}", e),
         };
-        phrase.split(' ').map(|s| s.to_string()).collect()
+        phrase
+            .split(|c| " \t\n".contains(c))
+            .filter(|s| !s.is_empty())
+            .map(|s| s.trim().to_string())
+            .collect()
     }
 }
 
@@ -569,5 +573,35 @@ mod tests {
             &mut FakeStreamHolder::new().streams(),
             &PersistentConfigurationReal::new(Box::new(config_dao)),
         );
+    }
+
+    #[test]
+    fn request_mnemonic_phrase_happy_path() {
+        let phrase = "aim special peace\t stumble torch   spatial timber \t \tpayment lunar\tworld\tpretty high\n";
+        let mut streams = StdStreams {
+            stdin: &mut Cursor::new(phrase.as_bytes()),
+            stdout: &mut ByteArrayWriter::new(),
+            stderr: &mut ByteArrayWriter::new(),
+        };
+
+        let result = NodeConfiguratorRecoverWallet::request_mnemonic_phrase(&mut streams);
+
+        assert_eq!(
+            result,
+            vec![
+                "aim".to_string(),
+                "special".to_string(),
+                "peace".to_string(),
+                "stumble".to_string(),
+                "torch".to_string(),
+                "spatial".to_string(),
+                "timber".to_string(),
+                "payment".to_string(),
+                "lunar".to_string(),
+                "world".to_string(),
+                "pretty".to_string(),
+                "high".to_string(),
+            ]
+        )
     }
 }
