@@ -461,7 +461,7 @@ mod standard {
             ),
             (None, Some(wallet)) => Some(wallet),
             (Some(address), Some(wallet)) => {
-                if wallet.to_string() == address {
+                if wallet.to_string().to_lowercase() == address.to_lowercase() {
                     Some(wallet)
                 } else {
                     panic! ("Cannot use --earning-wallet to specify an address ({}) different from that previously set ({})", address, wallet)
@@ -1261,6 +1261,34 @@ mod tests {
             &multi_config,
             &persistent_config,
             &mut config,
+        );
+    }
+
+    #[test]
+    fn earning_wallet_address_matches_database() {
+        let multi_config = make_multi_config(vec![
+            "--earning-wallet",
+            "0xb00fa567890123456789012345678901234B00FA",
+        ]);
+        let persistent_config = make_persistent_config(
+            None,
+            None,
+            None,
+            Some("0xB00FA567890123456789012345678901234b00fa"),
+            None,
+        );
+        let mut config = BootstrapperConfig::new();
+
+        standard::get_wallets(
+            &mut FakeStreamHolder::new().streams(),
+            &multi_config,
+            &persistent_config,
+            &mut config,
+        );
+
+        assert_eq!(
+            config.earning_wallet,
+            Wallet::new("0xb00fa567890123456789012345678901234b00fa")
         );
     }
 

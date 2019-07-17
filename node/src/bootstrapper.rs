@@ -543,13 +543,13 @@ mod tests {
     #[test]
     fn initialize_as_unprivileged_passes_node_descriptor_to_ui_config() {
         let _lock = INITIALIZATION.lock();
-        let home_dir = ensure_node_home_directory_exists(
+        let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
             "initialize_as_unprivileged_passes_node_descriptor_to_ui_config",
         );
         let mut config = BootstrapperConfig::new();
         config.clandestine_port_opt = Some(1234);
-        config.data_directory = home_dir;
+        config.data_directory = data_dir.clone();
         let mut subject = BootstrapperBuilder::new()
             .add_listener_handler(Box::new(
                 ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())),
@@ -558,7 +558,11 @@ mod tests {
             .build();
 
         subject.initialize_as_unprivileged(
-            &vec!["SubstratumNode".to_string()],
+            &vec![
+                "SubstratumNode".to_string(),
+                String::from("--data-directory"),
+                data_dir.to_str().unwrap().to_string(),
+            ],
             &mut FakeStreamHolder::new().streams(),
         );
 
@@ -570,6 +574,10 @@ mod tests {
     fn initialize_with_clandestine_port_produces_expected_clandestine_discriminator_factories_vector(
     ) {
         let _lock = INITIALIZATION.lock();
+        let data_dir = ensure_node_home_directory_exists(
+            "bootstrapper",
+            "initialize_with_clandestine_port_produces_expected_clandestine_discriminator_factories_vector",
+        );
         let first_handler = Box::new(ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())));
         let second_handler = Box::new(ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())));
         let third_handler = Box::new(ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())));
@@ -584,6 +592,8 @@ mod tests {
             String::from("222.222.222.222"),
             String::from("--clandestine-port"),
             String::from("1234"),
+            String::from("--data-directory"),
+            data_dir.to_str().unwrap().to_string(),
         ];
         let mut holder = FakeStreamHolder::new();
 
@@ -599,12 +609,18 @@ mod tests {
     fn initialize_as_privileged_stores_dns_servers_and_passes_them_to_actor_system_factory_for_proxy_client_in_initialize_as_unprivileged(
     ) {
         let _lock = INITIALIZATION.lock();
+        let data_dir = ensure_node_home_directory_exists(
+            "bootstrapper",
+            "initialize_as_privileged_stores_dns_servers_and_passes_them_to_actor_system_factory_for_proxy_client_in_initialize_as_unprivileged",
+        );
         let args = &vec![
             String::from("SubstratumNode"),
             String::from("--dns-servers"),
             String::from("1.2.3.4,2.3.4.5"),
             String::from("--clandestine-port"),
             String::from("1234"),
+            String::from("--data-directory"),
+            data_dir.to_str().unwrap().to_string(),
         ];
         let mut holder = FakeStreamHolder::new();
         let actor_system_factory = ActorSystemFactoryMock::new();
@@ -727,7 +743,7 @@ mod tests {
     #[test]
     fn initialize_as_unprivileged_binds_clandestine_port() {
         let _lock = INITIALIZATION.lock();
-        let home_dir = ensure_node_home_directory_exists(
+        let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
             "initialize_as_unprivileged_binds_clandestine_port",
         );
@@ -752,7 +768,7 @@ mod tests {
                 "--ip".to_string(),
                 "1.2.3.4".to_string(),
                 "--data-directory".to_string(),
-                home_dir.display().to_string(),
+                data_dir.display().to_string(),
             ],
             &mut holder.streams(),
         );
@@ -761,6 +777,8 @@ mod tests {
                 "SubstratumNode".to_string(),
                 "--clandestine-port".to_string(),
                 "1234".to_string(),
+                String::from("--data-directory"),
+                data_dir.display().to_string(),
             ],
             &mut holder.streams(),
         );
@@ -778,9 +796,13 @@ mod tests {
     #[test]
     fn initialize_as_unprivileged_moves_streams_from_listener_handlers_to_stream_handler_pool() {
         let _lock = INITIALIZATION.lock();
-        let home_dir = ensure_node_home_directory_exists("bootstrapper", "initialize_as_unprivileged_moves_streams_from_listener_handlers_to_stream_handler_pool");
+        let data_dir = ensure_node_home_directory_exists("bootstrapper", "initialize_as_unprivileged_moves_streams_from_listener_handlers_to_stream_handler_pool");
         init_test_logging();
-        let args = vec!["SubstratumNode".to_string()];
+        let args = vec![
+            "SubstratumNode".to_string(),
+            String::from("--data-directory"),
+            data_dir.to_str().unwrap().to_string(),
+        ];
         let mut holder = FakeStreamHolder::new();
         let one_listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
         let another_listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
@@ -788,7 +810,7 @@ mod tests {
             ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
         let actor_system_factory = ActorSystemFactoryMock::new();
         let mut config = BootstrapperConfig::new();
-        config.data_directory = home_dir;
+        config.data_directory = data_dir;
         let mut subject = BootstrapperBuilder::new()
             .actor_system_factory(Box::new(actor_system_factory))
             .add_listener_handler(Box::new(one_listener_handler))
@@ -811,6 +833,10 @@ mod tests {
     #[test]
     fn bootstrapper_as_future_polls_listener_handler_futures() {
         let _lock = INITIALIZATION.lock();
+        let data_dir = ensure_node_home_directory_exists(
+            "bootstrapper",
+            "bootstrapper_as_future_polls_listener_handler_futures",
+        );
         let mut holder = FakeStreamHolder::new();
         let connection_info1 = ConnectionInfo {
             reader: Box::new(ReadHalfWrapperMock::new()),
@@ -869,6 +895,8 @@ mod tests {
             String::from("SubstratumNode"),
             String::from("--dns-servers"),
             String::from("222.222.222.222"),
+            String::from("--data-directory"),
+            data_dir.to_str().unwrap().to_string(),
         ];
 
         subject.initialize_as_privileged(&args, &mut holder.streams());
@@ -895,7 +923,7 @@ mod tests {
 
     #[test]
     fn establish_clandestine_port_handles_specified_port() {
-        let home_dir = ensure_node_home_directory_exists(
+        let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
             "establish_clandestine_port_handles_specified_port",
         );
@@ -907,7 +935,7 @@ mod tests {
             node_addr: NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
         }
         .to_string(&cryptde)];
-        config.data_directory = home_dir.clone();
+        config.data_directory = data_dir.clone();
         config.clandestine_port_opt = Some(1234);
         let listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
         let mut subject = BootstrapperBuilder::new()
@@ -917,7 +945,7 @@ mod tests {
 
         subject.establish_clandestine_port();
 
-        let conn = DbInitializerReal::new().initialize(&home_dir).unwrap();
+        let conn = DbInitializerReal::new().initialize(&data_dir).unwrap();
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
         assert_eq!(1234u16, persistent_config.clandestine_port());
@@ -949,7 +977,7 @@ mod tests {
     #[test]
     fn establish_clandestine_port_handles_unspecified_port() {
         let cryptde = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]));
-        let home_dir = ensure_node_home_directory_exists(
+        let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
             "establish_clandestine_port_handles_unspecified_port",
         );
@@ -960,7 +988,7 @@ mod tests {
             node_addr: NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
         }
         .to_string(&cryptde)];
-        config.data_directory = home_dir.clone();
+        config.data_directory = data_dir.clone();
         config.clandestine_port_opt = None;
         let listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
         let mut subject = BootstrapperBuilder::new()
@@ -970,7 +998,7 @@ mod tests {
 
         subject.establish_clandestine_port();
 
-        let conn = DbInitializerReal::new().initialize(&home_dir).unwrap();
+        let conn = DbInitializerReal::new().initialize(&data_dir).unwrap();
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
         let clandestine_port = persistent_config.clandestine_port();
@@ -982,12 +1010,12 @@ mod tests {
 
     #[test]
     fn establish_clandestine_port_handles_zero_hop() {
-        let home_dir = ensure_node_home_directory_exists(
+        let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
             "establish_clandestine_port_handles_zero_hop",
         );
         let mut config = BootstrapperConfig::new();
-        config.data_directory = home_dir.clone();
+        config.data_directory = data_dir.clone();
         config.clandestine_port_opt = None;
         config.neighborhood_config.neighbor_configs = vec![]; // empty
         config.neighborhood_config.local_ip_addr = sentinel_ip_addr(); // sentinel
