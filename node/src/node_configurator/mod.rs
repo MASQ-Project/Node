@@ -7,12 +7,14 @@ pub mod node_configurator_standard;
 #[cfg(test)]
 mod test_utils;
 
+use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::{Bip39, Bip39Error};
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
 use crate::multi_config::{merge, CommandLineVCL, EnvironmentVCL, MultiConfig, VclArg};
 use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::main_tools::StdStreams;
+use crate::sub_lib::wallet::Wallet;
 use crate::sub_lib::wallet::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
 use bip39::Language;
 use clap::{crate_authors, crate_description, crate_version, value_t, App, AppSettings, Arg};
@@ -198,17 +200,6 @@ pub fn determine_config_file_path(app: &App, args: &Vec<String>) -> (PathBuf, bo
 }
 
 pub fn create_wallet(config: &WalletCreationConfig, persistent_config: &PersistentConfiguration) {
-    if config.earning_wallet_address_opt.as_ref().is_some()
-        && config.derivation_path_info_opt.is_some()
-        && config
-            .derivation_path_info_opt
-            .as_ref()
-            .expect("Disappeared!")
-            .earning_derivation_path_opt
-            .is_some()
-    {
-        panic!("Internal error: somehow the earning address and the earning derivation path are both set");
-    }
     if let Some(address) = &config.earning_wallet_address_opt {
         persistent_config.set_earning_wallet_address(address)
     }
@@ -221,12 +212,6 @@ pub fn create_wallet(config: &WalletCreationConfig, persistent_config: &Persiste
         {
             persistent_config.set_consuming_wallet_derivation_path(
                 consuming_derivation_path,
-                &derivation_path_info.wallet_password,
-            )
-        }
-        if let Some(earning_derivation_path) = &derivation_path_info.earning_derivation_path_opt {
-            persistent_config.set_earning_wallet_derivation_path(
-                earning_derivation_path,
                 &derivation_path_info.wallet_password,
             )
         }
@@ -498,7 +483,6 @@ pub struct DerivationPathWalletInfo {
     pub mnemonic_seed: PlainData,
     pub wallet_password: String,
     pub consuming_derivation_path_opt: Option<String>,
-    pub earning_derivation_path_opt: Option<String>,
 }
 
 #[derive(PartialEq, Debug)]
@@ -547,17 +531,18 @@ pub trait WalletCreationConfigMaker {
         );
         WalletCreationConfig {
             earning_wallet_address_opt: match &earning_wallet_info {
-                Either::Left(address) => Some(address.to_string()),
-                Either::Right(_) => None,
+                Either::Left(address) => Some(address.clone()),
+                Either::Right(path) => {
+                    let keypair = Bip32ECKeyPair::from_raw(mnemonic_seed.as_slice(), path)
+                        .expect("--earning-wallet not properly validated by clap");
+                    let wallet = Wallet::from(keypair);
+                    Some(wallet.to_string())
+                }
             },
             derivation_path_info_opt: Some(DerivationPathWalletInfo {
                 mnemonic_seed,
                 wallet_password,
                 consuming_derivation_path_opt: Some(consuming_derivation_path),
-                earning_derivation_path_opt: match earning_wallet_info {
-                    Either::Left(_) => None,
-                    Either::Right(path) => Some(path),
-                },
             }),
         }
     }
@@ -601,8 +586,9 @@ pub trait WalletCreationConfigMaker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::node_configurator::test_utils::{BadMockDirsWrapper, MockDirsWrapper};
-    use crate::sub_lib::wallet::DEFAULT_EARNING_DERIVATION_PATH;
+    use crate::sub_lib::wallet::{Wallet, DEFAULT_EARNING_DERIVATION_PATH};
     use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::ByteArrayWriter;
@@ -1173,7 +1159,18 @@ mod tests {
             _consuming_derivation_path: &str,
             _earning_wallet_info: &Either<String, String>,
         ) -> PlainData {
-            PlainData::new(b"mnemonic seed")
+            Self::hardcoded_mnemonic_seed()
+        }
+    }
+
+    impl TameWalletCreationConfigMaker {
+        fn hardcoded_mnemonic_seed() -> PlainData {
+            let mnemonic = Mnemonic::from_phrase(
+                "list noble dove unable pioneer alien live market mercy equip supreme agree",
+                Language::English,
+            )
+            .unwrap();
+            PlainData::new(Seed::new(&mnemonic, "passphrase").as_ref())
         }
     }
 
@@ -1210,17 +1207,23 @@ mod tests {
         \n\nPlease provide a password to encrypt your wallet (This password can be changed later)...\
         \n  Enter password:   Confirm password: ";
         assert_eq!(&captured_output, expected_output);
+        let earning_wallet = Wallet::from(
+            Bip32ECKeyPair::from_raw(
+                TameWalletCreationConfigMaker::hardcoded_mnemonic_seed().as_ref(),
+                DEFAULT_EARNING_DERIVATION_PATH,
+            )
+            .unwrap(),
+        );
         assert_eq!(
             config,
             WalletCreationConfig {
-                earning_wallet_address_opt: None,
+                earning_wallet_address_opt: Some(earning_wallet.to_string()),
                 derivation_path_info_opt: Some(DerivationPathWalletInfo {
-                    mnemonic_seed: PlainData::new(b"mnemonic seed"),
+                    mnemonic_seed: TameWalletCreationConfigMaker::hardcoded_mnemonic_seed(),
                     wallet_password: "a terrible wallet password".to_string(),
                     consuming_derivation_path_opt: Some(
                         DEFAULT_CONSUMING_DERIVATION_PATH.to_string()
                     ),
-                    earning_derivation_path_opt: Some(DEFAULT_EARNING_DERIVATION_PATH.to_string())
                 })
             },
         );
@@ -1228,6 +1231,7 @@ mod tests {
 
     #[test]
     fn make_wallet_creation_config_non_defaults_with_earning_derivation_path() {
+        let earning_path = "m/44'/60'/3'/2/1";
         let subject = TameWalletCreationConfigMaker::new();
         let args: Vec<String> = vec![
             "test",
@@ -1257,15 +1261,21 @@ mod tests {
         let captured_output = stdout_writer.get_string();
         let expected_output = "";
         assert_eq!(&captured_output, expected_output);
+        let earning_wallet = Wallet::from(
+            Bip32ECKeyPair::from_raw(
+                TameWalletCreationConfigMaker::hardcoded_mnemonic_seed().as_ref(),
+                earning_path,
+            )
+            .unwrap(),
+        );
         assert_eq!(
             config,
             WalletCreationConfig {
-                earning_wallet_address_opt: None,
+                earning_wallet_address_opt: Some(earning_wallet.to_string()),
                 derivation_path_info_opt: Some(DerivationPathWalletInfo {
-                    mnemonic_seed: PlainData::new(b"mnemonic seed"),
+                    mnemonic_seed: TameWalletCreationConfigMaker::hardcoded_mnemonic_seed(),
                     wallet_password: "wallet password".to_string(),
                     consuming_derivation_path_opt: Some("m/44'/60'/1'/2/3".to_string()),
-                    earning_derivation_path_opt: Some("m/44'/60'/3'/2/1".to_string())
                 })
             },
         );
@@ -1309,10 +1319,9 @@ mod tests {
                     "0x0123456789ABCDEF0123456789ABCDEF01234567".to_string()
                 ),
                 derivation_path_info_opt: Some(DerivationPathWalletInfo {
-                    mnemonic_seed: PlainData::new(b"mnemonic seed"),
+                    mnemonic_seed: TameWalletCreationConfigMaker::hardcoded_mnemonic_seed(),
                     wallet_password: "wallet password".to_string(),
                     consuming_derivation_path_opt: Some("m/44'/60'/1'/2/3".to_string()),
-                    earning_derivation_path_opt: None
                 })
             },
         );
@@ -1335,33 +1344,35 @@ mod tests {
 
     #[test]
     fn create_wallet_configures_database_with_earning_path() {
+        let earning_path = "m/44'/60'/3'/2/1";
+        let mnemonic = Mnemonic::new(MnemonicType::Words24, Language::English);
+        let seed = Seed::new(&mnemonic, "passphrase");
+        let earning_keypair = Bip32ECKeyPair::from_raw(seed.as_ref(), earning_path).unwrap();
+        let earning_address = Wallet::from(earning_keypair).to_string();
         let config = WalletCreationConfig {
-            earning_wallet_address_opt: None,
+            earning_wallet_address_opt: Some(earning_address.clone()),
             derivation_path_info_opt: Some(DerivationPathWalletInfo {
-                mnemonic_seed: PlainData::new(&[1, 2, 3, 4]),
+                mnemonic_seed: PlainData::new(seed.as_ref()),
                 wallet_password: "wallet password".to_string(),
                 consuming_derivation_path_opt: Some("m/44'/60'/1'/2/3".to_string()),
-                earning_derivation_path_opt: Some("m/44'/60'/3'/2/1".to_string()),
             }),
         };
         let set_mnemonic_seed_params_arc = Arc::new(Mutex::new(vec![]));
         let set_consuming_wallet_derivation_path_params_arc = Arc::new(Mutex::new(vec![]));
-        let set_earning_wallet_derivation_path_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_earning_wallet_address_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .set_mnemonic_seed_params(&set_mnemonic_seed_params_arc)
             .set_consuming_wallet_derivation_path_params(
                 &set_consuming_wallet_derivation_path_params_arc,
             )
-            .set_earning_wallet_derivation_path_params(
-                &set_earning_wallet_derivation_path_params_arc,
-            );
+            .set_earning_wallet_address_params(&set_earning_wallet_address_params_arc);
 
         create_wallet(&config, &persistent_config);
 
         let set_mnemonic_seed_params = set_mnemonic_seed_params_arc.lock().unwrap();
         assert_eq!(
             *set_mnemonic_seed_params,
-            vec![(vec![1u8, 2u8, 3u8, 4u8], "wallet password".to_string())]
+            vec![(seed.as_ref().to_vec(), "wallet password".to_string())]
         );
         let set_consuming_wallet_derivation_path_params =
             set_consuming_wallet_derivation_path_params_arc
@@ -1374,17 +1385,9 @@ mod tests {
                 "wallet password".to_string()
             )]
         );
-        let set_earning_wallet_derivation_path_params =
-            set_earning_wallet_derivation_path_params_arc
-                .lock()
-                .unwrap();
-        assert_eq!(
-            *set_earning_wallet_derivation_path_params,
-            vec![(
-                "m/44'/60'/3'/2/1".to_string(),
-                "wallet password".to_string()
-            )]
-        );
+        let set_earning_wallet_address_params =
+            set_earning_wallet_address_params_arc.lock().unwrap();
+        assert_eq!(*set_earning_wallet_address_params, vec![earning_address]);
     }
 
     #[test]
@@ -1397,7 +1400,6 @@ mod tests {
                 mnemonic_seed: PlainData::new(&[1, 2, 3, 4]),
                 wallet_password: "wallet password".to_string(),
                 consuming_derivation_path_opt: Some("m/44'/60'/1'/2/3".to_string()),
-                earning_derivation_path_opt: None,
             }),
         };
         let set_mnemonic_seed_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1434,26 +1436,5 @@ mod tests {
             *set_earning_wallet_address_params,
             vec!["0x9707f21F95B9839A54605100Ca69dCc2e7eaA26q".to_string()]
         );
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Internal error: somehow the earning address and the earning derivation path are both set"
-    )]
-    fn create_wallet_fails_with_earning_address_plus_earning_derivation_path() {
-        let config = WalletCreationConfig {
-            earning_wallet_address_opt: Some(
-                "0x9707f21F95B9839A54605100Ca69dCc2e7eaA26q".to_string(),
-            ),
-            derivation_path_info_opt: Some(DerivationPathWalletInfo {
-                mnemonic_seed: PlainData::new(&[1, 2, 3, 4]),
-                wallet_password: "wallet password".to_string(),
-                consuming_derivation_path_opt: None,
-                earning_derivation_path_opt: Some("m/44'/60'/3'/2/1".to_string()),
-            }),
-        };
-        let persistent_config = PersistentConfigurationMock::new();;
-
-        create_wallet(&config, &persistent_config);
     }
 }

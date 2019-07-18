@@ -225,10 +225,13 @@ you're directing to be generated (Generate mode) or you already have (Recover mo
 Note that a derivation path will almost always have single quotes in it, so double-quote it on the command
 line to avoid unpleasantness.
 
-* `--earning-wallet <BIP44 DERIVATION PATH>` The HD derivation path for the earning wallet that either you're 
-directing to be generated (Generate mode) or you already have (Recover mode). It defaults to m/44'/60'/0'/0/1. Note
-that a derivation path will almost always have single quotes in it, so double-quote it on the command
-line to avoid unpleasantness.
+* `--earning-wallet <WALLET-ADDRESS> | <BIP44 DERIVATION PATH>` 
+If you specify this with an Ethereum address ("0x" followed by 40 hexadecimal digits), the Node will use the address to
+identify your earning wallet. If you specify a derivation path, the Node will use the mnemonic phrase (either the one
+you specify in Recover mode or the one Node generates in Generate mode) and this derivation path to compute the
+address of your earning wallet. If you don't specify `--earning-wallet` at all, Node will use a default of
+m/44'/60'/0'/0/1. Note that a derivation path will almost always have single quotes in it, so double-quote it 
+on the command line to avoid unpleasantness.
 
 * `--language <English | 中文(简体) | 中文(繁體) | Français | Italiano | 日本語 | 한국어 | Español>` HD wallets spring from a 
 single master keypair, which takes friendly form as a "mnemonic
@@ -355,13 +358,10 @@ in Generate or Recover mode; and if you do use this parameter, you must specify 
 you run your Node. If you always use `--consuming-private-key` and `--earning-wallet` with an address, you can use the Node in
 Service mode without having to go through Generate or Recover mode first, and without supplying a wallet password.
 
-* `--earning-wallet <WALLET-ADDRESS> | <BIP44 DERIVATION PATH>` 
-If you specify this with an Ethereum address ("0x" followed by 40 hexadecimal digits), the Node will use the address to
-identify your earning wallet. You must not have previously specified an earning wallet derivation path, and you must
+* `--earning-wallet <WALLET-ADDRESS>` 
+This is an Ethereum address ("0x" followed by 40 hexadecimal digits) which the Node will use to identify your earning 
+wallet. You must not have generated or recovered with an earning wallet derivation path, and you must
 always specify the same Ethereum address for your earning wallet.
-
-  If you specify this with a derivation path, you must have previously set up a master keypair with Generate or Recover mode,
-and you'll need to supply a wallet password so that Node can decrypt the master keypair.
 
   If you don't have an earning wallet set up at all, and you don't specify this either, a default earning wallet will be
 used, in which case the funds you earn will go to Substratum instead of to you: so unless you're in a philanthropic mood,

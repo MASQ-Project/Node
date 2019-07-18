@@ -354,9 +354,7 @@ mod standard {
         if let Some(port) = config.clandestine_port_opt {
             persistent_config.set_clandestine_port(port)
         }
-        if persistent_config.earning_wallet_derivation_path().is_none()
-            && persistent_config.earning_wallet_address().is_none()
-        {
+        if persistent_config.earning_wallet_address().is_none() {
             persistent_config.set_earning_wallet_address(&config.earning_wallet.to_string());
         }
         match &config.consuming_wallet {
@@ -385,7 +383,7 @@ mod standard {
         persistent_config: &PersistentConfiguration,
         config: &mut BootstrapperConfig,
     ) {
-        let mut earning_wallet_opt =
+        let earning_wallet_opt =
             standard::get_earning_wallet_from_address(multi_config, persistent_config);
         let mut consuming_wallet_opt =
             standard::get_consuming_wallet_from_private_key(multi_config, persistent_config);
@@ -398,42 +396,19 @@ mod standard {
         }
 
         if earning_wallet_opt.is_none() || consuming_wallet_opt.is_none() {
-            match standard::get_mnemonic_seed_and_password(multi_config, streams, persistent_config)
+            if let Some((_, wallet_password)) =
+                standard::get_mnemonic_seed_and_password(multi_config, streams, persistent_config)
             {
-                Some((_, wallet_password)) => {
-                    if earning_wallet_opt.is_none() {
-                        earning_wallet_opt = standard::get_earning_wallet_from_derivation_path(
-                            persistent_config,
-                            &wallet_password,
-                        );
-                    } else if standard::get_earning_wallet_from_derivation_path(
+                if consuming_wallet_opt.is_none() {
+                    consuming_wallet_opt = standard::get_consuming_wallet_opt_from_derivation_path(
                         persistent_config,
                         &wallet_password,
-                    )
+                    );
+                } else if persistent_config
+                    .consuming_wallet_derivation_path()
                     .is_some()
-                    {
-                        panic! ("Database is corrupt: contains both address and derivation path for earning wallet")
-                    }
-                    if consuming_wallet_opt.is_none() {
-                        consuming_wallet_opt =
-                            standard::get_consuming_wallet_opt_from_derivation_path(
-                                persistent_config,
-                                &wallet_password,
-                            );
-                    } else if persistent_config
-                        .consuming_wallet_derivation_path()
-                        .is_some()
-                    {
-                        panic! ("Cannot use --consuming-private-key when database contains mnemonic seed and consuming wallet derivation path")
-                    }
-                }
-                None => {
-                    if persistent_config
-                        .consuming_wallet_derivation_path()
-                        .is_some()
-                    {
-                        panic! ("Database is corrupt: consuming wallet derivation path is present, but no mnemonic seed")
-                    }
+                {
+                    panic! ("Cannot use --consuming-private-key when database contains mnemonic seed and consuming wallet derivation path")
                 }
             }
         }
@@ -468,13 +443,6 @@ mod standard {
                 }
             }
         }
-    }
-
-    fn get_earning_wallet_from_derivation_path(
-        persistent_config: &PersistentConfiguration,
-        wallet_password: &str,
-    ) -> Option<Wallet> {
-        persistent_config.earning_wallet_from_derivation_path(wallet_password)
     }
 
     fn get_consuming_wallet_opt_from_derivation_path(
@@ -541,8 +509,9 @@ mod standard {
             Some(encrypted_mnemonic_seed) => {
                 let wallet_password =
                     match value_user_specified_m!(multi_config, "wallet-password", String) {
-                        (Some(wp), true) => wp,
-                        _ => request_wallet_decryption_password(
+                        (Some(wp), _) => wp,
+                        (None, false) => return None,
+                        (None, true) => request_wallet_decryption_password(
                             streams,
                             Some("Decrypt wallet from database"),
                             "Enter password: ",
@@ -623,8 +592,8 @@ mod tests {
     use crate::sub_lib::cryptde::{CryptDE, PlainData, PublicKey};
     use crate::sub_lib::neighborhood::sentinel_ip_addr;
     use crate::sub_lib::wallet::Wallet;
+    use crate::test_utils::ensure_node_home_directory_exists;
     use crate::test_utils::environment_guard::EnvironmentGuard;
-    use crate::test_utils::{ensure_node_home_directory_exists, make_wallet};
     use crate::test_utils::{ByteArrayWriter, FakeStreamHolder};
 
     use super::*;
@@ -1095,16 +1064,23 @@ mod tests {
     }
 
     fn make_persistent_config(
-        mnemonic_seed_prefix_and_password_opt: Option<(&str, &str)>,
+        mnemonic_seed_prefix_opt: Option<&str>,
+        wallet_password_opt: Option<&str>,
         consuming_wallet_private_key_opt: Option<&str>,
         consuming_wallet_derivation_path_opt: Option<&str>,
         earning_wallet_address_opt: Option<&str>,
-        earning_wallet_derivation_path_opt: Option<&str>,
     ) -> PersistentConfigurationMock {
         let (mnemonic_seed_result, encrypted_mnemonic_seed_opt) =
-            match mnemonic_seed_prefix_and_password_opt {
-                None => (Err(Bip39Error::NotPresent), None),
-                Some((mnemonic_seed_prefix, wallet_password)) => {
+            match (mnemonic_seed_prefix_opt, wallet_password_opt) {
+                (None, None) => (Err(Bip39Error::NotPresent), None),
+                (None, Some(_)) => (Err(Bip39Error::NotPresent), None),
+                (Some(mnemonic_seed_prefix), None) => {
+                    let mnemonic_seed = make_mnemonic_seed(mnemonic_seed_prefix);
+                    let encrypted_mnemonic_seed =
+                        Bip39::encrypt_bytes(&mnemonic_seed, "prompt for me").unwrap();
+                    (Ok(mnemonic_seed), Some(encrypted_mnemonic_seed))
+                }
+                (Some(mnemonic_seed_prefix), Some(wallet_password)) => {
                     let mnemonic_seed = make_mnemonic_seed(mnemonic_seed_prefix);
                     let encrypted_mnemonic_seed =
                         Bip39::encrypt_bytes(&mnemonic_seed, wallet_password).unwrap();
@@ -1132,22 +1108,12 @@ mod tests {
             None => None,
             Some(address) => Some(Wallet::from_str(address).unwrap()),
         };
-        let earning_wallet_from_derivation_path_opt = match earning_wallet_derivation_path_opt {
-            None => None,
-            Some(derivation_path) => match mnemonic_seed_result.clone() {
-                Err(_) => Some(make_wallet(derivation_path)), // throwaway; the test calling this will panic
-                Ok(mnemonic_seed) => Some(Wallet::from(
-                    Bip32ECKeyPair::from_raw(mnemonic_seed.as_ref(), derivation_path).unwrap(),
-                )),
-            },
-        };
         PersistentConfigurationMock::new()
             .mnemonic_seed_result(mnemonic_seed_result)
             .encrypted_mnemonic_seed_result(encrypted_mnemonic_seed_opt)
             .consuming_wallet_public_key_result(consuming_wallet_public_key_opt)
             .consuming_wallet_derivation_path_result(consuming_wallet_derivation_path_opt)
             .earning_wallet_from_address_result(earning_wallet_from_address_opt)
-            .earning_wallet_from_derivation_path_result(earning_wallet_from_derivation_path_opt)
     }
 
     fn make_mnemonic_seed(prefix: &str) -> PlainData {
@@ -1193,11 +1159,11 @@ mod tests {
         ]);
         let mnemonic_seed_prefix = "mnemonic_seed";
         let persistent_config = make_persistent_config(
-            Some((mnemonic_seed_prefix, "password")),
+            Some(mnemonic_seed_prefix),
+            Some("password"),
             None,
             Some("m/44'/60'/1'/2/3"),
             None,
-            None,
         );
         let mut config = BootstrapperConfig::new();
 
@@ -1207,42 +1173,13 @@ mod tests {
             &persistent_config,
             &mut config,
         );
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Database is corrupt: contains both address and derivation path for earning wallet"
-    )]
-    fn earning_wallet_address_specified_when_earning_wallet_path_exists() {
-        let multi_config = make_multi_config(vec![
-            "--earning-wallet",
-            "0x0123456789012345678901234567890123456789",
-            "--wallet-password",
-            "password",
-        ]);
-        let persistent_config = make_persistent_config(
-            Some(("seed", "password")),
-            None,
-            None,
-            None,
-            Some("m/44'/60'/3'/2/1"),
-        );
-        let mut config = BootstrapperConfig::new();
-
-        standard::get_wallets(
-            &mut FakeStreamHolder::new().streams(),
-            &multi_config,
-            &persistent_config,
-            &mut config,
-        );
-        assert!(false);
     }
 
     #[test]
     #[should_panic(
         expected = "Cannot use --earning-wallet to specify an address (0x0123456789012345678901234567890123456789) different from that previously set (0x9876543210987654321098765432109876543210)"
     )]
-    fn earning_wallet_different_from_database() {
+    fn earning_wallet_address_different_from_database() {
         let multi_config = make_multi_config(vec![
             "--earning-wallet",
             "0x0123456789012345678901234567890123456789",
@@ -1251,8 +1188,8 @@ mod tests {
             None,
             None,
             None,
-            Some("0x9876543210987654321098765432109876543210"),
             None,
+            Some("0x9876543210987654321098765432109876543210"),
         );
         let mut config = BootstrapperConfig::new();
 
@@ -1274,8 +1211,8 @@ mod tests {
             None,
             None,
             None,
-            Some("0xB00FA567890123456789012345678901234b00fa"),
             None,
+            Some("0xB00FA567890123456789012345678901234b00fa"),
         );
         let mut config = BootstrapperConfig::new();
 
@@ -1294,48 +1231,6 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Database is corrupt: contains both address and derivation path for earning wallet"
-    )]
-    fn earning_wallet_address_plus_earning_wallet_derivation_path() {
-        let multi_config = make_multi_config(vec!["--wallet-password", "password"]);
-        let mnemonic_seed_prefix = "mnemonic_seed";
-        let persistent_config = make_persistent_config(
-            Some((mnemonic_seed_prefix, "password")),
-            None,
-            None,
-            Some("0xcafedeadbeefbabefacecafedeadbeefbabeface"),
-            Some("m/44'/60'/3'/2/1"),
-        );
-        let mut config = BootstrapperConfig::new();
-
-        standard::get_wallets(
-            &mut FakeStreamHolder::new().streams(),
-            &multi_config,
-            &persistent_config,
-            &mut config,
-        );
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Database is corrupt: consuming wallet derivation path is present, but no mnemonic seed"
-    )]
-    fn consuming_wallet_derivation_path_without_mnemonic_seed() {
-        let multi_config = make_multi_config(vec!["--wallet-password", "password"]);
-        let persistent_config =
-            make_persistent_config(None, None, Some("m/44'/60'/1'/2/3"), None, None);
-        let mut config = BootstrapperConfig::new();
-
-        standard::get_wallets(
-            &mut FakeStreamHolder::new().streams(),
-            &multi_config,
-            &persistent_config,
-            &mut config,
-        );
-    }
-
-    #[test]
-    #[should_panic(
         expected = "Cannot use --consuming-private-key and earning wallet address when database contains mnemonic seed"
     )]
     fn consuming_wallet_private_key_plus_earning_wallet_address_plus_mnemonic_seed() {
@@ -1349,11 +1244,11 @@ mod tests {
         ]);
         let mnemonic_seed_prefix = "mnemonic_seed";
         let persistent_config = make_persistent_config(
-            Some((mnemonic_seed_prefix, "password")),
+            Some(mnemonic_seed_prefix),
+            Some("password"),
             None,
             None,
             Some("0xcafedeadbeefbabefacecafedeadbeefbabeface"),
-            None,
         );
         let mut config = BootstrapperConfig::new();
 
@@ -1363,47 +1258,6 @@ mod tests {
             &persistent_config,
             &mut config,
         );
-    }
-
-    #[test]
-    fn consuming_wallet_private_key_plus_earning_wallet_derivation_path_plus_mnemonic_seed() {
-        let consuming_private_key_hex =
-            "ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD";
-        let multi_config = make_multi_config(vec![
-            "--wallet-password",
-            "password",
-            "--consuming-private-key",
-            consuming_private_key_hex,
-        ]);
-        let mnemonic_seed_prefix = "mnemonic_seed";
-        let persistent_config = make_persistent_config(
-            Some((mnemonic_seed_prefix, "password")),
-            None,
-            None,
-            None,
-            Some("m/44'/60'/3'/2/1"),
-        );
-        let mut config = BootstrapperConfig::new();
-
-        standard::get_wallets(
-            &mut FakeStreamHolder::new().streams(),
-            &multi_config,
-            &persistent_config,
-            &mut config,
-        );
-
-        let mnemonic_seed = make_mnemonic_seed(mnemonic_seed_prefix);
-        let expected_consuming_wallet = Wallet::from(
-            Bip32ECKeyPair::from_raw_secret(
-                &consuming_private_key_hex.from_hex::<Vec<u8>>().unwrap(),
-            )
-            .unwrap(),
-        );
-        let expected_earning_wallet = Wallet::from(
-            Bip32ECKeyPair::from_raw(mnemonic_seed.as_ref(), "m/44'/60'/3'/2/1").unwrap(),
-        );
-        assert_eq!(config.consuming_wallet, Some(expected_consuming_wallet));
-        assert_eq!(config.earning_wallet, expected_earning_wallet);
     }
 
     #[test]
@@ -1417,7 +1271,7 @@ mod tests {
             consuming_private_key_hex,
         ]);
         let persistent_config =
-            make_persistent_config(None, Some(consuming_private_key_hex), None, None, None);
+            make_persistent_config(None, None, Some(consuming_private_key_hex), None, None);
         let mut config = BootstrapperConfig::new();
 
         standard::get_wallets(
@@ -1454,7 +1308,7 @@ mod tests {
             &bad_consuming_private_key_hex,
         ]);
         let persistent_config =
-            make_persistent_config(None, Some(good_consuming_private_key_hex), None, None, None);
+            make_persistent_config(None, None, Some(good_consuming_private_key_hex), None, None);
         let mut config = BootstrapperConfig::new();
 
         standard::get_wallets(
@@ -1470,11 +1324,11 @@ mod tests {
         let multi_config = make_multi_config(vec!["--wallet-password", "password"]);
         let mnemonic_seed_prefix = "mnemonic_seed";
         let persistent_config = make_persistent_config(
-            Some((mnemonic_seed_prefix, "password")),
+            Some(mnemonic_seed_prefix),
+            Some("password"),
             None,
             Some("m/44'/60'/1'/2/3"),
             Some("0xcafedeadbeefbabefacecafedeadbeefbabeface"),
-            None,
         );
         let mut config = BootstrapperConfig::new();
 
@@ -1497,15 +1351,15 @@ mod tests {
     }
 
     #[test]
-    fn consuming_wallet_derivation_path_plus_earning_wallet_derivation_path_plus_mnemonic_seed() {
-        let multi_config = make_multi_config(vec!["--wallet-password", "password"]);
+    fn consuming_wallet_derivation_path_plus_mnemonic_seed_with_no_wallet_password_parameter() {
+        let multi_config = make_multi_config(vec![]);
         let mnemonic_seed_prefix = "mnemonic_seed";
         let persistent_config = make_persistent_config(
-            Some((mnemonic_seed_prefix, "password")),
+            Some(mnemonic_seed_prefix),
+            None,
             None,
             Some("m/44'/60'/1'/2/3"),
-            None,
-            Some("m/44'/60'/3'/2/1"),
+            Some("0xcafedeadbeefbabefacecafedeadbeefbabeface"),
         );
         let mut config = BootstrapperConfig::new();
 
@@ -1516,15 +1370,48 @@ mod tests {
             &mut config,
         );
 
+        assert_eq!(config.consuming_wallet, None);
+        assert_eq!(
+            config.earning_wallet,
+            Wallet::from_str("0xcafedeadbeefbabefacecafedeadbeefbabeface").unwrap()
+        );
+    }
+
+    #[test]
+    fn consuming_wallet_derivation_path_plus_mnemonic_seed_with_no_wallet_password_value() {
+        let multi_config = make_multi_config(vec!["--wallet-password"]);
+        let mnemonic_seed_prefix = "mnemonic_seed";
+        let persistent_config = make_persistent_config(
+            Some(mnemonic_seed_prefix),
+            None,
+            None,
+            Some("m/44'/60'/1'/2/3"),
+            Some("0xcafedeadbeefbabefacecafedeadbeefbabeface"),
+        );
+        let mut config = BootstrapperConfig::new();
+        let mut stdout_writer = ByteArrayWriter::new();
+        let mut streams = &mut StdStreams {
+            stdin: &mut Cursor::new(&b"prompt for me\n"[..]),
+            stdout: &mut stdout_writer,
+            stderr: &mut ByteArrayWriter::new(),
+        };
+
+        standard::get_wallets(&mut streams, &multi_config, &persistent_config, &mut config);
+
+        let captured_output = stdout_writer.get_string();
+        assert_eq!(
+            captured_output,
+            "Decrypt wallet from database\nEnter password: "
+        );
         let mnemonic_seed = make_mnemonic_seed(mnemonic_seed_prefix);
         let expected_consuming_wallet = Wallet::from(
             Bip32ECKeyPair::from_raw(mnemonic_seed.as_ref(), "m/44'/60'/1'/2/3").unwrap(),
         );
-        let expected_earning_wallet = Wallet::from(
-            Bip32ECKeyPair::from_raw(mnemonic_seed.as_ref(), "m/44'/60'/3'/2/1").unwrap(),
-        );
         assert_eq!(config.consuming_wallet, Some(expected_consuming_wallet));
-        assert_eq!(config.earning_wallet, expected_earning_wallet);
+        assert_eq!(
+            config.earning_wallet,
+            Wallet::from_str("0xcafedeadbeefbabefacecafedeadbeefbabeface").unwrap()
+        );
     }
 
     #[test]
@@ -1806,7 +1693,6 @@ mod tests {
         let set_consuming_public_key_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_address_result(None)
-            .earning_wallet_derivation_path_result(None)
             .consuming_wallet_public_key_result(None)
             .consuming_wallet_derivation_path_result(None)
             .set_clandestine_port_params(&set_clandestine_port_params_arc)
@@ -1848,7 +1734,6 @@ mod tests {
         let set_consuming_public_key_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_address_result(Some(earning_address.to_string()))
-            .earning_wallet_derivation_path_result(None)
             .consuming_wallet_public_key_result(Some(consuming_public_key_text))
             .consuming_wallet_derivation_path_result(None)
             .set_clandestine_port_params(&set_clandestine_port_params_arc)
@@ -1877,7 +1762,6 @@ mod tests {
         let set_consuming_public_key_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_address_result(None)
-            .earning_wallet_derivation_path_result(None)
             .consuming_wallet_public_key_result(None)
             .consuming_wallet_derivation_path_result(None)
             .set_clandestine_port_params(&set_clandestine_port_params_arc)
@@ -1897,7 +1781,6 @@ mod tests {
         let set_earning_wallet_address_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_address_result(None)
-            .earning_wallet_derivation_path_result(None)
             .consuming_wallet_public_key_result(None)
             .consuming_wallet_derivation_path_result(None)
             .set_clandestine_port_params(&set_clandestine_port_params_arc)

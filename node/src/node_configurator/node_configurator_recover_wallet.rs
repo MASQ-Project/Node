@@ -219,6 +219,7 @@ impl Validators {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::database::db_initializer;
     use crate::database::db_initializer::DbInitializer;
@@ -227,7 +228,7 @@ mod tests {
     use crate::persistent_configuration::PersistentConfigurationReal;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::wallet::{
-        DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
+        Wallet, DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
     };
     use crate::test_utils::ensure_node_home_directory_exists;
     use crate::test_utils::*;
@@ -406,17 +407,19 @@ mod tests {
         );
 
         let expected_mnemonic = Mnemonic::from_phrase(phrase, Language::Spanish).unwrap();
+        let seed = Seed::new(&expected_mnemonic, "Mortimer");
+        let earning_wallet =
+            Wallet::from(Bip32ECKeyPair::from_raw(seed.as_ref(), earning_path).unwrap());
         assert_eq!(
             config,
             WalletCreationConfig {
-                earning_wallet_address_opt: None,
+                earning_wallet_address_opt: Some(earning_wallet.to_string()),
                 derivation_path_info_opt: Some(DerivationPathWalletInfo {
                     mnemonic_seed: PlainData::new(
                         Seed::new(&expected_mnemonic, "Mortimer").as_ref()
                     ),
                     wallet_password: password.to_string(),
                     consuming_derivation_path_opt: Some(consuming_path.to_string()),
-                    earning_derivation_path_opt: Some(earning_path.to_string())
                 })
             },
         );
@@ -450,19 +453,20 @@ mod tests {
         );
 
         let expected_mnemonic = Mnemonic::from_phrase(phrase, Language::English).unwrap();
+        let seed = Seed::new(&expected_mnemonic, "Mortimer");
+        let earning_wallet = Wallet::from(
+            Bip32ECKeyPair::from_raw(seed.as_ref(), DEFAULT_EARNING_DERIVATION_PATH).unwrap(),
+        );
         assert_eq!(
             config,
             WalletCreationConfig {
-                earning_wallet_address_opt: None,
+                earning_wallet_address_opt: Some(earning_wallet.to_string()),
                 derivation_path_info_opt: Some(DerivationPathWalletInfo {
-                    mnemonic_seed: PlainData::new(
-                        Seed::new(&expected_mnemonic, "Mortimer").as_ref()
-                    ),
+                    mnemonic_seed: PlainData::new(seed.as_ref()),
                     wallet_password: password.to_string(),
                     consuming_derivation_path_opt: Some(
                         DEFAULT_CONSUMING_DERIVATION_PATH.to_string()
                     ),
-                    earning_derivation_path_opt: Some(DEFAULT_EARNING_DERIVATION_PATH.to_string())
                 })
             },
         );

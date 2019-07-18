@@ -82,33 +82,19 @@ impl SubstratumNode {
     #[allow(dead_code)]
     pub fn run_generate(config: CommandConfig) -> String {
         let mut command = SubstratumNode::make_generate_command(config);
-        let _output = command.output().unwrap();
-        let mut stream = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(Self::path_to_logfile().to_str().unwrap())
-            .unwrap();
-        let mut console_contents = String::new();
-        stream.read_to_string(&mut console_contents).unwrap();
-        console_contents
+        let output = command.output().unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        format!("stdout:\n{}\nstderr:\n{}", stdout, stderr)
     }
 
     #[allow(dead_code)]
     pub fn run_recover(config: CommandConfig) -> String {
         let mut command = SubstratumNode::make_recover_command(config);
-        let _output = command.output().unwrap();
-        let mut stream = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(Self::path_to_logfile().to_str().unwrap())
-            .unwrap();
-        let mut console_contents = String::new();
-        stream.read_to_string(&mut console_contents).unwrap();
-        console_contents
+        let output = command.output().unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        format!("stdout:\n{}\nstderr:\n{}", stdout, stderr)
     }
 
     #[allow(dead_code)]

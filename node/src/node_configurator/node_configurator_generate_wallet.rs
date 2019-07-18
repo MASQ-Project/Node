@@ -362,17 +362,19 @@ mod tests {
             make_parameters.remove(0),
             (MnemonicType::Words15, Language::Spanish),
         );
+        let seed = Seed::new(&expected_mnemonic, "Mortimer");
+        let earning_wallet =
+            Wallet::from(Bip32ECKeyPair::from_raw(seed.as_ref(), "m/44'/60'/0'/78/77").unwrap());
         assert_eq!(
             config,
             WalletCreationConfig {
-                earning_wallet_address_opt: None,
+                earning_wallet_address_opt: Some(earning_wallet.to_string()),
                 derivation_path_info_opt: Some(DerivationPathWalletInfo {
                     mnemonic_seed: PlainData::new(
                         Seed::new(&expected_mnemonic, "Mortimer").as_ref()
                     ),
                     wallet_password: password.to_string(),
                     consuming_derivation_path_opt: Some("m/44'/60'/0'/77/78".to_string()),
-                    earning_derivation_path_opt: Some("m/44'/60'/0'/78/77".to_string())
                 })
             },
         );
@@ -413,10 +415,14 @@ mod tests {
             make_parameters.remove(0),
             (MnemonicType::Words12, Language::English),
         );
+        let seed = Seed::new(&expected_mnemonic, "Mortimer");
+        let earning_wallet = Wallet::from(
+            Bip32ECKeyPair::from_raw(seed.as_ref(), DEFAULT_EARNING_DERIVATION_PATH).unwrap(),
+        );
         assert_eq!(
             config,
             WalletCreationConfig {
-                earning_wallet_address_opt: None,
+                earning_wallet_address_opt: Some(earning_wallet.to_string()),
                 derivation_path_info_opt: Some(DerivationPathWalletInfo {
                     mnemonic_seed: PlainData::new(
                         Seed::new(&expected_mnemonic, "Mortimer").as_ref()
@@ -425,7 +431,6 @@ mod tests {
                     consuming_derivation_path_opt: Some(
                         DEFAULT_CONSUMING_DERIVATION_PATH.to_string()
                     ),
-                    earning_derivation_path_opt: Some(DEFAULT_EARNING_DERIVATION_PATH.to_string())
                 })
             },
         );

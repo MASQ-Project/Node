@@ -10,6 +10,7 @@ use node_lib::sub_lib::wallet::{
     Wallet, DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
 };
 use node_lib::test_utils::environment_guard::EnvironmentGuard;
+use regex::Regex;
 use std::str::FromStr;
 use utils::CommandConfig;
 use utils::SubstratumNode;
@@ -28,6 +29,32 @@ fn persistent_config() -> PersistentConfigurationReal {
             .initialize(&SubstratumNode::data_dir().to_path_buf())
             .unwrap(),
     )
+}
+
+fn earning_path_wallet() -> Wallet {
+    wallet_from_phrase_and_path(PHRASE, EARNING_PATH)
+}
+
+fn default_earning_path_wallet() -> Wallet {
+    wallet_from_phrase_and_path(PHRASE, DEFAULT_EARNING_DERIVATION_PATH)
+}
+
+fn wallet_from_phrase_and_path(phrase: &str, path: &str) -> Wallet {
+    let mnemonic = Mnemonic::from_phrase(phrase, Language::English).unwrap();
+    let seed = Seed::new(&mnemonic, PASSPHRASE);
+    let keypair = Bip32ECKeyPair::from_raw(seed.as_ref(), path).unwrap();
+    Wallet::from(keypair)
+}
+
+fn phrase_from_console_log(console_log: &str) -> String {
+    let regex = Regex::new("if you provided one\\.\\s+(.+)[\r\n]").unwrap();
+    match regex.captures(console_log) {
+        None => panic!(
+            "Couldn't parse phrase out of console output:\n{}",
+            console_log
+        ),
+        Some(captures) => captures.get(1).unwrap().as_str().to_string(),
+    }
 }
 
 // TODO These tests could all run concurrently if each was given a different data directory.
@@ -51,17 +78,14 @@ fn create_database_recovering_both_derivation_paths_integration() {
         persistent_config.mnemonic_seed(PASSWORD).unwrap().as_ref(),
         expected_seed.as_ref()
     );
-    let keypair = Bip32ECKeyPair::from_raw(expected_seed.as_ref(), EARNING_PATH).unwrap();
-    let expected_earning_wallet = Wallet::from(keypair);
-    assert_eq!(
-        persistent_config.earning_wallet_from_derivation_path(PASSWORD),
-        Some(expected_earning_wallet)
-    );
     assert_eq!(
         persistent_config.consuming_wallet_derivation_path(),
         Some(CONSUMING_PATH.to_string())
     );
-    assert_eq!(persistent_config.earning_wallet_from_address(), None);
+    assert_eq!(
+        persistent_config.earning_wallet_from_address(),
+        Some(earning_path_wallet())
+    );
     assert_eq!(persistent_config.consuming_wallet_public_key(), None);
 }
 
@@ -76,24 +100,14 @@ fn create_database_recovering_neither_derivation_path_integration() {
     );
 
     let persistent_config = persistent_config();
-    let mnemonic = Mnemonic::from_phrase(PHRASE, Language::English).unwrap();
-    let expected_seed = Seed::new(&mnemonic, PASSPHRASE);
-    assert_eq!(
-        persistent_config.mnemonic_seed(PASSWORD).unwrap().as_ref(),
-        expected_seed.as_ref()
-    );
-    let keypair =
-        Bip32ECKeyPair::from_raw(expected_seed.as_ref(), DEFAULT_EARNING_DERIVATION_PATH).unwrap();
-    let expected_earning_wallet = Wallet::from(keypair);
-    assert_eq!(
-        persistent_config.earning_wallet_from_derivation_path(PASSWORD),
-        Some(expected_earning_wallet)
-    );
     assert_eq!(
         persistent_config.consuming_wallet_derivation_path(),
         Some(DEFAULT_CONSUMING_DERIVATION_PATH.to_string())
     );
-    assert_eq!(persistent_config.earning_wallet_from_address(), None);
+    assert_eq!(
+        persistent_config.earning_wallet_from_address(),
+        Some(default_earning_path_wallet())
+    );
     assert_eq!(persistent_config.consuming_wallet_public_key(), None);
 }
 
@@ -115,17 +129,14 @@ fn create_database_recovering_only_earning_derivation_path_integration() {
         persistent_config.mnemonic_seed(PASSWORD).unwrap().as_ref(),
         expected_seed.as_ref()
     );
-    let keypair = Bip32ECKeyPair::from_raw(expected_seed.as_ref(), EARNING_PATH).unwrap();
-    let expected_earning_wallet = Wallet::from(keypair);
-    assert_eq!(
-        persistent_config.earning_wallet_from_derivation_path(PASSWORD),
-        Some(expected_earning_wallet)
-    );
     assert_eq!(
         persistent_config.consuming_wallet_derivation_path(),
         Some(DEFAULT_CONSUMING_DERIVATION_PATH.to_string())
     );
-    assert_eq!(persistent_config.earning_wallet_from_address(), None);
+    assert_eq!(
+        persistent_config.earning_wallet_from_address(),
+        Some(earning_path_wallet())
+    );
     assert_eq!(persistent_config.consuming_wallet_public_key(), None);
 }
 
@@ -146,10 +157,6 @@ fn create_database_recovering_only_earning_address_integration() {
     assert_eq!(
         persistent_config.mnemonic_seed(PASSWORD).unwrap().as_ref(),
         expected_seed.as_ref()
-    );
-    assert_eq!(
-        persistent_config.earning_wallet_from_derivation_path(PASSWORD),
-        None
     );
     assert_eq!(
         persistent_config.consuming_wallet_derivation_path(),
@@ -180,25 +187,22 @@ fn create_database_recovering_only_consuming_derivation_path_integration() {
         persistent_config.mnemonic_seed(PASSWORD).unwrap().as_ref(),
         expected_seed.as_ref()
     );
-    let keypair =
-        Bip32ECKeyPair::from_raw(expected_seed.as_ref(), DEFAULT_EARNING_DERIVATION_PATH).unwrap();
-    let expected_earning_wallet = Wallet::from(keypair);
-    assert_eq!(
-        persistent_config.earning_wallet_from_derivation_path(PASSWORD),
-        Some(expected_earning_wallet)
-    );
     assert_eq!(
         persistent_config.consuming_wallet_derivation_path(),
         Some(CONSUMING_PATH.to_string())
     );
-    assert_eq!(persistent_config.earning_wallet_from_address(), None);
+    assert_eq!(
+        persistent_config.earning_wallet_from_address(),
+        Some(default_earning_path_wallet())
+    );
     assert_eq!(persistent_config.consuming_wallet_public_key(), None);
 }
 
 #[test]
 fn create_database_generating_both_derivation_paths_integration() {
     let _eg = EnvironmentGuard::new();
-    let _console_log = SubstratumNode::run_generate(
+
+    let console_log = SubstratumNode::run_generate(
         CommandConfig::new()
             .pair("--mnemonic-passphrase", PASSPHRASE)
             .pair("--wallet-password", PASSWORD)
@@ -206,71 +210,65 @@ fn create_database_generating_both_derivation_paths_integration() {
             .pair("--consuming-wallet", CONSUMING_PATH),
     );
 
+    let phrase = phrase_from_console_log(&console_log);
     let persistent_config = persistent_config();
-    let expected_seed = persistent_config.mnemonic_seed(PASSWORD).unwrap();
-    let keypair = Bip32ECKeyPair::from_raw(expected_seed.as_ref(), EARNING_PATH).unwrap();
-    let expected_earning_wallet = Wallet::from(keypair);
-    assert_eq!(
-        persistent_config.earning_wallet_from_derivation_path(PASSWORD),
-        Some(expected_earning_wallet)
-    );
     assert_eq!(
         persistent_config.consuming_wallet_derivation_path(),
         Some(CONSUMING_PATH.to_string())
     );
-    assert_eq!(persistent_config.earning_wallet_from_address(), None);
+    assert_eq!(
+        persistent_config.earning_wallet_from_address(),
+        Some(wallet_from_phrase_and_path(&phrase, EARNING_PATH))
+    );
     assert_eq!(persistent_config.consuming_wallet_public_key(), None);
 }
 
 #[test]
 fn create_database_generating_neither_derivation_path_integration() {
     let _eg = EnvironmentGuard::new();
-    let _console_log = SubstratumNode::run_generate(
+
+    let console_log = SubstratumNode::run_generate(
         CommandConfig::new()
             .pair("--mnemonic-passphrase", PASSPHRASE)
             .pair("--wallet-password", PASSWORD),
     );
 
+    let phrase = phrase_from_console_log(&console_log);
     let persistent_config = persistent_config();
-    let expected_seed = persistent_config.mnemonic_seed(PASSWORD).unwrap();
-    let keypair =
-        Bip32ECKeyPair::from_raw(expected_seed.as_ref(), DEFAULT_EARNING_DERIVATION_PATH).unwrap();
-    let expected_earning_wallet = Wallet::from(keypair);
-    assert_eq!(
-        persistent_config.earning_wallet_from_derivation_path(PASSWORD),
-        Some(expected_earning_wallet)
-    );
     assert_eq!(
         persistent_config.consuming_wallet_derivation_path(),
         Some(DEFAULT_CONSUMING_DERIVATION_PATH.to_string())
     );
-    assert_eq!(persistent_config.earning_wallet_from_address(), None);
+    assert_eq!(
+        persistent_config.earning_wallet_from_address(),
+        Some(wallet_from_phrase_and_path(
+            &phrase,
+            DEFAULT_EARNING_DERIVATION_PATH
+        ))
+    );
     assert_eq!(persistent_config.consuming_wallet_public_key(), None);
 }
 
 #[test]
 fn create_database_generating_only_earning_derivation_path_integration() {
     let _eg = EnvironmentGuard::new();
-    let _console_log = SubstratumNode::run_generate(
+    let console_log = SubstratumNode::run_generate(
         CommandConfig::new()
             .pair("--mnemonic-passphrase", PASSPHRASE)
             .pair("--wallet-password", PASSWORD)
             .pair("--earning-wallet", EARNING_PATH),
     );
 
+    let phrase = phrase_from_console_log(&console_log);
     let persistent_config = persistent_config();
-    let expected_seed = persistent_config.mnemonic_seed(PASSWORD).unwrap();
-    let keypair = Bip32ECKeyPair::from_raw(expected_seed.as_ref(), EARNING_PATH).unwrap();
-    let expected_earning_wallet = Wallet::from(keypair);
-    assert_eq!(
-        persistent_config.earning_wallet_from_derivation_path(PASSWORD),
-        Some(expected_earning_wallet)
-    );
     assert_eq!(
         persistent_config.consuming_wallet_derivation_path(),
         Some(DEFAULT_CONSUMING_DERIVATION_PATH.to_string())
     );
-    assert_eq!(persistent_config.earning_wallet_from_address(), None);
+    assert_eq!(
+        persistent_config.earning_wallet_from_address(),
+        Some(wallet_from_phrase_and_path(&phrase, EARNING_PATH))
+    );
     assert_eq!(persistent_config.consuming_wallet_public_key(), None);
 }
 
@@ -281,48 +279,43 @@ fn create_database_generating_only_earning_address_integration() {
         CommandConfig::new()
             .pair("--mnemonic-passphrase", PASSPHRASE)
             .pair("--wallet-password", PASSWORD)
-            .pair("--earning-wallet", EARNING_PATH),
+            .pair("--earning-wallet", EARNING_ADDRESS),
     );
 
     let persistent_config = persistent_config();
-    let expected_seed = persistent_config.mnemonic_seed(PASSWORD).unwrap();
-    let keypair = Bip32ECKeyPair::from_raw(expected_seed.as_ref(), EARNING_PATH).unwrap();
-    let expected_earning_wallet = Wallet::from(keypair);
-    assert_eq!(
-        persistent_config.earning_wallet_from_derivation_path(PASSWORD),
-        Some(expected_earning_wallet)
-    );
     assert_eq!(
         persistent_config.consuming_wallet_derivation_path(),
         Some(DEFAULT_CONSUMING_DERIVATION_PATH.to_string())
     );
-    assert_eq!(persistent_config.earning_wallet_from_address(), None);
+    assert_eq!(
+        persistent_config.earning_wallet_from_address(),
+        Some(Wallet::new(EARNING_ADDRESS))
+    );
     assert_eq!(persistent_config.consuming_wallet_public_key(), None);
 }
 
 #[test]
 fn create_database_generating_only_consuming_derivation_path_integration() {
     let _eg = EnvironmentGuard::new();
-    let _console_log = SubstratumNode::run_generate(
+    let console_log = SubstratumNode::run_generate(
         CommandConfig::new()
             .pair("--mnemonic-passphrase", PASSPHRASE)
             .pair("--wallet-password", PASSWORD)
             .pair("--consuming-wallet", CONSUMING_PATH),
     );
 
+    let phrase = phrase_from_console_log(&console_log);
     let persistent_config = persistent_config();
-    let expected_seed = persistent_config.mnemonic_seed(PASSWORD).unwrap();
-    let keypair =
-        Bip32ECKeyPair::from_raw(expected_seed.as_ref(), DEFAULT_EARNING_DERIVATION_PATH).unwrap();
-    let expected_earning_wallet = Wallet::from(keypair);
-    assert_eq!(
-        persistent_config.earning_wallet_from_derivation_path(PASSWORD),
-        Some(expected_earning_wallet)
-    );
     assert_eq!(
         persistent_config.consuming_wallet_derivation_path(),
         Some(CONSUMING_PATH.to_string())
     );
-    assert_eq!(persistent_config.earning_wallet_from_address(), None);
+    assert_eq!(
+        persistent_config.earning_wallet_from_address(),
+        Some(wallet_from_phrase_and_path(
+            &phrase,
+            DEFAULT_EARNING_DERIVATION_PATH
+        ))
+    );
     assert_eq!(persistent_config.consuming_wallet_public_key(), None);
 }
