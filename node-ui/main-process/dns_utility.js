@@ -6,9 +6,11 @@ module.exports = (() => {
   const childProcess = require('child_process')
   const pathWrapper = require('./wrappers/path_wrapper')
   const consoleWrapper = require('./wrappers/console_wrapper')
+  const process = require('../main-process/wrappers/process_wrapper')
   const sudoPrompt = require('sudo-prompt')
 
-  const dnsUtilityPathRelative = '../dist/static/binaries/dns_utility'
+  const dnsUtilityName = (process.platform === 'win32') ? 'dns_utilityw' : 'dns_utility'
+  const dnsUtilityPathRelative = '../dist/static/binaries/' + dnsUtilityName
   const dnsUtilityPathUnquoted = pathWrapper.resolveUnquoted(__dirname, dnsUtilityPathRelative)
   const dnsUtilityPathQuoted = pathWrapper.resolveQuoted(__dirname, dnsUtilityPathRelative)
   const syncTimeout = 1000

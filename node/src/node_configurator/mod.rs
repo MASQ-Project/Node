@@ -223,10 +223,11 @@ pub fn initialize_database(multi_config: &MultiConfig) -> Box<PersistentConfigur
         value_m!(multi_config, "data-directory", PathBuf).expect("data-directory is not defaulted");
     let conn = DbInitializerReal::new()
         .initialize(&data_directory)
-        .unwrap_or_else(|_| {
+        .unwrap_or_else(|e| {
             panic!(
-                "Can't initialize database at {:?}",
-                data_directory.join(DATABASE_FILE)
+                "Can't initialize database at {:?}: {:?}",
+                data_directory.join(DATABASE_FILE),
+                e
             )
         });
     Box::new(PersistentConfigurationReal::from(conn))

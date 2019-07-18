@@ -7,7 +7,9 @@ DNS_EXECUTABLE="dns_utility"
 GPG_EXECUTABLE="gpg"
 
 if [[ "$OSTYPE" == "msys" ]]; then
+  NODE_EXECUTABLEW="${NODE_EXECUTABLE}W.exe"
   NODE_EXECUTABLE="$NODE_EXECUTABLE.exe"
+  DNS_EXECUTABLEW="${DNS_EXECUTABLE}W.exe"
   DNS_EXECUTABLE="$DNS_EXECUTABLE.exe"
   GPG_EXECUTABLE="/c/Program Files (x86)/gnupg/bin/gpg"
 fi
@@ -23,6 +25,10 @@ cargo clean
 # sign
 "${GPG_EXECUTABLE}" --batch --passphrase "$PASSPHRASE" -b target/release/$NODE_EXECUTABLE
 "${GPG_EXECUTABLE}" --verify target/release/$NODE_EXECUTABLE.sig target/release/$NODE_EXECUTABLE
+if [[ "$OSTYPE" == "msys" ]]; then
+  "${GPG_EXECUTABLE}" --batch --passphrase "$PASSPHRASE" -b target/release/$NODE_EXECUTABLEW
+  "${GPG_EXECUTABLE}" --verify target/release/$NODE_EXECUTABLEW.sig target/release/$NODE_EXECUTABLEW
+fi
 
 # gui
 cd "$CI_DIR/../node-ui"
@@ -40,7 +46,7 @@ case "$OSTYPE" in
         zip -j SubstratumNode-macOS.dmg.zip node-ui/electron-builder-out/SubstratumNode*.dmg
         ;;
    msys)
-        zip -j SubstratumNode-Windows-binary.zip dns_utility/target/release/$DNS_EXECUTABLE node/target/release/$NODE_EXECUTABLE node/target/release/$NODE_EXECUTABLE.sig
+        zip -j SubstratumNode-Windows-binary.zip dns_utility/target/release/$DNS_EXECUTABLE dns_utility/target/release/$DNS_EXECUTABLEW node/target/release/$NODE_EXECUTABLE node/target/release/$NODE_EXECUTABLEW node/target/release/$NODE_EXECUTABLE.sig node/target/release/$NODE_EXECUTABLEW.sig
         zip -j SubstratumNode-Windows.exe.zip node-ui/electron-builder-out/SubstratumNode*.exe
         ;;
    *)

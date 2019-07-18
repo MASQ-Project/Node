@@ -218,7 +218,7 @@ describe('CommandHelper', () => {
     })
 
     describe('starting', () => {
-      const command = /[/\\]static[/\\]scripts[/\\]substratum_node\.cmd" ".*[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d.*/
+      const command = /[/\\]static[/\\]scripts[/\\]substratum_node\.cmd" ".*[/\\]static[/\\]binaries[/\\]SubstratumNodeW" --dns-servers \d.*/
 
       beforeEach(() => {
         subject.startSubstratumNode({}, 'callback')

@@ -25,6 +25,10 @@ winreg = "0.5.1"
 name = "dns_utility"
 path = "src/main.rs"
 
+[[bin]]
+name = "dns_utilityw"
+path = "src/main_win.rs"
+
 [lib]
 name = "dns_utility_lib"
 path = "src/lib.rs"

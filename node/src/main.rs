@@ -1,5 +1,4 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-#![windows_subsystem = "windows"]
 use node_lib::run_modes;
 use node_lib::sub_lib::main_tools::StdStreams;
 use std::io;

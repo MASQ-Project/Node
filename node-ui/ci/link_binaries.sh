@@ -6,7 +6,9 @@ NODE_EXECUTABLE="SubstratumNode"
 DNS_EXECUTABLE="dns_utility"
 
 if [[ "$OSTYPE" == "msys" ]]; then
+  NODE_EXECUTABLEW="${NODE_EXECUTABLE}W.exe"
   NODE_EXECUTABLE="$NODE_EXECUTABLE.exe"
+  DNS_EXECUTABLEW="${DNS_EXECUTABLE}w.exe"
   DNS_EXECUTABLE="$DNS_EXECUTABLE.exe"
 fi
 
@@ -15,3 +17,7 @@ mkdir -p "$CI_DIR/../src/static/binaries"
 
 cp "$CI_DIR/../../node/target/release/$NODE_EXECUTABLE" "$CI_DIR/../src/static/binaries/"
 cp "$CI_DIR/../../dns_utility/target/release/$DNS_EXECUTABLE" "$CI_DIR/../src/static/binaries/"
+if [[ "$OSTYPE" == "msys" ]]; then
+  cp "$CI_DIR/../../node/target/release/$NODE_EXECUTABLEW" "$CI_DIR/../src/static/binaries/"
+  cp "$CI_DIR/../../dns_utility/target/release/$DNS_EXECUTABLEW" "$CI_DIR/../src/static/binaries/"
+fi

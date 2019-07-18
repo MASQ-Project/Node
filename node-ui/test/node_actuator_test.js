@@ -4,6 +4,7 @@
 
 const td = require('testdouble')
 const assert = require('assert')
+const process = require('../main-process/wrappers/process_wrapper')
 const neverCalled = { times: 0, ignoreExtraArgs: true }
 
 td.config({
@@ -696,9 +697,9 @@ describe('NodeActuator', () => {
 
   describe('serving with already running node process', () => {
     beforeEach(async () => {
-      td.when(mockPsWrapper.findNodeProcess()).thenReturn([
-        { name: 'SubstratumNode', pid: 1234, cmd: 'dist/static/binaries/SubstratumNode' }
-      ])
+      let binaryName = (process.platform === 'win32') ? 'SubstratumNodeW' : 'SubstratumNode'
+      let processTriple = { name: binaryName, pid: 1234, cmd: 'dist/static/binaries/' + binaryName }
+      td.when(mockPsWrapper.findNodeProcess()).thenReturn([processTriple])
       await subject.setStatus()
       await subject.serving()
     })

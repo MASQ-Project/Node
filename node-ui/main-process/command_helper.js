@@ -14,7 +14,7 @@ module.exports = (() => {
   const sudoPrompt = require('sudo-prompt')
   const treeKill = require('tree-kill')
 
-  const binaryFilename = 'SubstratumNode'
+  const binaryFilename = (process.platform === 'win32') ? 'SubstratumNodeW' : 'SubstratumNode'
   const homePath = process.argv[2]
 
   let startSubstratumNode, stopSubstratumNode, binaryPath, scriptPath
@@ -51,6 +51,7 @@ module.exports = (() => {
   }
 
   function startNodeWindows (additionalArgs, callback) {
+    process.env.RUST_BACKTRACE = 'full'
     cmd.get(getCommand(additionalArgs), callback)
   }
 

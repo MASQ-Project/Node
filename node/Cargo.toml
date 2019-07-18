@@ -85,6 +85,10 @@ openssl = { version = "0.10", features = ["vendored"] }
 name = "SubstratumNode"
 path = "src/main.rs"
 
+[[bin]]
+name = "SubstratumNodeW"
+path = "src/main_win.rs"
+
 [lib]
 name = "node_lib"
 path = "src/lib.rs"

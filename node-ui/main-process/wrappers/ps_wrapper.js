@@ -1,5 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+const process = require('../../main-process/wrappers/process_wrapper')
+
+function binaryName () {
+  return (process.platform === 'win32') ? 'SubstratumNodeW' : 'SubstratumNode'
+}
+
 module.exports = (() => {
   const ps = require('../ps')
   const treeKill = require('tree-kill')
@@ -8,7 +14,7 @@ module.exports = (() => {
   async function killNodeProcess () {
     return ps().then(list => {
       list.filter(row =>
-        (row.name.indexOf('SubstratumNode') >= 0 && row.cmd.indexOf('static' + path.sep + 'binaries') >= 0)
+        (row.name.indexOf(binaryName()) >= 0 && row.cmd.indexOf('static' + path.sep + 'binaries') >= 0)
       ).forEach(item => treeKill(item.pid))
     })
   }
@@ -16,7 +22,7 @@ module.exports = (() => {
   async function findNodeProcess () {
     return ps().then(list => {
       return list.filter(row =>
-        (row.name.indexOf('SubstratumNode') >= 0 && row.cmd.indexOf('static' + path.sep + 'binaries') >= 0)
+        (row.name.indexOf(binaryName()) >= 0 && row.cmd.indexOf('static' + path.sep + 'binaries') >= 0)
       )
     })
   }

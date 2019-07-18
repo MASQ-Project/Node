@@ -6,10 +6,11 @@ const td = require('testdouble')
 const assert = require('assert')
 
 describe('ps_wrapper', () => {
-  let subject, mockPs, mockPath, mockTreeKill
+  let subject, mockPs, mockProcess, mockPath, mockTreeKill
 
   beforeEach(() => {
     mockPs = td.replace('../main-process/ps')
+    mockProcess = td.replace('../main-process/wrappers/process_wrapper')
     mockPath = td.replace('path')
     mockTreeKill = td.replace('tree-kill')
 
@@ -22,6 +23,7 @@ describe('ps_wrapper', () => {
 
   describe('killNodeProcess', () => {
     it('should not call treeKill with wrong path', async () => {
+      mockProcess.platform = 'linux'
       td.when(mockPs()).thenResolve([{
         name: 'SubstratumNode',
         cmd: 'users/SubstratumNode --dns-servers 8.8.8.8',
@@ -33,6 +35,7 @@ describe('ps_wrapper', () => {
     })
 
     it('kills with *nix path', async () => {
+      mockProcess.platform = 'linux'
       td.when(mockPs()).thenResolve([{
         name: 'SubstratumNode',
         cmd: 'users/static/binaries/SubstratumNode --dns-servers 8.8.8.8',
@@ -44,9 +47,10 @@ describe('ps_wrapper', () => {
     })
 
     it('kills with Windows path', async () => {
+      mockProcess.platform = 'win32'
       td.when(mockPs()).thenResolve([{
-        name: 'SubstratumNode',
-        cmd: 'users\\static\\binaries\\SubstratumNode --dns-servers 8.8.8.8',
+        name: 'SubstratumNodeW',
+        cmd: 'users\\static\\binaries\\SubstratumNodeW --dns-servers 8.8.8.8',
         pid: '1234'
       }])
       mockPath.sep = '\\'
@@ -57,6 +61,7 @@ describe('ps_wrapper', () => {
 
   describe('findNodeProcess', () => {
     it('should not find with *nix path', async () => {
+      mockProcess.platform = 'linux'
       td.when(mockPs()).thenResolve([{
         name: 'SubstratumNode',
         cmd: 'users/SubstratumNode --dns-servers 8.8.8.8'
@@ -67,6 +72,7 @@ describe('ps_wrapper', () => {
     })
 
     it('should find with *nix path', async () => {
+      mockProcess.platform = 'linux'
       td.when(mockPs()).thenResolve([{
         name: 'SubstratumNode',
         cmd: 'users/static/binaries/SubstratumNode --dns-servers 8.8.8.8'
@@ -78,14 +84,15 @@ describe('ps_wrapper', () => {
     })
 
     it('should find with Windows path', async () => {
+      mockProcess.platform = 'win32'
       td.when(mockPs()).thenResolve([{
-        name: 'SubstratumNode',
-        cmd: 'users\\static\\binaries\\SubstratumNode --dns-servers 8.8.8.8'
+        name: 'SubstratumNodeW',
+        cmd: 'users\\static\\binaries\\SubstratumNodeW --dns-servers 8.8.8.8'
       }])
       mockPath.sep = '\\'
       let result = await subject.findNodeProcess()
       assert.strictEqual(result.length, 1)
-      assert.strictEqual(result[0].name, 'SubstratumNode')
+      assert.strictEqual(result[0].name, 'SubstratumNodeW')
     })
   })
 })

@@ -5,6 +5,7 @@
 const assert = require('assert')
 const td = require('testdouble')
 const path = require('path')
+const process = require('../main-process/wrappers/process_wrapper')
 
 describe('DNS Utility', () => {
   let subject
@@ -13,7 +14,8 @@ describe('DNS Utility', () => {
   let result
   let mockConsole
 
-  let dnsUtilityPath = path.resolve(__dirname, '.', '../dist/static/binaries/dns_utility')
+  let dnsUtilityName = (process.platform === 'win32') ? 'dns_utilityw' : 'dns_utility'
+  let dnsUtilityPath = path.resolve(__dirname, '.', '../dist/static/binaries/' + dnsUtilityName)
   let dnsUtilityPathQuoted = '"' + dnsUtilityPath + '"'
   let dnsUtilityArgs = ['status']
   let dnsUtilityOptions = { timeout: 1000 }

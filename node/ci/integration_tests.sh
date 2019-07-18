@@ -11,8 +11,7 @@ fi
 case "$OSTYPE" in
     msys)
         echo "Windows"
-# Disabled in SC-920 on 7/12/2019 for process-killing problem: put back in ASAP
-#        "$CI_DIR/run_integration_tests.sh"
+        "$CI_DIR/run_integration_tests.sh"
         ;;
     Darwin | darwin*)
         echo "macOS"
