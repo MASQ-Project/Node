@@ -8,6 +8,7 @@ use multinode_integration_tests_lib::substratum_node::{
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::substratum_node_server::SubstratumNodeServer;
 use multinode_integration_tests_lib::substratum_real_node::SubstratumRealNode;
+use node_lib::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::Masquerader;
@@ -42,7 +43,7 @@ const HTTP_RESPONSE: &[u8] =
 fn actual_client_drop() {
     let mut cluster = SubstratumNodeCluster::start().unwrap();
     let (real_node, mock_node, exit_key) = create_neighborhood(&mut cluster);
-    let exit_cryptde = CryptDENull::from(&exit_key);
+    let exit_cryptde = CryptDENull::from(&exit_key, cluster.chain_id);
     let mut client = real_node.make_client(8080);
     let masquerader = JsonMasquerader::new();
     client.send_chunk(HTTP_REQUEST);
@@ -72,7 +73,7 @@ fn actual_client_drop() {
 fn reported_server_drop() {
     let mut cluster = SubstratumNodeCluster::start().unwrap();
     let (real_node, mock_node, exit_key) = create_neighborhood(&mut cluster);
-    let exit_cryptde = CryptDENull::from(&exit_key);
+    let exit_cryptde = CryptDENull::from(&exit_key, cluster.chain_id);
     let mut client = real_node.make_client(8080);
     let masquerader = JsonMasquerader::new();
     client.send_chunk(HTTP_REQUEST);
@@ -111,13 +112,20 @@ fn actual_server_drop() {
     mock_node
         .transmit_package(
             mock_node.port_list()[0],
-            create_request_icp(&mock_node, &real_node, stream_key, return_route_id, &server),
+            create_request_icp(
+                &mock_node,
+                &real_node,
+                stream_key,
+                return_route_id,
+                &server,
+                cluster.chain_id,
+            ),
             &masquerader,
             real_node.public_key(),
             real_node.socket_addr(PortSelector::First),
         )
         .unwrap();
-    server.wait_for_chunk(Duration::from_secs(1)).unwrap();
+    server.wait_for_chunk(Duration::from_secs(2)).unwrap();
     server.send_chunk(HTTP_RESPONSE);
     mock_node
         .wait_for_package(&masquerader, Duration::from_secs(2))
@@ -163,7 +171,14 @@ fn reported_client_drop() {
     mock_node
         .transmit_package(
             mock_node.port_list()[0],
-            create_request_icp(&mock_node, &real_node, stream_key, return_route_id, &server),
+            create_request_icp(
+                &mock_node,
+                &real_node,
+                stream_key,
+                return_route_id,
+                &server,
+                cluster.chain_id,
+            ),
             &masquerader,
             real_node.public_key(),
             real_node.socket_addr(PortSelector::First),
@@ -245,6 +260,7 @@ fn create_request_icp(
     stream_key: StreamKey,
     return_route_id: u32,
     server: &SubstratumNodeServer,
+    chain_id: u8,
 ) -> IncipientCoresPackage {
     IncipientCoresPackage::new(
         originating_node.cryptde_null().unwrap(),
@@ -260,6 +276,7 @@ fn create_request_icp(
             originating_node.cryptde_null().unwrap(),
             originating_node.consuming_wallet(),
             return_route_id,
+            Some(contract_address(chain_id)),
         )
         .unwrap(),
         MessageType::ClientRequest(ClientRequestPayload {
@@ -296,6 +313,7 @@ fn create_meaningless_icp(
             originating_node.cryptde_null().unwrap(),
             originating_node.consuming_wallet(),
             1357,
+            Some(contract_address(DEFAULT_CHAIN_ID)),
         )
         .unwrap(),
         MessageType::ClientRequest(ClientRequestPayload {
@@ -330,6 +348,7 @@ fn create_server_drop_report(
         originating_node.cryptde_null().unwrap(),
         originating_node.consuming_wallet(),
         return_route_id,
+        Some(contract_address(DEFAULT_CHAIN_ID)),
     )
     .unwrap();
     route
@@ -368,6 +387,7 @@ fn create_client_drop_report(
         originating_node.cryptde_null().unwrap(),
         originating_node.consuming_wallet(),
         return_route_id,
+        Some(contract_address(DEFAULT_CHAIN_ID)),
     )
     .unwrap();
     let payload = MessageType::ClientRequest(ClientRequestPayload {

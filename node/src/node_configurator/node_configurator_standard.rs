@@ -179,6 +179,17 @@ fn app() -> App<'static, 'static> {
             common_validators::validate_ethereum_address,
         ))
         .arg(
+            Arg::with_name("chain")
+                .long("chain")
+                .value_name("CHAIN")
+                .min_values(1)
+                .max_values(1)
+                .takes_value(true)
+                .possible_values(&["dev", "ropsten"])
+                .default_value("ropsten")
+                .hidden(true),
+        )
+        .arg(
             Arg::with_name("fake-public-key")
                 .long("fake-public-key")
                 .value_name("FAKE-PUBLIC-KEY")
@@ -236,6 +247,7 @@ mod standard {
 
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::blockchain::bip39::{Bip39, Bip39Error};
+    use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::bootstrapper::PortConfiguration;
     use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
     use crate::multi_config::{CommandLineVCL, ConfigFileVCL, EnvironmentVCL, MultiConfig};
@@ -315,6 +327,10 @@ mod standard {
         config.crash_point =
             value_m!(multi_config, "crash-point", CrashPoint).expect("Internal Error");
 
+        if let Some(chain_name) = value_m!(multi_config, "chain", String) {
+            config.blockchain_bridge_config.chain_id = chain_id_from_name(&chain_name);
+        }
+
         match value_m!(multi_config, "fake-public-key", String) {
             None => (),
             Some(public_key_str) => {
@@ -322,7 +338,8 @@ mod standard {
                     Ok(key) => PublicKey::new(&key),
                     Err(_) => panic!("Invalid fake public key: {}", public_key_str),
                 };
-                let cryptde_null = CryptDENull::from(&public_key);
+                let cryptde_null =
+                    CryptDENull::from(&public_key, config.blockchain_bridge_config.chain_id);
                 config.cryptde_null_opt = Some(cryptde_null);
             }
         }
@@ -598,11 +615,13 @@ mod tests {
 
     use super::*;
     use crate::blockchain::bip39::{Bip39, Bip39Error};
+    use crate::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::node_configurator::test_utils::ArgsBuilder;
     use crate::persistent_configuration::PersistentConfigurationReal;
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
     use crate::sub_lib::crash_point::CrashPoint;
+    use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::test_utils::make_default_persistent_configuration;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use std::path::PathBuf;
@@ -804,9 +823,10 @@ mod tests {
         let payer = bootstrapper_config
             .consuming_wallet
             .unwrap()
-            .as_payer(&public_key);
+            .as_payer(&public_key, &contract_address(DEFAULT_CHAIN_ID));
+        let cryptdenull = CryptDENull::from(&public_key, DEFAULT_CHAIN_ID);
         assert!(
-            payer.owns_secret_key(&public_key),
+            payer.owns_secret_key(&cryptdenull.digest()),
             "Neighborhood config should have a WalletKind::KeyPair wallet"
         );
     }
@@ -1578,6 +1598,51 @@ mod tests {
         let args = ArgsBuilder::new()
             .param("--dns-servers", "1.2.3.4")
             .param("--config-file", "booga.toml"); // nonexistent config file: should stimulate panic because user-specified
+
+        subject.configure(&args.into(), &mut FakeStreamHolder::new().streams());
+    }
+
+    #[test]
+    fn privileged_configuration_accepts_network_chain_selection_for_multinode() {
+        let subject = NodeConfiguratorStandardPrivileged {};
+        let args = ArgsBuilder::new()
+            .param("--dns-servers", "1.2.3.4")
+            .param("--chain", "dev");
+
+        let config = subject.configure(&args.into(), &mut FakeStreamHolder::new().streams());
+
+        assert_eq!(config.blockchain_bridge_config.chain_id, 2u8);
+    }
+
+    #[test]
+    fn privileged_configuration_accepts_network_chain_selection_for_ropsten() {
+        let subject = NodeConfiguratorStandardPrivileged {};
+        let args = ArgsBuilder::new()
+            .param("--dns-servers", "1.2.3.4")
+            .param("--chain", "ropsten");
+
+        let config = subject.configure(&args.into(), &mut FakeStreamHolder::new().streams());
+
+        assert_eq!(config.blockchain_bridge_config.chain_id, DEFAULT_CHAIN_ID);
+    }
+
+    #[test]
+    fn privileged_configuration_defaults_network_chain_selection_to_ropsten() {
+        let subject = NodeConfiguratorStandardPrivileged {};
+        let args = ArgsBuilder::new().param("--dns-servers", "1.2.3.4");
+
+        let config = subject.configure(&args.into(), &mut FakeStreamHolder::new().streams());
+
+        assert_eq!(config.blockchain_bridge_config.chain_id, DEFAULT_CHAIN_ID);
+    }
+
+    #[test]
+    #[should_panic(expected = r#"error: 'mainnet' isn't a valid value for '--chain <CHAIN>'"#)]
+    fn privileged_configuration_rejects_mainnet_network_chain_selection() {
+        let subject = NodeConfiguratorStandardPrivileged {};
+        let args = ArgsBuilder::new()
+            .param("--dns-servers", "1.2.3.4")
+            .param("--chain", "mainnet");
 
         subject.configure(&args.into(), &mut FakeStreamHolder::new().streams());
     }

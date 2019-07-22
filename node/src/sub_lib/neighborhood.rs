@@ -211,7 +211,7 @@ pub struct RatePack {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sub_lib::cryptde_null::CryptDENull;
+    use crate::test_utils::cryptde;
     use std::str::FromStr;
 
     pub fn rate_pack(base_rate: u64) -> RatePack {
@@ -225,14 +225,14 @@ mod tests {
 
     #[test]
     fn node_descriptor_from_str_requires_two_pieces_to_a_configuration() {
-        let result = NodeDescriptor::from_str(&CryptDENull::new(), "only_one_piece");
+        let result = NodeDescriptor::from_str(cryptde(), "only_one_piece");
 
         assert_eq!(result, Err(String::from("only_one_piece")));
     }
 
     #[test]
     fn node_descriptor_from_str_complains_about_bad_base_64() {
-        let result = NodeDescriptor::from_str(&CryptDENull::new(), "bad_key:1.2.3.4:1234;2345");
+        let result = NodeDescriptor::from_str(cryptde(), "bad_key:1.2.3.4:1234;2345");
 
         assert_eq!(
             result,
@@ -242,22 +242,21 @@ mod tests {
 
     #[test]
     fn node_descriptor_from_str_complains_about_blank_public_key() {
-        let result = NodeDescriptor::from_str(&CryptDENull::new(), ":1.2.3.4:1234;2345");
+        let result = NodeDescriptor::from_str(cryptde(), ":1.2.3.4:1234;2345");
 
         assert_eq!(result, Err(String::from("Public key cannot be empty")));
     }
 
     #[test]
     fn node_descriptor_from_str_complains_about_bad_node_addr() {
-        let result = NodeDescriptor::from_str(&CryptDENull::new(), "R29vZEtleQ==:BadNodeAddr");
+        let result = NodeDescriptor::from_str(cryptde(), "R29vZEtleQ==:BadNodeAddr");
 
         assert_eq!(result, Err(String::from("R29vZEtleQ==:BadNodeAddr")));
     }
 
     #[test]
     fn node_descriptor_from_str_handles_the_happy_path() {
-        let result =
-            NodeDescriptor::from_str(&CryptDENull::new(), "R29vZEtleQ:1.2.3.4:1234;2345;3456");
+        let result = NodeDescriptor::from_str(cryptde(), "R29vZEtleQ:1.2.3.4:1234;2345;3456");
 
         assert_eq!(
             result.unwrap(),

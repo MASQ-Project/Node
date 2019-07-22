@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use base64;
+use ethsign_crypto::Keccak256;
 use rustc_hex::ToHex;
 use serde;
 use serde::de::Visitor;
@@ -428,6 +429,7 @@ pub trait CryptDE: Send + Sync {
         &self,
         descriptor_fragment: &str,
     ) -> Result<PublicKey, String>;
+    fn digest(&self) -> [u8; 32];
 }
 
 pub fn encodex<T>(cryptde: &CryptDE, public_key: &PublicKey, item: &T) -> Result<CryptData, String>
@@ -458,10 +460,15 @@ where
     }
 }
 
+pub fn create_digest(msg: &dyn AsRef<[u8]>, address: &dyn AsRef<[u8]>) -> [u8; 32] {
+    [msg.as_ref(), address.as_ref()].concat().keccak256()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sub_lib::cryptde_null::CryptDENull;
+    use crate::blockchain::blockchain_interface::DEFAULT_CHAIN_ID;
+    use crate::test_utils::cryptde;
     use rustc_hex::{FromHex, FromHexError};
     use serde::de;
     use serde::ser;
@@ -809,21 +816,21 @@ mod tests {
 
     #[test]
     fn encodex_and_decodex_communicate() {
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let start = TestStruct::make();
 
-        let intermediate = encodex(&cryptde, &cryptde.public_key(), &start).unwrap();
-        let end = decodex::<TestStruct>(&cryptde, &intermediate).unwrap();
+        let intermediate = encodex(cryptde, &cryptde.public_key(), &start).unwrap();
+        let end = decodex::<TestStruct>(cryptde, &intermediate).unwrap();
 
         assert_eq!(end, start);
     }
 
     #[test]
     fn encodex_produces_expected_data() {
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let start = TestStruct::make();
 
-        let intermediate = super::encodex(&cryptde, &cryptde.public_key(), &start).unwrap();
+        let intermediate = super::encodex(cryptde, &cryptde.public_key(), &start).unwrap();
 
         let decrypted = cryptde.decode(&intermediate).unwrap();
         let deserialized: TestStruct = serde_cbor::de::from_slice(decrypted.as_slice()).unwrap();
@@ -833,31 +840,31 @@ mod tests {
 
     #[test]
     fn decodex_produces_expected_structure() {
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let serialized = serde_cbor::ser::to_vec(&TestStruct::make()).unwrap();
         let encrypted = cryptde
             .encode(&cryptde.public_key(), &PlainData::from(serialized))
             .unwrap();
 
-        let end = super::decodex::<TestStruct>(&cryptde, &encrypted).unwrap();
+        let end = super::decodex::<TestStruct>(cryptde, &encrypted).unwrap();
 
         assert_eq!(end, TestStruct::make());
     }
 
     #[test]
     fn encodex_handles_encryption_error() {
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let item = TestStruct::make();
 
-        let result = encodex(&cryptde, &PublicKey::new(&[]), &item);
+        let result = encodex(cryptde, &PublicKey::new(&[]), &item);
 
         assert_eq!(result, Err(String::from("Encryption error: EmptyKey")));
     }
 
     #[test]
     fn decodex_handles_decryption_error() {
-        let mut cryptde = CryptDENull::new();
-        cryptde.set_key_pair(&PublicKey::new(&[]));
+        let mut cryptde = cryptde().clone();
+        cryptde.set_key_pair(&PublicKey::new(&[]), DEFAULT_CHAIN_ID);
         let data = CryptData::new(&b"booga"[..]);
 
         let result = decodex::<TestStruct>(&cryptde, &data);
@@ -888,10 +895,10 @@ mod tests {
 
     #[test]
     fn encodex_handles_serialization_error() {
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let item = BadSerStruct { flag: true };
 
-        let result = encodex(&cryptde, &cryptde.public_key(), &item);
+        let result = encodex(cryptde, &cryptde.public_key(), &item);
 
         assert_eq!(
             result,
@@ -903,12 +910,12 @@ mod tests {
 
     #[test]
     fn decodex_handles_deserialization_error() {
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let data = cryptde
             .encode(&cryptde.public_key(), &PlainData::new(b"whompem"))
             .unwrap();
 
-        let result = decodex::<BadSerStruct>(&cryptde, &data);
+        let result = decodex::<BadSerStruct>(cryptde, &data);
 
         assert_eq!(
             result,

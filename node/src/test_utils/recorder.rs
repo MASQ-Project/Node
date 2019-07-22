@@ -1,7 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::accountant::ReceivedPayments;
+use crate::accountant::payable_dao::Payment;
+use crate::accountant::{ReceivedPayments, SentPayments};
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
-use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
+use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainResult, Transaction};
 use crate::neighborhood::gossip::Gossip;
 use crate::stream_messages::{AddStreamMsg, PoolBindMessage, RemoveStreamMsg};
 use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
@@ -54,6 +55,7 @@ pub struct Recorder {
     node_query_responses: Vec<Option<NodeQueryResponseMetadata>>,
     route_query_responses: Vec<Option<RouteQueryResponse>>,
     retrieve_transactions_responses: Vec<Result<Vec<Transaction>, BlockchainError>>,
+    report_accounts_payable_responses: Vec<Result<Vec<BlockchainResult<Payment>>, String>>,
 }
 
 #[derive(Default)]
@@ -104,12 +106,12 @@ recorder_message_handler!(ReportRoutingServiceProvidedMessage);
 recorder_message_handler!(ReportExitServiceProvidedMessage);
 recorder_message_handler!(ReportRoutingServiceConsumedMessage);
 recorder_message_handler!(ReportExitServiceConsumedMessage);
-recorder_message_handler!(ReportAccountsPayable);
 recorder_message_handler!(SetWalletPasswordMsg);
 recorder_message_handler!(SetConsumingWalletMessage);
 recorder_message_handler!(DnsResolveFailure);
 recorder_message_handler!(NodeRecordMetadataMessage);
 recorder_message_handler!(ReceivedPayments);
+recorder_message_handler!(SentPayments);
 recorder_message_handler!(AddRouteMessage);
 recorder_message_handler!(AddStreamMsg);
 recorder_message_handler!(PoolBindMessage);
@@ -158,6 +160,20 @@ impl Handler<RetrieveTransactions> for Recorder {
     ) -> <Self as Handler<RetrieveTransactions>>::Result {
         self.record(msg);
         let result = self.retrieve_transactions_responses.remove(0);
+        MessageResult(result)
+    }
+}
+
+impl Handler<ReportAccountsPayable> for Recorder {
+    type Result = MessageResult<ReportAccountsPayable>;
+
+    fn handle(
+        &mut self,
+        msg: ReportAccountsPayable,
+        _ctx: &mut Self::Context,
+    ) -> <Self as Handler<ReportAccountsPayable>>::Result {
+        self.record(msg);
+        let result = self.report_accounts_payable_responses.remove(0);
         MessageResult(result)
     }
 }
@@ -213,6 +229,14 @@ impl Recorder {
         response: Result<Vec<Transaction>, BlockchainError>,
     ) -> Recorder {
         self.retrieve_transactions_responses.push(response);
+        self
+    }
+
+    pub fn report_accounts_payable_response(
+        mut self,
+        response: Result<Vec<BlockchainResult<Payment>>, String>,
+    ) -> Recorder {
+        self.report_accounts_payable_responses.push(response);
         self
     }
 }
@@ -361,6 +385,7 @@ pub fn make_accountant_subs_from(addr: &Addr<Recorder>) -> AccountantSubs {
             .recipient::<ReportRoutingServiceConsumedMessage>(),
         report_exit_service_consumed: addr.clone().recipient::<ReportExitServiceConsumedMessage>(),
         report_new_payments: addr.clone().recipient::<ReceivedPayments>(),
+        report_sent_payments: addr.clone().recipient::<SentPayments>(),
         get_financial_statistics_sub: addr.clone().recipient::<GetFinancialStatisticsMessage>(),
     }
 }

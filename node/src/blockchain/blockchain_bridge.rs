@@ -1,8 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use crate::accountant::payable_dao::Payment;
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39Error;
-use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainInterface, Transaction};
+use crate::blockchain::blockchain_interface::{
+    BlockchainError, BlockchainInterface, BlockchainResult, Transaction,
+};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
@@ -18,6 +21,7 @@ use actix::Handler;
 use actix::Message;
 use actix::{Actor, MessageResult};
 use actix::{Addr, Recipient};
+use std::convert::TryFrom;
 
 pub struct BlockchainBridge {
     _config: BlockchainBridgeConfig, // TODO: Why is this not used? That seems wrong.
@@ -87,13 +91,47 @@ impl Handler<RetrieveTransactions> for BlockchainBridge {
 }
 
 impl Handler<ReportAccountsPayable> for BlockchainBridge {
-    type Result = ();
+    type Result = MessageResult<ReportAccountsPayable>;
 
-    fn handle(&mut self, _msg: ReportAccountsPayable, _ctx: &mut Self::Context) -> Self::Result {
-        debug!(
-            self.logger,
-            "Received ReportAccountsPayable message".to_string()
-        );
+    fn handle(
+        &mut self,
+        msg: ReportAccountsPayable,
+        _ctx: &mut Self::Context,
+    ) -> <Self as Handler<ReportAccountsPayable>>::Result {
+        MessageResult(match self.consuming_wallet.as_ref() {
+            Some(consuming_wallet) => Ok(msg
+                .accounts
+                .iter()
+                .map(|payable| {
+                    match self
+                        .blockchain_interface
+                        .get_transaction_count(&consuming_wallet)
+                    {
+                        Ok(nonce) => {
+                            match self.blockchain_interface.send_transaction(
+                                &consuming_wallet,
+                                &payable.wallet,
+                                u64::try_from(payable.balance).unwrap_or_else(|_| {
+                                    panic!("Lost payable amount precision: {}", payable.balance)
+                                }),
+                                nonce,
+                            ) {
+                                Ok(hash) => Ok(Payment::new(
+                                    payable.wallet.clone(),
+                                    u64::try_from(payable.balance).unwrap_or_else(|_| {
+                                        panic!("Lost payable amount precision: {}", payable.balance)
+                                    }),
+                                    hash,
+                                )),
+                                Err(e) => Err(e),
+                            }
+                        }
+                        Err(e) => Err(e),
+                    }
+                })
+                .collect::<Vec<BlockchainResult<Payment>>>()),
+            None => Err(String::from("No consuming wallet specified")),
+        })
     }
 }
 
@@ -203,10 +241,12 @@ impl BlockchainBridge {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::payable_dao::PayableAccount;
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::blockchain::bip39::{Bip39, Bip39Error};
     use crate::blockchain::blockchain_interface::{
-        Balance, BlockchainError, Transaction, Transactions, TESTNET_CONTRACT_ADDRESS,
+        contract_address, Balance, BlockchainError, BlockchainResult, Nonce, Transaction,
+        Transactions, DEFAULT_CHAIN_ID,
     };
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
@@ -216,18 +256,23 @@ mod tests {
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
-    use crate::test_utils::*;
+    use crate::test_utils::{
+        make_default_persistent_configuration, make_paying_wallet, make_wallet,
+    };
     use actix::Addr;
     use actix::System;
     use bip39::{Language, Mnemonic, Seed};
     use ethsign::keyfile::Crypto;
     use ethsign::{Protected, SecretKey};
+    use ethsign_crypto::Keccak256;
     use futures::future::Future;
     use rustc_hex::FromHex;
     use std::cell::RefCell;
     use std::num::NonZeroU32;
     use std::sync::{Arc, Mutex};
     use std::thread;
+    use std::time::{Duration, SystemTime};
+    use web3::types::{Address, H256, U256};
 
     fn stub_bi() -> Box<BlockchainInterface> {
         Box::new(BlockchainInterfaceMock::default())
@@ -282,7 +327,7 @@ mod tests {
                 &bc_from_bbc_plus(
                     BlockchainBridgeConfig {
                         blockchain_service_url: None,
-                        contract_address: TESTNET_CONTRACT_ADDRESS,
+                        chain_id: DEFAULT_CHAIN_ID,
                     },
                     None,
                 ),
@@ -352,7 +397,7 @@ mod tests {
                 &bc_from_bbc_plus(
                     BlockchainBridgeConfig {
                         blockchain_service_url: None,
-                        contract_address: TESTNET_CONTRACT_ADDRESS,
+                        chain_id: DEFAULT_CHAIN_ID,
                     },
                     None,
                 ),
@@ -397,12 +442,11 @@ mod tests {
         let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
         thread::spawn(move || {
             let persistent_config_mock = PersistentConfigurationMock::default();
-
             let subject = BlockchainBridge::new(
                 &bc_from_bbc_plus(
                     BlockchainBridgeConfig {
                         blockchain_service_url: None,
-                        contract_address: TESTNET_CONTRACT_ADDRESS,
+                        chain_id: DEFAULT_CHAIN_ID,
                     },
                     Some(Wallet::new("0x0000000000000000000000000000000000000000")),
                 ),
@@ -451,12 +495,11 @@ mod tests {
         thread::spawn(move || {
             let persistent_config_mock =
                 PersistentConfigurationMock::new().consuming_wallet_derivation_path_result(None);
-
             let subject = BlockchainBridge::new(
                 &bc_from_bbc_plus(
                     BlockchainBridgeConfig {
                         blockchain_service_url: None,
-                        contract_address: TESTNET_CONTRACT_ADDRESS,
+                        chain_id: DEFAULT_CHAIN_ID,
                     },
                     None,
                 ),
@@ -503,12 +546,11 @@ mod tests {
             let persistent_config_mock = PersistentConfigurationMock::new()
                 .consuming_wallet_derivation_path_result(Some("m/44'/60'/1'/2/3".to_string()))
                 .mnemonic_seed_result(Err(Bip39Error::NotPresent));
-
             let subject = BlockchainBridge::new(
                 &bc_from_bbc_plus(
                     BlockchainBridgeConfig {
                         blockchain_service_url: None,
-                        contract_address: TESTNET_CONTRACT_ADDRESS,
+                        chain_id: DEFAULT_CHAIN_ID,
                     },
                     None,
                 ),
@@ -556,13 +598,12 @@ mod tests {
             .from_hex()
             .unwrap();
         let consuming_private_key = SecretKey::from_raw(&secret).unwrap();
-
         let consuming_wallet = Wallet::from(Bip32ECKeyPair::from(consuming_private_key));
         let subject = BlockchainBridge::new(
             &bc_from_bbc_plus(
                 BlockchainBridgeConfig {
                     blockchain_service_url: None,
-                    contract_address: TESTNET_CONTRACT_ADDRESS,
+                    chain_id: DEFAULT_CHAIN_ID,
                 },
                 Some(consuming_wallet.clone()),
             ),
@@ -594,7 +635,7 @@ mod tests {
             &bc_from_bbc_plus(
                 BlockchainBridgeConfig {
                     blockchain_service_url: None,
-                    contract_address: TESTNET_CONTRACT_ADDRESS,
+                    chain_id: DEFAULT_CHAIN_ID,
                 },
                 None,
             ),
@@ -617,39 +658,15 @@ mod tests {
         );
     }
 
-    #[test]
-    fn blockchain_bridge_receives_report_accounts_payable_message_and_logs() {
-        init_test_logging();
-
-        let subject = BlockchainBridge::new(
-            &bc_from_bbc_plus(
-                BlockchainBridgeConfig {
-                    blockchain_service_url: None,
-                    contract_address: TESTNET_CONTRACT_ADDRESS,
-                },
-                None,
-            ),
-            stub_bi(),
-            Box::new(PersistentConfigurationMock::default()),
-        );
-
-        let system = System::new("blockchain_bridge_receives_report_accounts_payable_message");
-        let addr: Addr<BlockchainBridge> = subject.start();
-
-        addr.try_send(ReportAccountsPayable { accounts: vec![] })
-            .unwrap();
-
-        System::current().stop_with_code(0);
-        system.run();
-        TestLogHandler::new().exists_log_containing(
-            "DEBUG: BlockchainBridge: Received ReportAccountsPayable message",
-        );
-    }
-
-    #[derive(Default)]
+    #[derive(Debug, Default)]
     struct BlockchainInterfaceMock {
         pub retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
-        pub retrieve_transactions_results: RefCell<Vec<Result<Vec<Transaction>, BlockchainError>>>,
+        pub retrieve_transactions_results: RefCell<Vec<BlockchainResult<Vec<Transaction>>>>,
+        pub send_transaction_parameters: Arc<Mutex<Vec<(Wallet, Wallet, u64, U256)>>>,
+        pub send_transaction_results: RefCell<Vec<BlockchainResult<H256>>>,
+        pub contract_address_results: RefCell<Vec<Address>>,
+        pub get_transaction_count_parameters: Arc<Mutex<Vec<Wallet>>>,
+        pub get_transaction_count_results: RefCell<Vec<BlockchainResult<U256>>>,
     }
 
     impl BlockchainInterfaceMock {
@@ -660,9 +677,28 @@ mod tests {
             self.retrieve_transactions_results.borrow_mut().push(result);
             self
         }
+
+        fn send_transaction_result(self, result: BlockchainResult<H256>) -> Self {
+            self.send_transaction_results.borrow_mut().push(result);
+            self
+        }
+
+        fn contract_address_result(self, address: Address) -> Self {
+            self.contract_address_results.borrow_mut().push(address);
+            self
+        }
+
+        fn get_transaction_count_result(self, result: BlockchainResult<U256>) -> Self {
+            self.get_transaction_count_results.borrow_mut().push(result);
+            self
+        }
     }
 
     impl BlockchainInterface for BlockchainInterfaceMock {
+        fn contract_address(&self) -> Address {
+            self.contract_address_results.borrow_mut().remove(0)
+        }
+
         fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> Transactions {
             self.retrieve_transactions_parameters
                 .lock()
@@ -671,12 +707,36 @@ mod tests {
             self.retrieve_transactions_results.borrow_mut().remove(0)
         }
 
+        fn send_transaction(
+            &self,
+            consuming_wallet: &Wallet,
+            recipient: &Wallet,
+            amount: u64,
+            nonce: U256,
+        ) -> BlockchainResult<H256> {
+            self.send_transaction_parameters.lock().unwrap().push((
+                consuming_wallet.clone(),
+                recipient.clone(),
+                amount,
+                nonce,
+            ));
+            self.send_transaction_results.borrow_mut().remove(0)
+        }
+
         fn get_eth_balance(&self, _address: &Wallet) -> Balance {
             unimplemented!()
         }
 
         fn get_token_balance(&self, _address: &Wallet) -> Balance {
             unimplemented!()
+        }
+
+        fn get_transaction_count(&self, wallet: &Wallet) -> Nonce {
+            self.get_transaction_count_parameters
+                .lock()
+                .unwrap()
+                .push(wallet.clone());
+            self.get_transaction_count_results.borrow_mut().remove(0)
         }
     }
 
@@ -691,8 +751,9 @@ mod tests {
         }];
         let result = Ok(expected_results.clone());
         let wallet = make_wallet("smelly");
-        let blockchain_interface_mock =
-            BlockchainInterfaceMock::default().retrieve_transactions_result(result);
+        let blockchain_interface_mock = BlockchainInterfaceMock::default()
+            .retrieve_transactions_result(result)
+            .contract_address_result(contract_address(DEFAULT_CHAIN_ID));
         let retrieve_transactions_parameters = blockchain_interface_mock
             .retrieve_transactions_parameters
             .clone();
@@ -700,7 +761,7 @@ mod tests {
             &bc_from_bbc_plus(
                 BlockchainBridgeConfig {
                     blockchain_service_url: None,
-                    contract_address: TESTNET_CONTRACT_ADDRESS,
+                    chain_id: DEFAULT_CHAIN_ID,
                 },
                 None,
             ),
@@ -721,6 +782,228 @@ mod tests {
 
         let result = request.wait().unwrap().unwrap();
         assert_eq!(expected_results, result);
+    }
+
+    #[test]
+    fn report_accounts_payable_sends_transactions_to_blockchain_interface() {
+        let system =
+            System::new("report_accounts_payable_sends_transactions_to_blockchain_interface");
+
+        let blockchain_interface_mock = BlockchainInterfaceMock::default()
+            .get_transaction_count_result(Ok(U256::from(1)))
+            .get_transaction_count_result(Ok(U256::from(2)))
+            .send_transaction_result(Ok(H256::from("sometransactionhash".keccak256())))
+            .send_transaction_result(Ok(H256::from("someothertransactionhash".keccak256())))
+            .contract_address_result(contract_address(DEFAULT_CHAIN_ID));
+        let send_parameters = blockchain_interface_mock
+            .send_transaction_parameters
+            .clone();
+        let transaction_count_parameters = blockchain_interface_mock
+            .get_transaction_count_parameters
+            .clone();
+        let persistent_configuration_mock = PersistentConfigurationMock::default();
+
+        let consuming_wallet = make_paying_wallet(b"somewallet");
+        let subject = BlockchainBridge::new(
+            &bc_from_bbc_plus(
+                BlockchainBridgeConfig {
+                    blockchain_service_url: None,
+                    chain_id: DEFAULT_CHAIN_ID,
+                },
+                Some(consuming_wallet.clone()),
+            ),
+            Box::new(blockchain_interface_mock),
+            Box::new(persistent_configuration_mock),
+        );
+        let addr: Addr<BlockchainBridge> = subject.start();
+
+        let request = addr.send(ReportAccountsPayable {
+            accounts: vec![
+                PayableAccount {
+                    wallet: make_wallet("blah"),
+                    balance: 42,
+                    last_paid_timestamp: SystemTime::now(),
+                    pending_payment_transaction: None,
+                },
+                PayableAccount {
+                    wallet: make_wallet("foo"),
+                    balance: 21,
+                    last_paid_timestamp: SystemTime::now(),
+                    pending_payment_transaction: None,
+                },
+            ],
+        });
+        System::current().stop();
+        system.run();
+
+        assert_eq!(
+            send_parameters.lock().unwrap()[0],
+            (
+                consuming_wallet.clone(),
+                make_wallet("blah"),
+                42,
+                U256::from(1)
+            )
+        );
+        assert_eq!(
+            send_parameters.lock().unwrap()[1],
+            (
+                consuming_wallet.clone(),
+                make_wallet("foo"),
+                21,
+                U256::from(2)
+            )
+        );
+
+        let result = request.wait().unwrap().unwrap();
+        let mut expected_payment_0 = Payment::new(
+            make_wallet("blah"),
+            42,
+            H256::from("sometransactionhash".keccak256()),
+        );
+
+        if let Ok(zero) = result.clone().get(0).unwrap().clone() {
+            assert!(
+                zero.timestamp
+                    <= expected_payment_0
+                        .timestamp
+                        .checked_add(Duration::from_secs(2))
+                        .unwrap()
+            );
+            assert!(
+                zero.timestamp
+                    >= expected_payment_0
+                        .timestamp
+                        .checked_sub(Duration::from_secs(2))
+                        .unwrap()
+            );
+            expected_payment_0.timestamp = zero.timestamp
+        }
+
+        let mut expected_payment_1 = Payment::new(
+            make_wallet("foo"),
+            21,
+            H256::from("someothertransactionhash".keccak256()),
+        );
+
+        if let Ok(one) = result.clone().get(1).unwrap().clone() {
+            assert!(
+                one.timestamp
+                    <= expected_payment_1
+                        .timestamp
+                        .checked_add(Duration::from_secs(2))
+                        .unwrap()
+            );
+            assert!(
+                one.timestamp
+                    >= expected_payment_1
+                        .timestamp
+                        .checked_sub(Duration::from_secs(2))
+                        .unwrap()
+            );
+            expected_payment_1.timestamp = one.timestamp
+        }
+
+        assert_eq!(result[1], Ok(expected_payment_1));
+
+        assert_eq!(
+            transaction_count_parameters.lock().unwrap()[0],
+            consuming_wallet.clone(),
+        );
+        assert_eq!(
+            transaction_count_parameters.lock().unwrap()[1],
+            consuming_wallet.clone(),
+        );
+    }
+
+    #[test]
+    fn report_accounts_payable_returns_error_for_blockchain_error() {
+        let system = System::new("report_accounts_payable_returns_error_for_blockchain_error");
+
+        let blockchain_interface_mock = BlockchainInterfaceMock::default()
+            .get_transaction_count_result(Ok(web3::types::U256::from(1)))
+            .send_transaction_result(Err(BlockchainError::TransactionFailed(String::from(
+                "mock payment failure",
+            ))));
+
+        let transaction_count_parameters = blockchain_interface_mock
+            .get_transaction_count_parameters
+            .clone();
+        let consuming_wallet = make_wallet("somewallet");
+        let persistent_configuration_mock = PersistentConfigurationMock::new();
+        let subject = BlockchainBridge::new(
+            &bc_from_bbc_plus(
+                BlockchainBridgeConfig {
+                    blockchain_service_url: None,
+                    chain_id: DEFAULT_CHAIN_ID,
+                },
+                Some(consuming_wallet.clone()),
+            ),
+            Box::new(blockchain_interface_mock),
+            Box::new(persistent_configuration_mock),
+        );
+        let addr: Addr<BlockchainBridge> = subject.start();
+
+        let request = addr.send(ReportAccountsPayable {
+            accounts: vec![PayableAccount {
+                wallet: make_wallet("blah"),
+                balance: 42,
+                last_paid_timestamp: SystemTime::now(),
+                pending_payment_transaction: None,
+            }],
+        });
+
+        System::current().stop();
+        system.run();
+
+        let result = &request.wait().unwrap().unwrap();
+
+        assert_eq!(
+            result,
+            &vec![Err(BlockchainError::TransactionFailed(String::from(
+                "mock payment failure"
+            )))]
+        );
+        let actual_wallet = transaction_count_parameters.lock().unwrap().remove(0);
+
+        assert_eq!(actual_wallet, consuming_wallet);
+    }
+
+    #[test]
+    fn report_accounts_payable_returns_error_when_there_is_no_consuming_wallet_configured() {
+        let system = System::new("report_accounts_payable_returns_error_for_blockchain_error");
+
+        let blockchain_interface_mock = BlockchainInterfaceMock::default();
+        let persistent_configuration_mock = PersistentConfigurationMock::default();
+
+        let subject = BlockchainBridge::new(
+            &bc_from_bbc_plus(
+                BlockchainBridgeConfig {
+                    blockchain_service_url: None,
+                    chain_id: DEFAULT_CHAIN_ID,
+                },
+                None,
+            ),
+            Box::new(blockchain_interface_mock),
+            Box::new(persistent_configuration_mock),
+        );
+        let addr: Addr<BlockchainBridge> = subject.start();
+
+        let request = addr.send(ReportAccountsPayable {
+            accounts: vec![PayableAccount {
+                wallet: make_wallet("blah"),
+                balance: 42,
+                last_paid_timestamp: SystemTime::now(),
+                pending_payment_transaction: None,
+            }],
+        });
+
+        System::current().stop();
+        system.run();
+
+        let result = &request.wait().unwrap();
+
+        assert_eq!(result, &Err("No consuming wallet specified".to_string()));
     }
 
     fn bc_from_bbc_plus(

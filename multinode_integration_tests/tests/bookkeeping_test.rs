@@ -3,9 +3,9 @@ use multinode_integration_tests_lib::substratum_node::{
     NodeReference, SubstratumNode, SubstratumNodeUtils,
 };
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
-use multinode_integration_tests_lib::substratum_real_node::SubstratumRealNode;
 use multinode_integration_tests_lib::substratum_real_node::{
     make_consuming_wallet_info, make_earning_wallet_info, NodeStartupConfigBuilder,
+    SubstratumRealNode,
 };
 use node_lib::accountant::payable_dao::{PayableAccount, PayableDao, PayableDaoReal};
 use node_lib::accountant::receivable_dao::{ReceivableAccount, ReceivableDao, ReceivableDaoReal};

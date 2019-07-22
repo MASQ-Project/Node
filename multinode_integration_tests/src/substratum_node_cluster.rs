@@ -1,9 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::command::Command;
 use crate::substratum_mock_node::SubstratumMockNode;
-use crate::substratum_node::SubstratumNode;
+use crate::substratum_node::{SubstratumNode, SubstratumNodeUtils};
 use crate::substratum_real_node::NodeStartupConfig;
 use crate::substratum_real_node::SubstratumRealNode;
+use node_lib::blockchain::blockchain_interface::DEFAULT_CHAIN_ID;
 use node_lib::sub_lib::cryptde::PublicKey;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -11,10 +12,12 @@ use std::env;
 use std::net::{IpAddr, Ipv4Addr};
 
 pub struct SubstratumNodeCluster {
+    startup_configs: HashMap<(String, usize), NodeStartupConfig>,
     real_nodes: HashMap<String, SubstratumRealNode>,
     mock_nodes: HashMap<String, SubstratumMockNode>,
     host_node_parent_dir: Option<String>,
     next_index: usize,
+    pub chain_id: u8,
 }
 
 impl SubstratumNodeCluster {
@@ -29,10 +32,12 @@ impl SubstratumNodeCluster {
             SubstratumNodeCluster::interconnect_network()?;
         }
         Ok(SubstratumNodeCluster {
+            startup_configs: HashMap::new(),
             real_nodes: HashMap::new(),
             mock_nodes: HashMap::new(),
             host_node_parent_dir,
             next_index: 1,
+            chain_id: DEFAULT_CHAIN_ID,
         })
     }
 
@@ -48,6 +53,16 @@ impl SubstratumNodeCluster {
         self.next_index
     }
 
+    pub fn prepare_real_node(&mut self, config: &NodeStartupConfig) -> (String, usize) {
+        let index = self.startup_configs.len() + 1;
+        let name = SubstratumRealNode::make_name(index);
+        self.startup_configs
+            .insert((name.clone(), index), config.clone());
+        SubstratumRealNode::prepare(&name);
+
+        (name, index)
+    }
+
     pub fn start_real_node(&mut self, config: NodeStartupConfig) -> SubstratumRealNode {
         let index = self.next_index;
         self.next_index += 1;
@@ -55,6 +70,15 @@ impl SubstratumNodeCluster {
         let name = node.name().to_string();
         self.real_nodes.insert(name.clone(), node);
         self.real_nodes.get(&name).unwrap().clone()
+    }
+
+    pub fn start_named_real_node(
+        &mut self,
+        name: String,
+        index: usize,
+        config: NodeStartupConfig,
+    ) -> SubstratumRealNode {
+        SubstratumRealNode::start_prepared(name, config, index, self.host_node_parent_dir.clone())
     }
 
     pub fn start_mock_node_with_real_cryptde(&mut self, ports: Vec<u16>) -> SubstratumMockNode {
@@ -82,8 +106,14 @@ impl SubstratumNodeCluster {
                 index,
                 self.host_node_parent_dir.clone(),
                 public_key,
+                self.chain_id,
             ),
-            None => SubstratumMockNode::start(ports, index, self.host_node_parent_dir.clone()),
+            None => SubstratumMockNode::start(
+                ports,
+                index,
+                self.host_node_parent_dir.clone(),
+                self.chain_id,
+            ),
         };
         let name = node.name().to_string();
         self.mock_nodes.insert(name.clone(), node);
@@ -145,6 +175,16 @@ impl SubstratumNodeCluster {
                 None => None,
             },
         }
+    }
+
+    pub fn get_real_node_home_dir_path_by_name(&self, name: String) -> String {
+        SubstratumRealNode::node_home_dir(
+            &self
+                .host_node_parent_dir
+                .clone()
+                .unwrap_or_else(SubstratumNodeUtils::find_project_root),
+            &name,
+        )
     }
 
     pub fn is_in_jenkins() -> bool {

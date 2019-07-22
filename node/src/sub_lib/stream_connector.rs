@@ -160,6 +160,7 @@ impl StreamConnector for StreamConnectorReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sub_lib::utils::localhost;
     use crate::test_utils::find_free_port;
     use crate::test_utils::little_tcp_server::LittleTcpServer;
     use crate::test_utils::logging::init_test_logging;
@@ -180,7 +181,7 @@ mod tests {
     fn stream_connector_can_fail_to_connect() {
         init_test_logging();
         let dead_port = find_free_port();
-        let socket_addr = SocketAddr::new(IpAddr::from_str("127.0.0.1").unwrap(), dead_port);
+        let socket_addr = SocketAddr::new(localhost(), dead_port);
         let logger = Logger::new("test");
         let subject = StreamConnectorReal {};
 
@@ -213,10 +214,7 @@ mod tests {
 
         FutureAsserter::new(future).assert(move |result| {
             let connection_info = result.unwrap();
-            assert_eq!(
-                connection_info.local_addr.ip(),
-                IpAddr::from_str("127.0.0.1").unwrap()
-            );
+            assert_eq!(connection_info.local_addr.ip(), localhost());
             assert_eq!(connection_info.peer_addr, server.socket_addr());
             success()
         });

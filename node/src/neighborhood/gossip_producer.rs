@@ -59,6 +59,7 @@ impl GossipProducerReal {
 mod tests {
     use super::super::gossip::GossipNodeRecord;
     use super::*;
+    use crate::blockchain::blockchain_interface::DEFAULT_CHAIN_ID;
     use crate::neighborhood::neighborhood_test_utils::db_from_node;
     use crate::neighborhood::neighborhood_test_utils::make_node_record;
     use crate::neighborhood::node_record::NodeRecordInner;
@@ -165,7 +166,7 @@ mod tests {
         let result_gossip_record = result_gossip.node_records.first().unwrap();
         let result_node_record_inner = NodeRecordInner::try_from(result_gossip_record).unwrap();
         assert_eq!(our_node_record.inner, result_node_record_inner);
-        let our_cryptde = CryptDENull::from(our_node_record.public_key());
+        let our_cryptde = CryptDENull::from(our_node_record.public_key(), DEFAULT_CHAIN_ID);
         assert_eq!(
             true,
             our_cryptde.verify_signature(

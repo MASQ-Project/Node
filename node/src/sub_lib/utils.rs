@@ -5,8 +5,7 @@ use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PlainData;
 use std::io::ErrorKind;
-use std::net::IpAddr;
-use std::str::FromStr;
+use std::net::{IpAddr, Ipv4Addr};
 
 static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
     ErrorKind::BrokenPipe,
@@ -19,7 +18,7 @@ static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
 pub static NODE_MAILBOX_CAPACITY: usize = 0; // 0 for unbound
 
 pub fn localhost() -> IpAddr {
-    IpAddr::from_str("127.0.0.1").expect("Something really crazy has happened")
+    IpAddr::V4(Ipv4Addr::LOCALHOST)
 }
 
 pub fn indicates_dead_stream(kind: ErrorKind) -> bool {

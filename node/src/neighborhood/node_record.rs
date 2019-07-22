@@ -300,6 +300,7 @@ impl NodeRecordMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::blockchain_interface::DEFAULT_CHAIN_ID;
     use crate::neighborhood::gossip::GossipBuilder;
     use crate::neighborhood::neighborhood_test_utils::db_from_node;
     use crate::neighborhood::neighborhood_test_utils::make_node_record;
@@ -780,7 +781,7 @@ mod tests {
     #[test]
     fn regenerate_signed_data_regenerates_signed_gossip_and_resigns() {
         let mut subject = make_node_record(1234, true);
-        let cryptde = CryptDENull::from(subject.public_key());
+        let cryptde = CryptDENull::from(subject.public_key(), DEFAULT_CHAIN_ID);
         let initial_signed_gossip = subject.signed_gossip().clone();
         subject.increment_version();
 

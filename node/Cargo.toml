@@ -13,11 +13,12 @@ members = ["../multinode_integration_tests"]
 [dependencies]
 actix = "= 0.7.9"
 base64 = "0.10.0"
-bytes = "0.4.11"
+bytes = "0.4.12"
 chrono = "0.4.6"
 clap = "2.33.0"
 dirs = "2.0.1"
 ethsign-crypto = "0.1.0"
+ethereum-types = "0.6.0"
 fdlimit = "0.1.1"
 flexi_logger = "0.13.2"
 futures = "0.1.25"
@@ -30,16 +31,17 @@ log = "0.4.6"
 pretty-hex = "0.1.0"
 rand = "0.5.5"
 regex = "1.0.5"
+rlp = "0.4.0"
 rpassword = "3.0.2"
 rustc-hex = "2.0.1"
-serde = "1.0.80"
-serde_derive = "1.0.80"
-serde_json = "1.0.32"
-serde_cbor = "0.9.0"
+serde = "1.0.94"
+serde_derive = "1.0.94"
+serde_json = "1.0.40"
+serde_cbor = "0.10.0"
 sha1 = "0.6.0"
 sodiumoxide = "0.2.2"
 tiny-bip39 = "0.6.2"
-tiny-hderive = "0.2.0"
+tiny-hderive = "0.2.1"
 tokio = "0.1.15"
 tokio-core = "0.1.12"
 toml = "0.5.1"
@@ -51,27 +53,33 @@ version = "0.6.1"
 default-features = false
 features = ["pure-rust"]
 
+[dependencies.primitive-types]
+version = "0.4.0"
+default-features = false
+features = ["default", "rlp", "serde"]
+
 [dependencies.rusqlite]
 version = "0.18.0"
 features = ["bundled"]
 
 [dependencies.web3]
-version = "0.6.0"
+version = "0.7.0"
 default-features = false
 features = ["http", "tls"]
 
 [dependencies.websocket]
-version = "0.22.1"
+version = "0.22.4"
 default-features = false
 features = ["async", "sync"]
 
 [dev-dependencies]
 base58 = "0.1.0"
-native-tls = "0.2.3"
+native-tls = {features = ["vendored"], version = "0.2.3"}
 simple-server = "0.4.0"
 serial_test_derive = "0.2.0"
 serial_test = "0.2.0"
 trust-dns-proto = "0.4.0"
+jsonrpc-core = "11.0.0"
 
 [target.'cfg(unix)'.dependencies]
 daemonize = "0.3.0"

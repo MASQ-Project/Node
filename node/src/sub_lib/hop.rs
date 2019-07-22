@@ -39,9 +39,9 @@ impl LiveHop {
         encodex(cryptde, public_key, &self)
     }
 
-    pub fn payer_owns_secret_key(&self, public_key: &PublicKey) -> bool {
+    pub fn payer_owns_secret_key(&self, digest: &AsRef<[u8]>) -> bool {
         match &self.payer {
-            Some(p) => p.owns_secret_key(public_key),
+            Some(p) => p.owns_secret_key(digest),
             None => false,
         }
     }
@@ -50,8 +50,8 @@ impl LiveHop {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::test_utils::make_paying_wallet;
+    use crate::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
+    use crate::test_utils::{cryptde, make_paying_wallet};
 
     #[test]
     fn can_construct_hop() {
@@ -59,7 +59,8 @@ mod tests {
 
         let subject = LiveHop::new(
             &key,
-            Some(make_paying_wallet(b"wallet")).map(|w| w.as_payer(&key)),
+            Some(make_paying_wallet(b"wallet"))
+                .map(|w| w.as_payer(&key, &contract_address(DEFAULT_CHAIN_ID))),
             Component::Neighborhood,
         );
 
@@ -69,10 +70,10 @@ mod tests {
 
     #[test]
     fn decode_can_handle_errors() {
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let encrypted = CryptData::new(&[0]);
 
-        let result = LiveHop::decode(&cryptde, &encrypted);
+        let result = LiveHop::decode(cryptde, &encrypted);
 
         assert_eq!(
             result
@@ -85,59 +86,65 @@ mod tests {
 
     #[test]
     fn encode_decode() {
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let encode_key = cryptde.public_key();
+        let contract_address = &contract_address(DEFAULT_CHAIN_ID);
         let hopper_hop = LiveHop::new(
             &PublicKey::new(&[4, 3, 2, 1]),
-            Some(paying_wallet.clone()).map(|w| w.as_payer(&PublicKey::new(&[4, 3, 2, 1]))),
+            Some(paying_wallet.clone())
+                .map(|w| w.as_payer(&PublicKey::new(&[4, 3, 2, 1]), contract_address)),
             Component::Hopper,
         );
         let neighborhood_hop = LiveHop::new(
             &PublicKey::new(&[1, 2, 3, 4]),
-            Some(paying_wallet.clone()).map(|w| w.as_payer(&PublicKey::new(&[1, 2, 3, 4]))),
+            Some(paying_wallet.clone())
+                .map(|w| w.as_payer(&PublicKey::new(&[1, 2, 3, 4]), contract_address)),
             Component::Neighborhood,
         );
         let proxy_server_hop = LiveHop::new(
             &PublicKey::new(&[127, 128]),
-            Some(paying_wallet.clone()).map(|w| w.as_payer(&PublicKey::new(&[127, 128]))),
+            Some(paying_wallet.clone())
+                .map(|w| w.as_payer(&PublicKey::new(&[127, 128]), contract_address)),
             Component::ProxyServer,
         );
         let proxy_client_hop = LiveHop::new(
             &PublicKey::new(&[253, 254, 255]),
-            Some(paying_wallet.clone()).map(|w| w.as_payer(&PublicKey::new(&[253, 254, 255]))),
+            Some(paying_wallet.clone())
+                .map(|w| w.as_payer(&PublicKey::new(&[253, 254, 255]), contract_address)),
             Component::ProxyClient,
         );
         let relay_hop = LiveHop::new(
             &PublicKey::new(&[123]),
-            Some(paying_wallet.clone()).map(|w| w.as_payer(&PublicKey::new(&[123]))),
+            Some(paying_wallet.clone())
+                .map(|w| w.as_payer(&PublicKey::new(&[123]), contract_address)),
             Component::Hopper,
         );
 
-        let hopper_hop_encoded = hopper_hop.encode(&encode_key, &cryptde).unwrap();
-        let neighborhood_hop_encoded = neighborhood_hop.encode(&encode_key, &cryptde).unwrap();
-        let proxy_server_hop_encoded = proxy_server_hop.encode(&encode_key, &cryptde).unwrap();
-        let proxy_client_hop_encoded = proxy_client_hop.encode(&encode_key, &cryptde).unwrap();
-        let none_hop_encoded = relay_hop.encode(&encode_key, &cryptde).unwrap();
+        let hopper_hop_encoded = hopper_hop.encode(&encode_key, cryptde).unwrap();
+        let neighborhood_hop_encoded = neighborhood_hop.encode(&encode_key, cryptde).unwrap();
+        let proxy_server_hop_encoded = proxy_server_hop.encode(&encode_key, cryptde).unwrap();
+        let proxy_client_hop_encoded = proxy_client_hop.encode(&encode_key, cryptde).unwrap();
+        let none_hop_encoded = relay_hop.encode(&encode_key, cryptde).unwrap();
 
         assert_eq!(
-            LiveHop::decode(&cryptde, &hopper_hop_encoded).unwrap(),
+            LiveHop::decode(cryptde, &hopper_hop_encoded).unwrap(),
             hopper_hop
         );
         assert_eq!(
-            LiveHop::decode(&cryptde, &neighborhood_hop_encoded).unwrap(),
+            LiveHop::decode(cryptde, &neighborhood_hop_encoded).unwrap(),
             neighborhood_hop
         );
         assert_eq!(
-            LiveHop::decode(&cryptde, &proxy_server_hop_encoded).unwrap(),
+            LiveHop::decode(cryptde, &proxy_server_hop_encoded).unwrap(),
             proxy_server_hop
         );
         assert_eq!(
-            LiveHop::decode(&cryptde, &proxy_client_hop_encoded).unwrap(),
+            LiveHop::decode(cryptde, &proxy_client_hop_encoded).unwrap(),
             proxy_client_hop
         );
         assert_eq!(
-            LiveHop::decode(&cryptde, &none_hop_encoded).unwrap(),
+            LiveHop::decode(cryptde, &none_hop_encoded).unwrap(),
             relay_hop
         );
     }

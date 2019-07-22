@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::accountant::ReceivedPayments;
+use crate::accountant::{ReceivedPayments, SentPayments};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
@@ -30,6 +30,7 @@ pub struct AccountantSubs {
     pub report_routing_service_consumed: Recipient<ReportRoutingServiceConsumedMessage>,
     pub report_exit_service_consumed: Recipient<ReportExitServiceConsumedMessage>,
     pub report_new_payments: Recipient<ReceivedPayments>,
+    pub report_sent_payments: Recipient<SentPayments>,
     pub get_financial_statistics_sub: Recipient<GetFinancialStatisticsMessage>,
 }
 

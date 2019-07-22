@@ -6,6 +6,7 @@ use crate::substratum_node::SubstratumNode;
 use crate::substratum_node_cluster::SubstratumNodeCluster;
 use crate::substratum_real_node::SubstratumRealNode;
 use crate::substratum_real_node::{make_consuming_wallet_info, NodeStartupConfigBuilder};
+use node_lib::blockchain::blockchain_interface::{chain_id_from_name, DEFAULT_CHAIN_ID};
 use node_lib::neighborhood::gossip::Gossip;
 use node_lib::neighborhood::gossip_producer::{GossipProducer, GossipProducerReal};
 use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;
@@ -188,6 +189,7 @@ fn form_mock_node_skeleton(
             let standard_gossip = StandardBuilder::new()
                 .add_substratum_node(&node, 1)
                 .half_neighbors(node.public_key(), real_node.public_key())
+                .chain_id(cluster.chain_id)
                 .build();
             node.transmit_multinode_gossip(real_node, &standard_gossip)
                 .unwrap();
@@ -252,7 +254,13 @@ fn from_substratum_node_to_node_record(substratum_node: &SubstratumNode) -> Node
         signed_gossip: PlainData::new(b""),
         signature: CryptData::new(b""),
     };
-    let cryptde = CryptDENull::from(substratum_node.public_key());
+    let cryptde = CryptDENull::from(
+        substratum_node.public_key(),
+        substratum_node
+            .chain()
+            .map(|chain_name| chain_id_from_name(chain_name.as_str()))
+            .unwrap_or(DEFAULT_CHAIN_ID),
+    );
     result.regenerate_signed_gossip(&cryptde);
     result
 }

@@ -582,11 +582,9 @@ mod tests {
     use crate::node_test_utils::FailingMasquerader;
     use crate::persistent_configuration::HTTP_PORT;
     use crate::sub_lib::cryptde::CryptDE;
-    use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::InboundClientData;
     use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
     use crate::sub_lib::stream_connector::ConnectionInfo;
-    use crate::test_utils::await_messages;
     use crate::test_utils::channel_wrapper_mocks::SenderWrapperMock;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -598,6 +596,7 @@ mod tests {
     use crate::test_utils::stream_connector_mock::StreamConnectorMock;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
+    use crate::test_utils::{await_messages, cryptde};
     use actix::Actor;
     use actix::Addr;
     use actix::System;
@@ -1265,7 +1264,7 @@ mod tests {
     #[test]
     fn transmit_data_msg_handler_finds_ip_from_neighborhood_and_transmits_message() {
         init_test_logging();
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let key = cryptde.public_key();
 
         let reader = ReadHalfWrapperMock::new().poll_read_result(vec![], Ok(Async::NotReady));
@@ -1356,7 +1355,7 @@ mod tests {
     #[test]
     fn node_query_response_handler_does_not_try_to_write_when_neighbor_is_not_found() {
         init_test_logging();
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let key = cryptde.public_key().clone();
 
         thread::spawn(move || {
@@ -1404,7 +1403,7 @@ mod tests {
     #[test]
     fn node_query_response_handler_does_not_try_to_write_when_neighbor_ip_is_not_known() {
         init_test_logging();
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let key = cryptde.public_key().clone();
 
         thread::spawn(move || {
@@ -1456,7 +1455,7 @@ mod tests {
     #[test]
     fn node_query_response_handler_resends_transmit_data_msg_when_connection_is_in_progress() {
         init_test_logging();
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let key = cryptde.public_key().clone();
 
         let peer_addr = SocketAddr::from_str("5.4.3.1:8000").unwrap();
@@ -1555,7 +1554,7 @@ mod tests {
     fn when_a_new_connection_fails_the_stream_writer_flag_is_removed_and_another_connection_is_attempted_for_the_next_message_with_the_same_stream_key(
     ) {
         init_test_logging();
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let key = cryptde.public_key().clone();
 
         let peer_addr = SocketAddr::from_str("5.4.3.1:8000").unwrap();
@@ -1656,7 +1655,7 @@ mod tests {
     fn node_query_response_handler_sets_counterpart_flag_and_removes_stream_writer_if_last_data_is_true(
     ) {
         init_test_logging();
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let key = cryptde.public_key().clone();
         let peer_addr = SocketAddr::from_str("127.0.0.1:8005").unwrap();
         let sender_wrapper_unbounded_send_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1711,7 +1710,7 @@ mod tests {
     )]
     fn when_node_query_response_node_addr_contains_no_ports_then_stream_handler_pool_panics() {
         init_test_logging();
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let key = cryptde.public_key();
 
         let peer_addr = SocketAddr::from_str("5.4.3.1:8000").unwrap();

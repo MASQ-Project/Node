@@ -17,7 +17,7 @@ use crate::accountant::receivable_dao::ReceivableDaoReal;
 use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal, BannedDaoReal};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
 use crate::blockchain::blockchain_interface::{
-    BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceRpc,
+    BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceNonClandestine,
 };
 use crate::config_dao::ConfigDaoReal;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
@@ -43,6 +43,7 @@ use actix::{Actor, Arbiter};
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
+use web3::transports::Http;
 
 pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(
@@ -93,6 +94,8 @@ impl ActorSystemFactoryReal {
             per_routing_byte: config.neighborhood_config.rate_pack.routing_byte_rate,
             is_decentralized: config.neighborhood_config.is_decentralized(),
         });
+        let blockchain_bridge_subs =
+            actor_factory.make_and_start_blockchain_bridge(&config, &db_initializer);
         let neighborhood_subs = actor_factory.make_and_start_neighborhood(cryptde, &config);
         let accountant_subs = actor_factory.make_and_start_accountant(
             &config,
@@ -104,8 +107,6 @@ impl ActorSystemFactoryReal {
             actor_factory.make_and_start_ui_gateway(config.ui_gateway_config.clone());
         let stream_handler_pool_subs = actor_factory
             .make_and_start_stream_handler_pool(config.clandestine_discriminator_factories.clone());
-        let blockchain_bridge_subs =
-            actor_factory.make_and_start_blockchain_bridge(&config, &db_initializer);
 
         // collect all the subs
         let peer_actors = PeerActors {
@@ -372,14 +373,21 @@ impl ActorFactory for ActorFactoryReal {
             .blockchain_bridge_config
             .blockchain_service_url
             .clone();
-        let contract_address = config.blockchain_bridge_config.contract_address;
         let blockchain_interface: Box<dyn BlockchainInterface> = {
             match blockchain_service_url {
-                Some(url) => match BlockchainInterfaceRpc::new(url, contract_address) {
-                    Ok(interface) => Box::new(interface),
+                Some(url) => match Http::new(&url) {
+                    Ok((event_loop_handle, transport)) => {
+                        Box::new(BlockchainInterfaceNonClandestine::new(
+                            transport,
+                            event_loop_handle,
+                            config.blockchain_bridge_config.chain_id,
+                        ))
+                    }
                     Err(_) => panic!("Invalid blockchain node URL"),
                 },
-                None => Box::new(BlockchainInterfaceClandestine::new()),
+                None => Box::new(BlockchainInterfaceClandestine::new(
+                    config.blockchain_bridge_config.chain_id,
+                )),
             }
         };
         let config_dao = Box::new(ConfigDaoReal::new(
@@ -403,9 +411,9 @@ impl ActorFactory for ActorFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::ReceivedPayments;
+    use crate::accountant::{ReceivedPayments, SentPayments};
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
-    use crate::blockchain::blockchain_interface::TESTNET_CONTRACT_ADDRESS;
+    use crate::blockchain::blockchain_interface::DEFAULT_CHAIN_ID;
     use crate::bootstrapper::Bootstrapper;
     use crate::database::db_initializer::test_utils::{ConnectionWrapperMock, DbInitializerMock};
     use crate::database::db_initializer::{ConnectionWrapper, InitializationError};
@@ -423,7 +431,6 @@ mod tests {
     };
     use crate::sub_lib::crash_point::CrashPoint;
     use crate::sub_lib::cryptde::PlainData;
-    use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::{InboundClientData, StreamShutdownMsg};
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
@@ -442,9 +449,14 @@ mod tests {
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
     use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage};
+    use crate::test_utils::rate_pack;
+    use crate::test_utils::rate_pack_exit;
+    use crate::test_utils::rate_pack_exit_byte;
+    use crate::test_utils::rate_pack_routing;
+    use crate::test_utils::rate_pack_routing_byte;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
-    use crate::test_utils::*;
+    use crate::test_utils::{cryptde, make_wallet};
     use actix::System;
     use log::LevelFilter;
     use std::cell::RefCell;
@@ -591,6 +603,7 @@ mod tests {
                     .clone()
                     .recipient::<ReportExitServiceConsumedMessage>(),
                 report_new_payments: addr.clone().recipient::<ReceivedPayments>(),
+                report_sent_payments: addr.clone().recipient::<SentPayments>(),
                 get_financial_statistics_sub: addr
                     .clone()
                     .recipient::<GetFinancialStatisticsMessage>(),
@@ -900,7 +913,7 @@ mod tests {
     fn invalid_blockchain_url_produces_panic() {
         let bbconfig = BlockchainBridgeConfig {
             blockchain_service_url: Some("http://λ:8545".to_string()),
-            contract_address: TESTNET_CONTRACT_ADDRESS,
+            chain_id: DEFAULT_CHAIN_ID,
         };
         let mut config = BootstrapperConfig::new();
         config.blockchain_bridge_config = bbconfig;
@@ -934,7 +947,7 @@ mod tests {
             },
             blockchain_bridge_config: BlockchainBridgeConfig {
                 blockchain_service_url: None,
-                contract_address: TESTNET_CONTRACT_ADDRESS,
+                chain_id: DEFAULT_CHAIN_ID,
             },
             port_configurations: HashMap::new(),
             clandestine_port_opt: None,
@@ -943,7 +956,7 @@ mod tests {
             data_directory: PathBuf::new(),
             cryptde_null_opt: None,
         };
-        Bootstrapper::pub_initialize_cryptde_for_testing(&Some(CryptDENull::new()));
+        Bootstrapper::pub_initialize_cryptde_for_testing(&Some(cryptde().clone()));
         let subject = ActorSystemFactoryReal {};
 
         let system = System::new("test");
@@ -990,7 +1003,7 @@ mod tests {
             },
             blockchain_bridge_config: BlockchainBridgeConfig {
                 blockchain_service_url: None,
-                contract_address: TESTNET_CONTRACT_ADDRESS,
+                chain_id: DEFAULT_CHAIN_ID,
             },
             port_configurations: HashMap::new(),
             clandestine_port_opt: None,
@@ -1048,7 +1061,7 @@ mod tests {
             bootstrapper_config.blockchain_bridge_config,
             BlockchainBridgeConfig {
                 blockchain_service_url: None,
-                contract_address: TESTNET_CONTRACT_ADDRESS,
+                chain_id: DEFAULT_CHAIN_ID,
             }
         );
         assert_eq!(

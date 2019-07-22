@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::substratum_node::SubstratumNode;
+use node_lib::blockchain::blockchain_interface::DEFAULT_CHAIN_ID;
 use node_lib::neighborhood::gossip::{Gossip, GossipNodeRecord};
 use node_lib::neighborhood::node_record::NodeRecordInner;
 use node_lib::neighborhood::AccessibleGossipRecord;
@@ -301,6 +302,7 @@ impl From<&Vec<AccessibleGossipRecord>> for Standard {
 impl Standard {}
 
 pub struct StandardBuilder {
+    chain_id: u8,
     agrs: Vec<AccessibleGossipRecord>,
 }
 
@@ -312,7 +314,10 @@ pub enum GirderNodeDegree {
 
 impl StandardBuilder {
     pub fn new() -> StandardBuilder {
-        StandardBuilder { agrs: vec![] }
+        StandardBuilder {
+            chain_id: DEFAULT_CHAIN_ID,
+            agrs: vec![],
+        }
     }
 
     pub fn add_substratum_node(
@@ -345,13 +350,22 @@ impl StandardBuilder {
             .half_neighbors(another, one)
     }
 
+    pub fn chain_id(mut self, chain_id: u8) -> Self {
+        self.chain_id = chain_id;
+        self
+    }
+
     pub fn build(self) -> Standard {
+        let chain_id = self.chain_id;
         Standard {
             nodes: self
                 .agrs
                 .into_iter()
                 .map(|mut agr| {
-                    agr.regenerate_signed_gossip(&CryptDENull::from(&agr.inner.public_key));
+                    agr.regenerate_signed_gossip(&CryptDENull::from(
+                        &agr.inner.public_key,
+                        chain_id,
+                    ));
                     agr
                 })
                 .collect(),

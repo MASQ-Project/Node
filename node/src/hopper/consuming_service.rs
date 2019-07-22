@@ -23,8 +23,8 @@ impl ConsumingService {
         cryptde: &'static dyn CryptDE,
         to_dispatcher: Recipient<TransmitDataMsg>,
         to_hopper: Recipient<InboundClientData>,
-    ) -> ConsumingService {
-        ConsumingService {
+    ) -> Self {
+        Self {
             cryptde,
             to_dispatcher,
             to_hopper,
@@ -138,6 +138,7 @@ impl ConsumingService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::dispatcher::{Component, InboundClientData};
     use crate::sub_lib::node_addr::NodeAddr;
@@ -230,6 +231,7 @@ mod tests {
             ),
             cryptde,
             Some(paying_wallet),
+            Some(contract_address(DEFAULT_CHAIN_ID)),
         )
         .unwrap();
         let payload = make_meaningless_message_type();
@@ -276,6 +278,7 @@ mod tests {
             ),
             cryptde,
             Some(paying_wallet),
+            Some(contract_address(DEFAULT_CHAIN_ID)),
         )
         .unwrap();
         let payload = make_meaningless_message_type();

@@ -94,6 +94,7 @@ impl LiveCoresPackage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
     use crate::sub_lib::cryptde::encodex;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -119,6 +120,7 @@ mod tests {
             ),
             cryptde,
             Some(paying_wallet),
+            Some(contract_address(DEFAULT_CHAIN_ID)),
         )
         .unwrap();
 
@@ -131,9 +133,9 @@ mod tests {
     #[test]
     fn live_cores_package_can_be_produced_from_older_live_cores_package() {
         let destination_key = PublicKey::new(&[3, 4]);
-        let destination_cryptde = CryptDENull::from(&destination_key);
+        let destination_cryptde = CryptDENull::from(&destination_key, DEFAULT_CHAIN_ID);
         let relay_key = PublicKey::new(&[1, 2]);
-        let relay_cryptde = CryptDENull::from(&relay_key);
+        let relay_cryptde = CryptDENull::from(&relay_key, DEFAULT_CHAIN_ID);
         let cryptde = cryptde();
         let serialized_payload = serde_cbor::ser::to_vec(&make_meaningless_message_type()).unwrap();
         let encrypted_payload = cryptde
@@ -144,6 +146,7 @@ mod tests {
             RouteSegment::new(vec![&relay_key, &destination_key], Component::Neighborhood),
             cryptde,
             Some(paying_wallet.clone()),
+            Some(contract_address(DEFAULT_CHAIN_ID)),
         )
         .unwrap();
         let subject = LiveCoresPackage::new(route.clone(), encrypted_payload.clone());
@@ -154,7 +157,11 @@ mod tests {
             next_hop,
             LiveHop::new(
                 &destination_key,
-                Some(paying_wallet.clone().as_payer(&relay_key)),
+                Some(
+                    paying_wallet
+                        .clone()
+                        .as_payer(&relay_key, &contract_address(DEFAULT_CHAIN_ID))
+                ),
                 Component::Hopper,
             )
         );
@@ -165,7 +172,7 @@ mod tests {
             route.shift(&destination_cryptde).unwrap(),
             LiveHop::new(
                 &public_key,
-                Some(paying_wallet.as_payer(&destination_key)),
+                Some(paying_wallet.as_payer(&destination_key, &contract_address(DEFAULT_CHAIN_ID))),
                 Component::Neighborhood,
             )
         );
@@ -232,10 +239,12 @@ mod tests {
         let key12 = cryptde.public_key();
         let key34 = PublicKey::new(&[3, 4]);
         let key56 = PublicKey::new(&[5, 6]);
+        let contract_address = contract_address(DEFAULT_CHAIN_ID);
         let mut route = Route::one_way(
             RouteSegment::new(vec![&key12, &key34, &key56], Component::Neighborhood),
             cryptde,
             Some(paying_wallet.clone()),
+            Some(contract_address),
         )
         .unwrap();
         let payload = make_meaningless_message_type();
@@ -247,7 +256,7 @@ mod tests {
         assert_eq!(
             LiveHop {
                 public_key: key34.clone(),
-                payer: Some(paying_wallet.as_payer(&key12)),
+                payer: Some(paying_wallet.as_payer(&key12, &contract_address)),
                 component: Component::Hopper
             },
             next_stop
@@ -281,14 +290,15 @@ mod tests {
         let immediate_neighbor_ip = IpAddr::from_str("1.2.3.4").unwrap();
         let payload = make_meaningless_message_type();
         let first_stop_key = PublicKey::new(&[3, 4]);
-        let first_stop_cryptde = CryptDENull::from(&first_stop_key);
+        let first_stop_cryptde = CryptDENull::from(&first_stop_key, DEFAULT_CHAIN_ID);
         let relay_key = PublicKey::new(&[1, 2]);
-        let relay_cryptde = CryptDENull::from(&relay_key);
+        let relay_cryptde = CryptDENull::from(&relay_key, DEFAULT_CHAIN_ID);
         let second_stop_key = PublicKey::new(&[5, 6]);
-        let second_stop_cryptde = CryptDENull::from(&second_stop_key);
+        let second_stop_cryptde = CryptDENull::from(&second_stop_key, DEFAULT_CHAIN_ID);
         let cryptde = cryptde();
         let encrypted_payload = encodex(cryptde, &first_stop_key, &payload).unwrap();
         let paying_wallet = make_paying_wallet(b"wallet");
+        let contract_address = contract_address(DEFAULT_CHAIN_ID);
         let mut route = Route::round_trip(
             RouteSegment::new(vec![&relay_key, &first_stop_key], Component::Neighborhood),
             RouteSegment::new(
@@ -298,6 +308,7 @@ mod tests {
             cryptde,
             Some(paying_wallet.clone()),
             1234,
+            Some(contract_address),
         )
         .unwrap();
         route.shift(&relay_cryptde).unwrap();
@@ -315,7 +326,11 @@ mod tests {
             route.shift(&first_stop_cryptde).unwrap(),
             LiveHop::new(
                 &relay_key,
-                Some(paying_wallet.clone().as_payer(&first_stop_key)),
+                Some(
+                    paying_wallet
+                        .clone()
+                        .as_payer(&first_stop_key, &contract_address)
+                ),
                 Component::Neighborhood,
             )
         );
@@ -324,7 +339,11 @@ mod tests {
             route.shift(&relay_cryptde).unwrap(),
             LiveHop::new(
                 &second_stop_key,
-                Some(paying_wallet.clone().as_payer(&relay_key)),
+                Some(
+                    paying_wallet
+                        .clone()
+                        .as_payer(&relay_key, &contract_address)
+                ),
                 Component::Hopper,
             )
         );
@@ -332,7 +351,11 @@ mod tests {
             route.shift(&second_stop_cryptde).unwrap(),
             LiveHop::new(
                 &empty_public_key,
-                Some(paying_wallet.clone().as_payer(&second_stop_key)),
+                Some(
+                    paying_wallet
+                        .clone()
+                        .as_payer(&second_stop_key, &contract_address)
+                ),
                 Component::ProxyServer,
             )
         );

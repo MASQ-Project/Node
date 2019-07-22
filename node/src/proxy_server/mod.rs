@@ -858,6 +858,7 @@ impl StreamKeyFactory for StreamKeyFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
     use crate::persistent_configuration::{HTTP_PORT, TLS_PORT};
     use crate::proxy_server::protocol_pack::ServerImpersonator;
     use crate::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
@@ -1502,6 +1503,7 @@ mod tests {
             cryptde,
             Some(consuming_wallet),
             1234,
+            Some(contract_address(DEFAULT_CHAIN_ID)),
         )
         .unwrap();
         let (neighborhood_mock, _, neighborhood_recording_arc) = make_recorder();
@@ -2109,6 +2111,7 @@ mod tests {
                 cryptde,
                 None,
                 1234,
+                None,
             )
             .unwrap(),
             expected_services: ExpectedServices::RoundTrip(vec![], vec![], 1234),
@@ -3434,7 +3437,7 @@ mod tests {
         let affected_socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
         let affected_stream_key =
             StreamKey::new(cryptde().public_key().clone(), affected_socket_addr);
-        let affected_cryptde = CryptDENull::from(&PublicKey::new(b"affected"));
+        let affected_cryptde = CryptDENull::from(&PublicKey::new(b"affected"), DEFAULT_CHAIN_ID);
         subject
             .keys_and_addrs
             .insert(unaffected_stream_key, unaffected_socket_addr);
@@ -3460,6 +3463,7 @@ mod tests {
             cryptde(),
             Some(make_paying_wallet(b"consuming")),
             1234,
+            Some(contract_address(DEFAULT_CHAIN_ID)),
         )
         .unwrap();
         let affected_expected_services = vec![ExpectedService::Exit(
@@ -3533,7 +3537,7 @@ mod tests {
         let affected_socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
         let affected_stream_key =
             StreamKey::new(cryptde().public_key().clone(), affected_socket_addr);
-        let affected_cryptde = CryptDENull::from(&PublicKey::new(b"affected"));
+        let affected_cryptde = CryptDENull::from(&PublicKey::new(b"affected"), DEFAULT_CHAIN_ID);
         subject
             .keys_and_addrs
             .insert(unaffected_stream_key, unaffected_socket_addr);
@@ -3559,6 +3563,7 @@ mod tests {
             cryptde(),
             Some(make_paying_wallet(b"consuming")),
             1234,
+            Some(contract_address(DEFAULT_CHAIN_ID)),
         )
         .unwrap();
         let affected_expected_services = vec![ExpectedService::Exit(

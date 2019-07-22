@@ -17,6 +17,7 @@ mod neighborhood_test_utils;
 #[cfg(feature = "expose_test_privates")]
 pub mod neighborhood_test_utils;
 
+use crate::blockchain::blockchain_interface::contract_address;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::neighborhood::gossip::{DotGossipEndpoint, Gossip, GossipNodeRecord};
 use crate::neighborhood::gossip_acceptor::GossipAcceptanceResult;
@@ -75,6 +76,7 @@ pub struct Neighborhood {
     next_return_route_id: u32,
     initial_neighbors: Vec<String>,
     logger: Logger,
+    chain_id: u8,
 }
 
 impl Actor for Neighborhood {
@@ -367,6 +369,7 @@ impl Neighborhood {
             next_return_route_id: 0,
             initial_neighbors: neighborhood_config.neighbor_configs.clone(),
             logger: Logger::new("Neighborhood"),
+            chain_id: config.blockchain_bridge_config.chain_id,
         }
     }
 
@@ -533,6 +536,7 @@ impl Neighborhood {
             ),
             self.cryptde,
             None,
+            None,
         )
         .expect("route creation error")
     }
@@ -551,6 +555,7 @@ impl Neighborhood {
             self.cryptde,
             None,
             return_route_id,
+            None,
         )
         .expect("Couldn't create route");
         RouteQueryResponse {
@@ -620,6 +625,7 @@ impl Neighborhood {
                 self.cryptde,
                 self.consuming_wallet_opt.clone(),
                 return_route_id,
+                Some(contract_address(self.chain_id)),
             )
             .expect("Internal error: bad route"),
             expected_services: ExpectedServices::RoundTrip(
@@ -926,6 +932,7 @@ impl Neighborhood {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
     use crate::neighborhood::gossip::Gossip;
     use crate::neighborhood::gossip::GossipBuilder;
     use crate::neighborhood::neighborhood_test_utils::*;
@@ -942,11 +949,15 @@ mod tests {
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
+    use crate::test_utils::make_meaningless_route;
+    use crate::test_utils::rate_pack;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
-    use crate::test_utils::*;
+    use crate::test_utils::vec_to_set;
+    use crate::test_utils::{assert_contains, make_wallet};
+    use crate::test_utils::{cryptde, make_paying_wallet};
     use actix::dev::{MessageResponse, ResponseChannel};
     use actix::Message;
     use actix::Recipient;
@@ -967,7 +978,7 @@ mod tests {
     fn neighborhood_cannot_be_created_with_neighbors_and_default_ip() {
         let cryptde = cryptde();
         let earning_wallet = make_wallet("earning");
-        let consuming_wallet = Some(make_wallet("consuming"));
+        let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let neighbor = make_node_record(1234, true);
 
         Neighborhood::new(
@@ -1021,7 +1032,7 @@ mod tests {
         init_test_logging();
         let cryptde = cryptde();
         let earning_wallet = make_wallet("earning");
-        let consuming_wallet = Some(make_wallet("consuming"));
+        let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let system =
             System::new("node_with_no_neighbor_configs_ignores_bootstrap_neighborhood_now_message");
         let subject = Neighborhood::new(
@@ -1061,7 +1072,7 @@ mod tests {
     fn node_with_bad_neighbor_config_panics() {
         let cryptde = cryptde();
         let earning_wallet = make_wallet("earning");
-        let consuming_wallet = Some(make_wallet("consuming"));
+        let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let system =
             System::new("node_with_no_neighbor_configs_ignores_bootstrap_neighborhood_now_message");
         let subject = Neighborhood::new(
@@ -1093,7 +1104,7 @@ mod tests {
     fn neighborhood_adds_nodes_and_links() {
         let cryptde = cryptde();
         let earning_wallet = make_wallet("earning");
-        let consuming_wallet = Some(make_wallet("consuming"));
+        let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let one_neighbor_node = make_node_record(3456, true);
         let another_neighbor_node = make_node_record(4567, true);
         let this_node_addr = NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]);
@@ -1174,7 +1185,7 @@ mod tests {
     fn node_query_responds_with_none_when_key_query_matches_no_configured_data() {
         let cryptde = cryptde();
         let earning_wallet = make_wallet("earning");
-        let consuming_wallet = Some(make_wallet("consuming"));
+        let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let system =
             System::new("node_query_responds_with_none_when_key_query_matches_no_configured_data");
         let subject = Neighborhood::new(
@@ -1212,7 +1223,7 @@ mod tests {
     fn node_query_responds_with_result_when_key_query_matches_configured_data() {
         let cryptde = cryptde();
         let earning_wallet = make_wallet("earning");
-        let consuming_wallet = Some(make_wallet("consuming"));
+        let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let system =
             System::new("node_query_responds_with_result_when_key_query_matches_configured_data");
         let one_neighbor = make_node_record(2345, true);
@@ -1258,7 +1269,7 @@ mod tests {
     fn node_query_responds_with_none_when_ip_address_query_matches_no_configured_data() {
         let cryptde = cryptde();
         let earning_wallet = make_wallet("earning");
-        let consuming_wallet = Some(make_wallet("consuming"));
+        let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let system = System::new(
             "node_query_responds_with_none_when_ip_address_query_matches_no_configured_data",
         );
@@ -1440,6 +1451,7 @@ mod tests {
                 cryptde,
                 None,
                 0,
+                None,
             )
             .unwrap(),
             expected_services: ExpectedServices::RoundTrip(
@@ -1539,6 +1551,7 @@ mod tests {
                 cryptde,
                 None,
                 0,
+                None,
             )
             .unwrap(),
             expected_services: ExpectedServices::RoundTrip(
@@ -1553,7 +1566,6 @@ mod tests {
     #[test]
     fn zero_hop_routing_handles_return_route_id_properly() {
         let mut subject = make_standard_subject();
-
         let result0 = subject.zero_hop_route_response();
         let result1 = subject.zero_hop_route_response();
 
@@ -1622,6 +1634,7 @@ mod tests {
         system.run();
 
         let result = data_route.wait().unwrap().unwrap();
+        let contract_address = contract_address(DEFAULT_CHAIN_ID);
         let expected_response = RouteQueryResponse {
             route: Route::round_trip(
                 segment(&[p, q, r], &Component::ProxyClient),
@@ -1629,6 +1642,7 @@ mod tests {
                 cryptde,
                 consuming_wallet_opt,
                 0,
+                Some(contract_address),
             )
             .unwrap(),
             expected_services: ExpectedServices::RoundTrip(
@@ -1843,6 +1857,7 @@ mod tests {
             cryptde,
             Some(make_paying_wallet(b"consuming")),
             0,
+            Some(contract_address(DEFAULT_CHAIN_ID)),
         )
         .unwrap();
         let expected_after_route = Route::round_trip(
@@ -1851,6 +1866,7 @@ mod tests {
             cryptde,
             Some(expected_new_wallet.clone()),
             1,
+            Some(contract_address(DEFAULT_CHAIN_ID)),
         )
         .unwrap();
 
@@ -1979,7 +1995,7 @@ mod tests {
         let (hopper, hopper_awaiter, hopper_recording) = make_recorder();
         let cryptde = cryptde();
         let earning_wallet = make_wallet("earning");
-        let consuming_wallet = Some(make_wallet("consuming"));
+        let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let this_node = NodeRecord::new_for_tests(
             &cryptde.public_key(),
             Some(&NodeAddr::new(
@@ -2039,7 +2055,8 @@ mod tests {
             system.run();
         });
 
-        let other_neighbor_cryptde = CryptDENull::from(other_neighbor.public_key());
+        let other_neighbor_cryptde =
+            CryptDENull::from(other_neighbor.public_key(), DEFAULT_CHAIN_ID);
         hopper_awaiter.await_message_count(1);
         let locked_recording = hopper_recording.lock().unwrap();
         let package: &IncipientCoresPackage = locked_recording.get_record(0);
@@ -2173,7 +2190,7 @@ mod tests {
         assert_eq!(1, hopper_recording.len());
         assert_eq!(introduction_target_node.public_key(), &package.public_key);
         let gossip = match decodex::<MessageType>(
-            &CryptDENull::from(introduction_target_node.public_key()),
+            &CryptDENull::from(introduction_target_node.public_key(), DEFAULT_CHAIN_ID),
             &package.payload,
         ) {
             Ok(MessageType::Gossip(g)) => g,
@@ -2320,7 +2337,7 @@ mod tests {
         assert_eq!(
             debut_gossip,
             match decodex::<MessageType>(
-                &CryptDENull::from(debut_node.public_key()),
+                &CryptDENull::from(debut_node.public_key(), DEFAULT_CHAIN_ID),
                 &package.payload
             ) {
                 Ok(MessageType::Gossip(g)) => g,
@@ -2465,7 +2482,7 @@ mod tests {
             .build();
         let cores_package = ExpiredCoresPackage {
             immediate_neighbor_ip: IpAddr::from_str("1.2.3.4").unwrap(),
-            paying_wallet: Some(make_wallet("consuming")),
+            paying_wallet: Some(make_paying_wallet(b"consuming")),
             remaining_route: make_meaningless_route(),
             payload: gossip,
             payload_len: 0,
@@ -2557,7 +2574,7 @@ mod tests {
         hopper_awaiter.await_message_count(1);
         let locked_recording = hopper_recording.lock().unwrap();
         let package_ref: &NoLookupIncipientCoresPackage = locked_recording.get_record(0);
-        let neighbor_node_cryptde = CryptDENull::from(neighbor.public_key());
+        let neighbor_node_cryptde = CryptDENull::from(neighbor.public_key(), DEFAULT_CHAIN_ID);
         let decrypted_payload = neighbor_node_cryptde.decode(&package_ref.payload).unwrap();
         let gossip = match serde_cbor::de::from_slice(decrypted_payload.as_slice()).unwrap() {
             MessageType::Gossip(g) => g,
@@ -2698,7 +2715,7 @@ mod tests {
     {
         let cryptde = cryptde();
         let earning_wallet = make_wallet("earning");
-        let consuming_wallet = Some(make_wallet("consuming"));
+        let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let (recorder, awaiter, recording_arc) = make_recorder();
         thread::spawn(move || {
             let system = System::new ("neighborhood_sends_node_query_response_with_none_when_key_query_matches_no_configured_data");
@@ -2756,7 +2773,7 @@ mod tests {
     fn neighborhood_sends_node_query_response_with_result_when_key_query_matches_configured_data() {
         let cryptde = cryptde();
         let earning_wallet = make_wallet("earning");
-        let consuming_wallet = Some(make_wallet("consuming"));
+        let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let (recorder, awaiter, recording_arc) = make_recorder();
         let one_neighbor = make_node_record(2345, true);
         let another_neighbor = make_node_record(3456, true);
@@ -2824,7 +2841,7 @@ mod tests {
     ) {
         let cryptde = cryptde();
         let earning_wallet = make_wallet("earning");
-        let consuming_wallet = Some(make_wallet("consuming"));
+        let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let (recorder, awaiter, recording_arc) = make_recorder();
         thread::spawn(move || {
             let system = System::new("neighborhood_sends_node_query_response_with_none_when_ip_address_query_matches_no_configured_data");
@@ -3019,8 +3036,9 @@ mod tests {
             return_component_opt: Some(Component::ProxyServer),
         });
 
-        let next_door_neighbor_cryptde = CryptDENull::from(&next_door_neighbor.public_key());
-        let exit_node_cryptde = CryptDENull::from(&exit_node.public_key());
+        let next_door_neighbor_cryptde =
+            CryptDENull::from(&next_door_neighbor.public_key(), DEFAULT_CHAIN_ID);
+        let exit_node_cryptde = CryptDENull::from(&exit_node.public_key(), DEFAULT_CHAIN_ID);
 
         let hops = result.clone().unwrap().route.hops;
         let actual_keys: Vec<PublicKey> = match hops.as_slice() {

@@ -1,9 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::blockchain::signature::SerializableSignature;
-use crate::sub_lib::cryptde::PublicKey as SubPublicKey;
 use crate::sub_lib::wallet::Wallet;
 use ethsign::Signature;
-use ethsign_crypto::Keccak256;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
@@ -26,10 +24,9 @@ impl Payer {
         }
     }
 
-    pub fn owns_secret_key(&self, public_key: &SubPublicKey) -> bool {
-        let digest = public_key.as_slice().keccak256();
-        match &self.proof.recover(&digest) {
-            Ok(payer_public_key) => match payer_public_key.verify(&self.proof, &digest) {
+    pub fn owns_secret_key(&self, digest: &AsRef<[u8]>) -> bool {
+        match &self.proof.recover(&digest.as_ref()) {
+            Ok(payer_public_key) => match payer_public_key.verify(&self.proof, &digest.as_ref()) {
                 Ok(result) => result && payer_public_key.address() == &self.wallet.address().0,
                 Err(_) => false,
             },
@@ -54,6 +51,9 @@ impl Clone for Payer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
+    use crate::sub_lib::cryptde;
+    use crate::sub_lib::cryptde::PublicKey as SubPublicKey;
     use crate::test_utils::make_payer;
     use rustc_hex::FromHex;
 
@@ -65,7 +65,8 @@ mod tests {
 
         let public_key = SubPublicKey::new(&b"sign these bytessign these bytes".to_vec());
         let payer: Payer = make_payer(&secret, &public_key);
-        assert!(payer.owns_secret_key(&public_key));
+        let digest = cryptde::create_digest(&public_key, &contract_address(DEFAULT_CHAIN_ID));
+        assert!(payer.owns_secret_key(&digest));
     }
 
     #[test]
@@ -76,10 +77,11 @@ mod tests {
 
         let public_key = SubPublicKey::new(&b"sign these bytessign these bytes".to_vec());
         let payer: Payer = make_payer(&secret, &public_key);
-        assert_eq!(
-            payer.owns_secret_key(&SubPublicKey::new(&b"wrong key"[..])),
-            false
+        let digest = cryptde::create_digest(
+            &SubPublicKey::new(&b"wrong key"[..]),
+            &contract_address(DEFAULT_CHAIN_ID),
         );
+        assert_eq!(payer.owns_secret_key(&digest), false);
     }
 
     #[test]

@@ -1,9 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use crate::sub_lib::utils::localhost;
 use std::io::Read;
 use std::io::Write;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
-use std::str::FromStr;
+use std::net::{SocketAddr, TcpListener};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
@@ -23,8 +23,7 @@ impl Drop for LittleTcpServer {
 
 impl LittleTcpServer {
     pub fn start() -> LittleTcpServer {
-        let listener =
-            TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0)).unwrap();
+        let listener = TcpListener::bind(SocketAddr::new(localhost(), 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
         let (tx, rx) = mpsc::channel();
         let (count_tx, count_rx) = mpsc::channel();
@@ -59,7 +58,7 @@ impl LittleTcpServer {
     }
 
     pub fn socket_addr(&self) -> SocketAddr {
-        SocketAddr::new(IpAddr::from_str("127.0.0.1").unwrap(), self.port)
+        SocketAddr::new(localhost(), self.port)
     }
 
     pub fn count_connections(&self, wait_for: Duration) -> u16 {

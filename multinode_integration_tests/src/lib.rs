@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+pub mod blockchain;
 pub mod command;
 pub mod main;
 pub mod multinode_gossip;

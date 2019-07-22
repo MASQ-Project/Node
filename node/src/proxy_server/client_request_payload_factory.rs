@@ -94,11 +94,10 @@ impl ClientRequestPayloadFactory {
 mod tests {
     use super::*;
     use crate::persistent_configuration::HTTP_PORT;
-    use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::proxy_server::ProxyProtocol;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
-    use crate::test_utils::make_meaningless_stream_key;
+    use crate::test_utils::{cryptde, make_meaningless_stream_key};
     use std::net::SocketAddr;
     use std::str::FromStr;
 
@@ -113,11 +112,11 @@ mod tests {
             is_clandestine: false,
             data: data.clone().into(),
         };
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let logger = Logger::new("test");
         let subject = ClientRequestPayloadFactory::new();
 
-        let result = subject.make(&ibcd, make_meaningless_stream_key(), &cryptde, &logger);
+        let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
 
         assert_eq!(
             result,
@@ -148,11 +147,11 @@ mod tests {
             is_clandestine: false,
             data: data.clone().into(),
         };
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let logger = Logger::new("test");
         let subject = ClientRequestPayloadFactory::new();
 
-        let result = subject.make(&ibcd, make_meaningless_stream_key(), &cryptde, &logger);
+        let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
 
         assert_eq!(
             result,
@@ -203,11 +202,11 @@ mod tests {
             is_clandestine: false,
             data: data.clone().into(),
         };
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let logger = Logger::new("test");
         let subject = ClientRequestPayloadFactory::new();
 
-        let result = subject.make(&ibcd, make_meaningless_stream_key(), &cryptde, &logger);
+        let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
 
         assert_eq!(
             result,
@@ -251,11 +250,11 @@ mod tests {
             sequence_number: Some(0),
             data: data.clone().into(),
         };
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let logger = Logger::new("test");
         let subject = ClientRequestPayloadFactory::new();
 
-        let result = subject.make(&ibcd, make_meaningless_stream_key(), &cryptde, &logger);
+        let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
 
         assert_eq!(
             result,
@@ -286,11 +285,11 @@ mod tests {
             is_clandestine: false,
             data: vec![0x10, 0x11, 0x12],
         };
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let logger = Logger::new("test");
         let subject = ClientRequestPayloadFactory::new();
 
-        let result = subject.make(&ibcd, make_meaningless_stream_key(), &cryptde, &logger);
+        let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
 
         assert_eq!(result, None);
         TestLogHandler::new().exists_log_containing(
@@ -309,11 +308,11 @@ mod tests {
             is_clandestine: true,
             data: vec![0x10, 0x11, 0x12],
         };
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let logger = Logger::new("test");
         let subject = ClientRequestPayloadFactory::new();
 
-        let result = subject.make(&ibcd, make_meaningless_stream_key(), &cryptde, &logger);
+        let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
 
         assert_eq!(result, None);
         TestLogHandler::new ().exists_log_containing ("ERROR: test: No protocol associated with origin port 1234 for 3-byte packet: [16, 17, 18]");
@@ -329,13 +328,13 @@ mod tests {
             data: vec![0x10, 0x11, 0x12],
             is_clandestine: false,
         };
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let logger = Logger::new("test");
 
         let subject = ClientRequestPayloadFactory::new();
 
         let result = subject
-            .make(&ibcd, make_meaningless_stream_key(), &cryptde, &logger)
+            .make(&ibcd, make_meaningless_stream_key(), cryptde, &logger)
             .unwrap();
 
         assert_eq!(result.sequenced_packet.sequence_number, 1);
@@ -352,12 +351,12 @@ mod tests {
             sequence_number: None,
             data: vec![1, 3, 5, 7],
         };
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let logger = Logger::new("test");
 
         let subject = ClientRequestPayloadFactory::new();
 
-        let result = subject.make(&ibcd, make_meaningless_stream_key(), &cryptde, &logger);
+        let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
 
         assert_eq!(result, None);
 

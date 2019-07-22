@@ -1,14 +1,14 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::payer::Payer;
-use crate::sub_lib::cryptde::PublicKey as SubPublicKey;
+use crate::sub_lib::cryptde;
+use crate::sub_lib::cryptde::PublicKey as CryptdePublicKey;
 use ethsign::{PublicKey, Signature};
-use ethsign_crypto::{self, Keccak256};
 use rusqlite::types::{FromSql, FromSqlError, ToSqlOutput, Value, ValueRef};
 use rusqlite::ToSql;
 use rustc_hex::ToHex;
-use serde::Serialize;
-use serde::{ser::SerializeStruct, Serializer};
+use serde::{ser::SerializeStruct, Serialize, Serializer};
+use serde_json::{self, json};
 use std::convert::TryInto;
 use std::fmt;
 use std::fmt::{Debug, Display, Error, Formatter};
@@ -127,12 +127,9 @@ impl Wallet {
 
     pub fn sign(&self, msg: &dyn AsRef<[u8]>) -> Result<Signature, WalletError> {
         match self.kind {
-            WalletKind::KeyPair(ref key_pair) => {
-                let digest = msg.keccak256();
-                key_pair
-                    .sign(&digest)
-                    .map_err(|e| WalletError::Signature(format!("{:?}", e)))
-            }
+            WalletKind::KeyPair(ref key_pair) => key_pair
+                .sign(msg.as_ref())
+                .map_err(|e| WalletError::Signature(format!("{:?}", e))),
             _ => Err(WalletError::Signature(format!(
                 "Cannot sign with non-keypair wallet: {:?}.",
                 self.kind
@@ -142,21 +139,26 @@ impl Wallet {
 
     pub fn verify(&self, signature: &Signature, msg: &dyn AsRef<[u8]>) -> bool {
         match self.kind {
-            WalletKind::KeyPair(ref key_pair) => {
-                let digest = msg.keccak256();
-                match &key_pair.verify(signature, &digest) {
-                    Ok(result) => *result,
-                    Err(_log_this) => false,
-                }
-            }
+            WalletKind::KeyPair(ref key_pair) => match &key_pair.verify(signature, msg.as_ref()) {
+                Ok(result) => *result,
+                Err(_log_this) => false,
+            },
             _ => panic!("Keypair wallet required"),
         }
     }
 
-    pub fn as_payer(&self, public_key: &SubPublicKey) -> Payer {
-        match self.sign(public_key) {
+    pub fn as_payer(
+        &self,
+        public_key: &dyn AsRef<[u8]>,
+        contract_address: &dyn AsRef<[u8]>,
+    ) -> Payer {
+        match self.sign(&cryptde::create_digest(public_key, contract_address)) {
             Ok(proof) => Payer::new(self, &proof),
-            Err(e) => panic!("Trying to sign for {:?} encountered {:?}", public_key, e),
+            Err(e) => panic!(
+                "Trying to sign for {:?} encountered {:?}",
+                CryptdePublicKey::from(public_key.as_ref()),
+                e
+            ),
         }
     }
 }
@@ -174,7 +176,7 @@ impl FromStr for Wallet {
     type Err = WalletError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match serde_json::from_str::<Address>(&format!("{:?}", s)) {
+        match serde_json::from_value::<Address>(json!(s)) {
             Ok(address) => Ok(Self {
                 kind: WalletKind::Address(address),
             }),
@@ -185,8 +187,10 @@ impl FromStr for Wallet {
 
 impl From<H256> for Wallet {
     fn from(address: H256) -> Self {
+        let mut addr = [0u8; 20];
+        addr.copy_from_slice(&address.0[12..32]);
         Self {
-            kind: WalletKind::Address(Address::from(address)),
+            kind: WalletKind::Address(Address { 0: addr }),
         }
     }
 }
@@ -426,12 +430,12 @@ impl Serialize for Wallet {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use bip39::{Language, Mnemonic, Seed};
     use rusqlite::Connection;
     use rustc_hex::FromHex;
     use serde_cbor;
-    use serde_json;
     use std::convert::TryFrom;
     use std::str::FromStr;
 
@@ -449,9 +453,12 @@ mod tests {
 
     #[test]
     fn can_create_from_an_h256() {
-        let result = Wallet::from(H256::from(
-            "0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc",
-        ));
+        let result = Wallet::from(
+            serde_json::from_value::<H256>(json!(
+                "0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc"
+            ))
+            .unwrap(),
+        );
 
         assert_eq!(
             String::from("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"),
@@ -640,7 +647,10 @@ mod tests {
         expected = r#"Trying to sign for AQID encountered Signature("Cannot sign with non-keypair wallet: Uninitialized.")"#
     )]
     fn sign_with_uninitialized_wallets_panic() {
-        Wallet::new("").as_payer(&SubPublicKey::new(&[1, 2, 3]));
+        Wallet::new("").as_payer(
+            &CryptdePublicKey::new(&[1, 2, 3]),
+            &contract_address(DEFAULT_CHAIN_ID),
+        );
     }
 
     #[test]

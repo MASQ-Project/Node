@@ -8,6 +8,7 @@ use crate::substratum_node_client::SubstratumNodeClient;
 use crate::substratum_node_server::SubstratumNodeServer;
 use bip39::{Language, Mnemonic, Seed};
 use node_lib::blockchain::bip32::Bip32ECKeyPair;
+use node_lib::blockchain::blockchain_interface::{chain_id_from_name, DEFAULT_CHAIN_ID};
 use node_lib::sub_lib::accountant::DEFAULT_EARNING_WALLET;
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
@@ -16,6 +17,7 @@ use node_lib::sub_lib::neighborhood::RatePack;
 use node_lib::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use node_lib::sub_lib::neighborhood::ZERO_RATE_PACK;
 use node_lib::sub_lib::node_addr::NodeAddr;
+use node_lib::sub_lib::utils::localhost;
 use node_lib::sub_lib::wallet::{
     Wallet, DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
 };
@@ -117,6 +119,8 @@ pub struct NodeStartupConfig {
     pub firewall: Option<Firewall>,
     pub memory: Option<String>,
     pub fake_public_key: Option<PublicKey>,
+    pub blockchain_service_url: Option<String>,
+    pub chain: Option<String>,
 }
 
 impl NodeStartupConfig {
@@ -134,6 +138,8 @@ impl NodeStartupConfig {
             firewall: None,
             memory: None,
             fake_public_key: None,
+            blockchain_service_url: None,
+            chain: None,
         }
     }
 
@@ -172,6 +178,14 @@ impl NodeStartupConfig {
         if let Some(ref public_key) = self.fake_public_key {
             args.push("--fake-public-key".to_string());
             args.push(format!("{}", public_key));
+        }
+        if let Some(ref blockchain_service_url) = self.blockchain_service_url {
+            args.push("--blockchain-service-url".to_string());
+            args.push(format!("{}", blockchain_service_url));
+        }
+        if let Some(ref chain) = self.chain {
+            args.push("--chain".to_string());
+            args.push(format!("{}", chain));
         }
         args
     }
@@ -338,16 +352,18 @@ pub struct NodeStartupConfigBuilder {
     firewall: Option<Firewall>,
     memory: Option<String>,
     fake_public_key: Option<PublicKey>,
+    blockchain_service_url: Option<String>,
+    chain: Option<String>,
 }
 
 impl NodeStartupConfigBuilder {
-    pub fn zero_hop() -> NodeStartupConfigBuilder {
-        NodeStartupConfigBuilder {
+    pub fn zero_hop() -> Self {
+        Self {
             ip_info: LocalIpInfo::ZeroHop,
             dns_servers: vec![IpAddr::from_str("8.8.8.8").unwrap()],
             neighbors: vec![],
             clandestine_port_opt: None,
-            dns_target: IpAddr::from_str("127.0.0.1").unwrap(),
+            dns_target: localhost(),
             dns_port: 53,
             earning_wallet_info: EarningWalletInfo::None,
             consuming_wallet_info: ConsumingWalletInfo::None,
@@ -355,16 +371,18 @@ impl NodeStartupConfigBuilder {
             firewall: None,
             memory: None,
             fake_public_key: None,
+            blockchain_service_url: None,
+            chain: None,
         }
     }
 
-    pub fn standard() -> NodeStartupConfigBuilder {
-        NodeStartupConfigBuilder {
+    pub fn standard() -> Self {
+        Self {
             ip_info: LocalIpInfo::DistributedUnknown,
             dns_servers: vec![IpAddr::from_str("8.8.8.8").unwrap()],
             neighbors: vec![],
             clandestine_port_opt: None,
-            dns_target: IpAddr::from_str("127.0.0.1").unwrap(),
+            dns_target: localhost(),
             dns_port: 53,
             earning_wallet_info: EarningWalletInfo::None,
             consuming_wallet_info: ConsumingWalletInfo::None,
@@ -372,11 +390,13 @@ impl NodeStartupConfigBuilder {
             firewall: None,
             memory: None,
             fake_public_key: None,
+            blockchain_service_url: None,
+            chain: None,
         }
     }
 
-    pub fn copy(config: &NodeStartupConfig) -> NodeStartupConfigBuilder {
-        NodeStartupConfigBuilder {
+    pub fn copy(config: &NodeStartupConfig) -> Self {
+        Self {
             ip_info: config.ip_info.clone(),
             dns_servers: config.dns_servers.clone(),
             neighbors: config.neighbors.clone(),
@@ -389,65 +409,67 @@ impl NodeStartupConfigBuilder {
             firewall: config.firewall.clone(),
             memory: config.memory.clone(),
             fake_public_key: config.fake_public_key.clone(),
+            blockchain_service_url: config.blockchain_service_url.clone(),
+            chain: config.chain.clone(),
         }
     }
 
-    pub fn ip(mut self, value: IpAddr) -> NodeStartupConfigBuilder {
+    pub fn ip(mut self, value: IpAddr) -> Self {
         self.ip_info = LocalIpInfo::DistributedKnown(value);
         self
     }
 
-    pub fn dns_servers(mut self, value: Vec<IpAddr>) -> NodeStartupConfigBuilder {
+    pub fn dns_servers(mut self, value: Vec<IpAddr>) -> Self {
         self.dns_servers = value;
         self
     }
 
-    pub fn memory(mut self, value: &str) -> NodeStartupConfigBuilder {
+    pub fn memory(mut self, value: &str) -> Self {
         self.memory = Some(value.to_string());
         self
     }
 
-    pub fn neighbor(mut self, value: NodeReference) -> NodeStartupConfigBuilder {
+    pub fn neighbor(mut self, value: NodeReference) -> Self {
         self.neighbors.push(value);
         self
     }
 
-    pub fn neighbors(mut self, value: Vec<NodeReference>) -> NodeStartupConfigBuilder {
+    pub fn neighbors(mut self, value: Vec<NodeReference>) -> Self {
         self.neighbors = value;
         self
     }
 
-    pub fn clandestine_port(mut self, value: u16) -> NodeStartupConfigBuilder {
+    pub fn clandestine_port(mut self, value: u16) -> Self {
         self.clandestine_port_opt = Some(value);
         self
     }
 
-    pub fn dns_target(mut self, value: IpAddr) -> NodeStartupConfigBuilder {
+    pub fn dns_target(mut self, value: IpAddr) -> Self {
         self.dns_target = value;
         self
     }
 
-    pub fn dns_port(mut self, value: u16) -> NodeStartupConfigBuilder {
+    pub fn dns_port(mut self, value: u16) -> Self {
         self.dns_port = value;
         self
     }
 
-    pub fn earning_wallet_info(mut self, value: EarningWalletInfo) -> NodeStartupConfigBuilder {
+    pub fn earning_wallet_info(mut self, value: EarningWalletInfo) -> Self {
         self.earning_wallet_info = value;
         self
     }
 
-    pub fn consuming_wallet_info(mut self, value: ConsumingWalletInfo) -> NodeStartupConfigBuilder {
+    pub fn consuming_wallet_info(mut self, value: ConsumingWalletInfo) -> Self {
         self.consuming_wallet_info = value;
         self
     }
 
-    pub fn rate_pack(mut self, value: RatePack) -> NodeStartupConfigBuilder {
+    pub fn rate_pack(mut self, value: RatePack) -> Self {
         self.rate_pack = value;
         self
     }
 
-    pub fn open_firewall_port(mut self, port: u16) -> NodeStartupConfigBuilder {
+    pub fn open_firewall_port(mut self, port: u16) -> Self {
         if self.firewall.is_none() {
             self.firewall = Some(Firewall {
                 ports_to_open: vec![],
@@ -461,8 +483,17 @@ impl NodeStartupConfigBuilder {
         self
     }
 
-    pub fn fake_public_key(mut self, public_key: &PublicKey) -> NodeStartupConfigBuilder {
+    pub fn fake_public_key(mut self, public_key: &PublicKey) -> Self {
         self.fake_public_key = Some(public_key.clone());
+        self
+    }
+
+    pub fn blockchain_service_url(mut self, blockchain_service_url: String) -> Self {
+        self.blockchain_service_url = Some(blockchain_service_url);
+        self
+    }
+    pub fn chain(mut self, chain: &str) -> Self {
+        self.chain = Some(chain.into());
         self
     }
 
@@ -480,6 +511,8 @@ impl NodeStartupConfigBuilder {
             firewall: self.firewall,
             memory: self.memory,
             fake_public_key: self.fake_public_key,
+            blockchain_service_url: self.blockchain_service_url,
+            chain: self.chain,
         }
     }
 }
@@ -540,16 +573,59 @@ impl SubstratumNode for SubstratumRealNode {
     fn rate_pack(&self) -> RatePack {
         self.guts.rate_pack.clone()
     }
+
+    fn chain(&self) -> Option<String> {
+        self.guts.chain.clone()
+    }
 }
 
 impl SubstratumRealNode {
+    pub fn prepare(name: &String) {
+        Self::do_prepare_for_docker_run(name).unwrap();
+    }
+
+    pub fn make_name(index: usize) -> String {
+        format!("test_node_{}", index)
+    }
+
     pub fn start(
         startup_config: NodeStartupConfig,
         index: usize,
         host_node_parent_dir: Option<String>,
-    ) -> SubstratumRealNode {
+    ) -> Self {
+        let name = Self::make_name(index);
+        Self::start_with(
+            name,
+            startup_config,
+            index,
+            host_node_parent_dir,
+            Box::new(Self::do_docker_run),
+        )
+    }
+
+    pub fn start_prepared(
+        name: String,
+        startup_config: NodeStartupConfig,
+        index: usize,
+        host_node_parent_dir: Option<String>,
+    ) -> Self {
+        Self::start_with(
+            name,
+            startup_config,
+            index,
+            host_node_parent_dir,
+            Box::new(Self::do_preprepared_docker_run),
+        )
+    }
+
+    pub fn start_with(
+        name: String,
+        startup_config: NodeStartupConfig,
+        index: usize,
+        host_node_parent_dir: Option<String>,
+        docker_run_fn: Box<dyn Fn(&String, IpAddr, &String) -> Result<(), String>>,
+    ) -> Self {
         let ip_addr = IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8));
-        let name = format!("test_node_{}", index);
         let rate_pack = startup_config.rate_pack.clone();
         SubstratumNodeUtils::clean_up_existing_container(&name[..]);
         let real_startup_config = match startup_config.ip_info {
@@ -567,7 +643,7 @@ impl SubstratumRealNode {
             None => SubstratumNodeUtils::find_project_root(),
         };
 
-        Self::do_docker_run(&root_dir, ip_addr, &name).expect("docker run");
+        docker_run_fn(&root_dir, ip_addr, &name).expect("docker run");
 
         Self::exec_command_on_container_and_detach(
             &name,
@@ -585,11 +661,16 @@ impl SubstratumRealNode {
             }
         }
         Self::establish_wallet_info(&name, &real_startup_config);
+        let chain_id = real_startup_config
+            .clone()
+            .chain
+            .map(|chain_name| chain_id_from_name(chain_name.as_str()))
+            .unwrap_or(DEFAULT_CHAIN_ID);
         let node_args = real_startup_config.make_args();
         let cryptde_null = real_startup_config
             .fake_public_key
             .clone()
-            .map(|public_key| CryptDENull::from(&public_key));
+            .map(|public_key| CryptDENull::from(&public_key, chain_id));
         let node_command = Self::create_node_command(node_args, startup_config);
 
         let mut bash_command_parts = vec!["/bin/bash", "-c"];
@@ -598,7 +679,7 @@ impl SubstratumRealNode {
             .expect("Couldn't start SubstratumNode");
 
         let node_reference =
-            SubstratumRealNode::extract_node_reference(&name).expect("extracting node reference");
+            Self::extract_node_reference(&name).expect("extracting node reference");
         let guts = Rc::new(SubstratumRealNodeGuts {
             name,
             container_ip: ip_addr,
@@ -608,8 +689,9 @@ impl SubstratumRealNode {
             rate_pack,
             root_dir,
             cryptde_null,
+            chain: real_startup_config.chain,
         });
-        SubstratumRealNode { guts }
+        Self { guts }
     }
 
     fn establish_wallet_info(name: &str, startup_config: &NodeStartupConfig) {
@@ -682,35 +764,9 @@ impl SubstratumRealNode {
             &SubstratumNodeUtils::find_project_root(),
             container_name_ref,
         );
-        Command::new(
-            "rm",
-            Command::strings(vec!["-r", test_runner_node_home_dir.as_str()]),
-        )
-        .wait_for_exit();
-        match Command::new(
-            "mkdir",
-            Command::strings(vec!["-p", test_runner_node_home_dir.as_str()]),
-        )
-        .wait_for_exit()
-        {
-            0 => (),
-            _ => panic!(
-                "Couldn't create home directory for node {} at {}",
-                container_name, test_runner_node_home_dir
-            ),
-        }
-        match Command::new(
-            "chmod",
-            Command::strings(vec!["777", test_runner_node_home_dir.as_str()]),
-        )
-        .wait_for_exit()
-        {
-            0 => (),
-            _ => panic!(
-                "Couldn't chmod 777 home directory for node {} at {}",
-                container_name, test_runner_node_home_dir
-            ),
-        }
+        Self::remove_test_runner_node_home_dir(&test_runner_node_home_dir);
+        Self::create_test_runner_node_home_dir(&container_name, &test_runner_node_home_dir);
+        Self::set_permissions_test_runner_node_home_dir(&container_name, test_runner_node_home_dir);
         let ip_addr_string = format!("{}", ip_addr);
         let node_binary_v_param = format!("{}:/node_root/node", node_command_dir);
         let home_v_param = format!("{}:/node_root/home", host_node_home_dir);
@@ -739,6 +795,100 @@ impl SubstratumRealNode {
         let mut command = Command::new("docker", Command::strings(args));
         command.stdout_or_stderr()?;
         Ok(())
+    }
+
+    fn do_prepare_for_docker_run(container_name_ref: &String) -> Result<(), String> {
+        let container_name = container_name_ref.clone();
+        let test_runner_node_home_dir = Self::node_home_dir(
+            &SubstratumNodeUtils::find_project_root(),
+            container_name_ref,
+        );
+        Self::remove_test_runner_node_home_dir(&test_runner_node_home_dir);
+        Self::create_test_runner_node_home_dir(&container_name, &test_runner_node_home_dir);
+        Self::set_permissions_test_runner_node_home_dir(&container_name, test_runner_node_home_dir);
+        Ok(())
+    }
+
+    fn do_preprepared_docker_run(
+        root_dir: &String,
+        ip_addr: IpAddr,
+        container_name_ref: &String,
+    ) -> Result<(), String> {
+        let container_name = container_name_ref.clone();
+        let node_command_dir = format!("{}/node/target/release", root_dir);
+        let host_node_home_dir = Self::node_home_dir(root_dir, container_name_ref);
+        let ip_addr_string = format!("{}", ip_addr);
+        let node_binary_v_param = format!("{}:/node_root/node", node_command_dir);
+        let home_v_param = format!("{}:/node_root/home", host_node_home_dir);
+
+        let mut args = vec![
+            "run",
+            "--detach",
+            "--ip",
+            ip_addr_string.as_str(),
+            "--dns",
+            "127.0.0.1",
+            "--name",
+            container_name.as_str(),
+            "--net",
+            "integration_net",
+            "-v",
+            node_binary_v_param.as_str(),
+            "-v",
+            home_v_param.as_str(),
+            "-e",
+            "RUST_BACKTRACE=full",
+            "--cap-add=NET_ADMIN",
+        ];
+
+        args.push("test_node_image");
+        let mut command = Command::new("docker", Command::strings(args));
+        command.stdout_or_stderr()?;
+        Ok(())
+    }
+
+    fn set_permissions_test_runner_node_home_dir(
+        container_name: &String,
+        test_runner_node_home_dir: String,
+    ) {
+        match Command::new(
+            "chmod",
+            Command::strings(vec!["777", test_runner_node_home_dir.as_str()]),
+        )
+        .wait_for_exit()
+        {
+            0 => (),
+            _ => panic!(
+                "Couldn't chmod 777 home directory for node {} at {}",
+                container_name, test_runner_node_home_dir
+            ),
+        }
+    }
+
+    fn create_test_runner_node_home_dir(
+        container_name: &String,
+        test_runner_node_home_dir: &String,
+    ) {
+        match Command::new(
+            "mkdir",
+            Command::strings(vec!["-p", test_runner_node_home_dir.as_str()]),
+        )
+        .wait_for_exit()
+        {
+            0 => (),
+            _ => panic!(
+                "Couldn't create home directory for node {} at {}",
+                container_name, test_runner_node_home_dir
+            ),
+        }
+    }
+
+    fn remove_test_runner_node_home_dir(test_runner_node_home_dir: &String) {
+        Command::new(
+            "rm",
+            Command::strings(vec!["-r", test_runner_node_home_dir.as_str()]),
+        )
+        .wait_for_exit();
     }
 
     fn exec_command_on_container_and_detach(
@@ -831,6 +981,7 @@ struct SubstratumRealNodeGuts {
     rate_pack: RatePack,
     root_dir: String,
     cryptde_null: Option<CryptDENull>,
+    chain: Option<String>,
 }
 
 impl Drop for SubstratumRealNodeGuts {
@@ -843,6 +994,7 @@ impl Drop for SubstratumRealNodeGuts {
 mod tests {
     use super::*;
     use node_lib::persistent_configuration::{HTTP_PORT, TLS_PORT};
+    use node_lib::sub_lib::utils::localhost;
 
     #[test]
     fn node_startup_config_builder_zero_hop() {
@@ -855,7 +1007,7 @@ mod tests {
         );
         assert_eq!(result.neighbors, vec!());
         assert_eq!(result.clandestine_port_opt, None);
-        assert_eq!(result.dns_target, IpAddr::from_str("127.0.0.1").unwrap());
+        assert_eq!(result.dns_target, localhost());
         assert_eq!(result.dns_port, 53);
     }
 
@@ -878,7 +1030,7 @@ mod tests {
         );
         assert_eq!(result.neighbors, vec!());
         assert_eq!(result.clandestine_port_opt, None);
-        assert_eq!(result.dns_target, IpAddr::from_str("127.0.0.1").unwrap());
+        assert_eq!(result.dns_target, localhost());
         assert_eq!(result.dns_port, 53);
     }
 
@@ -952,6 +1104,8 @@ mod tests {
             }),
             memory: Some("32m".to_string()),
             fake_public_key: Some(PublicKey::new(&[1, 2, 3, 4])),
+            blockchain_service_url: None,
+            chain: None,
         };
         let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
         let one_neighbor_key = PublicKey::new(&[1, 2, 3, 4]);

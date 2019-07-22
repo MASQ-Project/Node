@@ -8,14 +8,14 @@ use multinode_integration_tests_lib::substratum_node::PortSelector;
 use multinode_integration_tests_lib::substratum_node::SubstratumNode;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
+use node_lib::blockchain::blockchain_interface::contract_address;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::sub_lib::cryptde::PublicKey;
-use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::dispatcher::Component;
 use node_lib::sub_lib::hopper::IncipientCoresPackage;
 use node_lib::sub_lib::route::Route;
 use node_lib::sub_lib::route::RouteSegment;
-use node_lib::test_utils::*;
+use node_lib::test_utils::{cryptde, make_meaningless_message_type, make_paying_wallet};
 use std::collections::HashSet;
 use std::io::ErrorKind;
 use std::net::IpAddr;
@@ -62,9 +62,9 @@ fn establishes_substratum_node_cluster_from_nothing() {
 
 #[test]
 fn server_relays_cores_package() {
-    let _cluster = SubstratumNodeCluster::start().unwrap();
+    let cluster = SubstratumNodeCluster::start().unwrap();
     let masquerader = JsonMasquerader::new();
-    let server = SubstratumCoresServer::new();
+    let server = SubstratumCoresServer::new(cluster.chain_id);
     let cryptde = server.cryptde();
     let mut client = SubstratumCoresClient::new(server.local_addr(), cryptde);
     let mut route = Route::one_way(
@@ -74,6 +74,7 @@ fn server_relays_cores_package() {
         ),
         cryptde,
         Some(make_paying_wallet(b"consuming")),
+        Some(contract_address(cluster.chain_id)),
     )
     .unwrap();
     let incipient = IncipientCoresPackage::new(
@@ -103,18 +104,19 @@ fn one_mock_node_talks_to_another() {
     cluster.start_mock_node_with_public_key(vec![5551], &PublicKey::new(&[2, 3, 4, 5]));
     let mock_node_1 = cluster.get_mock_node_by_name("mock_node_1").unwrap();
     let mock_node_2 = cluster.get_mock_node_by_name("mock_node_2").unwrap();
-    let cryptde = CryptDENull::new();
+    let cryptde = cryptde();
     let route = Route::one_way(
         RouteSegment::new(
             vec![&mock_node_1.public_key(), &mock_node_2.public_key()],
             Component::Hopper,
         ),
-        &cryptde,
+        cryptde,
         Some(make_paying_wallet(b"consuming")),
+        Some(contract_address(cluster.chain_id)),
     )
     .unwrap();
     let incipient_cores_package = IncipientCoresPackage::new(
-        &cryptde,
+        cryptde,
         route,
         make_meaningless_message_type(),
         &mock_node_2.public_key(),

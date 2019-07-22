@@ -3,7 +3,7 @@ use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_
 use crate::actor_system_factory::ActorFactoryReal;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
-use crate::blockchain::blockchain_interface::TESTNET_CONTRACT_ADDRESS;
+use crate::blockchain::blockchain_interface::DEFAULT_CHAIN_ID;
 use crate::config_dao::ConfigDaoReal;
 use crate::crash_test_dummy::CrashTestDummy;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
@@ -50,7 +50,7 @@ use tokio::prelude::Stream;
 
 static mut CRYPTDE_BOX_OPT: Option<Box<CryptDE>> = None;
 
-pub fn cryptde_ref() -> &'static CryptDE {
+pub fn cryptde_ref() -> &'static dyn CryptDE {
     unsafe {
         CRYPTDE_BOX_OPT
             .as_ref()
@@ -106,6 +106,7 @@ impl Default for BootstrapperConfig {
 
 impl BootstrapperConfig {
     pub fn new() -> BootstrapperConfig {
+        let chain_id = DEFAULT_CHAIN_ID;
         BootstrapperConfig {
             // These fields can be set while privileged without penalty
             log_level: LevelFilter::Off,
@@ -130,7 +131,7 @@ impl BootstrapperConfig {
             },
             blockchain_bridge_config: BlockchainBridgeConfig {
                 blockchain_service_url: None,
-                contract_address: TESTNET_CONTRACT_ADDRESS,
+                chain_id,
             },
             port_configurations: HashMap::new(),
             data_directory: PathBuf::new(),
@@ -204,7 +205,10 @@ impl SocketServer for Bootstrapper {
         self.config
             .merge_unprivileged(NodeConfiguratorStandardUnprivileged {}.configure(args, streams));
         self.establish_clandestine_port();
-        let cryptde_ref = Bootstrapper::initialize_cryptde(&self.config.cryptde_null_opt);
+        let cryptde_ref = Bootstrapper::initialize_cryptde(
+            &self.config.cryptde_null_opt,
+            self.config.blockchain_bridge_config.chain_id,
+        );
         self.config.ui_gateway_config.node_descriptor = Bootstrapper::report_local_descriptor(
             cryptde_ref,
             self.config.neighborhood_config.local_ip_addr,
@@ -240,13 +244,16 @@ impl Bootstrapper {
     pub fn pub_initialize_cryptde_for_testing(
         cryptde_null_opt: &Option<CryptDENull>,
     ) -> &'static dyn CryptDE {
-        Self::initialize_cryptde(cryptde_null_opt)
+        Self::initialize_cryptde(cryptde_null_opt, DEFAULT_CHAIN_ID)
     }
 
-    fn initialize_cryptde(cryptde_null_opt: &Option<CryptDENull>) -> &'static dyn CryptDE {
+    fn initialize_cryptde(
+        cryptde_null_opt: &Option<CryptDENull>,
+        chain_id: u8,
+    ) -> &'static dyn CryptDE {
         match cryptde_null_opt {
             Some(cryptde_null) => unsafe { CRYPTDE_BOX_OPT = Some(Box::new(cryptde_null.clone())) },
-            None => unsafe { CRYPTDE_BOX_OPT = Some(Box::new(CryptDEReal::new())) },
+            None => unsafe { CRYPTDE_BOX_OPT = Some(Box::new(CryptDEReal::new(chain_id))) },
         }
         cryptde_ref()
     }
@@ -332,8 +339,8 @@ mod tests {
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
-    use crate::test_utils::FakeStreamHolder;
     use crate::test_utils::{assert_contains, ensure_node_home_directory_exists};
+    use crate::test_utils::{cryptde, FakeStreamHolder};
     use actix::Recipient;
     use actix::System;
     use lazy_static::lazy_static;
@@ -606,12 +613,12 @@ mod tests {
     }
 
     #[test]
-    fn initialize_as_privileged_stores_dns_servers_and_passes_them_to_actor_system_factory_for_proxy_client_in_initialize_as_unprivileged(
+    fn init_as_privileged_stores_dns_servers_and_passes_them_to_actor_system_factory_for_proxy_client_in_init_as_unprivileged(
     ) {
         let _lock = INITIALIZATION.lock();
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
-            "initialize_as_privileged_stores_dns_servers_and_passes_them_to_actor_system_factory_for_proxy_client_in_initialize_as_unprivileged",
+            "init_as_privileged_stores_dns_servers_and_passes_them_to_actor_system_factory_for_proxy_client_in_init_as_unprivileged",
         );
         let args = &vec![
             String::from("SubstratumNode"),
@@ -677,20 +684,20 @@ mod tests {
 
     #[test]
     fn initialize_cryptde_without_cryptde_null_uses_cryptde_real() {
-        let cryptde = Bootstrapper::initialize_cryptde(&None);
+        let cryptde_init = Bootstrapper::initialize_cryptde(&None, DEFAULT_CHAIN_ID);
 
-        assert_eq!(cryptde_ref().public_key(), cryptde.public_key());
+        assert_eq!(cryptde_ref().public_key(), cryptde_init.public_key());
         // Brittle assertion: this may not be true forever
-        let cryptde_null = CryptDENull::new();
-        assert!(cryptde.public_key().len() > cryptde_null.public_key().len());
+        let cryptde_null = cryptde();
+        assert!(cryptde_init.public_key().len() > cryptde_null.public_key().len());
     }
 
     #[test]
     fn initialize_cryptde_with_cryptde_null_uses_cryptde_null() {
-        let cryptde_null = CryptDENull::new();
+        let cryptde_null = cryptde().clone();
         let cryptde_null_public_key = cryptde_null.public_key().clone();
 
-        let cryptde = Bootstrapper::initialize_cryptde(&Some(cryptde_null));
+        let cryptde = Bootstrapper::initialize_cryptde(&Some(cryptde_null), DEFAULT_CHAIN_ID);
 
         assert_eq!(cryptde.public_key(), &cryptde_null_public_key);
         assert_eq!(cryptde_ref().public_key(), cryptde.public_key());
@@ -706,7 +713,7 @@ mod tests {
         let cryptde_ref = {
             let mut streams = holder.streams();
 
-            let cryptde_ref = Bootstrapper::initialize_cryptde(&None);
+            let cryptde_ref = Bootstrapper::initialize_cryptde(&None, DEFAULT_CHAIN_ID);
             Bootstrapper::report_local_descriptor(cryptde_ref, ip_addr, ports, &mut streams);
 
             cryptde_ref
@@ -927,7 +934,7 @@ mod tests {
             "bootstrapper",
             "establish_clandestine_port_handles_specified_port",
         );
-        let cryptde = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]));
+        let cryptde = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), DEFAULT_CHAIN_ID);
         let mut config = BootstrapperConfig::new();
         config.neighborhood_config.local_ip_addr = IpAddr::from_str("1.2.3.4").unwrap(); // not sentinel
         config.neighborhood_config.neighbor_configs = vec![NodeDescriptor {
@@ -976,7 +983,7 @@ mod tests {
 
     #[test]
     fn establish_clandestine_port_handles_unspecified_port() {
-        let cryptde = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]));
+        let cryptde = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), DEFAULT_CHAIN_ID);
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
             "establish_clandestine_port_handles_unspecified_port",

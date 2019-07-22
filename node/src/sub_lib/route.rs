@@ -11,6 +11,7 @@ use itertools::Itertools;
 use serde_derive::{Deserialize, Serialize};
 use std::cmp::min;
 use std::iter;
+use web3::types::Address;
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct Route {
@@ -31,6 +32,7 @@ impl Route {
             cryptde,
             None,
             None,
+            None,
         )
     }
 
@@ -38,8 +40,16 @@ impl Route {
         route_segment: RouteSegment,
         cryptde: &dyn CryptDE, // Any CryptDE can go here; it's only used to encrypt to public keys.
         consuming_wallet: Option<Wallet>,
+        contract_address: Option<Address>,
     ) -> Result<Route, String> {
-        Self::construct(route_segment, None, cryptde, consuming_wallet, None)
+        Self::construct(
+            route_segment,
+            None,
+            cryptde,
+            consuming_wallet,
+            None,
+            contract_address,
+        )
     }
 
     pub fn round_trip(
@@ -48,6 +58,7 @@ impl Route {
         cryptde: &dyn CryptDE, // Must be the CryptDE of the originating Node: used to encrypt return_route_id.
         consuming_wallet: Option<Wallet>,
         return_route_id: u32,
+        contract_address: Option<Address>,
     ) -> Result<Route, String> {
         Self::construct(
             route_segment_over,
@@ -55,6 +66,7 @@ impl Route {
             cryptde,
             consuming_wallet,
             Some(return_route_id),
+            contract_address,
         )
     }
 
@@ -132,21 +144,29 @@ impl Route {
         cryptde: &dyn CryptDE,
         consuming_wallet: Option<Wallet>,
         return_route_id_opt: Option<u32>,
+        contract_address: Option<Address>,
     ) -> Result<Route, String> {
         if let Some(error) = Route::validate_route_segments(&over, &back) {
             return Err(format!("{:?}", error));
         }
+
         let over_component = over.recipient;
         let over_keys = over.keys.iter();
-
         let mut hops = Route::over_segment(
             back.is_none(),
             consuming_wallet.clone(),
             over_keys,
             over_component,
+            contract_address,
         );
 
-        Route::back_segment(&back, consuming_wallet.clone(), over_component, &mut hops);
+        Route::back_segment(
+            &back,
+            consuming_wallet.clone(),
+            over_component,
+            &mut hops,
+            contract_address,
+        );
 
         Route::hops_to_route(
             hops[0..].to_vec(),
@@ -161,6 +181,7 @@ impl Route {
         consuming_wallet: Option<Wallet>,
         over_keys: impl Iterator<Item = &'a PublicKey>,
         over_component: Component,
+        contract_address: Option<Address>,
     ) -> Vec<LiveHop> {
         let mut last_key: Option<PublicKey> = None;
         let mut hops: Vec<LiveHop> = over_keys
@@ -169,7 +190,12 @@ impl Route {
                 last_key = Some(next_key.clone());
                 LiveHop::new(
                     &next_key,
-                    consuming_wallet.clone().map(|w| w.as_payer(&current_key)),
+                    consuming_wallet.clone().map(|w| {
+                        w.as_payer(
+                            &current_key,
+                            &contract_address.unwrap_or_else(Address::zero),
+                        )
+                    }),
                     Component::Hopper,
                 )
             })
@@ -180,7 +206,12 @@ impl Route {
                 Some(last_hop_key) => {
                     hops.push(LiveHop::new(
                         &key,
-                        consuming_wallet.map(|w| w.as_payer(&last_hop_key)),
+                        consuming_wallet.map(|w| {
+                            w.as_payer(
+                                &last_hop_key,
+                                &contract_address.unwrap_or_else(Address::zero),
+                            )
+                        }),
                         over_component,
                     ));
                 }
@@ -195,6 +226,7 @@ impl Route {
         consuming_wallet: Option<Wallet>,
         over_component: Component,
         hops: &mut Vec<LiveHop>,
+        contract_address: Option<Address>,
     ) {
         if let Some(back) = back_option {
             let back_component = back.recipient;
@@ -209,7 +241,12 @@ impl Route {
 
                 hops.push(LiveHop::new(
                     next_key,
-                    consuming_wallet.clone().map(|w| w.as_payer(&current_key)),
+                    consuming_wallet.clone().map(|w| {
+                        w.as_payer(
+                            &current_key,
+                            &contract_address.unwrap_or_else(Address::zero),
+                        )
+                    }),
                     component,
                 ))
             }
@@ -218,7 +255,9 @@ impl Route {
                 Some(current_key) => {
                     hops.push(LiveHop::new(
                         &next_key,
-                        consuming_wallet.map(|w| w.as_payer(current_key)),
+                        consuming_wallet.map(|w| {
+                            w.as_payer(current_key, &contract_address.unwrap_or_else(Address::zero))
+                        }),
                         back_component,
                     ));
                 }
@@ -311,37 +350,38 @@ pub enum RouteError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::test_utils::{make_paying_wallet, make_wallet};
+    use crate::test_utils::{cryptde, make_paying_wallet, make_wallet};
     use serde_cbor;
 
     #[test]
     fn id_decodes_return_route_id() {
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
 
         let subject = Route {
-            hops: vec![Route::encrypt_return_route_id(42, &cryptde)],
+            hops: vec![Route::encrypt_return_route_id(42, cryptde)],
         };
 
-        assert_eq!(subject.id(&cryptde), Ok(42));
+        assert_eq!(subject.id(cryptde), Ok(42));
     }
 
     #[test]
     fn id_returns_empty_route_error_when_the_route_is_empty() {
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
 
         let subject = Route { hops: vec![] };
 
         assert_eq!(
-            subject.id(&cryptde),
+            subject.id(cryptde),
             Err("Response route did not contain a return route ID".to_string())
         );
     }
 
     #[test]
     fn id_returns_error_when_the_id_fails_to_decrypt() {
-        let cryptde1 = CryptDENull::from(&PublicKey::new(b"key a"));
-        let cryptde2 = CryptDENull::from(&PublicKey::new(b"key b"));
+        let cryptde1 = CryptDENull::from(&PublicKey::new(b"key a"), DEFAULT_CHAIN_ID);
+        let cryptde2 = CryptDENull::from(&PublicKey::new(b"key b"), DEFAULT_CHAIN_ID);
 
         let subject = Route {
             hops: vec![Route::encrypt_return_route_id(42, &cryptde1)],
@@ -352,12 +392,13 @@ mod tests {
 
     #[test]
     fn construct_does_not_like_route_segments_with_too_few_keys() {
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let paying_wallet = make_wallet("wallet");
         let result = Route::one_way(
             RouteSegment::new(vec![], Component::ProxyClient),
-            &cryptde,
+            cryptde,
             Some(paying_wallet.clone()),
+            Some(contract_address(DEFAULT_CHAIN_ID)),
         )
         .err()
         .unwrap();
@@ -371,15 +412,16 @@ mod tests {
         let b_key = PublicKey::new(&[66, 66, 66]);
         let c_key = PublicKey::new(&[67, 67, 67]);
         let d_key = PublicKey::new(&[68, 68, 68]);
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
 
         let result = Route::round_trip(
             RouteSegment::new(vec![&a_key, &b_key], Component::ProxyClient),
             RouteSegment::new(vec![&c_key, &d_key], Component::ProxyServer),
-            &cryptde,
+            cryptde,
             Some(paying_wallet.clone()),
             0,
+            Some(contract_address(DEFAULT_CHAIN_ID)),
         )
         .err()
         .unwrap();
@@ -390,21 +432,21 @@ mod tests {
     #[test]
     fn construct_can_make_single_hop_route() {
         let target_key = PublicKey::new(&[65, 65, 65]);
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
 
-        let subject = Route::single_hop(&target_key, &cryptde).unwrap();
+        let subject = Route::single_hop(&target_key, cryptde).unwrap();
 
         assert_eq!(2, subject.hops.len());
         assert_eq!(
             subject.hops[0],
             LiveHop::new(&target_key, None, Component::Hopper)
-                .encode(&cryptde.public_key(), &cryptde)
+                .encode(&cryptde.public_key(), cryptde)
                 .unwrap()
         );
         assert_eq!(
             subject.hops[1],
             LiveHop::new(&PublicKey::new(b""), None, Component::Neighborhood)
-                .encode(&target_key, &cryptde)
+                .encode(&target_key, cryptde)
                 .unwrap()
         );
     }
@@ -418,16 +460,18 @@ mod tests {
         let e_key = PublicKey::new(&[69, 69, 69]);
         let f_key = PublicKey::new(&[70, 70, 70]);
 
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let return_route_id = 4321;
+        let contract_address = contract_address(DEFAULT_CHAIN_ID);
 
         let subject = Route::round_trip(
             RouteSegment::new(vec![&a_key, &b_key, &c_key, &d_key], Component::ProxyClient),
             RouteSegment::new(vec![&d_key, &e_key, &f_key, &a_key], Component::ProxyServer),
-            &cryptde,
+            cryptde,
             Some(paying_wallet.clone()),
             return_route_id,
+            Some(contract_address.clone()),
         )
         .unwrap();
 
@@ -435,10 +479,10 @@ mod tests {
             subject.hops[0],
             LiveHop::new(
                 &b_key,
-                Some(paying_wallet.as_payer(&a_key)),
+                Some(paying_wallet.as_payer(&a_key, &contract_address)),
                 Component::Hopper
             )
-            .encode(&a_key, &cryptde)
+            .encode(&a_key, cryptde)
             .unwrap(),
             "first hop"
         );
@@ -447,10 +491,10 @@ mod tests {
             subject.hops[1],
             LiveHop::new(
                 &c_key,
-                Some(paying_wallet.as_payer(&b_key)),
+                Some(paying_wallet.as_payer(&b_key, &contract_address)),
                 Component::Hopper
             )
-            .encode(&b_key, &cryptde)
+            .encode(&b_key, cryptde)
             .unwrap(),
             "second hop"
         );
@@ -459,10 +503,10 @@ mod tests {
             subject.hops[2],
             LiveHop::new(
                 &d_key,
-                Some(paying_wallet.as_payer(&c_key)),
+                Some(paying_wallet.as_payer(&c_key, &contract_address)),
                 Component::Hopper
             )
-            .encode(&c_key, &cryptde)
+            .encode(&c_key, cryptde)
             .unwrap(),
             "third hop"
         );
@@ -471,10 +515,10 @@ mod tests {
             subject.hops[3],
             LiveHop::new(
                 &e_key,
-                Some(paying_wallet.as_payer(&d_key)),
+                Some(paying_wallet.as_payer(&d_key, &contract_address)),
                 Component::ProxyClient
             )
-            .encode(&d_key, &cryptde)
+            .encode(&d_key, cryptde)
             .unwrap(),
             "fourth hop"
         );
@@ -483,10 +527,10 @@ mod tests {
             subject.hops[4],
             LiveHop::new(
                 &f_key,
-                Some(paying_wallet.as_payer(&e_key)),
+                Some(paying_wallet.as_payer(&e_key, &contract_address)),
                 Component::Hopper
             )
-            .encode(&e_key, &cryptde)
+            .encode(&e_key, cryptde)
             .unwrap(),
             "fifth hop"
         );
@@ -495,10 +539,10 @@ mod tests {
             subject.hops[5],
             LiveHop::new(
                 &a_key,
-                Some(paying_wallet.as_payer(&f_key)),
+                Some(paying_wallet.as_payer(&f_key, &contract_address)),
                 Component::Hopper
             )
-            .encode(&f_key, &cryptde)
+            .encode(&f_key, cryptde)
             .unwrap(),
             "sixth hop"
         );
@@ -508,17 +552,17 @@ mod tests {
             subject.hops[6],
             LiveHop::new(
                 &empty_public_key,
-                Some(paying_wallet.as_payer(&a_key)),
+                Some(paying_wallet.as_payer(&a_key, &contract_address)),
                 Component::ProxyServer,
             )
-            .encode(&a_key, &cryptde)
+            .encode(&a_key, cryptde)
             .unwrap(),
             "seventh hop"
         );
 
         assert_eq!(
             subject.hops[7],
-            Route::encrypt_return_route_id(return_route_id, &cryptde),
+            Route::encrypt_return_route_id(return_route_id, cryptde),
             "eighth hop"
         );
     }
@@ -527,13 +571,15 @@ mod tests {
     fn construct_can_make_short_single_stop_route() {
         let a_key = PublicKey::new(&[65, 65, 65]);
         let b_key = PublicKey::new(&[66, 66, 66]);
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
+        let contract_address = contract_address(DEFAULT_CHAIN_ID);
 
         let subject = Route::one_way(
             RouteSegment::new(vec![&a_key, &b_key], Component::Neighborhood),
-            &cryptde,
+            cryptde,
             Some(paying_wallet.clone()),
+            Some(contract_address.clone()),
         )
         .unwrap();
         let empty_public_key = PublicKey::new(b"");
@@ -542,17 +588,17 @@ mod tests {
             vec!(
                 LiveHop::new(
                     &b_key,
-                    Some(paying_wallet.as_payer(&a_key)),
+                    Some(paying_wallet.as_payer(&a_key, &contract_address)),
                     Component::Hopper
                 )
-                .encode(&a_key, &cryptde)
+                .encode(&a_key, cryptde)
                 .unwrap(),
                 LiveHop::new(
                     &empty_public_key,
-                    Some(paying_wallet.as_payer(&b_key)),
+                    Some(paying_wallet.as_payer(&b_key, &contract_address)),
                     Component::Neighborhood,
                 )
-                .encode(&b_key, &cryptde)
+                .encode(&b_key, cryptde)
                 .unwrap(),
             ),
             subject.hops,
@@ -561,25 +607,27 @@ mod tests {
 
     #[test]
     fn next_hop_decodes_top_hop() {
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let key12 = cryptde.public_key();
         let key34 = PublicKey::new(&[3, 4]);
         let key56 = PublicKey::new(&[5, 6]);
+        let contract_address = contract_address(DEFAULT_CHAIN_ID);
         let subject = Route::one_way(
             RouteSegment::new(vec![&key12, &key34, &key56], Component::Neighborhood),
-            &cryptde,
+            cryptde,
             Some(paying_wallet.clone()),
+            Some(contract_address),
         )
         .unwrap();
 
-        let next_hop = subject.next_hop(&cryptde).unwrap();
+        let next_hop = subject.next_hop(cryptde).unwrap();
 
         assert_eq!(
             next_hop,
             LiveHop::new(
                 &key34,
-                Some(paying_wallet.as_payer(&key12)),
+                Some(paying_wallet.as_payer(&key12, &contract_address)),
                 Component::Hopper
             )
         );
@@ -589,24 +637,24 @@ mod tests {
             vec!(
                 LiveHop::new(
                     &key34,
-                    Some(paying_wallet.as_payer(&key12)),
+                    Some(paying_wallet.as_payer(&key12, &contract_address)),
                     Component::Hopper
                 )
-                .encode(&key12, &cryptde)
+                .encode(&key12, cryptde)
                 .unwrap(),
                 LiveHop::new(
                     &key56,
-                    Some(paying_wallet.as_payer(&key34)),
+                    Some(paying_wallet.as_payer(&key34, &contract_address)),
                     Component::Hopper
                 )
-                .encode(&key34, &cryptde)
+                .encode(&key34, cryptde)
                 .unwrap(),
                 LiveHop::new(
                     &empty_public_key,
-                    Some(paying_wallet.as_payer(&key56)),
+                    Some(paying_wallet.as_payer(&key56, &contract_address)),
                     Component::Neighborhood,
                 )
-                .encode(&key56, &cryptde)
+                .encode(&key56, cryptde)
                 .unwrap(),
             )
         );
@@ -614,26 +662,28 @@ mod tests {
 
     #[test]
     fn shift_returns_next_hop_and_adds_garbage_at_the_bottom() {
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let key12 = cryptde.public_key();
         let key34 = PublicKey::new(&[3, 4]);
         let key56 = PublicKey::new(&[5, 6]);
+        let contract_address = contract_address(DEFAULT_CHAIN_ID);
         let mut subject = Route::one_way(
             RouteSegment::new(vec![&key12, &key34, &key56], Component::Neighborhood),
-            &cryptde,
+            cryptde,
             Some(paying_wallet.clone()),
+            Some(contract_address),
         )
         .unwrap();
         let top_hop_len = subject.hops.first().unwrap().len();
 
-        let next_hop = subject.shift(&cryptde).unwrap();
+        let next_hop = subject.shift(cryptde).unwrap();
 
         assert_eq!(
             next_hop,
             LiveHop::new(
                 &key34,
-                Some(paying_wallet.as_payer(&key12)),
+                Some(paying_wallet.as_payer(&key12, &contract_address)),
                 Component::Hopper
             )
         );
@@ -645,17 +695,17 @@ mod tests {
             vec!(
                 LiveHop::new(
                     &key56,
-                    Some(paying_wallet.as_payer(&key34)),
+                    Some(paying_wallet.as_payer(&key34, &contract_address)),
                     Component::Hopper
                 )
-                .encode(&key34, &cryptde)
+                .encode(&key34, cryptde)
                 .unwrap(),
                 LiveHop::new(
                     &empty_public_key,
-                    Some(paying_wallet.as_payer(&key56)),
+                    Some(paying_wallet.as_payer(&key56, &contract_address)),
                     Component::Neighborhood,
                 )
-                .encode(&key56, &cryptde)
+                .encode(&key56, cryptde)
                 .unwrap(),
                 CryptData::new(&garbage_can[..])
             )
@@ -664,20 +714,20 @@ mod tests {
 
     #[test]
     fn empty_route_says_none_when_asked_for_next_hop() {
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let subject = Route { hops: Vec::new() };
 
-        let result = subject.next_hop(&cryptde).err().unwrap();
+        let result = subject.next_hop(cryptde).err().unwrap();
 
         assert_eq!(result, RouteError::EmptyRoute);
     }
 
     #[test]
     fn shift_says_none_when_asked_for_next_hop_on_empty_route() {
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let mut subject = Route { hops: Vec::new() };
 
-        let result = subject.shift(&cryptde).err().unwrap();
+        let result = subject.shift(cryptde).err().unwrap();
 
         assert_eq!(result, RouteError::EmptyRoute);
     }
@@ -686,14 +736,15 @@ mod tests {
     fn route_serialization_deserialization() {
         let key1 = PublicKey::new(&[1, 2, 3, 4]);
         let key2 = PublicKey::new(&[4, 3, 2, 1]);
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let original = Route::round_trip(
             RouteSegment::new(vec![&key1, &key2], Component::ProxyClient),
             RouteSegment::new(vec![&key2, &key1], Component::ProxyServer),
-            &cryptde,
+            cryptde,
             Some(paying_wallet),
             1234,
+            Some(contract_address(DEFAULT_CHAIN_ID)),
         )
         .unwrap();
 
@@ -712,21 +763,22 @@ mod tests {
         let paying_wallet = make_paying_wallet(b"wallet");
         let subject = Route::one_way(
             RouteSegment::new(vec![&key1, &key2, &key3], Component::Neighborhood),
-            &CryptDENull::new(),
+            cryptde(),
             Some(paying_wallet),
+            Some(contract_address(DEFAULT_CHAIN_ID)),
         )
         .unwrap();
 
         let result = subject.to_string(vec![
-            &CryptDENull::from(&key1),
-            &CryptDENull::from(&key2),
-            &CryptDENull::from(&key3),
+            &CryptDENull::from(&key1, DEFAULT_CHAIN_ID),
+            &CryptDENull::from(&key2, DEFAULT_CHAIN_ID),
+            &CryptDENull::from(&key3, DEFAULT_CHAIN_ID),
         ]);
 
         assert_eq!(result, String::from(r#"
-Encrypted with AQIDBA: LiveHop { public_key: AgMEBQ, payer: Some(Payer { wallet: { address: "0x71d0fc7d1c570b1ed786382b551a09391c91e33d" }, proof: Signature { v: 1, r: "1d0cdeea7262cd2a0f285885bb0fc020f929ae5ca4bb97bd72914d1fce97c2c9", s: "1d0cdeea7262cd2a0f285885bb0fc020f929ae5ca4bb97bd72914d1fce97c2c9" } }), component: Hopper }
-Encrypted with AgMEBQ: LiveHop { public_key: AwQFBg, payer: Some(Payer { wallet: { address: "0x71d0fc7d1c570b1ed786382b551a09391c91e33d" }, proof: Signature { v: 1, r: "276ac1fbcd39d482e05fcb5ffb4a3a8db84d6b7ce16ec8ec3bb1ae0498a3e531", s: "276ac1fbcd39d482e05fcb5ffb4a3a8db84d6b7ce16ec8ec3bb1ae0498a3e531" } }), component: Hopper }
-Encrypted with AwQFBg: LiveHop { public_key: , payer: Some(Payer { wallet: { address: "0x71d0fc7d1c570b1ed786382b551a09391c91e33d" }, proof: Signature { v: 0, r: "638777322436fb13cab47d207c99e18a1365ec19b5c892dc88a626c86305e1e6", s: "638777322436fb13cab47d207c99e18a1365ec19b5c892dc88a626c86305e1e6" } }), component: Neighborhood }
+Encrypted with AQIDBA: LiveHop { public_key: AgMEBQ, payer: Some(Payer { wallet: { address: "0x71d0fc7d1c570b1ed786382b551a09391c91e33d" }, proof: Signature { v: 0, r: "c8748220c9b68b39d6d960b3a851393a1e8970da161660a78e8ce7ad2c7eba55", s: "c8748220c9b68b39d6d960b3a851393a1e8970da161660a78e8ce7ad2c7eba55" } }), component: Hopper }
+Encrypted with AgMEBQ: LiveHop { public_key: AwQFBg, payer: Some(Payer { wallet: { address: "0x71d0fc7d1c570b1ed786382b551a09391c91e33d" }, proof: Signature { v: 0, r: "ef5fcf4c158b98310d5e579770f24bf871adc7deda12b0ce75c7c0e347b17710", s: "ef5fcf4c158b98310d5e579770f24bf871adc7deda12b0ce75c7c0e347b17710" } }), component: Hopper }
+Encrypted with AwQFBg: LiveHop { public_key: , payer: Some(Payer { wallet: { address: "0x71d0fc7d1c570b1ed786382b551a09391c91e33d" }, proof: Signature { v: 1, r: "e2b4e575f12bfe0a7cf5f58a14d93d739a669b77b3c8c9fc0103fe00559b692d", s: "e2b4e575f12bfe0a7cf5f58a14d93d739a669b77b3c8c9fc0103fe00559b692d" } }), component: Neighborhood }
 "#));
     }
 
@@ -739,27 +791,28 @@ Encrypted with AwQFBg: LiveHop { public_key: , payer: Some(Payer { wallet: { add
         let subject = Route::round_trip(
             RouteSegment::new(vec![&key1, &key2, &key3], Component::ProxyClient),
             RouteSegment::new(vec![&key3, &key2, &key1], Component::ProxyServer),
-            &CryptDENull::from(&key1),
+            &CryptDENull::from(&key1, DEFAULT_CHAIN_ID),
             Some(paying_wallet),
             1234,
+            Some(contract_address(DEFAULT_CHAIN_ID)),
         )
         .unwrap();
 
         let result = subject.to_string(vec![
-            &CryptDENull::from(&key1),
-            &CryptDENull::from(&key2),
-            &CryptDENull::from(&key3),
-            &CryptDENull::from(&key2),
-            &CryptDENull::from(&key1),
-            &CryptDENull::from(&key1),
+            &CryptDENull::from(&key1, DEFAULT_CHAIN_ID),
+            &CryptDENull::from(&key2, DEFAULT_CHAIN_ID),
+            &CryptDENull::from(&key3, DEFAULT_CHAIN_ID),
+            &CryptDENull::from(&key2, DEFAULT_CHAIN_ID),
+            &CryptDENull::from(&key1, DEFAULT_CHAIN_ID),
+            &CryptDENull::from(&key1, DEFAULT_CHAIN_ID),
         ]);
 
         assert_eq!(result, String::from(r#"
-Encrypted with AQIDBA: LiveHop { public_key: AgMEBQ, payer: Some(Payer { wallet: { address: "0x71d0fc7d1c570b1ed786382b551a09391c91e33d" }, proof: Signature { v: 1, r: "1d0cdeea7262cd2a0f285885bb0fc020f929ae5ca4bb97bd72914d1fce97c2c9", s: "1d0cdeea7262cd2a0f285885bb0fc020f929ae5ca4bb97bd72914d1fce97c2c9" } }), component: Hopper }
-Encrypted with AgMEBQ: LiveHop { public_key: AwQFBg, payer: Some(Payer { wallet: { address: "0x71d0fc7d1c570b1ed786382b551a09391c91e33d" }, proof: Signature { v: 1, r: "276ac1fbcd39d482e05fcb5ffb4a3a8db84d6b7ce16ec8ec3bb1ae0498a3e531", s: "276ac1fbcd39d482e05fcb5ffb4a3a8db84d6b7ce16ec8ec3bb1ae0498a3e531" } }), component: Hopper }
-Encrypted with AwQFBg: LiveHop { public_key: AgMEBQ, payer: Some(Payer { wallet: { address: "0x71d0fc7d1c570b1ed786382b551a09391c91e33d" }, proof: Signature { v: 0, r: "638777322436fb13cab47d207c99e18a1365ec19b5c892dc88a626c86305e1e6", s: "638777322436fb13cab47d207c99e18a1365ec19b5c892dc88a626c86305e1e6" } }), component: ProxyClient }
-Encrypted with AgMEBQ: LiveHop { public_key: AQIDBA, payer: Some(Payer { wallet: { address: "0x71d0fc7d1c570b1ed786382b551a09391c91e33d" }, proof: Signature { v: 1, r: "276ac1fbcd39d482e05fcb5ffb4a3a8db84d6b7ce16ec8ec3bb1ae0498a3e531", s: "276ac1fbcd39d482e05fcb5ffb4a3a8db84d6b7ce16ec8ec3bb1ae0498a3e531" } }), component: Hopper }
-Encrypted with AQIDBA: LiveHop { public_key: , payer: Some(Payer { wallet: { address: "0x71d0fc7d1c570b1ed786382b551a09391c91e33d" }, proof: Signature { v: 1, r: "1d0cdeea7262cd2a0f285885bb0fc020f929ae5ca4bb97bd72914d1fce97c2c9", s: "1d0cdeea7262cd2a0f285885bb0fc020f929ae5ca4bb97bd72914d1fce97c2c9" } }), component: ProxyServer }
+Encrypted with AQIDBA: LiveHop { public_key: AgMEBQ, payer: Some(Payer { wallet: { address: "0x71d0fc7d1c570b1ed786382b551a09391c91e33d" }, proof: Signature { v: 0, r: "c8748220c9b68b39d6d960b3a851393a1e8970da161660a78e8ce7ad2c7eba55", s: "c8748220c9b68b39d6d960b3a851393a1e8970da161660a78e8ce7ad2c7eba55" } }), component: Hopper }
+Encrypted with AgMEBQ: LiveHop { public_key: AwQFBg, payer: Some(Payer { wallet: { address: "0x71d0fc7d1c570b1ed786382b551a09391c91e33d" }, proof: Signature { v: 0, r: "ef5fcf4c158b98310d5e579770f24bf871adc7deda12b0ce75c7c0e347b17710", s: "ef5fcf4c158b98310d5e579770f24bf871adc7deda12b0ce75c7c0e347b17710" } }), component: Hopper }
+Encrypted with AwQFBg: LiveHop { public_key: AgMEBQ, payer: Some(Payer { wallet: { address: "0x71d0fc7d1c570b1ed786382b551a09391c91e33d" }, proof: Signature { v: 1, r: "e2b4e575f12bfe0a7cf5f58a14d93d739a669b77b3c8c9fc0103fe00559b692d", s: "e2b4e575f12bfe0a7cf5f58a14d93d739a669b77b3c8c9fc0103fe00559b692d" } }), component: ProxyClient }
+Encrypted with AgMEBQ: LiveHop { public_key: AQIDBA, payer: Some(Payer { wallet: { address: "0x71d0fc7d1c570b1ed786382b551a09391c91e33d" }, proof: Signature { v: 0, r: "ef5fcf4c158b98310d5e579770f24bf871adc7deda12b0ce75c7c0e347b17710", s: "ef5fcf4c158b98310d5e579770f24bf871adc7deda12b0ce75c7c0e347b17710" } }), component: Hopper }
+Encrypted with AQIDBA: LiveHop { public_key: , payer: Some(Payer { wallet: { address: "0x71d0fc7d1c570b1ed786382b551a09391c91e33d" }, proof: Signature { v: 0, r: "c8748220c9b68b39d6d960b3a851393a1e8970da161660a78e8ce7ad2c7eba55", s: "c8748220c9b68b39d6d960b3a851393a1e8970da161660a78e8ce7ad2c7eba55" } }), component: ProxyServer }
 Encrypted with AQIDBA: Return Route ID: 1234
 "#));
     }

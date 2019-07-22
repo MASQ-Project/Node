@@ -281,6 +281,7 @@ pub enum NeighborhoodDatabaseError {
 mod tests {
     use super::super::neighborhood_test_utils::make_node_record;
     use super::*;
+    use crate::blockchain::blockchain_interface::DEFAULT_CHAIN_ID;
     use crate::neighborhood::neighborhood_test_utils::db_from_node;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::test_utils::{assert_string_contains, rate_pack};
@@ -324,7 +325,7 @@ mod tests {
             &this_node.node_addr_opt().unwrap(),
             this_node.earning_wallet(),
             rate_pack(1234),
-            &CryptDENull::from(this_node.public_key()),
+            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN_ID),
         );
 
         assert_eq!(subject.this_node, this_node.public_key().clone());
@@ -396,7 +397,7 @@ mod tests {
             &this_node.node_addr_opt().unwrap(),
             Wallet::from_str("0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0").unwrap(),
             rate_pack(1234),
-            &CryptDENull::from(this_node.public_key()),
+            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN_ID),
         );
 
         subject.add_node(one_node.clone()).unwrap();
@@ -451,7 +452,7 @@ mod tests {
             &this_node.node_addr_opt().unwrap(),
             Wallet::from_str("0x0000000000000000000000000000000000001234").unwrap(),
             rate_pack(100),
-            &CryptDENull::from(this_node.public_key()),
+            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN_ID),
         );
         subject.add_node(one_node.clone()).unwrap();
         subject.add_node(another_node.clone()).unwrap();
@@ -580,7 +581,7 @@ mod tests {
             &this_node.node_addr_opt().unwrap(),
             Wallet::from_str("0x0000000000000000000000000000000000001234").unwrap(),
             rate_pack(100),
-            &CryptDENull::from(this_node.public_key()),
+            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN_ID),
         );
         subject.add_node(other_node.clone()).unwrap();
 
@@ -694,7 +695,7 @@ mod tests {
             &this_node.node_addr_opt().unwrap(),
             Wallet::from_str("0x0000000000000000000000000000000000000123").unwrap(),
             rate_pack(100),
-            &CryptDENull::from(this_node.public_key()),
+            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN_ID),
         );
         let nonexistent_key = &PublicKey::new(b"nonexistent");
 
@@ -741,7 +742,7 @@ mod tests {
             &this_node.node_addr_opt().unwrap(),
             Wallet::from_str("0x0000000000000000000000000000000000000123").unwrap(),
             rate_pack(100),
-            &CryptDENull::from(this_node.public_key()),
+            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN_ID),
         );
         let neighborless_node = make_node_record(2345, true);
         subject.add_node(neighborless_node.clone()).unwrap();

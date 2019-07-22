@@ -1,8 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::blockchain::blockchain_interface::contract_address;
+use crate::sub_lib::cryptde;
 use crate::sub_lib::cryptde::{
     CryptDE, CryptData, CryptdecError, PlainData, PrivateKey, PublicKey,
 };
-
 use lazy_static::lazy_static;
 use sodiumoxide::crypto::box_::curve25519xsalsa20poly1305 as cxsp;
 use sodiumoxide::crypto::sealedbox::curve25519blake2bxsalsa20poly1305::SEALBYTES;
@@ -24,6 +25,7 @@ pub struct CryptDEReal {
     public_key: PublicKey,
     encryption_secret_key: encryption::SecretKey,
     signing_secret_key: signing::SecretKey,
+    digest: [u8; 32],
 }
 
 impl CryptDE for CryptDEReal {
@@ -62,11 +64,12 @@ impl CryptDE for CryptDEReal {
         &self.public_key
     }
 
-    fn dup(&self) -> Box<CryptDE> {
+    fn dup(&self) -> Box<dyn CryptDE> {
         Box::new(CryptDEReal {
             public_key: self.public_key.clone(),
             encryption_secret_key: encryption::SecretKey(self.encryption_secret_key.0),
             signing_secret_key: signing::SecretKey(self.signing_secret_key.0),
+            digest: self.digest,
         })
     }
 
@@ -129,22 +132,24 @@ impl CryptDE for CryptDEReal {
         encryption_public_key.extend(&[0u8; signing::PUBLICKEYBYTES]);
         Ok(PublicKey::from(encryption_public_key))
     }
-}
 
-impl Default for CryptDEReal {
-    fn default() -> Self {
-        Self::new()
+    fn digest(&self) -> [u8; 32] {
+        self.digest
     }
 }
 
 impl CryptDEReal {
-    pub fn new() -> Self {
+    pub fn new(chain_id: u8) -> Self {
         let (e_public, e_secret) = encryption::gen_keypair();
         let (s_public, s_secret) = signing::gen_keypair();
+        let public_key = Self::local_public_key_from(&e_public, &s_public);
+        let digest = cryptde::create_digest(&public_key, &contract_address(chain_id));
+
         Self {
-            public_key: Self::local_public_key_from(&e_public, &s_public),
+            public_key,
             encryption_secret_key: e_secret,
             signing_secret_key: s_secret,
+            digest,
         }
     }
 
@@ -177,18 +182,26 @@ impl CryptDEReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::blockchain_interface::DEFAULT_CHAIN_ID;
+    use ethsign_crypto::Keccak256;
+
+    impl Default for CryptDEReal {
+        fn default() -> Self {
+            Self::new(DEFAULT_CHAIN_ID)
+        }
+    }
 
     #[test]
     fn construction_generates_different_keys() {
-        let first_subject = CryptDEReal::new();
-        let second_subject = CryptDEReal::new();
+        let first_subject = CryptDEReal::default();
+        let second_subject = CryptDEReal::default();
 
         assert_ne!(first_subject.public_key(), second_subject.public_key());
     }
 
     #[test]
     fn dup_produces_identical_keys() {
-        let subject = CryptDEReal::new();
+        let subject = CryptDEReal::default();
 
         let dup = subject.dup();
 
@@ -197,7 +210,7 @@ mod tests {
 
     #[test]
     fn random_produces_different_fields_of_data() {
-        let subject = CryptDEReal::new();
+        let subject = CryptDEReal::default();
         let mut first_field = [0u8; 100];
         let mut second_field = [0u8; 100];
 
@@ -209,7 +222,7 @@ mod tests {
 
     #[test]
     fn same_value_hashed_produces_same_hash() {
-        let subject = CryptDEReal::new();
+        let subject = CryptDEReal::default();
         let value = PlainData::new(&[0u8; 100]);
 
         let first_hash = subject.hash(&value);
@@ -220,7 +233,7 @@ mod tests {
 
     #[test]
     fn different_values_hashed_produce_different_hashes() {
-        let subject = CryptDEReal::new();
+        let subject = CryptDEReal::default();
         let first_value = PlainData::new(&[0u8; 100]);
         let second_value = PlainData::new(&[1u8; 100]);
 
@@ -233,7 +246,7 @@ mod tests {
 
     #[test]
     fn encode_with_invalid_key() {
-        let subject = CryptDEReal::new();
+        let subject = CryptDEReal::default();
 
         let result = subject.encode(
             &PublicKey::new(b"not long enough"),
@@ -250,7 +263,7 @@ mod tests {
 
     #[test]
     fn decode_with_empty_data() {
-        let subject = CryptDEReal::new();
+        let subject = CryptDEReal::default();
 
         let result = subject.decode(&CryptData::new(b""));
 
@@ -260,7 +273,7 @@ mod tests {
     #[test]
     fn decode_with_data_too_short_to_be_valid() {
         let data = CryptData::new(b"short");
-        let subject = CryptDEReal::new();
+        let subject = CryptDEReal::default();
 
         let result = subject.decode(&data);
 
@@ -269,8 +282,8 @@ mod tests {
 
     #[test]
     fn encode_and_then_decode_with_the_wrong_key() {
-        let subject1 = CryptDEReal::new();
-        let subject2 = CryptDEReal::new();
+        let subject1 = CryptDEReal::default();
+        let subject2 = CryptDEReal::default();
         let data = PlainData::new(&[4u8; 100]);
         let crypt_data = subject1.encode(subject1.public_key(), &data).unwrap();
 
@@ -281,7 +294,7 @@ mod tests {
 
     #[test]
     fn encoding_the_same_data_twice_with_the_same_key_produces_different_results() {
-        let subject = CryptDEReal::new();
+        let subject = CryptDEReal::default();
         let data = PlainData::new(&[10u8; 100]);
 
         let crypt_data1 = subject.encode(subject.public_key(), &data);
@@ -292,7 +305,7 @@ mod tests {
 
     #[test]
     fn encode_decode_round_trip_works() {
-        let subject = CryptDEReal::new();
+        let subject = CryptDEReal::default();
 
         let data = PlainData::new(b"Let me out!");
         let encoded = subject.encode(subject.public_key(), &data).unwrap();
@@ -303,7 +316,7 @@ mod tests {
 
     #[test]
     fn stringifies_public_key_properly() {
-        let subject = CryptDEReal::new();
+        let subject = CryptDEReal::default();
         let public_encryption_key = &subject.public_key.as_slice()[..cxsp::PUBLICKEYBYTES];
 
         let result = subject.public_key_to_descriptor_fragment(subject.public_key());
@@ -316,7 +329,7 @@ mod tests {
 
     #[test]
     fn destringifies_public_key_properly() {
-        let subject = CryptDEReal::new();
+        let subject = CryptDEReal::default();
         let public_encryption_key = &subject.public_key.as_slice()[..cxsp::PUBLICKEYBYTES];
         let half_key_string = base64::encode_config(public_encryption_key, base64::STANDARD_NO_PAD);
 
@@ -332,7 +345,7 @@ mod tests {
 
     #[test]
     fn fails_to_destringify_bad_base64_public_key_string_properly() {
-        let subject = CryptDEReal::new();
+        let subject = CryptDEReal::default();
         let half_key_string = "((]--$";
 
         let result = subject.descriptor_fragment_to_first_contact_public_key(half_key_string);
@@ -345,7 +358,7 @@ mod tests {
 
     #[test]
     fn fails_to_destringify_short_public_key_string_properly() {
-        let subject = CryptDEReal::new();
+        let subject = CryptDEReal::default();
         let short_public_encryption_key =
             &subject.public_key.as_slice()[..cxsp::PUBLICKEYBYTES - 1];
         let short_half_key_string =
@@ -365,7 +378,7 @@ mod tests {
 
     #[test]
     fn fails_to_destringify_long_public_key_string_properly() {
-        let subject = CryptDEReal::new();
+        let subject = CryptDEReal::default();
         let mut long_public_encryption_key =
             subject.public_key.as_slice()[..cxsp::PUBLICKEYBYTES].to_vec();
         long_public_encryption_key.push(0);
@@ -387,7 +400,7 @@ mod tests {
     fn verifying_a_good_signature_works() {
         let hashable_data = &[121u8; 100];
         let data = PlainData::new(hashable_data);
-        let subject = CryptDEReal::new();
+        let subject = CryptDEReal::default();
 
         let signature = subject.sign(&data).unwrap();
         let result = subject.verify_signature(&data, &signature, &subject.public_key());
@@ -399,7 +412,7 @@ mod tests {
     fn verifying_an_invalid_signature_fails() {
         let hashable_data = &[122u8; 100];
         let data = PlainData::new(hashable_data);
-        let subject = CryptDEReal::new();
+        let subject = CryptDEReal::default();
         let signature = subject.sign(&data).unwrap();
         let short_signature = CryptData::new(&signature.as_slice()[1..]);
 
@@ -412,7 +425,7 @@ mod tests {
     fn verifying_a_modified_signature_fails() {
         let hashable_data = &[122u8; 100];
         let data = PlainData::new(hashable_data);
-        let subject = CryptDEReal::new();
+        let subject = CryptDEReal::default();
         let signature = subject.sign(&data).unwrap();
         let mut signature_data: Vec<u8> = signature.into();
         signature_data[0] = signature_data[0].wrapping_add(1);
@@ -427,7 +440,7 @@ mod tests {
     fn verifying_a_signature_on_modified_data_fails() {
         let hashable_data = &[122u8; 100];
         let data = PlainData::new(hashable_data);
-        let subject = CryptDEReal::new();
+        let subject = CryptDEReal::default();
         let mut modified = hashable_data.to_vec();
         modified[0] = modified[0].wrapping_add(1);
         let different_data = PlainData::from(modified);
@@ -437,4 +450,20 @@ mod tests {
 
         assert_eq!(false, result);
     }
+
+    #[test]
+    fn hashing_produces_a_digest_with_the_smart_contract_address() {
+        let subject = &CryptDEReal::default();
+        let merged = [
+            subject.public_key().as_ref(),
+            contract_address(DEFAULT_CHAIN_ID).as_ref(),
+        ]
+        .concat();
+        let expected_digest = merged.keccak256();
+
+        let actual_digest = subject.digest();
+
+        assert_eq!(expected_digest, actual_digest);
+    }
+
 }

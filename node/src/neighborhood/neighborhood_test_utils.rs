@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use super::neighborhood_database::NeighborhoodDatabase;
 use super::node_record::NodeRecord;
+use crate::blockchain::blockchain_interface::DEFAULT_CHAIN_ID;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::neighborhood::gossip::GossipNodeRecord;
 use crate::neighborhood::node_record::NodeRecordInner;
@@ -59,7 +60,7 @@ pub fn db_from_node(node: &NodeRecord) -> NeighborhoodDatabase {
         )),
         node.earning_wallet(),
         node.rate_pack().clone(),
-        &CryptDENull::from(node.public_key()),
+        &CryptDENull::from(node.public_key(), DEFAULT_CHAIN_ID),
     )
 }
 
@@ -125,26 +126,26 @@ impl NodeRecord {
             NodeRecord::earning_wallet_from_key(public_key),
             rate_pack(base_rate),
             0,
-            &CryptDENull::from(public_key),
+            &CryptDENull::from(public_key, DEFAULT_CHAIN_ID),
         );
         if let Some(node_addr) = node_addr_opt {
             node_record.set_node_addr(node_addr).unwrap();
         }
         node_record.signed_gossip =
             PlainData::from(serde_cbor::ser::to_vec(&node_record.inner).unwrap());
-        node_record.regenerate_signed_gossip(&CryptDENull::from(&public_key));
+        node_record.regenerate_signed_gossip(&CryptDENull::from(&public_key, DEFAULT_CHAIN_ID));
         node_record
     }
 
     pub fn resign(&mut self) {
-        let cryptde = CryptDENull::from(self.public_key());
+        let cryptde = CryptDENull::from(self.public_key(), DEFAULT_CHAIN_ID);
         self.regenerate_signed_gossip(&cryptde);
     }
 }
 
 impl AccessibleGossipRecord {
     pub fn resign(&mut self) {
-        let cryptde = CryptDENull::from(&self.inner.public_key);
+        let cryptde = CryptDENull::from(&self.inner.public_key, DEFAULT_CHAIN_ID);
         self.regenerate_signed_gossip(&cryptde);
     }
 }

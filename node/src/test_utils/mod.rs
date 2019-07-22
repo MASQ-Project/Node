@@ -15,6 +15,7 @@ pub mod tcp_wrapper_mocks;
 pub mod tokio_wrapper_mocks;
 
 use crate::blockchain::bip32::Bip32ECKeyPair;
+use crate::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
 use crate::blockchain::payer::Payer;
 use crate::persistent_configuration::HTTP_PORT;
 use crate::sub_lib::cryptde::CryptDE;
@@ -35,6 +36,7 @@ use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
+use crate::sub_lib::utils::localhost;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 use ethsign_crypto::Keccak256;
@@ -51,10 +53,9 @@ use std::io::Read;
 use std::io::Write;
 use std::io::{Error, ErrorKind};
 use std::iter::repeat;
-use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::net::UdpSocket;
-use std::net::{IpAddr, Shutdown, TcpStream};
+use std::net::{Shutdown, TcpStream};
 use std::path::PathBuf;
 use std::str::from_utf8;
 use std::str::FromStr;
@@ -69,7 +70,7 @@ use std::time::Instant;
 use std::{fs, io};
 
 lazy_static! {
-    static ref CRYPT_DE_NULL: CryptDENull = CryptDENull::new();
+    static ref CRYPT_DE_NULL: CryptDENull = CryptDENull::new(DEFAULT_CHAIN_ID);
 }
 
 pub fn cryptde() -> &'static CryptDENull {
@@ -242,8 +243,9 @@ pub fn make_meaningless_route() -> Route {
             ],
             Component::ProxyClient,
         ),
-        &CryptDENull::new(),
+        cryptde(),
         Some(make_paying_wallet(b"irrelevant")),
+        Some(contract_address(DEFAULT_CHAIN_ID)),
     )
     .unwrap()
 }
@@ -293,6 +295,7 @@ pub fn zero_hop_route_response(
             cryptde,
             None,
             0,
+            None,
         )
         .unwrap(),
         expected_services: ExpectedServices::RoundTrip(
@@ -376,8 +379,7 @@ pub fn rate_pack(base_rate: u64) -> RatePack {
 }
 
 pub fn find_free_port() -> u16 {
-    let socket = UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0))
-        .expect("Not enough free ports");
+    let socket = UdpSocket::bind(SocketAddr::new(localhost(), 0)).expect("Not enough free ports");
     socket.local_addr().expect("Bind failed").port()
 }
 
@@ -532,7 +534,7 @@ pub fn dummy_address_to_hex(dummy_address: &str) -> String {
 
 pub fn make_payer(secret: &[u8], public_key: &PublicKey) -> Payer {
     let wallet = make_paying_wallet(secret);
-    wallet.as_payer(public_key)
+    wallet.as_payer(public_key, &contract_address(DEFAULT_CHAIN_ID))
 }
 
 pub fn make_paying_wallet(secret: &[u8]) -> Wallet {
@@ -556,7 +558,6 @@ pub fn assert_eq_debug<T: Debug>(a: T, b: T) {
 mod tests {
     use super::*;
     use crate::sub_lib::cryptde::CryptData;
-    use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::neighborhood::ExpectedService;
     use std::borrow::BorrowMut;
@@ -569,24 +570,24 @@ mod tests {
 
     #[test]
     fn characterize_zero_hop_route() {
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let key = cryptde.public_key();
 
-        let subject = zero_hop_route_response(&key, &cryptde);
+        let subject = zero_hop_route_response(&key, cryptde);
 
         assert_eq!(
             subject.route.hops,
             vec!(
                 LiveHop::new(&key, None, Component::Hopper)
-                    .encode(&key, &cryptde)
+                    .encode(&key, cryptde)
                     .unwrap(),
                 LiveHop::new(&key, None, Component::ProxyClient)
-                    .encode(&key, &cryptde)
+                    .encode(&key, cryptde)
                     .unwrap(),
                 LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
-                    .encode(&key, &cryptde)
+                    .encode(&key, cryptde)
                     .unwrap(),
-                encrypt_return_route_id(0, &cryptde),
+                encrypt_return_route_id(0, cryptde),
             )
         );
         assert_eq!(
@@ -601,10 +602,10 @@ mod tests {
 
     #[test]
     fn characterize_route_to_proxy_client() {
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let key = cryptde.public_key();
 
-        let subject = route_to_proxy_client(&key, &cryptde);
+        let subject = route_to_proxy_client(&key, cryptde);
 
         let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
         cryptde.random(&mut garbage_can[..]);
@@ -612,12 +613,12 @@ mod tests {
             subject.hops,
             vec!(
                 LiveHop::new(&key, None, Component::ProxyClient)
-                    .encode(&key, &cryptde)
+                    .encode(&key, cryptde)
                     .unwrap(),
                 LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
-                    .encode(&key, &cryptde)
+                    .encode(&key, cryptde)
                     .unwrap(),
-                encrypt_return_route_id(0, &cryptde),
+                encrypt_return_route_id(0, cryptde),
                 CryptData::new(&garbage_can[..])
             )
         );
@@ -625,10 +626,10 @@ mod tests {
 
     #[test]
     fn characterize_route_from_proxy_client() {
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let key = cryptde.public_key();
 
-        let subject = route_from_proxy_client(&key, &cryptde);
+        let subject = route_from_proxy_client(&key, cryptde);
 
         let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
         cryptde.random(&mut garbage_can[..]);
@@ -636,12 +637,12 @@ mod tests {
             subject.hops,
             vec!(
                 LiveHop::new(&key, None, Component::ProxyClient)
-                    .encode(&key, &cryptde)
+                    .encode(&key, cryptde)
                     .unwrap(),
                 LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
-                    .encode(&key, &cryptde)
+                    .encode(&key, cryptde)
                     .unwrap(),
-                encrypt_return_route_id(0, &cryptde),
+                encrypt_return_route_id(0, cryptde),
                 CryptData::new(&garbage_can[..])
             )
         );
@@ -649,10 +650,10 @@ mod tests {
 
     #[test]
     fn characterize_route_to_proxy_server() {
-        let cryptde = CryptDENull::new();
+        let cryptde = cryptde();
         let key = cryptde.public_key();
 
-        let subject = route_to_proxy_server(&key, &cryptde);
+        let subject = route_to_proxy_server(&key, cryptde);
 
         let mut first_garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
         let mut second_garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
@@ -662,9 +663,9 @@ mod tests {
             subject.hops,
             vec!(
                 LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
-                    .encode(&key, &cryptde)
+                    .encode(&key, cryptde)
                     .unwrap(),
-                encrypt_return_route_id(0, &cryptde),
+                encrypt_return_route_id(0, cryptde),
                 CryptData::new(&first_garbage_can[..]),
                 CryptData::new(&second_garbage_can[..]),
             )

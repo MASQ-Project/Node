@@ -157,6 +157,8 @@ pub trait SubstratumNode: Any {
     fn consuming_wallet(&self) -> Option<Wallet>;
     // The RatePack this Node will use to charge fees.
     fn rate_pack(&self) -> RatePack;
+    // Valid values are "dev, "ropsten" for now. Add "mainnet" when it's time.
+    fn chain(&self) -> Option<String>;
 }
 
 pub struct SubstratumNodeUtils {}

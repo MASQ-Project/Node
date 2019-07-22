@@ -28,8 +28,7 @@ use node_lib::test_utils::{make_paying_wallet, make_wallet};
 use serde_cbor;
 use std::cell::RefCell;
 use std::io;
-use std::io::Write;
-use std::io::{Error, ErrorKind, Read};
+use std::io::{Error, ErrorKind, Read, Write};
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
@@ -116,6 +115,10 @@ impl SubstratumNode for SubstratumMockNode {
     fn rate_pack(&self) -> RatePack {
         ZERO_RATE_PACK.clone()
     }
+
+    fn chain(&self) -> Option<String> {
+        self.guts.chain.clone()
+    }
 }
 
 impl SubstratumMockNode {
@@ -124,8 +127,9 @@ impl SubstratumMockNode {
         index: usize,
         host_node_parent_dir: Option<String>,
         public_key: &PublicKey,
+        chain_id: u8,
     ) -> SubstratumMockNode {
-        let cryptde_enum = CryptDEEnum::Fake(CryptDENull::from(public_key));
+        let cryptde_enum = CryptDEEnum::Fake(CryptDENull::from(public_key, chain_id));
         Self::start_with_cryptde_enum(ports, index, host_node_parent_dir, cryptde_enum)
     }
 
@@ -133,8 +137,9 @@ impl SubstratumMockNode {
         ports: Vec<u16>,
         index: usize,
         host_node_parent_dir: Option<String>,
+        chain_id: u8,
     ) -> SubstratumMockNode {
-        let cryptde_enum = CryptDEEnum::Real(CryptDEReal::new());
+        let cryptde_enum = CryptDEEnum::Real(CryptDEReal::new(chain_id));
         Self::start_with_cryptde_enum(ports, index, host_node_parent_dir, cryptde_enum)
     }
 
@@ -160,6 +165,7 @@ impl SubstratumMockNode {
             consuming_wallet,
             cryptde_enum,
             framer,
+            chain: None,
         });
         SubstratumMockNode {
             control_stream,
@@ -417,6 +423,7 @@ struct SubstratumMockNodeGuts {
     consuming_wallet: Option<Wallet>,
     cryptde_enum: CryptDEEnum,
     framer: RefCell<DataHunkFramer>,
+    chain: Option<String>,
 }
 
 impl Drop for SubstratumMockNodeGuts {

@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::ui_gateway::FromUiMessage;
+use crate::sub_lib::utils::localhost;
 use actix::Recipient;
 use bytes::BytesMut;
 use futures::future::FutureResult;
@@ -12,8 +13,6 @@ use futures::Sink;
 use futures::Stream;
 use std::any::Any;
 use std::collections::HashMap;
-use std::net::IpAddr;
-use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -89,7 +88,7 @@ impl WebSocketSupervisorReal {
         }));
         let logger = Logger::new("WebSocketSupervisor");
         let logger_1 = logger.clone();
-        let server_address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
+        let server_address = SocketAddr::new(localhost(), port);
         let server = Server::bind(server_address, &Handle::default())
             .unwrap_or_else(|e| panic!("Could not start UI server at {}: {}", server_address, e));
         let upgrade_tuple_stream = Self::remove_failures(server.incoming(), &logger);
@@ -463,10 +462,7 @@ mod tests {
 
     fn wait_for_server(port: u16) {
         wait_for(None, None, || {
-            match TcpStream::connect(SocketAddr::new(
-                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-                port,
-            )) {
+            match TcpStream::connect(SocketAddr::new(localhost(), port)) {
                 Ok(stream) => {
                     stream.shutdown(Shutdown::Both).unwrap();
                     true

@@ -4,6 +4,7 @@ pub mod bip39;
 pub mod blockchain_bridge;
 pub mod blockchain_interface;
 pub mod payer;
+pub mod raw_transaction;
 pub mod signature;
 
 #[cfg(test)]

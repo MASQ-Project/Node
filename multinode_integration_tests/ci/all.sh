@@ -30,8 +30,13 @@ pushd "$CI_DIR/../../mock_rest_server"
 ./build.sh
 popd
 
-cd docker
+pushd "$CI_DIR/../docker/blockchain"
 ./build.sh
+popd
+
+pushd ./docker
+./build.sh
+popd
 
 export RUSTFLAGS="-D warnings -Anon-snake-case"
 cargo test --release -- --nocapture --test-threads=1

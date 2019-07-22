@@ -152,7 +152,7 @@ impl RoutingService {
                 next_hop.component,
                 immediate_neighbor_ip,
                 live_package,
-                next_hop.payer_owns_secret_key(&self.cryptde.public_key()),
+                next_hop.payer_owns_secret_key(&self.cryptde.digest()),
             )
         }
     }
@@ -191,7 +191,7 @@ impl RoutingService {
         component: Component,
         immediate_neighbor_ip: IpAddr,
         live_package: LiveCoresPackage,
-        payer_can_pay: bool,
+        payer_owns_secret_key: bool,
     ) {
         let data_len = live_package.payload.len();
         let expired_package =
@@ -214,7 +214,7 @@ impl RoutingService {
         );
         match (component, expired_package.payload) {
             (Component::ProxyClient, MessageType::ClientRequest(client_request)) => {
-                if !self.is_decentralized || payer_can_pay {
+                if !self.is_decentralized || payer_owns_secret_key {
                     self.routing_service_subs
                         .proxy_client_subs
                         .from_hopper
@@ -235,7 +235,7 @@ impl RoutingService {
                     warning!(
                         self.logger,
                         format!(
-                            "Refusing to route CORES package with {}-byte payload without proof of {}paying wallet ownership.",
+                            "Refusing to route Expired CORES package with {}-byte payload without proof of {}paying wallet ownership.",
                         payload_len, address)
                     );
                 }
@@ -295,7 +295,7 @@ impl RoutingService {
         let payload_size = live_package.payload.len();
         match payer {
             Some(payer) => {
-                if payer.owns_secret_key(&self.cryptde.public_key()) {
+                if payer.owns_secret_key(&self.cryptde.digest()) {
                     match self.routing_service_subs.to_accountant_routing.try_send(
                         ReportRoutingServiceProvidedMessage {
                             paying_wallet: payer.wallet,
@@ -311,7 +311,7 @@ impl RoutingService {
                     }
                 } else {
                     warning!(self.logger, format!(
-                        "Refusing to route CORES package with {}-byte payload without proof of {} paying wallet ownership.",
+                        "Refusing to route Live CORES package with {}-byte payload without proof of {} paying wallet ownership.",
                         payload_size, payer.wallet
                     ));
                     return;
@@ -321,7 +321,7 @@ impl RoutingService {
                 warning!(
                     self.logger,
                     format!(
-                    "Refusing to route CORES package with {}-byte payload without paying wallet",
+                    "Refusing to route Live CORES package with {}-byte payload without paying wallet",
                     payload_size
                 )
                 );
@@ -391,6 +391,7 @@ impl RoutingService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
     use crate::neighborhood::gossip::{Gossip, GossipBuilder};
     use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
     use crate::sub_lib::cryptde::{encodex, PlainData, PublicKey};
@@ -399,9 +400,13 @@ mod tests {
     use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
     use crate::sub_lib::proxy_server::ClientRequestPayload;
     use crate::sub_lib::route::{Route, RouteSegment};
-    use crate::test_utils::logging::*;
-    use crate::test_utils::recorder::*;
-    use crate::test_utils::*;
+    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
+    use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
+    use crate::test_utils::{
+        cryptde, make_meaningless_message_type, make_meaningless_stream_key, make_paying_wallet,
+        make_request_payload, make_response_payload, rate_pack_routing, rate_pack_routing_byte,
+        route_from_proxy_client, route_to_proxy_client, route_to_proxy_server,
+    };
     use actix::System;
     use std::net::SocketAddr;
     use std::str::FromStr;
@@ -675,6 +680,7 @@ mod tests {
             ),
             cryptde,
             None,
+            None,
         )
         .unwrap();
         route.shift(cryptde).unwrap();
@@ -738,6 +744,7 @@ mod tests {
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let next_key = PublicKey::new(&[65, 65, 65]);
+        let contract_address = contract_address(DEFAULT_CHAIN_ID);
         let route = Route::one_way(
             RouteSegment::new(
                 vec![&cryptde.public_key(), &next_key],
@@ -745,6 +752,7 @@ mod tests {
             ),
             cryptde,
             Some(paying_wallet.clone()),
+            Some(contract_address.clone()),
         )
         .unwrap();
         let payload = PlainData::new(&b"abcd"[..]);
@@ -825,6 +833,7 @@ mod tests {
             ),
             cryptde,
             Some(paying_wallet.clone()),
+            Some(contract_address(DEFAULT_CHAIN_ID)),
         )
         .unwrap();
         let payload = PlainData::new(&b"abcd"[..]);
@@ -889,7 +898,7 @@ mod tests {
         init_test_logging();
         let cryptde = cryptde();
         let origin_key = PublicKey::new(&[1, 2]);
-        let origin_cryptde = CryptDENull::from(&origin_key);
+        let origin_cryptde = CryptDENull::from(&origin_key, DEFAULT_CHAIN_ID);
         let destination_key = PublicKey::new(&[3, 4]);
         let payload = make_meaningless_message_type();
         let route = Route::one_way(
@@ -898,6 +907,7 @@ mod tests {
                 Component::ProxyClient,
             ),
             &origin_cryptde,
+            None,
             None,
         )
         .unwrap();
@@ -949,7 +959,7 @@ mod tests {
         System::current().stop_with_code(0);
         system.run();
         TestLogHandler::new().exists_log_matching(
-            "WARN: RoutingService: Refusing to route CORES package with \\d+-byte payload without paying wallet",
+            "WARN: RoutingService: Refusing to route Live CORES package with \\d+-byte payload without paying wallet",
         );
         assert_eq!(proxy_client_recording_arc.lock().unwrap().len(), 0);
         assert_eq!(proxy_server_recording_arc.lock().unwrap().len(), 0);
@@ -966,17 +976,20 @@ mod tests {
         let public_key = cryptde.public_key();
         let payload = ClientRequest(make_request_payload(0, cryptde));
         let paying_wallet = Some(make_paying_wallet(b"paying wallet"));
+        let contract_address = contract_address(DEFAULT_CHAIN_ID);
         let live_hops: Vec<LiveHop> = vec![
             LiveHop::new(
                 &public_key,
-                paying_wallet.clone().map(|w| w.as_payer(&public_key)),
+                paying_wallet
+                    .clone()
+                    .map(|w| w.as_payer(&public_key, &contract_address)),
                 Component::Hopper,
             ),
             LiveHop::new(
                 &public_key,
                 paying_wallet
                     .clone()
-                    .map(|w| w.as_payer(&PublicKey::new(b"can't pay"))),
+                    .map(|w| w.as_payer(&PublicKey::new(b"can't pay"), &contract_address)),
                 Component::ProxyClient,
             ),
         ];
@@ -1038,7 +1051,7 @@ mod tests {
         System::current().stop_with_code(0);
         system.run();
         TestLogHandler::new().exists_log_matching(
-            "WARN: RoutingService: Refusing to route CORES package with \\d+-byte payload without proof of 0x0a26dc9ebb2124baf1efe9d460f1ce59cd7944bd paying wallet ownership.",
+            "WARN: RoutingService: Refusing to route Expired CORES package with \\d+-byte payload without proof of 0x0a26dc9ebb2124baf1efe9d460f1ce59cd7944bd paying wallet ownership.",
         );
         assert_eq!(proxy_client_recording_arc.lock().unwrap().len(), 0);
         assert_eq!(proxy_server_recording_arc.lock().unwrap().len(), 0);
@@ -1055,21 +1068,24 @@ mod tests {
         let current_key = cryptde.public_key();
         let origin_key = PublicKey::new(&[1, 2]);
         let destination_key = PublicKey::new(&[5, 6]);
-        let destination_cryptde = CryptDENull::from(&destination_key);
+        let destination_cryptde = CryptDENull::from(&destination_key, DEFAULT_CHAIN_ID);
 
         let payload = ClientRequest(make_request_payload(0, &destination_cryptde));
         let paying_wallet = Some(make_paying_wallet(b"paying wallet"));
+        let contract_address = contract_address(DEFAULT_CHAIN_ID);
         let live_hops: Vec<LiveHop> = vec![
             LiveHop::new(
                 &current_key,
-                paying_wallet.clone().map(|w| w.as_payer(&origin_key)),
+                paying_wallet
+                    .clone()
+                    .map(|w| w.as_payer(&origin_key, &contract_address)),
                 Component::Hopper,
             ),
             LiveHop::new(
                 &destination_key,
                 paying_wallet
                     .clone()
-                    .map(|w| w.as_payer(&PublicKey::new(b"can't pay"))),
+                    .map(|w| w.as_payer(&PublicKey::new(b"can't pay"), &contract_address)),
                 Component::Hopper,
             ),
         ];
@@ -1119,14 +1135,14 @@ mod tests {
 
         subject.route_data_externally(
             lcp,
-            paying_wallet.map(|w| w.as_payer(&PublicKey::new(b"can't pay"))),
+            paying_wallet.map(|w| w.as_payer(&PublicKey::new(b"can't pay"), &contract_address)),
             true,
         );
 
         System::current().stop_with_code(0);
         system.run();
         TestLogHandler::new().exists_log_matching(
-            "WARN: RoutingService: Refusing to route CORES package with \\d+-byte payload without proof of 0x0a26dc9ebb2124baf1efe9d460f1ce59cd7944bd paying wallet ownership.",
+            "WARN: RoutingService: Refusing to route Live CORES package with \\d+-byte payload without proof of 0x0a26dc9ebb2124baf1efe9d460f1ce59cd7944bd paying wallet ownership.",
         );
         assert_eq!(proxy_client_recording_arc.lock().unwrap().len(), 0);
         assert_eq!(proxy_server_recording_arc.lock().unwrap().len(), 0);

@@ -71,13 +71,13 @@ pub struct SubstratumCoresServer {
 }
 
 impl SubstratumCoresServer {
-    pub fn new() -> SubstratumCoresServer {
+    pub fn new(chain_id: u8) -> SubstratumCoresServer {
         let ip_address = Self::find_local_integration_net_ip_address();
         let port = find_free_port();
         let local_addr = SocketAddr::new(ip_address, port);
         let listener = TcpListener::bind(local_addr)
             .expect(format!("Couldn't start server on {}", local_addr).as_str());
-        let cryptde = CryptDENull::new();
+        let cryptde = CryptDENull::new(chain_id);
         let (io_tx, io_rx) = mpsc::channel::<io::Result<Vec<u8>>>();
         let join_handle = thread::spawn(move || loop {
             let (mut stream, _) = match listener.accept() {

@@ -138,6 +138,7 @@ impl ListenerHandlerFactoryReal {
 mod tests {
     use super::*;
     use crate::node_test_utils::NullDiscriminatorFactory;
+    use crate::sub_lib::utils::localhost;
     use crate::test_utils::find_free_port;
     use crate::test_utils::little_tcp_server::LittleTcpServer;
     use crate::test_utils::logging::init_test_logging;
@@ -401,7 +402,7 @@ mod tests {
         // todo fixme wait for listener to be running in a better way
         thread::sleep(Duration::from_millis(500));
 
-        let socket_addr = SocketAddr::new(IpAddr::from_str("127.0.0.1").unwrap(), port);
+        let socket_addr = SocketAddr::new(localhost(), port);
         let x = net::TcpStream::connect(socket_addr).unwrap();
         let y = net::TcpStream::connect(socket_addr).unwrap();
         let z = net::TcpStream::connect(socket_addr).unwrap();
