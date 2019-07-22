@@ -19,6 +19,8 @@ describe('Application launch', function () {
   let indexPage
 
   beforeEach(async () => {
+    assert.strictEqual(await uiInterface.verifyNodeDown(10000), true)
+
     testUtilities.purge_existing_state()
     this.app = new Application({
       // Your electron path can be any binary
@@ -49,8 +51,9 @@ describe('Application launch', function () {
       })
   })
 
-  afterEach(() => {
+  afterEach(async () => {
     if (this.app && this.app.isRunning()) {
+      assert.strictEqual(await uiInterface.verifyNodeDown(10000), true)
       return this.app.stop()
     }
   })
@@ -117,16 +120,14 @@ describe('Application launch', function () {
     client.element('#save-config').click()
     await client.waitUntilWindowLoaded()
 
-    assert.strictEqual((await client.getText('#node-status-label')).toLocaleLowerCase(), 'serving')
-    await wait(1000)
     let nodeUp = await uiInterface.verifyNodeUp(10000)
+    assert.strictEqual((await client.getText('#node-status-label')).toLocaleLowerCase(), 'serving')
     printConsoleForDebugging(client, false)
     assert.strictEqual(nodeUp, true)
     assert.notStrictEqual(await client.getText('#node-descriptor'), '')
 
-    await client.element('div.node-status__actions button#off').click()
-    await wait(1000)
-    assert.strictEqual(await uiInterface.verifyNodeDown(5000), true)
+    await indexPage.off.click()
+    assert.strictEqual(await uiInterface.verifyNodeDown(10000), true)
 
     await indexPage.settingsButton.click()
     await indexPage.openSettings.click()
@@ -150,30 +151,26 @@ describe('Application launch', function () {
     await client.waitUntilWindowLoaded()
 
     await indexPage.serving.click()
-    assert.strictEqual((await client.getText('#node-status-label')).toLocaleLowerCase(), 'serving')
-    await wait(1000)
     let nodeUp = await uiInterface.verifyNodeUp(10000)
+    assert.strictEqual((await client.getText('#node-status-label')).toLocaleLowerCase(), 'serving')
     printConsoleForDebugging(client, false)
     assert.strictEqual(nodeUp, true)
     assert.notStrictEqual(await client.getText('#node-descriptor'), '')
 
-    await client.element('div.node-status__actions button#off').click()
-    await wait(1000)
-    assert.strictEqual(await uiInterface.verifyNodeDown(5000), true)
+    await indexPage.off.click()
+    assert.strictEqual(await uiInterface.verifyNodeDown(10000), true)
 
     client.element('#save-config').click()
     await client.waitUntilWindowLoaded()
     await indexPage.serving.click()
-    assert.strictEqual((await client.getText('#node-status-label')).toLocaleLowerCase(), 'serving')
-    await wait(1000)
     nodeUp = await uiInterface.verifyNodeUp(10000)
+    assert.strictEqual((await client.getText('#node-status-label')).toLocaleLowerCase(), 'serving')
     printConsoleForDebugging(client, false)
     assert.strictEqual(nodeUp, true)
     assert.notStrictEqual(await client.getText('#node-descriptor'), '')
 
-    await client.element('div.node-status__actions button#off').click()
-    await wait(1000)
-    assert.strictEqual(await uiInterface.verifyNodeDown(5000), true)
+    await indexPage.off.click()
+    assert.strictEqual(await uiInterface.verifyNodeDown(10000), true)
   })
 
   it('Changing configuration while node is running turns off the node', async () => {
@@ -189,9 +186,8 @@ describe('Application launch', function () {
     client.element('#save-config').click()
     await client.waitUntilWindowLoaded()
 
-    assert.strictEqual((await client.getText('#node-status-label')), 'Serving')
-    await wait(1000)
     let nodeUp = await uiInterface.verifyNodeUp(10000)
+    assert.strictEqual((await client.getText('#node-status-label')), 'Serving')
     printConsoleForDebugging(client, false)
     assert.ok(nodeUp)
     assert.notStrictEqual(await client.getText('#node-descriptor'), '')
@@ -203,17 +199,12 @@ describe('Application launch', function () {
     client.element('#save-config').click()
     await client.waitUntilWindowLoaded()
     assert.strictEqual((await client.getText('#node-status-label')), 'Off')
-    await wait(1000)
     let nodeDown = await uiInterface.verifyNodeDown(10000)
     printConsoleForDebugging(client, false)
     assert.ok(nodeDown)
     assert.strictEqual(await client.getText('#node-descriptor'), '')
   })
 })
-
-function wait (ms) {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
 
 function printConsoleForDebugging (client, debug) {
   if (!debug) { return }
@@ -231,6 +222,10 @@ class IndexPage {
 
   at () {
     return this.client.element('#index-page')
+  }
+
+  get off () {
+    return this.client.element('#off')
   }
 
   get serving () {

@@ -33,7 +33,7 @@ module.exports = class NodeActuator {
   bindProcessEvents () {
     this.substratumNodeProcess.on('message', async message => {
       consoleWrapper.log('substratum_node process received message: ', message)
-      if (message.startsWith('Command returned error: ')) {
+      if (message.startsWith('Command returned error: ') && (message !== 'Command returned error: User did not grant permission.')) {
         if (this.substratumNodeProcess) { dialog.showErrorBox('Error', message) }
         return this.setStatusToOffThenRevert()
       } else {

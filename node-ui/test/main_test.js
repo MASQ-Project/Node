@@ -128,7 +128,7 @@ describe('main', () => {
 
   describe('change-node-state', () => {
     let command
-    let event = { returnValue: null }
+    let event = {}
     let arg = ['inconsequential']
 
     beforeEach(() => {
@@ -147,7 +147,7 @@ describe('main', () => {
         })
 
         it("returns 'Off'", () => {
-          expect(event.returnValue).toBe('Off')
+          td.verify(webContents.send('node-status', 'Off'))
         })
       })
 
@@ -158,7 +158,7 @@ describe('main', () => {
         })
 
         it("returns 'Invalid'", () => {
-          expect(event.returnValue).toBe('Invalid')
+          td.verify(webContents.send('node-status', 'Invalid'))
         })
       })
     })
@@ -175,7 +175,7 @@ describe('main', () => {
         })
 
         it("returns 'Serving'", () => {
-          expect(event.returnValue).toBe('Serving')
+          td.verify(webContents.send('node-status', 'Serving'))
         })
       })
 
@@ -186,7 +186,7 @@ describe('main', () => {
         })
 
         it("returns 'Invalid'", () => {
-          expect(event.returnValue).toBe('Invalid')
+          td.verify(webContents.send('node-status', 'Invalid'))
         })
       })
     })
@@ -203,7 +203,7 @@ describe('main', () => {
         })
 
         it("returns 'Consuming'", () => {
-          expect(event.returnValue).toBe('Consuming')
+          td.verify(webContents.send('node-status', 'Consuming'))
         })
       })
 
@@ -214,7 +214,7 @@ describe('main', () => {
         })
 
         it("returns 'Invalid'", () => {
-          expect(event.returnValue).toBe('Invalid')
+          td.verify(webContents.send('node-status', 'Invalid'))
         })
       })
     })
