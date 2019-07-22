@@ -5,10 +5,10 @@ use crate::blockchain::bip39::Bip39;
 use crate::multi_config::MultiConfig;
 use crate::node_configurator::{
     app_head, common_validators, consuming_wallet_arg, create_wallet, data_directory_arg,
-    earning_wallet_arg, flushed_write, initialize_database, language_arg,
-    make_initialize_mode_multi_config, mnemonic_passphrase_arg, request_new_password,
-    wallet_password_arg, Either, NodeConfigurator, PasswordError, WalletCreationConfig,
-    WalletCreationConfigMaker, EARNING_WALLET_HELP, WALLET_PASSWORD_HELP,
+    earning_wallet_arg, flushed_write, language_arg, mnemonic_passphrase_arg,
+    prepare_initialization_mode, request_new_password, request_password_with_retry,
+    wallet_password_arg, Either, NodeConfigurator, WalletCreationConfig, WalletCreationConfigMaker,
+    EARNING_WALLET_HELP, WALLET_PASSWORD_HELP,
 };
 use crate::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::cryptde::PlainData;
@@ -26,12 +26,12 @@ pub struct NodeConfiguratorGenerateWallet {
 
 impl NodeConfigurator<WalletCreationConfig> for NodeConfiguratorGenerateWallet {
     fn configure(&self, args: &Vec<String>, streams: &mut StdStreams<'_>) -> WalletCreationConfig {
-        let multi_config = make_initialize_mode_multi_config(&self.app, args);
-        let persistent_config = initialize_database(&multi_config);
+        let (multi_config, persistent_config_box) = prepare_initialization_mode(&self.app, args);
+        let persistent_config = persistent_config_box.as_ref();
 
-        let config = self.parse_args(&multi_config, streams, persistent_config.as_ref());
+        let config = self.parse_args(&multi_config, streams, persistent_config);
 
-        create_wallet(&config, persistent_config.as_ref());
+        create_wallet(&config, persistent_config);
 
         config
     }
@@ -51,7 +51,7 @@ impl MnemonicFactory for MnemonicFactoryReal {
 
 const GENERATE_WALLET_HELP: &str =
     "Generate a new set of HD wallets with mnemonic recovery phrase from the standard \
-     BIP39 predefined list of words. Not valid as an environment variable";
+     BIP39 predefined list of words. Not valid as an environment variable.";
 const WORD_COUNT_HELP: &str =
     "The number of words in the mnemonic phrase. Ropsten defaults to 12 words. \
      Mainnet defaults to 24 words.";
@@ -165,16 +165,21 @@ impl NodeConfiguratorGenerateWallet {
     }
 
     fn request_mnemonic_passphrase(streams: &mut StdStreams) -> Option<String> {
-        flushed_write (streams.stdout, "\nPlease provide an extra mnemonic passphrase to ensure your wallet is unique (NOTE: \
-            This passphrase cannot be changed later and still produce the same addresses). You will \
-            encrypt your wallet in a following step...\n",
+        flushed_write (streams.stdout, "\nPlease provide an extra mnemonic passphrase to ensure your wallet is unique\n\
+            (NOTE: This passphrase cannot be changed later and still produce the same addresses).\n\
+            You will encrypt your wallet in a following step...\n",
         );
-        flushed_write(streams.stdout, "Mnemonic passphrase (recommended): ");
-        match request_new_password(
-            "Confirm mnemonic passphrase: ",
-            "Passphrases do not match.",
+        match request_password_with_retry(
+            "  Mnemonic passphrase (recommended): ",
             streams,
-            |_| Ok(()),
+            |streams| {
+                request_new_password(
+                    "  Confirm mnemonic passphrase: ",
+                    "\nPassphrases do not match.",
+                    streams,
+                    |_| Ok(()),
+                )
+            },
         ) {
             Ok(mp) => {
                 if mp.is_empty() {
@@ -188,7 +193,6 @@ impl NodeConfiguratorGenerateWallet {
                     Some(mp)
                 }
             }
-            Err(PasswordError::Mismatch) => panic!("Passphrases do not match."),
             Err(e) => panic!("{:?}", e),
         }
     }
@@ -202,9 +206,8 @@ impl NodeConfiguratorGenerateWallet {
     ) {
         flushed_write(
             streams.stdout,
-            "\n\nRecord the following mnemonic recovery \
-             phrase in the sequence provided and keep it secret! \
-             You cannot recover your wallet without these words \
+            "\n\nRecord the following mnemonic recovery phrase in the sequence provided\n\
+             and keep it secret! You cannot recover your wallet without these words\n\
              plus your mnemonic passphrase if you provided one.\n\n",
         );
         flushed_write(streams.stdout, mnemonic.phrase());
@@ -262,6 +265,7 @@ mod tests {
     use crate::database::db_initializer;
     use crate::database::db_initializer::DbInitializer;
     use crate::multi_config::{CommandLineVCL, VirtualCommandLine};
+    use crate::node_configurator::test_utils::ArgsBuilder;
     use crate::node_configurator::DerivationPathWalletInfo;
     use crate::persistent_configuration::PersistentConfigurationReal;
     use crate::sub_lib::cryptde::PlainData;
@@ -308,10 +312,6 @@ mod tests {
         }
     }
 
-    fn make_default_cli_params() -> Vec<String> {
-        vec![String::from("SubstratumNode")]
-    }
-
     #[test]
     fn parse_args_creates_configurations() {
         let home_dir = ensure_node_home_directory_exists(
@@ -320,28 +320,15 @@ mod tests {
         );
 
         let password = "secret-wallet-password";
-        let args: Vec<String> = vec![
-            "SubstratumNode",
-            "--generate-wallet",
-            "--data-directory",
-            home_dir.to_str().unwrap(),
-            "--wallet-password",
-            password,
-            "--consuming-wallet",
-            "m/44'/60'/0'/77/78",
-            "--earning-wallet",
-            "m/44'/60'/0'/78/77",
-            "--language",
-            "español",
-            "--word-count",
-            "15",
-            "--mnemonic-passphrase",
-            "Mortimer",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-
+        let args = ArgsBuilder::new()
+            .opt("--generate-wallet")
+            .param("--data-directory", home_dir.to_str().unwrap())
+            .param("--wallet-password", password)
+            .param("--consuming-wallet", "m/44'/60'/0'/77/78")
+            .param("--earning-wallet", "m/44'/60'/0'/78/77")
+            .param("--language", "español")
+            .param("--word-count", "15")
+            .param("--mnemonic-passphrase", "Mortimer");
         let mut subject = NodeConfiguratorGenerateWallet::new();
         let make_parameters_arc = Arc::new(Mutex::new(vec![]));
         let expected_mnemonic = Mnemonic::new(MnemonicType::Words15, Language::Spanish);
@@ -349,7 +336,8 @@ mod tests {
             .make_parameters(&make_parameters_arc)
             .make_result(expected_mnemonic.clone());
         subject.mnemonic_factory = Box::new(mnemonic_factory);
-        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVCL::new(args))];
+        let vcls: Vec<Box<dyn VirtualCommandLine>> =
+            vec![Box::new(CommandLineVCL::new(args.into()))];
         let multi_config = MultiConfig::new(&subject.app, vcls);
 
         let config = subject.parse_args(
@@ -382,18 +370,10 @@ mod tests {
 
     #[test]
     fn parse_args_creates_configuration_with_defaults() {
-        let args: Vec<String> = vec![
-            "SubstratumNode",
-            "--generate-wallet",
-            "--wallet-password",
-            "password123",
-            "--mnemonic-passphrase",
-            "Mortimer",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-
+        let args = ArgsBuilder::new()
+            .opt("--generate-wallet")
+            .param("--wallet-password", "password123")
+            .param("--mnemonic-passphrase", "Mortimer");
         let mut subject = NodeConfiguratorGenerateWallet::new();
         let make_parameters_arc = Arc::new(Mutex::new(vec![]));
         let expected_mnemonic = Mnemonic::new(MnemonicType::Words12, Language::English);
@@ -401,7 +381,8 @@ mod tests {
             .make_parameters(&make_parameters_arc)
             .make_result(expected_mnemonic.clone());
         subject.mnemonic_factory = Box::new(mnemonic_factory);
-        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVCL::new(args))];
+        let vcls: Vec<Box<dyn VirtualCommandLine>> =
+            vec![Box::new(CommandLineVCL::new(args.into()))];
         let multi_config = MultiConfig::new(&subject.app, vcls);
 
         let config = subject.parse_args(
@@ -437,7 +418,33 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Passphrases do not match.")]
+    fn make_mnemonic_passphrase_allows_two_passphrase_mismatches() {
+        let subject = NodeConfiguratorGenerateWallet::new();
+        let mut stdout_writer = ByteArrayWriter::new();
+        let streams = &mut StdStreams {
+            stdin: &mut Cursor::new(&b"one\neno\ntwo\nowt\nthree\nthree\n"[..]),
+            stdout: &mut stdout_writer,
+            stderr: &mut ByteArrayWriter::new(),
+        };
+        let args = ArgsBuilder::new().opt("--generate-wallet");
+        let multi_config = MultiConfig::new(
+            &subject.app,
+            vec![Box::new(CommandLineVCL::new(args.into()))],
+        );
+
+        subject.make_mnemonic_passphrase(&multi_config, streams);
+
+        let captured_output = stdout_writer.get_string();
+        let expected_output = "\nPlease provide an extra mnemonic passphrase to ensure your wallet is unique\n\
+                (NOTE: This passphrase cannot be changed later and still produce the same addresses).\n\
+                You will encrypt your wallet in a following step...\n  Mnemonic passphrase (recommended):   Confirm mnemonic passphrase: \n\
+                Passphrases do not match. Try again.\n  Mnemonic passphrase (recommended):   Confirm mnemonic passphrase: \n\
+                Passphrases do not match. Try again.\n  Mnemonic passphrase (recommended):   Confirm mnemonic passphrase: ";
+        assert_eq!(&captured_output, expected_output);
+    }
+
+    #[test]
+    #[should_panic(expected = "RetriesExhausted")]
     fn make_mnemonic_passphrase_panics_after_three_passphrase_mismatches() {
         let subject = NodeConfiguratorGenerateWallet::new();
         let streams = &mut StdStreams {
@@ -445,24 +452,18 @@ mod tests {
             stdout: &mut ByteArrayWriter::new(),
             stderr: &mut ByteArrayWriter::new(),
         };
-        let args: Vec<String> = vec!["SubstratumNode", "--generate-wallet"]
-            .into_iter()
-            .map(String::from)
-            .collect();
+        let args = ArgsBuilder::new().opt("--generate-wallet");
         let multi_config = MultiConfig::new(
             &subject.app,
-            vec![Box::new(CommandLineVCL::new(args.clone()))],
+            vec![Box::new(CommandLineVCL::new(args.into()))],
         );
+
         subject.make_mnemonic_passphrase(&multi_config, streams);
     }
 
     #[test]
     fn make_mnemonic_passphrase_allows_blank_passphrase_with_scolding() {
-        let args: Vec<String> = vec!["SubstratumNode", "--generate-wallet"]
-            .into_iter()
-            .map(String::from)
-            .collect();
-
+        let args = ArgsBuilder::new().opt("--generate-wallet");
         let mut subject = NodeConfiguratorGenerateWallet::new();
         let mnemonic = Mnemonic::new(MnemonicType::Words12, Language::English);
         let mnemonic_factory = MnemonicFactoryMock::new().make_result(mnemonic.clone());
@@ -473,16 +474,17 @@ mod tests {
             stdout: stdout_writer,
             stderr: &mut ByteArrayWriter::new(),
         };
-        let vcl = Box::new(CommandLineVCL::new(args));
+        let vcl = Box::new(CommandLineVCL::new(args.into()));
         let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
 
         subject.make_mnemonic_passphrase(&multi_config, &mut streams);
 
         let captured_output = stdout_writer.get_string();
-        let expected_output = "\nPlease provide an extra mnemonic passphrase to ensure your wallet is unique (NOTE: This passphrase \
-                cannot be changed later and still produce the same addresses). You will encrypt your wallet in a following step...\
-                \nMnemonic passphrase (recommended): Confirm mnemonic passphrase: \nWhile ill-advised, proceeding with no mnemonic passphrase.\
-        \nPress Enter to continue...";
+        let expected_output = "\nPlease provide an extra mnemonic passphrase to ensure your wallet is unique\n\
+        (NOTE: This passphrase cannot be changed later and still produce the same addresses).\n\
+        You will encrypt your wallet in a following step...\n  Mnemonic passphrase (recommended):   Confirm mnemonic passphrase: \n\
+        While ill-advised, proceeding with no mnemonic passphrase.\n\
+        Press Enter to continue...";
         assert_eq!(&captured_output, expected_output);
     }
 
@@ -499,21 +501,12 @@ mod tests {
             .unwrap();
         let config_dao = ConfigDaoReal::new(conn);
         config_dao.set_string("seed", "booga booga").unwrap();
-        let mut args = make_default_cli_params();
-        args.extend(
-            vec![
-                "--generate-wallet",
-                "--data-directory",
-                data_directory.to_str().unwrap(),
-                "--wallet-password",
-                "rick-rolled",
-            ]
-            .into_iter()
-            .map(String::from)
-            .collect::<Vec<String>>(),
-        );
+        let args = ArgsBuilder::new()
+            .opt("--generate-wallet")
+            .param("--data-directory", data_directory.to_str().unwrap())
+            .param("--wallet-password", "rick-rolled");
         let subject = NodeConfiguratorGenerateWallet::new();
-        let vcl = Box::new(CommandLineVCL::new(args));
+        let vcl = Box::new(CommandLineVCL::new(args.into()));
         let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
 
         subject.parse_args(

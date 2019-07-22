@@ -599,6 +599,7 @@ mod tests {
     use super::*;
     use crate::blockchain::bip39::{Bip39, Bip39Error};
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+    use crate::node_configurator::test_utils::ArgsBuilder;
     use crate::persistent_configuration::PersistentConfigurationReal;
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
     use crate::sub_lib::crash_point::CrashPoint;
@@ -607,12 +608,8 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
 
-    fn make_default_cli_params() -> Vec<String> {
-        vec![
-            String::from("SubstratumNode"),
-            String::from("--dns-servers"),
-            String::from("222.222.222.222"),
-        ]
+    fn make_default_cli_params() -> ArgsBuilder {
+        ArgsBuilder::new().param("--dns-servers", "222.222.222.222")
     }
 
     #[test]
@@ -768,20 +765,12 @@ mod tests {
             )
             .unwrap();
         }
-        let args: Vec<String> = vec![
-            "SubstratumNode",
-            "--data-directory",
-            home_dir.to_str().unwrap(),
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-
+        let args = ArgsBuilder::new().param("--data-directory", home_dir.to_str().unwrap());
         let mut bootstrapper_config = BootstrapperConfig::new();
         let multi_config = MultiConfig::new(
             &app(),
             vec![
-                Box::new(CommandLineVCL::new(args.clone())),
+                Box::new(CommandLineVCL::new(args.into())),
                 Box::new(ConfigFileVCL::new(&config_file_path, false)),
             ],
         );
@@ -828,41 +817,32 @@ mod tests {
             "node_configurator",
             "privileged_parse_args_creates_configurations",
         );
-        let args: Vec<String> = vec![
-            "SubstratumNode",
-            "--config-file",
-            "specified_config.toml",
-            "--dns-servers",
-            "12.34.56.78,23.45.67.89",
-            "--neighbors",
-            "QmlsbA:1.2.3.4:1234;2345,VGVk:2.3.4.5:3456;4567",
-            "--ip",
-            "34.56.78.90",
-            "--clandestine-port",
-            "1234",
-            "--ui-port",
-            "5335",
-            "--data-directory",
-            home_dir.to_str().unwrap(),
-            "--blockchain-service-url",
-            "http://127.0.0.1:8545",
-            "--log-level",
-            "trace",
-            "--fake-public-key",
-            "AQIDBA",
-            "--wallet-password",
-            "secret-wallet-password",
-            "--earning-wallet",
-            "0x0123456789012345678901234567890123456789",
-            "--consuming-private-key",
-            "ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-
+        let args = ArgsBuilder::new()
+            .param("--config-file", "specified_config.toml")
+            .param("--dns-servers", "12.34.56.78,23.45.67.89")
+            .param(
+                "--neighbors",
+                "QmlsbA:1.2.3.4:1234;2345,VGVk:2.3.4.5:3456;4567",
+            )
+            .param("--ip", "34.56.78.90")
+            .param("--clandestine-port", "1234")
+            .param("--ui-port", "5335")
+            .param("--data-directory", home_dir.to_str().unwrap())
+            .param("--blockchain-service-url", "http://127.0.0.1:8545")
+            .param("--log-level", "trace")
+            .param("--fake-public-key", "AQIDBA")
+            .param("--wallet-password", "secret-wallet-password")
+            .param(
+                "--earning-wallet",
+                "0x0123456789012345678901234567890123456789",
+            )
+            .param(
+                "--consuming-private-key",
+                "ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01",
+            );
         let mut config = BootstrapperConfig::new();
-        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVCL::new(args))];
+        let vcls: Vec<Box<dyn VirtualCommandLine>> =
+            vec![Box::new(CommandLineVCL::new(args.into()))];
         let multi_config = MultiConfig::new(&app(), vcls);
 
         standard::privileged_parse_args(
@@ -927,41 +907,29 @@ mod tests {
             PlainData::from(consuming_private_key_text.from_hex::<Vec<u8>>().unwrap());
         let persistent_config = PersistentConfigurationReal::new(config_dao);
         let password = "secret-wallet-password";
-        let args: Vec<String> = vec![
-            "SubstratumNode",
-            "--config-file",
-            "specified_config.toml",
-            "--dns-servers",
-            "12.34.56.78,23.45.67.89",
-            "--neighbors",
-            "QmlsbA:1.2.3.4:1234;2345,VGVk:2.3.4.5:3456;4567",
-            "--ip",
-            "34.56.78.90",
-            "--clandestine-port",
-            "1234",
-            "--ui-port",
-            "5335",
-            "--data-directory",
-            home_dir.to_str().unwrap(),
-            "--blockchain-service-url",
-            "http://127.0.0.1:8545",
-            "--log-level",
-            "trace",
-            "--fake-public-key",
-            "AQIDBA",
-            "--wallet-password",
-            password,
-            "--earning-wallet",
-            "0x0123456789012345678901234567890123456789",
-            "--consuming-private-key",
-            consuming_private_key_text,
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-
+        let args = ArgsBuilder::new()
+            .param("--config-file", "specified_config.toml")
+            .param("--dns-servers", "12.34.56.78,23.45.67.89")
+            .param(
+                "--neighbors",
+                "QmlsbA:1.2.3.4:1234;2345,VGVk:2.3.4.5:3456;4567",
+            )
+            .param("--ip", "34.56.78.90")
+            .param("--clandestine-port", "1234")
+            .param("--ui-port", "5335")
+            .param("--data-directory", home_dir.to_str().unwrap())
+            .param("--blockchain-service-url", "http://127.0.0.1:8545")
+            .param("--log-level", "trace")
+            .param("--fake-public-key", "AQIDBA")
+            .param("--wallet-password", password)
+            .param(
+                "--earning-wallet",
+                "0x0123456789012345678901234567890123456789",
+            )
+            .param("--consuming-private-key", consuming_private_key_text);
         let mut config = BootstrapperConfig::new();
-        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVCL::new(args))];
+        let vcls: Vec<Box<dyn VirtualCommandLine>> =
+            vec![Box::new(CommandLineVCL::new(args.into()))];
         let multi_config = MultiConfig::new(&app(), vcls);
 
         standard::unprivileged_parse_args(
@@ -995,13 +963,10 @@ mod tests {
 
     #[test]
     fn privileged_parse_args_creates_configuration_with_defaults() {
-        let args: Vec<String> = vec!["SubstratumNode", "--dns-servers", "12.34.56.78,23.45.67.89"]
-            .into_iter()
-            .map(String::from)
-            .collect();
-
+        let args = ArgsBuilder::new().param("--dns-servers", "12.34.56.78,23.45.67.89");
         let mut config = BootstrapperConfig::new();
-        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVCL::new(args))];
+        let vcls: Vec<Box<dyn VirtualCommandLine>> =
+            vec![Box::new(CommandLineVCL::new(args.into()))];
         let multi_config = MultiConfig::new(&app(), vcls);
 
         standard::privileged_parse_args(
@@ -1029,13 +994,10 @@ mod tests {
 
     #[test]
     fn unprivileged_parse_args_creates_configuration_with_defaults() {
-        let args: Vec<String> = vec!["SubstratumNode", "--dns-servers", "12.34.56.78,23.45.67.89"]
-            .into_iter()
-            .map(String::from)
-            .collect();
-
+        let args = ArgsBuilder::new().param("--dns-servers", "12.34.56.78,23.45.67.89");
         let mut config = BootstrapperConfig::new();
-        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVCL::new(args))];
+        let vcls: Vec<Box<dyn VirtualCommandLine>> =
+            vec![Box::new(CommandLineVCL::new(args.into()))];
         let multi_config = MultiConfig::new(&app(), vcls);
 
         standard::unprivileged_parse_args(
@@ -1055,11 +1017,10 @@ mod tests {
         assert_eq!(config.consuming_wallet, None,);
     }
 
-    fn make_multi_config(parms: Vec<&str>) -> MultiConfig {
-        let mut arg_strs = vec!["SubstratumNode", "--dns-servers", "12.34.56.78,23.45.67.89"];
-        arg_strs.extend(parms);
-        let args: Vec<String> = arg_strs.into_iter().map(String::from).collect();
-        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVCL::new(args))];
+    fn make_multi_config<'a>(args: ArgsBuilder) -> MultiConfig<'a> {
+        let args = args.param("--dns-servers", "12.34.56.78,23.45.67.89");
+        let vcls: Vec<Box<dyn VirtualCommandLine>> =
+            vec![Box::new(CommandLineVCL::new(args.into()))];
         MultiConfig::new(&app(), vcls)
     }
 
@@ -1129,7 +1090,7 @@ mod tests {
     #[test]
     fn get_wallets_with_brand_new_database_establishes_default_earning_wallet_without_requiring_password(
     ) {
-        let multi_config = make_multi_config(vec![]);
+        let multi_config = make_multi_config(ArgsBuilder::new());
         let persistent_config = make_persistent_config(None, None, None, None, None);
         let mut config = BootstrapperConfig::new();
 
@@ -1151,12 +1112,11 @@ mod tests {
     fn consuming_wallet_private_key_plus_consuming_wallet_derivation_path() {
         let consuming_private_key_hex =
             "ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD";
-        let multi_config = make_multi_config(vec![
-            "--wallet-password",
-            "password",
-            "--consuming-private-key",
-            consuming_private_key_hex,
-        ]);
+        let multi_config = make_multi_config(
+            ArgsBuilder::new()
+                .param("--wallet-password", "password")
+                .param("--consuming-private-key", &consuming_private_key_hex),
+        );
         let mnemonic_seed_prefix = "mnemonic_seed";
         let persistent_config = make_persistent_config(
             Some(mnemonic_seed_prefix),
@@ -1180,10 +1140,10 @@ mod tests {
         expected = "Cannot use --earning-wallet to specify an address (0x0123456789012345678901234567890123456789) different from that previously set (0x9876543210987654321098765432109876543210)"
     )]
     fn earning_wallet_address_different_from_database() {
-        let multi_config = make_multi_config(vec![
+        let multi_config = make_multi_config(ArgsBuilder::new().param(
             "--earning-wallet",
             "0x0123456789012345678901234567890123456789",
-        ]);
+        ));
         let persistent_config = make_persistent_config(
             None,
             None,
@@ -1203,10 +1163,10 @@ mod tests {
 
     #[test]
     fn earning_wallet_address_matches_database() {
-        let multi_config = make_multi_config(vec![
+        let multi_config = make_multi_config(ArgsBuilder::new().param(
             "--earning-wallet",
             "0xb00fa567890123456789012345678901234B00FA",
-        ]);
+        ));
         let persistent_config = make_persistent_config(
             None,
             None,
@@ -1236,12 +1196,11 @@ mod tests {
     fn consuming_wallet_private_key_plus_earning_wallet_address_plus_mnemonic_seed() {
         let consuming_private_key_hex =
             "ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD";
-        let multi_config = make_multi_config(vec![
-            "--wallet-password",
-            "password",
-            "--consuming-private-key",
-            consuming_private_key_hex,
-        ]);
+        let multi_config = make_multi_config(
+            ArgsBuilder::new()
+                .param("--wallet-password", "password")
+                .param("--consuming-private-key", &consuming_private_key_hex),
+        );
         let mnemonic_seed_prefix = "mnemonic_seed";
         let persistent_config = make_persistent_config(
             Some(mnemonic_seed_prefix),
@@ -1264,12 +1223,11 @@ mod tests {
     fn consuming_private_key_matches_database() {
         let consuming_private_key_hex =
             "ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD";
-        let multi_config = make_multi_config(vec![
-            "--wallet-password",
-            "password",
-            "--consuming-private-key",
-            consuming_private_key_hex,
-        ]);
+        let multi_config = make_multi_config(
+            ArgsBuilder::new()
+                .param("--wallet-password", "password")
+                .param("--consuming-private-key", &consuming_private_key_hex),
+        );
         let persistent_config =
             make_persistent_config(None, None, Some(consuming_private_key_hex), None, None);
         let mut config = BootstrapperConfig::new();
@@ -1301,12 +1259,11 @@ mod tests {
             .unwrap();
         bad_consuming_private_key[0] ^= 0x80; // one bit different
         let bad_consuming_private_key_hex = bad_consuming_private_key.to_hex::<String>();
-        let multi_config = make_multi_config(vec![
-            "--wallet-password",
-            "password",
-            "--consuming-private-key",
-            &bad_consuming_private_key_hex,
-        ]);
+        let multi_config = make_multi_config(
+            ArgsBuilder::new()
+                .param("--wallet-password", "password")
+                .param("--consuming-private-key", &bad_consuming_private_key_hex),
+        );
         let persistent_config =
             make_persistent_config(None, None, Some(good_consuming_private_key_hex), None, None);
         let mut config = BootstrapperConfig::new();
@@ -1321,7 +1278,8 @@ mod tests {
 
     #[test]
     fn consuming_wallet_derivation_path_plus_earning_wallet_address_plus_mnemonic_seed() {
-        let multi_config = make_multi_config(vec!["--wallet-password", "password"]);
+        let multi_config =
+            make_multi_config(ArgsBuilder::new().param("--wallet-password", "password"));
         let mnemonic_seed_prefix = "mnemonic_seed";
         let persistent_config = make_persistent_config(
             Some(mnemonic_seed_prefix),
@@ -1352,7 +1310,7 @@ mod tests {
 
     #[test]
     fn consuming_wallet_derivation_path_plus_mnemonic_seed_with_no_wallet_password_parameter() {
-        let multi_config = make_multi_config(vec![]);
+        let multi_config = make_multi_config(ArgsBuilder::new());
         let mnemonic_seed_prefix = "mnemonic_seed";
         let persistent_config = make_persistent_config(
             Some(mnemonic_seed_prefix),
@@ -1379,7 +1337,7 @@ mod tests {
 
     #[test]
     fn consuming_wallet_derivation_path_plus_mnemonic_seed_with_no_wallet_password_value() {
-        let multi_config = make_multi_config(vec!["--wallet-password"]);
+        let multi_config = make_multi_config(ArgsBuilder::new().opt("--wallet-password"));
         let mnemonic_seed_prefix = "mnemonic_seed";
         let persistent_config = make_persistent_config(
             Some(mnemonic_seed_prefix),
@@ -1424,17 +1382,9 @@ mod tests {
             "parse_args_with_invalid_consuming_wallet_private_key_panics_correctly",
         );
 
-        let args: Vec<String> = vec![
-            "SubstratumNode",
-            "--dns-servers",
-            "12.34.56.78,23.45.67.89",
-            "--data-directory",
-            home_directory.to_str().unwrap(),
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-
+        let args = ArgsBuilder::new()
+            .param("--dns-servers", "12.34.56.78,23.45.67.89")
+            .param("--data-directory", home_directory.to_str().unwrap());
         let vcl_args: Vec<Box<dyn VclArg>> = vec![Box::new(NameValueVclArg::new(
             &"--consuming-private-key", // this is equal to SUB_CONSUMING_PRIVATE_KEY
             &"not valid hex",
@@ -1445,7 +1395,7 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(faux_environment),
-            Box::new(CommandLineVCL::new(args)),
+            Box::new(CommandLineVCL::new(args.into())),
         ];
         let multi_config = MultiConfig::new(&app(), vcls);
 
@@ -1464,18 +1414,10 @@ mod tests {
             "parse_args_consuming_private_key_happy_path",
         );
 
-        let args: Vec<String> = vec![
-            "SubstratumNode",
-            "--dns-servers",
-            "12.34.56.78,23.45.67.89",
-            "--data-directory",
-            home_directory.to_str().unwrap(),
-            "--wallet-password",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-
+        let args = ArgsBuilder::new()
+            .param("--dns-servers", "12.34.56.78,23.45.67.89")
+            .param("--data-directory", home_directory.to_str().unwrap())
+            .opt("--wallet-password");
         let vcl_args: Vec<Box<dyn VclArg>> = vec![Box::new(NameValueVclArg::new(
             &"--consuming-private-key", // this is equal to SUB_CONSUMING_PRIVATE_KEY
             &"cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9",
@@ -1486,7 +1428,7 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(faux_environment),
-            Box::new(CommandLineVCL::new(args)),
+            Box::new(CommandLineVCL::new(args.into())),
         ];
         let multi_config = MultiConfig::new(&app(), vcls);
         let stdout_writer = &mut ByteArrayWriter::new();
@@ -1528,20 +1470,11 @@ mod tests {
             .unwrap();
         let config_dao: Box<ConfigDao> = Box::new(ConfigDaoReal::new(conn));
         config_dao.set_string("seed", "booga booga").unwrap();
-        let mut args = make_default_cli_params();
-        args.extend(
-            vec![
-                "--data-directory",
-                data_directory.to_str().unwrap(),
-                "--wallet-password",
-                "rick-rolled",
-            ]
-            .into_iter()
-            .map(String::from)
-            .collect::<Vec<String>>(),
-        );
+        let args = make_default_cli_params()
+            .param("--data-directory", data_directory.to_str().unwrap())
+            .param("--wallet-password", "rick-rolled");
         let mut config = BootstrapperConfig::new();
-        let vcl = Box::new(CommandLineVCL::new(args));
+        let vcl = Box::new(CommandLineVCL::new(args.into()));
         let multi_config = MultiConfig::new(&app(), vec![vcl]);
 
         standard::unprivileged_parse_args(
@@ -1580,20 +1513,11 @@ mod tests {
         config_dao
             .set_string("seed", &mnemonic_seed_with_extras)
             .unwrap();
-        let mut args = make_default_cli_params();
-        args.extend(
-            vec![
-                "--data-directory",
-                data_directory.to_str().unwrap(),
-                "--wallet-password",
-                "ricked rolled",
-            ]
-            .into_iter()
-            .map(String::from)
-            .collect::<Vec<String>>(),
-        );
+        let args = make_default_cli_params()
+            .param("--data-directory", data_directory.to_str().unwrap())
+            .param("--wallet-password", "ricked rolled");
         let mut config = BootstrapperConfig::new();
-        let vcl = Box::new(CommandLineVCL::new(args));
+        let vcl = Box::new(CommandLineVCL::new(args.into()));
         let multi_config = MultiConfig::new(&app(), vec![vcl]);
 
         standard::unprivileged_parse_args(
@@ -1608,7 +1532,7 @@ mod tests {
     fn no_parameters_produces_configuration_for_crash_point() {
         let args = make_default_cli_params();
         let mut config = BootstrapperConfig::new();
-        let vcl = Box::new(CommandLineVCL::new(args));
+        let vcl = Box::new(CommandLineVCL::new(args.into()));
         let multi_config = MultiConfig::new(&app(), vec![vcl]);
 
         standard::privileged_parse_args(
@@ -1622,11 +1546,9 @@ mod tests {
 
     #[test]
     fn with_parameters_produces_configuration_for_crash_point() {
-        let mut args = make_default_cli_params();
-        let crash_args = vec![String::from("--crash-point"), String::from("panic")];
-        args.extend(crash_args);
+        let args = make_default_cli_params().param("--crash-point", "panic");
         let mut config = BootstrapperConfig::new();
-        let vcl = Box::new(CommandLineVCL::new(args));
+        let vcl = Box::new(CommandLineVCL::new(args.into()));
         let multi_config = MultiConfig::new(&app(), vec![vcl]);
 
         standard::privileged_parse_args(
@@ -1642,36 +1564,22 @@ mod tests {
     #[should_panic(expected = "could not be read: ")]
     fn privileged_generate_configuration_senses_when_user_specifies_config_file() {
         let subject = NodeConfiguratorStandardPrivileged {};
-        let args = vec![
-            "SubstratumNode",
-            "--dns-servers",
-            "1.2.3.4",
-            "--config-file",
-            "booga.toml", // nonexistent config file: should stimulate panic because user-specified
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect::<Vec<String>>();
+        let args = ArgsBuilder::new()
+            .param("--dns-servers", "1.2.3.4")
+            .param("--config-file", "booga.toml"); // nonexistent config file: should stimulate panic because user-specified
 
-        subject.configure(&args, &mut FakeStreamHolder::new().streams());
+        subject.configure(&args.into(), &mut FakeStreamHolder::new().streams());
     }
 
     #[test]
     #[should_panic(expected = "could not be read: ")]
     fn unprivileged_generate_configuration_senses_when_user_specifies_config_file() {
         let subject = NodeConfiguratorStandardUnprivileged {};
-        let args = vec![
-            "SubstratumNode",
-            "--dns-servers",
-            "1.2.3.4",
-            "--config-file",
-            "booga.toml", // nonexistent config file: should stimulate panic because user-specified
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect::<Vec<String>>();
+        let args = ArgsBuilder::new()
+            .param("--dns-servers", "1.2.3.4")
+            .param("--config-file", "booga.toml"); // nonexistent config file: should stimulate panic because user-specified
 
-        subject.configure(&args, &mut FakeStreamHolder::new().streams());
+        subject.configure(&args.into(), &mut FakeStreamHolder::new().streams());
     }
 
     #[test]

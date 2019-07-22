@@ -4,10 +4,10 @@ use crate::blockchain::bip39::Bip39;
 use crate::multi_config::MultiConfig;
 use crate::node_configurator::{
     app_head, common_validators, consuming_wallet_arg, create_wallet, data_directory_arg,
-    earning_wallet_arg, flushed_write, initialize_database, language_arg,
-    make_initialize_mode_multi_config, mnemonic_passphrase_arg, request_existing_password,
-    wallet_password_arg, Either, NodeConfigurator, WalletCreationConfig, WalletCreationConfigMaker,
-    EARNING_WALLET_HELP, WALLET_PASSWORD_HELP,
+    earning_wallet_arg, flushed_write, language_arg, mnemonic_passphrase_arg,
+    prepare_initialization_mode, request_existing_password, wallet_password_arg, Either,
+    NodeConfigurator, WalletCreationConfig, WalletCreationConfigMaker, EARNING_WALLET_HELP,
+    WALLET_PASSWORD_HELP,
 };
 use crate::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::cryptde::PlainData;
@@ -25,12 +25,12 @@ pub struct NodeConfiguratorRecoverWallet {
 
 impl NodeConfigurator<WalletCreationConfig> for NodeConfiguratorRecoverWallet {
     fn configure(&self, args: &Vec<String>, streams: &mut StdStreams<'_>) -> WalletCreationConfig {
-        let multi_config = make_initialize_mode_multi_config(&self.app, args);
-        let persistent_config = initialize_database(&multi_config);
+        let (multi_config, persistent_config_box) = prepare_initialization_mode(&self.app, args);
+        let persistent_config = persistent_config_box.as_ref();
 
-        let config = self.parse_args(&multi_config, streams, persistent_config.as_ref());
+        let config = self.parse_args(&multi_config, streams, persistent_config);
 
-        create_wallet(&config, persistent_config.as_ref());
+        create_wallet(&config, persistent_config);
 
         config
     }
@@ -38,10 +38,10 @@ impl NodeConfigurator<WalletCreationConfig> for NodeConfiguratorRecoverWallet {
 
 const RECOVER_WALLET_HELP: &str =
     "Import an existing set of HD wallets with mnemonic recovery phrase from the standard \
-     BIP39 predefined list of words. Not valid as an environment variable";
+     BIP39 predefined list of words. Not valid as an environment variable.";
 const MNEMONIC_HELP: &str =
     "An HD wallet mnemonic recovery phrase using predefined BIP39 word lists. This is a secret; providing it on the \
-     command line or in a cofig file is insecure and unwise. If you don't specify it anywhere, you'll be prompted \
+     command line or in a config file is insecure and unwise. If you don't specify it anywhere, you'll be prompted \
      for it at the console. If you do specify it on the command line or in the environment or a config file, be sure \
      to surround it with double quotes.";
 
@@ -146,10 +146,10 @@ impl NodeConfiguratorRecoverWallet {
     fn request_mnemonic_passphrase(streams: &mut StdStreams) -> Option<String> {
         flushed_write(
             streams.stdout,
-            "\nPlease enter the passphrase for your mnemonic, or Enter if there is none. You will \
-             encrypt your wallet in a following step...\n",
+            "\nPlease enter the passphrase for your mnemonic, or Enter if there is none.\n\
+             You will encrypt your wallet in a following step...\n",
         );
-        flushed_write(streams.stdout, "Mnemonic passphrase: ");
+        flushed_write(streams.stdout, "  Mnemonic passphrase: ");
         match request_existing_password(streams, |_| Ok(())) {
             Ok(mp) => {
                 if mp.is_empty() {
@@ -184,7 +184,7 @@ impl NodeConfiguratorRecoverWallet {
     }
 
     fn request_mnemonic_phrase(streams: &mut StdStreams) -> Vec<String> {
-        flushed_write(streams.stdout, "\nPlease provide your wallet's mnemonic phrase. It must be 12, 15, 18, 21, or 24 words long.\n");
+        flushed_write(streams.stdout, "\nPlease provide your wallet's mnemonic phrase.\nIt must be 12, 15, 18, 21, or 24 words long.\n");
         flushed_write(streams.stdout, "Mnemonic phrase: ");
         let mut buf = [0u8; 16384];
         let phrase = match streams.stdin.read(&mut buf) {
@@ -224,6 +224,7 @@ mod tests {
     use crate::database::db_initializer;
     use crate::database::db_initializer::DbInitializer;
     use crate::multi_config::{CommandLineVCL, VirtualCommandLine};
+    use crate::node_configurator::test_utils::ArgsBuilder;
     use crate::node_configurator::DerivationPathWalletInfo;
     use crate::persistent_configuration::PersistentConfigurationReal;
     use crate::sub_lib::cryptde::PlainData;
@@ -375,29 +376,18 @@ mod tests {
         let phrase = "llanto elipse chaleco factor setenta dental moneda rasgo gala rostro taco nudillo orador temor puesto";
         let consuming_path = "m/44'/60'/0'/77/78";
         let earning_path = "m/44'/60'/0'/78/77";
-        let args: Vec<String> = vec![
-            "SubstratumNode",
-            "--recover-wallet",
-            "--data-directory",
-            home_dir.to_str().unwrap(),
-            "--wallet-password",
-            password,
-            "--consuming-wallet",
-            consuming_path,
-            "--earning-wallet",
-            earning_path,
-            "--language",
-            "español",
-            "--mnemonic",
-            phrase,
-            "--mnemonic-passphrase",
-            "Mortimer",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
+        let args = ArgsBuilder::new()
+            .opt("--recover-wallet")
+            .param("--data-directory", home_dir.to_str().unwrap())
+            .param("--wallet-password", password)
+            .param("--consuming-wallet", consuming_path)
+            .param("--earning-wallet", earning_path)
+            .param("--language", "español")
+            .param("--mnemonic", phrase)
+            .param("--mnemonic-passphrase", "Mortimer");
         let subject = NodeConfiguratorRecoverWallet::new();
-        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVCL::new(args))];
+        let vcls: Vec<Box<dyn VirtualCommandLine>> =
+            vec![Box::new(CommandLineVCL::new(args.into()))];
         let multi_config = MultiConfig::new(&subject.app, vcls);
 
         let config = subject.parse_args(
@@ -429,21 +419,14 @@ mod tests {
     fn parse_args_creates_configuration_with_defaults() {
         let password = "secret-wallet-password";
         let phrase = "company replace elder oxygen access into pair squeeze clip occur world crowd";
-        let args: Vec<String> = vec![
-            "SubstratumNode",
-            "--recover-wallet",
-            "--wallet-password",
-            password,
-            "--mnemonic",
-            phrase,
-            "--mnemonic-passphrase",
-            "Mortimer",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
+        let args = ArgsBuilder::new()
+            .opt("--recover-wallet")
+            .param("--wallet-password", password)
+            .param("--mnemonic", phrase)
+            .param("--mnemonic-passphrase", "Mortimer");
         let subject = NodeConfiguratorRecoverWallet::new();
-        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVCL::new(args))];
+        let vcls: Vec<Box<dyn VirtualCommandLine>> =
+            vec![Box::new(CommandLineVCL::new(args.into()))];
         let multi_config = MultiConfig::new(&subject.app, vcls);
 
         let config = subject.parse_args(
@@ -477,22 +460,16 @@ mod tests {
         expected = "\"one two three four five six seven eight nine ten eleven twelve\" is not valid for English (invalid word in phrase)"
     )]
     fn mnemonic_argument_fails_with_invalid_words() {
-        let args: Vec<String> = vec![
-            "SubstratumNode",
-            "--recover-wallet",
-            "--mnemonic",
-            "one two three four five six seven eight nine ten eleven twelve",
-            "--wallet-password",
-            "wallet-password",
-            "--mnemonic-passphrase",
-            "mnemonic passphrase",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-
+        let args = ArgsBuilder::new()
+            .opt("--recover-wallet")
+            .param(
+                "--mnemonic",
+                "one two three four five six seven eight nine ten eleven twelve",
+            )
+            .param("--wallet-password", "wallet-password")
+            .param("--mnemonic-passphrase", "mnemonic passphrase");
         let subject = NodeConfiguratorRecoverWallet::new();
-        let vcl = Box::new(CommandLineVCL::new(args));
+        let vcl = Box::new(CommandLineVCL::new(args.into()));
         let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
 
         subject.parse_args(
@@ -516,9 +493,8 @@ mod tests {
         assert_eq!(actual, Some("a very poor passphrase".to_string()));
         assert_eq!(
             stdout_writer.get_string(),
-            "\nPlease enter the passphrase for your mnemonic, or Enter if there is none. \
-             You will encrypt your wallet in a following step...\n\
-             Mnemonic passphrase: "
+            "\nPlease enter the passphrase for your mnemonic, or Enter if there is none.\n\
+             You will encrypt your wallet in a following step...\n  Mnemonic passphrase: "
                 .to_string()
         );
     }
@@ -537,9 +513,8 @@ mod tests {
         assert_eq!(actual, None);
         assert_eq!(
             stdout_writer.get_string(),
-            "\nPlease enter the passphrase for your mnemonic, or Enter if there is none. \
-             You will encrypt your wallet in a following step...\n\
-             Mnemonic passphrase: "
+            "\nPlease enter the passphrase for your mnemonic, or Enter if there is none.\n\
+             You will encrypt your wallet in a following step...\n  Mnemonic passphrase: "
                 .to_string()
         );
     }
@@ -557,19 +532,12 @@ mod tests {
             .unwrap();
         let config_dao = ConfigDaoReal::new(conn);
         config_dao.set_string("seed", "booga booga").unwrap();
-        let args = vec![
-            "SubstratumNode",
-            "--recover-wallet",
-            "--data-directory",
-            data_directory.to_str().unwrap(),
-            "--wallet-password",
-            "rick-rolled",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect::<Vec<String>>();
+        let args = ArgsBuilder::new()
+            .opt("--recover-wallet")
+            .param("--data-directory", data_directory.to_str().unwrap())
+            .param("--wallet-password", "rick-rolled");
         let subject = NodeConfiguratorRecoverWallet::new();
-        let vcl = Box::new(CommandLineVCL::new(args));
+        let vcl = Box::new(CommandLineVCL::new(args.into()));
         let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
 
         subject.parse_args(

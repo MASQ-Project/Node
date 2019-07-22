@@ -62,7 +62,7 @@ pub const EARNING_WALLET_HELP: &str =
     "Denotes the wallet into which other Nodes will pay yours for its routing and exit services. May either be a \
      BIP32 derivation path (defaults to m/44'/60'/0'/0/1) or an Ethereum wallet address. (If the derivation path \
      includes single quotes, enclose it in double quotes.) Addresses must begin with 0x followed by 40 hexadecimal \
-     digits (case-insensitive)";
+     digits (case-insensitive).";
 pub const LANGUAGE_HELP: &str = "The language of the mnemonic phrase.";
 pub const MNEMONIC_PASSPHRASE_HELP: &str =
     "A passphrase for the mnemonic phrase. Cannot be changed later and still produce the same addresses. This is a \
@@ -70,7 +70,7 @@ pub const MNEMONIC_PASSPHRASE_HELP: &str =
      you'll be prompted for it at the console.";
 pub const WALLET_PASSWORD_HELP: &str =
     "A password or phrase to encrypt your consuming wallet in the SubstratumNode database or decrypt a keystore file. Can be changed \
-     later and still produce the same addresses. This is a secret; providing it on the command line or in a cofig file is \
+     later and still produce the same addresses. This is a secret; providing it on the command line or in a config file is \
      insecure and unwise. If you don't specify it anywhere, you'll be prompted for it at the console.";
 
 pub fn app_head() -> App<'static, 'static> {
@@ -165,16 +165,6 @@ pub fn wallet_password_arg(help: &str) -> Arg {
         .help(help)
 }
 
-pub fn make_initialize_mode_multi_config<'a>(app: &'a App, args: &Vec<String>) -> MultiConfig<'a> {
-    MultiConfig::new(
-        &app,
-        vec![
-            Box::new(CommandLineVCL::new(args.clone())),
-            Box::new(EnvironmentVCL::new(&app)),
-        ],
-    )
-}
-
 pub fn determine_config_file_path(app: &App, args: &Vec<String>) -> (PathBuf, bool) {
     let orientation_schema = App::new("Preliminary")
         .arg(data_directory_arg())
@@ -231,6 +221,24 @@ pub fn initialize_database(multi_config: &MultiConfig) -> Box<PersistentConfigur
             )
         });
     Box::new(PersistentConfigurationReal::from(conn))
+}
+
+pub fn prepare_initialization_mode<'a>(
+    app: &'a App,
+    args: &Vec<String>,
+) -> (MultiConfig<'a>, Box<PersistentConfiguration>) {
+    let multi_config = MultiConfig::new(
+        &app,
+        vec![
+            Box::new(CommandLineVCL::new(args.clone())),
+            Box::new(EnvironmentVCL::new(&app)),
+        ],
+    );
+    let persistent_config_box = initialize_database(&multi_config);
+    if persistent_config_box.encrypted_mnemonic_seed().is_some() {
+        panic!("Cannot re-initialize Node: already initialized")
+    }
+    (multi_config, persistent_config_box)
 }
 
 pub fn request_wallet_encryption_password(
@@ -588,11 +596,11 @@ pub trait WalletCreationConfigMaker {
 mod tests {
     use super::*;
     use crate::blockchain::bip32::Bip32ECKeyPair;
-    use crate::node_configurator::test_utils::{BadMockDirsWrapper, MockDirsWrapper};
+    use crate::node_configurator::test_utils::{ArgsBuilder, BadMockDirsWrapper, MockDirsWrapper};
     use crate::sub_lib::wallet::{Wallet, DEFAULT_EARNING_DERIVATION_PATH};
     use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::ByteArrayWriter;
+    use crate::test_utils::{ensure_node_home_directory_exists, ByteArrayWriter};
     use bip39::{Mnemonic, MnemonicType, Seed};
     use std::io::Cursor;
     use std::sync::{Arc, Mutex};
@@ -752,6 +760,24 @@ mod tests {
         assert_eq!(result, expected.as_path().to_str().unwrap().to_string());
     }
 
+    #[test]
+    #[should_panic(expected = "Cannot re-initialize Node: already initialized")]
+    fn prepare_initialization_mode_fails_if_mnemonic_seed_already_exists() {
+        let data_dir = ensure_node_home_directory_exists(
+            "node_configurator",
+            "prepare_initialization_mode_fails_if_mnemonic_seed_already_exists",
+        );
+        {
+            let conn = DbInitializerReal::new().initialize(&data_dir).unwrap();
+            let persistent_config = PersistentConfigurationReal::from(conn);
+            persistent_config.set_mnemonic_seed(&PlainData::new(&[1, 2, 3, 4]), "password");
+        }
+        let app = App::new("test".to_string()).arg(data_directory_arg());
+        let args = ArgsBuilder::new().param("--data-directory", data_dir.to_str().unwrap());
+
+        prepare_initialization_mode(&app, &args.into());
+    }
+
     fn determine_config_file_path_app() -> App<'static, 'static> {
         App::new("test")
             .arg(data_directory_arg())
@@ -761,23 +787,14 @@ mod tests {
     #[test]
     fn determine_config_file_path_finds_path_in_args() {
         let _guard = EnvironmentGuard::new();
-        let args: Vec<String> = vec![
-            "SubstratumNode",
-            "--clandestine-port",
-            "2345",
-            "--data-directory",
-            "data-dir",
-            "--config-file",
-            "booga.toml",
-            "--dns-servers",
-            "1.2.3.4",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
+        let args = ArgsBuilder::new()
+            .param("--clandestine-port", "2345")
+            .param("--data-directory", "data-dir")
+            .param("--config-file", "booga.toml")
+            .param("--dns-servers", "1.2.3.4");
 
         let (config_file_path, user_specified) =
-            determine_config_file_path(&determine_config_file_path_app(), &args);
+            determine_config_file_path(&determine_config_file_path_app(), &args.into());
 
         assert_eq!(
             "data-dir",
@@ -790,15 +807,12 @@ mod tests {
     #[test]
     fn determine_config_file_path_finds_path_in_environment() {
         let _guard = EnvironmentGuard::new();
-        let args: Vec<String> = vec!["SubstratumNode", "--dns-servers", "1.2.3.4"]
-            .into_iter()
-            .map(String::from)
-            .collect();
+        let args = ArgsBuilder::new().param("--dns-servers", "1.2.3.4");
         std::env::set_var("SUB_DATA_DIRECTORY", "data_dir");
         std::env::set_var("SUB_CONFIG_FILE", "booga.toml");
 
         let (config_file_path, user_specified) =
-            determine_config_file_path(&determine_config_file_path_app(), &args);
+            determine_config_file_path(&determine_config_file_path_app(), &args.into());
 
         assert_eq!(
             "data_dir",
@@ -812,21 +826,13 @@ mod tests {
     #[test]
     fn determine_config_file_path_ignores_data_dir_if_config_file_has_root() {
         let _guard = EnvironmentGuard::new();
-        let args: Vec<String> = vec![
-            "SubstratumNode",
-            "--data-directory",
-            "data-dir",
-            "--config-file",
-            "/tmp/booga.toml",
-            "--dns-servers",
-            "1.2.3.4",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
+        let args = ArgsBuilder::new()
+            .param("--data-directory", "data-dir")
+            .param("--config-file", "/tmp/booga.toml")
+            .param("--dns-servers", "1.2.3.4");
 
         let (config_file_path, user_specified) =
-            determine_config_file_path(&determine_config_file_path_app(), &args);
+            determine_config_file_path(&determine_config_file_path_app(), &args.into());
 
         assert_eq!(
             "/tmp/booga.toml",
@@ -839,21 +845,13 @@ mod tests {
     #[test]
     fn determine_config_file_path_ignores_data_dir_if_config_file_has_separator_root() {
         let _guard = EnvironmentGuard::new();
-        let args: Vec<String> = vec![
-            "SubstratumNode",
-            "--data-directory",
-            "data-dir",
-            "--config-file",
-            r"\tmp\booga.toml",
-            "--dns-servers",
-            "1.2.3.4",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
+        let args = ArgsBuilder::new()
+            .param("--data-directory", "data-dir")
+            .param("--config-file", r"\tmp\booga.toml")
+            .param("--dns-servers", "1.2.3.4");
 
         let (config_file_path, user_specified) =
-            determine_config_file_path(&determine_config_file_path_app(), &args);
+            determine_config_file_path(&determine_config_file_path_app(), &args.into());
 
         assert_eq!(
             r"\tmp\booga.toml",
@@ -866,21 +864,13 @@ mod tests {
     #[test]
     fn determine_config_file_path_ignores_data_dir_if_config_file_has_drive_root() {
         let _guard = EnvironmentGuard::new();
-        let args: Vec<String> = vec![
-            "SubstratumNode",
-            "--data-directory",
-            "data-dir",
-            "--config-file",
-            r"c:\tmp\booga.toml",
-            "--dns-servers",
-            "1.2.3.4",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
+        let args = ArgsBuilder::new()
+            .param("--data-directory", "data-dir")
+            .param("--config-file", r"c:\tmp\booga.toml")
+            .param("--dns-servers", "1.2.3.4");
 
         let (config_file_path, user_specified) =
-            determine_config_file_path(&determine_config_file_path_app(), &args);
+            determine_config_file_path(&determine_config_file_path_app(), &args.into());
 
         assert_eq!(
             r"c:\tmp\booga.toml",
@@ -893,21 +883,13 @@ mod tests {
     #[test]
     fn determine_config_file_path_ignores_data_dir_if_config_file_has_network_root() {
         let _guard = EnvironmentGuard::new();
-        let args: Vec<String> = vec![
-            "SubstratumNode",
-            "--data-directory",
-            "data-dir",
-            "--config-file",
-            r"\\TMP\booga.toml",
-            "--dns-servers",
-            "1.2.3.4",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
+        let args = ArgsBuilder::new()
+            .param("--data-directory", "data-dir")
+            .param("--config-file", r"\\TMP\booga.toml")
+            .param("--dns-servers", "1.2.3.4");
 
         let (config_file_path, user_specified) =
-            determine_config_file_path(&determine_config_file_path_app(), &args);
+            determine_config_file_path(&determine_config_file_path_app(), &args.into());
 
         assert_eq!(
             r"\\TMP\booga.toml",
@@ -921,21 +903,13 @@ mod tests {
     fn determine_config_file_path_ignores_data_dir_if_config_file_has_drive_letter_but_no_separator(
     ) {
         let _guard = EnvironmentGuard::new();
-        let args: Vec<String> = vec![
-            "SubstratumNode",
-            "--data-directory",
-            "data-dir",
-            "--config-file",
-            r"c:tmp\booga.toml",
-            "--dns-servers",
-            "1.2.3.4",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
+        let args = ArgsBuilder::new()
+            .param("--data-directory", "data-dir")
+            .param("--config-file", r"c:tmp\booga.toml")
+            .param("--dns-servers", "1.2.3.4");
 
         let (config_file_path, user_specified) =
-            determine_config_file_path(&determine_config_file_path_app(), &args);
+            determine_config_file_path(&determine_config_file_path_app(), &args.into());
 
         assert_eq!(
             r"c:tmp\booga.toml",
@@ -1234,21 +1208,12 @@ mod tests {
     fn make_wallet_creation_config_non_defaults_with_earning_derivation_path() {
         let earning_path = "m/44'/60'/3'/2/1";
         let subject = TameWalletCreationConfigMaker::new();
-        let args: Vec<String> = vec![
-            "test",
-            "--consuming-wallet",
-            "m/44'/60'/1'/2/3",
-            "--earning-wallet",
-            "m/44'/60'/3'/2/1",
-            "--mnemonic-passphrase",
-            "mnemonic passphrase",
-            "--wallet-password",
-            "wallet password",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-        let vcl = Box::new(CommandLineVCL::new(args));
+        let args = ArgsBuilder::new()
+            .param("--consuming-wallet", "m/44'/60'/1'/2/3")
+            .param("--earning-wallet", "m/44'/60'/3'/2/1")
+            .param("--mnemonic-passphrase", "mnemonic passphrase")
+            .param("--wallet-password", "wallet password");
+        let vcl = Box::new(CommandLineVCL::new(args.into()));
         let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
         let stdout_writer = &mut ByteArrayWriter::new();
         let mut streams = &mut StdStreams {
@@ -1285,21 +1250,15 @@ mod tests {
     #[test]
     fn make_wallet_creation_config_non_defaults_with_earning_address() {
         let subject = TameWalletCreationConfigMaker::new();
-        let args: Vec<String> = vec![
-            "test",
-            "--consuming-wallet",
-            "m/44'/60'/1'/2/3",
-            "--earning-wallet",
-            "0x0123456789ABCDEF0123456789ABCDEF01234567",
-            "--mnemonic-passphrase",
-            "mnemonic passphrase",
-            "--wallet-password",
-            "wallet password",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-        let vcl = Box::new(CommandLineVCL::new(args));
+        let args = ArgsBuilder::new()
+            .param("--consuming-wallet", "m/44'/60'/1'/2/3")
+            .param(
+                "--earning-wallet",
+                "0x0123456789ABCDEF0123456789ABCDEF01234567",
+            )
+            .param("--mnemonic-passphrase", "mnemonic passphrase")
+            .param("--wallet-password", "wallet password");
+        let vcl = Box::new(CommandLineVCL::new(args.into()));
         let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
         let stdout_writer = &mut ByteArrayWriter::new();
         let mut streams = &mut StdStreams {
