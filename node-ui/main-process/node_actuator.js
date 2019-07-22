@@ -9,6 +9,7 @@ const psWrapper = require('./wrappers/ps_wrapper')
 const uiInterface = require('./ui_interface')
 const NODE_STARTUP_TIMEOUT = 60000
 const NODE_SHUTDOWN_TIMEOUT = 5000
+const process = require('./wrappers/process_wrapper')
 
 module.exports = class NodeActuator {
   constructor (webContents) {
@@ -33,7 +34,9 @@ module.exports = class NodeActuator {
   bindProcessEvents () {
     this.substratumNodeProcess.on('message', async message => {
       consoleWrapper.log('substratum_node process received message: ', message)
-      if (message.startsWith('Command returned error: ')) {
+      if (message.startsWith('Command returned error: ') &&
+        (message !== 'Command returned error: User did not grant permission.') &&
+        (process.env.TESTING_IN_PROGRESS !== 'true')) {
         if (this.substratumNodeProcess) { dialog.showErrorBox('Error', message) }
         return this.setStatusToOffThenRevert()
       } else {
