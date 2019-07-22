@@ -331,7 +331,7 @@ mod tests {
     use crate::blockchain::test_utils::make_meaningless_seed;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::test_utils::config_dao_mock::ConfigDaoMock;
-    use crate::test_utils::{ensure_node_home_directory_exists, find_free_port};
+    use crate::test_utils::ensure_node_home_directory_exists;
     use bip39::{Language, Mnemonic, MnemonicType, Seed};
     use ethsign::keyfile::Crypto;
     use ethsign::Protected;
@@ -401,14 +401,13 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = " is in use. Specify --clandestine-port <p> where <p> is an unused port between 1025 and 65535."
+        expected = "Can't continue; clandestine port 5333 is in use. Specify --clandestine-port <p> where <p> is an unused port between 1025 and 65535."
     )]
     fn clandestine_port_panics_if_configured_port_is_in_use() {
-        let port = find_free_port();
-        let config_dao = ConfigDaoMock::new().get_u64_result(Ok(port as u64));
+        let config_dao = ConfigDaoMock::new().get_u64_result(Ok(5333));
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
         let _listener =
-            TcpListener::bind(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::from(0), port))).unwrap();
+            TcpListener::bind(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::from(0), 5333))).unwrap();
 
         subject.clandestine_port();
     }

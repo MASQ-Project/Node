@@ -144,8 +144,8 @@ ipcMain.on('get-financial-statistics', (event, data, args) => {
 
 let assignStatus = (event, promise) => {
   promise.then(newStatus => {
-    mainWindow.webContents.send('node-status', newStatus)
+    event.returnValue = newStatus
   }).catch(() => {
-    mainWindow.webContents.send('node-status', Invalid)
+    event.returnValue = Invalid
   })
 }

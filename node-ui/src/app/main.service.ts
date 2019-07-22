@@ -65,7 +65,7 @@ export class MainService {
   }
 
   private changeNodeState(state, config?: NodeConfiguration): void {
-    this.electronService.ipcRenderer.send('change-node-state', state, config);
+    this.statusListener.next(this.electronService.ipcRenderer.sendSync('change-node-state', state, config));
   }
 }
 

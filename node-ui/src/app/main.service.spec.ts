@@ -9,7 +9,6 @@ import {ConfigService} from './config.service';
 import {NodeStatus} from './node-status.enum';
 
 describe('MainService', () => {
-  let mockSend;
   let stubElectronService;
   let stubClipboard;
   let mockWriteText;
@@ -23,7 +22,6 @@ describe('MainService', () => {
   let setConsumingWalletResponseListener;
 
   beforeEach(() => {
-    mockSend = func('send');
     mockSendSync = func('sendSync');
     mockGetConfig = func('getConfig');
     mockWriteText = func('writeText');
@@ -37,8 +35,7 @@ describe('MainService', () => {
     stubElectronService = {
       ipcRenderer: {
         on: mockOn,
-        send: mockSend,
-        sendSync: mockSendSync
+        sendSync: mockSendSync,
       },
       clipboard: stubClipboard
     };
@@ -69,9 +66,9 @@ describe('MainService', () => {
     verify(mockOn('node-descriptor', nodeDescriptorListener.capture()));
     verify(mockOn('set-consuming-wallet-password-response', setConsumingWalletResponseListener.capture()));
 
-    let status = null;
-    let descriptor = null;
-    let success = null;
+    let status;
+    let descriptor;
+    let success;
 
     service.nodeStatus.subscribe(_status => {
       status = _status;
@@ -95,6 +92,9 @@ describe('MainService', () => {
   describe('user actions', () => {
     beforeEach(() => {
       when(mockConfigService.getConfig()).thenReturn(new NodeConfiguration());
+      when(mockSendSync('change-node-state', 'consume', matchers.anything())).thenReturn('Consuming');
+      when(mockSendSync('change-node-state', 'serve', matchers.anything())).thenReturn('Serving');
+      when(mockSendSync('change-node-state', 'turn-off', matchers.anything())).thenReturn('Off');
       when(mockSendSync('ip-lookup')).thenReturn('4.3.2.1');
     });
 
@@ -103,8 +103,10 @@ describe('MainService', () => {
         service.turnOff();
       });
 
-      it('directs the main process to turn off the node', () => {
-        verify(mockSend('change-node-state', 'turn-off', undefined));
+      it('updates the status with the response', () => {
+        service.nodeStatus.subscribe((status) => {
+          expect(status).toBe(NodeStatus.Off);
+        });
       });
     });
 
@@ -113,8 +115,10 @@ describe('MainService', () => {
         service.serve();
       });
 
-      it('directs the main process to start serving', () => {
-        verify(mockSend('change-node-state', 'serve', matchers.anything()));
+      it('updates the status with the response', () => {
+        service.nodeStatus.subscribe((status) => {
+          expect(status).toBe(NodeStatus.Serving);
+        });
       });
     });
 
@@ -123,8 +127,10 @@ describe('MainService', () => {
         service.consume();
       });
 
-      it('directs the main process to switch to consuming', () => {
-        verify(mockSend('change-node-state', 'consume', matchers.anything()));
+      it('updates the status with the response', () => {
+        service.nodeStatus.subscribe((status) => {
+          expect(status).toBe(NodeStatus.Consuming);
+        });
       });
     });
 
@@ -142,11 +148,11 @@ describe('MainService', () => {
     });
 
     it('is included in serving', () => {
-      verify(mockSend('change-node-state', 'serve', nodeConfig));
+      verify(mockSendSync('change-node-state', 'serve', nodeConfig));
     });
 
     it('is included in consuming', () => {
-      verify(mockSend('change-node-state', 'consume', nodeConfig));
+      verify(mockSendSync('change-node-state', 'consume', nodeConfig));
     });
 
     describe('when lookupIp is called', () => {
