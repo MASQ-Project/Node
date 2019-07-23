@@ -13,7 +13,7 @@ use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use actix::Recipient;
 use std::borrow::Borrow;
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 
 pub struct RoutingServiceSubs {
     pub proxy_client_subs: ProxyClientSubs,
@@ -92,15 +92,13 @@ impl RoutingService {
             }
         };
 
-        if self.should_route_data(peer_addr, &next_hop) {
-            self.route_data(
-                peer_addr.ip(),
-                next_hop,
-                live_package,
-                last_data,
-                &ibcd_but_data,
-            );
-        }
+        self.route_data(
+            peer_addr.ip(),
+            next_hop,
+            live_package,
+            last_data,
+            &ibcd_but_data,
+        );
     }
 
     fn route_data(
@@ -145,9 +143,24 @@ impl RoutingService {
         live_package: LiveCoresPackage,
         ibcd_but_data: &InboundClientData,
     ) {
+        let payload_size = live_package.payload.len();
         if next_hop.component == Component::Hopper {
             self.route_data_around_again(live_package, ibcd_but_data)
         } else {
+            match &next_hop.payer {
+                None => (),
+                Some(payer) => {
+                    if payer.is_delinquent() {
+                        warning!(self.logger, format!(
+                        "Node with consuming wallet {} is delinquent; electing not to route {}-byte payload to {:?}",
+                        payer.wallet,
+                        payload_size,
+                        next_hop.component,
+                    ));
+                        return;
+                    }
+                }
+            }
             self.route_data_to_peripheral_component(
                 next_hop.component,
                 immediate_neighbor_ip,
@@ -295,26 +308,33 @@ impl RoutingService {
         let payload_size = live_package.payload.len();
         match payer {
             Some(payer) => {
-                if payer.owns_secret_key(&self.cryptde.digest()) {
-                    match self.routing_service_subs.to_accountant_routing.try_send(
-                        ReportRoutingServiceProvidedMessage {
-                            paying_wallet: payer.wallet,
-                            payload_size,
-                            service_rate: self.per_routing_service,
-                            byte_rate: self.per_routing_byte,
-                        },
-                    ) {
-                        Ok(_) => (),
-                        Err(e) => {
-                            fatal!(self.logger, format!("Accountant is dead: {:?}", e));
-                        }
-                    }
-                } else {
+                if !payer.owns_secret_key(&self.cryptde.digest()) {
                     warning!(self.logger, format!(
                         "Refusing to route Live CORES package with {}-byte payload without proof of {} paying wallet ownership.",
                         payload_size, payer.wallet
                     ));
                     return;
+                }
+                if payer.is_delinquent() {
+                    warning!(self.logger, format!(
+                        "Node with consuming wallet {} is delinquent; electing not to route {}-byte payload further",
+                        payer.wallet,
+                        payload_size,
+                    ));
+                    return;
+                }
+                match self.routing_service_subs.to_accountant_routing.try_send(
+                    ReportRoutingServiceProvidedMessage {
+                        paying_wallet: payer.wallet,
+                        payload_size,
+                        service_rate: self.per_routing_service,
+                        byte_rate: self.per_routing_byte,
+                    },
+                ) {
+                    Ok(_) => (),
+                    Err(e) => {
+                        fatal!(self.logger, format!("Accountant is dead: {:?}", e));
+                    }
                 }
             }
             None => {
@@ -382,15 +402,12 @@ impl RoutingService {
             sequence_number: None,
         })
     }
-
-    fn should_route_data(&self, _peer_addr: SocketAddr, _hop: &LiveHop) -> bool {
-        true // Eventually use this place to drop packets from banned nodes
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::banned_dao::BAN_CACHE;
     use crate::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
     use crate::neighborhood::gossip::{Gossip, GossipBuilder};
     use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
@@ -400,6 +417,8 @@ mod tests {
     use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
     use crate::sub_lib::proxy_server::ClientRequestPayload;
     use crate::sub_lib::route::{Route, RouteSegment};
+    use crate::sub_lib::wallet::Wallet;
+    use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use crate::test_utils::{
@@ -552,6 +571,8 @@ mod tests {
 
     #[test]
     fn converts_live_message_to_expired_for_proxy_client() {
+        let _eg = EnvironmentGuard::new();
+        BAN_CACHE.clear();
         let cryptde = cryptde();
         let (component, _, component_recording_arc) = make_recorder();
         let route = route_to_proxy_client(&cryptde.public_key(), cryptde);
@@ -611,6 +632,8 @@ mod tests {
 
     #[test]
     fn converts_live_message_to_expired_for_proxy_server() {
+        let _eg = EnvironmentGuard::new();
+        BAN_CACHE.clear();
         let cryptde = cryptde();
         let (component, _, component_recording_arc) = make_recorder();
         let route = route_to_proxy_server(&cryptde.public_key(), cryptde);
@@ -671,6 +694,8 @@ mod tests {
 
     #[test]
     fn converts_live_message_to_expired_for_neighborhood() {
+        let _eg = EnvironmentGuard::new();
+        BAN_CACHE.clear();
         let cryptde = cryptde();
         let (component, _, component_recording_arc) = make_recorder();
         let mut route = Route::one_way(
@@ -739,8 +764,11 @@ mod tests {
 
     #[test]
     fn passes_on_inbound_client_data_not_meant_for_this_node() {
+        let _eg = EnvironmentGuard::new();
+        BAN_CACHE.clear();
         let cryptde = cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
+        let address_paying_wallet = Wallet::from(paying_wallet.address());
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let next_key = PublicKey::new(&[65, 65, 65]);
@@ -764,7 +792,7 @@ mod tests {
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             last_data: true,
-            is_clandestine: false, // TODO This should probably be true
+            is_clandestine: true,
             sequence_number: None,
             data: data_enc.into(),
         };
@@ -810,10 +838,11 @@ mod tests {
         );
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         let message = accountant_recording.get_record::<ReportRoutingServiceProvidedMessage>(0);
+        assert!(message.paying_wallet.congruent(&paying_wallet));
         assert_eq!(
             *message,
             ReportRoutingServiceProvidedMessage {
-                paying_wallet,
+                paying_wallet: address_paying_wallet,
                 payload_size: lcp.payload.len(),
                 service_rate: rate_pack_routing(103),
                 byte_rate: rate_pack_routing_byte(103),
@@ -823,6 +852,8 @@ mod tests {
 
     #[test]
     fn reprocesses_inbound_client_data_meant_for_this_node_and_destined_for_hopper() {
+        let _eg = EnvironmentGuard::new();
+        BAN_CACHE.clear();
         let cryptde = cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let (hopper, _, hopper_recording_arc) = make_recorder();
@@ -895,6 +926,8 @@ mod tests {
 
     #[test]
     fn route_logs_and_ignores_cores_package_that_demands_routing_without_paying_wallet() {
+        let _eg = EnvironmentGuard::new();
+        BAN_CACHE.clear();
         init_test_logging();
         let cryptde = cryptde();
         let origin_key = PublicKey::new(&[1, 2]);
@@ -971,6 +1004,8 @@ mod tests {
     #[test]
     fn route_logs_and_ignores_cores_package_that_demands_proxy_client_routing_with_paying_wallet_that_cant_pay(
     ) {
+        let _eg = EnvironmentGuard::new();
+        BAN_CACHE.clear();
         init_test_logging();
         let cryptde = cryptde();
         let public_key = cryptde.public_key();
@@ -1063,6 +1098,8 @@ mod tests {
     #[test]
     fn route_logs_and_ignores_cores_package_that_demands_hopper_routing_with_paying_wallet_that_cant_pay(
     ) {
+        let _eg = EnvironmentGuard::new();
+        BAN_CACHE.clear();
         init_test_logging();
         let cryptde = cryptde();
         let current_key = cryptde.public_key();
@@ -1149,6 +1186,138 @@ mod tests {
         assert_eq!(neighborhood_recording_arc.lock().unwrap().len(), 0);
         assert_eq!(dispatcher_recording_arc.lock().unwrap().len(), 0);
         assert_eq!(accountant_recording_arc.lock().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn route_logs_and_ignores_cores_package_from_delinquent_that_demands_external_routing() {
+        let _eg = EnvironmentGuard::new();
+        BAN_CACHE.clear();
+        init_test_logging();
+        let cryptde = cryptde();
+        let paying_wallet = make_paying_wallet(b"wallet");
+        let contract_address = contract_address(DEFAULT_CHAIN_ID);
+        BAN_CACHE.insert(paying_wallet.clone());
+        let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let next_key = PublicKey::new(&[65, 65, 65]);
+        let route = Route::one_way(
+            RouteSegment::new(
+                vec![&cryptde.public_key(), &next_key],
+                Component::Neighborhood,
+            ),
+            cryptde,
+            Some(paying_wallet.clone()),
+            Some(contract_address.clone()),
+        )
+        .unwrap();
+        let payload = PlainData::new(&b"abcd"[..]);
+        let lcp = LiveCoresPackage::new(route, cryptde.encode(&next_key, &payload).unwrap());
+        let data_enc = encodex(cryptde, &cryptde.public_key(), &lcp).unwrap();
+        let inbound_client_data = InboundClientData {
+            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            reception_port: None,
+            last_data: true,
+            is_clandestine: true,
+            sequence_number: None,
+            data: data_enc.into(),
+        };
+        let system = System::new("test");
+        let peer_actors = peer_actors_builder()
+            .dispatcher(dispatcher)
+            .accountant(accountant)
+            .build();
+        let subject = RoutingService::new(
+            cryptde,
+            RoutingServiceSubs {
+                proxy_client_subs: peer_actors.proxy_client,
+                proxy_server_subs: peer_actors.proxy_server,
+                neighborhood_subs: peer_actors.neighborhood,
+                hopper_subs: peer_actors.hopper,
+                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+            },
+            rate_pack_routing(103),
+            rate_pack_routing_byte(103),
+            false,
+        );
+
+        subject.route(inbound_client_data);
+
+        System::current().stop();
+        system.run();
+
+        let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
+        assert_eq!(dispatcher_recording.len(), 0);
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        assert_eq!(accountant_recording.len(), 0);
+        TestLogHandler::new().exists_log_containing("WARN: RoutingService: Node with consuming wallet 0x71d0fc7d1c570b1ed786382b551a09391c91e33d is delinquent; electing not to route 7-byte payload further");
+    }
+
+    #[test]
+    fn route_logs_and_ignores_cores_package_from_delinquent_that_demands_internal_routing() {
+        let _eg = EnvironmentGuard::new();
+        BAN_CACHE.clear();
+        init_test_logging();
+        let cryptde = cryptde();
+        let paying_wallet = make_paying_wallet(b"wallet");
+        BAN_CACHE.insert(paying_wallet.clone());
+        let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let mut route = Route::one_way(
+            RouteSegment::new(
+                vec![&cryptde.public_key(), &cryptde.public_key()],
+                Component::ProxyServer,
+            ),
+            cryptde,
+            Some(paying_wallet.clone()),
+            Some(contract_address(DEFAULT_CHAIN_ID)),
+        )
+        .unwrap();
+        route.shift(cryptde).unwrap();
+        let payload = PlainData::new(&b"abcd"[..]);
+        let lcp = LiveCoresPackage::new(
+            route,
+            cryptde.encode(&cryptde.public_key(), &payload).unwrap(),
+        );
+        let data_enc = encodex(cryptde, &cryptde.public_key(), &lcp).unwrap();
+        let inbound_client_data = InboundClientData {
+            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            reception_port: None,
+            last_data: true,
+            is_clandestine: true,
+            sequence_number: None,
+            data: data_enc.into(),
+        };
+        let system = System::new("test");
+        let peer_actors = peer_actors_builder()
+            .dispatcher(dispatcher)
+            .accountant(accountant)
+            .build();
+        let subject = RoutingService::new(
+            cryptde,
+            RoutingServiceSubs {
+                proxy_client_subs: peer_actors.proxy_client,
+                proxy_server_subs: peer_actors.proxy_server,
+                neighborhood_subs: peer_actors.neighborhood,
+                hopper_subs: peer_actors.hopper,
+                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+            },
+            rate_pack_routing(103),
+            rate_pack_routing_byte(103),
+            false,
+        );
+
+        subject.route(inbound_client_data);
+
+        System::current().stop();
+        system.run();
+
+        let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
+        assert_eq!(dispatcher_recording.len(), 0);
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        assert_eq!(accountant_recording.len(), 0);
+        TestLogHandler::new().exists_log_containing("WARN: RoutingService: Node with consuming wallet 0x71d0fc7d1c570b1ed786382b551a09391c91e33d is delinquent; electing not to route 36-byte payload to ProxyServer");
     }
 
     #[test]

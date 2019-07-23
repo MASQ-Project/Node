@@ -141,7 +141,6 @@ impl Serialize for Bip32ECKeyPair {
 impl PartialEq<Bip32ECKeyPair> for Bip32ECKeyPair {
     fn eq(&self, other: &Bip32ECKeyPair) -> bool {
         self.public.bytes().as_ref() == other.public.bytes().as_ref()
-            && self.secret.sign(b"msg") == other.secret.sign(b"msg")
     }
 }
 
@@ -149,10 +148,7 @@ impl Eq for Bip32ECKeyPair {}
 
 impl Hash for Bip32ECKeyPair {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        match serde_cbor::to_vec(&self) {
-            Ok(bytes) => bytes.as_slice().hash(state),
-            Err(_) => self.public.bytes().hash(state),
-        }
+        self.public.bytes().hash(state);
     }
 }
 
@@ -163,6 +159,7 @@ mod tests {
         DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
     };
     use bip39::{Language, Mnemonic};
+    use std::collections::hash_map::DefaultHasher;
 
     #[test]
     fn bip32_derivation_path_0_produces_a_keypair_with_correct_address() {
@@ -255,5 +252,43 @@ mod tests {
             Bip32ECKeyPair::try_from(("".as_ref(), DEFAULT_CONSUMING_DERIVATION_PATH)).unwrap_err(),
             "Invalid Seed Length: 0".to_string()
         );
+    }
+
+    fn keypair_a() -> Bip32ECKeyPair {
+        let numbers = (0u8..32u8).collect::<Vec<u8>>();
+        Bip32ECKeyPair::from_raw_secret(&numbers).unwrap()
+    }
+
+    fn keypair_b() -> Bip32ECKeyPair {
+        let numbers = (1u8..33u8).collect::<Vec<u8>>();
+        Bip32ECKeyPair::from_raw_secret(&numbers).unwrap()
+    }
+
+    fn hash(keypair: &Bip32ECKeyPair) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        keypair.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    #[test]
+    fn hash_test() {
+        let a1 = keypair_a();
+        let a2 = keypair_a();
+        let b1 = keypair_b();
+
+        assert_eq!(hash(&a1), hash(&a1));
+        assert_eq!(hash(&a1), hash(&a2));
+        assert_ne!(hash(&a1), hash(&b1));
+    }
+
+    #[test]
+    fn partial_eq_test() {
+        let a1 = keypair_a();
+        let a2 = keypair_a();
+        let b1 = keypair_b();
+
+        assert_eq!(&a1, &a1);
+        assert_eq!(&a1, &a2);
+        assert_ne!(&a1, &b1);
     }
 }

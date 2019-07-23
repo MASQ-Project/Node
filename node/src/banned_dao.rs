@@ -20,21 +20,26 @@ impl BannedCache {
         self.cache
             .write()
             .expect("Failed to insert ban into cache")
-            .insert(wallet);
+            .insert(wallet.as_address_wallet());
     }
 
     pub fn remove(&self, wallet: &Wallet) {
         self.cache
             .write()
             .expect("Failed to remove ban from cache")
-            .remove(wallet);
+            .remove(&wallet.as_address_wallet());
     }
 
     pub fn is_banned(&self, wallet: &Wallet) -> bool {
         self.cache
             .read()
             .expect("Failed to read from ban cache")
-            .contains(wallet)
+            .contains(&wallet.as_address_wallet())
+    }
+
+    #[cfg(test)]
+    pub fn clear(&self) {
+        self.cache.write().expect("Failed to clear cache").clear()
     }
 }
 
@@ -133,7 +138,8 @@ mod tests {
     use super::*;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::test_utils::{
-        ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists, make_wallet,
+        ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
+        make_paying_wallet, make_wallet,
     };
     use rusqlite::NO_PARAMS;
 
@@ -207,7 +213,7 @@ mod tests {
             .unwrap()
             .execute(&[&wallet])
             .unwrap();
-        BAN_CACHE.cache.write().unwrap().insert(wallet.clone());
+        BAN_CACHE.insert(wallet.clone());
         let subject = BannedDaoReal::new(conn);
 
         subject.unban(wallet);
@@ -274,7 +280,7 @@ mod tests {
         let ban_me_baby = make_wallet("BAN_ME_BABY");
         subject.ban(&ban_me_baby.clone());
 
-        assert!(BAN_CACHE.cache.read().unwrap().contains(&ban_me_baby))
+        assert!(BAN_CACHE.is_banned(&ban_me_baby))
     }
 
     #[test]
@@ -288,43 +294,34 @@ mod tests {
             .unwrap()
             .execute(NO_PARAMS)
             .unwrap();
-        BAN_CACHE
-            .cache
-            .write()
-            .unwrap()
-            .insert(unban_me_baby.clone());
+        BAN_CACHE.insert(unban_me_baby.clone());
 
         let subject = BannedDaoReal::new(conn);
         subject.unban(&unban_me_baby);
 
-        assert!(!BAN_CACHE.cache.read().unwrap().contains(&unban_me_baby));
+        assert!(!BAN_CACHE.is_banned(&unban_me_baby));
     }
 
     #[test]
     fn insert_adds_a_wallet_to_the_cache() {
-        let now_banned_wallet = make_wallet("NOW_BANNED_WALLET");
+        let now_banned_wallet = make_paying_wallet(b"NOW_BANNED_WALLET");
+        let now_banned_address_wallet = Wallet::from(now_banned_wallet.address());
 
         BAN_CACHE.insert(now_banned_wallet.clone());
 
-        assert!(BAN_CACHE.cache.read().unwrap().contains(&now_banned_wallet));
+        assert!(BAN_CACHE.is_banned(&now_banned_wallet));
+        assert!(BAN_CACHE.is_banned(&now_banned_address_wallet));
     }
 
     #[test]
     fn remove_removes_a_wallet_from_the_cache() {
-        let already_banned_wallet = make_wallet("ALREADY_BANNED_YO");
-
-        BAN_CACHE
-            .cache
-            .write()
-            .unwrap()
-            .insert(already_banned_wallet.clone());
+        let already_banned_wallet = make_paying_wallet(b"ALREADY_BANNED_YO");
+        let already_banned_address_wallet = Wallet::from(already_banned_wallet.address());
+        BAN_CACHE.insert(already_banned_wallet.clone());
 
         BAN_CACHE.remove(&already_banned_wallet);
 
-        assert!(!BAN_CACHE
-            .cache
-            .read()
-            .unwrap()
-            .contains(&already_banned_wallet));
+        assert!(!BAN_CACHE.is_banned(&already_banned_wallet));
+        assert!(!BAN_CACHE.is_banned(&already_banned_address_wallet));
     }
 }

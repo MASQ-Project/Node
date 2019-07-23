@@ -2,6 +2,7 @@
 use bip39::{Language, Mnemonic, Seed};
 use futures::Future;
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
+use multinode_integration_tests_lib::command::Command;
 use multinode_integration_tests_lib::substratum_node::SubstratumNodeUtils;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::substratum_real_node::{
@@ -120,6 +121,7 @@ fn verify_bill_payment() {
         .initialize(&consuming_node_path.clone().into())
         .unwrap();
     let consuming_payable_dao = PayableDaoReal::new(consuming_node_connection);
+    open_all_file_permissions(consuming_node_path.clone().into());
 
     assert_eq!(
         format!("{}", &contract_owner_wallet),
@@ -150,6 +152,7 @@ fn verify_bill_payment() {
         .unwrap();
     let serving_node_1_receivable_dao = ReceivableDaoReal::new(serving_node_1_connection);
     serving_node_1_receivable_dao.more_money_receivable(&contract_owner_wallet, amount);
+    open_all_file_permissions(serving_node_1_path.clone().into());
 
     let (serving_node_2_name, serving_node_2_index) =
         cluster.prepare_real_node(&serving_node_2_config);
@@ -160,6 +163,7 @@ fn verify_bill_payment() {
         .unwrap();
     let serving_node_2_receivable_dao = ReceivableDaoReal::new(serving_node_2_connection);
     serving_node_2_receivable_dao.more_money_receivable(&contract_owner_wallet, amount);
+    open_all_file_permissions(serving_node_2_path.clone().into());
 
     let (serving_node_3_name, serving_node_3_index) =
         cluster.prepare_real_node(&serving_node_3_config);
@@ -170,6 +174,7 @@ fn verify_bill_payment() {
         .unwrap();
     let serving_node_3_receivable_dao = ReceivableDaoReal::new(serving_node_3_connection);
     serving_node_3_receivable_dao.more_money_receivable(&contract_owner_wallet, amount);
+    open_all_file_permissions(serving_node_3_path.clone().into());
 
     expire_payables(consuming_node_path.into());
     expire_receivables(serving_node_1_path.into());
@@ -365,4 +370,19 @@ fn expire_receivables(path: PathBuf) {
         .prepare("update config set value = '0' where name = 'start_block'")
         .unwrap();
     config_stmt.execute(NO_PARAMS).unwrap();
+}
+
+fn open_all_file_permissions(dir: PathBuf) {
+    match Command::new(
+        "chmod",
+        Command::strings(vec!["-R", "777", dir.to_str().unwrap()]),
+    )
+    .wait_for_exit()
+    {
+        0 => (),
+        _ => panic!(
+            "Couldn't chmod 777 files in directory {}",
+            dir.to_str().unwrap()
+        ),
+    }
 }

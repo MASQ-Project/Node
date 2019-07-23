@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::banned_dao::BAN_CACHE;
 use crate::blockchain::signature::SerializableSignature;
 use crate::sub_lib::wallet::Wallet;
 use ethsign::Signature;
@@ -15,13 +16,17 @@ pub struct Payer {
 impl Payer {
     pub fn new(wallet: &Wallet, proof: &Signature) -> Self {
         Self {
-            wallet: wallet.clone(),
+            wallet: wallet.as_address_wallet(),
             proof: Signature {
                 v: proof.v,
                 r: proof.r,
                 s: proof.s,
             },
         }
+    }
+
+    pub fn congruent(&self, other: &Payer) -> bool {
+        (self.wallet.congruent(&other.wallet)) && (self.proof == other.proof)
     }
 
     pub fn owns_secret_key(&self, digest: &AsRef<[u8]>) -> bool {
@@ -32,6 +37,10 @@ impl Payer {
             },
             Err(_) => false,
         }
+    }
+
+    pub fn is_delinquent(&self) -> bool {
+        BAN_CACHE.is_banned(&self.wallet)
     }
 }
 
@@ -85,6 +94,34 @@ mod tests {
     }
 
     #[test]
+    fn is_delinquent_says_no_for_non_delinquent_payer() {
+        let secret = "812deadbeefcafefeedbabefaceea7abacadaba0deadbeefcafefeedbabeface"
+            .from_hex::<Vec<u8>>()
+            .unwrap();
+        let public_key = SubPublicKey::new(&b"sign these bytessign these bytes".to_vec());
+        let subject = make_payer(&secret, &public_key);
+        BAN_CACHE.remove(&subject.wallet);
+
+        let result = subject.is_delinquent();
+
+        assert_eq!(result, false);
+    }
+
+    #[test]
+    fn is_delinquent_says_yes_for_delinquent_payer() {
+        let secret = "abacadaba0deadbeefcafefeedbabeface812deadbeefcafefeedbabefaceea7"
+            .from_hex::<Vec<u8>>()
+            .unwrap();
+        let public_key = SubPublicKey::new(&b"sign these bytessign these bytes".to_vec());
+        let subject = make_payer(&secret, &public_key);
+        BAN_CACHE.insert(subject.wallet.clone());
+
+        let result = subject.is_delinquent();
+
+        assert_eq!(result, true);
+    }
+
+    #[test]
     fn roundtrip_payer_works_with_cbor() {
         let secret = "abacadaba0deadbeefcafefeedbabeface812deadbeefcafefeedbabefaceea7"
             .from_hex::<Vec<u8>>()
@@ -96,7 +133,7 @@ mod tests {
         let result = serde_cbor::to_vec(&expected).unwrap();
         let actual = serde_cbor::from_slice::<Payer>(&result[..]).unwrap();
 
-        assert_eq!(actual, expected);
+        assert!(actual.congruent(&expected));
     }
 
     #[test]
@@ -111,6 +148,6 @@ mod tests {
         let result = serde_json::to_string(&expected).unwrap();
         let actual = serde_json::from_str::<Payer>(&result[..]).unwrap();
 
-        assert_eq!(actual, expected);
+        assert!(actual.congruent(&expected));
     }
 }

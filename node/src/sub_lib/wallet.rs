@@ -11,7 +11,7 @@ use serde::{ser::SerializeStruct, Serialize, Serializer};
 use serde_json::{self, json};
 use std::convert::TryInto;
 use std::fmt;
-use std::fmt::{Debug, Display, Error, Formatter};
+use std::fmt::{Display, Error, Formatter};
 use std::hash::{Hash, Hasher};
 use std::result::Result;
 use std::str::FromStr;
@@ -91,15 +91,24 @@ impl Eq for WalletKind {}
 impl Hash for WalletKind {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
-            WalletKind::Address(address) => address.hash(state),
-            WalletKind::KeyPair(keypair) => keypair.hash(state),
-            WalletKind::PublicKey(public) => public.bytes().hash(state),
-            WalletKind::Uninitialized => b"Uninitialized".hash(state),
+            WalletKind::Address(address) => {
+                1.hash(state);
+                address.hash(state)
+            }
+            WalletKind::KeyPair(keypair) => {
+                2.hash(state);
+                keypair.hash(state)
+            }
+            WalletKind::PublicKey(public) => {
+                3.hash(state);
+                public.bytes().hash(state)
+            }
+            WalletKind::Uninitialized => 4.hash(state),
         }
     }
 }
 
-#[derive(Clone, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Wallet {
     kind: WalletKind,
 }
@@ -112,6 +121,10 @@ impl Wallet {
                 kind: WalletKind::Uninitialized,
             },
         }
+    }
+
+    pub fn as_address_wallet(&self) -> Wallet {
+        Wallet::from(self.address())
     }
 
     pub fn address(&self) -> Address {
@@ -161,10 +174,8 @@ impl Wallet {
             ),
         }
     }
-}
 
-impl PartialEq for Wallet {
-    fn eq(&self, other: &Self) -> bool {
+    pub fn congruent(&self, other: &Wallet) -> bool {
         self.kind == other.kind
             || (self.kind != WalletKind::Uninitialized
                 && other.kind != WalletKind::Uninitialized
@@ -221,12 +232,6 @@ impl From<Bip32ECKeyPair> for Wallet {
 impl Display for Wallet {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         write!(f, "{:#x}", self.address())
-    }
-}
-
-impl Debug for Wallet {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        write!(f, "{{ address: \"{:#x}\" }}", self.address())
     }
 }
 
@@ -436,6 +441,7 @@ mod tests {
     use rusqlite::Connection;
     use rustc_hex::FromHex;
     use serde_cbor;
+    use std::collections::hash_map::DefaultHasher;
     use std::convert::TryFrom;
     use std::str::FromStr;
 
@@ -513,7 +519,7 @@ mod tests {
         let actual = serde_cbor::from_slice::<Wallet>(&serialized[..]).unwrap();
 
         assert_ne!(actual.kind, expected.kind);
-        assert_eq!(actual, expected);
+        assert!(actual.congruent(&expected));
     }
 
     #[test]
@@ -533,7 +539,7 @@ mod tests {
         let actual = serde_json::from_str::<Wallet>(&result).unwrap();
 
         assert_ne!(actual.kind, expected.kind);
-        assert_eq!(actual, expected);
+        assert!(actual.congruent(&expected));
     }
 
     #[test]
@@ -546,7 +552,7 @@ mod tests {
         let actual = serde_json::from_str::<Wallet>(&result).unwrap();
 
         assert_ne!(actual.kind, expected.kind);
-        assert_eq!(actual, expected);
+        assert!(actual.congruent(&expected));
     }
 
     #[test]
@@ -559,7 +565,7 @@ mod tests {
         let actual = serde_cbor::from_slice::<Wallet>(&result).unwrap();
 
         assert_ne!(actual.kind, expected.kind);
-        assert_eq!(actual, expected);
+        assert!(actual.congruent(&expected));
     }
 
     #[test]
@@ -660,11 +666,212 @@ mod tests {
         let serialized = serde_cbor::to_vec(&expected).unwrap();
         let actual = serde_cbor::from_slice::<Wallet>(&serialized[..]).unwrap();
 
-        assert_eq!(actual, expected);
+        assert!(actual.congruent(&expected));
         assert_ne!(actual.kind, expected.kind);
         match actual.kind {
             WalletKind::Address(address) => assert_eq!(address, expected.address()),
             _ => assert!(false, "Failed to match expected WalletKind::Address"),
         }
+    }
+
+    fn keypair_a() -> Bip32ECKeyPair {
+        let numbers = (0u8..32u8).collect::<Vec<u8>>();
+        Bip32ECKeyPair::from_raw_secret(&numbers).unwrap()
+    }
+
+    fn keypair_b() -> Bip32ECKeyPair {
+        let numbers = (1u8..33u8).collect::<Vec<u8>>();
+        Bip32ECKeyPair::from_raw_secret(&numbers).unwrap()
+    }
+
+    fn hash(wallet: &Wallet) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        wallet.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    #[test]
+    fn wallet_hash() {
+        let address_a1 = Wallet {
+            kind: WalletKind::Address(keypair_a().address()),
+        };
+        let address_a2 = Wallet {
+            kind: WalletKind::Address(keypair_a().address()),
+        };
+        let address_b1 = make_wallet("address");
+        let keypair_a1 = Wallet {
+            kind: WalletKind::KeyPair(keypair_a()),
+        };
+        let keypair_a2 = Wallet {
+            kind: WalletKind::KeyPair(keypair_a()),
+        };
+        let keypair_b1 = Wallet {
+            kind: WalletKind::KeyPair(keypair_b()),
+        };
+        let public_key_a1 = Wallet {
+            kind: WalletKind::PublicKey(keypair_a().secret().public()),
+        };
+        let public_key_a2 = Wallet {
+            kind: WalletKind::PublicKey(keypair_a().secret().public()),
+        };
+        let public_key_b1 = Wallet {
+            kind: WalletKind::PublicKey(keypair_b().secret().public()),
+        };
+        let uninitialized_a1 = Wallet {
+            kind: WalletKind::Uninitialized,
+        };
+        let uninitialized_a2 = Wallet {
+            kind: WalletKind::Uninitialized,
+        };
+
+        assert_eq!(hash(&address_a1), hash(&address_a1));
+        assert_eq!(hash(&address_a1), hash(&address_a2));
+        assert_ne!(hash(&address_a1), hash(&address_b1));
+        assert_eq!(hash(&keypair_a1), hash(&keypair_a1));
+        assert_eq!(hash(&keypair_a1), hash(&keypair_a2));
+        assert_ne!(hash(&keypair_a1), hash(&keypair_b1));
+        assert_ne!(hash(&keypair_a1), hash(&address_a1));
+        assert_eq!(hash(&public_key_a1), hash(&public_key_a1));
+        assert_eq!(hash(&public_key_a1), hash(&public_key_a2));
+        assert_ne!(hash(&public_key_a1), hash(&public_key_b1));
+        assert_ne!(hash(&public_key_a1), hash(&address_a1));
+        assert_ne!(hash(&public_key_a1), hash(&keypair_a1));
+        assert_eq!(hash(&uninitialized_a1), hash(&uninitialized_a1));
+        assert_eq!(hash(&uninitialized_a1), hash(&uninitialized_a2));
+        assert_ne!(hash(&uninitialized_a1), hash(&address_a1));
+        assert_ne!(hash(&uninitialized_a1), hash(&keypair_a1));
+        assert_ne!(hash(&uninitialized_a1), hash(&public_key_b1));
+    }
+
+    #[test]
+    fn wallet_eq() {
+        let address_a1 = Wallet {
+            kind: WalletKind::Address(keypair_a().address()),
+        };
+        let address_a2 = Wallet {
+            kind: WalletKind::Address(keypair_a().address()),
+        };
+        let address_b1 = make_wallet("address");
+        let keypair_a1 = Wallet {
+            kind: WalletKind::KeyPair(keypair_a()),
+        };
+        let keypair_a2 = Wallet {
+            kind: WalletKind::KeyPair(keypair_a()),
+        };
+        let keypair_b1 = Wallet {
+            kind: WalletKind::KeyPair(keypair_b()),
+        };
+        let public_key_a1 = Wallet {
+            kind: WalletKind::PublicKey(keypair_a().secret().public()),
+        };
+        let public_key_a2 = Wallet {
+            kind: WalletKind::PublicKey(keypair_a().secret().public()),
+        };
+        let public_key_b1 = Wallet {
+            kind: WalletKind::PublicKey(keypair_b().secret().public()),
+        };
+        let uninitialized_a1 = Wallet {
+            kind: WalletKind::Uninitialized,
+        };
+        let uninitialized_a2 = Wallet {
+            kind: WalletKind::Uninitialized,
+        };
+
+        assert_eq!(&address_a1, &address_a1);
+        assert_eq!(&address_a1, &address_a2);
+        assert_eq!(&address_a2, &address_a1);
+        assert_ne!(&address_a1, &address_b1);
+        assert_ne!(&address_b1, &address_a1);
+        assert_eq!(&keypair_a1, &keypair_a1);
+        assert_eq!(&keypair_a1, &keypair_a2);
+        assert_eq!(&keypair_a2, &keypair_a1);
+        assert_ne!(&keypair_a1, &keypair_b1);
+        assert_ne!(&keypair_b1, &keypair_a1);
+        assert_ne!(&keypair_a1, &address_a1);
+        assert_ne!(&address_a1, &keypair_a1);
+        assert_eq!(&public_key_a1, &public_key_a1);
+        assert_eq!(&public_key_a1, &public_key_a2);
+        assert_eq!(&public_key_a2, &public_key_a1);
+        assert_ne!(&public_key_a1, &public_key_b1);
+        assert_ne!(&public_key_b1, &public_key_a1);
+        assert_ne!(&public_key_a1, &address_a1);
+        assert_ne!(&address_a1, &public_key_a1);
+        assert_ne!(&public_key_a1, &keypair_a1);
+        assert_ne!(&keypair_a1, &public_key_a1);
+        assert_eq!(&uninitialized_a1, &uninitialized_a1);
+        assert_eq!(&uninitialized_a1, &uninitialized_a2);
+        assert_eq!(&uninitialized_a2, &uninitialized_a1);
+        assert_ne!(&uninitialized_a1, &address_a1);
+        assert_ne!(&address_a1, &uninitialized_a1);
+        assert_ne!(&uninitialized_a1, &keypair_a1);
+        assert_ne!(&keypair_a1, &uninitialized_a1);
+        assert_ne!(&uninitialized_a1, &public_key_a1);
+        assert_ne!(&public_key_a1, &uninitialized_a1);
+    }
+
+    #[test]
+    fn wallet_congruent() {
+        let address_a1 = Wallet {
+            kind: WalletKind::Address(keypair_a().address()),
+        };
+        let address_a2 = Wallet {
+            kind: WalletKind::Address(keypair_a().address()),
+        };
+        let address_b1 = make_wallet("address");
+        let keypair_a1 = Wallet {
+            kind: WalletKind::KeyPair(keypair_a()),
+        };
+        let keypair_a2 = Wallet {
+            kind: WalletKind::KeyPair(keypair_a()),
+        };
+        let keypair_b1 = Wallet {
+            kind: WalletKind::KeyPair(keypair_b()),
+        };
+        let public_key_a1 = Wallet {
+            kind: WalletKind::PublicKey(keypair_a().secret().public()),
+        };
+        let public_key_a2 = Wallet {
+            kind: WalletKind::PublicKey(keypair_a().secret().public()),
+        };
+        let public_key_b1 = Wallet {
+            kind: WalletKind::PublicKey(keypair_b().secret().public()),
+        };
+        let uninitialized_a1 = Wallet {
+            kind: WalletKind::Uninitialized,
+        };
+        let uninitialized_a2 = Wallet {
+            kind: WalletKind::Uninitialized,
+        };
+
+        assert!(address_a1.congruent(&address_a1));
+        assert!(address_a1.congruent(&address_a2));
+        assert!(address_a2.congruent(&address_a1));
+        assert!(!address_a1.congruent(&address_b1));
+        assert!(!address_b1.congruent(&address_a1));
+        assert!(keypair_a1.congruent(&keypair_a1));
+        assert!(keypair_a1.congruent(&keypair_a2));
+        assert!(keypair_a2.congruent(&keypair_a1));
+        assert!(!keypair_a1.congruent(&keypair_b1));
+        assert!(!keypair_b1.congruent(&keypair_a1));
+        assert!(keypair_a1.congruent(&address_a1));
+        assert!(address_a1.congruent(&keypair_a1));
+        assert!(public_key_a1.congruent(&public_key_a1));
+        assert!(public_key_a1.congruent(&public_key_a2));
+        assert!(public_key_a2.congruent(&public_key_a1));
+        assert!(!public_key_a1.congruent(&public_key_b1));
+        assert!(!public_key_b1.congruent(&public_key_a1));
+        assert!(public_key_a1.congruent(&address_a1));
+        assert!(address_a1.congruent(&public_key_a1));
+        assert!(public_key_a1.congruent(&keypair_a1));
+        assert!(keypair_a1.congruent(&public_key_a1));
+        assert!(uninitialized_a1.congruent(&uninitialized_a1));
+        assert!(uninitialized_a1.congruent(&uninitialized_a2));
+        assert!(uninitialized_a2.congruent(&uninitialized_a1));
+        assert!(!uninitialized_a1.congruent(&address_a1));
+        assert!(!address_a1.congruent(&uninitialized_a1));
+        assert!(!uninitialized_a1.congruent(&keypair_a1));
+        assert!(!keypair_a1.congruent(&uninitialized_a1));
+        assert!(!uninitialized_a1.congruent(&public_key_a1));
+        assert!(!public_key_a1.congruent(&uninitialized_a1));
     }
 }

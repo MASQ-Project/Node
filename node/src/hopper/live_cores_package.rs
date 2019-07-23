@@ -319,7 +319,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(result.immediate_neighbor_ip, immediate_neighbor_ip);
-        assert_eq!(result.paying_wallet, Some(paying_wallet.clone()));
+        assert_eq!(
+            result.paying_wallet,
+            Some(paying_wallet.as_address_wallet())
+        );
         assert_eq!(result.payload, payload);
         let mut route = result.remaining_route.clone();
         assert_eq!(
@@ -332,7 +335,7 @@ mod tests {
                         .as_payer(&first_stop_key, &contract_address)
                 ),
                 Component::Neighborhood,
-            )
+            ),
         );
         let empty_public_key = PublicKey::new(&[]);
         assert_eq!(

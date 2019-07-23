@@ -43,7 +43,7 @@ fn wallet_from_phrase_and_path(phrase: &str, path: &str) -> Wallet {
     let mnemonic = Mnemonic::from_phrase(phrase, Language::English).unwrap();
     let seed = Seed::new(&mnemonic, PASSPHRASE);
     let keypair = Bip32ECKeyPair::from_raw(seed.as_ref(), path).unwrap();
-    Wallet::from(keypair)
+    Wallet::from(keypair).as_address_wallet()
 }
 
 fn phrase_from_console_log(console_log: &str) -> String {
