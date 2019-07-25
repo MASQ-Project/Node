@@ -423,7 +423,10 @@ impl Accountant {
 
     fn scan_for_received_payments(&mut self) {
         let future_logger = self.logger.clone();
-        debug!(self.logger, "Scanning for payments".to_string());
+        debug!(
+            self.logger,
+            format!("Scanning for payments to {}", self.earning_wallet)
+        );
         let future_report_new_payments_sub = self.report_new_payments_sub.clone();
         let start_block = self.persistent_configuration.start_block();
         let future = self

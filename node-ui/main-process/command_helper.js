@@ -76,7 +76,7 @@ module.exports = (() => {
 
   if (process.platform === 'linux') {
     runtimeArgs.push('--data-directory')
-    runtimeArgs.push(homePath + '/.local/share/')
+    runtimeArgs.push(homePath + '/.local/share/Substratum')
   }
   if (process.platform === 'win32') {
     binaryPath = getBinaryPath()

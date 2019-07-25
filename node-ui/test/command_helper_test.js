@@ -48,7 +48,7 @@ describe('CommandHelper', () => {
             td.verify(sudoPrompt.exec(td.matchers.argThat(arg => {
               return /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" os-uid os-gid "/.test(arg) &&
                 /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d{1,3}\./.test(arg) &&
-                /--data-directory [/\\]mock-home-dir[/\\]\.local[/\\]share[/\\]/.test(arg)
+                /--data-directory [/\\]mock-home-dir[/\\]\.local[/\\]share[/\\]Substratum/.test(arg)
             }), { name: 'Substratum Node' }, 'callback'))
           })
         })
@@ -65,7 +65,7 @@ describe('CommandHelper', () => {
             td.verify(sudoPrompt.exec(td.matchers.argThat(arg => {
               return /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" env-uid env-gid "/.test(arg) &&
                 /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d{1,3}\./.test(arg) &&
-                /--data-directory [/\\]mock-home-dir[/\\]\.local[/\\]share[/\\]/.test(arg)
+                /--data-directory [/\\]mock-home-dir[/\\]\.local[/\\]share[/\\]Substratum/.test(arg)
             }), { name: 'Substratum Node' }, 'callback'))
           })
         })

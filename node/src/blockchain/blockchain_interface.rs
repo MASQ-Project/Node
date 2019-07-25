@@ -357,7 +357,7 @@ where
     fn get_transaction_count(&self, wallet: &Wallet) -> Nonce {
         self.web3
             .eth()
-            .transaction_count(wallet.address(), None)
+            .transaction_count(wallet.address(), Some(BlockNumber::Pending))
             .map_err(|_| BlockchainError::QueryFailed)
             .wait()
     }
@@ -860,7 +860,7 @@ mod tests {
             "eth_getTransactionCount",
             &[
                 String::from(r#""0x5c361ba8d82fcf0e5538b2a823e9d457a2296725""#),
-                String::from(r#""latest""#),
+                String::from(r#""pending""#),
             ],
         );
         transport.assert_no_more_requests();

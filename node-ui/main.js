@@ -48,9 +48,12 @@ function createWindow () {
     resizable: false,
     transparent: false,
     webPreferences: {
-      backgroundThrottling: false
+      backgroundThrottling: false,
+      zoomFactor: 1.0
     }
   })
+
+  mainWindow.setMenuBarVisibility(false)
 
   // load the dist folder from Angular
   mainWindow.loadURL(

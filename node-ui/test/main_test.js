@@ -19,7 +19,7 @@ describe('main', () => {
     process = td.replace('../main-process/wrappers/process_wrapper')
 
     webContents = td.object(['send'])
-    mainWindow = td.constructor(['on', 'loadURL'])
+    mainWindow = td.constructor(['on', 'loadURL', 'setMenuBarVisibility'])
     mainWindow.prototype.webContents = webContents
     mainWindowOnClose = td.matchers.captor()
     td.when(mainWindow.prototype.on('close', mainWindowOnClose.capture())).thenReturn()
@@ -51,6 +51,16 @@ describe('main', () => {
 
   afterEach(() => {
     td.reset()
+  })
+
+  describe('menu bar visibility', () => {
+    beforeEach(() => {
+      appOnReady.value()
+    })
+
+    it('hides the menu bar', () => {
+      td.verify(mainWindow.prototype.setMenuBarVisibility(false))
+    })
   })
 
   describe('ip lookup', () => {
