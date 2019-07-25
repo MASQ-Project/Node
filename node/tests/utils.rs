@@ -1,6 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use dirs::data_local_dir;
 use std::env;
 use std::io;
 use std::ops::Drop;
@@ -45,10 +44,7 @@ impl Drop for SubstratumNode {
 
 impl SubstratumNode {
     pub fn data_dir() -> Box<Path> {
-        data_local_dir()
-            .unwrap()
-            .join("Substratum")
-            .into_boxed_path()
+        env::temp_dir().into_boxed_path()
     }
 
     pub fn path_to_logfile() -> Box<Path> {
