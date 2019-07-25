@@ -224,7 +224,6 @@ mod tests {
     use crate::database::db_initializer;
     use crate::database::db_initializer::DbInitializer;
     use crate::multi_config::{CommandLineVCL, VirtualCommandLine};
-    use crate::node_configurator::test_utils::ArgsBuilder;
     use crate::node_configurator::DerivationPathWalletInfo;
     use crate::persistent_configuration::PersistentConfigurationReal;
     use crate::sub_lib::cryptde::PlainData;

@@ -609,15 +609,14 @@ mod tests {
     use crate::sub_lib::cryptde::{CryptDE, PlainData, PublicKey};
     use crate::sub_lib::neighborhood::sentinel_ip_addr;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::ensure_node_home_directory_exists;
     use crate::test_utils::environment_guard::EnvironmentGuard;
+    use crate::test_utils::{ensure_node_home_directory_exists, ArgsBuilder};
     use crate::test_utils::{ByteArrayWriter, FakeStreamHolder};
 
     use super::*;
     use crate::blockchain::bip39::{Bip39, Bip39Error};
     use crate::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::node_configurator::test_utils::ArgsBuilder;
     use crate::persistent_configuration::PersistentConfigurationReal;
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
     use crate::sub_lib::crash_point::CrashPoint;

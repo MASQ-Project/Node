@@ -3,16 +3,20 @@ use super::bootstrapper::Bootstrapper;
 use super::privilege_drop::PrivilegeDropper;
 use super::privilege_drop::PrivilegeDropperReal;
 use crate::entry_dns::dns_socket_server::DnsSocketServer;
+use crate::sub_lib;
 use crate::sub_lib::main_tools::Command;
 use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::socket_server::SocketServer;
+use backtrace::Backtrace;
 use chrono::{DateTime, Local};
 use flexi_logger::LevelFilter;
 use flexi_logger::LogSpecification;
 use flexi_logger::Logger;
 use flexi_logger::{DeferredNow, Duplicate, Record};
 use futures::try_ready;
-use std::env::temp_dir;
+use std::any::Any;
+use std::panic::{Location, PanicInfo};
+use std::path::PathBuf;
 use std::{io, thread};
 use tokio::prelude::Async;
 use tokio::prelude::Future;
@@ -92,23 +96,82 @@ impl Default for ServerInitializer<PrivilegeDropperReal> {
 }
 
 pub trait LoggerInitializerWrapper: Send {
-    fn init(&mut self, log_level: LevelFilter) -> bool;
+    fn init(&mut self, file_path: PathBuf, log_level: LevelFilter);
 }
 
 pub struct LoggerInitializerWrapperReal {}
 
 impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
-    fn init(&mut self, log_level: LevelFilter) -> bool {
+    fn init(&mut self, file_path: PathBuf, log_level: LevelFilter) {
         Logger::with(LogSpecification::default(log_level).finalize())
             .log_to_file()
-            .directory(&temp_dir().to_str().expect("Bad temporary filename")[..])
+            .directory(&file_path.to_str().expect("Bad temporary filename")[..])
             .print_message()
             .duplicate_to_stderr(Duplicate::Info)
             .suppress_timestamp()
             .format(format_function)
             .start()
-            .is_ok()
+            .expect("Logging subsystem failed to start");
+        let logfile_name = file_path.join("SubstratumNode.log");
+        let privilege_dropper = PrivilegeDropperReal::new();
+        privilege_dropper.chown(&logfile_name);
+        std::panic::set_hook(Box::new(|panic_info| {
+            panic_hook(AltPanicInfo::from(panic_info))
+        }));
     }
+}
+
+struct AltLocation {
+    file: String,
+    line: u32,
+    col: u32,
+}
+
+// Location can't be constructed in a test; therefore this implementation is untestable
+impl<'a> From<&'a Location<'a>> for AltLocation {
+    fn from(location: &Location) -> Self {
+        AltLocation {
+            file: location.file().to_string(),
+            line: location.line(),
+            col: location.column(),
+        }
+    }
+}
+
+struct AltPanicInfo<'a> {
+    payload: &'a (dyn Any + Send),
+    location: Option<AltLocation>,
+}
+
+// PanicInfo can't be constructed in a test; therefore this implementation is untestable
+impl<'a> From<&'a PanicInfo<'a>> for AltPanicInfo<'a> {
+    fn from(panic_info: &'a PanicInfo) -> Self {
+        AltPanicInfo {
+            payload: panic_info.payload(),
+            location: match panic_info.location() {
+                None => None,
+                Some(location) => Some(AltLocation::from(location)),
+            },
+        }
+    }
+}
+
+fn panic_hook(panic_info: AltPanicInfo) {
+    let logger = sub_lib::logger::Logger::new("PanicHandler");
+    let location = match panic_info.location {
+        None => "<unknown location>".to_string(),
+        Some(location) => format!("{}:{}:{}", location.file, location.line, location.col),
+    };
+    let message = if let Some(s) = panic_info.payload.downcast_ref::<&str>() {
+        s.to_string()
+    } else if let Some(s) = panic_info.payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "<message indecipherable>".to_string()
+    };
+    error!(logger, format!("{} - {}", location, message));
+    let backtrace = Backtrace::new();
+    error!(logger, format!("{:?}", backtrace));
 }
 
 // DeferredNow can't be constructed in a test; therefore this function is untestable...
@@ -144,6 +207,7 @@ pub mod test_utils {
     use crate::server_initializer::LoggerInitializerWrapper;
     use crate::test_utils::logging::init_test_logging;
     use log::LevelFilter;
+    use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
 
     pub struct PrivilegeDropperMock {
@@ -163,16 +227,23 @@ pub mod test_utils {
             let mut calls = self.call_count.lock().unwrap();
             *calls += 1;
         }
+
+        fn chown(&self, _file: &PathBuf) {
+            unimplemented!()
+        }
     }
 
     pub struct LoggerInitializerWrapperMock {
-        init_parameters: Arc<Mutex<Vec<LevelFilter>>>,
+        init_parameters: Arc<Mutex<Vec<(PathBuf, LevelFilter)>>>,
     }
 
     impl LoggerInitializerWrapper for LoggerInitializerWrapperMock {
-        fn init(&mut self, log_level: LevelFilter) -> bool {
-            self.init_parameters.lock().unwrap().push(log_level);
-            init_test_logging()
+        fn init(&mut self, file_path: PathBuf, log_level: LevelFilter) {
+            self.init_parameters
+                .lock()
+                .unwrap()
+                .push((file_path, log_level));
+            assert!(init_test_logging());
         }
     }
 
@@ -183,8 +254,12 @@ pub mod test_utils {
             }
         }
 
-        pub fn init_parameters(&mut self, parameters: &Arc<Mutex<Vec<LevelFilter>>>) {
+        pub fn init_parameters(
+            mut self,
+            parameters: &Arc<Mutex<Vec<(PathBuf, LevelFilter)>>>,
+        ) -> Self {
             self.init_parameters = parameters.clone();
+            self
         }
     }
 }
@@ -193,10 +268,9 @@ pub mod test_utils {
 pub mod tests {
     use super::*;
     use crate::crash_test_dummy::CrashTestDummy;
-    use crate::server_initializer::test_utils::{
-        LoggerInitializerWrapperMock, PrivilegeDropperMock,
-    };
+    use crate::server_initializer::test_utils::PrivilegeDropperMock;
     use crate::sub_lib::crash_point::CrashPoint;
+    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::ByteArrayWriter;
     use crate::test_utils::{ByteArrayReader, FakeStreamHolder};
     use std::sync::Arc;
@@ -278,14 +352,67 @@ pub mod tests {
     }
 
     #[test]
+    fn panic_hook_handles_missing_location_and_unprintable_payload() {
+        init_test_logging();
+        let panic_info = AltPanicInfo {
+            payload: &SocketServerMock::new(), // not a String or a &str
+            location: None,
+        };
+
+        panic_hook(panic_info);
+
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing(
+            "ERROR: PanicHandler: <unknown location> - <message indecipherable>",
+        );
+        tlh.exists_log_containing("panic_hook_handles_missing_location_and_unprintable_payload");
+    }
+
+    #[test]
+    fn panic_hook_handles_existing_location_and_string_payload() {
+        init_test_logging();
+        let panic_info = AltPanicInfo {
+            payload: &"I am a full-fledged String".to_string(),
+            location: Some(AltLocation {
+                file: "file.txt".to_string(),
+                line: 24,
+                col: 42,
+            }),
+        };
+
+        panic_hook(panic_info);
+
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing(
+            "ERROR: PanicHandler: file.txt:24:42 - I am a full-fledged String",
+        );
+        tlh.exists_log_containing("panic_hook_handles_existing_location_and_string_payload");
+    }
+
+    #[test]
+    fn panic_hook_handles_existing_location_and_string_slice_payload() {
+        init_test_logging();
+        let panic_info = AltPanicInfo {
+            payload: &"I'm just a string slice",
+            location: Some(AltLocation {
+                file: "file.txt".to_string(),
+                line: 24,
+                col: 42,
+            }),
+        };
+
+        panic_hook(panic_info);
+
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing("ERROR: PanicHandler: file.txt:24:42 - I'm just a string slice");
+    }
+
+    #[test]
     fn exits_after_all_socket_servers_exit() {
         let dns_socket_server = CrashTestDummy::new(CrashPoint::Error);
         let bootstrapper = CrashTestDummy::new(CrashPoint::Error);
 
         let privilege_dropper = PrivilegeDropperMock::new();
-        let mut logger_initializer_wrapper_mock = LoggerInitializerWrapperMock::new();
-        let logger_init_parameters: Arc<Mutex<Vec<LevelFilter>>> = Arc::new(Mutex::new(vec![]));
-        logger_initializer_wrapper_mock.init_parameters(&logger_init_parameters);
 
         let mut subject = ServerInitializer {
             dns_socket_server: Box::new(dns_socket_server),

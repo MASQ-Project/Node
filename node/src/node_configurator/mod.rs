@@ -596,11 +596,11 @@ pub trait WalletCreationConfigMaker {
 mod tests {
     use super::*;
     use crate::blockchain::bip32::Bip32ECKeyPair;
-    use crate::node_configurator::test_utils::{ArgsBuilder, BadMockDirsWrapper, MockDirsWrapper};
+    use crate::node_configurator::test_utils::{BadMockDirsWrapper, MockDirsWrapper};
     use crate::sub_lib::wallet::{Wallet, DEFAULT_EARNING_DERIVATION_PATH};
     use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::{ensure_node_home_directory_exists, ByteArrayWriter};
+    use crate::test_utils::{ensure_node_home_directory_exists, ArgsBuilder, ByteArrayWriter};
     use bip39::{Mnemonic, MnemonicType, Seed};
     use std::io::Cursor;
     use std::sync::{Arc, Mutex};

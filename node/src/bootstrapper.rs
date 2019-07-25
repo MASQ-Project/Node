@@ -180,7 +180,8 @@ impl SocketServer for Bootstrapper {
     fn initialize_as_privileged(&mut self, args: &Vec<String>, streams: &mut StdStreams) {
         self.config = NodeConfiguratorStandardPrivileged {}.configure(args, streams);
 
-        self.logger_initializer.init(self.config.log_level);
+        self.logger_initializer
+            .init(self.config.data_directory.clone(), self.config.log_level);
         self.listener_handlers =
             FuturesUnordered::<Box<dyn ListenerHandler<Item = (), Error = ()>>>::new();
 
@@ -339,7 +340,7 @@ mod tests {
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
-    use crate::test_utils::{assert_contains, ensure_node_home_directory_exists};
+    use crate::test_utils::{assert_contains, ensure_node_home_directory_exists, ArgsBuilder};
     use crate::test_utils::{cryptde, FakeStreamHolder};
     use actix::Recipient;
     use actix::System;
@@ -545,6 +546,34 @@ mod tests {
             true
         );
         assert_eq!(config.clandestine_discriminator_factories.is_empty(), true);
+    }
+
+    #[test]
+    fn initialize_as_privileged_points_logger_initializer_at_data_directory() {
+        let data_dir = ensure_node_home_directory_exists(
+            "bootstrapper",
+            "initialize_as_privileged_points_logger_initializer_at_data_directory",
+        );
+        let init_params_arc = Arc::new(Mutex::new(vec![]));
+        let logger_initializer =
+            LoggerInitializerWrapperMock::new().init_parameters(&init_params_arc);
+        let mut listener_handler_factory = ListenerHandlerFactoryMock::new();
+        listener_handler_factory.add(Box::new(
+            ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())),
+        ));
+        listener_handler_factory.add(Box::new(
+            ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())),
+        ));
+        let mut subject = Bootstrapper::new(Box::new(logger_initializer));
+        subject.listener_handler_factory = Box::new(listener_handler_factory);
+        let args = ArgsBuilder::new()
+            .param("--data-directory", data_dir.to_str().unwrap())
+            .param("--dns-servers", "1.1.1.1");
+
+        subject.initialize_as_privileged(&args.into(), &mut FakeStreamHolder::new().streams());
+
+        let init_params = init_params_arc.lock().unwrap();
+        assert_eq!(*init_params, vec![(data_dir, LevelFilter::Warn)])
     }
 
     #[test]

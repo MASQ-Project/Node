@@ -173,6 +173,39 @@ impl FakeStreamHolder {
     }
 }
 
+pub struct ArgsBuilder {
+    args: Vec<String>,
+}
+
+impl Into<Vec<String>> for ArgsBuilder {
+    fn into(self) -> Vec<String> {
+        self.args
+    }
+}
+
+impl Default for ArgsBuilder {
+    fn default() -> Self {
+        ArgsBuilder::new()
+    }
+}
+
+impl ArgsBuilder {
+    pub fn new() -> ArgsBuilder {
+        ArgsBuilder {
+            args: vec!["command".to_string()],
+        }
+    }
+
+    pub fn opt(mut self, option: &str) -> ArgsBuilder {
+        self.args.push(option.to_string());
+        self
+    }
+
+    pub fn param(self, option: &str, value: &str) -> ArgsBuilder {
+        self.opt(option).opt(value)
+    }
+}
+
 pub fn assert_ends_with(string: &str, suffix: &str) {
     assert_eq!(
         string.ends_with(suffix),

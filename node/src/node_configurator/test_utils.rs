@@ -17,30 +17,3 @@ impl DirsWrapper for BadMockDirsWrapper {
         None
     }
 }
-
-pub struct ArgsBuilder {
-    args: Vec<String>,
-}
-
-impl Into<Vec<String>> for ArgsBuilder {
-    fn into(self) -> Vec<String> {
-        self.args
-    }
-}
-
-impl ArgsBuilder {
-    pub fn new() -> ArgsBuilder {
-        ArgsBuilder {
-            args: vec!["command".to_string()],
-        }
-    }
-
-    pub fn opt(mut self, option: &str) -> ArgsBuilder {
-        self.args.push(option.to_string());
-        self
-    }
-
-    pub fn param(self, option: &str, value: &str) -> ArgsBuilder {
-        self.opt(option).opt(value)
-    }
-}

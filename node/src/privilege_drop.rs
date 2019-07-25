@@ -12,6 +12,7 @@ extern "C" {
 }
 
 use std::env::var;
+use std::path::PathBuf;
 
 pub trait IdWrapper: Send {
     fn getuid(&self) -> i32;
@@ -75,6 +76,7 @@ impl IdWrapper for IdWrapperReal {
 
 pub trait PrivilegeDropper: Send {
     fn drop_privileges(&self);
+    fn chown(&self, file: &PathBuf);
 }
 
 pub struct PrivilegeDropperReal {
@@ -106,6 +108,34 @@ impl PrivilegeDropper for PrivilegeDropperReal {
                 panic!("Attempt to drop user privileges failed: still root")
             }
         }
+    }
+
+    #[cfg(unix)]
+    fn chown(&self, file: &PathBuf) {
+        let sudo_uid = self.id_from_env("SUDO_UID");
+        let uid = sudo_uid.unwrap_or_else(|| self.id_wrapper.getuid());
+        let sudo_gid = self.id_from_env("SUDO_GID");
+        let gid = sudo_gid.unwrap_or_else(|| self.id_wrapper.getgid());
+        let mut command = std::process::Command::new("chown");
+        command.args(vec![
+            format!("{}:{}", uid, gid),
+            format!("{}", file.display()),
+        ]);
+        let exit_status = command
+            .status()
+            .expect("Could not retrieve status from chown command");
+        if !exit_status.success() {
+            if self.id_wrapper.getuid() == 0 {
+                panic!("Couldn't chown as root");
+            } else {
+                // kind of expected this. Probably we're running tests or something.
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    fn chown(&self, _file: &PathBuf) {
+        // Windows doesn't need chown: it runs as administrator the whole way
     }
 }
 
@@ -139,30 +169,32 @@ impl Default for PrivilegeDropperReal {
 mod tests {
     use super::*;
     use std::cell::RefCell;
+    use std::sync::{Arc, Mutex};
 
     #[derive(Default)]
     struct IdWrapperMock {
-        pub uids: RefCell<Vec<i32>>,
-        pub uid_results: RefCell<Vec<i32>>,
-        pub gids: RefCell<Vec<i32>>,
-        pub gid_results: RefCell<Vec<i32>>,
-        pub log: RefCell<Vec<String>>,
+        getuid_results: RefCell<Vec<i32>>,
+        setuid_params: Arc<Mutex<Vec<i32>>>,
+        setuid_results: RefCell<Vec<i32>>,
+        getgid_results: RefCell<Vec<i32>>,
+        setgid_params: Arc<Mutex<Vec<i32>>>,
+        setgid_results: RefCell<Vec<i32>>,
     }
 
     impl IdWrapper for IdWrapperMock {
         fn getuid(&self) -> i32 {
-            self.uids.borrow_mut().pop().unwrap()
+            self.getuid_results.borrow_mut().pop().unwrap()
         }
         fn getgid(&self) -> i32 {
-            self.gids.borrow_mut().pop().unwrap()
+            self.getgid_results.borrow_mut().pop().unwrap()
         }
         fn setuid(&self, uid: i32) -> i32 {
-            self.log.borrow_mut().push(format!("setuid ({})", uid));
-            self.uid_results.borrow_mut().pop().unwrap()
+            self.setuid_params.lock().unwrap().push(uid);
+            self.setuid_results.borrow_mut().pop().unwrap()
         }
         fn setgid(&self, gid: i32) -> i32 {
-            self.log.borrow_mut().push(format!("setgid ({})", gid));
-            self.gid_results.borrow_mut().pop().unwrap()
+            self.setgid_params.lock().unwrap().push(gid);
+            self.setgid_results.borrow_mut().pop().unwrap()
         }
     }
 
@@ -171,23 +203,33 @@ mod tests {
             Default::default()
         }
 
-        fn uid(self, uid: i32) -> Self {
-            self.uids.borrow_mut().push(uid);
+        fn getuid_result(self, uid: i32) -> Self {
+            self.getuid_results.borrow_mut().push(uid);
             self
         }
 
-        fn uid_result(self, uid_result: i32) -> Self {
-            self.uid_results.borrow_mut().push(uid_result);
+        fn setuid_params(mut self, params: &Arc<Mutex<Vec<i32>>>) -> Self {
+            self.setuid_params = params.clone();
             self
         }
 
-        fn gid(self, gid: i32) -> Self {
-            self.gids.borrow_mut().push(gid);
+        fn setuid_result(self, uid_result: i32) -> Self {
+            self.setuid_results.borrow_mut().push(uid_result);
             self
         }
 
-        fn gid_result(self, gid_result: i32) -> Self {
-            self.gid_results.borrow_mut().push(gid_result);
+        fn getgid_result(self, gid: i32) -> Self {
+            self.getgid_results.borrow_mut().push(gid);
+            self
+        }
+
+        fn setgid_params(mut self, params: &Arc<Mutex<Vec<i32>>>) -> Self {
+            self.setgid_params = params.clone();
+            self
+        }
+
+        fn setgid_result(self, gid_result: i32) -> Self {
+            self.setgid_results.borrow_mut().push(gid_result);
             self
         }
     }
@@ -226,7 +268,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Error code 47 resetting group id")]
     fn gid_error_code_causes_panic() {
-        let id_wrapper = IdWrapperMock::new().gid_result(47);
+        let id_wrapper = IdWrapperMock::new().setgid_result(47);
         let environment_wrapper = EnvironmentWrapperMock::new(Some("1000"), Some("1000"));
         let subject = PrivilegeDropperReal {
             id_wrapper: Box::new(id_wrapper),
@@ -240,7 +282,10 @@ mod tests {
     #[test]
     #[should_panic(expected = "Error code 47 resetting user id")]
     fn uid_error_code_causes_panic() {
-        let id_wrapper = IdWrapperMock::new().gid_result(0).gid(1000).uid_result(47);
+        let id_wrapper = IdWrapperMock::new()
+            .setgid_result(0)
+            .getgid_result(1000)
+            .setuid_result(47);
         let environment_wrapper = EnvironmentWrapperMock::new(Some("1000"), Some("1000"));
         let subject = PrivilegeDropperReal {
             id_wrapper: Box::new(id_wrapper),
@@ -254,7 +299,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Attempt to drop group privileges failed: still root")]
     fn final_gid_of_0_causes_panic() {
-        let id_wrapper = IdWrapperMock::new().gid_result(0).gid(0);
+        let id_wrapper = IdWrapperMock::new().setgid_result(0).getgid_result(0);
         let environment_wrapper = EnvironmentWrapperMock::new(Some("1000"), Some("1000"));
         let subject = PrivilegeDropperReal {
             id_wrapper: Box::new(id_wrapper),
@@ -269,10 +314,10 @@ mod tests {
     #[should_panic(expected = "Attempt to drop user privileges failed: still root")]
     fn final_uid_of_0_causes_panic() {
         let id_wrapper = IdWrapperMock::new()
-            .gid_result(0)
-            .gid(1000)
-            .uid_result(0)
-            .uid(0);
+            .setgid_result(0)
+            .getgid_result(1000)
+            .setuid_result(0)
+            .getuid_result(0);
         let environment_wrapper = EnvironmentWrapperMock::new(Some("1000"), Some("1000"));
         let subject = PrivilegeDropperReal {
             id_wrapper: Box::new(id_wrapper),
@@ -282,22 +327,31 @@ mod tests {
         subject.drop_privileges();
     }
 
-    // TODO: Figure out how to make this test compile
-    //    #[test]
-    //    fn works_okay_as_root_with_environment_variables () {
-    //        let mut id_wrapper = IdWrapperMock::new (0, 0, 1000, 0, 0, 1000);
-    //        let environment_wrapper = EnvironmentWrapperMock::new (Some ("1000"), Some ("1000"));
-    //        let subject = PrivilegeDropper {
-    //            id_wrapper: Box::new (id_wrapper),
-    //            environment_wrapper: Box::new (environment_wrapper)
-    //        };
-    //
-    //        subject.drop_privileges ();
-    //
-    //        let log = id_wrapper.log.get_mut ();
-    //        assert_eq! (log, &vec![
-    //            String::from ("setgid (1000)"),
-    //            String::from ("setuid (1000)")
-    //        ])
-    //    }
+    #[cfg(unix)]
+    #[test]
+    fn works_okay_as_root_with_environment_variables() {
+        let setuid_params_arc = Arc::new(Mutex::new(vec![]));
+        let setgid_params_arc = Arc::new(Mutex::new(vec![]));
+        let id_wrapper = IdWrapperMock::new()
+            .getuid_result(0)
+            .getgid_result(0)
+            .setuid_params(&setuid_params_arc)
+            .setgid_params(&setgid_params_arc)
+            .setuid_result(0)
+            .setgid_result(0)
+            .getuid_result(1000)
+            .getgid_result(1000);
+        let environment_wrapper = EnvironmentWrapperMock::new(Some("1000"), Some("1000"));
+        let subject = PrivilegeDropperReal {
+            id_wrapper: Box::new(id_wrapper),
+            environment_wrapper: Box::new(environment_wrapper),
+        };
+
+        subject.drop_privileges();
+
+        let setuid_params = setuid_params_arc.lock().unwrap();
+        assert_eq!(*setuid_params, vec![1000]);
+        let setgid_params = setgid_params_arc.lock().unwrap();
+        assert_eq!(*setgid_params, vec![1000]);
+    }
 }

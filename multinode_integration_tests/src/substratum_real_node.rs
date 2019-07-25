@@ -33,6 +33,8 @@ use std::string::ToString;
 use std::thread;
 use std::time::Duration;
 
+pub const DATA_DIRECTORY: &str = "/node_root/home";
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Firewall {
     ports_to_open: Vec<u16>,
@@ -166,7 +168,7 @@ impl NodeStartupConfig {
         args.push("--log-level".to_string());
         args.push("trace".to_string());
         args.push("--data-directory".to_string());
-        args.push("/node_root/home".to_string());
+        args.push(DATA_DIRECTORY.to_string());
         if let EarningWalletInfo::Address(ref address) = self.earning_wallet_info {
             args.push("--earning-wallet".to_string());
             args.push(address.to_string());
@@ -201,7 +203,7 @@ impl NodeStartupConfig {
                 to_strings(vec![
                     "--recover-wallet",
                     "--data-directory",
-                    "/node_root/home",
+                    DATA_DIRECTORY,
                     "--mnemonic",
                     &format!("\"{}\"", &phrase),
                     "--mnemonic-passphrase",
@@ -220,7 +222,7 @@ impl NodeStartupConfig {
             ) => to_strings(vec![
                 "--recover-wallet",
                 "--data-directory",
-                "/node_root/home",
+                DATA_DIRECTORY,
                 "--mnemonic",
                 &format!("\"{}\"", &phrase),
                 "--mnemonic-passphrase",
@@ -236,7 +238,7 @@ impl NodeStartupConfig {
                 to_strings(vec![
                     "--recover-wallet",
                     "--data-directory",
-                    "/node_root/home",
+                    DATA_DIRECTORY,
                     "--mnemonic",
                     &format!("\"{}\"", &phrase),
                     "--mnemonic-passphrase",
@@ -253,7 +255,7 @@ impl NodeStartupConfig {
             ) => to_strings(vec![
                 "--recover-wallet",
                 "--data-directory",
-                "/node_root/home",
+                DATA_DIRECTORY,
                 "--mnemonic",
                 &format!("\"{}\"", &phrase),
                 "--mnemonic-passphrase",
@@ -276,7 +278,7 @@ impl NodeStartupConfig {
                 to_strings(vec![
                     "--recover-wallet",
                     "--data-directory",
-                    "/node_root/home",
+                    DATA_DIRECTORY,
                     "--mnemonic",
                     &format!("\"{}\"", &ephrase),
                     "--mnemonic-passphrase",
@@ -769,7 +771,7 @@ impl SubstratumRealNode {
         Self::set_permissions_test_runner_node_home_dir(&container_name, test_runner_node_home_dir);
         let ip_addr_string = format!("{}", ip_addr);
         let node_binary_v_param = format!("{}:/node_root/node", node_command_dir);
-        let home_v_param = format!("{}:/node_root/home", host_node_home_dir);
+        let home_v_param = format!("{}:{}", host_node_home_dir, DATA_DIRECTORY);
 
         let mut args = vec![
             "run",
@@ -819,7 +821,7 @@ impl SubstratumRealNode {
         let host_node_home_dir = Self::node_home_dir(root_dir, container_name_ref);
         let ip_addr_string = format!("{}", ip_addr);
         let node_binary_v_param = format!("{}:/node_root/node", node_command_dir);
-        let home_v_param = format!("{}:/node_root/home", host_node_home_dir);
+        let home_v_param = format!("{}:{}", host_node_home_dir, DATA_DIRECTORY);
 
         let mut args = vec![
             "run",
@@ -949,9 +951,12 @@ impl SubstratumRealNode {
             thread::sleep(Duration::from_millis(100));
             let output = Self::exec_command_on_container_and_wait(
                 name,
-                vec!["cat", "/tmp/SubstratumNode.log"],
+                vec!["cat", &format!("{}/SubstratumNode.log", DATA_DIRECTORY)],
             )
-            .expect("Failed to read /tmp/SubstratumNode.log");
+            .expect(&format!(
+                "Failed to read {}/SubstratumNode.log",
+                DATA_DIRECTORY
+            ));
             match regex.captures(output.as_str()) {
                 Some(captures) => {
                     let node_reference =
@@ -1192,7 +1197,7 @@ mod tests {
                 "--log-level",
                 "trace",
                 "--data-directory",
-                "/node_root/home",
+                DATA_DIRECTORY,
                 "--consuming-private-key",
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
             ))

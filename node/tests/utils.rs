@@ -1,9 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use dirs::data_local_dir;
 use std::env;
-use std::fs::OpenOptions;
 use std::io;
-use std::io::Read;
 use std::ops::Drop;
 use std::path::Path;
 use std::process;
@@ -12,8 +11,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 pub struct SubstratumNode {
-    logfile_stream: Box<dyn Read>,
-    logfile_contents: String,
+    pub logfile_contents: String,
     child: process::Child,
 }
 
@@ -47,7 +45,10 @@ impl Drop for SubstratumNode {
 
 impl SubstratumNode {
     pub fn data_dir() -> Box<Path> {
-        env::temp_dir().into_boxed_path()
+        data_local_dir()
+            .unwrap()
+            .join("Substratum")
+            .into_boxed_path()
     }
 
     pub fn path_to_logfile() -> Box<Path> {
@@ -65,15 +66,7 @@ impl SubstratumNode {
         let mut command = SubstratumNode::make_node_command(config);
         let child = command.spawn().unwrap();
         thread::sleep(Duration::from_millis(500)); // needs time to open logfile and sockets
-        let stream = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(Self::path_to_logfile().to_str().unwrap())
-            .unwrap();
         SubstratumNode {
-            logfile_stream: Box::new(stream),
             logfile_contents: String::new(),
             child,
         }
@@ -100,15 +93,10 @@ impl SubstratumNode {
     #[allow(dead_code)]
     pub fn wait_for_log(&mut self, pattern: &str, limit_ms: Option<u64>) {
         let regex = regex::Regex::new(pattern).unwrap();
-        let mut buf: [u8; 0x1000] = [0; 0x1000];
         let real_limit_ms = limit_ms.unwrap_or(0xFFFFFFFF);
         let started_at = Instant::now();
         loop {
-            SubstratumNode::update_string(
-                &mut self.logfile_stream,
-                &mut buf,
-                &mut self.logfile_contents,
-            );
+            self.logfile_contents = std::fs::read_to_string(Self::path_to_logfile()).unwrap();
             if regex.is_match(&self.logfile_contents[..]) {
                 break;
             }
@@ -118,7 +106,7 @@ impl SubstratumNode {
                 "Timeout: waited for more than {}ms",
                 real_limit_ms
             );
-            thread::sleep(Duration::from_millis(50));
+            thread::sleep(Duration::from_millis(200));
         }
     }
 
@@ -162,14 +150,6 @@ impl SubstratumNode {
                 database, e
             ),
         }
-    }
-
-    #[allow(dead_code)]
-    fn update_string(stream: &mut dyn Read, mut buf: &mut [u8], stream_string: &mut String) {
-        let len = stream.read(&mut buf).unwrap();
-        let increment = String::from_utf8(Vec::from(&buf[0..len])).unwrap();
-        print!("{}", increment);
-        stream_string.push_str(&increment[..])
     }
 
     fn millis_since(started_at: Instant) -> u64 {
