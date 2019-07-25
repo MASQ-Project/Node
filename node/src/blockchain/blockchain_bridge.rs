@@ -52,13 +52,13 @@ impl Handler<BindMessage> for BlockchainBridge {
             Some(wallet) => {
                 debug!(
                     self.logger,
-                    format!("Received BindMessage; consuming wallet address {}", wallet)
+                    "Received BindMessage; consuming wallet address {}", wallet
                 );
             }
             None => {
                 debug!(
                     self.logger,
-                    "Received BindMessage; no consuming wallet address specified".to_string()
+                    "Received BindMessage; no consuming wallet address specified"
                 );
             }
         }
@@ -181,7 +181,7 @@ impl BlockchainBridge {
         if self.consuming_wallet.is_some() {
             error!(
                 self.logger,
-                "Wallet password rejected: consuming wallet already active".to_string()
+                "Wallet password rejected: consuming wallet already active"
             );
             return false;
         }
@@ -191,7 +191,7 @@ impl BlockchainBridge {
         {
             Some(cwdp) => cwdp,
             None => {
-                error!(self.logger, "Wallet password rejected: no consuming wallet derivation path has been configured".to_string());
+                error!(self.logger, "Wallet password rejected: no consuming wallet derivation path has been configured");
                 return false;
             }
         };
@@ -213,25 +213,19 @@ impl BlockchainBridge {
                 self.consuming_wallet = Some(consuming_wallet);
                 debug!(
                     self.logger,
-                    format!(
-                        "unlocked consuming wallet address {:?}",
-                        &self.consuming_wallet
-                    )
+                    "unlocked consuming wallet address {:?}", &self.consuming_wallet
                 );
                 true
             }
             Err(Bip39Error::NotPresent) => {
                 error!(
                     self.logger,
-                    "Wallet password rejected: no mnemonic phrase has been configured".to_string()
+                    "Wallet password rejected: no mnemonic phrase has been configured"
                 );
                 false
             }
             Err(e) => {
-                warning!(
-                    self.logger,
-                    format!("failed to unlock consuming wallet: {:?}", e)
-                );
+                warning!(self.logger, "failed to unlock consuming wallet: {:?}", e);
                 false
             }
         }

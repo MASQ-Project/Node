@@ -103,7 +103,6 @@ impl WebSocketSupervisorReal {
                 error!(
                     logger_1,
                     "WebSocketSupervisor experienced unprintable error accepting connection"
-                        .to_string()
                 );
                 Err(())
             }
@@ -120,10 +119,7 @@ impl WebSocketSupervisorReal {
             .then(move |result| match result {
                 Ok(x) => ok::<Option<I>, E>(Some(x)),
                 Err(_) => {
-                    info!(
-                        logger_clone,
-                        "Unsuccessful connection to UI port detected".to_string()
-                    );
+                    info!(logger_clone, "Unsuccessful connection to UI port detected");
                     ok::<Option<I>, E>(None)
                 }
             })
@@ -154,7 +150,7 @@ impl WebSocketSupervisorReal {
         logger: &Logger,
     ) {
         let logger_clone = logger.clone();
-        info!(logger_clone, format!("UI connected at {}", socket_addr));
+        info!(logger_clone, "UI connected at {}", socket_addr);
         let upgrade_future =
             upgrade
                 .use_protocol("SubstratumNode-UI")
@@ -173,10 +169,8 @@ impl WebSocketSupervisorReal {
     fn reject_upgrade_request(upgrade: WsUpgrade<TcpStream, BytesMut>, logger: &Logger) {
         info!(
             logger,
-            format!(
-                "UI attempted connection without protocol SubstratumNode-UI: {:?}",
-                upgrade.protocols()
-            )
+            "UI attempted connection without protocol SubstratumNode-UI: {:?}",
+            upgrade.protocols()
         );
         tokio::spawn(upgrade.reject().then(|_| ok::<(), ()>(())));
     }
@@ -237,7 +231,6 @@ impl WebSocketSupervisorReal {
                 warning!(
                     logger,
                     "WebSocketSupervisor got a message from a client that never connected!"
-                        .to_string()
                 );
                 err::<(), ()>(()) // end the stream
             }
@@ -259,7 +252,7 @@ impl WebSocketSupervisorReal {
         logger: &Logger,
         socket_addr: SocketAddr,
     ) -> FutureResult<(), ()> {
-        info!(logger, format!("UI at {} disconnected", socket_addr));
+        info!(logger, "UI at {} disconnected", socket_addr);
         let mut locked_inner = inner_arc.lock().expect("WebSocketSupervisor is poisoned");
         let client_id = match locked_inner.client_id_by_socket_addr.remove(&socket_addr) {
             None => {
@@ -279,10 +272,7 @@ impl WebSocketSupervisorReal {
     ) -> FutureResult<(), ()> {
         info!(
             logger,
-            format!(
-                "UI at {} sent unexpected {} message; ignoring",
-                socket_addr, message_type
-            )
+            "UI at {} sent unexpected {} message; ignoring", socket_addr, message_type
         );
         ok::<(), ()>(())
     }
@@ -296,7 +286,8 @@ impl WebSocketSupervisorReal {
             Err(_e) => {
                 warning!(
                     logger,
-                    format!("UI at {} violated protocol: terminating", socket_addr)
+                    "UI at {} violated protocol: terminating",
+                    socket_addr
                 );
                 err::<I, ()>(())
             }
@@ -317,10 +308,9 @@ impl WebSocketSupervisorReal {
         match client.send(OwnedMessage::Close(None)) {
             Err(e) => warning!(
                 logger,
-                format!(
-                    "Error acknowledging connection closure from UI at {}: {:?}",
-                    socket_addr, e
-                )
+                "Error acknowledging connection closure from UI at {}: {:?}",
+                socket_addr,
+                e
             ),
             Ok(_) => client
                 .flush()

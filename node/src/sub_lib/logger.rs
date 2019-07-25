@@ -13,38 +13,38 @@ pub struct Logger {
 }
 
 macro_rules! trace {
-    ($logger: expr, $log_expr: expr) => {
-        $logger.trace(|| $log_expr)
+    ($logger: expr, $($arg:tt)*) => {
+        $logger.trace(|| format!($($arg)*))
     };
 }
 
 macro_rules! debug {
-    ($logger: expr, $log_expr: expr) => {
-        $logger.debug(|| $log_expr)
+    ($logger: expr, $($arg:tt)*) => {
+        $logger.debug(|| format!($($arg)*))
     };
 }
 
 macro_rules! info {
-    ($logger: expr, $log_expr: expr) => {
-        $logger.info(|| $log_expr)
+    ($logger: expr, $($arg:tt)*) => {
+        $logger.info(|| format!($($arg)*))
     };
 }
 
 macro_rules! warning {
-    ($logger: expr, $log_expr: expr) => {
-        $logger.warning(|| $log_expr)
+    ($logger: expr, $($arg:tt)*) => {
+        $logger.warning(|| format!($($arg)*))
     };
 }
 
 macro_rules! error {
-    ($logger: expr, $log_expr: expr) => {
-        $logger.error(|| $log_expr)
+    ($logger: expr, $($arg:tt)*) => {
+        $logger.error(|| format!($($arg)*))
     };
 }
 
 macro_rules! fatal {
-    ($logger: expr, $log_expr: expr) => {
-        $logger.fatal(|| $log_expr)
+    ($logger: expr, $($arg:tt)*) => {
+        $logger.fatal(|| format!($($arg)*))
     };
 }
 
@@ -172,8 +172,8 @@ mod tests {
         let another_logger = Logger::new("logger_format_is_correct_another");
 
         let before = SystemTime::now();
-        error!(one_logger, String::from("one log"));
-        error!(another_logger, String::from("another log"));
+        error!(one_logger, "one log");
+        error!(another_logger, "another log");
         let after = SystemTime::now();
 
         let tlh = TestLogHandler::new();
@@ -378,18 +378,18 @@ mod tests {
         init_test_logging();
         let logger = Logger::new("test");
 
-        trace!(logger, "trace! log".to_string());
-        debug!(logger, "debug! log".to_string());
-        info!(logger, "info! log".to_string());
-        warning!(logger, "warning! log".to_string());
-        error!(logger, "error! log".to_string());
+        trace!(logger, "trace! {}", 42);
+        debug!(logger, "debug! {}", 42);
+        info!(logger, "info! {}", 42);
+        warning!(logger, "warning! {}", 42);
+        error!(logger, "error! {}", 42);
 
         let tlh = TestLogHandler::new();
-        tlh.exists_log_containing("trace! log");
-        tlh.exists_log_containing("debug! log");
-        tlh.exists_log_containing("info! log");
-        tlh.exists_log_containing("warning! log");
-        tlh.exists_log_containing("error! log");
+        tlh.exists_log_containing("trace! 42");
+        tlh.exists_log_containing("debug! 42");
+        tlh.exists_log_containing("info! 42");
+        tlh.exists_log_containing("warning! 42");
+        tlh.exists_log_containing("error! 42");
     }
 
     fn timestamp_as_string(timestamp: &SystemTime) -> String {

@@ -93,20 +93,15 @@ impl StreamWriterSorted {
                             if indicates_dead_stream(e.kind()) {
                                 error!(
                                     self.logger,
-                                    format!(
-                                        "Error writing {} bytes to {}: {}",
-                                        packet.data.len(),
-                                        self.peer_addr,
-                                        e
-                                    )
+                                    "Error writing {} bytes to {}: {}",
+                                    packet.data.len(),
+                                    self.peer_addr,
+                                    e
                                 );
                                 return WriteBufferStatus::StreamInError;
                             } else {
                                 // TODO this could be exploitable and inefficient: if we keep getting non-dead-stream errors, we go into a tight loop and do not return
-                                warning!(
-                                    self.logger,
-                                    format!("Continuing after write error: {}", e)
-                                );
+                                warning!(self.logger, "Continuing after write error: {}", e);
                                 self.sequence_buffer.repush(packet);
                             }
                         }
@@ -117,17 +112,16 @@ impl StreamWriterSorted {
                         Ok(Async::Ready(len)) => {
                             debug!(
                                 self.logger,
-                                format!(
-                                    "Wrote {}/{} bytes of clear data (#{})",
-                                    len,
-                                    &packet.data.len(),
-                                    &packet.sequence_number
-                                )
+                                "Wrote {}/{} bytes of clear data (#{})",
+                                len,
+                                &packet.data.len(),
+                                &packet.sequence_number
                             );
                             if len != packet.data.len() {
                                 debug!(
                                     self.logger,
-                                    format!("rescheduling {} bytes", packet.data.len() - len)
+                                    "rescheduling {} bytes",
+                                    packet.data.len() - len
                                 );
                                 self.sequence_buffer.repush(SequencedPacket::new(
                                     packet.data.iter().skip(len).cloned().collect(),
@@ -135,7 +129,7 @@ impl StreamWriterSorted {
                                     packet.last_data,
                                 ));
                             } else if packet.last_data {
-                                debug!(self.logger, format!("Shutting down stream to client at {} in response to server-drop report", self.peer_addr));
+                                debug!(self.logger, "Shutting down stream to client at {} in response to server-drop report", self.peer_addr);
                                 self.shutting_down = true;
                                 return match self.stream.shutdown() {
                                     Ok(Async::NotReady) => WriteBufferStatus::BufferNotEmpty,

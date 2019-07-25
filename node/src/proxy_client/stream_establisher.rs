@@ -93,10 +93,7 @@ impl StreamEstablisher {
             self.stream_killer_tx.clone(),
             peer_addr,
         );
-        debug!(
-            self.logger,
-            format!("Spawning StreamReader for {}", peer_addr)
-        );
+        debug!(self.logger, "Spawning StreamReader for {}", peer_addr);
         tokio::spawn(stream_reader);
         Ok(())
     }

@@ -33,7 +33,7 @@ impl Future for DnsSocketServer {
                 Err(e) => {
                     error!(
                         logger,
-                        format!("Unrecoverable error receiving from UdpSocket: {}", e)
+                        "Unrecoverable error receiving from UdpSocket: {}", e
                     );
                     return Err(());
                 }
@@ -43,10 +43,7 @@ impl Future for DnsSocketServer {
                 .socket_wrapper
                 .send_to(&buffer[0..response_length], socket_addr)
             {
-                error!(
-                    logger,
-                    format!("Unrecoverable error sending to UdpSocket: {}", e)
-                );
+                error!(logger, "Unrecoverable error sending to UdpSocket: {}", e);
                 return Err(());
             }
         }

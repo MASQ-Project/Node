@@ -152,7 +152,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
     fn retrieve_transactions(&self, _start_block: u64, _recipient: &Wallet) -> Transactions {
         let msg = "Could not retrieve transactions since blockchain_service_url was not specified"
             .to_string();
-        error!(self.logger, msg.clone());
+        error!(self.logger, "{}", &msg);
         Err(BlockchainError::TransactionFailed(msg))
     }
 
@@ -165,17 +165,15 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
     ) -> BlockchainResult<H256> {
         let msg =
             "Could not send transaction since blockchain_service_url was not specified".to_string();
-        error!(self.logger, msg.clone());
+        error!(self.logger, "{}", &msg);
         Err(BlockchainError::TransactionFailed(msg))
     }
 
     fn get_eth_balance(&self, address: &Wallet) -> Balance {
         error!(
             self.logger,
-            format!(
-                "Could not get eth balance for {:?} since blockchain_service_url was not specified",
-                address
-            )
+            "Could not get eth balance for {:?} since blockchain_service_url was not specified",
+            address
         );
         Ok(0.into())
     }
@@ -183,10 +181,8 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
     fn get_token_balance(&self, address: &Wallet) -> Balance {
         error!(
             self.logger,
-            format!(
             "Could not get token balance for {:?} since blockchain_service_url was not specified",
             address
-        )
         );
         Ok(0.into())
     }
@@ -227,13 +223,11 @@ where
     fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> Transactions {
         debug!(
             self.logger,
-            format!(
-                "Retrieving transactions from start block: {} for: {} chain_id: {} contract: {:#x}",
-                start_block,
-                recipient,
-                self.chain_id,
-                self.contract_address()
-            )
+            "Retrieving transactions from start block: {} for: {} chain_id: {} contract: {:#x}",
+            start_block,
+            recipient,
+            self.chain_id,
+            self.contract_address()
         );
         let filter = FilterBuilder::default()
             .address(vec![self.contract_address()])
@@ -290,14 +284,12 @@ where
     ) -> BlockchainResult<H256> {
         debug!(
             self.logger,
-            format!(
-                "Sending transaction for {} Gwei to {} from {}: (chain_id: {} contract: {:#x})",
-                amount,
-                recipient,
-                consuming_wallet,
-                self.chain_id,
-                self.contract_address()
-            )
+            "Sending transaction for {} Gwei to {} from {}: (chain_id: {} contract: {:#x})",
+            amount,
+            recipient,
+            consuming_wallet,
+            self.chain_id,
+            self.contract_address()
         );
         let mut data = [0u8; 4 + 32 + 32];
         data[0..4].copy_from_slice(&TRANSFER_METHOD_ID);

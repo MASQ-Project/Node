@@ -64,7 +64,7 @@ impl Discriminator {
                 Ok(chunk) => return Some(chunk),
                 Err(MasqueradeError::NotThisMasquerader) => (),
                 Err(e) => {
-                    warning!(self.logger, e.to_string());
+                    warning!(self.logger, "{}", e);
                 }
             }
         }

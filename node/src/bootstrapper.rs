@@ -271,7 +271,7 @@ impl Bootstrapper {
         let descriptor = format!("{}:{}:{}", &encoded_public_key, ip_addr, port_list);
         let descriptor_msg = format!("SubstratumNode local descriptor: {}", descriptor);
         writeln!(streams.stdout, "{}", descriptor_msg).expect("Internal error");
-        info!(Logger::new("Bootstrapper"), descriptor_msg);
+        info!(Logger::new("Bootstrapper"), "{}", descriptor_msg);
         descriptor
     }
 
@@ -418,7 +418,7 @@ mod tests {
 
         fn bind_subs(&mut self, add_stream_sub: Recipient<AddStreamMsg>) {
             let logger = Logger::new("ListenerHandler");
-            error!(logger, String::from("bind_subscribers (add_stream_sub)"));
+            error!(logger, "bind_subscribers (add_stream_sub)");
 
             self.add_stream_sub = Some(add_stream_sub);
         }

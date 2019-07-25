@@ -16,7 +16,7 @@ impl Masquerader for JsonMasquerader {
         match self.unmask(item) {
             Ok(chunk) => Ok(chunk),
             Err(err) => {
-                error!(self.logger, format!("{}", err));
+                error!(self.logger, "{}", err);
                 Err(err)
             }
         }

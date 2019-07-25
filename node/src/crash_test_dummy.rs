@@ -38,17 +38,11 @@ impl Future for CrashTestDummy {
         match self.crash_point {
             CrashPoint::None => Ok(Async::Ready(())),
             CrashPoint::Panic => {
-                error!(
-                    self.logger,
-                    String::from("Intercepted instruction to panic.")
-                );
+                error!(self.logger, "Intercepted instruction to panic.");
                 panic!(self.message.clone());
             }
             CrashPoint::Error => {
-                error!(
-                    self.logger,
-                    String::from("Intercepted instruction to return error.")
-                );
+                error!(self.logger, "Intercepted instruction to return error.");
                 Err(())
             }
         }

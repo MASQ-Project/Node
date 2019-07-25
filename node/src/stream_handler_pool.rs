@@ -222,7 +222,6 @@ impl StreamHandlerPool {
         );
         debug!(
             self.logger,
-            format!(
             "Setting up {}clandestine StreamReader with reception_port {:?} on {} to listen to {}",
             if port_configuration.is_clandestine {
                 ""
@@ -232,7 +231,6 @@ impl StreamHandlerPool {
             origin_port,
             local_addr,
             peer_addr
-        )
         );
         tokio::spawn(stream_reader);
     }
@@ -258,11 +256,9 @@ impl StreamHandlerPool {
         // TODO Can be recombined with DispatcherNodeQueryMessage after SC-358
         debug!(
             self.logger,
-            format!(
-                "Handling order to transmit {} bytes to {:?}",
-                msg.data.len(),
-                msg.endpoint
-            )
+            "Handling order to transmit {} bytes to {:?}",
+            msg.data.len(),
+            msg.endpoint
         );
         let node_query_response_recipient = self
             .self_subs
@@ -279,7 +275,7 @@ impl StreamHandlerPool {
                 };
                 debug!(
                     self.logger,
-                    format!("Sending node query about {} to Neighborhood", key)
+                    "Sending node query about {} to Neighborhood", key
                 );
                 self.ask_neighborhood
                     .as_ref()
@@ -290,10 +286,7 @@ impl StreamHandlerPool {
             Endpoint::Socket(socket_addr) => {
                 debug!(
                     self.logger,
-                    format!(
-                        "Translating TransmitDataMsg to node query response about {}",
-                        socket_addr
-                    )
+                    "Translating TransmitDataMsg to node query response about {}", socket_addr
                 );
                 node_query_response_recipient
                     .try_send(DispatcherNodeQueryResponse {
@@ -332,10 +325,9 @@ impl StreamHandlerPool {
         let stream_writer_key = StreamWriterKey::from(msg.socket_addr);
         debug!(
             self.logger,
-            format!(
-                "Stream from {} has closed; removing stream writer {}",
-                msg.socket_addr, stream_writer_key
-            )
+            "Stream from {} has closed; removing stream writer {}",
+            msg.socket_addr,
+            stream_writer_key
         );
         let report_to_counterpart = match self.stream_writers.remove(&stream_writer_key) {
             None | Some(None) => false,
@@ -346,7 +338,7 @@ impl StreamHandlerPool {
             stream_type: msg.stream_type,
             report_to_counterpart,
         };
-        debug!(self.logger, format! ("Signaling StreamShutdownMsg to Dispatcher for stream from {} with stream type {:?}, {}report to counterpart", stream_shutdown_msg.peer_addr, stream_shutdown_msg.stream_type, if stream_shutdown_msg.report_to_counterpart {""} else {"don't "}));
+        debug!(self.logger, "Signaling StreamShutdownMsg to Dispatcher for stream from {} with stream type {:?}, {}report to counterpart", stream_shutdown_msg.peer_addr, stream_shutdown_msg.stream_type, if stream_shutdown_msg.report_to_counterpart {""} else {"don't "});
         msg.sub
             .try_send(stream_shutdown_msg)
             .expect("StreamShutdownMsg target is dead");
@@ -357,7 +349,7 @@ impl StreamHandlerPool {
         // TODO Can be recombined with TransmitDataMsg after SC-358
         debug!(
             self.logger,
-            format!("Handling node query response containing {:?}", msg.result)
+            "Handling node query response containing {:?}", msg.result
         );
         let node_addr = match msg.result.clone() {
             Some(node_descriptor) => match node_descriptor.node_addr_opt {
@@ -365,10 +357,8 @@ impl StreamHandlerPool {
                 None => {
                     error!(
                         self.logger,
-                        format!(
-                            "No known IP for neighbor in route with key: {}",
-                            node_descriptor.public_key
-                        )
+                        "No known IP for neighbor in route with key: {}",
+                        node_descriptor.public_key
                     );
                     return;
                 }
@@ -376,7 +366,7 @@ impl StreamHandlerPool {
             None => {
                 error!(
                     self.logger,
-                    format!("No neighbor found at endpoint {:?}", msg.context.endpoint)
+                    "No neighbor found at endpoint {:?}", msg.context.endpoint
                 );
                 return;
             }
@@ -395,16 +385,11 @@ impl StreamHandlerPool {
             Some(Some(tx_box)) => {
                 debug!(
                     self.logger,
-                    format!(
-                        "Found already-open stream to {} keyed by {}: using",
-                        tx_box.peer_addr(),
-                        sw_key
-                    )
+                    "Found already-open stream to {} keyed by {}: using",
+                    tx_box.peer_addr(),
+                    sw_key
                 );
-                debug!(
-                    self.logger,
-                    format!("Masking {} bytes", msg.context.data.len())
-                );
+                debug!(self.logger, "Masking {} bytes", msg.context.data.len());
                 let packet = if msg.context.sequence_number.is_none() {
                     let masquerader = self.traffic_analyzer.get_masquerader();
                     match masquerader.mask(msg.context.data.as_slice()) {
@@ -412,12 +397,10 @@ impl StreamHandlerPool {
                         Err(e) => {
                             error!(
                                 self.logger,
-                                format!(
-                                    "Masking failed for {}: {}. Discarding {} bytes.",
-                                    peer_addr,
-                                    e,
-                                    msg.context.data.len()
-                                )
+                                "Masking failed for {}: {}. Discarding {} bytes.",
+                                peer_addr,
+                                e,
+                                msg.context.data.len()
                             );
                             return;
                         }
@@ -431,39 +414,34 @@ impl StreamHandlerPool {
                     Err(e) => {
                         debug!(
                             self.logger,
-                            format!(
-                                "Removing channel to disabled StreamWriter {} to {}: {}",
-                                sw_key, peer_addr, e
-                            )
+                            "Removing channel to disabled StreamWriter {} to {}: {}",
+                            sw_key,
+                            peer_addr,
+                            e
                         );
                         self.stream_writers
                             .remove(&StreamWriterKey::from(peer_addr));
                     }
                     Ok(_) => {
-                        debug!(
-                            self.logger,
-                            format!("Queued {} bytes for transmission", packet_len)
-                        );
+                        debug!(self.logger, "Queued {} bytes for transmission", packet_len);
                     }
                 };
                 if msg.context.last_data {
-                    debug!(self.logger, format!(
+                    debug!(self.logger,
                         "Removing channel to StreamWriter {} to {} in response to server-drop report", sw_key, peer_addr
-                    ));
+                    );
                     self.stream_writers
                         .remove(&StreamWriterKey::from(peer_addr));
                 }
             }
             Some(None) => {
-                debug!(self.logger, format!("Found in-the-process-of-being-opened stream to {} keyed by {}: preparing to use", peer_addr, sw_key));
+                debug!(self.logger, "Found in-the-process-of-being-opened stream to {} keyed by {}: preparing to use", peer_addr, sw_key);
                 // a connection is already in progress. resubmit this message, to give the connection time to complete
                 info!(
                     self.logger,
-                    format!(
-                        "connection for {} in progress, resubmitting {} bytes",
-                        peer_addr,
-                        msg.context.data.len()
-                    )
+                    "connection for {} in progress, resubmitting {} bytes",
+                    peer_addr,
+                    msg.context.data.len()
                 );
                 let recipient = self
                     .self_subs
@@ -482,21 +460,16 @@ impl StreamHandlerPool {
                 if peer_addr.ip() == localhost() {
                     error!(
                         self.logger,
-                        format!(
-                            "Local connection {:?} not found. Discarding {} bytes.",
-                            peer_addr,
-                            msg.context.data.len()
-                        )
+                        "Local connection {:?} not found. Discarding {} bytes.",
+                        peer_addr,
+                        msg.context.data.len()
                     );
                     return;
                 }
 
                 debug!(
                     self.logger,
-                    format!(
-                        "No existing stream keyed by {}: creating one to {}",
-                        sw_key, peer_addr
-                    )
+                    "No existing stream keyed by {}: creating one to {}", sw_key, peer_addr
                 );
 
                 let subs = self.self_subs.clone().expect("Internal error");
@@ -527,7 +500,7 @@ impl StreamHandlerPool {
 
                 let connect_future = self.stream_connector.connect(peer_addr, &self.logger)
                     .map(move |connection_info| {
-                        debug!(logger_m, format!("Connection attempt to {} succeeded", peer_addr));
+                        debug!(logger_m, "Connection attempt to {} succeeded", peer_addr);
                         let origin_port = connection_info.local_addr.port();
                         add_stream_sub.try_send(AddStreamMsg {
                             connection_info,
@@ -537,7 +510,7 @@ impl StreamHandlerPool {
                         node_query_response_sub.try_send(msg).expect("StreamHandlerPool is dead");
                     })
                     .map_err(move |err| { // connection was unsuccessful
-                        error!(logger_me, format!("Stream to {} does not exist and could not be connected; discarding {} bytes: {}", peer_addr, msg_data_len, err));
+                        error!(logger_me, "Stream to {} does not exist and could not be connected; discarding {} bytes: {}", peer_addr, msg_data_len, err);
                         remove_sub.try_send(RemoveStreamMsg {
                             socket_addr: peer_addr_e,
                             stream_type: RemovedStreamType::Clandestine,
@@ -548,10 +521,7 @@ impl StreamHandlerPool {
                         tell_neighborhood.try_send(remove_node_message).expect("Neighborhood is Dead");
                     });
 
-                debug!(
-                    self.logger,
-                    format!("Beginning connection attempt to {}", peer_addr)
-                );
+                debug!(self.logger, "Beginning connection attempt to {}", peer_addr);
                 tokio::spawn(connect_future);
             }
         }

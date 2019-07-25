@@ -27,11 +27,9 @@ impl ClientRequestPayloadFactory {
             None => {
                 error!(
                     logger,
-                    format!(
-                        "No origin port specified with {}-byte packet: {:?}",
-                        ibcd.data.len(),
-                        ibcd.data
-                    )
+                    "No origin port specified with {}-byte packet: {:?}",
+                    ibcd.data.len(),
+                    ibcd.data
                 );
                 return None;
             }
@@ -42,12 +40,10 @@ impl ClientRequestPayloadFactory {
             None => {
                 error!(
                     logger,
-                    format!(
-                        "No protocol associated with origin port {} for {}-byte packet: {:?}",
-                        origin_port,
-                        ibcd.data.len(),
-                        &ibcd.data
-                    )
+                    "No protocol associated with origin port {} for {}-byte packet: {:?}",
+                    origin_port,
+                    ibcd.data.len(),
+                    &ibcd.data
                 );
                 return None;
             }
@@ -57,10 +53,8 @@ impl ClientRequestPayloadFactory {
             None => {
                 error!(
                     logger,
-                    format!(
-                        "internal error: got IBCD with no sequence number and {} bytes",
-                        ibcd.data.len()
-                    )
+                    "internal error: got IBCD with no sequence number and {} bytes",
+                    ibcd.data.len()
                 );
                 return None;
             }

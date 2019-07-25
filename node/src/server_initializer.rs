@@ -169,9 +169,9 @@ fn panic_hook(panic_info: AltPanicInfo) {
     } else {
         "<message indecipherable>".to_string()
     };
-    error!(logger, format!("{} - {}", location, message));
+    error!(logger, "{} - {}", location, message);
     let backtrace = Backtrace::new();
-    error!(logger, format!("{:?}", backtrace));
+    error!(logger, "{:?}", backtrace);
 }
 
 // DeferredNow can't be constructed in a test; therefore this function is untestable...

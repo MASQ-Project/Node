@@ -180,10 +180,8 @@ impl SequenceBuffer {
         } else {
             warning!(
                 self.logger,
-                format!(
-                    "Dropping packet with duplicate sequence number {}",
-                    packet.sequence_number
-                )
+                "Dropping packet with duplicate sequence number {}",
+                packet.sequence_number
             );
         }
     }
@@ -209,10 +207,7 @@ impl SequenceBuffer {
             } else {
                 debug!(
                     self.logger,
-                    format!(
-                        "Buffer waiting for packet #{}",
-                        self.next_expected_sequence_number
-                    )
+                    "Buffer waiting for packet #{}", self.next_expected_sequence_number
                 );
                 None
             }

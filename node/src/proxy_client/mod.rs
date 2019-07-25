@@ -64,16 +64,13 @@ impl Handler<BindMessage> for ProxyClient {
     type Result = ();
 
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
-        debug!(self.logger, "Handling BindMessage".to_string());
+        debug!(self.logger, "Handling BindMessage");
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.to_hopper = Some(msg.peer_actors.hopper.from_hopper_client);
         self.to_accountant = Some(msg.peer_actors.accountant.report_exit_service_provided);
         let mut config = ResolverConfig::new();
         for dns_server_ref in &self.dns_servers {
-            info!(
-                self.logger,
-                format!("Adding DNS server: {}", dns_server_ref.ip())
-            );
+            info!(self.logger, "Adding DNS server: {}", dns_server_ref.ip());
             config.add_name_server(NameServerConfig {
                 socket_addr: *dns_server_ref,
                 protocol: Protocol::Udp,
@@ -114,12 +111,9 @@ impl Handler<ExpiredCoresPackage<ClientRequestPayload>> for ProxyClient {
             self.stream_contexts
                 .insert(payload.stream_key, latest_stream_context);
             pool.process_package(payload, paying_wallet);
-            debug!(self.logger, "ExpiredCoresPackage handled".to_string());
+            debug!(self.logger, "ExpiredCoresPackage handled");
         } else {
-            warning!(self.logger, format!(
-                "Refusing to provide exit services for CORES package with {}-byte payload without paying wallet",
-                payload.sequenced_packet.data.len()
-            ));
+            warning!(self.logger, "Refusing to provide exit services for CORES package with {}-byte payload without paying wallet", payload.sequenced_packet.data.len());
         }
     }
 }
@@ -138,10 +132,10 @@ impl Handler<InboundServerData> for ProxyClient {
             None => {
                 error!(
                     self.logger,
-                    format!(
-                        "Received unsolicited {}-byte response from {}, seq {}: ignoring",
-                        msg_data_len, msg_source, msg_sequence_number
-                    )
+                    "Received unsolicited {}-byte response from {}, seq {}: ignoring",
+                    msg_data_len,
+                    msg_source,
+                    msg_sequence_number
                 );
                 return;
             }
@@ -180,10 +174,7 @@ impl Handler<DnsResolveFailure> for ProxyClient {
             }
             None => error!(
                 self.logger,
-                format!(
-                    "DNS resolution for nonexistent stream ({:?}) failed.",
-                    msg.stream_key
-                )
+                "DNS resolution for nonexistent stream ({:?}) failed.", msg.stream_key
             ),
         }
     }
@@ -245,7 +236,7 @@ impl ProxyClient {
         ) {
             Ok(icp) => icp,
             Err(err) => {
-                error!(self.logger, format!("Could not create CORES package for {}-byte response from {}, seq {}: {} - ignoring", msg_data_len, msg_source, msg_sequence_number, err));
+                error!(self.logger, "Could not create CORES package for {}-byte response from {}, seq {}: {} - ignoring", msg_data_len, msg_source, msg_sequence_number, err);
                 return Err(());
             }
         };
@@ -277,10 +268,7 @@ impl ProxyClient {
         } else {
             debug!(
                 self.logger,
-                format!(
-                    "Relayed {}-byte response without paying wallet for free",
-                    msg_data_len
-                )
+                "Relayed {}-byte response without paying wallet for free", msg_data_len
             );
         }
     }

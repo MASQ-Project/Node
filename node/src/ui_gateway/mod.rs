@@ -118,7 +118,7 @@ impl Handler<UiCarrierMessage> for UiGateway {
                 })
                 .expect("Accountant is dead"),
             UiMessage::ShutdownMessage => {
-                info!(self.logger, String::from("Received shutdown order"));
+                info!(self.logger, "Received shutdown order");
                 self.shutdown_supervisor.shutdown();
             }
             UiMessage::GetNodeDescriptor => self
@@ -155,7 +155,8 @@ impl Handler<FromUiMessage> for UiGateway {
         match self.converter.unmarshal(&msg.json) {
             Err(e) => warning!(
                 self.logger,
-                format!("Error unmarshalling message from UI - ignoring: '{}'", e)
+                "Error unmarshalling message from UI - ignoring: '{}'",
+                e
             ),
             Ok(ui_message) => self
                 .subs

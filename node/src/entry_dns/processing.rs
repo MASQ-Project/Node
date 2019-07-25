@@ -154,15 +154,13 @@ fn write_log(from: &RequestRecord, to: &ResponseRecord, addr: &SocketAddr, logge
 
         trace!(
             logger,
-            format!(
-                "{}ns: {} {} ({}) -> {} ({})",
-                to.latency_ns,
-                addr,
-                display(from.opcode),
-                &query_list,
-                ResponseCode::from(0, to.rcode),
-                &answer_list
-            )
+            "{}ns: {} {} ({}) -> {} ({})",
+            to.latency_ns,
+            addr,
+            display(from.opcode),
+            &query_list,
+            ResponseCode::from(0, to.rcode),
+            &answer_list
         );
     }
 }

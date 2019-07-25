@@ -295,10 +295,8 @@ impl ConfigFileVCL {
                 } else {
                     info!(
                         logger,
-                        format!(
-                            "No configuration file was found at {} - skipping",
-                            file_path.display()
-                        )
+                        "No configuration file was found at {} - skipping",
+                        file_path.display()
                     );
                     return ConfigFileVCL { vcl_args: vec![] };
                 }

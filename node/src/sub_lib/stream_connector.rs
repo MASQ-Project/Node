@@ -60,10 +60,7 @@ impl StreamConnector for StreamConnectorReal {
                             Err(e) => {
                                 error!(
                                     future_logger,
-                                    format!(
-                                        "Newly-connected stream to {} has no peer_addr",
-                                        socket_addr
-                                    )
+                                    "Newly-connected stream to {} has no peer_addr", socket_addr
                                 );
                                 return Err(e);
                             }
@@ -79,7 +76,7 @@ impl StreamConnector for StreamConnectorReal {
                     Err(e) => {
                         error!(
                             future_logger,
-                            format!("Could not connect TCP stream to {}", socket_addr)
+                            "Could not connect TCP stream to {}", socket_addr
                         );
                         Err(e)
                     }
@@ -108,7 +105,7 @@ impl StreamConnector for StreamConnectorReal {
 
             match StdTcpStream::connect(&socket_addr) {
                 Ok(stream) => {
-                    debug!(logger, format!("Connected new stream to {}", socket_addr));
+                    debug!(logger, "Connected new stream to {}", socket_addr);
                     let tokio_stream = TcpStream::from_std(stream, &Handle::default())
                         .expect("Tokio could not create a TcpStream");
                     return Ok(self.split_stream(tokio_stream, logger).unwrap_or_else(|| {
@@ -125,10 +122,9 @@ impl StreamConnector for StreamConnectorReal {
 
         error!(
             logger,
-            format!(
-                "Could not connect to any of the IP addresses supplied for {}: {:?}",
-                target_hostname, socket_addrs_tried
-            )
+            "Could not connect to any of the IP addresses supplied for {}: {:?}",
+            target_hostname,
+            socket_addrs_tried
         );
         Err(last_error)
     }
@@ -140,10 +136,7 @@ impl StreamConnector for StreamConnectorReal {
         let peer_addr = match stream.peer_addr() {
             Ok(addr) => addr,
             Err(e) => {
-                error!(
-                    logger,
-                    format!("Stream has no peer_addr before splitting: {}", e)
-                );
+                error!(logger, "Stream has no peer_addr before splitting: {}", e);
                 return None;
             }
         };

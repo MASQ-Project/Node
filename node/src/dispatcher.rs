@@ -80,11 +80,9 @@ impl Handler<TransmitDataMsg> for Dispatcher {
     fn handle(&mut self, msg: TransmitDataMsg, _ctx: &mut Self::Context) {
         debug!(
             self.logger,
-            format!(
-                "Relaying {} bytes to StreamHandlerPool for {:?}",
-                msg.data.len(),
-                msg.endpoint
-            )
+            "Relaying {} bytes to StreamHandlerPool for {:?}",
+            msg.data.len(),
+            msg.endpoint
         );
         self.to_stream
             .as_ref()

@@ -54,17 +54,11 @@ impl ReceivableDao for ReceivableDaoReal {
             Ok(false) => match self.try_insert(wallet, amount) {
                 Ok(_) => (),
                 Err(e) => {
-                    fatal!(
-                        self.logger,
-                        format!("Couldn't insert; database is corrupt: {}", e)
-                    );
+                    fatal!(self.logger, "Couldn't insert; database is corrupt: {}", e);
                 }
             },
             Err(e) => {
-                fatal!(
-                    self.logger,
-                    format!("Couldn't update: database is corrupt: {}", e)
-                );
+                fatal!(self.logger, "Couldn't update: database is corrupt: {}", e);
             }
         };
     }
@@ -76,10 +70,7 @@ impl ReceivableDao for ReceivableDaoReal {
     ) {
         self.try_multi_insert_payment(persistent_configuration, payments)
             .unwrap_or_else(|e| {
-                warning!(
-                    self.logger,
-                    format!("Transaction failed, rolling back: {}", e)
-                );
+                warning!(self.logger, "Transaction failed, rolling back: {}", e);
             });
     }
 

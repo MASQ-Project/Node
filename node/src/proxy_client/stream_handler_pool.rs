@@ -115,10 +115,8 @@ impl StreamHandlerPoolReal {
                 if payload.sequenced_packet.data.is_empty() {
                     debug!(
                         Self::make_logger_copy(&inner_arc_1),
-                        format!(
-                            "Empty request payload received for nonexistent stream {:?} - ignoring",
-                            payload.stream_key
-                        )
+                        "Empty request payload received for nonexistent stream {:?} - ignoring",
+                        payload.stream_key
                     )
                 } else {
                     let future = Self::make_stream_with_key(&payload, inner_arc_1.clone())
@@ -151,12 +149,13 @@ impl StreamHandlerPoolReal {
         let mut inner = inner_arc.lock().expect("Stream handler pool was poisoned");
         error!(
             inner.logger,
-            format!("Couldn't process request from CORES package: {}", error)
+            "Couldn't process request from CORES package: {}", error
         );
         if let Some(sender_wrapper) = inner.stream_writer_channels.remove(stream_key) {
             debug!(
                 inner.logger,
-                format!("Removing stream writer for {}", sender_wrapper.peer_addr())
+                "Removing stream writer for {}",
+                sender_wrapper.peer_addr()
             );
         }
         Self::send_terminating_package(
@@ -182,18 +181,13 @@ impl StreamHandlerPoolReal {
                 match inner.stream_writer_channels.remove(&stream_key) {
                     Some(channel) => debug!(
                         inner.logger,
-                        format!(
-                            "Removing StreamWriter {:?} to {}",
-                            stream_key,
-                            channel.peer_addr()
-                        )
+                        "Removing StreamWriter {:?} to {}",
+                        stream_key,
+                        channel.peer_addr()
                     ),
                     None => debug!(
                         inner.logger,
-                        format!(
-                            "Trying to remove StreamWriter {:?}, but it's already gone",
-                            stream_key
-                        )
+                        "Trying to remove StreamWriter {:?}, but it's already gone", stream_key
                     ),
                 }
             }
@@ -211,10 +205,7 @@ impl StreamHandlerPoolReal {
                     // This log is here mostly for testing, to prove that no Accountant message is sent in the no-wallet case
                     None => debug!(
                         inner.logger,
-                        format!(
-                            "Sent {}-byte request without consuming wallet for free",
-                            payload_size
-                        )
+                        "Sent {}-byte request without consuming wallet for free", payload_size
                     ),
                 }
             }
@@ -232,10 +223,7 @@ impl StreamHandlerPoolReal {
         let logger = Self::make_logger_copy(&inner_arc);
         debug!(
             logger,
-            format!(
-                "No stream to {:?} exists; resolving host",
-                &payload.target_hostname
-            )
+            "No stream to {:?} exists; resolving host", &payload.target_hostname
         );
 
         match payload.target_hostname {
@@ -251,10 +239,8 @@ impl StreamHandlerPoolReal {
             None => {
                 error!(
                     logger,
-                    format!(
-                        "Cannot open new stream with key {:?}: no hostname supplied",
-                        payload.stream_key
-                    )
+                    "Cannot open new stream with key {:?}: no hostname supplied",
+                    payload.stream_key
                 );
                 Box::new(future::err::<
                     Box<dyn SenderWrapper<SequencedPacket> + 'static>,
@@ -346,10 +332,7 @@ impl StreamHandlerPoolReal {
             Err(e) => {
                 error!(
                     logger,
-                    format!(
-                        "Could not find IP address for host {}: {}",
-                        target_hostname, e
-                    )
+                    "Could not find IP address for host {}: {}", target_hostname, e
                 );
                 return Err(io::Error::from(e));
             }
@@ -357,10 +340,7 @@ impl StreamHandlerPoolReal {
         };
         debug!(
             logger,
-            format!(
-                "Found IP addresses for {}: {:?}",
-                target_hostname, &ip_addrs
-            )
+            "Found IP addresses for {}: {:?}", target_hostname, &ip_addrs
         );
         establisher.establish_stream(&payload, ip_addrs, target_hostname)
     }
@@ -437,18 +417,13 @@ impl StreamHandlerPoolReal {
                         .expect("ProxyClient is dead");
                     debug!(
                         inner.logger,
-                        format!(
-                            "Killed StreamWriter to {} and sent server-drop report",
-                            writer_channel.peer_addr()
-                        )
+                        "Killed StreamWriter to {} and sent server-drop report",
+                        writer_channel.peer_addr()
                     )
                 }
                 None => debug!(
                     inner.logger,
-                    format!(
-                        "Tried to kill StreamWriter for key {:?}, but it was already gone",
-                        stream_key
-                    )
+                    "Tried to kill StreamWriter for key {:?}, but it was already gone", stream_key
                 ),
             }
         }
@@ -462,11 +437,9 @@ impl StreamHandlerPoolReal {
                 Ok((stream_key, stream_writer_channel)) => {
                     debug!(
                         inner.logger,
-                        format!(
-                            "Persisting StreamWriter to {} under key {:?}",
-                            stream_writer_channel.peer_addr(),
-                            stream_key
-                        )
+                        "Persisting StreamWriter to {} under key {:?}",
+                        stream_writer_channel.peer_addr(),
+                        stream_key
                     );
                     inner
                         .stream_writer_channels
