@@ -598,7 +598,11 @@ pub mod tests {
         }
 
         fn non_pending_payables(&self) -> Vec<PayableAccount> {
-            self.non_pending_payables_results.borrow_mut().remove(0)
+            if self.non_pending_payables_results.borrow().is_empty() {
+                vec![]
+            } else {
+                self.non_pending_payables_results.borrow_mut().remove(0)
+            }
         }
     }
 
