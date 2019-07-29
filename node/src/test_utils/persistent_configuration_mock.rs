@@ -99,6 +99,9 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     }
 
     fn start_block(&self) -> u64 {
+        if self.start_block_results.borrow().is_empty() {
+            return 0;
+        }
         Self::result_from(&self.start_block_results)
     }
 

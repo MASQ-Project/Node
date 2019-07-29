@@ -684,7 +684,11 @@ pub mod tests {
                 .lock()
                 .unwrap()
                 .push((now, payment_curves.clone()));
-            self.new_delinquencies_results.borrow_mut().remove(0)
+            if self.new_delinquencies_results.borrow().is_empty() {
+                vec![]
+            } else {
+                self.new_delinquencies_results.borrow_mut().remove(0)
+            }
         }
 
         fn paid_delinquencies(&self, payment_curves: &PaymentCurves) -> Vec<ReceivableAccount> {
@@ -692,7 +696,11 @@ pub mod tests {
                 .lock()
                 .unwrap()
                 .push(payment_curves.clone());
-            self.paid_delinquencies_results.borrow_mut().remove(0)
+            if self.paid_delinquencies_results.borrow().is_empty() {
+                vec![]
+            } else {
+                self.paid_delinquencies_results.borrow_mut().remove(0)
+            }
         }
     }
 
