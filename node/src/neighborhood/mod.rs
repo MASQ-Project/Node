@@ -940,6 +940,7 @@ mod tests {
     use actix::Message;
     use actix::Recipient;
     use actix::System;
+    use itertools::Itertools;
     use serde_cbor;
     use std::cell::RefCell;
     use std::convert::TryInto;
@@ -2043,11 +2044,10 @@ mod tests {
             x => panic!("Expected MessageType::Gossip, got {:?}", x),
         };
         type Digest = (PublicKey, Vec<u8>, bool, u32, Vec<PublicKey>);
-        let to_digest = |gnr: GossipNodeRecord| {
+        let to_actual_digest = |gnr: GossipNodeRecord| {
             let node_addr_opt = gnr.node_addr_opt.clone();
             let inner = NodeRecordInner::try_from(gnr).unwrap();
-            let mut neighbors_vec = inner.neighbors.into_iter().collect::<Vec<PublicKey>>();
-            neighbors_vec.sort_unstable_by(|a, b| a.cmp(&b));
+            let neighbors_vec = inner.neighbors.into_iter().collect::<Vec<PublicKey>>();
             (
                 inner.public_key.clone(),
                 inner.public_key.into(),
@@ -2056,34 +2056,48 @@ mod tests {
                 neighbors_vec,
             )
         };
-        let mut digests = gossip
-            .node_records
-            .into_iter()
-            .map(|gnr| to_digest(gnr))
-            .collect::<Vec<Digest>>();
-        digests.sort_unstable_by(|a, b| a.0.cmp(&b.0));
-        assert_eq!(
-            vec![
-                (
-                    removed_neighbor.public_key().clone(),
-                    removed_neighbor.public_key().clone().into(),
-                    false,
-                    0,
-                    vec![
-                        other_neighbor.public_key().clone(),
-                        this_node.public_key().clone()
-                    ]
-                ),
-                (
-                    this_node.public_key().clone(),
-                    this_node.public_key().clone().into(),
-                    true,
-                    1,
-                    vec![other_neighbor.public_key().clone()]
-                )
-            ],
+
+        let sort_digests = |digests: Vec<Digest>| {
+            let mut digests = digests
+                .into_iter()
+                .map(|mut d| {
+                    d.4.sort_unstable_by(|a, b| a.cmp(&b));
+                    d
+                })
+                .collect_vec();
+            digests.sort_unstable_by(|a, b| a.0.cmp(&b.0));
             digests
+        };
+
+        let actual_digests = sort_digests(
+            gossip
+                .node_records
+                .into_iter()
+                .map(|gnr| to_actual_digest(gnr))
+                .collect::<Vec<Digest>>(),
         );
+
+        let expected_digests = sort_digests(vec![
+            (
+                removed_neighbor.public_key().clone(),
+                removed_neighbor.public_key().clone().into(),
+                false,
+                0,
+                vec![
+                    other_neighbor.public_key().clone(),
+                    this_node.public_key().clone(),
+                ],
+            ),
+            (
+                this_node.public_key().clone(),
+                this_node.public_key().clone().into(),
+                true,
+                1,
+                vec![other_neighbor.public_key().clone()],
+            ),
+        ]);
+
+        assert_eq!(expected_digests, actual_digests);
     }
 
     #[test]

@@ -53,9 +53,8 @@ use std::io::Read;
 use std::io::Write;
 use std::io::{Error, ErrorKind};
 use std::iter::repeat;
-use std::net::SocketAddr;
-use std::net::UdpSocket;
 use std::net::{Shutdown, TcpStream};
+use std::net::{SocketAddr, TcpListener};
 use std::path::PathBuf;
 use std::str::from_utf8;
 use std::str::FromStr;
@@ -411,9 +410,33 @@ pub fn rate_pack(base_rate: u64) -> RatePack {
     }
 }
 
+const FIND_FREE_PORT_LOWEST: u16 = 32768;
+const FIND_FREE_PORT_HIGHEST: u16 = 65535;
+
+lazy_static! {
+    static ref FIND_FREE_PORT_NEXT: Arc<Mutex<u16>> = Arc::new(Mutex::new(FIND_FREE_PORT_LOWEST));
+}
+
+fn next_port(port: u16) -> u16 {
+    match port {
+        p if p < FIND_FREE_PORT_HIGHEST => p + 1,
+        _ => FIND_FREE_PORT_LOWEST,
+    }
+}
+
 pub fn find_free_port() -> u16 {
-    let socket = UdpSocket::bind(SocketAddr::new(localhost(), 0)).expect("Not enough free ports");
-    socket.local_addr().expect("Bind failed").port()
+    let mut candidate = FIND_FREE_PORT_NEXT.lock().unwrap();
+    loop {
+        match TcpListener::bind(SocketAddr::new(localhost(), *candidate)) {
+            Err(ref e) if e.kind() == ErrorKind::AddrInUse => *candidate = next_port(*candidate),
+            Err(e) => panic!("Couldn't find free port: {:?}", e),
+            Ok(_listener) => {
+                let result = *candidate;
+                *candidate = next_port(*candidate);
+                return result;
+            }
+        }
+    }
 }
 
 pub fn await_messages<T>(expected_message_count: usize, messages_arc_mutex: &Arc<Mutex<Vec<T>>>) {

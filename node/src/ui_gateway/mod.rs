@@ -362,7 +362,9 @@ mod tests {
             ui_port: find_free_port(),
             node_descriptor: String::from(""),
         });
-        let system = System::new("receiving_a_shutdown_message_triggers_the_shutdown_supervisor");
+        let system = System::new(
+            "receiving_a_set_consuming_wallet_password_message_sends_traffic_to_blockchain_bridge",
+        );
         let addr: Addr<UiGateway> = subject.start();
         let mut peer_actors = peer_actors_builder()
             .blockchain_bridge(blockchain_bridge)
