@@ -125,7 +125,8 @@ describe('Application launch', function () {
     await client.waitUntilWindowLoaded()
 
     assert.strictEqual(await uiInterface.verifyNodeUp(10000), true)
-    assert.strictEqual((await client.getText('#node-status-label')).toLocaleLowerCase(), 'serving')
+    await client.waitUntil(async () => (await client.getText('#node-status-label')) === 'Serving')
+    assert.strictEqual((await client.getText('#node-status-label')), 'Serving')
     printConsoleForDebugging(client, false)
     assert.notStrictEqual(await client.getText('#node-descriptor'), '')
 
