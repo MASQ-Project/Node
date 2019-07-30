@@ -30,7 +30,7 @@ pub struct BlockchainBridge {
     logger: Logger,
     persistent_config: Box<PersistentConfiguration>,
     ui_carrier_message_sub: Option<Recipient<UiCarrierMessage>>,
-    set_consuming_wallet_sub: Option<Recipient<SetConsumingWalletMessage>>,
+    set_consuming_wallet_subs: Option<Vec<Recipient<SetConsumingWalletMessage>>>,
 }
 
 impl Actor for BlockchainBridge {
@@ -42,12 +42,16 @@ impl Handler<BindMessage> for BlockchainBridge {
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.ui_carrier_message_sub = Some(msg.peer_actors.ui_gateway.ui_message_sub.clone());
-        self.set_consuming_wallet_sub = Some(
+        self.set_consuming_wallet_subs = Some(vec![
             msg.peer_actors
                 .neighborhood
                 .set_consuming_wallet_sub
                 .clone(),
-        );
+            msg.peer_actors
+                .proxy_server
+                .set_consuming_wallet_sub
+                .clone(),
+        ]);
         match self.consuming_wallet.as_ref() {
             Some(wallet) => {
                 debug!(
@@ -164,7 +168,7 @@ impl BlockchainBridge {
             logger: Logger::new("BlockchainBridge"),
             persistent_config,
             ui_carrier_message_sub: None,
-            set_consuming_wallet_sub: None,
+            set_consuming_wallet_subs: None,
         }
     }
 
@@ -203,13 +207,16 @@ impl BlockchainBridge {
                 )
                 .expect("Internal Error");
                 let consuming_wallet = Wallet::from(key_pair);
-                self.set_consuming_wallet_sub
+                self.set_consuming_wallet_subs
                     .as_ref()
-                    .expect("Neighborhood is unbound in Blockchain Bridge")
-                    .try_send(SetConsumingWalletMessage {
-                        wallet: consuming_wallet.clone(),
-                    })
-                    .expect("Neighborhood is dead");
+                    .expect("SetConsumingWalletMessage handlers are unbound in Blockchain Bridge")
+                    .iter()
+                    .for_each(|sub| {
+                        sub.try_send(SetConsumingWalletMessage {
+                            wallet: consuming_wallet.clone(),
+                        })
+                        .expect("SetConsumingWalletMessage handler is dead")
+                    });
                 self.consuming_wallet = Some(consuming_wallet);
                 debug!(
                     self.logger,
@@ -277,7 +284,7 @@ mod tests {
         init_test_logging();
         let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
         let (neighborhood, neighborhood_awaiter, neighborhood_recording_arc) = make_recorder();
-
+        let (proxy_server, proxy_server_awaiter, proxy_server_recording_arc) = make_recorder();
         let password = "ilikecheetos";
         let mnemonic = Mnemonic::from_phrase(
             "timber cage wide hawk phone shaft pattern movie army dizzy hen tackle lamp \
@@ -335,6 +342,7 @@ mod tests {
             addr.try_send(BindMessage {
                 peer_actors: peer_actors_builder()
                     .neighborhood(neighborhood)
+                    .proxy_server(proxy_server)
                     .ui_gateway(ui_gateway)
                     .build(),
             })
@@ -367,6 +375,15 @@ mod tests {
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
         assert_eq!(
             neighborhood_recording.get_record::<SetConsumingWalletMessage>(0),
+            &SetConsumingWalletMessage {
+                wallet: expected_wallet.clone().unwrap()
+            }
+        );
+
+        proxy_server_awaiter.await_message_count(1);
+        let proxy_server_recording = proxy_server_recording_arc.lock().unwrap();
+        assert_eq!(
+            proxy_server_recording.get_record::<SetConsumingWalletMessage>(0),
             &SetConsumingWalletMessage {
                 wallet: expected_wallet.unwrap()
             }

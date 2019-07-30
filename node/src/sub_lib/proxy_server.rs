@@ -8,6 +8,7 @@ use crate::sub_lib::neighborhood::{ExpectedService, RouteQueryResponse};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
 use crate::sub_lib::sequence_buffer::SequencedPacket;
+use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_key::StreamKey;
 use actix::Message;
 use actix::Recipient;
@@ -69,4 +70,5 @@ pub struct ProxyServerSubs {
     pub add_return_route: Recipient<AddReturnRouteMessage>,
     pub add_route: Recipient<AddRouteMessage>,
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
+    pub set_consuming_wallet_sub: Recipient<SetConsumingWalletMessage>,
 }

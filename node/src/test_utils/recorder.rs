@@ -326,6 +326,7 @@ pub fn make_proxy_server_subs_from(addr: &Addr<Recorder>) -> ProxyServerSubs {
         add_return_route: addr.clone().recipient::<AddReturnRouteMessage>(),
         add_route: addr.clone().recipient::<AddRouteMessage>(),
         stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
+        set_consuming_wallet_sub: addr.clone().recipient::<SetConsumingWalletMessage>(),
     }
 }
 

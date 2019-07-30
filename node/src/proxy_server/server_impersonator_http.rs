@@ -40,6 +40,17 @@ impl ServerImpersonator for ServerImpersonatorHttp {
                      exit_key, server_name, server_name, server_name),
         )
     }
+
+    fn consuming_wallet_absent(&self) -> Vec<u8> {
+        ServerImpersonatorHttp::make_error_response(
+            402,
+            "Consuming Wallet Required",
+            "Can't consume without wallet to pay from",
+            "You're trying to consume routing and exit services from other Nodes, but you haven't \
+            specified a consuming wallet from which your Node can pay the bills you're about to incur. \
+            Set up a funded consuming wallet and try again.",
+        )
+    }
 }
 
 impl ServerImpersonatorHttp {
@@ -200,6 +211,23 @@ mod tests {
             to look up the IP address for <unspecified>, it wasn't found. If <unspecified> exists, \
             it will need to be looked up by a different exit Node. We've deprioritized this exit Node. \
             Reload the page, and we'll try to find another.",
+        );
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn consuming_wallet_absent_response_produces_expected_error_page() {
+        let subject = ServerImpersonatorHttp {};
+
+        let result = subject.consuming_wallet_absent();
+
+        let expected = ServerImpersonatorHttp::make_error_response(
+            402,
+            "Consuming Wallet Required",
+            "Can't consume without wallet to pay from",
+            "You're trying to consume routing and exit services from other Nodes, but you haven't \
+            specified a consuming wallet from which your Node can pay the bills you're about to incur. \
+            Set up a funded consuming wallet and try again.",
         );
         assert_eq!(expected, result);
     }

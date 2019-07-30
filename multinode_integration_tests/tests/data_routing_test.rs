@@ -3,7 +3,8 @@
 use multinode_integration_tests_lib::substratum_node::SubstratumNode;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::substratum_real_node::{
-    make_consuming_wallet_info, NodeStartupConfigBuilder, SubstratumRealNode,
+    default_consuming_wallet_info, make_consuming_wallet_info, NodeStartupConfigBuilder,
+    SubstratumRealNode,
 };
 use native_tls::HandshakeError;
 use native_tls::TlsConnector;
@@ -150,6 +151,7 @@ fn http_routing_failure_produces_internal_error_response() {
     let neighbor_node = cluster.start_real_node(NodeStartupConfigBuilder::standard().build());
     let originating_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
+            .consuming_wallet_info(default_consuming_wallet_info())
             .neighbor(neighbor_node.node_reference())
             .build(),
     );
@@ -178,6 +180,7 @@ fn tls_routing_failure_produces_internal_error_response() {
     let neighbor = cluster.start_real_node(NodeStartupConfigBuilder::standard().build());
     let originating_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
+            .consuming_wallet_info(default_consuming_wallet_info())
             .neighbor(neighbor.node_reference())
             .build(),
     );
@@ -223,7 +226,11 @@ fn tls_routing_failure_produces_internal_error_response() {
 #[test]
 fn multiple_stream_zero_hop_test() {
     let mut cluster = SubstratumNodeCluster::start().unwrap();
-    let zero_hop_node = cluster.start_real_node(NodeStartupConfigBuilder::zero_hop().build());
+    let zero_hop_node = cluster.start_real_node(
+        NodeStartupConfigBuilder::zero_hop()
+            .consuming_wallet_info(default_consuming_wallet_info())
+            .build(),
+    );
     let mut one_client = zero_hop_node.make_client(8080);
     let mut another_client = zero_hop_node.make_client(8080);
 

@@ -197,6 +197,10 @@ fn standard_args() -> Vec<String> {
         .pair("/c", &node_command())
         .pair("--dns-servers", "8.8.8.8")
         .pair(
+            "--consuming-private-key",
+            "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+        )
+        .pair(
             "--data-directory",
             &SubstratumNode::data_dir().to_string_lossy().to_string(),
         )
@@ -263,6 +267,10 @@ fn command_to_start() -> process::Command {
 fn standard_args() -> Vec<String> {
     let args = CommandConfig::new()
         .pair("--dns-servers", "8.8.8.8")
+        .pair(
+            "--consuming-private-key",
+            "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+        )
         .pair(
             "--data-directory",
             &SubstratumNode::data_dir().to_string_lossy().to_string(),

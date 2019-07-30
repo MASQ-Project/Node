@@ -3,6 +3,8 @@ use crate::persistent_configuration::{HTTP_PORT, TLS_PORT};
 use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
 use crate::proxy_server::tls_protocol_pack::TlsProtocolPack;
 use crate::sub_lib::cryptde::{PlainData, PublicKey};
+use crate::sub_lib::dispatcher::InboundClientData;
+use crate::sub_lib::logger::Logger;
 use crate::sub_lib::proxy_server::ProxyProtocol;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -18,18 +20,46 @@ pub trait ProtocolPack: Send + Sync {
     fn server_impersonator(&self) -> Box<ServerImpersonator>;
 }
 
-pub fn for_protocol(protocol: ProxyProtocol) -> Box<ProtocolPack> {
+pub fn from_protocol(protocol: ProxyProtocol) -> Box<ProtocolPack> {
     match protocol {
         ProxyProtocol::HTTP => Box::new(HttpProtocolPack {}),
         ProxyProtocol::TLS => Box::new(TlsProtocolPack {}),
     }
 }
 
-pub fn for_standard_port(_standard_port: u16) -> Option<Box<ProtocolPack>> {
+pub fn from_standard_port(_standard_port: u16) -> Option<Box<ProtocolPack>> {
     match _standard_port {
         HTTP_PORT => Some(Box::new(HttpProtocolPack {})),
         TLS_PORT => Some(Box::new(TlsProtocolPack {})),
         _ => None,
+    }
+}
+
+pub fn from_ibcd(ibcd: &InboundClientData, logger: &Logger) -> Option<Box<ProtocolPack>> {
+    let origin_port = match ibcd.reception_port {
+        None => {
+            error!(
+                logger,
+                "No origin port specified with {}-byte non-clandestine packet: {:?}",
+                ibcd.data.len(),
+                ibcd.data
+            );
+            return None;
+        }
+        Some(origin_port) => origin_port,
+    };
+    match from_standard_port(origin_port) {
+        Some(pp) => Some(pp),
+        None => {
+            error!(
+                logger,
+                "No protocol associated with origin port {} for {}-byte non-clandestine packet: {:?}",
+                origin_port,
+                ibcd.data.len(),
+                &ibcd.data
+            );
+            None
+        }
     }
 }
 
@@ -40,4 +70,5 @@ pub trait ServerImpersonator {
         exit_key: &PublicKey,
         server_name_opt: Option<String>,
     ) -> Vec<u8>;
+    fn consuming_wallet_absent(&self) -> Vec<u8>;
 }

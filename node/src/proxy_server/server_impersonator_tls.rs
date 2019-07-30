@@ -16,6 +16,10 @@ impl ServerImpersonator for ServerImpersonatorTls {
     ) -> Vec<u8> {
         Vec::from(&TLS_UNRECOGNIZED_NAME_ALERT[..])
     }
+
+    fn consuming_wallet_absent(&self) -> Vec<u8> {
+        Vec::from(&TLS_INTERNAL_ERROR_ALERT[..])
+    }
 }
 
 const TLS_INTERNAL_ERROR_ALERT: [u8; 7] = [
@@ -55,5 +59,14 @@ mod tests {
             subject.dns_resolution_failure_response(&PublicKey::new(&b"ignored"[..]), None);
 
         assert_eq!(Vec::from(&TLS_UNRECOGNIZED_NAME_ALERT[..]), result);
+    }
+
+    #[test]
+    fn consuming_wallet_absent_produces_internal_error_alert() {
+        let subject = ServerImpersonatorTls {};
+
+        let result = subject.consuming_wallet_absent();
+
+        assert_eq!(Vec::from(&TLS_INTERNAL_ERROR_ALERT[..]), result);
     }
 }

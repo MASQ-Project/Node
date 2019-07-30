@@ -80,8 +80,15 @@ impl ActorSystemFactoryReal {
         let db_initializer = DbInitializerReal::new();
         // make all the actors
         let (dispatcher_subs, pool_bind_sub) = actor_factory.make_and_start_dispatcher();
-        let proxy_server_subs = actor_factory
-            .make_and_start_proxy_server(cryptde, config.neighborhood_config.is_decentralized());
+        let proxy_server_subs = actor_factory.make_and_start_proxy_server(
+            cryptde,
+            config.neighborhood_config.is_decentralized(),
+            if config.consuming_wallet.is_none() {
+                None
+            } else {
+                Some(0)
+            },
+        );
         let proxy_client_subs = actor_factory.make_and_start_proxy_client(ProxyClientConfig {
             cryptde,
             dns_servers: config.dns_servers.clone(),
@@ -209,6 +216,7 @@ pub trait ActorFactory: Send {
         &self,
         cryptde: &'static dyn CryptDE,
         is_decentralized: bool,
+        consuming_wallet_balance: Option<i64>,
     ) -> ProxyServerSubs;
     fn make_and_start_hopper(&self, config: HopperConfig) -> HopperSubs;
     fn make_and_start_neighborhood(
@@ -252,8 +260,9 @@ impl ActorFactory for ActorFactoryReal {
         &self,
         cryptde: &'static dyn CryptDE,
         is_decentralized: bool,
+        consuming_wallet_balance: Option<i64>,
     ) -> ProxyServerSubs {
-        let proxy_server = ProxyServer::new(cryptde, is_decentralized);
+        let proxy_server = ProxyServer::new(cryptde, is_decentralized, consuming_wallet_balance);
         let addr: Addr<ProxyServer> = proxy_server.start();
         ProxyServer::make_subs_from(&addr)
     }
@@ -511,12 +520,13 @@ mod tests {
             &self,
             cryptde: &'a dyn CryptDE,
             is_decentralized: bool,
+            consuming_wallet_balance: Option<i64>,
         ) -> ProxyServerSubs {
             self.parameters
                 .proxy_server_params
                 .lock()
                 .unwrap()
-                .get_or_insert((cryptde, is_decentralized));
+                .get_or_insert((cryptde, is_decentralized, consuming_wallet_balance));
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.proxy_server);
             ProxyServerSubs {
                 bind: addr.clone().recipient::<BindMessage>(),
@@ -530,6 +540,7 @@ mod tests {
                 add_return_route: addr.clone().recipient::<AddReturnRouteMessage>(),
                 add_route: addr.clone().recipient::<AddRouteMessage>(),
                 stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
+                set_consuming_wallet_sub: addr.clone().recipient::<SetConsumingWalletMessage>(),
             }
         }
 
@@ -690,7 +701,7 @@ mod tests {
     #[derive(Clone)]
     struct Parameters<'a> {
         proxy_client_params: Arc<Mutex<Option<(ProxyClientConfig)>>>,
-        proxy_server_params: Arc<Mutex<Option<(&'a dyn CryptDE, bool)>>>,
+        proxy_server_params: Arc<Mutex<Option<(&'a dyn CryptDE, bool, Option<i64>)>>>,
         hopper_params: Arc<Mutex<Option<HopperConfig>>>,
         neighborhood_params: Arc<Mutex<Option<(&'a dyn CryptDE, BootstrapperConfig)>>>,
         accountant_params: Arc<Mutex<Option<(BootstrapperConfig, PathBuf)>>>,
@@ -1039,10 +1050,11 @@ mod tests {
         assert_eq!(proxy_client_config.exit_service_rate, rate_pack_exit(100),);
         assert_eq!(proxy_client_config.exit_byte_rate, rate_pack_exit_byte(100),);
         assert_eq!(proxy_client_config.dns_servers, config.dns_servers);
-        let (actual_cryptde, actual_is_decentralized) =
+        let (actual_cryptde, actual_is_decentralized, consuming_wallet_balance) =
             Parameters::get(parameters.proxy_server_params);
         check_cryptde(actual_cryptde);
         assert_eq!(actual_is_decentralized, false);
+        assert_eq!(consuming_wallet_balance, Some(0));
         let (cryptde, neighborhood_config) = Parameters::get(parameters.neighborhood_params);
         check_cryptde(cryptde);
         assert_eq!(
@@ -1070,6 +1082,57 @@ mod tests {
         );
         let _stream_handler_pool_subs = rx.recv().unwrap();
         // more...more...what? How to check contents of _stream_handler_pool_subs?
+    }
+
+    #[test]
+    fn prepare_initial_messages_generates_no_consuming_wallet_balance_if_no_consuming_wallet_is_specified(
+    ) {
+        let actor_factory = ActorFactoryMock::new();
+        let parameters = actor_factory.make_parameters();
+        let config = BootstrapperConfig {
+            log_level: LevelFilter::Off,
+            crash_point: CrashPoint::None,
+            dns_servers: vec![],
+            neighborhood_config: NeighborhoodConfig {
+                neighbor_configs: vec![],
+                local_ip_addr: IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
+                clandestine_port_list: vec![],
+                rate_pack: rate_pack(100),
+            },
+            accountant_config: AccountantConfig {
+                payable_scan_interval: Duration::from_secs(100),
+                payment_received_scan_interval: Duration::from_secs(100),
+            },
+            clandestine_discriminator_factories: Vec::new(),
+            ui_gateway_config: UiGatewayConfig {
+                ui_port: 5335,
+                node_descriptor: String::from("NODE-DESCRIPTOR"),
+            },
+            blockchain_bridge_config: BlockchainBridgeConfig {
+                blockchain_service_url: None,
+                chain_id: DEFAULT_CHAIN_ID,
+            },
+            port_configurations: HashMap::new(),
+            clandestine_port_opt: None,
+            earning_wallet: make_wallet("earning"),
+            consuming_wallet: None,
+            data_directory: PathBuf::new(),
+            cryptde_null_opt: None,
+        };
+        let (tx, _) = mpsc::channel();
+        let system = System::new("SubstratumNode");
+
+        ActorSystemFactoryReal::prepare_initial_messages(
+            cryptde(),
+            config.clone(),
+            Box::new(actor_factory),
+            tx,
+        );
+
+        System::current().stop();
+        system.run();
+        let (_, _, consuming_wallet_balance) = Parameters::get(parameters.proxy_server_params);
+        assert_eq!(consuming_wallet_balance, None);
     }
 
     fn check_bind_message(recording: &Arc<Mutex<Recording>>) {

@@ -9,7 +9,7 @@ pub mod tls_protocol_pack;
 
 use crate::proxy_server::client_request_payload_factory::ClientRequestPayloadFactory;
 use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
-use crate::proxy_server::protocol_pack::{for_protocol, ProtocolPack};
+use crate::proxy_server::protocol_pack::{from_ibcd, from_protocol, ProtocolPack};
 use crate::stream_messages::RemovedStreamType;
 use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
@@ -31,6 +31,7 @@ use crate::sub_lib::proxy_server::ClientRequestPayload;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::proxy_server::{AddReturnRouteMessage, AddRouteMessage};
 use crate::sub_lib::route::Route;
+use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::ttl_hashmap::TtlHashMap;
@@ -69,6 +70,7 @@ pub struct ProxyServer {
     tunneled_hosts: HashMap<StreamKey, String>,
     stream_key_routes: HashMap<StreamKey, RouteQueryResponse>,
     is_decentralized: bool,
+    consuming_wallet_balance: Option<i64>,
     cryptde: &'static dyn CryptDE,
     logger: Logger,
     route_ids_to_return_routes: TtlHashMap<u32, AddReturnRouteMessage>,
@@ -95,6 +97,18 @@ impl Handler<BindMessage> for ProxyServer {
             add_route: msg.peer_actors.proxy_server.add_route,
         };
         self.subs = Some(subs);
+    }
+}
+
+impl Handler<SetConsumingWalletMessage> for ProxyServer {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        _msg: SetConsumingWalletMessage,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        self.consuming_wallet_balance = Some(0);
     }
 }
 
@@ -176,7 +190,11 @@ impl Handler<StreamShutdownMsg> for ProxyServer {
 }
 
 impl ProxyServer {
-    pub fn new(cryptde: &'static dyn CryptDE, is_decentralized: bool) -> ProxyServer {
+    pub fn new(
+        cryptde: &'static dyn CryptDE,
+        is_decentralized: bool,
+        consuming_wallet_balance: Option<i64>,
+    ) -> ProxyServer {
         ProxyServer {
             subs: None,
             client_request_payload_factory: ClientRequestPayloadFactory::new(),
@@ -185,6 +203,7 @@ impl ProxyServer {
             tunneled_hosts: HashMap::new(),
             stream_key_routes: HashMap::new(),
             is_decentralized,
+            consuming_wallet_balance,
             cryptde,
             logger: Logger::new("ProxyServer"),
             route_ids_to_return_routes: TtlHashMap::new(RETURN_ROUTE_TTL),
@@ -205,6 +224,7 @@ impl ProxyServer {
             add_return_route: addr.clone().recipient::<AddReturnRouteMessage>(),
             add_route: addr.clone().recipient::<AddRouteMessage>(),
             stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
+            set_consuming_wallet_sub: addr.clone().recipient::<SetConsumingWalletMessage>(),
         }
     }
 
@@ -253,7 +273,7 @@ impl ProxyServer {
                         endpoint: Endpoint::Socket(socket_addr),
                         last_data: true,
                         sequence_number: Some(0), // DNS resolution errors always happen on the first request
-                        data: for_protocol(return_route_info.protocol)
+                        data: from_protocol(return_route_info.protocol)
                             .server_impersonator()
                             .dns_resolution_failure_response(
                                 &exit_public_key,
@@ -411,6 +431,27 @@ impl ProxyServer {
             .add_route
             .clone();
         let source_addr = msg.peer_addr;
+        if self.consuming_wallet_balance.is_none() {
+            let protocol_pack = match from_ibcd(&msg, &self.logger) {
+                None => return,
+                Some(pp) => pp,
+            };
+            let data = protocol_pack
+                .server_impersonator()
+                .consuming_wallet_absent();
+            let msg = TransmitDataMsg {
+                endpoint: Endpoint::Socket(source_addr),
+                last_data: true,
+                sequence_number: Some(0),
+                data,
+            };
+            dispatcher.try_send(msg).expect("Dispatcher is dead");
+            error!(
+                self.logger,
+                "Browser request rejected due to missing consuming wallet"
+            );
+            return;
+        }
         let stream_key = self.make_stream_key(&msg);
         let payload = match self.make_payload(msg) {
             Ok(payload) => payload,
@@ -743,7 +784,7 @@ impl ProxyServer {
         source_addr: SocketAddr,
         dispatcher: &Recipient<TransmitDataMsg>,
     ) {
-        let data = for_protocol(payload.protocol)
+        let data = from_protocol(payload.protocol)
             .server_impersonator()
             .route_query_failure_response(&ProxyServer::hostname(&payload));
         let msg = TransmitDataMsg {
@@ -883,6 +924,8 @@ mod tests {
     use std::sync::Mutex;
     use std::sync::MutexGuard;
     use std::thread;
+
+    const STANDARD_CONSUMING_WALLET_BALANCE: i64 = 0;
 
     impl Default for ProxyServerOutSubs {
         fn default() -> Self {
@@ -1047,7 +1090,8 @@ mod tests {
                 .make_parameters(&make_parameters_arc)
                 .make_result(stream_key);
             let system = System::new("proxy_server_receives_http_request_from_dispatcher_then_sends_cores_package_to_hopper");
-            let mut subject = ProxyServer::new(cryptde, false);
+            let mut subject =
+                ProxyServer::new(cryptde, false, Some(STANDARD_CONSUMING_WALLET_BALANCE));
             subject.stream_key_factory = Box::new(stream_key_factory);
             let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
@@ -1144,7 +1188,8 @@ mod tests {
             let system = System::new(
                 "proxy_server_receives_connect_responds_with_ok_and_stores_stream_key_and_hostname",
             );
-            let mut subject = ProxyServer::new(cryptde, false);
+            let mut subject =
+                ProxyServer::new(cryptde, false, Some(STANDARD_CONSUMING_WALLET_BALANCE));
             subject.stream_key_factory = Box::new(stream_key_factory);
             let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
@@ -1189,7 +1234,7 @@ mod tests {
         let system = System::new("handle_client_response_payload_increments_sequence_number_when_browser_proxy_sequence_offset_is_true");
         let (dispatcher_mock, _, dispatcher_log_arc) = make_recorder();
         let cryptde = cryptde();
-        let mut subject = ProxyServer::new(cryptde, false);
+        let mut subject = ProxyServer::new(cryptde, false, Some(STANDARD_CONSUMING_WALLET_BALANCE));
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let stream_key = make_meaningless_stream_key();
         subject
@@ -1289,7 +1334,8 @@ mod tests {
             let system = System::new(
                 "proxy_server_receives_connect_responds_with_ok_and_stores_stream_key_and_hostname",
             );
-            let mut subject = ProxyServer::new(cryptde, false);
+            let mut subject =
+                ProxyServer::new(cryptde, false, Some(STANDARD_CONSUMING_WALLET_BALANCE));
             subject.stream_key_factory = Box::new(stream_key_factory);
             let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
@@ -1354,7 +1400,8 @@ mod tests {
             let system = System::new(
                 "proxy_server_receives_connect_responds_with_ok_and_stores_stream_key_and_hostname",
             );
-            let mut subject = ProxyServer::new(cryptde, false);
+            let mut subject =
+                ProxyServer::new(cryptde, false, Some(STANDARD_CONSUMING_WALLET_BALANCE));
             subject.stream_key_factory = Box::new(stream_key_factory);
             let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
@@ -1382,6 +1429,124 @@ mod tests {
         let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
 
         assert_eq!(&expected_transmit_data_msg, record);
+    }
+
+    #[test]
+    fn proxy_server_receives_http_request_with_no_consuming_wallet_and_sends_impersonated_response()
+    {
+        init_test_logging();
+        let cryptde = cryptde();
+        let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
+        let (hopper, _, hopper_log_arc) = make_recorder();
+        let (neighborhood, _, neighborhood_log_arc) = make_recorder();
+        let (dispatcher, _, dispatcher_log_arc) = make_recorder();
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let stream_key = make_meaningless_stream_key();
+        let expected_data = http_request.to_vec();
+        let msg_from_dispatcher = InboundClientData {
+            peer_addr: socket_addr.clone(),
+            reception_port: Some(HTTP_PORT),
+            sequence_number: Some(0),
+            last_data: true,
+            is_clandestine: false,
+            data: expected_data.clone(),
+        };
+        let stream_key_factory = StreamKeyFactoryMock::new(); // can't make any stream keys; shouldn't have to
+        let system = System::new("proxy_server_receives_http_request_with_no_consuming_wallet_and_sends_impersonated_response");
+        let mut subject = ProxyServer::new(cryptde, false, None);
+        subject.stream_key_factory = Box::new(stream_key_factory);
+        subject.keys_and_addrs.insert(stream_key, socket_addr);
+        let subject_addr: Addr<ProxyServer> = subject.start();
+        let mut peer_actors = peer_actors_builder()
+            .dispatcher(dispatcher)
+            .hopper(hopper)
+            .neighborhood(neighborhood)
+            .build();
+        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr.try_send(msg_from_dispatcher).unwrap();
+
+        System::current().stop();
+        system.run();
+        let neighborhood_recording = neighborhood_log_arc.lock().unwrap();
+        assert!(neighborhood_recording.is_empty());
+        let hopper_recording = hopper_log_arc.lock().unwrap();
+        assert!(hopper_recording.is_empty());
+        let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
+        let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
+        let server_impersonator = ServerImpersonatorHttp {};
+        assert_eq!(
+            record,
+            &TransmitDataMsg {
+                endpoint: Endpoint::Socket(socket_addr),
+                last_data: true,
+                sequence_number: Some(0),
+                data: server_impersonator.consuming_wallet_absent(),
+            }
+        );
+        TestLogHandler::new().exists_log_containing(
+            "ERROR: ProxyServer: Browser request rejected due to missing consuming wallet",
+        );
+    }
+
+    #[test]
+    fn proxy_server_receives_tls_request_with_no_consuming_wallet_and_sends_impersonated_response()
+    {
+        init_test_logging();
+        let cryptde = cryptde();
+        let tls_request = b"Fake TLS request";
+        let (hopper, _, hopper_log_arc) = make_recorder();
+        let (neighborhood, _, neighborhood_log_arc) = make_recorder();
+        let (dispatcher, _, dispatcher_log_arc) = make_recorder();
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let stream_key = make_meaningless_stream_key();
+        let expected_data = tls_request.to_vec();
+        let msg_from_dispatcher = InboundClientData {
+            peer_addr: socket_addr.clone(),
+            reception_port: Some(TLS_PORT),
+            sequence_number: Some(0),
+            last_data: true,
+            is_clandestine: false,
+            data: expected_data.clone(),
+        };
+        let stream_key_factory = StreamKeyFactoryMock::new(); // can't make any stream keys; shouldn't have to
+        let system = System::new("proxy_server_receives_tls_request_with_no_consuming_wallet_and_sends_impersonated_response");
+        let mut subject = ProxyServer::new(cryptde, false, None);
+        subject.stream_key_factory = Box::new(stream_key_factory);
+        subject.keys_and_addrs.insert(stream_key, socket_addr);
+        let subject_addr: Addr<ProxyServer> = subject.start();
+        let mut peer_actors = peer_actors_builder()
+            .dispatcher(dispatcher)
+            .hopper(hopper)
+            .neighborhood(neighborhood)
+            .build();
+        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr.try_send(msg_from_dispatcher).unwrap();
+
+        System::current().stop();
+        system.run();
+        let neighborhood_recording = neighborhood_log_arc.lock().unwrap();
+        assert!(neighborhood_recording.is_empty());
+        let hopper_recording = hopper_log_arc.lock().unwrap();
+        assert!(hopper_recording.is_empty());
+        let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
+        let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
+        let server_impersonator = ServerImpersonatorTls {};
+        assert_eq!(
+            record,
+            &TransmitDataMsg {
+                endpoint: Endpoint::Socket(socket_addr),
+                last_data: true,
+                sequence_number: Some(0),
+                data: server_impersonator.consuming_wallet_absent(),
+            }
+        );
+        TestLogHandler::new().exists_log_containing(
+            "ERROR: ProxyServer: Browser request rejected due to missing consuming wallet",
+        );
     }
 
     #[test]
@@ -1428,7 +1593,8 @@ mod tests {
         thread::spawn(move || {
             let stream_key_factory = StreamKeyFactoryMock::new(); // can't make any stream keys; shouldn't have to
             let system = System::new("proxy_server_receives_http_request_from_dispatcher_then_sends_cores_package_to_hopper");
-            let mut subject = ProxyServer::new(cryptde, false);
+            let mut subject =
+                ProxyServer::new(cryptde, false, Some(STANDARD_CONSUMING_WALLET_BALANCE));
             subject.stream_key_factory = Box::new(stream_key_factory);
             subject.keys_and_addrs.insert(stream_key, socket_addr);
             let subject_addr: Addr<ProxyServer> = subject.start();
@@ -1441,6 +1607,76 @@ mod tests {
 
             subject_addr.try_send(msg_from_dispatcher).unwrap();
 
+            system.run();
+        });
+
+        hopper_awaiter.await_message_count(1);
+        let recording = hopper_log_arc.lock().unwrap();
+        let record = recording.get_record::<IncipientCoresPackage>(0);
+        assert_eq!(record, &expected_pkg);
+    }
+
+    #[test]
+    fn proxy_server_applies_late_wallet_information() {
+        let cryptde = cryptde();
+        let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
+        let hopper_mock = Recorder::new();
+        let hopper_log_arc = hopper_mock.get_recording();
+        let hopper_awaiter = hopper_mock.get_awaiter();
+        let neighborhood_mock = Recorder::new().route_query_response(Some(
+            zero_hop_route_response(&cryptde.public_key(), cryptde),
+        ));
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let stream_key = make_meaningless_stream_key();
+        let expected_data = http_request.to_vec();
+        let msg_from_dispatcher = InboundClientData {
+            peer_addr: socket_addr.clone(),
+            reception_port: Some(HTTP_PORT),
+            sequence_number: Some(0),
+            last_data: true,
+            is_clandestine: false,
+            data: expected_data.clone(),
+        };
+        let expected_http_request = PlainData::new(http_request);
+        let key = cryptde.public_key();
+        let route = zero_hop_route_response(&key, cryptde).route;
+        let expected_payload = ClientRequestPayload {
+            version: ClientRequestPayload::version(),
+            stream_key: stream_key.clone(),
+            sequenced_packet: SequencedPacket {
+                data: expected_http_request.into(),
+                sequence_number: 0,
+                last_data: true,
+            },
+            target_hostname: Some(String::from("nowhere.com")),
+            target_port: HTTP_PORT,
+            protocol: ProxyProtocol::HTTP,
+            originator_public_key: key.clone(),
+        };
+        let expected_pkg =
+            IncipientCoresPackage::new(cryptde, route.clone(), expected_payload.into(), &key)
+                .unwrap();
+        thread::spawn(move || {
+            let stream_key_factory = StreamKeyFactoryMock::new(); // can't make any stream keys; shouldn't have to
+            let system = System::new("proxy_server_applies_late_wallet_information");
+            let mut subject = ProxyServer::new(cryptde, false, None);
+            subject.stream_key_factory = Box::new(stream_key_factory);
+            subject.keys_and_addrs.insert(stream_key, socket_addr);
+            let subject_addr: Addr<ProxyServer> = subject.start();
+            let mut peer_actors = peer_actors_builder()
+                .hopper(hopper_mock)
+                .neighborhood(neighborhood_mock)
+                .build();
+            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+            subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+            subject_addr
+                .try_send(SetConsumingWalletMessage {
+                    wallet: make_wallet("Consuming wallet"),
+                })
+                .unwrap();
+
+            subject_addr.try_send(msg_from_dispatcher).unwrap();
             system.run();
         });
 
@@ -1541,7 +1777,8 @@ mod tests {
         thread::spawn(move || {
             let stream_key_factory = StreamKeyFactoryMock::new().make_result(stream_key);
             let system = System::new("proxy_server_receives_http_request_from_dispatcher_then_sends_cores_package_to_hopper");
-            let mut subject = ProxyServer::new(cryptde, true);
+            let mut subject =
+                ProxyServer::new(cryptde, true, Some(STANDARD_CONSUMING_WALLET_BALANCE));
             subject.stream_key_factory = Box::new(stream_key_factory);
             let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
@@ -1592,7 +1829,8 @@ mod tests {
         thread::spawn(move || {
             let stream_key_factory = StreamKeyFactoryMock::new().make_result(stream_key);
             let system = System::new("proxy_server_adds_route_for_stream_key");
-            let mut subject = ProxyServer::new(cryptde, true);
+            let mut subject =
+                ProxyServer::new(cryptde, true, Some(STANDARD_CONSUMING_WALLET_BALANCE));
             subject.stream_key_factory = Box::new(stream_key_factory);
             let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
@@ -1669,7 +1907,8 @@ mod tests {
         thread::spawn(move || {
             let stream_key_factory = StreamKeyFactoryMock::new().make_result(stream_key);
             let system = System::new("proxy_server_uses_existing_route");
-            let mut subject = ProxyServer::new(cryptde, true);
+            let mut subject =
+                ProxyServer::new(cryptde, true, Some(STANDARD_CONSUMING_WALLET_BALANCE));
             subject.stream_key_factory = Box::new(stream_key_factory);
             let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder().hopper(hopper_mock).build();
@@ -1830,7 +2069,8 @@ mod tests {
             let stream_key_factory = StreamKeyFactoryMock::new().make_result(stream_key);
             let system =
                 System::new("proxy_server_logs_messages_when_routing_services_are_not_requested");
-            let mut subject = ProxyServer::new(cryptde, true);
+            let mut subject =
+                ProxyServer::new(cryptde, true, Some(STANDARD_CONSUMING_WALLET_BALANCE));
             subject.stream_key_factory = Box::new(stream_key_factory);
             let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
@@ -1893,7 +2133,8 @@ mod tests {
             let stream_key_factory = StreamKeyFactoryMock::new().make_result(stream_key);
             let system =
                 System::new("proxy_server_sends_message_to_accountant_for_exit_service_consumed");
-            let mut subject = ProxyServer::new(cryptde, true);
+            let mut subject =
+                ProxyServer::new(cryptde, true, Some(STANDARD_CONSUMING_WALLET_BALANCE));
             subject.stream_key_factory = Box::new(stream_key_factory);
             let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
@@ -1945,7 +2186,8 @@ mod tests {
             let stream_key_factory = StreamKeyFactoryMock::new().make_result(stream_key);
             let system =
                 System::new("proxy_server_logs_message_when_exit_services_are_not_consumed");
-            let mut subject = ProxyServer::new(cryptde, true);
+            let mut subject =
+                ProxyServer::new(cryptde, true, Some(STANDARD_CONSUMING_WALLET_BALANCE));
             subject.stream_key_factory = Box::new(stream_key_factory);
             let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
@@ -1986,7 +2228,7 @@ mod tests {
         };
         thread::spawn(move || {
             let system = System::new("proxy_server_receives_http_request_from_dispatcher_but_neighborhood_cant_make_route");
-            let subject = ProxyServer::new(cryptde, true);
+            let subject = ProxyServer::new(cryptde, true, Some(STANDARD_CONSUMING_WALLET_BALANCE));
             let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
                 .dispatcher(dispatcher)
@@ -2112,7 +2354,7 @@ mod tests {
         };
         thread::spawn(move || {
             let system = System::new("proxy_server_receives_http_request_from_dispatcher_but_neighborhood_cant_make_route");
-            let subject = ProxyServer::new(cryptde, true);
+            let subject = ProxyServer::new(cryptde, true, Some(STANDARD_CONSUMING_WALLET_BALANCE));
             let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
                 .dispatcher(dispatcher)
@@ -2204,7 +2446,8 @@ mod tests {
             IncipientCoresPackage::new(cryptde, route.clone(), expected_payload.into(), &key)
                 .unwrap();
         thread::spawn(move || {
-            let mut subject = ProxyServer::new(cryptde, false);
+            let mut subject =
+                ProxyServer::new(cryptde, false, Some(STANDARD_CONSUMING_WALLET_BALANCE));
             subject.stream_key_factory =
                 Box::new(StreamKeyFactoryMock::new().make_result(stream_key.clone()));
             let system = System::new("proxy_server_receives_tls_client_hello_from_dispatcher_then_sends_cores_package_to_hopper");
@@ -2274,7 +2517,8 @@ mod tests {
             IncipientCoresPackage::new(cryptde, route.clone(), expected_payload.into(), &key)
                 .unwrap();
         thread::spawn(move || {
-            let mut subject = ProxyServer::new(cryptde, false);
+            let mut subject =
+                ProxyServer::new(cryptde, false, Some(STANDARD_CONSUMING_WALLET_BALANCE));
             subject.stream_key_factory =
                 Box::new(StreamKeyFactoryMock::new().make_result(stream_key.clone()));
             let system = System::new("proxy_server_receives_tls_client_hello_from_dispatcher_then_sends_cores_package_to_hopper");
@@ -2342,7 +2586,8 @@ mod tests {
             IncipientCoresPackage::new(cryptde, route.clone(), expected_payload.into(), &key)
                 .unwrap();
         thread::spawn(move || {
-            let mut subject = ProxyServer::new(cryptde, false);
+            let mut subject =
+                ProxyServer::new(cryptde, false, Some(STANDARD_CONSUMING_WALLET_BALANCE));
             subject.stream_key_factory =
                 Box::new(StreamKeyFactoryMock::new().make_result(stream_key.clone()));
             let system = System::new("proxy_server_receives_tls_client_hello_from_dispatcher_then_sends_cores_package_to_hopper");
@@ -2406,7 +2651,7 @@ mod tests {
         };
         thread::spawn(move || {
             let system = System::new("proxy_server_receives_tls_client_hello_from_dispatcher_but_neighborhood_cant_make_route");
-            let subject = ProxyServer::new(cryptde, false);
+            let subject = ProxyServer::new(cryptde, false, Some(STANDARD_CONSUMING_WALLET_BALANCE));
             let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
                 .dispatcher(dispatcher)
@@ -2440,7 +2685,7 @@ mod tests {
         let system = System::new("proxy_server_receives_response_from_hopper");
         let (dispatcher_mock, _, dispatcher_log_arc) = make_recorder();
         let cryptde = cryptde();
-        let mut subject = ProxyServer::new(cryptde, false);
+        let mut subject = ProxyServer::new(cryptde, false, Some(STANDARD_CONSUMING_WALLET_BALANCE));
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let stream_key = make_meaningless_stream_key();
         subject
@@ -2495,7 +2740,7 @@ mod tests {
     #[test]
     fn handle_client_response_payload_purges_stream_keys_for_terminal_response() {
         let cryptde = cryptde();
-        let mut subject = ProxyServer::new(cryptde, false);
+        let mut subject = ProxyServer::new(cryptde, false, Some(STANDARD_CONSUMING_WALLET_BALANCE));
         subject.subs = Some(ProxyServerOutSubs::default());
 
         let stream_key = make_meaningless_stream_key();
@@ -2557,7 +2802,7 @@ mod tests {
         let (dispatcher_mock, _, dispatcher_log_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let cryptde = cryptde();
-        let mut subject = ProxyServer::new(cryptde, false);
+        let mut subject = ProxyServer::new(cryptde, false, Some(STANDARD_CONSUMING_WALLET_BALANCE));
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let stream_key = make_meaningless_stream_key();
         let irrelevant_public_key = PublicKey::from(&b"irrelevant"[..]);
@@ -2736,7 +2981,7 @@ mod tests {
         let (dispatcher_mock, _, dispatcher_log_arc) = make_recorder();
 
         let cryptde = cryptde();
-        let mut subject = ProxyServer::new(cryptde, false);
+        let mut subject = ProxyServer::new(cryptde, false, Some(STANDARD_CONSUMING_WALLET_BALANCE));
 
         let stream_key = make_meaningless_stream_key();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -2804,7 +3049,7 @@ mod tests {
         let system = System::new("proxy_server_records_accounting");
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let cryptde = cryptde();
-        let mut subject = ProxyServer::new(cryptde, false);
+        let mut subject = ProxyServer::new(cryptde, false, Some(STANDARD_CONSUMING_WALLET_BALANCE));
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let stream_key = make_meaningless_stream_key();
         let irrelevant_public_key = PublicKey::from(&b"irrelevant"[..]);
@@ -2889,7 +3134,7 @@ mod tests {
         let (neighborhood_mock, _, neighborhood_log_arc) = make_recorder();
 
         let cryptde = cryptde();
-        let mut subject = ProxyServer::new(cryptde, false);
+        let mut subject = ProxyServer::new(cryptde, false, Some(STANDARD_CONSUMING_WALLET_BALANCE));
 
         let stream_key = make_meaningless_stream_key();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -2955,7 +3200,7 @@ mod tests {
         let (neighborhood_mock, _, _) = make_recorder();
 
         let cryptde = cryptde();
-        let mut subject = ProxyServer::new(cryptde, false);
+        let mut subject = ProxyServer::new(cryptde, false, Some(STANDARD_CONSUMING_WALLET_BALANCE));
 
         let stream_key = make_meaningless_stream_key();
         let return_route_id = 1234;
@@ -3024,7 +3269,7 @@ mod tests {
         let (neighborhood_mock, _, _) = make_recorder();
 
         let cryptde = cryptde();
-        let mut subject = ProxyServer::new(cryptde, false);
+        let mut subject = ProxyServer::new(cryptde, false, Some(STANDARD_CONSUMING_WALLET_BALANCE));
 
         let stream_key = make_meaningless_stream_key();
         let return_route_id = 1234;
@@ -3091,7 +3336,7 @@ mod tests {
         let (neighborhood_mock, _, _) = make_recorder();
         let (dispatcher_mock, _, _) = make_recorder();
 
-        let mut subject = ProxyServer::new(cryptde, false);
+        let mut subject = ProxyServer::new(cryptde, false, Some(STANDARD_CONSUMING_WALLET_BALANCE));
         subject.subs = Some(ProxyServerOutSubs::default());
 
         let peer_actors = peer_actors_builder()
@@ -3151,7 +3396,7 @@ mod tests {
         let cryptde = cryptde();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let stream_key = make_meaningless_stream_key();
-        let mut subject = ProxyServer::new(cryptde, false);
+        let mut subject = ProxyServer::new(cryptde, false, Some(STANDARD_CONSUMING_WALLET_BALANCE));
         subject
             .keys_and_addrs
             .insert(stream_key.clone(), socket_addr.clone());
@@ -3195,7 +3440,7 @@ mod tests {
     fn panics_if_hopper_is_unbound() {
         let system = System::new("panics_if_hopper_is_unbound");
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
-        let subject = ProxyServer::new(cryptde(), false);
+        let subject = ProxyServer::new(cryptde(), false, None);
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
@@ -3222,7 +3467,7 @@ mod tests {
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let system = System::new("report_response_services_consumed_complains_and_drops_package_if_return_route_id_is_unrecognized");
-        let mut subject = ProxyServer::new(cryptde, true);
+        let mut subject = ProxyServer::new(cryptde, true, Some(STANDARD_CONSUMING_WALLET_BALANCE));
         let stream_key = make_meaningless_stream_key();
         subject
             .keys_and_addrs
@@ -3268,7 +3513,7 @@ mod tests {
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let system = System::new("report_response_services_consumed_complains_and_drops_package_if_return_route_id_is_unreadable");
-        let mut subject = ProxyServer::new(cryptde, true);
+        let mut subject = ProxyServer::new(cryptde, true, Some(STANDARD_CONSUMING_WALLET_BALANCE));
         let stream_key = make_meaningless_stream_key();
         subject
             .keys_and_addrs
@@ -3319,7 +3564,8 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             let system = System::new("report_response_services_consumed_complains_and_drops_package_if_return_route_id_does_not_exist");
-            let mut subject = ProxyServer::new(cryptde, true);
+            let mut subject =
+                ProxyServer::new(cryptde, true, Some(STANDARD_CONSUMING_WALLET_BALANCE));
             subject.route_ids_to_return_routes = TtlHashMap::new(Duration::from_millis(250));
             subject
                 .keys_and_addrs
@@ -3369,7 +3615,7 @@ mod tests {
 
     #[test]
     fn handle_stream_shutdown_msg_handles_unknown_peer_addr() {
-        let mut subject = ProxyServer::new(cryptde(), true);
+        let mut subject = ProxyServer::new(cryptde(), true, None);
         let unaffected_socket_addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
         let unaffected_stream_key =
             StreamKey::new(cryptde().public_key().clone(), unaffected_socket_addr);
@@ -3410,7 +3656,8 @@ mod tests {
     #[test]
     fn handle_stream_shutdown_msg_reports_to_counterpart_through_tunnel_when_necessary() {
         let system = System::new("test");
-        let mut subject = ProxyServer::new(cryptde(), true);
+        let mut subject =
+            ProxyServer::new(cryptde(), true, Some(STANDARD_CONSUMING_WALLET_BALANCE));
         let unaffected_socket_addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
         let unaffected_stream_key =
             StreamKey::new(cryptde().public_key().clone(), unaffected_socket_addr);
@@ -3510,7 +3757,8 @@ mod tests {
     #[test]
     fn handle_stream_shutdown_msg_reports_to_counterpart_without_tunnel_when_necessary() {
         let system = System::new("test");
-        let mut subject = ProxyServer::new(cryptde(), true);
+        let mut subject =
+            ProxyServer::new(cryptde(), true, Some(STANDARD_CONSUMING_WALLET_BALANCE));
         let unaffected_socket_addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
         let unaffected_stream_key =
             StreamKey::new(cryptde().public_key().clone(), unaffected_socket_addr);
@@ -3603,7 +3851,7 @@ mod tests {
 
     #[test]
     fn handle_stream_shutdown_msg_does_not_report_to_counterpart_when_unnecessary() {
-        let mut subject = ProxyServer::new(cryptde(), true);
+        let mut subject = ProxyServer::new(cryptde(), true, None);
         let unaffected_socket_addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
         let unaffected_stream_key =
             StreamKey::new(cryptde().public_key().clone(), unaffected_socket_addr);
@@ -3669,7 +3917,7 @@ mod tests {
     )]
     fn handle_stream_shutdown_complains_about_clandestine_message() {
         let system = System::new("test");
-        let subject = ProxyServer::new(cryptde(), true);
+        let subject = ProxyServer::new(cryptde(), true, None);
         let subject_addr = subject.start();
 
         subject_addr

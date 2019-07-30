@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::proxy_server::protocol_pack::for_standard_port;
+use crate::proxy_server::protocol_pack::from_ibcd;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::dispatcher::InboundClientData;
@@ -23,31 +23,7 @@ impl ClientRequestPayloadFactory {
         cryptde: &dyn CryptDE,
         logger: &Logger,
     ) -> Option<ClientRequestPayload> {
-        let origin_port = match ibcd.reception_port {
-            None => {
-                error!(
-                    logger,
-                    "No origin port specified with {}-byte packet: {:?}",
-                    ibcd.data.len(),
-                    ibcd.data
-                );
-                return None;
-            }
-            Some(origin_port) => origin_port,
-        };
-        let protocol_pack = match for_standard_port(origin_port) {
-            Some(pp) => pp,
-            None => {
-                error!(
-                    logger,
-                    "No protocol associated with origin port {} for {}-byte packet: {:?}",
-                    origin_port,
-                    ibcd.data.len(),
-                    &ibcd.data
-                );
-                return None;
-            }
-        };
+        let protocol_pack = from_ibcd(&ibcd, logger)?;
         let sequence_number = match ibcd.sequence_number {
             Some(sequence_number) => sequence_number,
             None => {
@@ -64,9 +40,9 @@ impl ClientRequestPayloadFactory {
         let (target_hostname, target_port) = match target_host {
             Some(host) => match host.port {
                 Some(port) => (Some(host.name), port),
-                None => (Some(host.name), origin_port),
+                None => (Some(host.name), protocol_pack.standard_port()),
             },
-            None => (None, origin_port),
+            None => (None, protocol_pack.standard_port()),
         };
         Some(ClientRequestPayload {
             version: ClientRequestPayload::version(),
@@ -287,7 +263,7 @@ mod tests {
 
         assert_eq!(result, None);
         TestLogHandler::new().exists_log_containing(
-            "ERROR: test: No origin port specified with 3-byte packet: [16, 17, 18]",
+            "ERROR: test: No origin port specified with 3-byte non-clandestine packet: [16, 17, 18]",
         );
     }
 
@@ -309,7 +285,7 @@ mod tests {
         let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
 
         assert_eq!(result, None);
-        TestLogHandler::new ().exists_log_containing ("ERROR: test: No protocol associated with origin port 1234 for 3-byte packet: [16, 17, 18]");
+        TestLogHandler::new ().exists_log_containing ("ERROR: test: No protocol associated with origin port 1234 for 3-byte non-clandestine packet: [16, 17, 18]");
     }
 
     #[test]
