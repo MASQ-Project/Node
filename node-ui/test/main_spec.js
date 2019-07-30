@@ -19,6 +19,8 @@ describe('Application launch', function () {
   let indexPage
 
   beforeEach(async () => {
+    assert.strictEqual(await uiInterface.verifyNodeDown(1000), true)
+
     testUtilities.purge_existing_state()
     this.app = new Application({
       // Your electron path can be any binary
@@ -55,6 +57,7 @@ describe('Application launch', function () {
 
   afterEach(async () => {
     if (this.app && this.app.isRunning()) {
+      assert.strictEqual(await uiInterface.verifyNodeDown(1000), true)
       return this.app.stop()
     }
   })
