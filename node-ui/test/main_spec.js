@@ -29,7 +29,9 @@ describe('Without application launch', () => {
     beforeEach(() => {
       let dataDir = generatedBasePath + 'node_configuration_retrieved'
       fs.mkdirSync(dataDir, {recursive: true})
-      fs.chownSync(dataDir, parseInt(process.env.SUDO_UID), parseInt(process.env.SUDO_GID))
+      if (process.env.OSTYPE !== 'msys') {
+        fs.chownSync(dataDir, parseInt(process.env.SUDO_UID), parseInt(process.env.SUDO_GID))
+      }
       process.env.SUB_DATA_DIRECTORY = dataDir
       configuration = subject.getNodeConfiguration()
     })
