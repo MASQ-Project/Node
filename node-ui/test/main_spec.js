@@ -14,7 +14,7 @@ const testUtilities = require('./test_utilities')
 global.WebSocket = WebSocket
 
 describe('Without application launch', () => {
-  const fs = require ('fs')
+  const fs = require('fs')
   const process = require('process')
   const generatedBasePath = 'generated/main_spec/'
   let subject
@@ -27,10 +27,10 @@ describe('Without application launch', () => {
     let configuration
 
     beforeEach(() => {
-      let dataDir = generatedBasePath + 'node_configuration_retrieved'
-      fs.mkdirSync(dataDir, {recursive: true})
-      let uid = parseInt(process.env.SUDO_UID)
-      let gid = parseInt(process.env.SUDO_GID)
+      const dataDir = generatedBasePath + 'node_configuration_retrieved'
+      fs.mkdirSync(dataDir, { recursive: true })
+      const uid = parseInt(process.env.SUDO_UID)
+      const gid = parseInt(process.env.SUDO_GID)
       if (!isNaN(uid) && !isNaN(gid)) {
         fs.chownSync(dataDir, uid, gid)
       }
@@ -45,7 +45,7 @@ describe('Without application launch', () => {
   })
 
   function parseSemVer (semver) {
-    let parts = semver.split('.')
+    const parts = semver.split('.')
     let value = 0
     let multiplier = 1
     while (parts.length > 0) {

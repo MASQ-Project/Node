@@ -1,6 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-const childProcess = require('child_process')
 const binaryBasePath = '../dist/static/binaries/'
 const scriptBasePath = '../dist/static/scripts/'
 const runtimeArgs = [
