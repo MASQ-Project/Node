@@ -5,6 +5,7 @@ const childProcess = require('child_process')
 const path = require('path')
 const consoleWrapper = require('./wrappers/console_wrapper')
 const dnsUtility = require('./dns_utility')
+const substratumNode = require('./substratum_node')
 const psWrapper = require('./wrappers/ps_wrapper')
 const uiInterface = require('./ui_interface')
 const NODE_STARTUP_TIMEOUT = 60000
@@ -31,7 +32,7 @@ module.exports = class NodeActuator {
     return this.setStatus()
   }
 
-  bindProcessEvents () {
+  bindServiceModeProcessEvents () {
     this.substratumNodeProcess.on('message', async message => {
       consoleWrapper.log('substratum_node process received message: ', message)
       if (message.startsWith('Command returned error: ') &&
@@ -61,8 +62,8 @@ module.exports = class NodeActuator {
   }
 
   async setStatus () {
-    let processList = await psWrapper.findNodeProcess()
-    let status = await this.determineStatus(processList)
+    const processList = await psWrapper.findNodeProcess()
+    const status = await this.determineStatus(processList)
     if (status === 'Consuming' || status === 'Serving') {
       this.substratumNodeProcess = processList[0]
     } else {
@@ -77,7 +78,7 @@ module.exports = class NodeActuator {
   }
 
   determineStatus (processList) {
-    let dnsStatus = dnsUtility.getStatus()
+    const dnsStatus = dnsUtility.getStatus()
     if (processList && processList.length > 0 && dnsStatus.indexOf('subverted') >= 0) {
       return 'Consuming'
     } else if (processList && processList.length > 0) {
@@ -108,7 +109,7 @@ module.exports = class NodeActuator {
       stdio: [0, 1, 2, 'ipc'],
       detached: true
     })
-    this.bindProcessEvents()
+    this.bindServiceModeProcessEvents()
     this.substratumNodeProcess.send({
       type: 'start',
       arguments: additionalArguments
@@ -137,7 +138,7 @@ module.exports = class NodeActuator {
         return psWrapper.killNodeProcess()
       } else {
         // Have a handle to the process; can send a 'stop' message
-        let processToKill = this.substratumNodeProcess
+        const processToKill = this.substratumNodeProcess
         this.substratumNodeProcess = null
         processToKill.send('stop')
         return Promise.resolve(null)
@@ -153,7 +154,7 @@ module.exports = class NodeActuator {
       this.webContents.send('node-descriptor', '')
       return await this.getStatus()
     } catch (error) {
-      let status = await this.getStatus()
+      const status = await this.getStatus()
       if (status !== 'Off') {
         dialog.showErrorBox('Error', error.message)
       }
@@ -167,7 +168,7 @@ module.exports = class NodeActuator {
       await dnsUtility.revert()
       return await this.getStatus()
     } catch (error) {
-      let status = await this.getStatus()
+      const status = await this.getStatus()
       if (status !== 'Serving') {
         dialog.showErrorBox('Error', error.message)
       }
@@ -181,7 +182,7 @@ module.exports = class NodeActuator {
       await dnsUtility.subvert()
       return await this.getStatus()
     } catch (error) {
-      let status = await this.getStatus()
+      const status = await this.getStatus()
       if (status !== 'Consuming') {
         dialog.showErrorBox('Error', error.message)
       }
@@ -200,5 +201,11 @@ module.exports = class NodeActuator {
 
   async updateNodeDescriptor (descriptor) {
     return this.webContents.send('node-descriptor', descriptor)
+  }
+
+  async recoverWallet (mnemonicPhrase, mnemonicPassphrase, derivationPath, wordlist, password) {
+    return substratumNode.recoverWallet(
+      mnemonicPhrase, mnemonicPassphrase, derivationPath, wordlist, password
+    )
   }
 }

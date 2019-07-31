@@ -12,12 +12,6 @@ $right-corners-nubbed: 0 $border-radius $border-radius 0;
   display: block;
 }
 
-#cancel {
-  @include action-button;
-  color: color('text');
-  border-color: color('text');
-}
-
 .node-config {
   @include node-form;
 }

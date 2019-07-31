@@ -5,14 +5,16 @@
 const td = require('testdouble')
 
 describe('main', () => {
-  let mockApp, mockDialog, mockEvent, mockHttp, mockIpcMain, mockMenu, mainWindow, webContents, mainWindowOnClose, MockNodeActuator, appOnReady, ipcMainOnIpLookup, ipcMainOnChangeNodeState, ipcMainOnGetFinancialStatistics, ipcMainOnSetConsumingWalletPassword, process
+  let mockApp, mockDialog, mockEvent, mockHttp, mockIpcMain, mockMenu, mainWindow, webContents, mainWindowOnClose,
+    MockNodeActuator, appOnReady, ipcMainOnIpLookup, ipcMainOnChangeNodeState, ipcMainOnGetFinancialStatistics,
+    ipcMainOnCalculateWalletAddress, ipcMainOnRecoverConsumingWallet, ipcMainOnSetConsumingWalletPassword, process
 
   beforeEach(() => {
     mockEvent = td.object(['preventDefault'])
     mockApp = td.object(['getName', 'on', 'quit'])
     mockDialog = td.object(['showErrorBox'])
     mockIpcMain = td.object(['on'])
-    MockNodeActuator = td.constructor(['shutdown', 'off', 'serving', 'consuming', 'getFinancialStatistics', 'setConsumingWalletPassword'])
+    MockNodeActuator = td.constructor(['shutdown', 'off', 'serving', 'consuming', 'recoverWallet', 'getFinancialStatistics', 'setConsumingWalletPassword'])
     mockMenu = td.object(['setApplicationMenu', 'buildFromTemplate'])
     td.replace('../main-process/node_actuator', MockNodeActuator)
     mockHttp = td.replace('http')
@@ -35,6 +37,12 @@ describe('main', () => {
 
     ipcMainOnGetFinancialStatistics = td.matchers.captor()
     td.when(mockIpcMain.on('get-financial-statistics', ipcMainOnGetFinancialStatistics.capture())).thenReturn(mockIpcMain)
+
+    ipcMainOnCalculateWalletAddress = td.matchers.captor()
+    td.when(mockIpcMain.on('calculate-wallet-address', ipcMainOnCalculateWalletAddress.capture())).thenReturn(mockIpcMain)
+
+    ipcMainOnRecoverConsumingWallet = td.matchers.captor()
+    td.when(mockIpcMain.on('recover-consuming-wallet', ipcMainOnRecoverConsumingWallet.capture())).thenReturn(mockIpcMain)
 
     ipcMainOnSetConsumingWalletPassword = td.matchers.captor()
     td.when(mockIpcMain.on('set-consuming-wallet-password', ipcMainOnSetConsumingWalletPassword.capture())).thenReturn(mockIpcMain)
@@ -70,7 +78,7 @@ describe('main', () => {
       event = {}
       mockRequest = td.object(['abort', 'on'])
       mockResponse = td.object(['on'])
-      td.when(mockHttp.get({ 'host': 'api.ipify.org', 'port': 80, 'path': '/', 'timeout': 1000 }, td.callback(mockResponse)))
+      td.when(mockHttp.get({ host: 'api.ipify.org', port: 80, path: '/', timeout: 1000 }, td.callback(mockResponse)))
         .thenReturn(mockRequest)
     })
 
@@ -100,7 +108,7 @@ describe('main', () => {
 
     describe('error', () => {
       beforeEach(() => {
-        td.when(mockRequest.on('error')).thenCallback("things didn't work out")
+        td.when(mockRequest.on('error')).thenCallback('things didn\'t work out')
         ipcMainOnIpLookup.value(event)
       })
 
@@ -138,8 +146,8 @@ describe('main', () => {
 
   describe('change-node-state', () => {
     let command
-    let event = {}
-    let arg = ['inconsequential']
+    const event = {}
+    const arg = ['inconsequential']
 
     beforeEach(() => {
       appOnReady.value()
@@ -156,7 +164,7 @@ describe('main', () => {
           await ipcMainOnChangeNodeState.value(event, command, arg)
         })
 
-        it("returns 'Off'", () => {
+        it('returns \'Off\'', () => {
           td.verify(webContents.send('node-status', 'Off'))
         })
       })
@@ -167,7 +175,7 @@ describe('main', () => {
           await ipcMainOnChangeNodeState.value(event, command, arg)
         })
 
-        it("returns 'Invalid'", () => {
+        it('returns \'Invalid\'', () => {
           td.verify(webContents.send('node-status', 'Invalid'))
         })
       })
@@ -184,7 +192,7 @@ describe('main', () => {
           await ipcMainOnChangeNodeState.value(event, command, arg)
         })
 
-        it("returns 'Serving'", () => {
+        it('returns \'Serving\'', () => {
           td.verify(webContents.send('node-status', 'Serving'))
         })
       })
@@ -195,7 +203,7 @@ describe('main', () => {
           await ipcMainOnChangeNodeState.value(event, command, arg)
         })
 
-        it("returns 'Invalid'", () => {
+        it('returns \'Invalid\'', () => {
           td.verify(webContents.send('node-status', 'Invalid'))
         })
       })
@@ -212,7 +220,7 @@ describe('main', () => {
           await ipcMainOnChangeNodeState.value(event, command, arg)
         })
 
-        it("returns 'Consuming'", () => {
+        it('returns \'Consuming\'', () => {
           td.verify(webContents.send('node-status', 'Consuming'))
         })
       })
@@ -223,7 +231,7 @@ describe('main', () => {
           await ipcMainOnChangeNodeState.value(event, command, arg)
         })
 
-        it("returns 'Invalid'", () => {
+        it('returns \'Invalid\'', () => {
           td.verify(webContents.send('node-status', 'Invalid'))
         })
       })
@@ -251,6 +259,113 @@ describe('main', () => {
       })
       it('sends get-financial-statistics-error', () => {
         td.verify(mainWindow.prototype.webContents.send('get-financial-statistics-response-error', 'error'))
+      })
+    })
+  })
+
+  describe('calculate-wallet-address', () => {
+    beforeEach(() => {
+      appOnReady.value()
+    })
+
+    describe('success with standard derivation path', () => {
+      beforeEach(async () => {
+        await ipcMainOnCalculateWalletAddress.value({},
+          'supply silent program funny miss slab goat scrap advice faith group pretty',
+          'm/44\'/60\'/0\'/0/0',
+          'password',
+          'en')
+      })
+
+      it('responds with the address', () => {
+        td.verify(mainWindow.prototype.webContents.send('calculated-wallet-address', '0xAAFB5A9A1f0fD1033AAa904990126aed7E2Fa7C6'))
+      })
+    })
+
+    describe('success with different derivation path and no passphrase', () => {
+      beforeEach(async () => {
+        await ipcMainOnCalculateWalletAddress.value({},
+          'supply silent program funny miss slab goat scrap advice faith group pretty',
+          'm/44\'/60\'/0\'/0/1',
+          '',
+          'en')
+      })
+
+      it('responds with the address', () => {
+        td.verify(mainWindow.prototype.webContents.send('calculated-wallet-address', '0x52144caDdca2c240D12B1896908BCEa454fC4889'))
+      })
+    })
+
+    describe('success with a different word list', () => {
+      beforeEach(async () => {
+        await ipcMainOnCalculateWalletAddress.value({},
+          'sportivo secondo puntare ginepro occorrere serbato idra savana afoso finanza inarcare proroga',
+          'm/44\'/60\'/0\'/0/0',
+          '',
+          'it')
+      })
+
+      it('responds with the address', () => {
+        td.verify(mainWindow.prototype.webContents.send('calculated-wallet-address', '0xD218Bb087FCe27b8922eB244852FF600576796d0'))
+      })
+    })
+
+    describe('failure because of a bad derivation path', () => {
+      beforeEach(async () => {
+        await ipcMainOnCalculateWalletAddress.value({},
+          'supply silent program funny miss slab goat scrap advice faith group pretty',
+          'badbadbad',
+          'password',
+          'en')
+      })
+
+      it('responds with empty string', () => {
+        td.verify(mainWindow.prototype.webContents.send('calculated-wallet-address', ''))
+      })
+    })
+
+    describe('failure because of a bad mnemonic phrase', () => {
+      beforeEach(async () => {
+        await ipcMainOnCalculateWalletAddress.value({},
+          'bad bad bad',
+          'm/44\'/60\'/0\'/0/1',
+          'password',
+          'en')
+      })
+
+      it('responds with empty string', () => {
+        td.verify(mainWindow.prototype.webContents.send('calculated-wallet-address', ''))
+      })
+    })
+  })
+
+  describe('recover-consuming-wallet', () => {
+    beforeEach(() => {
+      appOnReady.value()
+    })
+
+    describe('successfully', () => {
+      beforeEach(async () => {
+        td.when(MockNodeActuator.prototype.recoverWallet('phrase', 'passphrase', 'path', 'wordlist', 'password')).thenResolve({ success: true })
+
+        await ipcMainOnRecoverConsumingWallet.value({}, 'phrase', 'passphrase', 'path', 'wordlist', 'password')
+      })
+
+      it('sends a success messages to the render process', () => {
+        td.verify(mainWindow.prototype.webContents.send('recovered-consuming-wallet', true))
+      })
+    })
+
+    describe('unsuccessfully', () => {
+      beforeEach(async () => {
+        td.when(MockNodeActuator.prototype.recoverWallet('phrase', 'passphrase', 'path', 'wordlist', 'password'))
+          .thenResolve({ success: false, message: 'whoops' })
+
+        await ipcMainOnRecoverConsumingWallet.value({}, 'phrase', 'passphrase', 'path', 'wordlist', 'password')
+      })
+
+      it('sends a success messages to the render process', () => {
+        td.verify(mainWindow.prototype.webContents.send('recover-consuming-wallet-error', 'whoops'))
       })
     })
   })

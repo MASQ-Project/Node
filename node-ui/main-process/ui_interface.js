@@ -13,7 +13,7 @@ module.exports = (() => {
 
   function connect () {
     return new Promise((resolve, reject) => {
-      let ws = createSocket(DEFAULT_UI_PORT)
+      const ws = createSocket(DEFAULT_UI_PORT)
       ws.onopen = () => {
         webSocket = ws
         resolve(true)

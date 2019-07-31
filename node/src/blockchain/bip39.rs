@@ -68,10 +68,8 @@ impl Bip39 {
     pub fn language_from_name(name: &str) -> Language {
         match name.to_lowercase().as_str() {
             "english" => Language::English,
-            "中文(简体)" => Language::ChineseSimplified,
-            "简体" => Language::ChineseSimplified,
-            "中文(繁體)" => Language::ChineseTraditional,
-            "繁體" => Language::ChineseTraditional,
+            "中文(简体)" | "简体" => Language::ChineseSimplified,
+            "中文(繁體)" | "繁體" => Language::ChineseTraditional,
             "français" => Language::French,
             "italiano" => Language::Italian,
             "日本語" => Language::Japanese,
@@ -193,6 +191,8 @@ mod tests {
             Language::Japanese,
             Language::Korean,
             Language::Spanish,
+            super::Bip39::language_from_name("简体"),
+            super::Bip39::language_from_name("繁體"),
         ] {
             assert_eq!(
                 super::Bip39::name_from_language(*l),

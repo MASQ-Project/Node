@@ -10,6 +10,8 @@ import * as td from 'testdouble';
 describe('AppComponent', () => {
   @Component({selector: 'app-index', template: ''})
   class StubIndexComponent {}
+  @Component({selector: 'app-footer', template: ''})
+  class StubFooterComponent {}
 
   let component: AppComponent;
   let fixture: ComponentFixture<AppComponent>;
@@ -28,7 +30,8 @@ describe('AppComponent', () => {
     TestBed.configureTestingModule({
       declarations: [
         AppComponent,
-        StubIndexComponent
+        StubIndexComponent,
+        StubFooterComponent
       ],
       imports: [
         RouterTestingModule

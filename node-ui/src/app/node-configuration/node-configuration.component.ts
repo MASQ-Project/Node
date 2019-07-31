@@ -36,7 +36,7 @@ export class NodeConfigurationComponent implements OnInit {
   tooltipShown = false;
   walletType: WalletType = WalletType.EARNING;
 
-  @ViewChild('tooltipIcon')
+  @ViewChild('tooltipIcon', { static: true })
   tooltipIcon: ElementRef;
 
   @HostListener('document:click', ['$event'])

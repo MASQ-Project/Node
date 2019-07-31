@@ -16,6 +16,28 @@
     color: color('background', 'dark');
     border: 1.5px solid color('background', 'dark');
   }
+
+  &:focus {
+    outline: none;
+  }
+}
+
+.cancel-button {
+  @include action-button;
+  color: color('text');
+  border-color: color('text');
+}
+
+@mixin node-textbox() {
+  height: 40px;
+  padding: 0 18px;
+  font-size: fontSize('base');
+  background: color('background', 'dark');
+  border: none;
+  color: color('text', 'light');
+  flex: 1;
+  border-radius: $border-radius;
+  -webkit-box-sizing: border-box;
 }
 
 @mixin node-form() {
@@ -61,14 +83,7 @@
   }
 
   input {
-    height: 40px;
-    padding: 0 18px;
-    font-size: fontSize('base');
-    background: color('background', 'dark');
-    border: none;
-    color: color('text', 'light');
-    flex: 1;
-    border-radius: $border-radius;
+    @include node-textbox();
   }
 
   .input-invalid {

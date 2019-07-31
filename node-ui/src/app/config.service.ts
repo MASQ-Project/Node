@@ -40,6 +40,11 @@ export class ConfigService {
       ConfigService.testRegEx(currentConfig.neighbor, neighborPattern);
   }
 
+  setEarningWallet(address: string) {
+    const currentConfig = this.getConfig();
+    currentConfig.walletAddress = address;
+    this.save(currentConfig);
+  }
 
   isValidConsuming(): boolean {
     return this.isValidServing();

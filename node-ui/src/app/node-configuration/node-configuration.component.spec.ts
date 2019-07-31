@@ -57,8 +57,7 @@ describe('NodeConfigurationComponent', () => {
         {provide: MainService, useValue: mockMainService},
         {provide: Router, useValue: mockRouter}
       ]
-    })
-      .compileComponents();
+    }).compileComponents();
   }));
 
   beforeEach(() => {

@@ -3,6 +3,7 @@
 import {Component, ElementRef, EventEmitter, HostListener, Output, ViewChild} from '@angular/core';
 import {ElectronService} from '../electron.service';
 import {ConfigurationMode} from '../configuration-mode.enum';
+import { Router } from '@angular/router';
 
 @Component({
   selector: 'app-header',
@@ -15,7 +16,7 @@ export class HeaderComponent {
 
   @Output() openSettingsEvent = new EventEmitter<ConfigurationMode>();
 
-  @ViewChild('settingsbutton')
+  @ViewChild('settingsbutton', { static: true })
   settings_button: ElementRef;
 
   @HostListener('document:click', ['$event'])
@@ -23,7 +24,7 @@ export class HeaderComponent {
     this.hideSettings(event);
   }
 
-  constructor(private electron: ElectronService) {
+  constructor(private electron: ElectronService, private router: Router) {
   }
 
   toggleSettings() {
@@ -32,6 +33,10 @@ export class HeaderComponent {
 
   openSettings() {
     this.openSettingsEvent.emit(ConfigurationMode.Configuring);
+  }
+
+  openWalletConfiguration() {
+    this.router.navigate(['/wallet']);
   }
 
   hideSettings(e) {

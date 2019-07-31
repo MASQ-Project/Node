@@ -1,7 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 import {BrowserModule} from '@angular/platform-browser';
 import {NgModule} from '@angular/core';
-
 import {AppRoutingModule} from './app-routing.module';
 import {AppComponent} from './app.component';
 import {IndexComponent} from './index/index.component';
@@ -15,6 +14,7 @@ import {ConsumingWalletPasswordPromptComponent} from './consuming-wallet-passwor
 import {FinancialStatisticsComponent} from './financial-statistics/financial-statistics.component';
 import {TabsComponent} from './tabs/tabs.component';
 import {TabComponent} from './tabs/tab.component';
+import {WalletConfigurationComponent} from './wallet-configuration/wallet-configuration.component';
 
 @NgModule({
   declarations: [
@@ -28,6 +28,7 @@ import {TabComponent} from './tabs/tab.component';
     FinancialStatisticsComponent,
     TabsComponent,
     TabComponent,
+    WalletConfigurationComponent,
   ],
   imports: [
     BrowserModule,

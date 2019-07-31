@@ -15,6 +15,7 @@ describe('NodeActuator', () => {
   let mockApp
   let mockDialog
   let mockChildProcess
+  let mockSubstratumNode
   let mockSudoPrompt
   let mockConsole
   let mockPsWrapper
@@ -37,6 +38,7 @@ describe('NodeActuator', () => {
     mockChildProcess = td.replace('child_process')
     mockSudoPrompt = td.replace('sudo-prompt')
     mockConsole = td.replace('../main-process/wrappers/console_wrapper')
+    mockSubstratumNode = td.replace('../main-process/substratum_node')
     mockDnsUtility = td.replace('../main-process/dns_utility')
     mockPsWrapper = td.replace('../main-process/wrappers/ps_wrapper')
     mockUiInterface = td.replace('../main-process/ui_interface')
@@ -70,6 +72,16 @@ describe('NodeActuator', () => {
     td.reset()
   })
 
+  describe('recoverWallet', () => {
+    beforeEach(async () => {
+      await subject.recoverWallet('phrase', 'passphrase', 'path', 'wordlist', 'password')
+    })
+
+    it('requests wallet recovery', () => {
+      td.verify(mockSubstratumNode.recoverWallet('phrase', 'passphrase', 'path', 'wordlist', 'password'))
+    })
+  })
+
   describe('off', () => {
     beforeEach(async () => {
       await subject.off()
@@ -90,7 +102,7 @@ describe('NodeActuator', () => {
     describe('to serving, where substratumNodeProcess implies that the Node is already running', () => {
       beforeEach(async () => {
         td.when(mockUiInterface.verifyNodeUp(td.matchers.anything())).thenResolve(true)
-        let substratumNodeProcess = 'truthy'
+        const substratumNodeProcess = 'truthy'
         td.when(mockPsWrapper.findNodeProcess()).thenReturn([substratumNodeProcess])
         await subject.setStatus()
         await subject.serving()
@@ -157,7 +169,7 @@ describe('NodeActuator', () => {
     })
 
     describe('to serving, where the UI interface is unable to verify that the Node is up', () => {
-      let args = { walletAddress: '0xBB' }
+      const args = { walletAddress: '0xBB' }
       beforeEach(async () => {
         td.when(mockUiInterface.verifyNodeUp(td.matchers.anything())).thenResolve(false)
         await subject.serving(args)
@@ -181,7 +193,7 @@ describe('NodeActuator', () => {
     })
 
     describe('to consuming', () => {
-      let args = { walletAddress: '0xC0' }
+      const args = { walletAddress: '0xC0' }
       beforeEach(async () => {
         await subject.consuming(args)
       })
@@ -697,8 +709,8 @@ describe('NodeActuator', () => {
 
   describe('serving with already running node process', () => {
     beforeEach(async () => {
-      let binaryName = (process.platform === 'win32') ? 'SubstratumNodeW' : 'SubstratumNode'
-      let processTriple = { name: binaryName, pid: 1234, cmd: 'dist/static/binaries/' + binaryName }
+      const binaryName = (process.platform === 'win32') ? 'SubstratumNodeW' : 'SubstratumNode'
+      const processTriple = { name: binaryName, pid: 1234, cmd: 'dist/static/binaries/' + binaryName }
       td.when(mockPsWrapper.findNodeProcess()).thenReturn([processTriple])
       await subject.setStatus()
       await subject.serving()
@@ -813,9 +825,9 @@ describe('NodeActuator', () => {
         beforeEach(async () => {
           await subject.serving()
 
-          let error = { message: 'blablabla' }
-          let stdout = false
-          let stderr = false
+          const error = { message: 'blablabla' }
+          const stdout = false
+          const stderr = false
           td.when(mockSudoPrompt.exec(td.matchers.anything(), td.matchers.anything()))
             .thenCallback(error, stdout, stderr)
           td.when(mockPsWrapper.findNodeProcess()).thenCallback([])

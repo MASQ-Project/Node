@@ -67,7 +67,7 @@ describe('ps_wrapper', () => {
         cmd: 'users/SubstratumNode --dns-servers 8.8.8.8'
       }])
       mockPath.sep = '/'
-      let result = await subject.findNodeProcess()
+      const result = await subject.findNodeProcess()
       assert.strictEqual(result.length, 0)
     })
 
@@ -78,7 +78,7 @@ describe('ps_wrapper', () => {
         cmd: 'users/static/binaries/SubstratumNode --dns-servers 8.8.8.8'
       }])
       mockPath.sep = '/'
-      let result = await subject.findNodeProcess()
+      const result = await subject.findNodeProcess()
       assert.strictEqual(result.length, 1)
       assert.strictEqual(result[0].name, 'SubstratumNode')
     })
@@ -90,7 +90,7 @@ describe('ps_wrapper', () => {
         cmd: 'users\\static\\binaries\\SubstratumNodeW --dns-servers 8.8.8.8'
       }])
       mockPath.sep = '\\'
-      let result = await subject.findNodeProcess()
+      const result = await subject.findNodeProcess()
       assert.strictEqual(result.length, 1)
       assert.strictEqual(result[0].name, 'SubstratumNodeW')
     })

@@ -13,6 +13,20 @@ module.exports = (() => {
     })
   }
 
+  function recoverWallet (mnemonicPhrase, mnemonicPassphrase, derivationPath, wordlist, password) {
+    const result = commandHelper.recoverWallet(mnemonicPhrase, mnemonicPassphrase, derivationPath, wordlist, password)
+
+    return handle(result)
+  }
+
+  function handle (result) {
+    if (result.status === 0) {
+      return { success: true }
+    } else {
+      return { success: false, message: result.stderr.toString('utf8').trim() }
+    }
+  }
+
   function start (additionalArgs) {
     console.log('start initiated')
     commandHelper.startSubstratumNode(additionalArgs, handleCommandResult)
@@ -44,6 +58,7 @@ module.exports = (() => {
   bindEvents()
 
   return {
+    recoverWallet: recoverWallet,
     start: start,
     stop: stop
   }

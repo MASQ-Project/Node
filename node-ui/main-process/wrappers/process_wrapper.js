@@ -1,10 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 module.exports = (() => {
-  let pid = process.pid
-  let platform = process.platform
-  let env = process.env
-  let argv = process.argv
+  const pid = process.pid
+  const platform = process.platform
+  const env = process.env
+  const argv = process.argv
 
   function getuid () {
     return process.getuid()

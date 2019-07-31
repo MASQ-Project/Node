@@ -4,7 +4,7 @@ const fs = require('fs')
 const path = require('path')
 
 function removeFile (dataDir, filename) {
-  let completePath = path.join(dataDir, filename)
+  const completePath = path.join(dataDir, filename)
   try {
     fs.unlinkSync(completePath)
   } catch (err) {
@@ -15,9 +15,9 @@ function removeFile (dataDir, filename) {
 module.exports = (() => {
   return {
     createMockUIElement: function (defaultClass) {
-      let classListData = {}
+      const classListData = {}
 
-      let element = {
+      const element = {
         classList: {
           add: function (x) {
             classListData[x] = true
@@ -39,9 +39,12 @@ module.exports = (() => {
 
       return element
     },
-    purge_existing_state: function () {
-      let dataDir = process.env.APPDATA ||
-          (process.platform === 'darwin' ? process.env.HOME + '/Library/Application Support' : process.env.HOME + '/.local/share')
+    makeSpawnSyncResult: function (string) {
+      return { status: 0, stdout: Buffer.from(string + '\n') }
+    },
+    purgeExistingState: function () {
+      const dataDir = process.env.APPDATA ||
+        (process.platform === 'darwin' ? process.env.HOME + '/Library/Application Support' : process.env.HOME + '/.local/share')
       removeFile(dataDir, 'node-data.db')
     }
   }

@@ -5,8 +5,8 @@ const path = require('path')
 const childProcess = require('child_process')
 
 function win () {
-  let startsWith = function (string, prefix) {
-    let actualPrefix = string.substr(0, prefix.length)
+  const startsWith = function (string, prefix) {
+    const actualPrefix = string.substr(0, prefix.length)
     return actualPrefix === prefix
   }
 
@@ -15,7 +15,7 @@ function win () {
       if (error) {
         reject(error)
       } else {
-        let processes = []
+        const processes = []
         let pid = null
         let name = ''
         let cmd = ''
@@ -26,7 +26,7 @@ function win () {
           } else if (startsWith(line, 'Name=')) {
             name = line.substr('Name='.length)
           } else if (startsWith(line, 'ProcessId=')) {
-            let strPid = line.substr('ProcessId='.length)
+            const strPid = line.substr('ProcessId='.length)
             pid = Number.parseInt(strPid, 10)
           } else {
             if (pid != null) {

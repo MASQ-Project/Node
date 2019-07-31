@@ -1,0 +1,65 @@
+<!--Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.-->
+
+<div class="wallet-configuration">
+  <h3>Wallet Configuration</h3>
+
+  <form [formGroup]="walletConfig" (ngSubmit)="generatePublicAddress()">
+    <div id="controls-container" class="wallet-configuration__actions">
+      <span>Recover wallet from mnemonic phrase</span>
+      <input hidden type="radio" id="recover-wallet-control" value=""/>
+    </div>
+    <div id="lang-pass-container" class="wallet-configuration__actions">
+      <div id="language-container">
+        <label for="wordlist">Language</label>
+        <select id="wordlist" formControlName="wordlist">
+          <option *ngFor="let wordlist of wordlists" [value]="wordlist.value">
+            {{wordlist.viewValue}}
+          </option>
+        </select>
+      </div>
+      <div id="mnemonic-passphrase-container">
+        <div id="mnemonic-passphrase-label">
+          <label for="mnemonic-passphrase">Mnemonic Passphrase</label>
+        </div>
+        <div id="mnemonic-passphrase-input">
+          <input type="password" id="mnemonic-passphrase" formControlName="mnemonicPassphrase"
+               [class.input-invalid]="walletConfig.controls['mnemonicPassphrase'].errors">
+        </div>
+      </div>
+    </div>
+    <div class="wallet-configuration__actions">
+      <textarea rows="3" id="mnemonic-phrase" formControlName="mnemonicPhrase"
+                [class.input-invalid]="walletConfig.controls['mnemonicPhrase'].errors"></textarea>
+    </div>
+    <div id="derivation-path-container" class="wallet-configuration__actions">
+      <label for="derivation-path">HD Derivation Path</label>
+      <input type="text" id="derivation-path" formControlName="derivationPath"
+             [class.input-invalid]="walletConfig.controls['derivationPath'].errors">
+    </div>
+    <div class="wallet-configuration__actions" [hidden]="!publicAddress">
+      <div id="address-container">
+        <span id="public-address-label">Consuming wallet address:</span><span id="public-address">{{publicAddress}}</span>
+      </div>
+    </div>
+    <div id="wallet-password-container" class="wallet-configuration__actions">
+      <label for="password">Wallet Password</label>
+      <input type="password" id="password" formControlName="password"/>
+    </div>
+    <ul id="wallet-configuration-validation">
+      <li class="validation-error" *ngIf="walletConfig.errors?.mnemonicInvalid">Mnemonic Phrase is invalid</li>
+      <li class="validation-error" *ngIf="walletConfig.controls['mnemonicPhrase'].errors?.enoughWordsInvalid && !walletConfig.controls['mnemonicPhrase'].pristine">Mnemonic Phrase must be at least 12 words</li>
+      <li class="validation-error" *ngIf="walletConfig.controls['derivationPath'].hasError('pattern')">Derivation Path format is invalid</li>
+      <li *ngIf="errorText" class="validation-error">{{errorText}}</li>
+    </ul>
+    <div class="wallet-configuration__actions wallet-configuration__inset">
+      <button type="button" routerLink="/" class="cancel-button">Cancel</button>
+      <div class="wallet-configuration__empty-flex"></div>
+      <button type="button"
+              id="save-consuming-wallet"
+              class="wallet-configuration__to-action"
+              [disabled]="!walletConfig.valid"
+              (click)="recover()">Save
+      </button>
+    </div>
+  </form>
+</div>

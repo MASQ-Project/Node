@@ -4,7 +4,7 @@ use crate::blockchain::bip39::Bip39;
 use crate::multi_config::MultiConfig;
 use crate::node_configurator::{
     app_head, common_validators, consuming_wallet_arg, create_wallet, data_directory_arg,
-    earning_wallet_arg, flushed_write, language_arg, mnemonic_passphrase_arg,
+    earning_wallet_arg, exit, flushed_write, language_arg, mnemonic_passphrase_arg,
     prepare_initialization_mode, request_existing_password, wallet_password_arg, Either,
     NodeConfigurator, WalletCreationConfig, WalletCreationConfigMaker, EARNING_WALLET_HELP,
     WALLET_PASSWORD_HELP,
@@ -138,7 +138,10 @@ impl NodeConfiguratorRecoverWallet {
         persistent_config: &PersistentConfiguration,
     ) -> WalletCreationConfig {
         if persistent_config.encrypted_mnemonic_seed().is_some() {
-            panic!("Can't recover wallets: mnemonic seed has already been created")
+            exit(
+                1,
+                "Can't recover wallets: mnemonic seed has already been created",
+            );
         }
         self.make_wallet_creation_config(multi_config, streams)
     }
@@ -178,7 +181,7 @@ impl NodeConfiguratorRecoverWallet {
         let phrase = phrase_words.join(" ");
         match Validators::validate_mnemonic_words(phrase.clone(), language) {
             Ok(_) => (),
-            Err(e) => panic!("{}", e),
+            Err(e) => exit(1, &e),
         }
         Mnemonic::from_phrase(phrase, language).expect("Error creating Mnemonic")
     }
@@ -240,7 +243,7 @@ mod tests {
         assert!(Validators::validate_mnemonic_words(
             "昨 据 肠 介 甘 橡 峰 冬 点 显 假 覆 归 了 曰 露 胀 偷 盆 缸 操 举 除 喜"
                 .to_string(),
-            Language::ChineseSimplified
+            Language::ChineseSimplified,
         )
         .is_ok());
     }
@@ -250,7 +253,7 @@ mod tests {
         assert!(Validators::validate_mnemonic_words(
             "昨 據 腸 介 甘 橡 峰 冬 點 顯 假 覆 歸 了 曰 露 脹 偷 盆 缸 操 舉 除 喜"
                 .to_string(),
-            Language::ChineseTraditional
+            Language::ChineseTraditional,
         )
         .is_ok());
     }
@@ -261,7 +264,7 @@ mod tests {
             "timber cage wide hawk phone shaft pattern movie army dizzy hen tackle lamp \
              absent write kind term toddler sphere ripple idle dragon curious hold"
                 .to_string(),
-            Language::English
+            Language::English,
         )
         .is_ok());
     }
@@ -303,7 +306,7 @@ mod tests {
             "absent army cage curious dizzy dragon hawk hen hold idle kind lamp movie \
              pattern phone ripple shaft sphere tackle term timber toddler wide write"
                 .to_string(),
-            Language::English
+            Language::English,
         )
         .is_err());
     }
@@ -315,7 +318,7 @@ mod tests {
              de\u{301}cupler fouge\u{300}re silicium humble aborder vortex histoire somnoler \
              substrat rompre pivoter gendarme demeurer colonel frelon"
                 .to_string(),
-            Language::French
+            Language::French,
         )
         .is_ok());
     }
@@ -327,7 +330,7 @@ mod tests {
              intuito stizzoso mensola abolire zenzero massaia supporto taverna sistole riverso \
              lentezza ecco curatore ironico"
                 .to_string(),
-            Language::Italian
+            Language::Italian,
         )
         .is_ok());
     }
@@ -338,7 +341,7 @@ mod tests {
             "まよう おおう るいせき しゃちょう てんし はっほ\u{309a}う てほと\u{3099}き た\u{3099}んな \
             いつか けいかく しゅらは\u{3099} ほけん そうか\u{3099}んきょう あきる ろんは\u{309a} せんぬき ほんき \
             みうち ひんは\u{309a}ん ねわさ\u{3099} すのこ け\u{3099}きとつ きふく し\u{3099}んし\u{3099}ゃ"
-                .to_string(), Language::Japanese
+                .to_string(), Language::Japanese,
         )
             .is_ok());
     }
@@ -349,7 +352,7 @@ mod tests {
             "텔레비전 기법 확보 성당 음주 주문 유물 연휴 경주 무릎 세월 캐릭터 \
              신고 가르침 흐름 시중 큰아들 통장 창밖 전쟁 쇠고기 물가 마사지 소득"
                 .to_string(),
-            Language::Korean
+            Language::Korean,
         )
         .is_ok());
     }
@@ -360,7 +363,7 @@ mod tests {
             "tarro bolero villa hacha opaco regalo oferta mochila amistad definir helio \
              suerte leer abono yeso lana taco tejado salto premio iglesia destino colcha himno"
                 .to_string(),
-            Language::Spanish
+            Language::Spanish,
         )
         .is_ok());
     }
@@ -409,7 +412,7 @@ mod tests {
                     ),
                     wallet_password: password.to_string(),
                     consuming_derivation_path_opt: Some(consuming_path.to_string()),
-                })
+                }),
             },
         );
     }
@@ -449,7 +452,7 @@ mod tests {
                     consuming_derivation_path_opt: Some(
                         DEFAULT_CONSUMING_DERIVATION_PATH.to_string()
                     ),
-                })
+                }),
             },
         );
     }

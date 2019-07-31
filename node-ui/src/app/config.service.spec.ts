@@ -91,6 +91,15 @@ describe('ConfigService', () => {
         expect(service.isValidServing()).toBeFalsy();
       });
     });
+  });
 
+  describe('can update earning wallet', () => {
+    beforeEach(() => {
+      service.setEarningWallet('pewpew');
+    });
+
+    it('be updated', () => {
+      expect(service.getConfig().walletAddress).toEqual('pewpew');
+    });
   });
 });

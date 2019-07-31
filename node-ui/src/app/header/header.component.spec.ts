@@ -6,6 +6,7 @@ import {HeaderComponent} from './header.component';
 import {ElectronService} from '../electron.service';
 import * as td from 'testdouble';
 import {NetworkHelpComponent} from '../network-help/network-help.component';
+import {Router} from '@angular/router';
 
 describe('HeaderComponent', () => {
   let component: HeaderComponent;
@@ -32,7 +33,8 @@ describe('HeaderComponent', () => {
       ],
       providers: [
         {provide: ComponentFixtureAutoDetect, useValue: true},
-        {provide: ElectronService, useValue: stubElectronService}
+        {provide: ElectronService, useValue: stubElectronService},
+        {provide: Router, useValue: {}}
       ]
 
     })
@@ -113,8 +115,8 @@ describe('HeaderComponent', () => {
     describe('clicking the settings link', () => {
       let gotIt = false;
 
-      describe ('Settings', () => {
-        beforeEach (() => {
+      describe('Settings', () => {
+        beforeEach(() => {
           component.openSettingsEvent.subscribe(() => gotIt = true);
           compiled.querySelector('#open-settings').click();
         });
@@ -169,7 +171,7 @@ describe('HeaderComponent', () => {
   });
 
   describe('toggleModalHelp', () => {
-    beforeEach (() => {
+    beforeEach(() => {
       component.toggleModalHelp();
       fixture.detectChanges();
     });
@@ -178,7 +180,7 @@ describe('HeaderComponent', () => {
       expect(compiled.querySelector('#network-help-modal').classList.contains('modal-help--inactive')).toBeFalsy();
     });
     describe('invoking again', () => {
-      beforeEach (() => {
+      beforeEach(() => {
         component.toggleModalHelp();
         fixture.detectChanges();
       });

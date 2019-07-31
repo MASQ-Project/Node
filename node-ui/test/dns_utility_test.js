@@ -5,6 +5,7 @@
 const assert = require('assert')
 const td = require('testdouble')
 const path = require('path')
+const { makeSpawnSyncResult } = require('./test_utilities')
 const process = require('../main-process/wrappers/process_wrapper')
 
 describe('DNS Utility', () => {
@@ -14,11 +15,11 @@ describe('DNS Utility', () => {
   let result
   let mockConsole
 
-  let dnsUtilityName = (process.platform === 'win32') ? 'dns_utilityw' : 'dns_utility'
-  let dnsUtilityPath = path.resolve(__dirname, '.', '../dist/static/binaries/' + dnsUtilityName)
-  let dnsUtilityPathQuoted = '"' + dnsUtilityPath + '"'
-  let dnsUtilityArgs = ['status']
-  let dnsUtilityOptions = { timeout: 1000 }
+  const dnsUtilityName = (process.platform === 'win32') ? 'dns_utilityw' : 'dns_utility'
+  const dnsUtilityPath = path.resolve(__dirname, '.', '../dist/static/binaries/' + dnsUtilityName)
+  const dnsUtilityPathQuoted = '"' + dnsUtilityPath + '"'
+  const dnsUtilityArgs = ['status']
+  const dnsUtilityOptions = { timeout: 1000 }
 
   beforeEach(() => {
     childProcess = td.replace('child_process')
@@ -62,7 +63,7 @@ describe('DNS Utility', () => {
     describe('for error', () => {
       describe('when status is not zero', () => {
         beforeEach(() => {
-          let result = {
+          const result = {
             status: 1,
             signal: null,
             pid: 12345
@@ -77,7 +78,7 @@ describe('DNS Utility', () => {
 
       describe('when it times out', () => {
         beforeEach(() => {
-          let result = {
+          const result = {
             status: null,
             pid: 23456,
             signal: 'SIGTERM',
@@ -96,7 +97,7 @@ describe('DNS Utility', () => {
 
       describe('when there is some other error', () => {
         beforeEach(() => {
-          let result = {
+          const result = {
             status: null,
             pid: 0,
             signal: null,
@@ -140,9 +141,9 @@ describe('DNS Utility', () => {
       beforeEach(async () => {
         td.when(childProcess.spawnSync(dnsUtilityPath, dnsUtilityArgs, dnsUtilityOptions)).thenReturn(makeSpawnSyncResult('subverted'))
 
-        let error = { message: 'failed to revert' }
-        let stdout = null
-        let stderr = null
+        const error = { message: 'failed to revert' }
+        const stdout = null
+        const stderr = null
 
         td.when(sudoPrompt.exec(dnsUtilityPathQuoted + ' revert', { name: 'DNS utility' })).thenCallback(error, stdout, stderr)
         await subject.revert().catch((r) => {
@@ -179,9 +180,9 @@ describe('DNS Utility', () => {
       beforeEach(async () => {
         td.when(childProcess.spawnSync(dnsUtilityPath, dnsUtilityArgs, dnsUtilityOptions)).thenReturn(makeSpawnSyncResult('subverted'))
 
-        let error = null
-        let stdout = null
-        let stderr = 'failed to revert'
+        const error = null
+        const stdout = null
+        const stderr = 'failed to revert'
 
         td.when(sudoPrompt.exec(dnsUtilityPathQuoted + ' revert', { name: 'DNS utility' })).thenCallback(error, stdout, stderr)
         await subject.revert().catch((r) => {
@@ -227,9 +228,9 @@ describe('DNS Utility', () => {
       beforeEach(async () => {
         td.when(childProcess.spawnSync(dnsUtilityPath, dnsUtilityArgs, dnsUtilityOptions)).thenReturn(makeSpawnSyncResult('reverted'))
 
-        let error = { message: 'failed to subvert' }
-        let stdout = null
-        let stderr = null
+        const error = { message: 'failed to subvert' }
+        const stdout = null
+        const stderr = null
 
         td.when(sudoPrompt.exec(dnsUtilityPathQuoted + ' subvert', { name: 'DNS utility' })).thenCallback(error, stdout, stderr)
         await subject.subvert().catch((r) => {
@@ -262,7 +263,3 @@ describe('DNS Utility', () => {
     })
   })
 })
-
-let makeSpawnSyncResult = (string) => {
-  return { status: 0, stdout: Buffer.from(string + '\n') }
-}

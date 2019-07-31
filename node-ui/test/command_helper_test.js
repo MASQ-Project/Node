@@ -3,19 +3,37 @@
 /* global describe beforeEach afterEach it */
 
 const assert = require('assert')
+const path = require('path')
+const log = require('electron-log')
 const td = require('testdouble')
+const { makeSpawnSyncResult } = require('./test_utilities')
+
+const nodePathUnix = `${path.resolve(__dirname, '.', '../dist/static/binaries/SubstratumNode')}`
+const nodePathWindows = `${path.resolve(__dirname, '.', '../dist/static/binaries/SubstratumNodeW')}`
+const recoverArgs = [
+  '--recover-wallet',
+  '--consuming-wallet', 'path',
+  '--language', 'wordlist',
+  '--mnemonic', 'phrase',
+  '--mnemonic-passphrase', 'passphrase',
+  '--wallet-password', 'password'
+]
+
+const recoverOptions = { timeout: 1000 }
 
 describe('CommandHelper', () => {
-  let process, nodeCmd, sudoPrompt, treeKill, subject
+  let childProcess, process, nodeCmd, result, sudoPrompt, treeKill, subject
 
   beforeEach(() => {
     process = td.replace('../main-process/wrappers/process_wrapper')
+    childProcess = td.replace('child_process')
     nodeCmd = td.replace('node-cmd')
     sudoPrompt = td.replace('sudo-prompt')
     treeKill = td.replace('tree-kill')
 
     process.platform = 'irrelevant'
     process.pid = 1234
+    log.transports.console.level = false
   })
 
   afterEach(() => {
@@ -29,6 +47,22 @@ describe('CommandHelper', () => {
       process.platform = 'linux'
       td.when(process.getuid()).thenReturn('os-uid')
       td.when(process.getgid()).thenReturn('os-gid')
+    })
+
+    describe('recovering a consuming wallet', () => {
+      beforeEach(() => {
+        subject = require('../main-process/command_helper')
+        td.when(childProcess.spawnSync(nodePathUnix, recoverArgs, recoverOptions))
+          .thenReturn(makeSpawnSyncResult('success!'))
+
+        result = subject.recoverWallet(
+          'phrase', 'passphrase', 'path', 'wordlist', 'password'
+        )
+      })
+
+      it('executes the command via node cmd', () => {
+        assert.deepStrictEqual(result, makeSpawnSyncResult('success!'))
+      })
     })
 
     describe('Linux', () => {
@@ -215,6 +249,19 @@ describe('CommandHelper', () => {
       process.platform = 'win32'
 
       subject = require('../main-process/command_helper')
+    })
+
+    describe('recovering a consuming wallet', () => {
+      beforeEach(() => {
+        td.when(childProcess.spawnSync(nodePathWindows, recoverArgs, recoverOptions))
+          .thenReturn(makeSpawnSyncResult('success!'))
+
+        result = subject.recoverWallet('phrase', 'passphrase', 'path', 'wordlist', 'password')
+      })
+
+      it('executes the command via node cmd', () => {
+        assert.deepStrictEqual(result, makeSpawnSyncResult('success!'))
+      })
     })
 
     describe('starting', () => {

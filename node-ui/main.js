@@ -1,3 +1,6 @@
+// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+
+const ethers = require('ethers')
 const { app, dialog, BrowserWindow, ipcMain, Menu } = require('electron')
 const path = require('path')
 const url = require('url')
@@ -103,8 +106,8 @@ app.on('activate', () => {
 })
 
 ipcMain.on('ip-lookup', async (event, command, args) => {
-  let req = http.get(
-    { 'host': 'api.ipify.org', 'port': 80, 'path': '/', 'timeout': 1000 },
+  const req = http.get(
+    { host: 'api.ipify.org', port: 80, path: '/', timeout: 1000 },
     resp => {
       if (resp.statusCode >= 300) {
         resp.on('end', () => { event.returnValue = '' })
@@ -145,7 +148,34 @@ ipcMain.on('get-financial-statistics', (event, data, args) => {
   })
 })
 
-let assignStatus = (event, promise) => {
+ipcMain.on('validate-mnemonic-phrase', (event, mnemonicPhrase, wordlist) => {
+  event.returnValue = ethers.utils.HDNode.isValidMnemonic(mnemonicPhrase, ethers.wordlists[wordlist])
+})
+
+ipcMain.on('calculate-wallet-address', (event, phrase, path, mnemonicPassphrase, wordlist) => {
+  try {
+    const address = new ethers.Wallet(
+      ethers.utils.HDNode.fromMnemonic(phrase, ethers.wordlists[wordlist], mnemonicPassphrase)
+        .derivePath(path)
+    ).address
+    mainWindow.webContents.send('calculated-wallet-address', address)
+  } catch (e) {
+    mainWindow.webContents.send('calculated-wallet-address', '')
+  }
+})
+
+ipcMain.on('recover-consuming-wallet', (event, phrase, mnemonicPassphrase, derivationPath, wordlist, walletPassword) => {
+  nodeActuator.recoverWallet(phrase, mnemonicPassphrase, derivationPath, wordlist, walletPassword)
+    .then((result) => {
+      if (result.success) {
+        mainWindow.webContents.send('recovered-consuming-wallet', true)
+      } else {
+        mainWindow.webContents.send('recover-consuming-wallet-error', result.message)
+      }
+    })
+})
+
+const assignStatus = (event, promise) => {
   promise.then(newStatus => {
     mainWindow.webContents.send('node-status', newStatus)
   }).catch(() => {

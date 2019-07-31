@@ -30,8 +30,8 @@
           Copy and paste your neighbor's descriptor into this input to join the Substratum Network.
         </p>
       </div>
-
     </div>
+
     <div class="node-config__actions">
       <input type="text" id="neighbor" formControlName="neighbor"
              [class.input-invalid]="neighbor.invalid || nodeConfig.errors?.neighborRequired">
@@ -69,7 +69,7 @@
     </div>
 
     <div class="node-config__actions node-config__inset">
-      <button id="cancel" type="button" (click)="cancel()">Cancel</button>
+      <button type="button" id="cancel" class="cancel-button" (click)="cancel()">Cancel</button>
       <div class="node-config__empty-flex"></div>
       <button id="save-config" class="node-config__to-action" [disabled]="nodeConfig.invalid"
               type="submit">{{saveText()}}</button>

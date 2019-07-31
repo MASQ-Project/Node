@@ -7,7 +7,6 @@ import {func, reset, verify, when} from 'testdouble';
 import {MainService} from '../main.service';
 import {BehaviorSubject, of} from 'rxjs';
 import {NodeStatus} from '../node-status.enum';
-import {RElement} from '@angular/core/src/render3/interfaces/renderer';
 import {Router} from '@angular/router';
 import {FormsModule, ReactiveFormsModule} from '@angular/forms';
 import {ConfigService} from '../config.service';
@@ -693,7 +692,7 @@ describe('IndexComponent', () => {
     });
 
     it('status changes to consuming', () => {
-      const desired: RElement = compiled.querySelector('#consuming');
+      const desired = compiled.querySelector('#consuming');
       expect(desired.classList).toContain('button-active');
     });
   });
@@ -705,7 +704,7 @@ describe('IndexComponent', () => {
     });
 
     it('invalid state is displayed', () => {
-      const desired: RElement = compiled.querySelector('#node-status-buttons');
+      const desired = compiled.querySelector('#node-status-buttons');
       expect(desired.classList).toContain('node-status__actions--invalid');
       const activeButtons: Element = compiled.querySelector('#node-status-buttons .button-active');
       expect(activeButtons).toBeFalsy();

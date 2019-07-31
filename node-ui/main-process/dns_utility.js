@@ -4,6 +4,7 @@
 
 module.exports = (() => {
   const childProcess = require('child_process')
+  const spawnSyncHandler = require('./spawn_sync_handler')
   const pathWrapper = require('./wrappers/path_wrapper')
   const consoleWrapper = require('./wrappers/console_wrapper')
   const process = require('../main-process/wrappers/process_wrapper')
@@ -16,22 +17,14 @@ module.exports = (() => {
   const syncTimeout = 1000
 
   function getStatus () {
-    let result = childProcess.spawnSync(dnsUtilityPathUnquoted, ['status'], { timeout: syncTimeout })
-    if (result.status === 0) {
-      return result.stdout.toString('utf8').trim()
-    }
-    if (result.status) {
-      throw Error(`Failed with status: ${result.status}${mineError(result.error)}`)
-    } else if (result.signal) {
-      throw Error(`Failed with signal: '${result.signal}'${mineError(result.error)}`)
-    } else {
-      throw Error(`Failed without status or signal${mineError(result.error)}`)
-    }
+    const result = childProcess.spawnSync(dnsUtilityPathUnquoted, ['status'], { timeout: syncTimeout })
+
+    return spawnSyncHandler.handle(result)
   }
 
   function revert () {
     try {
-      let isReverted = getStatus()
+      const isReverted = getStatus()
       if (isReverted && isReverted.indexOf('reverted') >= 0) {
         return Promise.resolve(null)
       }
@@ -44,7 +37,7 @@ module.exports = (() => {
 
   function subvert () {
     try {
-      let isSubverted = getStatus()
+      const isSubverted = getStatus()
       if (isSubverted && isSubverted.indexOf('subverted') >= 0) {
         return Promise.resolve(null)
       }
@@ -66,14 +59,6 @@ module.exports = (() => {
         }
       })
     })
-  }
-
-  function mineError (error) {
-    if (!error) {
-      return ''
-    } else {
-      return ` and error: '${error.message}'`
-    }
   }
 
   return {

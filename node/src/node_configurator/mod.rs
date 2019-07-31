@@ -213,11 +213,10 @@ pub fn initialize_database(multi_config: &MultiConfig) -> Box<PersistentConfigur
         value_m!(multi_config, "data-directory", PathBuf).expect("data-directory is not defaulted");
     let conn = DbInitializerReal::new()
         .initialize(&data_directory)
-        .unwrap_or_else(|e| {
+        .unwrap_or_else(|_| {
             panic!(
-                "Can't initialize database at {:?}: {:?}",
-                data_directory.join(DATABASE_FILE),
-                e
+                "Can't initialize database at {:?}",
+                data_directory.join(DATABASE_FILE)
             )
         });
     Box::new(PersistentConfigurationReal::from(conn))
@@ -236,7 +235,7 @@ pub fn prepare_initialization_mode<'a>(
     );
     let persistent_config_box = initialize_database(&multi_config);
     if persistent_config_box.encrypted_mnemonic_seed().is_some() {
-        panic!("Cannot re-initialize Node: already initialized")
+        exit(1, "Cannot re-initialize Node: already initialized")
     }
     (multi_config, persistent_config_box)
 }
@@ -561,7 +560,7 @@ pub trait WalletCreationConfigMaker {
             streams,
             Some("\n\nPlease provide a password to encrypt your wallet (This password can be changed later)..."),
             "  Enter password: ",
-            "  Confirm password: "
+            "  Confirm password: ",
         ) {
             Some(wp) => wp,
             None => panic!("Wallet encryption password is required!")
@@ -590,6 +589,17 @@ pub trait WalletCreationConfigMaker {
         consuming_derivation_path: &str,
         earning_wallet_info: &Either<String, String>,
     ) -> PlainData;
+}
+
+#[cfg(test)]
+fn exit(code: i32, message: &str) {
+    panic!("{} {}", code, message);
+}
+
+#[cfg(not(test))]
+fn exit(code: i32, message: &str) {
+    eprintln!("{}", message);
+    ::std::process::exit(code);
 }
 
 #[cfg(test)]
@@ -714,7 +724,7 @@ mod tests {
                 DEFAULT_CONSUMING_DERIVATION_PATH
                     .parse::<DerivationPath>()
                     .unwrap(),
-                DEFAULT_CONSUMING_DERIVATION_PATH.to_string()
+                DEFAULT_CONSUMING_DERIVATION_PATH.to_string(),
             )
             .is_ok()
         );
@@ -726,7 +736,7 @@ mod tests {
             Err("m/44'/60'/0/0/0 may be too weak".to_string()),
             common_validators::validate_derivation_path_is_sufficiently_hardened(
                 "m/44'/60'/0/0/0".parse::<DerivationPath>().unwrap(),
-                "m/44'/60'/0/0/0".to_string()
+                "m/44'/60'/0/0/0".to_string(),
             )
         );
     }
@@ -737,7 +747,7 @@ mod tests {
             Err("m/44/60/0/0/0 may be too weak".to_string()),
             common_validators::validate_derivation_path_is_sufficiently_hardened(
                 "m/44/60/0/0/0".parse::<DerivationPath>().unwrap(),
-                "m/44/60/0/0/0".to_string()
+                "m/44/60/0/0/0".to_string(),
             )
         );
     }
@@ -761,7 +771,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Cannot re-initialize Node: already initialized")]
+    #[should_panic(expected = "1 Cannot re-initialize Node: already initialized")]
     fn prepare_initialization_mode_fails_if_mnemonic_seed_already_exists() {
         let data_dir = ensure_node_home_directory_exists(
             "node_configurator",
@@ -1199,7 +1209,7 @@ mod tests {
                     consuming_derivation_path_opt: Some(
                         DEFAULT_CONSUMING_DERIVATION_PATH.to_string()
                     ),
-                })
+                }),
             },
         );
     }
@@ -1242,7 +1252,7 @@ mod tests {
                     mnemonic_seed: TameWalletCreationConfigMaker::hardcoded_mnemonic_seed(),
                     wallet_password: "wallet password".to_string(),
                     consuming_derivation_path_opt: Some("m/44'/60'/1'/2/3".to_string()),
-                })
+                }),
             },
         );
     }
@@ -1282,7 +1292,7 @@ mod tests {
                     mnemonic_seed: TameWalletCreationConfigMaker::hardcoded_mnemonic_seed(),
                     wallet_password: "wallet password".to_string(),
                     consuming_derivation_path_opt: Some("m/44'/60'/1'/2/3".to_string()),
-                })
+                }),
             },
         );
     }

@@ -66,7 +66,7 @@ describe('Application launch', function () {
   beforeEach(async () => {
     assert.strictEqual(await uiInterface.verifyNodeDown(1000), true)
 
-    testUtilities.purge_existing_state()
+    testUtilities.purgeExistingState()
     this.app = new Application({
       // Your electron path can be any binary
       // i.e for OSX an example path could be '/Applications/MyApp.app/Contents/MacOS/MyApp'
@@ -74,7 +74,7 @@ describe('Application launch', function () {
       path: electronPath,
 
       env: {
-        'TESTING_IN_PROGRESS': 'true'
+        TESTING_IN_PROGRESS: 'true'
       },
 
       // Assuming you have the following directory structure
@@ -108,28 +108,28 @@ describe('Application launch', function () {
   })
 
   it('shows the main page with the node in off', () => {
-    let client = this.app.client
+    const client = this.app.client
     return client.waitUntilWindowLoaded()
       .then(() => {
-        let nodeConfigComponent = client.element('div.node-config')
+        const nodeConfigComponent = client.element('div.node-config')
         assert.notStrictEqual(nodeConfigComponent.type, 'NoSuchElement')
-        let activeButtonText = client.getText('div.node-config button.button-active')
+        const activeButtonText = client.getText('div.node-config button.button-active')
         assert.ok(activeButtonText)
-        let saveButton = client.element('#save-config')
+        const saveButton = client.element('#save-config')
         assert.notStrictEqual(saveButton.type, 'NoSuchElement')
       })
       .then(() => {
-        let slider = client.element('div.node-status__actions')
+        const slider = client.element('div.node-status__actions')
         assert.notStrictEqual(slider.type, 'NoSuchElement')
-        let activeButtonText = client.getText('div.node-status__actions button.button-active')
+        const activeButtonText = client.getText('div.node-status__actions button.button-active')
         assert.ok(activeButtonText)
-        let settingButton = client.element('.settings-menu--inactive')
+        const settingButton = client.element('.settings-menu--inactive')
         assert.notStrictEqual(settingButton.type, 'NoSuchElement')
       })
   })
 
   it('shows validation messages', () => {
-    let client = this.app.client
+    const client = this.app.client
     return client.waitUntilWindowLoaded()
       .then(async () => {
         await indexPage.serving.click()
@@ -145,7 +145,7 @@ describe('Application launch', function () {
   })
 
   it('toggling substratum node to serving prompts for configurations', () => {
-    let client = this.app.client
+    const client = this.app.client
     return client.waitUntilWindowLoaded()
       .then(async () => {
         indexPage.serving.click()
@@ -156,7 +156,7 @@ describe('Application launch', function () {
   })
 
   it('persists user entered IP address and neighbor between serving sessions', async () => {
-    let client = this.app.client
+    const client = this.app.client
 
     await client.waitUntilWindowLoaded()
     await indexPage.serving.click()
@@ -187,7 +187,7 @@ describe('Application launch', function () {
   })
 
   it('toggles substratum node from off to serving back to off and back on and on again without needing to enter information and then back off again', async () => {
-    let client = this.app.client
+    const client = this.app.client
 
     await client.waitUntilWindowLoaded()
     await indexPage.serving.click()
@@ -221,7 +221,7 @@ describe('Application launch', function () {
   })
 
   it('Changing configuration while node is running turns off the node', async () => {
-    let client = this.app.client
+    const client = this.app.client
 
     await client.waitUntilWindowLoaded()
     await indexPage.serving.click()

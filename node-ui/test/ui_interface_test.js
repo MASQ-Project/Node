@@ -109,7 +109,7 @@ describe('Given a mock WebSocket', () => {
           })
 
           it('the WebSocket client is instructed to send the proper message', () => {
-            let captor = td.matchers.captor()
+            const captor = td.matchers.captor()
             td.verify(webSocketClient.send(captor.capture()))
             assert.deepStrictEqual(JSON.parse(captor.value), 'ShutdownMessage')
           })
@@ -124,7 +124,7 @@ describe('Given a mock WebSocket', () => {
         })
 
         describe('when it is directed to send a GetNodeDescriptor message', () => {
-          let mockCallback = td.function()
+          const mockCallback = td.function()
           let nodeDescriptorFailure = false
           beforeEach(() => {
             subject.getNodeDescriptor().then(descriptor => mockCallback(descriptor), () => { nodeDescriptorFailure = true })
@@ -154,7 +154,7 @@ describe('Given a mock WebSocket', () => {
           })
 
           it('the WebSocket client is instructed to send the proper message', () => {
-            let captor = td.matchers.captor()
+            const captor = td.matchers.captor()
             td.verify(webSocketClient.send(captor.capture()))
             assert.deepStrictEqual(JSON.parse(captor.value), 'GetNodeDescriptor')
           })
@@ -195,7 +195,7 @@ describe('Given a mock WebSocket', () => {
         })
 
         describe('when it is directed to send a SetWalletPassword message', () => {
-          let mockCallback = td.function()
+          const mockCallback = td.function()
           let failure = false
           beforeEach(() => {
             subject.setConsumingWalletPassword('password').then(descriptor => mockCallback(descriptor), () => { failure = true })
@@ -225,9 +225,9 @@ describe('Given a mock WebSocket', () => {
           })
 
           it('the WebSocket client is instructed to send the proper message', () => {
-            let captor = td.matchers.captor()
+            const captor = td.matchers.captor()
             td.verify(webSocketClient.send(captor.capture()))
-            assert.deepStrictEqual(JSON.parse(captor.value), { 'SetWalletPassword': 'password' })
+            assert.deepStrictEqual(JSON.parse(captor.value), { SetWalletPassword: 'password' })
           })
 
           describe('when onmessage is invoked', () => {
@@ -254,7 +254,7 @@ describe('Given a mock WebSocket', () => {
         })
 
         describe('when it is directed to send a GetFinancialStatisticsMessage message', () => {
-          let mockCallback = td.function()
+          const mockCallback = td.function()
           let failure = false
           beforeEach(() => {
             subject.getFinancialStatistics().then(descriptor => mockCallback(descriptor), () => { failure = true })
@@ -284,7 +284,7 @@ describe('Given a mock WebSocket', () => {
           })
 
           it('the WebSocket client is instructed to send the proper message', () => {
-            let captor = td.matchers.captor()
+            const captor = td.matchers.captor()
             td.verify(webSocketClient.send(captor.capture()))
             assert.deepStrictEqual(JSON.parse(captor.value), 'GetFinancialStatisticsMessage')
           })
