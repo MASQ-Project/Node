@@ -69,6 +69,15 @@ impl SubstratumNode {
     }
 
     #[allow(dead_code)]
+    pub fn run_dump_config() -> String {
+        let mut command = SubstratumNode::make_dump_config_command();
+        let output = command.output().unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        format!("stdout:\n{}\nstderr:\n{}", stdout, stderr)
+    }
+
+    #[allow(dead_code)]
     pub fn run_generate(config: CommandConfig) -> String {
         let mut command = SubstratumNode::make_generate_command(config);
         let output = command.output().unwrap();
@@ -158,8 +167,17 @@ impl SubstratumNode {
     fn make_node_command(config: Option<CommandConfig>) -> process::Command {
         Self::remove_database();
         let mut command = command_to_start();
-        let mut args = standard_args();
-        args.extend(get_extra_args(config));
+        let mut args = Self::standard_args();
+        args.extend(Self::get_extra_args(config));
+        command.args(&args);
+        command
+    }
+
+    #[allow(dead_code)]
+    fn make_dump_config_command() -> process::Command {
+        Self::remove_database();
+        let mut command = command_to_start();
+        let args = Self::dump_config_args();
         command.args(&args);
         command
     }
@@ -167,9 +185,8 @@ impl SubstratumNode {
     fn make_generate_command(config: CommandConfig) -> process::Command {
         Self::remove_database();
         let mut command = command_to_start();
-        let mut args = generate_args();
-        args.extend(get_extra_args(Some(config)));
-        eprintln!("{:?}", args);
+        let mut args = Self::generate_args();
+        args.extend(Self::get_extra_args(Some(config)));
         command.args(&args);
         command
     }
@@ -177,75 +194,50 @@ impl SubstratumNode {
     fn make_recover_command(config: CommandConfig) -> process::Command {
         Self::remove_database();
         let mut command = command_to_start();
-        let mut args = recover_args();
-        args.extend(get_extra_args(Some(config)));
-        eprintln!("{:?}", args);
+        let mut args = Self::recover_args();
+        args.extend(Self::get_extra_args(Some(config)));
         command.args(&args);
         command
+    }
+
+    fn standard_args() -> Vec<String> {
+        apply_prefix_parameters(CommandConfig::new())
+            .pair("--dns-servers", "8.8.8.8")
+            .pair(
+                "--consuming-private-key",
+                "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+            )
+            .pair("--log-level", "trace")
+            .args
+    }
+
+    #[allow(dead_code)]
+    fn dump_config_args() -> Vec<String> {
+        apply_prefix_parameters(CommandConfig::new())
+            .opt("--dump-config")
+            .args
+    }
+
+    fn generate_args() -> Vec<String> {
+        apply_prefix_parameters(CommandConfig::new())
+            .opt("--generate-wallet")
+            .args
+    }
+
+    fn recover_args() -> Vec<String> {
+        apply_prefix_parameters(CommandConfig::new())
+            .opt("--recover-wallet")
+            .args
+    }
+
+    fn get_extra_args(config_opt: Option<CommandConfig>) -> Vec<String> {
+        config_opt.unwrap_or(CommandConfig::new()).args
     }
 }
 
 #[cfg(windows)]
 fn command_to_start() -> process::Command {
     process::Command::new("cmd")
-}
-
-#[cfg(windows)]
-#[allow(dead_code)]
-fn standard_args() -> Vec<String> {
-    let args = CommandConfig::new()
-        .pair("/c", &node_command())
-        .pair("--dns-servers", "8.8.8.8")
-        .pair(
-            "--consuming-private-key",
-            "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
-        )
-        .pair(
-            "--data-directory",
-            &SubstratumNode::data_dir().to_string_lossy().to_string(),
-        )
-        .pair("--log-level", "trace");
-    args.args
-}
-
-#[cfg(windows)]
-#[allow(dead_code)]
-fn generate_args() -> Vec<String> {
-    let args = CommandConfig::new()
-        .pair("/c", &node_command())
-        .pair(
-            "--data-directory",
-            &SubstratumNode::data_dir().to_string_lossy().to_string(),
-        )
-        .opt("--generate-wallet");
-    args.args
-}
-
-#[cfg(windows)]
-#[allow(dead_code)]
-fn recover_args() -> Vec<String> {
-    let args = CommandConfig::new()
-        .pair("/c", &node_command())
-        .pair(
-            "--data-directory",
-            &SubstratumNode::data_dir().to_string_lossy().to_string(),
-        )
-        .opt("--recover-wallet");
-    args.args
-}
-
-#[cfg(windows)]
-#[allow(dead_code)]
-fn node_command() -> String {
-    let test_command = env::args().next().unwrap();
-    let debug_or_release = test_command
-        .split("\\")
-        .skip_while(|s| s != &"target")
-        .skip(1)
-        .next()
-        .unwrap();
-    let bin_dir = &format!("target\\{}", debug_or_release);
-    format!("{}\\SubstratumNode.exe", bin_dir)
 }
 
 #[cfg(not(windows))]
@@ -262,47 +254,32 @@ fn command_to_start() -> process::Command {
     process::Command::new(command_to_start)
 }
 
-#[cfg(not(windows))]
-#[allow(dead_code)]
-fn standard_args() -> Vec<String> {
-    let args = CommandConfig::new()
-        .pair("--dns-servers", "8.8.8.8")
-        .pair(
-            "--consuming-private-key",
-            "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
-        )
-        .pair(
-            "--data-directory",
-            &SubstratumNode::data_dir().to_string_lossy().to_string(),
-        )
-        .pair("--log-level", "trace");
-    args.args
+#[cfg(windows)]
+fn apply_prefix_parameters(command_config: CommandConfig) -> CommandConfig {
+    command_config.pair("/c", &node_command()).pair(
+        "--data-directory",
+        &SubstratumNode::data_dir().to_string_lossy().to_string(),
+    )
 }
 
 #[cfg(not(windows))]
-#[allow(dead_code)]
-fn generate_args() -> Vec<String> {
-    let args = CommandConfig::new()
-        .pair(
-            "--data-directory",
-            &SubstratumNode::data_dir().to_string_lossy().to_string(),
-        )
-        .opt("--generate-wallet");
-    args.args
+fn apply_prefix_parameters(command_config: CommandConfig) -> CommandConfig {
+    command_config.pair(
+        "--data-directory",
+        &SubstratumNode::data_dir().to_string_lossy().to_string(),
+    )
 }
 
-#[cfg(not(windows))]
+#[cfg(windows)]
 #[allow(dead_code)]
-fn recover_args() -> Vec<String> {
-    let args = CommandConfig::new()
-        .pair(
-            "--data-directory",
-            &SubstratumNode::data_dir().to_string_lossy().to_string(),
-        )
-        .opt("--recover-wallet");
-    args.args
-}
-
-fn get_extra_args(config_opt: Option<CommandConfig>) -> Vec<String> {
-    config_opt.unwrap_or(CommandConfig::new()).args
+fn node_command() -> String {
+    let test_command = env::args().next().unwrap();
+    let debug_or_release = test_command
+        .split("\\")
+        .skip_while(|s| s != &"target")
+        .skip(1)
+        .next()
+        .unwrap();
+    let bin_dir = &format!("target\\{}", debug_or_release);
+    format!("{}\\SubstratumNode.exe", bin_dir)
 }

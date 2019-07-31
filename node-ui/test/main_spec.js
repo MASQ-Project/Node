@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-/* global jasmine describe beforeEach afterEach it */
+/* global jasmine describe beforeEach afterEach it expect */
 
 const assert = require('assert')
 const path = require('path')
@@ -12,6 +12,47 @@ const consoleWrapper = require('../main-process/wrappers/console_wrapper')
 const testUtilities = require('./test_utilities')
 
 global.WebSocket = WebSocket
+
+describe('Without application launch', () => {
+  const fs = require ('fs')
+  const process = require('process')
+  const generatedBasePath = 'generated/main_spec/'
+  let subject
+
+  beforeEach(() => {
+    subject = require('../main-process/command_helper')
+  })
+
+  describe('When the Node configuration is retrieved', () => {
+    let configuration
+
+    beforeEach(() => {
+      let dataDir = generatedBasePath + 'node_configuration_retrieved'
+      fs.mkdirSync(dataDir, {recursive: true})
+      fs.chownSync(dataDir, parseInt(process.env.SUDO_UID), parseInt(process.env.SUDO_GID))
+      process.env.SUB_DATA_DIRECTORY = dataDir
+      configuration = subject.getNodeConfiguration()
+    })
+
+    it('contains useful values', () => {
+      expect(parseSemVer(configuration.schema_version)).toBeGreaterThanOrEqual(parseSemVer('0.0.8'))
+      expect(parseInt(configuration.start_block)).toBeGreaterThanOrEqual(4647463)
+    })
+  })
+
+  function parseSemVer (semver) {
+    let parts = semver.split('.')
+    let value = 0
+    let multiplier = 1
+    while (parts.length > 0) {
+      value *= multiplier
+      multiplier += 100
+      value += parseInt(parts[parts.length - 1])
+      parts.length -= 1
+    }
+    return value
+  }
+})
 
 describe('Application launch', function () {
   jasmine.DEFAULT_TIMEOUT_INTERVAL = 20000

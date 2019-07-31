@@ -18,6 +18,10 @@ pub struct ConfigDaoMock {
 }
 
 impl ConfigDao for ConfigDaoMock {
+    fn get_all(&self) -> Result<Vec<(String, Option<String>)>, ConfigDaoError> {
+        unimplemented!()
+    }
+
     fn get_string(&self, name: &str) -> Result<String, ConfigDaoError> {
         self.get_string_params
             .lock()

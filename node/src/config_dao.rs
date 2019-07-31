@@ -1,7 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::config_dao::ConfigDaoError::DatabaseError;
 use crate::database::db_initializer::ConnectionWrapper;
 use rusqlite::types::ToSql;
-use rusqlite::OptionalExtension;
+use rusqlite::{OptionalExtension, Rows, NO_PARAMS};
 
 #[derive(Debug, PartialEq)]
 pub enum ConfigDaoError {
@@ -11,6 +12,7 @@ pub enum ConfigDaoError {
 }
 
 pub trait ConfigDao: Send {
+    fn get_all(&self) -> Result<Vec<(String, Option<String>)>, ConfigDaoError>;
     fn get_string(&self, name: &str) -> Result<String, ConfigDaoError>;
     fn set_string(&self, name: &str, value: &str) -> Result<(), ConfigDaoError>;
     fn get_u64(&self, name: &str) -> Result<u64, ConfigDaoError>;
@@ -28,6 +30,29 @@ pub struct ConfigDaoReal {
 }
 
 impl ConfigDao for ConfigDaoReal {
+    fn get_all(&self) -> Result<Vec<(String, Option<String>)>, ConfigDaoError> {
+        let mut stmt = self
+            .conn
+            .prepare("select name, value from config")
+            .expect("Schema error: couldn't compose query for config table");
+        let mut rows: Rows = stmt
+            .query(NO_PARAMS)
+            .expect("Schema error: couldn't dump config table");
+        let mut results = Vec::new();
+        loop {
+            match rows.next() {
+                Err(e) => return Err(DatabaseError(format!("{}", e))),
+                Ok(Some(row)) => {
+                    let name: String = row.get(0).expect("Schema error: no name column");
+                    let value: Option<String> = row.get(1).expect("Schema error: no value column");
+                    results.push((name, value))
+                }
+                Ok(None) => break,
+            }
+        }
+        Ok(results)
+    }
+
     fn get_string(&self, name: &str) -> Result<String, ConfigDaoError> {
         self.try_get(name)
     }
@@ -120,10 +145,35 @@ fn handle_update_execution(result: rusqlite::Result<usize>) -> Result<(), Config
 mod tests {
     use super::*;
     use crate::database::db_initializer::{
-        DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION,
+        DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION, ROPSTEN_CONTRACT_CREATION_BLOCK,
     };
-    use crate::test_utils::ensure_node_home_directory_exists;
+    use crate::test_utils::{assert_contains, ensure_node_home_directory_exists};
     use rusqlite::NO_PARAMS;
+
+    #[test]
+    fn get_all_returns_multiple_results() {
+        let home_dir =
+            ensure_node_home_directory_exists("node", "get_all_returns_multiple_results");
+        let subject = ConfigDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+
+        let result = subject.get_all().unwrap();
+
+        assert_contains(
+            &result,
+            &(
+                "schema_version".to_string(),
+                Some(CURRENT_SCHEMA_VERSION.to_string()),
+            ),
+        );
+        assert_contains(
+            &result,
+            &(
+                "start_block".to_string(),
+                Some(ROPSTEN_CONTRACT_CREATION_BLOCK.to_string()),
+            ),
+        );
+        assert_contains(&result, &("seed".to_string(), None));
+    }
 
     #[test]
     fn get_string_complains_about_nonexistent_row() {

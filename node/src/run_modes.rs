@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use crate::database::config_dumper;
 use crate::node_configurator::node_configurator_generate_wallet::NodeConfiguratorGenerateWallet;
 use crate::node_configurator::node_configurator_recover_wallet::NodeConfiguratorRecoverWallet;
 use crate::node_configurator::{NodeConfigurator, WalletCreationConfig};
@@ -13,6 +14,7 @@ use futures::future::Future;
 enum Mode {
     GenerateWallet,
     RecoverWallet,
+    DumpConfig,
     RunTheNode,
 }
 
@@ -20,18 +22,17 @@ pub fn go(args: &Vec<String>, streams: &mut StdStreams<'_>) -> i32 {
     match determine_mode(args) {
         Mode::GenerateWallet => generate_wallet(args, streams),
         Mode::RecoverWallet => recover_wallet(args, streams),
+        Mode::DumpConfig => dump_config(args, streams),
         Mode::RunTheNode => run_the_node(args, streams),
     }
 }
 
 fn determine_mode(args: &Vec<String>) -> Mode {
-    if args.contains(&"--recover-wallet".to_string())
-        || args.contains(&"--recover_wallet".to_string())
-    {
+    if args.contains(&"--dump-config".to_string()) {
+        Mode::DumpConfig
+    } else if args.contains(&"--recover-wallet".to_string()) {
         Mode::RecoverWallet
-    } else if args.contains(&"--generate-wallet".to_string())
-        || args.contains(&"--generate_wallet".to_string())
-    {
+    } else if args.contains(&"--generate-wallet".to_string()) {
         Mode::GenerateWallet
     } else {
         Mode::RunTheNode
@@ -64,6 +65,11 @@ fn recover_wallet(args: &Vec<String>, streams: &mut StdStreams<'_>) -> i32 {
     configuration_run(args, streams, &configurator)
 }
 
+fn dump_config(args: &Vec<String>, streams: &mut StdStreams<'_>) -> i32 {
+    PrivilegeDropperReal::new().drop_privileges();
+    config_dumper::dump_config(args, streams)
+}
+
 fn configuration_run(
     args: &Vec<String>,
     streams: &mut StdStreams<'_>,
@@ -79,28 +85,44 @@ mod tests {
 
     #[test]
     fn generate_wallet() {
-        [["--generate-wallet"], ["--generate_wallet"]]
+        [["--generate-wallet"]]
             .into_iter()
             .for_each(|args| check_mode(args, Mode::GenerateWallet));
     }
 
     #[test]
     fn recover_wallet() {
-        [["--recover-wallet"], ["--recover_wallet"]]
+        [["--recover-wallet"]]
             .into_iter()
             .for_each(|args| check_mode(args, Mode::RecoverWallet));
+    }
+
+    #[test]
+    fn dump_config() {
+        [["--dump-config"]]
+            .into_iter()
+            .for_each(|args| check_mode(args, Mode::DumpConfig));
     }
 
     #[test]
     fn both_generate_and_recover() {
         [
             ["--generate-wallet", "--recover-wallet"],
-            ["--generate-wallet", "--recover_wallet"],
-            ["--generate_wallet", "--recover-wallet"],
-            ["--generate_wallet", "--recover_wallet"],
+            ["--recover-wallet", "--generate-wallet"],
         ]
         .into_iter()
         .for_each(|args| check_mode(args, Mode::RecoverWallet));
+    }
+
+    #[test]
+    fn dump_config_rules_all() {
+        [
+            ["--booga", "--generate-wallet", "--dump-config"],
+            ["--booga", "--recover-wallet", "--dump-config"],
+            ["--generate-wallet", "--recover_wallet", "--dump-config"],
+        ]
+        .into_iter()
+        .for_each(|args| check_mode(args, Mode::DumpConfig));
     }
 
     #[test]

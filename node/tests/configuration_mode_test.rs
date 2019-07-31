@@ -4,11 +4,14 @@ mod utils;
 
 use bip39::{Language, Mnemonic, Seed};
 use node_lib::blockchain::bip32::Bip32ECKeyPair;
-use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
+use node_lib::database::db_initializer::{
+    DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION,
+};
 use node_lib::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 use node_lib::sub_lib::wallet::{
     Wallet, DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
 };
+use node_lib::test_utils::assert_string_contains;
 use node_lib::test_utils::environment_guard::EnvironmentGuard;
 use regex::Regex;
 use std::str::FromStr;
@@ -59,6 +62,17 @@ fn phrase_from_console_log(console_log: &str) -> String {
 
 // TODO These tests could all run concurrently if each was given a different data directory.
 // That would mean test infrastructure changes, but it's possible.
+#[test]
+fn dump_configuration_integration() {
+    let _eg = EnvironmentGuard::new();
+    let console_log = SubstratumNode::run_dump_config();
+
+    assert_string_contains(
+        &console_log,
+        &format!("\"schema_version\": \"{}\"", CURRENT_SCHEMA_VERSION),
+    );
+}
+
 #[test]
 fn create_database_recovering_both_derivation_paths_integration() {
     let _eg = EnvironmentGuard::new();

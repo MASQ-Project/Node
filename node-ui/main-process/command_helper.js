@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+const childProcess = require('child_process')
 const binaryBasePath = '../dist/static/binaries/'
 const scriptBasePath = '../dist/static/scripts/'
 const runtimeArgs = [
@@ -48,6 +49,16 @@ module.exports = (() => {
     args.forEach(value => { command += value + ' ' })
     consoleWrapper.log('getCommand(): ' + command)
     return command
+  }
+
+  function getNodeConfiguration () {
+    consoleWrapper.log('command_helper: invoking getNodeConfiguration')
+    const args = ['--dump-config']
+    const process = childProcess.spawnSync(
+      path.resolveUnquoted(__dirname, binaryBasePath + binaryFilename),
+      args,
+      { timeout: 5000 })
+    return JSON.parse(process.stdout)
   }
 
   function startNodeWindows (additionalArgs, callback) {
@@ -103,6 +114,7 @@ module.exports = (() => {
   }
 
   return {
+    getNodeConfiguration: getNodeConfiguration,
     startSubstratumNode: startSubstratumNode,
     stopSubstratumNode: stopSubstratumNode
   }
