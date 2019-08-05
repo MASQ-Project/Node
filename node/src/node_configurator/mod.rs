@@ -1,16 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-pub mod node_configurator_generate_wallet;
-pub mod node_configurator_recover_wallet;
-pub mod node_configurator_standard;
-
-#[cfg(test)]
-mod test_utils;
-
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::{Bip39, Bip39Error};
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
-use crate::multi_config::{merge, CommandLineVCL, EnvironmentVCL, MultiConfig, VclArg};
+use crate::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VclArg};
 use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::main_tools::StdStreams;
@@ -29,6 +22,13 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::str::FromStr;
 use tiny_hderive::bip44::DerivationPath;
+
+pub mod node_configurator_generate_wallet;
+pub mod node_configurator_recover_wallet;
+pub mod node_configurator_standard;
+
+#[cfg(test)]
+mod test_utils;
 
 pub trait NodeConfigurator<T> {
     fn configure(&self, args: &Vec<String>, streams: &mut StdStreams<'_>) -> T;
@@ -170,15 +170,15 @@ pub fn determine_config_file_path(app: &App, args: &Vec<String>) -> (PathBuf, bo
         .arg(data_directory_arg())
         .arg(config_file_arg());
     let orientation_args: Vec<Box<VclArg>> = merge(
-        Box::new(EnvironmentVCL::new(app)),
-        Box::new(CommandLineVCL::new(args.clone())),
+        Box::new(EnvironmentVcl::new(app)),
+        Box::new(CommandLineVcl::new(args.clone())),
     )
     .vcl_args()
     .into_iter()
     .filter(|vcl_arg| (vcl_arg.name() == "--data-directory") || (vcl_arg.name() == "--config-file"))
     .map(|vcl_arg| vcl_arg.dup())
     .collect();
-    let orientation_vcl = CommandLineVCL::from(orientation_args);
+    let orientation_vcl = CommandLineVcl::from(orientation_args);
 
     let multi_config = MultiConfig::new(&orientation_schema, vec![Box::new(orientation_vcl)]);
     let config_file_path =
@@ -208,7 +208,7 @@ pub fn create_wallet(config: &WalletCreationConfig, persistent_config: &Persiste
     }
 }
 
-pub fn initialize_database(multi_config: &MultiConfig) -> Box<PersistentConfiguration> {
+pub fn initialize_database(multi_config: &MultiConfig) -> Box<dyn PersistentConfiguration> {
     let data_directory: PathBuf =
         value_m!(multi_config, "data-directory", PathBuf).expect("data-directory is not defaulted");
     let conn = DbInitializerReal::new()
@@ -225,12 +225,12 @@ pub fn initialize_database(multi_config: &MultiConfig) -> Box<PersistentConfigur
 pub fn prepare_initialization_mode<'a>(
     app: &'a App,
     args: &Vec<String>,
-) -> (MultiConfig<'a>, Box<PersistentConfiguration>) {
+) -> (MultiConfig<'a>, Box<dyn PersistentConfiguration>) {
     let multi_config = MultiConfig::new(
         &app,
         vec![
-            Box::new(CommandLineVCL::new(args.clone())),
-            Box::new(EnvironmentVCL::new(&app)),
+            Box::new(CommandLineVcl::new(args.clone())),
+            Box::new(EnvironmentVcl::new(&app)),
         ],
     );
     let persistent_config_box = initialize_database(&multi_config);
@@ -406,7 +406,7 @@ pub fn possible_reader_from_stream(
     }
 }
 
-pub fn data_directory_default(dirs_wrapper: &DirsWrapper) -> String {
+pub fn data_directory_default(dirs_wrapper: &dyn DirsWrapper) -> String {
     match dirs_wrapper.data_dir() {
         Some(path) => path.join("Substratum"),
         None => PathBuf::from(""),
@@ -416,7 +416,7 @@ pub fn data_directory_default(dirs_wrapper: &DirsWrapper) -> String {
     .to_string()
 }
 
-pub fn flushed_write(target: &mut io::Write, string: &str) {
+pub fn flushed_write(target: &mut dyn io::Write, string: &str) {
     write!(target, "{}", string).expect("Failed console write.");
     target.flush().expect("Failed flush.");
 }
@@ -1174,7 +1174,7 @@ mod tests {
     #[test]
     fn make_wallet_creation_config_defaults() {
         let subject = TameWalletCreationConfigMaker::new();
-        let vcl = Box::new(CommandLineVCL::new(vec!["test".to_string()]));
+        let vcl = Box::new(CommandLineVcl::new(vec!["test".to_string()]));
         let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
         let stdout_writer = &mut ByteArrayWriter::new();
         let mut streams = &mut StdStreams {
@@ -1223,7 +1223,7 @@ mod tests {
             .param("--earning-wallet", "m/44'/60'/3'/2/1")
             .param("--mnemonic-passphrase", "mnemonic passphrase")
             .param("--wallet-password", "wallet password");
-        let vcl = Box::new(CommandLineVCL::new(args.into()));
+        let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
         let stdout_writer = &mut ByteArrayWriter::new();
         let mut streams = &mut StdStreams {
@@ -1268,7 +1268,7 @@ mod tests {
             )
             .param("--mnemonic-passphrase", "mnemonic passphrase")
             .param("--wallet-password", "wallet password");
-        let vcl = Box::new(CommandLineVCL::new(args.into()));
+        let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
         let stdout_writer = &mut ByteArrayWriter::new();
         let mut streams = &mut StdStreams {
@@ -1306,7 +1306,7 @@ mod tests {
             stdout: &mut ByteArrayWriter::new(),
             stderr: &mut ByteArrayWriter::new(),
         };
-        let vcl = Box::new(CommandLineVCL::new(vec!["test".to_string()]));
+        let vcl = Box::new(CommandLineVcl::new(vec!["test".to_string()]));
         let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
 
         subject.make_wallet_creation_config(&multi_config, streams);

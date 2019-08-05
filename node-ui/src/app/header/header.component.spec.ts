@@ -15,10 +15,16 @@ describe('HeaderComponent', () => {
   let stubElectronService;
   let mockQuit;
   let mockOpenExternal;
+  let mockRouter;
+  let mockNavigate;
 
   beforeEach(async(() => {
     mockQuit = td.function('quit');
     mockOpenExternal = td.function('openExternal');
+    mockNavigate = td.function('navigate');
+    mockRouter = {
+      navigate: mockNavigate
+    };
     stubElectronService = {
       shell: {
         openExternal: mockOpenExternal
@@ -34,7 +40,7 @@ describe('HeaderComponent', () => {
       providers: [
         {provide: ComponentFixtureAutoDetect, useValue: true},
         {provide: ElectronService, useValue: stubElectronService},
-        {provide: Router, useValue: {}}
+        {provide: Router, useValue: mockRouter}
       ]
 
     })
@@ -166,6 +172,18 @@ describe('HeaderComponent', () => {
             expect(compiled.querySelector('#network-help-modal').classList.contains('modal-help--inactive')).toBeTruthy();
           });
         });
+      });
+    });
+  });
+
+  describe('network settings', () => {
+    describe('clicking network settings from settings menu', () => {
+      beforeEach(() => {
+        compiled.querySelector('#network-settings-menu').click();
+      });
+
+      it('opens network settings screen', () => {
+        td.verify(mockNavigate(['network-settings']));
       });
     });
   });

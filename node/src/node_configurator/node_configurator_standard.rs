@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use crate::blockchain::blockchain_interface::{DEFAULT_CHAIN_NAME, DEFAULT_GAS_PRICE};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::node_configurator;
 use crate::node_configurator::{
@@ -66,6 +67,10 @@ lazy_static! {
          Must be between {} and {} [default: last used port]",
         LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
     );
+    static ref GAS_PRICE_HELP: String = format!(
+       "The Gas Price is the amount of Gwei you will pay per unit of gas used in a transaction. \
+       If left unspecified SubstratumNode will use the previously stored value (Default {}). Valid range is 1-99 Gwei.",
+       DEFAULT_GAS_PRICE);
 }
 
 const BLOCKCHAIN_SERVICE_HELP: &str =
@@ -185,9 +190,9 @@ fn app() -> App<'static, 'static> {
                 .min_values(1)
                 .max_values(1)
                 .takes_value(true)
-                .possible_values(&["dev", "ropsten"])
-                .default_value("ropsten")
-                .hidden(true),
+                .possible_values(&["dev", "ropsten"]) // TODO: SC-501: Add "mainnet"
+                .default_value(DEFAULT_CHAIN_NAME) // TODO: SC-501: Update
+                .hidden(true), //TODO: SC-501: unhide, add help text, and update README.md
         )
         .arg(
             Arg::with_name("fake-public-key")
@@ -195,6 +200,16 @@ fn app() -> App<'static, 'static> {
                 .value_name("FAKE-PUBLIC-KEY")
                 .takes_value(true)
                 .hidden(true),
+        )
+        .arg(
+            Arg::with_name("gas-price")
+                .long("gas-price")
+                .value_name("GAS-PRICE")
+                .min_values(1)
+                .max_values(1)
+                .takes_value(true)
+                .validator(validators::validate_gas_price)
+                .help(&GAS_PRICE_HELP),
         )
         .arg(
             Arg::with_name("ip")
@@ -250,7 +265,7 @@ mod standard {
     use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::bootstrapper::PortConfiguration;
     use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
-    use crate::multi_config::{CommandLineVCL, ConfigFileVCL, EnvironmentVCL, MultiConfig};
+    use crate::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig};
     use crate::node_configurator::{
         determine_config_file_path, request_wallet_decryption_password,
     };
@@ -270,9 +285,9 @@ mod standard {
         MultiConfig::new(
             &app,
             vec![
-                Box::new(CommandLineVCL::new(args.clone())),
-                Box::new(EnvironmentVCL::new(&app)),
-                Box::new(ConfigFileVCL::new(&config_file_path, user_specified)),
+                Box::new(CommandLineVcl::new(args.clone())),
+                Box::new(EnvironmentVcl::new(&app)),
+                Box::new(ConfigFileVcl::new(&config_file_path, user_specified)),
             ],
         )
     }
@@ -349,9 +364,10 @@ mod standard {
         multi_config: &MultiConfig,
         config: &mut BootstrapperConfig,
         streams: &mut StdStreams<'_>,
-        persistent_config: &PersistentConfiguration,
+        persistent_config: &dyn PersistentConfiguration,
     ) {
         config.clandestine_port_opt = value_m!(multi_config, "clandestine-port", u16);
+        config.blockchain_bridge_config.gas_price = value_m!(multi_config, "gas-price", u64);
 
         config.data_directory =
             value_m!(multi_config, "data-directory", PathBuf).expect("Internal Error");
@@ -366,13 +382,16 @@ mod standard {
 
     pub fn configure_database(
         config: &BootstrapperConfig,
-        persistent_config: &PersistentConfiguration,
+        persistent_config: &dyn PersistentConfiguration,
     ) {
         if let Some(port) = config.clandestine_port_opt {
             persistent_config.set_clandestine_port(port)
         }
         if persistent_config.earning_wallet_address().is_none() {
             persistent_config.set_earning_wallet_address(&config.earning_wallet.to_string());
+        }
+        if let Some(gas_price) = config.blockchain_bridge_config.gas_price {
+            persistent_config.set_gas_price(gas_price)
         }
         match &config.consuming_wallet {
             Some(consuming_wallet)
@@ -397,7 +416,7 @@ mod standard {
     pub fn get_wallets(
         streams: &mut StdStreams,
         multi_config: &MultiConfig,
-        persistent_config: &PersistentConfiguration,
+        persistent_config: &dyn PersistentConfiguration,
         config: &mut BootstrapperConfig,
     ) {
         let earning_wallet_opt =
@@ -409,7 +428,7 @@ mod standard {
             && consuming_wallet_opt.is_some()
             && encrypted_mnemonic_seed.is_some()
         {
-            panic! ("Cannot use --consuming-private-key and earning wallet address when database contains mnemonic seed")
+            panic!("Cannot use --consuming-private-key and earning wallet address when database contains mnemonic seed")
         }
 
         if earning_wallet_opt.is_none() || consuming_wallet_opt.is_none() {
@@ -425,7 +444,7 @@ mod standard {
                     .consuming_wallet_derivation_path()
                     .is_some()
                 {
-                    panic! ("Cannot use --consuming-private-key when database contains mnemonic seed and consuming wallet derivation path")
+                    panic!("Cannot use --consuming-private-key when database contains mnemonic seed and consuming wallet derivation path")
                 }
             }
         }
@@ -438,7 +457,7 @@ mod standard {
 
     fn get_earning_wallet_from_address(
         multi_config: &MultiConfig,
-        persistent_config: &PersistentConfiguration,
+        persistent_config: &dyn PersistentConfiguration,
     ) -> Option<Wallet> {
         let earning_wallet_from_command_line_opt = value_m!(multi_config, "earning-wallet", String);
         let earning_wallet_from_database_opt = persistent_config.earning_wallet_from_address();
@@ -456,14 +475,14 @@ mod standard {
                 if wallet.to_string().to_lowercase() == address.to_lowercase() {
                     Some(wallet)
                 } else {
-                    panic! ("Cannot use --earning-wallet to specify an address ({}) different from that previously set ({})", address, wallet)
+                    panic!("Cannot use --earning-wallet to specify an address ({}) different from that previously set ({})", address, wallet)
                 }
             }
         }
     }
 
     fn get_consuming_wallet_opt_from_derivation_path(
-        persistent_config: &PersistentConfiguration,
+        persistent_config: &dyn PersistentConfiguration,
         wallet_password: &str,
     ) -> Option<Wallet> {
         match persistent_config.consuming_wallet_derivation_path() {
@@ -488,7 +507,7 @@ mod standard {
 
     fn get_consuming_wallet_from_private_key(
         multi_config: &MultiConfig,
-        persistent_config: &PersistentConfiguration,
+        persistent_config: &dyn PersistentConfiguration,
     ) -> Option<Wallet> {
         match value_m!(multi_config, "consuming-private-key", String) {
             Some(consuming_private_key_string) => {
@@ -501,7 +520,7 @@ mod standard {
                                     let proposed_public_key_hex =
                                         keypair.secret().public().bytes().to_hex::<String>();
                                     if proposed_public_key_hex != established_public_key_hex {
-                                        panic! ("The specified --consuming-private-key does not denote the same consuming wallet you have used in the past.")
+                                        panic!("The specified --consuming-private-key does not denote the same consuming wallet you have used in the past.")
                                     }
                                 }
                             }
@@ -519,7 +538,7 @@ mod standard {
     fn get_mnemonic_seed_and_password(
         multi_config: &MultiConfig,
         streams: &mut StdStreams,
-        persistent_config: &PersistentConfiguration,
+        persistent_config: &dyn PersistentConfiguration,
     ) -> Option<(PlainData, String)> {
         match persistent_config.encrypted_mnemonic_seed() {
             None => None,
@@ -583,47 +602,51 @@ mod validators {
             Err(key)
         }
     }
+
+    pub fn validate_gas_price(gas_price: String) -> Result<(), String> {
+        match gas_price.parse::<u8>() {
+            Ok(gp) if gp > 0 && gp < 100 => Ok(()),
+            _ => Err(gas_price),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::blockchain::bip32::Bip32ECKeyPair;
+    use crate::blockchain::bip39::{Bip39, Bip39Error};
+    use crate::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
+    use crate::config_dao::{ConfigDao, ConfigDaoReal};
+    use crate::database::db_initializer;
+    use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+    use crate::multi_config::tests::FauxEnvironmentVCL;
+    use crate::multi_config::{
+        CommandLineVcl, ConfigFileVcl, MultiConfig, NameValueVclArg, VclArg, VirtualCommandLine,
+    };
+    use crate::persistent_configuration::PersistentConfigurationReal;
+    use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
+    use crate::sub_lib::crash_point::CrashPoint;
+    use crate::sub_lib::cryptde::{CryptDE, PlainData, PublicKey};
+    use crate::sub_lib::cryptde_null::CryptDENull;
+    use crate::sub_lib::neighborhood::sentinel_ip_addr;
+    use crate::sub_lib::wallet::Wallet;
+    use crate::test_utils::environment_guard::EnvironmentGuard;
+    use crate::test_utils::make_default_persistent_configuration;
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crate::test_utils::{ensure_node_home_directory_exists, ArgsBuilder};
+    use crate::test_utils::{ByteArrayWriter, FakeStreamHolder};
+    use ethsign::keyfile::Crypto;
+    use ethsign::Protected;
+    use rustc_hex::{FromHex, ToHex};
     use std::fs::File;
     use std::io::Cursor;
     use std::io::Write;
     use std::net::SocketAddr;
     use std::net::{IpAddr, Ipv4Addr};
     use std::num::NonZeroU32;
-    use std::str::FromStr;
-
-    use ethsign::keyfile::Crypto;
-    use ethsign::Protected;
-    use rustc_hex::{FromHex, ToHex};
-
-    use crate::blockchain::bip32::Bip32ECKeyPair;
-    use crate::config_dao::{ConfigDao, ConfigDaoReal};
-    use crate::database::db_initializer;
-    use crate::multi_config::tests::FauxEnvironmentVCL;
-    use crate::multi_config::{
-        CommandLineVCL, ConfigFileVCL, MultiConfig, NameValueVclArg, VclArg, VirtualCommandLine,
-    };
-    use crate::sub_lib::cryptde::{CryptDE, PlainData, PublicKey};
-    use crate::sub_lib::neighborhood::sentinel_ip_addr;
-    use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::environment_guard::EnvironmentGuard;
-    use crate::test_utils::{ensure_node_home_directory_exists, ArgsBuilder};
-    use crate::test_utils::{ByteArrayWriter, FakeStreamHolder};
-
-    use super::*;
-    use crate::blockchain::bip39::{Bip39, Bip39Error};
-    use crate::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
-    use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::persistent_configuration::PersistentConfigurationReal;
-    use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
-    use crate::sub_lib::crash_point::CrashPoint;
-    use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::test_utils::make_default_persistent_configuration;
-    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use std::path::PathBuf;
+    use std::str::FromStr;
     use std::sync::{Arc, Mutex};
 
     fn make_default_cli_params() -> ArgsBuilder {
@@ -727,7 +750,60 @@ mod tests {
     fn validate_clandestine_port_accepts_port_if_provided() {
         let result = validators::validate_clandestine_port(String::from("4567"));
 
+        assert!(result.is_ok());
         assert_eq!(Ok(()), result);
+    }
+
+    #[test]
+    fn validate_gas_price_zero() {
+        let result = validators::validate_gas_price("0".to_string());
+
+        assert!(result.is_err());
+        assert_eq!(Err(String::from("0")), result);
+    }
+
+    #[test]
+    fn validate_gas_price_normal_ropsten() {
+        let result = validators::validate_gas_price("2".to_string());
+
+        assert!(result.is_ok());
+        assert_eq!(Ok(()), result);
+    }
+
+    #[test]
+    fn validate_gas_price_normal_mainnet() {
+        let result = validators::validate_gas_price("20".to_string());
+
+        assert!(result.is_ok());
+        assert_eq!(Ok(()), result);
+    }
+
+    #[test]
+    fn validate_gas_price_max() {
+        let result = validators::validate_gas_price("99".to_string());
+        assert!(result.is_ok());
+        assert_eq!(Ok(()), result);
+    }
+
+    #[test]
+    fn validate_gas_price_too_large_and_fails() {
+        let result = validators::validate_gas_price("100".to_string());
+        assert!(result.is_err());
+        assert_eq!(Err(String::from("100")), result);
+    }
+
+    #[test]
+    fn validate_gas_price_not_digits_fails() {
+        let result = validators::validate_gas_price("not".to_string());
+        assert!(result.is_err());
+        assert_eq!(Err(String::from("not")), result);
+    }
+
+    #[test]
+    fn validate_gas_price_hex_fails() {
+        let result = validators::validate_gas_price("0x0".to_string());
+        assert!(result.is_err());
+        assert_eq!(Err(String::from("0x0")), result);
     }
 
     #[test]
@@ -788,8 +864,8 @@ mod tests {
         let multi_config = MultiConfig::new(
             &app(),
             vec![
-                Box::new(CommandLineVCL::new(args.into())),
-                Box::new(ConfigFileVCL::new(&config_file_path, false)),
+                Box::new(CommandLineVcl::new(args.into())),
+                Box::new(ConfigFileVcl::new(&config_file_path, false)),
             ],
         );
 
@@ -861,7 +937,7 @@ mod tests {
             );
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
-            vec![Box::new(CommandLineVCL::new(args.into()))];
+            vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = MultiConfig::new(&app(), vcls);
 
         standard::privileged_parse_args(
@@ -915,7 +991,7 @@ mod tests {
             "node_configurator",
             "unprivileged_parse_args_creates_configurations",
         );
-        let config_dao: Box<ConfigDao> = Box::new(ConfigDaoReal::new(
+        let config_dao: Box<dyn ConfigDao> = Box::new(ConfigDaoReal::new(
             DbInitializerReal::new()
                 .initialize(&home_dir.clone())
                 .unwrap(),
@@ -948,7 +1024,7 @@ mod tests {
             .param("--consuming-private-key", consuming_private_key_text);
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
-            vec![Box::new(CommandLineVCL::new(args.into()))];
+            vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = MultiConfig::new(&app(), vcls);
 
         standard::unprivileged_parse_args(
@@ -985,7 +1061,7 @@ mod tests {
         let args = ArgsBuilder::new().param("--dns-servers", "12.34.56.78,23.45.67.89");
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
-            vec![Box::new(CommandLineVCL::new(args.into()))];
+            vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = MultiConfig::new(&app(), vcls);
 
         standard::privileged_parse_args(
@@ -1016,7 +1092,7 @@ mod tests {
         let args = ArgsBuilder::new().param("--dns-servers", "12.34.56.78,23.45.67.89");
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
-            vec![Box::new(CommandLineVCL::new(args.into()))];
+            vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = MultiConfig::new(&app(), vcls);
 
         standard::unprivileged_parse_args(
@@ -1039,7 +1115,7 @@ mod tests {
     fn make_multi_config<'a>(args: ArgsBuilder) -> MultiConfig<'a> {
         let args = args.param("--dns-servers", "12.34.56.78,23.45.67.89");
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
-            vec![Box::new(CommandLineVCL::new(args.into()))];
+            vec![Box::new(CommandLineVcl::new(args.into()))];
         MultiConfig::new(&app(), vcls)
     }
 
@@ -1414,7 +1490,7 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(faux_environment),
-            Box::new(CommandLineVCL::new(args.into())),
+            Box::new(CommandLineVcl::new(args.into())),
         ];
         let multi_config = MultiConfig::new(&app(), vcls);
 
@@ -1447,7 +1523,7 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(faux_environment),
-            Box::new(CommandLineVCL::new(args.into())),
+            Box::new(CommandLineVcl::new(args.into())),
         ];
         let multi_config = MultiConfig::new(&app(), vcls);
         let stdout_writer = &mut ByteArrayWriter::new();
@@ -1487,13 +1563,13 @@ mod tests {
         let conn = db_initializer::DbInitializerReal::new()
             .initialize(&data_directory)
             .unwrap();
-        let config_dao: Box<ConfigDao> = Box::new(ConfigDaoReal::new(conn));
+        let config_dao: Box<dyn ConfigDao> = Box::new(ConfigDaoReal::new(conn));
         config_dao.set_string("seed", "booga booga").unwrap();
         let args = make_default_cli_params()
             .param("--data-directory", data_directory.to_str().unwrap())
             .param("--wallet-password", "rick-rolled");
         let mut config = BootstrapperConfig::new();
-        let vcl = Box::new(CommandLineVCL::new(args.into()));
+        let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = MultiConfig::new(&app(), vec![vcl]);
 
         standard::unprivileged_parse_args(
@@ -1517,7 +1593,7 @@ mod tests {
         let conn = db_initializer::DbInitializerReal::new()
             .initialize(&data_directory)
             .unwrap();
-        let config_dao: Box<ConfigDao> = Box::new(ConfigDaoReal::new(conn));
+        let config_dao: Box<dyn ConfigDao> = Box::new(ConfigDaoReal::new(conn));
 
         let crypto = Crypto::encrypt(
             b"never gonna give you up",
@@ -1536,7 +1612,7 @@ mod tests {
             .param("--data-directory", data_directory.to_str().unwrap())
             .param("--wallet-password", "ricked rolled");
         let mut config = BootstrapperConfig::new();
-        let vcl = Box::new(CommandLineVCL::new(args.into()));
+        let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = MultiConfig::new(&app(), vec![vcl]);
 
         standard::unprivileged_parse_args(
@@ -1551,7 +1627,7 @@ mod tests {
     fn no_parameters_produces_configuration_for_crash_point() {
         let args = make_default_cli_params();
         let mut config = BootstrapperConfig::new();
-        let vcl = Box::new(CommandLineVCL::new(args.into()));
+        let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = MultiConfig::new(&app(), vec![vcl]);
 
         standard::privileged_parse_args(
@@ -1567,7 +1643,7 @@ mod tests {
     fn with_parameters_produces_configuration_for_crash_point() {
         let args = make_default_cli_params().param("--crash-point", "panic");
         let mut config = BootstrapperConfig::new();
-        let vcl = Box::new(CommandLineVCL::new(args.into()));
+        let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = MultiConfig::new(&app(), vec![vcl]);
 
         standard::privileged_parse_args(
@@ -1641,7 +1717,55 @@ mod tests {
         let subject = NodeConfiguratorStandardPrivileged {};
         let args = ArgsBuilder::new()
             .param("--dns-servers", "1.2.3.4")
-            .param("--chain", "mainnet");
+            .param("--chain", "mainnet"); // TODO: SC-501: Remove the should_panic or correct the test in a better way
+
+        subject.configure(&args.into(), &mut FakeStreamHolder::new().streams());
+    }
+
+    #[test]
+    fn unprivileged_configuration_gets_parameter_gas_price() {
+        let subject = NodeConfiguratorStandardUnprivileged {};
+        let data_dir = ensure_node_home_directory_exists(
+            "node_configurator_standard",
+            "unprivileged_configuration_gets_parameter_gas_price",
+        );
+        let expected_gas_price = "57";
+        let args = ArgsBuilder::new()
+            .param("--data-directory", data_dir.to_str().unwrap())
+            .param("--dns-servers", "1.2.3.4")
+            .param("--gas-price", expected_gas_price);
+
+        let config = subject.configure(&args.into(), &mut FakeStreamHolder::new().streams());
+
+        assert_eq!(
+            config.blockchain_bridge_config.gas_price,
+            u64::from_str_radix(expected_gas_price, 10).ok()
+        );
+    }
+
+    #[test]
+    fn unprivileged_configuration_does_not_set_gas_price_when_not_provided() {
+        let subject = NodeConfiguratorStandardUnprivileged {};
+        let data_dir = ensure_node_home_directory_exists(
+            "node_configurator_standard",
+            "unprivileged_configuration_does_not_set_gas_price_when_not_provided",
+        );
+        let args = ArgsBuilder::new()
+            .param("--data-directory", data_dir.to_str().unwrap())
+            .param("--dns-servers", "1.2.3.4");
+
+        let config = subject.configure(&args.into(), &mut FakeStreamHolder::new().streams());
+
+        assert_eq!(config.blockchain_bridge_config.gas_price, None);
+    }
+
+    #[test]
+    #[should_panic(expected = r#"error: Invalid value for '--gas-price <GAS-PRICE>': unleaded"#)]
+    fn privileged_configuration_rejects_invalid_gas_price() {
+        let subject = NodeConfiguratorStandardPrivileged {};
+        let args = ArgsBuilder::new()
+            .param("--dns-servers", "1.2.3.4")
+            .param("--gas-price", "unleaded");
 
         subject.configure(&args.into(), &mut FakeStreamHolder::new().streams());
     }
@@ -1655,21 +1779,25 @@ mod tests {
             "ABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EF";
         let consuming_private_key =
             PlainData::from(consuming_private_key_text.from_hex::<Vec<u8>>().unwrap());
+        let gas_price = 4u64;
         let keypair = Bip32ECKeyPair::from_raw_secret(consuming_private_key.as_slice()).unwrap();
         let consuming_public_key = keypair.secret().public();
         let consuming_public_key_bytes = consuming_public_key.bytes();
         config.earning_wallet = Wallet::new(earning_address);
         config.consuming_wallet = Some(Wallet::from(keypair));
+        config.blockchain_bridge_config.gas_price = Some(gas_price);
         let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
         let set_earning_wallet_address_params_arc = Arc::new(Mutex::new(vec![]));
         let set_consuming_public_key_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_gas_price_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_address_result(None)
             .consuming_wallet_public_key_result(None)
             .consuming_wallet_derivation_path_result(None)
             .set_clandestine_port_params(&set_clandestine_port_params_arc)
             .set_earning_wallet_address_params(&set_earning_wallet_address_params_arc)
-            .set_consuming_wallet_public_key_params(&set_consuming_public_key_params_arc);
+            .set_consuming_wallet_public_key_params(&set_consuming_public_key_params_arc)
+            .set_gas_price_params(&set_gas_price_params_arc);
 
         standard::configure_database(&config, &persistent_config);
 
@@ -1686,6 +1814,8 @@ mod tests {
             *set_consuming_public_key_params,
             vec![PlainData::new(consuming_public_key_bytes)]
         );
+        let set_gas_price_params = set_gas_price_params_arc.lock().unwrap();
+        assert_eq!(*set_gas_price_params, vec![gas_price]);
     }
 
     #[test]

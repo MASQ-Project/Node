@@ -49,6 +49,7 @@ pub fn contract_address(chain_id: u8) -> Address {
     }
 }
 
+//TODO: SC-501 add ropsten and default to 1u8 for anything else
 pub fn chain_id_from_name(name: &str) -> u8 {
     match name.to_lowercase().as_str() {
         "dev" => 2u8,
@@ -68,7 +69,9 @@ const TRANSACTION_LITERAL: H256 = H256 {
 
 const TRANSFER_METHOD_ID: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
 
-pub const DEFAULT_CHAIN_ID: u8 = 3u8; //TODO: Change this to 1u8 for mainnet when it's time
+pub const DEFAULT_CHAIN_ID: u8 = 3u8; //TODO: SC-501: Change this to 1u8 for mainnet when it's time
+pub const DEFAULT_GAS_PRICE: &str = "1"; //TODO: SC-501: Change this to "2" for mainnet when it's time
+pub const DEFAULT_CHAIN_NAME: &str = "ropsten"; //TODO: SC-501: Change this to "mainnet" when it's time
 
 #[derive(Clone, Debug, Eq, Message, PartialEq)]
 pub struct Transaction {
@@ -108,6 +111,7 @@ pub trait BlockchainInterface {
         recipient: &Wallet,
         amount: u64,
         nonce: U256,
+        gas_price: u64,
     ) -> BlockchainResult<H256>;
 
     fn get_eth_balance(&self, address: &Wallet) -> Balance;
@@ -162,6 +166,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         _recipient: &Wallet,
         _amount: u64,
         _nonce: U256,
+        _gas_price: u64,
     ) -> BlockchainResult<H256> {
         let msg =
             "Could not send transaction since blockchain_service_url was not specified".to_string();
@@ -201,15 +206,15 @@ pub struct BlockchainInterfaceNonClandestine<T: Transport + Debug> {
     contract: Contract<T>,
 }
 
-fn to_gwei(wei: U256) -> Option<u64> {
-    u64::try_from(wei / U256::from(1_000_000_000)).ok()
+const GWEI: U256 = U256([1_000_000_000u64, 0, 0, 0]);
+
+pub fn to_gwei(wei: U256) -> Option<u64> {
+    u64::try_from(wei / GWEI).ok()
 }
 
-fn to_wei(gwub: u64) -> U256 {
+pub fn to_wei(gwub: u64) -> U256 {
     let subgwei = U256::from(gwub);
-    let wei_of_gwei = U256::from(1_000_000_000);
-
-    subgwei.full_mul(wei_of_gwei).into()
+    subgwei.full_mul(GWEI).into()
 }
 
 impl<T> BlockchainInterface for BlockchainInterfaceNonClandestine<T>
@@ -281,6 +286,7 @@ where
         recipient: &Wallet,
         amount: u64,
         nonce: U256,
+        gas_price: u64,
     ) -> BlockchainResult<H256> {
         debug!(
             self.logger,
@@ -301,16 +307,22 @@ where
         )
         .expect("Internal error");
 
-        let nonce_value = serde_json::to_value(nonce).expect("Internal error");
-        let converted_nonce =
-            serde_json::from_value::<ethereum_types::U256>(nonce_value).expect("Internal error");
+        let converted_nonce = serde_json::from_value::<ethereum_types::U256>(
+            serde_json::to_value(nonce).expect("Internal error"),
+        )
+        .expect("Internal error");
+        let gas_price = serde_json::from_value::<ethereum_types::U256>(
+            serde_json::to_value(to_wei(gas_price)).expect("Internal error"),
+        )
+        .expect("Internal error");
+
         let tx = RawTransaction {
             nonce: converted_nonce,
             to: Some(ethereum_types::Address {
                 0: self.contract_address().0,
             }),
             value: ethereum_types::U256::zero(),
-            gas_price: ethereum_types::U256::try_from(2_000_000_000u64).expect("Internal error"), //TODO: Determine gas price from somewhere
+            gas_price,
             gas_limit,
             data: data.to_vec(),
         };
@@ -825,6 +837,7 @@ mod tests {
             &make_wallet("blah123"),
             9000,
             U256::from(1),
+            2u64,
         );
 
         transport.assert_request("eth_sendRawTransaction", &[String::from(r#""0xf8a801847735940082dbe894cd6c588e005032dd882cd43bf53a32129be8130280b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd90002aa0210a8dc04a802e579493e9c3b0c6aca5d19197af17637e1c5ae61f3332746734a00ad3bddb042061f4ce99800fea66e36a684b1e168d16485dfdb2e4d2254f589e""#)]);
@@ -879,6 +892,20 @@ mod tests {
         let converted_wei = to_wei(1);
 
         assert_eq!(converted_wei, U256::from_dec_str("1000000000").unwrap());
+    }
+
+    #[test]
+    fn constant_gwei_matches_calculated_value() {
+        let value = U256::from(1_000_000_000);
+        assert_eq!(value.0[0], 1_000_000_000);
+        assert_eq!(value.0[1], 0);
+        assert_eq!(value.0[2], 0);
+        assert_eq!(value.0[3], 0);
+
+        let gwei = U256([1_000_000_000u64, 0, 0, 0]);
+        assert_eq!(value, gwei);
+        assert_eq!(gwei, GWEI);
+        assert_eq!(value, GWEI);
     }
 
     #[test]

@@ -1,10 +1,9 @@
+// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 import {TestBed} from '@angular/core/testing';
-
 import {ConfigService} from './config.service';
 import {NodeConfiguration} from './node-configuration';
 
 describe('ConfigService', () => {
-
   let service: ConfigService;
   beforeEach(() => {
     TestBed.configureTestingModule({});
@@ -24,7 +23,7 @@ describe('ConfigService', () => {
     };
 
     beforeEach(() => {
-      service.save(configuration);
+      service.patchValue(configuration);
     });
 
     it('which can be retrieved', () => {
@@ -35,10 +34,9 @@ describe('ConfigService', () => {
   });
 
   describe('validConfig', () => {
-
     describe('with a well-formed ip, neighbor, and wallet address', () => {
       beforeEach(() => {
-        service.save({
+        service.patchValue({
           ip: '128.128.128.128',
           neighbor: 'T987mcTttF11TBBJy0f+W1h8yWliSlbhRZONZBricNA:255.255.255.255:8888',
           walletAddress: '0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
@@ -52,7 +50,7 @@ describe('ConfigService', () => {
 
     describe('with a malformed ip', () => {
       beforeEach(() => {
-        service.save({
+        service.patchValue({
           ip: 'true',
           neighbor: 'T987mcTttF11TBBJy0f+W1h8yWliSlbhRZONZBricNA:255.255.255.255:8888',
           walletAddress: '0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
@@ -66,7 +64,7 @@ describe('ConfigService', () => {
 
     describe('with a malformed neighbor', () => {
       beforeEach(() => {
-        service.save({
+        service.patchValue({
           ip: '255.255.255.255',
           neighbor: 'T987mcTttF11TBBJy0f+W1h8yWliSlbhRZONZBricNA:255.255.255.255:',
           walletAddress: '0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
@@ -80,7 +78,7 @@ describe('ConfigService', () => {
 
     describe('with a malformed wallet', () => {
       beforeEach(() => {
-        service.save({
+        service.patchValue({
           ip: '255.255.255.255',
           neighbor: 'T987mcTttF11TBBJy0f+W1h8yWliSlbhRZONZBricNA:255.255.255.255:8888',
           walletAddress: '0x01234567890ABCDEF012345678'

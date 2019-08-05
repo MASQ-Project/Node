@@ -22,6 +22,7 @@ export class FinancialStatisticsComponent implements OnChanges {
       this.financialStatsDataError = error;
     });
   }
+
   @Input() status: NodeStatus = NodeStatus.Off;
   financialStatisticsData: PendingAmounts = {pendingCredit: '0', pendingDebt: '0'};
   financialStatsDataError: any;

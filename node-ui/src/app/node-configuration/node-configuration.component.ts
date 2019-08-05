@@ -9,6 +9,7 @@ import {MainService} from '../main.service';
 import {ConfigurationMode} from '../configuration-mode.enum';
 import {NodeStatus} from '../node-status.enum';
 import {Subscription} from 'rxjs';
+import {NodeConfiguration} from '../node-configuration';
 
 @Component({
   selector: 'app-node-configuration',
@@ -64,7 +65,7 @@ export class NodeConfigurationComponent implements OnInit {
   }
 
   async onSubmit() {
-    this.configService.save(this.nodeConfig.value);
+    this.configService.patchValue(this.nodeConfig.value);
     this.save();
   }
 

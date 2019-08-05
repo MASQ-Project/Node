@@ -10,7 +10,7 @@ use crate::bootstrapper::BootstrapperConfig;
 use crate::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
-use crate::sub_lib::blockchain_bridge::{BlockchainBridgeConfig, SetWalletPasswordMsg};
+use crate::sub_lib::blockchain_bridge::SetWalletPasswordMsg;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
@@ -24,11 +24,10 @@ use actix::{Addr, Recipient};
 use std::convert::TryFrom;
 
 pub struct BlockchainBridge {
-    _config: BlockchainBridgeConfig, // TODO: Why is this not used? That seems wrong.
     consuming_wallet: Option<Wallet>,
     blockchain_interface: Box<dyn BlockchainInterface>,
     logger: Logger,
-    persistent_config: Box<PersistentConfiguration>,
+    persistent_config: Box<dyn PersistentConfiguration>,
     ui_carrier_message_sub: Option<Recipient<UiCarrierMessage>>,
     set_consuming_wallet_subs: Option<Vec<Recipient<SetConsumingWalletMessage>>>,
 }
@@ -119,6 +118,7 @@ impl Handler<ReportAccountsPayable> for BlockchainBridge {
                                     panic!("Lost payable amount precision: {}", payable.balance)
                                 }),
                                 nonce,
+                                self.persistent_config.gas_price(),
                             ) {
                                 Ok(hash) => Ok(Payment::new(
                                     payable.wallet.clone(),
@@ -159,10 +159,9 @@ impl BlockchainBridge {
     pub fn new(
         config: &BootstrapperConfig,
         blockchain_interface: Box<dyn BlockchainInterface>,
-        persistent_config: Box<PersistentConfiguration>,
+        persistent_config: Box<dyn PersistentConfiguration>,
     ) -> BlockchainBridge {
         BlockchainBridge {
-            _config: config.blockchain_bridge_config.clone(),
             consuming_wallet: config.consuming_wallet.clone(),
             blockchain_interface,
             logger: Logger::new("BlockchainBridge"),
@@ -275,7 +274,7 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use web3::types::{Address, H256, U256};
 
-    fn stub_bi() -> Box<BlockchainInterface> {
+    fn stub_bi() -> Box<dyn BlockchainInterface> {
         Box::new(BlockchainInterfaceMock::default())
     }
 
@@ -325,13 +324,7 @@ mod tests {
                 ));
 
             let subject = BlockchainBridge::new(
-                &bc_from_bbc_plus(
-                    BlockchainBridgeConfig {
-                        blockchain_service_url: None,
-                        chain_id: DEFAULT_CHAIN_ID,
-                    },
-                    None,
-                ),
+                &bc_from_wallet(None),
                 stub_bi(),
                 Box::new(persistent_config_mock),
             );
@@ -363,7 +356,7 @@ mod tests {
             ui_gateway_recording.get_record::<UiCarrierMessage>(0),
             &UiCarrierMessage {
                 client_id: 42,
-                data: UiMessage::SetWalletPasswordResponse(true)
+                data: UiMessage::SetWalletPasswordResponse(true),
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
@@ -405,13 +398,7 @@ mod tests {
                 ));
 
             let subject = BlockchainBridge::new(
-                &bc_from_bbc_plus(
-                    BlockchainBridgeConfig {
-                        blockchain_service_url: None,
-                        chain_id: DEFAULT_CHAIN_ID,
-                    },
-                    None,
-                ),
+                &bc_from_wallet(None),
                 stub_bi(),
                 Box::new(persistent_config_mock),
             );
@@ -439,7 +426,7 @@ mod tests {
             ui_gateway_recording.get_record::<UiCarrierMessage>(0),
             &UiCarrierMessage {
                 client_id: 42,
-                data: UiMessage::SetWalletPasswordResponse(false)
+                data: UiMessage::SetWalletPasswordResponse(false),
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
@@ -454,13 +441,9 @@ mod tests {
         thread::spawn(move || {
             let persistent_config_mock = PersistentConfigurationMock::default();
             let subject = BlockchainBridge::new(
-                &bc_from_bbc_plus(
-                    BlockchainBridgeConfig {
-                        blockchain_service_url: None,
-                        chain_id: DEFAULT_CHAIN_ID,
-                    },
-                    Some(Wallet::new("0x0000000000000000000000000000000000000000")),
-                ),
+                &bc_from_wallet(Some(Wallet::new(
+                    "0x0000000000000000000000000000000000000000",
+                ))),
                 stub_bi(),
                 Box::new(persistent_config_mock),
             );
@@ -490,7 +473,7 @@ mod tests {
             ui_gateway_recording.get_record::<UiCarrierMessage>(0),
             &UiCarrierMessage {
                 client_id: 42,
-                data: UiMessage::SetWalletPasswordResponse(false)
+                data: UiMessage::SetWalletPasswordResponse(false),
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
@@ -507,13 +490,7 @@ mod tests {
             let persistent_config_mock =
                 PersistentConfigurationMock::new().consuming_wallet_derivation_path_result(None);
             let subject = BlockchainBridge::new(
-                &bc_from_bbc_plus(
-                    BlockchainBridgeConfig {
-                        blockchain_service_url: None,
-                        chain_id: DEFAULT_CHAIN_ID,
-                    },
-                    None,
-                ),
+                &bc_from_wallet(None),
                 stub_bi(),
                 Box::new(persistent_config_mock),
             );
@@ -541,7 +518,7 @@ mod tests {
             ui_gateway_recording.get_record::<UiCarrierMessage>(0),
             &UiCarrierMessage {
                 client_id: 42,
-                data: UiMessage::SetWalletPasswordResponse(false)
+                data: UiMessage::SetWalletPasswordResponse(false),
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
@@ -558,13 +535,7 @@ mod tests {
                 .consuming_wallet_derivation_path_result(Some("m/44'/60'/1'/2/3".to_string()))
                 .mnemonic_seed_result(Err(Bip39Error::NotPresent));
             let subject = BlockchainBridge::new(
-                &bc_from_bbc_plus(
-                    BlockchainBridgeConfig {
-                        blockchain_service_url: None,
-                        chain_id: DEFAULT_CHAIN_ID,
-                    },
-                    None,
-                ),
+                &bc_from_wallet(None),
                 stub_bi(),
                 Box::new(persistent_config_mock),
             );
@@ -594,7 +565,7 @@ mod tests {
             ui_gateway_recording.get_record::<UiCarrierMessage>(0),
             &UiCarrierMessage {
                 client_id: 42,
-                data: UiMessage::SetWalletPasswordResponse(false)
+                data: UiMessage::SetWalletPasswordResponse(false),
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
@@ -611,13 +582,7 @@ mod tests {
         let consuming_private_key = SecretKey::from_raw(&secret).unwrap();
         let consuming_wallet = Wallet::from(Bip32ECKeyPair::from(consuming_private_key));
         let subject = BlockchainBridge::new(
-            &bc_from_bbc_plus(
-                BlockchainBridgeConfig {
-                    blockchain_service_url: None,
-                    chain_id: DEFAULT_CHAIN_ID,
-                },
-                Some(consuming_wallet.clone()),
-            ),
+            &bc_from_wallet(Some(consuming_wallet.clone())),
             stub_bi(),
             Box::new(make_default_persistent_configuration()),
         );
@@ -643,13 +608,7 @@ mod tests {
         init_test_logging();
 
         let subject = BlockchainBridge::new(
-            &bc_from_bbc_plus(
-                BlockchainBridgeConfig {
-                    blockchain_service_url: None,
-                    chain_id: DEFAULT_CHAIN_ID,
-                },
-                None,
-            ),
+            &bc_from_wallet(None),
             stub_bi(),
             Box::new(PersistentConfigurationMock::default()),
         );
@@ -673,7 +632,7 @@ mod tests {
     struct BlockchainInterfaceMock {
         pub retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
         pub retrieve_transactions_results: RefCell<Vec<BlockchainResult<Vec<Transaction>>>>,
-        pub send_transaction_parameters: Arc<Mutex<Vec<(Wallet, Wallet, u64, U256)>>>,
+        pub send_transaction_parameters: Arc<Mutex<Vec<(Wallet, Wallet, u64, U256, u64)>>>,
         pub send_transaction_results: RefCell<Vec<BlockchainResult<H256>>>,
         pub contract_address_results: RefCell<Vec<Address>>,
         pub get_transaction_count_parameters: Arc<Mutex<Vec<Wallet>>>,
@@ -724,12 +683,14 @@ mod tests {
             recipient: &Wallet,
             amount: u64,
             nonce: U256,
+            gas_price: u64,
         ) -> BlockchainResult<H256> {
             self.send_transaction_parameters.lock().unwrap().push((
                 consuming_wallet.clone(),
                 recipient.clone(),
                 amount,
                 nonce,
+                gas_price,
             ));
             self.send_transaction_results.borrow_mut().remove(0)
         }
@@ -769,13 +730,7 @@ mod tests {
             .retrieve_transactions_parameters
             .clone();
         let subject = BlockchainBridge::new(
-            &bc_from_bbc_plus(
-                BlockchainBridgeConfig {
-                    blockchain_service_url: None,
-                    chain_id: DEFAULT_CHAIN_ID,
-                },
-                None,
-            ),
+            &bc_from_wallet(None),
             Box::new(blockchain_interface_mock),
             Box::new(PersistentConfigurationMock::default()),
         );
@@ -812,17 +767,13 @@ mod tests {
         let transaction_count_parameters = blockchain_interface_mock
             .get_transaction_count_parameters
             .clone();
-        let persistent_configuration_mock = PersistentConfigurationMock::default();
+        let expected_gas_price = 5u64;
+        let persistent_configuration_mock =
+            PersistentConfigurationMock::default().gas_price_result(expected_gas_price);
 
         let consuming_wallet = make_paying_wallet(b"somewallet");
         let subject = BlockchainBridge::new(
-            &bc_from_bbc_plus(
-                BlockchainBridgeConfig {
-                    blockchain_service_url: None,
-                    chain_id: DEFAULT_CHAIN_ID,
-                },
-                Some(consuming_wallet.clone()),
-            ),
+            &bc_from_wallet(Some(consuming_wallet.clone())),
             Box::new(blockchain_interface_mock),
             Box::new(persistent_configuration_mock),
         );
@@ -853,7 +804,8 @@ mod tests {
                 consuming_wallet.clone(),
                 make_wallet("blah"),
                 42,
-                U256::from(1)
+                U256::from(1),
+                expected_gas_price
             )
         );
         assert_eq!(
@@ -862,7 +814,8 @@ mod tests {
                 consuming_wallet.clone(),
                 make_wallet("foo"),
                 21,
-                U256::from(2)
+                U256::from(2),
+                expected_gas_price
             )
         );
 
@@ -940,16 +893,13 @@ mod tests {
         let transaction_count_parameters = blockchain_interface_mock
             .get_transaction_count_parameters
             .clone();
+
         let consuming_wallet = make_wallet("somewallet");
-        let persistent_configuration_mock = PersistentConfigurationMock::new();
+
+        let persistent_configuration_mock =
+            PersistentConfigurationMock::new().gas_price_result(3u64);
         let subject = BlockchainBridge::new(
-            &bc_from_bbc_plus(
-                BlockchainBridgeConfig {
-                    blockchain_service_url: None,
-                    chain_id: DEFAULT_CHAIN_ID,
-                },
-                Some(consuming_wallet.clone()),
-            ),
+            &bc_from_wallet(Some(consuming_wallet.clone())),
             Box::new(blockchain_interface_mock),
             Box::new(persistent_configuration_mock),
         );
@@ -988,13 +938,7 @@ mod tests {
         let persistent_configuration_mock = PersistentConfigurationMock::default();
 
         let subject = BlockchainBridge::new(
-            &bc_from_bbc_plus(
-                BlockchainBridgeConfig {
-                    blockchain_service_url: None,
-                    chain_id: DEFAULT_CHAIN_ID,
-                },
-                None,
-            ),
+            &BootstrapperConfig::new(),
             Box::new(blockchain_interface_mock),
             Box::new(persistent_configuration_mock),
         );
@@ -1017,12 +961,8 @@ mod tests {
         assert_eq!(result, &Err("No consuming wallet specified".to_string()));
     }
 
-    fn bc_from_bbc_plus(
-        bbc: BlockchainBridgeConfig,
-        consuming_wallet: Option<Wallet>,
-    ) -> BootstrapperConfig {
+    fn bc_from_wallet(consuming_wallet: Option<Wallet>) -> BootstrapperConfig {
         let mut bc = BootstrapperConfig::new();
-        bc.blockchain_bridge_config = bbc;
         bc.consuming_wallet = consuming_wallet;
         bc
     }

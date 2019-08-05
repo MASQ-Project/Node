@@ -11,6 +11,7 @@ use actix::Recipient;
 pub struct BlockchainBridgeConfig {
     pub blockchain_service_url: Option<String>,
     pub chain_id: u8,
+    pub gas_price: Option<u64>,
 }
 
 #[derive(Clone)]

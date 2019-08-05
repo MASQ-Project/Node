@@ -46,10 +46,12 @@ describe('FinancialStatisticsComponent', () => {
         component.ngOnChanges(changes);
         fixture.detectChanges();
       });
+
       it('shows an informative message', () => {
         expect(compiled.querySelector('#financial-statistics-info').textContent.trim())
           .toBe('No data available because SubstratumNode is not actively running.');
       });
+
       it('does not call startFinancialStatistics', () => {
         verify(mockFinancialService.startFinancialStatistics(), {times: 0});
       });

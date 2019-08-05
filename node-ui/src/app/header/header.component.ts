@@ -35,6 +35,10 @@ export class HeaderComponent {
     this.openSettingsEvent.emit(ConfigurationMode.Configuring);
   }
 
+  openNetworkSettings() {
+    this.router.navigate(['network-settings']);
+  }
+
   openWalletConfiguration() {
     this.router.navigate(['/wallet']);
   }

@@ -52,7 +52,7 @@ impl<'a> MultiConfig<'a> {
     /// VirtualCommandLine objects placed earlier.
     pub fn new(schema: &App<'a, 'a>, vcls: Vec<Box<dyn VirtualCommandLine>>) -> MultiConfig<'a> {
         let initial: Box<dyn VirtualCommandLine> =
-            Box::new(CommandLineVCL::new(vec![String::new()]));
+            Box::new(CommandLineVcl::new(vec![String::new()]));
         let merged = vcls
             .into_iter()
             .fold(initial, |so_far, vcl| merge(so_far, vcl));
@@ -135,7 +135,7 @@ impl VclArg for NameOnlyVclArg {
         vec![self.name.clone()]
     }
 
-    fn dup(&self) -> Box<VclArg> {
+    fn dup(&self) -> Box<dyn VclArg> {
         Box::new(NameOnlyVclArg::new(self.name.as_str()))
     }
 }
@@ -179,16 +179,16 @@ pub fn merge(
         })
         .map(|vcl_arg_ref| vcl_arg_ref.dup())
         .collect::<Vec<Box<dyn VclArg>>>();
-    Box::new(CommandLineVCL {
+    Box::new(CommandLineVcl {
         vcl_args: prioritized_vcl_args,
     })
 }
 
-pub struct CommandLineVCL {
+pub struct CommandLineVcl {
     vcl_args: Vec<Box<dyn VclArg>>,
 }
 
-impl VirtualCommandLine for CommandLineVCL {
+impl VirtualCommandLine for CommandLineVcl {
     fn vcl_args(&self) -> Vec<&dyn VclArg> {
         vcl_args_to_vcl_args(&self.vcl_args)
     }
@@ -198,20 +198,20 @@ impl VirtualCommandLine for CommandLineVCL {
     }
 }
 
-impl From<Vec<Box<dyn VclArg>>> for CommandLineVCL {
+impl From<Vec<Box<dyn VclArg>>> for CommandLineVcl {
     fn from(vcl_args: Vec<Box<dyn VclArg>>) -> Self {
-        CommandLineVCL { vcl_args }
+        CommandLineVcl { vcl_args }
     }
 }
 
-impl CommandLineVCL {
-    pub fn new(mut args: Vec<String>) -> CommandLineVCL {
+impl CommandLineVcl {
+    pub fn new(mut args: Vec<String>) -> CommandLineVcl {
         args.remove(0); // remove command
         let mut vcl_args = vec![];
         while let Some(vcl_arg) = Self::next_vcl_arg(&mut args) {
             vcl_args.push(vcl_arg);
         }
-        CommandLineVCL { vcl_args }
+        CommandLineVcl { vcl_args }
     }
 
     fn next_vcl_arg(args: &mut Vec<String>) -> Option<Box<dyn VclArg>> {
@@ -231,11 +231,11 @@ impl CommandLineVCL {
     }
 }
 
-pub struct EnvironmentVCL {
+pub struct EnvironmentVcl {
     vcl_args: Vec<Box<dyn VclArg>>,
 }
 
-impl VirtualCommandLine for EnvironmentVCL {
+impl VirtualCommandLine for EnvironmentVcl {
     fn vcl_args(&self) -> Vec<&dyn VclArg> {
         vcl_args_to_vcl_args(&self.vcl_args)
     }
@@ -245,8 +245,8 @@ impl VirtualCommandLine for EnvironmentVCL {
     }
 }
 
-impl EnvironmentVCL {
-    pub fn new<'a>(schema: &App<'a, 'a>) -> EnvironmentVCL {
+impl EnvironmentVcl {
+    pub fn new<'a>(schema: &App<'a, 'a>) -> EnvironmentVcl {
         let opt_names: HashSet<String> = schema
             .p
             .opts
@@ -264,15 +264,15 @@ impl EnvironmentVCL {
                 vcl_args.push(Box::new(NameValueVclArg::new(&name, &value)));
             }
         }
-        EnvironmentVCL { vcl_args }
+        EnvironmentVcl { vcl_args }
     }
 }
 
-pub struct ConfigFileVCL {
+pub struct ConfigFileVcl {
     vcl_args: Vec<Box<dyn VclArg>>,
 }
 
-impl VirtualCommandLine for ConfigFileVCL {
+impl VirtualCommandLine for ConfigFileVcl {
     fn vcl_args(&self) -> Vec<&dyn VclArg> {
         vcl_args_to_vcl_args(&self.vcl_args)
     }
@@ -282,8 +282,8 @@ impl VirtualCommandLine for ConfigFileVCL {
     }
 }
 
-impl ConfigFileVCL {
-    pub fn new(file_path: &PathBuf, user_specified: bool) -> ConfigFileVCL {
+impl ConfigFileVcl {
+    pub fn new(file_path: &PathBuf, user_specified: bool) -> ConfigFileVcl {
         let logger = Logger::new("Bootstrapper");
         let mut file: File = match File::open(file_path) {
             Err(e) => {
@@ -298,7 +298,7 @@ impl ConfigFileVCL {
                         "No configuration file was found at {} - skipping",
                         file_path.display()
                     );
-                    return ConfigFileVCL { vcl_args: vec![] };
+                    return ConfigFileVcl { vcl_args: vec![] };
                 }
             }
             Ok(file) => file,
@@ -333,7 +333,7 @@ impl ConfigFileVCL {
             })
             .collect();
 
-        ConfigFileVCL { vcl_args }
+        ConfigFileVcl { vcl_args }
     }
 
     fn complain_about_data_elements(file_path: &PathBuf) -> ! {
@@ -374,12 +374,12 @@ pub(crate) mod tests {
                 .required(false),
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
-            Box::new(CommandLineVCL::new(vec![
+            Box::new(CommandLineVcl::new(vec![
                 String::new(),
                 "--numeric-arg".to_string(),
                 "10".to_string(),
             ])),
-            Box::new(CommandLineVCL::new(vec![
+            Box::new(CommandLineVcl::new(vec![
                 String::new(),
                 "--numeric-arg".to_string(),
                 "20".to_string(),
@@ -401,12 +401,12 @@ pub(crate) mod tests {
                 .required(false),
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
-            Box::new(CommandLineVCL::new(vec![
+            Box::new(CommandLineVcl::new(vec![
                 String::new(),
                 "--numeric-arg".to_string(),
                 "20".to_string(),
             ])),
-            Box::new(CommandLineVCL::new(vec![String::new()])),
+            Box::new(CommandLineVcl::new(vec![String::new()])),
         ];
         let subject = MultiConfig::new(&schema, vcls);
 
@@ -424,8 +424,8 @@ pub(crate) mod tests {
                 .required(false),
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
-            Box::new(CommandLineVCL::new(vec![String::new()])),
-            Box::new(CommandLineVCL::new(vec![
+            Box::new(CommandLineVcl::new(vec![String::new()])),
+            Box::new(CommandLineVcl::new(vec![
                 String::new(),
                 "--numeric-arg".to_string(),
                 "20".to_string(),
@@ -449,12 +449,12 @@ pub(crate) mod tests {
                 .use_delimiter(true),
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
-            Box::new(CommandLineVCL::new(vec![
+            Box::new(CommandLineVcl::new(vec![
                 String::new(),
                 "--numeric-arg".to_string(),
                 "10,11".to_string(),
             ])),
-            Box::new(CommandLineVCL::new(vec![
+            Box::new(CommandLineVcl::new(vec![
                 String::new(),
                 "--numeric-arg".to_string(),
                 "20,21".to_string(),
@@ -478,12 +478,12 @@ pub(crate) mod tests {
                 .use_delimiter(true),
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
-            Box::new(CommandLineVCL::new(vec![
+            Box::new(CommandLineVcl::new(vec![
                 String::new(),
                 "--numeric-arg".to_string(),
                 "20,21".to_string(),
             ])),
-            Box::new(CommandLineVCL::new(vec![String::new()])),
+            Box::new(CommandLineVcl::new(vec![String::new()])),
         ];
         let subject = MultiConfig::new(&schema, vcls);
 
@@ -503,8 +503,8 @@ pub(crate) mod tests {
                 .use_delimiter(true),
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
-            Box::new(CommandLineVCL::new(vec![String::new()])),
-            Box::new(CommandLineVCL::new(vec![
+            Box::new(CommandLineVcl::new(vec![String::new()])),
+            Box::new(CommandLineVcl::new(vec![
                 String::new(),
                 "--numeric-arg".to_string(),
                 "20,21".to_string(),
@@ -526,12 +526,12 @@ pub(crate) mod tests {
                 .required(true),
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
-            Box::new(CommandLineVCL::new(vec![
+            Box::new(CommandLineVcl::new(vec![
                 String::new(),
                 "--numeric-arg".to_string(),
                 "20".to_string(),
             ])),
-            Box::new(CommandLineVCL::new(vec![String::new()])),
+            Box::new(CommandLineVcl::new(vec![String::new()])),
         ];
         let subject = MultiConfig::new(&schema, vcls);
 
@@ -549,8 +549,8 @@ pub(crate) mod tests {
                 .required(true),
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
-            Box::new(CommandLineVCL::new(vec![String::new()])),
-            Box::new(CommandLineVCL::new(vec![
+            Box::new(CommandLineVcl::new(vec![String::new()])),
+            Box::new(CommandLineVcl::new(vec![
                 String::new(),
                 "--numeric-arg".to_string(),
                 "20".to_string(),
@@ -573,12 +573,12 @@ pub(crate) mod tests {
                 .required(true),
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
-            Box::new(CommandLineVCL::new(vec![
+            Box::new(CommandLineVcl::new(vec![
                 String::new(),
                 "--numeric-arg".to_string(),
                 "20".to_string(),
             ])),
-            Box::new(CommandLineVCL::new(vec![String::new()])),
+            Box::new(CommandLineVcl::new(vec![String::new()])),
         ];
         let subject = MultiConfig::new(&schema, vcls);
 
@@ -598,8 +598,8 @@ pub(crate) mod tests {
                 .required(true),
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
-            Box::new(CommandLineVCL::new(vec![String::new()])),
-            Box::new(CommandLineVCL::new(vec![
+            Box::new(CommandLineVcl::new(vec![String::new()])),
+            Box::new(CommandLineVcl::new(vec![
                 String::new(),
                 "--numeric-arg".to_string(),
                 "20".to_string(),
@@ -631,7 +631,7 @@ pub(crate) mod tests {
                     .required(false)
                     .default_value("88"),
             );
-        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVCL::new(vec![
+        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVcl::new(vec![
             String::new(),
             "--numeric-arg".to_string(),
             "20".to_string(),
@@ -658,8 +658,8 @@ pub(crate) mod tests {
                 .takes_value(false),
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
-            Box::new(CommandLineVCL::new(vec![String::new()])),
-            Box::new(CommandLineVCL::new(vec![
+            Box::new(CommandLineVcl::new(vec![String::new()])),
+            Box::new(CommandLineVcl::new(vec![
                 String::new(),
                 "--nonvalued".to_string(),
             ])),
@@ -681,7 +681,7 @@ pub(crate) mod tests {
                 .required(true),
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
-            vec![Box::new(CommandLineVCL::new(vec![String::new()]))];
+            vec![Box::new(CommandLineVcl::new(vec![String::new()]))];
         MultiConfig::new(&schema, vcls);
     }
 
@@ -700,7 +700,7 @@ pub(crate) mod tests {
         .map(|s| s.to_string())
         .collect();
 
-        let subject = CommandLineVCL::new(command_line.clone());
+        let subject = CommandLineVcl::new(command_line.clone());
 
         assert_eq!(
             subject
@@ -725,7 +725,7 @@ pub(crate) mod tests {
             .map(|s| s.to_string())
             .collect();
 
-        CommandLineVCL::new(command_line.clone());
+        CommandLineVcl::new(command_line.clone());
     }
 
     #[test]
@@ -738,7 +738,7 @@ pub(crate) mod tests {
         );
         std::env::set_var("SUB_NUMERIC_ARG", "47");
 
-        let subject = EnvironmentVCL::new(&schema);
+        let subject = EnvironmentVcl::new(&schema);
 
         assert_eq!(
             vec![
@@ -770,7 +770,7 @@ pub(crate) mod tests {
                 .unwrap();
         }
 
-        let subject = ConfigFileVCL::new(&file_path, true);
+        let subject = ConfigFileVcl::new(&file_path, true);
 
         assert_eq!(
             vec![
@@ -804,7 +804,7 @@ pub(crate) mod tests {
         let mut file_path = home_dir.clone();
         file_path.push("config.toml");
 
-        let subject = ConfigFileVCL::new(&file_path, false);
+        let subject = ConfigFileVcl::new(&file_path, false);
 
         assert_eq!(vec!["".to_string()], subject.args());
         assert!(subject.vcl_args().is_empty());
@@ -823,7 +823,7 @@ pub(crate) mod tests {
         let mut file_path = home_dir.clone();
         file_path.push("config.toml");
 
-        ConfigFileVCL::new(&file_path, true);
+        ConfigFileVcl::new(&file_path, true);
     }
 
     #[test]
@@ -842,7 +842,7 @@ pub(crate) mod tests {
             toml_file.write_all(&mut buf).unwrap();
         }
 
-        ConfigFileVCL::new(&file_path, true);
+        ConfigFileVcl::new(&file_path, true);
     }
 
     #[test]
@@ -861,7 +861,7 @@ pub(crate) mod tests {
             toml_file.write_all(b"][=blah..[\n").unwrap();
         }
 
-        ConfigFileVCL::new(&file_path, true);
+        ConfigFileVcl::new(&file_path, true);
     }
 
     #[test]
@@ -878,7 +878,7 @@ pub(crate) mod tests {
             toml_file.write_all(b"datetime = 12:34:56\n").unwrap();
         }
 
-        ConfigFileVCL::new(&file_path, true);
+        ConfigFileVcl::new(&file_path, true);
     }
 
     #[test]
@@ -895,7 +895,7 @@ pub(crate) mod tests {
             toml_file.write_all(b"array = [1, 2, 3]\n").unwrap();
         }
 
-        ConfigFileVCL::new(&file_path, true);
+        ConfigFileVcl::new(&file_path, true);
     }
 
     #[test]
@@ -912,6 +912,6 @@ pub(crate) mod tests {
             toml_file.write_all(b"[table]\nooga = \"booga\"").unwrap();
         }
 
-        ConfigFileVCL::new(&file_path, true);
+        ConfigFileVcl::new(&file_path, true);
     }
 }

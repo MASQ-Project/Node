@@ -14,6 +14,7 @@ import {ConsumingWalletPasswordPromptComponent} from './consuming-wallet-passwor
 import {FinancialStatisticsComponent} from './financial-statistics/financial-statistics.component';
 import {TabsComponent} from './tabs/tabs.component';
 import {TabComponent} from './tabs/tab.component';
+import { NetworkSettingsComponent } from './network-settings/network-settings.component';
 import {WalletConfigurationComponent} from './wallet-configuration/wallet-configuration.component';
 
 @NgModule({
@@ -28,6 +29,7 @@ import {WalletConfigurationComponent} from './wallet-configuration/wallet-config
     FinancialStatisticsComponent,
     TabsComponent,
     TabComponent,
+    NetworkSettingsComponent,
     WalletConfigurationComponent,
   ],
   imports: [

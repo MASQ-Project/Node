@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::blockchain::blockchain_interface::DEFAULT_GAS_PRICE;
 use crate::persistent_configuration::{
     HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
@@ -16,7 +17,7 @@ use std::path::PathBuf;
 use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node-data.db";
-pub const CURRENT_SCHEMA_VERSION: &str = "0.0.8";
+pub const CURRENT_SCHEMA_VERSION: &str = "0.0.9";
 pub const ROPSTEN_CONTRACT_CREATION_BLOCK: u64 = 4_647_463;
 
 pub trait ConnectionWrapper: Debug + Send {
@@ -176,6 +177,7 @@ impl DbInitializerReal {
             Some(&ROPSTEN_CONTRACT_CREATION_BLOCK.to_string()),
             "Ropsten start block",
         );
+        Self::set_config_value(conn, "gas_price", Some(DEFAULT_GAS_PRICE), "gas price");
         Ok(())
     }
 
@@ -503,6 +505,7 @@ mod tests {
         verify(&mut config_vec, "consuming_wallet_derivation_path", None);
         verify(&mut config_vec, "consuming_wallet_public_key", None);
         verify(&mut config_vec, "earning_wallet_address", None);
+        verify(&mut config_vec, "gas_price", Some(DEFAULT_GAS_PRICE));
         verify(&mut config_vec, "preexisting", Some("yes")); // makes sure we just created this database
         verify(
             &mut config_vec,

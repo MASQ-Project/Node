@@ -27,6 +27,8 @@ pub struct PersistentConfigurationMock {
     set_earning_wallet_address_params: Arc<Mutex<Vec<String>>>,
     start_block_results: RefCell<Vec<u64>>,
     set_start_block_transactionally_results: RefCell<Vec<Result<(), String>>>,
+    set_gas_price_params: Arc<Mutex<Vec<u64>>>,
+    gas_price_results: RefCell<Vec<u64>>,
 }
 
 impl PersistentConfiguration for PersistentConfigurationMock {
@@ -42,6 +44,14 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         self.set_clandestine_port_params.lock().unwrap().push(port);
     }
 
+    fn gas_price(&self) -> u64 {
+        Self::result_from(&self.gas_price_results)
+    }
+
+    fn set_gas_price(&self, gas_price: u64) {
+        self.set_gas_price_params.lock().unwrap().push(gas_price);
+    }
+
     fn encrypted_mnemonic_seed(&self) -> Option<String> {
         Self::result_from(&self.encrypted_mnemonic_seed_results)
     }
@@ -54,7 +64,7 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         Self::result_from(&self.mnemonic_seed_results)
     }
 
-    fn set_mnemonic_seed(&self, seed: &AsRef<[u8]>, wallet_password: &str) {
+    fn set_mnemonic_seed(&self, seed: &dyn AsRef<[u8]>, wallet_password: &str) {
         self.set_mnemonic_seed_params
             .lock()
             .unwrap()
@@ -198,6 +208,19 @@ impl PersistentConfigurationMock {
         self.consuming_wallet_derivation_path_results
             .borrow_mut()
             .push(result);
+        self
+    }
+
+    pub fn gas_price_result(self, result: u64) -> Self {
+        self.gas_price_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn set_gas_price_params(
+        mut self,
+        params: &Arc<Mutex<Vec<u64>>>,
+    ) -> PersistentConfigurationMock {
+        self.set_gas_price_params = params.clone();
         self
     }
 

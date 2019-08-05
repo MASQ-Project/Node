@@ -2,7 +2,7 @@
 
 use crate::config_dao::{ConfigDao, ConfigDaoReal};
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
-use crate::multi_config::{CommandLineVCL, EnvironmentVCL, MultiConfig, VirtualCommandLine};
+use crate::multi_config::{CommandLineVcl, EnvironmentVcl, MultiConfig, VirtualCommandLine};
 use crate::node_configurator::{app_head, data_directory_arg};
 use crate::sub_lib::main_tools::StdStreams;
 use clap::{value_t, Arg};
@@ -69,8 +69,8 @@ fn find_data_directory(args: &Vec<String>) -> PathBuf {
         )
         .arg(data_directory_arg());
     let vcls: Vec<Box<VirtualCommandLine>> = vec![
-        Box::new(CommandLineVCL::new(args.clone())),
-        Box::new(EnvironmentVCL::new(&app)),
+        Box::new(CommandLineVcl::new(args.clone())),
+        Box::new(EnvironmentVcl::new(&app)),
     ];
     let multi_config = MultiConfig::new(&app, vcls);
     value_m!(multi_config, "data-directory", PathBuf).expect("data-directory is not defaulted")
@@ -113,6 +113,7 @@ mod tests {
            "consuming_wallet_derivation_path": null,
            "consuming_wallet_public_key": null,
            "earning_wallet_address": null,
+           "gas_price": "1",
            "schema_version": CURRENT_SCHEMA_VERSION,
            "seed": null,
            "start_block": &ROPSTEN_CONTRACT_CREATION_BLOCK.to_string(),
@@ -152,6 +153,7 @@ mod tests {
            "consuming_wallet_derivation_path": null,
            "consuming_wallet_public_key": "01020304",
            "earning_wallet_address": "0x0123456789012345678901234567890123456789",
+           "gas_price": "1",
            "schema_version": CURRENT_SCHEMA_VERSION,
            "seed": null,
            "start_block": &ROPSTEN_CONTRACT_CREATION_BLOCK.to_string(),

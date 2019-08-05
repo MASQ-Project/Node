@@ -3,11 +3,13 @@ import {NgModule} from '@angular/core';
 import {Routes, RouterModule} from '@angular/router';
 import {IndexComponent} from './index/index.component';
 import {NodeConfigurationComponent} from './node-configuration/node-configuration.component';
+import {NetworkSettingsComponent} from './network-settings/network-settings.component';
 import {WalletConfigurationComponent} from './wallet-configuration/wallet-configuration.component';
 
 const routes: Routes = [
   {path: '', redirectTo: '/index', pathMatch: 'full'},
   {path: 'index', component: IndexComponent},
+  {path: 'network-settings',  component: NetworkSettingsComponent},
   {path: 'config', component: NodeConfigurationComponent},
   {path: 'wallet', component: WalletConfigurationComponent},
 ];

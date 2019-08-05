@@ -21,9 +21,11 @@ pub trait PersistentConfiguration: Send {
     fn current_schema_version(&self) -> String;
     fn clandestine_port(&self) -> u16;
     fn set_clandestine_port(&self, port: u16);
+    fn gas_price(&self) -> u64;
+    fn set_gas_price(&self, gas_price: u64);
     fn encrypted_mnemonic_seed(&self) -> Option<String>;
     fn mnemonic_seed(&self, wallet_password: &str) -> Result<PlainData, Bip39Error>;
-    fn set_mnemonic_seed(&self, seed: &AsRef<[u8]>, wallet_password: &str);
+    fn set_mnemonic_seed(&self, seed: &dyn AsRef<[u8]>, wallet_password: &str);
     fn consuming_wallet_public_key(&self) -> Option<String>;
     fn consuming_wallet_derivation_path(&self) -> Option<String>;
     fn set_consuming_wallet_derivation_path(&self, derivation_path: &str, wallet_password: &str);
@@ -90,6 +92,26 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                 e
             ),
         }
+    }
+
+    fn gas_price(&self) -> u64 {
+        self.dao.get_u64("gas_price").unwrap_or_else(|e| {
+            panic!(
+                "Can't continue; gas price configuration is inaccessible: {:?}",
+                e
+            )
+        })
+    }
+
+    fn set_gas_price(&self, gas_price: u64) {
+        self.dao
+            .set_u64("gas_price", gas_price)
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Can't continue; gas price configuration is inaccessible: {:?}",
+                    e
+                )
+            });
     }
 
     fn encrypted_mnemonic_seed(&self) -> Option<String> {
@@ -510,7 +532,7 @@ mod tests {
 
     #[test]
     fn returns_conversion_error_for_bad_seed_appropriately() {
-        let config_dao: Box<ConfigDao> =
+        let config_dao: Box<dyn ConfigDao> =
             Box::new(ConfigDaoMock::new().get_string_result(Ok("0x123".to_string())));
         let subject = PersistentConfigurationReal::from(config_dao);
 
@@ -534,7 +556,7 @@ mod tests {
         .unwrap();
         let mnemonic_seed = serde_cbor::to_vec(&crypto).unwrap().to_hex::<String>();
         let get_string_params_arc = Arc::new(Mutex::new(vec!["seed".to_string()]));
-        let config_dao: Box<ConfigDao> = Box::new(
+        let config_dao: Box<dyn ConfigDao> = Box::new(
             ConfigDaoMock::new()
                 .get_string_params(&get_string_params_arc)
                 .get_string_result(Ok(mnemonic_seed)),
@@ -551,7 +573,7 @@ mod tests {
 
     #[test]
     fn returns_conversion_error_for_invalid_length_appropriately() {
-        let config_dao: Box<ConfigDao> =
+        let config_dao: Box<dyn ConfigDao> =
             Box::new(ConfigDaoMock::new().get_string_result(Ok("123".to_string())));
         let persistent_config = PersistentConfigurationReal::from(config_dao);
         let password = "You-Sh0uld-Ch4nge-Me-Now!!";
@@ -637,6 +659,53 @@ mod tests {
         let result = subject.set_start_block_transactionally(&transaction, 1234);
 
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn gas_price() {
+        let config_dao = ConfigDaoMock::new().get_u64_result(Ok(3u64));
+
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        assert_eq!(3u64, subject.gas_price());
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Can't continue; gas price configuration is inaccessible: NotPresent"
+    )]
+    fn gas_price_fails() {
+        let config_dao = ConfigDaoMock::new().get_u64_result(Err(ConfigDaoError::NotPresent));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject.gas_price();
+    }
+
+    #[test]
+    fn set_gas_price_succeeds() {
+        let expected_params = ("gas_price".to_string(), 11u64);
+        let set_params_arc = Arc::new(Mutex::new(vec![expected_params.clone()]));
+        let config_dao = ConfigDaoMock::new()
+            .set_u64_params(&set_params_arc)
+            .set_u64_result(Ok(()));
+
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+        subject.set_gas_price(11u64);
+
+        let set_params = set_params_arc.lock().unwrap();
+
+        assert_eq!(set_params[0], expected_params);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Can't continue; gas price configuration is inaccessible: NotPresent"
+    )]
+    fn set_gas_price_fails() {
+        let config_dao = ConfigDaoMock::new().set_u64_result(Err(ConfigDaoError::NotPresent));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject.set_gas_price(3);
     }
 
     #[test]
@@ -1084,7 +1153,7 @@ mod tests {
     #[test]
     fn earning_wallet_from_address_handles_existing_address() {
         let get_string_params_arc = Arc::new(Mutex::new(vec![]));
-        let config_dao: Box<ConfigDao> = Box::new(
+        let config_dao: Box<dyn ConfigDao> = Box::new(
             ConfigDaoMock::new()
                 .get_string_params(&get_string_params_arc)
                 .get_string_result(Ok("0x0123456789ABCDEF0123456789ABCDEF01234567".to_string())),
@@ -1108,7 +1177,7 @@ mod tests {
     fn set_earning_wallet_address_happy_path() {
         let get_string_params_arc = Arc::new(Mutex::new(vec![]));
         let set_string_params_arc = Arc::new(Mutex::new(vec![]));
-        let config_dao: Box<ConfigDao> = Box::new(
+        let config_dao: Box<dyn ConfigDao> = Box::new(
             ConfigDaoMock::new()
                 .get_string_params(&get_string_params_arc)
                 .get_string_result(Err(ConfigDaoError::NotPresent))

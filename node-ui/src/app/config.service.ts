@@ -21,8 +21,8 @@ export class ConfigService {
     return expression.test(input);
   }
 
-  save(value: NodeConfiguration) {
-    this.configSubject.next(value);
+  patchValue(value: NodeConfiguration) {
+    this.configSubject.next({...this.getConfig(), ...value});
   }
 
   load(): Observable<NodeConfiguration> {
@@ -41,9 +41,7 @@ export class ConfigService {
   }
 
   setEarningWallet(address: string) {
-    const currentConfig = this.getConfig();
-    currentConfig.walletAddress = address;
-    this.save(currentConfig);
+    this.patchValue({walletAddress: address});
   }
 
   isValidConsuming(): boolean {

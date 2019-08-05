@@ -330,6 +330,16 @@ describe('CommandHelper', () => {
           td.verify(nodeCmd.get(td.matchers.contains('--earning-wallet bazinga'), 'callback'))
         })
       })
+
+      describe('when gas price is provided', () => {
+        beforeEach(() => {
+          subject.startSubstratumNode({ networkSettings: { gasPrice: '23' } }, 'callback')
+        })
+
+        it('provides gas price command line argument', () => {
+          td.verify(nodeCmd.get(td.matchers.contains('--gas-price 23'), 'callback'))
+        })
+      })
     })
   })
 })

@@ -132,6 +132,7 @@ impl BootstrapperConfig {
             blockchain_bridge_config: BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 chain_id,
+                gas_price: None,
             },
             port_configurations: HashMap::new(),
             data_directory: PathBuf::new(),
@@ -145,6 +146,7 @@ impl BootstrapperConfig {
     }
 
     pub fn merge_unprivileged(&mut self, unprivileged: BootstrapperConfig) {
+        self.blockchain_bridge_config.gas_price = unprivileged.blockchain_bridge_config.gas_price;
         self.clandestine_port_opt = unprivileged.clandestine_port_opt;
         self.earning_wallet = unprivileged.earning_wallet;
         self.consuming_wallet = unprivileged.consuming_wallet;
@@ -604,6 +606,37 @@ mod tests {
 
         let config = subject.config;
         assert!(!config.ui_gateway_config.node_descriptor.is_empty());
+    }
+
+    #[test]
+    fn initialize_as_unprivileged_sets_gas_price_on_blockchain_config() {
+        let _lock = INITIALIZATION.lock();
+        let data_dir = ensure_node_home_directory_exists(
+            "bootstrapper",
+            "initialize_as_unprivileged_sets_gas_price_on_blockchain_config",
+        );
+        let mut config = BootstrapperConfig::new();
+        config.data_directory = data_dir.clone();
+        let mut subject = BootstrapperBuilder::new()
+            .add_listener_handler(Box::new(
+                ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())),
+            ))
+            .config(config)
+            .build();
+
+        subject.initialize_as_unprivileged(
+            &vec![
+                "SubstratumNode".to_string(),
+                String::from("--data-directory"),
+                data_dir.to_str().unwrap().to_string(),
+                String::from("--gas-price"),
+                "11".to_string(),
+            ],
+            &mut FakeStreamHolder::new().streams(),
+        );
+
+        let config = subject.config;
+        assert_eq!(Some(11u64), config.blockchain_bridge_config.gas_price);
     }
 
     #[test]

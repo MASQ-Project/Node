@@ -33,10 +33,6 @@ export class NodeConfigurationPage {
     return this.query('#neighbor-validation__required');
   }
 
-  get privateKeyTxt(): HTMLInputElement {
-    return this.query('#private-key');
-  }
-
   get walletAddressTxt(): HTMLInputElement {
     return this.query('#wallet-address');
   }

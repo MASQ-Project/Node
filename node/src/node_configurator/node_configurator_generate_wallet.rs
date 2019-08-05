@@ -264,7 +264,7 @@ mod tests {
     use crate::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::database::db_initializer;
     use crate::database::db_initializer::DbInitializer;
-    use crate::multi_config::{CommandLineVCL, VirtualCommandLine};
+    use crate::multi_config::{CommandLineVcl, VirtualCommandLine};
     use crate::node_configurator::DerivationPathWalletInfo;
     use crate::persistent_configuration::PersistentConfigurationReal;
     use crate::sub_lib::cryptde::PlainData;
@@ -336,7 +336,7 @@ mod tests {
             .make_result(expected_mnemonic.clone());
         subject.mnemonic_factory = Box::new(mnemonic_factory);
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
-            vec![Box::new(CommandLineVCL::new(args.into()))];
+            vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = MultiConfig::new(&subject.app, vcls);
 
         let config = subject.parse_args(
@@ -381,7 +381,7 @@ mod tests {
             .make_result(expected_mnemonic.clone());
         subject.mnemonic_factory = Box::new(mnemonic_factory);
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
-            vec![Box::new(CommandLineVCL::new(args.into()))];
+            vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = MultiConfig::new(&subject.app, vcls);
 
         let config = subject.parse_args(
@@ -428,7 +428,7 @@ mod tests {
         let args = ArgsBuilder::new().opt("--generate-wallet");
         let multi_config = MultiConfig::new(
             &subject.app,
-            vec![Box::new(CommandLineVCL::new(args.into()))],
+            vec![Box::new(CommandLineVcl::new(args.into()))],
         );
 
         subject.make_mnemonic_passphrase(&multi_config, streams);
@@ -454,7 +454,7 @@ mod tests {
         let args = ArgsBuilder::new().opt("--generate-wallet");
         let multi_config = MultiConfig::new(
             &subject.app,
-            vec![Box::new(CommandLineVCL::new(args.into()))],
+            vec![Box::new(CommandLineVcl::new(args.into()))],
         );
 
         subject.make_mnemonic_passphrase(&multi_config, streams);
@@ -473,7 +473,7 @@ mod tests {
             stdout: stdout_writer,
             stderr: &mut ByteArrayWriter::new(),
         };
-        let vcl = Box::new(CommandLineVCL::new(args.into()));
+        let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
 
         subject.make_mnemonic_passphrase(&multi_config, &mut streams);
@@ -505,7 +505,7 @@ mod tests {
             .param("--data-directory", data_directory.to_str().unwrap())
             .param("--wallet-password", "rick-rolled");
         let subject = NodeConfiguratorGenerateWallet::new();
-        let vcl = Box::new(CommandLineVCL::new(args.into()));
+        let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
 
         subject.parse_args(

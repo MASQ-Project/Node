@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-import {async, ComponentFixture, TestBed} from '@angular/core/testing';
+import {ComponentFixture, TestBed} from '@angular/core/testing';
 import {NodeConfigurationComponent} from './node-configuration.component';
 import {func, reset, verify, when} from 'testdouble';
 import {ConfigService} from '../config.service';
@@ -26,7 +26,7 @@ describe('NodeConfigurationComponent', () => {
   let mockMainService;
   let mockConfigMode;
 
-  beforeEach(async(() => {
+  beforeEach(() => {
     storedConfig = new BehaviorSubject(new NodeConfiguration());
     mockConfigMode = new BehaviorSubject(ConfigurationMode.Hidden);
     mockNavigateByUrl = func('navigateByUrl');
@@ -39,7 +39,7 @@ describe('NodeConfigurationComponent', () => {
     };
 
     mockConfigService = {
-      save: func('save'),
+      patchValue: func('patchValue'),
       load: func('load'),
       mode: mockConfigMode,
     };
@@ -58,87 +58,64 @@ describe('NodeConfigurationComponent', () => {
         {provide: Router, useValue: mockRouter}
       ]
     }).compileComponents();
-  }));
-
-  beforeEach(() => {
     when(mockConfigService.load()).thenReturn(storedConfig.asObservable());
+    fixture = TestBed.createComponent(NodeConfigurationComponent);
+    page = new NodeConfigurationPage(fixture);
+    component = fixture.componentInstance;
   });
 
   afterEach(() => {
     reset();
   });
 
-  describe('successful ip address lookup', () => {
-    describe('ip is filled out if it can be looked up', () => {
-      beforeEach(() => {
-        when(mockMainService.lookupIp()).thenReturn(of('192.168.1.1'));
-        fixture = TestBed.createComponent(NodeConfigurationComponent);
-        page = new NodeConfigurationPage(fixture);
-        component = fixture.componentInstance;
-        fixture.detectChanges();
-      });
+  describe('LookupIp', () => {
+    describe('successful ip address lookup', () => {
+      describe('ip is filled out if it can be looked up', () => {
+        beforeEach(() => {
+          when(mockMainService.lookupIp()).thenReturn(of('192.168.1.1'));
+          fixture.detectChanges();
+        });
 
-      it('should create', () => {
-        expect(component).toBeTruthy();
-      });
+        it('should create', () => {
+          expect(component).toBeTruthy();
+        });
 
-      it('is filled out', () => {
-        expect(page.ipTxt.value).toBe('192.168.1.1');
-      });
-    });
-  });
-
-  describe('unsuccessful ip address lookup', () => {
-    beforeEach(() => {
-      when(mockMainService.lookupIp()).thenReturn(of(''));
-      fixture = TestBed.createComponent(NodeConfigurationComponent);
-      page = new NodeConfigurationPage(fixture);
-      component = fixture.componentInstance;
-      fixture.detectChanges();
-    });
-    describe('the ip field', () => {
-
-      it('should create', () => {
-        expect(component).toBeTruthy();
-      });
-
-      it('starts blank', () => {
-        expect(page.ipTxt.value).toBe('');
-      });
-    });
-
-    describe('Wallet section', () => {
-      describe('with a filled out form', () => {
-        describe('when submitted', () => {
-          const expected = {
-            ip: '127.0.0.1',
-            neighbor: '5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999',
-            walletAddress: '',
-            privateKey: '',
-          };
-
-          beforeEach(() => {
-            page.setIp('127.0.0.1');
-            page.setNeighbor('5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999');
-            page.setWalletAddress('');
-            fixture.detectChanges();
-            page.saveConfigBtn.click();
-            fixture.detectChanges();
-          });
-
-          it('persists the values', () => {
-            verify(mockConfigService.save(expected));
-          });
+        it('is filled out', () => {
+          expect(page.ipTxt.value).toBe('192.168.1.1');
         });
       });
     });
 
-    describe('when configuration already exists', () => {
+    describe('unsuccessful ip address lookup', () => {
+      beforeEach(() => {
+        when(mockMainService.lookupIp()).thenReturn(of(''));
+        fixture.detectChanges();
+      });
+      describe('the ip field', () => {
+
+        it('should create', () => {
+          expect(component).toBeTruthy();
+        });
+
+        it('starts blank', () => {
+          expect(page.ipTxt.value).toBe('');
+        });
+      });
+    });
+  });
+
+  describe('Configuration', () => {
+    beforeEach(() => {
+      when(mockMainService.lookupIp()).thenReturn(of('1.2.3.4'));
+      fixture.detectChanges();
+    });
+
+    describe('when it already exists', () => {
       const expected: NodeConfiguration = {
         ip: '127.0.0.1',
         neighbor: 'neighbornodedescriptor',
         walletAddress: 'address',
-        privateKey: '',
+        privateKey: ''
       };
 
       beforeEach(() => {
@@ -287,7 +264,7 @@ describe('NodeConfigurationComponent', () => {
           fixture.detectChanges();
         });
 
-        it('save config button is disabled', () => {
+        it('disables the save config button', () => {
           expect(page.saveConfigBtn.disabled).toBeTruthy();
         });
       });
@@ -300,7 +277,7 @@ describe('NodeConfigurationComponent', () => {
           fixture.detectChanges();
         });
 
-        it('save config button is disabled', () => {
+        it('does not disable the save config button', () => {
           expect(page.saveConfigBtn.disabled).toBeFalsy();
         });
       });
@@ -355,6 +332,30 @@ describe('NodeConfigurationComponent', () => {
 
         it('Should say "Start"', () => {
           expect(page.saveConfigBtn.textContent).toBe('Start');
+        });
+      });
+
+      describe('when clicked', () => {
+        describe('with a filled out form', () => {
+          const expected = {
+            ip: '127.0.0.1',
+            neighbor: '5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999',
+            walletAddress: '',
+            privateKey: ''
+          };
+
+          beforeEach(() => {
+            page.setIp('127.0.0.1');
+            page.setNeighbor('5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999');
+            page.setWalletAddress('');
+            fixture.detectChanges();
+            page.saveConfigBtn.click();
+            fixture.detectChanges();
+          });
+
+          it('persists the values', () => {
+            verify(mockConfigService.patchValue(expected));
+          });
         });
       });
     });

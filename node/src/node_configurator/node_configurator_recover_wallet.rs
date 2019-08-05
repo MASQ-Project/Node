@@ -226,7 +226,7 @@ mod tests {
     use crate::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::database::db_initializer;
     use crate::database::db_initializer::DbInitializer;
-    use crate::multi_config::{CommandLineVCL, VirtualCommandLine};
+    use crate::multi_config::{CommandLineVcl, VirtualCommandLine};
     use crate::node_configurator::DerivationPathWalletInfo;
     use crate::persistent_configuration::PersistentConfigurationReal;
     use crate::sub_lib::cryptde::PlainData;
@@ -389,7 +389,7 @@ mod tests {
             .param("--mnemonic-passphrase", "Mortimer");
         let subject = NodeConfiguratorRecoverWallet::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
-            vec![Box::new(CommandLineVCL::new(args.into()))];
+            vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = MultiConfig::new(&subject.app, vcls);
 
         let config = subject.parse_args(
@@ -428,7 +428,7 @@ mod tests {
             .param("--mnemonic-passphrase", "Mortimer");
         let subject = NodeConfiguratorRecoverWallet::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
-            vec![Box::new(CommandLineVCL::new(args.into()))];
+            vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = MultiConfig::new(&subject.app, vcls);
 
         let config = subject.parse_args(
@@ -471,7 +471,7 @@ mod tests {
             .param("--wallet-password", "wallet-password")
             .param("--mnemonic-passphrase", "mnemonic passphrase");
         let subject = NodeConfiguratorRecoverWallet::new();
-        let vcl = Box::new(CommandLineVCL::new(args.into()));
+        let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
 
         subject.parse_args(
@@ -539,7 +539,7 @@ mod tests {
             .param("--data-directory", data_directory.to_str().unwrap())
             .param("--wallet-password", "rick-rolled");
         let subject = NodeConfiguratorRecoverWallet::new();
-        let vcl = Box::new(CommandLineVCL::new(args.into()));
+        let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
 
         subject.parse_args(

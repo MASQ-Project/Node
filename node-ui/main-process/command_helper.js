@@ -59,6 +59,10 @@ module.exports = (() => {
       if (additionalArgs.walletAddress) {
         args = args.concat(['--earning-wallet', additionalArgs.walletAddress])
       }
+
+      if (additionalArgs.networkSettings && additionalArgs.networkSettings.gasPrice) {
+        args = args.concat(['--gas-price', additionalArgs.networkSettings.gasPrice])
+      }
     }
 
     args.forEach(value => { command += value + ' ' })
