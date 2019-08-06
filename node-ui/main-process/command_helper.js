@@ -43,6 +43,21 @@ module.exports = (() => {
     return args
   }
 
+  function getGenerateModeArgs (mnemonicPassphrase, derivationPath, wordlist, walletPassword, wordcount) {
+    const args = [
+      '--generate-wallet',
+      '--json',
+      '--consuming-wallet', derivationPath,
+      '--language', wordlist,
+      '--mnemonic-passphrase', mnemonicPassphrase,
+      '--wallet-password', walletPassword,
+      '--word-count', wordcount
+    ]
+
+    consoleWrapper.log(`getGenerateModeArgs(): ${args}`)
+    return args
+  }
+
   function getServiceModeCommand (additionalArgs) {
     let command = `${scriptPath} ${binaryPath} `
 
@@ -79,6 +94,21 @@ module.exports = (() => {
       derivationPath,
       wordlist,
       walletPassword)
+    return childProcess.spawnSync(
+      path.resolveUnquoted(__dirname, binaryBasePath + binaryFilename),
+      args,
+      { timeout: recoverTimeout })
+  }
+
+  function generateWallet (mnemonicPassphrase, derivationPath, wordlist, walletPassword, wordcount) {
+    consoleWrapper.log('command_helper: invoking generateWallet')
+
+    const args = getGenerateModeArgs(
+      mnemonicPassphrase,
+      derivationPath,
+      wordlist,
+      walletPassword,
+      wordcount)
     return childProcess.spawnSync(
       path.resolveUnquoted(__dirname, binaryBasePath + binaryFilename),
       args,
@@ -150,6 +180,7 @@ module.exports = (() => {
 
   return {
     recoverWallet: recoverWallet,
+    generateWallet: generateWallet,
     getNodeConfiguration: getNodeConfiguration,
     startSubstratumNode: startSubstratumNode,
     stopSubstratumNode: stopSubstratumNode

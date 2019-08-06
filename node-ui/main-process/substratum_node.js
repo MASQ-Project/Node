@@ -19,9 +19,15 @@ module.exports = (() => {
     return handle(result)
   }
 
+  function generateWallet (mnemonicPassphrase, derivationPath, wordlist, password, wordcount) {
+    const result = commandHelper.generateWallet(mnemonicPassphrase, derivationPath, wordlist, password, wordcount)
+
+    return handle(result)
+  }
+
   function handle (result) {
     if (result.status === 0) {
-      return { success: true }
+      return { success: true, result: result.stdout.toString('utf8').trim() }
     } else {
       return { success: false, message: result.stderr.toString('utf8').trim() }
     }
@@ -59,6 +65,7 @@ module.exports = (() => {
 
   return {
     recoverWallet: recoverWallet,
+    generateWallet: generateWallet,
     start: start,
     stop: stop
   }

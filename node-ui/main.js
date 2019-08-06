@@ -175,6 +175,17 @@ ipcMain.on('recover-consuming-wallet', (event, phrase, mnemonicPassphrase, deriv
     })
 })
 
+ipcMain.on('generate-consuming-wallet', (event, mnemonicPassphrase, derivationPath, wordlist, walletPassword, wordcount) => {
+  nodeActuator.generateWallet(mnemonicPassphrase, derivationPath, wordlist, walletPassword, wordcount)
+    .then((result) => {
+      if (result.success) {
+        mainWindow.webContents.send('generated-consuming-wallet', result.result)
+      } else {
+        mainWindow.webContents.send('generate-consuming-wallet-error', result.message)
+      }
+    })
+})
+
 const assignStatus = (event, promise) => {
   promise.then(newStatus => {
     mainWindow.webContents.send('node-status', newStatus)

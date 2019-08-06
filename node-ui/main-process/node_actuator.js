@@ -208,4 +208,10 @@ module.exports = class NodeActuator {
       mnemonicPhrase, mnemonicPassphrase, derivationPath, wordlist, password
     )
   }
+
+  async generateWallet (mnemonicPassphrase, derivationPath, wordlist, password, wordcount) {
+    return substratumNode.generateWallet(
+      mnemonicPassphrase, derivationPath, wordlist, password, wordcount
+    )
+  }
 }

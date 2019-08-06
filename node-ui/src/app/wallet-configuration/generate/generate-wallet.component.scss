@@ -1,0 +1,223 @@
+// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+@import '../../../styles/form';
+@import '../../../styles/mixins';
+
+$input-font-size: rem(17px);
+
+@mixin vertical-center($x: 1) {
+  flex: $x;
+  flex-direction: column;
+  justify-content: center;
+  display: flex;
+}
+
+.generate-wallet {
+  display: block;
+  margin-left: 4%;
+  margin-right: 4%;
+
+  .input-invalid {
+    border: 1px solid color('primary') !important;
+  }
+
+  .validation-error {
+    text-align: left;
+    font-size: fontSize('diminished');
+    color: color('primary');
+  }
+
+  &__empty-flex {
+    flex: 1;
+  }
+
+  span {
+    display: block;
+    text-align: center;
+    margin: 10px 0;
+  }
+
+  textarea {
+    font-size: $input-font-size;
+    background: color('background', 'dark');
+    border: none;
+    color: color('text', 'light');
+    border-radius: $border-radius;
+    -webkit-box-sizing: border-box;
+    padding: 10px;
+    resize: none;
+    width: 100%;
+
+    &:focus {
+      outline: none;
+    }
+  }
+
+  select {
+    height: 40px;
+    font-size: $input-font-size;
+    background: color('background', 'dark');
+    color: color('text', 'light');
+    overflow: hidden;
+
+    option {
+      padding: 0 4px;
+    }
+  }
+
+  input[type=password], input[type=text] {
+    @include node-textbox();
+    font-size: $input-font-size;
+  }
+
+  label {
+    margin-right: 5px;
+  }
+
+  &__to-action {
+    @include action-button();
+  }
+
+  #lang-pass-container {
+    display: flex;
+    margin: 10px 0;
+
+    #language-container {
+      display: flex;
+      flex: 1;
+
+      label {
+        @include vertical-center();
+        flex: 2;
+      }
+
+      #wordlist {
+        flex: 2;
+      }
+    }
+
+    #passphrase-container {
+      display: flex;
+      flex: 2;
+
+      label {
+        @include vertical-center();
+        margin-left: 10px;
+      }
+
+      #mnemonic-passphrase {
+        flex: 2;
+      }
+    }
+  }
+
+  #count-path-container {
+    display: flex;
+    margin: 10px 0;
+
+    #wordcount-container {
+      display: flex;
+      flex: 1;
+
+      label {
+        @include vertical-center();
+      }
+
+      #wordcount {
+        flex: 1;
+      }
+    }
+
+    #derivation-path-container {
+      display: flex;
+      flex: 2;
+
+      label {
+        @include vertical-center();
+        margin-left: 10px;
+      }
+
+      #derivation-path {
+        flex: 2;
+      }
+    }
+  }
+
+  #password-container {
+    display: flex;
+    margin: 10px 0;
+
+    label {
+      @include vertical-center();
+    }
+
+    #wallet-password {
+      flex: 3;
+    }
+  }
+
+  #mnemonic-container {
+    margin: 10px 0;
+  }
+
+  #consuming-wallet-container, #earning-wallet-container {
+    span {
+      text-align: center;
+    }
+
+    div {
+      display: flex;
+      margin: 10px 0;
+    }
+
+    input {
+      flex: 3;
+    }
+
+    label {
+      @include vertical-center();
+    }
+  }
+
+  #done-button {
+    @include action-button;
+    color: color('text');
+    border-color: color('text');
+    float: right;
+  }
+
+  #generate-container {
+    display: flex;
+    margin: 15px 0 10px 0;
+  }
+
+  #done-form {
+    display: flex;
+
+    div {
+      display: flex;
+    }
+
+    #agree-container {
+      flex: 2;
+    }
+
+    #done-container {
+      flex: 0.5;
+    }
+
+    label {
+      flex-direction: column;
+      justify-content: center;
+      display: flex;
+    }
+
+    #mnemonic-agree {
+      transform: translateY(-50%);
+      top: 45%;
+      position: relative;
+      height: 25px;
+      width: 25px;
+      background-color: #eee;
+    }
+  }
+}

@@ -18,10 +18,11 @@ use bip39::{Language, Mnemonic, MnemonicType};
 use clap::{value_t, App, Arg};
 use indoc::indoc;
 use std::str::FromStr;
+use unindent::unindent;
 
 pub struct NodeConfiguratorGenerateWallet {
     app: App<'static, 'static>,
-    mnemonic_factory: Box<MnemonicFactory>,
+    mnemonic_factory: Box<dyn MnemonicFactory>,
 }
 
 impl NodeConfigurator<WalletCreationConfig> for NodeConfiguratorGenerateWallet {
@@ -106,6 +107,7 @@ impl WalletCreationConfigMaker for NodeConfiguratorGenerateWallet {
             &seed,
             &consuming_derivation_path,
             &earning_wallet_info,
+            multi_config.arg_matches().is_present("json"),
         );
         seed
     }
@@ -129,6 +131,12 @@ impl NodeConfiguratorGenerateWallet {
                         .takes_value(false)
                         .requires_all(&["language", "word-count"])
                         .help(GENERATE_WALLET_HELP),
+                )
+                .arg(
+                    Arg::with_name("json")
+                        .long("json")
+                        .takes_value(false)
+                        .hidden(true),
                 )
                 .arg(consuming_wallet_arg())
                 .arg(data_directory_arg())
@@ -156,7 +164,7 @@ impl NodeConfiguratorGenerateWallet {
         &self,
         multi_config: &MultiConfig,
         streams: &mut StdStreams<'_>,
-        persistent_config: &PersistentConfiguration,
+        persistent_config: &dyn PersistentConfiguration,
     ) -> WalletCreationConfig {
         if persistent_config.encrypted_mnemonic_seed().is_some() {
             panic!("Can't generate wallets: mnemonic seed has already been created")
@@ -203,15 +211,8 @@ impl NodeConfiguratorGenerateWallet {
         seed: &PlainData,
         consuming_derivation_path: &str,
         earning_wallet_info: &Either<String, String>,
+        json: bool,
     ) {
-        flushed_write(
-            streams.stdout,
-            "\n\nRecord the following mnemonic recovery phrase in the sequence provided\n\
-             and keep it secret! You cannot recover your wallet without these words\n\
-             plus your mnemonic passphrase if you provided one.\n\n",
-        );
-        flushed_write(streams.stdout, mnemonic.phrase());
-        flushed_write(streams.stdout, "\n\n");
         let consuming_keypair = Bip32ECKeyPair::from_raw(seed.as_ref(), &consuming_derivation_path)
             .unwrap_or_else(|_| {
                 panic!(
@@ -220,41 +221,96 @@ impl NodeConfiguratorGenerateWallet {
                 )
             });
         let consuming_wallet = Wallet::from(consuming_keypair);
-        flushed_write(
-            streams.stdout,
-            &format!(
-                "Consuming Wallet ({}): {}\n",
-                consuming_derivation_path, consuming_wallet
-            ),
-        );
-        match &earning_wallet_info {
-            Either::Left(address) => {
-                let earning_wallet =
-                    Wallet::from_str(address).expect("Address doesn't work anymore");
-                flushed_write(
-                    streams.stdout,
-                    &format!("  Earning Wallet: {}\n", earning_wallet),
-                );
-            }
-            Either::Right(earning_derivation_path) => {
-                let earning_keypair =
-                    Bip32ECKeyPair::from_raw(seed.as_ref(), &earning_derivation_path)
-                        .unwrap_or_else(|_| {
-                            panic!(
-                                "Couldn't make key pair from earning derivation path '{}'",
-                                earning_derivation_path
-                            )
-                        });
-                let earning_wallet = Wallet::from(earning_keypair.address());
-                flushed_write(
-                    streams.stdout,
-                    &format!(
-                        "  Earning Wallet ({}): {}\n",
+
+        if json {
+            let earning_wallet_object_body = match &earning_wallet_info {
+                Either::Left(address) => {
+                    let earning_wallet =
+                        Wallet::from_str(address).expect("Address doesn't work anymore");
+                    format!(r#""address": "{}""#, earning_wallet)
+                }
+                Either::Right(earning_derivation_path) => {
+                    let earning_keypair =
+                        Bip32ECKeyPair::from_raw(seed.as_ref(), &earning_derivation_path)
+                            .unwrap_or_else(|_| {
+                                panic!(
+                                    "Couldn't make key pair from earning derivation path '{}'",
+                                    earning_derivation_path
+                                )
+                            });
+                    let earning_wallet = Wallet::from(earning_keypair.address());
+                    format!(
+                        r#""derivation_path": "{}",
+                        "address": "{}""#,
                         earning_derivation_path, earning_wallet
-                    ),
-                );
-            }
-        };
+                    )
+                }
+            };
+            let result = unindent(&format!(
+                r#"
+                {{
+                    "mnemonic_phrase": "{}",
+                    "consuming_wallet": {{
+                        "derivation_path": "{}",
+                        "address": "{}"
+                    }},
+                    "earning_wallet": {{
+                        {}
+                    }}
+                }}
+                "#,
+                mnemonic.phrase(),
+                consuming_derivation_path,
+                consuming_wallet,
+                earning_wallet_object_body
+            ));
+
+            flushed_write(streams.stdout, &result);
+        } else {
+            flushed_write(
+                streams.stdout,
+                "\n\nRecord the following mnemonic recovery phrase in the sequence provided\n\
+                 and keep it secret! You cannot recover your wallet without these words\n\
+                 plus your mnemonic passphrase if you provided one.\n\n",
+            );
+            flushed_write(streams.stdout, mnemonic.phrase());
+            flushed_write(streams.stdout, "\n\n");
+            flushed_write(
+                streams.stdout,
+                &format!(
+                    "Consuming Wallet ({}): {}\n",
+                    consuming_derivation_path, consuming_wallet
+                ),
+            );
+            match &earning_wallet_info {
+                Either::Left(address) => {
+                    let earning_wallet =
+                        Wallet::from_str(address).expect("Address doesn't work anymore");
+                    flushed_write(
+                        streams.stdout,
+                        &format!("  Earning Wallet: {}\n", earning_wallet),
+                    );
+                }
+                Either::Right(earning_derivation_path) => {
+                    let earning_keypair =
+                        Bip32ECKeyPair::from_raw(seed.as_ref(), &earning_derivation_path)
+                            .unwrap_or_else(|_| {
+                                panic!(
+                                    "Couldn't make key pair from earning derivation path '{}'",
+                                    earning_derivation_path
+                                )
+                            });
+                    let earning_wallet = Wallet::from(earning_keypair.address());
+                    flushed_write(
+                        streams.stdout,
+                        &format!(
+                            "  Earning Wallet ({}): {}\n",
+                            earning_derivation_path, earning_wallet
+                        ),
+                    );
+                }
+            };
+        }
     }
 }
 
@@ -272,6 +328,7 @@ mod tests {
     use crate::sub_lib::wallet::DEFAULT_EARNING_DERIVATION_PATH;
     use crate::test_utils::*;
     use bip39::Seed;
+    use regex::Regex;
     use std::cell::RefCell;
     use std::io::Cursor;
     use std::sync::{Arc, Mutex};
@@ -309,6 +366,58 @@ mod tests {
             self.make_results.borrow_mut().push(result);
             self
         }
+    }
+
+    #[test]
+    fn report_wallet_information_can_output_json_with_an_earning_derivation_path() {
+        let mut streams = FakeStreamHolder::new();
+        let mnemonic = Mnemonic::new(MnemonicType::Words12, Language::English);
+        let seed = Seed::new(&mnemonic, "Mortimer");
+
+        NodeConfiguratorGenerateWallet::report_wallet_information(
+            &mut streams.streams(),
+            &mnemonic,
+            &PlainData::new(seed.as_bytes()),
+            "m/44'/60'/0'/0/0",
+            &Either::Right("m/44'/60'/0'/0/1".to_string()),
+            true,
+        );
+
+        let result = streams.stdout.get_string();
+        println!("{}", result);
+        assert!(Regex::new("\"mnemonic_phrase\": \"(\\w+\\s){11}(\\w+)\"")
+            .unwrap()
+            .is_match(&result));
+        assert!(Regex::new("\"consuming_wallet\": \\{\\s+\"derivation_path\": \"m/(?:\\d+'/){3}(?:\\d+)(?:/\\d+)?\",\\s+\"address\": \"0x[\\da-fA-F]{40}\"\\s+\\}").unwrap().is_match(&result));
+        assert!(Regex::new("\"earning_wallet\": \\{\\s+\"derivation_path\": \"m/(?:\\d+'/){3}(?:\\d+)(?:/\\d+)?\",\\s+\"address\": \"0x[\\da-fA-F]{40}\"\\s+\\}").unwrap().is_match(&result));
+    }
+
+    #[test]
+    fn report_wallet_information_can_output_json_without_an_earning_derivation_path() {
+        let mut streams = FakeStreamHolder::new();
+        let mnemonic = Mnemonic::new(MnemonicType::Words12, Language::English);
+        let seed = Seed::new(&mnemonic, "Mortimer");
+
+        NodeConfiguratorGenerateWallet::report_wallet_information(
+            &mut streams.streams(),
+            &mnemonic,
+            &PlainData::new(seed.as_bytes()),
+            "m/44'/60'/0'/0/0",
+            &Either::Left("0x01234567890ABCDEFabcdef01234567890ABCDEF".to_string()),
+            true,
+        );
+
+        let result = streams.stdout.get_string();
+        println!("{}", result);
+        assert!(Regex::new("\"mnemonic_phrase\": \"(\\w+\\s){11}(\\w+)\"")
+            .unwrap()
+            .is_match(&result));
+        assert!(Regex::new("\"consuming_wallet\": \\{\\s+\"derivation_path\": \"m/(?:\\d+'/){3}(?:\\d+)(?:/\\d+)?\",\\s+\"address\": \"0x[\\da-fA-F]{40}\"\\s+\\}").unwrap().is_match(&result));
+        assert!(
+            Regex::new("\"earning_wallet\": \\{\\s+\"address\": \"0x[\\da-fA-F]{40}\"\\s+\\}")
+                .unwrap()
+                .is_match(&result)
+        );
     }
 
     #[test]

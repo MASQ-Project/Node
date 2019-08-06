@@ -82,6 +82,16 @@ describe('NodeActuator', () => {
     })
   })
 
+  describe('generateWallet', () => {
+    beforeEach(async () => {
+      await subject.generateWallet('passphrase', 'path', 'wordlist', 'password', 12)
+    })
+
+    it('requests wallet recovery', () => {
+      td.verify(mockSubstratumNode.generateWallet('passphrase', 'path', 'wordlist', 'password', 12))
+    })
+  })
+
   describe('off', () => {
     beforeEach(async () => {
       await subject.off()

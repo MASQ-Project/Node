@@ -1,9 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 import {ComponentFixture} from '@angular/core/testing';
-import {WalletConfigurationComponent} from './wallet-configuration.component';
+import {RecoverWalletComponent} from './recover-wallet.component';
 
-export class WalletConfigurationPage {
+export class RecoverWalletPage {
 
   get alsoEarning(): HTMLInputElement {
     return this.query('#also-earning');
@@ -37,7 +37,7 @@ export class WalletConfigurationPage {
     return this.query('#wordlist');
   }
 
-  constructor(private fixture: ComponentFixture<WalletConfigurationComponent>) {
+  constructor(private fixture: ComponentFixture<RecoverWalletComponent>) {
   }
 
   private query<T>(selector: String): T {

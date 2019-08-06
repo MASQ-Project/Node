@@ -1,43 +1,42 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 import {ComponentFixture, TestBed} from '@angular/core/testing';
-import {WalletConfigurationComponent} from './wallet-configuration.component';
-import {WalletConfigurationPage} from './wallet-configuration-page';
+import {RecoverWalletComponent} from './recover-wallet.component';
+import {RecoverWalletPage} from './recover-wallet-page';
 import * as td from 'testdouble';
-import {WalletService} from '../wallet.service';
+import {WalletService} from '../../wallet.service';
 import {of, Subject} from 'rxjs';
 import {FormsModule, ReactiveFormsModule} from '@angular/forms';
 import {RouterTestingModule} from '@angular/router/testing';
 import {Router} from '@angular/router';
-import {ConfigService} from '../config.service';
+import {ConfigService} from '../../config.service';
 
 const validMnemonicPhrase = 'sportivo secondo puntare ginepro occorrere serbato idra savana afoso finanza inarcare proroga';
 
 describe('WalletConfigurationComponent', () => {
-  let component: WalletConfigurationComponent;
-  let fixture: ComponentFixture<WalletConfigurationComponent>;
-  let page: WalletConfigurationPage;
+  let component: RecoverWalletComponent;
+  let fixture: ComponentFixture<RecoverWalletComponent>;
+  let page: RecoverWalletPage;
   let walletService;
   let addressResponseSubject;
-  let generateResponseSubject;
+  let recoverResponseSubject;
   let router: Router;
   let configService;
 
-
   beforeEach(async () => {
     addressResponseSubject = new Subject<string>();
-    generateResponseSubject = new Subject<string>();
+    recoverResponseSubject = new Subject<string>();
     configService = {setEarningWallet: td.func('setEarningWallet')};
     walletService = {
       calculateAddress: td.func('calculateAddress'),
       addressResponse: addressResponseSubject.asObservable(),
-      recoverConsumingWalletResponse: generateResponseSubject.asObservable(),
+      recoverConsumingWalletResponse: recoverResponseSubject.asObservable(),
       recoverConsumingWallet: td.func('recoverConsumingWallet'),
       validateMnemonic: td.func('validateMnemonic'),
     };
     TestBed.configureTestingModule({
       imports: [FormsModule, ReactiveFormsModule, RouterTestingModule],
-      declarations: [WalletConfigurationComponent],
+      declarations: [RecoverWalletComponent],
       providers: [
         {provide: WalletService, useValue: walletService},
         {provide: ConfigService, useValue: configService},
@@ -47,9 +46,9 @@ describe('WalletConfigurationComponent', () => {
   });
 
   beforeEach(() => {
-    fixture = TestBed.createComponent(WalletConfigurationComponent);
+    fixture = TestBed.createComponent(RecoverWalletComponent);
     router = TestBed.get(Router);
-    page = new WalletConfigurationPage(fixture);
+    page = new RecoverWalletPage(fixture);
     component = fixture.componentInstance;
     fixture.detectChanges();
   });
@@ -125,7 +124,7 @@ describe('WalletConfigurationComponent', () => {
           td.matchers.anything(),
           td.matchers.anything(),
         )).thenDo(() => {
-          generateResponseSubject.next('success');
+          recoverResponseSubject.next('success');
         });
         page.setMnemonicPhrase(validMnemonicPhrase);
         page.setWalletPassword('password');
@@ -157,7 +156,7 @@ describe('WalletConfigurationComponent', () => {
         td.matchers.anything(),
         td.matchers.anything(),
       )).thenDo(() => {
-        generateResponseSubject.next('you did a dupes');
+        recoverResponseSubject.next('you did a dupes');
       });
       page.setMnemonicPhrase(validMnemonicPhrase);
       page.setWalletPassword('password');

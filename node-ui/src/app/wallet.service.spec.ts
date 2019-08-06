@@ -105,4 +105,50 @@ describe('WalletService', () => {
       expect(output).toEqual('nope');
     });
   });
+
+  describe('generateConsumingWallet', () => {
+    beforeEach(() => {
+      service.generateConsumingWallet('one', 'two', 'three', 'four', 42);
+    });
+
+    it('sends a message to the main process', () => {
+      verify(electronStub.ipcRenderer.send('generate-consuming-wallet', 'one', 'two', 'three', 'four', 42));
+    });
+  });
+
+  describe('a generated-consuming-wallet message from the main process', () => {
+    let output: object|string = 'neverChanged';
+
+    beforeEach(() => {
+      verify(electronStub.ipcRenderer.on('generated-consuming-wallet', listenerCallback.capture()));
+
+      service.generateConsumingWalletResponse.subscribe(generateResponse => {
+        output = generateResponse;
+      });
+
+      listenerCallback.value('', JSON.stringify({ 'blah': 'foo' }));
+    });
+
+    it('indicates success', () => {
+      expect(output).toEqual({ success: true, result: { 'blah': 'foo' } });
+    });
+  });
+
+  describe('a generate-consuming-wallet-error message from the main process', () => {
+    let output: object|string = 'neverChanged';
+
+    beforeEach(() => {
+      verify(electronStub.ipcRenderer.on('generate-consuming-wallet-error', listenerCallback.capture()));
+
+      service.generateConsumingWalletResponse.subscribe(generateResponse => {
+        output = generateResponse;
+      });
+
+      listenerCallback.value('', 'nope');
+    });
+
+    it('indicates failure', () => {
+      expect(output).toEqual({ success: false, result: 'nope' });
+    });
+  });
 });

@@ -10,6 +10,7 @@ const { makeSpawnSyncResult } = require('./test_utilities')
 
 const nodePathUnix = `${path.resolve(__dirname, '.', '../dist/static/binaries/SubstratumNode')}`
 const nodePathWindows = `${path.resolve(__dirname, '.', '../dist/static/binaries/SubstratumNodeW')}`
+
 const recoverArgs = [
   '--recover-wallet',
   '--consuming-wallet', 'path',
@@ -18,8 +19,18 @@ const recoverArgs = [
   '--mnemonic-passphrase', 'passphrase',
   '--wallet-password', 'password'
 ]
-
 const recoverOptions = { timeout: 1000 }
+
+const generateArgs = [
+  '--generate-wallet',
+  '--json',
+  '--consuming-wallet', 'path',
+  '--language', 'wordlist',
+  '--mnemonic-passphrase', 'passphrase',
+  '--wallet-password', 'password',
+  '--word-count', 12
+]
+const generateOptions = { timeout: 1000 }
 
 describe('CommandHelper', () => {
   let childProcess, process, nodeCmd, result, sudoPrompt, treeKill, subject
@@ -57,6 +68,22 @@ describe('CommandHelper', () => {
 
         result = subject.recoverWallet(
           'phrase', 'passphrase', 'path', 'wordlist', 'password'
+        )
+      })
+
+      it('executes the command via node cmd', () => {
+        assert.deepStrictEqual(result, makeSpawnSyncResult('success!'))
+      })
+    })
+
+    describe('generating a consuming wallet', () => {
+      beforeEach(() => {
+        subject = require('../main-process/command_helper')
+        td.when(childProcess.spawnSync(nodePathUnix, generateArgs, generateOptions))
+          .thenReturn(makeSpawnSyncResult('success!'))
+
+        result = subject.generateWallet(
+          'passphrase', 'path', 'wordlist', 'password', 12
         )
       })
 
@@ -257,6 +284,19 @@ describe('CommandHelper', () => {
           .thenReturn(makeSpawnSyncResult('success!'))
 
         result = subject.recoverWallet('phrase', 'passphrase', 'path', 'wordlist', 'password')
+      })
+
+      it('executes the command via node cmd', () => {
+        assert.deepStrictEqual(result, makeSpawnSyncResult('success!'))
+      })
+    })
+
+    describe('generating a consuming wallet', () => {
+      beforeEach(() => {
+        td.when(childProcess.spawnSync(nodePathWindows, generateArgs, generateOptions))
+          .thenReturn(makeSpawnSyncResult('success!'))
+
+        result = subject.generateWallet('passphrase', 'path', 'wordlist', 'password', 12)
       })
 
       it('executes the command via node cmd', () => {

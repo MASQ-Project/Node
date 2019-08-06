@@ -7,14 +7,14 @@ const td = require('testdouble')
 describe('main', () => {
   let mockApp, mockDialog, mockEvent, mockHttp, mockIpcMain, mockMenu, mainWindow, webContents, mainWindowOnClose,
     MockNodeActuator, appOnReady, ipcMainOnIpLookup, ipcMainOnChangeNodeState, ipcMainOnGetFinancialStatistics,
-    ipcMainOnCalculateWalletAddress, ipcMainOnRecoverConsumingWallet, ipcMainOnSetConsumingWalletPassword, process
+    ipcMainOnCalculateWalletAddress, ipcMainOnRecoverConsumingWallet, ipcMainOnGenerateConsumingWallet, ipcMainOnSetConsumingWalletPassword, process
 
   beforeEach(() => {
     mockEvent = td.object(['preventDefault'])
     mockApp = td.object(['getName', 'on', 'quit'])
     mockDialog = td.object(['showErrorBox'])
     mockIpcMain = td.object(['on'])
-    MockNodeActuator = td.constructor(['shutdown', 'off', 'serving', 'consuming', 'recoverWallet', 'getFinancialStatistics', 'setConsumingWalletPassword'])
+    MockNodeActuator = td.constructor(['shutdown', 'off', 'serving', 'consuming', 'recoverWallet', 'generateWallet', 'getFinancialStatistics', 'setConsumingWalletPassword'])
     mockMenu = td.object(['setApplicationMenu', 'buildFromTemplate'])
     td.replace('../main-process/node_actuator', MockNodeActuator)
     mockHttp = td.replace('http')
@@ -43,6 +43,9 @@ describe('main', () => {
 
     ipcMainOnRecoverConsumingWallet = td.matchers.captor()
     td.when(mockIpcMain.on('recover-consuming-wallet', ipcMainOnRecoverConsumingWallet.capture())).thenReturn(mockIpcMain)
+
+    ipcMainOnGenerateConsumingWallet = td.matchers.captor()
+    td.when(mockIpcMain.on('generate-consuming-wallet', ipcMainOnGenerateConsumingWallet.capture())).thenReturn(mockIpcMain)
 
     ipcMainOnSetConsumingWalletPassword = td.matchers.captor()
     td.when(mockIpcMain.on('set-consuming-wallet-password', ipcMainOnSetConsumingWalletPassword.capture())).thenReturn(mockIpcMain)
@@ -366,6 +369,37 @@ describe('main', () => {
 
       it('sends a success messages to the render process', () => {
         td.verify(mainWindow.prototype.webContents.send('recover-consuming-wallet-error', 'whoops'))
+      })
+    })
+  })
+
+  describe('generate-consuming-wallet', () => {
+    beforeEach(() => {
+      appOnReady.value()
+    })
+
+    describe('successfully', () => {
+      beforeEach(async () => {
+        td.when(MockNodeActuator.prototype.generateWallet('passphrase', 'path', 'wordlist', 'password', 12)).thenResolve({ success: true, result: 'some mnemonic phrase that just happens to be the correct length yo' })
+
+        await ipcMainOnGenerateConsumingWallet.value({}, 'passphrase', 'path', 'wordlist', 'password', 12)
+      })
+
+      it('sends a success messages to the render process', () => {
+        td.verify(mainWindow.prototype.webContents.send('generated-consuming-wallet', 'some mnemonic phrase that just happens to be the correct length yo'))
+      })
+    })
+
+    describe('unsuccessfully', () => {
+      beforeEach(async () => {
+        td.when(MockNodeActuator.prototype.generateWallet('passphrase', 'path', 'wordlist', 'password', 12))
+          .thenResolve({ success: false, message: 'whoops' })
+
+        await ipcMainOnGenerateConsumingWallet.value({}, 'passphrase', 'path', 'wordlist', 'password', 12)
+      })
+
+      it('sends a success messages to the render process', () => {
+        td.verify(mainWindow.prototype.webContents.send('generate-consuming-wallet-error', 'whoops'))
       })
     })
   })
