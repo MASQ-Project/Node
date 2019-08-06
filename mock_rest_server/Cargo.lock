@@ -176,7 +176,7 @@ dependencies = [
 
 [[package]]
 name = "mock_rest_server"
-version = "0.4.8"
+version = "1.0.0-rc.1"
 dependencies = [
  "rocket 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
