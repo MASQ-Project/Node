@@ -57,6 +57,16 @@ describe('WalletConfigurationComponent', () => {
     td.reset();
   });
 
+  describe('wordlist', () => {
+    it('defaults to English', () => {
+      expect(page.wordlist.value).toBe('en');
+    });
+
+    it( 'has appropriate number of elements', () => {
+      expect(page.wordlist.length).toBeGreaterThan(0);
+    });
+  });
+
   describe('derivation path defaults to', () => {
     it('m/44\'/60\'/0\'/0/0', () => {
       expect(page.derivationPath.value).toBe('m/44\'/60\'/0\'/0/0');

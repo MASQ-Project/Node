@@ -23,6 +23,7 @@ export class RecoverWalletComponent implements OnInit {
 
   publicAddress = '';
   errorText = '';
+  wordlists = wordlists;
 
   walletConfig = new FormGroup({
       derivationPath: new FormControl('m/44\'/60\'/0\'/0/0', [Validators.required, hardenedPathValidator]),
