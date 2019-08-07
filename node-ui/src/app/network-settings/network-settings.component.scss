@@ -22,6 +22,10 @@
     background: color('primary');
   }
 
+  input[type=range]:disabled::-webkit-slider-thumb {
+    background: color('background', 'dark');
+  }
+
   #cancel {
     @include cancel-button();
   }
