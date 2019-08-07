@@ -16,6 +16,8 @@ export class GenerateWalletComponent implements OnInit {
 
   wordcounts = [12, 15, 18, 21, 24];
 
+  wordlists = wordlists;
+
   walletConfig = new FormGroup({
     wordlist: new FormControl('en', [Validators.required]),
     wordcount: new FormControl(12, [Validators.required]),

@@ -49,6 +49,16 @@ describe('GenerateWalletComponent', () => {
     td.reset();
   });
 
+  describe('wordlist', () => {
+    it('is English by default', () => {
+      expect(page.wordlist.value).toBe('en');
+    });
+
+    it('has appropriate number of elements', () => {
+      expect(page.wordlist.length).toBeGreaterThan(0);
+    });
+  });
+
   describe('clicking done', () => {
     beforeEach(() => {
       component.generatedWalletInfo = {
@@ -91,6 +101,7 @@ describe('GenerateWalletComponent', () => {
 
     describe('when all required fields are entered', () => {
       beforeEach(() => {
+        page.setWordlist('es');
         page.setMnemonicPassphrase('foobar');
         page.setWalletPassword('foobar');
         fixture.detectChanges();
@@ -107,7 +118,7 @@ describe('GenerateWalletComponent', () => {
         });
 
         it('calls generateWallet', () => {
-          td.verify(walletService.generateConsumingWallet('foobar', 'm/44\'/60\'/0\'/0/0', 'English', 'foobar', 12));
+          td.verify(walletService.generateConsumingWallet('foobar', 'm/44\'/60\'/0\'/0/0', 'Español', 'foobar', 12));
         });
       });
     });

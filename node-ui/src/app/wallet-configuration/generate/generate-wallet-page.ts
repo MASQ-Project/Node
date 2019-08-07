@@ -4,6 +4,10 @@ import {GenerateWalletComponent} from './generate-wallet.component';
 export class GenerateWalletPage {
   constructor(private fixture: ComponentFixture<GenerateWalletComponent>) {}
 
+  get wordlist(): HTMLSelectElement {
+    return this.query('#wordlist');
+  }
+
   get mnemonicPassphrase(): HTMLInputElement {
     return this.query('#mnemonic-passphrase');
   }
@@ -55,6 +59,11 @@ export class GenerateWalletPage {
     return errorText;
   }
 
+  setWordlist(value: string) {
+    this.fixture.componentInstance.walletConfig.controls['wordlist'].setValue(value);
+    setSelection(this.wordlist, value);
+  }
+
   setMnemonicPassphrase(value: string) {
     this.fixture.componentInstance.walletConfig.controls['mnemonicPassphrase'].setValue(value);
     setInputText(this.mnemonicPassphrase, value);
@@ -76,6 +85,11 @@ export class GenerateWalletPage {
 }
 
 function setInputText(element: HTMLInputElement, value: string) {
+  element.value = value;
+  element.dispatchEvent(new Event('input'));
+}
+
+function setSelection(element: HTMLSelectElement, value: string) {
   element.value = value;
   element.dispatchEvent(new Event('input'));
 }
