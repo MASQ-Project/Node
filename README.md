@@ -276,9 +276,9 @@ environment or config file.
 * `--version` Displays the currently-running version of SubstratumNode and stops. Does not require 
 administrative privilege. Cannot be specified in the environment or config file.
 
-* `--blockchain-service-url <URL>` An optional URL that should point to an Infura, Geth, or Parity HTTP endpoint. Not 
-supplying a URL will direct blockchain traffic through the Substratum Network, allowing those nodes that do supply the 
-URL to talk to the blockchain on your behalf.
+* `--blockchain-service-url <URL>` A required URL that should point to an Infura, Geth, or Parity HTTP endpoint. Eventually, 
+SubstratumNode will direct blockchain traffic through the Substratum Network when the parameter is not specified, allowing other 
+nodes to talk to the blockchain on your behalf.
 
 * `--ip <IP ADDRESS>` This is the public IP address of your SubstratumNode: that is, the IP address at which other
 SubstratumNodes can contact yours. If you're in a fairly standard residential situation, then this will be the IP
