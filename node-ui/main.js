@@ -5,6 +5,7 @@ const { app, dialog, BrowserWindow, ipcMain, Menu } = require('electron')
 const path = require('path')
 const url = require('url')
 const process = require('./main-process/wrappers/process_wrapper')
+const commandHelper = require('./main-process/command_helper')
 const http = require('http')
 
 const NodeActuator = require('./main-process/node_actuator')
@@ -120,6 +121,10 @@ ipcMain.on('ip-lookup', async (event) => {
 
   req.on('timeout', () => { req.abort() })
   req.on('error', () => { event.returnValue = '' })
+})
+
+ipcMain.on('get-node-configuration', (event, command, args) => {
+  event.returnValue = commandHelper.getNodeConfiguration()
 })
 
 ipcMain.on('change-node-state', (event, command, args) => {

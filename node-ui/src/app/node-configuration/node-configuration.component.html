@@ -56,7 +56,7 @@
     </div>
     <div class="node-config__actions">
       <input id="wallet-address" name="wallet-address" type="text" formControlName="walletAddress"
-             [class.input-invalid]="walletAddress.invalid">
+             [class.input-invalid]="walletAddress.invalid" [readonly]="earningWalletPopulated">
     </div>
     <ul id="wallet-address-validation"
         *ngIf="walletAddress.invalid && (walletAddress.touched || walletAddress.dirty)">

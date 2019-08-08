@@ -54,28 +54,26 @@ fn run_the_node(args: &Vec<String>, streams: &mut StdStreams<'_>) -> i32 {
 }
 
 fn generate_wallet(args: &Vec<String>, streams: &mut StdStreams<'_>) -> i32 {
-    PrivilegeDropperReal::new().drop_privileges();
     let configurator = NodeConfiguratorGenerateWallet::new();
     configuration_run(args, streams, &configurator)
 }
 
 fn recover_wallet(args: &Vec<String>, streams: &mut StdStreams<'_>) -> i32 {
-    PrivilegeDropperReal::new().drop_privileges();
     let configurator = NodeConfiguratorRecoverWallet::new();
     configuration_run(args, streams, &configurator)
 }
 
 fn dump_config(args: &Vec<String>, streams: &mut StdStreams<'_>) -> i32 {
-    PrivilegeDropperReal::new().drop_privileges();
     config_dumper::dump_config(args, streams)
 }
 
 fn configuration_run(
     args: &Vec<String>,
     streams: &mut StdStreams<'_>,
-    configurator: &NodeConfigurator<WalletCreationConfig>,
+    configurator: &dyn NodeConfigurator<WalletCreationConfig>,
 ) -> i32 {
-    configurator.configure(args, streams);
+    let config = configurator.configure(args, streams);
+    PrivilegeDropperReal::new().drop_privileges(&config.real_user);
     0
 }
 

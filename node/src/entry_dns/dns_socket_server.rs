@@ -50,9 +50,9 @@ impl Future for DnsSocketServer {
     }
 }
 
-impl SocketServer for DnsSocketServer {
-    fn name(&self) -> String {
-        String::from("EntryDnsServer")
+impl SocketServer<()> for DnsSocketServer {
+    fn get_configuration(&self) -> &() {
+        &()
     }
 
     fn initialize_as_privileged(&mut self, _args: &Vec<String>, _streams: &mut StdStreams<'_>) {
@@ -184,15 +184,6 @@ mod tests {
                 destination[i] = source[i];
             }
         }
-    }
-
-    #[test]
-    fn knows_its_name() {
-        let subject = DnsSocketServer::new();
-
-        let result = subject.name();
-
-        assert_eq!(&result, "EntryDnsServer");
     }
 
     #[test]

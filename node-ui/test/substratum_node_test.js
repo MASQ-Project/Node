@@ -200,7 +200,7 @@ describe('SubstratumNode', () => {
       })
 
       it('sends a message', () => {
-        td.verify(process.send('Command returned error: the stderror'))
+        td.verify(process.send('Command produced error: the stderror'))
       })
     })
 
@@ -216,7 +216,7 @@ describe('SubstratumNode', () => {
       })
 
       it('sends a message', () => {
-        td.verify(process.send('Command returned output: the stdout'))
+        td.verify(process.send('Command produced output: the stdout'))
       })
     })
   })

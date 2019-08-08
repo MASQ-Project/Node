@@ -1,9 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use crate::bootstrapper::RealUser;
 use crate::config_dao::{ConfigDao, ConfigDaoReal};
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
 use crate::multi_config::{CommandLineVcl, EnvironmentVcl, MultiConfig, VirtualCommandLine};
-use crate::node_configurator::{app_head, data_directory_arg};
+use crate::node_configurator::{app_head, data_directory_arg, real_user_arg};
+use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::sub_lib::main_tools::StdStreams;
 use clap::{value_t, Arg};
 use serde_json::json;
@@ -14,7 +16,8 @@ const DUMP_CONFIG_HELP: &str =
     "Dump the configuration of SubstratumNode to stdout in JSON. Used chiefly by UIs.";
 
 pub fn dump_config(args: &Vec<String>, streams: &mut StdStreams) -> i32 {
-    let data_directory = find_data_directory(args);
+    let (data_directory, real_user) = distill_args(args);
+    PrivilegeDropperReal::new().drop_privileges(&real_user);
     let config_dao = make_config_dao(&data_directory);
     let configuration = config_dao.get_all().expect("Couldn't fetch configuration");
     let json = configuration_to_json(configuration);
@@ -58,7 +61,7 @@ fn make_config_dao(data_directory: &PathBuf) -> ConfigDaoReal {
     ConfigDaoReal::new(conn)
 }
 
-fn find_data_directory(args: &Vec<String>) -> PathBuf {
+fn distill_args(args: &Vec<String>) -> (PathBuf, RealUser) {
     let app = app_head()
         .arg(
             Arg::with_name("dump-config")
@@ -67,13 +70,17 @@ fn find_data_directory(args: &Vec<String>) -> PathBuf {
                 .takes_value(false)
                 .help(DUMP_CONFIG_HELP),
         )
-        .arg(data_directory_arg());
+        .arg(data_directory_arg())
+        .arg(real_user_arg());
     let vcls: Vec<Box<VirtualCommandLine>> = vec![
         Box::new(CommandLineVcl::new(args.clone())),
         Box::new(EnvironmentVcl::new(&app)),
     ];
     let multi_config = MultiConfig::new(&app, vcls);
-    value_m!(multi_config, "data-directory", PathBuf).expect("data-directory is not defaulted")
+    let data_dir =
+        value_m!(multi_config, "data-directory", PathBuf).expect("data-directory is not defaulted");
+    let real_user = value_m!(multi_config, "real-user", RealUser).unwrap_or_default();
+    (data_dir, real_user.populate())
 }
 
 #[cfg(test)]
@@ -96,6 +103,7 @@ mod tests {
         let result = dump_config(
             &ArgsBuilder::new()
                 .param("--data-directory", data_dir.to_str().unwrap())
+                .param("--real-user", "123::")
                 .opt("--dump-config")
                 .into(),
             &mut holder.streams(),
@@ -140,6 +148,7 @@ mod tests {
         let result = dump_config(
             &ArgsBuilder::new()
                 .param("--data-directory", data_dir.to_str().unwrap())
+                .param("--real-user", "123::")
                 .opt("--dump-config")
                 .into(),
             &mut holder.streams(),

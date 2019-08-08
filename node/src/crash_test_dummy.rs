@@ -5,15 +5,20 @@ use crate::sub_lib::logger::Logger;
 use futures::Async;
 use tokio::prelude::future::Future;
 
-pub struct CrashTestDummy {
+pub struct CrashTestDummy<C> {
+    pub configuration: C,
     crash_point: CrashPoint,
     message: String,
     logger: Logger,
 }
 
-impl CrashTestDummy {
-    pub fn new(crash_point: CrashPoint) -> CrashTestDummy {
+impl<C> CrashTestDummy<C>
+where
+    C: Send,
+{
+    pub fn new(crash_point: CrashPoint, configuration: C) -> CrashTestDummy<C> {
         CrashTestDummy {
+            configuration,
             crash_point,
             message: "CrashTestDummy".to_owned(),
             logger: Logger::new("CrashTestDummy"),
@@ -21,8 +26,9 @@ impl CrashTestDummy {
     }
 
     #[cfg(test)]
-    pub fn panic(message: String) -> CrashTestDummy {
+    pub fn panic(message: String, configuration: C) -> CrashTestDummy<C> {
         CrashTestDummy {
+            configuration,
             crash_point: CrashPoint::Panic,
             message,
             logger: Logger::new("CrashTestDummy"),
@@ -30,7 +36,10 @@ impl CrashTestDummy {
     }
 }
 
-impl Future for CrashTestDummy {
+impl<C> Future for CrashTestDummy<C>
+where
+    C: Send,
+{
     type Item = ();
     type Error = ();
 
@@ -56,13 +65,13 @@ mod tests {
     #[test]
     #[should_panic(expected = "CrashTestDummy")]
     fn create_a_future_that_panics() {
-        let crash_future = CrashTestDummy::new(CrashPoint::Panic);
+        let crash_future = CrashTestDummy::new(CrashPoint::Panic, ());
         crash_future.wait().unwrap();
     }
 
     #[test]
     fn create_a_future_that_returns_an_error() {
-        let crash_future = CrashTestDummy::new(CrashPoint::Error);
+        let crash_future = CrashTestDummy::new(CrashPoint::Error, ());
 
         let result = crash_future.wait();
 
@@ -71,7 +80,7 @@ mod tests {
 
     #[test]
     fn should_not_crash_if_no_crash_point_is_set() {
-        let crash_future = CrashTestDummy::new(CrashPoint::None);
+        let crash_future = CrashTestDummy::new(CrashPoint::None, ());
 
         let result = crash_future.wait();
 
@@ -81,7 +90,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "CrashTestDummy Mmm Mmm Mmm Mmm")]
     fn should_panic_with_provided_message() {
-        let crash_future = CrashTestDummy::panic(String::from("CrashTestDummy Mmm Mmm Mmm Mmm"));
+        let crash_future =
+            CrashTestDummy::panic(String::from("CrashTestDummy Mmm Mmm Mmm Mmm"), ());
 
         crash_future.wait().ok();
     }

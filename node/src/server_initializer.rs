@@ -2,6 +2,7 @@
 use super::bootstrapper::Bootstrapper;
 use super::privilege_drop::PrivilegeDropper;
 use super::privilege_drop::PrivilegeDropperReal;
+use crate::bootstrapper::{BootstrapperConfig, RealUser};
 use crate::entry_dns::dns_socket_server::DnsSocketServer;
 use crate::sub_lib;
 use crate::sub_lib::main_tools::Command;
@@ -21,22 +22,17 @@ use std::{io, thread};
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 
-pub struct ServerInitializer<P>
-where
-    P: PrivilegeDropper,
-{
-    dns_socket_server: Box<dyn SocketServer<Item = (), Error = ()>>,
-    bootstrapper: Box<dyn SocketServer<Item = (), Error = ()>>,
-    privilege_dropper: P,
+pub struct ServerInitializer {
+    dns_socket_server: Box<dyn SocketServer<(), Item = (), Error = ()>>,
+    bootstrapper: Box<dyn SocketServer<BootstrapperConfig, Item = (), Error = ()>>,
+    privilege_dropper: Box<dyn PrivilegeDropper>,
 }
 
-impl<P> Command for ServerInitializer<P>
-where
-    P: PrivilegeDropper,
-{
+impl Command for ServerInitializer {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &Vec<String>) -> u8 {
         if args.contains(&"--help".to_string()) || args.contains(&"--version".to_string()) {
-            self.privilege_dropper.drop_privileges();
+            self.privilege_dropper
+                .drop_privileges(&RealUser::null().populate());
             self.bootstrapper
                 .as_mut()
                 .initialize_as_unprivileged(args, streams);
@@ -49,7 +45,8 @@ where
                 .as_mut()
                 .initialize_as_privileged(args, streams);
 
-            self.privilege_dropper.drop_privileges();
+            let config = self.bootstrapper.get_configuration();
+            self.privilege_dropper.drop_privileges(&config.real_user);
 
             self.dns_socket_server
                 .as_mut()
@@ -62,10 +59,7 @@ where
     }
 }
 
-impl<P> Future for ServerInitializer<P>
-where
-    P: PrivilegeDropper,
-{
+impl Future for ServerInitializer {
     type Item = ();
     type Error = ();
 
@@ -79,30 +73,30 @@ where
     }
 }
 
-impl ServerInitializer<PrivilegeDropperReal> {
-    pub fn new() -> ServerInitializer<PrivilegeDropperReal> {
+impl ServerInitializer {
+    pub fn new() -> ServerInitializer {
         ServerInitializer {
             dns_socket_server: Box::new(DnsSocketServer::new()),
             bootstrapper: Box::new(Bootstrapper::new(Box::new(LoggerInitializerWrapperReal {}))),
-            privilege_dropper: PrivilegeDropperReal::new(),
+            privilege_dropper: Box::new(PrivilegeDropperReal::new()),
         }
     }
 }
 
-impl Default for ServerInitializer<PrivilegeDropperReal> {
+impl Default for ServerInitializer {
     fn default() -> Self {
         Self::new()
     }
 }
 
 pub trait LoggerInitializerWrapper: Send {
-    fn init(&mut self, file_path: PathBuf, log_level: LevelFilter);
+    fn init(&mut self, file_path: PathBuf, real_user: &RealUser, log_level: LevelFilter);
 }
 
 pub struct LoggerInitializerWrapperReal {}
 
 impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
-    fn init(&mut self, file_path: PathBuf, log_level: LevelFilter) {
+    fn init(&mut self, file_path: PathBuf, real_user: &RealUser, log_level: LevelFilter) {
         Logger::with(LogSpecification::default(log_level).finalize())
             .log_to_file()
             .directory(&file_path.to_str().expect("Bad temporary filename")[..])
@@ -114,7 +108,7 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
             .expect("Logging subsystem failed to start");
         let logfile_name = file_path.join("SubstratumNode.log");
         let privilege_dropper = PrivilegeDropperReal::new();
-        privilege_dropper.chown(&logfile_name);
+        privilege_dropper.chown(&logfile_name, real_user);
         std::panic::set_hook(Box::new(|panic_info| {
             panic_hook(AltPanicInfo::from(panic_info))
         }));
@@ -203,6 +197,7 @@ pub fn real_format_function(
 
 #[cfg(test)]
 pub mod test_utils {
+    use crate::bootstrapper::RealUser;
     use crate::privilege_drop::PrivilegeDropper;
     use crate::server_initializer::LoggerInitializerWrapper;
     use crate::test_utils::logging::init_test_logging;
@@ -211,38 +206,55 @@ pub mod test_utils {
     use std::sync::{Arc, Mutex};
 
     pub struct PrivilegeDropperMock {
-        pub call_count: Arc<Mutex<usize>>,
-    }
-
-    impl PrivilegeDropperMock {
-        pub fn new() -> PrivilegeDropperMock {
-            PrivilegeDropperMock {
-                call_count: Arc::new(Mutex::new(0)),
-            }
-        }
+        drop_privileges_params: Arc<Mutex<Vec<RealUser>>>,
+        chown_params: Arc<Mutex<Vec<(PathBuf, RealUser)>>>,
     }
 
     impl PrivilegeDropper for PrivilegeDropperMock {
-        fn drop_privileges(&self) {
-            let mut calls = self.call_count.lock().unwrap();
-            *calls += 1;
+        fn drop_privileges(&self, real_user: &RealUser) {
+            self.drop_privileges_params
+                .lock()
+                .unwrap()
+                .push(real_user.clone());
         }
 
-        fn chown(&self, _file: &PathBuf) {
-            unimplemented!()
+        fn chown(&self, file: &PathBuf, real_user: &RealUser) {
+            self.chown_params
+                .lock()
+                .unwrap()
+                .push((file.clone(), real_user.clone()));
+        }
+    }
+
+    impl PrivilegeDropperMock {
+        pub fn new() -> Self {
+            Self {
+                drop_privileges_params: Arc::new(Mutex::new(vec![])),
+                chown_params: Arc::new(Mutex::new(vec![])),
+            }
+        }
+
+        pub fn drop_privileges_params(mut self, params: &Arc<Mutex<Vec<RealUser>>>) -> Self {
+            self.drop_privileges_params = params.clone();
+            self
+        }
+
+        pub fn chown_params(mut self, params: &Arc<Mutex<Vec<(PathBuf, RealUser)>>>) -> Self {
+            self.chown_params = params.clone();
+            self
         }
     }
 
     pub struct LoggerInitializerWrapperMock {
-        init_parameters: Arc<Mutex<Vec<(PathBuf, LevelFilter)>>>,
+        init_parameters: Arc<Mutex<Vec<(PathBuf, RealUser, LevelFilter)>>>,
     }
 
     impl LoggerInitializerWrapper for LoggerInitializerWrapperMock {
-        fn init(&mut self, file_path: PathBuf, log_level: LevelFilter) {
+        fn init(&mut self, file_path: PathBuf, real_user: &RealUser, log_level: LevelFilter) {
             self.init_parameters
                 .lock()
                 .unwrap()
-                .push((file_path, log_level));
+                .push((file_path, real_user.clone(), log_level));
             assert!(init_test_logging());
         }
     }
@@ -256,7 +268,7 @@ pub mod test_utils {
 
         pub fn init_parameters(
             mut self,
-            parameters: &Arc<Mutex<Vec<(PathBuf, LevelFilter)>>>,
+            parameters: &Arc<Mutex<Vec<(PathBuf, RealUser, LevelFilter)>>>,
         ) -> Self {
             self.init_parameters = parameters.clone();
             self
@@ -276,9 +288,12 @@ pub mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
 
-    impl SocketServer for CrashTestDummy {
-        fn name(&self) -> String {
-            String::from("crash test SocketServer")
+    impl<C> SocketServer<C> for CrashTestDummy<C>
+    where
+        C: Send,
+    {
+        fn get_configuration(&self) -> &C {
+            &self.configuration
         }
 
         fn initialize_as_privileged(&mut self, _args: &Vec<String>, _streams: &mut StdStreams<'_>) {
@@ -292,12 +307,13 @@ pub mod tests {
         }
     }
 
-    struct SocketServerMock {
+    struct SocketServerMock<C> {
+        get_configuration_result: C,
         initialize_as_privileged_params: Arc<Mutex<Vec<Vec<String>>>>,
         initialize_as_unprivileged_params: Arc<Mutex<Vec<Vec<String>>>>,
     }
 
-    impl Future for SocketServerMock {
+    impl<C> Future for SocketServerMock<C> {
         type Item = ();
         type Error = ();
 
@@ -306,9 +322,12 @@ pub mod tests {
         }
     }
 
-    impl SocketServer for SocketServerMock {
-        fn name(&self) -> String {
-            return "mock".to_string();
+    impl<C> SocketServer<C> for SocketServerMock<C>
+    where
+        C: Send,
+    {
+        fn get_configuration(&self) -> &C {
+            &self.get_configuration_result
         }
 
         fn initialize_as_privileged(&mut self, args: &Vec<String>, _streams: &mut StdStreams) {
@@ -326,9 +345,10 @@ pub mod tests {
         }
     }
 
-    impl SocketServerMock {
-        pub fn new() -> SocketServerMock {
-            SocketServerMock {
+    impl<C> SocketServerMock<C> {
+        pub fn new(get_configuration_result: C) -> SocketServerMock<C> {
+            Self {
+                get_configuration_result,
                 initialize_as_privileged_params: Arc::new(Mutex::new(vec![])),
                 initialize_as_unprivileged_params: Arc::new(Mutex::new(vec![])),
             }
@@ -355,7 +375,7 @@ pub mod tests {
     fn panic_hook_handles_missing_location_and_unprintable_payload() {
         init_test_logging();
         let panic_info = AltPanicInfo {
-            payload: &SocketServerMock::new(), // not a String or a &str
+            payload: &SocketServerMock::new(()), // not a String or a &str
             location: None,
         };
 
@@ -365,7 +385,6 @@ pub mod tests {
         tlh.exists_log_containing(
             "ERROR: PanicHandler: <unknown location> - <message indecipherable>",
         );
-        tlh.exists_log_containing("panic_hook_handles_missing_location_and_unprintable_payload");
     }
 
     #[test]
@@ -386,6 +405,7 @@ pub mod tests {
         tlh.exists_log_containing(
             "ERROR: PanicHandler: file.txt:24:42 - I am a full-fledged String",
         );
+        #[cfg(not(target_os = "windows"))] // Backtrace library is unreliable under Windows
         tlh.exists_log_containing("panic_hook_handles_existing_location_and_string_payload");
     }
 
@@ -409,15 +429,15 @@ pub mod tests {
 
     #[test]
     fn exits_after_all_socket_servers_exit() {
-        let dns_socket_server = CrashTestDummy::new(CrashPoint::Error);
-        let bootstrapper = CrashTestDummy::new(CrashPoint::Error);
+        let dns_socket_server = CrashTestDummy::new(CrashPoint::Error, ());
+        let bootstrapper = CrashTestDummy::new(CrashPoint::Error, BootstrapperConfig::new());
 
         let privilege_dropper = PrivilegeDropperMock::new();
 
         let mut subject = ServerInitializer {
             dns_socket_server: Box::new(dns_socket_server),
             bootstrapper: Box::new(bootstrapper),
-            privilege_dropper,
+            privilege_dropper: Box::new(privilege_dropper),
         };
 
         let stdin = &mut ByteArrayReader::new(&[0; 0]);
@@ -437,14 +457,14 @@ pub mod tests {
 
     #[test]
     fn server_initializer_as_a_future() {
-        let dns_socket_server = CrashTestDummy::new(CrashPoint::None);
-        let bootstrapper = CrashTestDummy::new(CrashPoint::None);
+        let dns_socket_server = CrashTestDummy::new(CrashPoint::None, ());
+        let bootstrapper = CrashTestDummy::new(CrashPoint::None, BootstrapperConfig::new());
         let privilege_dropper = PrivilegeDropperMock::new();
 
         let mut subject = ServerInitializer {
             dns_socket_server: Box::new(dns_socket_server),
             bootstrapper: Box::new(bootstrapper),
-            privilege_dropper,
+            privilege_dropper: Box::new(privilege_dropper),
         };
 
         let result = subject.poll();
@@ -454,15 +474,16 @@ pub mod tests {
     #[test]
     #[should_panic(expected = "EntryDnsServerMock was instructed to panic")]
     fn server_initializer_dns_socket_server_panics() {
-        let bootstrapper = CrashTestDummy::new(CrashPoint::None);
+        let bootstrapper = CrashTestDummy::new(CrashPoint::None, BootstrapperConfig::new());
         let privilege_dropper = PrivilegeDropperMock::new();
 
         let mut subject = ServerInitializer {
             dns_socket_server: Box::new(CrashTestDummy::panic(
                 "EntryDnsServerMock was instructed to panic".to_string(),
+                (),
             )),
             bootstrapper: Box::new(bootstrapper),
-            privilege_dropper,
+            privilege_dropper: Box::new(privilege_dropper),
         };
 
         let _ = subject.poll();
@@ -471,14 +492,15 @@ pub mod tests {
     #[test]
     #[should_panic(expected = "BootstrapperMock was instructed to panic")]
     fn server_initializer_bootstrapper_panics() {
-        let dns_socket_server = CrashTestDummy::new(CrashPoint::None);
+        let dns_socket_server = CrashTestDummy::new(CrashPoint::None, ());
         let privilege_dropper = PrivilegeDropperMock::new();
         let mut subject = ServerInitializer {
             dns_socket_server: Box::new(dns_socket_server),
             bootstrapper: Box::new(CrashTestDummy::panic(
                 "BootstrapperMock was instructed to panic".to_string(),
+                BootstrapperConfig::new(),
             )),
-            privilege_dropper,
+            privilege_dropper: Box::new(privilege_dropper),
         };
 
         let _ = subject.poll();
@@ -486,11 +508,13 @@ pub mod tests {
 
     #[test]
     fn go_should_drop_privileges() {
-        let bootstrapper = CrashTestDummy::new(CrashPoint::None);
-        let privilege_dropper = PrivilegeDropperMock::new();
-
-        let call_count = Arc::clone(&privilege_dropper.call_count);
-
+        let real_user = RealUser::new(Some(123), Some(456), Some("booga".into()));
+        let mut bootstrapper_config = BootstrapperConfig::new();
+        bootstrapper_config.real_user = real_user.clone();
+        let bootstrapper = CrashTestDummy::new(CrashPoint::None, bootstrapper_config);
+        let drop_privileges_params_arc = Arc::new(Mutex::new(vec![]));
+        let privilege_dropper =
+            PrivilegeDropperMock::new().drop_privileges_params(&drop_privileges_params_arc);
         let stdin = &mut ByteArrayReader::new(&[0; 0]);
         let stdout = &mut ByteArrayWriter::new();
         let stderr = &mut ByteArrayWriter::new();
@@ -500,14 +524,15 @@ pub mod tests {
             stderr,
         };
         let mut subject = ServerInitializer {
-            dns_socket_server: Box::new(CrashTestDummy::new(CrashPoint::None)),
+            dns_socket_server: Box::new(CrashTestDummy::new(CrashPoint::None, ())),
             bootstrapper: Box::new(bootstrapper),
-            privilege_dropper,
+            privilege_dropper: Box::new(privilege_dropper),
         };
 
         subject.go(streams, &vec![]);
 
-        assert_eq!(*call_count.lock().unwrap(), 1);
+        let drop_privileges_params = drop_privileges_params_arc.lock().unwrap();
+        assert_eq!(*drop_privileges_params, vec![real_user]);
     }
 
     #[test]
@@ -525,27 +550,28 @@ pub mod tests {
     ) {
         let dns_initialize_as_privileged_params_arc = Arc::new(Mutex::new(vec![]));
         let dns_initialize_as_unprivileged_params_arc = Arc::new(Mutex::new(vec![]));
-        let dns_socket_server = SocketServerMock::new()
+        let dns_socket_server = SocketServerMock::new(())
             .initialize_as_privileged_params(&dns_initialize_as_privileged_params_arc)
             .initialize_as_unprivileged_params(&dns_initialize_as_unprivileged_params_arc);
         let boot_initialize_as_privileged_params_arc = Arc::new(Mutex::new(vec![]));
         let boot_initialize_as_unprivileged_params_arc = Arc::new(Mutex::new(vec![]));
-        let bootstrapper = SocketServerMock::new()
+        let bootstrapper = SocketServerMock::new(BootstrapperConfig::new())
             .initialize_as_privileged_params(&boot_initialize_as_privileged_params_arc)
             .initialize_as_unprivileged_params(&boot_initialize_as_unprivileged_params_arc);
-        let privilege_dropper = PrivilegeDropperMock::new();
-        let call_count_arc = Arc::clone(&privilege_dropper.call_count);
+        let drop_privileges_params_arc = Arc::new(Mutex::new(vec![]));
+        let privilege_dropper =
+            PrivilegeDropperMock::new().drop_privileges_params(&drop_privileges_params_arc);
         let mut subject = ServerInitializer {
             dns_socket_server: Box::new(dns_socket_server),
             bootstrapper: Box::new(bootstrapper),
-            privilege_dropper,
+            privilege_dropper: Box::new(privilege_dropper),
         };
         let args = vec!["SubstratumNode".to_string(), something.to_string()];
 
         subject.go(&mut FakeStreamHolder::new().streams(), &args);
 
-        let call_count = call_count_arc.lock().unwrap();
-        assert_eq!(*call_count, 1);
+        let drop_privileges_params = drop_privileges_params_arc.lock().unwrap();
+        assert_eq!(*drop_privileges_params, vec![RealUser::null().populate()]);
         let empty_string_vec: Vec<Vec<String>> = vec![];
         let dns_initialize_as_privileged_params =
             dns_initialize_as_privileged_params_arc.lock().unwrap();

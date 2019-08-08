@@ -60,6 +60,15 @@ export class MainService {
     }
   }
 
+  lookupConfiguration(): Observable<NodeConfiguration> {
+    const nodeConfiguration = this.configService.getConfig();
+    if (!nodeConfiguration.walletAddress) {
+      const dumpedConfiguration = this.electronService.ipcRenderer.sendSync('get-node-configuration');
+      nodeConfiguration.walletAddress = dumpedConfiguration.earning_wallet_address;
+    }
+    return of(nodeConfiguration);
+  }
+
   setConsumingWalletPassword(password: string) {
     this.electronService.ipcRenderer.send('set-consuming-wallet-password', password);
   }

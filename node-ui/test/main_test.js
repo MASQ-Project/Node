@@ -5,8 +5,8 @@
 const td = require('testdouble')
 
 describe('main', () => {
-  let mockApp, mockDialog, mockEvent, mockHttp, mockIpcMain, mockMenu, mainWindow, webContents, mainWindowOnClose,
-    MockNodeActuator, appOnReady, ipcMainOnIpLookup, ipcMainOnChangeNodeState, ipcMainOnGetFinancialStatistics,
+  let mockApp, mockDialog, mockEvent, mockHttp, mockCommandHelper, mockIpcMain, mockMenu, mainWindow, webContents, mainWindowOnClose,
+    MockNodeActuator, appOnReady, ipcMainOnIpLookup, ipcMainOnGetNodeConfiguration, ipcMainOnChangeNodeState, ipcMainOnGetFinancialStatistics,
     ipcMainOnCalculateWalletAddress, ipcMainOnRecoverConsumingWallet, ipcMainOnGenerateConsumingWallet,
     ipcMainOnSetConsumingWalletPassword, process
 
@@ -19,6 +19,7 @@ describe('main', () => {
     mockMenu = td.object(['setApplicationMenu', 'buildFromTemplate'])
     td.replace('../main-process/node_actuator', MockNodeActuator)
     mockHttp = td.replace('http')
+    mockCommandHelper = td.replace('../main-process/command_helper')
     process = td.replace('../main-process/wrappers/process_wrapper')
 
     webContents = td.object(['send'])
@@ -32,6 +33,9 @@ describe('main', () => {
 
     ipcMainOnIpLookup = td.matchers.captor()
     td.when(mockIpcMain.on('ip-lookup', ipcMainOnIpLookup.capture())).thenReturn(mockIpcMain)
+
+    ipcMainOnGetNodeConfiguration = td.matchers.captor()
+    td.when(mockIpcMain.on('get-node-configuration', ipcMainOnGetNodeConfiguration.capture())).thenReturn(mockIpcMain)
 
     ipcMainOnChangeNodeState = td.matchers.captor()
     td.when(mockIpcMain.on('change-node-state', ipcMainOnChangeNodeState.capture())).thenReturn(mockIpcMain)
@@ -144,6 +148,34 @@ describe('main', () => {
 
       it('returns empty string', () => {
         expect(event.returnValue).toBe('')
+      })
+    })
+  })
+
+  describe('get-node-configuration', () => {
+    let event
+    const expectedConfiguration = {
+      clandestine_port: '4958',
+      consuming_wallet_derivation_path: 'consuming derivation path',
+      consuming_wallet_public_key: 'consuming public key',
+      earning_wallet_address: 'earning wallet address',
+      schema_version: 'schema version',
+      seed: 'seed',
+      start_block: '4647463'
+    }
+
+    beforeEach(() => {
+      event = {}
+      td.when(mockCommandHelper.getNodeConfiguration()).thenReturn(expectedConfiguration)
+    })
+
+    describe('successful', () => {
+      beforeEach(() => {
+        ipcMainOnGetNodeConfiguration.value(event)
+      })
+
+      it('returns configuration', () => {
+        expect(event.returnValue).toBe(expectedConfiguration)
       })
     })
   })

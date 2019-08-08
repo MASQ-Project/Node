@@ -5,7 +5,7 @@ use crate::bootstrapper::BootstrapperConfig;
 use crate::node_configurator;
 use crate::node_configurator::{
     app_head, common_validators, config_file_arg, data_directory_arg, earning_wallet_arg,
-    initialize_database, wallet_password_arg, NodeConfigurator,
+    initialize_database, real_user_arg, wallet_password_arg, NodeConfigurator,
 };
 use crate::sub_lib::crash_point::CrashPoint;
 use crate::sub_lib::main_tools::StdStreams;
@@ -31,22 +31,32 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardPrivileged
     }
 }
 
-pub struct NodeConfiguratorStandardUnprivileged {}
+pub struct NodeConfiguratorStandardUnprivileged {
+    privileged_config: BootstrapperConfig,
+}
 
 impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileged {
     fn configure(&self, args: &Vec<String>, streams: &mut StdStreams<'_>) -> BootstrapperConfig {
         let app = app();
+        let persistent_config = initialize_database(&self.privileged_config.data_directory);
+        let mut unprivileged_config = BootstrapperConfig::new();
         let multi_config = standard::make_service_mode_multi_config(&app, args);
-        let persistent_config = initialize_database(&multi_config);
-        let mut bootstrapper_config = BootstrapperConfig::new();
         standard::unprivileged_parse_args(
             &multi_config,
-            &mut bootstrapper_config,
+            &mut unprivileged_config,
             streams,
             persistent_config.as_ref(),
         );
-        standard::configure_database(&bootstrapper_config, persistent_config.as_ref());
-        bootstrapper_config
+        standard::configure_database(&unprivileged_config, persistent_config.as_ref());
+        unprivileged_config
+    }
+}
+
+impl NodeConfiguratorStandardUnprivileged {
+    pub fn new(privileged_config: &BootstrapperConfig) -> Self {
+        Self {
+            privileged_config: privileged_config.clone(),
+        }
     }
 }
 
@@ -239,6 +249,7 @@ fn app() -> App<'static, 'static> {
                 .requires("ip")
                 .help(NEIGHBORS_HELP),
         )
+        .arg(real_user_arg())
         .arg(
             Arg::with_name("ui-port")
                 .long("ui-port")
@@ -255,7 +266,6 @@ mod standard {
     use super::*;
     use std::net::IpAddr;
     use std::net::SocketAddr;
-    use std::path::PathBuf;
 
     use clap::{value_t, values_t};
     use log::LevelFilter;
@@ -267,7 +277,8 @@ mod standard {
     use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
     use crate::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig};
     use crate::node_configurator::{
-        determine_config_file_path, request_wallet_decryption_password,
+        determine_config_file_path, real_user_and_data_directory,
+        request_wallet_decryption_password,
     };
     use crate::persistent_configuration::{PersistentConfiguration, HTTP_PORT, TLS_PORT};
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
@@ -277,7 +288,6 @@ mod standard {
     use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
     use rustc_hex::{FromHex, ToHex};
     use std::convert::TryInto;
-    use std::fs;
     use std::str::FromStr;
 
     pub fn make_service_mode_multi_config<'a>(app: &'a App, args: &Vec<String>) -> MultiConfig<'a> {
@@ -320,8 +330,9 @@ mod standard {
         config.blockchain_bridge_config.blockchain_service_url =
             value_m!(multi_config, "blockchain-service-url", String);
 
-        config.data_directory =
-            value_m!(multi_config, "data-directory", PathBuf).expect("Internal Error");
+        let (real_user, data_directory) = real_user_and_data_directory(multi_config);
+        config.real_user = real_user;
+        config.data_directory = data_directory;
 
         config.dns_servers = values_m!(multi_config, "dns-servers", IpAddr)
             .into_iter()
@@ -362,22 +373,19 @@ mod standard {
 
     pub fn unprivileged_parse_args(
         multi_config: &MultiConfig,
-        config: &mut BootstrapperConfig,
+        unprivileged_config: &mut BootstrapperConfig,
         streams: &mut StdStreams<'_>,
         persistent_config: &dyn PersistentConfiguration,
     ) {
-        config.clandestine_port_opt = value_m!(multi_config, "clandestine-port", u16);
-        config.blockchain_bridge_config.gas_price = value_m!(multi_config, "gas-price", u64);
-
-        config.data_directory =
-            value_m!(multi_config, "data-directory", PathBuf).expect("Internal Error");
-        if !config.data_directory.is_dir() {
-            fs::create_dir_all(config.data_directory.as_path().clone()).unwrap_or_else(|_| {
-                panic!("Couldn't create data directory {:?}", config.data_directory)
-            });
-        }
-
-        get_wallets(streams, multi_config, persistent_config, config);
+        unprivileged_config.clandestine_port_opt = value_m!(multi_config, "clandestine-port", u16);
+        unprivileged_config.blockchain_bridge_config.gas_price =
+            value_m!(multi_config, "gas-price", u64);
+        get_wallets(
+            streams,
+            multi_config,
+            persistent_config,
+            unprivileged_config,
+        );
     }
 
     pub fn configure_database(
@@ -617,10 +625,11 @@ mod tests {
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::blockchain::bip39::{Bip39, Bip39Error};
     use crate::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
+    use crate::bootstrapper::RealUser;
     use crate::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::database::db_initializer;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::multi_config::tests::FauxEnvironmentVCL;
+    use crate::multi_config::tests::FauxEnvironmentVcl;
     use crate::multi_config::{
         CommandLineVcl, ConfigFileVcl, MultiConfig, NameValueVclArg, VclArg, VirtualCommandLine,
     };
@@ -934,7 +943,8 @@ mod tests {
             .param(
                 "--consuming-private-key",
                 "ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01",
-            );
+            )
+            .param("--real-user", "999:999:/home/booga");
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
@@ -983,6 +993,10 @@ mod tests {
             config.cryptde_null_opt.unwrap().public_key(),
             &PublicKey::new(&[1, 2, 3, 4]),
         );
+        assert_eq!(
+            config.real_user,
+            RealUser::new(Some(999), Some(999), Some(PathBuf::from("/home/booga")))
+        );
     }
 
     #[test]
@@ -1021,7 +1035,8 @@ mod tests {
                 "--earning-wallet",
                 "0x0123456789012345678901234567890123456789",
             )
-            .param("--consuming-private-key", consuming_private_key_text);
+            .param("--consuming-private-key", consuming_private_key_text)
+            .param("--real-user", "999:999:/home/booga");
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
@@ -1042,7 +1057,6 @@ mod tests {
             config.earning_wallet,
             Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap()
         );
-        assert_eq!(config.data_directory, home_dir);
         assert_eq!(Some(1234u16), config.clandestine_port_opt);
         assert_eq!(
             config.earning_wallet,
@@ -1085,6 +1099,37 @@ mod tests {
         assert_eq!(sentinel_ip_addr(), config.neighborhood_config.local_ip_addr,);
         assert_eq!(5333, config.ui_gateway_config.ui_port);
         assert!(config.cryptde_null_opt.is_none());
+        assert_eq!(config.real_user, RealUser::null().populate());
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn privileged_parse_args_with_real_user_defaults_data_directory_properly() {
+        let args = ArgsBuilder::new()
+            .param("--dns-servers", "12.34.56.78,23.45.67.89")
+            .param("--real-user", "::/home/booga");
+        let mut config = BootstrapperConfig::new();
+        let vcls: Vec<Box<dyn VirtualCommandLine>> =
+            vec![Box::new(CommandLineVcl::new(args.into()))];
+        let multi_config = MultiConfig::new(&app(), vcls);
+
+        standard::privileged_parse_args(
+            &multi_config,
+            &mut config,
+            &mut FakeStreamHolder::new().streams(),
+        );
+
+        #[cfg(target_os = "unix")]
+        assert_eq!(
+            config.data_directory,
+            PathBuf::from("/home/booga/.local/share/Substratum")
+        );
+
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            config.data_directory,
+            PathBuf::from("/home/booga/Library/Application Support/Substratum")
+        );
     }
 
     #[test]
@@ -1107,7 +1152,6 @@ mod tests {
             value_m!(multi_config, "config-file", PathBuf)
         );
         assert_eq!(None, config.clandestine_port_opt);
-        assert!(config.data_directory.is_dir());
         assert_eq!(config.earning_wallet, DEFAULT_EARNING_WALLET.clone(),);
         assert_eq!(config.consuming_wallet, None,);
     }
@@ -1485,7 +1529,7 @@ mod tests {
             &"not valid hex",
         ))];
 
-        let faux_environment = FauxEnvironmentVCL { vcl_args };
+        let faux_environment = FauxEnvironmentVcl { vcl_args };
 
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
@@ -1518,7 +1562,7 @@ mod tests {
             &"cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9",
         ))];
 
-        let faux_environment = FauxEnvironmentVCL { vcl_args };
+        let faux_environment = FauxEnvironmentVcl { vcl_args };
 
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
@@ -1669,7 +1713,13 @@ mod tests {
     #[test]
     #[should_panic(expected = "could not be read: ")]
     fn unprivileged_generate_configuration_senses_when_user_specifies_config_file() {
-        let subject = NodeConfiguratorStandardUnprivileged {};
+        let data_dir = ensure_node_home_directory_exists(
+            "node_configurator_standard",
+            "unprivileged_generate_configuration_senses_when_user_specifies_config_file",
+        );
+        let mut subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
+        subject.privileged_config = BootstrapperConfig::new();
+        subject.privileged_config.data_directory = data_dir;
         let args = ArgsBuilder::new()
             .param("--dns-servers", "1.2.3.4")
             .param("--config-file", "booga.toml"); // nonexistent config file: should stimulate panic because user-specified
@@ -1724,14 +1774,15 @@ mod tests {
 
     #[test]
     fn unprivileged_configuration_gets_parameter_gas_price() {
-        let subject = NodeConfiguratorStandardUnprivileged {};
         let data_dir = ensure_node_home_directory_exists(
             "node_configurator_standard",
             "unprivileged_configuration_gets_parameter_gas_price",
         );
+        let mut subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
+        subject.privileged_config = BootstrapperConfig::new();
+        subject.privileged_config.data_directory = data_dir;
         let expected_gas_price = "57";
         let args = ArgsBuilder::new()
-            .param("--data-directory", data_dir.to_str().unwrap())
             .param("--dns-servers", "1.2.3.4")
             .param("--gas-price", expected_gas_price);
 
@@ -1745,14 +1796,14 @@ mod tests {
 
     #[test]
     fn unprivileged_configuration_does_not_set_gas_price_when_not_provided() {
-        let subject = NodeConfiguratorStandardUnprivileged {};
         let data_dir = ensure_node_home_directory_exists(
             "node_configurator_standard",
             "unprivileged_configuration_does_not_set_gas_price_when_not_provided",
         );
-        let args = ArgsBuilder::new()
-            .param("--data-directory", data_dir.to_str().unwrap())
-            .param("--dns-servers", "1.2.3.4");
+        let mut subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
+        subject.privileged_config = BootstrapperConfig::new();
+        subject.privileged_config.data_directory = data_dir;
+        let args = ArgsBuilder::new().param("--dns-servers", "1.2.3.4");
 
         let config = subject.configure(&args.into(), &mut FakeStreamHolder::new().streams());
 

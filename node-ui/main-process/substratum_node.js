@@ -47,9 +47,9 @@ module.exports = (() => {
     if (error) {
       process.send('Command returned error: ' + error.message)
     } else if (stderr) {
-      process.send('Command returned error: ' + stderr)
+      process.send('Command produced error: ' + stderr)
     } else if (stdout) {
-      process.send('Command returned output: ' + stdout)
+      process.send('Command produced output: ' + stdout)
     }
   }
 

@@ -423,7 +423,7 @@ mod tests {
     use crate::accountant::{ReceivedPayments, SentPayments};
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
     use crate::blockchain::blockchain_interface::DEFAULT_CHAIN_ID;
-    use crate::bootstrapper::Bootstrapper;
+    use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::db_initializer::test_utils::{ConnectionWrapperMock, DbInitializerMock};
     use crate::database::db_initializer::{ConnectionWrapper, InitializationError};
     use crate::neighborhood::gossip::Gossip;
@@ -968,6 +968,7 @@ mod tests {
             consuming_wallet: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
             cryptde_null_opt: None,
+            real_user: RealUser::null(),
         };
         Bootstrapper::pub_initialize_cryptde_for_testing(&Some(cryptde().clone()));
         let subject = ActorSystemFactoryReal {};
@@ -1025,6 +1026,7 @@ mod tests {
             consuming_wallet: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
             cryptde_null_opt: None,
+            real_user: RealUser::null(),
         };
         let (tx, rx) = mpsc::channel();
         let system = System::new("SubstratumNode");
@@ -1123,6 +1125,7 @@ mod tests {
             consuming_wallet: None,
             data_directory: PathBuf::new(),
             cryptde_null_opt: None,
+            real_user: RealUser::null(),
         };
         let (tx, _) = mpsc::channel();
         let system = System::new("SubstratumNode");

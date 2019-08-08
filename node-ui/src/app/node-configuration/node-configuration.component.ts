@@ -19,7 +19,6 @@ import {MainService} from '../main.service';
 import {ConfigurationMode} from '../configuration-mode.enum';
 import {NodeStatus} from '../node-status.enum';
 import {Subscription} from 'rxjs';
-import {NodeConfiguration} from '../node-configuration';
 import {LocalStorageService} from '../local-storage.service';
 
 const neighborNodeDescriptor = 'neighborNodeDescriptor';
@@ -53,6 +52,7 @@ export class NodeConfigurationComponent implements OnInit {
   });
   tooltipShown = false;
   walletType: WalletType = WalletType.EARNING;
+  earningWalletPopulated: Boolean = false;
 
   @ViewChild('tooltipIcon', { static: true })
   tooltipIcon: ElementRef;
@@ -78,6 +78,10 @@ export class NodeConfigurationComponent implements OnInit {
 
         this.nodeConfig.patchValue(config);
       });
+    });
+    this.mainService.lookupConfiguration().subscribe((nodeConfig) => {
+      this.nodeConfig.patchValue({'walletAddress': nodeConfig.walletAddress});
+      this.earningWalletPopulated = !!nodeConfig.walletAddress;
     });
     this.ipSubscription = this.mainService.lookupIp().subscribe((ip) => {
       this.nodeConfig.patchValue({'ip': ip});
@@ -141,6 +145,6 @@ export class NodeConfigurationComponent implements OnInit {
 
   ngOnDestroy() {
     // prevent memory leak when component destroyed
-    this.ipSubscription.unsubscribe();
+    // this.ipSubscription.unsubscribe();
   }
 }

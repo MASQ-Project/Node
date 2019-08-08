@@ -1,10 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 const binaryBasePath = '../dist/static/binaries/'
-const scriptBasePath = '../dist/static/scripts/'
-const runtimeArgs = [
-  '--dns-servers', '1.0.0.1,1.1.1.1,9.9.9.9,8.8.8.8'
-]
 const recoverTimeout = 1000
 
 module.exports = (() => {
@@ -15,18 +11,49 @@ module.exports = (() => {
   const cmd = require('node-cmd')
   const sudoPrompt = require('sudo-prompt')
   const treeKill = require('tree-kill')
-
   const binaryFilename = (process.platform === 'win32') ? 'SubstratumNodeW' : 'SubstratumNode'
-  const homePath = process.argv[2]
 
-  let startSubstratumNode, stopSubstratumNode, binaryPath, scriptPath
+  const runtimeArgs = [
+    '--dns-servers', '1.0.0.1,1.1.1.1,9.9.9.9,8.8.8.8', '--real-user', `${realUser()}`
+  ]
+
+  function realUser () {
+    let uid
+    if (process.env.SUDO_UID) {
+      uid = parseInt(process.env.SUDO_UID)
+    } else {
+      uid = process.getuid()
+    }
+    let gid
+    if (process.env.SUDO_GID) {
+      gid = parseInt(process.env.SUDO_GID)
+    } else {
+      gid = process.getgid()
+    }
+    let homeDir = ''
+    childProcess.exec(`cat /etc/passwd | grep ${uid}:${gid} | cut -d: -f6`, function (error, stdout, stderr) {
+      if (error === null) {
+        homeDir = stdout.trim()
+      }
+    })
+    if (!homeDir) {
+      if (process.env.SUDO_USER) {
+        let homePrefix = '/home'
+        if (process.platform === 'darwin') {
+          homePrefix = '/Users'
+        }
+        homeDir = `${homePrefix}/${process.env.SUDO_USER}`
+      } else {
+        homeDir = process.env.HOME
+      }
+    }
+    return `${uid}:${gid}:${homeDir}`
+  }
+
+  let startSubstratumNode, stopSubstratumNode
 
   function getBinaryPath () {
     return path.resolveQuoted(__dirname, binaryBasePath + binaryFilename)
-  }
-
-  function getScriptPath (scriptFilenameExtension) {
-    return path.resolveQuoted(__dirname, scriptBasePath + 'substratum_node.' + scriptFilenameExtension)
   }
 
   function getRecoverModeArgs (mnemonicPhrase, mnemonicPassphrase, derivationPath, wordlist, walletPassword) {
@@ -61,7 +88,7 @@ module.exports = (() => {
   }
 
   function getServiceModeCommand (additionalArgs) {
-    let command = `${scriptPath} ${binaryPath} `
+    let command = `${binaryPath} `
 
     let args = runtimeArgs.slice()
     if (additionalArgs) {
@@ -69,7 +96,7 @@ module.exports = (() => {
         args = args.concat(
           [
             '--ip', additionalArgs.ip,
-            '--neighbors', additionalArgs.neighbor
+            '--neighbors', `"${additionalArgs.neighbor}"`
           ])
       }
 
@@ -118,24 +145,28 @@ module.exports = (() => {
   }
 
   function getNodeConfiguration () {
-    consoleWrapper.log('command_helper: invoking getNodeConfiguration')
     const args = ['--dump-config']
     const process = childProcess.spawnSync(
       path.resolveUnquoted(__dirname, binaryBasePath + binaryFilename),
       args,
       { timeout: 5000 })
+    if (process.status) {
+      consoleWrapper.log('Could not get Node configuration.')
+      consoleWrapper.log('stdout: ', process.stdout.toString())
+      consoleWrapper.log('stderr: ', process.stderr.toString())
+      return {}
+    }
     return JSON.parse(process.stdout)
   }
 
   function startNodeWindows (additionalArgs, callback) {
     process.env.RUST_BACKTRACE = 'full'
     cmd.get(getServiceModeCommand(additionalArgs), callback)
-    consoleWrapper.log('command_helper: invoking startNodeWindows')
   }
 
   function startNodeUnix (additionalArgs, callback) {
-    consoleWrapper.log('command_helper: invoking startNodeUnix')
-    sudoPrompt.exec(getServiceModeCommand(additionalArgs), { name: 'Substratum Node' }, callback)
+    const cmd = getServiceModeCommand(additionalArgs)
+    sudoPrompt.exec(cmd, { name: 'Substratum Node' }, callback)
   }
 
   function stopNodeWindows (callback) {
@@ -152,30 +183,11 @@ module.exports = (() => {
     callback(error)
   }
 
-  if (process.platform === 'linux') {
-    runtimeArgs.push('--data-directory')
-    runtimeArgs.push(homePath + '/.local/share/Substratum')
-  }
+  const binaryPath = getBinaryPath()
   if (process.platform === 'win32') {
-    binaryPath = getBinaryPath()
-    scriptPath = getScriptPath('cmd')
     startSubstratumNode = startNodeWindows
     stopSubstratumNode = stopNodeWindows
   } else {
-    consoleWrapper.log('command_helper: configuring startNodeUnix')
-    let sudoUid, sudoGid
-    if (process.env.SUDO_UID) {
-      sudoUid = process.env.SUDO_UID
-    } else {
-      sudoUid = process.getuid()
-    }
-    if (process.env.SUDO_GID) {
-      sudoGid = process.env.SUDO_GID
-    } else {
-      sudoGid = process.getgid()
-    }
-    binaryPath = getBinaryPath()
-    scriptPath = `${getScriptPath('sh')} ${sudoUid} ${sudoGid}`
     startSubstratumNode = startNodeUnix
     stopSubstratumNode = stopNodeUnix
   }

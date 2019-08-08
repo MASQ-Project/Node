@@ -109,9 +109,7 @@ describe('CommandHelper', () => {
 
           it('executes the command via sudo prompt', () => {
             td.verify(sudoPrompt.exec(td.matchers.argThat(arg => {
-              return /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" os-uid os-gid "/.test(arg) &&
-                /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d{1,3}\./.test(arg) &&
-                /--data-directory [/\\]mock-home-dir[/\\]\.local[/\\]share[/\\]Substratum/.test(arg)
+              return /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d{1,3}\./.test(arg)
             }), { name: 'Substratum Node' }, 'callback'))
           })
         })
@@ -126,9 +124,7 @@ describe('CommandHelper', () => {
 
           it('executes the command via sudo prompt', () => {
             td.verify(sudoPrompt.exec(td.matchers.argThat(arg => {
-              return /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" env-uid env-gid "/.test(arg) &&
-                /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d{1,3}\./.test(arg) &&
-                /--data-directory [/\\]mock-home-dir[/\\]\.local[/\\]share[/\\]Substratum/.test(arg)
+              return /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d{1,3}\./.test(arg)
             }), { name: 'Substratum Node' }, 'callback'))
           })
         })
@@ -149,8 +145,7 @@ describe('CommandHelper', () => {
           })
           it('executes the command via sudo prompt', () => {
             td.verify(sudoPrompt.exec(td.matchers.argThat(arg => {
-              return /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" os-uid os-gid "/.test(arg) &&
-                /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d{1,3}\./.test(arg) &&
+              return /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d{1,3}\./.test(arg) &&
                 !arg.includes('--data-directory')
             }), { name: 'Substratum Node' }, 'callback'))
           })
@@ -166,8 +161,7 @@ describe('CommandHelper', () => {
 
           it('executes the command via sudo prompt', () => {
             td.verify(sudoPrompt.exec(td.matchers.argThat(arg => {
-              return /[/\\]static[/\\]scripts[/\\]substratum_node\.sh" env-uid env-gid "/.test(arg) &&
-                /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d{1,3}\./.test(arg) &&
+              return /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d{1,3}\./.test(arg) &&
                 !arg.includes('--data-directory')
             }), { name: 'Substratum Node' }, 'callback'))
           })
@@ -233,7 +227,7 @@ describe('CommandHelper', () => {
         })
 
         it('provides them as command line arguments', () => {
-          td.verify(sudoPrompt.exec(td.matchers.contains(/--ip abc\s+--neighbors hidelyho/), { name: 'Substratum Node' }, 'callback'))
+          td.verify(sudoPrompt.exec(td.matchers.contains(/--ip abc\s+--neighbors "hidelyho"/), { name: 'Substratum Node' }, 'callback'))
         })
       })
 
@@ -307,7 +301,7 @@ describe('CommandHelper', () => {
     })
 
     describe('starting', () => {
-      const command = /[/\\]static[/\\]scripts[/\\]substratum_node\.cmd" ".*[/\\]static[/\\]binaries[/\\]SubstratumNodeW" --dns-servers \d.*/
+      const command = /".*[/\\]static[/\\]binaries[/\\]SubstratumNodeW" --dns-servers \d.* --real-user /
 
       beforeEach(() => {
         subject.startSubstratumNode({}, 'callback')
@@ -335,7 +329,7 @@ describe('CommandHelper', () => {
         })
 
         it('provides them as command line arguments', () => {
-          td.verify(nodeCmd.get(td.matchers.contains(/--ip abc\s+--neighbors hidelyho/), 'callback'))
+          td.verify(nodeCmd.get(td.matchers.contains(/--ip abc\s+--neighbors "hidelyho"/), 'callback'))
         })
       })
 

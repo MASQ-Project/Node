@@ -5,8 +5,8 @@ use crate::multi_config::MultiConfig;
 use crate::node_configurator::{
     app_head, common_validators, consuming_wallet_arg, create_wallet, data_directory_arg,
     earning_wallet_arg, exit, flushed_write, language_arg, mnemonic_passphrase_arg,
-    prepare_initialization_mode, request_existing_password, wallet_password_arg, Either,
-    NodeConfigurator, WalletCreationConfig, WalletCreationConfigMaker, EARNING_WALLET_HELP,
+    prepare_initialization_mode, real_user_arg, request_existing_password, wallet_password_arg,
+    Either, NodeConfigurator, WalletCreationConfig, WalletCreationConfigMaker, EARNING_WALLET_HELP,
     WALLET_PASSWORD_HELP,
 };
 use crate::persistent_configuration::PersistentConfiguration;
@@ -127,6 +127,7 @@ impl NodeConfiguratorRecoverWallet {
                         .help(MNEMONIC_HELP),
                 )
                 .arg(mnemonic_passphrase_arg())
+                .arg(real_user_arg())
                 .arg(wallet_password_arg(WALLET_PASSWORD_HELP)),
         }
     }
@@ -223,6 +224,7 @@ impl Validators {
 mod tests {
     use super::*;
     use crate::blockchain::bip32::Bip32ECKeyPair;
+    use crate::bootstrapper::RealUser;
     use crate::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::database::db_initializer;
     use crate::database::db_initializer::DbInitializer;
@@ -386,7 +388,8 @@ mod tests {
             .param("--earning-wallet", earning_path)
             .param("--language", "español")
             .param("--mnemonic", phrase)
-            .param("--mnemonic-passphrase", "Mortimer");
+            .param("--mnemonic-passphrase", "Mortimer")
+            .param("--real-user", "123:456:/home/booga");
         let subject = NodeConfiguratorRecoverWallet::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
@@ -413,6 +416,7 @@ mod tests {
                     wallet_password: password.to_string(),
                     consuming_derivation_path_opt: Some(consuming_path.to_string()),
                 }),
+                real_user: RealUser::new(Some(123), Some(456), Some("/home/booga".into()))
             },
         );
     }
@@ -453,6 +457,7 @@ mod tests {
                         DEFAULT_CONSUMING_DERIVATION_PATH.to_string()
                     ),
                 }),
+                real_user: RealUser::null(),
             },
         );
     }

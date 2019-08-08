@@ -7,9 +7,7 @@ NODE_BINARY="$(which node)"
 NODE_DIR="$(dirname "$NODE_BINARY")"
 
 function start_not_windows {
-    SUDO_UID=$UID
-    SUDO_GID=$(id -g)
-    sudo -E PATH="$PATH:$NODE_DIR" SUDO_UID=$SUDO_UID SUDO_GID=$SUDO_GID "$CI_DIR/run_integration_tests.sh"
+    sudo -E PATH="$PATH:$NODE_DIR" "$CI_DIR/run_integration_tests.sh"
 }
 
 case "$OSTYPE" in

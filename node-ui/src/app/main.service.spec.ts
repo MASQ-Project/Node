@@ -96,6 +96,7 @@ describe('MainService', () => {
     beforeEach(() => {
       when(mockConfigService.getConfig()).thenReturn(new NodeConfiguration());
       when(mockSendSync('ip-lookup')).thenReturn('4.3.2.1');
+      when(mockSendSync('get-node-configuration')).thenReturn({earning_wallet_address: 'earning wallet address'});
     });
 
     describe('when telling the main to switch off', () => {
@@ -131,10 +132,16 @@ describe('MainService', () => {
     it('looks up the ip address', () => {
       service.lookupIp().subscribe(result => expect(result).toBe('4.3.2.1'));
     });
+
+    it('gets the node configuration', () => {
+      const expected = new NodeConfiguration();
+      expected.walletAddress = 'earning wallet address';
+      service.lookupConfiguration().subscribe(result => expect(result).toEqual(expected));
+    });
   });
 
   describe('when configuration exists', () => {
-    const nodeConfig: NodeConfiguration = {ip: 'fake'};
+    const nodeConfig: NodeConfiguration = {ip: 'fake', walletAddress: 'earning wallet address'};
     beforeEach(() => {
       when(mockGetConfig()).thenReturn(nodeConfig);
       service.serve();
@@ -156,6 +163,16 @@ describe('MainService', () => {
 
       it('does not lookup IP', () => {
         verify(mockSendSync('ip-lookup'), {times: 0});
+      });
+    });
+
+    describe('when lookupConfiguration is called', () => {
+      beforeEach(() => {
+        service.lookupConfiguration();
+      });
+
+      it('does not get node configuration', () => {
+        verify(mockSendSync('get-node-configuration'), {times: 0});
       });
     });
   });

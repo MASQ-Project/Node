@@ -7,11 +7,19 @@ module.exports = (() => {
   const argv = process.argv
 
   function getuid () {
-    return process.getuid()
+    if (process.platform === 'win32') {
+      return ''
+    } else {
+      return process.getuid()
+    }
   }
 
   function getgid () {
-    return process.getgid()
+    if (process.platform === 'win32') {
+      return ''
+    } else {
+      return process.getgid()
+    }
   }
 
   function kill (pid, signal) {

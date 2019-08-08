@@ -63,7 +63,7 @@ impl TestLogHandler {
         match self.find_first_log_matching(pattern) {
             Some(index) => index,
             None => panic!(
-                "No existing logs match '{}':\n{}",
+                "No existing logs match '{}':\n------\n{}\n------",
                 pattern,
                 self.list_logs()
             ),
@@ -79,7 +79,7 @@ impl TestLogHandler {
             }
         }
         panic!(
-            "Waited {}ms for log matching '{}':\n{}",
+            "Waited {}ms for log matching '{}':\n------\n{}\n------",
             millis,
             pattern,
             self.list_logs()
@@ -89,7 +89,7 @@ impl TestLogHandler {
     pub fn exists_no_log_matching(&self, pattern: &str) {
         if let Some(index) = self.logs_match(pattern) {
             panic!(
-                "Log at index {} matches '{}':\n{}",
+                "Log at index {} matches '{}':\n------\n{}\n------",
                 index,
                 pattern,
                 self.get_log_at(index)
@@ -101,7 +101,7 @@ impl TestLogHandler {
         match self.find_first_log_containing(fragment) {
             Some(index) => index,
             None => panic!(
-                "No existing logs contain '{}':\n{}",
+                "No existing logs contain '{}':\n------\n{}\n------",
                 fragment,
                 self.list_logs()
             ),
@@ -111,7 +111,7 @@ impl TestLogHandler {
     pub fn exists_no_log_containing(&self, fragment: &str) {
         if let Some(index) = self.logs_contain(fragment) {
             panic!(
-                "Log at index {} contains '{}':\n{}",
+                "Log at index {} contains '{}':\n------\n{}\n------",
                 index,
                 fragment,
                 self.get_log_at(index)
@@ -128,7 +128,7 @@ impl TestLogHandler {
             }
         }
         panic!(
-            "Waited {}ms for log containing '{}':\n{}",
+            "Waited {}ms for log containing '{}':\n------\n{}\n------",
             millis,
             fragment,
             self.list_logs()

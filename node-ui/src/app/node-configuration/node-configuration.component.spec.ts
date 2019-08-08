@@ -37,7 +37,8 @@ describe('NodeConfigurationComponent', () => {
     mockMainService = {
       save: td.func('save'),
       nodeStatus: mockNodeStatus,
-      lookupIp: td.func('lookupIp')
+      lookupIp: td.func('lookupIp'),
+      lookupConfiguration: td.func('lookupConfiguration')
     };
 
     mockConfigService = {
@@ -81,6 +82,7 @@ describe('NodeConfigurationComponent', () => {
       describe('ip is filled out if it can be looked up', () => {
         beforeEach(() => {
           td.when(mockMainService.lookupIp()).thenReturn(of('192.168.1.1'));
+          td.when(mockMainService.lookupConfiguration()).thenReturn(of({walletAddress: 'earning wallet address'}));
           fixture.detectChanges();
         });
 
@@ -88,25 +90,80 @@ describe('NodeConfigurationComponent', () => {
           expect(component).toBeTruthy();
         });
 
-        it('is filled out', () => {
+        it('ip address is filled out', () => {
           expect(page.ipTxt.value).toBe('192.168.1.1');
+        });
+
+        it('earning wallet address is filled out and readonly', () => {
+          expect(page.walletAddressTxt.value).toBe('earning wallet address');
+          expect(page.walletAddressTxt.readOnly).toBeTruthy();
+        });
+      });
+
+      describe('blank earning wallet address', () => {
+        beforeEach(() => {
+          td.when(mockMainService.lookupIp()).thenReturn(of('192.168.1.1'));
+          const expectedNodeConfiguration = new NodeConfiguration();
+          expectedNodeConfiguration.walletAddress = null;
+          td.when(mockMainService.lookupConfiguration()).thenReturn(of(expectedNodeConfiguration));
+          fixture = TestBed.createComponent(NodeConfigurationComponent);
+          page = new NodeConfigurationPage(fixture);
+          component = fixture.componentInstance;
+          fixture.detectChanges();
+        });
+
+        it('earning wallet address is blank and writable', () => {
+          expect(page.walletAddressTxt.value).toBe('');
+          expect(page.walletAddressTxt.readOnly).toBeFalsy();
+        });
+      });
+
+      describe('unsuccessful ip address lookup', () => {
+        beforeEach(() => {
+          td.when(mockMainService.lookupIp()).thenReturn(of(''));
+          td.when(mockMainService.lookupConfiguration()).thenReturn(of({}));
+          fixture.detectChanges();
+        });
+
+        describe('the ip field', () => {
+          it('should create', () => {
+            expect(component).toBeTruthy();
+          });
+
+          it('ip address starts blank', () => {
+            expect(page.ipTxt.value).toBe('');
+          });
         });
       });
     });
+  });
 
-    describe('unsuccessful ip address lookup', () => {
-      beforeEach(() => {
-        td.when(mockMainService.lookupIp()).thenReturn(of(''));
-        fixture.detectChanges();
-      });
-      describe('the ip field', () => {
+  describe('Wallet section', () => {
+    describe('with a filled out form', () => {
+      describe('when submitted', () => {
+        const expected = {
+          ip: '127.0.0.1',
+          neighbor: '5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999',
+          walletAddress: '0x0123456789012345678901234567890123456789',
+          privateKey: '',
+        };
 
-        it('should create', () => {
-          expect(component).toBeTruthy();
+        beforeEach(() => {
+          td.when(mockMainService.lookupIp()).thenReturn(of('192.168.1.1'));
+          td.when(mockMainService.lookupConfiguration()).thenReturn(of({}));
+          fixture.detectChanges();
+          page.setIp('127.0.0.1');
+          page.setNeighbor('5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999');
+          page.setWalletAddress('0x0123456789012345678901234567890123456789');
+          fixture.detectChanges();
+
+          page.saveConfigBtn.click();
+
+          fixture.detectChanges();
         });
 
-        it('starts blank', () => {
-          expect(page.ipTxt.value).toBe('');
+        it('persists the values', () => {
+          td.verify(mockConfigService.patchValue(expected));
         });
       });
     });
@@ -115,6 +172,7 @@ describe('NodeConfigurationComponent', () => {
   describe('Configuration', () => {
     beforeEach(() => {
       td.when(mockMainService.lookupIp()).thenReturn(of('1.2.3.4'));
+      td.when(mockMainService.lookupConfiguration()).thenReturn(of({}));
       fixture.detectChanges();
     });
 
@@ -334,6 +392,12 @@ describe('NodeConfigurationComponent', () => {
     });
 
     describe('Save Button', () => {
+      beforeEach(() => {
+        td.when(mockMainService.lookupIp()).thenReturn(of('1.2.3.4'));
+        td.when(mockMainService.lookupConfiguration()).thenReturn(of({}));
+        fixture.detectChanges();
+      });
+
       describe('when in configuration mode and the node is running', () => {
         beforeEach(() => {
           component.mode = ConfigurationMode.Configuring;
@@ -384,7 +448,9 @@ describe('NodeConfigurationComponent', () => {
             page.setNeighbor('5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999');
             page.setWalletAddress('');
             fixture.detectChanges();
+
             page.saveConfigBtn.click();
+
             fixture.detectChanges();
           });
 

@@ -1,7 +1,12 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+pub mod node_configurator_generate_wallet;
+pub mod node_configurator_recover_wallet;
+pub mod node_configurator_standard;
+
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::{Bip39, Bip39Error};
+use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
 use crate::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VclArg};
 use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
@@ -11,7 +16,7 @@ use crate::sub_lib::wallet::Wallet;
 use crate::sub_lib::wallet::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
 use bip39::Language;
 use clap::{crate_authors, crate_description, crate_version, value_t, App, AppSettings, Arg};
-use dirs::data_local_dir;
+use dirs::{data_local_dir, home_dir};
 use lazy_static::lazy_static;
 use rpassword;
 use rpassword::read_password_with_reader;
@@ -22,13 +27,6 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::str::FromStr;
 use tiny_hderive::bip44::DerivationPath;
-
-pub mod node_configurator_generate_wallet;
-pub mod node_configurator_recover_wallet;
-pub mod node_configurator_standard;
-
-#[cfg(test)]
-mod test_utils;
 
 pub trait NodeConfigurator<T> {
     fn configure(&self, args: &Vec<String>, streams: &mut StdStreams<'_>) -> T;
@@ -68,6 +66,11 @@ pub const MNEMONIC_PASSPHRASE_HELP: &str =
     "A passphrase for the mnemonic phrase. Cannot be changed later and still produce the same addresses. This is a \
      secret; providing it on the command line or in a config file is insecure and unwise. If you don't specify it anywhere, \
      you'll be prompted for it at the console.";
+pub const REAL_USER_HELP: &str =
+    "The user whose identity Node will assume when dropping privileges after bootstrapping. Since Node refuses to \
+     run with root privilege after bootstrapping, you might want to use this if you start the Node as root, or if \
+     you start the Node using pkexec or some other method that doesn't populate the SUDO_xxx variables. Use a value \
+     like <uid>:<gid>:<home directory>.";
 pub const WALLET_PASSWORD_HELP: &str =
     "A password or phrase to encrypt your consuming wallet in the SubstratumNode database or decrypt a keystore file. Can be changed \
      later and still produce the same addresses. This is a secret; providing it on the command line or in a config file is \
@@ -154,6 +157,28 @@ pub fn mnemonic_passphrase_arg<'a>() -> Arg<'a, 'a> {
         .help(MNEMONIC_PASSPHRASE_HELP)
 }
 
+#[cfg(not(windows))]
+pub fn real_user_arg<'a>() -> Arg<'a, 'a> {
+    Arg::with_name("real-user")
+        .long("real-user")
+        .value_name("REAL-USER")
+        .required(false)
+        .takes_value(true)
+        .validator(common_validators::validate_real_user)
+        .help(REAL_USER_HELP)
+}
+
+#[cfg(windows)]
+pub fn real_user_arg<'a>() -> Arg<'a, 'a> {
+    Arg::with_name("real-user")
+        .long("real-user")
+        .value_name("REAL-USER")
+        .required(false)
+        .takes_value(true)
+        .validator(common_validators::validate_real_user)
+        .hidden(true)
+}
+
 pub fn wallet_password_arg(help: &str) -> Arg {
     Arg::with_name("wallet-password")
         .long("wallet-password")
@@ -208,18 +233,53 @@ pub fn create_wallet(config: &WalletCreationConfig, persistent_config: &Persiste
     }
 }
 
-pub fn initialize_database(multi_config: &MultiConfig) -> Box<dyn PersistentConfiguration> {
-    let data_directory: PathBuf =
-        value_m!(multi_config, "data-directory", PathBuf).expect("data-directory is not defaulted");
+pub fn initialize_database(data_directory: &PathBuf) -> Box<dyn PersistentConfiguration> {
     let conn = DbInitializerReal::new()
-        .initialize(&data_directory)
-        .unwrap_or_else(|_| {
+        .initialize(data_directory)
+        .unwrap_or_else(|e| {
             panic!(
-                "Can't initialize database at {:?}",
-                data_directory.join(DATABASE_FILE)
+                "Can't initialize database at {:?}: {:?}",
+                data_directory.join(DATABASE_FILE),
+                e
             )
         });
     Box::new(PersistentConfigurationReal::from(conn))
+}
+
+pub fn real_user_and_data_directory(multi_config: &MultiConfig) -> (RealUser, PathBuf) {
+    let real_user = match value_m!(multi_config, "real-user", RealUser) {
+        None => RealUser::null().populate(),
+        Some(real_user) => real_user.populate(),
+    };
+
+    let data_directory = match value_user_specified_m!(multi_config, "data-directory", PathBuf) {
+        (Some(data_directory), true) => data_directory,
+        (Some(_), false) => {
+            let dirs_wrapper = RealDirsWrapper {};
+            let right_home_dir = real_user
+                .home_dir
+                .as_ref()
+                .expect("No real-user home directory; specify --real-user")
+                .to_string_lossy()
+                .to_string();
+            let wrong_home_dir = dirs_wrapper
+                .home_dir()
+                .expect("No privileged home directory; specify --data-directory")
+                .to_string_lossy()
+                .to_string();
+            let wrong_local_data_dir = dirs_wrapper
+                .data_dir()
+                .expect("No privileged local data directory; specify --data-directory")
+                .to_string_lossy()
+                .to_string();
+            let right_local_data_dir =
+                wrong_local_data_dir.replace(&wrong_home_dir, &right_home_dir);
+            PathBuf::from(right_local_data_dir).join("Substratum")
+        }
+        _ => panic!("--data-directory improperly defined in clap schema"),
+    };
+
+    (real_user, data_directory)
 }
 
 pub fn prepare_initialization_mode<'a>(
@@ -233,7 +293,8 @@ pub fn prepare_initialization_mode<'a>(
             Box::new(EnvironmentVcl::new(&app)),
         ],
     );
-    let persistent_config_box = initialize_database(&multi_config);
+    let (_, data_directory) = real_user_and_data_directory(&multi_config);
+    let persistent_config_box = initialize_database(&data_directory);
     if persistent_config_box.encrypted_mnemonic_seed().is_some() {
         exit(1, "Cannot re-initialize Node: already initialized")
     }
@@ -466,17 +527,32 @@ pub mod common_validators {
             Err(format!("{} may be too weak", path))
         }
     }
+
+    pub fn validate_real_user(triple: String) -> Result<(), String> {
+        if Regex::new("^[0-9]*:[0-9]*:.*$")
+            .expect("Failed to compile regular expression")
+            .is_match(&triple)
+        {
+            Ok(())
+        } else {
+            Err(triple)
+        }
+    }
 }
 
-pub trait DirsWrapper {
+pub trait DirsWrapper: Send {
     fn data_dir(&self) -> Option<PathBuf>;
+    fn home_dir(&self) -> Option<PathBuf>;
 }
 
-struct RealDirsWrapper {}
+pub struct RealDirsWrapper;
 
 impl DirsWrapper for RealDirsWrapper {
     fn data_dir(&self) -> Option<PathBuf> {
         data_local_dir()
+    }
+    fn home_dir(&self) -> Option<PathBuf> {
+        home_dir()
     }
 }
 
@@ -497,6 +573,7 @@ pub struct DerivationPathWalletInfo {
 pub struct WalletCreationConfig {
     pub earning_wallet_address_opt: Option<String>,
     pub derivation_path_info_opt: Option<DerivationPathWalletInfo>,
+    pub real_user: RealUser,
 }
 
 pub trait WalletCreationConfigMaker {
@@ -537,6 +614,10 @@ pub trait WalletCreationConfigMaker {
             &consuming_derivation_path,
             &earning_wallet_info,
         );
+        let real_user = match value_m!(multi_config, "real-user", RealUser) {
+            Some(ru) => ru,
+            None => RealUser::null(),
+        };
         WalletCreationConfig {
             earning_wallet_address_opt: match &earning_wallet_info {
                 Either::Left(address) => Some(address.clone()),
@@ -552,6 +633,7 @@ pub trait WalletCreationConfigMaker {
                 wallet_password,
                 consuming_derivation_path_opt: Some(consuming_derivation_path),
             }),
+            real_user,
         }
     }
 
@@ -606,7 +688,7 @@ fn exit(code: i32, message: &str) {
 mod tests {
     use super::*;
     use crate::blockchain::bip32::Bip32ECKeyPair;
-    use crate::node_configurator::test_utils::{BadMockDirsWrapper, MockDirsWrapper};
+    use crate::node_test_utils::MockDirsWrapper;
     use crate::sub_lib::wallet::{Wallet, DEFAULT_EARNING_DERIVATION_PATH};
     use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
@@ -753,16 +835,58 @@ mod tests {
     }
 
     #[test]
+    fn validate_real_user_accepts_all_fields() {
+        let result = common_validators::validate_real_user(String::from("999:999:/home/booga"));
+
+        assert_eq!(Ok(()), result);
+    }
+
+    #[test]
+    fn validate_real_user_accepts_no_fields() {
+        let result = common_validators::validate_real_user(String::from("::"));
+
+        assert_eq!(Ok(()), result);
+    }
+
+    #[test]
+    fn validate_real_user_rejects_non_numeric_uid() {
+        let result = common_validators::validate_real_user(String::from("abc:999:/home/booga"));
+
+        assert_eq!(Err(String::from("abc:999:/home/booga")), result);
+    }
+
+    #[test]
+    fn validate_real_user_rejects_non_numeric_gid() {
+        let result = common_validators::validate_real_user(String::from("999:abc:/home/booga"));
+
+        assert_eq!(Err(String::from("999:abc:/home/booga")), result);
+    }
+
+    #[test]
+    fn validate_real_user_rejects_too_few_colons() {
+        let result = common_validators::validate_real_user(String::from(":"));
+
+        assert_eq!(Err(String::from(":")), result);
+    }
+
+    #[test]
+    fn validate_real_user_accepts_too_many_colons() {
+        let result = common_validators::validate_real_user(String::from(":::"));
+
+        assert_eq!(Ok(()), result);
+    }
+
+    #[test]
     fn data_directory_default_given_no_default() {
         assert_eq!(
             String::from(""),
-            data_directory_default(&BadMockDirsWrapper {})
+            data_directory_default(&MockDirsWrapper::new().data_dir_result(None))
         );
     }
 
     #[test]
     fn data_directory_default_works() {
-        let mock_dirs_wrapper = MockDirsWrapper {};
+        let mock_dirs_wrapper = MockDirsWrapper::new().data_dir_result(Some("mocked/path".into()));
 
         let result = data_directory_default(&mock_dirs_wrapper);
 
@@ -807,8 +931,8 @@ mod tests {
             determine_config_file_path(&determine_config_file_path_app(), &args.into());
 
         assert_eq!(
+            &format!("{}", config_file_path.parent().unwrap().display()),
             "data-dir",
-            &format!("{}", config_file_path.parent().unwrap().display())
         );
         assert_eq!("booga.toml", config_file_path.file_name().unwrap());
         assert_eq!(true, user_specified);
@@ -1166,6 +1290,7 @@ mod tests {
                     .arg(consuming_wallet_arg())
                     .arg(earning_wallet_arg("", |_| Ok(())))
                     .arg(mnemonic_passphrase_arg())
+                    .arg(real_user_arg())
                     .arg(wallet_password_arg(WALLET_PASSWORD_HELP)),
             }
         }
@@ -1210,6 +1335,7 @@ mod tests {
                         DEFAULT_CONSUMING_DERIVATION_PATH.to_string()
                     ),
                 }),
+                real_user: RealUser::null(),
             },
         );
     }
@@ -1222,7 +1348,8 @@ mod tests {
             .param("--consuming-wallet", "m/44'/60'/1'/2/3")
             .param("--earning-wallet", "m/44'/60'/3'/2/1")
             .param("--mnemonic-passphrase", "mnemonic passphrase")
-            .param("--wallet-password", "wallet password");
+            .param("--wallet-password", "wallet password")
+            .param("--real-user", "123::");
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
         let stdout_writer = &mut ByteArrayWriter::new();
@@ -1253,6 +1380,7 @@ mod tests {
                     wallet_password: "wallet password".to_string(),
                     consuming_derivation_path_opt: Some("m/44'/60'/1'/2/3".to_string()),
                 }),
+                real_user: RealUser::new(Some(123), None, None),
             },
         );
     }
@@ -1267,7 +1395,8 @@ mod tests {
                 "0x0123456789ABCDEF0123456789ABCDEF01234567",
             )
             .param("--mnemonic-passphrase", "mnemonic passphrase")
-            .param("--wallet-password", "wallet password");
+            .param("--wallet-password", "wallet password")
+            .param("--real-user", "123::");
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
         let stdout_writer = &mut ByteArrayWriter::new();
@@ -1293,6 +1422,7 @@ mod tests {
                     wallet_password: "wallet password".to_string(),
                     consuming_derivation_path_opt: Some("m/44'/60'/1'/2/3".to_string()),
                 }),
+                real_user: RealUser::new(Some(123), None, None),
             },
         );
     }
@@ -1326,6 +1456,7 @@ mod tests {
                 wallet_password: "wallet password".to_string(),
                 consuming_derivation_path_opt: Some("m/44'/60'/1'/2/3".to_string()),
             }),
+            real_user: RealUser::null(),
         };
         let set_mnemonic_seed_params_arc = Arc::new(Mutex::new(vec![]));
         let set_consuming_wallet_derivation_path_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1371,6 +1502,7 @@ mod tests {
                 wallet_password: "wallet password".to_string(),
                 consuming_derivation_path_opt: Some("m/44'/60'/1'/2/3".to_string()),
             }),
+            real_user: RealUser::null(),
         };
         let set_mnemonic_seed_params_arc = Arc::new(Mutex::new(vec![]));
         let set_consuming_wallet_derivation_path_params_arc = Arc::new(Mutex::new(vec![]));

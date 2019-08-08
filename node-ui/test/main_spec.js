@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-/* global jasmine describe beforeEach afterEach it expect */
+/* global jasmine describe beforeEach afterEach it */
 
 const assert = require('assert')
 const path = require('path')
@@ -13,52 +13,7 @@ const testUtilities = require('./test_utilities')
 
 global.WebSocket = WebSocket
 
-describe('Without application launch', () => {
-  const fs = require('fs')
-  const process = require('process')
-  const generatedBasePath = 'generated/main_spec/'
-  let subject
-
-  beforeEach(() => {
-    subject = require('../main-process/command_helper')
-  })
-
-  describe('When the Node configuration is retrieved', () => {
-    let configuration
-
-    beforeEach(() => {
-      const dataDir = generatedBasePath + 'node_configuration_retrieved'
-      fs.mkdirSync(dataDir, { recursive: true })
-      const uid = parseInt(process.env.SUDO_UID)
-      const gid = parseInt(process.env.SUDO_GID)
-      if (!isNaN(uid) && !isNaN(gid)) {
-        fs.chownSync(dataDir, uid, gid)
-      }
-      process.env.SUB_DATA_DIRECTORY = dataDir
-      configuration = subject.getNodeConfiguration()
-    })
-
-    it('contains useful values', () => {
-      expect(parseSemVer(configuration.schema_version)).toBeGreaterThanOrEqual(parseSemVer('0.0.8'))
-      expect(parseInt(configuration.start_block)).toBeGreaterThanOrEqual(4647463)
-    })
-  })
-
-  function parseSemVer (semver) {
-    const parts = semver.split('.')
-    let value = 0
-    let multiplier = 1
-    while (parts.length > 0) {
-      value *= multiplier
-      multiplier += 100
-      value += parseInt(parts[parts.length - 1])
-      parts.length -= 1
-    }
-    return value
-  }
-})
-
-describe('Application launch', function () {
+describe('After application launch: ', function () {
   jasmine.DEFAULT_TIMEOUT_INTERVAL = 20000
   let configComponent
   let indexPage
@@ -102,8 +57,9 @@ describe('Application launch', function () {
 
   afterEach(async () => {
     if (this.app && this.app.isRunning()) {
+      const result = this.app.stop()
       assert.strictEqual(await uiInterface.verifyNodeDown(1000), true)
-      return this.app.stop()
+      return result
     }
   })
 
@@ -217,7 +173,6 @@ describe('Application launch', function () {
     assert.notStrictEqual(await client.getText('#node-descriptor'), '')
 
     await indexPage.off.click()
-    assert.strictEqual(await uiInterface.verifyNodeDown(10000), true)
   })
 
   it('Changing configuration while node is running turns off the node', async () => {

@@ -351,11 +351,11 @@ pub(crate) mod tests {
     use std::fs::File;
     use std::io::Write;
 
-    pub struct FauxEnvironmentVCL {
+    pub struct FauxEnvironmentVcl {
         pub vcl_args: Vec<Box<dyn VclArg>>,
     }
 
-    impl VirtualCommandLine for FauxEnvironmentVCL {
+    impl VirtualCommandLine for FauxEnvironmentVcl {
         fn vcl_args(&self) -> Vec<&dyn VclArg> {
             vcl_args_to_vcl_args(&self.vcl_args)
         }

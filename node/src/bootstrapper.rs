@@ -15,8 +15,9 @@ use crate::listener_handler::ListenerHandlerFactoryReal;
 use crate::node_configurator::node_configurator_standard::{
     NodeConfiguratorStandardPrivileged, NodeConfiguratorStandardUnprivileged,
 };
-use crate::node_configurator::NodeConfigurator;
+use crate::node_configurator::{DirsWrapper, NodeConfigurator, RealDirsWrapper};
 use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
+use crate::privilege_drop::{IdWrapper, IdWrapperReal};
 use crate::server_initializer::LoggerInitializerWrapper;
 use crate::sub_lib::accountant;
 use crate::sub_lib::accountant::AccountantConfig;
@@ -35,12 +36,16 @@ use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::ui_gateway::DEFAULT_UI_PORT;
 use crate::sub_lib::wallet::Wallet;
 use futures::try_ready;
+use itertools::Itertools;
 use log::LevelFilter;
 use std::collections::HashMap;
+use std::env::var;
+use std::fmt::{Debug, Error, Formatter};
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::time::Duration;
 use std::vec::Vec;
 use tokio::prelude::stream::futures_unordered::FuturesUnordered;
@@ -77,6 +82,152 @@ impl PortConfiguration {
     }
 }
 
+pub trait EnvironmentWrapper: Send {
+    fn var(&self, key: &str) -> Option<String>;
+}
+
+pub struct EnvironmentWrapperReal;
+
+impl EnvironmentWrapper for EnvironmentWrapperReal {
+    fn var(&self, key: &str) -> Option<String> {
+        match var(key) {
+            Ok(s) => Some(s),
+            Err(_) => None,
+        }
+    }
+}
+
+pub struct RealUser {
+    id_wrapper: Box<dyn IdWrapper>,
+    environment_wrapper: Box<dyn EnvironmentWrapper>,
+    dirs_wrapper: Box<dyn DirsWrapper>,
+    pub uid: Option<i32>,
+    pub gid: Option<i32>,
+    pub home_dir: Option<PathBuf>,
+}
+
+impl Debug for RealUser {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        write!(
+            f,
+            "uid: {:?}, gid: {:?}, home_dir: {:?}",
+            self.uid, self.gid, self.home_dir
+        )
+    }
+}
+
+impl PartialEq for RealUser {
+    fn eq(&self, other: &Self) -> bool {
+        self.uid == other.uid && self.gid == other.gid && self.home_dir == other.home_dir
+    }
+}
+
+impl Default for RealUser {
+    fn default() -> Self {
+        RealUser::null()
+    }
+}
+
+impl Clone for RealUser {
+    fn clone(&self) -> Self {
+        RealUser::new(self.uid, self.gid, self.home_dir.clone())
+    }
+}
+
+impl FromStr for RealUser {
+    type Err = ();
+
+    fn from_str(triple: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<&str> = triple.splitn(3, ':').collect_vec();
+        // validator should have ensured that there are exactly three parts,
+        // and that the first two are empty or numeric
+        let real_user = RealUser::new(
+            match &parts[0] {
+                s if s.is_empty() => None,
+                s => Some(s.parse().expect("--real-user is not properly validated")),
+            },
+            match &parts[1] {
+                s if s.is_empty() => None,
+                s => Some(s.parse().expect("--real-user is not properly validated")),
+            },
+            match &parts[2] {
+                s if s.is_empty() => None,
+                s => Some(s.into()),
+            },
+        );
+        Ok(real_user)
+    }
+}
+
+impl RealUser {
+    pub fn new(
+        uid_opt: Option<i32>,
+        gid_opt: Option<i32>,
+        home_dir_opt: Option<PathBuf>,
+    ) -> RealUser {
+        RealUser {
+            id_wrapper: Box::new(IdWrapperReal),
+            environment_wrapper: Box::new(EnvironmentWrapperReal),
+            dirs_wrapper: Box::new(RealDirsWrapper),
+            uid: uid_opt,
+            gid: gid_opt,
+            home_dir: home_dir_opt,
+        }
+    }
+
+    pub fn null() -> RealUser {
+        RealUser::new(None, None, None)
+    }
+
+    pub fn populate(&self) -> RealUser {
+        let uid = Self::first_present(vec![
+            self.uid,
+            self.id_from_env("SUDO_UID"),
+            Some(self.id_wrapper.getuid()),
+        ]);
+        let gid = Self::first_present(vec![
+            self.gid,
+            self.id_from_env("SUDO_GID"),
+            Some(self.id_wrapper.getgid()),
+        ]);
+        let home_dir = Self::first_present(vec![
+            self.home_dir.clone(),
+            self.sudo_home_from_sudo_user_and_home(),
+            self.dirs_wrapper.home_dir(),
+        ]);
+        RealUser::new(Some(uid), Some(gid), Some(home_dir))
+    }
+
+    fn sudo_home_from_sudo_user_and_home(&self) -> Option<PathBuf> {
+        match (self.environment_wrapper.var ("SUDO_USER"), self.dirs_wrapper.home_dir()) {
+            (Some (sudo_user), Some (home_dir)) =>
+                match home_dir.parent().map(|px| px.join(PathBuf::from(sudo_user))) {
+                    Some (hd) => Some (hd),
+                    None => panic! ("Cannot determine non-privileged home directory. Make sure you're specifying --real-user."),
+                },
+            _ => None
+        }
+    }
+
+    fn id_from_env(&self, name: &str) -> Option<i32> {
+        match self.environment_wrapper.var(name) {
+            Some(s) => match s.parse::<i32>() {
+                Ok(n) => Some(n),
+                Err(_) => None,
+            },
+            None => None,
+        }
+    }
+
+    fn first_present<T>(candidates: Vec<Option<T>>) -> T {
+        candidates
+            .into_iter()
+            .find(|t_opt| t_opt.is_some())
+            .expect("Nothing was present")
+            .expect("Internal error")
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct BootstrapperConfig {
     // These fields can be set while privileged without penalty
@@ -91,6 +242,7 @@ pub struct BootstrapperConfig {
     pub port_configurations: HashMap<u16, PortConfiguration>,
     pub data_directory: PathBuf,
     pub cryptde_null_opt: Option<CryptDENull>,
+    pub real_user: RealUser,
 
     // These fields must be set without privilege: otherwise the database will be created as root
     pub clandestine_port_opt: Option<u16>,
@@ -137,6 +289,7 @@ impl BootstrapperConfig {
             port_configurations: HashMap::new(),
             data_directory: PathBuf::new(),
             cryptde_null_opt: None,
+            real_user: RealUser::null(),
 
             // These fields must be set without privilege: otherwise the database will be created as root
             clandestine_port_opt: None,
@@ -153,7 +306,6 @@ impl BootstrapperConfig {
     }
 }
 
-// TODO: Consider splitting this into a piece that's meant for being root and a piece that's not.
 pub struct Bootstrapper {
     listener_handler_factory: Box<dyn ListenerHandlerFactory>,
     listener_handlers: FuturesUnordered<Box<dyn ListenerHandler<Item = (), Error = ()>>>,
@@ -167,23 +319,28 @@ impl Future for Bootstrapper {
     type Error = ();
 
     fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
-        try_ready!(CrashTestDummy::new(self.config.crash_point.clone()).poll());
+        try_ready!(
+            CrashTestDummy::new(self.config.crash_point.clone(), BootstrapperConfig::new()).poll()
+        );
 
         try_ready!(self.listener_handlers.poll());
         Ok(Async::Ready(()))
     }
 }
 
-impl SocketServer for Bootstrapper {
-    fn name(&self) -> String {
-        String::from("Dispatcher")
+impl SocketServer<BootstrapperConfig> for Bootstrapper {
+    fn get_configuration(&self) -> &BootstrapperConfig {
+        &self.config
     }
 
     fn initialize_as_privileged(&mut self, args: &Vec<String>, streams: &mut StdStreams) {
         self.config = NodeConfiguratorStandardPrivileged {}.configure(args, streams);
 
-        self.logger_initializer
-            .init(self.config.data_directory.clone(), self.config.log_level);
+        self.logger_initializer.init(
+            self.config.data_directory.clone(),
+            &self.config.real_user,
+            self.config.log_level,
+        );
         self.listener_handlers =
             FuturesUnordered::<Box<dyn ListenerHandler<Item = (), Error = ()>>>::new();
 
@@ -205,8 +362,9 @@ impl SocketServer for Bootstrapper {
     fn initialize_as_unprivileged(&mut self, args: &Vec<String>, streams: &mut StdStreams) {
         // NOTE: The following line of code is not covered by unit tests
         fdlimit::raise_fd_limit();
-        self.config
-            .merge_unprivileged(NodeConfiguratorStandardUnprivileged {}.configure(args, streams));
+        let unprivileged_config =
+            NodeConfiguratorStandardUnprivileged::new(&self.config).configure(args, streams);
+        self.config.merge_unprivileged(unprivileged_config);
         self.establish_clandestine_port();
         let cryptde_ref = Bootstrapper::initialize_cryptde(
             &self.config.cryptde_null_opt,
@@ -322,9 +480,9 @@ mod tests {
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::discriminator::Discriminator;
     use crate::discriminator::UnmaskedChunk;
-    use crate::node_test_utils::extract_log;
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
     use crate::node_test_utils::TestLogOwner;
+    use crate::node_test_utils::{extract_log, IdWrapperMock, MockDirsWrapper};
     use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
     use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
     use crate::stream_handler_pool::StreamHandlerPoolSubs;
@@ -468,6 +626,37 @@ mod tests {
         }
     }
 
+    struct EnvironmentWrapperMock {
+        sudo_uid: Option<String>,
+        sudo_gid: Option<String>,
+        sudo_user: Option<String>,
+    }
+
+    impl EnvironmentWrapper for EnvironmentWrapperMock {
+        fn var(&self, key: &str) -> Option<String> {
+            match key {
+                "SUDO_UID" => self.sudo_uid.clone(),
+                "SUDO_GID" => self.sudo_gid.clone(),
+                "SUDO_USER" => self.sudo_user.clone(),
+                _ => None,
+            }
+        }
+    }
+
+    impl EnvironmentWrapperMock {
+        fn new(
+            sudo_uid: Option<&str>,
+            sudo_gid: Option<&str>,
+            sudo_user: Option<&str>,
+        ) -> EnvironmentWrapperMock {
+            EnvironmentWrapperMock {
+                sudo_uid: sudo_uid.map(|s| s.to_string()),
+                sudo_gid: sudo_gid.map(|s| s.to_string()),
+                sudo_user: sudo_user.map(|s| s.to_string()),
+            }
+        }
+    }
+
     fn make_default_cli_params() -> Vec<String> {
         vec![
             String::from("SubstratumNode"),
@@ -477,12 +666,48 @@ mod tests {
     }
 
     #[test]
-    fn knows_its_name() {
-        let subject = BootstrapperBuilder::new().build();
+    fn real_user_from_many_colons() {
+        let subject = RealUser::from_str("::::::").unwrap();
 
-        let result = subject.name();
+        assert_eq!(subject, RealUser::new(None, None, Some("::::".into())))
+    }
 
-        assert_eq!(result, String::from("Dispatcher"));
+    #[test]
+    fn real_user_from_two_colons() {
+        let subject = RealUser::from_str("::").unwrap();
+
+        assert_eq!(subject, RealUser::new(None, None, None))
+    }
+
+    #[test]
+    fn real_user_from_uid_only() {
+        let subject = RealUser::from_str("123::").unwrap();
+
+        assert_eq!(subject, RealUser::new(Some(123), None, None))
+    }
+
+    #[test]
+    fn real_user_from_gid_only() {
+        let subject = RealUser::from_str(":456:").unwrap();
+
+        assert_eq!(subject, RealUser::new(None, Some(456), None))
+    }
+
+    #[test]
+    fn real_user_from_home_dir_only() {
+        let subject = RealUser::from_str("::booga").unwrap();
+
+        assert_eq!(subject, RealUser::new(None, None, Some("booga".into())))
+    }
+
+    #[test]
+    fn real_user_from_all_parts() {
+        let subject = RealUser::from_str("123:456:booga").unwrap();
+
+        assert_eq!(
+            subject,
+            RealUser::new(Some(123), Some(456), Some("booga".into()))
+        )
     }
 
     #[test]
@@ -570,12 +795,20 @@ mod tests {
         subject.listener_handler_factory = Box::new(listener_handler_factory);
         let args = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
-            .param("--dns-servers", "1.1.1.1");
+            .param("--dns-servers", "1.1.1.1")
+            .param("--real-user", "123:456:/home/booga");
 
         subject.initialize_as_privileged(&args.into(), &mut FakeStreamHolder::new().streams());
 
         let init_params = init_params_arc.lock().unwrap();
-        assert_eq!(*init_params, vec![(data_dir, LevelFilter::Warn)])
+        assert_eq!(
+            *init_params,
+            vec![(
+                data_dir,
+                RealUser::new(Some(123), Some(456), Some("/home/booga".into())),
+                LevelFilter::Warn
+            )]
+        )
     }
 
     #[test]
@@ -1102,6 +1335,90 @@ mod tests {
             .neighborhood_config
             .clandestine_port_list
             .is_empty());
+    }
+
+    #[test]
+    fn real_user_null() {
+        let subject = RealUser::null();
+
+        assert_eq!(subject, RealUser::new(None, None, None));
+    }
+
+    #[test]
+    fn configurator_beats_all() {
+        let id_wrapper = IdWrapperMock::new().getuid_result(111).getgid_result(222);
+        let environment_wrapper =
+            EnvironmentWrapperMock::new(Some("123"), Some("456"), Some("booga"));
+        let mut from_configurator = RealUser::new(Some(1), Some(2), Some("three".into()));
+        from_configurator.id_wrapper = Box::new(id_wrapper);
+        from_configurator.environment_wrapper = Box::new(environment_wrapper);
+        from_configurator.dirs_wrapper = Box::new(MockDirsWrapper::new());
+
+        let result = from_configurator.populate();
+
+        assert_eq!(result, from_configurator);
+    }
+
+    #[test]
+    fn environment_beats_id_wrapper() {
+        let id_wrapper = IdWrapperMock::new().getuid_result(111).getgid_result(222);
+        let environment_wrapper =
+            EnvironmentWrapperMock::new(Some("123"), Some("456"), Some("booga"));
+        let mut from_configurator = RealUser::null();
+        from_configurator.id_wrapper = Box::new(id_wrapper);
+        from_configurator.environment_wrapper = Box::new(environment_wrapper);
+        from_configurator.dirs_wrapper =
+            Box::new(MockDirsWrapper::new().home_dir_result(Some("/wibble/whop/ooga".into())));
+
+        let result = from_configurator.populate();
+
+        assert_eq!(
+            result,
+            RealUser::new(
+                Some(123),
+                Some(456),
+                Some(PathBuf::from("/wibble/whop/booga"))
+            )
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Cannot determine non-privileged home directory. Make sure you're specifying --real-user."
+    )]
+    fn zero_element_home_directory_panics() {
+        let id_wrapper = IdWrapperMock::new().getuid_result(111).getgid_result(222);
+        let environment_wrapper =
+            EnvironmentWrapperMock::new(Some("123"), Some("456"), Some("booga"));
+        let mut from_configurator = RealUser::null();
+        from_configurator.id_wrapper = Box::new(id_wrapper);
+        from_configurator.environment_wrapper = Box::new(environment_wrapper);
+        from_configurator.dirs_wrapper =
+            Box::new(MockDirsWrapper::new().home_dir_result(Some("/".into())));
+
+        from_configurator.populate();
+    }
+
+    #[test]
+    fn unmodified_is_last_ditch() {
+        let environment_wrapper = EnvironmentWrapperMock::new(None, None, None);
+        let id_wrapper = IdWrapperMock::new().getuid_result(123).getgid_result(456);
+        let mut from_configurator = RealUser::null();
+        from_configurator.id_wrapper = Box::new(id_wrapper);
+        from_configurator.environment_wrapper = Box::new(environment_wrapper);
+        from_configurator.dirs_wrapper =
+            Box::new(MockDirsWrapper::new().home_dir_result(Some("/wibble/whop/ooga".into())));
+
+        let result = from_configurator.populate();
+
+        assert_eq!(
+            result,
+            RealUser::new(
+                Some(123),
+                Some(456),
+                Some(PathBuf::from("/wibble/whop/ooga"))
+            )
+        );
     }
 
     struct StreamHandlerPoolCluster {
