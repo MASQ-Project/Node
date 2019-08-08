@@ -14,6 +14,7 @@ const nodePathWindows = `${path.resolve(__dirname, '.', '../dist/static/binaries
 const recoverArgs = [
   '--recover-wallet',
   '--consuming-wallet', 'path',
+  '--earning-wallet', 'path',
   '--language', 'wordlist',
   '--mnemonic', 'phrase',
   '--mnemonic-passphrase', 'passphrase',
@@ -25,6 +26,7 @@ const generateArgs = [
   '--generate-wallet',
   '--json',
   '--consuming-wallet', 'path',
+  '--earning-wallet', 'path',
   '--language', 'wordlist',
   '--mnemonic-passphrase', 'passphrase',
   '--wallet-password', 'password',

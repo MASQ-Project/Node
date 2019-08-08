@@ -33,6 +33,7 @@ module.exports = (() => {
     const args = [
       '--recover-wallet',
       '--consuming-wallet', derivationPath,
+      '--earning-wallet', derivationPath,
       '--language', wordlist,
       '--mnemonic', mnemonicPhrase,
       '--mnemonic-passphrase', mnemonicPassphrase,
@@ -48,6 +49,7 @@ module.exports = (() => {
       '--generate-wallet',
       '--json',
       '--consuming-wallet', derivationPath,
+      '--earning-wallet', derivationPath,
       '--language', wordlist,
       '--mnemonic-passphrase', mnemonicPassphrase,
       '--wallet-password', walletPassword,
