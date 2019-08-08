@@ -2,16 +2,16 @@
 import {TestBed} from '@angular/core/testing';
 import {ConfigService} from './config.service';
 import {NodeConfiguration} from './node-configuration';
+import * as td from 'testdouble';
 
 describe('ConfigService', () => {
+  let listenerCallback;
   let service: ConfigService;
+
   beforeEach(() => {
     TestBed.configureTestingModule({});
     service = TestBed.get(ConfigService);
-  });
-
-  it('should be created', () => {
-    expect(service).toBeTruthy();
+    listenerCallback = td.matchers.captor();
   });
 
   describe('stores configuration', () => {

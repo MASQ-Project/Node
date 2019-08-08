@@ -3,13 +3,27 @@
 import {FormControl, FormGroup, Validators} from '@angular/forms';
 import {ConfigService} from '../config.service';
 import {WalletType} from '../wallet-type.enum';
-import {Component, ElementRef, EventEmitter, HostListener, Input, OnInit, Output, ViewChild} from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  EventEmitter,
+  HostListener,
+  Input,
+  NgZone,
+  OnInit,
+  Output,
+  ViewChild
+} from '@angular/core';
 import {ipValidator, neighborhoodValidator, walletValidator} from './node-configuration.validator';
 import {MainService} from '../main.service';
 import {ConfigurationMode} from '../configuration-mode.enum';
 import {NodeStatus} from '../node-status.enum';
 import {Subscription} from 'rxjs';
 import {NodeConfiguration} from '../node-configuration';
+import {LocalStorageService} from '../local-storage.service';
+
+const neighborNodeDescriptor = 'neighborNodeDescriptor';
+const persistNeighborPreference = 'persistNeighborPreference';
 
 @Component({
   selector: 'app-node-configuration',
@@ -25,9 +39,12 @@ export class NodeConfigurationComponent implements OnInit {
   @Output() saved = new EventEmitter<ConfigurationMode>();
   @Output() cancelled = new EventEmitter<void>();
 
-  constructor(private configService: ConfigService, private mainService: MainService) {
-  }
+  constructor(private localStorageService: LocalStorageService,
+              private configService: ConfigService,
+              private mainService: MainService,
+              private ngZone: NgZone) {  }
 
+  persistNeighbor = false;
   nodeConfig = new FormGroup({
     ip: new FormControl('', [ipValidator, Validators.required]),
     privateKey: new FormControl(''),
@@ -49,7 +66,18 @@ export class NodeConfigurationComponent implements OnInit {
 
   ngOnInit() {
     this.configService.load().subscribe((config) => {
-      this.nodeConfig.patchValue(config);
+      this.ngZone.run(() => {
+        const storedPreference = this.localStorageService.getItem(persistNeighborPreference);
+        if (storedPreference != null) {
+          this.persistNeighbor = storedPreference === 'true';
+        }
+        const storedNeighbor = this.localStorageService.getItem(neighborNodeDescriptor);
+        if (storedNeighbor) {
+          config.neighbor = storedNeighbor;
+        }
+
+        this.nodeConfig.patchValue(config);
+      });
     });
     this.ipSubscription = this.mainService.lookupIp().subscribe((ip) => {
       this.nodeConfig.patchValue({'ip': ip});
@@ -57,6 +85,12 @@ export class NodeConfigurationComponent implements OnInit {
   }
 
   save() {
+    if (this.persistNeighbor) {
+      this.localStorageService.setItem(neighborNodeDescriptor, this.nodeConfig.value['neighbor']);
+    } else {
+      this.localStorageService.removeItem(neighborNodeDescriptor);
+    }
+    this.localStorageService.setItem(persistNeighborPreference, this.persistNeighbor);
     this.saved.emit(this.mode);
   }
 
@@ -65,8 +99,8 @@ export class NodeConfigurationComponent implements OnInit {
   }
 
   async onSubmit() {
-    this.configService.patchValue(this.nodeConfig.value);
     this.save();
+    this.configService.patchValue(this.nodeConfig.value);
   }
 
   hideTooltip() {

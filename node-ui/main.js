@@ -105,7 +105,7 @@ app.on('activate', () => {
   }
 })
 
-ipcMain.on('ip-lookup', async (event, command, args) => {
+ipcMain.on('ip-lookup', async (event) => {
   const req = http.get(
     { host: 'api.ipify.org', port: 80, path: '/', timeout: 1000 },
     resp => {
@@ -132,7 +132,7 @@ ipcMain.on('change-node-state', (event, command, args) => {
   }
 })
 
-ipcMain.on('set-consuming-wallet-password', (event, password, args) => {
+ipcMain.on('set-consuming-wallet-password', (event, password) => {
   nodeActuator.setConsumingWalletPassword(password).then(success => {
     mainWindow.webContents.send('set-consuming-wallet-password-response', success)
   }).catch(() => {
@@ -140,7 +140,7 @@ ipcMain.on('set-consuming-wallet-password', (event, password, args) => {
   })
 })
 
-ipcMain.on('get-financial-statistics', (event, data, args) => {
+ipcMain.on('get-financial-statistics', () => {
   nodeActuator.getFinancialStatistics().then(result => {
     mainWindow.webContents.send('get-financial-statistics-response', result)
   }).catch((error) => {

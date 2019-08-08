@@ -28,6 +28,18 @@
   border-color: color('text');
 }
 
+.checkbox {
+  width: 20px;
+  height: 20px;
+  margin: 6px 0px 3px 8px;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  padding: 24px 18px 0 18px;
+}
+
 @mixin node-textbox() {
   height: 40px;
   padding: 0 18px;
@@ -48,12 +60,17 @@
 
 @mixin node-form() {
   background: color('background');
-  padding: 24px 18px 0 18px;
   text-align: center;
 
   .tooltip {
     position: relative;
     display: inline-block;
+  }
+
+  &__ancillary {
+    display: flex;
+    flex-direction: row-reverse;
+    align-items: center;
   }
 
   &__clippy {
@@ -82,13 +99,14 @@
 
   &__inset {
     flex: 4;
+    margin-top: 20px;
   }
 
   &__empty-flex {
     flex: 1;
   }
 
-  input {
+  input[type="text"], input[type="range"] {
     @include node-textbox();
   }
 
@@ -129,7 +147,6 @@
 
   &__actions {
     display: flex;
-    margin-bottom: 20px;
 
     &--invalid {
       border: 3px solid color('primary');

@@ -7,7 +7,8 @@ const td = require('testdouble')
 describe('main', () => {
   let mockApp, mockDialog, mockEvent, mockHttp, mockIpcMain, mockMenu, mainWindow, webContents, mainWindowOnClose,
     MockNodeActuator, appOnReady, ipcMainOnIpLookup, ipcMainOnChangeNodeState, ipcMainOnGetFinancialStatistics,
-    ipcMainOnCalculateWalletAddress, ipcMainOnRecoverConsumingWallet, ipcMainOnGenerateConsumingWallet, ipcMainOnSetConsumingWalletPassword, process
+    ipcMainOnCalculateWalletAddress, ipcMainOnRecoverConsumingWallet, ipcMainOnGenerateConsumingWallet,
+    ipcMainOnSetConsumingWalletPassword, process
 
   beforeEach(() => {
     mockEvent = td.object(['preventDefault'])
@@ -251,6 +252,7 @@ describe('main', () => {
         td.when(MockNodeActuator.prototype.getFinancialStatistics()).thenResolve('results')
         await ipcMainOnGetFinancialStatistics.value({}, {}, {})
       })
+
       it('sends get-financial-statistics-response', () => {
         td.verify(mainWindow.prototype.webContents.send('get-financial-statistics-response', 'results'))
       })
@@ -260,6 +262,7 @@ describe('main', () => {
         td.when(MockNodeActuator.prototype.getFinancialStatistics()).thenReject('error')
         await ipcMainOnGetFinancialStatistics.value({}, {}, {})
       })
+
       it('sends get-financial-statistics-error', () => {
         td.verify(mainWindow.prototype.webContents.send('get-financial-statistics-response-error', 'error'))
       })
@@ -414,6 +417,7 @@ describe('main', () => {
         td.when(MockNodeActuator.prototype.setConsumingWalletPassword('secret')).thenResolve(true)
         await ipcMainOnSetConsumingWalletPassword.value({}, 'secret', {})
       })
+
       it('sends set-consuming-wallet-password-response', () => {
         td.verify(mainWindow.prototype.webContents.send('set-consuming-wallet-password-response', true))
       })
@@ -423,6 +427,7 @@ describe('main', () => {
         td.when(MockNodeActuator.prototype.setConsumingWalletPassword('badsecret')).thenReject(false)
         await ipcMainOnSetConsumingWalletPassword.value({}, 'badsecret', {})
       })
+
       it('sends get-financial-statistics-error', () => {
         td.verify(mainWindow.prototype.webContents.send('set-consuming-wallet-password-response', false))
       })
@@ -434,6 +439,7 @@ describe('main', () => {
       beforeEach(() => {
         process.platform = 'darwin'
       })
+
       it('Menu is set up', () => {
         appOnReady.value()
 

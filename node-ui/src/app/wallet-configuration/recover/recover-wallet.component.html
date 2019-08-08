@@ -1,10 +1,8 @@
 <!--Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.-->
 <div class="recover-wallet-configuration">
+  <h3 class="title">Recover wallet from mnemonic phrase</h3>
+
   <form [formGroup]="walletConfig" (ngSubmit)="generatePublicAddress()">
-    <div id="controls-container" class="recover-wallet-configuration__actions">
-      <span>Recover wallet from mnemonic phrase</span>
-      <input hidden type="radio" id="recover-wallet-control" value=""/>
-    </div>
     <div id="lang-pass-container" class="recover-wallet-configuration__actions">
       <div id="language-container">
         <label for="wordlist">Language</label>

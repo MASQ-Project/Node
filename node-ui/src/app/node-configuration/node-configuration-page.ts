@@ -25,6 +25,10 @@ export class NodeConfigurationPage {
     return this.query('#neighbor');
   }
 
+  get rememberNeighborChk(): HTMLInputElement {
+    return this.query('#persist-neighbor');
+  }
+
   get neighborValidationPatternLi(): HTMLLIElement {
     return this.query('#neighbor-validation__pattern');
   }
@@ -72,6 +76,11 @@ export class NodeConfigurationPage {
 
   setNeighbor(value: string) {
     NodeConfigurationPage.setInputText(this.neighborTxt, value);
+  }
+
+  changeRememberNeighbor(value: boolean) {
+    this.rememberNeighborChk.checked = value;
+    this.rememberNeighborChk.dispatchEvent(new Event('change'));
   }
 
   setWalletAddress(value: string) {

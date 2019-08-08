@@ -2,7 +2,7 @@
 
 import {ComponentFixture, TestBed} from '@angular/core/testing';
 import {NodeConfigurationComponent} from './node-configuration.component';
-import {func, reset, verify, when} from 'testdouble';
+import * as td from 'testdouble';
 import {ConfigService} from '../config.service';
 import {FormsModule, ReactiveFormsModule} from '@angular/forms';
 import {Router} from '@angular/router';
@@ -13,6 +13,7 @@ import {of} from 'rxjs/internal/observable/of';
 import {MainService} from '../main.service';
 import {ConfigurationMode} from '../configuration-mode.enum';
 import {NodeStatus} from '../node-status.enum';
+import {LocalStorageService} from '../local-storage.service';
 
 describe('NodeConfigurationComponent', () => {
   let component: NodeConfigurationComponent;
@@ -25,23 +26,29 @@ describe('NodeConfigurationComponent', () => {
   let storedConfig: Subject<NodeConfiguration>;
   let mockMainService;
   let mockConfigMode;
+  let mockLocalStorageService;
 
   beforeEach(() => {
     storedConfig = new BehaviorSubject(new NodeConfiguration());
     mockConfigMode = new BehaviorSubject(ConfigurationMode.Hidden);
-    mockNavigateByUrl = func('navigateByUrl');
+    mockNavigateByUrl = td.func('navigateByUrl');
 
     mockNodeStatus = new BehaviorSubject(new NodeConfiguration());
     mockMainService = {
-      save: func('save'),
+      save: td.func('save'),
       nodeStatus: mockNodeStatus,
-      lookupIp: func('lookupIp')
+      lookupIp: td.func('lookupIp')
     };
 
     mockConfigService = {
-      patchValue: func('patchValue'),
-      load: func('load'),
+      patchValue: td.func('patchValue'),
+      load: td.func('load'),
       mode: mockConfigMode,
+    };
+    mockLocalStorageService = {
+      getItem: td.func('getItem'),
+      setItem: td.func('setItem'),
+      removeItem: td.func('removeItem')
     };
     mockRouter = {
       navigateByUrl: mockNavigateByUrl
@@ -55,24 +62,25 @@ describe('NodeConfigurationComponent', () => {
       providers: [
         {provide: ConfigService, useValue: mockConfigService},
         {provide: MainService, useValue: mockMainService},
-        {provide: Router, useValue: mockRouter}
+        {provide: Router, useValue: mockRouter},
+        {provide: LocalStorageService, useValue: mockLocalStorageService}
       ]
     }).compileComponents();
-    when(mockConfigService.load()).thenReturn(storedConfig.asObservable());
+    td.when(mockConfigService.load()).thenReturn(storedConfig.asObservable());
     fixture = TestBed.createComponent(NodeConfigurationComponent);
     page = new NodeConfigurationPage(fixture);
     component = fixture.componentInstance;
   });
 
   afterEach(() => {
-    reset();
+    td.reset();
   });
 
   describe('LookupIp', () => {
     describe('successful ip address lookup', () => {
       describe('ip is filled out if it can be looked up', () => {
         beforeEach(() => {
-          when(mockMainService.lookupIp()).thenReturn(of('192.168.1.1'));
+          td.when(mockMainService.lookupIp()).thenReturn(of('192.168.1.1'));
           fixture.detectChanges();
         });
 
@@ -88,7 +96,7 @@ describe('NodeConfigurationComponent', () => {
 
     describe('unsuccessful ip address lookup', () => {
       beforeEach(() => {
-        when(mockMainService.lookupIp()).thenReturn(of(''));
+        td.when(mockMainService.lookupIp()).thenReturn(of(''));
         fixture.detectChanges();
       });
       describe('the ip field', () => {
@@ -106,11 +114,11 @@ describe('NodeConfigurationComponent', () => {
 
   describe('Configuration', () => {
     beforeEach(() => {
-      when(mockMainService.lookupIp()).thenReturn(of('1.2.3.4'));
+      td.when(mockMainService.lookupIp()).thenReturn(of('1.2.3.4'));
       fixture.detectChanges();
     });
 
-    describe('when it already exists', () => {
+    describe('when it already exists and there is no node descriptor in local storage', () => {
       const expected: NodeConfiguration = {
         ip: '127.0.0.1',
         neighbor: 'neighbornodedescriptor',
@@ -119,6 +127,9 @@ describe('NodeConfigurationComponent', () => {
       };
 
       beforeEach(() => {
+        td.when(mockLocalStorageService.getItem('neighborNodeDescriptor')).thenReturn(null);
+        td.when(mockLocalStorageService.getItem('persistNeighborPreference')).thenReturn('false');
+
         storedConfig.next(expected);
       });
 
@@ -126,6 +137,30 @@ describe('NodeConfigurationComponent', () => {
         expect(page.ipTxt.value).toBe('127.0.0.1');
         expect(page.neighborTxt.value).toBe('neighbornodedescriptor');
         expect(page.walletAddressTxt.value).toBe('address');
+        expect(component.persistNeighbor).toBeFalsy();
+      });
+    });
+
+    describe('when it already exists and a node descriptor is in local storage', () => {
+      const expected: NodeConfiguration = {
+        ip: '127.0.0.1',
+        neighbor: 'neighbornodedescriptor',
+        walletAddress: 'address',
+        privateKey: ''
+      };
+
+      beforeEach(() => {
+        td.when(mockLocalStorageService.getItem('neighborNodeDescriptor')).thenReturn('stored neighbor descriptor');
+        td.when(mockLocalStorageService.getItem('persistNeighborPreference')).thenReturn('true');
+
+        storedConfig.next(expected);
+      });
+
+      it('is prepopulated with that data', () => {
+        expect(page.ipTxt.value).toBe('127.0.0.1');
+        expect(page.neighborTxt.value).toBe('stored neighbor descriptor');
+        expect(page.walletAddressTxt.value).toBe('address');
+        expect(component.persistNeighbor).toBeTruthy();
       });
     });
 
@@ -354,7 +389,50 @@ describe('NodeConfigurationComponent', () => {
           });
 
           it('persists the values', () => {
-            verify(mockConfigService.patchValue(expected));
+            td.verify(mockConfigService.patchValue(expected));
+          });
+        });
+
+        describe('saving the neighbor node descriptor', () => {
+          describe('when the checkbox is NOT checked', () => {
+            beforeEach(() => {
+              page.setIp('127.0.0.1');
+              page.setNeighbor('5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999');
+              page.setWalletAddress('');
+              fixture.detectChanges();
+              page.saveConfigBtn.click();
+              fixture.detectChanges();
+            });
+
+            it('removes the node descriptor from local storage', () => {
+              td.verify(mockLocalStorageService.removeItem('neighborNodeDescriptor'));
+            });
+
+            it('saves the checkbox state to local storage', () => {
+              td.verify(mockLocalStorageService.setItem('persistNeighborPreference', false));
+            });
+          });
+
+          describe('when the checkbox is checked', () => {
+            beforeEach(() => {
+              page.setIp('127.0.0.1');
+              page.setNeighbor('5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999');
+              page.changeRememberNeighbor(true);
+              page.setWalletAddress('');
+              fixture.detectChanges();
+              page.saveConfigBtn.click();
+              fixture.detectChanges();
+            });
+
+            it('stores the node descriptor in local storage', () => {
+              td.verify(
+                mockLocalStorageService.setItem('neighborNodeDescriptor', '5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999')
+              );
+            });
+
+            it('saves the checkbox state to local storage', () => {
+              td.verify(mockLocalStorageService.setItem('persistNeighborPreference', true));
+            });
           });
         });
       });

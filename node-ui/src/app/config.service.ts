@@ -10,9 +10,6 @@ import {ipPattern, neighborPattern, walletPattern} from './node-configuration/no
 })
 export class ConfigService {
 
-  constructor() {
-  }
-
   private configSubject: BehaviorSubject<NodeConfiguration> = new BehaviorSubject({});
   readonly config = this.configSubject.asObservable();
 
