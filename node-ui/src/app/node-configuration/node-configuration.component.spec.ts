@@ -6,7 +6,7 @@ import * as td from 'testdouble';
 import {ConfigService} from '../config.service';
 import {FormsModule, ReactiveFormsModule} from '@angular/forms';
 import {Router} from '@angular/router';
-import {BehaviorSubject, Subject} from 'rxjs';
+import {BehaviorSubject} from 'rxjs';
 import {NodeConfiguration} from '../node-configuration';
 import {NodeConfigurationPage} from './node-configuration-page';
 import {of} from 'rxjs/internal/observable/of';
@@ -23,7 +23,7 @@ describe('NodeConfigurationComponent', () => {
   let mockRouter;
   let mockNodeStatus;
   let mockNavigateByUrl;
-  let storedConfig: Subject<NodeConfiguration>;
+  let storedConfig: BehaviorSubject<NodeConfiguration>;
   let mockMainService;
   let mockConfigMode;
   let mockLocalStorageService;

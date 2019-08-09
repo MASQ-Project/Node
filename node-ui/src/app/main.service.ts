@@ -17,7 +17,7 @@ export class MainService {
   private statusListener: BehaviorSubject<NodeStatus> = new BehaviorSubject<NodeStatus>(NodeStatus.Off);
   nodeStatus: Observable<NodeStatus> = this.statusListener.asObservable();
 
-  private nodeDescriptorListener: Subject<string> = new Subject();
+  private nodeDescriptorListener: BehaviorSubject<string> = new BehaviorSubject<string>('');
   nodeDescriptor: Observable<string> = this.nodeDescriptorListener.asObservable();
 
   private setConsumingWalletPasswordResponseListener: Subject<boolean> = new Subject();

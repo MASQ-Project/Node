@@ -142,6 +142,39 @@ describe('After application launch: ', function () {
     assert.strictEqual((await client.element('#neighbor').getValue()), 'wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:1.1.1.1:12345;4321')
   })
 
+  it('persists our node descriptor when navigating to another page', async () => {
+    const client = this.app.client
+
+    await client.waitUntilWindowLoaded()
+    await indexPage.serving.click()
+    await configComponent.ipInput.setValue('1.2.3.4')
+    await configComponent.neighborInput.setValue('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:1.1.1.1:12345;4321')
+
+    await client.waitUntil(async () => {
+      return configComponent.saveConfig.isEnabled()
+    })
+    client.element('#save-config').click()
+    await client.waitUntilWindowLoaded()
+
+    assert.strictEqual(await uiInterface.verifyNodeUp(10000), true)
+    await client.waitUntil(async () => (await client.getText('#node-status-label')) === 'Serving')
+    assert.strictEqual((await client.getText('#node-status-label')), 'Serving')
+    printConsoleForDebugging(client, false)
+    assert.notStrictEqual(await client.getText('#node-descriptor'), '')
+
+    await indexPage.settingsButton.click()
+    await indexPage.networkSettings.click()
+    await client.waitUntilWindowLoaded()
+
+    client.element('#cancel').click()
+    await client.waitUntilWindowLoaded()
+
+    assert.notStrictEqual(await client.getText('#node-descriptor'), '')
+
+    await indexPage.off.click()
+    assert.strictEqual(await uiInterface.verifyNodeDown(10000), true)
+  })
+
   it('toggles substratum node from off to serving back to off and back on and on again without needing to enter information and then back off again', async () => {
     const client = this.app.client
 
@@ -239,6 +272,10 @@ class IndexPage {
 
   get openSettings () {
     return this.client.element('#open-settings')
+  }
+
+  get networkSettings () {
+    return this.client.element('#network-settings-menu')
   }
 }
 
