@@ -17,11 +17,11 @@ pub const MAX_DEGREE: usize = 5;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum GossipAcceptanceResult {
-    // There are database changes. Generate standard Gossip and broadcast.
+    // The incoming Gossip produced database changes. Generate standard Gossip and broadcast.
     Accepted,
     // Don't generate Gossip from the database: instead, send this Gossip to the provided key and NodeAddr.
     Reply(Gossip, PublicKey, NodeAddr),
-    // Don't send out any Gossip because of this.
+    // The incoming Gossip contained nothing we didn't know. Don't send out any Gossip because of it.
     Ignored,
     // Gossip was ignored because it was evil: ban the sender of the Gossip as a malefactor.
     Ban(String),
@@ -136,7 +136,10 @@ impl GossipHandler for DebutHandler {
             return result;
         }
         debug!(self.logger, "Seeking neighbor for Pass");
-        let lcn_key = match Self::find_least_connected_neighbor_excluding(database, &source_agr) {
+        let lcn_key = match Self::find_least_connected_half_neighbor_excluding(
+            database,
+            &source_agr,
+        ) {
             None => {
                 debug!(self.logger,
                     "Neighbor count at maximum, but no non-common neighbors. DebutHandler is reluctantly ignoring debut from {} at {}",
@@ -178,7 +181,8 @@ impl DebutHandler {
         database: &'b NeighborhoodDatabase,
         excluded: &'b AccessibleGossipRecord,
     ) -> Option<&'b PublicKey> {
-        let neighbor_vec = Self::root_neighbors_ordered_by_degree_excluding(database, excluded);
+        let neighbor_vec =
+            Self::root_full_neighbors_ordered_by_degree_excluding(database, excluded);
         let neighbors_3_or_greater_vec: Vec<&PublicKey> = neighbor_vec
             .into_iter()
             .skip_while(|k| database.gossip_target_degree(*k) <= 2)
@@ -271,7 +275,8 @@ impl DebutHandler {
         database: &NeighborhoodDatabase,
         debuting_agr: &AccessibleGossipRecord,
     ) -> Option<(Gossip, PublicKey, NodeAddr)> {
-        if let Some(lcn_key) = Self::find_least_connected_neighbor_excluding(database, debuting_agr)
+        if let Some(lcn_key) =
+            Self::find_least_connected_full_neighbor_excluding(database, debuting_agr)
         {
             let lcn_node_addr = database
                 .node_by_key(lcn_key)
@@ -300,11 +305,33 @@ impl DebutHandler {
         }
     }
 
-    fn find_least_connected_neighbor_excluding<'b>(
+    fn find_least_connected_half_neighbor_excluding<'b>(
         database: &'b NeighborhoodDatabase,
         excluded: &'b AccessibleGossipRecord,
     ) -> Option<&'b PublicKey> {
-        let keys = database.root().half_neighbor_keys();
+        Self::find_least_connected_neighbor_excluding(
+            database.root().half_neighbor_keys(),
+            database,
+            excluded,
+        )
+    }
+
+    fn find_least_connected_full_neighbor_excluding<'b>(
+        database: &'b NeighborhoodDatabase,
+        excluded: &'b AccessibleGossipRecord,
+    ) -> Option<&'b PublicKey> {
+        Self::find_least_connected_neighbor_excluding(
+            database.root().full_neighbor_keys(database),
+            database,
+            excluded,
+        )
+    }
+
+    fn find_least_connected_neighbor_excluding<'b>(
+        keys: HashSet<&'b PublicKey>,
+        database: &'b NeighborhoodDatabase,
+        excluded: &'b AccessibleGossipRecord,
+    ) -> Option<&'b PublicKey> {
         let excluded_keys = Self::node_and_neighbor_keys(excluded);
         Self::keys_ordered_by_degree_excluding(database, keys, excluded_keys)
             .first()
@@ -325,14 +352,14 @@ impl DebutHandler {
         neighbor_keys_vec
     }
 
-    fn root_neighbors_ordered_by_degree_excluding<'b>(
+    fn root_full_neighbors_ordered_by_degree_excluding<'b>(
         database: &'b NeighborhoodDatabase,
         excluded: &'b AccessibleGossipRecord,
     ) -> Vec<&'b PublicKey> {
         let excluded_keys = Self::node_and_neighbor_keys(excluded);
         Self::keys_ordered_by_degree_excluding(
             database,
-            database.root().half_neighbor_keys(),
+            database.root().full_neighbor_keys(database),
             excluded_keys,
         )
     }
@@ -473,7 +500,7 @@ impl GossipHandler for IntroductionHandler {
         agrs: Vec<AccessibleGossipRecord>,
         gossip_source: IpAddr,
     ) -> GossipAcceptanceResult {
-        if database.root().half_neighbor_keys().len() >= MAX_DEGREE {
+        if database.root().full_neighbor_keys(database).len() >= MAX_DEGREE {
             GossipAcceptanceResult::Ignored
         } else {
             let (introducer, introducee) = Self::identify_players(agrs, gossip_source)
@@ -845,7 +872,7 @@ impl StandardGossipHandler {
             Some(node) => node,
         };
         let gossip_node_key = gossip_node.public_key().clone();
-        if database.root().half_neighbor_keys().len() >= MAX_DEGREE {
+        if database.root().full_neighbor_keys(database).len() >= MAX_DEGREE {
             false
         } else {
             match database.add_half_neighbor(&gossip_node_key) {
@@ -1636,6 +1663,13 @@ mod tests {
         let (gossip, gossip_source) = make_introduction(2345, 3456);
         let dest_root = make_node_record(7878, true);
         let mut dest_db = db_from_node(&dest_root);
+        // These don't count because they're half-only neighbors. Will they be ignored?
+        for idx in 0..MAX_DEGREE {
+            let half_neighbor_key = &dest_db
+                .add_node(make_node_record(4000 + idx as u16, true))
+                .unwrap();
+            dest_db.add_arbitrary_half_neighbor(dest_root.public_key(), half_neighbor_key);
+        }
         let cryptde = CryptDENull::from(dest_db.root().public_key(), DEFAULT_CHAIN_ID);
         let subject = IntroductionHandler::new(Logger::new("test"));
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
@@ -2333,6 +2367,34 @@ mod tests {
     }
 
     #[test]
+    fn introduction_is_impossible_if_only_candidate_is_half_neighbor() {
+        let src_node = make_node_record(1234, true);
+        let src_db = db_from_node(&src_node);
+        let dest_node = make_node_record(2345, true);
+        let mut dest_db = db_from_node(&dest_node);
+        let half_neighbor_key = &dest_db.add_node(make_node_record(3456, true)).unwrap();
+        dest_db.add_arbitrary_half_neighbor(dest_node.public_key(), half_neighbor_key);
+
+        let debut = GossipBuilder::new(&src_db)
+            .node(src_node.public_key(), true)
+            .build();
+        let debut_agrs = debut.try_into().unwrap();
+        let gossip_source = src_node.node_addr_opt().unwrap().ip_addr();
+        let subject = GossipAcceptorReal::new(cryptde());
+
+        let result = subject.handle(&mut dest_db, debut_agrs, gossip_source);
+
+        assert_eq!(result, GossipAcceptanceResult::Accepted);
+        assert_eq!(
+            dest_db
+                .node_by_key(dest_node.public_key())
+                .unwrap()
+                .has_half_neighbor(src_node.public_key()),
+            true,
+        );
+    }
+
+    #[test]
     fn pass_is_properly_handled() {
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
@@ -2493,6 +2555,13 @@ mod tests {
         let mut src_db = db_from_node(&src_node);
         let third_node = make_node_record(3456, true);
         let disconnected_node = make_node_record(4567, true);
+        // These are only half neighbors. Will they be ignored in degree calculation?
+        for idx in 0..MAX_DEGREE {
+            let failed_node_key = &dest_db
+                .add_node(make_node_record(4000 + idx as u16, true))
+                .unwrap();
+            dest_db.add_arbitrary_half_neighbor(dest_node.public_key(), failed_node_key);
+        }
         dest_db.add_node(third_node.clone()).unwrap();
         src_db.add_node(dest_node.clone()).unwrap();
         src_db.add_node(third_node.clone()).unwrap();
@@ -2540,6 +2609,12 @@ mod tests {
             .unwrap()
             .metadata
             .node_addr_opt = None;
+        for idx in 0..MAX_DEGREE {
+            let failed_node_key = &expected_dest_db
+                .add_node(make_node_record(4000 + idx as u16, true))
+                .unwrap();
+            expected_dest_db.add_arbitrary_half_neighbor(dest_node.public_key(), failed_node_key);
+        }
         let dest_node_mut = expected_dest_db
             .node_by_key_mut(dest_node.public_key())
             .unwrap();
@@ -2784,9 +2859,65 @@ mod tests {
         db.add_arbitrary_full_neighbor(low_degree_key, far_key);
         let excluded_agr = AccessibleGossipRecord::from((&db, excluded_key, true));
 
-        let result = DebutHandler::root_neighbors_ordered_by_degree_excluding(&db, &excluded_agr);
+        let result =
+            DebutHandler::root_full_neighbors_ordered_by_degree_excluding(&db, &excluded_agr);
 
         assert_eq!(vec![low_degree_key, high_degree_key], result)
+    }
+
+    #[test]
+    fn find_least_connected_half_neighbor_excluding_includes_half_neighbors() {
+        let root_node = make_node_record(1234, true);
+        let mut db = db_from_node(&root_node);
+        let excluded_key = &db.add_node(make_node_record(2345, true)).unwrap();
+        let well_connected_full_key = &db.add_node(make_node_record(3456, true)).unwrap();
+        let less_connected_half_key = &db.add_node(make_node_record(4567, true)).unwrap();
+        let neighbor_1_key = &db.add_node(make_node_record(5678, false)).unwrap();
+        let neighbor_2_key = &db.add_node(make_node_record(6789, false)).unwrap();
+        let neighbor_3_key = &db.add_node(make_node_record(7890, false)).unwrap();
+        db.add_arbitrary_full_neighbor(root_node.public_key(), excluded_key);
+        db.add_arbitrary_full_neighbor(root_node.public_key(), well_connected_full_key);
+        db.add_arbitrary_half_neighbor(root_node.public_key(), less_connected_half_key);
+        db.add_arbitrary_full_neighbor(less_connected_half_key, neighbor_1_key);
+        db.add_arbitrary_full_neighbor(less_connected_half_key, neighbor_2_key);
+        db.add_arbitrary_full_neighbor(well_connected_full_key, neighbor_1_key);
+        db.add_arbitrary_full_neighbor(well_connected_full_key, neighbor_2_key);
+        db.add_arbitrary_full_neighbor(well_connected_full_key, neighbor_3_key);
+        let excluded_agr = AccessibleGossipRecord::from(db.node_by_key(excluded_key).unwrap());
+
+        let result =
+            DebutHandler::find_least_connected_half_neighbor_excluding(&db, &excluded_agr).unwrap();
+
+        assert_eq!(result, less_connected_half_key)
+    }
+
+    #[test]
+    fn root_full_neighbors_ordered_by_degree_excluding_ignores_half_neighbors() {
+        let root_node = make_node_record(1234, true);
+        let mut db = db_from_node(&root_node);
+        let excluded_key = &db.add_node(make_node_record(2345, true)).unwrap();
+        let three_neighbors_key = &db.add_node(make_node_record(3456, true)).unwrap();
+        let two_neighbors_key = &db.add_node(make_node_record(4567, true)).unwrap();
+        let one_neighbor_key = &db.add_node(make_node_record(4568, true)).unwrap();
+        let neighbor_1_key = &db.add_node(make_node_record(5678, false)).unwrap();
+        let neighbor_2_key = &db.add_node(make_node_record(6789, false)).unwrap();
+        let neighbor_3_key = &db.add_node(make_node_record(7890, false)).unwrap();
+        db.add_arbitrary_full_neighbor(root_node.public_key(), excluded_key);
+        db.add_arbitrary_full_neighbor(root_node.public_key(), three_neighbors_key);
+        db.add_arbitrary_full_neighbor(root_node.public_key(), two_neighbors_key);
+        db.add_arbitrary_half_neighbor(root_node.public_key(), one_neighbor_key);
+        db.add_arbitrary_full_neighbor(one_neighbor_key, neighbor_1_key);
+        db.add_arbitrary_full_neighbor(two_neighbors_key, neighbor_1_key);
+        db.add_arbitrary_full_neighbor(two_neighbors_key, neighbor_2_key);
+        db.add_arbitrary_full_neighbor(three_neighbors_key, neighbor_1_key);
+        db.add_arbitrary_full_neighbor(three_neighbors_key, neighbor_2_key);
+        db.add_arbitrary_full_neighbor(three_neighbors_key, neighbor_3_key);
+        let excluded_agr = AccessibleGossipRecord::from(db.node_by_key(excluded_key).unwrap());
+
+        let result =
+            DebutHandler::root_full_neighbors_ordered_by_degree_excluding(&db, &excluded_agr);
+
+        assert_eq!(result, vec![two_neighbors_key, three_neighbors_key]);
     }
 
     fn make_debut(n: u16) -> (Gossip, NodeRecord, IpAddr) {

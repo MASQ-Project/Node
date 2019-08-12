@@ -2,7 +2,7 @@
 
 mod dot_graph;
 pub mod gossip;
-mod gossip_acceptor;
+pub mod gossip_acceptor;
 #[cfg(not(feature = "expose_test_privates"))]
 mod gossip_producer;
 #[cfg(feature = "expose_test_privates")]

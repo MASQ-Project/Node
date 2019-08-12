@@ -3,11 +3,15 @@
 use multinode_integration_tests_lib::multinode_gossip::{
     parse_gossip, GossipType, MultinodeGossip, StandardBuilder,
 };
+use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
 use multinode_integration_tests_lib::substratum_node::SubstratumNode;
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::substratum_real_node::{
     NodeStartupConfigBuilder, SubstratumRealNode,
 };
+use node_lib::neighborhood::gossip_acceptor::MAX_DEGREE;
+use node_lib::neighborhood::neighborhood_test_utils::db_from_node;
+use node_lib::neighborhood::neighborhood_test_utils::make_node_record;
 use node_lib::sub_lib::cryptde::PublicKey;
 use std::thread;
 use std::time::Duration;
@@ -73,4 +77,33 @@ fn graph_connects_but_does_not_over_connect() {
         "These Nodes had the wrong number of neighbors: {:?}",
         problems
     );
+}
+
+#[test]
+fn lots_of_stalled_nodes_dont_prevent_acceptance_of_new_node() {
+    let root_node = make_node_record(1234, true);
+    let mut db = db_from_node(&root_node);
+    for idx in 0..MAX_DEGREE as u16 {
+        let stalled_node_key = &db.add_node(make_node_record(4000 + idx, true)).unwrap();
+        db.add_arbitrary_half_neighbor(root_node.public_key(), stalled_node_key);
+    }
+    let full_neighbor_key = &db.add_node(make_node_record(2345, true)).unwrap();
+    db.add_arbitrary_full_neighbor(root_node.public_key(), full_neighbor_key);
+    let mut cluster = SubstratumNodeCluster::start().unwrap();
+    let (_, root_node, _) = construct_neighborhood(&mut cluster, db, vec![]);
+    let new_node =
+        cluster.start_mock_node_with_public_key(vec![5050], &PublicKey::new(&[3, 4, 5, 6]));
+
+    new_node.transmit_debut(&root_node).unwrap();
+
+    let (gossip, sender) = new_node
+        .wait_for_gossip(Duration::from_millis(1000))
+        .unwrap();
+    match parse_gossip(&gossip, sender) {
+        GossipType::IntroductionGossip(introduction) => {
+            assert_eq!(introduction.introducer_key(), root_node.public_key());
+            assert_eq!(introduction.introducee_key(), full_neighbor_key);
+        }
+        _ => panic!("Received unexpected Gossip when expecting Introduction"),
+    }
 }
