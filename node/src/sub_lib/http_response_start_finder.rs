@@ -128,7 +128,7 @@ mod tests {
 
         let result = HttpResponseStartFinder::find_response_offset(&data[..]);
 
-        assert_eq! (result, Some ("Here's a fake HTTP/1.1 20 followed by another fake HTTP/1.1 21 followed by a real ".len ()));
+        assert_eq!(result, Some ("Here's a fake HTTP/1.1 20 followed by another fake HTTP/1.1 21 followed by a real ".len ()));
     }
 
     #[test]

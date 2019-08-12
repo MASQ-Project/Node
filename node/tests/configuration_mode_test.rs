@@ -69,7 +69,7 @@ fn dump_configuration_integration() {
 
     assert_string_contains(
         &console_log,
-        &format!("\"schema_version\": \"{}\"", CURRENT_SCHEMA_VERSION),
+        &format!("\"schemaVersion\": \"{}\"", CURRENT_SCHEMA_VERSION),
     );
 }
 

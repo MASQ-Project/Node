@@ -6,7 +6,6 @@ import {ElectronService} from './electron.service';
 import {func, matchers, object, reset, verify, when} from 'testdouble';
 import {NodeConfiguration} from './node-configuration';
 import {ConfigService} from './config.service';
-import {NodeStatus} from './node-status.enum';
 
 describe('MainService', () => {
   let mockSend;
@@ -17,6 +16,7 @@ describe('MainService', () => {
   let service: MainService;
   let mockConfigService;
   let mockGetConfig;
+  let mockPatchValue;
   let mockOn;
   let nodeStatusListener;
   let nodeDescriptorListener;
@@ -26,6 +26,7 @@ describe('MainService', () => {
     mockSend = func('send');
     mockSendSync = func('sendSync');
     mockGetConfig = func('getConfig');
+    mockPatchValue = func('patchValue');
     mockWriteText = func('writeText');
     mockOn = func('on');
     nodeStatusListener = matchers.captor();
@@ -44,7 +45,8 @@ describe('MainService', () => {
     };
     mockConfigService = object(['getConfig']);
     mockConfigService = {
-      getConfig: mockGetConfig
+      getConfig: mockGetConfig,
+      patchValue: mockPatchValue
     };
     TestBed.configureTestingModule({
       providers: [
@@ -53,6 +55,10 @@ describe('MainService', () => {
         {provide: ConfigService, useValue: mockConfigService}
       ]
     });
+    when(mockSendSync('get-node-configuration')).thenReturn({
+      earningWalletAddress: 'foobar',
+      gasPrice: 42,
+    });
     service = TestBed.get(MainService);
   });
 
@@ -60,8 +66,13 @@ describe('MainService', () => {
     reset();
   });
 
-  it('should be created', () => {
-    expect(service).toBeTruthy();
+  it('loads the config', () => {
+    verify(mockPatchValue({
+      walletAddress: 'foobar',
+      networkSettings: {
+        gasPrice: 42
+      }
+    }));
   });
 
   it('creates listeners', () => {
@@ -96,7 +107,7 @@ describe('MainService', () => {
     beforeEach(() => {
       when(mockConfigService.getConfig()).thenReturn(new NodeConfiguration());
       when(mockSendSync('ip-lookup')).thenReturn('4.3.2.1');
-      when(mockSendSync('get-node-configuration')).thenReturn({earning_wallet_address: 'earning wallet address'});
+      when(mockSendSync('get-node-configuration')).thenReturn({earningWalletAddress: 'earning wallet address'});
     });
 
     describe('when telling the main to switch off', () => {
@@ -132,12 +143,6 @@ describe('MainService', () => {
     it('looks up the ip address', () => {
       service.lookupIp().subscribe(result => expect(result).toBe('4.3.2.1'));
     });
-
-    it('gets the node configuration', () => {
-      const expected = new NodeConfiguration();
-      expected.walletAddress = 'earning wallet address';
-      service.lookupConfiguration().subscribe(result => expect(result).toEqual(expected));
-    });
   });
 
   describe('when configuration exists', () => {
@@ -163,16 +168,6 @@ describe('MainService', () => {
 
       it('does not lookup IP', () => {
         verify(mockSendSync('ip-lookup'), {times: 0});
-      });
-    });
-
-    describe('when lookupConfiguration is called', () => {
-      beforeEach(() => {
-        service.lookupConfiguration();
-      });
-
-      it('does not get node configuration', () => {
-        verify(mockSendSync('get-node-configuration'), {times: 0});
       });
     });
   });

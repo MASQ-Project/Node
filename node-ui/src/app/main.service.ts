@@ -33,6 +33,18 @@ export class MainService {
     this.electronService.ipcRenderer.on('set-consuming-wallet-password-response', (_, success: boolean) => {
       this.setConsumingWalletPasswordResponseListener.next(success);
     });
+    this.loadConfig();
+  }
+
+  private loadConfig(): void {
+    const dumpedConfiguration = this.electronService.ipcRenderer.sendSync('get-node-configuration');
+
+    this.configService.patchValue({
+      walletAddress: dumpedConfiguration.earningWalletAddress,
+      networkSettings: {
+        gasPrice: dumpedConfiguration.gasPrice
+      }
+    });
   }
 
   turnOff(): void {
@@ -58,15 +70,6 @@ export class MainService {
     } else {
       return of(this.electronService.ipcRenderer.sendSync('ip-lookup'));
     }
-  }
-
-  lookupConfiguration(): Observable<NodeConfiguration> {
-    const nodeConfiguration = this.configService.getConfig();
-    if (!nodeConfiguration.walletAddress) {
-      const dumpedConfiguration = this.electronService.ipcRenderer.sendSync('get-node-configuration');
-      nodeConfiguration.walletAddress = dumpedConfiguration.earning_wallet_address;
-    }
-    return of(nodeConfiguration);
   }
 
   setConsumingWalletPassword(password: string) {

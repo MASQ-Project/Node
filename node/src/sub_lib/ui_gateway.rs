@@ -28,13 +28,15 @@ pub struct UiCarrierMessage {
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum UiMessage {
-    SetWalletPassword(String),
-    SetWalletPasswordResponse(bool),
     GetFinancialStatisticsMessage,
     FinancialStatisticsResponse(FinancialStatisticsMessage),
-    ShutdownMessage,
+    SetGasPrice(String),
+    SetGasPriceResponse(bool),
+    SetWalletPassword(String),
+    SetWalletPasswordResponse(bool),
     GetNodeDescriptor,
     NodeDescriptor(String),
+    ShutdownMessage,
 }
 
 #[derive(Message, PartialEq, Debug)]

@@ -106,7 +106,7 @@ app.on('activate', () => {
   }
 })
 
-ipcMain.on('ip-lookup', async (event) => {
+ipcMain.on('ip-lookup', async event => {
   const req = http.get(
     { host: 'api.ipify.org', port: 80, path: '/', timeout: 1000 },
     resp => {
@@ -123,7 +123,15 @@ ipcMain.on('ip-lookup', async (event) => {
   req.on('error', () => { event.returnValue = '' })
 })
 
-ipcMain.on('get-node-configuration', (event, command, args) => {
+ipcMain.on('set-gas-price', (event, price) => {
+  nodeActuator.setGasPrice(price).then(success => {
+    event.returnValue = { sent: true, result: success }
+  }, err => {
+    event.returnValue = { sent: false, error: err }
+  })
+})
+
+ipcMain.on('get-node-configuration', event => {
   event.returnValue = commandHelper.getNodeConfiguration()
 })
 

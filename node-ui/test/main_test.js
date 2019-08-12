@@ -155,13 +155,13 @@ describe('main', () => {
   describe('get-node-configuration', () => {
     let event
     const expectedConfiguration = {
-      clandestine_port: '4958',
-      consuming_wallet_derivation_path: 'consuming derivation path',
-      consuming_wallet_public_key: 'consuming public key',
-      earning_wallet_address: 'earning wallet address',
-      schema_version: 'schema version',
+      clandestinePort: '4958',
+      consumingWalletDerivationPath: 'consuming derivation path',
+      consumingWalletPublicKey: 'consuming public key',
+      earningWalletAddress: 'earning wallet address',
+      schemaVersion: 'schema version',
       seed: 'seed',
-      start_block: '4647463'
+      startBlock: '4647463'
     }
 
     beforeEach(() => {

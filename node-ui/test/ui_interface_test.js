@@ -253,6 +253,65 @@ describe('Given a mock WebSocket', () => {
           })
         })
 
+        describe('when it is directed to send a SetGasPrice message', () => {
+          const mockCallback = td.function()
+          let failure = false
+          beforeEach(() => {
+            subject.setGasPrice('11').then(descriptor => mockCallback(descriptor), () => { failure = true })
+          })
+
+          describe('and immediately directed to send another before the first response arrives', () => {
+            let actualError, unexpectedSuccess
+            beforeEach((done) => {
+              subject.setGasPrice('12')
+                .then(success => {
+                  unexpectedSuccess = success
+                  done()
+                })
+                .catch((e) => {
+                  actualError = e
+                  done()
+                })
+            })
+
+            it('does not succeed', () => {
+              assert.strictEqual(unexpectedSuccess, undefined)
+            })
+
+            it('fails because another call is already in progress', () => {
+              assert.strictEqual(actualError.message, 'CallAlreadyInProgress')
+            })
+          })
+
+          it('the WebSocket client is instructed to send the proper message', () => {
+            const captor = td.matchers.captor()
+            td.verify(webSocketClient.send(captor.capture()))
+            assert.deepStrictEqual(JSON.parse(captor.value), { SetGasPrice: '11' })
+          })
+
+          describe('when onmessage is invoked', () => {
+            beforeEach(async () => {
+              webSocketClient.onmessage({ data: '{"SetGasPriceResponse": true}' })
+              await connectPromise
+            })
+
+            it('fires the callback', () => {
+              td.verify(mockCallback(true))
+            })
+          })
+
+          describe('when onerror is invoked', () => {
+            beforeEach(async () => {
+              webSocketClient.onerror('the error')
+              await connectPromise
+            })
+
+            it('rejects the pending SetGasPrice', () => {
+              assert.strictEqual(failure, true)
+            })
+          })
+        })
+
         describe('when it is directed to send a GetFinancialStatisticsMessage message', () => {
           const mockCallback = td.function()
           let failure = false

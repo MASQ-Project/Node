@@ -640,7 +640,7 @@ mod tests {
 
         DbInitializerReal::create_data_directory_if_necessary(&data_dir);
 
-        // If .unwrap() succeeds, test passes! (If not, it gives a better failure message than .is_ok())
+        // If .unwrap() succeeds, test passes!(If not, it gives a better failure message than .is_ok())
         fs::read_dir(data_dir).unwrap();
     }
 

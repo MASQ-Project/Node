@@ -775,7 +775,7 @@ mod tests {
 
         let result = NodeRecordInner::try_from(corrupt_gnr);
 
-        assert_eq! (Err(String::from ("ErrorImpl { code: Message(\"invalid type: integer `1`, expected struct NodeRecordInner\"), offset: 0 }")), result);
+        assert_eq!(Err(String::from ("ErrorImpl { code: Message(\"invalid type: integer `1`, expected struct NodeRecordInner\"), offset: 0 }")), result);
     }
 
     #[test]

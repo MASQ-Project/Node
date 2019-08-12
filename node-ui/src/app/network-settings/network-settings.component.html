@@ -10,10 +10,14 @@
 
     <p><dfn id="dfn-gas-price">Gas price</dfn> is the amount of Gwei you will pay per unit of gas used in a transaction.</p>
 
+    <ul id="network-settings-validation">
+      <li class="validation-error" *ngIf="setGasPriceError">Error setting gas price.</li>
+    </ul>
+
     <div class="network-settings__actions network-settings__inset">
       <button id="cancel" type="button" (click)="cancel()">Cancel</button>
       <div class="network-settings__empty-flex"></div>
-      <button id="save" class="network-settings__to-action" [disabled]="networkSettings.disabled" type="submit">Save</button>
+      <button id="save" class="network-settings__to-action" type="submit">Save</button>
     </div>
   </form>
 </div>

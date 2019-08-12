@@ -44,7 +44,7 @@ fn from(binary: &[u8], type_name: &str) -> DataHunk {
         + (u32::from(binary[14]) << 8)
         + u32::from(binary[15]);
     if binary.len() != (16 + (length as usize)) {
-        panic! ("Binary data suggested that a DataHunk payload should be {} bytes long, but {} bytes were provided",
+        panic!("Binary data suggested that a DataHunk payload should be {} bytes long, but {} bytes were provided",
                 length, binary.len () - 16)
     }
     let data = Vec::from(&binary[16..]);

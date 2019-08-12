@@ -10,7 +10,7 @@ import {ipPattern, neighborPattern, walletPattern} from './node-configuration/no
 })
 export class ConfigService {
 
-  private configSubject: BehaviorSubject<NodeConfiguration> = new BehaviorSubject({});
+  private configSubject: BehaviorSubject<NodeConfiguration> = new BehaviorSubject({networkSettings: {gasPrice: 1}});
   readonly config = this.configSubject.asObservable();
 
   static testRegEx(input: string, pattern: string): boolean {

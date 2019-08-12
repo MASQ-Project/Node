@@ -6,6 +6,10 @@ export class NetworkSettingsPage {
   constructor(private fixture: ComponentFixture<NetworkSettingsComponent>) {
   }
 
+  get errorMessage(): HTMLLIElement {
+    return this.query('.validation-error');
+  }
+
   get save(): HTMLInputElement {
     return this.query('#save');
   }

@@ -25,6 +25,10 @@ module.exports = class NodeActuator {
     return uiInterface.getFinancialStatistics()
   }
 
+  setGasPrice (price) {
+    return uiInterface.setGasPrice(price)
+  }
+
   async setStatusToOffThenRevert () {
     this.substratumNodeProcess = null
 

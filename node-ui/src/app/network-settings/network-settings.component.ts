@@ -2,9 +2,8 @@
 import {Component, OnInit} from '@angular/core';
 import {AbstractControl, FormControl, FormGroup} from '@angular/forms';
 import {Router} from '@angular/router';
-import {NetworkSettingsService} from './network-settings.service';
-import {NodeStatus} from '../node-status.enum';
-import {MainService} from '../main.service';
+import {UiGatewayService} from '../ui-gateway.service';
+import {ConfigService} from '../config.service';
 
 @Component({
   selector: 'app-network-settings',
@@ -13,24 +12,22 @@ import {MainService} from '../main.service';
 })
 export class NetworkSettingsComponent implements OnInit {
 
-  constructor(private mainService: MainService, private settingsService: NetworkSettingsService, private router: Router) {
+  constructor(
+    private configService: ConfigService,
+    private uiGatewayService: UiGatewayService,
+    private router: Router,
+  ) {
   }
 
   networkSettings = new FormGroup({
-    gasPrice: new FormControl({value: '', disabled: true}, []),
+    gasPrice: new FormControl('', []),
   });
 
-  ngOnInit() {
-    this.settingsService.load().subscribe((settings) => {
-      this.networkSettings.patchValue(settings);
-    });
+  setGasPriceError: boolean;
 
-    this.mainService.nodeStatus.subscribe(status => {
-      if (status === NodeStatus.Off) {
-        this.networkSettings.enable();
-      } else {
-        this.networkSettings.disable();
-      }
+  ngOnInit() {
+    this.configService.load().subscribe((config) => {
+      this.networkSettings.patchValue(config.networkSettings || {});
     });
   }
 
@@ -38,16 +35,21 @@ export class NetworkSettingsComponent implements OnInit {
     return this.networkSettings.get('gasPrice');
   }
 
-  save() {
-    this.router.navigate(['index']);
-  }
-
   async onSubmit() {
-    this.settingsService.save(this.networkSettings.value);
-    this.save();
+    this.uiGatewayService.setGasPrice(this.networkSettings.value.gasPrice).subscribe(result => {
+      this.setGasPriceError = !result;
+      if (result) {
+        this.configService.patchValue({networkSettings: this.networkSettings.value});
+        this.goHome();
+      }
+    });
   }
 
   cancel() {
+    this.goHome();
+  }
+
+  private goHome(): void {
     this.router.navigate(['index']);
   }
 }

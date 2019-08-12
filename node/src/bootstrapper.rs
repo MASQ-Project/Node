@@ -203,7 +203,7 @@ impl RealUser {
             (Some (sudo_user), Some (home_dir)) =>
                 match home_dir.parent().map(|px| px.join(PathBuf::from(sudo_user))) {
                     Some (hd) => Some (hd),
-                    None => panic! ("Cannot determine non-privileged home directory. Make sure you're specifying --real-user."),
+                    None => panic!("Cannot determine non-privileged home directory. Make sure you're specifying --real-user."),
                 },
             _ => None
         }

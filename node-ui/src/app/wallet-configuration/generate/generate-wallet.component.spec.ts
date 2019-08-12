@@ -62,14 +62,14 @@ describe('GenerateWalletComponent', () => {
   describe('clicking done', () => {
     beforeEach(() => {
       component.generatedWalletInfo = {
-        'mnemonic_phrase': 'this is a very very good mnemonic phrase that is very good',
-        'consuming_wallet': {
-          'derivation_path': 'm/44\'/60\'/0\'/0/0',
-          'address': '0x5360997dd9c42c51bf90ac256598de0882151ab7'
+        mnemonicPhrase: 'this is a very very good mnemonic phrase that is very good',
+        consumingWallet: {
+          derivationPath: 'm/44\'/60\'/0\'/0/0',
+          address: '0x5360997dd9c42c51bf90ac256598de0882151ab7'
         },
-        'earning_wallet': {
-          'derivation_path': 'm/44\'/60\'/0\'/0/1',
-          'address': '0x5360997dd9c42c51bf90ac256598de0882151aba'
+        earningWallet: {
+          derivationPath: 'm/44\'/60\'/0\'/0/1',
+          address: '0x5360997dd9c42c51bf90ac256598de0882151aba'
         }
       };
       fixture.detectChanges();
@@ -127,14 +127,14 @@ describe('GenerateWalletComponent', () => {
       describe('when successful', () => {
         beforeEach(() => {
           generateResponseSubject.next({ success: true, result: {
-              'mnemonic_phrase': 'this is a very very good mnemonic phrase that is very good',
-              'consuming_wallet': {
-                'derivation_path': 'm/44\'/60\'/0\'/0/0',
-                'address': '0x5360997dd9c42c51bf90ac256598de0882151ab7'
+              mnemonicPhrase: 'this is a very very good mnemonic phrase that is very good',
+              consumingWallet: {
+                derivationPath: 'm/44\'/60\'/0\'/0/0',
+                address: '0x5360997dd9c42c51bf90ac256598de0882151ab7'
               },
-              'earning_wallet': {
-                'derivation_path': 'm/44\'/60\'/0\'/0/1',
-                'address': '0x5360997dd9c42c51bf90ac256598de0882151aba'
+              earningWallet: {
+                derivationPath: 'm/44\'/60\'/0\'/0/1',
+                address: '0x5360997dd9c42c51bf90ac256598de0882151aba'
               }
             }
           });

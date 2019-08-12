@@ -795,7 +795,7 @@ mod tests {
 
         let result = format!("{} {:?}", subject, subject);
 
-        assert_eq! (result, String::from ("Tm93IGlzIHRoZSB0aW1lIGZvciBhbGwgZ29vZCBtZW4 Tm93IGlzIHRoZSB0aW1lIGZvciBhbGwgZ29vZCBtZW4"));
+        assert_eq!(result, String::from ("Tm93IGlzIHRoZSB0aW1lIGZvciBhbGwgZ29vZCBtZW4 Tm93IGlzIHRoZSB0aW1lIGZvciBhbGwgZ29vZCBtZW4"));
     }
 
     #[derive(PartialEq, Debug, Serialize, Deserialize)]

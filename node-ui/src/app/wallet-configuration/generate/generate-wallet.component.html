@@ -57,30 +57,30 @@
   </div>
   <div *ngIf="generatedWalletInfo !== null">
     <div id="mnemonic-container">
-      <textarea rows="3" id="mnemonic-phrase" [value]="generatedWalletInfo['mnemonic_phrase']" readonly></textarea>
+      <textarea rows="3" id="mnemonic-phrase" [value]="generatedWalletInfo['mnemonicPhrase']" readonly></textarea>
     </div>
 
     <div id="consuming-wallet-container">
       <span>Consuming Wallet</span>
       <div>
         <label for="consuming-wallet-derivation-path">Derivation Path</label>
-        <input type="text" id="consuming-wallet-derivation-path" [value]="generatedWalletInfo['consuming_wallet']['derivation_path']" readonly>
+        <input type="text" id="consuming-wallet-derivation-path" [value]="generatedWalletInfo['consumingWallet']['derivationPath']" readonly>
       </div>
       <div>
         <label for="consuming-wallet-address">Address</label>
-        <input type="text" id="consuming-wallet-address" [value]="generatedWalletInfo['consuming_wallet']['address']" readonly>
+        <input type="text" id="consuming-wallet-address" [value]="generatedWalletInfo['consumingWallet']['address']" readonly>
       </div>
     </div>
 
     <div id="earning-wallet-container">
       <span>Earning Wallet</span>
-      <div *ngIf="generatedWalletInfo['earning_wallet']['derivation_path'] !== undefined">
+      <div *ngIf="generatedWalletInfo['earningWallet']['derivationPath'] !== undefined">
         <label for="earning-wallet-derivation-path">Derivation Path</label>
-        <input type="text" id="earning-wallet-derivation-path" [value]="generatedWalletInfo['earning_wallet']['derivation_path']" readonly>
+        <input type="text" id="earning-wallet-derivation-path" [value]="generatedWalletInfo['earningWallet']['derivationPath']" readonly>
       </div>
       <div>
         <label for="earning-wallet-address">Address</label>
-        <input type="text" id="earning-wallet-address" [value]="generatedWalletInfo['earning_wallet']['address']" readonly>
+        <input type="text" id="earning-wallet-address" [value]="generatedWalletInfo['earningWallet']['address']" readonly>
       </div>
     </div>
 

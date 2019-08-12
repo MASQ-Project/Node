@@ -38,7 +38,6 @@ describe('NodeConfigurationComponent', () => {
       save: td.func('save'),
       nodeStatus: mockNodeStatus,
       lookupIp: td.func('lookupIp'),
-      lookupConfiguration: td.func('lookupConfiguration')
     };
 
     mockConfigService = {
@@ -79,19 +78,25 @@ describe('NodeConfigurationComponent', () => {
 
   describe('LookupIp', () => {
     describe('successful ip address lookup', () => {
-      describe('ip is filled out if it can be looked up', () => {
-        beforeEach(() => {
-          td.when(mockMainService.lookupIp()).thenReturn(of('192.168.1.1'));
-          td.when(mockMainService.lookupConfiguration()).thenReturn(of({walletAddress: 'earning wallet address'}));
-          fixture.detectChanges();
-        });
+      beforeEach(() => {
+        td.when(mockMainService.lookupIp()).thenReturn(of('192.168.1.1'));
+        fixture.detectChanges();
+      });
 
+      describe('ip is filled out if it can be looked up', () => {
         it('should create', () => {
           expect(component).toBeTruthy();
         });
 
         it('ip address is filled out', () => {
           expect(page.ipTxt.value).toBe('192.168.1.1');
+        });
+      });
+
+      describe('wallet address is provided in config', () => {
+        beforeEach(() => {
+          storedConfig.next({walletAddress: 'earning wallet address'});
+          fixture.detectChanges();
         });
 
         it('earning wallet address is filled out and readonly', () => {
@@ -105,7 +110,7 @@ describe('NodeConfigurationComponent', () => {
           td.when(mockMainService.lookupIp()).thenReturn(of('192.168.1.1'));
           const expectedNodeConfiguration = new NodeConfiguration();
           expectedNodeConfiguration.walletAddress = null;
-          td.when(mockMainService.lookupConfiguration()).thenReturn(of(expectedNodeConfiguration));
+          td.when(mockConfigService.load()).thenReturn(of(expectedNodeConfiguration));
           fixture = TestBed.createComponent(NodeConfigurationComponent);
           page = new NodeConfigurationPage(fixture);
           component = fixture.componentInstance;
@@ -117,22 +122,21 @@ describe('NodeConfigurationComponent', () => {
           expect(page.walletAddressTxt.readOnly).toBeFalsy();
         });
       });
+    });
 
-      describe('unsuccessful ip address lookup', () => {
-        beforeEach(() => {
-          td.when(mockMainService.lookupIp()).thenReturn(of(''));
-          td.when(mockMainService.lookupConfiguration()).thenReturn(of({}));
-          fixture.detectChanges();
+    describe('unsuccessful ip address lookup', () => {
+      beforeEach(() => {
+        td.when(mockMainService.lookupIp()).thenReturn(of(''));
+        fixture.detectChanges();
+      });
+
+      describe('the ip field', () => {
+        it('should create', () => {
+          expect(component).toBeTruthy();
         });
 
-        describe('the ip field', () => {
-          it('should create', () => {
-            expect(component).toBeTruthy();
-          });
-
-          it('ip address starts blank', () => {
-            expect(page.ipTxt.value).toBe('');
-          });
+        it('ip address starts blank', () => {
+          expect(page.ipTxt.value).toBe('');
         });
       });
     });
@@ -150,7 +154,6 @@ describe('NodeConfigurationComponent', () => {
 
         beforeEach(() => {
           td.when(mockMainService.lookupIp()).thenReturn(of('192.168.1.1'));
-          td.when(mockMainService.lookupConfiguration()).thenReturn(of({}));
           fixture.detectChanges();
           page.setIp('127.0.0.1');
           page.setNeighbor('5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999');
@@ -172,7 +175,6 @@ describe('NodeConfigurationComponent', () => {
   describe('Configuration', () => {
     beforeEach(() => {
       td.when(mockMainService.lookupIp()).thenReturn(of('1.2.3.4'));
-      td.when(mockMainService.lookupConfiguration()).thenReturn(of({}));
       fixture.detectChanges();
     });
 
@@ -394,7 +396,6 @@ describe('NodeConfigurationComponent', () => {
     describe('Save Button', () => {
       beforeEach(() => {
         td.when(mockMainService.lookupIp()).thenReturn(of('1.2.3.4'));
-        td.when(mockMainService.lookupConfiguration()).thenReturn(of({}));
         fixture.detectChanges();
       });
 

@@ -53,8 +53,8 @@ describe('When the Node configuration is retrieved', () => {
   })
 
   it('it contains useful values', () => {
-    expect(parseSemVer(configuration.schema_version)).toBeGreaterThanOrEqual(parseSemVer('0.0.9'))
-    expect(parseInt(configuration.start_block)).toBeGreaterThanOrEqual(4647463)
+    expect(parseSemVer(configuration.schemaVersion)).toBeGreaterThanOrEqual(parseSemVer('0.0.9'))
+    expect(parseInt(configuration.startBlock)).toBeGreaterThanOrEqual(4647463)
   })
 })
 

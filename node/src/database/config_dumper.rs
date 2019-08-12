@@ -8,6 +8,7 @@ use crate::node_configurator::{app_head, data_directory_arg, real_user_arg};
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::sub_lib::main_tools::StdStreams;
 use clap::{value_t, Arg};
+use heck::MixedCase;
 use serde_json::json;
 use serde_json::{Map, Value};
 use std::path::PathBuf;
@@ -39,12 +40,13 @@ fn write_string(streams: &mut StdStreams, json: String) {
 fn configuration_to_json(configuration: Vec<(String, Option<String>)>) -> String {
     let mut map = Map::new();
     configuration.into_iter().for_each(|(name, value)| {
+        let json_name = name.to_mixed_case();
         match value {
-            None => map.insert(name, json!(null)),
-            Some(value) => map.insert(name, json!(value)),
+            None => map.insert(json_name, json!(null)),
+            Some(value) => map.insert(json_name, json!(value)),
         };
     });
-    let value = Value::Object(map);
+    let value: Value = Value::Object(map);
     serde_json::to_string_pretty(&value).expect("Couldn't serialize configuration to JSON")
 }
 
@@ -72,7 +74,7 @@ fn distill_args(args: &Vec<String>) -> (PathBuf, RealUser) {
         )
         .arg(data_directory_arg())
         .arg(real_user_arg());
-    let vcls: Vec<Box<VirtualCommandLine>> = vec![
+    let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
         Box::new(CommandLineVcl::new(args.clone())),
         Box::new(EnvironmentVcl::new(&app)),
     ];
@@ -116,15 +118,15 @@ mod tests {
             Value::Object(map) => map,
             other => panic!("Was expecting Value::Object, got {:?} instead", other),
         };
-        let expected_value = json! ({
-           "clandestine_port": actual_map.get ("clandestine_port"),
-           "consuming_wallet_derivation_path": null,
-           "consuming_wallet_public_key": null,
-           "earning_wallet_address": null,
-           "gas_price": "1",
-           "schema_version": CURRENT_SCHEMA_VERSION,
+        let expected_value = json!({
+           "clandestinePort": actual_map.get ("clandestinePort"),
+           "consumingWalletDerivationPath": null,
+           "consumingWalletPublicKey": null,
+           "earningWalletAddress": null,
+           "gasPrice": "1",
+           "schemaVersion": CURRENT_SCHEMA_VERSION,
            "seed": null,
-           "start_block": &ROPSTEN_CONTRACT_CREATION_BLOCK.to_string(),
+           "startBlock": &ROPSTEN_CONTRACT_CREATION_BLOCK.to_string(),
         });
         assert_eq!(actual_value, expected_value);
     }
@@ -157,15 +159,15 @@ mod tests {
         assert_eq!(result, 0);
         let output = holder.stdout.get_string();
         let actual_value: Value = serde_json::from_str(&output).unwrap();
-        let expected_value = json! ({
-           "clandestine_port": "3456",
-           "consuming_wallet_derivation_path": null,
-           "consuming_wallet_public_key": "01020304",
-           "earning_wallet_address": "0x0123456789012345678901234567890123456789",
-           "gas_price": "1",
-           "schema_version": CURRENT_SCHEMA_VERSION,
+        let expected_value = json!({
+           "clandestinePort": "3456",
+           "consumingWalletDerivationPath": null,
+           "consumingWalletPublicKey": "01020304",
+           "earningWalletAddress": "0x0123456789012345678901234567890123456789",
+           "gasPrice": "1",
+           "schemaVersion": CURRENT_SCHEMA_VERSION,
            "seed": null,
-           "start_block": &ROPSTEN_CONTRACT_CREATION_BLOCK.to_string(),
+           "startBlock": &ROPSTEN_CONTRACT_CREATION_BLOCK.to_string(),
         });
         assert_eq!(actual_value, expected_value);
     }

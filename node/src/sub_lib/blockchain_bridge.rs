@@ -20,6 +20,7 @@ pub struct BlockchainBridgeSubs {
     pub report_accounts_payable: Recipient<ReportAccountsPayable>,
     pub retrieve_transactions: Recipient<RetrieveTransactions>,
     pub set_consuming_wallet_password_sub: Recipient<SetWalletPasswordMsg>,
+    pub set_gas_price_sub: Recipient<SetGasPriceMsg>,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -31,6 +32,12 @@ pub struct ReportAccountsPayable {
 pub struct SetWalletPasswordMsg {
     pub client_id: u64,
     pub password: String,
+}
+
+#[derive(Clone, PartialEq, Debug, Message)]
+pub struct SetGasPriceMsg {
+    pub client_id: u64,
+    pub gas_price: String,
 }
 
 impl Message for ReportAccountsPayable {

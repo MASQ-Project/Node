@@ -5,30 +5,31 @@ import {NetworkSettingsPage} from './network-settings-page';
 import {FormsModule, ReactiveFormsModule} from '@angular/forms';
 import * as td from 'testdouble';
 import {Router} from '@angular/router';
-import {NetworkSettingsService} from './network-settings.service';
 import {NetworkSettings} from '../network-settings';
-import {BehaviorSubject, Subject} from 'rxjs';
+import {BehaviorSubject, of, Subject} from 'rxjs';
 import {NodeStatus} from '../node-status.enum';
-import {MainService} from '../main.service';
+import {UiGatewayService} from '../ui-gateway.service';
+import {ConfigService} from '../config.service';
+import {NodeConfiguration} from '../node-configuration';
 
 describe('NetworkSettingsComponent', () => {
   let component: NetworkSettingsComponent;
   let fixture: ComponentFixture<NetworkSettingsComponent>;
   let page: NetworkSettingsPage;
   let mockRouter;
-  let mockMainService;
-  let mockNetworkSettingsService;
-  let storedSettings: Subject<NetworkSettings>;
+  let uiGatewayService;
+  let mockConfigService;
+  let storedConfig: Subject<NodeConfiguration>;
   let nodeStatusSubject: Subject<NodeStatus>;
 
   beforeEach(() => {
     nodeStatusSubject = new BehaviorSubject(NodeStatus.Off);
-    mockMainService = {
-      nodeStatus: nodeStatusSubject.asObservable(),
+    uiGatewayService = {
+      setGasPrice: td.func('setGasPrice')
     };
-    storedSettings = new BehaviorSubject(new NetworkSettings());
-    mockNetworkSettingsService = {
-      save: td.function('save'),
+    storedConfig = new BehaviorSubject({networkSettings: '1'} as NodeConfiguration);
+    mockConfigService = {
+      patchValue: td.function('patchValue'),
       load: td.function('load')
     };
     mockRouter = {
@@ -41,12 +42,12 @@ describe('NetworkSettingsComponent', () => {
         ReactiveFormsModule,
       ],
       providers: [
-        {provide: MainService, useValue: mockMainService},
-        {provide: NetworkSettingsService, useValue: mockNetworkSettingsService},
+        {provide: ConfigService, useValue: mockConfigService},
+        {provide: UiGatewayService, useValue: uiGatewayService},
         {provide: Router, useValue: mockRouter}
       ]
     }).compileComponents();
-    td.when(mockNetworkSettingsService.load()).thenReturn(storedSettings.asObservable());
+    td.when(mockConfigService.load()).thenReturn(storedConfig.asObservable());
     fixture = TestBed.createComponent(NetworkSettingsComponent);
     component = fixture.componentInstance;
     page = new NetworkSettingsPage(fixture);
@@ -62,7 +63,7 @@ describe('NetworkSettingsComponent', () => {
     };
 
     beforeEach(() => {
-      storedSettings.next(expected);
+      storedConfig.next({networkSettings: expected});
       fixture.detectChanges();
     });
 
@@ -74,16 +75,6 @@ describe('NetworkSettingsComponent', () => {
       expect(component.networkSettings.disabled).toBeFalsy();
     });
 
-    describe('when the node is started', () => {
-      beforeEach(() => {
-        nodeStatusSubject.next(NodeStatus.Serving);
-        fixture.detectChanges();
-      });
-
-      it('is disabled while Node is running', () => {
-        expect(component.networkSettings.disabled).toBeTruthy();
-      });
-    });
   });
 
   describe('Navigation', () => {
@@ -101,16 +92,42 @@ describe('NetworkSettingsComponent', () => {
       beforeEach(() => {
         page.setGasPrice('99');
         fixture.detectChanges();
-        page.save.click();
-        fixture.detectChanges();
       });
 
-      it('submits the form', () => {
-        td.verify(mockNetworkSettingsService.save({gasPrice: '99'}));
+      describe('when successful', () => {
+        beforeEach(() => {
+          td.when(uiGatewayService.setGasPrice(td.matchers.anything())).thenReturn(of(true));
+          page.save.click();
+          fixture.detectChanges();
+        });
+
+        it('returns to index screen', () => {
+          td.verify(mockRouter.navigate(['index']));
+        });
+
+        it('saves the form to the ui configuration', () => {
+          td.verify(mockConfigService.patchValue({networkSettings: {gasPrice: '99'}}));
+        });
       });
 
-      it('returns to index screen', () => {
-        td.verify(mockRouter.navigate(['index']));
+      describe('when failed', () => {
+        beforeEach(() => {
+          td.when(uiGatewayService.setGasPrice(td.matchers.anything())).thenReturn(of(false));
+          page.save.click();
+          fixture.detectChanges();
+        });
+
+        it('stays on network settings', () => {
+          td.verify(mockRouter.navigate(['index']), {times: 0});
+        });
+
+        it('saves the form to the ui configuration', () => {
+          td.verify(mockConfigService.patchValue({networkSettings: {gasPrice: '99'}}), {times: 0});
+        });
+
+        it('displays a message to the user', () => {
+          expect(page.errorMessage.innerText).toEqual('Error setting gas price.');
+        });
       });
     });
   });

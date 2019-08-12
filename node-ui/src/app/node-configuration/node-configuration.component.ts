@@ -41,7 +41,8 @@ export class NodeConfigurationComponent implements OnInit {
   constructor(private localStorageService: LocalStorageService,
               private configService: ConfigService,
               private mainService: MainService,
-              private ngZone: NgZone) {  }
+              private ngZone: NgZone) {
+  }
 
   persistNeighbor = false;
   nodeConfig = new FormGroup({
@@ -54,7 +55,7 @@ export class NodeConfigurationComponent implements OnInit {
   walletType: WalletType = WalletType.EARNING;
   earningWalletPopulated: Boolean = false;
 
-  @ViewChild('tooltipIcon', { static: true })
+  @ViewChild('tooltipIcon', {static: true})
   tooltipIcon: ElementRef;
 
   @HostListener('document:click', ['$event'])
@@ -77,12 +78,10 @@ export class NodeConfigurationComponent implements OnInit {
         }
 
         this.nodeConfig.patchValue(config);
+        this.earningWalletPopulated = !!config.walletAddress;
       });
     });
-    this.mainService.lookupConfiguration().subscribe((nodeConfig) => {
-      this.nodeConfig.patchValue({'walletAddress': nodeConfig.walletAddress});
-      this.earningWalletPopulated = !!nodeConfig.walletAddress;
-    });
+
     this.ipSubscription = this.mainService.lookupIp().subscribe((ip) => {
       this.nodeConfig.patchValue({'ip': ip});
     });

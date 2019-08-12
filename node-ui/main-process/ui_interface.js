@@ -10,6 +10,7 @@ module.exports = (() => {
   let getNodeDescriptorCallbackPair = null
   let setConsumingWalletPasswordCallbackPair = null
   let getFinancialStatisticsCallbackPair = null
+  let setGasPriceCallbackPair = null
 
   function connect () {
     return new Promise((resolve, reject) => {
@@ -31,6 +32,11 @@ module.exports = (() => {
           setConsumingWalletPasswordCallbackPair.resolve(success)
         }
 
+        const successGas = data['SetGasPriceResponse']
+        if (successGas !== undefined) {
+          setGasPriceCallbackPair.resolve(successGas)
+        }
+
         const financialStatistics = data['FinancialStatisticsResponse']
         if (financialStatistics) {
           getFinancialStatisticsCallbackPair.resolve(financialStatistics)
@@ -43,6 +49,10 @@ module.exports = (() => {
 
         if (setConsumingWalletPasswordCallbackPair) {
           setConsumingWalletPasswordCallbackPair.reject()
+        }
+
+        if (setGasPriceCallbackPair) {
+          setGasPriceCallbackPair.reject()
         }
 
         if (getFinancialStatisticsCallbackPair) {
@@ -159,6 +169,26 @@ module.exports = (() => {
     })
   }
 
+  async function setGasPrice (gasPrice) {
+    if (!webSocket) return Promise.reject(Error('WebsocketNotConnected'))
+
+    if (setGasPriceCallbackPair) {
+      return Promise.reject(Error('CallAlreadyInProgress'))
+    }
+    return new Promise((resolve, reject) => {
+      setGasPriceCallbackPair = {
+        resolve: (success) => {
+          setGasPriceCallbackPair = null
+          resolve(success)
+        },
+        reject: (e) => {
+          reject(e)
+        }
+      }
+      webSocket.send(`{"SetGasPrice": "${gasPrice}"}`)
+    })
+  }
+
   async function getFinancialStatistics () {
     if (getFinancialStatisticsCallbackPair) {
       return Promise.reject(Error('CallAlreadyInProgress'))
@@ -192,6 +222,7 @@ module.exports = (() => {
     shutdown: shutdown,
     getNodeDescriptor: getNodeDescriptor,
     setConsumingWalletPassword: setConsumingWalletPassword,
+    setGasPrice: setGasPrice,
     getFinancialStatistics: getFinancialStatistics
   }
 })()

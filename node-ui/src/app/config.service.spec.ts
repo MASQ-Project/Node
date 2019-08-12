@@ -19,7 +19,8 @@ describe('ConfigService', () => {
       ip: '1.1.1.1',
       privateKey: 'pssssssst',
       walletAddress: 'oh hi there',
-      neighbor: 'hidely ho neighborino'
+      neighbor: 'hidely ho neighborino',
+      networkSettings: {gasPrice: 1}
     };
 
     beforeEach(() => {

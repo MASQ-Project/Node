@@ -30,4 +30,9 @@
     @include cancel-button();
   }
 
+  .validation-error {
+    text-align: left;
+    font-size: fontSize('diminished');
+    color: color('primary');
+  }
 }

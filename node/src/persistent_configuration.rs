@@ -63,7 +63,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         if (unchecked_port < u64::from(LOWEST_USABLE_INSECURE_PORT))
             || (unchecked_port > u64::from(HIGHEST_USABLE_PORT))
         {
-            panic! ("Can't continue; clandestine port configuration is incorrect. Must be between {} and {}, not {}. Specify --clandestine-port <p> where <p> is an unused port.",
+            panic!("Can't continue; clandestine port configuration is incorrect. Must be between {} and {}, not {}. Specify --clandestine-port <p> where <p> is an unused port.",
                 LOWEST_USABLE_INSECURE_PORT,
                 HIGHEST_USABLE_PORT,
                 unchecked_port
@@ -72,7 +72,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         let port = unchecked_port as u16;
         match TcpListener::bind (SocketAddrV4::new (Ipv4Addr::from (0), port)) {
             Ok (_) => port,
-            Err (_) => panic! ("Can't continue; clandestine port {} is in use. Specify --clandestine-port <p> where <p> is an unused port between {} and {}.",
+            Err (_) => panic!("Can't continue; clandestine port {} is in use. Specify --clandestine-port <p> where <p> is an unused port between {} and {}.",
                 port,
                 LOWEST_USABLE_INSECURE_PORT,
                 HIGHEST_USABLE_PORT,
@@ -82,7 +82,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn set_clandestine_port(&self, port: u16) {
         if port < LOWEST_USABLE_INSECURE_PORT {
-            panic! ("Can't continue; clandestine port configuration is incorrect. Must be between {} and {}, not {}. Specify --clandestine-port <p> where <p> is an unused port.",
+            panic!("Can't continue; clandestine port configuration is incorrect. Must be between {} and {}, not {}. Specify --clandestine-port <p> where <p> is an unused port.",
                     LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT, port);
         }
         match self.dao.set_u64("clandestine_port", u64::from(port)) {
@@ -232,7 +232,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                     panic!("Cannot set consuming wallet public key: already set")
                 }
             },
-            (Err(ConfigDaoError::NotPresent), Ok(path)) => panic! ("Cannot set consuming wallet public key: consuming derivation path is already set to {}", path),
+            (Err(ConfigDaoError::NotPresent), Ok(path)) => panic!("Cannot set consuming wallet public key: consuming derivation path is already set to {}", path),
             (key_err, path_err) => Self::handle_config_pair_result(key_err, path_err, "consuming wallet public key", "consuming wallet derivation path")
         }
     }

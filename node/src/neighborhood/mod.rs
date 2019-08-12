@@ -342,7 +342,7 @@ impl Neighborhood {
         if neighborhood_config.local_ip_addr == sentinel_ip_addr()
             && !neighborhood_config.neighbor_configs.is_empty()
         {
-            panic! ("A SubstratumNode without an --ip setting is not decentralized and cannot have a --neighbors setting")
+            panic!("A SubstratumNode without an --ip setting is not decentralized and cannot have a --neighbors setting")
         }
         let gossip_acceptor: Box<dyn GossipAcceptor> = Box::new(GossipAcceptorReal::new(cryptde));
         let gossip_producer = Box::new(GossipProducerReal::new());

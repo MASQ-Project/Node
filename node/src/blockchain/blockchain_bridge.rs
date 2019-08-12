@@ -8,9 +8,9 @@ use crate::blockchain::blockchain_interface::{
 };
 use crate::bootstrapper::BootstrapperConfig;
 use crate::persistent_configuration::PersistentConfiguration;
-use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::blockchain_bridge::SetWalletPasswordMsg;
+use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, SetGasPriceMsg};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
@@ -139,6 +139,34 @@ impl Handler<ReportAccountsPayable> for BlockchainBridge {
     }
 }
 
+impl Handler<SetGasPriceMsg> for BlockchainBridge {
+    type Result = ();
+
+    fn handle(&mut self, msg: SetGasPriceMsg, _ctx: &mut Self::Context) -> Self::Result {
+        let gas_price_accepted = match msg.gas_price.parse::<u64>() {
+            Ok(gas_price) => {
+                self.persistent_config.set_gas_price(gas_price);
+                true
+            }
+            Err(e) => {
+                debug!(
+                    self.logger,
+                    r#"error setting gas price to "{}" {:?}"#, &msg.gas_price, e
+                );
+                false
+            }
+        };
+        self.ui_carrier_message_sub
+            .as_ref()
+            .expect("UiGateway is unbound")
+            .try_send(UiCarrierMessage {
+                client_id: msg.client_id,
+                data: UiMessage::SetGasPriceResponse(gas_price_accepted),
+            })
+            .expect("UiGateway is dead");
+    }
+}
+
 impl Handler<SetWalletPasswordMsg> for BlockchainBridge {
     type Result = ();
 
@@ -176,6 +204,7 @@ impl BlockchainBridge {
             bind: addr.clone().recipient::<BindMessage>(),
             report_accounts_payable: addr.clone().recipient::<ReportAccountsPayable>(),
             retrieve_transactions: addr.clone().recipient::<RetrieveTransactions>(),
+            set_gas_price_sub: addr.clone().recipient::<SetGasPriceMsg>(),
             set_consuming_wallet_password_sub: addr.clone().recipient::<SetWalletPasswordMsg>(),
         }
     }
@@ -625,6 +654,95 @@ mod tests {
         system.run();
         TestLogHandler::new().exists_log_containing(
             "DEBUG: BlockchainBridge: Received BindMessage; no consuming wallet address specified",
+        );
+    }
+
+    #[test]
+    fn blockchain_bridge_sets_gas_price_when_received() {
+        let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
+        let gas_price_params_arc = Arc::new(Mutex::new(vec![]));
+
+        let persistent_config_mock = PersistentConfigurationMock::default()
+            .set_gas_price_params(&gas_price_params_arc.clone());
+
+        thread::spawn(move || {
+            let subject = BlockchainBridge::new(
+                &bc_from_wallet(None),
+                stub_bi(),
+                Box::new(persistent_config_mock),
+            );
+
+            let system = System::new("blockchain_bridge_sets_gas_price_when_received");
+            let addr = subject.start();
+
+            addr.try_send(BindMessage {
+                peer_actors: peer_actors_builder().ui_gateway(ui_gateway).build(),
+            })
+            .unwrap();
+            addr.try_send(SetGasPriceMsg {
+                client_id: 41,
+                gas_price: "99".to_string(),
+            })
+            .unwrap();
+
+            system.run();
+        });
+
+        ui_gateway_awaiter.await_message_count(1);
+
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        assert_eq!(99u64, gas_price_params_arc.lock().unwrap()[0]);
+        assert_eq!(
+            ui_gateway_recording.get_record::<UiCarrierMessage>(0),
+            &UiCarrierMessage {
+                client_id: 41,
+                data: UiMessage::SetGasPriceResponse(true),
+            }
+        );
+    }
+
+    #[test]
+    fn blockchain_bridge_does_not_set_gas_price_when_received_badly() {
+        let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
+        let gas_price_params_arc = Arc::new(Mutex::new(vec![]));
+
+        let persistent_config_mock = PersistentConfigurationMock::default()
+            .set_gas_price_params(&gas_price_params_arc.clone());
+
+        thread::spawn(move || {
+            let subject = BlockchainBridge::new(
+                &bc_from_wallet(None),
+                stub_bi(),
+                Box::new(persistent_config_mock),
+            );
+
+            let system =
+                System::new("blockchain_bridge_does_not_set_gas_price_when_received_badly");
+            let addr = subject.start();
+
+            addr.try_send(BindMessage {
+                peer_actors: peer_actors_builder().ui_gateway(ui_gateway).build(),
+            })
+            .unwrap();
+            addr.try_send(SetGasPriceMsg {
+                client_id: 41,
+                gas_price: "0xf".to_string(),
+            })
+            .unwrap();
+
+            system.run();
+        });
+
+        ui_gateway_awaiter.await_message_count(1);
+
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        assert!(gas_price_params_arc.lock().unwrap().is_empty());
+        assert_eq!(
+            ui_gateway_recording.get_record::<UiCarrierMessage>(0),
+            &UiCarrierMessage {
+                client_id: 41,
+                data: UiMessage::SetGasPriceResponse(false),
+            }
         );
     }
 
