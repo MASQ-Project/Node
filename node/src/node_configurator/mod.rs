@@ -157,7 +157,7 @@ pub fn mnemonic_passphrase_arg<'a>() -> Arg<'a, 'a> {
         .help(MNEMONIC_PASSPHRASE_HELP)
 }
 
-#[cfg(not(windows))]
+#[cfg(not(target_os = "windows"))]
 pub fn real_user_arg<'a>() -> Arg<'a, 'a> {
     Arg::with_name("real-user")
         .long("real-user")
@@ -168,7 +168,7 @@ pub fn real_user_arg<'a>() -> Arg<'a, 'a> {
         .help(REAL_USER_HELP)
 }
 
-#[cfg(windows)]
+#[cfg(target_os = "windows")]
 pub fn real_user_arg<'a>() -> Arg<'a, 'a> {
     Arg::with_name("real-user")
         .long("real-user")
@@ -956,7 +956,7 @@ mod tests {
         assert_eq!(true, user_specified);
     }
 
-    #[cfg(not(windows))]
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn determine_config_file_path_ignores_data_dir_if_config_file_has_root() {
         let _guard = EnvironmentGuard::new();
@@ -975,7 +975,7 @@ mod tests {
         assert_eq!(true, user_specified);
     }
 
-    #[cfg(windows)]
+    #[cfg(target_os = "windows")]
     #[test]
     fn determine_config_file_path_ignores_data_dir_if_config_file_has_separator_root() {
         let _guard = EnvironmentGuard::new();
@@ -994,7 +994,7 @@ mod tests {
         assert_eq!(true, user_specified);
     }
 
-    #[cfg(windows)]
+    #[cfg(target_os = "windows")]
     #[test]
     fn determine_config_file_path_ignores_data_dir_if_config_file_has_drive_root() {
         let _guard = EnvironmentGuard::new();
@@ -1013,7 +1013,7 @@ mod tests {
         assert_eq!(true, user_specified);
     }
 
-    #[cfg(windows)]
+    #[cfg(target_os = "windows")]
     #[test]
     fn determine_config_file_path_ignores_data_dir_if_config_file_has_network_root() {
         let _guard = EnvironmentGuard::new();
@@ -1032,7 +1032,7 @@ mod tests {
         assert_eq!(true, user_specified);
     }
 
-    #[cfg(windows)]
+    #[cfg(target_os = "windows")]
     #[test]
     fn determine_config_file_path_ignores_data_dir_if_config_file_has_drive_letter_but_no_separator(
     ) {

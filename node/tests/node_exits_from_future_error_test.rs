@@ -4,7 +4,7 @@ mod utils;
 
 use crate::utils::CommandConfig;
 
-#[cfg(unix)]
+#[cfg(not(target_os = "windows"))]
 #[test]
 fn node_exits_from_future_error_integration() {
     let panic_config = CommandConfig::new().pair("--crash-point", "error");
@@ -14,7 +14,7 @@ fn node_exits_from_future_error_integration() {
     assert_ne!(Some(0), exit_status);
 }
 
-#[cfg(windows)]
+#[cfg(target_os = "windows")]
 #[test]
 fn node_exits_from_future_error_integration() {
     let panic_config = CommandConfig::new().pair("--crash-point", "error");

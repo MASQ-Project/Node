@@ -84,13 +84,11 @@ serial_test = "0.2.0"
 trust-dns-proto = "0.4.0"
 jsonrpc-core = "11.0.0"
 
-[target.'cfg(unix)'.dependencies]
+[target.'cfg(not(target_os = "windows"))'.dependencies]
 daemonize = "0.3.0"
-
-[target.'cfg(not(windows))'.dependencies]
 openssl = { version = "0.10", features = ["vendored"] }
 
-[target.'cfg(windows)'.dependencies]
+[target.'cfg(target_os = "windows")'.dependencies]
 
 [[bin]]
 name = "SubstratumNode"

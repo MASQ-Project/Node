@@ -1103,7 +1103,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(windows))]
+    #[cfg(not(target_os = "windows"))]
     fn privileged_parse_args_with_real_user_defaults_data_directory_properly() {
         let args = ArgsBuilder::new()
             .param("--dns-servers", "12.34.56.78,23.45.67.89")

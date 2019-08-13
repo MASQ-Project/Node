@@ -75,7 +75,7 @@ impl TestCommand {
         )
     }
 
-    #[cfg(windows)]
+    #[cfg(target_os = "windows")]
     fn make_command(command: &str, parameters: Vec<&str>) -> Command {
         let test_command = env::args().next().unwrap();
         let debug_or_release = test_command
@@ -90,7 +90,7 @@ impl TestCommand {
         command
     }
 
-    #[cfg(unix)]
+    #[cfg(not(target_os = "windows"))]
     fn make_command(command: &str, parameters: Vec<&str>) -> Command {
         let test_command = env::args().next().unwrap();
         let debug_or_release = test_command

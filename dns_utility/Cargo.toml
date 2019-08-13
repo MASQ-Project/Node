@@ -16,7 +16,7 @@ ipconfig = "0.2.1"
 system-configuration = "0.1.0"
 core-foundation = "0.5.1"
 
-[target.'cfg(windows)'.dependencies]
+[target.'cfg(target_os = "windows")'.dependencies]
 winreg = "0.5.1"
 
 [dev-dependencies]

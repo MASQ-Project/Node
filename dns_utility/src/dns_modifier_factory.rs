@@ -10,7 +10,7 @@ use crate::resolv_conf_dns_modifier::ResolvConfDnsModifier;
 
 #[cfg(target_os = "macos")]
 use crate::dynamic_store_dns_modifier::DynamicStoreDnsModifier;
-#[cfg(windows)]
+#[cfg(target_os = "windows")]
 use crate::win_dns_modifier::WinDnsModifier;
 
 pub trait DnsModifierFactory {
@@ -68,7 +68,7 @@ impl QualifierFactory for ResolvConfQualifierFactory {
 }
 
 struct WinQualifierFactory {}
-#[cfg(windows)]
+#[cfg(target_os = "windows")]
 impl QualifierFactory for WinQualifierFactory {
     fn system_qualifies(&self) -> bool {
         true
@@ -79,7 +79,7 @@ impl QualifierFactory for WinQualifierFactory {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(target_os = "windows"))]
 impl QualifierFactory for WinQualifierFactory {
     fn system_qualifies(&self) -> bool {
         false
@@ -140,12 +140,12 @@ mod tests {
 
         let result = subject.system_qualifies();
 
-        #[cfg(windows)]
+        #[cfg(target_os = "windows")]
         {
             assert_eq!(result, true)
         }
 
-        #[cfg(not(windows))]
+        #[cfg(not(target_os = "windows"))]
         {
             assert_eq!(result, false)
         }

@@ -3,10 +3,10 @@
 mod utils;
 
 use crate::utils::CommandConfig;
-#[cfg(unix)]
+#[cfg(not(target_os = "windows"))]
 use std::process;
 
-#[cfg(not(windows))]
+#[cfg(not(target_os = "windows"))]
 #[test]
 fn node_exits_from_future_panic_integration() {
     let panic_config = CommandConfig::new().pair("--crash-point", "panic");
@@ -16,7 +16,7 @@ fn node_exits_from_future_panic_integration() {
     assert_eq!(Some(101), exit_code);
 }
 
-#[cfg(windows)]
+#[cfg(target_os = "windows")]
 #[test]
 fn node_exits_from_future_panic_integration() {
     let panic_config = CommandConfig::new().pair("--crash-point", "panic");
@@ -41,7 +41,7 @@ const STAT_FORMAT_PARAM_NAME: &str = "-c";
 #[cfg(target_os = "macos")]
 const STAT_FORMAT_PARAM_NAME: &str = "-f";
 
-#[cfg(not(windows))]
+#[cfg(not(target_os = "windows"))]
 #[test]
 fn node_logfile_does_not_belong_to_root_integration() {
     let panic_config = CommandConfig::new().pair("--crash-point", "panic");

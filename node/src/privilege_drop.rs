@@ -165,6 +165,7 @@ mod tests {
         subject.drop_privileges(&RealUser::null().populate());
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     #[should_panic(expected = "Error code 47 resetting user id")]
     fn uid_error_code_causes_panic() {
@@ -180,6 +181,7 @@ mod tests {
         subject.drop_privileges(&RealUser::new(Some(111), Some(222), None));
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     #[should_panic(expected = "Attempt to drop group privileges failed: still root")]
     fn final_gid_of_0_causes_panic() {
@@ -194,6 +196,7 @@ mod tests {
         subject.drop_privileges(&RealUser::new(Some(111), Some(222), None));
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     #[should_panic(expected = "Attempt to drop user privileges failed: still root")]
     fn final_uid_of_0_causes_panic() {
@@ -210,6 +213,7 @@ mod tests {
         subject.drop_privileges(&RealUser::new(Some(111), Some(222), None));
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn works_okay_with_real_user() {
         let setuid_params_arc = Arc::new(Mutex::new(vec![]));

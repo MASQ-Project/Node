@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-#![cfg(unix)]
+#![cfg(target_os = "linux")]
 use crate::dns_modifier::DnsModifier;
 use regex::Regex;
 use std::fs::File;

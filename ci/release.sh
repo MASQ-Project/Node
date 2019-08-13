@@ -23,12 +23,29 @@ cargo clean
 "ci/build.sh"
 
 # sign
-"${GPG_EXECUTABLE}" --batch --passphrase "$PASSPHRASE" -b target/release/$NODE_EXECUTABLE
-"${GPG_EXECUTABLE}" --verify target/release/$NODE_EXECUTABLE.sig target/release/$NODE_EXECUTABLE
-if [[ "$OSTYPE" == "msys" ]]; then
-  "${GPG_EXECUTABLE}" --batch --passphrase "$PASSPHRASE" -b target/release/$NODE_EXECUTABLEW
-  "${GPG_EXECUTABLE}" --verify target/release/$NODE_EXECUTABLEW.sig target/release/$NODE_EXECUTABLEW
-fi
+case "$OSTYPE" in
+   linux*)
+      "${GPG_EXECUTABLE}" --batch --passphrase "$PASSPHRASE" -b target/release/$NODE_EXECUTABLE
+      "${GPG_EXECUTABLE}" --verify target/release/$NODE_EXECUTABLE.sig target/release/$NODE_EXECUTABLE
+      ;;
+   darwin*)
+      cp Info.plist target/release
+      codesign -s 'Developer ID Application: Substratum Services, Inc. (TKDGR66924)'  -fv "target/release/$NODE_EXECUTABLE"
+      codesign -v -v "target/release/$NODE_EXECUTABLE"
+      cp Info.plist ../dns_utility/target/release
+      codesign -s 'Developer ID Application: Substratum Services, Inc. (TKDGR66924)'  -fv "../dns_utility/target/release/$DNS_EXECUTABLE"
+      codesign -v -v "../dns_utility/target/release/$DNS_EXECUTABLE"
+      ;;
+   msys)
+      "${GPG_EXECUTABLE}" --batch --passphrase "$PASSPHRASE" -b target/release/$NODE_EXECUTABLE
+      "${GPG_EXECUTABLE}" --verify target/release/$NODE_EXECUTABLE.sig target/release/$NODE_EXECUTABLE
+      "${GPG_EXECUTABLE}" --batch --passphrase "$PASSPHRASE" -b target/release/$NODE_EXECUTABLEW
+      "${GPG_EXECUTABLE}" --verify target/release/$NODE_EXECUTABLEW.sig target/release/$NODE_EXECUTABLEW
+      ;;
+   *)
+        echo "unsupported operating system detected."; exit 1
+   ;;
+esac
 
 # gui
 cd "$CI_DIR/../node-ui"

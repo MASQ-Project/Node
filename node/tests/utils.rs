@@ -132,13 +132,13 @@ impl SubstratumNode {
         );
     }
 
-    #[cfg(not(windows))]
+    #[cfg(not(target_os = "windows"))]
     pub fn kill(&mut self) -> Result<process::ExitStatus, io::Error> {
         self.child.kill()?;
         self.child.wait()
     }
 
-    #[cfg(windows)]
+    #[cfg(target_os = "windows")]
     pub fn kill(&mut self) {
         let mut command = process::Command::new("taskkill");
         command.args(&vec!["/IM", "SubstratumNode.exe", "/F"]);
@@ -235,12 +235,12 @@ impl SubstratumNode {
     }
 }
 
-#[cfg(windows)]
+#[cfg(target_os = "windows")]
 fn command_to_start() -> process::Command {
     process::Command::new("cmd")
 }
 
-#[cfg(not(windows))]
+#[cfg(not(target_os = "windows"))]
 fn command_to_start() -> process::Command {
     let test_command = env::args().next().unwrap();
     let debug_or_release = test_command
@@ -254,7 +254,7 @@ fn command_to_start() -> process::Command {
     process::Command::new(command_to_start)
 }
 
-#[cfg(windows)]
+#[cfg(target_os = "windows")]
 fn apply_prefix_parameters(command_config: CommandConfig) -> CommandConfig {
     command_config.pair("/c", &node_command()).pair(
         "--data-directory",
@@ -262,7 +262,7 @@ fn apply_prefix_parameters(command_config: CommandConfig) -> CommandConfig {
     )
 }
 
-#[cfg(not(windows))]
+#[cfg(not(target_os = "windows"))]
 fn apply_prefix_parameters(command_config: CommandConfig) -> CommandConfig {
     command_config.pair(
         "--data-directory",
@@ -270,7 +270,7 @@ fn apply_prefix_parameters(command_config: CommandConfig) -> CommandConfig {
     )
 }
 
-#[cfg(windows)]
+#[cfg(target_os = "windows")]
 #[allow(dead_code)]
 fn node_command() -> String {
     let test_command = env::args().next().unwrap();
