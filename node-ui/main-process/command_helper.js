@@ -107,6 +107,10 @@ module.exports = (() => {
       if (additionalArgs.networkSettings && additionalArgs.networkSettings.gasPrice) {
         args = args.concat(['--gas-price', additionalArgs.networkSettings.gasPrice])
       }
+
+      if (additionalArgs.blockchainServiceUrl) {
+        args = args.concat(['--blockchain-service-url', `"${additionalArgs.blockchainServiceUrl}"`])
+      }
     }
 
     args.forEach(value => { command += value + ' ' })

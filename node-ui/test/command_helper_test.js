@@ -376,6 +376,16 @@ describe('CommandHelper', () => {
           td.verify(nodeCmd.get(td.matchers.contains('--gas-price 23'), 'callback'))
         })
       })
+
+      describe('when blockchain service url is provided', () => {
+        beforeEach(() => {
+          subject.startSubstratumNode({ blockchainServiceUrl: 'http://this-is-your-url' }, 'callback')
+        })
+
+        it('provides blockchain service url command line argument', () => {
+          td.verify(nodeCmd.get(td.matchers.contains('--blockchain-service-url "http://this-is-your-url"'), 'callback'))
+        })
+      })
     })
   })
 })

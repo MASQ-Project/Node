@@ -14,15 +14,22 @@ import {
   Output,
   ViewChild
 } from '@angular/core';
-import {ipValidator, neighborhoodValidator, walletValidator} from './node-configuration.validator';
+import {
+  blockchainServiceValidator,
+  ipValidator,
+  neighborhoodValidator,
+  walletValidator
+} from './node-configuration.validator';
 import {MainService} from '../main.service';
 import {ConfigurationMode} from '../configuration-mode.enum';
 import {NodeStatus} from '../node-status.enum';
 import {Subscription} from 'rxjs';
 import {LocalStorageService} from '../local-storage.service';
+import {ElectronService} from '../electron.service';
 
 const neighborNodeDescriptor = 'neighborNodeDescriptor';
 const persistNeighborPreference = 'persistNeighborPreference';
+const blockchainServiceUrl = 'blockchainServiceUrl';
 
 @Component({
   selector: 'app-node-configuration',
@@ -38,7 +45,7 @@ export class NodeConfigurationComponent implements OnInit {
   @Output() saved = new EventEmitter<ConfigurationMode>();
   @Output() cancelled = new EventEmitter<void>();
 
-  constructor(private localStorageService: LocalStorageService,
+  constructor(private electron: ElectronService, private localStorageService: LocalStorageService,
               private configService: ConfigService,
               private mainService: MainService,
               private ngZone: NgZone) {
@@ -49,19 +56,28 @@ export class NodeConfigurationComponent implements OnInit {
     ip: new FormControl('', [ipValidator, Validators.required]),
     privateKey: new FormControl(''),
     walletAddress: new FormControl('', [walletValidator]),
+    blockchainServiceUrl: new FormControl('', [blockchainServiceValidator, Validators.required]),
     neighbor: new FormControl('', [neighborhoodValidator, Validators.required])
   });
   tooltipShown = false;
+  blockchainServiceUrlTooltipShown = false;
   walletType: WalletType = WalletType.EARNING;
   earningWalletPopulated: Boolean = false;
 
   @ViewChild('tooltipIcon', {static: true})
   tooltipIcon: ElementRef;
 
+  @ViewChild('blockchainServiceUrlTooltipIcon', {static: true})
+  blockchainServiceUrlTooltipIcon: ElementRef;
+
   @HostListener('document:click', ['$event'])
   documentClick(event: MouseEvent) {
     if (event.target !== this.tooltipIcon.nativeElement) {
       this.hideTooltip();
+    }
+
+    if (event.target !== this.blockchainServiceUrlTooltipIcon.nativeElement) {
+      this.hideBlockchainServiceUrlTooltip();
     }
   }
 
@@ -76,6 +92,10 @@ export class NodeConfigurationComponent implements OnInit {
         if (storedNeighbor) {
           config.neighbor = storedNeighbor;
         }
+        const storedBlockchainServiceUrl = this.localStorageService.getItem(blockchainServiceUrl);
+        if (storedBlockchainServiceUrl) {
+          config.blockchainServiceUrl = storedBlockchainServiceUrl;
+        }
 
         this.nodeConfig.patchValue(config);
         this.earningWalletPopulated = !!config.walletAddress;
@@ -89,11 +109,12 @@ export class NodeConfigurationComponent implements OnInit {
 
   save() {
     if (this.persistNeighbor) {
-      this.localStorageService.setItem(neighborNodeDescriptor, this.nodeConfig.value['neighbor']);
+      this.localStorageService.setItem(neighborNodeDescriptor, this.neighbor.value);
     } else {
       this.localStorageService.removeItem(neighborNodeDescriptor);
     }
     this.localStorageService.setItem(persistNeighborPreference, this.persistNeighbor);
+    this.localStorageService.setItem(blockchainServiceUrl, this.blockchainServiceUrl.value);
     this.saved.emit(this.mode);
   }
 
@@ -110,8 +131,16 @@ export class NodeConfigurationComponent implements OnInit {
     this.tooltipShown = false;
   }
 
+  hideBlockchainServiceUrlTooltip() {
+    this.blockchainServiceUrlTooltipShown = false;
+  }
+
   toggleTooltip() {
     this.tooltipShown = !this.tooltipShown;
+  }
+
+  toggleBlockchainServiceUrlTooltip() {
+    this.blockchainServiceUrlTooltipShown = !this.blockchainServiceUrlTooltipShown;
   }
 
   get ip() {
@@ -124,6 +153,14 @@ export class NodeConfigurationComponent implements OnInit {
 
   get walletAddress() {
     return this.nodeConfig.get('walletAddress');
+  }
+
+  get blockchainServiceUrl() {
+    return this.nodeConfig.get('blockchainServiceUrl');
+  }
+
+  openUrl(url: string) {
+    this.electron.shell.openExternal(url);
   }
 
   saveText(): string {

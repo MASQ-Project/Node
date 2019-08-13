@@ -118,6 +118,7 @@ describe('After application launch: ', function () {
     await indexPage.serving.click()
     await configComponent.ipInput.setValue('1.2.3.4')
     await configComponent.neighborInput.setValue('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:1.1.1.1:12345;4321')
+    await configComponent.blockchainServiceUrl.setValue('https://127.0.0.1')
 
     await client.waitUntil(async () => {
       return configComponent.saveConfig.isEnabled()
@@ -182,6 +183,7 @@ describe('After application launch: ', function () {
     await indexPage.serving.click()
     await configComponent.ipInput.setValue('1.2.3.4')
     await configComponent.neighborInput.setValue('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:1.1.1.1:12345;4321')
+    await configComponent.blockchainServiceUrl.setValue('https://127.0.0.1')
     await client.waitUntil(() => configComponent.saveConfig.isEnabled())
     client.element('#save-config').click()
     await client.waitUntilWindowLoaded()
@@ -215,6 +217,8 @@ describe('After application launch: ', function () {
     await indexPage.serving.click()
     await configComponent.ipInput.setValue('1.2.3.4')
     await configComponent.neighborInput.setValue('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:1.1.1.1:12345;4321')
+    await configComponent.blockchainServiceUrl.setValue('https://127.0.0.1')
+
     await client.waitUntil(async () => {
       return configComponent.saveConfig.isEnabled()
     })
@@ -298,6 +302,10 @@ class ConfigComponent {
 
   get walletAddress () {
     return this.client.element('#wallet-address')
+  }
+
+  get blockchainServiceUrl () {
+    return this.client.element('#blockchain-service-url')
   }
 
   get saveConfig () {

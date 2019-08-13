@@ -45,6 +45,18 @@ export class NodeConfigurationPage {
     return this.query('#wallet-address-validation__pattern');
   }
 
+  get blockchainServiceUrl(): HTMLInputElement {
+    return this.query('#blockchain-service-url');
+  }
+
+  get blockchainServiceUrlRequiredValidation(): HTMLLIElement {
+    return this.query('#blockchain-service-url-validation__required');
+  }
+
+  get blockchainServiceUrlPatternValidation(): HTMLLIElement {
+    return this.query('#blockchain-service-url-validation__pattern');
+  }
+
   get cancelBtn(): HTMLButtonElement {
     return this.query('#cancel');
   }
@@ -59,6 +71,18 @@ export class NodeConfigurationPage {
 
   get nodeDescriptorTooltip(): HTMLParagraphElement {
     return this.query('#node-descriptor-tooltip');
+  }
+
+  get blockchainServiceUrlHelpImg(): HTMLImageElement {
+    return this.query('#blockchain-service-url-help-icon');
+  }
+
+  get blockchainServiceUrlTooltip(): HTMLParagraphElement {
+    return this.query('#blockchain-service-url-tooltip');
+  }
+
+  get blockchainServiceUrlHelpLink(): HTMLSpanElement {
+    return this.query('#blockchain-service-url-help-link');
   }
 
   constructor(private fixture: ComponentFixture<NodeConfigurationComponent>) {
@@ -85,6 +109,10 @@ export class NodeConfigurationPage {
 
   setWalletAddress(value: string) {
     NodeConfigurationPage.setInputText(this.walletAddressTxt, value);
+  }
+
+  setBlockchainServiceUrl(value: string) {
+    NodeConfigurationPage.setInputText(this.blockchainServiceUrl, value);
   }
 
   private query<T>(selector: String): T {

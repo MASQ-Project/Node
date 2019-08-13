@@ -58,9 +58,8 @@
       <input id="wallet-address" name="wallet-address" type="text" formControlName="walletAddress"
              [class.input-invalid]="walletAddress.invalid" [readonly]="earningWalletPopulated">
     </div>
-    <ul id="wallet-address-validation"
-        *ngIf="walletAddress.invalid && (walletAddress.touched || walletAddress.dirty)">
-      <li class="validation-error" id="wallet-address-validation__pattern" *ngIf="walletAddress.errors.pattern">
+    <ul id="wallet-address-validation">
+      <li class="validation-error" id="wallet-address-validation__pattern" *ngIf="walletAddress.errors?.pattern">
         Not a valid Ethereum wallet address.
       </li>
     </ul>
@@ -73,6 +72,32 @@
         <input id="private-key" name="private-key" type="text" formControlName="privateKey">
       </div>
     </div>
+
+    <div class="node-config__display">
+      <label for="blockchain-service-url" class="node-config__display-label">Blockchain Service URL</label>
+      <div class="tooltip">
+        <img (click)="toggleBlockchainServiceUrlTooltip()" id="blockchain-service-url-help-icon" #blockchainServiceUrlTooltipIcon class="question"
+             src="assets/images/questionmark_encircled.svg" height="16"
+             width="16">
+
+        <p *ngIf="blockchainServiceUrlTooltipShown" id="blockchain-service-url-tooltip" class="node-config__clippy" style="top: -54px;">
+          Configure a Blockchain Service URL e.g. https://ropsten.infura.io/v3/&lt;YOUR-PROJECT-ID&gt; or http://127.0.0.1:8545. For more information
+          <span id="blockchain-service-url-help-link" (click)="openUrl('https://github.com/SubstratumNetwork/SubstratumNode/blob/master/node/docs/Blockchain-Service.md')">see</span>.
+        </p>
+      </div>
+    </div>
+    <div class="node-config__display">
+      <input id="blockchain-service-url" name="blockchain-service-url" type="text" formControlName="blockchainServiceUrl" [class.input-invalid]="blockchainServiceUrl.invalid">
+    </div>
+
+    <ul id="blockchain-service-url-validation">
+      <li class="validation-error" id="blockchain-service-url-validation__required" *ngIf="blockchainServiceUrl.errors?.required">
+        Blockchain Service URL is required.
+      </li>
+      <li class="validation-error" id="blockchain-service-url-validation__pattern" *ngIf="blockchainServiceUrl.errors?.pattern">
+        Blockchain Service URL should start with https:// or http://
+      </li>
+    </ul>
 
     <div class="node-config__actions node-config__inset">
       <button type="button" id="cancel" class="cancel-button" (click)="cancel()">Cancel</button>

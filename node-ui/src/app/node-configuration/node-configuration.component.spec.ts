@@ -14,6 +14,8 @@ import {MainService} from '../main.service';
 import {ConfigurationMode} from '../configuration-mode.enum';
 import {NodeStatus} from '../node-status.enum';
 import {LocalStorageService} from '../local-storage.service';
+import {ElectronService} from '../electron.service';
+import {verify} from 'testdouble';
 
 describe('NodeConfigurationComponent', () => {
   let component: NodeConfigurationComponent;
@@ -23,17 +25,25 @@ describe('NodeConfigurationComponent', () => {
   let mockRouter;
   let mockNodeStatus;
   let mockNavigateByUrl;
+  let mockOpenExternal;
   let storedConfig: BehaviorSubject<NodeConfiguration>;
   let mockMainService;
   let mockConfigMode;
   let mockLocalStorageService;
+  let stubElectronService;
 
   beforeEach(() => {
     storedConfig = new BehaviorSubject(new NodeConfiguration());
     mockConfigMode = new BehaviorSubject(ConfigurationMode.Hidden);
     mockNavigateByUrl = td.func('navigateByUrl');
+    mockOpenExternal = td.function('openExternal');
 
     mockNodeStatus = new BehaviorSubject(new NodeConfiguration());
+    stubElectronService = {
+      shell: {
+        openExternal: mockOpenExternal
+      },
+    };
     mockMainService = {
       save: td.func('save'),
       nodeStatus: mockNodeStatus,
@@ -60,6 +70,7 @@ describe('NodeConfigurationComponent', () => {
         ReactiveFormsModule
       ],
       providers: [
+        {provide: ElectronService, useValue: stubElectronService},
         {provide: ConfigService, useValue: mockConfigService},
         {provide: MainService, useValue: mockMainService},
         {provide: Router, useValue: mockRouter},
@@ -149,6 +160,7 @@ describe('NodeConfigurationComponent', () => {
           ip: '127.0.0.1',
           neighbor: '5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999',
           walletAddress: '0x0123456789012345678901234567890123456789',
+          blockchainServiceUrl: 'https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>',
           privateKey: '',
         };
 
@@ -158,6 +170,7 @@ describe('NodeConfigurationComponent', () => {
           page.setIp('127.0.0.1');
           page.setNeighbor('5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999');
           page.setWalletAddress('0x0123456789012345678901234567890123456789');
+          page.setBlockchainServiceUrl('https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>');
           fixture.detectChanges();
 
           page.saveConfigBtn.click();
@@ -224,6 +237,38 @@ describe('NodeConfigurationComponent', () => {
       });
     });
 
+    describe('when it already exists and a blockchain service url is in local storage', () => {
+      const expected: NodeConfiguration = {
+        blockchainServiceUrl: '',
+      };
+
+      beforeEach(() => {
+        td.when(mockLocalStorageService.getItem('blockchainServiceUrl')).thenReturn('https://infura.io');
+
+        storedConfig.next(expected);
+      });
+
+      it('is prepopulated with that data', () => {
+        expect(page.blockchainServiceUrl.value).toBe('https://infura.io');
+      });
+    });
+
+    describe('when it already exists and a blockchain service url is NOT in local storage', () => {
+      const expected: NodeConfiguration = {
+        blockchainServiceUrl: 'https://i-already-exist.foo',
+      };
+
+      beforeEach(() => {
+        td.when(mockLocalStorageService.getItem('blockchainServiceUrl')).thenReturn(null);
+
+        storedConfig.next(expected);
+      });
+
+      it('is prepopulated with that data', () => {
+        expect(page.blockchainServiceUrl.value).toBe('https://i-already-exist.foo');
+      });
+    });
+
     describe('when clicking the node descriptor help icon', () => {
       beforeEach(() => {
         page.nodeDescriptorHelpImg.click();
@@ -244,6 +289,45 @@ describe('NodeConfigurationComponent', () => {
         it('hides the help message', () => {
           expect(page.nodeDescriptorTooltip).toBeFalsy();
         });
+      });
+    });
+
+    describe('when clicking the blockchain service URL help icon', () => {
+      beforeEach(() => {
+        page.blockchainServiceUrlHelpImg.click();
+        fixture.detectChanges();
+      });
+
+      it('displays the help message', () => {
+        expect(page.blockchainServiceUrlTooltip).toBeTruthy();
+      });
+
+      describe('clicking anywhere', () => {
+        beforeEach(() => {
+          expect(page.blockchainServiceUrlTooltip).toBeTruthy();
+          page.containerDiv.click();
+          fixture.detectChanges();
+        });
+
+        it('hides the help message', () => {
+          expect(page.blockchainServiceUrlTooltip).toBeFalsy();
+        });
+      });
+    });
+
+    describe('when clicking the blockchain service url help link', () => {
+      beforeEach(() => {
+        page.blockchainServiceUrlHelpImg.click();
+        fixture.detectChanges();
+
+        expect(page.blockchainServiceUrlTooltip).toBeTruthy();
+
+        page.blockchainServiceUrlHelpLink.click();
+        fixture.detectChanges();
+      });
+
+      it('calls openExternal', () => {
+        verify(mockOpenExternal('https://github.com/SubstratumNetwork/SubstratumNode/blob/master/node/docs/Blockchain-Service.md'));
       });
     });
 
@@ -353,6 +437,56 @@ describe('NodeConfigurationComponent', () => {
         });
       });
 
+      describe('blockchain service URL', () => {
+        beforeEach(() => {
+          page.setBlockchainServiceUrl('');
+          fixture.detectChanges();
+        });
+
+        it('is required', () => {
+          expect(page.blockchainServiceUrlRequiredValidation).toBeTruthy();
+          expect(page.blockchainServiceUrlRequiredValidation.textContent).toContain('Blockchain Service URL is required.');
+        });
+
+        describe('when provided with http and valid', () => {
+          beforeEach(() => {
+            page.setBlockchainServiceUrl('http://ropsten.infura.io/v3/projectid');
+            fixture.detectChanges();
+          });
+
+          it('is not in error', () => {
+            expect(page.blockchainServiceUrlRequiredValidation).toBeFalsy();
+          });
+        });
+
+        describe('when provided with https and valid', () => {
+          beforeEach(() => {
+            page.setBlockchainServiceUrl('https://ropsten.infura.io/v3/projectid');
+            fixture.detectChanges();
+          });
+
+          it('is not in error', () => {
+            expect(page.blockchainServiceUrlRequiredValidation).toBeFalsy();
+          });
+        });
+
+        describe('when provided and invalid', () => {
+          beforeEach(() => {
+            page.setBlockchainServiceUrl('htp://invalid.com');
+            fixture.detectChanges();
+          });
+
+          it('shows the error element', () => {
+            expect(page.blockchainServiceUrlPatternValidation).toBeTruthy();
+          });
+
+          it('contains the proper error message', () => {
+            expect(page.blockchainServiceUrlPatternValidation.textContent)
+              .toContain('Blockchain Service URL should start with https:// or http://');
+          });
+        });
+      });
+
       describe('invalid form', () => {
         beforeEach(() => {
           page.setIp('abc123');
@@ -369,6 +503,7 @@ describe('NodeConfigurationComponent', () => {
           page.setIp('192.168.1.1');
           page.setNeighbor('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345;4321');
           page.setWalletAddress('0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
+          page.setBlockchainServiceUrl('https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>');
           fixture.detectChanges();
         });
 
@@ -441,6 +576,7 @@ describe('NodeConfigurationComponent', () => {
             ip: '127.0.0.1',
             neighbor: '5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999',
             walletAddress: '',
+            blockchainServiceUrl: 'https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>',
             privateKey: ''
           };
 
@@ -448,6 +584,7 @@ describe('NodeConfigurationComponent', () => {
             page.setIp('127.0.0.1');
             page.setNeighbor('5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999');
             page.setWalletAddress('');
+            page.setBlockchainServiceUrl('https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>');
             fixture.detectChanges();
 
             page.saveConfigBtn.click();
@@ -466,6 +603,7 @@ describe('NodeConfigurationComponent', () => {
               page.setIp('127.0.0.1');
               page.setNeighbor('5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999');
               page.setWalletAddress('');
+              page.setBlockchainServiceUrl('https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>');
               fixture.detectChanges();
               page.saveConfigBtn.click();
               fixture.detectChanges();
@@ -486,6 +624,7 @@ describe('NodeConfigurationComponent', () => {
               page.setNeighbor('5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999');
               page.changeRememberNeighbor(true);
               page.setWalletAddress('');
+              page.setBlockchainServiceUrl('https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>');
               fixture.detectChanges();
               page.saveConfigBtn.click();
               fixture.detectChanges();
@@ -500,6 +639,22 @@ describe('NodeConfigurationComponent', () => {
             it('saves the checkbox state to local storage', () => {
               td.verify(mockLocalStorageService.setItem('persistNeighborPreference', true));
             });
+          });
+        });
+
+        describe('saving the blockchain service url', () => {
+          beforeEach(() => {
+            page.setIp('127.0.0.1');
+            page.setNeighbor('5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999');
+            page.setWalletAddress('');
+            page.setBlockchainServiceUrl('https://infura.io');
+            fixture.detectChanges();
+            page.saveConfigBtn.click();
+            fixture.detectChanges();
+          });
+
+          it('saves the blockchain service url', () => {
+            td.verify(mockLocalStorageService.setItem('blockchainServiceUrl', 'https://infura.io'));
           });
         });
       });

@@ -6,6 +6,7 @@ export class NodeConfiguration {
   ip?: string;
   privateKey?: string;
   walletAddress?: string;
+  blockchainServiceUrl?: string;
   neighbor?: string;
   networkSettings?: NetworkSettings;
 }

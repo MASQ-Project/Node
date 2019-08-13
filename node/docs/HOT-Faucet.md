@@ -6,7 +6,9 @@
 ### Request Testnet Ether (ROP)
 
 1. Submit a request for Ropsten Ethereum from https://faucet.ropsten.be/
-    1. Paste your SubstratumNode consuming wallet testnet address -- you can find this from TBD [TODO SC-830, SC-839]
+    1. Paste your SubstratumNode consuming wallet testnet address -- This is the address you noted when recording your mnemonic phrase words when generating
+      your wallet. If you didn't record it you can scan SubstratumNode.log in the temporary directory.
+      
     1. Click the "Send me test Ether" button -- Note you are rate limited as to how frequently you can request test Ether.
 
 1. HOT is the testnet version of $SUB we use in lieu of the real thing. In production it will be real $SUB.
