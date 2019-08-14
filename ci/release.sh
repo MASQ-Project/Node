@@ -14,33 +14,45 @@ if [[ "$OSTYPE" == "msys" ]]; then
   GPG_EXECUTABLE="/c/Program Files (x86)/gnupg/bin/gpg"
 fi
 
-cd "$CI_DIR/../dns_utility"
+cd "$CI_DIR/../node"
 cargo clean
 "ci/build.sh"
 
-cd "$CI_DIR/../node"
+cd "$CI_DIR/../dns_utility"
 cargo clean
 "ci/build.sh"
 
 # sign
 case "$OSTYPE" in
    linux*)
+      cd "$CI_DIR/../node"
       "${GPG_EXECUTABLE}" --batch --passphrase "$PASSPHRASE" -b target/release/$NODE_EXECUTABLE
       "${GPG_EXECUTABLE}" --verify target/release/$NODE_EXECUTABLE.sig target/release/$NODE_EXECUTABLE
+      cd "$CI_DIR/../dns_utility"
+      "${GPG_EXECUTABLE}" --batch --passphrase "$PASSPHRASE" -b target/release/$DNS_EXECUTABLE
+      "${GPG_EXECUTABLE}" --verify target/release/$DNS_EXECUTABLE.sig target/release/$DNS_EXECUTABLE
       ;;
    darwin*)
+      cd "$CI_DIR/../node"
       cp Info.plist target/release
       codesign -s 'Developer ID Application: Substratum Services, Inc. (TKDGR66924)'  -fv "target/release/$NODE_EXECUTABLE"
       codesign -v -v "target/release/$NODE_EXECUTABLE"
-      cp Info.plist ../dns_utility/target/release
-      codesign -s 'Developer ID Application: Substratum Services, Inc. (TKDGR66924)'  -fv "../dns_utility/target/release/$DNS_EXECUTABLE"
-      codesign -v -v "../dns_utility/target/release/$DNS_EXECUTABLE"
+      cd "$CI_DIR/../dns_utility"
+      cp Info.plist target/release
+      codesign -s 'Developer ID Application: Substratum Services, Inc. (TKDGR66924)'  -fv "target/release/$DNS_EXECUTABLE"
+      codesign -v -v "target/release/$DNS_EXECUTABLE"
       ;;
    msys)
-      "${GPG_EXECUTABLE}" --batch --passphrase "$PASSPHRASE" -b target/release/$NODE_EXECUTABLE
-      "${GPG_EXECUTABLE}" --verify target/release/$NODE_EXECUTABLE.sig target/release/$NODE_EXECUTABLE
-      "${GPG_EXECUTABLE}" --batch --passphrase "$PASSPHRASE" -b target/release/$NODE_EXECUTABLEW
-      "${GPG_EXECUTABLE}" --verify target/release/$NODE_EXECUTABLEW.sig target/release/$NODE_EXECUTABLEW
+      cd "$CI_DIR/../node"
+      signtool sign //tr http://timestamp.digicert.com //td sha256 //fd sha256 //i "DigiCert SHA2 Assured ID Code Signing CA" //n "Substratum Services, Inc." "target/release/$NODE_EXECUTABLE"
+      signtool verify //pa "target/release/$NODE_EXECUTABLE"
+      signtool sign //tr http://timestamp.digicert.com //td sha256 //fd sha256 //i "DigiCert SHA2 Assured ID Code Signing CA" //n "Substratum Services, Inc." "target/release/$NODE_EXECUTABLEW"
+      signtool verify //pa "target/release/$NODE_EXECUTABLEW"
+      cd "$CI_DIR/../dns_utility"
+      signtool sign //tr http://timestamp.digicert.com //td sha256 //fd sha256 //i "DigiCert SHA2 Assured ID Code Signing CA" //n "Substratum Services, Inc." "target/release/$DNS_EXECUTABLE"
+      signtool verify //pa "target/release/$DNS_EXECUTABLE"
+      signtool sign //tr http://timestamp.digicert.com //td sha256 //fd sha256 //i "DigiCert SHA2 Assured ID Code Signing CA" //n "Substratum Services, Inc." "target/release/$DNS_EXECUTABLEW"
+      signtool verify //pa "target/release/$DNS_EXECUTABLEW"
       ;;
    *)
         echo "unsupported operating system detected."; exit 1

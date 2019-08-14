@@ -16,6 +16,10 @@ let mainWindow
 let nodeActuator
 
 function createWindow () {
+  const electronUserData = process.env.ELECTRON_USER_DATA
+  if (electronUserData) {
+    app.setPath('userData', electronUserData)
+  }
   // Mac needs special menu entries for clipboard functionality
   if (process.platform === 'darwin') {
     Menu.setApplicationMenu(Menu.buildFromTemplate([

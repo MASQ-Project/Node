@@ -28,6 +28,7 @@ function ensureCleanDirectoryExists (basePath, namespace) {
   myRmDir(dirName)
   fs.mkdirSync(dirName, { recursive: true })
   if (process.platform !== 'win32') {
+    fs.chownSync(basePath, parseInt(process.env.SUDO_UID), parseInt(process.env.SUDO_GID))
     fs.chownSync(dirName, parseInt(process.env.SUDO_UID), parseInt(process.env.SUDO_GID))
   }
   return dirName

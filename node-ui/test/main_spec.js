@@ -29,7 +29,8 @@ describe('After application launch: ', function () {
       path: electronPath,
 
       env: {
-        TESTING_IN_PROGRESS: 'true'
+        TESTING_IN_PROGRESS: 'true',
+        ELECTRON_USER_DATA: `${process.cwd()}/generated/userData`
       },
 
       // Assuming you have the following directory structure
