@@ -99,7 +99,7 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
     fn init(&mut self, file_path: PathBuf, real_user: &RealUser, log_level: LevelFilter) {
         Logger::with(LogSpecification::default(log_level).finalize())
             .log_to_file()
-            .directory(&file_path.to_str().expect("Bad temporary filename")[..])
+            .directory(&file_path.to_str().expect("Bad logfile directory")[..])
             .print_message()
             .duplicate_to_stderr(Duplicate::Info)
             .suppress_timestamp()

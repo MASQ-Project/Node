@@ -99,26 +99,26 @@ impl PrivilegeDropper for PrivilegeDropperReal {
 
     #[cfg(not(target_os = "windows"))]
     fn chown(&self, file: &PathBuf, real_user: &RealUser) {
+        // Don't bother trying to chown if we're not root
         if (self.id_wrapper.getgid() == 0) && (self.id_wrapper.getuid() == 0) {
-            return;
-        }
-        let mut command = std::process::Command::new("chown");
-        command.args(vec![
-            format!(
-                "{}:{}",
-                real_user.uid.expect("User-ID logic not working"),
-                real_user.gid.expect("Group-ID logic not working")
-            ),
-            format!("{}", file.display()),
-        ]);
-        let exit_status = command
-            .status()
-            .expect("Could not retrieve status from chown command");
-        if !exit_status.success() {
-            if self.id_wrapper.getuid() == 0 {
-                panic!("Couldn't chown as root");
-            } else {
-                // kind of expected this. Probably we're running tests or something.
+            let mut command = std::process::Command::new("chown");
+            let args = vec![
+                format!(
+                    "{}:{}",
+                    real_user.uid.expect("User-ID logic not working"),
+                    real_user.gid.expect("Group-ID logic not working")
+                ),
+                format!("{}", file.display()),
+            ];
+            command.args(args.clone());
+            let exit_status = command
+                .status()
+                .expect("Could not retrieve status from chown command");
+            if !exit_status.success() {
+                panic!(
+                    "As root, couldn't chown {:?} to {:?}: exit code {:?}",
+                    file, args, exit_status
+                );
             }
         }
     }
