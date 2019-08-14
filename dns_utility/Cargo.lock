@@ -32,7 +32,7 @@ dependencies = [
 
 [[package]]
 name = "dns_utility"
-version = "1.0.0-rc.1"
+version = "1.0.0-rc.2"
 dependencies = [
  "core-foundation 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "ipconfig 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
