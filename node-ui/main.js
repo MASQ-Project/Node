@@ -169,20 +169,19 @@ ipcMain.on('validate-mnemonic-phrase', (event, mnemonicPhrase, wordlist) => {
   event.returnValue = ethers.utils.HDNode.isValidMnemonic(mnemonicPhrase, ethers.wordlists[wordlist])
 })
 
-ipcMain.on('calculate-wallet-address', (event, phrase, path, mnemonicPassphrase, wordlist) => {
+ipcMain.on('calculate-wallet-addresses', (event, phrase, consumingPath, mnemonicPassphrase, wordlist, earningPath) => {
   try {
-    const address = new ethers.Wallet(
-      ethers.utils.HDNode.fromMnemonic(phrase, ethers.wordlists[wordlist], mnemonicPassphrase)
-        .derivePath(path)
-    ).address
-    mainWindow.webContents.send('calculated-wallet-address', address)
+    const node = ethers.utils.HDNode.fromMnemonic(phrase, ethers.wordlists[wordlist], mnemonicPassphrase)
+    const consumingAddress = new ethers.Wallet(node.derivePath(consumingPath)).address
+    const earningAddress = earningPath ? new ethers.Wallet(node.derivePath(earningPath)).address : consumingAddress
+    mainWindow.webContents.send('calculated-wallet-addresses', { consuming: consumingAddress, earning: earningAddress })
   } catch (e) {
-    mainWindow.webContents.send('calculated-wallet-address', '')
+    mainWindow.webContents.send('calculated-wallet-addresses', { consuming: '', earning: '' })
   }
 })
 
-ipcMain.on('recover-consuming-wallet', (event, phrase, mnemonicPassphrase, derivationPath, wordlist, walletPassword) => {
-  nodeActuator.recoverWallet(phrase, mnemonicPassphrase, derivationPath, wordlist, walletPassword)
+ipcMain.on('recover-consuming-wallet', (event, phrase, mnemonicPassphrase, consumingDerivationPath, wordlist, walletPassword, earningDerivationPath) => {
+  nodeActuator.recoverWallet(phrase, mnemonicPassphrase, consumingDerivationPath, wordlist, walletPassword, earningDerivationPath)
     .then((result) => {
       if (result.success) {
         mainWindow.webContents.send('recovered-consuming-wallet', true)
@@ -192,8 +191,8 @@ ipcMain.on('recover-consuming-wallet', (event, phrase, mnemonicPassphrase, deriv
     })
 })
 
-ipcMain.on('generate-consuming-wallet', (event, mnemonicPassphrase, derivationPath, wordlist, walletPassword, wordcount) => {
-  nodeActuator.generateWallet(mnemonicPassphrase, derivationPath, wordlist, walletPassword, wordcount)
+ipcMain.on('generate-consuming-wallet', (event, mnemonicPassphrase, consumingDerivationPath, wordlist, walletPassword, wordcount, earningDerivationPath) => {
+  nodeActuator.generateWallet(mnemonicPassphrase, consumingDerivationPath, wordlist, walletPassword, wordcount, earningDerivationPath)
     .then((result) => {
       if (result.success) {
         mainWindow.webContents.send('generated-consuming-wallet', result.result)

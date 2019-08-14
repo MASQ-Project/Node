@@ -44,7 +44,7 @@ describe('main', () => {
     td.when(mockIpcMain.on('get-financial-statistics', ipcMainOnGetFinancialStatistics.capture())).thenReturn(mockIpcMain)
 
     ipcMainOnCalculateWalletAddress = td.matchers.captor()
-    td.when(mockIpcMain.on('calculate-wallet-address', ipcMainOnCalculateWalletAddress.capture())).thenReturn(mockIpcMain)
+    td.when(mockIpcMain.on('calculate-wallet-addresses', ipcMainOnCalculateWalletAddress.capture())).thenReturn(mockIpcMain)
 
     ipcMainOnRecoverConsumingWallet = td.matchers.captor()
     td.when(mockIpcMain.on('recover-consuming-wallet', ipcMainOnRecoverConsumingWallet.capture())).thenReturn(mockIpcMain)
@@ -301,40 +301,49 @@ describe('main', () => {
     })
   })
 
-  describe('calculate-wallet-address', () => {
+  describe('calculate-wallet-addresses', () => {
     beforeEach(() => {
       appOnReady.value()
     })
 
-    describe('success with standard derivation path', () => {
+    describe('success with matching derivation paths', () => {
       beforeEach(async () => {
         await ipcMainOnCalculateWalletAddress.value({},
           'supply silent program funny miss slab goat scrap advice faith group pretty',
           'm/44\'/60\'/0\'/0/0',
           'password',
-          'en')
+          'en',
+          'm/44\'/60\'/0\'/0/0')
       })
 
-      it('responds with the address', () => {
-        td.verify(mainWindow.prototype.webContents.send('calculated-wallet-address', '0xAAFB5A9A1f0fD1033AAa904990126aed7E2Fa7C6'))
+      it('responds with the addresses', () => {
+        td.verify(mainWindow.prototype.webContents.send(
+          'calculated-wallet-addresses',
+          { consuming: '0xAAFB5A9A1f0fD1033AAa904990126aed7E2Fa7C6',
+            earning: '0xAAFB5A9A1f0fD1033AAa904990126aed7E2Fa7C6' }
+        ))
       })
     })
 
-    describe('success with different derivation path and no passphrase', () => {
+    describe('success with different derivation paths and no passphrase', () => {
       beforeEach(async () => {
         await ipcMainOnCalculateWalletAddress.value({},
           'supply silent program funny miss slab goat scrap advice faith group pretty',
-          'm/44\'/60\'/0\'/0/1',
+          'm/44\'/60\'/0\'/0/0',
           '',
-          'en')
+          'en',
+          'm/44\'/60\'/0\'/0/1')
       })
 
-      it('responds with the address', () => {
-        td.verify(mainWindow.prototype.webContents.send('calculated-wallet-address', '0x52144caDdca2c240D12B1896908BCEa454fC4889'))
+      it('responds with the addresses', () => {
+        td.verify(mainWindow.prototype.webContents.send(
+          'calculated-wallet-addresses',
+          { consuming: '0x01Dc5A96cC576EF7Aa3aa386432dDAaddf63ad53',
+            earning: '0x52144caDdca2c240D12B1896908BCEa454fC4889' }))
       })
     })
 
-    describe('success with a different word list', () => {
+    describe('success with a different word list and no earning path', () => {
       beforeEach(async () => {
         await ipcMainOnCalculateWalletAddress.value({},
           'sportivo secondo puntare ginepro occorrere serbato idra savana afoso finanza inarcare proroga',
@@ -343,8 +352,11 @@ describe('main', () => {
           'it')
       })
 
-      it('responds with the address', () => {
-        td.verify(mainWindow.prototype.webContents.send('calculated-wallet-address', '0xD218Bb087FCe27b8922eB244852FF600576796d0'))
+      it('responds with the same address for earning and consuming', () => {
+        td.verify(mainWindow.prototype.webContents.send(
+          'calculated-wallet-addresses',
+          { consuming: '0xD218Bb087FCe27b8922eB244852FF600576796d0',
+            earning: '0xD218Bb087FCe27b8922eB244852FF600576796d0' }))
       })
     })
 
@@ -358,7 +370,7 @@ describe('main', () => {
       })
 
       it('responds with empty string', () => {
-        td.verify(mainWindow.prototype.webContents.send('calculated-wallet-address', ''))
+        td.verify(mainWindow.prototype.webContents.send('calculated-wallet-addresses', { consuming: '', earning: '' }))
       })
     })
 
@@ -372,7 +384,7 @@ describe('main', () => {
       })
 
       it('responds with empty string', () => {
-        td.verify(mainWindow.prototype.webContents.send('calculated-wallet-address', ''))
+        td.verify(mainWindow.prototype.webContents.send('calculated-wallet-addresses', { consuming: '', earning: '' }))
       })
     })
   })
@@ -384,9 +396,9 @@ describe('main', () => {
 
     describe('successfully', () => {
       beforeEach(async () => {
-        td.when(MockNodeActuator.prototype.recoverWallet('phrase', 'passphrase', 'path', 'wordlist', 'password')).thenResolve({ success: true })
+        td.when(MockNodeActuator.prototype.recoverWallet('phrase', 'passphrase', 'consumingPath', 'wordlist', 'password', 'earningPath')).thenResolve({ success: true })
 
-        await ipcMainOnRecoverConsumingWallet.value({}, 'phrase', 'passphrase', 'path', 'wordlist', 'password')
+        await ipcMainOnRecoverConsumingWallet.value({}, 'phrase', 'passphrase', 'consumingPath', 'wordlist', 'password', 'earningPath')
       })
 
       it('sends a success messages to the render process', () => {
@@ -396,10 +408,10 @@ describe('main', () => {
 
     describe('unsuccessfully', () => {
       beforeEach(async () => {
-        td.when(MockNodeActuator.prototype.recoverWallet('phrase', 'passphrase', 'path', 'wordlist', 'password'))
+        td.when(MockNodeActuator.prototype.recoverWallet('phrase', 'passphrase', 'consumingPath', 'wordlist', 'password', 'earningPath'))
           .thenResolve({ success: false, message: 'whoops' })
 
-        await ipcMainOnRecoverConsumingWallet.value({}, 'phrase', 'passphrase', 'path', 'wordlist', 'password')
+        await ipcMainOnRecoverConsumingWallet.value({}, 'phrase', 'passphrase', 'consumingPath', 'wordlist', 'password', 'earningPath')
       })
 
       it('sends a success messages to the render process', () => {
@@ -415,9 +427,9 @@ describe('main', () => {
 
     describe('successfully', () => {
       beforeEach(async () => {
-        td.when(MockNodeActuator.prototype.generateWallet('passphrase', 'path', 'wordlist', 'password', 12)).thenResolve({ success: true, result: 'some mnemonic phrase that just happens to be the correct length yo' })
+        td.when(MockNodeActuator.prototype.generateWallet('passphrase', 'consumingPath', 'wordlist', 'password', 12, 'earningPath')).thenResolve({ success: true, result: 'some mnemonic phrase that just happens to be the correct length yo' })
 
-        await ipcMainOnGenerateConsumingWallet.value({}, 'passphrase', 'path', 'wordlist', 'password', 12)
+        await ipcMainOnGenerateConsumingWallet.value({}, 'passphrase', 'consumingPath', 'wordlist', 'password', 12, 'earningPath')
       })
 
       it('sends a success messages to the render process', () => {
@@ -427,10 +439,10 @@ describe('main', () => {
 
     describe('unsuccessfully', () => {
       beforeEach(async () => {
-        td.when(MockNodeActuator.prototype.generateWallet('passphrase', 'path', 'wordlist', 'password', 12))
+        td.when(MockNodeActuator.prototype.generateWallet('passphrase', 'consumingPath', 'wordlist', 'password', 12, 'earningPath'))
           .thenResolve({ success: false, message: 'whoops' })
 
-        await ipcMainOnGenerateConsumingWallet.value({}, 'passphrase', 'path', 'wordlist', 'password', 12)
+        await ipcMainOnGenerateConsumingWallet.value({}, 'passphrase', 'consumingPath', 'wordlist', 'password', 12, 'earningPath')
       })
 
       it('sends a success messages to the render process', () => {

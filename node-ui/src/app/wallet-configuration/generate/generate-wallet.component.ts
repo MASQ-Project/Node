@@ -22,9 +22,12 @@ export class GenerateWalletComponent implements OnInit {
     wordlist: new FormControl('en', [Validators.required]),
     wordcount: new FormControl(12, [Validators.required]),
     mnemonicPassphrase: new FormControl('', [Validators.required]),
-    derivationPath: new FormControl('m/44\'/60\'/0\'/0/0', [Validators.required, hardenedPathValidator]),
+    consumingDerivationPath: new FormControl('m/44\'/60\'/0\'/0/0', [Validators.required, hardenedPathValidator]),
+    earningDerivationPath: new FormControl('m/44\'/60\'/0\'/0/1', [Validators.required, hardenedPathValidator]),
     walletPassword: new FormControl('', [Validators.required]),
   });
+
+  sameWallet = true;
 
   doneForm = new FormGroup({
     mnemonicAgree: new FormControl(false),
@@ -33,9 +36,7 @@ export class GenerateWalletComponent implements OnInit {
   generatedWalletInfo: object = null;
   errorText: string = null;
 
-  constructor(private walletService: WalletService, private router: Router, private ngZone: NgZone) {
-
-  }
+  constructor(private walletService: WalletService, private router: Router, private ngZone: NgZone) {}
 
   ngOnInit(): void {
     this.walletService.generateConsumingWalletResponse.subscribe((response: object) => {
@@ -54,10 +55,12 @@ export class GenerateWalletComponent implements OnInit {
     const wordList = wordlists.find(wl => wl.value === walletConfig.wordlist).viewValue;
     this.walletService.generateConsumingWallet(
       walletConfig.mnemonicPassphrase,
-      walletConfig.derivationPath,
+      walletConfig.consumingDerivationPath,
       wordList,
       walletConfig.walletPassword,
       walletConfig.wordcount,
+      this.sameWallet ?
+        walletConfig.consumingDerivationPath : walletConfig.earningDerivationPath,
     );
   }
 

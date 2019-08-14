@@ -2,7 +2,7 @@
 <div class="recover-wallet-configuration">
   <h3 class="title">Recover wallet from mnemonic phrase</h3>
 
-  <form [formGroup]="walletConfig" (ngSubmit)="generatePublicAddress()">
+  <form [formGroup]="walletConfig" (ngSubmit)="calculateAddresses()">
     <div id="lang-pass-container" class="recover-wallet-configuration__actions">
       <div id="language-container">
         <label for="wordlist">Language</label>
@@ -27,13 +27,26 @@
             [class.input-invalid]="walletConfig.controls['mnemonicPhrase'].errors"></textarea>
     </div>
     <div id="derivation-path-container" class="recover-wallet-configuration__actions">
-      <label for="derivation-path">HD Derivation Path</label>
-      <input type="text" id="derivation-path" formControlName="derivationPath"
-             [class.input-invalid]="walletConfig.controls['derivationPath'].errors">
+      <label for="consuming-derivation-path">Consuming Derivation Path</label>
+      <input type="text" id="consuming-derivation-path" formControlName="consumingDerivationPath"
+             [class.input-invalid]="walletConfig.controls['consumingDerivationPath'].errors">
     </div>
-    <div class="recover-wallet-configuration__actions" [hidden]="!publicAddress">
-      <div id="address-container">
-        <span id="public-address-label">Consuming wallet address:</span><span id="public-address">{{publicAddress}}</span>
+    <div id="derivation-checkbox-container" class="recover-wallet-configuration__ancillary">
+      <input id="same-wallet" type="checkbox" class="checkbox" name="same-wallet" (change)="calculateAddresses()"
+             [(ngModel)]="this.sameWallet" [ngModelOptions]="{standalone: true}">
+      <label for="same-wallet">Use same address for earning and consuming </label>
+    </div>
+    <div *ngIf="!sameWallet" id="earning-derivation-path-container" class="recover-wallet-configuration__actions">
+      <label for="earning-derivation-path">Earning Derivation Path</label>
+      <input type="text" id="earning-derivation-path" formControlName="earningDerivationPath"
+             [class.input-invalid]="walletConfig.controls['earningDerivationPath'].errors">
+    </div>
+    <div class="recover-wallet-configuration__actions" [hidden]="!consumingAddress">
+      <div id="consuming-address-container">
+        <span id="consuming-address-label">Consuming address:</span><span id="consuming-address">{{consumingAddress}}</span>
+      </div>
+      <div *ngIf="!sameWallet && earningAddress" id="earning-address-container">
+        <span id="earning-address-label">Earning address:</span><span id="earning-address">{{earningAddress}}</span>
       </div>
     </div>
     <div id="wallet-password-container" class="recover-wallet-configuration__actions">
@@ -43,7 +56,8 @@
     <ul id="wallet-configuration-validation">
       <li class="validation-error" *ngIf="walletConfig.errors?.mnemonicInvalid">Mnemonic Phrase is invalid</li>
       <li class="validation-error" *ngIf="walletConfig.controls['mnemonicPhrase'].errors?.enoughWordsInvalid && !walletConfig.controls['mnemonicPhrase'].pristine">Mnemonic Phrase must be at least 12 words</li>
-      <li class="validation-error" *ngIf="walletConfig.controls['derivationPath'].hasError('pattern')">Derivation Path format is invalid</li>
+      <li class="validation-error" *ngIf="walletConfig.controls['consumingDerivationPath'].hasError('pattern')">Consuming Derivation Path format is invalid</li>
+      <li class="validation-error" *ngIf="walletConfig.controls['earningDerivationPath'].hasError('pattern')">Earning Derivation Path format is invalid</li>
       <li *ngIf="errorText" class="validation-error">{{errorText}}</li>
     </ul>
     <div class="recover-wallet-configuration__actions recover-wallet-configuration__inset">

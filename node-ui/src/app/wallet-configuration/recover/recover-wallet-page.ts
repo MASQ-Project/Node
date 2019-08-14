@@ -5,10 +5,6 @@ import {RecoverWalletComponent} from './recover-wallet.component';
 
 export class RecoverWalletPage {
 
-  get alsoEarning(): HTMLInputElement {
-    return this.query('#also-earning');
-  }
-
   get mnemonicPhrase(): HTMLInputElement {
     return this.query('#mnemonic-phrase');
   }
@@ -17,12 +13,24 @@ export class RecoverWalletPage {
     return this.query('#mnemonic-passphrase');
   }
 
-  get publicAddress(): HTMLSpanElement {
-    return this.query('#public-address');
+  get consumingAddress(): HTMLSpanElement {
+    return this.query('#consuming-address');
   }
 
-  get derivationPath(): HTMLInputElement {
-    return this.query('#derivation-path');
+  get earningAddress(): HTMLSpanElement {
+    return this.query('#earning-address');
+  }
+
+  get consumingDerivationPath(): HTMLInputElement {
+    return this.query('#consuming-derivation-path');
+  }
+
+  get sameWalletChk(): HTMLInputElement {
+    return this.query('#same-wallet');
+  }
+
+  get earningDerivationPath(): HTMLInputElement {
+    return this.query('#earning-derivation-path');
   }
 
   get saveBtn(): HTMLButtonElement {
@@ -44,9 +52,14 @@ export class RecoverWalletPage {
     return this.fixture.nativeElement.querySelector(selector);
   }
 
-  setDerivationPath(value: string) {
-    this.fixture.componentInstance.walletConfig.controls['derivationPath'].setValue(value);
-    setInputText(this.derivationPath, value);
+  setConsumingDerivationPath(value: string) {
+    this.fixture.componentInstance.walletConfig.controls['consumingDerivationPath'].setValue(value);
+    setInputText(this.consumingDerivationPath, value);
+  }
+
+  setEarningDerivationPath(value: string) {
+    this.fixture.componentInstance.walletConfig.controls['earningDerivationPath'].setValue(value);
+    setInputText(this.earningDerivationPath, value);
   }
 
   setMnemonicPhrase(value: string) {
@@ -56,6 +69,11 @@ export class RecoverWalletPage {
   setMnemonicPassphrase(value: string) {
     this.fixture.componentInstance.walletConfig.controls['mnemonicPassphrase'].setValue(value);
     setInputText(this.mnemonicPassphrase, value);
+  }
+
+  changeSameWallet(value: boolean) {
+    this.sameWalletChk.checked = value;
+    this.sameWalletChk.dispatchEvent(new Event('change'));
   }
 
   setWordlist(value: string) {
@@ -73,11 +91,6 @@ export class RecoverWalletPage {
     const lis = this.fixture.nativeElement.querySelectorAll('#wallet-configuration-validation > li');
     lis.forEach((item) => errorText.push(item.textContent));
     return errorText;
-  }
-
-  setAlsoEarningChecked(checked: boolean): void {
-    this.fixture.componentInstance.walletConfig.controls['alsoEarning'].setValue(true);
-    this.alsoEarning.checked = checked;
   }
 }
 

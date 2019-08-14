@@ -13,14 +13,6 @@
             </option>
           </select>
         </div>
-        <div id="passphrase-container">
-          <label for="mnemonic-passphrase">Passphrase</label>
-          <input type="password" id="mnemonic-passphrase" formControlName="mnemonicPassphrase"
-                 [class.input-invalid]="walletConfig.controls['mnemonicPassphrase'].errors">
-        </div>
-      </div>
-
-      <div id="count-path-container">
         <div id="wordcount-container">
           <label for="wordcount">Word Count</label>
           <select id="wordcount" formControlName="wordcount">
@@ -29,11 +21,30 @@
             </option>
           </select>
         </div>
-        <div id="derivation-path-container">
-          <label for="derivation-path">Derivation Path</label>
-          <input type="text" id="derivation-path" formControlName="derivationPath"
-                 [class.input-invalid]="walletConfig.controls['derivationPath'].errors">
-        </div>
+      </div>
+
+      <div id="passphrase-container">
+        <label for="mnemonic-passphrase">Passphrase</label>
+        <input type="password" id="mnemonic-passphrase" formControlName="mnemonicPassphrase"
+               [class.input-invalid]="walletConfig.controls['mnemonicPassphrase'].errors">
+      </div>
+
+      <div id="consuming-derivation-path-container">
+        <label for="consuming-derivation-path">Consuming Derivation Path</label>
+        <input type="text" id="consuming-derivation-path" formControlName="consumingDerivationPath"
+               [class.input-invalid]="walletConfig.controls['consumingDerivationPath'].errors">
+      </div>
+
+      <div id="derivation-checkbox-container" class="generate-wallet__ancillary">
+        <input id="same-wallet" type="checkbox" class="checkbox" name="same-wallet"
+               [(ngModel)]="this.sameWallet" [ngModelOptions]="{standalone: true}">
+        <label for="same-wallet">Use same address for earning and consuming </label>
+      </div>
+
+      <div *ngIf="!this.sameWallet" id="earning-derivation-path-container">
+        <label for="earning-derivation-path">Earning Derivation Path</label>
+        <input type="text" id="earning-derivation-path" formControlName="earningDerivationPath"
+               [class.input-invalid]="walletConfig.controls['earningDerivationPath'].errors">
       </div>
 
       <div id="password-container">
@@ -43,7 +54,8 @@
       </div>
 
       <ul id="generate-wallet-validation">
-        <li class="validation-error" *ngIf="walletConfig.controls['derivationPath'].hasError('pattern')">Derivation Path format is invalid</li>
+        <li class="validation-error" *ngIf="walletConfig.controls['consumingDerivationPath'].hasError('pattern')">Consuming Derivation Path format is invalid</li>
+        <li class="validation-error" *ngIf="walletConfig.controls['earningDerivationPath'].hasError('pattern')">Earning Derivation Path format is invalid</li>
         <li *ngIf="errorText" class="validation-error">{{errorText}}</li>
       </ul>
 

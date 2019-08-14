@@ -16,8 +16,16 @@ export class GenerateWalletPage {
     return this.query('#wallet-password');
   }
 
-  get derivationPath(): HTMLInputElement {
-    return this.query('#derivation-path');
+  get consumingDerivationPath(): HTMLInputElement {
+    return this.query('#consuming-derivation-path');
+  }
+
+  get sameWalletChk(): HTMLInputElement {
+    return this.query('#same-wallet');
+  }
+
+  get earningDerivationPath(): HTMLInputElement {
+    return this.query('#earning-derivation-path');
   }
 
   get generateWallet(): HTMLButtonElement {
@@ -74,9 +82,19 @@ export class GenerateWalletPage {
     setInputText(this.walletPassword, value);
   }
 
-  setDerivationPath(value: string) {
-    this.fixture.componentInstance.walletConfig.controls['derivationPath'].setValue(value);
-    setInputText(this.derivationPath, value);
+  setConsumingDerivationPath(value: string) {
+    this.fixture.componentInstance.walletConfig.controls['consumingDerivationPath'].setValue(value);
+    setInputText(this.consumingDerivationPath, value);
+  }
+
+  changeSameWallet(value: boolean) {
+    this.sameWalletChk.checked = value;
+    this.sameWalletChk.dispatchEvent(new Event('change'));
+  }
+
+  setEarningDerivationPath(value: string) {
+    this.fixture.componentInstance.walletConfig.controls['earningDerivationPath'].setValue(value);
+    setInputText(this.earningDerivationPath, value);
   }
 
   private query<T>(selector: String): T {

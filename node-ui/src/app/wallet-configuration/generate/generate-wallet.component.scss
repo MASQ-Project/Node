@@ -30,6 +30,12 @@ $input-font-size: rem(17px);
     flex: 1;
   }
 
+  &__ancillary {
+    display: flex;
+    flex-direction: row-reverse;
+    align-items: center;
+  }
+
   span {
     display: block;
     text-align: center;
@@ -84,6 +90,7 @@ $input-font-size: rem(17px);
     #language-container {
       display: flex;
       flex: 1;
+      margin-right: 30px;
 
       label {
         @include vertical-center();
@@ -94,25 +101,6 @@ $input-font-size: rem(17px);
         flex: 2;
       }
     }
-
-    #passphrase-container {
-      display: flex;
-      flex: 2;
-
-      label {
-        @include vertical-center();
-        margin-left: 10px;
-      }
-
-      #mnemonic-passphrase {
-        flex: 2;
-      }
-    }
-  }
-
-  #count-path-container {
-    display: flex;
-    margin: 10px 0;
 
     #wordcount-container {
       display: flex;
@@ -126,19 +114,45 @@ $input-font-size: rem(17px);
         flex: 1;
       }
     }
+  }
 
-    #derivation-path-container {
-      display: flex;
+  #passphrase-container {
+    display: flex;
+    flex: 2;
+    margin: 10px 0;
+
+    label {
+      @include vertical-center();
+    }
+
+    #mnemonic-passphrase {
       flex: 2;
+    }
+  }
 
-      label {
-        @include vertical-center();
-        margin-left: 10px;
-      }
+  #consuming-derivation-path-container {
+    display: flex;
+    flex: 2;
 
-      #derivation-path {
-        flex: 2;
-      }
+    label {
+      @include vertical-center();
+    }
+
+    #consuming-derivation-path {
+      flex: 1;
+    }
+  }
+
+  #earning-derivation-path-container {
+    display: flex;
+    flex: 2;
+
+    label {
+      @include vertical-center();
+    }
+
+    #earning-derivation-path {
+      flex: 1;
     }
   }
 
@@ -198,21 +212,22 @@ $input-font-size: rem(17px);
     }
 
     #agree-container {
+      justify-content: center;
+      align-items: center;
       flex: 2;
     }
 
     #done-container {
+      margin-top: 15px;
       flex: 0.5;
     }
 
     label {
       flex-direction: column;
-      justify-content: center;
       display: flex;
     }
 
     #mnemonic-agree {
-      transform: translateY(-50%);
       top: 45%;
       position: relative;
       height: 25px;

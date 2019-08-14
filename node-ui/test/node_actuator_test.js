@@ -73,22 +73,45 @@ describe('NodeActuator', () => {
   })
 
   describe('recoverWallet', () => {
-    beforeEach(async () => {
-      await subject.recoverWallet('phrase', 'passphrase', 'path', 'wordlist', 'password')
+    describe('and we are recovering the same wallet', () => {
+      beforeEach(async () => {
+        await subject.recoverWallet('phrase', 'passphrase', 'consumingPath', 'wordlist', 'password')
+      })
+
+      it('requests wallet recovery', () => {
+        td.verify(mockSubstratumNode.recoverWallet('phrase', 'passphrase', 'consumingPath', 'wordlist', 'password', undefined))
+      })
     })
 
-    it('requests wallet recovery', () => {
-      td.verify(mockSubstratumNode.recoverWallet('phrase', 'passphrase', 'path', 'wordlist', 'password'))
+    describe('and we are recovering different wallets', () => {
+      beforeEach(async () => {
+        await subject.recoverWallet('phrase', 'passphrase', 'consumingPath', 'wordlist', 'password', 'earningPath')
+      })
+
+      it('requests wallet recovery', () => {
+        td.verify(mockSubstratumNode.recoverWallet('phrase', 'passphrase', 'consumingPath', 'wordlist', 'password', 'earningPath'))
+      })
     })
   })
 
   describe('generateWallet', () => {
-    beforeEach(async () => {
-      await subject.generateWallet('passphrase', 'path', 'wordlist', 'password', 12)
-    })
+    describe('and we are generating the same wallet', () => {
+      beforeEach(async () => {
+        await subject.generateWallet('passphrase', 'path', 'wordlist', 'password', 12)
+      })
 
-    it('requests wallet recovery', () => {
-      td.verify(mockSubstratumNode.generateWallet('passphrase', 'path', 'wordlist', 'password', 12))
+      it('requests wallet recovery', () => {
+        td.verify(mockSubstratumNode.generateWallet('passphrase', 'path', 'wordlist', 'password', 12, undefined))
+      })
+    })
+    describe('and we are generating different wallets', () => {
+      beforeEach(async () => {
+        await subject.generateWallet('passphrase', 'consumingPath', 'wordlist', 'password', 12, 'earningPath')
+      })
+
+      it('requests wallet recovery', () => {
+        td.verify(mockSubstratumNode.generateWallet('passphrase', 'consumingPath', 'wordlist', 'password', 12, 'earningPath'))
+      })
     })
   })
 

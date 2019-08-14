@@ -25,10 +25,10 @@ describe('SubstratumNode', () => {
     describe('when there is stdout', () => {
       beforeEach(() => {
         td.when(commandHelper.recoverWallet(
-          'one', 'two', 'three', 'four', 'five'))
+          'one', 'two', 'three', 'four', 'five', 'six'))
           .thenReturn(makeSpawnSyncResult('yay'))
 
-        result = subject.recoverWallet('one', 'two', 'three', 'four', 'five')
+        result = subject.recoverWallet('one', 'two', 'three', 'four', 'five', 'six')
       })
 
       it('returns the output', () => {
@@ -45,11 +45,11 @@ describe('SubstratumNode', () => {
             pid: 12345,
             stderr: 'Failed with status: 1'
           }
-          td.when(commandHelper.recoverWallet(1, 2, 3, 4, 5)).thenReturn(result)
+          td.when(commandHelper.recoverWallet(1, 2, 3, 4, 5, true)).thenReturn(result)
         })
 
         it('throws an Error', () => {
-          assert.deepStrictEqual(subject.recoverWallet(1, 2, 3, 4, 5), {
+          assert.deepStrictEqual(subject.recoverWallet(1, 2, 3, 4, 5, true), {
             success: false,
             message: 'Failed with status: 1'
           })
@@ -64,11 +64,11 @@ describe('SubstratumNode', () => {
             signal: 'SIGTERM',
             stderr: 'spawnSync SubstratumNode ETIMEDOUT'
           }
-          td.when(commandHelper.recoverWallet(1, 2, 3, 4, 5)).thenReturn(result)
+          td.when(commandHelper.recoverWallet(1, 2, 3, 4, 5, true)).thenReturn(result)
         })
 
         it('throws an Error', () => {
-          assert.deepStrictEqual(subject.recoverWallet(1, 2, 3, 4, 5), {
+          assert.deepStrictEqual(subject.recoverWallet(1, 2, 3, 4, 5, true), {
             success: false,
             message: 'spawnSync SubstratumNode ETIMEDOUT'
           })
@@ -83,11 +83,11 @@ describe('SubstratumNode', () => {
             signal: null,
             stderr: 'spawnSync SubstratumNode ENOENT'
           }
-          td.when(commandHelper.recoverWallet(1, 2, 3, 4, 5)).thenReturn(result)
+          td.when(commandHelper.recoverWallet(1, 2, 3, 4, 5, true)).thenReturn(result)
         })
 
         it('throws an Error', () => {
-          assert.deepStrictEqual(subject.recoverWallet(1, 2, 3, 4, 5), {
+          assert.deepStrictEqual(subject.recoverWallet(1, 2, 3, 4, 5, true), {
             success: false,
             message: 'spawnSync SubstratumNode ENOENT'
           })
@@ -100,10 +100,10 @@ describe('SubstratumNode', () => {
     describe('when there is stdout', () => {
       beforeEach(() => {
         td.when(commandHelper.generateWallet(
-          'one', 'two', 'three', 'four', 'five'))
+          'one', 'two', 'three', 'four', 'five', 'six'))
           .thenReturn(makeSpawnSyncResult('yay'))
 
-        result = subject.generateWallet('one', 'two', 'three', 'four', 'five')
+        result = subject.generateWallet('one', 'two', 'three', 'four', 'five', 'six')
       })
 
       it('returns the output', () => {
@@ -120,11 +120,11 @@ describe('SubstratumNode', () => {
             pid: 12345,
             stderr: 'Failed with status: 1'
           }
-          td.when(commandHelper.generateWallet(1, 2, 3, 4, 5)).thenReturn(result)
+          td.when(commandHelper.generateWallet(1, 2, 3, 4, 5, 6)).thenReturn(result)
         })
 
         it('throws an Error', () => {
-          assert.deepStrictEqual(subject.generateWallet(1, 2, 3, 4, 5), {
+          assert.deepStrictEqual(subject.generateWallet(1, 2, 3, 4, 5, 6), {
             success: false,
             message: 'Failed with status: 1'
           })
@@ -139,11 +139,11 @@ describe('SubstratumNode', () => {
             signal: 'SIGTERM',
             stderr: 'spawnSync SubstratumNode ETIMEDOUT'
           }
-          td.when(commandHelper.generateWallet(1, 2, 3, 4, 5)).thenReturn(result)
+          td.when(commandHelper.generateWallet(1, 2, 3, 4, 5, 6)).thenReturn(result)
         })
 
         it('throws an Error', () => {
-          assert.deepStrictEqual(subject.generateWallet(1, 2, 3, 4, 5), {
+          assert.deepStrictEqual(subject.generateWallet(1, 2, 3, 4, 5, 6), {
             success: false,
             message: 'spawnSync SubstratumNode ETIMEDOUT'
           })
@@ -158,11 +158,11 @@ describe('SubstratumNode', () => {
             signal: null,
             stderr: 'spawnSync SubstratumNode ENOENT'
           }
-          td.when(commandHelper.generateWallet(1, 2, 3, 4, 5)).thenReturn(result)
+          td.when(commandHelper.generateWallet(1, 2, 3, 4, 5, 6)).thenReturn(result)
         })
 
         it('throws an Error', () => {
-          assert.deepStrictEqual(subject.generateWallet(1, 2, 3, 4, 5), {
+          assert.deepStrictEqual(subject.generateWallet(1, 2, 3, 4, 5, 6), {
             success: false,
             message: 'spawnSync SubstratumNode ENOENT'
           })

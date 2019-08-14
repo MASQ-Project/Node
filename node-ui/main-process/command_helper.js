@@ -56,32 +56,39 @@ module.exports = (() => {
     return path.resolveQuoted(__dirname, binaryBasePath + binaryFilename)
   }
 
-  function getRecoverModeArgs (mnemonicPhrase, mnemonicPassphrase, derivationPath, wordlist, walletPassword) {
-    const args = [
-      '--recover-wallet',
-      '--consuming-wallet', derivationPath,
-      '--earning-wallet', derivationPath,
+  function getWalletArgs (consumingDerivationPath, wordlist, mnemonicPassphrase, walletPassword) {
+    return [
+      '--consuming-wallet', consumingDerivationPath,
       '--language', wordlist,
-      '--mnemonic', mnemonicPhrase,
       '--mnemonic-passphrase', mnemonicPassphrase,
       '--wallet-password', walletPassword
     ]
+  }
+
+  function getRecoverModeArgs (mnemonicPhrase, mnemonicPassphrase, consumingDerivationPath, wordlist, walletPassword, earningDerivationPath) {
+    const args = [
+      ...getWalletArgs(consumingDerivationPath, wordlist, mnemonicPassphrase, walletPassword),
+      '--recover-wallet',
+      '--mnemonic', mnemonicPhrase,
+      '--earning-wallet'
+    ]
+
+    args.push(earningDerivationPath || consumingDerivationPath)
 
     consoleWrapper.log(`getRecoverModeArgs(): ${args}`)
     return args
   }
 
-  function getGenerateModeArgs (mnemonicPassphrase, derivationPath, wordlist, walletPassword, wordcount) {
+  function getGenerateModeArgs (mnemonicPassphrase, consumingDerivationPath, wordlist, walletPassword, wordcount, earningDerivationPath) {
     const args = [
+      ...getWalletArgs(consumingDerivationPath, wordlist, mnemonicPassphrase, walletPassword),
       '--generate-wallet',
       '--json',
-      '--consuming-wallet', derivationPath,
-      '--earning-wallet', derivationPath,
-      '--language', wordlist,
-      '--mnemonic-passphrase', mnemonicPassphrase,
-      '--wallet-password', walletPassword,
-      '--word-count', wordcount
+      '--word-count', wordcount,
+      '--earning-wallet'
     ]
+
+    args.push(earningDerivationPath || consumingDerivationPath)
 
     consoleWrapper.log(`getGenerateModeArgs(): ${args}`)
     return args
@@ -118,30 +125,32 @@ module.exports = (() => {
     return command
   }
 
-  function recoverWallet (mnemonicPhrase, mnemonicPassphrase, derivationPath, wordlist, walletPassword) {
+  function recoverWallet (mnemonicPhrase, mnemonicPassphrase, consumingDerivationPath, wordlist, walletPassword, earningDerivationPath) {
     consoleWrapper.log('command_helper: invoking recoverWallet')
 
     const args = getRecoverModeArgs(
       mnemonicPhrase,
       mnemonicPassphrase,
-      derivationPath,
+      consumingDerivationPath,
       wordlist,
-      walletPassword)
+      walletPassword,
+      earningDerivationPath)
     return childProcess.spawnSync(
       path.resolveUnquoted(__dirname, binaryBasePath + binaryFilename),
       args,
       { timeout: recoverTimeout })
   }
 
-  function generateWallet (mnemonicPassphrase, derivationPath, wordlist, walletPassword, wordcount) {
+  function generateWallet (mnemonicPassphrase, consumingDerivationPath, wordlist, walletPassword, wordcount, earningDerivationPath) {
     consoleWrapper.log('command_helper: invoking generateWallet')
 
     const args = getGenerateModeArgs(
       mnemonicPassphrase,
-      derivationPath,
+      consumingDerivationPath,
       wordlist,
       walletPassword,
-      wordcount)
+      wordcount,
+      earningDerivationPath)
     return childProcess.spawnSync(
       path.resolveUnquoted(__dirname, binaryBasePath + binaryFilename),
       args,

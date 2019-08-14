@@ -9,6 +9,6 @@ import {Component, OnInit} from '@angular/core';
 })
 export class WalletConfigurationComponent implements OnInit {
   ngOnInit() {
-    window.resizeTo(640, 650);
+    window.resizeTo(640, 725);
   }
 }

@@ -10,6 +10,7 @@ import {FormsModule, ReactiveFormsModule} from '@angular/forms';
 import {RouterTestingModule} from '@angular/router/testing';
 import {Router} from '@angular/router';
 import {ConfigService} from '../../config.service';
+import {Addresses} from '../addresses';
 
 const validMnemonicPhrase = 'sportivo secondo puntare ginepro occorrere serbato idra savana afoso finanza inarcare proroga';
 
@@ -24,11 +25,11 @@ describe('WalletConfigurationComponent', () => {
   let configService;
 
   beforeEach(async () => {
-    addressResponseSubject = new Subject<string>();
+    addressResponseSubject = new Subject<Addresses>();
     recoverResponseSubject = new Subject<string>();
     configService = {setEarningWallet: td.func('setEarningWallet')};
     walletService = {
-      calculateAddress: td.func('calculateAddress'),
+      calculateAddresses: td.func('calculateAddresses'),
       addressResponse: addressResponseSubject.asObservable(),
       recoverConsumingWalletResponse: recoverResponseSubject.asObservable(),
       recoverConsumingWallet: td.func('recoverConsumingWallet'),
@@ -67,36 +68,61 @@ describe('WalletConfigurationComponent', () => {
     });
   });
 
-  describe('derivation path defaults to', () => {
-    it('m/44\'/60\'/0\'/0/0', () => {
-      expect(page.derivationPath.value).toBe('m/44\'/60\'/0\'/0/0');
+  describe('defaults', () => {
+    it('has default value for consuming derivation path', () => {
+      expect(page.consumingDerivationPath.value).toBe('m/44\'/60\'/0\'/0/0');
+    });
+
+    it('checks the box for using same address for earning and consuming', () => {
+      expect(component.sameWallet).toBeTruthy();
+    });
+
+    describe('when unchecking use same address for earning and consuming', () => {
+      beforeEach(() => {
+        page.changeSameWallet(false);
+        fixture.detectChanges();
+      });
+
+      it('has default value for earning derivation path', () => {
+        expect(page.earningDerivationPath.value).toBe('m/44\'/60\'/0\'/0/1');
+      });
     });
   });
 
   describe('given a valid mnemonic phrase', () => {
     beforeEach(() => {
-      td.when(walletService.calculateAddress(
-        td.matchers.anything(), td.matchers.anything(), td.matchers.anything(), td.matchers.anything())).thenDo(() => {
-        addressResponseSubject.next('0xthecorrectaddress');
+      td.when(walletService.calculateAddresses(
+        td.matchers.anything(),
+        td.matchers.anything(),
+        td.matchers.anything(),
+        td.matchers.anything(),
+        td.matchers.anything()
+      )).thenDo(() => {
+        addressResponseSubject.next({consuming: 'theCorrectConsumingAddress', earning: 'theCorrectEarningAddress'});
       });
       page.setMnemonicPhrase('supply silent program funny miss slab goat scrap advice faith group pretty');
       fixture.detectChanges();
     });
 
-    describe('with a custom derivation path', () => {
+    describe('with custom derivation paths', () => {
       beforeEach(async () => {
-        page.setDerivationPath('m/44\'/60\'/0\'/0/1');
+        page.changeSameWallet(false);
+        fixture.detectChanges();
+        page.setConsumingDerivationPath('m/44\'/60\'/0\'/0/1');
+        page.setEarningDerivationPath('m/44\'/60\'/0\'/0/2');
         fixture.detectChanges();
       });
 
       it('the correct address is displayed', () => {
-        td.verify(walletService.calculateAddress(
+        td.verify(walletService.calculateAddresses(
           'supply silent program funny miss slab goat scrap advice faith group pretty',
           'm/44\'/60\'/0\'/0/1',
           '',
-          'en'
+          'en',
+          'm/44\'/60\'/0\'/0/2'
         ));
-        expect(page.publicAddress.innerText).toContain('0xthecorrectaddress');
+        expect(page.consumingAddress.innerText).toContain('theCorrectConsumingAddress');
+        expect(page.earningAddress.innerText).toContain('theCorrectEarningAddress');
       });
     });
 
@@ -110,18 +136,19 @@ describe('WalletConfigurationComponent', () => {
       });
 
       it('the correct address is displayed', () => {
-        td.verify(walletService.calculateAddress(
+        td.verify(walletService.calculateAddresses(
           validMnemonicPhrase,
           'm/44\'/60\'/0\'/0/0',
           'mypass',
-          'it'
+          'it',
+          'm/44\'/60\'/0\'/0/0'
         ));
-        expect(page.publicAddress.innerText).toContain('0xthecorrectaddress');
+        expect(page.consumingAddress.innerText).toContain('theCorrectConsumingAddress');
       });
     });
   });
 
-  describe('wallet generated response', () => {
+  describe('wallet recovery response', () => {
     describe('when successful', () => {
       let navigateSpy;
       beforeEach(() => {
@@ -133,11 +160,22 @@ describe('WalletConfigurationComponent', () => {
           td.matchers.anything(),
           td.matchers.anything(),
           td.matchers.anything(),
+          td.matchers.anything(),
         )).thenDo(() => {
           recoverResponseSubject.next('success');
         });
+        td.when(walletService.calculateAddresses(
+          td.matchers.anything(),
+          td.matchers.anything(),
+          td.matchers.anything(),
+          td.matchers.anything(),
+          td.matchers.anything()
+        )).thenDo(() => {
+          addressResponseSubject.next({consuming: 'theCorrectConsumingAddress', earning: 'theCorrectEarningAddress'});
+        });
         page.setMnemonicPhrase(validMnemonicPhrase);
         page.setWalletPassword('password');
+        page.changeSameWallet(false);
         fixture.detectChanges();
       });
 
@@ -151,7 +189,7 @@ describe('WalletConfigurationComponent', () => {
       });
 
       it('saves the earning wallet address', () => {
-        td.verify(configService.setEarningWallet(component.publicAddress));
+        td.verify(configService.setEarningWallet(component.earningAddress));
       });
     });
   });
@@ -160,6 +198,7 @@ describe('WalletConfigurationComponent', () => {
     beforeEach(() => {
       td.when(walletService.validateMnemonic(td.matchers.anything(), td.matchers.anything())).thenReturn(of(true));
       td.when(walletService.recoverConsumingWallet(
+        td.matchers.anything(),
         td.matchers.anything(),
         td.matchers.anything(),
         td.matchers.anything(),
@@ -216,19 +255,41 @@ describe('WalletConfigurationComponent', () => {
       });
     });
 
-    describe('when derivation path is bad', () => {
+    describe('when consuming derivation path is bad', () => {
       beforeEach(() => {
         td.when(walletService.validateMnemonic(td.matchers.anything(), td.matchers.anything())).thenReturn(of(true));
         page.setWordlist('it');
         page.setMnemonicPhrase(validMnemonicPhrase);
         page.setWalletPassword('password');
         page.setMnemonicPassphrase('passphrase');
-        page.setDerivationPath('m/44\'/60\'/0/0/0');
+        page.setConsumingDerivationPath('m/44\'/60\'/0/0/0');
         fixture.detectChanges();
       });
 
       it('lets the user know', () => {
-        expect(page.errors().map(s => s.trim())).toContain('Derivation Path format is invalid');
+        expect(page.errors().map(s => s.trim())).toContain('Consuming Derivation Path format is invalid');
+      });
+
+      it('cannot be saved', () => {
+        expect(page.saveBtn.disabled).toBeTruthy();
+      });
+    });
+
+    describe('when earning derivation path is bad', () => {
+      beforeEach(() => {
+        td.when(walletService.validateMnemonic(td.matchers.anything(), td.matchers.anything())).thenReturn(of(true));
+        page.setWordlist('it');
+        page.setMnemonicPhrase(validMnemonicPhrase);
+        page.setWalletPassword('password');
+        page.setMnemonicPassphrase('passphrase');
+        page.changeSameWallet(false);
+        fixture.detectChanges();
+        page.setEarningDerivationPath('b/44\'/60\'/0/0');
+        fixture.detectChanges();
+      });
+
+      it('lets the user know', () => {
+        expect(page.errors().map(s => s.trim())).toContain('Earning Derivation Path format is invalid');
       });
 
       it('cannot be saved', () => {

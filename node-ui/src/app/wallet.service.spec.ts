@@ -33,40 +33,40 @@ describe('WalletService', () => {
 
   describe('calculateAddress', () => {
     beforeEach(() => {
-      service.calculateAddress('one', 'two', 'three', 'four');
+      service.calculateAddresses('one', 'two', 'three', 'four', 'five');
     });
 
     it('sends a message to the main process', () => {
-      verify(electronStub.ipcRenderer.send('calculate-wallet-address', 'one', 'two', 'three', 'four'));
+      verify(electronStub.ipcRenderer.send('calculate-wallet-addresses', 'one', 'two', 'three', 'four', 'five'));
     });
   });
 
   describe('a calculated wallet message from the main process', () => {
-      let address = 'neverChanged';
+      let addresses = {consuming: 'neverChangedConsuming', earning: 'neverChangedEarning'};
 
       beforeEach(() => {
-        verify(electronStub.ipcRenderer.on('calculated-wallet-address', listenerCallback.capture()));
+        verify(electronStub.ipcRenderer.on('calculated-wallet-addresses', listenerCallback.capture()));
 
         service.addressResponse.subscribe(_addressResponse => {
-          address = _addressResponse;
+          addresses = _addressResponse;
         });
 
-        listenerCallback.value('', 'actualaddress');
+        listenerCallback.value('', {consuming: 'actualConsumingAddress', earning: 'actualEarningAddress'});
       });
 
       it('updates the address', () => {
-        expect(address).toEqual('actualaddress');
+        expect(addresses).toEqual({consuming: 'actualConsumingAddress', earning: 'actualEarningAddress'});
       });
     }
   );
 
   describe('recoverConsumingWallet', () => {
     beforeEach(() => {
-      service.recoverConsumingWallet('one', 'two', 'three', 'four', 'fife');
+      service.recoverConsumingWallet('one', 'two', 'three', 'four', 'fife', 'sixth');
     });
 
     it('sends a message to the main process', () => {
-      verify(electronStub.ipcRenderer.send('recover-consuming-wallet', 'one', 'two', 'three', 'four', 'fife'));
+      verify(electronStub.ipcRenderer.send('recover-consuming-wallet', 'one', 'two', 'three', 'four', 'fife', 'sixth'));
     });
   });
 
@@ -108,11 +108,11 @@ describe('WalletService', () => {
 
   describe('generateConsumingWallet', () => {
     beforeEach(() => {
-      service.generateConsumingWallet('one', 'two', 'three', 'four', 42);
+      service.generateConsumingWallet('one', 'two', 'three', 'four', 42, 'six');
     });
 
     it('sends a message to the main process', () => {
-      verify(electronStub.ipcRenderer.send('generate-consuming-wallet', 'one', 'two', 'three', 'four', 42));
+      verify(electronStub.ipcRenderer.send('generate-consuming-wallet', 'one', 'two', 'three', 'four', 42, 'six'));
     });
   });
 

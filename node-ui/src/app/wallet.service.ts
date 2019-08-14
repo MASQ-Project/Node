@@ -3,14 +3,15 @@
 import {Injectable} from '@angular/core';
 import {ElectronService} from './electron.service';
 import {Observable, of, Subject} from 'rxjs';
+import {Addresses} from './wallet-configuration/addresses';
 
 @Injectable({
   providedIn: 'root'
 })
 export class WalletService {
 
-  private addressResponseListener: Subject<string> = new Subject();
-  addressResponse: Observable<string> = this.addressResponseListener.asObservable();
+  private addressResponseListener: Subject<Addresses> = new Subject();
+  addressResponse: Observable<Addresses> = this.addressResponseListener.asObservable();
 
   private recoverConsumingWalletResponseListener: Subject<string> = new Subject();
   recoverConsumingWalletResponse: Observable<string> = this.recoverConsumingWalletResponseListener.asObservable();
@@ -19,8 +20,8 @@ export class WalletService {
   generateConsumingWalletResponse: Observable<object> = this.generateConsumingWalletResponseListener.asObservable();
 
   constructor(private electronService: ElectronService) {
-    this.electronService.ipcRenderer.on('calculated-wallet-address', (_, address: string) => {
-      this.addressResponseListener.next(address);
+    this.electronService.ipcRenderer.on('calculated-wallet-addresses', (_, addresses: Addresses) => {
+      this.addressResponseListener.next(addresses);
     });
 
     this.electronService.ipcRenderer.on('recovered-consuming-wallet', (_, _success: boolean) => {
@@ -40,18 +41,45 @@ export class WalletService {
     });
   }
 
-  calculateAddress(mnemonicPhrase: string, derivationPath: string, mnemonicPassphrase: string, wordlist: string) {
-    this.electronService.ipcRenderer.send('calculate-wallet-address', mnemonicPhrase, derivationPath, mnemonicPassphrase, wordlist);
+  calculateAddresses(
+    mnemonicPhrase: string,
+    consumingDerivationPath: string,
+    mnemonicPassphrase: string,
+    wordlist: string,
+    earningDerivationPath
+  ) {
+    this.electronService.ipcRenderer.send(
+      'calculate-wallet-addresses',
+      mnemonicPhrase,
+      consumingDerivationPath,
+      mnemonicPassphrase,
+      wordlist,
+      earningDerivationPath
+    );
   }
 
-  recoverConsumingWallet(mnemonicPhrase: string, mnemonicPassphrase: string, derivationPath: string, wordlist: string, password: string) {
+  recoverConsumingWallet(
+    mnemonicPhrase: string,
+    mnemonicPassphrase: string,
+    consumingDerivationPath: string,
+    wordlist: string,
+    password: string,
+    earningDerivationPath?: string
+  ) {
     this.electronService.ipcRenderer.send('recover-consuming-wallet',
-      mnemonicPhrase, mnemonicPassphrase, derivationPath, wordlist, password);
+      mnemonicPhrase, mnemonicPassphrase, consumingDerivationPath, wordlist, password, earningDerivationPath);
   }
 
-  generateConsumingWallet(mnemonicPassphrase: string, derivationPath: string, wordlist: string, password: string, wordcount: number) {
+  generateConsumingWallet(
+    mnemonicPassphrase: string,
+    derivationPath: string,
+    wordlist: string,
+    password: string,
+    wordcount: number,
+    earningDerivationPath?: string
+  ) {
     this.electronService.ipcRenderer.send('generate-consuming-wallet',
-      mnemonicPassphrase, derivationPath, wordlist, password, wordcount);
+      mnemonicPassphrase, derivationPath, wordlist, password, wordcount, earningDerivationPath);
   }
 
   validateMnemonic(mnemonicPhrase: string, wordlist: string): Observable<boolean> {

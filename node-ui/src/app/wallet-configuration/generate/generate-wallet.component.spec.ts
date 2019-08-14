@@ -88,9 +88,26 @@ describe('GenerateWalletComponent', () => {
     });
   });
 
-  describe('derivation path defaults to', () => {
-    it('m/44\'/60\'/0\'/0/0', () => {
-      expect(page.derivationPath.value).toBe('m/44\'/60\'/0\'/0/0');
+  describe('consuming derivation path', () => {
+    it('defaults to m/44\'/60\'/0\'/0/0', () => {
+      expect(page.consumingDerivationPath.value).toBe('m/44\'/60\'/0\'/0/0');
+    });
+  });
+
+  describe('earning derivation path', () => {
+    it('defaults to match the consuming', () => {
+      expect(component.sameWallet).toBeTruthy();
+    });
+
+    describe('when the checkbox is unchecked', () => {
+      beforeEach(() => {
+        page.changeSameWallet(false);
+        fixture.detectChanges();
+      });
+
+      it('defaults to m/44\'/60\'/0\'/0/1', () => {
+        expect(page.earningDerivationPath.value).toBe('m/44\'/60\'/0\'/0/1');
+      });
     });
   });
 
@@ -104,21 +121,53 @@ describe('GenerateWalletComponent', () => {
         page.setWordlist('es');
         page.setMnemonicPassphrase('foobar');
         page.setWalletPassword('foobar');
-        fixture.detectChanges();
       });
 
-      it('is enabled', () => {
-        expect(page.generateWallet.disabled).toBeFalsy();
-      });
-
-      describe('when clicked', () => {
+      describe('and same wallet is checked', () => {
         beforeEach(() => {
-          page.generateWallet.click();
           fixture.detectChanges();
         });
 
-        it('calls generateWallet', () => {
-          td.verify(walletService.generateConsumingWallet('foobar', 'm/44\'/60\'/0\'/0/0', 'Español', 'foobar', 12));
+        it('is enabled', () => {
+          expect(page.generateWallet.disabled).toBeFalsy();
+        });
+
+        describe('when clicked', () => {
+          beforeEach(() => {
+            page.generateWallet.click();
+            fixture.detectChanges();
+          });
+
+          it('calls generateWallet', () => {
+            td.verify(walletService.generateConsumingWallet(
+              'foobar', 'm/44\'/60\'/0\'/0/0', 'Español', 'foobar', 12, 'm/44\'/60\'/0\'/0/0'));
+          });
+        });
+      });
+
+      describe('and different derivation paths are specified', () => {
+        beforeEach(() => {
+          page.setConsumingDerivationPath('m/44\'/60\'/0\'/0/7');
+          page.changeSameWallet(false);
+          fixture.detectChanges();
+          page.setEarningDerivationPath('m/44\'/60\'/0\'/0/8');
+          fixture.detectChanges();
+        });
+
+        it('is enabled', () => {
+          expect(page.generateWallet.disabled).toBeFalsy();
+        });
+
+        describe('when clicked', () => {
+          beforeEach(() => {
+            page.generateWallet.click();
+            fixture.detectChanges();
+          });
+
+          it('calls generateWallet', () => {
+            td.verify(walletService.generateConsumingWallet(
+              'foobar', 'm/44\'/60\'/0\'/0/7', 'Español', 'foobar', 12, 'm/44\'/60\'/0\'/0/8'));
+          });
         });
       });
     });
@@ -174,11 +223,28 @@ describe('GenerateWalletComponent', () => {
       });
     });
 
-    describe('when derivation path is wrong', () => {
+    describe('when consuming derivation path is wrong', () => {
       beforeEach(() => {
         page.setMnemonicPassphrase('foobar');
         page.setWalletPassword('foobar');
-        page.setDerivationPath('foobar');
+        page.setConsumingDerivationPath('foobar');
+        fixture.detectChanges();
+      });
+
+      it('is disabled', () => {
+        expect(page.generateWallet.disabled).toBeTruthy();
+      });
+    });
+
+
+    describe('when earning derivation path is wrong', () => {
+      beforeEach(() => {
+        page.setMnemonicPassphrase('foobar');
+        page.setWalletPassword('foobar');
+        page.setConsumingDerivationPath('m/44\'/60\'/0\'/0/0');
+        page.changeSameWallet(false);
+        fixture.detectChanges();
+        page.setEarningDerivationPath('foobar');
         fixture.detectChanges();
       });
 

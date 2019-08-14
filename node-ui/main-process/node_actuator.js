@@ -207,15 +207,15 @@ module.exports = class NodeActuator {
     return this.webContents.send('node-descriptor', descriptor)
   }
 
-  async recoverWallet (mnemonicPhrase, mnemonicPassphrase, derivationPath, wordlist, password) {
+  async recoverWallet (mnemonicPhrase, mnemonicPassphrase, consumingDerivationPath, wordlist, password, earningDerivationPath) {
     return substratumNode.recoverWallet(
-      mnemonicPhrase, mnemonicPassphrase, derivationPath, wordlist, password
+      mnemonicPhrase, mnemonicPassphrase, consumingDerivationPath, wordlist, password, earningDerivationPath
     )
   }
 
-  async generateWallet (mnemonicPassphrase, derivationPath, wordlist, password, wordcount) {
+  async generateWallet (mnemonicPassphrase, consumingDerivationPath, wordlist, password, wordcount, earningDerivationPath) {
     return substratumNode.generateWallet(
-      mnemonicPassphrase, derivationPath, wordlist, password, wordcount
+      mnemonicPassphrase, consumingDerivationPath, wordlist, password, wordcount, earningDerivationPath
     )
   }
 }

@@ -21,12 +21,15 @@ export class RecoverWalletComponent implements OnInit {
               private ngZone: NgZone) {
   }
 
-  publicAddress = '';
+  consumingAddress = '';
+  earningAddress = '';
   errorText = '';
   wordlists = wordlists;
+  sameWallet = true;
 
   walletConfig = new FormGroup({
-      derivationPath: new FormControl('m/44\'/60\'/0\'/0/0', [Validators.required, hardenedPathValidator]),
+      consumingDerivationPath: new FormControl('m/44\'/60\'/0\'/0/0', [Validators.required, hardenedPathValidator]),
+      earningDerivationPath: new FormControl('m/44\'/60\'/0\'/0/1', [Validators.required, hardenedPathValidator]),
       mnemonicPhrase: new FormControl('', [Validators.required, mnemonicWordLengthValidator]),
       mnemonicPassphrase: new FormControl('', []),
       wordlist: new FormControl('en', [Validators.required]),
@@ -36,22 +39,25 @@ export class RecoverWalletComponent implements OnInit {
 
   ngOnInit() {
     this.walletConfig.controls['mnemonicPassphrase'].valueChanges
-      .subscribe(() => this.generatePublicAddress());
-    this.walletConfig.controls['derivationPath'].valueChanges
-      .subscribe(() => this.generatePublicAddress());
+      .subscribe(() => this.calculateAddresses());
+    this.walletConfig.controls['consumingDerivationPath'].valueChanges
+      .subscribe(() => this.calculateAddresses());
+    this.walletConfig.controls['earningDerivationPath'].valueChanges
+      .subscribe(() => this.calculateAddresses());
     this.walletConfig.controls['mnemonicPhrase'].valueChanges
-      .subscribe(() => this.generatePublicAddress());
+      .subscribe(() => this.calculateAddresses());
 
-    this.walletService.addressResponse.subscribe((address) => {
+    this.walletService.addressResponse.subscribe((addresses) => {
       this.ngZone.run(() => {
-        this.publicAddress = address;
+        this.consumingAddress = addresses.consuming;
+        this.earningAddress = addresses.earning;
       });
     });
 
     this.walletService.recoverConsumingWalletResponse.subscribe((response: string) => {
       this.ngZone.run(() => {
           if (response === 'success') {
-            this.configService.setEarningWallet(this.publicAddress);
+            this.configService.setEarningWallet(this.earningAddress);
             this.router.navigate(['/index']);
           } else {
             this.errorText = response;
@@ -61,13 +67,17 @@ export class RecoverWalletComponent implements OnInit {
     });
   }
 
-  generatePublicAddress() {
+  calculateAddresses() {
     const walletConfig = this.walletConfig;
-    this.walletService.calculateAddress(
+    const consumingDerivationPath = walletConfig.get('consumingDerivationPath').value;
+    const earningDerivationPath = this.sameWallet ? consumingDerivationPath : walletConfig.get('earningDerivationPath').value;
+
+    this.walletService.calculateAddresses(
       walletConfig.get('mnemonicPhrase').value,
-      walletConfig.get('derivationPath').value,
+      consumingDerivationPath,
       walletConfig.get('mnemonicPassphrase').value,
-      walletConfig.get('wordlist').value
+      walletConfig.get('wordlist').value,
+      earningDerivationPath
     );
   }
 
@@ -75,7 +85,13 @@ export class RecoverWalletComponent implements OnInit {
     const walletConfig = this.walletConfig.value;
     const wordList = wordlists.find(wl => wl.value === walletConfig.wordlist).viewValue;
     this.walletService.recoverConsumingWallet(
-      walletConfig.mnemonicPhrase, walletConfig.mnemonicPassphrase, walletConfig.derivationPath, wordList, walletConfig.password
+      walletConfig.mnemonicPhrase,
+      walletConfig.mnemonicPassphrase,
+      walletConfig.consumingDerivationPath,
+      wordList,
+      walletConfig.password,
+      this.sameWallet ?
+        walletConfig.consumingDerivationPath : walletConfig.earningDerivationPath
     );
   }
 }
