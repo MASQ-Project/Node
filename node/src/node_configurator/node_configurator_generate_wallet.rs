@@ -241,7 +241,7 @@ impl NodeConfiguratorGenerateWallet {
                             });
                     let earning_wallet = Wallet::from(earning_keypair.address());
                     format!(
-                        r#""derivation_path": "{}",
+                        r#""derivationPath": "{}",
                         "address": "{}""#,
                         earning_derivation_path, earning_wallet
                     )
@@ -250,12 +250,12 @@ impl NodeConfiguratorGenerateWallet {
             let result = unindent(&format!(
                 r#"
                 {{
-                    "mnemonic_phrase": "{}",
-                    "consuming_wallet": {{
-                        "derivation_path": "{}",
+                    "mnemonicPhrase": "{}",
+                    "consumingWallet": {{
+                        "derivationPath": "{}",
                         "address": "{}"
                     }},
-                    "earning_wallet": {{
+                    "earningWallet": {{
                         {}
                     }}
                 }}
@@ -387,11 +387,11 @@ mod tests {
 
         let result = streams.stdout.get_string();
         println!("{}", result);
-        assert!(Regex::new("\"mnemonic_phrase\": \"(\\w+\\s){11}(\\w+)\"")
+        assert!(Regex::new("\"mnemonicPhrase\": \"(\\w+\\s){11}(\\w+)\"")
             .unwrap()
             .is_match(&result));
-        assert!(Regex::new("\"consuming_wallet\": \\{\\s+\"derivation_path\": \"m/(?:\\d+'/){3}(?:\\d+)(?:/\\d+)?\",\\s+\"address\": \"0x[\\da-fA-F]{40}\"\\s+\\}").unwrap().is_match(&result));
-        assert!(Regex::new("\"earning_wallet\": \\{\\s+\"derivation_path\": \"m/(?:\\d+'/){3}(?:\\d+)(?:/\\d+)?\",\\s+\"address\": \"0x[\\da-fA-F]{40}\"\\s+\\}").unwrap().is_match(&result));
+        assert!(Regex::new("\"consumingWallet\": \\{\\s+\"derivationPath\": \"m/(?:\\d+'/){3}(?:\\d+)(?:/\\d+)?\",\\s+\"address\": \"0x[\\da-fA-F]{40}\"\\s+\\}").unwrap().is_match(&result));
+        assert!(Regex::new("\"earningWallet\": \\{\\s+\"derivationPath\": \"m/(?:\\d+'/){3}(?:\\d+)(?:/\\d+)?\",\\s+\"address\": \"0x[\\da-fA-F]{40}\"\\s+\\}").unwrap().is_match(&result));
     }
 
     #[test]
@@ -411,12 +411,12 @@ mod tests {
 
         let result = streams.stdout.get_string();
         println!("{}", result);
-        assert!(Regex::new("\"mnemonic_phrase\": \"(\\w+\\s){11}(\\w+)\"")
+        assert!(Regex::new("\"mnemonicPhrase\": \"(\\w+\\s){11}(\\w+)\"")
             .unwrap()
             .is_match(&result));
-        assert!(Regex::new("\"consuming_wallet\": \\{\\s+\"derivation_path\": \"m/(?:\\d+'/){3}(?:\\d+)(?:/\\d+)?\",\\s+\"address\": \"0x[\\da-fA-F]{40}\"\\s+\\}").unwrap().is_match(&result));
+        assert!(Regex::new("\"consumingWallet\": \\{\\s+\"derivationPath\": \"m/(?:\\d+'/){3}(?:\\d+)(?:/\\d+)?\",\\s+\"address\": \"0x[\\da-fA-F]{40}\"\\s+\\}").unwrap().is_match(&result));
         assert!(
-            Regex::new("\"earning_wallet\": \\{\\s+\"address\": \"0x[\\da-fA-F]{40}\"\\s+\\}")
+            Regex::new("\"earningWallet\": \\{\\s+\"address\": \"0x[\\da-fA-F]{40}\"\\s+\\}")
                 .unwrap()
                 .is_match(&result)
         );
