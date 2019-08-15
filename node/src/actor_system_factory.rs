@@ -248,8 +248,7 @@ pub struct ActorFactoryReal {}
 
 impl ActorFactory for ActorFactoryReal {
     fn make_and_start_dispatcher(&self) -> (DispatcherSubs, Recipient<PoolBindMessage>) {
-        let dispatcher = Dispatcher::new();
-        let addr: Addr<Dispatcher> = dispatcher.start();
+        let addr: Addr<Dispatcher> = Arbiter::start(|_| Dispatcher::new());
         (
             Dispatcher::make_subs_from(&addr),
             addr.recipient::<PoolBindMessage>(),
@@ -262,14 +261,14 @@ impl ActorFactory for ActorFactoryReal {
         is_decentralized: bool,
         consuming_wallet_balance: Option<i64>,
     ) -> ProxyServerSubs {
-        let proxy_server = ProxyServer::new(cryptde, is_decentralized, consuming_wallet_balance);
-        let addr: Addr<ProxyServer> = proxy_server.start();
+        let addr: Addr<ProxyServer> = Arbiter::start(move |_| {
+            ProxyServer::new(cryptde, is_decentralized, consuming_wallet_balance)
+        });
         ProxyServer::make_subs_from(&addr)
     }
 
     fn make_and_start_hopper(&self, config: HopperConfig) -> HopperSubs {
-        let hopper = Hopper::new(config);
-        let addr: Addr<Hopper> = hopper.start();
+        let addr: Addr<Hopper> = Arbiter::start(|_| Hopper::new(config));
         Hopper::make_subs_from(&addr)
     }
 
@@ -279,7 +278,7 @@ impl ActorFactory for ActorFactoryReal {
         config: &BootstrapperConfig,
     ) -> NeighborhoodSubs {
         let neighborhood = Neighborhood::new(cryptde, config);
-        let addr: Addr<Neighborhood> = neighborhood.start();
+        let addr: Addr<Neighborhood> = Arbiter::start(|_| neighborhood);
         Neighborhood::make_subs_from(&addr)
     }
 
@@ -362,14 +361,13 @@ impl ActorFactory for ActorFactoryReal {
         &self,
         clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
     ) -> StreamHandlerPoolSubs {
-        let pool = StreamHandlerPool::new(clandestine_discriminator_factories);
-        let addr: Addr<StreamHandlerPool> = pool.start();
+        let addr: Addr<StreamHandlerPool> =
+            Arbiter::start(|_| StreamHandlerPool::new(clandestine_discriminator_factories));
         StreamHandlerPool::make_subs_from(&addr)
     }
 
     fn make_and_start_proxy_client(&self, config: ProxyClientConfig) -> ProxyClientSubs {
-        let proxy_client = ProxyClient::new(config);
-        let addr: Addr<ProxyClient> = proxy_client.start();
+        let addr: Addr<ProxyClient> = Arbiter::start(|_| ProxyClient::new(config));
         ProxyClient::make_subs_from(&addr)
     }
 

@@ -31,7 +31,7 @@ impl<'a> RestServer<'a> {
             self.name,
         ];
         let mut command = Command::new("docker", Command::strings(args));
-        command.stdout_or_stderr()
+        command.stdout_or_stderr().map(|x| x.trim().to_string())
     }
 }
 

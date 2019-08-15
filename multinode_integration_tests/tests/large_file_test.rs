@@ -6,18 +6,19 @@ use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeClus
 use multinode_integration_tests_lib::substratum_real_node::{
     make_consuming_wallet_info, NodeStartupConfigBuilder, SubstratumRealNode,
 };
-use node_lib::test_utils::read_until_timeout;
 use std::thread;
 use std::time::Duration;
+
+const MAXIMUM_KBYTES: &'static str = "98304";
+const REQUEST_BYTES: u64 = 134_217_728;
 
 #[test]
 fn downloading_a_file_larger_than_available_memory_doesnt_kill_node_but_makes_it_stronger() {
     let mut cluster = SubstratumNodeCluster::start().expect("starting cluster");
-    let maximum_kbytes = "145000";
     let originating_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .memory(maximum_kbytes)
-            .consuming_wallet_info(make_consuming_wallet_info(&maximum_kbytes.to_string()))
+            .memory(MAXIMUM_KBYTES)
+            .consuming_wallet_info(make_consuming_wallet_info(MAXIMUM_KBYTES))
             .build(),
     );
 
@@ -26,7 +27,7 @@ fn downloading_a_file_larger_than_available_memory_doesnt_kill_node_but_makes_it
             cluster.start_real_node(
                 NodeStartupConfigBuilder::standard()
                     .neighbor(originating_node.node_reference())
-                    .memory(maximum_kbytes)
+                    .memory(MAXIMUM_KBYTES)
                     .build(),
             )
         })
@@ -37,20 +38,11 @@ fn downloading_a_file_larger_than_available_memory_doesnt_kill_node_but_makes_it
 
     thread::sleep(Duration::from_millis(500 * (nodes.len() as u64)));
 
-    let get = format!(
-        "GET /bytes/1307200 HTTP/1.1\r\nHost: {}\r\n\r\n",
-        rest_server.ip().unwrap().trim()
+    let address = format!(
+        "http://{}/bytes/{}",
+        rest_server.ip().unwrap(),
+        REQUEST_BYTES
     );
-
-    let mut client = originating_node.make_client(8080);
-    client.send_chunk(get.as_bytes());
-    let response = read_until_timeout(client.get_stream());
-
-    assert!(
-        response.len() > 1_307_200,
-        format!(
-            "Response length of {} was less than 1307200",
-            response.len()
-        )
-    );
+    let response = reqwest::get(&address).unwrap();
+    assert_eq!(response.content_length(), Some(REQUEST_BYTES));
 }

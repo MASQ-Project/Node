@@ -39,3 +39,6 @@ path = "src/lib.rs"
 [[bin]]
 name = "mock_node"
 path = "src/main.rs"
+
+[dev-dependencies]
+reqwest = "0.9.19"
