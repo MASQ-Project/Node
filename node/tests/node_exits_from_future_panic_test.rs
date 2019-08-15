@@ -49,7 +49,11 @@ const STAT_FORMAT_PARAM_NAME: &str = "-f";
 #[test]
 fn node_logfile_does_not_belong_to_root_integration() {
     let logfile_path = utils::SubstratumNode::path_to_logfile();
-    std::fs::remove_file(&logfile_path).is_ok();
+    match std::fs::remove_file(&logfile_path) {
+        Ok(_) => (),
+        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => (),
+        Err(ref e) => panic!("{:?}", e),
+    }
 
     let mut node = utils::SubstratumNode::start_standard(None);
 

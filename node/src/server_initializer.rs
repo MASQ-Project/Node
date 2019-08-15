@@ -49,7 +49,7 @@ impl Command for ServerInitializer {
             let real_user = config.real_user.populate();
             self.privilege_dropper
                 .chown(&config.data_directory, &real_user);
-            self.privilege_dropper.drop_privileges(&config.real_user);
+            self.privilege_dropper.drop_privileges(&real_user);
 
             self.dns_socket_server
                 .as_mut()
