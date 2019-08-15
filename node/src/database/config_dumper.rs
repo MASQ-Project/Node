@@ -7,7 +7,7 @@ use crate::multi_config::{CommandLineVcl, EnvironmentVcl, MultiConfig, VirtualCo
 use crate::node_configurator::{app_head, data_directory_arg, real_user_arg};
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::sub_lib::main_tools::StdStreams;
-use clap::{value_t, Arg};
+use clap::{Arg};
 use heck::MixedCase;
 use serde_json::json;
 use serde_json::{Map, Value};
@@ -17,7 +17,7 @@ const DUMP_CONFIG_HELP: &str =
     "Dump the configuration of SubstratumNode to stdout in JSON. Used chiefly by UIs.";
 
 pub fn dump_config(args: &Vec<String>, streams: &mut StdStreams) -> i32 {
-    let (data_directory, real_user) = distill_args(args);
+    let (real_user, data_directory) = distill_args(args);
     PrivilegeDropperReal::new().drop_privileges(&real_user);
     let config_dao = make_config_dao(&data_directory);
     let configuration = config_dao.get_all().expect("Couldn't fetch configuration");
@@ -63,7 +63,7 @@ fn make_config_dao(data_directory: &PathBuf) -> ConfigDaoReal {
     ConfigDaoReal::new(conn)
 }
 
-fn distill_args(args: &Vec<String>) -> (PathBuf, RealUser) {
+fn distill_args(args: &Vec<String>) -> (RealUser, PathBuf) {
     let app = app_head()
         .arg(
             Arg::with_name("dump-config")
@@ -79,10 +79,7 @@ fn distill_args(args: &Vec<String>) -> (PathBuf, RealUser) {
         Box::new(EnvironmentVcl::new(&app)),
     ];
     let multi_config = MultiConfig::new(&app, vcls);
-    let data_dir =
-        value_m!(multi_config, "data-directory", PathBuf).expect("data-directory is not defaulted");
-    let real_user = value_m!(multi_config, "real-user", RealUser).unwrap_or_default();
-    (data_dir, real_user.populate())
+    crate::node_configurator::real_user_and_data_directory(&multi_config)
 }
 
 #[cfg(test)]
