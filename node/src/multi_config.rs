@@ -62,7 +62,7 @@ impl<'a> MultiConfig<'a> {
                 .get_matches_from_safe(merged.args().into_iter())
                 .unwrap_or_else(|e| {
                     if cfg!(test) {
-                        panic!("{}. --panic to catch for testing--", e)
+                        panic!("{:?}. --panic to catch for testing--", e)
                     } else {
                         e.exit()
                     }

@@ -5,13 +5,15 @@ use std::io;
 use std::ops::Drop;
 use std::path::Path;
 use std::process;
+use std::process::Output;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 
 pub struct SubstratumNode {
     pub logfile_contents: String,
-    child: process::Child,
+    child: Option<process::Child>,
+    output: Option<Output>,
 }
 
 pub struct CommandConfig {
@@ -58,13 +60,19 @@ impl SubstratumNode {
     }
 
     #[allow(dead_code)]
+    pub fn output(&mut self) -> Option<Output> {
+        self.output.take()
+    }
+
+    #[allow(dead_code)]
     pub fn start_standard(config: Option<CommandConfig>) -> SubstratumNode {
         let mut command = SubstratumNode::make_node_command(config);
         let child = command.spawn().unwrap();
         thread::sleep(Duration::from_millis(500)); // needs time to open logfile and sockets
         SubstratumNode {
             logfile_contents: String::new(),
-            child,
+            child: Some(child),
+            output: None,
         }
     }
 
@@ -116,26 +124,46 @@ impl SubstratumNode {
     }
 
     #[allow(dead_code)]
-    pub fn wait_for_exit(&mut self, milliseconds: u64) -> Option<i32> {
-        let time_limit = Instant::now() + Duration::from_millis(milliseconds);
-        while Instant::now() < time_limit {
-            match self.child.try_wait() {
-                Err(e) => panic!("{:?}", e),
-                Ok(Some(exit_status)) => return exit_status.code(),
-                Ok(None) => (),
+    pub fn wait_for_exit(&mut self) -> Option<Output> {
+        let child_opt = self.child.take();
+        let output_opt = self.output.take();
+        match (child_opt, output_opt) {
+            (None, Some(output)) => {
+                self.output = Some(output);
+                self.output.clone()
             }
-            thread::sleep(Duration::from_millis(100));
+            (Some(child), None) => match child.wait_with_output() {
+                Ok(output) => Some(output),
+                Err(e) => panic!("{:?}", e),
+            },
+            (Some(_), Some(_)) => panic!("Internal error: Inconsistent SubstratumNode state"),
+            (None, None) => panic!("Internal error: SubstratumNode is already empty"),
         }
-        panic!(
-            "Waited fruitlessly for Node termination for {}ms",
-            milliseconds
-        );
     }
 
     #[cfg(not(target_os = "windows"))]
     pub fn kill(&mut self) -> Result<process::ExitStatus, io::Error> {
-        self.child.kill()?;
-        self.child.wait()
+        let child_opt = self.child.take();
+        let output_opt = self.output.take();
+        Ok(match (child_opt, output_opt) {
+            (Some(mut child), None) => {
+                child.kill()?;
+                let result = child.wait()?;
+                self.output = Some(Output {
+                    status: result,
+                    stdout: vec![],
+                    stderr: vec![],
+                });
+                result
+            }
+            (None, Some(output)) => {
+                let result = output.status.clone();
+                self.output = Some(output);
+                result
+            }
+            (Some(_), Some(_)) => panic!("Internal error: Inconsistent SubstratumNode state"),
+            (None, None) => return Err(io::Error::from(io::ErrorKind::InvalidData)),
+        })
     }
 
     #[cfg(target_os = "windows")]
@@ -143,6 +171,8 @@ impl SubstratumNode {
         let mut command = process::Command::new("taskkill");
         command.args(&vec!["/IM", "SubstratumNode.exe", "/F"]);
         let _ = command.output().expect("Couldn't kill SubstratumNode.exe");
+        self.child.take();
+        // Be nice if we could figure out how to populate self.output here
     }
 
     pub fn remove_database() {
@@ -231,7 +261,12 @@ impl SubstratumNode {
     }
 
     fn get_extra_args(config_opt: Option<CommandConfig>) -> Vec<String> {
-        config_opt.unwrap_or(CommandConfig::new()).args
+        let mut args = config_opt.unwrap_or(CommandConfig::new()).args;
+        if !args.contains(&"--data-directory".to_string()) {
+            args.push("--data-directory".to_string());
+            args.push(SubstratumNode::data_dir().to_string_lossy().to_string());
+        }
+        args
     }
 }
 
@@ -256,18 +291,12 @@ fn command_to_start() -> process::Command {
 
 #[cfg(target_os = "windows")]
 fn apply_prefix_parameters(command_config: CommandConfig) -> CommandConfig {
-    command_config.pair("/c", &node_command()).pair(
-        "--data-directory",
-        &SubstratumNode::data_dir().to_string_lossy().to_string(),
-    )
+    command_config.pair("/c", &node_command())
 }
 
 #[cfg(not(target_os = "windows"))]
 fn apply_prefix_parameters(command_config: CommandConfig) -> CommandConfig {
-    command_config.pair(
-        "--data-directory",
-        &SubstratumNode::data_dir().to_string_lossy().to_string(),
-    )
+    command_config
 }
 
 #[cfg(target_os = "windows")]

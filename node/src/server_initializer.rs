@@ -4,6 +4,8 @@ use super::privilege_drop::PrivilegeDropper;
 use super::privilege_drop::PrivilegeDropperReal;
 use crate::bootstrapper::{BootstrapperConfig, RealUser};
 use crate::entry_dns::dns_socket_server::DnsSocketServer;
+use crate::node_configurator::node_configurator_standard::NodeConfiguratorStandardPrivileged;
+use crate::node_configurator::NodeConfigurator;
 use crate::sub_lib;
 use crate::sub_lib::main_tools::Command;
 use crate::sub_lib::main_tools::StdStreams;
@@ -33,9 +35,7 @@ impl Command for ServerInitializer {
         if args.contains(&"--help".to_string()) || args.contains(&"--version".to_string()) {
             self.privilege_dropper
                 .drop_privileges(&RealUser::null().populate());
-            self.bootstrapper
-                .as_mut()
-                .initialize_as_unprivileged(args, streams);
+            NodeConfiguratorStandardPrivileged {}.configure(args, streams);
             0
         } else {
             self.dns_socket_server
@@ -46,6 +46,9 @@ impl Command for ServerInitializer {
                 .initialize_as_privileged(args, streams);
 
             let config = self.bootstrapper.get_configuration();
+            let real_user = config.real_user.populate();
+            self.privilege_dropper
+                .chown(&config.data_directory, &real_user);
             self.privilege_dropper.drop_privileges(&config.real_user);
 
             self.dns_socket_server
@@ -354,6 +357,7 @@ pub mod tests {
             }
         }
 
+        #[allow(dead_code)]
         pub fn initialize_as_privileged_params(
             mut self,
             params: &Arc<Mutex<Vec<Vec<String>>>>,
@@ -362,6 +366,7 @@ pub mod tests {
             self
         }
 
+        #[allow(dead_code)]
         pub fn initialize_as_unprivileged_params(
             mut self,
             params: &Arc<Mutex<Vec<Vec<String>>>>,
@@ -536,31 +541,21 @@ pub mod tests {
     }
 
     #[test]
-    fn go_with_help_should_drop_privileges_and_call_initialize_as_unprivileged() {
-        go_with_something_should_drop_privileges_and_call_initialize_as_unprivileged("--help");
+    #[should_panic(expected = "kind: HelpDisplayed")]
+    fn go_with_help_should_print_help_and_artificially_panic() {
+        go_with_something_should_print_something_and_artificially_panic("--help");
     }
 
     #[test]
-    fn go_with_version_should_drop_privileges_and_call_initialize_as_unprivileged() {
-        go_with_something_should_drop_privileges_and_call_initialize_as_unprivileged("--version");
+    #[should_panic(expected = "kind: VersionDisplayed")]
+    fn go_with_version_should_print_version_and_artificially_panic() {
+        go_with_something_should_print_something_and_artificially_panic("--version");
     }
 
-    fn go_with_something_should_drop_privileges_and_call_initialize_as_unprivileged(
-        something: &str,
-    ) {
-        let dns_initialize_as_privileged_params_arc = Arc::new(Mutex::new(vec![]));
-        let dns_initialize_as_unprivileged_params_arc = Arc::new(Mutex::new(vec![]));
-        let dns_socket_server = SocketServerMock::new(())
-            .initialize_as_privileged_params(&dns_initialize_as_privileged_params_arc)
-            .initialize_as_unprivileged_params(&dns_initialize_as_unprivileged_params_arc);
-        let boot_initialize_as_privileged_params_arc = Arc::new(Mutex::new(vec![]));
-        let boot_initialize_as_unprivileged_params_arc = Arc::new(Mutex::new(vec![]));
-        let bootstrapper = SocketServerMock::new(BootstrapperConfig::new())
-            .initialize_as_privileged_params(&boot_initialize_as_privileged_params_arc)
-            .initialize_as_unprivileged_params(&boot_initialize_as_unprivileged_params_arc);
-        let drop_privileges_params_arc = Arc::new(Mutex::new(vec![]));
-        let privilege_dropper =
-            PrivilegeDropperMock::new().drop_privileges_params(&drop_privileges_params_arc);
+    fn go_with_something_should_print_something_and_artificially_panic(something: &str) {
+        let dns_socket_server = SocketServerMock::new(());
+        let bootstrapper = SocketServerMock::new(BootstrapperConfig::new());
+        let privilege_dropper = PrivilegeDropperMock::new();
         let mut subject = ServerInitializer {
             dns_socket_server: Box::new(dns_socket_server),
             bootstrapper: Box::new(bootstrapper),
@@ -569,27 +564,5 @@ pub mod tests {
         let args = vec!["SubstratumNode".to_string(), something.to_string()];
 
         subject.go(&mut FakeStreamHolder::new().streams(), &args);
-
-        let drop_privileges_params = drop_privileges_params_arc.lock().unwrap();
-        assert_eq!(*drop_privileges_params, vec![RealUser::null().populate()]);
-        let empty_string_vec: Vec<Vec<String>> = vec![];
-        let dns_initialize_as_privileged_params =
-            dns_initialize_as_privileged_params_arc.lock().unwrap();
-        assert_eq!(
-            *dns_initialize_as_privileged_params,
-            empty_string_vec.clone()
-        );
-        let dns_initialize_as_unprivileged_params =
-            dns_initialize_as_unprivileged_params_arc.lock().unwrap();
-        assert_eq!(
-            *dns_initialize_as_unprivileged_params,
-            empty_string_vec.clone()
-        );
-        let boot_initialize_as_privileged_params =
-            boot_initialize_as_privileged_params_arc.lock().unwrap();
-        assert_eq!(*boot_initialize_as_privileged_params, empty_string_vec);
-        let boot_initialize_as_unprivileged_params =
-            boot_initialize_as_unprivileged_params_arc.lock().unwrap();
-        assert_eq!(*boot_initialize_as_unprivileged_params, vec![args]);
     }
 }

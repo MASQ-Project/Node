@@ -10,8 +10,8 @@ fn node_exits_from_future_error_integration() {
     let panic_config = CommandConfig::new().pair("--crash-point", "error");
     let mut node = utils::SubstratumNode::start_standard(Some(panic_config));
 
-    let exit_status = node.wait_for_exit(1000);
-    assert_ne!(Some(0), exit_status);
+    let exit_code = node.wait_for_exit().unwrap().status.code();
+    assert_ne!(Some(0), exit_code);
 }
 
 #[cfg(target_os = "windows")]
@@ -20,7 +20,7 @@ fn node_exits_from_future_error_integration() {
     let panic_config = CommandConfig::new().pair("--crash-point", "error");
     let mut node = utils::SubstratumNode::start_standard(Some(panic_config));
 
-    let exit_status = node.wait_for_exit(1000);
+    let exit_code = node.wait_for_exit().unwrap().status.code();
     // Sometimes 1, sometimes 101
-    assert_ne!(Some(0), exit_status);
+    assert_ne!(Some(0), exit_code);
 }

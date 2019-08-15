@@ -53,5 +53,5 @@ fn ui_gateway_message_integration() {
     rt.block_on(shutdown_client).unwrap();
     rt.shutdown_on_idle().wait().unwrap();
 
-    node.wait_for_exit(1000);
+    node.wait_for_exit();
 }

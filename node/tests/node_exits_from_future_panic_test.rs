@@ -5,6 +5,10 @@ mod utils;
 use crate::utils::CommandConfig;
 #[cfg(not(target_os = "windows"))]
 use std::process;
+#[cfg(not(target_os = "windows"))]
+use std::thread;
+#[cfg(not(target_os = "windows"))]
+use std::time::Duration;
 
 #[cfg(not(target_os = "windows"))]
 #[test]
@@ -12,7 +16,7 @@ fn node_exits_from_future_panic_integration() {
     let panic_config = CommandConfig::new().pair("--crash-point", "panic");
     let mut node = utils::SubstratumNode::start_standard(Some(panic_config));
 
-    let exit_code = node.wait_for_exit(1000);
+    let exit_code = node.wait_for_exit().unwrap().status.code();
     assert_eq!(Some(101), exit_code);
 }
 
@@ -22,7 +26,7 @@ fn node_exits_from_future_panic_integration() {
     let panic_config = CommandConfig::new().pair("--crash-point", "panic");
     let mut node = utils::SubstratumNode::start_standard(Some(panic_config));
 
-    let exit_code = node.wait_for_exit(1000);
+    let exit_code = node.wait_for_exit().unwrap().status.code();
     // Sometimes 1, sometimes 101
     assert_ne!(exit_code, Some(0));
 }
@@ -44,12 +48,13 @@ const STAT_FORMAT_PARAM_NAME: &str = "-f";
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn node_logfile_does_not_belong_to_root_integration() {
-    let panic_config = CommandConfig::new().pair("--crash-point", "panic");
-    let mut node = utils::SubstratumNode::start_standard(Some(panic_config));
-
-    node.wait_for_exit(1000);
-
     let logfile_path = utils::SubstratumNode::path_to_logfile();
+    std::fs::remove_file(&logfile_path).is_ok();
+
+    let mut node = utils::SubstratumNode::start_standard(None);
+
+    thread::sleep(Duration::from_secs(2));
+    node.kill().unwrap();
     let mut command = process::Command::new("stat");
     command.args(vec![
         STAT_FORMAT_PARAM_NAME,
@@ -64,13 +69,15 @@ fn node_logfile_does_not_belong_to_root_integration() {
     assert_ne!(
         ids[0],
         "0".to_string(),
-        "stat didn't say UID was not 0: {:?}",
+        "stat didn't say UID for {:?} was not 0: {:?}",
+        &logfile_path,
         &output
     );
     assert_ne!(
         ids[1],
         "0".to_string(),
-        "stat didn't say GID was not 0: {:?}",
+        "stat didn't say GID for {:?} was not 0: {:?}",
+        &logfile_path,
         &output
     );
 }

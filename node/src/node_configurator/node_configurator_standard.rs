@@ -1513,7 +1513,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "error: Invalid value for '--consuming-private-key <PRIVATE-KEY>': not valid hex"
+        expected = "error: Invalid value for \\'--consuming-private-key <PRIVATE-KEY>\\': not valid hex"
     )]
     fn unprivileged_parse_args_with_invalid_consuming_wallet_private_key_panics_correctly() {
         let home_directory = ensure_node_home_directory_exists(
@@ -1762,7 +1762,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = r#"error: 'mainnet' isn't a valid value for '--chain <CHAIN>'"#)]
+    #[should_panic(
+        expected = "error: \\'mainnet\\' isn\\'t a valid value for \\'--chain <CHAIN>\\'"
+    )]
     fn privileged_configuration_rejects_mainnet_network_chain_selection() {
         let subject = NodeConfiguratorStandardPrivileged {};
         let args = ArgsBuilder::new()
@@ -1811,7 +1813,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = r#"error: Invalid value for '--gas-price <GAS-PRICE>': unleaded"#)]
+    #[should_panic(expected = "error: Invalid value for \\'--gas-price <GAS-PRICE>\\': unleaded")]
     fn privileged_configuration_rejects_invalid_gas_price() {
         let subject = NodeConfiguratorStandardPrivileged {};
         let args = ArgsBuilder::new()
