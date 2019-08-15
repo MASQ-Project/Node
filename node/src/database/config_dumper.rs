@@ -7,7 +7,7 @@ use crate::multi_config::{CommandLineVcl, EnvironmentVcl, MultiConfig, VirtualCo
 use crate::node_configurator::{app_head, data_directory_arg, real_user_arg};
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::sub_lib::main_tools::StdStreams;
-use clap::{Arg};
+use clap::Arg;
 use heck::MixedCase;
 use serde_json::json;
 use serde_json::{Map, Value};
