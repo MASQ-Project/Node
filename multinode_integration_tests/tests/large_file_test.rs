@@ -9,8 +9,8 @@ use multinode_integration_tests_lib::substratum_real_node::{
 use std::thread;
 use std::time::Duration;
 
-const MAXIMUM_KBYTES: &'static str = "98304";
-const REQUEST_BYTES: u64 = 134_217_728;
+const MAXIMUM_KBYTES: &'static str = "148480";
+const REQUEST_BYTES: u64 = 157_286_400;
 
 #[test]
 fn downloading_a_file_larger_than_available_memory_doesnt_kill_node_but_makes_it_stronger() {
