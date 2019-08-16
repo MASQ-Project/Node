@@ -115,6 +115,7 @@ export class NodeConfigurationComponent implements OnInit {
     }
     this.localStorageService.setItem(persistNeighborPreference, this.persistNeighbor);
     this.localStorageService.setItem(blockchainServiceUrl, this.blockchainServiceUrl.value);
+    this.configService.patchValue(this.nodeConfig.value);
     this.saved.emit(this.mode);
   }
 
@@ -124,7 +125,6 @@ export class NodeConfigurationComponent implements OnInit {
 
   async onSubmit() {
     this.save();
-    this.configService.patchValue(this.nodeConfig.value);
   }
 
   hideTooltip() {

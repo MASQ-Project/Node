@@ -579,12 +579,17 @@ describe('NodeConfigurationComponent', () => {
             blockchainServiceUrl: 'https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>',
             privateKey: ''
           };
+          let savedSignalAsserted = false;
 
           beforeEach(() => {
             page.setIp('127.0.0.1');
             page.setNeighbor('5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999');
             page.setWalletAddress('');
             page.setBlockchainServiceUrl('https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>');
+            component.saved.subscribe(() => {
+              td.verify(mockConfigService.patchValue(expected));
+              savedSignalAsserted = true;
+            });
             fixture.detectChanges();
 
             page.saveConfigBtn.click();
@@ -592,8 +597,8 @@ describe('NodeConfigurationComponent', () => {
             fixture.detectChanges();
           });
 
-          it('persists the values', () => {
-            td.verify(mockConfigService.patchValue(expected));
+          it('persists the values then emits save event', () => {
+            expect(savedSignalAsserted).toBeTruthy();
           });
         });
 
