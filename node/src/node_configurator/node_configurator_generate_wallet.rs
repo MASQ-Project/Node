@@ -6,9 +6,9 @@ use crate::multi_config::MultiConfig;
 use crate::node_configurator::{
     app_head, common_validators, consuming_wallet_arg, create_wallet, data_directory_arg,
     earning_wallet_arg, flushed_write, language_arg, mnemonic_passphrase_arg,
-    prepare_initialization_mode, real_user_arg, request_new_password, request_password_with_retry,
-    wallet_password_arg, Either, NodeConfigurator, WalletCreationConfig, WalletCreationConfigMaker,
-    EARNING_WALLET_HELP, WALLET_PASSWORD_HELP,
+    prepare_initialization_mode, real_user_arg, request_password_with_confirmation,
+    request_password_with_retry, wallet_password_arg, Either, NodeConfigurator,
+    WalletCreationConfig, WalletCreationConfigMaker, EARNING_WALLET_HELP, WALLET_PASSWORD_HELP,
 };
 use crate::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::cryptde::PlainData;
@@ -182,7 +182,7 @@ impl NodeConfiguratorGenerateWallet {
             "  Mnemonic passphrase (recommended): ",
             streams,
             |streams| {
-                request_new_password(
+                request_password_with_confirmation(
                     "  Confirm mnemonic passphrase: ",
                     "\nPassphrases do not match.",
                     streams,

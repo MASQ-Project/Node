@@ -311,7 +311,7 @@ pub fn request_wallet_encryption_password(
         flushed_write(streams.stdout, &format!("{}\n", preamble));
     }
     match request_password_with_retry(prompt, streams, |streams| {
-        request_new_password(
+        request_password_with_confirmation(
             confirmation_prompt,
             "Passwords do not match.",
             streams,
@@ -397,7 +397,7 @@ where
 }
 
 // require two matching entries
-pub fn request_new_password<F>(
+pub fn request_password_with_confirmation<F>(
     confirmation_prompt: &str,
     mismatch_msg: &str,
     streams: &mut StdStreams,

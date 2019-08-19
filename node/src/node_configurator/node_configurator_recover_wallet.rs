@@ -5,9 +5,9 @@ use crate::multi_config::MultiConfig;
 use crate::node_configurator::{
     app_head, common_validators, consuming_wallet_arg, create_wallet, data_directory_arg,
     earning_wallet_arg, exit, flushed_write, language_arg, mnemonic_passphrase_arg,
-    prepare_initialization_mode, real_user_arg, request_existing_password, wallet_password_arg,
-    Either, NodeConfigurator, WalletCreationConfig, WalletCreationConfigMaker, EARNING_WALLET_HELP,
-    WALLET_PASSWORD_HELP,
+    prepare_initialization_mode, real_user_arg, request_password_with_confirmation,
+    request_password_with_retry, wallet_password_arg, Either, NodeConfigurator,
+    WalletCreationConfig, WalletCreationConfigMaker, EARNING_WALLET_HELP, WALLET_PASSWORD_HELP,
 };
 use crate::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::cryptde::PlainData;
@@ -136,7 +136,7 @@ impl NodeConfiguratorRecoverWallet {
         &self,
         multi_config: &MultiConfig,
         streams: &mut StdStreams<'_>,
-        persistent_config: &PersistentConfiguration,
+        persistent_config: &dyn PersistentConfiguration,
     ) -> WalletCreationConfig {
         if persistent_config.encrypted_mnemonic_seed().is_some() {
             exit(
@@ -153,10 +153,21 @@ impl NodeConfiguratorRecoverWallet {
             "\nPlease enter the passphrase for your mnemonic, or Enter if there is none.\n\
              You will encrypt your wallet in a following step...\n",
         );
-        flushed_write(streams.stdout, "  Mnemonic passphrase: ");
-        match request_existing_password(streams, |_| Ok(())) {
+        match request_password_with_retry("  Mnemonic passphrase: ", streams, |streams| {
+            request_password_with_confirmation(
+                "  Confirm mnemonic passphrase: ",
+                "\nPassphrases do not match.",
+                streams,
+                |_| Ok(()),
+            )
+        }) {
             Ok(mp) => {
                 if mp.is_empty() {
+                    flushed_write (
+                        streams.stdout,
+                        "\nWhile ill-advised, proceeding with no mnemonic passphrase.\nPress Enter to continue...",
+                    );
+                    let _ = streams.stdin.read(&mut [0u8]).is_ok();
                     None
                 } else {
                     Some(mp)
@@ -490,7 +501,7 @@ mod tests {
     fn request_mnemonic_passphrase_happy_path() {
         let stdout_writer = &mut ByteArrayWriter::new();
         let streams = &mut StdStreams {
-            stdin: &mut Cursor::new(&b"a very poor passphrase\n"[..]),
+            stdin: &mut Cursor::new(&b"a very poor passphrase\na very poor passphrase\n"[..]),
             stdout: stdout_writer,
             stderr: &mut ByteArrayWriter::new(),
         };
@@ -501,7 +512,29 @@ mod tests {
         assert_eq!(
             stdout_writer.get_string(),
             "\nPlease enter the passphrase for your mnemonic, or Enter if there is none.\n\
-             You will encrypt your wallet in a following step...\n  Mnemonic passphrase: "
+             You will encrypt your wallet in a following step...\n  Mnemonic passphrase:   \
+             Confirm mnemonic passphrase: "
+                .to_string()
+        );
+    }
+
+    #[test]
+    fn request_mnemonic_passphrase_sad_path() {
+        let stdout_writer = &mut ByteArrayWriter::new();
+        let streams = &mut StdStreams {
+            stdin: &mut Cursor::new(&b"a very great passphrase\na very poor passphrase\n"[..]),
+            stdout: stdout_writer,
+            stderr: &mut ByteArrayWriter::new(),
+        };
+
+        let actual = NodeConfiguratorRecoverWallet::request_mnemonic_passphrase(streams);
+
+        assert_eq!(actual, None);
+        assert_eq!(
+            stdout_writer.get_string(),
+            "\nPlease enter the passphrase for your mnemonic, or Enter if there is none.\n\
+             You will encrypt your wallet in a following step...\n  Mnemonic passphrase:   \
+             Confirm mnemonic passphrase: \nPassphrases do not match. Try again.\n  Mnemonic passphrase:   Confirm mnemonic passphrase: \nWhile ill-advised, proceeding with no mnemonic passphrase.\nPress Enter to continue..."
                 .to_string()
         );
     }
@@ -521,7 +554,10 @@ mod tests {
         assert_eq!(
             stdout_writer.get_string(),
             "\nPlease enter the passphrase for your mnemonic, or Enter if there is none.\n\
-             You will encrypt your wallet in a following step...\n  Mnemonic passphrase: "
+             You will encrypt your wallet in a following step...\n  Mnemonic passphrase:   \
+             Confirm mnemonic passphrase: \
+             \nWhile ill-advised, proceeding with no mnemonic passphrase.\
+             \nPress Enter to continue..."
                 .to_string()
         );
     }
