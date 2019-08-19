@@ -44,14 +44,14 @@ case "$OSTYPE" in
       ;;
    msys)
       cd "$CI_DIR/../node"
-      signtool sign //tr http://timestamp.digicert.com //td sha256 //fd sha256 //i "DigiCert SHA2 Assured ID Code Signing CA" //n "Substratum Services, Inc." "target/release/$NODE_EXECUTABLE"
+      signtool sign //tr http://timestamp.digicert.com //td sha256 //fd sha256 //i "DigiCert SHA2 Assured ID Code Signing CA" //n "Substratum Services, Inc." //sm "target/release/$NODE_EXECUTABLE"
       signtool verify //pa "target/release/$NODE_EXECUTABLE"
-      signtool sign //tr http://timestamp.digicert.com //td sha256 //fd sha256 //i "DigiCert SHA2 Assured ID Code Signing CA" //n "Substratum Services, Inc." "target/release/$NODE_EXECUTABLEW"
+      signtool sign //tr http://timestamp.digicert.com //td sha256 //fd sha256 //i "DigiCert SHA2 Assured ID Code Signing CA" //n "Substratum Services, Inc." //sm "target/release/$NODE_EXECUTABLEW"
       signtool verify //pa "target/release/$NODE_EXECUTABLEW"
       cd "$CI_DIR/../dns_utility"
-      signtool sign //tr http://timestamp.digicert.com //td sha256 //fd sha256 //i "DigiCert SHA2 Assured ID Code Signing CA" //n "Substratum Services, Inc." "target/release/$DNS_EXECUTABLE"
+      signtool sign //tr http://timestamp.digicert.com //td sha256 //fd sha256 //i "DigiCert SHA2 Assured ID Code Signing CA" //n "Substratum Services, Inc." //sm "target/release/$DNS_EXECUTABLE"
       signtool verify //pa "target/release/$DNS_EXECUTABLE"
-      signtool sign //tr http://timestamp.digicert.com //td sha256 //fd sha256 //i "DigiCert SHA2 Assured ID Code Signing CA" //n "Substratum Services, Inc." "target/release/$DNS_EXECUTABLEW"
+      signtool sign //tr http://timestamp.digicert.com //td sha256 //fd sha256 //i "DigiCert SHA2 Assured ID Code Signing CA" //n "Substratum Services, Inc." //sm "target/release/$DNS_EXECUTABLEW"
       signtool verify //pa "target/release/$DNS_EXECUTABLEW"
       ;;
    *)
