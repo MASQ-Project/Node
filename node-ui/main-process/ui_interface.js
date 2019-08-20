@@ -6,6 +6,7 @@ module.exports = (() => {
   const DEFAULT_UI_PORT = 5333
   const UI_INTERFACE_URL = `ws://127.0.0.1`
   const UI_PROTOCOL = 'SubstratumNode-UI'
+  const CONNECT_TIMEOUT = 5000
   let webSocket = null
   let getNodeDescriptorCallbackPair = null
   let setConsumingWalletPasswordCallbackPair = null
@@ -208,13 +209,14 @@ module.exports = (() => {
   }
 
   function createSocket (port) {
-    return webSocketWrapper.create(`${UI_INTERFACE_URL}:${port}`, UI_PROTOCOL, { handshakeTimeout: 1000 })
+    return webSocketWrapper.create(`${UI_INTERFACE_URL}:${port}`, UI_PROTOCOL, { handshakeTimeout: CONNECT_TIMEOUT })
   }
 
   return {
     DEFAULT_UI_PORT: DEFAULT_UI_PORT,
     UI_INTERFACE_URL: UI_INTERFACE_URL,
     UI_PROTOCOL: UI_PROTOCOL,
+    CONNECT_TIMEOUT: CONNECT_TIMEOUT,
     connect: connect,
     isConnected: isConnected,
     verifyNodeUp: verifyNodeUp,
