@@ -274,26 +274,14 @@ describe('CommandHelper', () => {
         })
       })
 
-      describe('when neighbor is provided but ip is not', () => {
-        beforeEach(() => {
-          subject.startSubstratumNode({ neighbor: 'hidelyho' }, 'callback')
-        })
-
-        it('uses neither as command line arguments', () => {
-          td.verify(sudoPrompt.exec(td.matchers.argThat((args) => {
-            return !args.includes('--ip') && !args.includes('--neighbors')
-          }), { name: 'Substratum Node' }, 'callback'))
-        })
-      })
-
       describe('when ip is provided but neighbor is not', () => {
         beforeEach(() => {
           subject.startSubstratumNode({ ip: 'abc' }, 'callback')
         })
 
-        it('uses neither as command line arguments', () => {
+        it('provides ip but not neighbors', () => {
           td.verify(sudoPrompt.exec(td.matchers.argThat((args) => {
-            return !args.includes('--ip') && !args.includes('--neighbors')
+            return args.includes('--ip') && args.includes('abc') && !args.includes('--neighbors')
           }), { name: 'Substratum Node' }, 'callback'))
         })
       })
@@ -366,37 +354,23 @@ describe('CommandHelper', () => {
     })
 
     describe('getCommand', () => {
-      describe('when ip and neighbor are both provided', () => {
-        beforeEach(() => {
-          subject.startSubstratumNode({ ip: 'abc', neighbor: 'hidelyho' }, 'callback')
-        })
-
-        it('provides them as command line arguments', () => {
-          td.verify(nodeCmd.get(td.matchers.contains(/--ip abc\s+--neighbors "hidelyho"/), 'callback'))
-        })
-      })
-
-      describe('when neighbor is provided but ip is not', () => {
+      describe('when neighbor is provided', () => {
         beforeEach(() => {
           subject.startSubstratumNode({ neighbor: 'hidelyho' }, 'callback')
         })
 
-        it('uses neither as command line arguments', () => {
-          td.verify(nodeCmd.get(td.matchers.argThat((args) => {
-            return !args.includes('--ip') && !args.includes('--neighbors')
-          }), 'callback'))
+        it('provides neighbors command line argument', () => {
+          td.verify(nodeCmd.get(td.matchers.contains('--neighbors "hidelyho"'), 'callback'))
         })
       })
 
-      describe('when ip is provided but neighbor is not', () => {
+      describe('when ip is provided', () => {
         beforeEach(() => {
           subject.startSubstratumNode({ ip: 'abc' }, 'callback')
         })
 
-        it('uses neither as command line arguments', () => {
-          td.verify(nodeCmd.get(td.matchers.argThat((args) => {
-            return !args.includes('--ip') && !args.includes('--neighbors')
-          }), 'callback'))
+        it('provides ip command line argument', () => {
+          td.verify(nodeCmd.get(td.matchers.contains('--ip abc'), 'callback'))
         })
       })
 

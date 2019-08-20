@@ -34,7 +34,7 @@
 
     <div class="node-config__actions">
       <input type="text" id="neighbor" formControlName="neighbor"
-             [class.input-invalid]="neighbor.invalid || nodeConfig.errors?.neighborRequired">
+             [class.input-invalid]="neighbor.invalid">
     </div>
     <div class="node-config__ancillary">
       <input id="persist-neighbor" type="checkbox" class="checkbox" name="persist-neighbor"
@@ -45,9 +45,6 @@
     <ul id="neighbor-validation">
       <li class="validation-error" id="neighbor-validation__pattern" *ngIf="neighbor.errors?.pattern">
         Node descriptor not in the correct format.
-      </li>
-      <li class="validation-error" id="neighbor-validation__required" *ngIf="neighbor.errors?.required">
-        Node descriptor is required.
       </li>
     </ul>
 

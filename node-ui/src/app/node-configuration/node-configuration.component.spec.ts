@@ -16,6 +16,7 @@ import {NodeStatus} from '../node-status.enum';
 import {LocalStorageService} from '../local-storage.service';
 import {ElectronService} from '../electron.service';
 import {verify} from 'testdouble';
+import {LocalServiceKey} from '../local-service-key.enum';
 
 describe('NodeConfigurationComponent', () => {
   let component: NodeConfigurationComponent;
@@ -90,15 +91,11 @@ describe('NodeConfigurationComponent', () => {
   describe('LookupIp', () => {
     describe('successful ip address lookup', () => {
       beforeEach(() => {
-        td.when(mockMainService.lookupIp()).thenReturn(of('192.168.1.1'));
+        storedConfig.next({ip: '192.168.1.1'});
         fixture.detectChanges();
       });
 
       describe('ip is filled out if it can be looked up', () => {
-        it('should create', () => {
-          expect(component).toBeTruthy();
-        });
-
         it('ip address is filled out', () => {
           expect(page.ipTxt.value).toBe('192.168.1.1');
         });
@@ -136,16 +133,7 @@ describe('NodeConfigurationComponent', () => {
     });
 
     describe('unsuccessful ip address lookup', () => {
-      beforeEach(() => {
-        td.when(mockMainService.lookupIp()).thenReturn(of(''));
-        fixture.detectChanges();
-      });
-
       describe('the ip field', () => {
-        it('should create', () => {
-          expect(component).toBeTruthy();
-        });
-
         it('ip address starts blank', () => {
           expect(page.ipTxt.value).toBe('');
         });
@@ -200,8 +188,8 @@ describe('NodeConfigurationComponent', () => {
       };
 
       beforeEach(() => {
-        td.when(mockLocalStorageService.getItem('neighborNodeDescriptor')).thenReturn(null);
-        td.when(mockLocalStorageService.getItem('persistNeighborPreference')).thenReturn('false');
+        td.when(mockLocalStorageService.getItem(LocalServiceKey.NeighborNodeDescriptor)).thenReturn(null);
+        td.when(mockLocalStorageService.getItem(LocalServiceKey.PersistNeighborPreference)).thenReturn('false');
 
         storedConfig.next(expected);
       });
@@ -223,49 +211,16 @@ describe('NodeConfigurationComponent', () => {
       };
 
       beforeEach(() => {
-        td.when(mockLocalStorageService.getItem('neighborNodeDescriptor')).thenReturn('stored neighbor descriptor');
-        td.when(mockLocalStorageService.getItem('persistNeighborPreference')).thenReturn('true');
+        td.when(mockLocalStorageService.getItem(LocalServiceKey.PersistNeighborPreference)).thenReturn('true');
 
         storedConfig.next(expected);
       });
 
       it('is prepopulated with that data', () => {
         expect(page.ipTxt.value).toBe('127.0.0.1');
-        expect(page.neighborTxt.value).toBe('stored neighbor descriptor');
+        expect(page.neighborTxt.value).toBe('neighbornodedescriptor');
         expect(page.walletAddressTxt.value).toBe('address');
         expect(component.persistNeighbor).toBeTruthy();
-      });
-    });
-
-    describe('when it already exists and a blockchain service url is in local storage', () => {
-      const expected: NodeConfiguration = {
-        blockchainServiceUrl: '',
-      };
-
-      beforeEach(() => {
-        td.when(mockLocalStorageService.getItem('blockchainServiceUrl')).thenReturn('https://infura.io');
-
-        storedConfig.next(expected);
-      });
-
-      it('is prepopulated with that data', () => {
-        expect(page.blockchainServiceUrl.value).toBe('https://infura.io');
-      });
-    });
-
-    describe('when it already exists and a blockchain service url is NOT in local storage', () => {
-      const expected: NodeConfiguration = {
-        blockchainServiceUrl: 'https://i-already-exist.foo',
-      };
-
-      beforeEach(() => {
-        td.when(mockLocalStorageService.getItem('blockchainServiceUrl')).thenReturn(null);
-
-        storedConfig.next(expected);
-      });
-
-      it('is prepopulated with that data', () => {
-        expect(page.blockchainServiceUrl.value).toBe('https://i-already-exist.foo');
       });
     });
 
@@ -354,42 +309,14 @@ describe('NodeConfigurationComponent', () => {
         });
       });
 
-      describe('neighbor not provided', () => {
-        beforeEach(() => {
-          page.setIp('1.2.3.4');
-          fixture.detectChanges();
-        });
-
-        it('neighbor validation should be invalid', () => {
-          expect(page.neighborValidationRequiredLi).toBeTruthy();
-          expect(page.saveConfigBtn.disabled).toBeTruthy();
-        });
-      });
-
-      describe('only neighbor provided', () => {
+      describe('ip missing', () => {
         beforeEach(() => {
           page.setIp('');
-          page.setNeighbor('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345;4321');
           fixture.detectChanges();
         });
 
         it('ip validation should be invalid', () => {
           expect(page.ipValidationRequiredLi).toBeTruthy();
-          expect(page.neighborValidationRequiredLi).toBeFalsy();
-          expect(page.saveConfigBtn.disabled).toBeTruthy();
-        });
-      });
-
-      describe('both provided', () => {
-        beforeEach(() => {
-          page.setIp('1.2.3.4');
-          page.setNeighbor('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345;4321');
-          fixture.detectChanges();
-        });
-
-        it('should be valid', () => {
-          expect(page.ipValidationRequiredLi).toBeFalsy();
-          expect(page.neighborValidationRequiredLi).toBeFalsy();
         });
       });
 
@@ -615,11 +542,11 @@ describe('NodeConfigurationComponent', () => {
             });
 
             it('removes the node descriptor from local storage', () => {
-              td.verify(mockLocalStorageService.removeItem('neighborNodeDescriptor'));
+              td.verify(mockLocalStorageService.removeItem(LocalServiceKey.NeighborNodeDescriptor));
             });
 
             it('saves the checkbox state to local storage', () => {
-              td.verify(mockLocalStorageService.setItem('persistNeighborPreference', false));
+              td.verify(mockLocalStorageService.setItem(LocalServiceKey.PersistNeighborPreference, false));
             });
           });
 
@@ -637,12 +564,13 @@ describe('NodeConfigurationComponent', () => {
 
             it('stores the node descriptor in local storage', () => {
               td.verify(
-                mockLocalStorageService.setItem('neighborNodeDescriptor', '5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999')
+                mockLocalStorageService.setItem(LocalServiceKey.NeighborNodeDescriptor,
+                  '5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999')
               );
             });
 
             it('saves the checkbox state to local storage', () => {
-              td.verify(mockLocalStorageService.setItem('persistNeighborPreference', true));
+              td.verify(mockLocalStorageService.setItem(LocalServiceKey.PersistNeighborPreference, true));
             });
           });
         });
@@ -659,7 +587,7 @@ describe('NodeConfigurationComponent', () => {
           });
 
           it('saves the blockchain service url', () => {
-            td.verify(mockLocalStorageService.setItem('blockchainServiceUrl', 'https://infura.io'));
+            td.verify(mockLocalStorageService.setItem(LocalServiceKey.BlockchainServiceUrl, 'https://infura.io'));
           });
         });
       });

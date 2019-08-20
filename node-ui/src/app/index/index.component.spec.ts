@@ -3,7 +3,7 @@
 import {async, ComponentFixture, TestBed} from '@angular/core/testing';
 import {IndexComponent} from './index.component';
 import {FooterComponent} from '../footer/footer.component';
-import {func, reset, verify, when} from 'testdouble';
+import * as td from 'testdouble';
 import {MainService} from '../main.service';
 import {BehaviorSubject, of} from 'rxjs';
 import {NodeStatus} from '../node-status.enum';
@@ -15,6 +15,9 @@ import {ConfigurationMode} from '../configuration-mode.enum';
 import {ConsumingWalletPasswordPromptComponent} from '../consuming-wallet-password-prompt/consuming-wallet-password-prompt.component';
 import {TabsComponent} from '../tabs/tabs.component';
 import {TabComponent} from '../tabs/tab.component';
+import {NodeConfiguration} from '../node-configuration';
+import {LocalStorageService} from '../local-storage.service';
+import {LocalServiceKey} from '../local-service-key.enum';
 
 @Component({selector: 'app-node-configuration', template: '<div id="node-config"></div>'})
 class NodeConfigurationStubComponent {
@@ -37,6 +40,7 @@ describe('IndexComponent', () => {
   let compiled;
   let mockMainService;
   let mockConfigService;
+  let mockLocalStorageService;
   let mockStatus: BehaviorSubject<NodeStatus>;
   let mockNodeDescriptor: BehaviorSubject<string>;
   let mockSetWalletPasswordResponse: BehaviorSubject<boolean>;
@@ -44,31 +48,42 @@ describe('IndexComponent', () => {
   let servingButton;
   let consumingButton;
   let mockMode;
+  let storedConfig: BehaviorSubject<NodeConfiguration>;
+  let storedLookupIp: BehaviorSubject<string>;
 
   beforeEach(async(() => {
     mockStatus = new BehaviorSubject(NodeStatus.Off);
     mockMode = new BehaviorSubject(ConfigurationMode.Hidden);
     mockNodeDescriptor = new BehaviorSubject('');
     mockSetWalletPasswordResponse = new BehaviorSubject(false);
+    storedConfig = new BehaviorSubject(new NodeConfiguration());
+    storedLookupIp = new BehaviorSubject('192.168.1.1');
     mockMainService = {
-      turnOff: func('turnOff'),
-      serve: func('serve'),
-      consume: func('consume'),
-      copyToClipboard: func('copyToClipboard'),
-      setConsumingWalletPassword: func('setConsumingWalletPassword'),
+      turnOff: td.func('turnOff'),
+      serve: td.func('serve'),
+      consume: td.func('consume'),
+      copyToClipboard: td.func('copyToClipboard'),
+      setConsumingWalletPassword: td.func('setConsumingWalletPassword'),
       nodeStatus: mockStatus.asObservable(),
       nodeDescriptor: mockNodeDescriptor.asObservable(),
       setConsumingWalletPasswordResponse: mockSetWalletPasswordResponse.asObservable(),
-      lookupIp: () => of(''),
+      lookupIp: td.func('lookupIp'),
     };
     mockConfigService = {
-      getConfig: func('getConfig'),
-      isValidServing: func('isValidServing'),
-      isValidConsuming: func('isValidConsuming'),
+      getConfig: td.func('getConfig'),
+      isValidServing: td.func('isValidServing'),
+      isValidConsuming: td.func('isValidConsuming'),
       mode: mockMode,
-      setMode: func('setMode'),
+      load: td.func('load'),
+      patchValue: td.func('patchValue'),
+      setMode: td.func('setMode'),
     };
-    TestBed.configureTestingModule({
+    mockLocalStorageService = {
+      getItem: td.func('getItem'),
+      setItem: td.func('setItem'),
+      removeItem: td.func('removeItem')
+    };
+    return TestBed.configureTestingModule({
       declarations: [
         IndexComponent,
         HeaderStubComponent,
@@ -86,26 +101,29 @@ describe('IndexComponent', () => {
       providers: [
         {provide: MainService, useValue: mockMainService},
         {provide: ConfigService, useValue: mockConfigService},
+        {provide: LocalStorageService, useValue: mockLocalStorageService},
         {provide: Router, useValue: {}},
       ]
-    })
-      .compileComponents();
+    }).compileComponents();
   }));
 
   afterEach(() => {
-    reset();
+    td.reset();
   });
 
   beforeEach(() => {
+    td.when(mockMainService.lookupIp()).thenReturn(storedLookupIp.asObservable());
+    td.when(mockConfigService.load()).thenReturn(storedConfig.asObservable());
     fixture = TestBed.createComponent(IndexComponent);
     component = fixture.componentInstance;
     compiled = fixture.debugElement.nativeElement;
     offButton = compiled.querySelector('#off');
     servingButton = compiled.querySelector('#serving');
     consumingButton = compiled.querySelector('#consuming');
-    when(mockMainService.serve()).thenDo(() => mockStatus.next(NodeStatus.Serving));
-    when(mockMainService.consume()).thenDo(() => mockStatus.next(NodeStatus.Consuming));
-    when(mockMainService.turnOff()).thenDo(() => mockStatus.next(NodeStatus.Off));
+
+    td.when(mockMainService.serve()).thenDo(() => mockStatus.next(NodeStatus.Serving));
+    td.when(mockMainService.consume()).thenDo(() => mockStatus.next(NodeStatus.Consuming));
+    td.when(mockMainService.turnOff()).thenDo(() => mockStatus.next(NodeStatus.Off));
     fixture.detectChanges();
   });
 
@@ -137,7 +155,7 @@ describe('IndexComponent', () => {
     describe('when node is off', () => {
       beforeEach(() => {
         mockNodeDescriptor.next('beggin for help');
-        when(mockMainService.turnOff()).thenReturn(of(NodeStatus.Off));
+        td.when(mockMainService.turnOff()).thenReturn(of(NodeStatus.Off));
         offButton.click();
         fixture.detectChanges();
       });
@@ -149,7 +167,7 @@ describe('IndexComponent', () => {
 
     describe('when serving is selected with configuration shown', () => {
       beforeEach(() => {
-        when(mockConfigService.isValidServing()).thenReturn(false);
+        td.when(mockConfigService.isValidServing()).thenReturn(false);
         component.status = NodeStatus.Off;
         servingButton.click();
         fixture.detectChanges();
@@ -329,7 +347,7 @@ describe('IndexComponent', () => {
   describe('clicking serving', () => {
     describe('when not configured', () => {
       beforeEach(() => {
-        when(mockConfigService.isValidServing()).thenReturn(false);
+        td.when(mockConfigService.isValidServing()).thenReturn(false);
         servingButton.click();
         fixture.detectChanges();
       });
@@ -358,7 +376,7 @@ describe('IndexComponent', () => {
 
         describe('clicking serving again', () => {
           beforeEach(() => {
-            when(mockMainService.serve()).thenReturn(of(NodeStatus.Serving));
+            td.when(mockMainService.serve()).thenReturn(of(NodeStatus.Serving));
             servingButton.click();
             fixture.detectChanges();
           });
@@ -370,7 +388,7 @@ describe('IndexComponent', () => {
 
         describe('switching to consuming while configuration is valid', () => {
           beforeEach(() => {
-            when(mockConfigService.isValidConsuming()).thenReturn(true);
+            td.when(mockConfigService.isValidConsuming()).thenReturn(true);
             consumingButton.click();
             fixture.detectChanges();
           });
@@ -396,20 +414,20 @@ describe('IndexComponent', () => {
 
     describe('when already configured', () => {
       beforeEach(() => {
-        when(mockConfigService.isValidServing()).thenReturn(true);
+        td.when(mockConfigService.isValidServing()).thenReturn(true);
         servingButton.click();
         fixture.detectChanges();
       });
 
       it('does not show the configuration and starts the node', () => {
-        verify(mockMainService.serve());
+        td.verify(mockMainService.serve());
         expect(component.configurationMode).toBe(ConfigurationMode.Hidden);
       });
     });
 
     describe('switching to consuming', () => {
       beforeEach(() => {
-        when(mockConfigService.isValidConsuming()).thenReturn(false);
+        td.when(mockConfigService.isValidConsuming()).thenReturn(false);
         consumingButton.click();
         fixture.detectChanges();
       });
@@ -423,7 +441,7 @@ describe('IndexComponent', () => {
   describe('clicking consuming', () => {
     describe('when not configured', () => {
       beforeEach(() => {
-        when(mockConfigService.isValidConsuming()).thenReturn(false);
+        td.when(mockConfigService.isValidConsuming()).thenReturn(false);
         consumingButton.click();
         fixture.detectChanges();
       });
@@ -480,7 +498,7 @@ describe('IndexComponent', () => {
           });
 
           it('send the password to the Node', () => {
-            verify(mockMainService.setConsumingWalletPassword('blah'));
+            td.verify(mockMainService.setConsumingWalletPassword('blah'));
           });
 
           it('hides the password prompt', () => {
@@ -503,7 +521,7 @@ describe('IndexComponent', () => {
 
           describe('switching to serving', () => {
             beforeEach(() => {
-              when(mockConfigService.isValidServing()).thenReturn(true);
+              td.when(mockConfigService.isValidServing()).thenReturn(true);
               servingButton.click();
               fixture.detectChanges();
             });
@@ -522,7 +540,7 @@ describe('IndexComponent', () => {
 
             describe('and then back to consuming', () => {
               beforeEach(() => {
-                when(mockConfigService.isValidConsuming()).thenReturn(true);
+                td.when(mockConfigService.isValidConsuming()).thenReturn(true);
                 consumingButton.click();
                 fixture.detectChanges();
               });
@@ -537,7 +555,7 @@ describe('IndexComponent', () => {
             beforeEach(() => {
               offButton.click();
               fixture.detectChanges();
-              when(mockConfigService.isValidConsuming()).thenReturn(true);
+              td.when(mockConfigService.isValidConsuming()).thenReturn(true);
               consumingButton.click();
               fixture.detectChanges();
             });
@@ -570,7 +588,7 @@ describe('IndexComponent', () => {
           });
 
           it('send the password to the Node', () => {
-            verify(mockMainService.setConsumingWalletPassword('booga'));
+            td.verify(mockMainService.setConsumingWalletPassword('booga'));
           });
 
           it('does not hide the password prompt', () => {
@@ -596,7 +614,7 @@ describe('IndexComponent', () => {
 
           describe('switching to serving', () => {
             beforeEach(() => {
-              when(mockConfigService.isValidServing()).thenReturn(true);
+              td.when(mockConfigService.isValidServing()).thenReturn(true);
               servingButton.click();
               fixture.detectChanges();
             });
@@ -628,7 +646,7 @@ describe('IndexComponent', () => {
 
         describe('switching to serving', () => {
           beforeEach(() => {
-            when(mockConfigService.isValidServing()).thenReturn(false);
+            td.when(mockConfigService.isValidServing()).thenReturn(false);
             servingButton.click();
             fixture.detectChanges();
           });
@@ -661,13 +679,13 @@ describe('IndexComponent', () => {
 
     describe('when already configured', () => {
       beforeEach(() => {
-        when(mockConfigService.isValidConsuming()).thenReturn(true);
+        td.when(mockConfigService.isValidConsuming()).thenReturn(true);
         consumingButton.click();
         fixture.detectChanges();
       });
 
       it('does not show the configuration and starts the node', () => {
-        verify(mockMainService.consume());
+        td.verify(mockMainService.consume());
         expect(component.configurationMode).toBe(ConfigurationMode.Hidden);
       });
     });
@@ -681,7 +699,7 @@ describe('IndexComponent', () => {
     });
 
     it('copies the node descriptor', () => {
-      verify(mockMainService.copyToClipboard('let me out'));
+      td.verify(mockMainService.copyToClipboard('let me out'));
     });
   });
 
@@ -720,9 +738,9 @@ describe('IndexComponent', () => {
       });
 
       it('does not change the node state', () => {
-        verify(mockMainService.turnOff(), {times: 0});
-        verify(mockMainService.serve(), {times: 0});
-        verify(mockMainService.consume(), {times: 0});
+        td.verify(mockMainService.turnOff(), {times: 0});
+        td.verify(mockMainService.serve(), {times: 0});
+        td.verify(mockMainService.consume(), {times: 0});
       });
 
       it('changes the configuration mode to hidden', () => {
@@ -739,7 +757,7 @@ describe('IndexComponent', () => {
       });
 
       it('stops the node', () => {
-        verify(mockMainService.turnOff());
+        td.verify(mockMainService.turnOff());
       });
 
       it('hides the configuration', () => {
@@ -756,7 +774,7 @@ describe('IndexComponent', () => {
       });
 
       it('stops the node', () => {
-        verify(mockMainService.turnOff());
+        td.verify(mockMainService.turnOff());
       });
 
       it('hides the configuration', () => {
@@ -786,9 +804,11 @@ describe('IndexComponent', () => {
     beforeEach(() => {
       component.onConfigurationMode(ConfigurationMode.Configuring);
     });
+
     it('sets configurationTabSelected', () => {
       expect(component.configurationTabSelected).toBeTruthy();
     });
+
     it('sets configurationMode', () => {
       expect(component.configurationMode).toBe(ConfigurationMode.Configuring);
     });
@@ -799,6 +819,71 @@ describe('IndexComponent', () => {
       });
       it('sets configurationTabSelected back to false', () => {
         expect(component.configurationTabSelected).toBeFalsy();
+      });
+    });
+  });
+
+  describe('LookupIp', () => {
+    describe('successful ip address lookup', () => {
+      describe('ip is filled out if it can be looked up', () => {
+        it('ip address is filled out', () => {
+          td.verify(mockConfigService.patchValue({ip: '192.168.1.1'}));
+        });
+      });
+    });
+
+    describe('unsuccessful ip address lookup', () => {
+      beforeEach(() => {
+        storedLookupIp.next('');
+        fixture.detectChanges();
+      });
+
+      describe('the ip field', () => {
+        it('ip address starts blank', () => {
+          td.verify(mockConfigService.patchValue({ip: ''}));
+        });
+      });
+    });
+  });
+
+  describe('When configuration is loaded', () => {
+    describe('and values are not in the configuration but are in local storage', () => {
+      beforeEach(() => {
+        td.when(mockLocalStorageService.getItem(LocalServiceKey.NeighborNodeDescriptor))
+          .thenReturn('5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999');
+        td.when(mockLocalStorageService.getItem(LocalServiceKey.BlockchainServiceUrl)).thenReturn('https://infura.io');
+
+        storedConfig.next({
+          neighbor: '',
+          blockchainServiceUrl: '',
+        });
+        fixture.detectChanges();
+      });
+
+      it('ConfigService is patched with data from local storage', () => {
+        td.verify(mockConfigService.patchValue({
+          neighbor: '5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999',
+          blockchainServiceUrl: 'https://infura.io',
+        }));
+      });
+    });
+
+    describe('and values are in the configuration but not in local storage', () => {
+      beforeEach(() => {
+        td.when(mockLocalStorageService.getItem(LocalServiceKey.NeighborNodeDescriptor)).thenReturn('');
+        td.when(mockLocalStorageService.getItem(LocalServiceKey.BlockchainServiceUrl)).thenReturn('');
+        storedConfig.next({
+          neighbor: '5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999',
+          blockchainServiceUrl: 'https://infura.io',
+        });
+        fixture.detectChanges();
+      });
+
+      it('ConfigService is patched with data from config parameter', () => {
+        td.verify(mockConfigService.patchValue({
+          neighbor: '5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999',
+          blockchainServiceUrl: 'https://infura.io',
+        }));
       });
     });
   });

@@ -33,10 +33,6 @@ export class NodeConfigurationPage {
     return this.query('#neighbor-validation__pattern');
   }
 
-  get neighborValidationRequiredLi(): HTMLLIElement {
-    return this.query('#neighbor-validation__required');
-  }
-
   get walletAddressTxt(): HTMLInputElement {
     return this.query('#wallet-address');
   }

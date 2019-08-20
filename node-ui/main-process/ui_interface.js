@@ -208,7 +208,7 @@ module.exports = (() => {
   }
 
   function createSocket (port) {
-    return webSocketWrapper.create(`${UI_INTERFACE_URL}:${port}`, UI_PROTOCOL)
+    return webSocketWrapper.create(`${UI_INTERFACE_URL}:${port}`, UI_PROTOCOL, { handshakeTimeout: 1000 })
   }
 
   return {

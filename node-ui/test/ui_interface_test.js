@@ -51,7 +51,7 @@ describe('Given a mock WebSocket', () => {
       beforeEach(() => {
         webSocketClient = td.object(['send', 'close', 'onopen', 'onmessage', 'onerror'])
         td.when(mockWebSocketWrapper.create(`${subject.UI_INTERFACE_URL}:${subject.DEFAULT_UI_PORT}`,
-          subject.UI_PROTOCOL)).thenReturn(webSocketClient)
+          subject.UI_PROTOCOL, {handshakeTimeout: 1000})).thenReturn(webSocketClient)
 
         connectPromise = subject.connect()
       })
@@ -398,7 +398,7 @@ describe('Given a mock WebSocket', () => {
         return webSocketClient
       }
       webSocketClientIndex = 0
-      td.when(mockWebSocketWrapper.create(td.matchers.anything(), td.matchers.anything())).thenDo(doConnectSuccess)
+      td.when(mockWebSocketWrapper.create(td.matchers.anything(), td.matchers.anything(), td.matchers.anything())).thenDo(doConnectSuccess)
     })
 
     describe('when verifyNodeUp succeeds immediately', () => {
@@ -607,7 +607,7 @@ describe('Given a mock WebSocket', () => {
   describe('and a mock client to configure for exceptions', () => {
     let result, start, end
     beforeEach(() => {
-      td.when(mockWebSocketWrapper.create(td.matchers.anything(), td.matchers.anything())).thenThrow(new Error(''))
+      td.when(mockWebSocketWrapper.create(td.matchers.anything(), td.matchers.anything(), td.matchers.anything())).thenThrow(new Error(''))
     })
 
     describe('when verifyNodeUp fails with exceptions until timeout', () => {

@@ -35,12 +35,28 @@ describe('ConfigService', () => {
   });
 
   describe('validConfig', () => {
-    describe('with a well-formed ip, neighbor, and wallet address', () => {
+    describe('with a well-formed ip, neighbor, wallet address, and blockchain URL', () => {
       beforeEach(() => {
         service.patchValue({
           ip: '128.128.128.128',
           neighbor: 'T987mcTttF11TBBJy0f+W1h8yWliSlbhRZONZBricNA:255.255.255.255:8888',
-          walletAddress: '0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+          walletAddress: '0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+          blockchainServiceUrl: 'https://something.com',
+        } as NodeConfiguration);
+      });
+
+      it('is valid', () => {
+        expect(service.isValidServing()).toBeTruthy();
+      });
+    });
+
+    describe('with a well-formed ip and blockchain URL, but no neighbor or wallet', () => {
+      beforeEach(() => {
+        service.patchValue({
+          ip: '128.128.128.128',
+          neighbor: '',
+          walletAddress: '',
+          blockchainServiceUrl: 'https://something.com',
         } as NodeConfiguration);
       });
 
@@ -54,7 +70,8 @@ describe('ConfigService', () => {
         service.patchValue({
           ip: 'true',
           neighbor: 'T987mcTttF11TBBJy0f+W1h8yWliSlbhRZONZBricNA:255.255.255.255:8888',
-          walletAddress: '0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+          walletAddress: '0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+          blockchainServiceUrl: 'https://something.com',
         } as NodeConfiguration);
       });
 
@@ -68,7 +85,8 @@ describe('ConfigService', () => {
         service.patchValue({
           ip: '255.255.255.255',
           neighbor: 'T987mcTttF11TBBJy0f+W1h8yWliSlbhRZONZBricNA:255.255.255.255:',
-          walletAddress: '0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+          walletAddress: '0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+          blockchainServiceUrl: 'https://something.com',
         } as NodeConfiguration);
       });
 
@@ -82,7 +100,23 @@ describe('ConfigService', () => {
         service.patchValue({
           ip: '255.255.255.255',
           neighbor: 'T987mcTttF11TBBJy0f+W1h8yWliSlbhRZONZBricNA:255.255.255.255:8888',
-          walletAddress: '0x01234567890ABCDEF012345678'
+          walletAddress: '0x01234567890ABCDEF012345678',
+          blockchainServiceUrl: 'https://something.com',
+        } as NodeConfiguration);
+      });
+
+      it('is invalid', () => {
+        expect(service.isValidServing()).toBeFalsy();
+      });
+    });
+
+    describe('with a malformed blockchain URL', () => {
+      beforeEach(() => {
+        service.patchValue({
+          ip: '128.128.128.128',
+          neighbor: 'T987mcTttF11TBBJy0f+W1h8yWliSlbhRZONZBricNA:255.255.255.255:8888',
+          walletAddress: '0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+          blockchainServiceUrl: 'booga',
         } as NodeConfiguration);
       });
 

@@ -3,7 +3,12 @@
 import {Injectable} from '@angular/core';
 import {NodeConfiguration} from './node-configuration';
 import {BehaviorSubject, Observable} from 'rxjs';
-import {ipPattern, neighborPattern, walletPattern} from './node-configuration/node-configuration.validator';
+import {
+  blockchainServicePattern,
+  ipPattern,
+  neighborPattern,
+  walletPattern
+} from './node-configuration/node-configuration.validator';
 
 @Injectable({
   providedIn: 'root'
@@ -32,9 +37,14 @@ export class ConfigService {
 
   isValidServing(): boolean {
     const currentConfig = this.getConfig();
-    return ConfigService.testRegEx(currentConfig.ip, ipPattern) &&
-      (currentConfig.walletAddress === '' || ConfigService.testRegEx(currentConfig.walletAddress, walletPattern)) &&
-      ConfigService.testRegEx(currentConfig.neighbor, neighborPattern);
+    const ipValid =  ConfigService.testRegEx(currentConfig.ip, ipPattern);
+    const walletValid = (currentConfig.walletAddress === '' || ConfigService.testRegEx(currentConfig.walletAddress, walletPattern));
+    const neighborValid = (currentConfig.neighbor === '' || ConfigService.testRegEx(currentConfig.neighbor, neighborPattern));
+    const blockchainServiceUrlValid = ConfigService.testRegEx(currentConfig.blockchainServiceUrl, blockchainServicePattern);
+    return ipValid &&
+      walletValid &&
+      neighborValid &&
+      blockchainServiceUrlValid;
   }
 
   setEarningWallet(address: string) {

@@ -23,13 +23,9 @@ import {
 import {MainService} from '../main.service';
 import {ConfigurationMode} from '../configuration-mode.enum';
 import {NodeStatus} from '../node-status.enum';
-import {Subscription} from 'rxjs';
 import {LocalStorageService} from '../local-storage.service';
 import {ElectronService} from '../electron.service';
-
-const neighborNodeDescriptor = 'neighborNodeDescriptor';
-const persistNeighborPreference = 'persistNeighborPreference';
-const blockchainServiceUrl = 'blockchainServiceUrl';
+import {LocalServiceKey} from '../local-service-key.enum';
 
 @Component({
   selector: 'app-node-configuration',
@@ -37,7 +33,6 @@ const blockchainServiceUrl = 'blockchainServiceUrl';
   styleUrls: ['./node-configuration.component.scss']
 })
 export class NodeConfigurationComponent implements OnInit {
-  ipSubscription: Subscription;
 
   @Input() mode: ConfigurationMode;
   @Input() restarting = false;
@@ -57,7 +52,7 @@ export class NodeConfigurationComponent implements OnInit {
     privateKey: new FormControl(''),
     walletAddress: new FormControl('', [walletValidator]),
     blockchainServiceUrl: new FormControl('', [blockchainServiceValidator, Validators.required]),
-    neighbor: new FormControl('', [neighborhoodValidator, Validators.required])
+    neighbor: new FormControl('', [neighborhoodValidator])
   });
   tooltipShown = false;
   blockchainServiceUrlTooltipShown = false;
@@ -84,17 +79,9 @@ export class NodeConfigurationComponent implements OnInit {
   ngOnInit() {
     this.configService.load().subscribe((config) => {
       this.ngZone.run(() => {
-        const storedPreference = this.localStorageService.getItem(persistNeighborPreference);
+        const storedPreference = this.localStorageService.getItem(LocalServiceKey.PersistNeighborPreference);
         if (storedPreference != null) {
           this.persistNeighbor = storedPreference === 'true';
-        }
-        const storedNeighbor = this.localStorageService.getItem(neighborNodeDescriptor);
-        if (storedNeighbor) {
-          config.neighbor = storedNeighbor;
-        }
-        const storedBlockchainServiceUrl = this.localStorageService.getItem(blockchainServiceUrl);
-        if (storedBlockchainServiceUrl) {
-          config.blockchainServiceUrl = storedBlockchainServiceUrl;
         }
 
         this.nodeConfig.patchValue(config);
@@ -102,19 +89,16 @@ export class NodeConfigurationComponent implements OnInit {
       });
     });
 
-    this.ipSubscription = this.mainService.lookupIp().subscribe((ip) => {
-      this.nodeConfig.patchValue({'ip': ip});
-    });
   }
 
   save() {
     if (this.persistNeighbor) {
-      this.localStorageService.setItem(neighborNodeDescriptor, this.neighbor.value);
+      this.localStorageService.setItem(LocalServiceKey.NeighborNodeDescriptor, this.neighbor.value);
     } else {
-      this.localStorageService.removeItem(neighborNodeDescriptor);
+      this.localStorageService.removeItem(LocalServiceKey.NeighborNodeDescriptor);
     }
-    this.localStorageService.setItem(persistNeighborPreference, this.persistNeighbor);
-    this.localStorageService.setItem(blockchainServiceUrl, this.blockchainServiceUrl.value);
+    this.localStorageService.setItem(LocalServiceKey.PersistNeighborPreference, this.persistNeighbor);
+    this.localStorageService.setItem(LocalServiceKey.BlockchainServiceUrl, this.blockchainServiceUrl.value);
     this.configService.patchValue(this.nodeConfig.value);
     this.saved.emit(this.mode);
   }

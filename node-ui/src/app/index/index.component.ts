@@ -5,6 +5,9 @@ import {NodeStatus} from '../node-status.enum';
 import {MainService} from '../main.service';
 import {ConfigService} from '../config.service';
 import {ConfigurationMode} from '../configuration-mode.enum';
+import {Subscription} from 'rxjs';
+import {LocalServiceKey} from '../local-service-key.enum';
+import {LocalStorageService} from '../local-storage.service';
 
 @Component({
   selector: 'app-index',
@@ -12,7 +15,13 @@ import {ConfigurationMode} from '../configuration-mode.enum';
   styleUrls: ['./index.component.scss']
 })
 export class IndexComponent {
-  constructor(private mainService: MainService, private configService: ConfigService, private ngZone: NgZone) {
+
+  ipSubscription: Subscription;
+
+  constructor(private mainService: MainService,
+              private configService: ConfigService,
+              private localStorageService: LocalStorageService,
+              private ngZone: NgZone) {
     IndexComponent.resizeSmall();
     mainService.nodeStatus.subscribe((newStatus) => {
       ngZone.run(() => {
@@ -36,6 +45,24 @@ export class IndexComponent {
         }
         this.unlockFailed = !success;
       });
+    });
+
+    this.configService.load().subscribe(config => {
+      const storedNeighbor = this.localStorageService.getItem(LocalServiceKey.NeighborNodeDescriptor);
+      if (storedNeighbor) {
+        config.neighbor = storedNeighbor;
+      }
+
+      const storedBlockchainServiceUrl = this.localStorageService.getItem(LocalServiceKey.BlockchainServiceUrl);
+      if (storedBlockchainServiceUrl) {
+        config.blockchainServiceUrl = storedBlockchainServiceUrl;
+      }
+
+      this.configService.patchValue(config);
+    });
+
+    this.ipSubscription = this.mainService.lookupIp().subscribe((ip) => {
+      this.configService.patchValue({'ip': ip});
     });
   }
 

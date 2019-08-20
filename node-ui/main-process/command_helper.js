@@ -99,12 +99,9 @@ module.exports = (() => {
 
     let args = runtimeArgs.slice()
     if (additionalArgs) {
-      if (additionalArgs.ip && additionalArgs.neighbor) {
-        args = args.concat(
-          [
-            '--ip', additionalArgs.ip,
-            '--neighbors', `"${additionalArgs.neighbor}"`
-          ])
+      args = args.concat(['--ip', additionalArgs.ip])
+      if (additionalArgs.neighbor) {
+        args = args.concat(['--neighbors', `"${additionalArgs.neighbor}"`])
       }
 
       if (additionalArgs.walletAddress) {

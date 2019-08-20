@@ -3,8 +3,8 @@
 const WebSocket = require('isomorphic-ws')
 
 module.exports = (() => {
-  function create (url, protocol) {
-    return new WebSocket(url, protocol)
+  function create (url, protocol, options) {
+    return new WebSocket(url, protocol, options)
   }
 
   return {
