@@ -237,7 +237,7 @@ impl From<&SubstratumRealNode> for NodeRecord {
     }
 }
 
-fn from_substratum_node_to_node_record(substratum_node: &SubstratumNode) -> NodeRecord {
+fn from_substratum_node_to_node_record(substratum_node: &dyn SubstratumNode) -> NodeRecord {
     let mut result = NodeRecord {
         inner: NodeRecordInner {
             data_version: NodeRecordInner::data_version(),

@@ -313,7 +313,7 @@ pub struct AccessibleGossipRecord {
 }
 
 impl AccessibleGossipRecord {
-    pub fn regenerate_signed_gossip(&mut self, cryptde: &CryptDE) {
+    pub fn regenerate_signed_gossip(&mut self, cryptde: &dyn CryptDE) {
         let (signed_gossip, signature) = regenerate_signed_gossip(&self.inner, cryptde);
         self.signed_gossip = signed_gossip;
         self.signature = signature;
@@ -2656,7 +2656,10 @@ mod tests {
         assert_eq!(None, failed_ip_address_query.wait().unwrap());
     }
 
-    fn node_record_to_neighbor_config(node_record_ref: &NodeRecord, cryptde: &CryptDE) -> String {
+    fn node_record_to_neighbor_config(
+        node_record_ref: &NodeRecord,
+        cryptde: &dyn CryptDE,
+    ) -> String {
         NodeDescriptor {
             public_key: node_record_ref.public_key().clone(),
             node_addr: node_record_ref.node_addr_opt().unwrap().clone(),

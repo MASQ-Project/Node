@@ -62,7 +62,7 @@ impl QualifierFactory for ResolvConfQualifierFactory {
     fn system_qualifies(&self) -> bool {
         false
     }
-    fn make(&self) -> Box<DnsModifier> {
+    fn make(&self) -> Box<dyn DnsModifier> {
         panic!("Should never be called")
     }
 }
@@ -74,7 +74,7 @@ impl QualifierFactory for WinQualifierFactory {
         true
     }
 
-    fn make(&self) -> Box<DnsModifier> {
+    fn make(&self) -> Box<dyn DnsModifier> {
         Box::new(WinDnsModifier::default())
     }
 }
@@ -95,7 +95,7 @@ impl QualifierFactory for DynamicStoreQualifierFactory {
     fn system_qualifies(&self) -> bool {
         true
     }
-    fn make(&self) -> Box<DnsModifier> {
+    fn make(&self) -> Box<dyn DnsModifier> {
         Box::new(DynamicStoreDnsModifier::new())
     }
 }

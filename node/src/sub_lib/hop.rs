@@ -39,7 +39,7 @@ impl LiveHop {
         encodex(cryptde, public_key, &self)
     }
 
-    pub fn payer_owns_secret_key(&self, digest: &AsRef<[u8]>) -> bool {
+    pub fn payer_owns_secret_key(&self, digest: &dyn AsRef<[u8]>) -> bool {
         match &self.payer {
             Some(p) => p.owns_secret_key(digest),
             None => false,

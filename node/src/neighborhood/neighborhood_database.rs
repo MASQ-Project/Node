@@ -186,7 +186,7 @@ impl NeighborhoodDatabase {
         render_dot_graph(renderables)
     }
 
-    fn to_dot_renderables(&self) -> Vec<Box<DotRenderable>> {
+    fn to_dot_renderables(&self) -> Vec<Box<dyn DotRenderable>> {
         let mut mentioned: HashSet<PublicKey> = HashSet::new();
         let mut present: HashSet<PublicKey> = HashSet::new();
         let mut node_renderables: Vec<NodeRenderable> = vec![];
@@ -225,7 +225,7 @@ impl NeighborhoodDatabase {
                 is_present: false,
             })
         });
-        let mut result: Vec<Box<DotRenderable>> = vec![];
+        let mut result: Vec<Box<dyn DotRenderable>> = vec![];
         for renderable in node_renderables {
             result.push(Box::new(renderable))
         }

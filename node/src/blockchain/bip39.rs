@@ -29,7 +29,10 @@ impl Bip39 {
         Seed::new(mnemonic, passphrase)
     }
 
-    pub fn encrypt_bytes(seed: &AsRef<[u8]>, wallet_password: &str) -> Result<String, Bip39Error> {
+    pub fn encrypt_bytes(
+        seed: &dyn AsRef<[u8]>,
+        wallet_password: &str,
+    ) -> Result<String, Bip39Error> {
         match Crypto::encrypt(
             seed.as_ref(),
             &Protected::new(wallet_password.as_bytes()),
@@ -123,7 +126,7 @@ mod tests {
     #[test]
     fn test_seed_store_and_read() {
         let home_dir = ensure_node_home_directory_exists("blockchain", "test-seed-store-and-read");
-        let config_dao: Box<ConfigDao> = Box::new(ConfigDaoReal::new(
+        let config_dao: Box<dyn ConfigDao> = Box::new(ConfigDaoReal::new(
             DbInitializerReal::new().initialize(&home_dir).unwrap(),
         ));
         let persistent_config = PersistentConfigurationReal::from(config_dao);
@@ -145,7 +148,7 @@ mod tests {
     fn storing_mnemonic_seed_panics_when_database_is_inaccessible() {
         let set_string_params_arc =
             Arc::new(Mutex::new(vec![("seed".to_string(), "".to_string())]));
-        let config_dao: Box<ConfigDao> = Box::new(
+        let config_dao: Box<dyn ConfigDao> = Box::new(
             ConfigDaoMock::new()
                 .set_string_params(&set_string_params_arc)
                 .set_string_result(Err(ConfigDaoError::DatabaseError(
@@ -166,7 +169,7 @@ mod tests {
 
     #[test]
     fn returns_conversion_error_for_odd_number_of_hex_digits_appropriately() {
-        let config_dao: Box<ConfigDao> =
+        let config_dao: Box<dyn ConfigDao> =
             Box::new(ConfigDaoMock::new().get_string_result(Ok("123".to_string())));
         let persistent_config = PersistentConfigurationReal::from(config_dao);
 

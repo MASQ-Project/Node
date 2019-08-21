@@ -104,7 +104,7 @@ pub fn plus<T>(mut source: Vec<T>, item: T) -> Vec<T> {
 
 pub fn regenerate_signed_gossip(
     inner: &NodeRecordInner,
-    cryptde: &CryptDE, // Must be the correct CryptDE for the Node from which inner came: used for signing
+    cryptde: &dyn CryptDE, // Must be the correct CryptDE for the Node from which inner came: used for signing
 ) -> (PlainData, CryptData) {
     let signed_gossip =
         PlainData::from(serde_cbor::ser::to_vec(&inner).expect("Serialization failed"));

@@ -479,11 +479,11 @@ mod tests {
 
     #[derive(Default)]
     struct BannedCacheLoaderMock {
-        pub load_params: Arc<Mutex<Vec<Box<ConnectionWrapper>>>>,
+        pub load_params: Arc<Mutex<Vec<Box<dyn ConnectionWrapper>>>>,
     }
 
     impl BannedCacheLoader for BannedCacheLoaderMock {
-        fn load(&self, conn: Box<ConnectionWrapper>) {
+        fn load(&self, conn: Box<dyn ConnectionWrapper>) {
             self.load_params.lock().unwrap().push(conn);
         }
     }

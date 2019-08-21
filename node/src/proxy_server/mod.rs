@@ -983,7 +983,7 @@ mod tests {
         }
     }
 
-    fn return_route_with_id(cryptde: &CryptDE, return_route_id: u32) -> Route {
+    fn return_route_with_id(cryptde: &dyn CryptDE, return_route_id: u32) -> Route {
         let cover_hop = make_cover_hop(cryptde);
         let id_hop = cryptde
             .encode(

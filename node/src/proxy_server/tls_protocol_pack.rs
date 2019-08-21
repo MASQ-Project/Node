@@ -30,7 +30,7 @@ impl ProtocolPack for TlsProtocolPack {
         }
     }
 
-    fn server_impersonator(&self) -> Box<ServerImpersonator> {
+    fn server_impersonator(&self) -> Box<dyn ServerImpersonator> {
         Box::new(ServerImpersonatorTls {})
     }
 }

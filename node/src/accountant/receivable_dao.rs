@@ -167,7 +167,7 @@ impl ReceivableDao for ReceivableDaoReal {
 }
 
 impl ReceivableDaoReal {
-    pub fn new(conn: Box<ConnectionWrapper>) -> ReceivableDaoReal {
+    pub fn new(conn: Box<dyn ConnectionWrapper>) -> ReceivableDaoReal {
         ReceivableDaoReal {
             conn,
             logger: Logger::new("ReceivableDaoReal"),
@@ -760,7 +760,7 @@ mod tests {
         assert_eq!(1, result.len());
     }
 
-    fn add_receivable_account(conn: &Box<ConnectionWrapper>, account: &ReceivableAccount) {
+    fn add_receivable_account(conn: &Box<dyn ConnectionWrapper>, account: &ReceivableAccount) {
         let mut stmt = conn.prepare ("insert into receivable (wallet_address, balance, last_received_timestamp) values (?, ?, ?)").unwrap();
         let params: &[&dyn ToSql] = &[
             &account.wallet,
@@ -770,7 +770,7 @@ mod tests {
         stmt.execute(params).unwrap();
     }
 
-    fn add_banned_account(conn: &Box<ConnectionWrapper>, account: &ReceivableAccount) {
+    fn add_banned_account(conn: &Box<dyn ConnectionWrapper>, account: &ReceivableAccount) {
         let mut stmt = conn
             .prepare("insert into banned (wallet_address) values (?)")
             .unwrap();

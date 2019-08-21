@@ -5,7 +5,7 @@ use crate::sub_lib::logger::Logger;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use futures::{future, Future};
-use std::convert::{From, TryFrom};
+use std::convert::{From, TryFrom, TryInto};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use web3::contract::{Contract, Options};
@@ -214,7 +214,7 @@ pub fn to_gwei(wei: U256) -> Option<u64> {
 
 pub fn to_wei(gwub: u64) -> U256 {
     let subgwei = U256::from(gwub);
-    subgwei.full_mul(GWEI).into()
+    subgwei.full_mul(GWEI).try_into().expect("Internal Error")
 }
 
 impl<T> BlockchainInterface for BlockchainInterfaceNonClandestine<T>
@@ -264,7 +264,8 @@ where
                                         let amount: U256 = U256::from(log.data.0.as_slice());
                                         let gwei_amount = to_gwei(amount);
                                         gwei_amount.map(|gwei_amount| Transaction {
-                                            block_number: u64::from(block_number), // TODO: back to testing for overflow
+                                            block_number: u64::try_from(block_number)
+                                                .expect("Internal Error"), // TODO: back to testing for overflow
                                             from: Wallet::from(log.topics[1]),
                                             gwei_amount,
                                         })
@@ -394,6 +395,7 @@ mod tests {
     use super::*;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::{find_free_port, make_paying_wallet, make_wallet};
+    use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
     use jsonrpc_core as rpc;
     use serde_json::json;
@@ -406,8 +408,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::mpsc;
     use std::thread;
-    use web3::transports::Http;
-    use web3::{Error, RequestId};
+    use web3::{transports::Http, Error, RequestId, Transport};
 
     #[derive(Debug, Default, Clone)]
     pub struct TestTransport {
@@ -732,7 +733,7 @@ mod tests {
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
-        assert_eq!(U256::try_from(65_535).unwrap(), result.unwrap());
+        assert_eq!(U256::from(65_535), result.unwrap());
     }
 
     #[test]
@@ -814,8 +815,8 @@ mod tests {
         let eth_balance = results.0.unwrap();
         let token_balance = results.1.unwrap();
 
-        assert_eq!(U256::try_from(1).unwrap(), eth_balance);
-        assert_eq!(U256::try_from(1).unwrap(), token_balance)
+        assert_eq!(U256::from(1), eth_balance);
+        assert_eq!(U256::from(1), token_balance)
     }
 
     #[test]
@@ -842,7 +843,7 @@ mod tests {
 
         transport.assert_request("eth_sendRawTransaction", &[String::from(r#""0xf8a801847735940082dbe894cd6c588e005032dd882cd43bf53a32129be8130280b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd90002aa0210a8dc04a802e579493e9c3b0c6aca5d19197af17637e1c5ae61f3332746734a00ad3bddb042061f4ce99800fea66e36a684b1e168d16485dfdb2e4d2254f589e""#)]);
         transport.assert_no_more_requests();
-        assert_eq!(result, Ok(H256::from(1)));
+        assert_eq!(result, Ok(H256::from_uint(&U256::from(1))));
     }
 
     #[test]

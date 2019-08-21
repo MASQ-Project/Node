@@ -74,7 +74,7 @@ impl Route {
         if let Some(first) = self.hops.first() {
             decodex(cryptde, first)
         } else {
-            return Err("Response route did not contain a return route ID".to_string());
+            Err("Response route did not contain a return route ID".to_string())
         }
     }
 
@@ -101,13 +101,13 @@ impl Route {
         Ok(next_hop)
     }
 
-    pub fn to_string(&self, cryptdes: Vec<&CryptDE>) -> String {
+    pub fn to_string(&self, cryptdes: Vec<&dyn CryptDE>) -> String {
         let item_count = min(cryptdes.len(), self.hops.len());
         if item_count == 0 {
             return String::from("\n");
         }
         let mut most_hops_enc: Vec<CryptData> = self.hops[0..item_count].to_vec();
-        let mut most_cryptdes: Vec<&CryptDE> = cryptdes[0..item_count].to_vec();
+        let mut most_cryptdes: Vec<&dyn CryptDE> = cryptdes[0..item_count].to_vec();
         let last_hop_enc = most_hops_enc.remove(item_count - 1);
         let last_cryptde = most_cryptdes.remove(item_count - 1);
         let most_strings = (0..(item_count - 1)).fold(String::new(), |sofar, index| {
@@ -318,7 +318,7 @@ impl Route {
         Ok(Route { hops: hops_enc })
     }
 
-    fn encrypt_return_route_id(return_route_id: u32, cryptde: &CryptDE) -> CryptData {
+    fn encrypt_return_route_id(return_route_id: u32, cryptde: &dyn CryptDE) -> CryptData {
         encodex(cryptde, &cryptde.public_key(), &return_route_id)
             .expect("Internal error encrypting u32 return_route_id")
     }

@@ -40,7 +40,7 @@ fn store_wrapper_real_returns_none_if_store_does_not_contain_dictionary_at_path_
     assert!(result.is_none());
 }
 
-fn get_current_dns_ips(store_wrapper: &StoreWrapper) -> Vec<String> {
+fn get_current_dns_ips(store_wrapper: &dyn StoreWrapper) -> Vec<String> {
     let state_global_network_ipv4 = store_wrapper
         .get_dictionary_string_cfpl("State:/Network/Global/IPv4")
         .unwrap();

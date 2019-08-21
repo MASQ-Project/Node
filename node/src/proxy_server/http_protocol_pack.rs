@@ -30,7 +30,7 @@ impl ProtocolPack for HttpProtocolPack {
         }
     }
 
-    fn server_impersonator(&self) -> Box<ServerImpersonator> {
+    fn server_impersonator(&self) -> Box<dyn ServerImpersonator> {
         Box::new(ServerImpersonatorHttp {})
     }
 }

@@ -47,7 +47,7 @@ trait GossipHandler: NamedType + Send /* Send because lazily-written tests requi
     ) -> Qualification;
     fn handle(
         &self,
-        cryptde: &CryptDE,
+        cryptde: &dyn CryptDE,
         database: &mut NeighborhoodDatabase,
         agrs: Vec<AccessibleGossipRecord>,
         gossip_source: IpAddr,
@@ -101,7 +101,7 @@ impl GossipHandler for DebutHandler {
 
     fn handle(
         &self,
-        cryptde: &CryptDE,
+        cryptde: &dyn CryptDE,
         database: &mut NeighborhoodDatabase,
         mut agrs: Vec<AccessibleGossipRecord>,
         _gossip_source: IpAddr,
@@ -214,7 +214,7 @@ impl DebutHandler {
 
     fn try_accept_debut(
         &self,
-        cryptde: &CryptDE,
+        cryptde: &dyn CryptDE,
         database: &mut NeighborhoodDatabase,
         debuting_agr: &AccessibleGossipRecord,
     ) -> Result<GossipAcceptanceResult, ()> {
@@ -426,7 +426,7 @@ impl GossipHandler for PassHandler {
 
     fn handle(
         &self,
-        _cryptde: &CryptDE,
+        _cryptde: &dyn CryptDE,
         database: &mut NeighborhoodDatabase,
         agrs: Vec<AccessibleGossipRecord>,
         _gossip_source: IpAddr,
@@ -495,7 +495,7 @@ impl GossipHandler for IntroductionHandler {
 
     fn handle(
         &self,
-        cryptde: &CryptDE,
+        cryptde: &dyn CryptDE,
         database: &mut NeighborhoodDatabase,
         agrs: Vec<AccessibleGossipRecord>,
         gossip_source: IpAddr,
@@ -657,7 +657,7 @@ impl IntroductionHandler {
     fn update_database(
         &self,
         database: &mut NeighborhoodDatabase,
-        cryptde: &CryptDE,
+        cryptde: &dyn CryptDE,
         introducer: AccessibleGossipRecord,
     ) -> Result<bool, String> {
         let introducer_key = &introducer.inner.public_key.clone();
@@ -790,7 +790,7 @@ impl GossipHandler for StandardGossipHandler {
 
     fn handle(
         &self,
-        cryptde: &CryptDE,
+        cryptde: &dyn CryptDE,
         database: &mut NeighborhoodDatabase,
         agrs: Vec<AccessibleGossipRecord>,
         gossip_source: IpAddr,
@@ -863,7 +863,7 @@ impl StandardGossipHandler {
 
     fn handle_root_node(
         &self,
-        cryptde: &CryptDE,
+        cryptde: &dyn CryptDE,
         database: &mut NeighborhoodDatabase,
         gossip_source: IpAddr,
     ) -> bool {
@@ -949,7 +949,7 @@ impl GossipHandler for RejectHandler {
 
     fn handle(
         &self,
-        _cryptde: &CryptDE,
+        _cryptde: &dyn CryptDE,
         _database: &mut NeighborhoodDatabase,
         _agrs: Vec<AccessibleGossipRecord>,
         _gossip_source: IpAddr,
@@ -974,8 +974,8 @@ pub trait GossipAcceptor: Send /* Send because lazily-written tests require it *
 }
 
 pub struct GossipAcceptorReal<'a> {
-    cryptde: &'a CryptDE,
-    gossip_handlers: Vec<Box<GossipHandler>>,
+    cryptde: &'a dyn CryptDE,
+    gossip_handlers: Vec<Box<dyn GossipHandler>>,
     logger: Logger,
 }
 
@@ -1013,7 +1013,7 @@ impl<'a> GossipAcceptor for GossipAcceptorReal<'a> {
 }
 
 impl<'a> GossipAcceptorReal<'a> {
-    pub fn new(cryptde: &'a CryptDE) -> GossipAcceptorReal {
+    pub fn new(cryptde: &'a dyn CryptDE) -> GossipAcceptorReal {
         let logger = Logger::new("GossipAcceptor");
         GossipAcceptorReal {
             gossip_handlers: vec![

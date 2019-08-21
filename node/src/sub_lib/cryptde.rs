@@ -432,7 +432,11 @@ pub trait CryptDE: Send + Sync {
     fn digest(&self) -> [u8; 32];
 }
 
-pub fn encodex<T>(cryptde: &CryptDE, public_key: &PublicKey, item: &T) -> Result<CryptData, String>
+pub fn encodex<T>(
+    cryptde: &dyn CryptDE,
+    public_key: &PublicKey,
+    item: &T,
+) -> Result<CryptData, String>
 where
     T: Serialize,
 {
@@ -446,7 +450,7 @@ where
     }
 }
 
-pub fn decodex<T>(cryptde: &CryptDE, data: &CryptData) -> Result<T, String>
+pub fn decodex<T>(cryptde: &dyn CryptDE, data: &CryptData) -> Result<T, String>
 where
     for<'de> T: Deserialize<'de>,
 {

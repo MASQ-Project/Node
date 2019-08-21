@@ -127,7 +127,7 @@ impl From<&AccessibleGossipRecord> for SingleNode {
 }
 
 impl SingleNode {
-    pub fn new(node: &SubstratumNode) -> SingleNode {
+    pub fn new(node: &dyn SubstratumNode) -> SingleNode {
         SingleNode {
             node: AccessibleGossipRecord::from(node),
         }
@@ -214,7 +214,7 @@ impl From<(&AccessibleGossipRecord, &AccessibleGossipRecord)> for Introduction {
 }
 
 impl Introduction {
-    pub fn new(introducer: &SubstratumNode, introducee: &SubstratumNode) -> Introduction {
+    pub fn new(introducer: &dyn SubstratumNode, introducee: &dyn SubstratumNode) -> Introduction {
         Introduction {
             introducer: AccessibleGossipRecord::from(introducer),
             introducee: AccessibleGossipRecord::from(introducee),
@@ -322,7 +322,7 @@ impl StandardBuilder {
 
     pub fn add_substratum_node(
         self,
-        substratum_node: &SubstratumNode,
+        substratum_node: &dyn SubstratumNode,
         version: u32,
     ) -> StandardBuilder {
         let mut agr = AccessibleGossipRecord::from(substratum_node);
@@ -381,8 +381,8 @@ fn nodes_of_degree(nodes: &Vec<AccessibleGossipRecord>, degree: usize) -> Vec<Pu
         .collect::<Vec<PublicKey>>()
 }
 
-impl From<&SubstratumNode> for AccessibleGossipRecord {
-    fn from(substratum_node: &SubstratumNode) -> Self {
+impl From<&dyn SubstratumNode> for AccessibleGossipRecord {
+    fn from(substratum_node: &dyn SubstratumNode) -> Self {
         let cryptde = substratum_node.signing_cryptde().unwrap_or_else (|| panic! ("You can only make an AccessibleGossipRecord from a SubstratumRealNode if it has a CryptDENull, not a CryptDEReal."));
         let mut agr = AccessibleGossipRecord {
             inner: NodeRecordInner {

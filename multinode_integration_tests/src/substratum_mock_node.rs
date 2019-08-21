@@ -77,7 +77,7 @@ impl SubstratumNode for SubstratumMockNode {
         }
     }
 
-    fn signing_cryptde(&self) -> Option<&CryptDE> {
+    fn signing_cryptde(&self) -> Option<&dyn CryptDE> {
         match &self.guts.cryptde_enum {
             CryptDEEnum::Fake(ref cryptde_null) => Some(cryptde_null),
             CryptDEEnum::Real(ref cryptde_real) => Some(cryptde_real),
@@ -233,30 +233,30 @@ impl SubstratumMockNode {
         )
     }
 
-    pub fn transmit_debut(&self, receiver: &SubstratumNode) -> Result<(), io::Error> {
+    pub fn transmit_debut(&self, receiver: &dyn SubstratumNode) -> Result<(), io::Error> {
         self.transmit_multinode_gossip(receiver, &SingleNode::new(self))
     }
 
     pub fn transmit_pass(
         &self,
-        receiver: &SubstratumNode,
-        target: &SubstratumNode,
+        receiver: &dyn SubstratumNode,
+        target: &dyn SubstratumNode,
     ) -> Result<(), io::Error> {
         self.transmit_multinode_gossip(receiver, &SingleNode::new(target))
     }
 
     pub fn transmit_introduction(
         &self,
-        receiver: &SubstratumNode,
-        introducee: &SubstratumNode,
+        receiver: &dyn SubstratumNode,
+        introducee: &dyn SubstratumNode,
     ) -> Result<(), io::Error> {
         self.transmit_multinode_gossip(receiver, &Introduction::new(self, introducee))
     }
 
     pub fn transmit_multinode_gossip(
         &self,
-        receiver: &SubstratumNode,
-        multinode_gossip: &MultinodeGossip,
+        receiver: &dyn SubstratumNode,
+        multinode_gossip: &dyn MultinodeGossip,
     ) -> Result<(), io::Error> {
         let gossip = multinode_gossip.render();
         self.transmit_gossip(

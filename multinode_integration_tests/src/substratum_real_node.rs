@@ -537,7 +537,7 @@ impl SubstratumNode for SubstratumRealNode {
         self.guts.cryptde_null.as_ref()
     }
 
-    fn signing_cryptde(&self) -> Option<&CryptDE> {
+    fn signing_cryptde(&self) -> Option<&dyn CryptDE> {
         match self.cryptde_null() {
             Some(cryptde_null) => Some(cryptde_null),
             None => None,

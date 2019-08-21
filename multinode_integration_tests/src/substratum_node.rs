@@ -141,7 +141,7 @@ pub trait SubstratumNode: Any {
     // If this SubstratumNode has a CryptDENull instead of a CryptDEReal, you can get it here.
     fn cryptde_null(&self) -> Option<&CryptDENull>;
     // The CryptDE that can be used for signing for this Node, if any. (None if it's a SubstratumRealNode with a CryptDEReal.)
-    fn signing_cryptde(&self) -> Option<&CryptDE>;
+    fn signing_cryptde(&self) -> Option<&dyn CryptDE>;
     // A reference to this SubstratumNode's public key.
     fn public_key(&self) -> &PublicKey;
     // This is the IP address of the container in which the Node is running.

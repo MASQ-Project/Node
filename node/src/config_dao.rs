@@ -26,7 +26,7 @@ pub trait ConfigDao: Send {
 }
 
 pub struct ConfigDaoReal {
-    conn: Box<ConnectionWrapper>,
+    conn: Box<dyn ConnectionWrapper>,
 }
 
 impl ConfigDao for ConfigDaoReal {
@@ -93,14 +93,14 @@ impl ConfigDao for ConfigDaoReal {
     }
 }
 
-impl From<Box<ConnectionWrapper>> for ConfigDaoReal {
-    fn from(conn: Box<ConnectionWrapper>) -> Self {
+impl From<Box<dyn ConnectionWrapper>> for ConfigDaoReal {
+    fn from(conn: Box<dyn ConnectionWrapper>) -> Self {
         ConfigDaoReal::new(conn)
     }
 }
 
 impl ConfigDaoReal {
-    pub fn new(conn: Box<ConnectionWrapper>) -> ConfigDaoReal {
+    pub fn new(conn: Box<dyn ConnectionWrapper>) -> ConfigDaoReal {
         ConfigDaoReal { conn }
     }
 

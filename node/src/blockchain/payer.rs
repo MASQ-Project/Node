@@ -29,7 +29,7 @@ impl Payer {
         (self.wallet.congruent(&other.wallet)) && (self.proof == other.proof)
     }
 
-    pub fn owns_secret_key(&self, digest: &AsRef<[u8]>) -> bool {
+    pub fn owns_secret_key(&self, digest: &dyn AsRef<[u8]>) -> bool {
         match &self.proof.recover(&digest.as_ref()) {
             Ok(payer_public_key) => match payer_public_key.verify(&self.proof, &digest.as_ref()) {
                 Ok(result) => result && payer_public_key.address() == &self.wallet.address().0,

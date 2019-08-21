@@ -238,8 +238,8 @@ fn full_neighbor(one: &mut NodeRecord, another: &mut NodeRecord) {
 
 fn context_from_request_lcp(
     lcp: LiveCoresPackage,
-    originating_cryptde: &CryptDE,
-    exit_cryptde: &CryptDE,
+    originating_cryptde: &dyn CryptDE,
+    exit_cryptde: &dyn CryptDE,
 ) -> (StreamKey, u32) {
     let payload = match decodex::<MessageType>(exit_cryptde, &lcp.payload).unwrap() {
         MessageType::ClientRequest(p) => p,
@@ -409,7 +409,7 @@ fn create_client_drop_report(
     .unwrap()
 }
 
-fn ensure_no_further_traffic(mock_node: &SubstratumMockNode, masquerader: &Masquerader) {
+fn ensure_no_further_traffic(mock_node: &SubstratumMockNode, masquerader: &dyn Masquerader) {
     match mock_node.wait_for_package(masquerader, Duration::from_secs(1)) {
         Ok((addr1, addr2, lcp)) => panic!(
             "Should not have received package, but: {:?} -> {:?}:\n{:?}",

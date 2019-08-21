@@ -33,7 +33,7 @@ pub struct ListenerHandlerReal {
     port_configuration: Option<PortConfiguration>,
     listener: Box<dyn TokioListenerWrapper>,
     add_stream_sub: Option<Recipient<AddStreamMsg>>,
-    stream_connector: Box<StreamConnector>,
+    stream_connector: Box<dyn StreamConnector>,
     logger: Logger,
 }
 

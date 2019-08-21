@@ -68,11 +68,11 @@ pub trait BannedDao: Send {
 }
 
 pub struct BannedDaoReal {
-    conn: Box<ConnectionWrapper>,
+    conn: Box<dyn ConnectionWrapper>,
 }
 
 impl BannedDaoReal {
-    pub fn new(conn: Box<ConnectionWrapper>) -> Self {
+    pub fn new(conn: Box<dyn ConnectionWrapper>) -> Self {
         Self { conn }
     }
 }

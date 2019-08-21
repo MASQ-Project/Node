@@ -173,7 +173,7 @@ fn panic_hook(panic_info: AltPanicInfo) {
 
 // DeferredNow can't be constructed in a test; therefore this function is untestable...
 fn format_function(
-    write: &mut io::Write,
+    write: &mut dyn io::Write,
     now: &mut DeferredNow,
     record: &Record,
 ) -> Result<(), io::Error> {
@@ -182,7 +182,7 @@ fn format_function(
 
 // ...but this one isn't.
 pub fn real_format_function(
-    write: &mut io::Write,
+    write: &mut dyn io::Write,
     timestamp: &DateTime<Local>,
     record: &Record,
 ) -> Result<(), io::Error> {

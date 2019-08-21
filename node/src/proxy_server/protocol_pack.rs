@@ -17,17 +17,17 @@ pub trait ProtocolPack: Send + Sync {
     fn proxy_protocol(&self) -> ProxyProtocol;
     fn standard_port(&self) -> u16;
     fn find_host(&self, data: &PlainData) -> Option<Host>;
-    fn server_impersonator(&self) -> Box<ServerImpersonator>;
+    fn server_impersonator(&self) -> Box<dyn ServerImpersonator>;
 }
 
-pub fn from_protocol(protocol: ProxyProtocol) -> Box<ProtocolPack> {
+pub fn from_protocol(protocol: ProxyProtocol) -> Box<dyn ProtocolPack> {
     match protocol {
         ProxyProtocol::HTTP => Box::new(HttpProtocolPack {}),
         ProxyProtocol::TLS => Box::new(TlsProtocolPack {}),
     }
 }
 
-pub fn from_standard_port(_standard_port: u16) -> Option<Box<ProtocolPack>> {
+pub fn from_standard_port(_standard_port: u16) -> Option<Box<dyn ProtocolPack>> {
     match _standard_port {
         HTTP_PORT => Some(Box::new(HttpProtocolPack {})),
         TLS_PORT => Some(Box::new(TlsProtocolPack {})),
@@ -35,7 +35,7 @@ pub fn from_standard_port(_standard_port: u16) -> Option<Box<ProtocolPack>> {
     }
 }
 
-pub fn from_ibcd(ibcd: &InboundClientData, logger: &Logger) -> Option<Box<ProtocolPack>> {
+pub fn from_ibcd(ibcd: &InboundClientData, logger: &Logger) -> Option<Box<dyn ProtocolPack>> {
     let origin_port = match ibcd.reception_port {
         None => {
             error!(

@@ -194,7 +194,7 @@ pub fn determine_config_file_path(app: &App, args: &Vec<String>) -> (PathBuf, bo
     let orientation_schema = App::new("Preliminary")
         .arg(data_directory_arg())
         .arg(config_file_arg());
-    let orientation_args: Vec<Box<VclArg>> = merge(
+    let orientation_args: Vec<Box<dyn VclArg>> = merge(
         Box::new(EnvironmentVcl::new(app)),
         Box::new(CommandLineVcl::new(args.clone())),
     )
@@ -214,7 +214,10 @@ pub fn determine_config_file_path(app: &App, args: &Vec<String>) -> (PathBuf, bo
     (data_directory.join(config_file_path), user_specified)
 }
 
-pub fn create_wallet(config: &WalletCreationConfig, persistent_config: &PersistentConfiguration) {
+pub fn create_wallet(
+    config: &WalletCreationConfig,
+    persistent_config: &dyn PersistentConfiguration,
+) {
     if let Some(address) = &config.earning_wallet_address_opt {
         persistent_config.set_earning_wallet_address(address)
     }

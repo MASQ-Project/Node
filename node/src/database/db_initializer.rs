@@ -3,9 +3,7 @@ use crate::blockchain::blockchain_interface::DEFAULT_GAS_PRICE;
 use crate::persistent_configuration::{
     HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
-use rand::rngs::SmallRng;
-use rand::FromEntropy;
-use rand::Rng;
+use rand::prelude::*;
 use rusqlite::Error::InvalidColumnType;
 use rusqlite::{Connection, Error, OpenFlags, Statement, Transaction, NO_PARAMS};
 use std::collections::HashMap;
@@ -53,7 +51,8 @@ pub enum InitializationError {
 }
 
 pub trait DbInitializer {
-    fn initialize(&self, path: &PathBuf) -> Result<Box<ConnectionWrapper>, InitializationError>;
+    fn initialize(&self, path: &PathBuf)
+        -> Result<Box<dyn ConnectionWrapper>, InitializationError>;
 }
 
 #[derive(Default)]
@@ -241,7 +240,7 @@ impl DbInitializerReal {
         }
         .map(|row| match row {
             Ok((Ok(name), Ok(value))) => (name, Some(value)),
-            Ok((Ok(name), Err(InvalidColumnType(1, _)))) => (name, None),
+            Ok((Ok(name), Err(InvalidColumnType(1, _, _)))) => (name, None),
             e => panic!("Error retrieving configuration: {:?}", e),
         })
         .collect::<HashMap<String, Option<String>>>()
@@ -348,14 +347,15 @@ pub mod test_utils {
     #[derive(Default)]
     pub struct DbInitializerMock {
         pub initialize_parameters: Arc<Mutex<Vec<PathBuf>>>,
-        pub initialize_results: RefCell<Vec<Result<Box<ConnectionWrapper>, InitializationError>>>,
+        pub initialize_results:
+            RefCell<Vec<Result<Box<dyn ConnectionWrapper>, InitializationError>>>,
     }
 
     impl DbInitializer for DbInitializerMock {
         fn initialize(
             &self,
             path: &PathBuf,
-        ) -> Result<Box<ConnectionWrapper>, InitializationError> {
+        ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
             self.initialize_parameters
                 .lock()
                 .unwrap()
@@ -379,7 +379,7 @@ pub mod test_utils {
 
         pub fn initialize_result(
             self,
-            result: Result<Box<ConnectionWrapper>, InitializationError>,
+            result: Result<Box<dyn ConnectionWrapper>, InitializationError>,
         ) -> DbInitializerMock {
             self.initialize_results.borrow_mut().push(result);
             self
@@ -627,7 +627,10 @@ mod tests {
         let (name, value) = config_contents.next().unwrap().unwrap()
             as (Result<String, Error>, Result<String, Error>);
         assert_eq!(Ok(String::from("seed")), name);
-        assert_eq!(Err(Error::InvalidColumnType(1, Null)), value);
+        assert_eq!(
+            Err(Error::InvalidColumnType(1, String::from("value"), Null)),
+            value
+        );
         assert!(config_contents.next().is_none());
     }
 

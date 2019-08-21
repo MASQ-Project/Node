@@ -47,8 +47,8 @@ impl From<(&NeighborhoodDatabase, &PublicKey, bool)> for GossipNodeRecord {
     }
 }
 
-impl From<(NodeRecordInner, Option<NodeAddr>, &CryptDE)> for GossipNodeRecord {
-    fn from(triple: (NodeRecordInner, Option<NodeAddr>, &CryptDE)) -> Self {
+impl From<(NodeRecordInner, Option<NodeAddr>, &dyn CryptDE)> for GossipNodeRecord {
+    fn from(triple: (NodeRecordInner, Option<NodeAddr>, &dyn CryptDE)) -> Self {
         let (inner, node_addr_opt, cryptde) = triple;
         let signed_data =
             PlainData::from(serde_cbor::ser::to_vec(&inner).expect("Serialization failed"));
@@ -302,7 +302,11 @@ impl Gossip {
         render_dot_graph(renderables)
     }
 
-    fn to_dot_renderables<S, T>(&self, source_into: S, target_into: T) -> Vec<Box<DotRenderable>>
+    fn to_dot_renderables<S, T>(
+        &self,
+        source_into: S,
+        target_into: T,
+    ) -> Vec<Box<dyn DotRenderable>>
     where
         S: Into<DotGossipEndpoint>,
         T: Into<DotGossipEndpoint>,
@@ -352,7 +356,7 @@ impl Gossip {
                 is_present: false,
             })
         });
-        let mut result: Vec<Box<DotRenderable>> = vec![];
+        let mut result: Vec<Box<dyn DotRenderable>> = vec![];
         for renderable in node_renderables {
             result.push(Box::new(renderable))
         }

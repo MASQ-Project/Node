@@ -69,7 +69,7 @@ impl NodeRecord {
         earning_wallet: Wallet,
         rate_pack: RatePack,
         version: u32,
-        cryptde: &CryptDE, // Must be the new NodeRecord's CryptDE: used for signing
+        cryptde: &dyn CryptDE, // Must be the new NodeRecord's CryptDE: used for signing
     ) -> NodeRecord {
         let mut node_record = NodeRecord {
             metadata: NodeRecordMetadata::new(),

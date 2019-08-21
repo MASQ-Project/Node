@@ -71,7 +71,7 @@ impl DotRenderable for EdgeRenderable {
     }
 }
 
-pub fn render_dot_graph(renderables: Vec<Box<DotRenderable>>) -> String {
+pub fn render_dot_graph(renderables: Vec<Box<dyn DotRenderable>>) -> String {
     let mut result = String::from("digraph db {");
     for renderable in renderables {
         result.push_str(&format!(" {}", renderable.render()))

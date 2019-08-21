@@ -51,7 +51,7 @@ describe('Given a mock WebSocket', () => {
       beforeEach(() => {
         webSocketClient = td.object(['send', 'close', 'onopen', 'onmessage', 'onerror'])
         td.when(mockWebSocketWrapper.create(`${subject.UI_INTERFACE_URL}:${subject.DEFAULT_UI_PORT}`,
-          subject.UI_PROTOCOL, {handshakeTimeout: subject.CONNECT_TIMEOUT})).thenReturn(webSocketClient)
+          subject.UI_PROTOCOL, { handshakeTimeout: subject.CONNECT_TIMEOUT })).thenReturn(webSocketClient)
 
         connectPromise = subject.connect()
       })

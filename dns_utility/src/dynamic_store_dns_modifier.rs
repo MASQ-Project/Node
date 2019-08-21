@@ -21,7 +21,7 @@ const SERVER_ADDRESSES: &str = "ServerAddresses";
 const SERVER_ADDRESSES_BAK: &str = "ServerAddressesBak";
 
 pub struct DynamicStoreDnsModifier {
-    store: Box<StoreWrapper>,
+    store: Box<dyn StoreWrapper>,
 }
 
 impl DnsModifier for DynamicStoreDnsModifier {
@@ -49,7 +49,7 @@ impl DnsModifier for DynamicStoreDnsModifier {
         self.set_dns_info(dns_base_path, result)
     }
 
-    fn inspect(&self, stdout: &mut (Write + Send)) -> Result<(), String> {
+    fn inspect(&self, stdout: &mut (dyn Write + Send)) -> Result<(), String> {
         let (_, dns_info) = self.get_dns_info(false)?;
         let active_addresses = match dns_info.get(SERVER_ADDRESSES) {
             None => return Err(String::from("This system has no DNS settings")),

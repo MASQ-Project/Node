@@ -49,7 +49,7 @@ pub struct NodeDescriptor {
 }
 
 impl NodeDescriptor {
-    pub fn from_str(cryptde: &CryptDE, s: &str) -> Result<NodeDescriptor, String> {
+    pub fn from_str(cryptde: &dyn CryptDE, s: &str) -> Result<NodeDescriptor, String> {
         let pieces: Vec<&str> = s.splitn(2, ':').collect();
 
         if pieces.len() != 2 {
@@ -72,7 +72,7 @@ impl NodeDescriptor {
         })
     }
 
-    pub fn to_string(&self, cryptde: &CryptDE) -> String {
+    pub fn to_string(&self, cryptde: &dyn CryptDE) -> String {
         let contact_public_key_string = cryptde.public_key_to_descriptor_fragment(&self.public_key);
         let node_addr_string = self.node_addr.to_string();
         format!("{}:{}", contact_public_key_string, node_addr_string)

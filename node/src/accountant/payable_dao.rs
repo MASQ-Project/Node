@@ -57,7 +57,7 @@ pub trait PayableDao: Debug + Send {
 
 #[derive(Debug)]
 pub struct PayableDaoReal {
-    conn: Box<ConnectionWrapper>,
+    conn: Box<dyn ConnectionWrapper>,
 }
 
 impl PayableDao for PayableDaoReal {
@@ -154,7 +154,7 @@ impl PayableDao for PayableDaoReal {
 }
 
 impl PayableDaoReal {
-    pub fn new(conn: Box<ConnectionWrapper>) -> PayableDaoReal {
+    pub fn new(conn: Box<dyn ConnectionWrapper>) -> PayableDaoReal {
         PayableDaoReal { conn }
     }
 
@@ -214,7 +214,9 @@ mod tests {
     use crate::database::db_initializer;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::test_utils::{ensure_node_home_directory_exists, make_wallet};
+    use ethereum_types::BigEndianHash;
     use rusqlite::{Connection, OpenFlags, NO_PARAMS};
+    use web3::types::U256;
 
     #[test]
     fn more_money_payable_works_for_new_address() {
@@ -292,7 +294,7 @@ mod tests {
         );
         let wallet = make_wallet("booga");
         let subject = PayableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
-        let payment = Payment::new(wallet.clone(), 1, H256::from(1));
+        let payment = Payment::new(wallet.clone(), 1, H256::from_uint(&U256::from(1)));
 
         let before_account_status = subject.account_status(&payment.to);
         assert!(before_account_status.is_none());
@@ -307,7 +309,7 @@ mod tests {
                 wallet,
                 balance: -1,
                 last_paid_timestamp: after_account_status.last_paid_timestamp,
-                pending_payment_transaction: Some(H256::from(1)),
+                pending_payment_transaction: Some(H256::from_uint(&U256::from(1))),
             }
         )
     }
@@ -320,7 +322,7 @@ mod tests {
         );
         let wallet = make_wallet("booga");
         let subject = PayableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
-        let payment = Payment::new(wallet.clone(), 1, H256::from(1));
+        let payment = Payment::new(wallet.clone(), 1, H256::from_uint(&U256::from(1)));
 
         let before_account_status = subject.account_status(&payment.to);
         assert!(before_account_status.is_none());
@@ -335,7 +337,7 @@ mod tests {
                 wallet,
                 balance: 0,
                 last_paid_timestamp: after_account_status.last_paid_timestamp,
-                pending_payment_transaction: Some(H256::from(1)),
+                pending_payment_transaction: Some(H256::from_uint(&U256::from(1))),
             }
         )
     }
@@ -446,7 +448,7 @@ mod tests {
         subject.payment_sent(&Payment::new(
             make_wallet("foobar"),
             std::u64::MAX,
-            H256::from(123),
+            H256::from_uint(&U256::from(123)),
         ));
     }
 }

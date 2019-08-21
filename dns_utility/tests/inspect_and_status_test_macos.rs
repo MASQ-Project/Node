@@ -44,7 +44,7 @@ fn macos_inspect_and_status_user_integration() {
     );
 }
 
-fn get_current_dns_ips(store_wrapper: &StoreWrapper) -> Vec<String> {
+fn get_current_dns_ips(store_wrapper: &dyn StoreWrapper) -> Vec<String> {
     let state_global_network_ipv4 = store_wrapper
         .get_dictionary_string_cfpl("State:/Network/Global/IPv4")
         .unwrap();

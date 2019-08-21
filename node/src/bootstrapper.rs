@@ -53,7 +53,7 @@ use tokio::prelude::Async;
 use tokio::prelude::Future;
 use tokio::prelude::Stream;
 
-static mut CRYPTDE_BOX_OPT: Option<Box<CryptDE>> = None;
+static mut CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 
 pub fn cryptde_ref() -> &'static dyn CryptDE {
     unsafe {
@@ -390,7 +390,7 @@ impl SocketServer<BootstrapperConfig> for Bootstrapper {
 }
 
 impl Bootstrapper {
-    pub fn new(logger_initializer: Box<LoggerInitializerWrapper>) -> Bootstrapper {
+    pub fn new(logger_initializer: Box<dyn LoggerInitializerWrapper>) -> Bootstrapper {
         Bootstrapper {
             listener_handler_factory: Box::new(ListenerHandlerFactoryReal::new()),
             listener_handlers:

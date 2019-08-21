@@ -343,7 +343,7 @@ fn shift_one_hop(mut route: Route, cryptde: &dyn CryptDE) -> Route {
     route
 }
 
-pub fn encrypt_return_route_id(return_route_id: u32, cryptde: &CryptDE) -> CryptData {
+pub fn encrypt_return_route_id(return_route_id: u32, cryptde: &dyn CryptDE) -> CryptData {
     let return_route_id_ser = serde_cbor::ser::to_vec(&return_route_id).unwrap();
     cryptde
         .encode(&cryptde.public_key(), &PlainData::from(return_route_id_ser))
@@ -358,7 +358,7 @@ pub fn make_garbage_data(bytes: usize) -> Vec<u8> {
     data
 }
 
-pub fn make_request_payload(bytes: usize, cryptde: &CryptDE) -> ClientRequestPayload {
+pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientRequestPayload {
     ClientRequestPayload {
         version: ClientRequestPayload::version(),
         stream_key: StreamKey::new(
@@ -373,7 +373,7 @@ pub fn make_request_payload(bytes: usize, cryptde: &CryptDE) -> ClientRequestPay
     }
 }
 
-pub fn make_response_payload(bytes: usize, cryptde: &CryptDE) -> ClientResponsePayload {
+pub fn make_response_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientResponsePayload {
     ClientResponsePayload {
         version: ClientResponsePayload::version(),
         stream_key: StreamKey::new(

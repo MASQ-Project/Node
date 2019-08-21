@@ -26,7 +26,7 @@ use websocket::OwnedMessage;
 use websocket::WebSocketError;
 
 trait ClientWrapper: Send + Any {
-    fn as_any(&self) -> &Any;
+    fn as_any(&self) -> &dyn Any;
     fn send(&mut self, item: OwnedMessage) -> Result<(), WebSocketError>;
     fn flush(&mut self) -> Result<(), WebSocketError>;
 }
@@ -36,7 +36,7 @@ struct ClientWrapperReal {
 }
 
 impl ClientWrapper for ClientWrapperReal {
-    fn as_any(&self) -> &Any {
+    fn as_any(&self) -> &dyn Any {
         self
     }
 
@@ -62,7 +62,7 @@ struct WebSocketSupervisorInner {
     next_client_id: u64,
     from_ui_message: Recipient<FromUiMessage>,
     client_id_by_socket_addr: HashMap<SocketAddr, u64>,
-    client_by_id: HashMap<u64, Box<ClientWrapper>>,
+    client_by_id: HashMap<u64, Box<dyn ClientWrapper>>,
 }
 
 impl WebSocketSupervisor for WebSocketSupervisorReal {
@@ -408,7 +408,7 @@ mod tests {
     }
 
     impl ClientWrapper for ClientWrapperMock {
-        fn as_any(&self) -> &Any {
+        fn as_any(&self) -> &dyn Any {
             self
         }
 

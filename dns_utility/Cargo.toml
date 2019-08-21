@@ -8,8 +8,8 @@ description = "Command-line utility to turn DNS subversion on and off"
 edition = "2018"
 
 [dependencies]
-regex = "1.0.5"
-libc = "0.2.43"
+regex = "1.2.1"
+libc = "0.2.62"
 ipconfig = "0.2.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -17,7 +17,7 @@ system-configuration = "0.1.0"
 core-foundation = "0.5.1"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-winreg = "0.5.1"
+winreg = "0.6.2"
 
 [dev-dependencies]
 
