@@ -13,7 +13,7 @@ impl IpconfigWrapper for IpconfigWrapperReal {
         Ok(ipconfig::get_adapters()?
             .into_iter()
             .map(|adapter| Box::new(AdapterWrapperReal { adapter }) as Box<dyn AdapterWrapper>)
-            .collect::<Vec<Box<AdapterWrapper>>>())
+            .collect::<Vec<Box<dyn AdapterWrapper>>>())
     }
 }
 

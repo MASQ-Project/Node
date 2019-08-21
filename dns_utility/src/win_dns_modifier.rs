@@ -260,7 +260,11 @@ impl WinDnsModifier {
         })
     }
 
-    fn set_nameservers(&self, interface: &RegKeyTrait, nameservers: &str) -> Result<(), String> {
+    fn set_nameservers(
+        &self,
+        interface: &dyn RegKeyTrait,
+        nameservers: &str,
+    ) -> Result<(), String> {
         if let Some(friendly_name) = self.find_adapter_friendly_name(interface) {
             match self.netsh.set_nameserver(&friendly_name, nameservers) {
                 Ok(()) => Ok(()),
@@ -423,7 +427,7 @@ impl RegKeyTrait for RegKeyReal {
         self.delegate.enum_keys().map(|x| x).collect()
     }
 
-    fn open_subkey_with_flags(&self, path: &str, perms: u32) -> io::Result<Box<RegKeyTrait>> {
+    fn open_subkey_with_flags(&self, path: &str, perms: u32) -> io::Result<Box<dyn RegKeyTrait>> {
         match self.delegate.open_subkey_with_flags(path, perms) {
             Ok(delegate) => Ok(Box::new(RegKeyReal {
                 delegate,
