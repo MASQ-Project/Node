@@ -1414,6 +1414,9 @@ pub mod tests {
     fn accountant_payable_scan_timer_triggers_scanning_for_payables() {
         init_test_logging();
         let (blockchain_bridge, blockchain_bridge_awaiter, _) = make_recorder();
+        let blockchain_bridge = blockchain_bridge
+            .retrieve_transactions_response(Ok(vec![]))
+            .report_accounts_payable_response(Ok(vec![]));
 
         thread::spawn(move || {
             let system =

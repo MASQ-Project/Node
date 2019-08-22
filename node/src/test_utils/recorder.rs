@@ -160,8 +160,10 @@ impl Handler<RetrieveTransactions> for Recorder {
         _ctx: &mut Self::Context,
     ) -> <Self as Handler<RetrieveTransactions>>::Result {
         self.record(msg);
-        let result = self.retrieve_transactions_responses.remove(0);
-        MessageResult(result)
+        MessageResult(extract_response(
+            &mut self.retrieve_transactions_responses,
+            "No RetrieveTransactionsResponses prepared for RetrieveTransactions",
+        ))
     }
 }
 
@@ -174,8 +176,10 @@ impl Handler<ReportAccountsPayable> for Recorder {
         _ctx: &mut Self::Context,
     ) -> <Self as Handler<ReportAccountsPayable>>::Result {
         self.record(msg);
-        let result = self.report_accounts_payable_responses.remove(0);
-        MessageResult(result)
+        MessageResult(extract_response(
+            &mut self.report_accounts_payable_responses,
+            "No ReportAccountsPayableResponses prepared for ReportAccountsPayable",
+        ))
     }
 }
 
