@@ -62,22 +62,25 @@ describe('IndexComponent', () => {
       turnOff: td.func('turnOff'),
       serve: td.func('serve'),
       consume: td.func('consume'),
-      copyToClipboard: td.func('copyToClipboard'),
-      setConsumingWalletPassword: td.func('setConsumingWalletPassword'),
+      copyToClipboard: td.func(),
+      setConsumingWalletPassword: td.func(),
       nodeStatus: mockStatus.asObservable(),
       nodeDescriptor: mockNodeDescriptor.asObservable(),
       setConsumingWalletPasswordResponse: mockSetWalletPasswordResponse.asObservable(),
       lookupIp: td.func('lookupIp'),
     };
+    spyOn(mockMainService, 'copyToClipboard');
+    spyOn(mockMainService, 'setConsumingWalletPassword');
     mockConfigService = {
       getConfig: td.func('getConfig'),
       isValidServing: td.func('isValidServing'),
       isValidConsuming: td.func('isValidConsuming'),
       mode: mockMode,
       load: td.func('load'),
-      patchValue: td.func('patchValue'),
+      patchValue: td.func(),
       setMode: td.func('setMode'),
     };
+    spyOn(mockConfigService, 'patchValue');
     mockLocalStorageService = {
       getItem: td.func('getItem'),
       setItem: td.func('setItem'),
@@ -136,10 +139,6 @@ describe('IndexComponent', () => {
     it('marks the wallet as locked', () => {
       expect(component.unlocked).toBe(false);
     });
-  });
-
-  it('should create', () => {
-    expect(component).toBeTruthy();
   });
 
   it('should have a "Node Status:" label', () => {
@@ -419,9 +418,12 @@ describe('IndexComponent', () => {
         fixture.detectChanges();
       });
 
-      it('does not show the configuration and starts the node', () => {
-        td.verify(mockMainService.serve());
+      it('does not show the configuration', () => {
         expect(component.configurationMode).toBe(ConfigurationMode.Hidden);
+      });
+
+      it('starts the node', () => {
+        expect(mockStatus.value).toBe(NodeStatus.Serving);
       });
     });
 
@@ -498,7 +500,7 @@ describe('IndexComponent', () => {
           });
 
           it('send the password to the Node', () => {
-            td.verify(mockMainService.setConsumingWalletPassword('blah'));
+            expect(mockMainService.setConsumingWalletPassword).toHaveBeenCalledWith('blah');
           });
 
           it('hides the password prompt', () => {
@@ -588,7 +590,7 @@ describe('IndexComponent', () => {
           });
 
           it('send the password to the Node', () => {
-            td.verify(mockMainService.setConsumingWalletPassword('booga'));
+            expect(mockMainService.setConsumingWalletPassword).toHaveBeenCalledWith('booga');
           });
 
           it('does not hide the password prompt', () => {
@@ -684,9 +686,12 @@ describe('IndexComponent', () => {
         fixture.detectChanges();
       });
 
-      it('does not show the configuration and starts the node', () => {
-        td.verify(mockMainService.consume());
+      it('does not show the configuration', () => {
         expect(component.configurationMode).toBe(ConfigurationMode.Hidden);
+      });
+
+      it('starts the node', () => {
+        expect(mockStatus.value).toBe(NodeStatus.Consuming);
       });
     });
   });
@@ -699,7 +704,7 @@ describe('IndexComponent', () => {
     });
 
     it('copies the node descriptor', () => {
-      td.verify(mockMainService.copyToClipboard('let me out'));
+      expect(mockMainService.copyToClipboard).toHaveBeenCalledWith('let me out');
     });
   });
 
@@ -738,9 +743,7 @@ describe('IndexComponent', () => {
       });
 
       it('does not change the node state', () => {
-        td.verify(mockMainService.turnOff(), {times: 0});
-        td.verify(mockMainService.serve(), {times: 0});
-        td.verify(mockMainService.consume(), {times: 0});
+        expect(mockStatus.value).toBe('Off');
       });
 
       it('changes the configuration mode to hidden', () => {
@@ -757,7 +760,7 @@ describe('IndexComponent', () => {
       });
 
       it('stops the node', () => {
-        td.verify(mockMainService.turnOff());
+        expect(mockStatus.value).toBe(NodeStatus.Off);
       });
 
       it('hides the configuration', () => {
@@ -774,7 +777,7 @@ describe('IndexComponent', () => {
       });
 
       it('stops the node', () => {
-        td.verify(mockMainService.turnOff());
+        expect(mockStatus.value).toBe(NodeStatus.Off);
       });
 
       it('hides the configuration', () => {
@@ -827,7 +830,7 @@ describe('IndexComponent', () => {
     describe('successful ip address lookup', () => {
       describe('ip is filled out if it can be looked up', () => {
         it('ip address is filled out', () => {
-          td.verify(mockConfigService.patchValue({ip: '192.168.1.1'}));
+          expect(mockConfigService.patchValue).toHaveBeenCalledWith({ip: '192.168.1.1'});
         });
       });
     });
@@ -840,7 +843,7 @@ describe('IndexComponent', () => {
 
       describe('the ip field', () => {
         it('ip address starts blank', () => {
-          td.verify(mockConfigService.patchValue({ip: ''}));
+          expect(mockConfigService.patchValue).toHaveBeenCalledWith({ip: ''});
         });
       });
     });
@@ -861,10 +864,10 @@ describe('IndexComponent', () => {
       });
 
       it('ConfigService is patched with data from local storage', () => {
-        td.verify(mockConfigService.patchValue({
+        expect(mockConfigService.patchValue).toHaveBeenCalledWith({
           neighbor: '5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999',
           blockchainServiceUrl: 'https://infura.io',
-        }));
+        });
       });
     });
 
@@ -880,10 +883,10 @@ describe('IndexComponent', () => {
       });
 
       it('ConfigService is patched with data from config parameter', () => {
-        td.verify(mockConfigService.patchValue({
+        expect(mockConfigService.patchValue).toHaveBeenCalledWith({
           neighbor: '5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999',
           blockchainServiceUrl: 'https://infura.io',
-        }));
+        });
       });
     });
   });

@@ -14,7 +14,7 @@ import {Addresses} from '../addresses';
 
 const validMnemonicPhrase = 'sportivo secondo puntare ginepro occorrere serbato idra savana afoso finanza inarcare proroga';
 
-describe('WalletConfigurationComponent', () => {
+describe('RecoverWalletComponent', () => {
   let component: RecoverWalletComponent;
   let fixture: ComponentFixture<RecoverWalletComponent>;
   let page: RecoverWalletPage;
@@ -27,7 +27,8 @@ describe('WalletConfigurationComponent', () => {
   beforeEach(async () => {
     addressResponseSubject = new Subject<Addresses>();
     recoverResponseSubject = new Subject<string>();
-    configService = {setEarningWallet: td.func('setEarningWallet')};
+    configService = {setEarningWallet: td.func()};
+    spyOnAllFunctions(configService);
     walletService = {
       calculateAddresses: td.func('calculateAddresses'),
       addressResponse: addressResponseSubject.asObservable(),
@@ -91,21 +92,22 @@ describe('WalletConfigurationComponent', () => {
 
   describe('given a valid mnemonic phrase', () => {
     beforeEach(() => {
-      td.when(walletService.calculateAddresses(
-        td.matchers.anything(),
-        td.matchers.anything(),
-        td.matchers.anything(),
-        td.matchers.anything(),
-        td.matchers.anything()
-      )).thenDo(() => {
-        addressResponseSubject.next({consuming: 'theCorrectConsumingAddress', earning: 'theCorrectEarningAddress'});
-      });
+
       page.setMnemonicPhrase('supply silent program funny miss slab goat scrap advice faith group pretty');
       fixture.detectChanges();
     });
 
     describe('with custom derivation paths', () => {
       beforeEach(async () => {
+        td.when(walletService.calculateAddresses(
+          'supply silent program funny miss slab goat scrap advice faith group pretty',
+          'm/44\'/60\'/0\'/0/1',
+          '',
+          'en',
+          'm/44\'/60\'/0\'/0/2'
+        )).thenDo(() => {
+          addressResponseSubject.next({consuming: 'theCorrectConsumingAddress', earning: 'theCorrectEarningAddress'});
+        });
         page.changeSameWallet(false);
         fixture.detectChanges();
         page.setConsumingDerivationPath('m/44\'/60\'/0\'/0/1');
@@ -113,14 +115,7 @@ describe('WalletConfigurationComponent', () => {
         fixture.detectChanges();
       });
 
-      it('the correct address is displayed', () => {
-        td.verify(walletService.calculateAddresses(
-          'supply silent program funny miss slab goat scrap advice faith group pretty',
-          'm/44\'/60\'/0\'/0/1',
-          '',
-          'en',
-          'm/44\'/60\'/0\'/0/2'
-        ));
+      it('the correct addresses are displayed', () => {
         expect(page.consumingAddress.innerText).toContain('theCorrectConsumingAddress');
         expect(page.earningAddress.innerText).toContain('theCorrectEarningAddress');
       });
@@ -128,6 +123,15 @@ describe('WalletConfigurationComponent', () => {
 
     describe('with a different word list and a password', () => {
       beforeEach(async () => {
+        td.when(walletService.calculateAddresses(
+          validMnemonicPhrase,
+          'm/44\'/60\'/0\'/0/0',
+          'mypass',
+          'it',
+          'm/44\'/60\'/0\'/0/0'
+        )).thenDo(() => {
+          addressResponseSubject.next({consuming: 'theCorrectConsumingAddress', earning: 'theCorrectEarningAddress'});
+        });
         component.walletConfig.controls['wordlist'].setValue('it');
         fixture.detectChanges();
         page.setMnemonicPhrase(validMnemonicPhrase);
@@ -136,13 +140,6 @@ describe('WalletConfigurationComponent', () => {
       });
 
       it('the correct address is displayed', () => {
-        td.verify(walletService.calculateAddresses(
-          validMnemonicPhrase,
-          'm/44\'/60\'/0\'/0/0',
-          'mypass',
-          'it',
-          'm/44\'/60\'/0\'/0/0'
-        ));
         expect(page.consumingAddress.innerText).toContain('theCorrectConsumingAddress');
       });
     });
@@ -189,7 +186,7 @@ describe('WalletConfigurationComponent', () => {
       });
 
       it('saves the earning wallet address', () => {
-        td.verify(configService.setEarningWallet(component.earningAddress));
+        expect(configService.setEarningWallet).toHaveBeenCalledWith(component.earningAddress);
       });
     });
   });

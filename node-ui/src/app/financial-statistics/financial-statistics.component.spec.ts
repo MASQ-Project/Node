@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 import {ComponentFixture, TestBed} from '@angular/core/testing';
-import {func, reset, verify} from 'testdouble';
+import * as td from 'testdouble';
 import {FinancialStatisticsComponent} from './financial-statistics.component';
 import {NodeStatus} from '../node-status.enum';
 import {SimpleChange, SimpleChanges} from '@angular/core';
@@ -19,10 +19,12 @@ describe('FinancialStatisticsComponent', () => {
   beforeEach(() => {
     mockFinancialStatisticsResponse = new BehaviorSubject({pendingCredit: '', pendingDebt: ''});
     mockFinancialService = {
-      startFinancialStatistics: func('startFinancialStatistics'),
-      stopFinancialStatistics: func('stopFinancialStatistics'),
+      startFinancialStatistics: td.func(),
+      stopFinancialStatistics: td.func(),
       financialStatisticsResponse: mockFinancialStatisticsResponse.asObservable(),
     };
+    spyOn(mockFinancialService, 'startFinancialStatistics');
+    spyOn(mockFinancialService, 'stopFinancialStatistics');
     TestBed.configureTestingModule({
       declarations: [FinancialStatisticsComponent],
       providers: [
@@ -32,7 +34,7 @@ describe('FinancialStatisticsComponent', () => {
   });
 
   afterEach(() => {
-    reset();
+    td.reset();
   });
 
   describe('Financial Statistics', () => {
@@ -53,12 +55,14 @@ describe('FinancialStatisticsComponent', () => {
       });
 
       it('does not call startFinancialStatistics', () => {
-        verify(mockFinancialService.startFinancialStatistics(), {times: 0});
+        expect(mockFinancialService.startFinancialStatistics).not.toHaveBeenCalled();
       });
+
       it('calls stopFinancialStatistics', () => {
-        verify(mockFinancialService.stopFinancialStatistics());
+        expect(mockFinancialService.stopFinancialStatistics).toHaveBeenCalled();
       });
     });
+
     describe('when status is changed to Invalid', () => {
       beforeEach(() => {
         fixture = TestBed.createComponent(FinancialStatisticsComponent);
@@ -69,17 +73,21 @@ describe('FinancialStatisticsComponent', () => {
         component.ngOnChanges(changes);
         fixture.detectChanges();
       });
+
       it('shows an informative message', () => {
         expect(compiled.querySelector('#financial-statistics-info').textContent.trim())
           .toBe('No data available because SubstratumNode is not actively running.');
       });
+
       it('does not call startFinancialStatistics', () => {
-        verify(mockFinancialService.startFinancialStatistics(), {times: 0});
+        expect(mockFinancialService.startFinancialStatistics).not.toHaveBeenCalled();
       });
+
       it('calls stopFinancialStatistics', () => {
-        verify(mockFinancialService.stopFinancialStatistics());
+        expect(mockFinancialService.stopFinancialStatistics).toHaveBeenCalled();
       });
     });
+
     describe('when status is changed to serving', () => {
       beforeEach(() => {
         fixture = TestBed.createComponent(FinancialStatisticsComponent);
@@ -90,13 +98,16 @@ describe('FinancialStatisticsComponent', () => {
         component.ngOnChanges(changes);
         fixture.detectChanges();
       });
+
       it('hides the informative message', () => {
         expect(compiled.querySelector('#financial-statistics-info')).toBeFalsy();
       });
+
       it('calls startFinancialStatistics', () => {
-        verify(mockFinancialService.startFinancialStatistics());
+        expect(mockFinancialService.startFinancialStatistics).toHaveBeenCalled();
       });
     });
+
     describe('when status is changed to consuming', () => {
       beforeEach(() => {
         fixture = TestBed.createComponent(FinancialStatisticsComponent);
@@ -107,13 +118,16 @@ describe('FinancialStatisticsComponent', () => {
         component.ngOnChanges(changes);
         fixture.detectChanges();
       });
+
       it('hides the informative message', () => {
         expect(compiled.querySelector('#financial-statistics-info')).toBeFalsy();
       });
+
       it('calls startFinancialStatistics', () => {
-        verify(mockFinancialService.startFinancialStatistics());
+        expect(mockFinancialService.startFinancialStatistics).toHaveBeenCalled();
       });
     });
+
     describe('when property other than status changes', () => {
       beforeEach(() => {
         fixture = TestBed.createComponent(FinancialStatisticsComponent);
@@ -124,11 +138,13 @@ describe('FinancialStatisticsComponent', () => {
         component.ngOnChanges(changes);
         fixture.detectChanges();
       });
+
       it('does not call startFinancialStatistics', () => {
-        verify(mockFinancialService.startFinancialStatistics(), {times: 0});
+        expect(mockFinancialService.startFinancialStatistics).not.toHaveBeenCalled();
       });
+
       it('calls stopFinancialStatistics', () => {
-        verify(mockFinancialService.stopFinancialStatistics(), {times: 0});
+        expect(mockFinancialService.stopFinancialStatistics).not.toHaveBeenCalled();
       });
     });
 
@@ -142,12 +158,15 @@ describe('FinancialStatisticsComponent', () => {
         mockFinancialStatisticsResponse.next(response);
         fixture.detectChanges();
       });
+
       it('sets the data', () => {
         expect(component.financialStatisticsData).toEqual({'pendingCredit': '10000', 'pendingDebt': '1000000'});
       });
+
       it('renders the pending credit data', () => {
         expect(compiled.querySelector('#pending-credit').textContent).toBe('0.000010000');
       });
+
       it('renders the pending debt data', () => {
         expect(compiled.querySelector('#pending-debt').textContent).toBe('0.001000000');
       });
@@ -162,14 +181,17 @@ describe('FinancialStatisticsComponent', () => {
         mockFinancialStatisticsResponse.error(`{'error': 'an error'}`);
         fixture.detectChanges();
       });
+
       it('sets error object', () => {
         expect(component.financialStatsDataError).toBe(`{'error': 'an error'}`);
       });
+
       it('renders the error', () => {
         expect(compiled.querySelector('#financial-stats-error').textContent.trim())
           .toBe('Unable to talk to the Substratum Node, consider restarting it.');
       });
     });
+
     describe('when financial statistics data is set after previously receiving error', () => {
       beforeEach(() => {
         fixture = TestBed.createComponent(FinancialStatisticsComponent);
@@ -181,9 +203,11 @@ describe('FinancialStatisticsComponent', () => {
         mockFinancialStatisticsResponse.next(response);
         fixture.detectChanges();
       });
+
       it('clears the error object', () => {
         expect(component.financialStatsDataError).toBeFalsy();
       });
+
       it('clears the error message', () => {
         expect(compiled.querySelector('#financial-stats-error')).toBeFalsy();
       });

@@ -38,7 +38,7 @@ describe('NodeActuator', () => {
     mockChildProcess = td.replace('child_process')
     mockSudoPrompt = td.replace('sudo-prompt')
     mockConsole = td.replace('../main-process/wrappers/console_wrapper')
-    mockSubstratumNode = td.replace('../main-process/substratum_node')
+    mockSubstratumNode = td.replace('../main-process/substratum_node', td.object(['generateWallet', 'recoverWallet']))
     mockDnsUtility = td.replace('../main-process/dns_utility')
     mockPsWrapper = td.replace('../main-process/wrappers/ps_wrapper')
     mockUiInterface = td.replace('../main-process/ui_interface')
@@ -1008,7 +1008,6 @@ describe('NodeActuator', () => {
   describe('shutdown windows cmd', () => {
     beforeEach(async () => {
       td.when(mockUiInterface.verifyNodeDown(td.matchers.anything())).thenResolve(false)
-      td.when(mockPsWrapper.killNodeProcess()).thenResolve(null)
       td.when(mockUiInterface.isConnected()).thenReturn(true)
       td.when(mockUiInterface.verifyNodeUp(td.matchers.anything())).thenResolve(true)
 

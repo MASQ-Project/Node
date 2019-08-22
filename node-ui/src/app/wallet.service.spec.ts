@@ -4,7 +4,7 @@ import {TestBed} from '@angular/core/testing';
 
 import {WalletService} from './wallet.service';
 import {ElectronService} from './electron.service';
-import {func, matchers, reset, verify, when} from 'testdouble';
+import * as td from 'testdouble';
 
 describe('WalletService', () => {
   let electronStub, listenerCallback;
@@ -12,19 +12,22 @@ describe('WalletService', () => {
 
   beforeEach(() => {
     electronStub = {
-      ipcRenderer: {on: func('on'), send: func('send')}
+      ipcRenderer: {
+        on: td.func('on'),
+        send: td.func()}
     };
+    spyOn(electronStub.ipcRenderer, 'send');
     TestBed.configureTestingModule({
       providers: [
         {provide: ElectronService, useValue: electronStub}
       ]
     });
-    listenerCallback = matchers.captor();
+    listenerCallback = td.matchers.captor();
     service = TestBed.get(WalletService);
   });
 
   afterAll(() => {
-    reset();
+    td.reset();
   });
 
   it('should be created', () => {
@@ -37,7 +40,7 @@ describe('WalletService', () => {
     });
 
     it('sends a message to the main process', () => {
-      verify(electronStub.ipcRenderer.send('calculate-wallet-addresses', 'one', 'two', 'three', 'four', 'five'));
+      expect(electronStub.ipcRenderer.send).toHaveBeenCalledWith('calculate-wallet-addresses', 'one', 'two', 'three', 'four', 'five');
     });
   });
 
@@ -45,7 +48,7 @@ describe('WalletService', () => {
       let addresses = {consuming: 'neverChangedConsuming', earning: 'neverChangedEarning'};
 
       beforeEach(() => {
-        verify(electronStub.ipcRenderer.on('calculated-wallet-addresses', listenerCallback.capture()));
+        td.verify(electronStub.ipcRenderer.on('calculated-wallet-addresses', listenerCallback.capture()));
 
         service.addressResponse.subscribe(_addressResponse => {
           addresses = _addressResponse;
@@ -66,7 +69,9 @@ describe('WalletService', () => {
     });
 
     it('sends a message to the main process', () => {
-      verify(electronStub.ipcRenderer.send('recover-consuming-wallet', 'one', 'two', 'three', 'four', 'fife', 'sixth'));
+      expect(electronStub.ipcRenderer.send).toHaveBeenCalledWith(
+        'recover-consuming-wallet', 'one', 'two', 'three', 'four', 'fife', 'sixth'
+      );
     });
   });
 
@@ -74,7 +79,7 @@ describe('WalletService', () => {
     let output: string| Error = 'neverChanged';
 
     beforeEach(() => {
-      verify(electronStub.ipcRenderer.on('recovered-consuming-wallet', listenerCallback.capture()));
+      td.verify(electronStub.ipcRenderer.on('recovered-consuming-wallet', listenerCallback.capture()));
 
       service.recoverConsumingWalletResponse.subscribe(_recoverResponse => {
         output = _recoverResponse;
@@ -92,7 +97,7 @@ describe('WalletService', () => {
     let output = 'neverChanged';
 
     beforeEach(() => {
-      verify(electronStub.ipcRenderer.on('recover-consuming-wallet-error', listenerCallback.capture()));
+      td.verify(electronStub.ipcRenderer.on('recover-consuming-wallet-error', listenerCallback.capture()));
 
       service.recoverConsumingWalletResponse.subscribe(_recoverResponse => {
         output = _recoverResponse;
@@ -112,7 +117,7 @@ describe('WalletService', () => {
     });
 
     it('sends a message to the main process', () => {
-      verify(electronStub.ipcRenderer.send('generate-consuming-wallet', 'one', 'two', 'three', 'four', 42, 'six'));
+      expect(electronStub.ipcRenderer.send).toHaveBeenCalledWith('generate-consuming-wallet', 'one', 'two', 'three', 'four', 42, 'six');
     });
   });
 
@@ -120,7 +125,7 @@ describe('WalletService', () => {
     let output: object|string = 'neverChanged';
 
     beforeEach(() => {
-      verify(electronStub.ipcRenderer.on('generated-consuming-wallet', listenerCallback.capture()));
+      td.verify(electronStub.ipcRenderer.on('generated-consuming-wallet', listenerCallback.capture()));
 
       service.generateConsumingWalletResponse.subscribe(generateResponse => {
         output = generateResponse;
@@ -138,7 +143,7 @@ describe('WalletService', () => {
     let output: object|string = 'neverChanged';
 
     beforeEach(() => {
-      verify(electronStub.ipcRenderer.on('generate-consuming-wallet-error', listenerCallback.capture()));
+      td.verify(electronStub.ipcRenderer.on('generate-consuming-wallet-error', listenerCallback.capture()));
 
       service.generateConsumingWalletResponse.subscribe(generateResponse => {
         output = generateResponse;

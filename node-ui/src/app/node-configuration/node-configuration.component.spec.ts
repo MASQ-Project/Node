@@ -15,7 +15,6 @@ import {ConfigurationMode} from '../configuration-mode.enum';
 import {NodeStatus} from '../node-status.enum';
 import {LocalStorageService} from '../local-storage.service';
 import {ElectronService} from '../electron.service';
-import {verify} from 'testdouble';
 import {LocalServiceKey} from '../local-service-key.enum';
 
 describe('NodeConfigurationComponent', () => {
@@ -56,11 +55,14 @@ describe('NodeConfigurationComponent', () => {
       load: td.func('load'),
       mode: mockConfigMode,
     };
+    spyOn(mockConfigService, 'patchValue');
     mockLocalStorageService = {
       getItem: td.func('getItem'),
-      setItem: td.func('setItem'),
-      removeItem: td.func('removeItem')
+      setItem: td.func(),
+      removeItem: td.func()
     };
+    spyOn(mockLocalStorageService, 'setItem');
+    spyOn(mockLocalStorageService, 'removeItem');
     mockRouter = {
       navigateByUrl: mockNavigateByUrl
     };
@@ -167,7 +169,7 @@ describe('NodeConfigurationComponent', () => {
         });
 
         it('persists the values', () => {
-          td.verify(mockConfigService.patchValue(expected));
+          expect(mockConfigService.patchValue).toHaveBeenCalledWith(expected);
         });
       });
     });
@@ -282,7 +284,7 @@ describe('NodeConfigurationComponent', () => {
       });
 
       it('calls openExternal', () => {
-        verify(mockOpenExternal('https://github.com/SubstratumNetwork/SubstratumNode/blob/master/node/docs/Blockchain-Service.md'));
+        td.verify(mockOpenExternal('https://github.com/SubstratumNetwork/SubstratumNode/blob/master/node/docs/Blockchain-Service.md'));
       });
     });
 
@@ -514,7 +516,7 @@ describe('NodeConfigurationComponent', () => {
             page.setWalletAddress('');
             page.setBlockchainServiceUrl('https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>');
             component.saved.subscribe(() => {
-              td.verify(mockConfigService.patchValue(expected));
+              expect(mockConfigService.patchValue).toHaveBeenCalledWith(expected);
               savedSignalAsserted = true;
             });
             fixture.detectChanges();
@@ -542,11 +544,11 @@ describe('NodeConfigurationComponent', () => {
             });
 
             it('removes the node descriptor from local storage', () => {
-              td.verify(mockLocalStorageService.removeItem(LocalServiceKey.NeighborNodeDescriptor));
+              expect(mockLocalStorageService.removeItem).toHaveBeenCalledWith(LocalServiceKey.NeighborNodeDescriptor);
             });
 
             it('saves the checkbox state to local storage', () => {
-              td.verify(mockLocalStorageService.setItem(LocalServiceKey.PersistNeighborPreference, false));
+              expect(mockLocalStorageService.setItem).toHaveBeenCalledWith(LocalServiceKey.PersistNeighborPreference, false);
             });
           });
 
@@ -563,14 +565,14 @@ describe('NodeConfigurationComponent', () => {
             });
 
             it('stores the node descriptor in local storage', () => {
-              td.verify(
-                mockLocalStorageService.setItem(LocalServiceKey.NeighborNodeDescriptor,
-                  '5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999')
+              expect(mockLocalStorageService.setItem).toHaveBeenCalledWith(
+                LocalServiceKey.NeighborNodeDescriptor,
+                '5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999'
               );
             });
 
             it('saves the checkbox state to local storage', () => {
-              td.verify(mockLocalStorageService.setItem(LocalServiceKey.PersistNeighborPreference, true));
+              expect(mockLocalStorageService.setItem).toHaveBeenCalledWith(LocalServiceKey.PersistNeighborPreference, true);
             });
           });
         });
@@ -587,7 +589,7 @@ describe('NodeConfigurationComponent', () => {
           });
 
           it('saves the blockchain service url', () => {
-            td.verify(mockLocalStorageService.setItem(LocalServiceKey.BlockchainServiceUrl, 'https://infura.io'));
+            expect(mockLocalStorageService.setItem).toHaveBeenCalledWith(LocalServiceKey.BlockchainServiceUrl, 'https://infura.io');
           });
         });
       });

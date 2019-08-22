@@ -8,7 +8,7 @@
   "copyright": "Copyright (c) 2017-2019 Substratum LLC (${homepage}) and/or its affiliates. All rights reserved.",
   "license": "GPL-3.0",
   "main": "main.js",
-  "standard" : {
+  "standard": {
     "ignore": [
       "generated/**"
     ]

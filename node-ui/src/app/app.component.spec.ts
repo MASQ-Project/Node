@@ -15,18 +15,16 @@ describe('AppComponent', () => {
 
   let component: AppComponent;
   let fixture: ComponentFixture<AppComponent>;
-  let stubElectronService, mockSetZoomLevel, mockSetZoomFactor;
+  let stubElectronService;
 
   beforeEach(async(() => {
-    mockSetZoomLevel = td.function('setZoomLevel');
-    mockSetZoomFactor = td.function('setZoomFactor');
-
     stubElectronService = {
       webFrame: {
-        setZoomLevel: mockSetZoomLevel,
-        setZoomFactor: mockSetZoomFactor
+        setZoomLevel: td.func(),
+        setZoomFactor: td.func()
       }
     };
+    spyOnAllFunctions(stubElectronService.webFrame);
     TestBed.configureTestingModule({
       declarations: [
         AppComponent,
@@ -48,7 +46,7 @@ describe('AppComponent', () => {
   });
 
   it('should set zoom', () => {
-    td.verify(mockSetZoomFactor(1.0));
-    td.verify(mockSetZoomLevel(0));
+    expect(stubElectronService.webFrame.setZoomFactor).toHaveBeenCalledWith(1.0);
+    expect(stubElectronService.webFrame.setZoomLevel).toHaveBeenCalledWith(0);
   });
 });

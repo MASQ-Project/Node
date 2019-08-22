@@ -29,12 +29,14 @@ describe('NetworkSettingsComponent', () => {
     };
     storedConfig = new BehaviorSubject({networkSettings: '1'} as NodeConfiguration);
     mockConfigService = {
-      patchValue: td.function('patchValue'),
-      load: td.function('load')
+      patchValue: td.func(),
+      load: td.func('load')
     };
+    spyOn(mockConfigService, 'patchValue');
     mockRouter = {
-      navigate: td.function('navigate')
+      navigate: td.func()
     };
+    spyOnAllFunctions(mockRouter);
     TestBed.configureTestingModule({
       declarations: [NetworkSettingsComponent],
       imports: [
@@ -84,7 +86,7 @@ describe('NetworkSettingsComponent', () => {
       });
 
       it('returns to index screen', () => {
-        td.verify(mockRouter.navigate(['index']));
+        expect(mockRouter.navigate).toHaveBeenCalledWith(['index']);
       });
     });
 
@@ -102,11 +104,11 @@ describe('NetworkSettingsComponent', () => {
         });
 
         it('returns to index screen', () => {
-          td.verify(mockRouter.navigate(['index']));
+          expect(mockRouter.navigate).toHaveBeenCalledWith(['index']);
         });
 
         it('saves the form to the ui configuration', () => {
-          td.verify(mockConfigService.patchValue({networkSettings: {gasPrice: '99'}}));
+          expect(mockConfigService.patchValue).toHaveBeenCalledWith({networkSettings: {gasPrice: '99'}});
         });
       });
 
@@ -118,11 +120,11 @@ describe('NetworkSettingsComponent', () => {
         });
 
         it('stays on network settings', () => {
-          td.verify(mockRouter.navigate(['index']), {times: 0});
+          expect(mockRouter.navigate).not.toHaveBeenCalled();
         });
 
         it('saves the form to the ui configuration', () => {
-          td.verify(mockConfigService.patchValue({networkSettings: {gasPrice: '99'}}), {times: 0});
+          expect(mockConfigService.patchValue).not.toHaveBeenCalled();
         });
 
         it('displays a message to the user', () => {

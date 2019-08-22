@@ -3,51 +3,47 @@
 import {TestBed} from '@angular/core/testing';
 import {MainService} from './main.service';
 import {ElectronService} from './electron.service';
-import {func, matchers, object, reset, verify, when} from 'testdouble';
+import * as td from 'testdouble';
 import {NodeConfiguration} from './node-configuration';
 import {ConfigService} from './config.service';
 
 describe('MainService', () => {
-  let mockSend;
   let stubElectronService;
   let stubClipboard;
-  let mockWriteText;
   let mockSendSync;
   let service: MainService;
   let mockConfigService;
   let mockGetConfig;
-  let mockPatchValue;
   let mockOn;
   let nodeStatusListener;
   let nodeDescriptorListener;
   let setConsumingWalletResponseListener;
 
   beforeEach(() => {
-    mockSend = func('send');
-    mockSendSync = func('sendSync');
-    mockGetConfig = func('getConfig');
-    mockPatchValue = func('patchValue');
-    mockWriteText = func('writeText');
-    mockOn = func('on');
-    nodeStatusListener = matchers.captor();
-    nodeDescriptorListener = matchers.captor();
-    setConsumingWalletResponseListener = matchers.captor();
+    mockSendSync = td.func('sendSync');
+    mockGetConfig = td.func('getConfig');
+    mockOn = td.func('on');
+    nodeStatusListener = td.matchers.captor();
+    nodeDescriptorListener = td.matchers.captor();
+    setConsumingWalletResponseListener = td.matchers.captor();
     stubClipboard = {
-      writeText: mockWriteText
+      writeText: td.func()
     };
+    spyOnAllFunctions(stubClipboard);
     stubElectronService = {
       ipcRenderer: {
         on: mockOn,
         sendSync: mockSendSync,
-        send: mockSend,
+        send: td.func(),
       },
       clipboard: stubClipboard
     };
-    mockConfigService = object(['getConfig']);
+    spyOn(stubElectronService.ipcRenderer, 'send');
     mockConfigService = {
       getConfig: mockGetConfig,
-      patchValue: mockPatchValue
+      patchValue: td.func()
     };
+    spyOn(mockConfigService, 'patchValue');
     TestBed.configureTestingModule({
       providers: [
         MainService,
@@ -55,7 +51,7 @@ describe('MainService', () => {
         {provide: ConfigService, useValue: mockConfigService}
       ]
     });
-    when(mockSendSync('get-node-configuration')).thenReturn({
+    td.when(mockSendSync('get-node-configuration')).thenReturn({
       earningWalletAddress: 'foobar',
       gasPrice: 42,
     });
@@ -63,22 +59,22 @@ describe('MainService', () => {
   });
 
   afterEach(() => {
-    reset();
+    td.reset();
   });
 
   it('loads the config', () => {
-    verify(mockPatchValue({
+    expect(mockConfigService.patchValue).toHaveBeenCalledWith({
       walletAddress: 'foobar',
       networkSettings: {
         gasPrice: 42
       }
-    }));
+    });
   });
 
   it('creates listeners', () => {
-    verify(mockOn('node-status', nodeStatusListener.capture()));
-    verify(mockOn('node-descriptor', nodeDescriptorListener.capture()));
-    verify(mockOn('set-consuming-wallet-password-response', setConsumingWalletResponseListener.capture()));
+    td.verify(mockOn('node-status', nodeStatusListener.capture()));
+    td.verify(mockOn('node-descriptor', nodeDescriptorListener.capture()));
+    td.verify(mockOn('set-consuming-wallet-password-response', setConsumingWalletResponseListener.capture()));
 
     let status = null;
     let descriptor = null;
@@ -105,9 +101,9 @@ describe('MainService', () => {
 
   describe('user actions', () => {
     beforeEach(() => {
-      when(mockConfigService.getConfig()).thenReturn(new NodeConfiguration());
-      when(mockSendSync('ip-lookup')).thenReturn('4.3.2.1');
-      when(mockSendSync('get-node-configuration')).thenReturn({earningWalletAddress: 'earning wallet address'});
+      td.when(mockConfigService.getConfig()).thenReturn(new NodeConfiguration());
+      td.when(mockSendSync('ip-lookup')).thenReturn('4.3.2.1');
+      td.when(mockSendSync('get-node-configuration')).thenReturn({earningWalletAddress: 'earning wallet address'});
     });
 
     describe('when telling the main to switch off', () => {
@@ -116,7 +112,7 @@ describe('MainService', () => {
       });
 
       it('directs the main process to turn off the node', () => {
-        verify(mockSend('change-node-state', 'turn-off', undefined));
+        expect(stubElectronService.ipcRenderer.send).toHaveBeenCalledWith('change-node-state', 'turn-off', undefined);
       });
     });
 
@@ -126,7 +122,7 @@ describe('MainService', () => {
       });
 
       it('directs the main process to start serving', () => {
-        verify(mockSend('change-node-state', 'serve', matchers.anything()));
+        expect(stubElectronService.ipcRenderer.send).toHaveBeenCalledWith('change-node-state', 'serve', jasmine.anything());
       });
     });
 
@@ -136,7 +132,7 @@ describe('MainService', () => {
       });
 
       it('directs the main process to start consuming', () => {
-        verify(mockSend('change-node-state', 'consume', matchers.anything()));
+        expect(stubElectronService.ipcRenderer.send).toHaveBeenCalledWith('change-node-state', 'consume', jasmine.anything());
       });
     });
 
@@ -148,26 +144,26 @@ describe('MainService', () => {
   describe('when configuration exists', () => {
     const nodeConfig: NodeConfiguration = {ip: 'fake', walletAddress: 'earning wallet address'};
     beforeEach(() => {
-      when(mockGetConfig()).thenReturn(nodeConfig);
+      td.when(mockGetConfig()).thenReturn(nodeConfig);
       service.serve();
       service.consume();
     });
 
     it('is included in serving', () => {
-      verify(mockSend('change-node-state', 'serve', nodeConfig));
+      expect(stubElectronService.ipcRenderer.send).toHaveBeenCalledWith('change-node-state', 'serve', nodeConfig);
     });
 
     it('is included in consuming', () => {
-      verify(mockSend('change-node-state', 'consume', nodeConfig));
+      expect(stubElectronService.ipcRenderer.send).toHaveBeenCalledWith('change-node-state', 'consume', nodeConfig);
     });
 
     describe('when lookupIp is called', () => {
       beforeEach(() => {
-        service.lookupIp();
+        td.when(mockSendSync('ip-lookup')).thenReturn('do not ask for me');
       });
 
       it('does not lookup IP', () => {
-        verify(mockSendSync('ip-lookup'), {times: 0});
+        service.lookupIp().subscribe(result => expect(result).toBe('fake'));
       });
     });
   });
@@ -178,7 +174,7 @@ describe('MainService', () => {
     });
 
     it('writes to the clipboard', () => {
-      verify(mockWriteText('this is not a dance'));
+      expect(stubClipboard.writeText).toHaveBeenCalledWith('this is not a dance');
     });
   });
 });

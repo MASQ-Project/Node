@@ -13,26 +13,23 @@ describe('HeaderComponent', () => {
   let fixture: ComponentFixture<HeaderComponent>;
   let compiled;
   let stubElectronService;
-  let mockQuit;
-  let mockOpenExternal;
   let mockRouter;
-  let mockNavigate;
 
   beforeEach(async(() => {
-    mockQuit = td.function('quit');
-    mockOpenExternal = td.function('openExternal');
-    mockNavigate = td.function('navigate');
     mockRouter = {
-      navigate: mockNavigate
+      navigate: td.func()
     };
+    spyOn(mockRouter, 'navigate');
     stubElectronService = {
       shell: {
-        openExternal: mockOpenExternal
+        openExternal: td.func()
       },
       remote: {
-        app: {quit: mockQuit}
+        app: {quit: td.func()}
       }
     };
+    spyOnAllFunctions(stubElectronService.remote.app);
+    spyOnAllFunctions(stubElectronService.shell);
     TestBed.configureTestingModule({
       declarations: [
         HeaderComponent, NetworkHelpComponent
@@ -51,10 +48,6 @@ describe('HeaderComponent', () => {
     fixture = TestBed.createComponent(HeaderComponent);
     component = fixture.componentInstance;
     compiled = fixture.debugElement.nativeElement;
-  });
-
-  it('should create', () => {
-    expect(component).toBeTruthy();
   });
 
   it('is hidden by default', () => {
@@ -78,7 +71,7 @@ describe('HeaderComponent', () => {
       });
 
       it('calls app quit', () => {
-        td.verify(mockQuit());
+        expect(stubElectronService.remote.app.quit).toHaveBeenCalled();
       });
     });
 
@@ -135,19 +128,21 @@ describe('HeaderComponent', () => {
       it('opens the beta survey link in an external browser', () => {
         compiled.querySelector('#send-feedback').click();
 
-        td.verify(mockOpenExternal('https://github.com/SubstratumNetwork/SubstratumNode/issues'));
+        expect(stubElectronService.shell.openExternal).toHaveBeenCalledWith('https://github.com/SubstratumNetwork/SubstratumNode/issues');
       });
 
       it('opens the documentation link in an external browser', () => {
         compiled.querySelector('#documentation').click();
 
-        td.verify(mockOpenExternal('https://github.com/SubstratumNetwork/SubstratumNode'));
+        expect(stubElectronService.shell.openExternal).toHaveBeenCalledWith('https://github.com/SubstratumNetwork/SubstratumNode');
       });
 
       it('opens the T&C link in an external browser', () => {
         compiled.querySelector('#terms').click();
 
-        td.verify(mockOpenExternal('https://substratum.net/wp-content/uploads/2018/05/Beta_Terms.pdf'));
+        expect(stubElectronService.shell.openExternal).toHaveBeenCalledWith(
+          'https://substratum.net/wp-content/uploads/2018/05/Beta_Terms.pdf'
+        );
       });
     });
 
@@ -183,7 +178,7 @@ describe('HeaderComponent', () => {
       });
 
       it('opens network settings screen', () => {
-        td.verify(mockNavigate(['network-settings']));
+        expect(mockRouter.navigate).toHaveBeenCalledWith(['network-settings']);
       });
     });
   });

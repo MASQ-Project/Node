@@ -5,7 +5,6 @@ import {async, ComponentFixture, TestBed} from '@angular/core/testing';
 import {Router} from '@angular/router';
 import {GenerateWalletComponent} from './generate-wallet.component';
 import {FormsModule, ReactiveFormsModule} from '@angular/forms';
-import {RouterTestingModule} from '@angular/router/testing';
 import {GenerateWalletPage} from './generate-wallet-page';
 import {WalletService} from '../../wallet.service';
 import {Subject} from 'rxjs';
@@ -22,11 +21,13 @@ describe('GenerateWalletComponent', () => {
     generateResponseSubject = new Subject<object|string>();
     walletService = {
       generateConsumingWalletResponse: generateResponseSubject.asObservable(),
-      generateConsumingWallet: td.func('generateConsumingWallet')
+      generateConsumingWallet: td.func()
     };
+    spyOn(walletService, 'generateConsumingWallet');
     mockRouter = {
-      navigate: td.func('navigate')
+      navigate: td.func()
     };
+    spyOnAllFunctions(mockRouter);
 
     TestBed.configureTestingModule({
       imports: [FormsModule, ReactiveFormsModule],
@@ -84,7 +85,7 @@ describe('GenerateWalletComponent', () => {
     });
 
     it('navigates to the index page', () => {
-      td.verify(mockRouter.navigate(['/index']));
+      expect(mockRouter.navigate).toHaveBeenCalledWith(['/index']);
     });
   });
 
@@ -139,8 +140,8 @@ describe('GenerateWalletComponent', () => {
           });
 
           it('calls generateWallet', () => {
-            td.verify(walletService.generateConsumingWallet(
-              'foobar', 'm/44\'/60\'/0\'/0/0', 'Español', 'foobar', 12, 'm/44\'/60\'/0\'/0/0'));
+            expect(walletService.generateConsumingWallet).toHaveBeenCalledWith(
+              'foobar', 'm/44\'/60\'/0\'/0/0', 'Español', 'foobar', 12, 'm/44\'/60\'/0\'/0/0');
           });
         });
       });
@@ -165,8 +166,8 @@ describe('GenerateWalletComponent', () => {
           });
 
           it('calls generateWallet', () => {
-            td.verify(walletService.generateConsumingWallet(
-              'foobar', 'm/44\'/60\'/0\'/0/7', 'Español', 'foobar', 12, 'm/44\'/60\'/0\'/0/8'));
+            expect(walletService.generateConsumingWallet).toHaveBeenCalledWith(
+              'foobar', 'm/44\'/60\'/0\'/0/7', 'Español', 'foobar', 12, 'm/44\'/60\'/0\'/0/8');
           });
         });
       });

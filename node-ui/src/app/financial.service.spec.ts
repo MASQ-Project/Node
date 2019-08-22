@@ -2,35 +2,31 @@
 
 import {TestBed} from '@angular/core/testing';
 import {ElectronService} from './electron.service';
-import {callback, func, matchers, object, reset, verify, when} from 'testdouble';
+import * as td from 'testdouble';
 import {FinancialService, IntervalWrapper} from './financial.service';
 
 describe('FinancialService', () => {
-  let stubElectronService;
-  let mockSend;
-  let mockOn;
-  let service: FinancialService;
   let financialStatsResponseListener;
+  let mockOn;
+  let stubElectronService;
+  let service: FinancialService;
   let stubInterval;
-  let mockStartInterval;
-  let mockStopInterval;
 
   beforeEach(() => {
-    mockStartInterval = func('startInterval');
-    mockStopInterval = func('stopInterval');
-    mockSend = func('send');
-    mockOn = func('on');
-    financialStatsResponseListener = matchers.captor();
+    financialStatsResponseListener = td.matchers.captor();
+    mockOn = td.func('on');
     stubElectronService = {
       ipcRenderer: {
         on: mockOn,
-        send: mockSend,
+        send: td.func(),
       },
     };
+    spyOn(stubElectronService.ipcRenderer, 'send');
     stubInterval = {
-      startInterval: mockStartInterval,
-      stopInterval: mockStopInterval,
+      startInterval: td.func('startInterval'),
+      stopInterval: td.func(),
     };
+    spyOn(stubInterval, 'stopInterval');
     TestBed.configureTestingModule({
       providers: [
         FinancialService,
@@ -42,17 +38,13 @@ describe('FinancialService', () => {
   });
 
   afterEach(() => {
-    reset();
-  });
-
-  it('should be created', () => {
-    expect(service).toBeTruthy();
+    td.reset();
   });
 
   it('creates listeners', () => {
-    verify(mockOn('get-financial-statistics-response', financialStatsResponseListener.capture()));
+    td.verify(mockOn('get-financial-statistics-response', financialStatsResponseListener.capture()));
 
-    let statsResponse;
+    let statsResponse = null;
 
     service.financialStatisticsResponse.subscribe(_statsResponse => {
       statsResponse = _statsResponse;
@@ -64,10 +56,10 @@ describe('FinancialService', () => {
   });
 
   it('handles error', () => {
-    verify(mockOn('get-financial-statistics-response-error', financialStatsResponseListener.capture()));
+    td.verify(mockOn('get-financial-statistics-response-error', financialStatsResponseListener.capture()));
 
-    let statsResponse;
-    let statsResponseError;
+    let statsResponse = null;
+    let statsResponseError = null;
 
     service.financialStatisticsResponse.subscribe(_statsResponse => {
       statsResponse = _statsResponse;
@@ -80,21 +72,25 @@ describe('FinancialService', () => {
     expect(statsResponse).toBeFalsy();
     expect(statsResponseError).toBe(`{'error': 'an error'}`);
   });
+
   describe('Start Financial Statistics', () => {
     beforeEach( () => {
-      when(mockStartInterval(callback(), 5000)).thenCallback();
+      td.when(stubInterval.startInterval(td.callback(), 5000)).thenCallback();
       service.startFinancialStatistics();
     });
+
     it('calls send', () => {
-     verify(mockSend('get-financial-statistics'));
+      expect(stubElectronService.ipcRenderer.send).toHaveBeenCalledWith('get-financial-statistics');
     });
   });
+
   describe('Stop Financial Statistics', () => {
     beforeEach( () => {
       service.stopFinancialStatistics();
     });
+
     it('clears the interval', () => {
-      verify(mockStopInterval(matchers.anything()));
+      expect(stubInterval.stopInterval).toHaveBeenCalled();
     });
   });
 });
