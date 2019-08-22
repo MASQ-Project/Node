@@ -273,11 +273,11 @@ pub fn make_stream_handler_pool_subs_from(
     let addr: Addr<Recorder> = stream_handler_pool.start();
 
     StreamHandlerPoolSubs {
-        add_sub: addr.clone().recipient::<AddStreamMsg>(),
-        transmit_sub: addr.clone().recipient::<TransmitDataMsg>(),
-        remove_sub: addr.clone().recipient::<RemoveStreamMsg>(),
-        bind: addr.clone().recipient::<PoolBindMessage>(),
-        node_query_response: addr.clone().recipient::<DispatcherNodeQueryResponse>(),
+        add_sub: recipient!(addr, AddStreamMsg),
+        transmit_sub: recipient!(addr, TransmitDataMsg),
+        remove_sub: recipient!(addr, RemoveStreamMsg),
+        bind: recipient!(addr, PoolBindMessage),
+        node_query_response: recipient!(addr, DispatcherNodeQueryResponse),
     }
 }
 

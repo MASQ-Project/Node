@@ -201,11 +201,11 @@ impl BlockchainBridge {
 
     pub fn make_subs_from(addr: &Addr<BlockchainBridge>) -> BlockchainBridgeSubs {
         BlockchainBridgeSubs {
-            bind: addr.clone().recipient::<BindMessage>(),
-            report_accounts_payable: addr.clone().recipient::<ReportAccountsPayable>(),
-            retrieve_transactions: addr.clone().recipient::<RetrieveTransactions>(),
-            set_gas_price_sub: addr.clone().recipient::<SetGasPriceMsg>(),
-            set_consuming_wallet_password_sub: addr.clone().recipient::<SetWalletPasswordMsg>(),
+            bind: recipient!(addr, BindMessage),
+            report_accounts_payable: recipient!(addr, ReportAccountsPayable),
+            retrieve_transactions: recipient!(addr, RetrieveTransactions),
+            set_gas_price_sub: recipient!(addr, SetGasPriceMsg),
+            set_consuming_wallet_password_sub: recipient!(addr, SetWalletPasswordMsg),
         }
     }
 

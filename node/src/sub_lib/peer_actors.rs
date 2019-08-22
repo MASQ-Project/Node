@@ -35,6 +35,9 @@ pub struct BindMessage {
     pub peer_actors: PeerActors,
 }
 
+#[derive(Message, Clone)]
+pub struct StartMessage {}
+
 #[cfg(test)]
 mod tests {
     use crate::test_utils::recorder::peer_actors_builder;

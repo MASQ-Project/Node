@@ -9,6 +9,7 @@ use crate::sub_lib::stream_key::StreamKey;
 use actix::Message;
 use actix::Recipient;
 use serde_derive::{Deserialize, Serialize};
+use std::fmt::{Debug, Formatter};
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::net::SocketAddrV4;
@@ -71,6 +72,12 @@ pub struct ProxyClientSubs {
     pub dns_resolve_failed: Recipient<DnsResolveFailure>,
 }
 
+impl Debug for ProxyClientSubs {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "ProxyClientSubs")
+    }
+}
+
 impl ClientResponsePayload {
     pub fn make_terminating_payload(stream_key: StreamKey) -> ClientResponsePayload {
         ClientResponsePayload {
@@ -101,7 +108,10 @@ pub struct InboundServerData {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sub_lib::peer_actors::BindMessage;
     use crate::test_utils::make_meaningless_stream_key;
+    use crate::test_utils::recorder::Recorder;
+    use actix::Actor;
 
     #[test]
     fn make_terminating_payload_makes_terminating_payload() {
@@ -121,5 +131,19 @@ mod tests {
                 },
             }
         )
+    }
+
+    #[test]
+    fn proxy_client_subs_debug() {
+        let recorder = Recorder::new().start();
+
+        let subject = ProxyClientSubs {
+            bind: recipient!(recorder, BindMessage),
+            from_hopper: recipient!(recorder, ExpiredCoresPackage<ClientRequestPayload>),
+            inbound_server_data: recipient!(recorder, InboundServerData),
+            dns_resolve_failed: recipient!(recorder, DnsResolveFailure),
+        };
+
+        assert_eq!(format!("{:?}", subject), "ProxyClientSubs");
     }
 }

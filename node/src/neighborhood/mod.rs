@@ -33,15 +33,15 @@ use crate::sub_lib::neighborhood::DispatcherNodeQueryMessage;
 use crate::sub_lib::neighborhood::ExpectedService;
 use crate::sub_lib::neighborhood::ExpectedServices;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
+use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::NodeQueryMessage;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::{sentinel_ip_addr, NodeRecordMetadataMessage};
-use crate::sub_lib::neighborhood::{BootstrapNeighborhoodNowMessage, NodeDescriptor};
 use crate::sub_lib::node_addr::NodeAddr;
-use crate::sub_lib::peer_actors::BindMessage;
+use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
@@ -101,14 +101,10 @@ impl Handler<SetConsumingWalletMessage> for Neighborhood {
     }
 }
 
-impl Handler<BootstrapNeighborhoodNowMessage> for Neighborhood {
+impl Handler<StartMessage> for Neighborhood {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        _msg: BootstrapNeighborhoodNowMessage,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, _msg: StartMessage, _ctx: &mut Self::Context) -> Self::Result {
         if self.initial_neighbors.is_empty() {
             info!(self.logger, "No Nodes to report to; continuing");
             return;
@@ -376,7 +372,7 @@ impl Neighborhood {
     pub fn make_subs_from(addr: &Addr<Neighborhood>) -> NeighborhoodSubs {
         NeighborhoodSubs {
             bind: addr.clone().recipient::<BindMessage>(),
-            bootstrap: addr.clone().recipient::<BootstrapNeighborhoodNowMessage>(),
+            start: addr.clone().recipient::<StartMessage>(),
             node_query: addr.clone().recipient::<NodeQueryMessage>(),
             route_query: addr.clone().recipient::<RouteQueryMessage>(),
             update_node_record_metadata: addr.clone().recipient::<NodeRecordMetadataMessage>(),
@@ -1007,7 +1003,7 @@ mod tests {
     }
 
     #[test]
-    fn node_with_no_neighbor_configs_ignores_bootstrap_neighborhood_now_message() {
+    fn node_with_no_neighbor_configs_ignores_start_messag() {
         init_test_logging();
         let cryptde = cryptde();
         let earning_wallet = make_wallet("earning");
@@ -1028,13 +1024,12 @@ mod tests {
             ),
         );
         let addr: Addr<Neighborhood> = subject.start();
-        let sub: Recipient<BootstrapNeighborhoodNowMessage> =
-            addr.clone().recipient::<BootstrapNeighborhoodNowMessage>();
+        let sub = addr.clone().recipient::<StartMessage>();
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
 
-        sub.try_send(BootstrapNeighborhoodNowMessage {}).unwrap();
+        sub.try_send(StartMessage {}).unwrap();
 
         System::current().stop_with_code(0);
         system.run();
@@ -1068,12 +1063,11 @@ mod tests {
             ),
         );
         let addr: Addr<Neighborhood> = subject.start();
-        let sub: Recipient<BootstrapNeighborhoodNowMessage> =
-            addr.clone().recipient::<BootstrapNeighborhoodNowMessage>();
+        let sub = addr.clone().recipient::<StartMessage>();
         let peer_actors = peer_actors_builder().build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
 
-        sub.try_send(BootstrapNeighborhoodNowMessage {}).unwrap();
+        sub.try_send(StartMessage {}).unwrap();
 
         System::current().stop_with_code(0);
         system.run();
@@ -2556,10 +2550,9 @@ mod tests {
             let peer_actors = peer_actors_builder().hopper(hopper).build();
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            let sub: Recipient<BootstrapNeighborhoodNowMessage> =
-                addr.recipient::<BootstrapNeighborhoodNowMessage>();
+            let sub = addr.recipient::<StartMessage>();
 
-            sub.try_send(BootstrapNeighborhoodNowMessage {}).unwrap();
+            sub.try_send(StartMessage {}).unwrap();
 
             system.run();
         });

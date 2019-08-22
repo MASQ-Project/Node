@@ -1,11 +1,12 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::accountant::{ReceivedPayments, SentPayments};
-use crate::sub_lib::peer_actors::BindMessage;
+use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
 use lazy_static::lazy_static;
 use serde_derive::{Deserialize, Serialize};
+use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -25,6 +26,7 @@ pub struct AccountantConfig {
 #[derive(Clone)]
 pub struct AccountantSubs {
     pub bind: Recipient<BindMessage>,
+    pub start: Recipient<StartMessage>,
     pub report_routing_service_provided: Recipient<ReportRoutingServiceProvidedMessage>,
     pub report_exit_service_provided: Recipient<ReportExitServiceProvidedMessage>,
     pub report_routing_service_consumed: Recipient<ReportRoutingServiceConsumedMessage>,
@@ -32,6 +34,12 @@ pub struct AccountantSubs {
     pub report_new_payments: Recipient<ReceivedPayments>,
     pub report_sent_payments: Recipient<SentPayments>,
     pub get_financial_statistics_sub: Recipient<GetFinancialStatisticsMessage>,
+}
+
+impl Debug for AccountantSubs {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "AccountantSubs")
+    }
 }
 
 #[derive(Clone, PartialEq, Debug, Message)]
@@ -76,4 +84,36 @@ pub struct GetFinancialStatisticsMessage {
 pub struct FinancialStatisticsMessage {
     pub pending_credit: i64,
     pub pending_debt: i64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils::recorder::Recorder;
+    use actix::Actor;
+
+    #[test]
+    fn accountant_subs_debug() {
+        let recorder = Recorder::new().start();
+
+        let subject = AccountantSubs {
+            bind: recipient!(recorder, BindMessage),
+            start: recipient!(recorder, StartMessage),
+            report_routing_service_provided: recipient!(
+                recorder,
+                ReportRoutingServiceProvidedMessage
+            ),
+            report_exit_service_provided: recipient!(recorder, ReportExitServiceProvidedMessage),
+            report_routing_service_consumed: recipient!(
+                recorder,
+                ReportRoutingServiceConsumedMessage
+            ),
+            report_exit_service_consumed: recipient!(recorder, ReportExitServiceConsumedMessage),
+            report_new_payments: recipient!(recorder, ReceivedPayments),
+            report_sent_payments: recipient!(recorder, SentPayments),
+            get_financial_statistics_sub: recipient!(recorder, GetFinancialStatisticsMessage),
+        };
+
+        assert_eq!(format!("{:?}", subject), "AccountantSubs");
+    }
 }

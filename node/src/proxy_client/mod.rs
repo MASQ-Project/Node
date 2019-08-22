@@ -594,10 +594,7 @@ mod tests {
             let subject_addr = subject.start();
             let subject_subs = ProxyClient::make_subs_from(&subject_addr);
 
-            subject_subs
-                .bind
-                .try_send(BindMessage { peer_actors })
-                .unwrap();
+            send_bind_message!(subject_subs, peer_actors);
 
             subject_subs
                 .dns_resolve_failed

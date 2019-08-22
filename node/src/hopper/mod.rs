@@ -114,10 +114,10 @@ impl Hopper {
 
     pub fn make_subs_from(addr: &Addr<Hopper>) -> HopperSubs {
         HopperSubs {
-            bind: addr.clone().recipient::<BindMessage>(),
-            from_hopper_client: addr.clone().recipient::<IncipientCoresPackage>(),
-            from_hopper_client_no_lookup: addr.clone().recipient::<NoLookupIncipientCoresPackage>(),
-            from_dispatcher: addr.clone().recipient::<InboundClientData>(),
+            bind: recipient!(addr, BindMessage),
+            from_hopper_client: recipient!(addr, IncipientCoresPackage),
+            from_hopper_client_no_lookup: recipient!(addr, NoLookupIncipientCoresPackage),
+            from_dispatcher: recipient!(addr, InboundClientData),
         }
     }
 }

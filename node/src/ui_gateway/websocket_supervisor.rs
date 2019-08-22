@@ -49,7 +49,7 @@ impl ClientWrapper for ClientWrapperReal {
     }
 }
 
-pub trait WebSocketSupervisor {
+pub trait WebSocketSupervisor: Send {
     fn send(&self, client_id: u64, message_json: &str);
 }
 

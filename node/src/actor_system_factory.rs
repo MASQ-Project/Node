@@ -28,10 +28,9 @@ use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::dispatcher::DispatcherSubs;
 use crate::sub_lib::hopper::HopperConfig;
 use crate::sub_lib::hopper::HopperSubs;
-use crate::sub_lib::neighborhood::BootstrapNeighborhoodNowMessage;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
-use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::peer_actors::PeerActors;
+use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::proxy_client::ProxyClientConfig;
 use crate::sub_lib::proxy_client::ProxyClientSubs;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
@@ -128,62 +127,14 @@ impl ActorSystemFactoryReal {
         };
 
         //bind all the actors
-        peer_actors
-            .dispatcher
-            .bind
-            .try_send(BindMessage {
-                peer_actors: peer_actors.clone(),
-            })
-            .expect("Dispatcher is dead");
-        peer_actors
-            .proxy_server
-            .bind
-            .try_send(BindMessage {
-                peer_actors: peer_actors.clone(),
-            })
-            .expect("ProxyServer is dead");
-        peer_actors
-            .proxy_client
-            .bind
-            .try_send(BindMessage {
-                peer_actors: peer_actors.clone(),
-            })
-            .expect("ProxyClient is dead");
-        peer_actors
-            .hopper
-            .bind
-            .try_send(BindMessage {
-                peer_actors: peer_actors.clone(),
-            })
-            .expect("Hopper is dead");
-        peer_actors
-            .neighborhood
-            .bind
-            .try_send(BindMessage {
-                peer_actors: peer_actors.clone(),
-            })
-            .expect("Neighborhood is dead");
-        peer_actors
-            .accountant
-            .bind
-            .try_send(BindMessage {
-                peer_actors: peer_actors.clone(),
-            })
-            .expect("Accountant is dead");
-        peer_actors
-            .ui_gateway
-            .bind
-            .try_send(BindMessage {
-                peer_actors: peer_actors.clone(),
-            })
-            .expect("UiGateway is dead");
-        peer_actors
-            .blockchain_bridge
-            .bind
-            .try_send(BindMessage {
-                peer_actors: peer_actors.clone(),
-            })
-            .expect("BlockchainBridge is dead");
+        send_bind_message!(peer_actors.dispatcher, peer_actors);
+        send_bind_message!(peer_actors.proxy_server, peer_actors);
+        send_bind_message!(peer_actors.proxy_client, peer_actors);
+        send_bind_message!(peer_actors.hopper, peer_actors);
+        send_bind_message!(peer_actors.neighborhood, peer_actors);
+        send_bind_message!(peer_actors.accountant, peer_actors);
+        send_bind_message!(peer_actors.ui_gateway, peer_actors);
+        send_bind_message!(peer_actors.blockchain_bridge, peer_actors);
         stream_handler_pool_subs
             .bind
             .try_send(PoolBindMessage {
@@ -199,11 +150,10 @@ impl ActorSystemFactoryReal {
                 neighborhood_subs: neighborhood_subs.clone(),
             })
             .expect("Dispatcher is dead");
-        peer_actors
-            .neighborhood
-            .bootstrap
-            .try_send(BootstrapNeighborhoodNowMessage {})
-            .expect("Neighborhood is dead");
+
+        //after we've bound all the actors, send start messages to any actors that need it
+        send_start_message!(peer_actors.neighborhood);
+        send_start_message!(peer_actors.accountant);
 
         //send out the stream handler pool subs (to be bound to listeners)
         tx.send(stream_handler_pool_subs).ok();
@@ -353,7 +303,7 @@ impl ActorFactory for ActorFactoryReal {
 
     fn make_and_start_ui_gateway(&self, config: UiGatewayConfig) -> UiGatewaySubs {
         let ui_gateway = UiGateway::new(&config);
-        let addr: Addr<UiGateway> = ui_gateway.start();
+        let addr: Addr<UiGateway> = Arbiter::start(|_| ui_gateway);
         UiGateway::make_subs_from(&addr)
     }
 
@@ -445,6 +395,7 @@ mod tests {
     use crate::sub_lib::neighborhood::RouteQueryMessage;
     use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, NodeRecordMetadataMessage};
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, NodeQueryMessage};
+    use crate::sub_lib::peer_actors::StartMessage;
     use crate::sub_lib::proxy_client::{
         ClientResponsePayload, DnsResolveFailure, InboundServerData,
     };
@@ -506,10 +457,10 @@ mod tests {
         fn make_and_start_dispatcher(&self) -> (DispatcherSubs, Recipient<PoolBindMessage>) {
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.dispatcher);
             let dispatcher_subs = DispatcherSubs {
-                ibcd_sub: addr.clone().recipient::<InboundClientData>(),
-                bind: addr.clone().recipient::<BindMessage>(),
-                from_dispatcher_client: addr.clone().recipient::<TransmitDataMsg>(),
-                stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
+                ibcd_sub: recipient!(addr, InboundClientData),
+                bind: recipient!(addr, BindMessage),
+                from_dispatcher_client: recipient!(addr, TransmitDataMsg),
+                stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
             };
             (dispatcher_subs, addr.recipient::<PoolBindMessage>())
         }
@@ -527,18 +478,18 @@ mod tests {
                 .get_or_insert((cryptde, is_decentralized, consuming_wallet_balance));
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.proxy_server);
             ProxyServerSubs {
-                bind: addr.clone().recipient::<BindMessage>(),
-                from_dispatcher: addr.clone().recipient::<InboundClientData>(),
+                bind: recipient!(addr, BindMessage),
+                from_dispatcher: recipient!(addr, InboundClientData),
                 from_hopper: addr
                     .clone()
                     .recipient::<ExpiredCoresPackage<ClientResponsePayload>>(),
                 dns_failure_from_hopper: addr
                     .clone()
                     .recipient::<ExpiredCoresPackage<DnsResolveFailure>>(),
-                add_return_route: addr.clone().recipient::<AddReturnRouteMessage>(),
-                add_route: addr.clone().recipient::<AddRouteMessage>(),
-                stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
-                set_consuming_wallet_sub: addr.clone().recipient::<SetConsumingWalletMessage>(),
+                add_return_route: recipient!(addr, AddReturnRouteMessage),
+                add_route: recipient!(addr, AddRouteMessage),
+                stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
+                set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
             }
         }
 
@@ -550,12 +501,12 @@ mod tests {
                 .get_or_insert(config);
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.hopper);
             HopperSubs {
-                bind: addr.clone().recipient::<BindMessage>(),
-                from_hopper_client: addr.clone().recipient::<IncipientCoresPackage>(),
+                bind: recipient!(addr, BindMessage),
+                from_hopper_client: recipient!(addr, IncipientCoresPackage),
                 from_hopper_client_no_lookup: addr
                     .clone()
                     .recipient::<NoLookupIncipientCoresPackage>(),
-                from_dispatcher: addr.clone().recipient::<InboundClientData>(),
+                from_dispatcher: recipient!(addr, InboundClientData),
             }
         }
 
@@ -571,16 +522,16 @@ mod tests {
                 .get_or_insert((cryptde, config.clone()));
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.neighborhood);
             NeighborhoodSubs {
-                bind: addr.clone().recipient::<BindMessage>(),
-                bootstrap: addr.clone().recipient::<BootstrapNeighborhoodNowMessage>(),
-                node_query: addr.clone().recipient::<NodeQueryMessage>(),
-                route_query: addr.clone().recipient::<RouteQueryMessage>(),
-                update_node_record_metadata: addr.clone().recipient::<NodeRecordMetadataMessage>(),
+                bind: recipient!(addr, BindMessage),
+                start: recipient!(addr, StartMessage),
+                node_query: recipient!(addr, NodeQueryMessage),
+                route_query: recipient!(addr, RouteQueryMessage),
+                update_node_record_metadata: recipient!(addr, NodeRecordMetadataMessage),
                 from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip>>(),
-                dispatcher_node_query: addr.clone().recipient::<DispatcherNodeQueryMessage>(),
-                remove_neighbor: addr.clone().recipient::<RemoveNeighborMessage>(),
-                stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
-                set_consuming_wallet_sub: addr.clone().recipient::<SetConsumingWalletMessage>(),
+                dispatcher_node_query: recipient!(addr, DispatcherNodeQueryMessage),
+                remove_neighbor: recipient!(addr, RemoveNeighborMessage),
+                stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
+                set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
             }
         }
 
@@ -598,7 +549,8 @@ mod tests {
                 .get_or_insert((config.clone(), data_directory.clone()));
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.accountant);
             AccountantSubs {
-                bind: addr.clone().recipient::<BindMessage>(),
+                bind: recipient!(addr, BindMessage),
+                start: recipient!(addr, StartMessage),
                 report_routing_service_provided: addr
                     .clone()
                     .recipient::<ReportRoutingServiceProvidedMessage>(),
@@ -611,8 +563,8 @@ mod tests {
                 report_exit_service_consumed: addr
                     .clone()
                     .recipient::<ReportExitServiceConsumedMessage>(),
-                report_new_payments: addr.clone().recipient::<ReceivedPayments>(),
-                report_sent_payments: addr.clone().recipient::<SentPayments>(),
+                report_new_payments: recipient!(addr, ReceivedPayments),
+                report_sent_payments: recipient!(addr, SentPayments),
                 get_financial_statistics_sub: addr
                     .clone()
                     .recipient::<GetFinancialStatisticsMessage>(),
@@ -627,9 +579,9 @@ mod tests {
                 .get_or_insert(config);
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.ui_gateway);
             UiGatewaySubs {
-                bind: addr.clone().recipient::<BindMessage>(),
-                ui_message_sub: addr.clone().recipient::<UiCarrierMessage>(),
-                from_ui_message_sub: addr.clone().recipient::<FromUiMessage>(),
+                bind: recipient!(addr, BindMessage),
+                ui_message_sub: recipient!(addr, UiCarrierMessage),
+                from_ui_message_sub: recipient!(addr, FromUiMessage),
             }
         }
 
@@ -639,11 +591,11 @@ mod tests {
         ) -> StreamHandlerPoolSubs {
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.stream_handler_pool);
             StreamHandlerPoolSubs {
-                add_sub: addr.clone().recipient::<AddStreamMsg>(),
-                transmit_sub: addr.clone().recipient::<TransmitDataMsg>(),
-                remove_sub: addr.clone().recipient::<RemoveStreamMsg>(),
-                bind: addr.clone().recipient::<PoolBindMessage>(),
-                node_query_response: addr.clone().recipient::<DispatcherNodeQueryResponse>(),
+                add_sub: recipient!(addr, AddStreamMsg),
+                transmit_sub: recipient!(addr, TransmitDataMsg),
+                remove_sub: recipient!(addr, RemoveStreamMsg),
+                bind: recipient!(addr, PoolBindMessage),
+                node_query_response: recipient!(addr, DispatcherNodeQueryResponse),
             }
         }
 
@@ -655,12 +607,12 @@ mod tests {
                 .get_or_insert(config);
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.proxy_client);
             ProxyClientSubs {
-                bind: addr.clone().recipient::<BindMessage>(),
+                bind: recipient!(addr, BindMessage),
                 from_hopper: addr
                     .clone()
                     .recipient::<ExpiredCoresPackage<ClientRequestPayload>>(),
-                inbound_server_data: addr.clone().recipient::<InboundServerData>(),
-                dns_resolve_failed: addr.clone().recipient::<DnsResolveFailure>(),
+                inbound_server_data: recipient!(addr, InboundServerData),
+                dns_resolve_failed: recipient!(addr, DnsResolveFailure),
             }
         }
 
@@ -676,7 +628,7 @@ mod tests {
                 .get_or_insert(config.clone());
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.blockchain_bridge);
             BlockchainBridgeSubs {
-                bind: addr.clone().recipient::<BindMessage>(),
+                bind: recipient!(addr, BindMessage),
                 report_accounts_payable: addr.clone().recipient::<ReportAccountsPayable>(),
                 retrieve_transactions: addr.clone().recipient::<RetrieveTransactions>(),
                 set_gas_price_sub: addr.clone().recipient::<SetGasPriceMsg>(),
@@ -987,7 +939,7 @@ mod tests {
         Recording::get::<BindMessage>(&recordings.ui_gateway, 0);
         Recording::get::<BindMessage>(&recordings.blockchain_bridge, 0);
         Recording::get::<PoolBindMessage>(&recordings.stream_handler_pool, 0);
-        Recording::get::<BootstrapNeighborhoodNowMessage>(&recordings.neighborhood, 1);
+        Recording::get::<StartMessage>(&recordings.neighborhood, 1);
     }
 
     #[test]
@@ -1045,6 +997,8 @@ mod tests {
         check_bind_message(&recordings.proxy_server);
         check_bind_message(&recordings.neighborhood);
         check_bind_message(&recordings.ui_gateway);
+        check_bind_message(&recordings.accountant);
+        check_start_message(&recordings.accountant);
         let hopper_config = Parameters::get(parameters.hopper_params);
         check_cryptde(hopper_config.cryptde);
         assert_eq!(hopper_config.per_routing_service, rate_pack_routing(100));
@@ -1144,8 +1098,42 @@ mod tests {
 
     fn check_bind_message(recording: &Arc<Mutex<Recording>>) {
         let bind_message = Recording::get::<BindMessage>(recording, 0);
-        let _peer_actors = bind_message.peer_actors;
-        // more...more...what? How to check contents of _peer_actors?
+        assert_eq!(
+            format!("{:?}", bind_message.peer_actors.neighborhood),
+            "NeighborhoodSubs"
+        );
+        assert_eq!(
+            format!("{:?}", bind_message.peer_actors.accountant),
+            "AccountantSubs"
+        );
+        assert_eq!(
+            format!("{:?}", bind_message.peer_actors.ui_gateway),
+            "UiGatewaySubs"
+        );
+        assert_eq!(
+            format!("{:?}", bind_message.peer_actors.blockchain_bridge),
+            "BlockchainBridgeSubs"
+        );
+        assert_eq!(
+            format!("{:?}", bind_message.peer_actors.dispatcher),
+            "DispatcherSubs"
+        );
+        assert_eq!(
+            format!("{:?}", bind_message.peer_actors.hopper),
+            "HopperSubs"
+        );
+        assert_eq!(
+            format!("{:?}", bind_message.peer_actors.proxy_client),
+            "ProxyClientSubs"
+        );
+        assert_eq!(
+            format!("{:?}", bind_message.peer_actors.proxy_server),
+            "ProxyServerSubs"
+        );
+    }
+
+    fn check_start_message(recording: &Arc<Mutex<Recording>>) {
+        let _start_message = Recording::get::<StartMessage>(recording, 1);
     }
 
     fn check_cryptde(candidate: &dyn CryptDE) {

@@ -21,12 +21,12 @@ use crate::sub_lib::neighborhood::DispatcherNodeQueryMessage;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
 use crate::sub_lib::neighborhood::NodeQueryMessage;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
+use crate::sub_lib::neighborhood::NodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
-use crate::sub_lib::neighborhood::{BootstrapNeighborhoodNowMessage, NodeRecordMetadataMessage};
-use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::peer_actors::PeerActors;
+use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::proxy_client::{ClientResponsePayload, InboundServerData};
 use crate::sub_lib::proxy_client::{DnsResolveFailure, ProxyClientSubs};
 use crate::sub_lib::proxy_server::ProxyServerSubs;
@@ -95,7 +95,6 @@ recorder_message_handler!(IncipientCoresPackage);
 recorder_message_handler!(NoLookupIncipientCoresPackage);
 recorder_message_handler!(InboundClientData);
 recorder_message_handler!(InboundServerData);
-recorder_message_handler!(BootstrapNeighborhoodNowMessage);
 recorder_message_handler!(RemoveNeighborMessage);
 recorder_message_handler!(DispatcherNodeQueryResponse);
 recorder_message_handler!(DispatcherNodeQueryMessage);
@@ -118,6 +117,7 @@ recorder_message_handler!(AddStreamMsg);
 recorder_message_handler!(PoolBindMessage);
 recorder_message_handler!(RemoveStreamMsg);
 recorder_message_handler!(StreamShutdownMsg);
+recorder_message_handler!(StartMessage);
 
 impl Handler<NodeQueryMessage> for Recorder {
     type Result = MessageResult<NodeQueryMessage>;
@@ -316,97 +316,98 @@ pub fn make_recorder() -> (Recorder, RecordAwaiter, Arc<Mutex<Recording>>) {
 
 pub fn make_proxy_server_subs_from(addr: &Addr<Recorder>) -> ProxyServerSubs {
     ProxyServerSubs {
-        bind: addr.clone().recipient::<BindMessage>(),
-        from_dispatcher: addr.clone().recipient::<InboundClientData>(),
+        bind: recipient!(addr, BindMessage),
+        from_dispatcher: recipient!(addr, InboundClientData),
         from_hopper: addr
             .clone()
             .recipient::<ExpiredCoresPackage<ClientResponsePayload>>(),
         dns_failure_from_hopper: addr
             .clone()
             .recipient::<ExpiredCoresPackage<DnsResolveFailure>>(),
-        add_return_route: addr.clone().recipient::<AddReturnRouteMessage>(),
-        add_route: addr.clone().recipient::<AddRouteMessage>(),
-        stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
-        set_consuming_wallet_sub: addr.clone().recipient::<SetConsumingWalletMessage>(),
+        add_return_route: recipient!(addr, AddReturnRouteMessage),
+        add_route: recipient!(addr, AddRouteMessage),
+        stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
+        set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
     }
 }
 
 pub fn make_dispatcher_subs_from(addr: &Addr<Recorder>) -> DispatcherSubs {
     DispatcherSubs {
-        ibcd_sub: addr.clone().recipient::<InboundClientData>(),
-        bind: addr.clone().recipient::<BindMessage>(),
-        from_dispatcher_client: addr.clone().recipient::<TransmitDataMsg>(),
-        stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
+        ibcd_sub: recipient!(addr, InboundClientData),
+        bind: recipient!(addr, BindMessage),
+        from_dispatcher_client: recipient!(addr, TransmitDataMsg),
+        stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
     }
 }
 
 pub fn make_hopper_subs_from(addr: &Addr<Recorder>) -> HopperSubs {
     HopperSubs {
-        bind: addr.clone().recipient::<BindMessage>(),
-        from_hopper_client: addr.clone().recipient::<IncipientCoresPackage>(),
-        from_hopper_client_no_lookup: addr.clone().recipient::<NoLookupIncipientCoresPackage>(),
-        from_dispatcher: addr.clone().recipient::<InboundClientData>(),
+        bind: recipient!(addr, BindMessage),
+        from_hopper_client: recipient!(addr, IncipientCoresPackage),
+        from_hopper_client_no_lookup: recipient!(addr, NoLookupIncipientCoresPackage),
+        from_dispatcher: recipient!(addr, InboundClientData),
     }
 }
 
 pub fn make_proxy_client_subs_from(addr: &Addr<Recorder>) -> ProxyClientSubs {
     ProxyClientSubs {
-        bind: addr.clone().recipient::<BindMessage>(),
+        bind: recipient!(addr, BindMessage),
         from_hopper: addr
             .clone()
             .recipient::<ExpiredCoresPackage<ClientRequestPayload>>(),
-        inbound_server_data: addr.clone().recipient::<InboundServerData>(),
-        dns_resolve_failed: addr.clone().recipient::<DnsResolveFailure>(),
+        inbound_server_data: recipient!(addr, InboundServerData),
+        dns_resolve_failed: recipient!(addr, DnsResolveFailure),
     }
 }
 
 pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
     NeighborhoodSubs {
-        bind: addr.clone().recipient::<BindMessage>(),
-        bootstrap: addr.clone().recipient::<BootstrapNeighborhoodNowMessage>(),
-        node_query: addr.clone().recipient::<NodeQueryMessage>(),
-        route_query: addr.clone().recipient::<RouteQueryMessage>(),
-        update_node_record_metadata: addr.clone().recipient::<NodeRecordMetadataMessage>(),
+        bind: recipient!(addr, BindMessage),
+        start: recipient!(addr, StartMessage),
+        node_query: recipient!(addr, NodeQueryMessage),
+        route_query: recipient!(addr, RouteQueryMessage),
+        update_node_record_metadata: recipient!(addr, NodeRecordMetadataMessage),
         from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip>>(),
-        dispatcher_node_query: addr.clone().recipient::<DispatcherNodeQueryMessage>(),
-        remove_neighbor: addr.clone().recipient::<RemoveNeighborMessage>(),
-        stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
-        set_consuming_wallet_sub: addr.clone().recipient::<SetConsumingWalletMessage>(),
+        dispatcher_node_query: recipient!(addr, DispatcherNodeQueryMessage),
+        remove_neighbor: recipient!(addr, RemoveNeighborMessage),
+        stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
+        set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
     }
 }
 
 pub fn make_accountant_subs_from(addr: &Addr<Recorder>) -> AccountantSubs {
     AccountantSubs {
-        bind: addr.clone().recipient::<BindMessage>(),
+        bind: recipient!(addr, BindMessage),
+        start: recipient!(addr, StartMessage),
         report_routing_service_provided: addr
             .clone()
             .recipient::<ReportRoutingServiceProvidedMessage>(),
-        report_exit_service_provided: addr.clone().recipient::<ReportExitServiceProvidedMessage>(),
+        report_exit_service_provided: recipient!(addr, ReportExitServiceProvidedMessage),
         report_routing_service_consumed: addr
             .clone()
             .recipient::<ReportRoutingServiceConsumedMessage>(),
-        report_exit_service_consumed: addr.clone().recipient::<ReportExitServiceConsumedMessage>(),
-        report_new_payments: addr.clone().recipient::<ReceivedPayments>(),
-        report_sent_payments: addr.clone().recipient::<SentPayments>(),
-        get_financial_statistics_sub: addr.clone().recipient::<GetFinancialStatisticsMessage>(),
+        report_exit_service_consumed: recipient!(addr, ReportExitServiceConsumedMessage),
+        report_new_payments: recipient!(addr, ReceivedPayments),
+        report_sent_payments: recipient!(addr, SentPayments),
+        get_financial_statistics_sub: recipient!(addr, GetFinancialStatisticsMessage),
     }
 }
 
 pub fn make_ui_gateway_subs_from(addr: &Addr<Recorder>) -> UiGatewaySubs {
     UiGatewaySubs {
-        bind: addr.clone().recipient::<BindMessage>(),
-        ui_message_sub: addr.clone().recipient::<UiCarrierMessage>(),
-        from_ui_message_sub: addr.clone().recipient::<FromUiMessage>(),
+        bind: recipient!(addr, BindMessage),
+        ui_message_sub: recipient!(addr, UiCarrierMessage),
+        from_ui_message_sub: recipient!(addr, FromUiMessage),
     }
 }
 
 pub fn make_blockchain_bridge_subs_from(addr: &Addr<Recorder>) -> BlockchainBridgeSubs {
     BlockchainBridgeSubs {
-        bind: addr.clone().recipient::<BindMessage>(),
-        report_accounts_payable: addr.clone().recipient::<ReportAccountsPayable>(),
-        retrieve_transactions: addr.clone().recipient::<RetrieveTransactions>(),
-        set_gas_price_sub: addr.clone().recipient::<SetGasPriceMsg>(),
-        set_consuming_wallet_password_sub: addr.clone().recipient::<SetWalletPasswordMsg>(),
+        bind: recipient!(addr, BindMessage),
+        report_accounts_payable: recipient!(addr, ReportAccountsPayable),
+        retrieve_transactions: recipient!(addr, RetrieveTransactions),
+        set_gas_price_sub: recipient!(addr, SetGasPriceMsg),
+        set_consuming_wallet_password_sub: recipient!(addr, SetWalletPasswordMsg),
     }
 }
 

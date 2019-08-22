@@ -21,7 +21,7 @@ use crate::sub_lib::accountant::{AccountantConfig, GetFinancialStatisticsMessage
 use crate::sub_lib::accountant::{AccountantSubs, FinancialStatisticsMessage};
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::logger::Logger;
-use crate::sub_lib::peer_actors::BindMessage;
+use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::ui_gateway::{UiCarrierMessage, UiMessage};
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::sub_lib::wallet::Wallet;
@@ -117,11 +117,17 @@ impl Handler<BindMessage> for Accountant {
         self.ui_carrier_message_sub = Some(msg.peer_actors.ui_gateway.ui_message_sub.clone());
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
 
-        ctx.run_later(Duration::from_secs(2), |accountant, _ctx| {
-            accountant.scan_for_payables();
-            accountant.scan_for_received_payments();
-            accountant.scan_for_delinquencies();
-        });
+        info!(self.logger, "Accountant bound");
+    }
+}
+
+impl Handler<StartMessage> for Accountant {
+    type Result = ();
+
+    fn handle(&mut self, _msg: StartMessage, ctx: &mut Self::Context) -> Self::Result {
+        self.scan_for_payables();
+        self.scan_for_received_payments();
+        self.scan_for_delinquencies();
 
         ctx.run_interval(self.config.payable_scan_interval, |accountant, _ctx| {
             accountant.scan_for_payables();
@@ -134,8 +140,6 @@ impl Handler<BindMessage> for Accountant {
                 accountant.scan_for_delinquencies();
             },
         );
-
-        info!(self.logger, "Accountant bound");
     }
 }
 
@@ -326,6 +330,7 @@ impl Accountant {
     pub fn make_subs_from(addr: &Addr<Accountant>) -> AccountantSubs {
         AccountantSubs {
             bind: addr.clone().recipient::<BindMessage>(),
+            start: addr.clone().recipient::<StartMessage>(),
             report_routing_service_provided: addr
                 .clone()
                 .recipient::<ReportRoutingServiceProvidedMessage>(),
@@ -381,6 +386,8 @@ impl Accountant {
     }
 
     fn scan_for_delinquencies(&mut self) {
+        debug!(self.logger, "Scanning for delinquencies");
+
         let now = SystemTime::now();
         self.receivable_dao
             .new_delinquencies(now, &PAYMENT_CURVES)
@@ -954,12 +961,13 @@ pub mod tests {
                 .non_pending_payables_result(vec![]),
         );
 
-        let blockchain_bridge =
-            Recorder::new().report_accounts_payable_response(Ok(vec![Ok(Payment::new(
+        let blockchain_bridge = Recorder::new()
+            .report_accounts_payable_response(Ok(vec![Ok(Payment::new(
                 expected_wallet_inner,
                 expected_amount,
                 expected_pending_payment_transaction_inner,
-            ))]));
+            ))]))
+            .retrieve_transactions_response(Ok(vec![]));
 
         let (accountant_mock, accountant_mock_awaiter, accountant_recording_arc) = make_recorder();
 
@@ -991,10 +999,8 @@ pub mod tests {
             let subject_addr = subject.start();
             let accountant_subs = Accountant::make_subs_from(&subject_addr);
 
-            accountant_subs
-                .bind
-                .try_send(BindMessage { peer_actors })
-                .unwrap();
+            send_bind_message!(accountant_subs, peer_actors);
+            send_start_message!(accountant_subs);
 
             system.run();
         });
@@ -1041,6 +1047,7 @@ pub mod tests {
         );
 
         let blockchain_bridge = Recorder::new()
+            .retrieve_transactions_response(Ok(vec![]))
             .report_accounts_payable_response(Err("Failed to send transaction".to_string()));
 
         let (accountant_mock, _, accountant_recording_arc) = make_recorder();
@@ -1071,12 +1078,10 @@ pub mod tests {
                 config_mock,
             );
             let subject_addr = subject.start();
-            let accountant_subs = Accountant::make_subs_from(&subject_addr);
+            let subject_subs = Accountant::make_subs_from(&subject_addr);
 
-            accountant_subs
-                .bind
-                .try_send(BindMessage { peer_actors })
-                .unwrap();
+            send_bind_message!(subject_subs, peer_actors);
+            send_start_message!(subject_subs);
 
             system.run();
         });
@@ -1096,42 +1101,38 @@ pub mod tests {
         };
         let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
 
-        thread::spawn(move || {
-            let system =
-                System::new("accountant_responds_with_financial_statistics_when_instructed");
-            let payable_dao = PayableDaoMock::new()
-                .non_pending_payables_result(vec![
-                    make_payable_account(20),
-                    make_payable_account(20),
-                    make_payable_account(2),
-                ])
-                .non_pending_payables_result(vec![]);
-            let receivable_dao = ReceivableDaoMock::new().receivables_result(vec![
-                make_receivable_account(35, false),
-                make_receivable_account(30, false),
-                make_receivable_account(4, false),
-            ]);
+        let system = System::new("accountant_responds_with_financial_statistics_when_instructed");
+        let payable_dao = PayableDaoMock::new()
+            .non_pending_payables_result(vec![
+                make_payable_account(20),
+                make_payable_account(20),
+                make_payable_account(2),
+            ])
+            .non_pending_payables_result(vec![]);
+        let receivable_dao = ReceivableDaoMock::new().receivables_result(vec![
+            make_receivable_account(35, false),
+            make_receivable_account(30, false),
+            make_receivable_account(4, false),
+        ]);
 
-            let subject = Accountant::new(
-                &bc_from_ac_plus_earning_wallet(config, make_wallet("blah")),
-                Box::new(payable_dao),
-                Box::new(receivable_dao),
-                Box::new(BannedDaoMock::new()),
-                Box::new(PersistentConfigurationMock::new()),
-            );
-            let addr = subject.start();
-            let subject_subs = Accountant::make_subs_from(&addr);
-            let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
-            subject_subs
-                .bind
-                .try_send(BindMessage { peer_actors })
-                .unwrap();
+        let subject = Accountant::new(
+            &bc_from_ac_plus_earning_wallet(config, make_wallet("blah")),
+            Box::new(payable_dao),
+            Box::new(receivable_dao),
+            Box::new(BannedDaoMock::new()),
+            Box::new(PersistentConfigurationMock::new()),
+        );
+        let addr = subject.start();
+        let subject_subs = Accountant::make_subs_from(&addr);
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
 
-            addr.try_send(GetFinancialStatisticsMessage { client_id: 1234 })
-                .unwrap();
+        send_bind_message!(subject_subs, peer_actors);
 
-            system.run();
-        });
+        addr.try_send(GetFinancialStatisticsMessage { client_id: 1234 })
+            .unwrap();
+
+        System::current().stop();
+        system.run();
 
         ui_gateway_awaiter.await_message_count(1);
 
@@ -1142,8 +1143,8 @@ pub mod tests {
                 client_id: 1234,
                 data: UiMessage::FinancialStatisticsResponse(FinancialStatisticsMessage {
                     pending_credit: 69_000_000_000,
-                    pending_debt: 42_000_000_000
-                })
+                    pending_debt: 42_000_000_000,
+                }),
             }
         );
     }
@@ -1197,10 +1198,8 @@ pub mod tests {
             let subject_addr: Addr<Accountant> = subject.start();
             let subject_subs = Accountant::make_subs_from(&subject_addr);
 
-            subject_subs
-                .bind
-                .try_send(BindMessage { peer_actors })
-                .unwrap();
+            send_bind_message!(subject_subs, peer_actors);
+            send_start_message!(subject_subs);
 
             system.run();
         });
@@ -1212,7 +1211,7 @@ pub mod tests {
         assert_eq!(
             &RetrieveTransactions {
                 start_block: 5u64,
-                recipient: earning_wallet
+                recipient: earning_wallet,
             },
             retrieve_transactions_message
         );
@@ -1269,10 +1268,8 @@ pub mod tests {
             let subject_addr: Addr<Accountant> = subject.start();
             let subject_subs = Accountant::make_subs_from(&subject_addr);
 
-            subject_subs
-                .bind
-                .try_send(BindMessage { peer_actors })
-                .unwrap();
+            send_bind_message!(subject_subs, peer_actors);
+            send_start_message!(subject_subs);
 
             system.run();
         });
@@ -1285,7 +1282,7 @@ pub mod tests {
         assert_eq!(
             &RetrieveTransactions {
                 start_block: 5u64,
-                recipient: earning_wallet
+                recipient: earning_wallet,
             },
             retrieve_transactions_message
         );
@@ -1335,10 +1332,8 @@ pub mod tests {
             let subject_addr: Addr<Accountant> = subject.start();
             let subject_subs = Accountant::make_subs_from(&subject_addr);
 
-            subject_subs
-                .bind
-                .try_send(BindMessage { peer_actors })
-                .unwrap();
+            send_bind_message!(subject_subs, peer_actors);
+            send_start_message!(subject_subs);
 
             system.run();
         });
@@ -1468,16 +1463,59 @@ pub mod tests {
             let subject_addr: Addr<Accountant> = subject.start();
             let subject_subs = Accountant::make_subs_from(&subject_addr);
 
-            subject_subs
-                .bind
-                .try_send(BindMessage { peer_actors })
-                .unwrap();
+            send_bind_message!(subject_subs, peer_actors);
+            send_start_message!(subject_subs);
 
             system.run();
         });
 
         blockchain_bridge_awaiter.await_message_count(1);
         TestLogHandler::new().exists_log_containing("DEBUG: Accountant: Scanning for payables");
+    }
+
+    #[test]
+    fn accountant_scans_after_startup() {
+        init_test_logging();
+        let (blockchain_bridge, _, _) = make_recorder();
+
+        let system = System::new("accountant_scans_after_startup");
+        let config = bc_from_ac_plus_wallets(
+            AccountantConfig {
+                payable_scan_interval: Duration::from_secs(1000),
+                payment_received_scan_interval: Duration::from_secs(1000),
+            },
+            make_wallet("buy"),
+            make_wallet("hi"),
+        );
+        let payable_dao = Box::new(PayableDaoMock::new());
+        let receivable_dao = Box::new(ReceivableDaoMock::new());
+        let banned_dao = Box::new(BannedDaoMock::new());
+        let subject = Accountant::new(
+            &config,
+            payable_dao,
+            receivable_dao,
+            banned_dao,
+            null_config(),
+        );
+        let peer_actors = peer_actors_builder()
+            .blockchain_bridge(blockchain_bridge)
+            .build();
+        let subject_addr: Addr<Accountant> = subject.start();
+        let subject_subs = Accountant::make_subs_from(&subject_addr);
+
+        send_bind_message!(subject_subs, peer_actors);
+        send_start_message!(subject_subs);
+
+        System::current().stop();
+        system.run();
+
+        let tlh = TestLogHandler::new();
+        tlh.await_log_containing("DEBUG: Accountant: Scanning for payables", 1000u64);
+        tlh.exists_log_containing(&format!(
+            "DEBUG: Accountant: Scanning for payments to {}",
+            make_wallet("hi")
+        ));
+        tlh.exists_log_containing("DEBUG: Accountant: Scanning for delinquencies");
     }
 
     #[test]
@@ -1608,10 +1646,8 @@ pub mod tests {
             let subject_addr = subject.start();
             let accountant_subs = Accountant::make_subs_from(&subject_addr);
 
-            accountant_subs
-                .bind
-                .try_send(BindMessage { peer_actors })
-                .unwrap();
+            send_bind_message!(accountant_subs, peer_actors);
+            send_start_message!(accountant_subs);
 
             system.run();
         });
@@ -1663,10 +1699,8 @@ pub mod tests {
             let subject_addr: Addr<Accountant> = subject.start();
             let subject_subs = Accountant::make_subs_from(&subject_addr);
 
-            subject_subs
-                .bind
-                .try_send(BindMessage { peer_actors })
-                .unwrap();
+            send_bind_message!(subject_subs, peer_actors);
+            send_start_message!(subject_subs);
 
             system.run();
         });
@@ -1733,10 +1767,10 @@ pub mod tests {
         assert!(unban_parameters.contains(&newly_unbanned_2.wallet));
         assert_eq!(2, unban_parameters.len());
         let tlh = TestLogHandler::new();
-        tlh.exists_log_matching ("INFO: Accountant: Wallet 0x00000000000000000077616c6c65743132333464 \\(balance: 1234 SUB, age: \\d+ sec\\) banned for delinquency");
-        tlh.exists_log_matching ("INFO: Accountant: Wallet 0x00000000000000000077616c6c65743233343564 \\(balance: 2345 SUB, age: \\d+ sec\\) banned for delinquency");
-        tlh.exists_log_matching ("INFO: Accountant: Wallet 0x00000000000000000077616c6c6574333435366e \\(balance: 3456 SUB, age: \\d+ sec\\) is no longer delinquent: unbanned");
-        tlh.exists_log_matching ("INFO: Accountant: Wallet 0x00000000000000000077616c6c6574343536376e \\(balance: 4567 SUB, age: \\d+ sec\\) is no longer delinquent: unbanned");
+        tlh.exists_log_matching("INFO: Accountant: Wallet 0x00000000000000000077616c6c65743132333464 \\(balance: 1234 SUB, age: \\d+ sec\\) banned for delinquency");
+        tlh.exists_log_matching("INFO: Accountant: Wallet 0x00000000000000000077616c6c65743233343564 \\(balance: 2345 SUB, age: \\d+ sec\\) banned for delinquency");
+        tlh.exists_log_matching("INFO: Accountant: Wallet 0x00000000000000000077616c6c6574333435366e \\(balance: 3456 SUB, age: \\d+ sec\\) is no longer delinquent: unbanned");
+        tlh.exists_log_matching("INFO: Accountant: Wallet 0x00000000000000000077616c6c6574343536376e \\(balance: 4567 SUB, age: \\d+ sec\\) is no longer delinquent: unbanned");
     }
 
     #[test]

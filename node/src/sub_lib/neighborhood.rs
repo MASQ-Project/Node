@@ -4,7 +4,7 @@ use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::ExpiredCoresPackage;
 use crate::sub_lib::node_addr::NodeAddr;
-use crate::sub_lib::peer_actors::BindMessage;
+use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::route::Route;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
@@ -13,6 +13,7 @@ use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
 use serde_derive::{Deserialize, Serialize};
+use std::fmt::{Debug, Formatter};
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
@@ -96,7 +97,7 @@ impl NeighborhoodConfig {
 #[derive(Clone)]
 pub struct NeighborhoodSubs {
     pub bind: Recipient<BindMessage>,
-    pub bootstrap: Recipient<BootstrapNeighborhoodNowMessage>,
+    pub start: Recipient<StartMessage>,
     pub node_query: Recipient<NodeQueryMessage>,
     pub route_query: Recipient<RouteQueryMessage>,
     pub update_node_record_metadata: Recipient<NodeRecordMetadataMessage>,
@@ -105,6 +106,12 @@ pub struct NeighborhoodSubs {
     pub remove_neighbor: Recipient<RemoveNeighborMessage>,
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     pub set_consuming_wallet_sub: Recipient<SetConsumingWalletMessage>,
+}
+
+impl Debug for NeighborhoodSubs {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "NeighborhoodSubs")
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -127,9 +134,6 @@ impl NodeQueryResponseMetadata {
         }
     }
 }
-
-#[derive(Message, Clone)]
-pub struct BootstrapNeighborhoodNowMessage {}
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum NodeQueryMessage {
@@ -212,6 +216,8 @@ pub struct RatePack {
 mod tests {
     use super::*;
     use crate::test_utils::cryptde;
+    use crate::test_utils::recorder::Recorder;
+    use actix::Actor;
     use std::str::FromStr;
 
     pub fn rate_pack(base_rate: u64) -> RatePack {
@@ -221,6 +227,26 @@ mod tests {
             exit_byte_rate: base_rate + 3,
             exit_service_rate: base_rate + 4,
         }
+    }
+
+    #[test]
+    fn neighborhood_subs_debug() {
+        let recorder = Recorder::new().start();
+
+        let subject = NeighborhoodSubs {
+            bind: recipient!(recorder, BindMessage),
+            start: recipient!(recorder, StartMessage),
+            node_query: recipient!(recorder, NodeQueryMessage),
+            route_query: recipient!(recorder, RouteQueryMessage),
+            update_node_record_metadata: recipient!(recorder, NodeRecordMetadataMessage),
+            from_hopper: recipient!(recorder, ExpiredCoresPackage<Gossip>),
+            dispatcher_node_query: recipient!(recorder, DispatcherNodeQueryMessage),
+            remove_neighbor: recipient!(recorder, RemoveNeighborMessage),
+            stream_shutdown_sub: recipient!(recorder, StreamShutdownMsg),
+            set_consuming_wallet_sub: recipient!(recorder, SetConsumingWalletMessage),
+        };
+
+        assert_eq!(format!("{:?}", subject), "NeighborhoodSubs");
     }
 
     #[test]

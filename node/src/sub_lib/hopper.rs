@@ -14,6 +14,7 @@ use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
 use serde_derive::{Deserialize, Serialize};
+use std::fmt::Debug;
 use std::net::IpAddr;
 
 /// Special-case hack to avoid extending a Card From Hell. I'm not sure what the right way to do
@@ -131,6 +132,12 @@ pub struct HopperSubs {
     pub from_dispatcher: Recipient<InboundClientData>,
 }
 
+impl Debug for HopperSubs {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "HopperSubs")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,8 +145,24 @@ mod tests {
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::route::RouteSegment;
+    use crate::test_utils::recorder::Recorder;
     use crate::test_utils::{cryptde, make_meaningless_message_type, make_paying_wallet};
+    use actix::Actor;
     use std::str::FromStr;
+
+    #[test]
+    fn hopper_subs_debug() {
+        let recorder = Recorder::new().start();
+
+        let subject = HopperSubs {
+            bind: recipient!(recorder, BindMessage),
+            from_hopper_client: recipient!(recorder, IncipientCoresPackage),
+            from_hopper_client_no_lookup: recipient!(recorder, NoLookupIncipientCoresPackage),
+            from_dispatcher: recipient!(recorder, InboundClientData),
+        };
+
+        assert_eq!(format!("{:?}", subject), "HopperSubs");
+    }
 
     #[test]
     fn no_lookup_incipient_cores_package_is_created_correctly() {

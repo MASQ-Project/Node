@@ -188,9 +188,6 @@ fn verify_bill_payment() {
         "472000000000000000000000000",
     );
 
-    let _real_consuming_node =
-        cluster.start_named_real_node(consuming_node_name, consuming_node_index, consuming_config);
-
     assert_balances(
         &serving_node_1_wallet,
         &blockchain_interface,
@@ -212,8 +209,11 @@ fn verify_bill_payment() {
         "0",
     );
 
+    let _real_consuming_node =
+        cluster.start_named_real_node(consuming_node_name, consuming_node_index, consuming_config);
+
     while !consuming_payable_dao.non_pending_payables().is_empty() {
-        thread::sleep(Duration::from_secs(2));
+        thread::sleep(Duration::from_millis(300));
     }
 
     assert_balances(

@@ -175,11 +175,11 @@ impl StreamHandlerPool {
 
     pub fn make_subs_from(pool_addr: &Addr<StreamHandlerPool>) -> StreamHandlerPoolSubs {
         StreamHandlerPoolSubs {
-            add_sub: pool_addr.clone().recipient::<AddStreamMsg>(),
-            transmit_sub: pool_addr.clone().recipient::<TransmitDataMsg>(),
-            remove_sub: pool_addr.clone().recipient::<RemoveStreamMsg>(),
-            bind: pool_addr.clone().recipient::<PoolBindMessage>(),
-            node_query_response: pool_addr.clone().recipient::<DispatcherNodeQueryResponse>(),
+            add_sub: recipient!(pool_addr, AddStreamMsg),
+            transmit_sub: recipient!(pool_addr, TransmitDataMsg),
+            remove_sub: recipient!(pool_addr, RemoveStreamMsg),
+            bind: recipient!(pool_addr, PoolBindMessage),
+            node_query_response: recipient!(pool_addr, DispatcherNodeQueryResponse),
         }
     }
 

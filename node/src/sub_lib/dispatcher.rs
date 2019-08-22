@@ -163,6 +163,12 @@ pub struct DispatcherSubs {
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
 }
 
+impl Debug for DispatcherSubs {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "DispatcherSubs")
+    }
+}
+
 impl Clone for DispatcherSubs {
     fn clone(&self) -> Self {
         DispatcherSubs {
@@ -177,8 +183,24 @@ impl Clone for DispatcherSubs {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::recorder::Recorder;
+    use actix::Actor;
     use serde_cbor;
     use std::str::FromStr;
+
+    #[test]
+    fn dispatcher_subs_debug() {
+        let addr = Recorder::new().start();
+
+        let subject = DispatcherSubs {
+            ibcd_sub: recipient!(addr, InboundClientData),
+            bind: recipient!(addr, BindMessage),
+            from_dispatcher_client: recipient!(addr, TransmitDataMsg),
+            stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
+        };
+
+        assert_eq!(format!("{:?}", subject), "DispatcherSubs");
+    }
 
     #[test]
     fn debug_string_for_endpoint_with_utf8_key() {

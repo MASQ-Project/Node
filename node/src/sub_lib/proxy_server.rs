@@ -13,6 +13,7 @@ use crate::sub_lib::stream_key::StreamKey;
 use actix::Message;
 use actix::Recipient;
 use serde_derive::{Deserialize, Serialize};
+use std::fmt::Debug;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum ProxyProtocol {
@@ -71,4 +72,36 @@ pub struct ProxyServerSubs {
     pub add_route: Recipient<AddRouteMessage>,
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     pub set_consuming_wallet_sub: Recipient<SetConsumingWalletMessage>,
+}
+
+impl Debug for ProxyServerSubs {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "ProxyServerSubs")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sub_lib::proxy_server::ProxyServerSubs;
+    use crate::test_utils::recorder::Recorder;
+    use actix::Actor;
+
+    #[test]
+    fn proxy_server_subs_debug() {
+        let recorder = Recorder::new().start();
+
+        let subject = ProxyServerSubs {
+            bind: recipient!(recorder, BindMessage),
+            from_dispatcher: recipient!(recorder, InboundClientData),
+            from_hopper: recipient!(recorder, ExpiredCoresPackage<ClientResponsePayload>),
+            dns_failure_from_hopper: recipient!(recorder, ExpiredCoresPackage<DnsResolveFailure>),
+            add_return_route: recipient!(recorder, AddReturnRouteMessage),
+            add_route: recipient!(recorder, AddRouteMessage),
+            stream_shutdown_sub: recipient!(recorder, StreamShutdownMsg),
+            set_consuming_wallet_sub: recipient!(recorder, SetConsumingWalletMessage),
+        };
+
+        assert_eq!(format!("{:?}", subject), "ProxyServerSubs");
+    }
 }

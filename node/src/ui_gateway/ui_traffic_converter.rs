@@ -5,7 +5,7 @@ use crate::sub_lib::ui_gateway::UiMessage;
 #[allow(dead_code)]
 pub const BROADCAST: u64 = 0xFFFF_FFFF_FFFF_FFFF;
 
-pub trait UiTrafficConverter {
+pub trait UiTrafficConverter: Send {
     fn marshal(&self, ui_message: UiMessage) -> Result<String, String>;
     fn unmarshal(&self, json: &str) -> Result<UiMessage, String>;
 }

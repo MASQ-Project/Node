@@ -17,6 +17,32 @@ static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
 
 pub static NODE_MAILBOX_CAPACITY: usize = 0; // 0 for unbound
 
+macro_rules! recipient {
+    ($addr:expr, $_type:ty) => {
+        $addr.clone().recipient::<$_type>()
+    };
+}
+
+macro_rules! send_bind_message {
+    ($subs:expr, $peer_actors:expr) => {
+        $subs
+            .bind
+            .try_send(BindMessage {
+                peer_actors: $peer_actors.clone(),
+            })
+            .expect(&format!("Actor for {:?} is dead", $subs));
+    };
+}
+
+macro_rules! send_start_message {
+    ($subs:expr) => {
+        $subs
+            .start
+            .try_send(StartMessage {})
+            .expect(&format!("Actor for {:?} is dead", $subs));
+    };
+}
+
 pub fn localhost() -> IpAddr {
     IpAddr::V4(Ipv4Addr::LOCALHOST)
 }
@@ -25,22 +51,22 @@ pub fn indicates_dead_stream(kind: ErrorKind) -> bool {
     DEAD_STREAM_ERRORS.contains(&kind)
 }
 
-pub fn index_of<T>(haystack: &[T], needle: &[T]) -> Option<usize>
+pub fn index_of<T>(haystack: &[T], needles: &[T]) -> Option<usize>
 where
     T: PartialEq,
 {
-    if needle.is_empty() {
+    if needles.is_empty() {
         return None;
     }
     for h in 0..haystack.len() {
         let mut mismatch = false;
-        for n in 0..needle.len() {
+        for n in 0..needles.len() {
             let i = h + n;
             if i >= haystack.len() {
                 mismatch = true;
                 break;
             }
-            if haystack[i] != needle[n] {
+            if haystack[i] != needles[n] {
                 mismatch = true;
                 break;
             }

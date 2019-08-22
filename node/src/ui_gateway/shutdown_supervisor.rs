@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-trait Signaler {
+trait Signaler: Send {
     fn sigterm(&self);
 }
 
@@ -18,7 +18,7 @@ impl SignalerReal {
     }
 }
 
-pub trait ShutdownSupervisor {
+pub trait ShutdownSupervisor: Send {
     fn shutdown(&self);
 }
 

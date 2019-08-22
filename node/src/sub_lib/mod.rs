@@ -3,6 +3,11 @@
 #[macro_use]
 pub mod logger;
 
+// This must be before the rest of the modules
+// in order to be able to use the recipient macro!
+#[macro_use]
+pub mod utils;
+
 pub mod accountant;
 pub mod bidi_hashmap;
 pub mod binary_traverser;
@@ -41,5 +46,4 @@ pub mod tokio_wrappers;
 pub mod ttl_hashmap;
 pub mod udp_socket_wrapper;
 pub mod ui_gateway;
-pub mod utils;
 pub mod wallet;

@@ -4,6 +4,7 @@ use crate::sub_lib::peer_actors::BindMessage;
 use actix::Message;
 use actix::Recipient;
 use serde_derive::{Deserialize, Serialize};
+use std::fmt::{Debug, Formatter};
 
 pub const DEFAULT_UI_PORT: u16 = 5333;
 
@@ -18,6 +19,12 @@ pub struct UiGatewaySubs {
     pub bind: Recipient<BindMessage>,
     pub ui_message_sub: Recipient<UiCarrierMessage>,
     pub from_ui_message_sub: Recipient<FromUiMessage>,
+}
+
+impl Debug for UiGatewaySubs {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "UiGatewaySubs")
+    }
 }
 
 #[derive(Message, Debug, Serialize, Deserialize, PartialEq)]
@@ -43,4 +50,25 @@ pub enum UiMessage {
 pub struct FromUiMessage {
     pub client_id: u64,
     pub json: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::sub_lib::peer_actors::BindMessage;
+    use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage, UiGatewaySubs};
+    use crate::test_utils::recorder::Recorder;
+    use actix::Actor;
+
+    #[test]
+    fn ui_gateway_subs_debug() {
+        let recorder = Recorder::new().start();
+
+        let subject = UiGatewaySubs {
+            bind: recipient!(recorder, BindMessage),
+            ui_message_sub: recipient!(recorder, UiCarrierMessage),
+            from_ui_message_sub: recipient!(recorder, FromUiMessage),
+        };
+
+        assert_eq!(format!("{:?}", subject), "UiGatewaySubs");
+    }
 }

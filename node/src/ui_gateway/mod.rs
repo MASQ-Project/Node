@@ -55,9 +55,9 @@ impl UiGateway {
 
     pub fn make_subs_from(addr: &Addr<UiGateway>) -> UiGatewaySubs {
         UiGatewaySubs {
-            bind: addr.clone().recipient::<BindMessage>(),
-            ui_message_sub: addr.clone().recipient::<UiCarrierMessage>(),
-            from_ui_message_sub: addr.clone().recipient::<FromUiMessage>(),
+            bind: recipient!(addr, BindMessage),
+            ui_message_sub: recipient!(addr, UiCarrierMessage),
+            from_ui_message_sub: recipient!(addr, FromUiMessage),
         }
     }
 }
