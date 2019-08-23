@@ -332,7 +332,7 @@ describe('CommandHelper', () => {
     })
 
     describe('starting', () => {
-      const command = /".*[/\\]static[/\\]binaries[/\\]SubstratumNodeW" --dns-servers \d.* --real-user /
+      const command = /".*[/\\]static[/\\]binaries[/\\]SubstratumNodeW" --dns-servers \d.*/
 
       beforeEach(() => {
         subject.startSubstratumNode({}, 'callback')

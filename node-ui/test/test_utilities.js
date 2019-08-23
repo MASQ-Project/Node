@@ -26,11 +26,7 @@ module.exports = (() => {
             classListData[x] = false
           },
           contains: function (x) {
-            if (classListData[x]) {
-              return true
-            } else {
-              return false
-            }
+            return !!classListData[x]
           }
         }
       }
