@@ -860,6 +860,7 @@ describe('IndexComponent', () => {
           neighbor: '',
           blockchainServiceUrl: '',
         });
+        component.loadLocalStorage();
         fixture.detectChanges();
       });
 
@@ -879,6 +880,7 @@ describe('IndexComponent', () => {
           neighbor: '5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999',
           blockchainServiceUrl: 'https://infura.io',
         });
+        component.loadLocalStorage();
         fixture.detectChanges();
       });
 

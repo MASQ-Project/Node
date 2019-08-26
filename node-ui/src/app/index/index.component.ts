@@ -8,6 +8,7 @@ import {ConfigurationMode} from '../configuration-mode.enum';
 import {Subscription} from 'rxjs';
 import {LocalServiceKey} from '../local-service-key.enum';
 import {LocalStorageService} from '../local-storage.service';
+import {NodeConfiguration} from '../node-configuration';
 
 @Component({
   selector: 'app-index',
@@ -15,8 +16,6 @@ import {LocalStorageService} from '../local-storage.service';
   styleUrls: ['./index.component.scss']
 })
 export class IndexComponent {
-
-  ipSubscription: Subscription;
 
   constructor(private mainService: MainService,
               private configService: ConfigService,
@@ -47,24 +46,14 @@ export class IndexComponent {
       });
     });
 
-    this.configService.load().subscribe(config => {
-      const storedNeighbor = this.localStorageService.getItem(LocalServiceKey.NeighborNodeDescriptor);
-      if (storedNeighbor) {
-        config.neighbor = storedNeighbor;
-      }
-
-      const storedBlockchainServiceUrl = this.localStorageService.getItem(LocalServiceKey.BlockchainServiceUrl);
-      if (storedBlockchainServiceUrl) {
-        config.blockchainServiceUrl = storedBlockchainServiceUrl;
-      }
-
-      this.configService.patchValue(config);
-    });
+    this.loadLocalStorage();
 
     this.ipSubscription = this.mainService.lookupIp().subscribe((ip) => {
       this.configService.patchValue({'ip': ip});
     });
   }
+
+  ipSubscription: Subscription;
 
   @Output() status: NodeStatus = NodeStatus.Off;
   @Output() configurationMode: ConfigurationMode = ConfigurationMode.Hidden;
@@ -90,6 +79,28 @@ export class IndexComponent {
     if (window.outerHeight !== 760) {
       window.resizeTo(640, 760);
     }
+  }
+
+  loadLocalStorage(): void {
+    let loaded = false;
+    this.configService.load().subscribe(config => {
+      if (loaded) {
+        return;
+      }
+      loaded = true;
+
+      const storedNeighbor = this.localStorageService.getItem(LocalServiceKey.NeighborNodeDescriptor);
+      if (storedNeighbor) {
+        config.neighbor = storedNeighbor;
+      }
+
+      const storedBlockchainServiceUrl = this.localStorageService.getItem(LocalServiceKey.BlockchainServiceUrl);
+      if (storedBlockchainServiceUrl) {
+        config.blockchainServiceUrl = storedBlockchainServiceUrl;
+      }
+
+      this.configService.patchValue(config);
+    });
   }
 
   off() {

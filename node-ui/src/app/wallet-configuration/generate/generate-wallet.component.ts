@@ -6,6 +6,7 @@ import {hardenedPathValidator} from '../wallet.validator';
 import {WalletService} from '../../wallet.service';
 import {Router} from '@angular/router';
 import {wordlists} from '../wordlists';
+import {ConfigService} from '../../config.service';
 
 @Component({
   selector: 'app-generate-wallet',
@@ -36,13 +37,14 @@ export class GenerateWalletComponent implements OnInit {
   generatedWalletInfo: object = null;
   errorText: string = null;
 
-  constructor(private walletService: WalletService, private router: Router, private ngZone: NgZone) {}
+  constructor(private walletService: WalletService, private configService: ConfigService, private router: Router, private ngZone: NgZone) {}
 
   ngOnInit(): void {
     this.walletService.generateConsumingWalletResponse.subscribe((response: object) => {
       this.ngZone.run(() => {
         if (response['success']) {
           this.generatedWalletInfo = response['result'];
+          this.configService.setEarningWallet(this.generatedWalletInfo['earningWallet'].address);
         } else {
           this.errorText = response['result'];
         }

@@ -8,6 +8,7 @@ import {FormsModule, ReactiveFormsModule} from '@angular/forms';
 import {GenerateWalletPage} from './generate-wallet-page';
 import {WalletService} from '../../wallet.service';
 import {Subject} from 'rxjs';
+import {ConfigService} from '../../config.service';
 
 describe('GenerateWalletComponent', () => {
   let component: GenerateWalletComponent;
@@ -15,6 +16,7 @@ describe('GenerateWalletComponent', () => {
   let page: GenerateWalletPage;
   let mockRouter;
   let walletService;
+  let configService;
   let generateResponseSubject;
 
   beforeEach(async(() => {
@@ -23,6 +25,10 @@ describe('GenerateWalletComponent', () => {
       generateConsumingWalletResponse: generateResponseSubject.asObservable(),
       generateConsumingWallet: td.func()
     };
+    configService = {
+      setEarningWallet: td.func()
+    };
+    spyOnAllFunctions(configService);
     spyOn(walletService, 'generateConsumingWallet');
     mockRouter = {
       navigate: td.func()
@@ -34,6 +40,7 @@ describe('GenerateWalletComponent', () => {
       declarations: [GenerateWalletComponent],
       providers: [
         {provide: WalletService, useValue: walletService},
+        {provide: ConfigService, useValue: configService},
         {provide: Router, useValue: mockRouter}
       ]
     }).compileComponents();
@@ -209,6 +216,10 @@ describe('GenerateWalletComponent', () => {
 
         it('displays the earning wallet address', () => {
           expect(page.earningWalletAddress.value).toBe('0x5360997dd9c42c51bf90ac256598de0882151aba');
+        });
+
+        it('sets the earning wallet in the Config Service', () => {
+          expect(configService.setEarningWallet).toHaveBeenCalledWith('0x5360997dd9c42c51bf90ac256598de0882151aba');
         });
       });
 

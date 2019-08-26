@@ -88,7 +88,6 @@ export class NodeConfigurationComponent implements OnInit {
         this.earningWalletPopulated = !!config.walletAddress;
       });
     });
-
   }
 
   save() {
