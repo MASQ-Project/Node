@@ -22,7 +22,7 @@ ethsign = {version = "0.6.1", default-features = false, features = ["pure-rust"]
 ethsign-crypto = "0.1.0"
 ethereum-types = "0.6.0"
 fdlimit = "0.1.1"
-flexi_logger = "0.14.1"
+flexi_logger = { version = "0.14.1", features = [ "ziplogs" ] }
 futures = "0.1.28"
 heck = "0.3.1"
 http = "0.1.18"

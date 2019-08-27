@@ -12,9 +12,9 @@ use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::socket_server::SocketServer;
 use backtrace::Backtrace;
 use chrono::{DateTime, Local};
-use flexi_logger::LevelFilter;
 use flexi_logger::LogSpecification;
 use flexi_logger::Logger;
+use flexi_logger::{Cleanup, Criterion, LevelFilter, Naming};
 use flexi_logger::{DeferredNow, Duplicate, Record};
 use futures::try_ready;
 use std::any::Any;
@@ -107,9 +107,14 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
             .duplicate_to_stderr(Duplicate::Info)
             .suppress_timestamp()
             .format(format_function)
+            .rotate(
+                Criterion::Size(100_000_000),
+                Naming::Numbers,
+                Cleanup::KeepZipFiles(50),
+            )
             .start()
             .expect("Logging subsystem failed to start");
-        let logfile_name = file_path.join("SubstratumNode.log");
+        let logfile_name = file_path.join("SubstratumNode_rCURRENT.log");
         let privilege_dropper = PrivilegeDropperReal::new();
         privilege_dropper.chown(&logfile_name, real_user);
         std::panic::set_hook(Box::new(|panic_info| {
