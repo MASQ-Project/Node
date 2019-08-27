@@ -222,7 +222,7 @@ impl SubstratumNodeUtils {
                 "-t",
                 name,
                 "cat",
-                "/node_root/home/SubstratumNode.log",
+                "/node_root/home/SubstratumNode_rCURRENT.log",
             ]),
         );
         command.stdout_and_stderr()

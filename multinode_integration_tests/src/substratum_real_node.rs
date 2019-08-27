@@ -951,10 +951,13 @@ impl SubstratumRealNode {
             thread::sleep(Duration::from_millis(100));
             let output = Self::exec_command_on_container_and_wait(
                 name,
-                vec!["cat", &format!("{}/SubstratumNode.log", DATA_DIRECTORY)],
+                vec![
+                    "cat",
+                    &format!("{}/SubstratumNode_rCURRENT.log", DATA_DIRECTORY),
+                ],
             )
             .expect(&format!(
-                "Failed to read {}/SubstratumNode.log",
+                "Failed to read {}/SubstratumNode_rCURRENT.log",
                 DATA_DIRECTORY
             ));
             match regex.captures(output.as_str()) {

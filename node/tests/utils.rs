@@ -51,7 +51,7 @@ impl SubstratumNode {
 
     pub fn path_to_logfile() -> Box<Path> {
         Self::data_dir()
-            .join("SubstratumNode.log")
+            .join("SubstratumNode_rCURRENT.log")
             .into_boxed_path()
     }
 

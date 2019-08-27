@@ -102,7 +102,7 @@ fabric.properties
 .nfs*
 
 docker/node
-SubstratumNode.log
+SubstratumNode*.log
 node.log
 lnk*.tmp
 node-data.db
