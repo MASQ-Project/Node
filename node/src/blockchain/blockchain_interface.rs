@@ -49,7 +49,7 @@ pub fn contract_address(chain_id: u8) -> Address {
     }
 }
 
-//TODO: SC-501 add ropsten and default to 1u8 for anything else
+//TODO: SC-501/GH-115 add ropsten and default to 1u8 for anything else
 pub fn chain_id_from_name(name: &str) -> u8 {
     match name.to_lowercase().as_str() {
         "dev" => 2u8,
@@ -69,9 +69,9 @@ const TRANSACTION_LITERAL: H256 = H256 {
 
 const TRANSFER_METHOD_ID: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
 
-pub const DEFAULT_CHAIN_ID: u8 = 3u8; //TODO: SC-501: Change this to 1u8 for mainnet when it's time
-pub const DEFAULT_GAS_PRICE: &str = "1"; //TODO: SC-501: Change this to "2" for mainnet when it's time
-pub const DEFAULT_CHAIN_NAME: &str = "ropsten"; //TODO: SC-501: Change this to "mainnet" when it's time
+pub const DEFAULT_CHAIN_ID: u8 = 3u8; //TODO: SC-501/GH-115: Change this to 1u8 for mainnet when it's time
+pub const DEFAULT_GAS_PRICE: &str = "1"; //TODO: SC-501/GH-115: Change this to "2" for mainnet when it's time
+pub const DEFAULT_CHAIN_NAME: &str = "ropsten"; //TODO: SC-501/GH-115: Change this to "mainnet" when it's time
 
 #[derive(Clone, Debug, Eq, Message, PartialEq)]
 pub struct Transaction {

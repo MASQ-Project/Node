@@ -200,9 +200,9 @@ fn app() -> App<'static, 'static> {
                 .min_values(1)
                 .max_values(1)
                 .takes_value(true)
-                .possible_values(&["dev", "ropsten"]) // TODO: SC-501: Add "mainnet"
-                .default_value(DEFAULT_CHAIN_NAME) // TODO: SC-501: Update
-                .hidden(true), //TODO: SC-501: unhide, add help text, and update README.md
+                .possible_values(&["dev", "ropsten"]) // TODO: SC-501/GH-115: Add "mainnet"
+                .default_value(DEFAULT_CHAIN_NAME) // TODO: SC-501/GH-115: Update
+                .hidden(true), //TODO: SC-501/GH-115: unhide, add help text, and update README.md
         )
         .arg(
             Arg::with_name("fake-public-key")
@@ -1769,7 +1769,7 @@ mod tests {
         let subject = NodeConfiguratorStandardPrivileged {};
         let args = ArgsBuilder::new()
             .param("--dns-servers", "1.2.3.4")
-            .param("--chain", "mainnet"); // TODO: SC-501: Remove the should_panic or correct the test in a better way
+            .param("--chain", "mainnet"); // TODO: SC-501/GH-115: Remove the should_panic or correct the test in a better way
 
         subject.configure(&args.into(), &mut FakeStreamHolder::new().streams());
     }

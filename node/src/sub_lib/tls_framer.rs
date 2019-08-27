@@ -63,7 +63,7 @@ impl TlsFramer {
         }
     }
 
-    // TODO: This is a very weak set of criteria that will result in many real-life false positives.  See SC-227.
+    // TODO: This is a very weak set of criteria that will result in many real-life false positives.  See SC-227/GH-165.
     fn search_for_frame_offset(data: &[u8]) -> Result<usize, usize> {
         match index_of(data, &[0x03]) {
             None => Err(0),    // Err (0) means don't bother trying again
@@ -88,7 +88,7 @@ impl TlsFramer {
         (candidate >= 0x14) && (candidate <= 0x17)
     }
 
-    // TODO: This should accept 0x0300, 0x0301, 0x0302, and 0x0303. See SC-227.
+    // TODO: This should accept 0x0300, 0x0301, 0x0302, and 0x0303. See SC-227/GH-165.
     fn is_valid_protocol_version(byte1: u8, byte2: u8) -> bool {
         (byte1 == 0x03) && ((byte2 == 0x01) || (byte2 == 0x03))
     }

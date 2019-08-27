@@ -36,7 +36,7 @@ impl GossipProducer for GossipProducerReal {
             .flat_map(|k| database.node_by_key(k))
             .fold(GossipBuilder::new(database), |so_far, node_record_ref| {
                 let reveal_node_addr = node_record_ref.public_key() == database.root().public_key()
-                    || target_node_ref.has_half_neighbor(node_record_ref.public_key()); // TODO SC-894: Do we really want to reveal this?
+                    || target_node_ref.has_half_neighbor(node_record_ref.public_key()); // TODO SC-894/GH-132: Do we really want to reveal this?
                 so_far.node(node_record_ref.public_key(), reveal_node_addr)
             });
         builder.build()

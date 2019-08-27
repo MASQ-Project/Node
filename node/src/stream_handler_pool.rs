@@ -253,7 +253,7 @@ impl StreamHandlerPool {
     }
 
     fn handle_transmit_data_msg(&mut self, msg: TransmitDataMsg) {
-        // TODO Can be recombined with DispatcherNodeQueryMessage after SC-358
+        // TODO Can be recombined with DispatcherNodeQueryMessage after SC-358/GH-96
         debug!(
             self.logger,
             "Handling order to transmit {} bytes to {:?}",
@@ -346,7 +346,7 @@ impl StreamHandlerPool {
 
     // TODO: This method is wayyyy too big
     fn handle_dispatcher_node_query_response(&mut self, msg: DispatcherNodeQueryResponse) {
-        // TODO Can be recombined with TransmitDataMsg after SC-358
+        // TODO Can be recombined with TransmitDataMsg after SC-358/GH-96
         debug!(
             self.logger,
             "Handling node query response containing {:?}", msg.result
@@ -449,7 +449,7 @@ impl StreamHandlerPool {
                     .expect("StreamHandlerPool is unbound.")
                     .node_query_response
                     .clone();
-                // TODO FIXME revisit once SC-358 is done (idea: create an actor for delaying messages?)
+                // TODO FIXME revisit once SC-358/GH-96 is done (idea: create an actor for delaying messages?)
                 thread::spawn(move || {
                     // to avoid getting into too-tight a resubmit loop, add a delay; in a separate thread, to avoid delaying other traffic
                     thread::sleep(Duration::from_millis(100));
