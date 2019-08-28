@@ -75,7 +75,15 @@ module.exports = (() => {
 
     args.push(earningDerivationPath || consumingDerivationPath)
 
-    consoleWrapper.log(`getRecoverModeArgs(): ${args}`)
+    const logArgs = args.map((value, index) => {
+      if (value === walletPassword || value === mnemonicPassphrase || value === mnemonicPhrase) {
+        return '*'.repeat(8)
+      } else {
+        return value
+      }
+    })
+
+    consoleWrapper.log(`getRecoverModeArgs(): ${logArgs}`)
     return args
   }
 
@@ -90,7 +98,15 @@ module.exports = (() => {
 
     args.push(earningDerivationPath || consumingDerivationPath)
 
-    consoleWrapper.log(`getGenerateModeArgs(): ${args}`)
+    const logArgs = args.map((value, index) => {
+      if (value === walletPassword || value === mnemonicPassphrase) {
+        return '*'.repeat(8)
+      } else {
+        return value
+      }
+    })
+
+    consoleWrapper.log(`getGenerateModeArgs(): ${logArgs}`)
     return args
   }
 

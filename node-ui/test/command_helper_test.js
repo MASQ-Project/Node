@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-/* global describe beforeEach afterEach it */
+/* global describe beforeEach afterEach expect it spyOn */
 
 const assert = require('assert')
 const path = require('path')
@@ -42,7 +42,7 @@ const generateDifferentArgs = [...generateCommonArgs, 'earningPath']
 const generateOptions = { timeout: 1000 }
 
 describe('CommandHelper', () => {
-  let childProcess, process, nodeCmd, result, sudoPrompt, treeKill, subject
+  let childProcess, process, nodeCmd, result, sudoPrompt, treeKill, subject, logSpy
 
   beforeEach(() => {
     process = td.replace('../main-process/wrappers/process_wrapper')
@@ -54,6 +54,7 @@ describe('CommandHelper', () => {
     process.platform = 'irrelevant'
     process.pid = 1234
     log.transports.console.level = false
+    logSpy = spyOn(log, 'warn')
   })
 
   afterEach(() => {
@@ -83,6 +84,14 @@ describe('CommandHelper', () => {
 
         it('executes the command via node cmd', () => {
           assert.deepStrictEqual(result, makeSpawnSyncResult('success!'))
+        })
+
+        it('expects logs with passphrase and password replaced', () => {
+          expect(logSpy).toHaveBeenCalledWith(
+            'command_helper: invoking recoverWallet')
+          expect(logSpy).toHaveBeenCalledWith(
+            'getRecoverModeArgs(): --consuming-wallet,consumingPath,--language,wordlist,--mnemonic-passphrase,********,--wallet-password,********,--recover-wallet,--mnemonic,********,--earning-wallet,consumingPath'
+          )
         })
       })
 
@@ -118,6 +127,14 @@ describe('CommandHelper', () => {
         it('executes the command via node cmd', () => {
           assert.deepStrictEqual(result, makeSpawnSyncResult('success!'))
         })
+
+        it('expects logs with passphrase and password replaced', () => {
+          expect(logSpy).toHaveBeenCalledWith(
+            'command_helper: invoking generateWallet')
+          expect(logSpy).toHaveBeenCalledWith(
+            'getGenerateModeArgs(): --consuming-wallet,consumingPath,--language,wordlist,--mnemonic-passphrase,********,--wallet-password,********,--generate-wallet,--json,--word-count,12,--earning-wallet,consumingPath'
+          )
+        })
       })
 
       describe('with a different earning wallet', () => {
@@ -133,6 +150,14 @@ describe('CommandHelper', () => {
 
         it('executes the command via node cmd', () => {
           assert.deepStrictEqual(result, makeSpawnSyncResult('success!'))
+        })
+
+        it('expects logs with passphrase and password replaced', () => {
+          expect(logSpy).toHaveBeenCalledWith(
+            'command_helper: invoking generateWallet')
+          expect(logSpy).toHaveBeenCalledWith(
+            'getGenerateModeArgs(): --consuming-wallet,consumingPath,--language,wordlist,--mnemonic-passphrase,********,--wallet-password,********,--generate-wallet,--json,--word-count,12,--earning-wallet,earningPath'
+          )
         })
       })
     })
