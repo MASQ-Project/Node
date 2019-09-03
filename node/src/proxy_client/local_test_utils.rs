@@ -10,6 +10,8 @@ use std::cell::RefCell;
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::sync::Mutex;
+use trust_dns::rr::{Name, Record};
+use trust_dns_proto::op::Query;
 use trust_dns_resolver::config::ResolverConfig;
 use trust_dns_resolver::config::ResolverOpts;
 use trust_dns_resolver::error::ResolveError;
@@ -40,14 +42,19 @@ impl ResolverWrapperMock {
     }
 
     pub fn lookup_ip_success(self, ip_addrs: Vec<IpAddr>) -> ResolverWrapperMock {
-        let rdatas: Vec<RData> = ip_addrs
+        let records: Vec<Record> = ip_addrs
             .into_iter()
             .map(|ip_addr| match ip_addr {
-                IpAddr::V4(ip_addr) => RData::A(ip_addr).into(),
-                IpAddr::V6(ip_addr) => RData::AAAA(ip_addr).into(),
+                IpAddr::V4(ip_addr) => {
+                    Record::from_rdata(Name::from(ip_addr), 0, RData::A(ip_addr))
+                }
+                IpAddr::V6(ip_addr) => {
+                    Record::from_rdata(Name::from(ip_addr), 0, RData::AAAA(ip_addr))
+                }
             })
             .collect();
-        let lookup_ip = Lookup::new_with_max_ttl(Arc::new(rdatas)).into();
+
+        let lookup_ip = Lookup::new_with_max_ttl(Query::default(), Arc::new(records)).into();
         self.lookup_ip_results
             .borrow_mut()
             .push(Box::new(future::ok(lookup_ip)));
