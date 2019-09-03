@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-mod utils;
+pub mod utils;
 
 use bip39::{Language, Mnemonic, Seed};
 use node_lib::blockchain::bip32::Bip32ECKeyPair;

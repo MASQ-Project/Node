@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-mod utils;
+pub mod utils;
 use node_lib::entry_dns::packet_facade::PacketFacade;
 use serial_test_derive::serial;
 use std::net::UdpSocket;

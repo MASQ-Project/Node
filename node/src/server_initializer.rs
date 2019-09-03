@@ -102,7 +102,7 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
     fn init(&mut self, file_path: PathBuf, real_user: &RealUser, log_level: LevelFilter) {
         Logger::with(LogSpecification::default(log_level).finalize())
             .log_to_file()
-            .directory(&file_path.to_str().expect("Bad logfile directory")[..])
+            .directory(file_path.clone())
             .print_message()
             .duplicate_to_stderr(Duplicate::Info)
             .suppress_timestamp()
@@ -114,8 +114,8 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
             )
             .start()
             .expect("Logging subsystem failed to start");
-        let logfile_name = file_path.join("SubstratumNode_rCURRENT.log");
         let privilege_dropper = PrivilegeDropperReal::new();
+        let logfile_name = file_path.join("SubstratumNode_rCURRENT.log");
         privilege_dropper.chown(&logfile_name, real_user);
         std::panic::set_hook(Box::new(|panic_info| {
             panic_hook(AltPanicInfo::from(panic_info))
@@ -159,7 +159,6 @@ impl<'a> From<&'a PanicInfo<'a>> for AltPanicInfo<'a> {
 }
 
 fn panic_hook(panic_info: AltPanicInfo) {
-    let logger = sub_lib::logger::Logger::new("PanicHandler");
     let location = match panic_info.location {
         None => "<unknown location>".to_string(),
         Some(location) => format!("{}:{}:{}", location.file, location.line, location.col),
@@ -171,6 +170,7 @@ fn panic_hook(panic_info: AltPanicInfo) {
     } else {
         "<message indecipherable>".to_string()
     };
+    let logger = sub_lib::logger::Logger::new("PanicHandler");
     error!(logger, "{} - {}", location, message);
     let backtrace = Backtrace::new();
     error!(logger, "{:?}", backtrace);

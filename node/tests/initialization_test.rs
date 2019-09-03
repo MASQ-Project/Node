@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-mod utils;
+pub mod utils;
 
 use node_lib::database::db_initializer::DATABASE_FILE;
 use utils::CommandConfig;

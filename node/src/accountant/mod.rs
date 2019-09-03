@@ -36,6 +36,7 @@ use futures::future::Future;
 use lazy_static::lazy_static;
 use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
+use std::thread;
 use std::time::{Duration, SystemTime};
 
 pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
@@ -379,7 +380,14 @@ impl Accountant {
                         warning!(future_logger, "{}", e);
                         Ok(())
                     }
-                    Err(e) => panic!("Unable to send ReportAccountsPayable: {}", e),
+                    Err(e) => {
+                        error!(
+                            future_logger,
+                            "Unable to send ReportAccountsPayable: {:?}", e
+                        );
+                        thread::sleep(Duration::from_secs(1));
+                        panic!("Unable to send ReportAccountsPayable: {:?}", e);
+                    }
                 });
             actix::spawn(future);
         }
@@ -458,7 +466,14 @@ impl Accountant {
                     );
                     Err(())
                 }
-                _ => unimplemented!(),
+                Err(e) => {
+                    error!(
+                        future_logger,
+                        "Unable to send to Blockchain Bridge: {:?}", e
+                    );
+                    thread::sleep(Duration::from_secs(1));
+                    panic!("Unable to send to Blockchain Bridge: {:?}", e);
+                }
             });
         actix::spawn(future);
     }

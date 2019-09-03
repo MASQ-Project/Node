@@ -46,7 +46,9 @@ impl Drop for SubstratumNode {
 
 impl SubstratumNode {
     pub fn data_dir() -> Box<Path> {
-        env::temp_dir().into_boxed_path()
+        let cur_dir = env::current_dir().unwrap();
+        let generated_dir = cur_dir.join(Path::new("generated"));
+        generated_dir.into_boxed_path()
     }
 
     pub fn path_to_logfile() -> Box<Path> {
@@ -67,6 +69,7 @@ impl SubstratumNode {
     #[allow(dead_code)]
     pub fn start_standard(config: Option<CommandConfig>) -> SubstratumNode {
         let mut command = SubstratumNode::make_node_command(config);
+        eprintln!("{:?}", command);
         let child = command.spawn().unwrap();
         thread::sleep(Duration::from_millis(500)); // needs time to open logfile and sockets
         SubstratumNode {

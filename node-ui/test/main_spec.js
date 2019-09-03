@@ -131,7 +131,7 @@ describe('After application launch: ', function () {
     await client.waitUntil(async () => (await client.getText('#node-status-label')) === 'Serving')
     assert.strictEqual((await client.getText('#node-status-label')), 'Serving')
     printConsoleForDebugging(client, false)
-    assert.notStrictEqual(await client.getText('#node-descriptor'), '')
+    await client.waitUntil(async () => (await client.getText('#node-descriptor')) !== '')
 
     await indexPage.off.click()
     assert.strictEqual(await uiInterface.verifyNodeDown(10000), true)
@@ -159,10 +159,10 @@ describe('After application launch: ', function () {
     await client.waitUntilWindowLoaded()
 
     assert.strictEqual(await uiInterface.verifyNodeUp(10000), true)
-    await client.waitUntil(async () => (await client.getText('#node-status-label')) === 'Serving')
-    assert.strictEqual((await client.getText('#node-status-label')), 'Serving')
+
+    await client.waitUntilTextExists('#node-status-label', 'Serving')
     printConsoleForDebugging(client, false)
-    assert.notStrictEqual(await client.getText('#node-descriptor'), '')
+    await client.waitUntil(async () => (await indexPage.nodeDescriptor.getText()) !== '')
 
     await indexPage.settingsButton.click()
     await indexPage.networkSettings.click()
@@ -171,7 +171,7 @@ describe('After application launch: ', function () {
     client.element('#cancel').click()
     await client.waitUntilWindowLoaded()
 
-    assert.notStrictEqual(await client.getText('#node-descriptor'), '')
+    await client.waitUntil(async () => (await client.getText('#node-descriptor')) !== '')
 
     await indexPage.off.click()
     assert.strictEqual(await uiInterface.verifyNodeDown(10000), true)
@@ -187,26 +187,25 @@ describe('After application launch: ', function () {
     await configComponent.blockchainServiceUrl.setValue('https://127.0.0.1')
     await client.waitUntil(() => configComponent.saveConfig.isEnabled())
     client.element('#save-config').click()
-    await client.waitUntilWindowLoaded()
 
-    await indexPage.serving.click()
-    await client.waitUntil(async () => (await client.getText('#node-status-label')) === 'Serving')
+    await client.waitUntilTextExists('#node-status-label', 'Serving')
     assert.strictEqual(await uiInterface.verifyNodeUp(10000), true)
 
     printConsoleForDebugging(client, false)
-    assert.notStrictEqual(await client.getText('#node-descriptor'), '')
+    await client.waitUntil(async () => (await client.getText('#node-descriptor')) !== '')
 
     await indexPage.off.click()
     assert.strictEqual(await uiInterface.verifyNodeDown(10000), true)
-    await client.waitUntil(async () => (await client.getText('#node-status-label')) === 'Off')
+
+    await client.waitUntilTextExists('#node-status-label', 'Off')
 
     await indexPage.serving.click()
 
     await client.waitUntilWindowLoaded()
-    await client.waitUntil(async () => (await client.getText('#node-status-label')) === 'Serving')
+    await client.waitUntilTextExists('#node-status-label', 'Serving')
     assert.strictEqual(await uiInterface.verifyNodeUp(10000), true)
     printConsoleForDebugging(client, false)
-    assert.notStrictEqual(await client.getText('#node-descriptor'), '')
+    await client.waitUntil(async () => (await client.getText('#node-descriptor')) !== '')
 
     await indexPage.off.click()
   })
@@ -226,10 +225,10 @@ describe('After application launch: ', function () {
     client.element('#save-config').click()
     await client.waitUntilWindowLoaded()
 
-    await client.waitUntil(async () => (await client.getText('#node-status-label')) === 'Serving')
+    await client.waitUntilTextExists('#node-status-label', 'Serving')
     assert.strictEqual(await uiInterface.verifyNodeUp(10000), true)
     printConsoleForDebugging(client, false)
-    assert.notStrictEqual(await client.getText('#node-descriptor'), '')
+    await client.waitUntil(async () => (await indexPage.nodeDescriptor.getText()) !== '')
 
     await indexPage.settingsButton.click()
     await indexPage.openSettings.click()
@@ -238,10 +237,10 @@ describe('After application launch: ', function () {
     client.element('#save-config').click()
     await client.waitUntilWindowLoaded()
 
-    await client.waitUntil(async () => (await client.getText('#node-status-label')) === 'Off')
+    await client.waitUntilTextExists('#node-status-label', 'Off')
     assert.strictEqual(await uiInterface.verifyNodeDown(10000), true)
     printConsoleForDebugging(client, false)
-    assert.strictEqual(await client.getText('#node-descriptor'), '')
+    await client.waitUntil(async () => (await indexPage.nodeDescriptor.getText()) === '')
   })
 })
 
@@ -281,6 +280,10 @@ class IndexPage {
 
   get networkSettings () {
     return this.client.element('#network-settings-menu')
+  }
+
+  get nodeDescriptor () {
+    return this.client.element('#node-descriptor')
   }
 }
 

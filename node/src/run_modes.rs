@@ -46,11 +46,10 @@ fn run_the_node(args: &Vec<String>, streams: &mut StdStreams<'_>) -> i32 {
     server_initializer.go(streams, args);
 
     actix::spawn(server_initializer.map_err(|_| {
-        System::current().stop();
+        System::current().stop_with_code(1);
     }));
 
-    system.run();
-    1
+    system.run()
 }
 
 fn generate_wallet(args: &Vec<String>, streams: &mut StdStreams<'_>) -> i32 {
