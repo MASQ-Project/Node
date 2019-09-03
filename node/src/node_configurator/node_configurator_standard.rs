@@ -1119,7 +1119,7 @@ mod tests {
             &mut FakeStreamHolder::new().streams(),
         );
 
-        #[cfg(target_os = "unix")]
+        #[cfg(target_os = "linux")]
         assert_eq!(
             config.data_directory,
             PathBuf::from("/home/booga/.local/share/Substratum")

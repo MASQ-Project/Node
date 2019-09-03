@@ -32,6 +32,7 @@ use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::DispatcherNodeQueryMessage;
 use crate::sub_lib::neighborhood::ExpectedService;
 use crate::sub_lib::neighborhood::ExpectedServices;
+use crate::sub_lib::neighborhood::NeighborhoodDotGraphRequest;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::NodeQueryMessage;
@@ -46,6 +47,7 @@ use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
+use crate::sub_lib::ui_gateway::{UiCarrierMessage, UiMessage};
 use crate::sub_lib::utils::regenerate_signed_gossip;
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::sub_lib::wallet::Wallet;
@@ -69,6 +71,7 @@ pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
     hopper: Option<Recipient<IncipientCoresPackage>>,
     hopper_no_lookup: Option<Recipient<NoLookupIncipientCoresPackage>>,
+    dot_graph_recipient: Option<Recipient<UiCarrierMessage>>,
     gossip_acceptor: Box<dyn GossipAcceptor>,
     gossip_producer: Box<dyn GossipProducer>,
     neighborhood_database: NeighborhoodDatabase,
@@ -90,6 +93,7 @@ impl Handler<BindMessage> for Neighborhood {
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.hopper = Some(msg.peer_actors.hopper.from_hopper_client);
         self.hopper_no_lookup = Some(msg.peer_actors.hopper.from_hopper_client_no_lookup);
+        self.dot_graph_recipient = Some(msg.peer_actors.ui_gateway.ui_message_sub)
     }
 }
 
@@ -106,7 +110,7 @@ impl Handler<StartMessage> for Neighborhood {
 
     fn handle(&mut self, _msg: StartMessage, _ctx: &mut Self::Context) -> Self::Result {
         if self.initial_neighbors.is_empty() {
-            info!(self.logger, "No Nodes to report to; continuing");
+            info!(self.logger, "Empty. No Nodes to report to; continuing");
             return;
         }
 
@@ -300,6 +304,31 @@ impl Handler<StreamShutdownMsg> for Neighborhood {
     }
 }
 
+impl Handler<NeighborhoodDotGraphRequest> for Neighborhood {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: NeighborhoodDotGraphRequest,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        info!(
+            self.logger,
+            "acknowledge request for neighborhood dot graph."
+        );
+        self.dot_graph_recipient
+            .as_ref()
+            .expect("DOT graph recipient is unbound")
+            .try_send(UiCarrierMessage {
+                client_id: msg.client_id,
+                data: UiMessage::NeighborhoodDotGraphResponse(
+                    self.neighborhood_database.to_dot_graph().clone(),
+                ),
+            })
+            .expect("DOT graph recipient is dead")
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct AccessibleGossipRecord {
     pub signed_gossip: PlainData,
@@ -358,6 +387,7 @@ impl Neighborhood {
             cryptde,
             hopper: None,
             hopper_no_lookup: None,
+            dot_graph_recipient: None,
             gossip_acceptor,
             gossip_producer,
             neighborhood_database,
@@ -381,6 +411,7 @@ impl Neighborhood {
             remove_neighbor: addr.clone().recipient::<RemoveNeighborMessage>(),
             stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
             set_consuming_wallet_sub: addr.clone().recipient::<SetConsumingWalletMessage>(),
+            from_ui_gateway: addr.clone().recipient::<NeighborhoodDotGraphRequest>(),
         }
     }
 
@@ -923,7 +954,6 @@ mod tests {
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
-    use crate::test_utils::make_meaningless_route;
     use crate::test_utils::rate_pack;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -931,6 +961,7 @@ mod tests {
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::vec_to_set;
     use crate::test_utils::{assert_contains, make_wallet};
+    use crate::test_utils::{assert_matches, make_meaningless_route};
     use crate::test_utils::{cryptde, make_paying_wallet};
     use actix::dev::{MessageResponse, ResponseChannel};
     use actix::Message;
@@ -1036,7 +1067,7 @@ mod tests {
         let recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
         TestLogHandler::new()
-            .exists_log_containing("INFO: Neighborhood: No Nodes to report to; continuing");
+            .exists_log_containing("INFO: Neighborhood: Empty. No Nodes to report to; continuing");
     }
 
     #[test]
@@ -2952,6 +2983,71 @@ mod tests {
             )
         );
         assert_eq!(message.context, context_a);
+    }
+
+    #[test]
+    fn neighborhood_responds_with_dot_graph_when_requested_and_logs_acknowledgement() {
+        init_test_logging();
+        let cryptde = cryptde();
+
+        let (recorder, awaiter, recording_arc) = make_recorder();
+        let node_record = make_node_record(1234, true);
+        let another_node_record = make_node_record(2345, true);
+        let another_node_record_a = another_node_record.clone();
+
+        thread::spawn(move || {
+            let system = System::new("neighborhood_responds_with_dot_graph_when_requested");
+            let addr: Addr<Recorder> = recorder.start();
+            let recipient: Recipient<UiCarrierMessage> = addr.recipient::<UiCarrierMessage>();
+            let config = bc_from_nc_plus(
+                NeighborhoodConfig {
+                    neighbor_configs: vec![NodeDescriptor {
+                        public_key: node_record.public_key().clone(),
+                        node_addr: node_record.node_addr_opt().unwrap().clone(),
+                    }
+                    .to_string(cryptde)],
+                    local_ip_addr: node_record.node_addr_opt().as_ref().unwrap().ip_addr(),
+                    clandestine_port_list: node_record
+                        .node_addr_opt()
+                        .as_ref()
+                        .unwrap()
+                        .ports()
+                        .clone(),
+                    rate_pack: rate_pack(100),
+                },
+                node_record.earning_wallet(),
+                None,
+            );
+            let mut subject = Neighborhood::new(cryptde, &config);
+            subject.dot_graph_recipient = Some(recipient);
+            subject
+                .neighborhood_database
+                .add_node(another_node_record_a)
+                .unwrap();
+            let addr: Addr<Neighborhood> = subject.start();
+            let sub: Recipient<NeighborhoodDotGraphRequest> =
+                addr.recipient::<NeighborhoodDotGraphRequest>();
+
+            sub.try_send(NeighborhoodDotGraphRequest { client_id: 0 })
+                .unwrap();
+
+            system.run();
+        });
+
+        awaiter.await_message_count(1);
+
+        let ui_gateway_recording = recording_arc.lock().unwrap();
+        let response = ui_gateway_recording.get_record::<UiCarrierMessage>(0);
+        match &response.data {
+            UiMessage::NeighborhoodDotGraphResponse(s) => {
+                assert_matches(s.as_str(), r#"digraph db . ".*" .*; ".*" .*; ."#)
+            }
+            _ => assert!(false, "Failed to match "),
+        }
+
+        TestLogHandler::new().exists_log_containing(
+            "INFO: Neighborhood: acknowledge request for neighborhood dot graph.",
+        );
     }
 
     #[test]

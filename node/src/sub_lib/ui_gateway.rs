@@ -43,6 +43,8 @@ pub enum UiMessage {
     SetWalletPasswordResponse(bool),
     GetNodeDescriptor,
     NodeDescriptor(String),
+    NeighborhoodDotGraphRequest,
+    NeighborhoodDotGraphResponse(String),
     ShutdownMessage,
 }
 

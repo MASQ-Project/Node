@@ -1,12 +1,13 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 mod shutdown_supervisor;
-mod ui_traffic_converter;
+pub mod ui_traffic_converter;
 mod websocket_supervisor;
 
 use crate::sub_lib::accountant::GetFinancialStatisticsMessage;
 use crate::sub_lib::blockchain_bridge::{SetGasPriceMsg, SetWalletPasswordMsg};
 use crate::sub_lib::logger::Logger;
+use crate::sub_lib::neighborhood::NeighborhoodDotGraphRequest;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage};
@@ -28,6 +29,7 @@ struct UiGatewayOutSubs {
     blockchain_bridge_set_consuming_wallet_password_sub: Recipient<SetWalletPasswordMsg>,
     blockchain_bridge_set_gas_price_sub: Recipient<SetGasPriceMsg>,
     accountant_get_financial_statistics_sub: Recipient<GetFinancialStatisticsMessage>,
+    neighborhood: Recipient<NeighborhoodDotGraphRequest>,
 }
 
 pub struct UiGateway {
@@ -88,6 +90,7 @@ impl Handler<BindMessage> for UiGateway {
                 .accountant
                 .get_financial_statistics_sub
                 .clone(),
+            neighborhood: msg.peer_actors.neighborhood.from_ui_gateway.clone(),
         };
         self.subs = Some(subs);
         self.websocket_supervisor = Some(Box::new(WebSocketSupervisorReal::new(
@@ -141,7 +144,8 @@ impl Handler<UiCarrierMessage> for UiGateway {
             UiMessage::NodeDescriptor(_)
             | UiMessage::SetWalletPasswordResponse(_)
             | UiMessage::FinancialStatisticsResponse(_)
-            | UiMessage::SetGasPriceResponse(_) => {
+            | UiMessage::SetGasPriceResponse(_)
+            | UiMessage::NeighborhoodDotGraphResponse(_) => {
                 let marshalled = self
                     .converter
                     .marshal(msg.data)
@@ -150,6 +154,17 @@ impl Handler<UiCarrierMessage> for UiGateway {
                     .as_ref()
                     .expect("WebsocketSupervisor is unbound")
                     .send(msg.client_id, &marshalled);
+            }
+            UiMessage::NeighborhoodDotGraphRequest => {
+                debug!(self.logger, "in UiMessage::NeighborhoodDotGraphRequest");
+                self.subs
+                    .as_ref()
+                    .expect("UiGateway is unbound")
+                    .neighborhood
+                    .try_send(NeighborhoodDotGraphRequest {
+                        client_id: msg.client_id,
+                    })
+                    .expect("UiGateway is dead");
             }
         }
     }
@@ -225,6 +240,7 @@ mod tests {
                 accountant_get_financial_statistics_sub: addr
                     .clone()
                     .recipient::<GetFinancialStatisticsMessage>(),
+                neighborhood: addr.clone().recipient::<NeighborhoodDotGraphRequest>(),
             }
         }
     }
@@ -817,5 +833,33 @@ mod tests {
         );
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(ui_gateway_recording.len(), 0);
+    }
+
+    #[test]
+    fn request_for_dot_graph_forwards_request_to_neighbor() {
+        let (neighborhood, _, neighborhood_recorder_arc) = make_recorder();
+        let subject = UiGateway::new(&UiGatewayConfig {
+            ui_port: find_free_port(),
+            node_descriptor: String::from(""),
+        });
+        let system = System::new("request_for_dot_graph_forwards_request_to_neighbor");
+        let addr: Addr<UiGateway> = subject.start();
+        let mut peer_actors = peer_actors_builder().neighborhood(neighborhood).build();
+        peer_actors.ui_gateway = UiGateway::make_subs_from(&addr);
+        addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        let json = UiTrafficConverterReal::new()
+            .marshal(UiMessage::NeighborhoodDotGraphRequest)
+            .unwrap();
+        addr.try_send(FromUiMessage { client_id: 0, json }).unwrap();
+
+        System::current().stop();
+        system.run();
+        let neighborhood_recorder = neighborhood_recorder_arc.lock().unwrap();
+        let actual_request = neighborhood_recorder.get_record::<NeighborhoodDotGraphRequest>(0);
+        assert_eq!(
+            actual_request,
+            &NeighborhoodDotGraphRequest { client_id: 0 }
+        );
     }
 }

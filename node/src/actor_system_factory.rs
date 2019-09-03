@@ -392,9 +392,9 @@ mod tests {
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
     use crate::sub_lib::neighborhood::RemoveNeighborMessage;
-    use crate::sub_lib::neighborhood::RouteQueryMessage;
     use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, NodeRecordMetadataMessage};
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, NodeQueryMessage};
+    use crate::sub_lib::neighborhood::{NeighborhoodDotGraphRequest, RouteQueryMessage};
     use crate::sub_lib::peer_actors::StartMessage;
     use crate::sub_lib::proxy_client::{
         ClientResponsePayload, DnsResolveFailure, InboundServerData,
@@ -532,6 +532,7 @@ mod tests {
                 remove_neighbor: recipient!(addr, RemoveNeighborMessage),
                 stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
                 set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
+                from_ui_gateway: addr.clone().recipient::<NeighborhoodDotGraphRequest>(),
             }
         }
 

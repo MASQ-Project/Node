@@ -322,13 +322,14 @@ impl WebSocketSupervisorReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sub_lib::ui_gateway::FromUiMessage;
+    use crate::sub_lib::ui_gateway::{FromUiMessage, UiMessage};
     use crate::test_utils::find_free_port;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::wait_for;
+    use crate::ui_gateway::ui_traffic_converter::{UiTrafficConverter, UiTrafficConverterReal};
     use actix::Actor;
     use actix::Addr;
     use actix::System;
@@ -626,6 +627,119 @@ mod tests {
     }
 
     #[test]
+    fn client_dot_graph_request_is_forwarded_to_ui_gateway() {
+        let port = find_free_port();
+        let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
+
+        thread::spawn(move || {
+            let system = System::new("client_dot_graph_request_is_forwarded_to_ui_gateway");
+            let from_ui_message = {
+                let addr: Addr<Recorder> = ui_gateway.start();
+                addr.recipient::<FromUiMessage>()
+            };
+            let subject = lazy(move || {
+                let _subject = WebSocketSupervisorReal::new(port, from_ui_message);
+                Ok(())
+            });
+            actix::spawn(subject);
+            system.run();
+        });
+
+        let mut client = wait_for_client(port, "SubstratumNode-UI");
+
+        let neighborhood_dot_graph_request =
+            serde_json::to_string(&UiMessage::NeighborhoodDotGraphRequest).unwrap();
+        client
+            .send_message(&Message::text(dbg!(neighborhood_dot_graph_request)))
+            .unwrap();
+        ui_gateway_awaiter.await_message_count(1);
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let actual_msg = ui_gateway_recording
+            .get_record::<FromUiMessage>(0)
+            .json
+            .clone();
+
+        assert_eq!(actual_msg, "\"NeighborhoodDotGraphRequest\"");
+    }
+
+    #[test]
+    fn client_receives_dot_graph_response_from_websocket_supervisor() {
+        let port = find_free_port();
+        let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
+
+        thread::spawn(move || {
+            let system =
+                System::new("client_receives_dot_graph_response_from_websocket_supervisor");
+            let from_ui_message = {
+                let addr: Addr<Recorder> = ui_gateway.start();
+                addr.recipient::<FromUiMessage>()
+            };
+            let subject = lazy(move || {
+                let _subject = WebSocketSupervisorReal::new(port, from_ui_message);
+                Ok(())
+            });
+            actix::spawn(subject);
+            system.run();
+        });
+
+        let mut client = wait_for_client(port, "SubstratumNode-UI");
+
+        let neighborhood_dot_graph_request =
+            serde_json::to_string(&UiMessage::NeighborhoodDotGraphRequest).unwrap();
+        client
+            .send_message(&Message::text(dbg!(neighborhood_dot_graph_request)))
+            .unwrap();
+        ui_gateway_awaiter.await_message_count(1);
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let actual_msg = ui_gateway_recording
+            .get_record::<FromUiMessage>(0)
+            .json
+            .clone();
+
+        assert_eq!(actual_msg, "\"NeighborhoodDotGraphRequest\"");
+    }
+
+    #[test]
+    fn send_dot_graph_response_sends_it_to_the_client() {
+        let port = find_free_port();
+        let (ui_gateway, _, _) = make_recorder();
+        let ui_gateway_recipient = ui_gateway.start().recipient::<FromUiMessage>();
+        let system = System::new("send_dot_graph_response_sends_it_to_the_client");
+        let mut client_id = 0;
+        let lazy_future = lazy(move || {
+            let subject = WebSocketSupervisorReal::new(port, ui_gateway_recipient);
+            let mut mock_client = ClientWrapperMock::new();
+            mock_client.send_results.push(Ok(()));
+            mock_client.flush_results.push(Ok(()));
+            client_id = subject.inject_mock_client(mock_client);
+
+            let json_string = UiTrafficConverterReal::new()
+                .marshal(UiMessage::NeighborhoodDotGraphResponse(String::from(
+                    "digraph db { }",
+                )))
+                .unwrap();
+
+            subject.send(client_id, json_string.as_str());
+
+            let mock_client_ref = subject.get_mock_client(client_id);
+            assert_eq!(
+                &OwnedMessage::Text(json_string),
+                mock_client_ref
+                    .send_params
+                    .lock()
+                    .unwrap()
+                    .get(0)
+                    .expect("Send was not called")
+            );
+            Ok(())
+        });
+
+        actix::spawn(lazy_future);
+        System::current().stop();
+        system.run();
+    }
+
+    #[test]
     fn once_a_client_sends_a_close_no_more_data_is_accepted() {
         let port = find_free_port();
         let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
@@ -709,7 +823,7 @@ mod tests {
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
         let ui_gateway_recipient = ui_gateway.start().recipient::<FromUiMessage>();
-        let system = System::new("receive_sends_a_message_to_the_client");
+        let system = System::new("send_sends_a_message_to_the_client");
         let mut client_id = 0;
         let lazy_future = lazy(move || {
             let subject = WebSocketSupervisorReal::new(port, ui_gateway_recipient);

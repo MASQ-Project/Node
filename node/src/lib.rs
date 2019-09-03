@@ -40,7 +40,7 @@ mod stream_writer_sorted;
 mod stream_writer_unsorted;
 pub mod test_utils;
 pub mod tls_discriminator_factory;
-mod ui_gateway;
+pub mod ui_gateway;
 
 #[cfg_attr(test, macro_use)]
 extern crate clap;

@@ -18,6 +18,7 @@ use crate::sub_lib::hopper::IncipientCoresPackage;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{HopperSubs, MessageType};
 use crate::sub_lib::neighborhood::DispatcherNodeQueryMessage;
+use crate::sub_lib::neighborhood::NeighborhoodDotGraphRequest;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
 use crate::sub_lib::neighborhood::NodeQueryMessage;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
@@ -117,6 +118,7 @@ recorder_message_handler!(AddStreamMsg);
 recorder_message_handler!(PoolBindMessage);
 recorder_message_handler!(RemoveStreamMsg);
 recorder_message_handler!(StreamShutdownMsg);
+recorder_message_handler!(NeighborhoodDotGraphRequest);
 recorder_message_handler!(StartMessage);
 
 impl Handler<NodeQueryMessage> for Recorder {
@@ -376,6 +378,7 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
         remove_neighbor: recipient!(addr, RemoveNeighborMessage),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
         set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
+        from_ui_gateway: addr.clone().recipient::<NeighborhoodDotGraphRequest>(),
     }
 }
 

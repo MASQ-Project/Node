@@ -10,6 +10,7 @@ pub trait UiTrafficConverter: Send {
     fn unmarshal(&self, json: &str) -> Result<UiMessage, String>;
 }
 
+#[derive(Default)]
 pub struct UiTrafficConverterReal {}
 
 impl UiTrafficConverter for UiTrafficConverterReal {
@@ -23,8 +24,8 @@ impl UiTrafficConverter for UiTrafficConverterReal {
 }
 
 impl UiTrafficConverterReal {
-    pub fn new() -> UiTrafficConverterReal {
-        UiTrafficConverterReal {}
+    pub fn new() -> Self {
+        Self {}
     }
 }
 
@@ -40,5 +41,15 @@ mod tests {
         let unmarshalled = subject.unmarshal(&marshalled);
 
         assert_eq!(unmarshalled, Ok(UiMessage::ShutdownMessage));
+    }
+
+    #[test]
+    fn a_neighborhood_dot_graph_request_is_properly_marshaled_and_unmarshaled() {
+        let subject = UiTrafficConverterReal::new();
+
+        let marshaled = serde_json::to_string(&UiMessage::NeighborhoodDotGraphRequest).unwrap();
+        let unmarshaled = subject.unmarshal(&marshaled);
+
+        assert_eq!(unmarshaled, Ok(UiMessage::NeighborhoodDotGraphRequest));
     }
 }

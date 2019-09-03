@@ -43,7 +43,7 @@ pub fn sentinel_ip_addr() -> IpAddr {
     ))
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct NodeDescriptor {
     pub public_key: PublicKey,
     pub node_addr: NodeAddr,
@@ -80,7 +80,7 @@ impl NodeDescriptor {
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct NeighborhoodConfig {
     pub neighbor_configs: Vec<String>,
     pub local_ip_addr: IpAddr,
@@ -106,6 +106,7 @@ pub struct NeighborhoodSubs {
     pub remove_neighbor: Recipient<RemoveNeighborMessage>,
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     pub set_consuming_wallet_sub: Recipient<SetConsumingWalletMessage>,
+    pub from_ui_gateway: Recipient<NeighborhoodDotGraphRequest>,
 }
 
 impl Debug for NeighborhoodSubs {
@@ -135,7 +136,15 @@ impl NodeQueryResponseMetadata {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, Message, PartialEq)]
+pub struct BootstrapNeighborhoodNowMessage {}
+
+#[derive(Clone, Debug, Message, PartialEq)]
+pub struct NeighborhoodDotGraphRequest {
+    pub client_id: u64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum NodeQueryMessage {
     IpAddress(IpAddr),
     PublicKey(PublicKey),
@@ -152,7 +161,7 @@ pub struct DispatcherNodeQueryMessage {
     pub recipient: Recipient<DispatcherNodeQueryResponse>,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(Debug, PartialEq)]
 pub struct RouteQueryMessage {
     pub target_key_opt: Option<PublicKey>,
     pub target_component: Component,
@@ -175,36 +184,36 @@ impl RouteQueryMessage {
     }
 }
 
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExpectedService {
     Routing(PublicKey, Wallet, RatePack),
     Exit(PublicKey, Wallet, RatePack),
     Nothing,
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ExpectedServices {
     OneWay(Vec<ExpectedService>),
     RoundTrip(Vec<ExpectedService>, Vec<ExpectedService>, u32),
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RouteQueryResponse {
     pub route: Route,
     pub expected_services: ExpectedServices,
 }
 
-#[derive(PartialEq, Debug, Message, Clone)]
+#[derive(Clone, Debug, Message, PartialEq)]
 pub struct RemoveNeighborMessage {
     pub public_key: PublicKey,
 }
 
-#[derive(PartialEq, Debug, Message, Clone)]
+#[derive(Clone, Debug, Message, PartialEq)]
 pub enum NodeRecordMetadataMessage {
     Desirable(PublicKey, bool),
 }
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct RatePack {
     pub routing_byte_rate: u64,
     pub routing_service_rate: u64,
@@ -244,6 +253,7 @@ mod tests {
             remove_neighbor: recipient!(recorder, RemoveNeighborMessage),
             stream_shutdown_sub: recipient!(recorder, StreamShutdownMsg),
             set_consuming_wallet_sub: recipient!(recorder, SetConsumingWalletMessage),
+            from_ui_gateway: recipient!(recorder, NeighborhoodDotGraphRequest),
         };
 
         assert_eq!(format!("{:?}", subject), "NeighborhoodSubs");

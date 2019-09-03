@@ -52,18 +52,14 @@ impl Handler<BindMessage> for BlockchainBridge {
                 .clone(),
         ]);
         match self.consuming_wallet.as_ref() {
-            Some(wallet) => {
-                debug!(
-                    self.logger,
-                    "Received BindMessage; consuming wallet address {}", wallet
-                );
-            }
-            None => {
-                debug!(
-                    self.logger,
-                    "Received BindMessage; no consuming wallet address specified"
-                );
-            }
+            Some(wallet) => debug!(
+                self.logger,
+                "Received BindMessage; consuming wallet address {}", wallet
+            ),
+            None => debug!(
+                self.logger,
+                "Received BindMessage; no consuming wallet address specified"
+            ),
         }
     }
 }
@@ -179,7 +175,7 @@ impl Handler<SetWalletPasswordMsg> for BlockchainBridge {
                 client_id: msg.client_id,
                 data: UiMessage::SetWalletPasswordResponse(password_accepted),
             })
-            .expect("UiGateway is dead");
+            .expect("UiGateway is dead")
     }
 }
 
