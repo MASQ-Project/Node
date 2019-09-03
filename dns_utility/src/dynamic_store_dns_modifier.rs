@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-#![cfg (target_os = "macos")]
+#![cfg(target_os = "macos")]
 use crate::dns_modifier::DnsModifier;
 use libc;
 use regex::Regex;
@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::iter::FromIterator;
 
 use core_foundation::array::CFArray;
-use core_foundation::array::FromVoid;
+use core_foundation::base::FromVoid;
 use core_foundation::dictionary::CFDictionary;
 use core_foundation::propertylist::CFPropertyList;
 use core_foundation::propertylist::CFPropertyListSubClass;
@@ -358,7 +358,7 @@ impl StoreWrapper for StoreWrapperReal {
             })
             .collect();
         let dictionary_cfpl = CFDictionary::from_CFType_pairs(pairs.as_slice());
-        self.store.set(path, dictionary_cfpl.clone())
+        self.store.set(path, dictionary_cfpl.into_untyped())
     }
 
     fn cfpl_to_vec(&self, cfpl: &CFPropertyList) -> Result<Vec<CFPropertyList>, String> {
