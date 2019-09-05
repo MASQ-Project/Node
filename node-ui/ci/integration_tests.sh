@@ -6,7 +6,6 @@ NODE_BINARY="$(which node)"
 NODE_DIR="$(dirname "$NODE_BINARY")"
 
 function run_on_linux() {
-  echo "Current directory: $(pwd)"
   xvfb-run -a -e /tmp/xvfb.out -s "-screen 0 1024x768x8" sudo -E PATH="$PATH:$NODE_DIR" ci/run_integration_tests.sh
 }
 
@@ -15,8 +14,7 @@ function run_on_macOS() {
 }
 
 function run_on_windows() {
-    echo "Not yet!"
-    exit 1
+  ci/run_integration_tests.sh
 }
 
 pushd "$CI_DIR/.."
