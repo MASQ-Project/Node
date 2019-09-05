@@ -19,7 +19,7 @@
 	<key>CFBundleIdentifier</key>
 	<string>net.substratum.dns-utility</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.0-rc.2</string>
+	<string>1.0.0-rc.3</string>
 	<key>CFBundleVersion</key>
 	<string>864</string>
 </dict>
