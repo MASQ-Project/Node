@@ -1,0 +1,52 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+pr:
+  - master
+
+strategy:
+  matrix:
+    linux:
+      imageName: "ubuntu-latest"
+    mac:
+      imageName: "macOS-latest"
+    windows:
+      imageName: "windows-latest"
+
+variables:
+  node_version: "10.16.3"
+
+pool:
+  vmImage: $(imageName)
+
+steps:
+  - task: CacheBeta@0
+    inputs:
+      key: |
+        "1.37.0" | $(Agent.OS) | "v2"
+      path: $(Pipeline.Workspace)/.cargo
+      cacheHitVar: NODE_TOOLCHAIN_RESTORED
+
+  - task: CacheBeta@0
+    inputs:
+      key: |
+        "nodejs" | $(Agent.OS)
+      path: $(Pipeline.Workspace)/.nvm
+      cacheHitVar: NODE_JS_RESTORED
+
+  - task: CacheBeta@0
+    inputs:
+      key: |
+        "yarn" | $(Agent.OS)
+      path: $(Pipeline.Workspace)/.yarn
+      cacheHitVar: YARN_RESTORED
+
+  - bash: |
+      ci/install_node_toolchain.sh '$(Pipeline.Workspace)'
+    condition: ne(variables.NODE_TOOLCHAIN_RESTORED, 'true')
+
+  - bash: |
+      ci/install_ui_toolchain.sh '$(Pipeline.Workspace)' '$(node_version)'
+    condition: or(ne(variables.NODE_JS_RESTORED, 'true'), ne(variables.YARN_RESTORED, 'true'))

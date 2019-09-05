@@ -3,6 +3,9 @@
 CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 NODE_PARENT_DIR="$1"
 
-"$CI_DIR/lint.sh"
-"$CI_DIR/unit_tests.sh"
-"$CI_DIR/integration_tests.sh" "$NODE_PARENT_DIR"
+export RUSTC_WRAPPER=sccache
+pushd "$CI_DIR/.."
+ci/lint.sh
+ci/unit_tests.sh
+ci/integration_tests.sh "$NODE_PARENT_DIR"
+popd

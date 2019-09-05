@@ -20,6 +20,7 @@ if [ "HOST_NODE_PARENT_DIR" == "" ]; then
     export HOST_NODE_PARENT_DIR="$CI_DIR/../.."
 fi
 
+pushd "$CI_DIR/.."
 pushd "$CI_DIR/../../port_exposer"
 ci/all.sh
 popd
@@ -38,3 +39,4 @@ popd
 
 export RUSTFLAGS="-D warnings -Anon-snake-case"
 cargo test --release -- --nocapture --test-threads=1
+popd

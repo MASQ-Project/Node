@@ -2,9 +2,10 @@
 # Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 
-"$CI_DIR/setup.sh"
-"$CI_DIR/build.sh"
-"$CI_DIR/link_binaries.sh"
+pushd "$CI_DIR/.."
+ci/setup.sh
+ci/build.sh
+ci/copy_binaries.sh
 
 case "$OSTYPE" in
    linux*)
@@ -20,4 +21,4 @@ case "$OSTYPE" in
         echo "unsupported operating system detected."; exit 1
         ;;
 esac
-
+popd

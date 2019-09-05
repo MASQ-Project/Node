@@ -8,20 +8,22 @@ if [[ "$NODE_PARENT_DIR" == "" ]]; then
     NODE_PARENT_DIR="$CI_DIR/../.."
 fi
 
+pushd "$CI_DIR/.."
 case "$OSTYPE" in
     msys)
         echo "Windows"
-        "$CI_DIR/run_integration_tests.sh"
+        ci/run_integration_tests.sh
         ;;
     Darwin | darwin*)
         echo "macOS"
-        sudo "$CI_DIR/run_integration_tests.sh"
+        sudo ci/run_integration_tests.sh
         ;;
     linux-gnu)
         echo "Linux"
-        sudo "$CI_DIR/run_integration_tests.sh"
+        sudo ci/run_integration_tests.sh
         ;;
     *)
         exit 1
         ;;
 esac
+popd

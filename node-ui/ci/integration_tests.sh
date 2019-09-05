@@ -1,29 +1,37 @@
 #!/bin/bash -xev
 # Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-
 CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 
 NODE_BINARY="$(which node)"
 NODE_DIR="$(dirname "$NODE_BINARY")"
 
-function start_not_windows {
-    sudo -E PATH="$PATH:$NODE_DIR" "$CI_DIR/run_integration_tests.sh"
+function run_on_linux() {
+  echo "Current directory: $(pwd)"
+  xvfb-run -a -e /tmp/xvfb.out -s "-screen 0 1024x768x8" sudo -E PATH="$PATH:$NODE_DIR" ci/run_integration_tests.sh
 }
 
+function run_on_macOS() {
+  sudo -E PATH="$PATH:$NODE_DIR" ci/run_integration_tests.sh
+}
+
+function run_on_windows() {
+    echo "Not yet!"
+    exit 1
+}
+
+pushd "$CI_DIR/.."
 case "$OSTYPE" in
-    msys)
-        echo "Windows"
-        "$CI_DIR/run_integration_tests.sh"
-        ;;
-    Darwin | darwin*)
-        echo "macOS"
-        start_not_windows
-        ;;
-    linux-gnu)
-        echo "Linux"
-        start_not_windows
-        ;;
-    *)
-        exit 1
-        ;;
+  msys)
+    run_on_windows
+    ;;
+  Darwin | darwin*)
+    run_on_macOS
+    ;;
+  linux*)
+    run_on_linux
+    ;;
+  *)
+    exit 1
+    ;;
 esac
+popd

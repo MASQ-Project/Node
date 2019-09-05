@@ -725,7 +725,10 @@ impl SubstratumRealNode {
     }
 
     pub fn node_home_dir(root_dir: &String, name: &String) -> String {
-        format!("{}/generated/node_homes/{}", root_dir, name)
+        format!(
+            "{}/multinode_integration_tests/generated/node_homes/{}",
+            root_dir, name
+        )
     }
 
     pub fn home_dir(&self) -> String {
