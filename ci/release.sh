@@ -75,6 +75,9 @@ case "$OSTYPE" in
         zip -j SubstratumNode-macOS.dmg.zip node-ui/electron-builder-out/SubstratumNode*.dmg
         ;;
    msys)
+        signtool sign //tr http://timestamp.digicert.com //td sha256 //fd sha256 //i "DigiCert SHA2 Assured ID Code Signing CA" //n "Substratum Services, Inc." //sm "node-ui/electron-builder-out/SubstratumNode*.exe"
+        signtool verify //pa "node-ui/electron-builder-out/SubstratumNode*.exe"
+
         zip -j SubstratumNode-Windows-binary.zip dns_utility/target/release/$DNS_EXECUTABLE dns_utility/target/release/$DNS_EXECUTABLEW node/target/release/$NODE_EXECUTABLE node/target/release/$NODE_EXECUTABLEW node/target/release/$NODE_EXECUTABLE.sig node/target/release/$NODE_EXECUTABLEW.sig
         zip -j SubstratumNode-Windows.exe.zip node-ui/electron-builder-out/SubstratumNode*.exe
         ;;
