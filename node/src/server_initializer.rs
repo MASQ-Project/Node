@@ -12,7 +12,7 @@ use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::socket_server::SocketServer;
 use backtrace::Backtrace;
 use chrono::{DateTime, Local};
-use flexi_logger::LogSpecification;
+use flexi_logger::LogSpecBuilder;
 use flexi_logger::Logger;
 use flexi_logger::{Cleanup, Criterion, LevelFilter, Naming};
 use flexi_logger::{DeferredNow, Duplicate, Record};
@@ -100,20 +100,26 @@ pub struct LoggerInitializerWrapperReal {}
 
 impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
     fn init(&mut self, file_path: PathBuf, real_user: &RealUser, log_level: LevelFilter) {
-        Logger::with(LogSpecification::default(log_level).finalize())
-            .log_to_file()
-            .directory(file_path.clone())
-            .print_message()
-            .duplicate_to_stderr(Duplicate::Info)
-            .suppress_timestamp()
-            .format(format_function)
-            .rotate(
-                Criterion::Size(100_000_000),
-                Naming::Numbers,
-                Cleanup::KeepZipFiles(50),
-            )
-            .start()
-            .expect("Logging subsystem failed to start");
+        Logger::with(
+            LogSpecBuilder::new()
+                .default(log_level)
+                .module("tokio", LevelFilter::Off)
+                .module("mio", LevelFilter::Off)
+                .build(),
+        )
+        .log_to_file()
+        .directory(file_path.clone())
+        .print_message()
+        .duplicate_to_stderr(Duplicate::Info)
+        .suppress_timestamp()
+        .format(format_function)
+        .rotate(
+            Criterion::Size(100_000_000),
+            Naming::Numbers,
+            Cleanup::KeepZipFiles(50),
+        )
+        .start()
+        .expect("Logging subsystem failed to start");
         let privilege_dropper = PrivilegeDropperReal::new();
         let logfile_name = file_path.join("SubstratumNode_rCURRENT.log");
         privilege_dropper.chown(&logfile_name, real_user);
