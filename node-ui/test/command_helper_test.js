@@ -177,7 +177,7 @@ describe('CommandHelper', () => {
 
           it('executes the command via sudo prompt', () => {
             td.verify(sudoPrompt.exec(td.matchers.argThat(arg => {
-              return /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d{1,3}\./.test(arg)
+              return /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d{1,3}\..* .*> \/dev\/null 2>&1/.test(arg)
             }), { name: 'Substratum Node' }, 'callback'))
           })
         })
@@ -192,7 +192,7 @@ describe('CommandHelper', () => {
 
           it('executes the command via sudo prompt', () => {
             td.verify(sudoPrompt.exec(td.matchers.argThat(arg => {
-              return /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d{1,3}\./.test(arg)
+              return /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d{1,3}\..* .*> \/dev\/null 2>&1/.test(arg)
             }), { name: 'Substratum Node' }, 'callback'))
           })
         })
@@ -213,7 +213,7 @@ describe('CommandHelper', () => {
           })
           it('executes the command via sudo prompt', () => {
             td.verify(sudoPrompt.exec(td.matchers.argThat(arg => {
-              return /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d{1,3}\./.test(arg) &&
+              return /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d{1,3}\..* .*> \/dev\/null 2>&1/.test(arg) &&
                 !arg.includes('--data-directory')
             }), { name: 'Substratum Node' }, 'callback'))
           })
@@ -229,7 +229,7 @@ describe('CommandHelper', () => {
 
           it('executes the command via sudo prompt', () => {
             td.verify(sudoPrompt.exec(td.matchers.argThat(arg => {
-              return /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d{1,3}\./.test(arg) &&
+              return /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d{1,3}\..* .*> \/dev\/null 2>&1/.test(arg) &&
                 !arg.includes('--data-directory')
             }), { name: 'Substratum Node' }, 'callback'))
           })
@@ -357,7 +357,7 @@ describe('CommandHelper', () => {
     })
 
     describe('starting', () => {
-      const command = /".*[/\\]static[/\\]binaries[/\\]SubstratumNodeW" --dns-servers \d.*/
+      const command = /".*[/\\]static[/\\]binaries[/\\]SubstratumNodeW" --dns-servers \d{1,3}\..* .*> NUL 2>&1/
 
       beforeEach(() => {
         subject.startSubstratumNode({}, 'callback')
