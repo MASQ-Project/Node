@@ -2,7 +2,6 @@
 
 import {FormControl, FormGroup, Validators} from '@angular/forms';
 import {ConfigService} from '../config.service';
-import {WalletType} from '../wallet-type.enum';
 import {
   Component,
   ElementRef,
@@ -17,7 +16,7 @@ import {
 import {
   blockchainServiceValidator,
   ipValidator,
-  neighborhoodValidator,
+  neighborValidator,
   walletValidator
 } from './node-configuration.validator';
 import {MainService} from '../main.service';
@@ -26,6 +25,7 @@ import {NodeStatus} from '../node-status.enum';
 import {LocalStorageService} from '../local-storage.service';
 import {ElectronService} from '../electron.service';
 import {LocalServiceKey} from '../local-service-key.enum';
+import {chainNames} from './blockchains';
 
 @Component({
   selector: 'app-node-configuration',
@@ -47,16 +47,17 @@ export class NodeConfigurationComponent implements OnInit {
   }
 
   persistNeighbor = false;
+
+  chainNames = chainNames;
   nodeConfig = new FormGroup({
-    ip: new FormControl('', [ipValidator, Validators.required]),
-    privateKey: new FormControl(''),
-    walletAddress: new FormControl('', [walletValidator]),
     blockchainServiceUrl: new FormControl('', [blockchainServiceValidator, Validators.required]),
-    neighbor: new FormControl('', [neighborhoodValidator])
-  });
+    chainName: new FormControl('ropsten', []),
+    ip: new FormControl('', [ipValidator, Validators.required]),
+    neighbor: new FormControl('', []),
+    walletAddress: new FormControl('', [walletValidator]),
+  }, {validators: neighborValidator});
   tooltipShown = false;
   blockchainServiceUrlTooltipShown = false;
-  walletType: WalletType = WalletType.EARNING;
   earningWalletPopulated: Boolean = false;
 
   @ViewChild('tooltipIcon', {static: true})
@@ -80,7 +81,7 @@ export class NodeConfigurationComponent implements OnInit {
     this.configService.load().subscribe((config) => {
       this.ngZone.run(() => {
         const storedPreference = this.localStorageService.getItem(LocalServiceKey.PersistNeighborPreference);
-        if (storedPreference != null) {
+        if (storedPreference !== null) {
           this.persistNeighbor = storedPreference === 'true';
         }
 
@@ -98,6 +99,7 @@ export class NodeConfigurationComponent implements OnInit {
     }
     this.localStorageService.setItem(LocalServiceKey.PersistNeighborPreference, this.persistNeighbor);
     this.localStorageService.setItem(LocalServiceKey.BlockchainServiceUrl, this.blockchainServiceUrl.value);
+    this.localStorageService.setItem(LocalServiceKey.ChainName, this.chainName.value);
     this.configService.patchValue(this.nodeConfig.value);
     this.saved.emit(this.mode);
   }
@@ -140,6 +142,10 @@ export class NodeConfigurationComponent implements OnInit {
 
   get blockchainServiceUrl() {
     return this.nodeConfig.get('blockchainServiceUrl');
+  }
+
+  get chainName() {
+    return this.nodeConfig.get('chainName');
   }
 
   openUrl(url: string) {

@@ -141,12 +141,14 @@ impl Debug for HopperSubs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
+    use crate::blockchain::blockchain_interface::contract_address;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::route::RouteSegment;
     use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::{cryptde, make_meaningless_message_type, make_paying_wallet};
+    use crate::test_utils::{
+        cryptde, make_meaningless_message_type, make_paying_wallet, DEFAULT_CHAIN_ID,
+    };
     use actix::Actor;
     use std::str::FromStr;
 

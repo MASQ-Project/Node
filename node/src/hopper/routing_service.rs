@@ -391,7 +391,7 @@ impl RoutingService {
 mod tests {
     use super::*;
     use crate::banned_dao::BAN_CACHE;
-    use crate::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
+    use crate::blockchain::blockchain_interface::contract_address;
     use crate::neighborhood::gossip::{Gossip, GossipBuilder};
     use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
     use crate::sub_lib::cryptde::{encodex, PlainData, PublicKey};
@@ -407,7 +407,7 @@ mod tests {
     use crate::test_utils::{
         cryptde, make_meaningless_message_type, make_meaningless_stream_key, make_paying_wallet,
         make_request_payload, make_response_payload, rate_pack_routing, rate_pack_routing_byte,
-        route_from_proxy_client, route_to_proxy_client, route_to_proxy_server,
+        route_from_proxy_client, route_to_proxy_client, route_to_proxy_server, DEFAULT_CHAIN_ID,
     };
     use actix::System;
     use std::net::SocketAddr;

@@ -59,12 +59,12 @@ impl GossipProducerReal {
 mod tests {
     use super::super::gossip::GossipNodeRecord;
     use super::*;
-    use crate::blockchain::blockchain_interface::DEFAULT_CHAIN_ID;
     use crate::neighborhood::neighborhood_test_utils::db_from_node;
     use crate::neighborhood::neighborhood_test_utils::make_node_record;
     use crate::neighborhood::node_record::NodeRecordInner;
     use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::cryptde_null::CryptDENull;
+    use crate::test_utils::DEFAULT_CHAIN_ID;
     use std::collections::btree_set::BTreeSet;
     use std::convert::TryFrom;
 

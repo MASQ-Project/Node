@@ -132,6 +132,10 @@ module.exports = (() => {
       if (additionalArgs.blockchainServiceUrl) {
         args = args.concat(['--blockchain-service-url', `"${additionalArgs.blockchainServiceUrl}"`])
       }
+
+      if (additionalArgs.chainName) {
+        args = args.concat(['--chain', `${additionalArgs.chainName}`])
+      }
     }
 
     args = args.concat([`> ${nullDeviceName} 2>&1`])

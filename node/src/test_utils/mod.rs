@@ -15,7 +15,7 @@ pub mod tcp_wrapper_mocks;
 pub mod tokio_wrapper_mocks;
 
 use crate::blockchain::bip32::Bip32ECKeyPair;
-use crate::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
+use crate::blockchain::blockchain_interface::contract_address;
 use crate::blockchain::payer::Payer;
 use crate::persistent_configuration::HTTP_PORT;
 use crate::sub_lib::cryptde::CryptDE;
@@ -67,6 +67,8 @@ use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 use std::{fs, io};
+
+pub const DEFAULT_CHAIN_ID: u8 = 3u8; //For testing only
 
 lazy_static! {
     static ref CRYPT_DE_NULL: CryptDENull = CryptDENull::new(DEFAULT_CHAIN_ID);

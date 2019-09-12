@@ -24,6 +24,7 @@ export class FinancialStatisticsComponent implements OnChanges {
   }
 
   @Input() status: NodeStatus = NodeStatus.Off;
+  @Input() tokenSymbol = 'HOT';
   financialStatisticsData: PendingAmounts = {pendingCredit: '0', pendingDebt: '0'};
   financialStatsDataError: any;
 
@@ -40,6 +41,10 @@ export class FinancialStatisticsComponent implements OnChanges {
       } else {
         this.financialService.stopFinancialStatistics();
       }
+    }
+    const tokenSymbol = changes['tokenSymbol'];
+    if (tokenSymbol) {
+      this.tokenSymbol = tokenSymbol.currentValue as string;
     }
   }
 

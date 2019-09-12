@@ -8,7 +8,7 @@ use crate::substratum_node_client::SubstratumNodeClient;
 use crate::substratum_node_server::SubstratumNodeServer;
 use bip39::{Language, Mnemonic, Seed};
 use node_lib::blockchain::bip32::Bip32ECKeyPair;
-use node_lib::blockchain::blockchain_interface::{chain_id_from_name, DEFAULT_CHAIN_ID};
+use node_lib::blockchain::blockchain_interface::chain_id_from_name;
 use node_lib::sub_lib::accountant::DEFAULT_EARNING_WALLET;
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
@@ -21,6 +21,7 @@ use node_lib::sub_lib::utils::localhost;
 use node_lib::sub_lib::wallet::{
     Wallet, DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
 };
+use node_lib::test_utils::DEFAULT_CHAIN_ID;
 use regex::Regex;
 use rustc_hex::{FromHex, ToHex};
 use std::fmt::Display;

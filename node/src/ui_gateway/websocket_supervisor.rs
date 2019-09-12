@@ -650,7 +650,7 @@ mod tests {
         let neighborhood_dot_graph_request =
             serde_json::to_string(&UiMessage::NeighborhoodDotGraphRequest).unwrap();
         client
-            .send_message(&Message::text(dbg!(neighborhood_dot_graph_request)))
+            .send_message(&Message::text(neighborhood_dot_graph_request))
             .unwrap();
         ui_gateway_awaiter.await_message_count(1);
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
@@ -687,7 +687,7 @@ mod tests {
         let neighborhood_dot_graph_request =
             serde_json::to_string(&UiMessage::NeighborhoodDotGraphRequest).unwrap();
         client
-            .send_message(&Message::text(dbg!(neighborhood_dot_graph_request)))
+            .send_message(&Message::text(neighborhood_dot_graph_request))
             .unwrap();
         ui_gateway_awaiter.await_message_count(1);
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();

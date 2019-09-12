@@ -60,10 +60,10 @@ impl Clone for Payer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
+    use crate::blockchain::blockchain_interface::contract_address;
     use crate::sub_lib::cryptde;
     use crate::sub_lib::cryptde::PublicKey as SubPublicKey;
-    use crate::test_utils::make_payer;
+    use crate::test_utils::{make_payer, DEFAULT_CHAIN_ID};
     use rustc_hex::FromHex;
 
     #[test]

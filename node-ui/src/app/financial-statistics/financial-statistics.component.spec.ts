@@ -143,7 +143,7 @@ describe('FinancialStatisticsComponent', () => {
         expect(mockFinancialService.startFinancialStatistics).not.toHaveBeenCalled();
       });
 
-      it('calls stopFinancialStatistics', () => {
+      it('does not call stopFinancialStatistics', () => {
         expect(mockFinancialService.stopFinancialStatistics).not.toHaveBeenCalled();
       });
     });

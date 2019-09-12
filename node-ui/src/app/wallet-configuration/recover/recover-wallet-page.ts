@@ -2,8 +2,9 @@
 
 import {ComponentFixture} from '@angular/core/testing';
 import {RecoverWalletComponent} from './recover-wallet.component';
+import {Page} from '../../page';
 
-export class RecoverWalletPage {
+export class RecoverWalletPage extends Page {
 
   get mnemonicPhrase(): HTMLInputElement {
     return this.query('#mnemonic-phrase');
@@ -46,6 +47,7 @@ export class RecoverWalletPage {
   }
 
   constructor(private fixture: ComponentFixture<RecoverWalletComponent>) {
+    super();
   }
 
   private query<T>(selector: String): T {
@@ -54,21 +56,21 @@ export class RecoverWalletPage {
 
   setConsumingDerivationPath(value: string) {
     this.fixture.componentInstance.walletConfig.controls['consumingDerivationPath'].setValue(value);
-    setInputText(this.consumingDerivationPath, value);
+    this.setInputText(this.consumingDerivationPath, value);
   }
 
   setEarningDerivationPath(value: string) {
     this.fixture.componentInstance.walletConfig.controls['earningDerivationPath'].setValue(value);
-    setInputText(this.earningDerivationPath, value);
+    this.setInputText(this.earningDerivationPath, value);
   }
 
   setMnemonicPhrase(value: string) {
-    setInputText(this.mnemonicPhrase, value);
+    this.setInputText(this.mnemonicPhrase, value);
   }
 
   setMnemonicPassphrase(value: string) {
     this.fixture.componentInstance.walletConfig.controls['mnemonicPassphrase'].setValue(value);
-    setInputText(this.mnemonicPassphrase, value);
+    this.setInputText(this.mnemonicPassphrase, value);
   }
 
   changeSameWallet(value: boolean) {
@@ -78,12 +80,12 @@ export class RecoverWalletPage {
 
   setWordlist(value: string) {
     this.fixture.componentInstance.walletConfig.controls['wordlist'].setValue(value);
-    setSelection(this.wordlist, value);
+    this.setSelection(this.wordlist, value);
   }
 
   setWalletPassword(value: string) {
     this.fixture.componentInstance.walletConfig.controls['password'].setValue(value);
-    setInputText(this.walletPassword, value);
+    this.setInputText(this.walletPassword, value);
   }
 
   errors() {
@@ -92,14 +94,4 @@ export class RecoverWalletPage {
     lis.forEach((item) => errorText.push(item.textContent));
     return errorText;
   }
-}
-
-function setInputText(element: HTMLInputElement, value: string) {
-  element.value = value;
-  element.dispatchEvent(new Event('input'));
-}
-
-function setSelection(element: HTMLSelectElement, value: string) {
-  element.value = value;
-  element.dispatchEvent(new Event('input'));
 }

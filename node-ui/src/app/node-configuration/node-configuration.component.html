@@ -34,8 +34,9 @@
 
     <div class="node-config__actions">
       <input type="text" id="neighbor" formControlName="neighbor"
-             [class.input-invalid]="neighbor.invalid">
+             [class.input-invalid]="nodeConfig.errors?.neighborInvalid">
     </div>
+
     <div class="node-config__ancillary">
       <input id="persist-neighbor" type="checkbox" class="checkbox" name="persist-neighbor"
              [(ngModel)]="this.persistNeighbor" [ngModelOptions]="{standalone: true}">
@@ -43,7 +44,7 @@
     </div>
 
     <ul id="neighbor-validation">
-      <li class="validation-error" id="neighbor-validation__pattern" *ngIf="neighbor.errors?.pattern">
+      <li class="validation-error" id="neighbor-validation__pattern" *ngIf="nodeConfig.errors?.neighborInvalid">
         Node descriptor not in the correct format.
       </li>
     </ul>
@@ -55,43 +56,53 @@
       <input id="wallet-address" name="wallet-address" type="text" formControlName="walletAddress"
              [class.input-invalid]="walletAddress.invalid" [readonly]="earningWalletPopulated">
     </div>
+
     <ul id="wallet-address-validation">
       <li class="validation-error" id="wallet-address-validation__pattern" *ngIf="walletAddress.errors?.pattern">
         Not a valid Ethereum wallet address.
       </li>
     </ul>
 
-    <div *ngIf="walletType == 'Consuming'">
-      <div class="node-config__display">
-        <label for="private-key" class="node-config__display-label">Private Key</label>
-      </div>
-      <div class="node-config__actions">
-        <input id="private-key" name="private-key" type="text" formControlName="privateKey">
-      </div>
+    <div class="node-config__display">
+      <label for="chain-name" class="node-config__display-label">Blockchain Network</label>
+    </div>
+    <div id="chain-container" class="node-config__actions">
+      <select id="chain-name" formControlName="chainName">
+        <option *ngFor="let item of this.chainNames" [value]="item.value" [disabled]="item.disabled">{{item.viewValue}}</option>
+      </select>
     </div>
 
+    <ul>
+    </ul>
     <div class="node-config__display">
       <label for="blockchain-service-url" class="node-config__display-label">Blockchain Service URL</label>
       <div class="tooltip">
-        <img (click)="toggleBlockchainServiceUrlTooltip()" id="blockchain-service-url-help-icon" #blockchainServiceUrlTooltipIcon class="question"
+        <img (click)="toggleBlockchainServiceUrlTooltip()" id="blockchain-service-url-help-icon"
+             #blockchainServiceUrlTooltipIcon class="question"
              src="assets/images/questionmark_encircled.svg" height="16"
              width="16">
 
-        <p *ngIf="blockchainServiceUrlTooltipShown" id="blockchain-service-url-tooltip" class="node-config__clippy" style="top: -54px;">
-          Configure a Blockchain Service URL e.g. https://ropsten.infura.io/v3/&lt;YOUR-PROJECT-ID&gt; or http://127.0.0.1:8545. For more information
-          <span id="blockchain-service-url-help-link" (click)="openUrl('https://github.com/SubstratumNetwork/SubstratumNode/blob/master/node/docs/Blockchain-Service.md')">see</span>.
+        <p *ngIf="blockchainServiceUrlTooltipShown" id="blockchain-service-url-tooltip" class="node-config__clippy"
+           style="top: -54px;">
+          Configure a Blockchain Service URL e.g. https://ropsten.infura.io/v3/&lt;YOUR-PROJECT-ID&gt; or
+          http://127.0.0.1:8545. For more information
+          <span id="blockchain-service-url-help-link"
+                (click)="openUrl('https://github.com/SubstratumNetwork/SubstratumNode/blob/master/node/docs/Blockchain-Service.md')">see</span>.
         </p>
       </div>
     </div>
     <div class="node-config__display">
-      <input id="blockchain-service-url" name="blockchain-service-url" type="text" formControlName="blockchainServiceUrl" [class.input-invalid]="blockchainServiceUrl.invalid">
+      <input id="blockchain-service-url" name="blockchain-service-url" type="text"
+             formControlName="blockchainServiceUrl" [class.input-invalid]="blockchainServiceUrl.invalid">
     </div>
 
     <ul id="blockchain-service-url-validation">
-      <li class="validation-error" id="blockchain-service-url-validation__required" *ngIf="blockchainServiceUrl.errors?.required">
+      <li class="validation-error" id="blockchain-service-url-validation__required"
+          *ngIf="blockchainServiceUrl.errors?.required">
         Blockchain Service URL is required.
       </li>
-      <li class="validation-error" id="blockchain-service-url-validation__pattern" *ngIf="blockchainServiceUrl.errors?.pattern">
+      <li class="validation-error" id="blockchain-service-url-validation__pattern"
+          *ngIf="blockchainServiceUrl.errors?.pattern">
         Blockchain Service URL should start with https:// or http://
       </li>
     </ul>

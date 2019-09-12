@@ -2,12 +2,11 @@
 
 use crate::neighborhood::gossip::GossipNodeRecord;
 use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, NeighborhoodDatabaseError};
-use crate::neighborhood::AccessibleGossipRecord;
+use crate::neighborhood::{regenerate_signed_gossip, AccessibleGossipRecord};
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData, PublicKey};
 use crate::sub_lib::data_version::DataVersion;
 use crate::sub_lib::neighborhood::RatePack;
 use crate::sub_lib::node_addr::NodeAddr;
-use crate::sub_lib::utils::regenerate_signed_gossip;
 use crate::sub_lib::wallet::Wallet;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::btree_set::BTreeSet;
@@ -300,13 +299,12 @@ impl NodeRecordMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::DEFAULT_CHAIN_ID;
     use crate::neighborhood::gossip::GossipBuilder;
     use crate::neighborhood::neighborhood_test_utils::db_from_node;
     use crate::neighborhood::neighborhood_test_utils::make_node_record;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::neighborhood::ZERO_RATE_PACK;
-    use crate::test_utils::{assert_contains, cryptde, make_wallet, rate_pack};
+    use crate::test_utils::{assert_contains, cryptde, make_wallet, rate_pack, DEFAULT_CHAIN_ID};
     use std::net::IpAddr;
     use std::str::FromStr;
 

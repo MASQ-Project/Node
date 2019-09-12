@@ -5,6 +5,7 @@
 $input-font-size: rem(17px);
 
 .recover-wallet-configuration {
+  @include select-box;
   display: block;
   text-align: left;
   margin-left: 4%;
@@ -61,18 +62,6 @@ $input-font-size: rem(17px);
     border-radius: $border-radius;
     -webkit-box-sizing: border-box;
     padding: 10px;
-  }
-
-  select {
-    height: 40px;
-    font-size: $input-font-size;
-    background: color('background', 'dark');
-    color: color('text', 'light');
-    overflow: hidden;
-
-    option {
-      padding: 0 4px;
-    }
   }
 
   label {

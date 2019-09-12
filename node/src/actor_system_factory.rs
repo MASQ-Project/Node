@@ -370,7 +370,6 @@ mod tests {
     use super::*;
     use crate::accountant::{ReceivedPayments, SentPayments};
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
-    use crate::blockchain::blockchain_interface::DEFAULT_CHAIN_ID;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::db_initializer::test_utils::{ConnectionWrapperMock, DbInitializerMock};
     use crate::database::db_initializer::{ConnectionWrapper, InitializationError};
@@ -414,7 +413,7 @@ mod tests {
     use crate::test_utils::rate_pack_routing_byte;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
-    use crate::test_utils::{cryptde, make_wallet};
+    use crate::test_utils::{cryptde, make_wallet, DEFAULT_CHAIN_ID};
     use actix::System;
     use log::LevelFilter;
     use std::cell::RefCell;

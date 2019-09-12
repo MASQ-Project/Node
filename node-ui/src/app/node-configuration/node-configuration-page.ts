@@ -2,8 +2,13 @@
 
 import {ComponentFixture} from '@angular/core/testing';
 import {NodeConfigurationComponent} from './node-configuration.component';
+import {Page} from '../page';
 
-export class NodeConfigurationPage {
+export class NodeConfigurationPage extends Page {
+
+  get chainName(): HTMLSelectElement {
+    return this.query('#chain-name');
+  }
 
   get containerDiv(): HTMLDivElement {
     return this.query('.node-config');
@@ -82,20 +87,15 @@ export class NodeConfigurationPage {
   }
 
   constructor(private fixture: ComponentFixture<NodeConfigurationComponent>) {
-
-  }
-
-  private static setInputText(element: HTMLInputElement, value: string) {
-    element.value = value;
-    element.dispatchEvent(new Event('input'));
+    super();
   }
 
   setIp(value: string) {
-    NodeConfigurationPage.setInputText(this.ipTxt, value);
+    this.setInputText(this.ipTxt, value);
   }
 
   setNeighbor(value: string) {
-    NodeConfigurationPage.setInputText(this.neighborTxt, value);
+    this.setInputText(this.neighborTxt, value);
   }
 
   changeRememberNeighbor(value: boolean) {
@@ -104,11 +104,15 @@ export class NodeConfigurationPage {
   }
 
   setWalletAddress(value: string) {
-    NodeConfigurationPage.setInputText(this.walletAddressTxt, value);
+    this.setInputText(this.walletAddressTxt, value);
   }
 
   setBlockchainServiceUrl(value: string) {
-    NodeConfigurationPage.setInputText(this.blockchainServiceUrl, value);
+    this.setInputText(this.blockchainServiceUrl, value);
+  }
+
+  setChainName(value: string) {
+    this.setSelection(this.chainName, value);
   }
 
   private query<T>(selector: String): T {

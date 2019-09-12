@@ -8,7 +8,7 @@ use multinode_integration_tests_lib::substratum_node::{
 use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use multinode_integration_tests_lib::substratum_node_server::SubstratumNodeServer;
 use multinode_integration_tests_lib::substratum_real_node::SubstratumRealNode;
-use node_lib::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
+use node_lib::blockchain::blockchain_interface::contract_address;
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::Masquerader;
@@ -25,7 +25,7 @@ use node_lib::sub_lib::proxy_server::{ClientRequestPayload, ProxyProtocol};
 use node_lib::sub_lib::route::{Route, RouteSegment};
 use node_lib::sub_lib::sequence_buffer::SequencedPacket;
 use node_lib::sub_lib::stream_key::StreamKey;
-use node_lib::test_utils::{find_free_port, make_meaningless_stream_key};
+use node_lib::test_utils::{find_free_port, make_meaningless_stream_key, DEFAULT_CHAIN_ID};
 use std::io;
 use std::net::SocketAddr;
 use std::str::FromStr;

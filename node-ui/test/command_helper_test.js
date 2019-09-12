@@ -428,6 +428,36 @@ describe('CommandHelper', () => {
           td.verify(nodeCmd.get(td.matchers.contains('--blockchain-service-url "http://this-is-your-url"'), 'callback'))
         })
       })
+
+      describe('when blockchain network ropsten is specified', () => {
+        beforeEach(() => {
+          subject.startSubstratumNode({ chainName: 'ropsten', ip: '4.3.2.1' }, 'callback')
+        })
+
+        it('provides blockchain service url command line argument', () => {
+          td.verify(nodeCmd.get(td.matchers.contains('--chain ropsten'), 'callback'))
+        })
+      })
+
+      describe('when blockchain network mainnet is specified', () => {
+        beforeEach(() => {
+          subject.startSubstratumNode({ chainName: 'mainnet', ip: '1.2.3.4' }, 'callback')
+        })
+
+        it('provides blockchain network command line argument', () => {
+          td.verify(nodeCmd.get(td.matchers.contains('--chain mainnet'), 'callback'))
+        })
+      })
+
+      describe('when no blockchain network is specified', () => {
+        beforeEach(() => {
+          subject.startSubstratumNode({ ip: '1.2.3.4' }, 'callback')
+        })
+
+        it('provides no blockchain network command line argument', () => {
+          td.verify(nodeCmd.get(td.matchers.not(td.matchers.contains('--chain')), 'callback'))
+        })
+      })
     })
   })
 })

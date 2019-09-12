@@ -11,6 +11,13 @@
   display: flex;
 }
 
+#financial-statistics-info {
+  display: flex;
+  justify-content: center;
+  align-content: space-around;
+  padding-top: 30px;
+}
+
 .financial-data-pane {
   flex: 1;
   padding: 40px 57px 57px;

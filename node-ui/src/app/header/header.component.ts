@@ -1,9 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-
 import {Component, ElementRef, EventEmitter, HostListener, Output, ViewChild} from '@angular/core';
 import {ElectronService} from '../electron.service';
 import {ConfigurationMode} from '../configuration-mode.enum';
-import { Router } from '@angular/router';
+import {Router} from '@angular/router';
 
 @Component({
   selector: 'app-header',

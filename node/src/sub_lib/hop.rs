@@ -50,8 +50,8 @@ impl LiveHop {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
-    use crate::test_utils::{cryptde, make_paying_wallet};
+    use crate::blockchain::blockchain_interface::contract_address;
+    use crate::test_utils::{cryptde, make_paying_wallet, DEFAULT_CHAIN_ID};
 
     #[test]
     fn can_construct_hop() {

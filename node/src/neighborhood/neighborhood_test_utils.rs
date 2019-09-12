@@ -1,7 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use super::neighborhood_database::NeighborhoodDatabase;
 use super::node_record::NodeRecord;
-use crate::blockchain::blockchain_interface::DEFAULT_CHAIN_ID;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::neighborhood::gossip::GossipNodeRecord;
 use crate::neighborhood::node_record::NodeRecordInner;
@@ -82,7 +81,7 @@ pub fn neighborhood_from_nodes(
                     .node_addr_opt()
                     .expect("Neighbor has to have NodeAddr"),
             }
-            .to_string(cryptde)],
+            .to_string(cryptde, DEFAULT_CHAIN_ID)],
         },
         local_ip_addr: root
             .node_addr_opt()

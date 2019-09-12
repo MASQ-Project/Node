@@ -16,8 +16,8 @@ describe('ConfigService', () => {
 
   describe('stores configuration', () => {
     const configuration: NodeConfiguration = {
+      chainName: 'ropsten',
       ip: '1.1.1.1',
-      privateKey: 'pssssssst',
       walletAddress: 'oh hi there',
       neighbor: 'hidely ho neighborino',
       networkSettings: {gasPrice: 1}
@@ -38,8 +38,9 @@ describe('ConfigService', () => {
     describe('with a well-formed ip, neighbor, wallet address, and blockchain URL', () => {
       beforeEach(() => {
         service.patchValue({
+          chainName: 'mainnet',
           ip: '128.128.128.128',
-          neighbor: 'T987mcTttF11TBBJy0f+W1h8yWliSlbhRZONZBricNA:255.255.255.255:8888',
+          neighbor: 'T987mcTttF11TBBJy0f+W1h8yWliSlbhRZONZBricNA@255.255.255.255:8888',
           walletAddress: '0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
           blockchainServiceUrl: 'https://something.com',
         } as NodeConfiguration);
@@ -53,6 +54,7 @@ describe('ConfigService', () => {
     describe('with a well-formed ip and blockchain URL, but no neighbor or wallet', () => {
       beforeEach(() => {
         service.patchValue({
+          chainName: 'ropsten',
           ip: '128.128.128.128',
           neighbor: '',
           walletAddress: '',
@@ -68,6 +70,7 @@ describe('ConfigService', () => {
     describe('with a malformed ip', () => {
       beforeEach(() => {
         service.patchValue({
+          chainName: 'ropsten',
           ip: 'true',
           neighbor: 'T987mcTttF11TBBJy0f+W1h8yWliSlbhRZONZBricNA:255.255.255.255:8888',
           walletAddress: '0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
@@ -83,6 +86,7 @@ describe('ConfigService', () => {
     describe('with a malformed neighbor', () => {
       beforeEach(() => {
         service.patchValue({
+          chainName: 'ropsten',
           ip: '255.255.255.255',
           neighbor: 'T987mcTttF11TBBJy0f+W1h8yWliSlbhRZONZBricNA:255.255.255.255:',
           walletAddress: '0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
@@ -98,6 +102,7 @@ describe('ConfigService', () => {
     describe('with a malformed wallet', () => {
       beforeEach(() => {
         service.patchValue({
+          chainName: 'ropsten',
           ip: '255.255.255.255',
           neighbor: 'T987mcTttF11TBBJy0f+W1h8yWliSlbhRZONZBricNA:255.255.255.255:8888',
           walletAddress: '0x01234567890ABCDEF012345678',
@@ -113,6 +118,7 @@ describe('ConfigService', () => {
     describe('with a malformed blockchain URL', () => {
       beforeEach(() => {
         service.patchValue({
+          chainName: 'ropsten',
           ip: '128.128.128.128',
           neighbor: 'T987mcTttF11TBBJy0f+W1h8yWliSlbhRZONZBricNA:255.255.255.255:8888',
           walletAddress: '0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',

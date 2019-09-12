@@ -12,6 +12,7 @@ $input-font-size: rem(17px);
 }
 
 .generate-wallet {
+  @include select-box;
   display: block;
   margin-left: 4%;
   margin-right: 4%;
@@ -55,18 +56,6 @@ $input-font-size: rem(17px);
 
     &:focus {
       outline: none;
-    }
-  }
-
-  select {
-    height: 40px;
-    font-size: $input-font-size;
-    background: color('background', 'dark');
-    color: color('text', 'light');
-    overflow: hidden;
-
-    option {
-      padding: 0 4px;
     }
   }
 

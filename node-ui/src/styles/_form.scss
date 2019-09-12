@@ -1,6 +1,8 @@
 @import './variables';
 @import './colors';
 
+$input-font-size: rem(17px);
+
 @mixin action-button() {
   padding: 0 24px;
   background: color('background');
@@ -32,6 +34,8 @@
   width: 20px;
   height: 20px;
   margin: 6px 0px 3px 8px;
+  color: color('text', 'light');
+  background: color('background', 'dark');
 }
 
 form {
@@ -56,6 +60,20 @@ form {
   @include action-button;
   color: color('text');
   border-color: color('text');
+}
+
+@mixin select-box() {
+  select {
+    height: 40px;
+    font-size: $input-font-size;
+    background: color('background', 'dark');
+    color: color('text', 'light');
+    overflow: hidden;
+
+    option {
+      padding: 0 4px;
+    }
+  }
 }
 
 @mixin node-form() {

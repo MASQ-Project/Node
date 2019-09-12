@@ -126,7 +126,7 @@ impl Hopper {
 mod tests {
     use super::live_cores_package::LiveCoresPackage;
     use super::*;
-    use crate::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
+    use crate::blockchain::blockchain_interface::contract_address;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::dispatcher::Component;
@@ -135,6 +135,7 @@ mod tests {
     use crate::sub_lib::route::RouteSegment;
     use crate::test_utils::{
         cryptde, make_meaningless_message_type, make_paying_wallet, route_to_proxy_client,
+        DEFAULT_CHAIN_ID,
     };
     use actix::Actor;
     use actix::System;

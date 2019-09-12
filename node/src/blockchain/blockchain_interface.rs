@@ -52,8 +52,9 @@ pub fn contract_address(chain_id: u8) -> Address {
 //TODO: SC-501/GH-115 add ropsten and default to 1u8 for anything else
 pub fn chain_id_from_name(name: &str) -> u8 {
     match name.to_lowercase().as_str() {
+        "mainnet" => 1u8,
         "dev" => 2u8,
-        _ => DEFAULT_CHAIN_ID,
+        _ => 3u8,
     }
 }
 
@@ -69,8 +70,7 @@ const TRANSACTION_LITERAL: H256 = H256 {
 
 const TRANSFER_METHOD_ID: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
 
-pub const DEFAULT_CHAIN_ID: u8 = 3u8; //TODO: SC-501/GH-115: Change this to 1u8 for mainnet when it's time
-pub const DEFAULT_GAS_PRICE: &str = "1"; //TODO: SC-501/GH-115: Change this to "2" for mainnet when it's time
+pub const DEFAULT_GAS_PRICE: &str = "1";
 pub const DEFAULT_CHAIN_NAME: &str = "ropsten"; //TODO: SC-501/GH-115: Change this to "mainnet" when it's time
 
 #[derive(Clone, Debug, Eq, Message, PartialEq)]
@@ -144,7 +144,7 @@ impl BlockchainInterfaceClandestine {
 
 impl Default for BlockchainInterfaceClandestine {
     fn default() -> Self {
-        Self::new(DEFAULT_CHAIN_ID)
+        Self::new(chain_id_from_name(DEFAULT_CHAIN_NAME))
     }
 }
 
@@ -394,7 +394,7 @@ where
 mod tests {
     use super::*;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::{find_free_port, make_paying_wallet, make_wallet};
+    use crate::test_utils::{find_free_port, make_paying_wallet, make_wallet, DEFAULT_CHAIN_ID};
     use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
     use jsonrpc_core as rpc;

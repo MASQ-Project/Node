@@ -471,8 +471,7 @@ pub fn create_digest(msg: &dyn AsRef<[u8]>, address: &dyn AsRef<[u8]>) -> [u8; 3
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::DEFAULT_CHAIN_ID;
-    use crate::test_utils::cryptde;
+    use crate::test_utils::{cryptde, DEFAULT_CHAIN_ID};
     use rustc_hex::{FromHex, FromHexError};
     use serde::de;
     use serde::ser;

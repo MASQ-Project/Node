@@ -34,7 +34,7 @@ import {GenerateWalletComponent} from './wallet-configuration/generate/generate-
     NetworkSettingsComponent,
     WalletConfigurationComponent,
     RecoverWalletComponent,
-    GenerateWalletComponent
+    GenerateWalletComponent,
   ],
   imports: [
     BrowserModule,

@@ -3,7 +3,6 @@ use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_
 use crate::actor_system_factory::ActorFactoryReal;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
-use crate::blockchain::blockchain_interface::DEFAULT_CHAIN_ID;
 use crate::config_dao::ConfigDaoReal;
 use crate::crash_test_dummy::CrashTestDummy;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
@@ -28,9 +27,10 @@ use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::main_tools::StdStreams;
-use crate::sub_lib::neighborhood::sentinel_ip_addr;
 use crate::sub_lib::neighborhood::NeighborhoodConfig;
 use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
+use crate::sub_lib::neighborhood::{sentinel_ip_addr, NodeDescriptor};
+use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::socket_server::SocketServer;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::ui_gateway::DEFAULT_UI_PORT;
@@ -258,7 +258,6 @@ impl Default for BootstrapperConfig {
 
 impl BootstrapperConfig {
     pub fn new() -> BootstrapperConfig {
-        let chain_id = DEFAULT_CHAIN_ID;
         BootstrapperConfig {
             // These fields can be set while privileged without penalty
             log_level: LevelFilter::Off,
@@ -283,7 +282,7 @@ impl BootstrapperConfig {
             },
             blockchain_bridge_config: BlockchainBridgeConfig {
                 blockchain_service_url: None,
-                chain_id,
+                chain_id: 3u8, /*DEFAULT_CHAIN_ID*/
                 gas_price: None,
             },
             port_configurations: HashMap::new(),
@@ -378,6 +377,7 @@ impl SocketServer<BootstrapperConfig> for Bootstrapper {
                 .clandestine_port_list
                 .clone(),
             streams,
+            self.config.blockchain_bridge_config.chain_id,
         );
         let stream_handler_pool_subs = self
             .actor_system_factory
@@ -405,7 +405,7 @@ impl Bootstrapper {
     pub fn pub_initialize_cryptde_for_testing(
         cryptde_null_opt: &Option<CryptDENull>,
     ) -> &'static dyn CryptDE {
-        Self::initialize_cryptde(cryptde_null_opt, DEFAULT_CHAIN_ID)
+        Self::initialize_cryptde(cryptde_null_opt, crate::test_utils::DEFAULT_CHAIN_ID)
     }
 
     fn initialize_cryptde(
@@ -424,11 +424,14 @@ impl Bootstrapper {
         ip_addr: IpAddr,
         ports: Vec<u16>,
         streams: &mut StdStreams<'_>,
+        chain_id: u8,
     ) -> String {
-        let port_strings: Vec<String> = ports.iter().map(|n| format!("{}", n)).collect();
-        let port_list = port_strings.join(",");
-        let encoded_public_key = cryptde.public_key_to_descriptor_fragment(cryptde.public_key());
-        let descriptor = format!("{}:{}:{}", &encoded_public_key, ip_addr, port_list);
+        let node_addr = NodeAddr::new(&ip_addr, &ports);
+        let node_descriptor = NodeDescriptor {
+            public_key: cryptde.public_key().clone(),
+            node_addr,
+        };
+        let descriptor = node_descriptor.to_string(cryptde, chain_id);
         let descriptor_msg = format!("SubstratumNode local descriptor: {}", descriptor);
         writeln!(streams.stdout, "{}", descriptor_msg).expect("Internal error");
         info!(Logger::new("Bootstrapper"), "{}", descriptor_msg);
@@ -501,7 +504,7 @@ mod tests {
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use crate::test_utils::{assert_contains, ensure_node_home_directory_exists, ArgsBuilder};
-    use crate::test_utils::{cryptde, FakeStreamHolder};
+    use crate::test_utils::{cryptde, FakeStreamHolder, DEFAULT_CHAIN_ID};
     use actix::Recipient;
     use actix::System;
     use lazy_static::lazy_static;
@@ -1011,13 +1014,19 @@ mod tests {
             let mut streams = holder.streams();
 
             let cryptde_ref = Bootstrapper::initialize_cryptde(&None, DEFAULT_CHAIN_ID);
-            Bootstrapper::report_local_descriptor(cryptde_ref, ip_addr, ports, &mut streams);
+            Bootstrapper::report_local_descriptor(
+                cryptde_ref,
+                ip_addr,
+                ports,
+                &mut streams,
+                DEFAULT_CHAIN_ID,
+            );
 
             cryptde_ref
         };
         let stdout_dump = holder.stdout.get_string();
         let expected_descriptor = format!(
-            "{}:2.3.4.5:3456,4567",
+            "{}:2.3.4.5:3456;4567",
             cryptde_ref.public_key_to_descriptor_fragment(cryptde_ref.public_key())
         );
         let regex = Regex::new(r"SubstratumNode local descriptor: (.+?)\n")
@@ -1247,7 +1256,7 @@ mod tests {
             public_key: cryptde.public_key().clone(),
             node_addr: NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
         }
-        .to_string(&cryptde)];
+        .to_string(&cryptde, DEFAULT_CHAIN_ID)];
         config.data_directory = data_dir.clone();
         config.clandestine_port_opt = Some(1234);
         let listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
@@ -1300,7 +1309,7 @@ mod tests {
             public_key: cryptde.public_key().clone(),
             node_addr: NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
         }
-        .to_string(&cryptde)];
+        .to_string(&cryptde, DEFAULT_CHAIN_ID)];
         config.data_directory = data_dir.clone();
         config.clandestine_port_opt = None;
         let listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));

@@ -3,11 +3,11 @@
 import {NetworkSettings} from './network-settings';
 
 export class NodeConfiguration {
-  ip?: string;
-  privateKey?: string;
-  walletAddress?: string;
   blockchainServiceUrl?: string;
+  chainName?: string;
+  ip?: string;
   neighbor?: string;
   networkSettings?: NetworkSettings;
+  walletAddress?: string;
 }
 

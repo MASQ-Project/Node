@@ -30,7 +30,7 @@ describe('After application launch: ', function () {
 
       env: {
         TESTING_IN_PROGRESS: 'true',
-        ELECTRON_USER_DATA: `${process.cwd()}/generated/userData`
+        ELECTRON_USER_DATA: `${process.cwd()}/generated/${process.hrtime.bigint()}/userData`
       },
 
       // Assuming you have the following directory structure
@@ -151,6 +151,7 @@ describe('After application launch: ', function () {
     await indexPage.serving.click()
     await configComponent.ipInput.setValue('1.2.3.4')
     await configComponent.neighborInput.setValue('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:1.1.1.1:12345;4321')
+    await configComponent.blockchainServiceUrl.setValue('http://127.0.0.1:8545')
 
     await client.waitUntil(async () => {
       return configComponent.saveConfig.isEnabled()
@@ -310,6 +311,10 @@ class ConfigComponent {
 
   get blockchainServiceUrl () {
     return this.client.element('#blockchain-service-url')
+  }
+
+  get chainName () {
+    return this.client.element('#chain-name')
   }
 
   get saveConfig () {

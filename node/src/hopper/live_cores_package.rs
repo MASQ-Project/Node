@@ -94,7 +94,7 @@ impl LiveCoresPackage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
+    use crate::blockchain::blockchain_interface::contract_address;
     use crate::sub_lib::cryptde::encodex;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -105,6 +105,7 @@ mod tests {
     use crate::sub_lib::route::RouteSegment;
     use crate::test_utils::{
         cryptde, make_meaningless_message_type, make_meaningless_route, make_paying_wallet,
+        DEFAULT_CHAIN_ID,
     };
     use std::str::FromStr;
 

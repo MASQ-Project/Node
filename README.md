@@ -280,6 +280,9 @@ administrative privilege. Cannot be specified in the environment or config file.
 SubstratumNode will direct blockchain traffic through the Substratum Network when the parameter is not specified, allowing other 
 nodes to talk to the blockchain on your behalf.
 
+* `--chain <dev | mainnet | ropsten>` The blockchain network SubstratumNode will configure itself to use. You must ensure the 
+Ethereum client specified by --blockchain-service-url communicates with the same blockchain network.
+
 * `--ip <IP ADDRESS>` This is the public IP address of your SubstratumNode: that is, the IP address at which other
 SubstratumNodes can contact yours. If you're in a fairly standard residential situation, then this will be the IP
 address issued to your router by your ISP, and in order to receive data you'll need to create holes in your router's

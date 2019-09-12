@@ -130,7 +130,7 @@ impl ConsumingService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
+    use crate::blockchain::blockchain_interface::contract_address;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::dispatcher::{Component, InboundClientData};
     use crate::sub_lib::node_addr::NodeAddr;
@@ -140,7 +140,9 @@ mod tests {
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
-    use crate::test_utils::{cryptde, make_meaningless_message_type, make_paying_wallet};
+    use crate::test_utils::{
+        cryptde, make_meaningless_message_type, make_paying_wallet, DEFAULT_CHAIN_ID,
+    };
     use actix::System;
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;

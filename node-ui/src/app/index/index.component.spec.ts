@@ -32,6 +32,7 @@ class HeaderStubComponent {
 @Component({selector: 'app-financial-statistics', template: ''})
 class FinancialStatisticsStubComponent {
   @Input() status: NodeStatus;
+  @Input() tokenSymbol: string;
 }
 
 describe('IndexComponent', () => {
@@ -854,7 +855,7 @@ describe('IndexComponent', () => {
       beforeEach(() => {
         td.when(mockLocalStorageService.getItem(LocalServiceKey.NeighborNodeDescriptor))
           .thenReturn('5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999');
-        td.when(mockLocalStorageService.getItem(LocalServiceKey.BlockchainServiceUrl)).thenReturn('https://infura.io');
+        td.when(mockLocalStorageService.getItem(LocalServiceKey.BlockchainServiceUrl)).thenReturn('https://ropsten.infura.io');
 
         storedConfig.next({
           neighbor: '',
@@ -867,7 +868,7 @@ describe('IndexComponent', () => {
       it('ConfigService is patched with data from local storage', () => {
         expect(mockConfigService.patchValue).toHaveBeenCalledWith({
           neighbor: '5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999',
-          blockchainServiceUrl: 'https://infura.io',
+          blockchainServiceUrl: 'https://ropsten.infura.io',
         });
       });
     });
@@ -878,7 +879,7 @@ describe('IndexComponent', () => {
         td.when(mockLocalStorageService.getItem(LocalServiceKey.BlockchainServiceUrl)).thenReturn('');
         storedConfig.next({
           neighbor: '5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999',
-          blockchainServiceUrl: 'https://infura.io',
+          blockchainServiceUrl: 'https://ropsten.infura.io',
         });
         component.loadLocalStorage();
         fixture.detectChanges();
@@ -887,7 +888,7 @@ describe('IndexComponent', () => {
       it('ConfigService is patched with data from config parameter', () => {
         expect(mockConfigService.patchValue).toHaveBeenCalledWith({
           neighbor: '5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999',
-          blockchainServiceUrl: 'https://infura.io',
+          blockchainServiceUrl: 'https://ropsten.infura.io',
         });
       });
     });

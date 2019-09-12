@@ -3,7 +3,6 @@
 /* global describe expect beforeEach afterEach it */
 
 const fs = require('fs')
-const process = require('process')
 const generatedBasePath = 'generated/command_helper_spec'
 const commandHelper = require('../main-process/command_helper')
 

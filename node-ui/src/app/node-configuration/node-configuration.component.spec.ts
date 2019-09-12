@@ -9,7 +9,6 @@ import {Router} from '@angular/router';
 import {BehaviorSubject} from 'rxjs';
 import {NodeConfiguration} from '../node-configuration';
 import {NodeConfigurationPage} from './node-configuration-page';
-import {of} from 'rxjs/internal/observable/of';
 import {MainService} from '../main.service';
 import {ConfigurationMode} from '../configuration-mode.enum';
 import {NodeStatus} from '../node-status.enum';
@@ -33,12 +32,12 @@ describe('NodeConfigurationComponent', () => {
   let stubElectronService;
 
   beforeEach(() => {
-    storedConfig = new BehaviorSubject(new NodeConfiguration());
+    storedConfig = new BehaviorSubject({chainName: 'ropsten'});
     mockConfigMode = new BehaviorSubject(ConfigurationMode.Hidden);
     mockNavigateByUrl = td.func('navigateByUrl');
     mockOpenExternal = td.function('openExternal');
 
-    mockNodeStatus = new BehaviorSubject(new NodeConfiguration());
+    mockNodeStatus = new BehaviorSubject(NodeStatus.Invalid);
     stubElectronService = {
       shell: {
         openExternal: mockOpenExternal
@@ -47,7 +46,6 @@ describe('NodeConfigurationComponent', () => {
     mockMainService = {
       save: td.func('save'),
       nodeStatus: mockNodeStatus,
-      lookupIp: td.func('lookupIp'),
     };
 
     mockConfigService = {
@@ -90,106 +88,102 @@ describe('NodeConfigurationComponent', () => {
     td.reset();
   });
 
-  describe('LookupIp', () => {
-    describe('successful ip address lookup', () => {
+  describe('Configuration', () => {
+    beforeEach(() => {
+      const newValue: NodeConfiguration = {
+        ...storedConfig.value, ...{
+          chainName: 'ropsten',
+          ip: '192.168.1.2'
+        } as NodeConfiguration
+      };
+      storedConfig.next(newValue);
+      fixture.detectChanges();
+    });
+
+    describe('ip is filled out if it was provided', () => {
+      it('ip address is filled out', () => {
+        expect(page.ipTxt.value).toBe('192.168.1.2');
+      });
+    });
+
+    describe('wallet address is provided in config', () => {
       beforeEach(() => {
-        storedConfig.next({ip: '192.168.1.1'});
+        storedConfig.next({walletAddress: 'earning wallet address'});
         fixture.detectChanges();
       });
 
-      describe('ip is filled out if it can be looked up', () => {
-        it('ip address is filled out', () => {
-          expect(page.ipTxt.value).toBe('192.168.1.1');
-        });
-      });
-
-      describe('wallet address is provided in config', () => {
-        beforeEach(() => {
-          storedConfig.next({walletAddress: 'earning wallet address'});
-          fixture.detectChanges();
-        });
-
-        it('earning wallet address is filled out and readonly', () => {
-          expect(page.walletAddressTxt.value).toBe('earning wallet address');
-          expect(page.walletAddressTxt.readOnly).toBeTruthy();
-        });
-      });
-
-      describe('blank earning wallet address', () => {
-        beforeEach(() => {
-          td.when(mockMainService.lookupIp()).thenReturn(of('192.168.1.1'));
-          const expectedNodeConfiguration = new NodeConfiguration();
-          expectedNodeConfiguration.walletAddress = null;
-          td.when(mockConfigService.load()).thenReturn(of(expectedNodeConfiguration));
-          fixture = TestBed.createComponent(NodeConfigurationComponent);
-          page = new NodeConfigurationPage(fixture);
-          component = fixture.componentInstance;
-          fixture.detectChanges();
-        });
-
-        it('earning wallet address is blank and writable', () => {
-          expect(page.walletAddressTxt.value).toBe('');
-          expect(page.walletAddressTxt.readOnly).toBeFalsy();
-        });
+      it('earning wallet address is filled out and readonly', () => {
+        expect(page.walletAddressTxt.value).toBe('earning wallet address');
+        expect(page.walletAddressTxt.readOnly).toBeTruthy();
       });
     });
 
-    describe('unsuccessful ip address lookup', () => {
-      describe('the ip field', () => {
-        it('ip address starts blank', () => {
-          expect(page.ipTxt.value).toBe('');
-        });
+    describe('blank earning wallet address', () => {
+      beforeEach(() => {
+        const newValue = storedConfig.value;
+        newValue.walletAddress = null;
+        storedConfig.next(newValue);
+        fixture.detectChanges();
+      });
+
+      it('earning wallet address is blank and writable', () => {
+        expect(page.walletAddressTxt.value).toBe('');
+        expect(page.walletAddressTxt.readOnly).toBeFalsy();
       });
     });
-  });
 
-  describe('Wallet section', () => {
-    describe('with a filled out form', () => {
-      describe('when submitted', () => {
-        const expected = {
-          ip: '127.0.0.1',
-          neighbor: '5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999',
-          walletAddress: '0x0123456789012345678901234567890123456789',
-          blockchainServiceUrl: 'https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>',
-          privateKey: '',
-        };
+    describe('the ip field', () => {
+      beforeEach(() => {
+        storedConfig.next({ip: undefined});
+        fixture.detectChanges();
+      });
 
-        beforeEach(() => {
-          td.when(mockMainService.lookupIp()).thenReturn(of('192.168.1.1'));
-          fixture.detectChanges();
-          page.setIp('127.0.0.1');
-          page.setNeighbor('5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999');
-          page.setWalletAddress('0x0123456789012345678901234567890123456789');
-          page.setBlockchainServiceUrl('https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>');
-          fixture.detectChanges();
-
-          page.saveConfigBtn.click();
-
-          fixture.detectChanges();
-        });
-
-        it('persists the values', () => {
-          expect(mockConfigService.patchValue).toHaveBeenCalledWith(expected);
-        });
+      it('ip address starts blank', () => {
+        expect(page.ipTxt.value).toBe('');
       });
     });
-  });
 
-  describe('Configuration', () => {
-    beforeEach(() => {
-      td.when(mockMainService.lookupIp()).thenReturn(of('1.2.3.4'));
-      fixture.detectChanges();
+    describe('Wallet section', () => {
+      describe('with a filled out form', () => {
+        describe('when submitted', () => {
+          const expected = {
+            chainName: 'ropsten',
+            ip: '127.0.0.1',
+            neighbor: '5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999',
+            walletAddress: '0x0123456789012345678901234567890123456789',
+            blockchainServiceUrl: 'https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>',
+          };
+
+          beforeEach(() => {
+            page.setChainName('ropsten');
+            page.setIp('127.0.0.1');
+            page.setNeighbor('5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999');
+            page.setWalletAddress('0x0123456789012345678901234567890123456789');
+            page.setBlockchainServiceUrl('https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>');
+            fixture.detectChanges();
+
+            page.saveConfigBtn.click();
+
+            fixture.detectChanges();
+          });
+
+          it('persists the values', () => {
+            expect(mockConfigService.patchValue).toHaveBeenCalledWith(expected);
+          });
+        });
+      });
     });
 
     describe('when it already exists and there is no node descriptor in local storage', () => {
       const expected: NodeConfiguration = {
+        chainName: 'ropsten',
         ip: '127.0.0.1',
         neighbor: 'neighbornodedescriptor',
         walletAddress: 'address',
-        privateKey: ''
       };
 
       beforeEach(() => {
+        td.when(mockLocalStorageService.getItem(LocalServiceKey.ChainName)).thenReturn(null);
         td.when(mockLocalStorageService.getItem(LocalServiceKey.NeighborNodeDescriptor)).thenReturn(null);
         td.when(mockLocalStorageService.getItem(LocalServiceKey.PersistNeighborPreference)).thenReturn('false');
 
@@ -197,6 +191,7 @@ describe('NodeConfigurationComponent', () => {
       });
 
       it('is prepopulated with that data', () => {
+        expect(page.chainName.value).toBe('ropsten');
         expect(page.ipTxt.value).toBe('127.0.0.1');
         expect(page.neighborTxt.value).toBe('neighbornodedescriptor');
         expect(page.walletAddressTxt.value).toBe('address');
@@ -206,10 +201,10 @@ describe('NodeConfigurationComponent', () => {
 
     describe('when it already exists and a node descriptor is in local storage', () => {
       const expected: NodeConfiguration = {
+        chainName: 'ropsten',
         ip: '127.0.0.1',
         neighbor: 'neighbornodedescriptor',
         walletAddress: 'address',
-        privateKey: ''
       };
 
       beforeEach(() => {
@@ -333,9 +328,22 @@ describe('NodeConfigurationComponent', () => {
         });
       });
 
-      describe('valid node descriptor', () => {
+      describe('valid node descriptor for ropsten', () => {
         beforeEach(() => {
+          page.setChainName('ropsten');
           page.setNeighbor('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345;4321');
+          fixture.detectChanges();
+        });
+
+        it('is not in error if it is in node descriptor format', () => {
+          expect(page.neighborValidationPatternLi).toBeFalsy();
+        });
+      });
+
+      describe('valid node descriptor for mainnet', () => {
+        beforeEach(() => {
+          page.setChainName('mainnet');
+          page.setNeighbor('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI@255.255.255.255:12345;4321');
           fixture.detectChanges();
         });
 
@@ -458,11 +466,6 @@ describe('NodeConfigurationComponent', () => {
     });
 
     describe('Save Button', () => {
-      beforeEach(() => {
-        td.when(mockMainService.lookupIp()).thenReturn(of('1.2.3.4'));
-        fixture.detectChanges();
-      });
-
       describe('when in configuration mode and the node is running', () => {
         beforeEach(() => {
           component.mode = ConfigurationMode.Configuring;
@@ -502,15 +505,16 @@ describe('NodeConfigurationComponent', () => {
       describe('when clicked', () => {
         describe('with a filled out form', () => {
           const expected = {
+            chainName: 'ropsten',
             ip: '127.0.0.1',
             neighbor: '5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999',
             walletAddress: '',
             blockchainServiceUrl: 'https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>',
-            privateKey: ''
           };
           let savedSignalAsserted = false;
 
           beforeEach(() => {
+            page.setChainName('ropsten');
             page.setIp('127.0.0.1');
             page.setNeighbor('5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999');
             page.setWalletAddress('');
@@ -582,14 +586,14 @@ describe('NodeConfigurationComponent', () => {
             page.setIp('127.0.0.1');
             page.setNeighbor('5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999');
             page.setWalletAddress('');
-            page.setBlockchainServiceUrl('https://infura.io');
+            page.setBlockchainServiceUrl('https://ropsten.infura.io');
             fixture.detectChanges();
             page.saveConfigBtn.click();
             fixture.detectChanges();
           });
 
           it('saves the blockchain service url', () => {
-            expect(mockLocalStorageService.setItem).toHaveBeenCalledWith(LocalServiceKey.BlockchainServiceUrl, 'https://infura.io');
+            expect(mockLocalStorageService.setItem).toHaveBeenCalledWith(LocalServiceKey.BlockchainServiceUrl, 'https://ropsten.infura.io');
           });
         });
       });

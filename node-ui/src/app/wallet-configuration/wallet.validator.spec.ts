@@ -2,7 +2,6 @@
 
 import {
   mnemonicValidator,
-  hardenedPathValidator,
   hardenedDerivationPathPattern,
   mnemonicWordLengthValidator
 } from './wallet.validator';

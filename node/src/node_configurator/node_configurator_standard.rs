@@ -87,6 +87,9 @@ const BLOCKCHAIN_SERVICE_HELP: &str =
     "The Ethereum client you wish to use to provide Blockchain \
      exit services from your SubstratumNode (e.g. http://localhost:8545, \
      https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID).";
+const CHAIN_HELP: &str =
+    "The blockchain network SubstratumNode will configure itself to use. You must ensure the \
+    Ethereum client specified by --blockchain-service-url communicates with the same blockchain network.";
 const DNS_SERVERS_HELP: &str =
     "IP addresses of DNS Servers for host name look-up while providing exit \
      services for other SubstratumNodes (e.g. 1.0.0.1,1.1.1.1,8.8.8.8,9.9.9.9, etc.)";
@@ -107,10 +110,11 @@ const LOG_LEVEL_HELP: &str =
      persistent logs being kept on your computer: if your Node crashes, it's good to know why.";
 const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes in the Substratum \
      Network to which you'd like your Node to connect on startup. A Node descriptor looks like \
-     this:\n\ngBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg/EN6zQ:86.75.30.9:5542\n\nIf you have more than one, \
-     separate them with commas (but no spaces). There is no default value; if you don't specify \
-     a neighbor, your Node will start without being connected to any Substratum Network, although \
-     other Nodes will be able to connect to yours if they know your Node's descriptor.";
+     this:\n\ngBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg/EN6zQ:86.75.30.9:5542 (initial ':' for testnet) and\n\
+     gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg/EN6zQ@86.75.30.9:5542 (initial '@' for mainnet)\n\n\
+     If you have more than one, separate them with commas (but no spaces). There is no default value; \
+     if you don't specify a neighbor, your Node will start without being connected to any Substratum \
+     Network, although other Nodes will be able to connect to yours if they know your Node's descriptor.";
 const WALLET_PASSWORD_HELP: &str =
     "A password or phrase to decrypt your consuming wallet or a keystore file. Can be changed \
      later and still produce the same addresses.";
@@ -133,8 +137,12 @@ const HELP_TEXT: &str = indoc!(
     indicates the required port needing to be forwarded by the network router. The port is
     the last number in the descriptor, as shown below:
 
-    95VjByq5tEUUpDcczA//zXWGE6+7YFEvzN4CDVoPbWw:86.75.30.9:1234
-                                                           ^^^^
+    95VjByq5tEUUpDcczA//zXWGE6+7YFEvzN4CDVoPbWw:86.75.30.9:1234 for testnet
+                                               ^           ^^^^
+    95VjByq5tEUUpDcczA//zXWGE6+7YFEvzN4CDVoPbWw@86.75.30.9:1234 for mainnet
+                                               ^           ^^^^
+    Note: testnet uses ':' to separate the encoded key from the IP address.
+          mainnet uses '@' to separate the encoded key from the IP address.
     Steps To Forwarding Ports In The Router
         1. Log in to the router.
         2. Navigate to the router's port forwarding section, also frequently called virtual server.
@@ -200,9 +208,9 @@ fn app() -> App<'static, 'static> {
                 .min_values(1)
                 .max_values(1)
                 .takes_value(true)
-                .possible_values(&["dev", "ropsten"]) // TODO: SC-501/GH-115: Add "mainnet"
+                .possible_values(&["dev", "mainnet", "ropsten"])
                 .default_value(DEFAULT_CHAIN_NAME) // TODO: SC-501/GH-115: Update
-                .hidden(true), //TODO: SC-501/GH-115: unhide, add help text, and update README.md
+                .help(CHAIN_HELP),
         )
         .arg(
             Arg::with_name("fake-public-key")
@@ -624,7 +632,7 @@ mod tests {
     use super::*;
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::blockchain::bip39::{Bip39, Bip39Error};
-    use crate::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
+    use crate::blockchain::blockchain_interface::{chain_id_from_name, contract_address};
     use crate::bootstrapper::RealUser;
     use crate::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::database::db_initializer;
@@ -641,9 +649,9 @@ mod tests {
     use crate::sub_lib::neighborhood::sentinel_ip_addr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::environment_guard::EnvironmentGuard;
-    use crate::test_utils::make_default_persistent_configuration;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::{ensure_node_home_directory_exists, ArgsBuilder};
+    use crate::test_utils::{make_default_persistent_configuration, DEFAULT_CHAIN_ID};
     use crate::test_utils::{ByteArrayWriter, FakeStreamHolder};
     use ethsign::keyfile::Crypto;
     use ethsign::Protected;
@@ -1736,7 +1744,10 @@ mod tests {
 
         let config = subject.configure(&args.into(), &mut FakeStreamHolder::new().streams());
 
-        assert_eq!(config.blockchain_bridge_config.chain_id, 2u8);
+        assert_eq!(
+            config.blockchain_bridge_config.chain_id,
+            chain_id_from_name("dev")
+        );
     }
 
     #[test]
@@ -1748,7 +1759,10 @@ mod tests {
 
         let config = subject.configure(&args.into(), &mut FakeStreamHolder::new().streams());
 
-        assert_eq!(config.blockchain_bridge_config.chain_id, DEFAULT_CHAIN_ID);
+        assert_eq!(
+            config.blockchain_bridge_config.chain_id,
+            chain_id_from_name("ropsten")
+        );
     }
 
     #[test]
@@ -1758,20 +1772,25 @@ mod tests {
 
         let config = subject.configure(&args.into(), &mut FakeStreamHolder::new().streams());
 
-        assert_eq!(config.blockchain_bridge_config.chain_id, DEFAULT_CHAIN_ID);
+        assert_eq!(
+            config.blockchain_bridge_config.chain_id,
+            chain_id_from_name(DEFAULT_CHAIN_NAME)
+        );
     }
 
     #[test]
-    #[should_panic(
-        expected = "error: \\'mainnet\\' isn\\'t a valid value for \\'--chain <CHAIN>\\'"
-    )]
     fn privileged_configuration_rejects_mainnet_network_chain_selection() {
         let subject = NodeConfiguratorStandardPrivileged {};
         let args = ArgsBuilder::new()
             .param("--dns-servers", "1.2.3.4")
-            .param("--chain", "mainnet"); // TODO: SC-501/GH-115: Remove the should_panic or correct the test in a better way
+            .param("--chain", "mainnet");
 
-        subject.configure(&args.into(), &mut FakeStreamHolder::new().streams());
+        let bootstrapper_config =
+            subject.configure(&args.into(), &mut FakeStreamHolder::new().streams());
+        assert_eq!(
+            bootstrapper_config.blockchain_bridge_config.chain_id,
+            chain_id_from_name("mainnet")
+        );
     }
 
     #[test]

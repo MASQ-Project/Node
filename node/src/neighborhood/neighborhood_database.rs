@@ -281,10 +281,9 @@ pub enum NeighborhoodDatabaseError {
 mod tests {
     use super::super::neighborhood_test_utils::make_node_record;
     use super::*;
-    use crate::blockchain::blockchain_interface::DEFAULT_CHAIN_ID;
     use crate::neighborhood::neighborhood_test_utils::db_from_node;
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::test_utils::{assert_string_contains, rate_pack};
+    use crate::test_utils::{assert_string_contains, rate_pack, DEFAULT_CHAIN_ID};
     use std::iter::FromIterator;
     use std::str::FromStr;
 

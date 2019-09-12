@@ -271,7 +271,7 @@ mod tests {
     use crate::blockchain::bip39::{Bip39, Bip39Error};
     use crate::blockchain::blockchain_interface::{
         contract_address, Balance, BlockchainError, BlockchainResult, Nonce, Transaction,
-        Transactions, DEFAULT_CHAIN_ID,
+        Transactions,
     };
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
@@ -282,7 +282,7 @@ mod tests {
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use crate::test_utils::{
-        make_default_persistent_configuration, make_paying_wallet, make_wallet,
+        make_default_persistent_configuration, make_paying_wallet, make_wallet, DEFAULT_CHAIN_ID,
     };
     use actix::Addr;
     use actix::System;

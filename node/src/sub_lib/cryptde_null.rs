@@ -191,8 +191,7 @@ impl CryptDENull {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
-    use crate::test_utils::cryptde;
+    use crate::test_utils::{cryptde, DEFAULT_CHAIN_ID};
     use ethsign_crypto::Keccak256;
 
     #[test]

@@ -11,8 +11,8 @@
     <div id="serving-data" class="financial-data-pane">
       <h3>Serving</h3>
       <h4>Pending Credit</h4>
-      SUB <span id="pending-credit"
-                *ngIf="this.financialStatisticsData">{{pendingCredit()}}</span>
+      {{this.tokenSymbol}} <span id="pending-credit"
+                                 *ngIf="this.financialStatisticsData">{{pendingCredit()}}</span>
     </div>
     <div class="vr-outer">
       <div class="vr-inner"></div>
@@ -20,7 +20,7 @@
     <div id="consuming-data" class="financial-data-pane">
       <h3>Consuming</h3>
       <h4>Pending Debt</h4>
-      SUB <span id="pending-debt" *ngIf="this.financialStatisticsData">{{pendingDebt()}}</span>
+      {{this.tokenSymbol}} <span id="pending-debt" *ngIf="this.financialStatisticsData">{{pendingDebt()}}</span>
     </div>
   </div>
 </div>

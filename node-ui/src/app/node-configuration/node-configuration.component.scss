@@ -14,6 +14,7 @@ $right-corners-nubbed: 0 $border-radius $border-radius 0;
 
 .node-config {
   @include node-form;
+  @include select-box;
 
   form {
     padding-top: 0;
@@ -23,6 +24,10 @@ $right-corners-nubbed: 0 $border-radius $border-radius 0;
     margin-block-start: 5px;
     margin-block-end: 10px;
   }
+}
+
+#chain-container {
+  display: contents;
 }
 
 @mixin toggle-button() {

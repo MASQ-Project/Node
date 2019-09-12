@@ -1,8 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 import {WalletService} from '../wallet.service';
-import {AsyncValidatorFn, FormControl, FormGroup, ValidationErrors, ValidatorFn, Validators} from '@angular/forms';
-import {Observable, of} from 'rxjs';
+import {AsyncValidatorFn, FormGroup, ValidationErrors, ValidatorFn, Validators} from '@angular/forms';
+import {Observable} from 'rxjs';
 import {map} from 'rxjs/operators';
 
 export function mnemonicValidator(walletService: WalletService): AsyncValidatorFn {

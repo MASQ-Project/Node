@@ -8,7 +8,8 @@ import {ConfigurationMode} from '../configuration-mode.enum';
 import {Subscription} from 'rxjs';
 import {LocalServiceKey} from '../local-service-key.enum';
 import {LocalStorageService} from '../local-storage.service';
-import {NodeConfiguration} from '../node-configuration';
+
+export const tokenSymbols = {ropsten: 'HOT', mainnet: 'SUB'};
 
 @Component({
   selector: 'app-index',
@@ -51,13 +52,20 @@ export class IndexComponent {
     this.ipSubscription = this.mainService.lookupIp().subscribe((ip) => {
       this.configService.patchValue({'ip': ip});
     });
+
+    this.configService.load().subscribe((nodeConfiguration) => {
+      const tokenSymbol = tokenSymbols[nodeConfiguration.chainName];
+      if (tokenSymbol) {
+        this.tokenSymbol = tokenSymbol;
+      }
+    });
   }
 
   ipSubscription: Subscription;
-
   @Output() status: NodeStatus = NodeStatus.Off;
   @Output() configurationMode: ConfigurationMode = ConfigurationMode.Hidden;
   @Output() configurationTabSelected: boolean;
+  @Output() tokenSymbol = 'HOT';
   isConsumingWalletPasswordPromptShown: boolean;
   unlockFailed: boolean;
   unlocked: boolean;
@@ -76,8 +84,8 @@ export class IndexComponent {
   }
 
   static resizeLarge() {
-    if (window.outerHeight !== 760) {
-      window.resizeTo(640, 760);
+    if (window.outerHeight !== 800) {
+      window.resizeTo(640, 800);
     }
   }
 
@@ -99,6 +107,10 @@ export class IndexComponent {
         config.blockchainServiceUrl = storedBlockchainServiceUrl;
       }
 
+      const storedChainName = this.localStorageService.getItem(LocalServiceKey.ChainName);
+      if (storedChainName) {
+        config.chainName = storedChainName;
+      }
       this.configService.patchValue(config);
     });
   }

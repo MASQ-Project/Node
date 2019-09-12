@@ -350,9 +350,9 @@ pub enum RouteError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::{contract_address, DEFAULT_CHAIN_ID};
+    use crate::blockchain::blockchain_interface::contract_address;
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::test_utils::{cryptde, make_paying_wallet, make_wallet};
+    use crate::test_utils::{cryptde, make_paying_wallet, make_wallet, DEFAULT_CHAIN_ID};
     use serde_cbor;
 
     #[test]

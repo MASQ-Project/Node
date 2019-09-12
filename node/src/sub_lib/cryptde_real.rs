@@ -182,7 +182,7 @@ impl CryptDEReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::DEFAULT_CHAIN_ID;
+    use crate::test_utils::DEFAULT_CHAIN_ID;
     use ethsign_crypto::Keccak256;
 
     impl Default for CryptDEReal {

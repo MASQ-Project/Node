@@ -9,6 +9,7 @@ use crate::sub_lib::route::Route;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
+use crate::sub_lib::utils::node_descriptor_delimiter;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
@@ -50,8 +51,13 @@ pub struct NodeDescriptor {
 }
 
 impl NodeDescriptor {
-    pub fn from_str(cryptde: &dyn CryptDE, s: &str) -> Result<NodeDescriptor, String> {
-        let pieces: Vec<&str> = s.splitn(2, ':').collect();
+    pub fn from_str(
+        cryptde: &dyn CryptDE,
+        s: &str,
+        chain_id: u8,
+    ) -> Result<NodeDescriptor, String> {
+        let delimiter = node_descriptor_delimiter(chain_id);
+        let pieces: Vec<&str> = s.splitn(2, delimiter).collect();
 
         if pieces.len() != 2 {
             return Err(String::from(s));
@@ -73,10 +79,14 @@ impl NodeDescriptor {
         })
     }
 
-    pub fn to_string(&self, cryptde: &dyn CryptDE) -> String {
+    pub fn to_string(&self, cryptde: &dyn CryptDE, chain_id: u8) -> String {
         let contact_public_key_string = cryptde.public_key_to_descriptor_fragment(&self.public_key);
         let node_addr_string = self.node_addr.to_string();
-        format!("{}:{}", contact_public_key_string, node_addr_string)
+        let delimiter = node_descriptor_delimiter(chain_id);
+        format!(
+            "{}{}{}",
+            contact_public_key_string, delimiter, node_addr_string
+        )
     }
 }
 
@@ -224,8 +234,9 @@ pub struct RatePack {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::cryptde;
+    use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::test_utils::recorder::Recorder;
+    use crate::test_utils::{cryptde, DEFAULT_CHAIN_ID};
     use actix::Actor;
     use std::str::FromStr;
 
@@ -261,14 +272,15 @@ mod tests {
 
     #[test]
     fn node_descriptor_from_str_requires_two_pieces_to_a_configuration() {
-        let result = NodeDescriptor::from_str(cryptde(), "only_one_piece");
+        let result = NodeDescriptor::from_str(cryptde(), "only_one_piece", DEFAULT_CHAIN_ID);
 
         assert_eq!(result, Err(String::from("only_one_piece")));
     }
 
     #[test]
     fn node_descriptor_from_str_complains_about_bad_base_64() {
-        let result = NodeDescriptor::from_str(cryptde(), "bad_key:1.2.3.4:1234;2345");
+        let result =
+            NodeDescriptor::from_str(cryptde(), "bad_key:1.2.3.4:1234;2345", DEFAULT_CHAIN_ID);
 
         assert_eq!(
             result,
@@ -278,21 +290,44 @@ mod tests {
 
     #[test]
     fn node_descriptor_from_str_complains_about_blank_public_key() {
-        let result = NodeDescriptor::from_str(cryptde(), ":1.2.3.4:1234;2345");
+        let result = NodeDescriptor::from_str(cryptde(), ":1.2.3.4:1234;2345", DEFAULT_CHAIN_ID);
 
         assert_eq!(result, Err(String::from("Public key cannot be empty")));
     }
 
     #[test]
     fn node_descriptor_from_str_complains_about_bad_node_addr() {
-        let result = NodeDescriptor::from_str(cryptde(), "R29vZEtleQ==:BadNodeAddr");
+        let result =
+            NodeDescriptor::from_str(cryptde(), "R29vZEtleQ==:BadNodeAddr", DEFAULT_CHAIN_ID);
 
         assert_eq!(result, Err(String::from("R29vZEtleQ==:BadNodeAddr")));
     }
 
     #[test]
     fn node_descriptor_from_str_handles_the_happy_path() {
-        let result = NodeDescriptor::from_str(cryptde(), "R29vZEtleQ:1.2.3.4:1234;2345;3456");
+        let result = NodeDescriptor::from_str(
+            cryptde(),
+            "R29vZEtleQ:1.2.3.4:1234;2345;3456",
+            DEFAULT_CHAIN_ID,
+        );
+
+        assert_eq!(
+            result.unwrap(),
+            NodeDescriptor {
+                public_key: PublicKey::new(b"GoodKey"),
+                node_addr: NodeAddr::new(
+                    &IpAddr::from_str("1.2.3.4").unwrap(),
+                    &vec!(1234, 2345, 3456),
+                )
+            },
+        )
+    }
+
+    #[test]
+    fn node_descriptor_from_str_accepts_mainnet_delimiter() {
+        let chain_id = chain_id_from_name("mainnet");
+        let result =
+            NodeDescriptor::from_str(cryptde(), "R29vZEtleQ@1.2.3.4:1234;2345;3456", chain_id);
 
         assert_eq!(
             result.unwrap(),

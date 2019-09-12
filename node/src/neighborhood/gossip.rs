@@ -51,7 +51,7 @@ impl From<(NodeRecordInner, Option<NodeAddr>, &dyn CryptDE)> for GossipNodeRecor
     fn from(triple: (NodeRecordInner, Option<NodeAddr>, &dyn CryptDE)) -> Self {
         let (inner, node_addr_opt, cryptde) = triple;
         let signed_data =
-            PlainData::from(serde_cbor::ser::to_vec(&inner).expect("Serialization failed"));
+            PlainData::from(serde_cbor::to_vec(&inner).expect("Serialization failed"));
         let signature = cryptde.sign(&signed_data).expect("Signing failed");
         GossipNodeRecord {
             signed_data,

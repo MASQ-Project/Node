@@ -1064,7 +1064,6 @@ impl<'a> GossipAcceptorReal<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::DEFAULT_CHAIN_ID;
     use crate::neighborhood::gossip_producer::GossipProducer;
     use crate::neighborhood::gossip_producer::GossipProducerReal;
     use crate::neighborhood::neighborhood_test_utils::{
@@ -1072,7 +1071,7 @@ mod tests {
     };
     use crate::neighborhood::node_record::NodeRecord;
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::test_utils::{assert_contains, cryptde};
+    use crate::test_utils::{assert_contains, cryptde, DEFAULT_CHAIN_ID};
     use std::convert::TryInto;
     use std::str::FromStr;
 
