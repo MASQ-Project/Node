@@ -75,7 +75,7 @@ fn ui_gateway_dot_graph_message_integration() {
                 }
                 _ => panic!("Expected a text response"),
             })
-            .timeout(Duration::from_millis(1000))
+            .timeout(Duration::from_millis(2000))
             .map_err(|e| panic!("failed to get response by timeout {:?}", e));
 
     let shutdown_msg = converter.marshal(UiMessage::ShutdownMessage).unwrap();

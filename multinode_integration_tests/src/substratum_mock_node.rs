@@ -29,10 +29,10 @@ use serde_cbor;
 use std::cell::RefCell;
 use std::io;
 use std::io::{Error, ErrorKind, Read, Write};
-use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::net::TcpStream;
+use std::net::{IpAddr, Shutdown};
 use std::ops::Add;
 use std::rc::Rc;
 use std::thread;
@@ -352,6 +352,12 @@ impl SubstratumMockNode {
             }
             Err(_) => None,
         }
+    }
+
+    pub fn kill(self) {
+        let mut stream = self.control_stream.borrow_mut();
+        stream.flush().unwrap();
+        stream.shutdown(Shutdown::Both).unwrap();
     }
 
     fn do_docker_run(node_addr: &NodeAddr, host_node_parent_dir: Option<String>, name: &String) {

@@ -33,7 +33,6 @@ impl Future for StreamReaderReal {
     type Error = ();
 
     fn poll(&mut self) -> Result<Async<()>, ()> {
-        let port = self.local_addr.port();
         let mut buf = [0u8; 0x10_000];
         loop {
             match self.stream.poll_read(&mut buf) {
@@ -42,26 +41,37 @@ impl Future for StreamReaderReal {
                     // see RETURN VALUE section of recv man page (Unix)
                     debug!(
                         self.logger,
-                        "Stream on port {} has shut down (0-byte read)", port
+                        "Stream {} has shut down (0-byte read)",
+                        Self::stringify(self.local_addr, self.peer_addr)
                     );
                     self.shutdown();
                     return Ok(Async::Ready(()));
                 }
                 Ok(Async::Ready(length)) => {
-                    debug!(self.logger, "Read {}-byte chunk from port {}", length, port);
+                    debug!(
+                        self.logger,
+                        "Read {}-byte chunk from stream {}",
+                        length,
+                        Self::stringify(self.local_addr, self.peer_addr)
+                    );
                     self.wrangle_discriminators(&buf, length)
                 }
                 Err(e) => {
                     if indicates_dead_stream(e.kind()) {
-                        debug!(self.logger, "Stream on port {} is dead: {}", port, e);
+                        debug!(
+                            self.logger,
+                            "Stream {} is dead: {}",
+                            Self::stringify(self.local_addr, self.peer_addr),
+                            e
+                        );
                         self.shutdown();
                         return Err(());
                     } else {
                         // TODO this could be exploitable and inefficient: if we keep getting non-dead-stream errors, we go into a tight loop and do not return
                         warning!(
                             self.logger,
-                            "Continuing after read error on port {}: {}",
-                            port,
+                            "Continuing after read error on stream {}: {}",
+                            Self::stringify(self.local_addr, self.peer_addr),
                             e.to_string()
                         )
                     }
@@ -171,7 +181,8 @@ impl StreamReaderReal {
         debug!(self.logger, "Directing removal of {}clandestine StreamReader with reception_port {:?} on {} listening to {}", if self.is_clandestine {""} else {"non-"}, self.reception_port, self.local_addr, self.peer_addr);
         self.remove_sub
             .try_send(RemoveStreamMsg {
-                socket_addr: self.peer_addr,
+                peer_addr: self.peer_addr,
+                local_addr: self.local_addr,
                 stream_type: if self.is_clandestine {
                     RemovedStreamType::Clandestine
                 } else {
@@ -185,6 +196,10 @@ impl StreamReaderReal {
                 sub: self.stream_shutdown_sub.clone(),
             })
             .expect("StreamHandlerPool is dead");
+    }
+
+    fn stringify(local_addr: SocketAddr, peer_addr: SocketAddr) -> String {
+        format!("between local {} and peer {}", local_addr, peer_addr)
     }
 }
 
@@ -264,7 +279,8 @@ mod tests {
         assert_eq!(
             shp_recording.get_record::<RemoveStreamMsg>(0),
             &RemoveStreamMsg {
-                socket_addr: peer_addr,
+                peer_addr,
+                local_addr,
                 stream_type: RemovedStreamType::Clandestine,
                 sub: dispatcher_subs.stream_shutdown_sub,
             }
@@ -273,7 +289,7 @@ mod tests {
         assert_eq!(result, Ok(Async::Ready(())));
 
         TestLogHandler::new().exists_log_containing(
-            "DEBUG: StreamReader for 1.2.3.4:5678: Stream on port 6789 has shut down (0-byte read)",
+            "DEBUG: StreamReader for 1.2.3.4:5678: Stream between local 1.2.3.5:6789 and peer 1.2.3.4:5678 has shut down (0-byte read)",
         );
     }
 
@@ -312,7 +328,8 @@ mod tests {
         assert_eq!(
             shp_recording.get_record::<RemoveStreamMsg>(0),
             &RemoveStreamMsg {
-                socket_addr: peer_addr,
+                peer_addr,
+                local_addr,
                 stream_type: RemovedStreamType::Clandestine,
                 sub: dispatcher_subs.stream_shutdown_sub,
             }
@@ -321,7 +338,7 @@ mod tests {
         assert_eq!(result, Err(()));
 
         TestLogHandler::new().exists_log_containing(
-            "DEBUG: StreamReader for 1.2.3.4:5678: Stream on port 6789 is dead: broken pipe",
+            "DEBUG: StreamReader for 1.2.3.4:5678: Stream between local 1.2.3.5:6789 and peer 1.2.3.4:5678 is dead: broken pipe",
         );
     }
 
@@ -399,7 +416,7 @@ mod tests {
         System::current().stop_with_code(0);
         system.run();
 
-        TestLogHandler::new().await_log_containing("WARN: StreamReader for 1.2.3.4:5678: Continuing after read error on port 6789: other os error", 1000);
+        TestLogHandler::new().await_log_containing("WARN: StreamReader for 1.2.3.4:5678: Continuing after read error on stream between local 1.2.3.5:6789 and peer 1.2.3.4:5678: other os error", 1000);
 
         let shp_recording = shp_recording_arc.lock().unwrap();
         assert_eq!(shp_recording.len(), 0);
@@ -492,10 +509,10 @@ mod tests {
         );
 
         TestLogHandler::new().exists_log_containing(
-            "DEBUG: StreamReader for 1.2.3.4:5678: Read 14-byte chunk from port 6789",
+            "DEBUG: StreamReader for 1.2.3.4:5678: Read 14-byte chunk from stream between local 1.2.3.5:6789 and peer 1.2.3.4:5678",
         );
         TestLogHandler::new().exists_log_containing(
-            "DEBUG: StreamReader for 1.2.3.4:5678: Read 18-byte chunk from port 6789",
+            "DEBUG: StreamReader for 1.2.3.4:5678: Read 18-byte chunk from stream between local 1.2.3.5:6789 and peer 1.2.3.4:5678",
         );
     }
 
@@ -705,7 +722,8 @@ mod tests {
         assert_eq!(
             remove_stream_msg,
             &RemoveStreamMsg {
-                socket_addr: peer_addr,
+                peer_addr,
+                local_addr,
                 stream_type: RemovedStreamType::Clandestine,
                 sub: dispatcher_subs.stream_shutdown_sub,
             }
@@ -744,7 +762,8 @@ mod tests {
         assert_eq!(
             remove_stream_msg,
             &RemoveStreamMsg {
-                socket_addr: peer_addr,
+                peer_addr,
+                local_addr,
                 stream_type: NonClandestine(NonClandestineAttributes {
                     reception_port: HTTP_PORT,
                     sequence_number: 1,

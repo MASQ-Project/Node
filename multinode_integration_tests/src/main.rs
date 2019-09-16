@@ -202,7 +202,13 @@ impl MockNode {
                     let _ = self.write_control_stream().shutdown(Shutdown::Both);
                     break;
                 }
-                Ok(len) => framer.add_data(&buf[..len]),
+                Ok(len) => {
+                    if len == 0 {
+                        let _ = self.write_control_stream().shutdown(Shutdown::Both);
+                        break;
+                    }
+                    framer.add_data(&buf[..len])
+                }
                 _ => (),
             }
         }

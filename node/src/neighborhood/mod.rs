@@ -64,7 +64,7 @@ use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 use std::cmp::Ordering;
 use std::convert::TryFrom;
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
@@ -901,34 +901,30 @@ impl Neighborhood {
         if msg.stream_type != RemovedStreamType::Clandestine {
             panic!("Neighborhood should never get ShutdownStreamMsg about non-clandestine stream")
         }
-        let (neighbor_key, neighbor_node_addr) = match self
-            .neighborhood_database
-            .node_by_ip(&msg.peer_addr.ip())
-        {
+        let neighbor_key = match self.neighborhood_database.node_by_ip(&msg.peer_addr.ip()) {
             None => {
-                debug!(self.logger, "Received shutdown notification for stream to {}, but no neighbor found there - ignoring", msg.peer_addr);
+                warning!(self.logger, "Received shutdown notification for stream to {}, but no Node with that IP is in the database - ignoring", msg.peer_addr.ip());
                 return;
             }
-            Some(n) => (
-                n.public_key().clone(),
-                n.node_addr_opt().expect("NodeAddr suddenly disappeared"),
-            ),
+            Some(n) => (n.public_key().clone()),
         };
-        if !neighbor_node_addr.ports().contains(&msg.peer_addr.port()) {
-            debug!(self.logger, "Received shutdown notification for stream to {}, but no neighbor found there - ignoring", msg.peer_addr);
-            return;
-        }
-        match self.neighborhood_database.remove_neighbor(&neighbor_key) {
+        self.remove_neighbor(&neighbor_key, &msg.peer_addr);
+    }
+
+    fn remove_neighbor(&mut self, neighbor_key: &PublicKey, peer_addr: &SocketAddr) {
+        match self.neighborhood_database.remove_neighbor(neighbor_key) {
             Err(_) => panic!("Node suddenly disappeared"),
             Ok(true) => {
                 debug!(
                     self.logger,
-                    "Received shutdown notification for {} at {}", neighbor_key, msg.peer_addr
+                    "Received shutdown notification for {} at {}: removing neighborship",
+                    neighbor_key,
+                    peer_addr.ip()
                 );
                 self.gossip_to_neighbors()
             }
             Ok(false) => {
-                debug!(self.logger, "Received shutdown notification for {} at {}, but that Node is already isolated - ignoring", neighbor_key, msg.peer_addr);
+                debug!(self.logger, "Received shutdown notification for {} at {}, but that Node is no neighbor - ignoring", neighbor_key, peer_addr.ip());
             }
         };
     }
@@ -3212,50 +3208,7 @@ mod tests {
         assert_eq!(subject.neighborhood_database.keys().len(), 1);
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(hopper_recording.len(), 0);
-        TestLogHandler::new().exists_log_containing(&format!("DEBUG: Neighborhood: Received shutdown notification for stream to {}, but no neighbor found there - ignoring", unrecognized_socket_addr));
-    }
-
-    #[test]
-    fn handle_stream_shutdown_handles_socket_addr_with_unknown_port() {
-        init_test_logging();
-        let (hopper, _, hopper_recording_arc) = make_recorder();
-        let system = System::new("test");
-        let neighbor_node = make_node_record(3123, true);
-        let neighbor_node_addr = neighbor_node.node_addr_opt().unwrap();
-        let neighbor_node_socket_addr =
-            SocketAddr::new(neighbor_node_addr.ip_addr(), neighbor_node_addr.ports()[0]);
-        let unrecognized_socket_addr = SocketAddr::new(
-            neighbor_node_socket_addr.ip(),
-            neighbor_node_socket_addr.port() + 1,
-        );
-        let subject_node = make_global_cryptde_node_record(1345, true);
-        let mut subject = neighborhood_from_nodes(&subject_node, None);
-        subject
-            .neighborhood_database
-            .add_node(neighbor_node.clone())
-            .unwrap();
-        subject
-            .neighborhood_database
-            .add_arbitrary_full_neighbor(subject_node.public_key(), neighbor_node.public_key());
-        let peer_actors = peer_actors_builder().hopper(hopper).build();
-        subject.hopper = Some(peer_actors.hopper.from_hopper_client);
-
-        subject.handle_stream_shutdown_msg(StreamShutdownMsg {
-            peer_addr: SocketAddr::new(
-                neighbor_node_socket_addr.ip(),
-                neighbor_node_socket_addr.port() + 1,
-            ),
-            stream_type: RemovedStreamType::Clandestine,
-            report_to_counterpart: false,
-        });
-
-        System::current().stop_with_code(0);
-        system.run();
-
-        assert_eq!(subject.neighborhood_database.keys().len(), 2);
-        let hopper_recording = hopper_recording_arc.lock().unwrap();
-        assert_eq!(hopper_recording.len(), 0);
-        TestLogHandler::new().exists_log_containing(&format!("DEBUG: Neighborhood: Received shutdown notification for stream to {}, but no neighbor found there - ignoring", unrecognized_socket_addr));
+        TestLogHandler::new().exists_log_containing(&format!("WARN: Neighborhood: Received shutdown notification for stream to {}, but no Node with that IP is in the database - ignoring", unrecognized_socket_addr.ip()));
     }
 
     #[test]
@@ -3310,7 +3263,7 @@ mod tests {
         );
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(hopper_recording.len(), 0);
-        TestLogHandler::new().exists_log_containing(&format!("DEBUG: Neighborhood: Received shutdown notification for {} at {}, but that Node is already isolated - ignoring", inactive_neighbor_node.public_key(), inactive_neighbor_node_socket_addr));
+        TestLogHandler::new().exists_log_containing(&format!("DEBUG: Neighborhood: Received shutdown notification for {} at {}, but that Node is no neighbor - ignoring", inactive_neighbor_node.public_key(), inactive_neighbor_node_socket_addr.ip()));
     }
 
     #[test]
@@ -3366,9 +3319,9 @@ mod tests {
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(hopper_recording.len(), 1);
         TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: Neighborhood: Received shutdown notification for {} at {}",
+            "DEBUG: Neighborhood: Received shutdown notification for {} at {}: removing neighborship",
             shutdown_neighbor_node.public_key(),
-            shutdown_neighbor_node_socket_addr
+            shutdown_neighbor_node_socket_addr.ip()
         ));
     }
 

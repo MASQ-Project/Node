@@ -45,7 +45,8 @@ pub enum RemovedStreamType {
 
 #[derive(PartialEq, Message)]
 pub struct RemoveStreamMsg {
-    pub socket_addr: SocketAddr,
+    pub local_addr: SocketAddr,
+    pub peer_addr: SocketAddr,
     pub stream_type: RemovedStreamType,
     pub sub: Recipient<StreamShutdownMsg>,
 }
@@ -54,8 +55,8 @@ impl Debug for RemoveStreamMsg {
     fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
         write!(
             f,
-            "RemoveStreamMsg {{ socket_addr: {}, stream_type: {:?}, sub: <unprintable> }}",
-            self.socket_addr, self.stream_type
+            "RemoveStreamMsg {{ peer_addr: {}, local_addr: {}, stream_type: {:?}, sub: <unprintable> }}",
+            self.peer_addr, self.local_addr, self.stream_type
         )
     }
 }

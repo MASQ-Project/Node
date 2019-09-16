@@ -322,11 +322,12 @@ impl StreamHandlerPool {
     }
 
     fn handle_remove_stream_msg(&mut self, msg: RemoveStreamMsg) {
-        let stream_writer_key = StreamWriterKey::from(msg.socket_addr);
+        let stream_writer_key = StreamWriterKey::from(msg.peer_addr);
         debug!(
             self.logger,
-            "Stream from {} has closed; removing stream writer {}",
-            msg.socket_addr,
+            "Stream from local {} to peer {} has closed; removing writer with key {}",
+            msg.local_addr,
+            msg.peer_addr,
             stream_writer_key
         );
         let report_to_counterpart = match self.stream_writers.remove(&stream_writer_key) {
@@ -334,7 +335,7 @@ impl StreamHandlerPool {
             Some(Some(_sender_wrapper)) => true,
         };
         let stream_shutdown_msg = StreamShutdownMsg {
-            peer_addr: msg.socket_addr,
+            peer_addr: msg.peer_addr,
             stream_type: msg.stream_type,
             report_to_counterpart,
         };
@@ -512,7 +513,8 @@ impl StreamHandlerPool {
                     .map_err(move |err| { // connection was unsuccessful
                         error!(logger_me, "Stream to {} does not exist and could not be connected; discarding {} bytes: {}", peer_addr, msg_data_len, err);
                         remove_sub.try_send(RemoveStreamMsg {
-                            socket_addr: peer_addr_e,
+                            peer_addr: peer_addr_e,
+                            local_addr: SocketAddr::new (localhost(), 0), // irrelevant; stream was never opened
                             stream_type: RemovedStreamType::Clandestine,
                             sub,
                         }).expect("StreamHandlerPool is dead");
@@ -932,7 +934,8 @@ mod tests {
             subject_subs
                 .remove_sub
                 .try_send(RemoveStreamMsg {
-                    socket_addr: peer_addr,
+                    peer_addr,
+                    local_addr,
                     stream_type: RemovedStreamType::Clandestine,
                     sub: peer_actors.dispatcher.stream_shutdown_sub,
                 })
@@ -963,15 +966,17 @@ mod tests {
         let system = System::new("test");
         let sub = recorder.start().recipient::<StreamShutdownMsg>();
         let mut subject = StreamHandlerPool::new(vec![]);
-        let socket_addr = SocketAddr::from_str("127.0.0.1:5678").unwrap();
-        let sw_key = StreamWriterKey::from(socket_addr);
-        let sender_wrapper = SenderWrapperMock::new(socket_addr);
+        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let local_addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
+        let sw_key = StreamWriterKey::from(peer_addr);
+        let sender_wrapper = SenderWrapperMock::new(local_addr);
         subject
             .stream_writers
             .insert(sw_key.clone(), Some(Box::new(sender_wrapper)));
 
         subject.handle_remove_stream_msg(RemoveStreamMsg {
-            socket_addr,
+            peer_addr,
+            local_addr,
             stream_type: RemovedStreamType::Clandestine,
             sub,
         });
@@ -984,7 +989,7 @@ mod tests {
         assert_eq!(
             record,
             &StreamShutdownMsg {
-                peer_addr: socket_addr,
+                peer_addr,
                 stream_type: RemovedStreamType::Clandestine,
                 report_to_counterpart: true
             }
@@ -997,11 +1002,13 @@ mod tests {
         let system = System::new("test");
         let sub = recorder.start().recipient::<StreamShutdownMsg>();
         let mut subject = StreamHandlerPool::new(vec![]);
-        let socket_addr = SocketAddr::from_str("127.0.0.1:5678").unwrap();
-        let sw_key = StreamWriterKey::from(socket_addr);
+        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let local_addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
+        let sw_key = StreamWriterKey::from(peer_addr);
 
         subject.handle_remove_stream_msg(RemoveStreamMsg {
-            socket_addr,
+            peer_addr,
+            local_addr,
             stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
                 reception_port: HTTP_PORT,
                 sequence_number: 1234,
@@ -1017,7 +1024,7 @@ mod tests {
         assert_eq!(
             record,
             &StreamShutdownMsg {
-                peer_addr: socket_addr,
+                peer_addr,
                 stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
                     reception_port: HTTP_PORT,
                     sequence_number: 1234
@@ -1033,12 +1040,14 @@ mod tests {
         let system = System::new("test");
         let sub = recorder.start().recipient::<StreamShutdownMsg>();
         let mut subject = StreamHandlerPool::new(vec![]);
-        let socket_addr = SocketAddr::from_str("127.0.0.1:5678").unwrap();
-        let sw_key = StreamWriterKey::from(socket_addr);
+        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let local_addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
+        let sw_key = StreamWriterKey::from(peer_addr);
         subject.stream_writers.insert(sw_key.clone(), None);
 
         subject.handle_remove_stream_msg(RemoveStreamMsg {
-            socket_addr,
+            peer_addr,
+            local_addr,
             stream_type: RemovedStreamType::Clandestine,
             sub,
         });
@@ -1051,7 +1060,7 @@ mod tests {
         assert_eq!(
             record,
             &StreamShutdownMsg {
-                peer_addr: socket_addr,
+                peer_addr,
                 stream_type: RemovedStreamType::Clandestine,
                 report_to_counterpart: false
             }

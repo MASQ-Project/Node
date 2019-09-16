@@ -12,6 +12,7 @@ use std::collections::{BTreeSet, HashSet};
 use std::convert::{TryFrom, TryInto};
 use std::net::IpAddr;
 
+#[derive(PartialEq, Clone, Debug)]
 pub enum GossipType {
     DebutGossip(SingleNode),
     PassGossip(SingleNode),
@@ -62,6 +63,7 @@ pub trait MultinodeGossip {
     fn render(&self) -> Gossip;
 }
 
+#[derive(PartialEq, Clone, Debug)]
 pub struct SingleNode {
     node: AccessibleGossipRecord,
 }
@@ -141,6 +143,7 @@ impl SingleNode {
     }
 }
 
+#[derive(PartialEq, Clone, Debug)]
 pub struct Introduction {
     introducer: AccessibleGossipRecord,
     introducee: AccessibleGossipRecord,
@@ -237,6 +240,7 @@ impl Introduction {
     }
 }
 
+#[derive(PartialEq, Clone, Debug)]
 pub struct Standard {
     nodes: Vec<AccessibleGossipRecord>,
 }

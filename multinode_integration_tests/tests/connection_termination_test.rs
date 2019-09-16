@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use multinode_integration_tests_lib::multinode_gossip::{parse_gossip, GossipType};
 use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
 use multinode_integration_tests_lib::substratum_mock_node::SubstratumMockNode;
 use multinode_integration_tests_lib::substratum_node::{
@@ -202,6 +203,45 @@ fn reported_client_drop() {
 
     wait_for_server_shutdown(&real_node, server_port);
     ensure_no_further_traffic(&mock_node, &masquerader);
+}
+
+#[test]
+fn downed_nodes_not_offered_in_passes_or_introductions() {
+    let real_node: NodeRecord = make_node_record(1234, true);
+    let mut db: NeighborhoodDatabase = db_from_node(&real_node);
+    let desirable_but_down = db.add_node(make_node_record(2345, true)).unwrap();
+    let undesirable_but_up = db.add_node(make_node_record(3456, true)).unwrap();
+    let fictional = db.add_node(make_node_record(4567, true)).unwrap();
+    db.add_arbitrary_full_neighbor(real_node.public_key(), &desirable_but_down);
+    db.add_arbitrary_full_neighbor(real_node.public_key(), &undesirable_but_up);
+    db.add_arbitrary_full_neighbor(&desirable_but_down, &undesirable_but_up);
+    db.add_arbitrary_full_neighbor(&desirable_but_down, &fictional);
+
+    let mut cluster = SubstratumNodeCluster::start().unwrap();
+    let (_, substratum_real_node, mut node_map) = construct_neighborhood(&mut cluster, db, vec![]);
+    let desirable_but_down_node = node_map.remove(&desirable_but_down).unwrap();
+    let undesirable_but_up_node = node_map.remove(&undesirable_but_up).unwrap();
+    let debuter: NodeRecord = make_node_record(5678, true);
+    let debuter_node = cluster.start_mock_node_with_public_key(vec![5550], debuter.public_key());
+
+    // Kill desirable neighbor
+    desirable_but_down_node.kill();
+    // Debut a new Node
+    debuter_node.transmit_debut(&substratum_real_node).unwrap();
+    // What's the return Gossip?
+    let (gossip, ip_addr) = debuter_node
+        .wait_for_gossip(Duration::from_secs(2))
+        .unwrap();
+    match parse_gossip(&gossip, ip_addr) {
+        GossipType::IntroductionGossip(introduction) => {
+            // It's an Introduction of the one that didn't go down!
+            assert_eq!(
+                introduction.introducee_key(),
+                undesirable_but_up_node.public_key()
+            );
+        }
+        unexpected => panic!("Unexpected gossip: {:?}", unexpected),
+    }
 }
 
 fn create_neighborhood(
