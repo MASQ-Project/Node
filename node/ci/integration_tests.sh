@@ -2,11 +2,7 @@
 # Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
-NODE_PARENT_DIR="$1"
-
-if [[ "$NODE_PARENT_DIR" == "" ]]; then
-    NODE_PARENT_DIR="$CI_DIR/../.."
-fi
+TOOLCHAIN_HOME="$1"
 
 pushd "$CI_DIR/.."
 case "$OSTYPE" in
@@ -16,11 +12,11 @@ case "$OSTYPE" in
         ;;
     Darwin | darwin*)
         echo "macOS"
-        sudo ci/run_integration_tests.sh
+        sudo --preserve-env ci/run_integration_tests.sh "$TOOLCHAIN_HOME"
         ;;
     linux-gnu)
         echo "Linux"
-        sudo ci/run_integration_tests.sh
+        sudo --preserve-env ci/run_integration_tests.sh "$TOOLCHAIN_HOME"
         ;;
     *)
         exit 1

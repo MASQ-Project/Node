@@ -20,9 +20,8 @@ if [ "HOST_NODE_PARENT_DIR" == "" ]; then
     export HOST_NODE_PARENT_DIR="$CI_DIR/../.."
 fi
 
-pushd "$CI_DIR/.."
 pushd "$CI_DIR/../../port_exposer"
-ci/all.sh
+ci/all.sh "$TOOLCHAIN_HOME"
 popd
 
 pushd "$CI_DIR/../../mock_rest_server"
@@ -37,6 +36,7 @@ pushd ./docker
 ./build.sh
 popd
 
+pushd "$CI_DIR/.."
 export RUSTFLAGS="-D warnings -Anon-snake-case"
 cargo test --release -- --nocapture --test-threads=1
 popd

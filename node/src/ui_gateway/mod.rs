@@ -97,6 +97,7 @@ impl Handler<BindMessage> for UiGateway {
             self.port,
             msg.peer_actors.ui_gateway.from_ui_message_sub.clone(),
         )));
+        info!(self.logger, "UIGateway bound");
     }
 }
 

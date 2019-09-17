@@ -1,7 +1,5 @@
-# Starter pipeline
-# Start with a minimal pipeline that you can customize to build and deploy your code.
-# Add steps that build, run tests, deploy, and more:
-# https://aka.ms/yaml
+# Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+# test push to master
 
 pr:
   - master
@@ -16,7 +14,9 @@ strategy:
       imageName: "windows-latest"
 
 variables:
+  rust_version: "1.37.0"
   node_version: "10.16.3"
+  AZP_CACHING_TAR: true # requires minimum agent version of 2.157.0 (rolling out Palindrome Week)
 
 pool:
   vmImage: $(imageName)
@@ -25,28 +25,55 @@ steps:
   - task: CacheBeta@0
     inputs:
       key: |
-        "1.37.0" | $(Agent.OS) | "v2"
-      path: $(Pipeline.Workspace)/.cargo
-      cacheHitVar: NODE_TOOLCHAIN_RESTORED
+        "$(rust_version)" | $(Agent.OS) | "v3.7"
+      path: $(Pipeline.Workspace)/toolchains
+      cacheHitVar: NODE_TOOLCHAINS_RESTORED
 
-  - task: CacheBeta@0
+  - task: NodeTool@0
     inputs:
-      key: |
-        "nodejs" | $(Agent.OS)
-      path: $(Pipeline.Workspace)/.nvm
-      cacheHitVar: NODE_JS_RESTORED
+      versionSpec: $(node_version)
 
-  - task: CacheBeta@0
+  - task: Npm@1
     inputs:
-      key: |
-        "yarn" | $(Agent.OS)
-      path: $(Pipeline.Workspace)/.yarn
-      cacheHitVar: YARN_RESTORED
+      command: 'custom'
+      customCommand: 'install -g yarn'
+
+  - bash: ci/install_node_toolchain.sh '$(Pipeline.Workspace)' '$(rust_version)'
+    condition: ne(variables.NODE_TOOLCHAINS_RESTORED, 'true')
+    displayName: "Install Node toolchain"
+
+  - bash: ci/install_ui_test_toolchain.sh '$(Pipeline.Workspace)'
+    displayName: "Install NodeUI test toolchain"
 
   - bash: |
-      ci/install_node_toolchain.sh '$(Pipeline.Workspace)'
-    condition: ne(variables.NODE_TOOLCHAIN_RESTORED, 'true')
+      set -xev
+      git config --global user.name "substratum"
+      git config --global user.email "substratum@substratum.net"
+    displayName: "Configure git"
 
-  - bash: |
-      ci/install_ui_toolchain.sh '$(Pipeline.Workspace)' '$(node_version)'
-    condition: or(ne(variables.NODE_JS_RESTORED, 'true'), ne(variables.YARN_RESTORED, 'true'))
+  - script: |
+      netsh advfirewall set allprofiles state off
+      net stop sharedaccess || echo ICS already disabled
+      net stop W3SVC || echo W3SVC service already disabled
+    condition: eq( variables['Agent.OS'], 'Windows_NT' )
+    displayName: "Disable Annoying Windows Services"
+
+  - bash: ci/prepare_node_build.sh '$(Pipeline.Workspace)'
+    displayName: "Prepare Node build"
+  - bash: ci/sccache.sh '$(Pipeline.Workspace)' && node/ci/all.sh '$(Pipeline.Workspace)' && dns_utility/ci/all.sh '$(Pipeline.Workspace)'
+    displayName: "Build Node and run tests"
+
+  - bash: ci/multinode_integration_test.sh '$(Pipeline.Workspace)'
+    displayName: "Run multinode integration tests"
+
+  - bash: ci/prepare_node_ui_build.sh
+    displayName: "Prepare NodeUI build"
+  - bash: node-ui/ci/build.sh && node-ui/ci/unit_tests.sh && node-ui/ci/ng_tests.sh && node-ui/ci/integration_tests.sh
+    displayName: "Build NodeUI and run tests"
+
+  - bash: ci/collect_results.sh && ci/publish_results.sh '$(Agent.JobStatus)'
+    env:
+      GITHUB_TOKEN: $(GITHUB_TOKEN)
+    displayName: "Collect and publish results"
+    condition: succeededOrFailed()
+

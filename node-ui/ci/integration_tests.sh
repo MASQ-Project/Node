@@ -6,7 +6,7 @@ NODE_BINARY="$(which node)"
 NODE_DIR="$(dirname "$NODE_BINARY")"
 
 function run_on_linux() {
-  if [[ "$TRAVIS" == "true" ]]; then
+  if [[ "$DISPLAY" == "" ]]; then
     xvfb-run -a -e /tmp/xvfb.out -s "-screen 0 1024x768x8" sudo -E PATH="$PATH:$NODE_DIR" ci/run_integration_tests.sh
   else
     sudo -E PATH="$PATH:$NODE_DIR" ci/run_integration_tests.sh

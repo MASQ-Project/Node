@@ -7,6 +7,12 @@ else
   CACHE_TARGET="$1"
 fi
 
+if [[ "$2" == "" ]]; then
+  RUST_VERSION="stable"
+else
+  RUST_VERSION="$2"
+fi
+
 function install_linux_macOS() {
   rm -r "$HOME/.cargo" || echo "Rust cargo not installed on $OSTYPE"
   rm -r "$HOME/.rustup" || echo "Rust rustup not installed on $OSTYPE"
@@ -25,12 +31,15 @@ function install_windows() {
 
 function common() {
   "$HOME/.cargo/bin/rustup" update
+  "$HOME/.cargo/bin/rustup" install "$RUST_VERSION"
   "$HOME/.cargo/bin/rustup" component add rustfmt
   "$HOME/.cargo/bin/rustup" component add clippy
   "$HOME/.cargo/bin/cargo" install sccache
 
-  cp -R "$HOME/.cargo" "$CACHE_TARGET/.cargo"
-  cp -R "$HOME/.rustup" "$CACHE_TARGET/.rustup"
+  mkdir -p "$CACHE_TARGET/toolchains"
+  cp -pR "$HOME/.cargo" "$CACHE_TARGET"/toolchains/.cargo
+  chmod +x "$CACHE_TARGET"/toolchains/.cargo/bin/*
+  cp -pR "$HOME/.rustup" "$CACHE_TARGET"/toolchains/.rustup
 }
 
 case "$OSTYPE" in

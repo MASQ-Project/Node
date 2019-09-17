@@ -17,12 +17,15 @@ use websocket::OwnedMessage;
 fn ui_gateway_message_integration() {
     fdlimit::raise_fd_limit();
     let mut node = utils::SubstratumNode::start_standard(None);
+    node.wait_for_log("UIGateway bound", Some(5000));
     let converter = UiTrafficConverterReal::new();
-    let msg = converter.marshal(UiMessage::GetNodeDescriptor).unwrap();
+    let msg = converter
+        .marshal(UiMessage::GetNodeDescriptor)
+        .expect("Couldn't marshal GetNodeDescriptor message");
 
     let descriptor_client =
         ClientBuilder::new(format!("ws://{}:{}", localhost(), DEFAULT_UI_PORT).as_str())
-            .unwrap()
+            .expect("Couldn't create first ClientBuilder")
             .add_protocol("SubstratumNode-UI")
             .async_connect_insecure()
             .and_then(|(s, _)| s.send(OwnedMessage::Text(msg)))
@@ -34,19 +37,25 @@ fn ui_gateway_message_integration() {
             .timeout(Duration::from_millis(1000))
             .map_err(|e| panic!("failed to get response by timeout {:?}", e));
 
-    let shutdown_msg = converter.marshal(UiMessage::ShutdownMessage).unwrap();
+    let shutdown_msg = converter
+        .marshal(UiMessage::ShutdownMessage)
+        .expect("Couldn't marshal ShutdownMessage");
 
     let shutdown_client =
         ClientBuilder::new(format!("ws://{}:{}", localhost(), DEFAULT_UI_PORT).as_str())
-            .unwrap()
+            .expect("Couldn't create second ClientBuilder")
             .add_protocol("SubstratumNode-UI")
             .async_connect_insecure()
             .and_then(|(s, _)| s.send(OwnedMessage::Text(shutdown_msg)));
 
-    let mut rt = Runtime::new().unwrap();
-    rt.block_on(descriptor_client).unwrap();
-    rt.block_on(shutdown_client).unwrap();
-    rt.shutdown_on_idle().wait().unwrap();
+    let mut rt = Runtime::new().expect("Couldn't create Runtime");
+    rt.block_on(descriptor_client)
+        .expect("Couldn't block on descriptor_client");
+    rt.block_on(shutdown_client)
+        .expect("Couldn't block on shutdown_client");
+    rt.shutdown_on_idle()
+        .wait()
+        .expect("Couldn't wait on shutdown_on_idle");
 
     node.wait_for_exit();
 }
@@ -55,6 +64,7 @@ fn ui_gateway_message_integration() {
 fn ui_gateway_dot_graph_message_integration() {
     fdlimit::raise_fd_limit();
     let mut node = utils::SubstratumNode::start_standard(None);
+    node.wait_for_log("UIGateway bound", Some(5000));
 
     let converter = UiTrafficConverterReal::new();
     let msg = converter
