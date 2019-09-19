@@ -35,6 +35,7 @@ use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
+use pretty_hex::PrettyHex;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use trust_dns_resolver::config::NameServerConfig;
@@ -108,10 +109,16 @@ impl Handler<ExpiredCoresPackage<ClientRequestPayload>> for ProxyClient {
                 payload_destination_key: payload.originator_public_key.clone(),
                 paying_wallet: paying_wallet.clone(),
             };
+            debug!(
+                self.logger,
+                "Received ClientRequestPayload: stream {}, sequence {}, length {}",
+                payload.stream_key,
+                payload.sequenced_packet.sequence_number,
+                payload.sequenced_packet.data.len()
+            );
             self.stream_contexts
                 .insert(payload.stream_key, latest_stream_context);
             pool.process_package(payload, paying_wallet);
-            debug!(self.logger, "ExpiredCoresPackage handled");
         } else {
             warning!(self.logger, "Refusing to provide exit services for CORES package with {}-byte payload without paying wallet", payload.sequenced_packet.data.len());
         }
@@ -132,10 +139,13 @@ impl Handler<InboundServerData> for ProxyClient {
             None => {
                 error!(
                     self.logger,
-                    "Received unsolicited {}-byte response from {}, seq {}: ignoring",
-                    msg_data_len,
+                    "Received InboundServerData{} from {}: stream {}, sequence {}, length {}; but no such known stream - ignoring\n{}",
+                    if msg_last_data {" (last_data)"} else {""},
                     msg_source,
-                    msg_sequence_number
+                    msg_stream_key,
+                    msg_sequence_number,
+                    msg_data_len,
+                    msg.data.hex_dump().to_string(),
                 );
                 return;
             }
@@ -145,6 +155,10 @@ impl Handler<InboundServerData> for ProxyClient {
         };
         self.report_response_exit_to_accountant(&stream_context, msg_data_len);
         if msg_last_data {
+            debug!(
+                self.logger,
+                "Retiring stream key {}: no more data", msg_stream_key
+            );
             self.stream_contexts.remove(&msg_stream_key);
         }
     }
@@ -170,6 +184,10 @@ impl Handler<DnsResolveFailure> for ProxyClient {
                     .expect("Hopper is unbound")
                     .try_send(package)
                     .expect("Hopper is dead");
+                debug!(
+                    self.logger,
+                    "Removing stream key {} for DnsResolveFailure", stream_key
+                );
                 self.stream_contexts.remove(&stream_key);
             }
             None => error!(
@@ -216,6 +234,7 @@ impl ProxyClient {
         msg: InboundServerData,
         stream_context: &StreamContext,
     ) -> Result<(), ()> {
+        let msg_stream_key = msg.stream_key;
         let msg_data_len = msg.data.len() as u32;
         let msg_source = msg.source;
         let msg_sequence_number = msg.sequence_number;
@@ -228,6 +247,13 @@ impl ProxyClient {
                 last_data: msg.last_data,
             },
         });
+        debug!(
+            self.logger,
+            "Sending ClientResponsePayload to Hopper: stream {}, sequence {}, length {}",
+            msg_stream_key,
+            msg_sequence_number,
+            msg_data_len
+        );
         let icp = match IncipientCoresPackage::new(
             self.cryptde,
             stream_context.return_route.clone(),
@@ -852,6 +878,15 @@ mod tests {
                 data: Vec::from(data),
             })
             .unwrap();
+        subject_addr
+            .try_send(InboundServerData {
+                stream_key: stream_key.clone(),
+                last_data: true,
+                sequence_number: 1237,
+                source: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+                data: Vec::from(data),
+            })
+            .unwrap();
 
         System::current().stop_with_code(0);
         system.run();
@@ -914,7 +949,9 @@ mod tests {
             }
         );
         assert_eq!(accountant_recording.len(), 2);
-        TestLogHandler::new().exists_log_containing(format!("ERROR: ProxyClient: Received unsolicited {}-byte response from 1.2.3.4:5678, seq 1236: ignoring", data.len()).as_str());
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing(format!("ERROR: ProxyClient: Received InboundServerData from 1.2.3.4:5678: stream +dKB2Lsh3ET2TS/J/cexaanFQz4, sequence 1236, length {}; but no such known stream - ignoring", data.len()).as_str());
+        tlh.exists_log_containing(format!("ERROR: ProxyClient: Received InboundServerData (last_data) from 1.2.3.4:5678: stream +dKB2Lsh3ET2TS/J/cexaanFQz4, sequence 1237, length {}; but no such known stream - ignoring", data.len()).as_str());
     }
 
     #[test]

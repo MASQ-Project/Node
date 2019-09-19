@@ -24,6 +24,13 @@ impl fmt::Debug for StreamKey {
     }
 }
 
+impl fmt::Display for StreamKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        let debug: &dyn fmt::Debug = self;
+        debug.fmt(f)
+    }
+}
+
 impl Serialize for StreamKey {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -148,6 +155,17 @@ mod tests {
         let subject = StreamKey::new(key, addr);
 
         let result = format!("{:?}", subject);
+
+        assert_eq!(result, String::from("X4SEhZulE9WrmSolWqKFErYBVgI"));
+    }
+
+    #[test]
+    fn display_implementation() {
+        let key = PublicKey::new(&b"These are the times"[..]);
+        let addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
+        let subject = StreamKey::new(key, addr);
+
+        let result = format!("{}", subject);
 
         assert_eq!(result, String::from("X4SEhZulE9WrmSolWqKFErYBVgI"));
     }

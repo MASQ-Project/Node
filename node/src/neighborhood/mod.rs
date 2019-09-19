@@ -234,9 +234,9 @@ impl Handler<RouteQueryMessage> for Neighborhood {
             Ok(response) => {
                 debug!(
                     self.logger,
-                    "Processed {} into {:?}",
+                    "Processed {} into {}-hop response",
                     msg_str,
-                    response.clone()
+                    response.route.hops.len(),
                 );
                 Some(response)
             }
