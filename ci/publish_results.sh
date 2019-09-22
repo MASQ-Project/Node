@@ -3,12 +3,27 @@
 CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 STATUS=$1
 
+if [[ "$GITHUB_TOKEN" == "" ]]; then
+  echo "No GITHUB_TOKEN set; can't publish results"
+  exit 0
+fi
+
+if [[ "$RESULTS_REPO_OWNER" == "" ]]; then
+  echo "No RESULTS_REPO_OWNER set; can't publish results"
+  exit 0
+fi
+
+if [[ "$RESULTS_REPO_NAME" == "" ]]; then
+  echo "No RESULTS_REPO_NAME set; can't publish results"
+  exit 0
+fi
+
 GENERATED_TYPE=${AGENT_JOBNAME//Job /}
 GENERATED_NAME="generated-$GENERATED_TYPE"
 
 pushd "$CI_DIR/../results"
 rm -rf repo || echo "No leftover repo to delete"
-git clone "https://substratum-temporary:$GITHUB_TOKEN@github.com/substratum-temporary/SubstratumNode-results.git" repo
+git clone "https://$RESULTS_REPO_OWNER:$GITHUB_TOKEN@github.com/$RESULTS_REPO_OWNER/$RESULTS_REPO_NAME.git" repo
 cd repo
 cp README.md README.md.old
 if [[ "$SYSTEM_PULLREQUEST_SOURCEBRANCH" == "" ]]; then
@@ -16,7 +31,7 @@ if [[ "$SYSTEM_PULLREQUEST_SOURCEBRANCH" == "" ]]; then
 else
   RESULTS_LABEL="$SYSTEM_PULLREQUEST_SOURCEBRANCH"
 fi
-NEW_LINE="* $(date -u) - $RESULTS_LABEL ($GENERATED_TYPE) - $STATUS: [$GENERATED_NAME.tar.gz](https://github.com/substratum-temporary/SubstratumNode-results/blob/master/results/$RESULTS_LABEL/$GENERATED_NAME.tar.gz?raw=true)"
+NEW_LINE="* $(date -u) - $RESULTS_LABEL ($GENERATED_TYPE) - $STATUS: [$GENERATED_NAME.tar.gz](https://github.com/$RESULTS_REPO_OWNER/$RESULTS_REPO_NAME/blob/master/results/$RESULTS_LABEL/$GENERATED_NAME.tar.gz?raw=true)"
 cat README.md.old | grep -v "$RESULTS_LABEL ($GENERATED_TYPE)" > README.md.clean
 cat README.md.clean | sed -e '/\(Results Marker\)/q' > README.md
 echo "$NEW_LINE" >> README.md
