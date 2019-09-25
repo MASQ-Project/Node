@@ -22,6 +22,10 @@ describe('After application launch: ', function () {
     assert.strictEqual(await uiInterface.verifyNodeDown(1000), true)
 
     testUtilities.purgeExistingState()
+    const chromeDriverArguments = [
+      '--headless',
+      '--no-sandbox'
+    ]
     this.app = new Application({
       // Your electron path can be any binary
       // i.e for OSX an example path could be '/Applications/MyApp.app/Contents/MacOS/MyApp'
@@ -46,7 +50,8 @@ describe('After application launch: ', function () {
 
       // The following line tells spectron to look and use the main.js file
       // and the package.json located 1 level above.
-      args: [path.join(__dirname, '..')]
+      args: [path.join(__dirname, '..')],
+      chromeDriverArgs: chromeDriverArguments
     })
 
     return this.app.start()
@@ -57,6 +62,9 @@ describe('After application launch: ', function () {
   })
 
   afterEach(async () => {
+    // Uncomment the next line to see web driver logs
+    // this.app.client.log('driver').then((msg) => { console.log(msg) })
+    printConsoleForDebugging(this.app.client, false)
     if (this.app && this.app.isRunning()) {
       const result = this.app.stop()
       assert.strictEqual(await uiInterface.verifyNodeDown(1000), true)
@@ -127,11 +135,11 @@ describe('After application launch: ', function () {
     client.element('#save-config').click()
     await client.waitUntilWindowLoaded()
 
-    assert.strictEqual(await uiInterface.verifyNodeUp(10000), true)
-    await client.waitUntil(async () => (await client.getText('#node-status-label')) === 'Serving')
+    assert.strictEqual(await uiInterface.verifyNodeUp(15000), true)
+    await client.waitUntil(async () => (await client.getText('#node-status-label') === 'Serving'), 10000,
+      'Timed out waiting for Node Status to switch to \'Serving\'')
     assert.strictEqual((await client.getText('#node-status-label')), 'Serving')
-    printConsoleForDebugging(client, false)
-    await client.waitUntil(async () => (await client.getText('#node-descriptor')) !== '')
+    await client.waitUntil(async () => (await client.getText('#node-descriptor') !== ''), 5000, 'Timed out waiting for Node Descriptor')
 
     await indexPage.off.click()
     assert.strictEqual(await uiInterface.verifyNodeDown(10000), true)
@@ -151,7 +159,7 @@ describe('After application launch: ', function () {
     await indexPage.serving.click()
     await configComponent.ipInput.setValue('1.2.3.4')
     await configComponent.neighborInput.setValue('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:1.1.1.1:12345;4321')
-    await configComponent.blockchainServiceUrl.setValue('http://127.0.0.1:8545')
+    await configComponent.blockchainServiceUrl.setValue('http://127.0.0.1')
 
     await client.waitUntil(async () => {
       return configComponent.saveConfig.isEnabled()
@@ -159,11 +167,11 @@ describe('After application launch: ', function () {
     client.element('#save-config').click()
     await client.waitUntilWindowLoaded()
 
-    assert.strictEqual(await uiInterface.verifyNodeUp(10000), true)
+    assert.strictEqual(await uiInterface.verifyNodeUp(15000), true)
 
-    await client.waitUntilTextExists('#node-status-label', 'Serving')
-    printConsoleForDebugging(client, false)
-    await client.waitUntil(async () => (await indexPage.nodeDescriptor.getText()) !== '')
+    await client.waitUntil(async () => (await client.getText('#node-status-label') === 'Serving'), 5000,
+      'Timed out waiting for Node Status to switch to \'Serving\'')
+    await client.waitUntil(async () => (await indexPage.nodeDescriptor.getText() !== ''), 5000, 'Timed out waiting for Node Descriptor')
 
     await indexPage.settingsButton.click()
     await indexPage.networkSettings.click()
@@ -189,26 +197,30 @@ describe('After application launch: ', function () {
     await client.waitUntil(() => configComponent.saveConfig.isEnabled())
     client.element('#save-config').click()
 
-    await client.waitUntilTextExists('#node-status-label', 'Serving')
     assert.strictEqual(await uiInterface.verifyNodeUp(10000), true)
 
-    printConsoleForDebugging(client, false)
-    await client.waitUntil(async () => (await client.getText('#node-descriptor')) !== '')
+    await client.waitUntil(async () => (await client.getText('#node-status-label') === 'Serving'), 5000,
+      'Timed out waiting for Node Status to switch to \'Serving\'')
+    await client.waitUntil(async () => (await client.getText('#node-descriptor') !== ''), 5000, 'Timed out waiting for Node Descriptor')
 
     await indexPage.off.click()
     assert.strictEqual(await uiInterface.verifyNodeDown(10000), true)
 
-    await client.waitUntilTextExists('#node-status-label', 'Off')
+    await client.waitUntil(async () => (await client.getText('#node-status-label') === 'Off'), 5000,
+      'Timed out waiting for Node Status to switch to \'Off\' after switching to \'Serving\'')
 
     await indexPage.serving.click()
 
-    await client.waitUntilWindowLoaded()
-    await client.waitUntilTextExists('#node-status-label', 'Serving')
     assert.strictEqual(await uiInterface.verifyNodeUp(10000), true)
-    printConsoleForDebugging(client, false)
-    await client.waitUntil(async () => (await client.getText('#node-descriptor')) !== '')
+
+    await client.waitUntil(async () => (await client.getText('#node-status-label') === 'Serving'), 5000,
+      'Timed out waiting for Node Status to switch to \'Serving\' after switching to \'Off\'')
+    assert.strictEqual(await uiInterface.verifyNodeUp(10000), true)
+    await client.waitUntil(async () => (await client.getText('#node-descriptor') !== ''), 5000,
+      'Timed out waiting for Node Descriptor')
 
     await indexPage.off.click()
+    assert.strictEqual(await uiInterface.verifyNodeDown(10000), true)
   })
 
   it('Changing configuration while node is running turns off the node', async () => {
@@ -226,9 +238,10 @@ describe('After application launch: ', function () {
     client.element('#save-config').click()
     await client.waitUntilWindowLoaded()
 
-    await client.waitUntilTextExists('#node-status-label', 'Serving')
-    assert.strictEqual(await uiInterface.verifyNodeUp(10000), true)
-    printConsoleForDebugging(client, false)
+    assert.strictEqual(await uiInterface.verifyNodeUp(15000), true)
+
+    await client.waitUntil(async () => (await client.getText('#node-status-label') === 'Serving'), 5000,
+      'Timed out waiting for Node Status to switch to \'Serving\'')
     await client.waitUntil(async () => (await indexPage.nodeDescriptor.getText()) !== '')
 
     await indexPage.settingsButton.click()
@@ -238,10 +251,11 @@ describe('After application launch: ', function () {
     client.element('#save-config').click()
     await client.waitUntilWindowLoaded()
 
-    await client.waitUntilTextExists('#node-status-label', 'Off')
+    await client.waitUntil(async () => (await client.getText('#node-status-label') === 'Off'), 5000,
+      'Timed out waiting for Node Status to switch to \'Off\' after switching to \'Serving\'')
     assert.strictEqual(await uiInterface.verifyNodeDown(10000), true)
-    printConsoleForDebugging(client, false)
-    await client.waitUntil(async () => (await indexPage.nodeDescriptor.getText()) === '')
+    await client.waitUntil(async () => (await indexPage.nodeDescriptor.getText() === ''), 5000,
+      'Timed out waiting for Node Descriptor to clear')
   })
 })
 

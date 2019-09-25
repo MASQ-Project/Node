@@ -1,5 +1,6 @@
 #!/bin/bash -xev
 # Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 
 if [[ "$1" == "" ]]; then
   CACHE_TARGET="$HOME"
@@ -21,7 +22,7 @@ function install_linux_macOS() {
 }
 
 function install_windows() {
-  CACHE_TARGET=$(echo $CACHE_TARGET | sed 's|\\|/|g' | sed 's|^\([A-Za-z]\):|/\1|g')
+  CACHE_TARGET="$("$CI_DIR"/bashify_workspace.sh "$CACHE_TARGET")"
   rm -r "$HOME/.cargo"
   rm -r "$HOME/.rustup"
   curl https://win.rustup.rs -sSf > /tmp/rustup-init.exe
