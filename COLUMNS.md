@@ -166,7 +166,9 @@ QA team. The Product Owner may at any point reorganize the cards in this column 
 #### Quality Assurance In Progress
 This is a WIP column containing cards that are currently in Quality Assurance.
 
-(What does QA do, anyway? Somebody fill this in.)
+The tester will do whatever automated and exploratory testing is required for a card, and the card will either be
+accepted or rejected. If the card is accepted, it's moved to the "Done Since Standup" column. If it fails, the
+dev or pair should be notified, the failure explained, and the card moved back to the "Awaiting Development" column.
 
 #### Done Since Standup
 This is an Awaiting column that accumulates a day's worth of cards solely so that they can be addressed at the next
