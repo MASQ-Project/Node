@@ -28,6 +28,10 @@ module.exports = class NodeActuator {
     return uiInterface.setGasPrice(price)
   }
 
+  getNeighborhoodDotGraph () {
+    return uiInterface.getNeighborhoodDotGraph()
+  }
+
   async setStatusToOffThenRevert () {
     this.substratumNodeProcess = null
 

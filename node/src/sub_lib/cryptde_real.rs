@@ -465,5 +465,4 @@ mod tests {
 
         assert_eq!(expected_digest, actual_digest);
     }
-
 }

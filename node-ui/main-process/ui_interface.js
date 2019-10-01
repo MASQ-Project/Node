@@ -11,6 +11,7 @@ module.exports = (() => {
   let getNodeDescriptorCallbackPair = null
   let setConsumingWalletPasswordCallbackPair = null
   let getFinancialStatisticsCallbackPair = null
+  let getNeighborhoodDotGraphCallbackPair = null
   let setGasPriceCallbackPair = null
 
   function connect () {
@@ -42,6 +43,11 @@ module.exports = (() => {
         if (financialStatistics) {
           getFinancialStatisticsCallbackPair.resolve(financialStatistics)
         }
+
+        const neighborhoodDotGraph = data['NeighborhoodDotGraphResponse']
+        if (neighborhoodDotGraph) {
+          getNeighborhoodDotGraphCallbackPair.resolve(neighborhoodDotGraph)
+        }
       }
       ws.onerror = (event) => {
         if (getNodeDescriptorCallbackPair) {
@@ -58,6 +64,10 @@ module.exports = (() => {
 
         if (getFinancialStatisticsCallbackPair) {
           getFinancialStatisticsCallbackPair.reject()
+        }
+
+        if (getNeighborhoodDotGraphCallbackPair) {
+          getNeighborhoodDotGraphCallbackPair.reject()
         }
 
         webSocket = null
@@ -208,6 +218,24 @@ module.exports = (() => {
     })
   }
 
+  async function getNeighborhoodDotGraph () {
+    if (getNeighborhoodDotGraphCallbackPair) {
+      return Promise.reject(Error('CallAlreadyInProgress'))
+    }
+    return new Promise((resolve, reject) => {
+      getNeighborhoodDotGraphCallbackPair = {
+        resolve: (success) => {
+          getNeighborhoodDotGraphCallbackPair = null
+          resolve(success)
+        },
+        reject: (e) => {
+          reject(e)
+        }
+      }
+      webSocket.send('"NeighborhoodDotGraphRequest"')
+    })
+  }
+
   function createSocket (port) {
     return webSocketWrapper.create(`${UI_INTERFACE_URL}:${port}`, UI_PROTOCOL, { handshakeTimeout: CONNECT_TIMEOUT })
   }
@@ -225,6 +253,7 @@ module.exports = (() => {
     getNodeDescriptor: getNodeDescriptor,
     setConsumingWalletPassword: setConsumingWalletPassword,
     setGasPrice: setGasPrice,
-    getFinancialStatistics: getFinancialStatistics
+    getFinancialStatistics: getFinancialStatistics,
+    getNeighborhoodDotGraph: getNeighborhoodDotGraph
   }
 })()

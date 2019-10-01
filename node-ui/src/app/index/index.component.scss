@@ -3,9 +3,74 @@
 @import '../../styles/colors';
 @import '../../styles/mixins';
 
+:host {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.tabs {
+  flex-grow: 0;
+  display: flex;
+  flex-wrap: wrap;
+  padding-left: 5px;
+  margin-top: 5px;
+  margin-bottom: 0;
+  list-style: none;
+  border-bottom: 1px solid color('text', 'light');
+  text-transform: uppercase;
+  font-family: inherit;
+  letter-spacing: fontSize('letter-spacing');
+  font-weight: normal;
+}
+
+.tab-item {
+  user-select: none;
+  display: flex;
+  align-items: center;
+  vertical-align: middle;
+  justify-content: center;
+  align-content: space-around;
+  cursor: pointer;
+  padding: 7px;
+  margin-bottom: -1px;
+  border: 1px solid color('background', 'light');
+  border-bottom-color: #DDDDDD;
+  outline: none;
+  background: linear-gradient(
+      color('background', 'medium'), color('background', 'medium') 50%, #333 50%, #333
+  );
+}
+
+.tab-item:hover {
+  -webkit-transition: border-radius 2s;
+}
+
+.tab-item.active {
+  background-color: color('background', 'medium');
+  border-color: #dee2e6 #dee2e6 #DDDDDD;
+  border: 1px solid;
+  border-top-left-radius: 3px;
+  border-top-right-radius: 3px;
+  color: color('text', 'light');
+}
+
+.tab-title {
+  user-select: none;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+.tab-title:hover {
+  transition-duration: 200ms;
+  transition-property: color;
+  color: color('text', 'light');
+}
+
+
 .node-status, .node-field {
   background: color('background');
-  padding: 24px 18px;
+  padding: 20px 18px;
 
   &__display {
     display: flex;
@@ -18,12 +83,17 @@
       letter-spacing: fontSize('letter-spacing');
       font-weight: normal;
       flex: 1;
-      margin-bottom:10px;
+      margin-bottom: 10px;
     }
 
     &-text {
-      font-size: 0.9em;
-      background-color: #2B2B2C;
+      line-height: 36px;
+      height: 36px;
+      font-size: 13px;
+      font-family: inherit;
+      font-weight: 400;
+      color: color('text', 'light');
+      background-color: color('background', 'dark');
       margin: 0 10px 0 0;
       padding: 2px 6px;
       border-radius: 5px;
@@ -42,7 +112,7 @@
       color: color('white');
       outline: 0;
       width: 80px;
-      height: 24px;
+      height: 36px;
       font-family: inherit;
       font-size: fontSize('diminished');
       text-transform: uppercase;

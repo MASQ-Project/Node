@@ -1,0 +1,23 @@
+<!-- Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved. -->
+<div *ngIf="!(on() | async)" id="neighborhood-info">
+  Neighborhood visualization available only when SubstratumNode is actively running.
+</div>
+<div id="neighborhood-container" *ngIf="on() | async">
+  <div id="neighborhood-data" #neighborhoodData class="neighborhood-data-pane">
+    <div id="neighborhood-loading">
+      <div class="loading"></div>
+    </div>
+  </div>
+  <svg height="32px" width="32px" fill="currentColor" viewBox="0 0 32 32" (click)="onClickPlayPause($event)">
+    <defs>
+      <path id="pause-icon" data-state="playing" d="M11,10 L17,10 17,26 11,26 M20,10 L26,10 26,26 20,26"/>
+      <path id="play-icon" data-state="paused" d="M11,10 L18,13.74 18,22.28 11,26 M18,13.74 L26,18 26,18 18,22.28"/>
+    </defs>
+    <use #useIcon xlink:href="#pause-icon"/>
+  </svg>
+  <div *ngIf="neighborhoodError">
+    <ul>
+      <li id="neighborhood-error">Unable to communicate with SubstratumNode.</li>
+    </ul>
+  </div>
+</div>

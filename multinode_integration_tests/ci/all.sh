@@ -32,6 +32,17 @@ pushd "$CI_DIR/../docker/blockchain"
 ./build.sh
 popd
 
+case "$OSTYPE" in
+    Darwin | darwin*)
+        echo "macOS"
+        pushd "$CI_DIR/../docker/macos/"
+        ./build.sh
+        popd
+        ;;
+    *)
+        ;;
+esac
+
 pushd ./docker
 ./build.sh
 popd

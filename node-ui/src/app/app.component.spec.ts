@@ -1,5 +1,4 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-
 import {async, ComponentFixture, TestBed} from '@angular/core/testing';
 import {RouterTestingModule} from '@angular/router/testing';
 import {AppComponent} from './app.component';
@@ -10,6 +9,8 @@ import * as td from 'testdouble';
 describe('AppComponent', () => {
   @Component({selector: 'app-index', template: ''})
   class StubIndexComponent {}
+  @Component({selector: 'app-header', template: ''})
+  class StubHeaderComponent {}
   @Component({selector: 'app-footer', template: ''})
   class StubFooterComponent {}
 
@@ -19,9 +20,10 @@ describe('AppComponent', () => {
 
   beforeEach(async(() => {
     stubElectronService = {
+      isElectron: td.function('isElectron'),
       webFrame: {
-        setZoomLevel: td.func(),
-        setZoomFactor: td.func()
+        setZoomLevel: td.func('setZoomLevel'),
+        setZoomFactor: td.func('setZoomFactor')
       }
     };
     spyOnAllFunctions(stubElectronService.webFrame);
@@ -29,7 +31,8 @@ describe('AppComponent', () => {
       declarations: [
         AppComponent,
         StubIndexComponent,
-        StubFooterComponent
+        StubHeaderComponent,
+        StubFooterComponent,
       ],
       imports: [
         RouterTestingModule

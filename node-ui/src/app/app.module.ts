@@ -3,46 +3,39 @@ import {BrowserModule} from '@angular/platform-browser';
 import {NgModule} from '@angular/core';
 import {AppRoutingModule} from './app-routing.module';
 import {AppComponent} from './app.component';
-import {IndexComponent} from './index/index.component';
-import {HeaderComponent} from './header/header.component';
+import {IndexModule} from './index/index.module';
 import {FooterComponent} from './footer/footer.component';
 import {ElectronService} from './electron.service';
-import {NodeConfigurationComponent} from './node-configuration/node-configuration.component';
 import {FormsModule, ReactiveFormsModule} from '@angular/forms';
-import {NetworkHelpComponent} from './network-help/network-help.component';
-import {ConsumingWalletPasswordPromptComponent} from './consuming-wallet-password-prompt/consuming-wallet-password-prompt.component';
-import {FinancialStatisticsComponent} from './financial-statistics/financial-statistics.component';
-import {TabsComponent} from './tabs/tabs.component';
-import {TabComponent} from './tabs/tab.component';
-import {RecoverWalletComponent} from './wallet-configuration/recover/recover-wallet.component';
-import { NetworkSettingsComponent } from './network-settings/network-settings.component';
-import {WalletConfigurationComponent} from './wallet-configuration/wallet-configuration.component';
-import {GenerateWalletComponent} from './wallet-configuration/generate/generate-wallet.component';
+import {NetworkSettingsComponent} from './network-settings/network-settings.component';
+import {WalletConfigurationModule} from './wallet-configuration/wallet-configuration.module';
+import {EmptyComponent} from './empty/empty.component';
+import {RoutingService} from './status/routing.service';
+import {HeaderModule} from './header/header.module';
+import {HeaderRoutingModule} from './header/header-routing.module';
 
 @NgModule({
   declarations: [
     AppComponent,
-    IndexComponent,
-    HeaderComponent,
     FooterComponent,
-    NodeConfigurationComponent,
-    NetworkHelpComponent,
-    ConsumingWalletPasswordPromptComponent,
-    FinancialStatisticsComponent,
-    TabsComponent,
-    TabComponent,
     NetworkSettingsComponent,
-    WalletConfigurationComponent,
-    RecoverWalletComponent,
-    GenerateWalletComponent,
+    EmptyComponent,
   ],
   imports: [
+    IndexModule,
+    HeaderModule,
     BrowserModule,
-    AppRoutingModule,
     FormsModule,
-    ReactiveFormsModule
+    ReactiveFormsModule,
+    WalletConfigurationModule,
+    HeaderRoutingModule,
+    AppRoutingModule,
   ],
-  providers: [ElectronService],
+  exports: [
+    NetworkSettingsComponent,
+  ],
+  providers: [ElectronService, RoutingService],
   bootstrap: [AppComponent]
 })
-export class AppModule {}
+export class AppModule {
+}

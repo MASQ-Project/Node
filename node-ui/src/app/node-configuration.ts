@@ -10,4 +10,3 @@ export class NodeConfiguration {
   networkSettings?: NetworkSettings;
   walletAddress?: string;
 }
-
