@@ -897,7 +897,7 @@ impl SubstratumRealNode {
         .wait_for_exit();
     }
 
-    fn exec_command_on_container_and_detach(
+    pub fn exec_command_on_container_and_detach(
         name: &str,
         command_parts: Vec<&str>,
     ) -> Result<String, String> {

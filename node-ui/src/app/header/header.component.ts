@@ -2,28 +2,32 @@
 import {Component, ElementRef, EventEmitter, HostListener, Output, ViewChild} from '@angular/core';
 import {ElectronService} from '../electron.service';
 import {ConfigurationMode} from '../configuration-mode.enum';
-import {Router} from '@angular/router';
+import {ActivatedRoute, Router} from '@angular/router';
+import {Observable} from 'rxjs';
+import {map} from 'rxjs/operators';
 
 @Component({
   selector: 'app-header',
   templateUrl: './header.component.html',
-  styleUrls: ['./header.component.scss']
+  styleUrls: ['./header.component.scss'],
 })
 export class HeaderComponent {
   visibleSettings: boolean;
   visibleModalHelp: boolean;
 
-  @Output() openSettingsEvent = new EventEmitter<ConfigurationMode>();
-
-  @ViewChild('settingsbutton', { static: true })
-  settings_button: ElementRef;
+  @ViewChild('settingsButton', {static: true})
+  settingsButton: ElementRef;
 
   @HostListener('document:click', ['$event'])
   documentClick(event: MouseEvent) {
     this.hideSettings(event);
   }
 
-  constructor(private electron: ElectronService, private router: Router) {
+  constructor(private electron: ElectronService, private router: Router, private route: ActivatedRoute) {
+  }
+
+  hideGear(): Observable<boolean> {
+    return this.route.data.pipe(map(data => data.hideGear));
   }
 
   toggleSettings() {
@@ -31,7 +35,7 @@ export class HeaderComponent {
   }
 
   openSettings() {
-    this.openSettingsEvent.emit(ConfigurationMode.Configuring);
+    this.router.navigate(['config']);
   }
 
   openNetworkSettings() {
@@ -43,7 +47,7 @@ export class HeaderComponent {
   }
 
   hideSettings(e) {
-    if (e.target === this.settings_button.nativeElement) {
+    if (e.target === this.settingsButton.nativeElement) {
       return;
     }
 

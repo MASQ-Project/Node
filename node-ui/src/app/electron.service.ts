@@ -1,10 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-import { Injectable } from '@angular/core';
+import {Injectable} from '@angular/core';
 
 // If you import a module but never use any of the imported values other than as TypeScript types,
 // the resulting javascript file will look as if you never imported the module at all.
-import { ipcRenderer, webFrame, shell, remote, app, clipboard } from 'electron';
+import {ipcRenderer, webFrame, shell, remote, app, clipboard} from 'electron';
 import * as childProcess from 'child_process';
 import * as fs from 'fs';
 import Remote = Electron.Remote;

@@ -1,10 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-import {ComponentFixture} from '@angular/core/testing';
 import {NodeConfigurationComponent} from './node-configuration.component';
 import {Page} from '../page';
 
-export class NodeConfigurationPage extends Page {
+export class NodeConfigurationPage extends Page<NodeConfigurationComponent> {
 
   get chainName(): HTMLSelectElement {
     return this.query('#chain-name');
@@ -86,10 +85,6 @@ export class NodeConfigurationPage extends Page {
     return this.query('#blockchain-service-url-help-link');
   }
 
-  constructor(private fixture: ComponentFixture<NodeConfigurationComponent>) {
-    super();
-  }
-
   setIp(value: string) {
     this.setInputText(this.ipTxt, value);
   }
@@ -113,9 +108,5 @@ export class NodeConfigurationPage extends Page {
 
   setChainName(value: string) {
     this.setSelection(this.chainName, value);
-  }
-
-  private query<T>(selector: String): T {
-    return this.fixture.nativeElement.querySelector(selector);
   }
 }

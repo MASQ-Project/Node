@@ -1,0 +1,116 @@
+// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+@import '../../styles/variables';
+@import '../../styles/colors';
+@import '../../styles/mixins';
+
+.node-status, .node-field {
+  background: color('background');
+  padding: 20px 18px;
+
+  &__display {
+    display: flex;
+    justify-content: space-between;
+
+    &-label {
+      color: color('text');
+      font-size: fontSize('diminished');
+      text-transform: uppercase;
+      letter-spacing: fontSize('letter-spacing');
+      font-weight: normal;
+      flex: 1;
+      margin-bottom:10px;
+    }
+
+    &-text {
+      line-height: 36px;
+      height: 36px;
+      font-size: 13px;
+      font-family: inherit;
+      font-weight: 400;
+      color: color('text', 'light');
+      background-color: color('background', 'dark');
+      margin: 0 10px 0 0;
+      padding: 2px 6px;
+      border-radius: 5px;
+      width: 100%;
+    }
+
+    &-status {
+      color: color('white');
+      font-size: fontSize('base');
+      text-align: right;
+      flex: 1;
+    }
+
+    button {
+      background: color('primary');
+      color: color('white');
+      outline: 0;
+      width: 80px;
+      height: 36px;
+      font-family: inherit;
+      font-size: fontSize('diminished');
+      text-transform: uppercase;
+      border: 0;
+      border-radius: 8px;
+      cursor: pointer;
+
+      &:active {
+        background-color: color('background', 'dark');
+      }
+    }
+
+  }
+
+  &__actions {
+    display: flex;
+    margin-top: 10px;
+
+    &--invalid {
+      border: 3px solid color('primary');
+      border-radius: $error-radius;
+    }
+
+    button {
+      background: color('background', 'dark');
+      color: color('text', 'medium');
+      outline: 0;
+      margin: 0;
+      padding: 0;
+      height: 40px;
+      font-family: inherit;
+      font-size: fontSize('diminished');
+      text-transform: uppercase;
+      flex: 1;
+      border: 0;
+      border-radius: 0;
+      border-right: 1px solid #242424;
+      border-left: 1px solid #242424;
+      cursor: pointer;
+      transition: all $transition-hover;
+
+      &.button-active {
+        background: color('primary');
+        color: color('white');
+      }
+
+      &:first-child {
+        border-radius: $border-radius 0 0 $border-radius;
+        border: 0;
+      }
+
+      &:last-child {
+        border-radius: 0 $border-radius $border-radius 0;
+        border: 0;
+      }
+
+      &:hover {
+        color: color('text', 'light');
+      }
+
+      &.button-highlit {
+        border: 1px solid color('primary');
+      }
+    }
+  }
+}

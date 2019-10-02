@@ -1,5 +1,4 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-
 import {Injectable} from '@angular/core';
 import {NodeConfiguration} from './node-configuration';
 import {BehaviorSubject, Observable} from 'rxjs';

@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-import {AfterContentInit, Component, ContentChildren, Input, QueryList} from '@angular/core';
+import {AfterContentInit, Component, ContentChildren, QueryList} from '@angular/core';
 import {TabComponent} from './tab.component';
 
 @Component({
@@ -11,13 +11,6 @@ import {TabComponent} from './tab.component';
 export class TabsComponent implements AfterContentInit {
 
   @ContentChildren(TabComponent) tabs: QueryList<TabComponent>;
-
-  @Input('selectConfigurationTab')
-  set selectConfigurationTab(_) {
-    if (this.tabs) {
-      this.selectTab(this.tabs.first);
-    }
-  }
 
   ngAfterContentInit() {
     const activeTabs = this.tabs.filter((tab) => tab.active);

@@ -52,5 +52,4 @@ mod tests {
 
         assert_eq!(result, String::from("PeerActors"))
     }
-
 }
