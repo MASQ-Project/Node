@@ -1,8 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 import {
-  mnemonicValidator,
   hardenedDerivationPathPattern,
+  mnemonicValidator,
   mnemonicWordLengthValidator
 } from './wallet.validator';
 import {func, reset, when} from 'testdouble';

@@ -3,13 +3,12 @@
 @import '../../styles/colors';
 
 .app-footer {
-  background: color('background');
+  height: 44px;
+  flex-shrink: 0;
   display: flex;
+  background: color('background');
   align-items: center;
   justify-content: center;
-  position: absolute;
-  bottom: 0;
-  height: 44px;
   border-top: 1px solid color('background','light');
   color: color('text','medium');
   font-size: rem(11px);

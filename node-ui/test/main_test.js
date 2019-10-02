@@ -8,14 +8,14 @@ describe('main', () => {
   let mockApp, mockDialog, mockEvent, mockHttp, mockCommandHelper, mockIpcMain, mockMenu, mainWindow, webContents, mainWindowOnClose,
     MockNodeActuator, appOnReady, ipcMainOnIpLookup, ipcMainOnGetNodeConfiguration, ipcMainOnChangeNodeState, ipcMainOnGetFinancialStatistics,
     ipcMainOnCalculateWalletAddress, ipcMainOnRecoverConsumingWallet, ipcMainOnGenerateConsumingWallet,
-    ipcMainOnSetConsumingWalletPassword, process
+    ipcMainOnSetConsumingWalletPassword, ipcMainOnNeighborhoodDotGraphRequest, process
 
   beforeEach(() => {
     mockEvent = td.object(['preventDefault'])
     mockApp = td.object(['getName', 'on', 'quit'])
     mockDialog = td.object(['showErrorBox'])
     mockIpcMain = td.object(['on'])
-    MockNodeActuator = td.constructor(['shutdown', 'off', 'serving', 'consuming', 'recoverWallet', 'generateWallet', 'getFinancialStatistics', 'setConsumingWalletPassword'])
+    MockNodeActuator = td.constructor(['shutdown', 'off', 'serving', 'consuming', 'recoverWallet', 'generateWallet', 'getFinancialStatistics', 'setConsumingWalletPassword', 'getNeighborhoodDotGraph'])
     mockMenu = td.object(['setApplicationMenu', 'buildFromTemplate'])
     td.replace('../main-process/node_actuator', MockNodeActuator)
     mockHttp = td.replace('http')
@@ -54,6 +54,9 @@ describe('main', () => {
 
     ipcMainOnSetConsumingWalletPassword = td.matchers.captor()
     td.when(mockIpcMain.on('set-consuming-wallet-password', ipcMainOnSetConsumingWalletPassword.capture())).thenReturn(mockIpcMain)
+
+    ipcMainOnNeighborhoodDotGraphRequest = td.matchers.captor()
+    td.when(mockIpcMain.on('neighborhood-dot-graph-request', ipcMainOnNeighborhoodDotGraphRequest.capture())).thenReturn(mockIpcMain)
 
     td.replace('electron', {
       app: mockApp,
@@ -474,6 +477,38 @@ describe('main', () => {
 
       it('sends get-financial-statistics-error', () => {
         td.verify(mainWindow.prototype.webContents.send('set-consuming-wallet-password-response', false))
+      })
+    })
+  })
+
+  describe('neighborhood-dot-graph-request', () => {
+    let event
+
+    beforeEach(() => {
+      appOnReady.value()
+    })
+
+    describe('success', () => {
+      beforeEach(async () => {
+        event = {}
+        td.when(MockNodeActuator.prototype.getNeighborhoodDotGraph()).thenResolve('digraph goes here')
+        await ipcMainOnNeighborhoodDotGraphRequest.value(event)
+      })
+
+      it('should have the dotGraph response', () => {
+        expect(event.returnValue.dotGraph).toBe('digraph goes here')
+      })
+    })
+
+    describe('failure', () => {
+      beforeEach(async () => {
+        event = {}
+        td.when(MockNodeActuator.prototype.getNeighborhoodDotGraph()).thenReject('this is the error message')
+        await ipcMainOnNeighborhoodDotGraphRequest.value(event)
+      })
+
+      it('should have the dotGraph response', () => {
+        expect(event.returnValue.error).toBe('this is the error message')
       })
     })
   })

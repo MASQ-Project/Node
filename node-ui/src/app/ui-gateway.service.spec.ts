@@ -1,14 +1,17 @@
+// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+
 import {TestBed} from '@angular/core/testing';
 import {UiGatewayService} from './ui-gateway.service';
 import * as td from 'testdouble';
 import {ElectronService} from './electron.service';
+import * as assert from 'assert';
 
 describe('UiGatewayService', () => {
   let stubElectronService;
   let service: UiGatewayService;
   let mockSendSync;
   beforeEach(() => {
-    mockSendSync = td.func('sendSync');
+    mockSendSync = td.function('sendSync');
     stubElectronService = {
       ipcRenderer: {
         sendSync: mockSendSync,
@@ -55,9 +58,35 @@ describe('UiGatewayService', () => {
       });
 
       it('returns false', () => {
-        service.setGasPrice(123).subscribe(result => {
-          expect(result).toBeFalsy();
+        service.setGasPrice(123).subscribe(result => expect(result).toBeFalsy());
+      });
+    });
+  });
+
+  describe('neighborhood', () => {
+    describe('when node is not running', () => {
+      beforeEach(() => {
+        td.when(mockSendSync('neighborhood-dot-graph-request')).thenReturn({error: 'SubstratumNode unavailable.'});
+      });
+
+      it('returns error', () => {
+        service.neighborhoodDotGraphResponse.subscribe(response => {
+          expect(response['error']).toBe('SubstratumNode unavailable.');
         });
+        service.neighborhoodDotGraph();
+      });
+    });
+
+    describe('when node is running', () => {
+      beforeEach(() => {
+        td.when(mockSendSync('neighborhood-dot-graph-request')).thenReturn({NeighborhoodDotGraphResponse: 'digraph db { }'});
+      });
+
+      it('returns response', () => {
+        service.neighborhoodDotGraphResponse.subscribe(response => {
+          expect(response['NeighborhoodDotGraphResponse']).toContain('digraph db {');
+        });
+        service.neighborhoodDotGraph();
       });
     });
   });

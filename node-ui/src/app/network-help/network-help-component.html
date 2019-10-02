@@ -12,12 +12,15 @@
 
   <p>
     Once started, SubstratumNode displays the descriptor on the serving or consuming page. The descriptor
-    indicates the required port needing to be forwarded by the network router. The port is the last number
+    indicates the required port needing to be forwarded by the network router. The <span class="port">port is the last number</span>
     in the descriptor, as shown below:
   </p>
 
   <div class="example">
-    95VjByq5tEUUpDcczA//zXWGE6+7YFEvzN4CDVoPbWw:86.75.30.9:<span>1234</span>
+    95VjByq5tEUUpDcczA//zXWGE6+7YFEvzN4CDVoPbWw<span class="delimiter">:</span>86.75.30.9:<span class="port">1234</span> '<span class="delimiter">:</span>' for Ropsten testnet
+  </div>
+  <div class="example">
+    95VjByq5tEUUpDcczA//zXWGE6+7YFEvzN4CDVoPbWw<span class="delimiter">@</span>86.75.30.9:<span class="port">1234</span> '<span class="delimiter">@</span>' for Ethereum mainnet
   </div>
 
   <h3>Steps To Forwarding Ports In The Router</h3>

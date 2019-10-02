@@ -1,10 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-import {ComponentFixture} from '@angular/core/testing';
 import {RecoverWalletComponent} from './recover-wallet.component';
 import {Page} from '../../page';
 
-export class RecoverWalletPage extends Page {
+export class RecoverWalletPage extends Page<RecoverWalletComponent> {
 
   get mnemonicPhrase(): HTMLInputElement {
     return this.query('#mnemonic-phrase');
@@ -44,14 +43,6 @@ export class RecoverWalletPage extends Page {
 
   get wordlist(): HTMLSelectElement {
     return this.query('#wordlist');
-  }
-
-  constructor(private fixture: ComponentFixture<RecoverWalletComponent>) {
-    super();
-  }
-
-  private query<T>(selector: String): T {
-    return this.fixture.nativeElement.querySelector(selector);
   }
 
   setConsumingDerivationPath(value: string) {

@@ -1,4 +1,7 @@
-<!-- Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved. -->
+<!--Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.-->
 
-<router-outlet></router-outlet>
+<app-header [hidden]="hideHeader() | async"></app-header>
+<main class="content">
+  <router-outlet></router-outlet>
+</main>
 <app-footer></app-footer>

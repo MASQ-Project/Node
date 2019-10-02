@@ -1,10 +1,15 @@
 #!/bin/bash -xev
 # Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
-PASSPHRASE="$1"
+TOOLCHAIN_HOME="$1"
 NODE_EXECUTABLE="SubstratumNode"
 DNS_EXECUTABLE="dns_utility"
 GPG_EXECUTABLE="gpg"
+
+if [[ "$PASSPHRASE" == "" ]]; then
+  echo "PASSPHRASE cannot be blank"
+  exit 1
+fi
 
 if [[ "$OSTYPE" == "msys" ]]; then
   NODE_EXECUTABLEW="${NODE_EXECUTABLE}W.exe"
@@ -14,6 +19,8 @@ if [[ "$OSTYPE" == "msys" ]]; then
   GPG_EXECUTABLE="/c/Program Files (x86)/gnupg/bin/gpg"
 fi
 
+source "$CI_DIR"/environment.sh "$TOOLCHAIN_HOME"
+
 cd "$CI_DIR/../node"
 cargo clean
 "ci/build.sh"
@@ -21,6 +28,19 @@ cargo clean
 cd "$CI_DIR/../dns_utility"
 cargo clean
 "ci/build.sh"
+
+function azure_key_vault_sign() {
+	for file in "$@"; do
+		AzureSignTool sign "$file" \
+		--file-digest sha256 \
+		--timestamp-rfc3161 http://timestamp.digicert.com \
+		--timestamp-digest sha256 \
+		--azure-key-vault-url https://substratumnode.vault.azure.net \
+		--azure-key-vault-client-id "77cb9689-ce27-412f-bc16-4cc0a599676b" \
+		--azure-key-vault-client-secret "$AZURE_KEY_VAULT_CLIENT_SECRET" \
+		--azure-key-vault-certificate "SubstratumNodeCodeSinging"
+	done
+}
 
 # sign
 case "$OSTYPE" in
@@ -33,26 +53,25 @@ case "$OSTYPE" in
       "${GPG_EXECUTABLE}" --verify target/release/$DNS_EXECUTABLE.sig target/release/$DNS_EXECUTABLE
       ;;
    darwin*)
+      security unlock-keychain -p "$PASSPHRASE"
       cd "$CI_DIR/../node"
-      cp Info.plist target/release
-      codesign -s 'Developer ID Application: Substratum Services, Inc. (TKDGR66924)'  -fv "target/release/$NODE_EXECUTABLE"
+      codesign -s 'Developer ID Application: Substratum Services, Inc. (TKDGR66924)' -i 'net.substratum.substratumnode' -fv "target/release/$NODE_EXECUTABLE"
       codesign -v -v "target/release/$NODE_EXECUTABLE"
       cd "$CI_DIR/../dns_utility"
-      cp Info.plist target/release
-      codesign -s 'Developer ID Application: Substratum Services, Inc. (TKDGR66924)'  -fv "target/release/$DNS_EXECUTABLE"
+      codesign -s 'Developer ID Application: Substratum Services, Inc. (TKDGR66924)' -i 'net.substratum.dns-utility' -fv "target/release/$DNS_EXECUTABLE"
       codesign -v -v "target/release/$DNS_EXECUTABLE"
       ;;
    msys)
+      if [[ "$AZURE_KEY_VAULT_CLIENT_SECRET" == "" ]]; then
+        echo "AZURE_KEY_VAULT_CLIENT_SECRET cannot be blank"
+        exit 1
+      fi
       cd "$CI_DIR/../node"
-      signtool sign //tr http://timestamp.digicert.com //td sha256 //fd sha256 //i "DigiCert SHA2 Assured ID Code Signing CA" //n "Substratum Services, Inc." //sm "target/release/$NODE_EXECUTABLE"
-      signtool verify //pa "target/release/$NODE_EXECUTABLE"
-      signtool sign //tr http://timestamp.digicert.com //td sha256 //fd sha256 //i "DigiCert SHA2 Assured ID Code Signing CA" //n "Substratum Services, Inc." //sm "target/release/$NODE_EXECUTABLEW"
-      signtool verify //pa "target/release/$NODE_EXECUTABLEW"
+      azure_key_vault_sign "target/release/$NODE_EXECUTABLE"
+      azure_key_vault_sign "target/release/$NODE_EXECUTABLEW"
       cd "$CI_DIR/../dns_utility"
-      signtool sign //tr http://timestamp.digicert.com //td sha256 //fd sha256 //i "DigiCert SHA2 Assured ID Code Signing CA" //n "Substratum Services, Inc." //sm "target/release/$DNS_EXECUTABLE"
-      signtool verify //pa "target/release/$DNS_EXECUTABLE"
-      signtool sign //tr http://timestamp.digicert.com //td sha256 //fd sha256 //i "DigiCert SHA2 Assured ID Code Signing CA" //n "Substratum Services, Inc." //sm "target/release/$DNS_EXECUTABLEW"
-      signtool verify //pa "target/release/$DNS_EXECUTABLEW"
+      azure_key_vault_sign "target/release/$DNS_EXECUTABLE"
+      azure_key_vault_sign "target/release/$DNS_EXECUTABLEW"
       ;;
    *)
         echo "unsupported operating system detected."; exit 1
@@ -71,15 +90,23 @@ case "$OSTYPE" in
         zip -j SubstratumNode-Linux64-deb.zip node-ui/electron-builder-out/SubstratumNode*.deb
         ;;
    darwin*)
-        zip -j SubstratumNode-macOS-binary.zip dns_utility/target/release/$DNS_EXECUTABLE node/target/release/$NODE_EXECUTABLE node/target/release/$NODE_EXECUTABLE.sig
+        zip -j SubstratumNode-macOS-binary.zip dns_utility/target/release/$DNS_EXECUTABLE node/target/release/$NODE_EXECUTABLE
         zip -j SubstratumNode-macOS.dmg.zip node-ui/electron-builder-out/SubstratumNode*.dmg
         ;;
    msys)
-        signtool sign //tr http://timestamp.digicert.com //td sha256 //fd sha256 //i "DigiCert SHA2 Assured ID Code Signing CA" //n "Substratum Services, Inc." //sm "node-ui/electron-builder-out/SubstratumNode*.exe"
-        signtool verify //pa "node-ui/electron-builder-out/SubstratumNode*.exe"
+        azure_key_vault_sign "node-ui/electron-builder-out/"SubstratumNode*.exe
 
-        zip -j SubstratumNode-Windows-binary.zip dns_utility/target/release/$DNS_EXECUTABLE dns_utility/target/release/$DNS_EXECUTABLEW node/target/release/$NODE_EXECUTABLE node/target/release/$NODE_EXECUTABLEW node/target/release/$NODE_EXECUTABLE.sig node/target/release/$NODE_EXECUTABLEW.sig
-        zip -j SubstratumNode-Windows.exe.zip node-ui/electron-builder-out/SubstratumNode*.exe
+        ARCHIVE_PATH="$PWD"
+        pushd dns_utility/target/release
+        7z a "$ARCHIVE_PATH"/SubstratumNode-Windows-binary.zip $DNS_EXECUTABLE
+        7z a "$ARCHIVE_PATH"/SubstratumNode-Windows-binary.zip $DNS_EXECUTABLEW
+        popd
+        pushd node/target/release
+        7z a "$ARCHIVE_PATH"/SubstratumNode-Windows-binary.zip $NODE_EXECUTABLEW
+        popd
+        pushd node-ui/electron-builder-out
+        7z a "$ARCHIVE_PATH"/SubstratumNode-Windows.exe.zip SubstratumNode*.exe
+        popd
         ;;
    *)
         echo "unsupported operating system detected."; exit 1

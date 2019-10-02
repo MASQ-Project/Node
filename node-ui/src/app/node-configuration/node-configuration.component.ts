@@ -1,18 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-
 import {FormControl, FormGroup, Validators} from '@angular/forms';
 import {ConfigService} from '../config.service';
-import {
-  Component,
-  ElementRef,
-  EventEmitter,
-  HostListener,
-  Input,
-  NgZone,
-  OnInit,
-  Output,
-  ViewChild
-} from '@angular/core';
+
+import {Component, ElementRef, HostListener, NgZone, OnDestroy, OnInit, ViewChild} from '@angular/core';
 import {
   blockchainServiceValidator,
   ipValidator,
@@ -26,24 +16,35 @@ import {LocalStorageService} from '../local-storage.service';
 import {ElectronService} from '../electron.service';
 import {LocalServiceKey} from '../local-service-key.enum';
 import {chainNames} from './blockchains';
+import {ActivatedRoute, Router} from '@angular/router';
+import {first} from 'rxjs/operators';
+import {RoutingService} from '../status/routing.service';
+import {HistoryService} from '../history.service';
+
+const consumingRoute = `/index/status/${ConfigurationMode.Consuming}/config`;
+const servingRoute = `/index/status/${ConfigurationMode.Serving}/config`;
 
 @Component({
   selector: 'app-node-configuration',
   templateUrl: './node-configuration.component.html',
   styleUrls: ['./node-configuration.component.scss']
 })
-export class NodeConfigurationComponent implements OnInit {
+export class NodeConfigurationComponent implements OnInit, OnDestroy {
 
-  @Input() mode: ConfigurationMode;
-  @Input() restarting = false;
-  @Input() status: NodeStatus = NodeStatus.Off;
-  @Output() saved = new EventEmitter<ConfigurationMode>();
-  @Output() cancelled = new EventEmitter<void>();
+  mode: ConfigurationMode;
+  status: NodeStatus = NodeStatus.Off;
 
-  constructor(private electron: ElectronService, private localStorageService: LocalStorageService,
-              private configService: ConfigService,
-              private mainService: MainService,
-              private ngZone: NgZone) {
+  constructor(
+    private configService: ConfigService,
+    private electron: ElectronService,
+    private historyService: HistoryService,
+    private localStorageService: LocalStorageService,
+    private mainService: MainService,
+    private routingService: RoutingService,
+    private router: Router,
+    private route: ActivatedRoute,
+    private ngZone: NgZone
+  ) {
   }
 
   persistNeighbor = false;
@@ -66,6 +67,24 @@ export class NodeConfigurationComponent implements OnInit {
   @ViewChild('blockchainServiceUrlTooltipIcon', {static: true})
   blockchainServiceUrlTooltipIcon: ElementRef;
 
+  private actuateNode() {
+    if (this.isPreStart()) {
+      if (this.currentRoute() === consumingRoute) {
+        this.mainService.consume();
+      } else if (this.currentRoute() === servingRoute) {
+        this.mainService.serve();
+      }
+    } else {
+      this.mainService.nodeStatus
+        .pipe(first())
+        .subscribe((status) => {
+          if (status === NodeStatus.Consuming || status === NodeStatus.Serving) {
+            this.mainService.turnOff();
+          }
+        });
+    }
+  }
+
   @HostListener('document:click', ['$event'])
   documentClick(event: MouseEvent) {
     if (event.target !== this.tooltipIcon.nativeElement) {
@@ -78,20 +97,20 @@ export class NodeConfigurationComponent implements OnInit {
   }
 
   ngOnInit() {
+    this.mainService.resizeLarge();
     this.configService.load().subscribe((config) => {
       this.ngZone.run(() => {
         const storedPreference = this.localStorageService.getItem(LocalServiceKey.PersistNeighborPreference);
         if (storedPreference !== null) {
           this.persistNeighbor = storedPreference === 'true';
         }
-
         this.nodeConfig.patchValue(config);
         this.earningWalletPopulated = !!config.walletAddress;
       });
     });
   }
 
-  save() {
+  save(): Promise<boolean> {
     if (this.persistNeighbor) {
       this.localStorageService.setItem(LocalServiceKey.NeighborNodeDescriptor, this.neighbor.value);
     } else {
@@ -101,15 +120,20 @@ export class NodeConfigurationComponent implements OnInit {
     this.localStorageService.setItem(LocalServiceKey.BlockchainServiceUrl, this.blockchainServiceUrl.value);
     this.localStorageService.setItem(LocalServiceKey.ChainName, this.chainName.value);
     this.configService.patchValue(this.nodeConfig.value);
-    this.saved.emit(this.mode);
-  }
-
-  cancel() {
-    this.cancelled.emit();
+    this.actuateNode();
+    return this.navigateBack();
   }
 
   async onSubmit() {
-    this.save();
+    await this.save();
+  }
+
+  async cancel() {
+    await this.navigateBack();
+  }
+
+  navigateBack(): Promise<boolean> {
+    return this.router.navigateByUrl('/index');
   }
 
   hideTooltip() {
@@ -154,13 +178,13 @@ export class NodeConfigurationComponent implements OnInit {
 
   saveText(): string {
     if (this.status === NodeStatus.Off) {
-      if (this.mode === ConfigurationMode.Serving || this.mode === ConfigurationMode.Consuming) {
+      if (this.isPreStart()) {
         return 'Start';
       } else {
         return 'Save';
       }
     } else {
-      if (this.mode === ConfigurationMode.Configuring) {
+      if (this.isConfiguring()) {
         return 'Stop & Save';
       } else {
         return 'Start';
@@ -168,8 +192,22 @@ export class NodeConfigurationComponent implements OnInit {
     }
   }
 
-  ngOnDestroy() {
-    // prevent memory leak when component destroyed
-    // this.ipSubscription.unsubscribe();
+  private isConfiguring() {
+    return this.mode === ConfigurationMode.Configuring;
+  }
+
+  private isPreStart(): boolean {
+    const route = this.currentRoute();
+
+    return route === servingRoute || route === consumingRoute;
+  }
+
+  private currentRoute() {
+    const history = this.historyService.history();
+    return history[history.length - 1];
+  }
+
+  ngOnDestroy(): void {
+    this.mainService.resizeSmall();
   }
 }

@@ -9,12 +9,13 @@ import {GenerateWalletPage} from './generate-wallet-page';
 import {WalletService} from '../../wallet.service';
 import {Subject} from 'rxjs';
 import {ConfigService} from '../../config.service';
+import createSpyObj = jasmine.createSpyObj;
 
 describe('GenerateWalletComponent', () => {
   let component: GenerateWalletComponent;
   let fixture: ComponentFixture<GenerateWalletComponent>;
   let page: GenerateWalletPage;
-  let mockRouter;
+  let routerSpy;
   let walletService;
   let configService;
   let generateResponseSubject;
@@ -30,10 +31,7 @@ describe('GenerateWalletComponent', () => {
     };
     spyOnAllFunctions(configService);
     spyOn(walletService, 'generateConsumingWallet');
-    mockRouter = {
-      navigate: td.func()
-    };
-    spyOnAllFunctions(mockRouter);
+    routerSpy = createSpyObj('router', ['navigate', 'navigateByUrl']);
 
     TestBed.configureTestingModule({
       imports: [FormsModule, ReactiveFormsModule],
@@ -41,7 +39,7 @@ describe('GenerateWalletComponent', () => {
       providers: [
         {provide: WalletService, useValue: walletService},
         {provide: ConfigService, useValue: configService},
-        {provide: Router, useValue: mockRouter}
+        {provide: Router, useValue: routerSpy}
       ]
     }).compileComponents();
   }));
@@ -92,7 +90,7 @@ describe('GenerateWalletComponent', () => {
     });
 
     it('navigates to the index page', () => {
-      expect(mockRouter.navigate).toHaveBeenCalledWith(['/index']);
+      expect(routerSpy.navigate).toHaveBeenCalledWith(['/index']);
     });
   });
 

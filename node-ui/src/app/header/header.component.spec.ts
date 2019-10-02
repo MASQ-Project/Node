@@ -1,25 +1,29 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-
 import {async, ComponentFixture, ComponentFixtureAutoDetect, TestBed} from '@angular/core/testing';
-
 import {HeaderComponent} from './header.component';
 import {ElectronService} from '../electron.service';
 import * as td from 'testdouble';
 import {NetworkHelpComponent} from '../network-help/network-help.component';
+import {RouterTestingModule} from '@angular/router/testing';
+import {Component} from '@angular/core';
 import {Router} from '@angular/router';
+
+@Component({selector: 'app-network-settings', template: ''})
+class NetworkSettingsStubComponent {
+}
+
+@Component({selector: 'app-node-configuration', template: ''})
+class NodeConfigurationStubComponent {
+}
 
 describe('HeaderComponent', () => {
   let component: HeaderComponent;
   let fixture: ComponentFixture<HeaderComponent>;
   let compiled;
   let stubElectronService;
-  let mockRouter;
+  let router;
 
   beforeEach(async(() => {
-    mockRouter = {
-      navigate: td.func()
-    };
-    spyOn(mockRouter, 'navigate');
     stubElectronService = {
       shell: {
         openExternal: td.func()
@@ -32,19 +36,24 @@ describe('HeaderComponent', () => {
     spyOnAllFunctions(stubElectronService.shell);
     TestBed.configureTestingModule({
       declarations: [
-        HeaderComponent, NetworkHelpComponent
+        HeaderComponent,
+        NetworkHelpComponent,
+        NodeConfigurationStubComponent,
+        NetworkSettingsStubComponent,
+      ],
+      imports: [
+        RouterTestingModule.withRoutes([]),
       ],
       providers: [
         {provide: ComponentFixtureAutoDetect, useValue: true},
         {provide: ElectronService, useValue: stubElectronService},
-        {provide: Router, useValue: mockRouter}
       ]
-
     })
       .compileComponents();
   }));
 
   beforeEach(() => {
+    router = TestBed.get(Router);
     fixture = TestBed.createComponent(HeaderComponent);
     component = fixture.componentInstance;
     compiled = fixture.debugElement.nativeElement;
@@ -112,16 +121,14 @@ describe('HeaderComponent', () => {
     });
 
     describe('clicking the settings link', () => {
-      let gotIt = false;
-
       describe('Settings', () => {
         beforeEach(() => {
-          component.openSettingsEvent.subscribe(() => gotIt = true);
+          spyOn(router, 'navigate');
           compiled.querySelector('#open-settings').click();
         });
 
         it('opens the serving settings', () => {
-          expect(gotIt).toBe(true);
+          expect(router.navigate).toHaveBeenCalledWith(['config']);
         });
       });
 
@@ -169,37 +176,38 @@ describe('HeaderComponent', () => {
         });
       });
     });
-  });
 
-  describe('network settings', () => {
-    describe('clicking network settings from settings menu', () => {
-      beforeEach(() => {
-        compiled.querySelector('#network-settings-menu').click();
+    describe('network settings', () => {
+      describe('clicking network settings from settings menu', () => {
+        beforeEach(() => {
+          spyOn(router, 'navigate');
+          compiled.querySelector('#network-settings-menu').click();
+        });
+
+        it('opens network settings screen', () => {
+          expect(router.navigate).toHaveBeenCalledWith(['network-settings']);
+        });
       });
+    });
 
-      it('opens network settings screen', () => {
-        expect(mockRouter.navigate).toHaveBeenCalledWith(['network-settings']);
-      });
-    });
-  });
-
-  describe('toggleModalHelp', () => {
-    beforeEach(() => {
-      component.toggleModalHelp();
-      fixture.detectChanges();
-    });
-    it('opens the modal', () => {
-      expect(compiled.querySelector('#network-help-modal').classList.contains('modal-help--active')).toBeTruthy();
-      expect(compiled.querySelector('#network-help-modal').classList.contains('modal-help--inactive')).toBeFalsy();
-    });
-    describe('invoking again', () => {
+    describe('toggleModalHelp', () => {
       beforeEach(() => {
         component.toggleModalHelp();
         fixture.detectChanges();
       });
-      it('closes the modal', () => {
-        expect(compiled.querySelector('#network-help-modal').classList.contains('modal-help--active')).toBeFalsy();
-        expect(compiled.querySelector('#network-help-modal').classList.contains('modal-help--inactive')).toBeTruthy();
+      it('opens the modal', () => {
+        expect(compiled.querySelector('#network-help-modal').classList.contains('modal-help--active')).toBeTruthy();
+        expect(compiled.querySelector('#network-help-modal').classList.contains('modal-help--inactive')).toBeFalsy();
+      });
+      describe('invoking again', () => {
+        beforeEach(() => {
+          component.toggleModalHelp();
+          fixture.detectChanges();
+        });
+        it('closes the modal', () => {
+          expect(compiled.querySelector('#network-help-modal').classList.contains('modal-help--active')).toBeFalsy();
+          expect(compiled.querySelector('#network-help-modal').classList.contains('modal-help--inactive')).toBeTruthy();
+        });
       });
     });
   });

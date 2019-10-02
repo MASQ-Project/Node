@@ -23,6 +23,24 @@ export class MainService {
   private setConsumingWalletPasswordResponseListener: Subject<boolean> = new Subject();
   setConsumingWalletPasswordResponse: Observable<boolean> = this.setConsumingWalletPasswordResponseListener.asObservable();
 
+  resizeSmall() {
+    this.resizeHeight(410);
+  }
+
+  resizeMedium() {
+    this.resizeHeight(500);
+  }
+
+  resizeLarge() {
+    this.resizeHeight(800);
+  }
+
+  resizeHeight(height: number) {
+    if (window.outerHeight !== height) {
+      window.resizeTo(640, height);
+    }
+  }
+
   constructor(private electronService: ElectronService, private configService: ConfigService) {
     this.electronService.ipcRenderer.on('node-status', (event, args: string) => {
       this.statusListener.next(args as NodeStatus);
