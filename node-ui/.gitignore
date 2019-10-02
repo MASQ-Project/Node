@@ -1,7 +1,7 @@
 dist/
 electron-builder-out
 
-src/static/binaries/
+**/src/static/binaries/
 
 generated/
 

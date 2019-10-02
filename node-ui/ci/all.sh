@@ -7,6 +7,5 @@ ci/setup.sh
 ci/lint.sh
 ci/unit_tests.sh
 ci/build.sh
-ci/ng_tests.sh
 ci/integration_tests.sh
 popd
