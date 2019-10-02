@@ -675,8 +675,7 @@ mod tests {
 
     #[test]
     fn revert_complains_if_there_is_no_single_masq_nameserver_directive() {
-        let root =
-            make_root("revert_complains_if_there_is_no_single_masq_nameserver_directive");
+        let root = make_root("revert_complains_if_there_is_no_single_masq_nameserver_directive");
         make_resolv_conf(
             &root,
             "nameserver 127.0.0.1\n#nameserver 8.8.8.8\nnameserver 127.0.0.1\n",

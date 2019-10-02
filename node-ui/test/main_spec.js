@@ -5,7 +5,7 @@
 const assert = require('assert')
 const path = require('path')
 const electronPath = require('electron') // Require Electron from the binaries included in node_modules.
-const {Application} = require('spectron')
+const { Application } = require('spectron')
 const WebSocket = require('isomorphic-ws')
 const uiInterface = require('../main-process/ui_interface')
 const consoleWrapper = require('../main-process/wrappers/console_wrapper')

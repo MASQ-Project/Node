@@ -2,7 +2,7 @@
 # Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
-NODE_EXECUTABLE="SubstratumNode"
+NODE_EXECUTABLE="MASQNode"
 DNS_EXECUTABLE="dns_utility"
 
 if [[ "$OSTYPE" == "msys" ]]; then
