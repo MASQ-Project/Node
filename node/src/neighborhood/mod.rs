@@ -367,7 +367,7 @@ impl Neighborhood {
         if neighborhood_config.local_ip_addr == sentinel_ip_addr()
             && !neighborhood_config.neighbor_configs.is_empty()
         {
-            panic!("A SubstratumNode without an --ip setting is not decentralized and cannot have a --neighbors setting")
+            panic!("A MASQ Node without an --ip setting is not decentralized and cannot have a --neighbors setting")
         }
         let gossip_acceptor: Box<dyn GossipAcceptor> = Box::new(GossipAcceptorReal::new(cryptde));
         let gossip_producer = Box::new(GossipProducerReal::new());
@@ -988,7 +988,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "A SubstratumNode without an --ip setting is not decentralized and cannot have a --neighbors setting"
+        expected = "A MASQ Node without an --ip setting is not decentralized and cannot have a --neighbors setting"
     )]
     fn neighborhood_cannot_be_created_with_neighbors_and_default_ip() {
         let cryptde = cryptde();

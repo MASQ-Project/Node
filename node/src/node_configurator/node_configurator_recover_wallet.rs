@@ -49,12 +49,12 @@ const HELP_TEXT: &str = indoc!(
     r"ADDITIONAL HELP:
     If you want to generate wallets to earn money into and spend money from, try:
 
-        SubstratumNode --help --generate-wallet
+        MASQNode --help --generate-wallet
 
     If the Node is already configured with your wallets, and you want to start the Node so that it
     stays running:
 
-        SubstratumNode --help"
+        MASQNode --help"
 );
 
 impl WalletCreationConfigMaker for NodeConfiguratorRecoverWallet {

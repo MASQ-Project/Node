@@ -64,7 +64,7 @@ impl DnsModifier for DynamicStoreDnsModifier {
 impl Default for DynamicStoreDnsModifier {
     fn default() -> Self {
         Self {
-            store: Box::new(StoreWrapperReal::new("SubstratumNode")),
+            store: Box::new(StoreWrapperReal::new("MASQNode")),
         }
     }
 }

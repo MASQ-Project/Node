@@ -121,7 +121,7 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
         .start()
         .expect("Logging subsystem failed to start");
         let privilege_dropper = PrivilegeDropperReal::new();
-        let logfile_name = file_path.join("SubstratumNode_rCURRENT.log");
+        let logfile_name = file_path.join("MASQNode_rCURRENT.log");
         privilege_dropper.chown(&logfile_name, real_user);
         std::panic::set_hook(Box::new(|panic_info| {
             panic_hook(AltPanicInfo::from(panic_info))
@@ -572,7 +572,7 @@ pub mod tests {
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper: Box::new(privilege_dropper),
         };
-        let args = vec!["SubstratumNode".to_string(), something.to_string()];
+        let args = vec!["MASQ Node".to_string(), something.to_string()];
 
         subject.go(&mut FakeStreamHolder::new().streams(), &args);
     }

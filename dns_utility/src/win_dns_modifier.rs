@@ -475,21 +475,21 @@ mod tests {
     use std::sync::Mutex;
 
     #[test]
-    fn is_subverted_says_no_if_substratum_dns_appears_too_late() {
+    fn is_subverted_says_no_if_masq_dns_appears_too_late() {
         let result = WinDnsModifier::is_subverted(&"1.1.1.1,127.0.0.1".to_string());
 
         assert_eq!(result, false)
     }
 
     #[test]
-    fn is_subverted_says_no_if_first_dns_is_only_substratum_like() {
+    fn is_subverted_says_no_if_first_dns_is_only_masq_like() {
         let result = WinDnsModifier::is_subverted(&"127.0.0.11".to_string());
 
         assert_eq!(result, false)
     }
 
     #[test]
-    fn is_subverted_says_yes_if_first_dns_is_substratum() {
+    fn is_subverted_says_yes_if_first_dns_is_masq() {
         let result = WinDnsModifier::is_subverted(&"127.0.0.1,1.1.1.1".to_string());
 
         assert_eq!(result, true)
@@ -948,10 +948,10 @@ mod tests {
                 "DhcpDefaultGateway",
                 Err(Error::from_raw_os_error(NOT_FOUND)),
             )
-            .get_value_result("NameServer", Ok("Not Substratum".to_string()))
+            .get_value_result("NameServer", Ok("Not MASQ".to_string()))
             .set_value_result("NameServerBak", Ok(()))
             .delete_value_parameters(&delete_value_parameters_arc)
-            .get_value_result("NameServerBak", Ok("Not Substratum".to_string()))
+            .get_value_result("NameServerBak", Ok("Not MASQ".to_string()))
             .delete_value_result("NameServerBak", Ok(()));
         let interfaces = RegKeyMock::default()
             .enum_keys_result(vec![Ok("interface")])

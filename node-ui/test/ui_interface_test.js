@@ -32,7 +32,7 @@ describe('Given a mock WebSocket', () => {
     })
 
     it('the subject has the proper UI protocol', () => {
-      assert.strictEqual(subject.UI_PROTOCOL, 'SubstratumNode-UI')
+      assert.strictEqual(subject.UI_PROTOCOL, 'MASQNode-UI')
     })
 
     describe('that is immediately asked whether it is connected', () => {

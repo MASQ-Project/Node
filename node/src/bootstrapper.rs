@@ -432,7 +432,7 @@ impl Bootstrapper {
             node_addr,
         };
         let descriptor = node_descriptor.to_string(cryptde, chain_id);
-        let descriptor_msg = format!("SubstratumNode local descriptor: {}", descriptor);
+        let descriptor_msg = format!("MASQ Node local descriptor: {}", descriptor);
         writeln!(streams.stdout, "{}", descriptor_msg).expect("Internal error");
         info!(Logger::new("Bootstrapper"), "{}", descriptor_msg);
         descriptor
@@ -662,7 +662,7 @@ mod tests {
 
     fn make_default_cli_params() -> Vec<String> {
         vec![
-            String::from("SubstratumNode"),
+            String::from("MASQNode"),
             String::from("--dns-servers"),
             String::from("222.222.222.222"),
         ]
@@ -766,7 +766,7 @@ mod tests {
             .build();
 
         subject.initialize_as_privileged(
-            &vec!["SubstratumNode".to_string()],
+            &vec!["MASQNode".to_string()],
             &mut FakeStreamHolder::new().streams(),
         );
 
@@ -834,7 +834,7 @@ mod tests {
 
         subject.initialize_as_unprivileged(
             &vec![
-                "SubstratumNode".to_string(),
+                "MASQNode".to_string(),
                 String::from("--data-directory"),
                 data_dir.to_str().unwrap().to_string(),
             ],
@@ -863,7 +863,7 @@ mod tests {
 
         subject.initialize_as_unprivileged(
             &vec![
-                "SubstratumNode".to_string(),
+                "MASQNode".to_string(),
                 String::from("--data-directory"),
                 data_dir.to_str().unwrap().to_string(),
                 String::from("--gas-price"),
@@ -893,7 +893,7 @@ mod tests {
             .add_listener_handler(third_handler)
             .build();
         let args = &vec![
-            String::from("SubstratumNode"),
+            String::from("MASQNode"),
             String::from("--dns-servers"),
             String::from("222.222.222.222"),
             String::from("--clandestine-port"),
@@ -920,7 +920,7 @@ mod tests {
             "init_as_privileged_stores_dns_servers_and_passes_them_to_actor_system_factory_for_proxy_client_in_init_as_unprivileged",
         );
         let args = &vec![
-            String::from("SubstratumNode"),
+            String::from("MASQNode"),
             String::from("--dns-servers"),
             String::from("1.2.3.4,2.3.4.5"),
             String::from("--clandestine-port"),
@@ -973,7 +973,7 @@ mod tests {
 
         subject.initialize_as_privileged(
             &vec![
-                String::from("SubstratumNode"),
+                String::from("MASQNode"),
                 String::from("--dns-servers"),
                 String::from("1.1.1.1"),
             ],
@@ -1030,7 +1030,7 @@ mod tests {
             "{}:2.3.4.5:3456;4567",
             cryptde_ref.public_key_to_descriptor_fragment(cryptde_ref.public_key())
         );
-        let regex = Regex::new(r"SubstratumNode local descriptor: (.+?)\n")
+        let regex = Regex::new(r"MASQ Node local descriptor: (.+?)\n")
             .expect("Couldn't compile regular expression");
         let captured_descriptor = regex
             .captures(stdout_dump.as_str())
@@ -1041,7 +1041,7 @@ mod tests {
         assert_eq!(captured_descriptor, expected_descriptor);
         TestLogHandler::new().exists_log_containing(
             format!(
-                "INFO: Bootstrapper: SubstratumNode local descriptor: {}",
+                "INFO: Bootstrapper: MASQ Node local descriptor: {}",
                 expected_descriptor
             )
             .as_str(),
@@ -1085,7 +1085,7 @@ mod tests {
 
         subject.initialize_as_privileged(
             &vec![
-                "SubstratumNode".to_string(),
+                "MASQNode".to_string(),
                 "--dns-servers".to_string(),
                 "1.1.1.1".to_string(),
                 "--ip".to_string(),
@@ -1097,7 +1097,7 @@ mod tests {
         );
         subject.initialize_as_unprivileged(
             &vec![
-                "SubstratumNode".to_string(),
+                "MASQNode".to_string(),
                 "--clandestine-port".to_string(),
                 "1234".to_string(),
                 String::from("--data-directory"),
@@ -1122,7 +1122,7 @@ mod tests {
         let data_dir = ensure_node_home_directory_exists("bootstrapper", "initialize_as_unprivileged_moves_streams_from_listener_handlers_to_stream_handler_pool");
         init_test_logging();
         let args = vec![
-            "SubstratumNode".to_string(),
+            "MASQNode".to_string(),
             String::from("--data-directory"),
             data_dir.to_str().unwrap().to_string(),
         ];
@@ -1215,7 +1215,7 @@ mod tests {
             .add_listener_handler(Box::new(another_listener_handler))
             .build();
         let args = vec![
-            String::from("SubstratumNode"),
+            String::from("MASQNode"),
             String::from("--dns-servers"),
             String::from("222.222.222.222"),
             String::from("--data-directory"),
