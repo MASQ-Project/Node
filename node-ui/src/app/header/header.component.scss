@@ -1,9 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-
-@import '../../styles/_variables.scss';
-@import '../../styles/_colors.scss';
+@import '../../styles/variables';
+@import '../../styles/colors';
 
 .app-header {
+  flex: none;
+  flex-shrink: 0;
   background: color('background', 'medium');
   display: flex;
   align-items: center;
@@ -29,15 +30,15 @@
 }
 
 .section-first {
-  border-top: 1px solid color('background','xlight');
+  border-top: 1px solid color('background', 'xlight');
 }
 
 .section-last {
-  border-bottom: 1px solid color('background','xlight');
+  border-bottom: 1px solid color('background', 'xlight');
 }
 
 .grayed-out {
-  color: color('text','light');
+  color: color('text', 'light');
 
   &:hover {
     background-color: color('background', 'xlight');
@@ -47,23 +48,23 @@
 .settings-menu {
   background: color('white');
   border-radius: $border-radius;
-  box-shadow: 0 0 10px 0 rgba(0,0,0,.3);
+  box-shadow: 0 0 10px 0 rgba(0, 0, 0, .3);
   position: absolute;
   top: 40px;
   right: 10px;
   font-size: fontSize('base');
-  color: color('text','dark');
+  color: color('text', 'dark');
   overflow: hidden;
   z-index: 1;
 
   &__menu-item {
-    color: color('text','dark');
-    padding: 10px 18px;
+    color: color('text', 'dark');
+    padding: 8px 18px;
 
     &:hover {
       background-color: color('primary');
       color: color('white');
-      border-color: rgba(color('background','xlight'), 0);
+      border-color: rgba(color('background', 'xlight'), 0);
     }
   }
 
@@ -79,19 +80,21 @@
 .modal-help {
   background: color('background', 'medium');
   border-radius: $border-radius;
-  box-shadow: 0 0 10px 0 rgba(0,0,0,.3);
+  box-shadow: 0 0 10px 0 rgba(0, 0, 0, .3);
   position: absolute;
   top: 0;
   right: 0;
   font-size: fontSize('base');
   color: color('text');
   padding: 0 20px;
-  overflow: hidden;
+  overflow: hidden overlay;
   z-index: 1;
+  height: 100vh;
 
   &--inactive {
     display: none;
   }
+
   &--active {
     display: block;
   }

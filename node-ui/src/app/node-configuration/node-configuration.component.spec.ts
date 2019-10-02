@@ -5,7 +5,6 @@ import {NodeConfigurationComponent} from './node-configuration.component';
 import * as td from 'testdouble';
 import {ConfigService} from '../config.service';
 import {FormsModule, ReactiveFormsModule} from '@angular/forms';
-import {Router} from '@angular/router';
 import {BehaviorSubject} from 'rxjs';
 import {NodeConfiguration} from '../node-configuration';
 import {NodeConfigurationPage} from './node-configuration-page';
@@ -15,26 +14,39 @@ import {NodeStatus} from '../node-status.enum';
 import {LocalStorageService} from '../local-storage.service';
 import {ElectronService} from '../electron.service';
 import {LocalServiceKey} from '../local-service-key.enum';
+import {Component} from '@angular/core';
+import {RouterTestingModule} from '@angular/router/testing';
+import {Router} from '@angular/router';
+import {RoutingService} from '../status/routing.service';
+import {HistoryService} from '../history.service';
+import createSpyObj = jasmine.createSpyObj;
+
+@Component({selector: 'app-header', template: ''})
+class HeaderStubComponent {
+}
 
 describe('NodeConfigurationComponent', () => {
   let component: NodeConfigurationComponent;
   let fixture: ComponentFixture<NodeConfigurationComponent>;
   let mockConfigService;
   let page: NodeConfigurationPage;
-  let mockRouter;
   let mockNodeStatus;
-  let mockNavigateByUrl;
   let mockOpenExternal;
   let storedConfig: BehaviorSubject<NodeConfiguration>;
-  let mockMainService;
   let mockConfigMode;
+  let mockHistoryService;
+  let mockMainService;
   let mockLocalStorageService;
   let stubElectronService;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    mockHistoryService = {
+      previous: td.func('previous'),
+      history: td.func('history'),
+    };
+    td.when(mockHistoryService.history()).thenReturn([]);
     storedConfig = new BehaviorSubject({chainName: 'ropsten'});
     mockConfigMode = new BehaviorSubject(ConfigurationMode.Hidden);
-    mockNavigateByUrl = td.func('navigateByUrl');
     mockOpenExternal = td.function('openExternal');
 
     mockNodeStatus = new BehaviorSubject(NodeStatus.Invalid);
@@ -44,8 +56,14 @@ describe('NodeConfigurationComponent', () => {
       },
     };
     mockMainService = {
-      save: td.func('save'),
-      nodeStatus: mockNodeStatus,
+      ...createSpyObj('MainService',
+        [
+          'save',
+          'serve',
+          'resizeLarge',
+          'resizeSmall',
+        ]),
+      nodeStatus: mockNodeStatus.asObservable()
     };
 
     mockConfigService = {
@@ -61,23 +79,36 @@ describe('NodeConfigurationComponent', () => {
     };
     spyOn(mockLocalStorageService, 'setItem');
     spyOn(mockLocalStorageService, 'removeItem');
-    mockRouter = {
-      navigateByUrl: mockNavigateByUrl
-    };
-    TestBed.configureTestingModule({
-      declarations: [NodeConfigurationComponent],
-      imports: [
-        FormsModule,
-        ReactiveFormsModule
-      ],
-      providers: [
-        {provide: ElectronService, useValue: stubElectronService},
-        {provide: ConfigService, useValue: mockConfigService},
-        {provide: MainService, useValue: mockMainService},
-        {provide: Router, useValue: mockRouter},
-        {provide: LocalStorageService, useValue: mockLocalStorageService}
-      ]
-    }).compileComponents();
+
+    await TestBed
+      .configureTestingModule({
+        declarations: [
+          NodeConfigurationComponent,
+          HeaderStubComponent,
+        ],
+        imports: [
+          RouterTestingModule.withRoutes([]),
+          FormsModule,
+          ReactiveFormsModule,
+        ],
+        providers: [
+          {provide: ElectronService, useValue: stubElectronService},
+          {provide: ConfigService, useValue: mockConfigService},
+          {provide: MainService, useValue: mockMainService},
+          {provide: HistoryService, useValue: mockHistoryService},
+          {provide: LocalStorageService, useValue: mockLocalStorageService},
+        ]
+      })
+      .overrideComponent(NodeConfigurationComponent, {
+        set: {
+          providers: [
+            {provide: RoutingService, useValue: {}},
+          ]
+        }
+      })
+      .compileComponents();
+    const router = TestBed.get(Router);
+    spyOn(router, 'navigateByUrl');
     td.when(mockConfigService.load()).thenReturn(storedConfig.asObservable());
     fixture = TestBed.createComponent(NodeConfigurationComponent);
     page = new NodeConfigurationPage(fixture);
@@ -98,6 +129,10 @@ describe('NodeConfigurationComponent', () => {
       };
       storedConfig.next(newValue);
       fixture.detectChanges();
+    });
+
+    it('sets the window height', () => {
+      expect(mockMainService.resizeLarge).toHaveBeenCalled();
     });
 
     describe('ip is filled out if it was provided', () => {
@@ -268,7 +303,11 @@ describe('NodeConfigurationComponent', () => {
     });
 
     describe('when clicking the blockchain service url help link', () => {
+      let router;
       beforeEach(() => {
+        router = TestBed.get(Router);
+        const currentNav = spyOn(router, 'getCurrentNavigation');
+        currentNav.and.returnValue({previousNavigation: {finalUrl: ''}});
         page.blockchainServiceUrlHelpImg.click();
         fixture.detectChanges();
 
@@ -451,17 +490,13 @@ describe('NodeConfigurationComponent', () => {
     });
 
     describe('Cancel button', () => {
-      let cancelEmitted;
       beforeEach(() => {
-        cancelEmitted = false;
-        component.cancelled.subscribe(() => {
-          cancelEmitted = true;
-        });
         page.cancelBtn.click();
+        fixture.detectChanges();
       });
 
-      it('emits cancel event when pressed', () => {
-        expect(cancelEmitted).toBeTruthy();
+      it('should navigate back', () => {
+        expect(TestBed.get(Router).navigateByUrl).toHaveBeenCalledWith('/index');
       });
     });
 
@@ -492,6 +527,7 @@ describe('NodeConfigurationComponent', () => {
 
       describe('when in pre-serving or consuming', () => {
         beforeEach(() => {
+          td.when(mockHistoryService.history()).thenReturn([`/index/status/${ConfigurationMode.Serving}/config`]);
           component.mode = ConfigurationMode.Serving;
           component.status = NodeStatus.Off;
           fixture.detectChanges();
@@ -511,7 +547,6 @@ describe('NodeConfigurationComponent', () => {
             walletAddress: '',
             blockchainServiceUrl: 'https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>',
           };
-          let savedSignalAsserted = false;
 
           beforeEach(() => {
             page.setChainName('ropsten');
@@ -519,19 +554,27 @@ describe('NodeConfigurationComponent', () => {
             page.setNeighbor('5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999');
             page.setWalletAddress('');
             page.setBlockchainServiceUrl('https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>');
-            component.saved.subscribe(() => {
-              expect(mockConfigService.patchValue).toHaveBeenCalledWith(expected);
-              savedSignalAsserted = true;
-            });
             fixture.detectChanges();
-
+            td.when(mockHistoryService.history())
+              .thenReturn(
+                [
+                  `/index/status/${ConfigurationMode.Serving}/config`
+                ]);
             page.saveConfigBtn.click();
 
             fixture.detectChanges();
           });
 
-          it('persists the values then emits save event', () => {
-            expect(savedSignalAsserted).toBeTruthy();
+          it('persists the values', () => {
+            expect(mockConfigService.patchValue).toHaveBeenCalledWith(expected);
+          });
+
+          it('starts the node', () => {
+            expect(mockMainService.serve).toHaveBeenCalled();
+          });
+
+          it('navigates back to whence it came', () => {
+            expect(TestBed.get(Router).navigateByUrl).toHaveBeenCalledWith('/index');
           });
         });
 

@@ -1,19 +1,15 @@
 <!--Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.-->
 
-<div class="app-header">
-  <img src="assets/images/substratum_icon.svg" height="35" width="35"/>
+<header class="app-header">
+  <img src="assets/images/substratum_icon.svg" height="35" width="35" alt="Substratum Logo"/>
 
-  <input #settingsbutton (click)="toggleSettings()" type="image" src="assets/images/settings_icon.svg" height="17"
-         width="17" id="settings-button" class="app-header__settings-icon"/>
+  <input [hidden]="hideGear() | async" #settingsButton (click)="toggleSettings()" type="image" src="assets/images/settings_icon.svg" height="17"
+         width="17" id="settings-button" class="app-header__settings-icon" alt="Settings"/>
 
   <div class="settings-menu settings-menu--{{visibleSettings ? 'active' : 'inactive'}}" id="settings-menu">
-    <div (click)="this.openSettings()" class="settings-menu__menu-item settings-menu__internal-link section-last"
-         id="open-settings">Settings
-    </div>
-    <div id="network-settings-menu" class="settings-menu__menu-item settings-menu__internal-link section-last" (click)="this.openNetworkSettings()">Network Settings
-    </div>
-    <div id="wallet-config-menu" class="settings-menu__menu-item settings-menu__internal-link section-last" (click)="this.openWalletConfiguration()">Configure Wallet
-    </div>
+    <div id="open-settings" class="settings-menu__menu-item settings-menu__internal-link section-last" (click)="this.openSettings()">Settings</div>
+    <div id="network-settings-menu" class="settings-menu__menu-item settings-menu__internal-link section-last" (click)="this.openNetworkSettings()">Network Settings</div>
+    <div id="wallet-config-menu" class="settings-menu__menu-item settings-menu__internal-link section-last" (click)="this.openWalletConfiguration()">Configure Wallet</div>
     <div (click)="openUrl('https://github.com/SubstratumNetwork/SubstratumNode/issues')"
          class="settings-menu__menu-item settings-menu__external-link section-first section-last" id="send-feedback">
       Request a Feature / Report a Bug
@@ -38,4 +34,4 @@
     </div>
     <app-network-help></app-network-help>
   </div>
-</div>
+</header>

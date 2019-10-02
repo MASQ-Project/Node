@@ -1,6 +1,7 @@
-import { TestBed } from '@angular/core/testing';
+// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+import {TestBed} from '@angular/core/testing';
 
-import { LocalStorageService } from './local-storage.service';
+import {LocalStorageService} from './local-storage.service';
 
 describe('LocalStorageService', () => {
   let service: LocalStorageService;

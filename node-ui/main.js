@@ -7,7 +7,6 @@ const url = require('url')
 const process = require('./main-process/wrappers/process_wrapper')
 const commandHelper = require('./main-process/command_helper')
 const http = require('http')
-
 const NodeActuator = require('./main-process/node_actuator')
 
 const Invalid = 'Invalid'
@@ -56,6 +55,7 @@ function createWindow () {
     resizable: false,
     transparent: false,
     webPreferences: {
+      nodeIntegration: true,
       backgroundThrottling: false,
       zoomFactor: 1.0
     }
@@ -200,6 +200,14 @@ ipcMain.on('generate-consuming-wallet', (event, mnemonicPassphrase, consumingDer
         mainWindow.webContents.send('generate-consuming-wallet-error', result.message)
       }
     })
+})
+
+ipcMain.on('neighborhood-dot-graph-request', (event) => {
+  nodeActuator.getNeighborhoodDotGraph().then((response) => {
+    event.returnValue = { dotGraph: response }
+  }).catch((e) => {
+    event.returnValue = { error: e }
+  })
 })
 
 const assignStatus = (event, promise) => {

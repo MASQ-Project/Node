@@ -56,5 +56,4 @@ pub mod test_utils {
             &self.friendly_name
         }
     }
-
 }

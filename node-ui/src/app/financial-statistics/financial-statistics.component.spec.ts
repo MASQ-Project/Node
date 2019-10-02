@@ -4,33 +4,56 @@ import {ComponentFixture, TestBed} from '@angular/core/testing';
 import * as td from 'testdouble';
 import {FinancialStatisticsComponent} from './financial-statistics.component';
 import {NodeStatus} from '../node-status.enum';
-import {SimpleChange, SimpleChanges} from '@angular/core';
 import {FinancialService} from '../financial.service';
 import {BehaviorSubject} from 'rxjs';
 import {PendingAmounts} from '../pending-amounts';
+import {ElectronService} from '../electron.service';
+import {MainService} from '../main.service';
 
 describe('FinancialStatisticsComponent', () => {
   let component: FinancialStatisticsComponent;
   let fixture: ComponentFixture<FinancialStatisticsComponent>;
   let mockFinancialStatisticsResponse: BehaviorSubject<PendingAmounts>;
   let mockFinancialService;
+  let mockMainService;
   let compiled;
+  let stubElectronService;
+  let mockNodeStatus;
 
   beforeEach(() => {
     mockFinancialStatisticsResponse = new BehaviorSubject({pendingCredit: '', pendingDebt: ''});
+    mockNodeStatus = new BehaviorSubject(NodeStatus.Off);
     mockFinancialService = {
       startFinancialStatistics: td.func(),
       stopFinancialStatistics: td.func(),
       financialStatisticsResponse: mockFinancialStatisticsResponse.asObservable(),
     };
+    mockMainService = {
+      resizeLarge: () => {},
+      resizeMedium: () => {},
+      resizeSmall: () => {},
+      nodeStatus: mockNodeStatus.asObservable()
+    };
     spyOn(mockFinancialService, 'startFinancialStatistics');
     spyOn(mockFinancialService, 'stopFinancialStatistics');
+    stubElectronService = {
+      ipcRenderer: {
+        on: td.func('on'),
+        sendSync: td.func('sendSync'),
+      },
+    };
+
     TestBed.configureTestingModule({
       declarations: [FinancialStatisticsComponent],
       providers: [
-        {provide: FinancialService, useValue: mockFinancialService}
+        {provide: FinancialService, useValue: mockFinancialService},
+        {provide: ElectronService, useValue: stubElectronService},
+        {provide: MainService, useValue: mockMainService}
       ]
     }).compileComponents();
+    fixture = TestBed.createComponent(FinancialStatisticsComponent);
+    component = fixture.componentInstance;
+    compiled = fixture.debugElement.nativeElement;
   });
 
   afterEach(() => {
@@ -40,12 +63,9 @@ describe('FinancialStatisticsComponent', () => {
   describe('Financial Statistics', () => {
     describe('when status is changed to Off', () => {
       beforeEach(() => {
-        fixture = TestBed.createComponent(FinancialStatisticsComponent);
-        component = fixture.componentInstance;
-        compiled = fixture.debugElement.nativeElement;
-        component.status = NodeStatus.Off;
-        const changes: SimpleChanges = {'status': new SimpleChange('', 'Off', true)};
-        component.ngOnChanges(changes);
+        mockNodeStatus.next(NodeStatus.Serving);
+        fixture.detectChanges();
+        mockNodeStatus.next(NodeStatus.Off);
         fixture.detectChanges();
       });
 
@@ -54,8 +74,8 @@ describe('FinancialStatisticsComponent', () => {
           .toBe('No data available because SubstratumNode is not actively running.');
       });
 
-      it('does not call startFinancialStatistics', () => {
-        expect(mockFinancialService.startFinancialStatistics).not.toHaveBeenCalled();
+      it('does not call startFinancialStatistics a second time', () => {
+        expect(mockFinancialService.startFinancialStatistics).toHaveBeenCalledTimes(1);
       });
 
       it('calls stopFinancialStatistics', () => {
@@ -65,12 +85,9 @@ describe('FinancialStatisticsComponent', () => {
 
     describe('when status is changed to Invalid', () => {
       beforeEach(() => {
-        fixture = TestBed.createComponent(FinancialStatisticsComponent);
-        component = fixture.componentInstance;
-        compiled = fixture.debugElement.nativeElement;
-        component.status = NodeStatus.Off;
-        const changes: SimpleChanges = {'status': new SimpleChange('Off', 'Invalid', true)};
-        component.ngOnChanges(changes);
+        mockNodeStatus.next(NodeStatus.Off);
+        fixture.detectChanges();
+        mockNodeStatus.next(NodeStatus.Invalid);
         fixture.detectChanges();
       });
 
@@ -79,23 +96,20 @@ describe('FinancialStatisticsComponent', () => {
           .toBe('No data available because SubstratumNode is not actively running.');
       });
 
-      it('does not call startFinancialStatistics', () => {
-        expect(mockFinancialService.startFinancialStatistics).not.toHaveBeenCalled();
+      it('does not call startFinancialStatistics again', () => {
+        expect(mockFinancialService.startFinancialStatistics).toHaveBeenCalledTimes(0);
       });
 
-      it('calls stopFinancialStatistics', () => {
-        expect(mockFinancialService.stopFinancialStatistics).toHaveBeenCalled();
+      it('does not call stopFinancialStatistics', () => {
+        expect(mockFinancialService.stopFinancialStatistics).toHaveBeenCalledTimes(0);
       });
     });
 
     describe('when status is changed to serving', () => {
       beforeEach(() => {
-        fixture = TestBed.createComponent(FinancialStatisticsComponent);
-        component = fixture.componentInstance;
-        compiled = fixture.debugElement.nativeElement;
-        component.status = NodeStatus.Serving;
-        const changes: SimpleChanges = {'status': new SimpleChange('Off', 'Serving', true)};
-        component.ngOnChanges(changes);
+        mockNodeStatus.next(NodeStatus.Off);
+        fixture.detectChanges();
+        mockNodeStatus.next(NodeStatus.Serving);
         fixture.detectChanges();
       });
 
@@ -110,12 +124,9 @@ describe('FinancialStatisticsComponent', () => {
 
     describe('when status is changed to consuming', () => {
       beforeEach(() => {
-        fixture = TestBed.createComponent(FinancialStatisticsComponent);
-        component = fixture.componentInstance;
-        compiled = fixture.debugElement.nativeElement;
-        component.status = NodeStatus.Consuming;
-        const changes: SimpleChanges = {'status': new SimpleChange('Off', 'Consuming', true)};
-        component.ngOnChanges(changes);
+        mockNodeStatus.next(NodeStatus.Off);
+        fixture.detectChanges();
+        mockNodeStatus.next(NodeStatus.Consuming);
         fixture.detectChanges();
       });
 
@@ -128,32 +139,28 @@ describe('FinancialStatisticsComponent', () => {
       });
     });
 
-    describe('when property other than status changes', () => {
+    describe('when property other than status changes back and forth', () => {
       beforeEach(() => {
-        fixture = TestBed.createComponent(FinancialStatisticsComponent);
-        component = fixture.componentInstance;
-        compiled = fixture.debugElement.nativeElement;
-        component.status = NodeStatus.Consuming;
-        const changes: SimpleChanges = {'financialStatisticsData': new SimpleChange('', 'foobar', true)};
-        component.ngOnChanges(changes);
+        mockNodeStatus.next(NodeStatus.Off);
+        fixture.detectChanges();
+        mockNodeStatus.next(NodeStatus.Serving);
+        fixture.detectChanges();
+        mockNodeStatus.next(NodeStatus.Off);
         fixture.detectChanges();
       });
 
       it('does not call startFinancialStatistics', () => {
-        expect(mockFinancialService.startFinancialStatistics).not.toHaveBeenCalled();
+        expect(mockFinancialService.startFinancialStatistics).toHaveBeenCalledTimes(1);
       });
 
       it('does not call stopFinancialStatistics', () => {
-        expect(mockFinancialService.stopFinancialStatistics).not.toHaveBeenCalled();
+        expect(mockFinancialService.stopFinancialStatistics).toHaveBeenCalledTimes(1);
       });
     });
 
     describe('when financial statistics data is set', () => {
       beforeEach(() => {
-        fixture = TestBed.createComponent(FinancialStatisticsComponent);
-        component = fixture.componentInstance;
-        compiled = fixture.debugElement.nativeElement;
-        component.status = NodeStatus.Serving;
+        mockNodeStatus.next(NodeStatus.Serving);
         const response: PendingAmounts = {pendingCredit: '10000', pendingDebt: '1000000'};
         mockFinancialStatisticsResponse.next(response);
         fixture.detectChanges();
@@ -174,10 +181,6 @@ describe('FinancialStatisticsComponent', () => {
 
     describe('when error is returned', () => {
       beforeEach(() => {
-        fixture = TestBed.createComponent(FinancialStatisticsComponent);
-        component = fixture.componentInstance;
-        compiled = fixture.debugElement.nativeElement;
-        component.status = NodeStatus.Serving;
         mockFinancialStatisticsResponse.error(`{'error': 'an error'}`);
         fixture.detectChanges();
       });
@@ -194,10 +197,6 @@ describe('FinancialStatisticsComponent', () => {
 
     describe('when financial statistics data is set after previously receiving error', () => {
       beforeEach(() => {
-        fixture = TestBed.createComponent(FinancialStatisticsComponent);
-        component = fixture.componentInstance;
-        compiled = fixture.debugElement.nativeElement;
-        component.status = NodeStatus.Serving;
         component.financialStatsDataError = `{'error': 'an error'}`;
         const response: any = {'pendingCredit': '10000', 'pendingDebt': '1000000'};
         mockFinancialStatisticsResponse.next(response);

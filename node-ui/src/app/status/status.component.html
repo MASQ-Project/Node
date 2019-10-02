@@ -1,0 +1,32 @@
+<!--Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.-->
+
+<div class="node-status">
+  <div class="node-status__display">
+    <span class="node-status__display-label">Node Status:</span>
+    <span class="node-status__display-status" id="node-status-label">{{statusText()}}</span>
+  </div>
+
+  <div class="node-status__actions" [class.node-status__actions--invalid]="isInvalid()" id="node-status-buttons">
+    <button (click)="off()" id="off" [class.button-active]="isOff()">Off</button>
+    <button (click)="serve()" id="serving" [class.button-active]="isServing()"
+            [class.button-highlit]="servingConfigurationShown | async">{{isServing() ? "Serving" : "Serve"}}</button>
+    <button (click)="consume()" id="consuming" [class.button-active]="isConsuming()"
+            [class.button-highlit]="consumingConfigurationShown | async">{{isConsuming() ? "Consuming" : "Consume"}}</button>
+  </div>
+</div>
+
+<div class="node-field" [hidden]="isMyDescriptorHidden() | async">
+  <div class="node-field__display">
+    <span class="node-field__display-label">Node Descriptor:</span>
+  </div>
+  <div class="node-field__display">
+    <span id="node-descriptor" class="node-field__display-text">{{mainService.nodeDescriptor | async}}</span>
+    <button (click)="copyNodeDescriptor()" id="copy">Copy</button>
+  </div>
+</div>
+
+<app-consuming-wallet-password-prompt id="password-prompt" *ngIf="passwordPromptShown()"
+                                      (unlock)="this.onConsumingWalletPasswordUnlock($event)"
+                                      [unlockFailed]="this.unlockFailed"></app-consuming-wallet-password-prompt>
+
+<router-outlet></router-outlet>

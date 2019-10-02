@@ -5,17 +5,17 @@ CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 final_exit_code=0
 
 format() {
-    pushd $1
+  pushd $1
 
-    cargo fmt --all -- --check
-    exit_code="$?"
-    if [[ "$exit_code" != "0" ]]; then
-        final_exit_code=1
-        echo "Your code failed the formatting check. If you wish to leave the code the way it is, use the directive #[cfg_attr(rustfmt, rustfmt_skip)]"
-    fi
-    cargo fmt --all
+  cargo fmt --all -- --check
+  exit_code="$?"
+  if [[ "$exit_code" != "0" ]]; then
+      final_exit_code=1
+      echo "Your code failed the formatting check. If you wish to leave the code the way it is, use the directive #[cfg_attr(rustfmt, rustfmt_skip)]"
+  fi
+  cargo fmt --all
 
-    popd
+  popd
 }
 
 format "$CI_DIR"/../node

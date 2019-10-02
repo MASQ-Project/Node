@@ -11,6 +11,7 @@ import {Component} from '@angular/core';
     <app-tabs>
         <app-tab tabTitle="Status"></app-tab>
         <app-tab tabTitle="Wildcard"></app-tab>
+        <app-tab tabTitle="Neighborhood"></app-tab>
         <app-tab tabTitle="Financials"></app-tab>
     </app-tabs>
   `
@@ -55,10 +56,11 @@ describe('TabsComponent', () => {
       it('marks all other tabs as hidden', () => {
         expect(compiled.querySelectorAll('.pane')[0].hasAttribute('hidden')).toBeTruthy();
         expect(compiled.querySelectorAll('.pane')[1].hasAttribute('hidden')).toBeTruthy();
+        expect(compiled.querySelectorAll('.pane')[2].hasAttribute('hidden')).toBeTruthy();
       });
 
       it('does not mark the last tab hidden', () => {
-        expect(compiled.querySelectorAll('.pane')[2].hasAttribute('hidden')).toBeFalsy();
+        expect(compiled.querySelectorAll('.pane')[3].hasAttribute('hidden')).toBeFalsy();
       });
 
       it('activates the last tab', () => {
@@ -78,19 +80,17 @@ describe('TabsComponent', () => {
     describe('providing input when tabs exists', () => {
       beforeEach(() => {
         component.selectTab(component.tabs.last);
-        component.selectConfigurationTab = true;
         fixture.detectChanges();
       });
 
-      it('always activates first tab', () => {
-        expect(compiled.querySelector('.active').textContent).toBe('Status');
+      it('always activates last tab', () => {
+        expect(compiled.querySelector('.active').textContent).toBe('Financials');
       });
     });
 
     describe('providing input when tabs do not exist', () => {
       beforeEach(() => {
         component.tabs = undefined;
-        component.selectConfigurationTab = true;
         fixture.detectChanges();
       });
 
