@@ -5,20 +5,20 @@ use std::net::SocketAddr;
 use std::net::TcpStream;
 use std::time::Duration;
 
-pub struct SubstratumNodeClient {
+pub struct MASQNodeClient {
     stream: TcpStream,
     timeout: Duration,
 }
 
-impl SubstratumNodeClient {
-    pub fn new(socket_addr: SocketAddr) -> SubstratumNodeClient {
+impl MASQNodeClient {
+    pub fn new(socket_addr: SocketAddr) -> MASQNodeClient {
         let stream = TcpStream::connect(&socket_addr)
             .expect(format!("Connecting to {}", socket_addr).as_str());
         stream
             .set_read_timeout(Some(Duration::from_millis(250)))
             .expect("Setting read timeout to 250ms");
 
-        SubstratumNodeClient {
+        MASQNodeClient {
             stream,
             timeout: Duration::from_secs(1),
         }

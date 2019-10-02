@@ -1,10 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use multinode_integration_tests_lib::rest_utils::RestServer;
-use multinode_integration_tests_lib::substratum_node::SubstratumNode;
-use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
-use multinode_integration_tests_lib::substratum_real_node::{
-    make_consuming_wallet_info, NodeStartupConfigBuilder, SubstratumRealNode,
+use multinode_integration_tests_lib::masq_node::MASQNode;
+use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
+use multinode_integration_tests_lib::masq_real_node::{
+    make_consuming_wallet_info, NodeStartupConfigBuilder, MASQRealNode,
 };
 use std::thread;
 use std::time::Duration;
@@ -14,7 +14,7 @@ const REQUEST_BYTES: u64 = 157_286_400;
 
 #[test]
 fn downloading_a_file_larger_than_available_memory_doesnt_kill_node_but_makes_it_stronger() {
-    let mut cluster = SubstratumNodeCluster::start().expect("starting cluster");
+    let mut cluster = MASQNodeCluster::start().expect("starting cluster");
     let originating_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .memory(MAXIMUM_KBYTES)
@@ -31,7 +31,7 @@ fn downloading_a_file_larger_than_available_memory_doesnt_kill_node_but_makes_it
                     .build(),
             )
         })
-        .collect::<Vec<SubstratumRealNode>>();
+        .collect::<Vec<MASQRealNode>>();
 
     let rest_server = RestServer { name: "ptolemy" };
     rest_server.start();

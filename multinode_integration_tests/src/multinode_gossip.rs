@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::substratum_node::SubstratumNode;
+use crate::masq_node::MASQNode;
 use node_lib::neighborhood::gossip::{Gossip, GossipNodeRecord};
 use node_lib::neighborhood::node_record::NodeRecordInner;
 use node_lib::neighborhood::AccessibleGossipRecord;
@@ -128,7 +128,7 @@ impl From<&AccessibleGossipRecord> for SingleNode {
 }
 
 impl SingleNode {
-    pub fn new(node: &dyn SubstratumNode) -> SingleNode {
+    pub fn new(node: &dyn MASQNode) -> SingleNode {
         SingleNode {
             node: AccessibleGossipRecord::from(node),
         }
@@ -216,7 +216,7 @@ impl From<(&AccessibleGossipRecord, &AccessibleGossipRecord)> for Introduction {
 }
 
 impl Introduction {
-    pub fn new(introducer: &dyn SubstratumNode, introducee: &dyn SubstratumNode) -> Introduction {
+    pub fn new(introducer: &dyn MASQNode, introducee: &dyn MASQNode) -> Introduction {
         Introduction {
             introducer: AccessibleGossipRecord::from(introducer),
             introducee: AccessibleGossipRecord::from(introducee),
@@ -323,12 +323,12 @@ impl StandardBuilder {
         }
     }
 
-    pub fn add_substratum_node(
+    pub fn add_masq_node(
         self,
-        substratum_node: &dyn SubstratumNode,
+        masq_node: &dyn MASQNode,
         version: u32,
     ) -> StandardBuilder {
-        let mut agr = AccessibleGossipRecord::from(substratum_node);
+        let mut agr = AccessibleGossipRecord::from(masq_node);
         agr.inner.version = version;
         self.add_agr(&agr)
     }
@@ -384,19 +384,19 @@ fn nodes_of_degree(nodes: &Vec<AccessibleGossipRecord>, degree: usize) -> Vec<Pu
         .collect::<Vec<PublicKey>>()
 }
 
-impl From<&dyn SubstratumNode> for AccessibleGossipRecord {
-    fn from(substratum_node: &dyn SubstratumNode) -> Self {
-        let cryptde = substratum_node.signing_cryptde().unwrap_or_else (|| panic! ("You can only make an AccessibleGossipRecord from a SubstratumRealNode if it has a CryptDENull, not a CryptDEReal."));
+impl From<&dyn MASQNode> for AccessibleGossipRecord {
+    fn from(masq_node: &dyn MASQNode) -> Self {
+        let cryptde = masq_node.signing_cryptde().unwrap_or_else (|| panic! ("You can only make an AccessibleGossipRecord from a MASQRealNode if it has a CryptDENull, not a CryptDEReal."));
         let mut agr = AccessibleGossipRecord {
             inner: NodeRecordInner {
                 data_version: NodeRecordInner::data_version(),
-                public_key: substratum_node.public_key().clone(),
-                earning_wallet: substratum_node.earning_wallet(),
-                rate_pack: substratum_node.rate_pack(),
+                public_key: masq_node.public_key().clone(),
+                earning_wallet: masq_node.earning_wallet(),
+                rate_pack: masq_node.rate_pack(),
                 neighbors: BTreeSet::new(),
                 version: 0,
             },
-            node_addr_opt: Some(substratum_node.node_addr()),
+            node_addr_opt: Some(masq_node.node_addr()),
             signed_gossip: PlainData::new(b""),
             signature: CryptData::new(b""),
         };

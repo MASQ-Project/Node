@@ -1,11 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use crate::multinode_gossip::{Standard, StandardBuilder};
-use crate::substratum_mock_node::SubstratumMockNode;
-use crate::substratum_node::SubstratumNode;
-use crate::substratum_node_cluster::SubstratumNodeCluster;
-use crate::substratum_real_node::SubstratumRealNode;
-use crate::substratum_real_node::{make_consuming_wallet_info, NodeStartupConfigBuilder};
+use crate::masq_mock_node::MASQMockNode;
+use crate::masq_node::MASQNode;
+use crate::masq_node_cluster::MASQNodeCluster;
+use crate::masq_real_node::MASQRealNode;
+use crate::masq_real_node::{make_consuming_wallet_info, NodeStartupConfigBuilder};
 use node_lib::blockchain::blockchain_interface::chain_id_from_name;
 use node_lib::neighborhood::gossip::Gossip;
 use node_lib::neighborhood::gossip_producer::{GossipProducer, GossipProducerReal};
@@ -19,47 +19,47 @@ use std::collections::{BTreeSet, HashMap};
 use std::convert::TryInto;
 use std::time::Duration;
 
-/// Construct a neighborhood for testing that corresponds to a provided NeighborhoodDatabase, with a SubstratumRealNode
-/// corresponding to the root of the database, SubstratumMockNodes corresponding to all the root's immediate neighbors,
-/// and SubstratumMockNodes or fictional Nodes corresponding to all other Nodes in the provided database.
+/// Construct a neighborhood for testing that corresponds to a provided NeighborhoodDatabase, with a MASQRealNode
+/// corresponding to the root of the database, MASQMockNodes corresponding to all the root's immediate neighbors,
+/// and MASQMockNodes or fictional Nodes corresponding to all other Nodes in the provided database.
 ///
-/// The result of this function is a single SubstratumRealNode and a series of SubstratumMockNodes, where the real Node
+/// The result of this function is a single MASQRealNode and a series of MASQMockNodes, where the real Node
 /// will contain a database corresponding in structure precisely to the one provided (as long as the one provided
 /// doesn't contain fundamental problems, such as Nodes with degree six or greater, or half-neighbor relationships).
 /// The mock and real Nodes provided will have the same public keys as the NodeRecords in the provided database, but
 /// different NodeAddrs.
 ///
-/// Of course, all the SubstratumNodes produced by this function will use CryptDENull, so any other SubstratumNodes
+/// Of course, all the MASQNodes produced by this function will use CryptDENull, so any other MASQNodes
 /// that are intended to communicate with them must use CryptDENull as well.
 ///
 /// # Arguments
 ///
-/// * `cluster` - A mutable reference to the SubstratumNodeCluster that should be used to create SubstratumRealNodes and SubstratumMockNodes.
+/// * `cluster` - A mutable reference to the MASQNodeCluster that should be used to create MASQRealNodes and MASQMockNodes.
 /// * `model_db` - The database describing the structure that should be imposed on the
-///                     SubstratumRealNode's internal database. This database is consumed by this call.
-/// * `additional_keys_to_mock` - If this collection is empty, SubstratumMockNodes will only be created to correspond to
-///                                 immediate neighbors of `model_db.root()`. If you want SubstratumMockNodes corresponding
+///                     MASQRealNode's internal database. This database is consumed by this call.
+/// * `additional_keys_to_mock` - If this collection is empty, MASQMockNodes will only be created to correspond to
+///                                 immediate neighbors of `model_db.root()`. If you want MASQMockNodes corresponding
 ///                                 to other Nodes in `model_db` to be created, put their public keys here.
 ///
 /// # Returns
 ///
 /// * `NeighborhoodDatabase` - A NeighborhoodDatabase with the same structure as `model_db`, but with public keys
 ///                             and NodeAddrs and neighbors and versions changed where appropriate to approximate as
-///                             closely as possible the database that the SubstratumRealNode will have internally when
+///                             closely as possible the database that the MASQRealNode will have internally when
 ///                             `construct_neighborhood()` returns.
-/// * `SubstratumRealNode` - The real Node corresponding to the NodeRecord at `model_db.root()`. It will have the same
+/// * `MASQRealNode` - The real Node corresponding to the NodeRecord at `model_db.root()`. It will have the same
 ///                             public key as the original `model_db.root()`, but a different NodeAddr.
-/// * `HashMap<PublicKey, SubstratumMockNode>` The mock Nodes corresponding to other NodeRecords in `model_db`. They
+/// * `HashMap<PublicKey, MASQMockNode>` The mock Nodes corresponding to other NodeRecords in `model_db`. They
 ///                                             will have the same public keys as the `model_db` NodeRecords they
 ///                                             represent, but different NodeAddrs.
 pub fn construct_neighborhood(
-    cluster: &mut SubstratumNodeCluster,
+    cluster: &mut MASQNodeCluster,
     model_db: NeighborhoodDatabase,
     additional_keys_to_mock: Vec<&PublicKey>,
 ) -> (
     NeighborhoodDatabase,
-    SubstratumRealNode,
-    HashMap<PublicKey, SubstratumMockNode>,
+    MASQRealNode,
+    HashMap<PublicKey, MASQMockNode>,
 ) {
     let real_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
@@ -82,11 +82,11 @@ pub fn construct_neighborhood(
 }
 
 fn make_mock_node_map(
-    cluster: &mut SubstratumNodeCluster,
+    cluster: &mut MASQNodeCluster,
     model_db: &NeighborhoodDatabase,
-    real_node: &SubstratumRealNode,
+    real_node: &MASQRealNode,
     additional_keys_to_mock: Vec<&PublicKey>,
-) -> (HashMap<PublicKey, SubstratumMockNode>, Vec<PublicKey>) {
+) -> (HashMap<PublicKey, MASQMockNode>, Vec<PublicKey>) {
     let adjacent_mock_nodes = form_mock_node_skeleton(cluster, &model_db, &real_node);
     let adjacent_mock_node_keys = adjacent_mock_nodes
         .iter()
@@ -95,7 +95,7 @@ fn make_mock_node_map(
     let mut mock_node_map = adjacent_mock_nodes
         .into_iter()
         .map(|node| (node.public_key().clone(), node))
-        .collect::<HashMap<PublicKey, SubstratumMockNode>>();
+        .collect::<HashMap<PublicKey, MASQMockNode>>();
     additional_keys_to_mock.iter().for_each(|key| {
         let mock_node = cluster.start_mock_node_with_public_key(vec![10000], key);
         let mock_node_key = mock_node.public_key().clone();
@@ -106,7 +106,7 @@ fn make_mock_node_map(
 
 fn make_modified_node_records(
     model_db: NeighborhoodDatabase,
-    mock_node_map: &HashMap<PublicKey, SubstratumMockNode>,
+    mock_node_map: &HashMap<PublicKey, MASQMockNode>,
 ) -> Vec<NodeRecord> {
     model_db
         .keys()
@@ -121,7 +121,7 @@ fn make_modified_node_records(
 }
 
 fn make_modified_db(
-    real_node: &SubstratumRealNode,
+    real_node: &MASQRealNode,
     modified_nodes: &Vec<NodeRecord>,
 ) -> NeighborhoodDatabase {
     let mut modified_db = local_db_from_node(&NodeRecord::from(real_node));
@@ -139,9 +139,9 @@ fn make_modified_db(
 }
 
 fn make_and_send_final_setup_gossip(
-    gossip_source_mock_node: &SubstratumMockNode,
+    gossip_source_mock_node: &MASQMockNode,
     modified_nodes: &Vec<NodeRecord>,
-    real_node: &SubstratumRealNode,
+    real_node: &MASQRealNode,
 ) {
     let gossip_source_key = gossip_source_mock_node.public_key().clone();
     let gossip_source_node = modified_nodes
@@ -166,7 +166,7 @@ fn make_and_send_final_setup_gossip(
 
 fn absorb_final_setup_responses(
     adjacent_mock_node_keys: &Vec<PublicKey>,
-    mock_node_map: &HashMap<PublicKey, SubstratumMockNode>,
+    mock_node_map: &HashMap<PublicKey, MASQMockNode>,
 ) {
     adjacent_mock_node_keys.iter().for_each(|mock_node_key| {
         let mock_node = mock_node_map.get(mock_node_key).unwrap();
@@ -175,10 +175,10 @@ fn absorb_final_setup_responses(
 }
 
 fn form_mock_node_skeleton(
-    cluster: &mut SubstratumNodeCluster,
+    cluster: &mut MASQNodeCluster,
     model_db: &NeighborhoodDatabase,
-    real_node: &SubstratumRealNode,
-) -> Vec<SubstratumMockNode> {
+    real_node: &MASQRealNode,
+) -> Vec<MASQMockNode> {
     model_db
         .root()
         .full_neighbor_keys(model_db)
@@ -188,7 +188,7 @@ fn form_mock_node_skeleton(
             node.transmit_debut(real_node).unwrap();
             node.wait_for_gossip(Duration::from_secs(2)).unwrap();
             let standard_gossip = StandardBuilder::new()
-                .add_substratum_node(&node, 1)
+                .add_masq_node(&node, 1)
                 .half_neighbors(node.public_key(), real_node.public_key())
                 .chain_id(cluster.chain_id)
                 .build();
@@ -197,13 +197,13 @@ fn form_mock_node_skeleton(
             node.wait_for_gossip(Duration::from_secs(2)).unwrap();
             node
         })
-        .collect::<Vec<SubstratumMockNode>>()
+        .collect::<Vec<MASQMockNode>>()
 }
 
 fn modify_node(
     gossip_node: &mut NodeRecord,
     model_node: &NodeRecord,
-    mock_node_map: &HashMap<PublicKey, SubstratumMockNode>,
+    mock_node_map: &HashMap<PublicKey, MASQMockNode>,
 ) {
     let node_addr_opt = match mock_node_map.get(gossip_node.public_key()) {
         Some(mock_node) => Some(mock_node.node_addr()),
@@ -226,38 +226,38 @@ fn local_db_from_node(node: &NodeRecord) -> NeighborhoodDatabase {
     db
 }
 
-impl From<&SubstratumMockNode> for NodeRecord {
-    fn from(mock_node: &SubstratumMockNode) -> Self {
-        from_substratum_node_to_node_record(mock_node)
+impl From<&MASQMockNode> for NodeRecord {
+    fn from(mock_node: &MASQMockNode) -> Self {
+        from_masq_node_to_node_record(mock_node)
     }
 }
 
-impl From<&SubstratumRealNode> for NodeRecord {
-    fn from(real_node: &SubstratumRealNode) -> Self {
-        from_substratum_node_to_node_record(real_node)
+impl From<&MASQRealNode> for NodeRecord {
+    fn from(real_node: &MASQRealNode) -> Self {
+        from_masq_node_to_node_record(real_node)
     }
 }
 
-fn from_substratum_node_to_node_record(substratum_node: &dyn SubstratumNode) -> NodeRecord {
+fn from_masq_node_to_node_record(masq_node: &dyn MASQNode) -> NodeRecord {
     let mut result = NodeRecord {
         inner: NodeRecordInner {
             data_version: NodeRecordInner::data_version(),
-            public_key: substratum_node.public_key().clone(),
-            earning_wallet: substratum_node.earning_wallet(),
-            rate_pack: substratum_node.rate_pack(),
+            public_key: masq_node.public_key().clone(),
+            earning_wallet: masq_node.earning_wallet(),
+            rate_pack: masq_node.rate_pack(),
             neighbors: BTreeSet::new(),
             version: 0,
         },
         metadata: NodeRecordMetadata {
             desirable: true,
-            node_addr_opt: Some(substratum_node.node_addr()),
+            node_addr_opt: Some(masq_node.node_addr()),
         },
         signed_gossip: PlainData::new(b""),
         signature: CryptData::new(b""),
     };
     let cryptde = CryptDENull::from(
-        substratum_node.public_key(),
-        substratum_node
+        masq_node.public_key(),
+        masq_node
             .chain()
             .map(|chain_name| chain_id_from_name(chain_name.as_str()))
             .unwrap_or(DEFAULT_CHAIN_ID),
