@@ -256,10 +256,10 @@ mod tests {
     use crate::database::db_initializer::DbInitializer;
     use crate::database::db_initializer::DbInitializerReal;
     use crate::persistent_configuration::PersistentConfigurationReal;
-    use crate::test_utils::logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::{assert_contains, ensure_node_home_directory_exists, make_wallet};
+    use crate::test_utils::{logging, DEFAULT_CHAIN_ID};
     use rusqlite::NO_PARAMS;
     use rusqlite::{Connection, Error, OpenFlags};
 
@@ -272,8 +272,11 @@ mod tests {
         let before = dao_utils::to_time_t(SystemTime::now());
         let wallet = make_wallet("booga");
         let status = {
-            let subject =
-                ReceivableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+            let subject = ReceivableDaoReal::new(
+                DbInitializerReal::new()
+                    .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                    .unwrap(),
+            );
 
             subject.more_money_receivable(&wallet, 1234);
             subject.account_status(&wallet).unwrap()
@@ -305,8 +308,11 @@ mod tests {
         );
         let wallet = make_wallet("booga");
         let subject = {
-            let subject =
-                ReceivableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+            let subject = ReceivableDaoReal::new(
+                DbInitializerReal::new()
+                    .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                    .unwrap(),
+            );
             subject.more_money_receivable(&wallet, 1234);
             let mut flags = OpenFlags::empty();
             flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
@@ -341,8 +347,11 @@ mod tests {
         let debtor1 = make_wallet("debtor1");
         let debtor2 = make_wallet("debtor2");
         let mut subject = {
-            let subject =
-                ReceivableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+            let subject = ReceivableDaoReal::new(
+                DbInitializerReal::new()
+                    .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                    .unwrap(),
+            );
             subject.more_money_receivable(&debtor1, 1234);
             subject.more_money_receivable(&debtor2, 2345);
             let mut flags = OpenFlags::empty();
@@ -350,8 +359,11 @@ mod tests {
             subject
         };
 
-        let config_dao =
-            ConfigDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+        let config_dao = ConfigDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
         let persistent_config: Box<dyn PersistentConfiguration> =
             Box::new(PersistentConfigurationReal::new(Box::new(config_dao)));
 
@@ -399,11 +411,17 @@ mod tests {
             "more_money_received_throws_away_payments_from_unknown_addresses",
         );
         let debtor = make_wallet("unknown_wallet");
-        let mut subject =
-            ReceivableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+        let mut subject = ReceivableDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
 
-        let config_dao =
-            ConfigDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+        let config_dao = ConfigDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
         let persistent_config: Box<dyn PersistentConfiguration> =
             Box::new(PersistentConfigurationReal::new(Box::new(config_dao)));
 
@@ -448,8 +466,11 @@ mod tests {
             "more_money_received_logs_when_no_payment_are_given",
         );
 
-        let mut receivable_dao =
-            ReceivableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+        let mut receivable_dao = ReceivableDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
 
         let persistent_configuration: Box<dyn PersistentConfiguration> =
             Box::new(PersistentConfigurationMock::new());
@@ -470,8 +491,11 @@ mod tests {
             "more_money_received_logs_when_start_block_cannot_be_updated",
         );
 
-        let mut receivable_dao =
-            ReceivableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+        let mut receivable_dao = ReceivableDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
 
         let persistent_configuration_mock = PersistentConfigurationMock::new()
             .set_start_block_transactionally_result(Err("BOOM".to_string()));
@@ -499,8 +523,11 @@ mod tests {
             "receivable_account_status_works_when_account_doesnt_exist",
         );
         let wallet = make_wallet("booga");
-        let subject =
-            ReceivableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+        let subject = ReceivableDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
 
         let result = subject.account_status(&wallet);
 
@@ -517,8 +544,11 @@ mod tests {
         let wallet2 = make_wallet("wallet2");
         let time_stub = SystemTime::now();
 
-        let subject =
-            ReceivableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+        let subject = ReceivableDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
 
         subject.more_money_receivable(&wallet1, 1234);
         subject.more_money_receivable(&wallet2, 2345);
@@ -586,7 +616,9 @@ mod tests {
             from_time_t(pcs.sugg_thru_decreasing(now) - 2);
         let home_dir = ensure_node_home_directory_exists("accountant", "new_delinquencies");
         let db_initializer = DbInitializerReal::new();
-        let conn = db_initializer.initialize(&home_dir).unwrap();
+        let conn = db_initializer
+            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .unwrap();
         add_receivable_account(&conn, &not_delinquent_inside_grace_period);
         add_receivable_account(&conn, &not_delinquent_after_grace_below_slope);
         add_receivable_account(&conn, &delinquent_above_slope_after_grace);
@@ -622,7 +654,9 @@ mod tests {
         let home_dir =
             ensure_node_home_directory_exists("accountant", "new_delinquencies_shallow_slope");
         let db_initializer = DbInitializerReal::new();
-        let conn = db_initializer.initialize(&home_dir).unwrap();
+        let conn = db_initializer
+            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .unwrap();
         add_receivable_account(&conn, &not_delinquent);
         add_receivable_account(&conn, &delinquent);
         let subject = ReceivableDaoReal::new(conn);
@@ -653,7 +687,9 @@ mod tests {
         let home_dir =
             ensure_node_home_directory_exists("accountant", "new_delinquencies_steep_slope");
         let db_initializer = DbInitializerReal::new();
-        let conn = db_initializer.initialize(&home_dir).unwrap();
+        let conn = db_initializer
+            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .unwrap();
         add_receivable_account(&conn, &not_delinquent);
         add_receivable_account(&conn, &delinquent);
         let subject = ReceivableDaoReal::new(conn);
@@ -687,7 +723,9 @@ mod tests {
             "new_delinquencies_does_not_find_existing_delinquencies",
         );
         let db_initializer = DbInitializerReal::new();
-        let conn = db_initializer.initialize(&home_dir).unwrap();
+        let conn = db_initializer
+            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .unwrap();
         add_receivable_account(&conn, &existing_delinquency);
         add_receivable_account(&conn, &new_delinquency);
         add_banned_account(&conn, &existing_delinquency);
@@ -715,7 +753,9 @@ mod tests {
         unpaid_delinquent.balance = 51;
         let home_dir = ensure_node_home_directory_exists("accountant", "paid_delinquencies");
         let db_initializer = DbInitializerReal::new();
-        let conn = db_initializer.initialize(&home_dir).unwrap();
+        let conn = db_initializer
+            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .unwrap();
         add_receivable_account(&conn, &paid_delinquent);
         add_receivable_account(&conn, &unpaid_delinquent);
         add_banned_account(&conn, &paid_delinquent);
@@ -748,7 +788,9 @@ mod tests {
             "paid_delinquencies_does_not_find_existing_nondelinquencies",
         );
         let db_initializer = DbInitializerReal::new();
-        let conn = db_initializer.initialize(&home_dir).unwrap();
+        let conn = db_initializer
+            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .unwrap();
         add_receivable_account(&conn, &newly_non_delinquent);
         add_receivable_account(&conn, &old_non_delinquent);
         add_banned_account(&conn, &newly_non_delinquent);

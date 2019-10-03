@@ -11,8 +11,8 @@ use node_lib::persistent_configuration::{PersistentConfiguration, PersistentConf
 use node_lib::sub_lib::wallet::{
     Wallet, DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
 };
-use node_lib::test_utils::assert_string_contains;
 use node_lib::test_utils::environment_guard::EnvironmentGuard;
+use node_lib::test_utils::{assert_string_contains, DEFAULT_CHAIN_ID};
 use regex::Regex;
 use std::str::FromStr;
 use utils::CommandConfig;
@@ -26,10 +26,10 @@ const EARNING_PATH: &str = "m/44'/60'/3'/2/1";
 const EARNING_ADDRESS: &str = "0x0123456789ABCDEF0123456789ABCDEF01234567";
 const CONSUMING_PATH: &str = "m/44'/60'/1'/2/3";
 
-fn persistent_config() -> PersistentConfigurationReal {
+fn persistent_config(chain_id: u8) -> PersistentConfigurationReal {
     PersistentConfigurationReal::from(
         DbInitializerReal::new()
-            .initialize(&SubstratumNode::data_dir().to_path_buf())
+            .initialize(&SubstratumNode::data_dir().to_path_buf(), chain_id)
             .unwrap(),
     )
 }
@@ -85,7 +85,7 @@ fn create_database_recovering_both_derivation_paths_integration() {
             .pair("--consuming-wallet", CONSUMING_PATH),
     );
 
-    let persistent_config = persistent_config();
+    let persistent_config = persistent_config(DEFAULT_CHAIN_ID);
     let mnemonic = Mnemonic::from_phrase(PHRASE, Language::English).unwrap();
     let expected_seed = Seed::new(&mnemonic, PASSPHRASE);
     assert_eq!(
@@ -113,7 +113,7 @@ fn create_database_recovering_neither_derivation_path_integration() {
             .pair("--wallet-password", PASSWORD),
     );
 
-    let persistent_config = persistent_config();
+    let persistent_config = persistent_config(DEFAULT_CHAIN_ID);
     assert_eq!(
         persistent_config.consuming_wallet_derivation_path(),
         Some(DEFAULT_CONSUMING_DERIVATION_PATH.to_string())
@@ -136,7 +136,7 @@ fn create_database_recovering_only_earning_derivation_path_integration() {
             .pair("--earning-wallet", EARNING_PATH),
     );
 
-    let persistent_config = persistent_config();
+    let persistent_config = persistent_config(DEFAULT_CHAIN_ID);
     let mnemonic = Mnemonic::from_phrase(PHRASE, Language::English).unwrap();
     let expected_seed = Seed::new(&mnemonic, PASSPHRASE);
     assert_eq!(
@@ -165,7 +165,7 @@ fn create_database_recovering_only_earning_address_integration() {
             .pair("--earning-wallet", EARNING_ADDRESS),
     );
 
-    let persistent_config = persistent_config();
+    let persistent_config = persistent_config(DEFAULT_CHAIN_ID);
     let mnemonic = Mnemonic::from_phrase(PHRASE, Language::English).unwrap();
     let expected_seed = Seed::new(&mnemonic, PASSPHRASE);
     assert_eq!(
@@ -194,7 +194,7 @@ fn create_database_recovering_only_consuming_derivation_path_integration() {
             .pair("--consuming-wallet", CONSUMING_PATH),
     );
 
-    let persistent_config = persistent_config();
+    let persistent_config = persistent_config(DEFAULT_CHAIN_ID);
     let mnemonic = Mnemonic::from_phrase(PHRASE, Language::English).unwrap();
     let expected_seed = Seed::new(&mnemonic, PASSPHRASE);
     assert_eq!(
@@ -225,7 +225,7 @@ fn create_database_generating_both_derivation_paths_integration() {
     );
 
     let phrase = phrase_from_console_log(&console_log);
-    let persistent_config = persistent_config();
+    let persistent_config = persistent_config(DEFAULT_CHAIN_ID);
     assert_eq!(
         persistent_config.consuming_wallet_derivation_path(),
         Some(CONSUMING_PATH.to_string())
@@ -248,7 +248,7 @@ fn create_database_generating_neither_derivation_path_integration() {
     );
 
     let phrase = phrase_from_console_log(&console_log);
-    let persistent_config = persistent_config();
+    let persistent_config = persistent_config(DEFAULT_CHAIN_ID);
     assert_eq!(
         persistent_config.consuming_wallet_derivation_path(),
         Some(DEFAULT_CONSUMING_DERIVATION_PATH.to_string())
@@ -274,7 +274,7 @@ fn create_database_generating_only_earning_derivation_path_integration() {
     );
 
     let phrase = phrase_from_console_log(&console_log);
-    let persistent_config = persistent_config();
+    let persistent_config = persistent_config(DEFAULT_CHAIN_ID);
     assert_eq!(
         persistent_config.consuming_wallet_derivation_path(),
         Some(DEFAULT_CONSUMING_DERIVATION_PATH.to_string())
@@ -296,7 +296,7 @@ fn create_database_generating_only_earning_address_integration() {
             .pair("--earning-wallet", EARNING_ADDRESS),
     );
 
-    let persistent_config = persistent_config();
+    let persistent_config = persistent_config(DEFAULT_CHAIN_ID);
     assert_eq!(
         persistent_config.consuming_wallet_derivation_path(),
         Some(DEFAULT_CONSUMING_DERIVATION_PATH.to_string())
@@ -319,7 +319,7 @@ fn create_database_generating_only_consuming_derivation_path_integration() {
     );
 
     let phrase = phrase_from_console_log(&console_log);
-    let persistent_config = persistent_config();
+    let persistent_config = persistent_config(DEFAULT_CHAIN_ID);
     assert_eq!(
         persistent_config.consuming_wallet_derivation_path(),
         Some(CONSUMING_PATH.to_string())

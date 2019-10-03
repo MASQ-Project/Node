@@ -42,6 +42,18 @@ const CONTRACTS: [Address; 4] = [
     TESTNET_CONTRACT_ADDRESS,
 ];
 
+pub const MAINNET_CONTRACT_CREATION_BLOCK: u64 = 6_905_550;
+pub const ROPSTEN_CONTRACT_CREATION_BLOCK: u64 = 4_647_463;
+
+pub const CONTRACT_CREATION_BLOCK: [u64; 4] = [
+    0,
+    MAINNET_CONTRACT_CREATION_BLOCK,
+    0,
+    ROPSTEN_CONTRACT_CREATION_BLOCK,
+];
+
+pub const CHAIN_NAMES: [&str; 4] = ["", "mainnet", "dev", "ropsten"];
+
 pub fn contract_address(chain_id: u8) -> Address {
     match chain_id {
         1u8 | 2u8 | 3u8 => CONTRACTS[usize::from(chain_id)], // IDEA/CLion is wrong: This is copy
@@ -49,12 +61,32 @@ pub fn contract_address(chain_id: u8) -> Address {
     }
 }
 
-//TODO: SC-501/GH-115 add ropsten and default to 1u8 for anything else
+pub fn chain_name(chain_id: u8) -> &'static str {
+    match chain_id {
+        1u8 | 2u8 | 3u8 => CHAIN_NAMES[chain_id as usize],
+        _ => CHAIN_NAMES[3],
+    }
+}
+
 pub fn chain_id_from_name(name: &str) -> u8 {
     match name.to_lowercase().as_str() {
         "mainnet" => 1u8,
         "dev" => 2u8,
         _ => 3u8,
+    }
+}
+
+pub fn chain_name_from_id(chain_id: u8) -> &'static str {
+    match chain_id {
+        1u8 | 2u8 | 3u8 => CHAIN_NAMES[usize::from(chain_id)],
+        _ => CHAIN_NAMES[3],
+    }
+}
+
+pub fn contract_creation_block_from_chain_id(chain_id: u8) -> u64 {
+    match chain_id {
+        1u8 | 2u8 | 3u8 => CONTRACT_CREATION_BLOCK[usize::from(chain_id)],
+        _ => CONTRACT_CREATION_BLOCK[3],
     }
 }
 

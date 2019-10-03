@@ -6,6 +6,7 @@ pub mod node_configurator_standard;
 
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::{Bip39, Bip39Error};
+use crate::blockchain::blockchain_interface::{chain_id_from_name, DEFAULT_CHAIN_NAME};
 use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
 use crate::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VclArg};
@@ -33,9 +34,13 @@ pub trait NodeConfigurator<T> {
 }
 
 lazy_static! {
-    static ref DEFAULT_DATA_DIR_VALUE: String = data_directory_default(&RealDirsWrapper {});
+    static ref DEFAULT_DATA_DIR_VALUE: String =
+        data_directory_default(&RealDirsWrapper {}, "[mainnet | ropsten]");
 }
 
+const CHAIN_HELP: &str =
+    "The blockchain network SubstratumNode will configure itself to use. You must ensure the \
+    Ethereum client specified by --blockchain-service-url communicates with the same blockchain network.";
 pub const CONFIG_FILE_HELP: &str =
     "Optional TOML file containing configuration that doesn't often change. Should contain only \
      scalar items, string or numeric, whose names are exactly the same as the command-line parameters \
@@ -118,6 +123,18 @@ pub fn data_directory_arg<'a>() -> Arg<'a, 'a> {
         .empty_values(false)
         .default_value(&DEFAULT_DATA_DIR_VALUE)
         .help(DATA_DIRECTORY_HELP)
+}
+
+pub fn chain_arg<'a>() -> Arg<'a, 'a> {
+    Arg::with_name("chain")
+        .long("chain")
+        .value_name("CHAIN")
+        .min_values(1)
+        .max_values(1)
+        .takes_value(true)
+        .possible_values(&["dev", "mainnet", "ropsten"])
+        .default_value(DEFAULT_CHAIN_NAME) // TODO: SC-501/GH-115: Update
+        .help(CHAIN_HELP)
 }
 
 pub fn earning_wallet_arg<F>(help: &str, validator: F) -> Arg
@@ -236,9 +253,12 @@ pub fn create_wallet(
     }
 }
 
-pub fn initialize_database(data_directory: &PathBuf) -> Box<dyn PersistentConfiguration> {
+pub fn initialize_database(
+    data_directory: &PathBuf,
+    chain_id: u8,
+) -> Box<dyn PersistentConfiguration> {
     let conn = DbInitializerReal::new()
-        .initialize(data_directory)
+        .initialize(data_directory, chain_id)
         .unwrap_or_else(|e| {
             panic!(
                 "Can't initialize database at {:?}: {:?}",
@@ -249,11 +269,16 @@ pub fn initialize_database(data_directory: &PathBuf) -> Box<dyn PersistentConfig
     Box::new(PersistentConfigurationReal::from(conn))
 }
 
-pub fn real_user_and_data_directory(multi_config: &MultiConfig) -> (RealUser, PathBuf) {
+pub fn real_user_data_directory_and_chain_id(
+    multi_config: &MultiConfig,
+) -> (RealUser, PathBuf, u8) {
     let real_user = match value_m!(multi_config, "real-user", RealUser) {
         None => RealUser::null().populate(),
         Some(real_user) => real_user.populate(),
     };
+
+    let chain_name =
+        value_m!(multi_config, "chain", String).expect("--chain improperly defined in clap schema");
 
     let data_directory = match value_user_specified_m!(multi_config, "data-directory", PathBuf) {
         (Some(data_directory), true) => data_directory,
@@ -277,12 +302,18 @@ pub fn real_user_and_data_directory(multi_config: &MultiConfig) -> (RealUser, Pa
                 .to_string();
             let right_local_data_dir =
                 wrong_local_data_dir.replace(&wrong_home_dir, &right_home_dir);
-            PathBuf::from(right_local_data_dir).join("Substratum")
+            PathBuf::from(right_local_data_dir)
+                .join("Substratum")
+                .join(chain_name.clone())
         }
         _ => panic!("--data-directory improperly defined in clap schema"),
     };
 
-    (real_user, data_directory)
+    (
+        real_user,
+        data_directory,
+        chain_id_from_name(chain_name.as_str()),
+    )
 }
 
 pub fn prepare_initialization_mode<'a>(
@@ -296,8 +327,9 @@ pub fn prepare_initialization_mode<'a>(
             Box::new(EnvironmentVcl::new(&app)),
         ],
     );
-    let (_, data_directory) = real_user_and_data_directory(&multi_config);
-    let persistent_config_box = initialize_database(&data_directory);
+
+    let (_, data_directory, chain_id) = real_user_data_directory_and_chain_id(&multi_config);
+    let persistent_config_box = initialize_database(&data_directory, chain_id);
     if persistent_config_box.encrypted_mnemonic_seed().is_some() {
         exit(1, "Cannot re-initialize Node: already initialized")
     }
@@ -470,9 +502,9 @@ pub fn possible_reader_from_stream(
     }
 }
 
-pub fn data_directory_default(dirs_wrapper: &dyn DirsWrapper) -> String {
+pub fn data_directory_default(dirs_wrapper: &dyn DirsWrapper, chain_name: &'static str) -> String {
     match dirs_wrapper.data_dir() {
-        Some(path) => path.join("Substratum"),
+        Some(path) => path.join("Substratum").join(chain_name),
         None => PathBuf::from(""),
     }
     .to_str()
@@ -691,11 +723,14 @@ fn exit(code: i32, message: &str) {
 mod tests {
     use super::*;
     use crate::blockchain::bip32::Bip32ECKeyPair;
+    use crate::blockchain::blockchain_interface::DEFAULT_CHAIN_NAME;
     use crate::node_test_utils::MockDirsWrapper;
     use crate::sub_lib::wallet::{Wallet, DEFAULT_EARNING_DERIVATION_PATH};
     use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::{ensure_node_home_directory_exists, ArgsBuilder, ByteArrayWriter};
+    use crate::test_utils::{
+        ensure_node_home_directory_exists, ArgsBuilder, ByteArrayWriter, DEFAULT_CHAIN_ID,
+    };
     use bip39::{Mnemonic, MnemonicType, Seed};
     use std::io::Cursor;
     use std::sync::{Arc, Mutex};
@@ -883,7 +918,10 @@ mod tests {
     fn data_directory_default_given_no_default() {
         assert_eq!(
             String::from(""),
-            data_directory_default(&MockDirsWrapper::new().data_dir_result(None))
+            data_directory_default(
+                &MockDirsWrapper::new().data_dir_result(None),
+                DEFAULT_CHAIN_NAME
+            )
         );
     }
 
@@ -891,9 +929,11 @@ mod tests {
     fn data_directory_default_works() {
         let mock_dirs_wrapper = MockDirsWrapper::new().data_dir_result(Some("mocked/path".into()));
 
-        let result = data_directory_default(&mock_dirs_wrapper);
+        let result = data_directory_default(&mock_dirs_wrapper, DEFAULT_CHAIN_NAME);
 
-        let expected = PathBuf::from("mocked/path").join("Substratum");
+        let expected = PathBuf::from("mocked/path")
+            .join("Substratum")
+            .join(DEFAULT_CHAIN_NAME);
         assert_eq!(result, expected.as_path().to_str().unwrap().to_string());
     }
 
@@ -903,14 +943,22 @@ mod tests {
         let data_dir = ensure_node_home_directory_exists(
             "node_configurator",
             "prepare_initialization_mode_fails_if_mnemonic_seed_already_exists",
-        );
+        )
+        .join("Substratum")
+        .join(DEFAULT_CHAIN_NAME);
         {
-            let conn = DbInitializerReal::new().initialize(&data_dir).unwrap();
+            let conn = DbInitializerReal::new()
+                .initialize(&data_dir, DEFAULT_CHAIN_ID)
+                .unwrap();
             let persistent_config = PersistentConfigurationReal::from(conn);
             persistent_config.set_mnemonic_seed(&PlainData::new(&[1, 2, 3, 4]), "password");
         }
-        let app = App::new("test".to_string()).arg(data_directory_arg());
-        let args = ArgsBuilder::new().param("--data-directory", data_dir.to_str().unwrap());
+        let app = App::new("test".to_string())
+            .arg(data_directory_arg())
+            .arg(chain_arg());
+        let args = ArgsBuilder::new()
+            .param("--data-directory", data_dir.to_str().unwrap())
+            .param("--chain", DEFAULT_CHAIN_NAME);
 
         prepare_initialization_mode(&app, &args.into());
     }
