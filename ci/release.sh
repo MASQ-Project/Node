@@ -49,10 +49,10 @@ function azure_key_vault_sign() {
       --file-digest sha256 \
       --timestamp-rfc3161 http://timestamp.digicert.com \
       --timestamp-digest sha256 \
-      --azure-key-vault-url https://substratumnode.vault.azure.net \
-      --azure-key-vault-client-id "77cb9689-ce27-412f-bc16-4cc0a599676b" \
+      --azure-key-vault-url "$AZURE_KEY_VAULT_URL" \
+      --azure-key-vault-client-id "$AZURE_KEY_VAULT_CLIENT_ID" \
       --azure-key-vault-client-secret "$AZURE_KEY_VAULT_CLIENT_SECRET" \
-      --azure-key-vault-certificate "SubstratumNodeCodeSigning"
+      --azure-key-vault-certificate "$AZURE_KEY_VAULT_CERTIFICATE"
     done
   fi
 }
