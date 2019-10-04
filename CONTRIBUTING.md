@@ -253,3 +253,30 @@ your changes through Pipelines, and when it's green, your reviewer will take ano
 
 Once your PR is approved, the reviewer will merge it into the public repo's `master` branch for you, and you can start
 on another issue!
+
+#### Rolling Your Own Pipelines Build
+
+Setting up your own pipelines build allows you to create pull requests against your forked repository and receive
+constant feedback from the pipelines build until you're ready to merge your work back upstream into the official
+repository.
+
+##### Things You'll Need
+
+* An account on [Azure DevOps](https://dev.azure.com).
+* Fork of the [SubstratumNode repository](https://github.com/SubstratumNetwork/SubstratumNode).
+* Fork of the [SubstratumNode-results repository](https://substratum-temporary.github.io/SubstratumNode-results).
+* The Windows Application Driver extension for Azure Pipelines (this is required to run UI integration tests on Windows).
+* GitHub Personal Access Token. Please see
+  [Git automation with OAuth tokens](https://help.github.com/en/articles/git-automation-with-oauth-tokens)
+  for instructions on how to set one up.
+
+##### Things You'll Want To Configure
+
+Additional configuration to your Azure Pipelines is required for publishing build results.
+
+* Edit your Azure Pipelines and add the following variables:
+  * ``GITHUB_TOKEN`` set to your GitHub Personal Access Token. e.g. f5dd976e301999zy073q7990be93a7e5i482030
+    * Check "Keep this value secret" to avoid having your token compromised.
+  * ``RESULTS_REPO_NAME`` set to your GitHub repository's name. e.g. "SubstratumNetwork-results"
+  * ``RESULTS_REPO_OWNER`` set to your GitHub repository's user name. e.g. "substratum"
+* Save your changes

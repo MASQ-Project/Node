@@ -1,0 +1,83 @@
+{
+  "name": "SubstratumNode",
+  "description": "SubstratumNode user interface",
+  "version": "1.0.0-rc.3",
+  "homepage": "https://substratum.net",
+  "repository": "https://github.com/SubstratumNetwork/SubstratumNode",
+  "author": "Substratum LLC <support@substratum.net>",
+  "copyright": "Copyright (c) 2017-2019 Substratum LLC (${homepage}) and/or its affiliates. All rights reserved.",
+  "license": "GPL-3.0",
+  "main": "main.js",
+  "standard": {
+    "ignore": [
+      "generated/**",
+      "dist/**",
+      "electron-builder-out/**"
+    ]
+  },
+  "build": {
+    "appId": "net.substratum.node",
+    "asar": false,
+    "productName": "SubstratumNode",
+    "directories": {
+      "output": "electron-builder-out"
+    },
+    "files": [
+      "!ci/*",
+      "!generated",
+      "!test/*",
+      "!*.iml",
+      "!src/*",
+      "!coverage/*",
+      "!README.md",
+      "!icons/*"
+    ],
+    "mac": {
+      "icon": "icons/icon.icns",
+      "forceCodeSigning": true,
+      "identity": "Substratum Services, Inc. (TKDGR66924)",
+      "target": "dmg",
+      "type": "distribution"
+    },
+    "win": {
+      "icon": "icons/icon.ico"
+    },
+    "linux": {
+      "icon": "icons",
+      "category": "Network"
+    }
+  },
+  "dmg": {
+    "title": "${productName}-${version}",
+    "artifactName": "${productName}-${version}.${ext}"
+  },
+  "scripts": {
+    "start": "electron .",
+    "test": "jasmine test/*_test.js",
+    "lint": "standard --fix",
+    "spec": "jasmine test/*_spec.js",
+    "dist": "electron-builder"
+  },
+  "private": true,
+  "dependencies": {
+    "electron-log": "^3.0.8",
+    "ethers": "^4.0.33",
+    "isomorphic-ws": "^4.0.1",
+    "node-cmd": "^3.0.0",
+    "sudo-prompt": "^8.2.5",
+    "tree-kill": "^1.2.1",
+    "tslib": "^1.9.0",
+    "ws": "^7.1.2"
+  },
+  "devDependencies": {
+    "electron": "^6.0.11",
+    "electron-builder": "^21.2.0",
+    "jasmine": "^3.5.0",
+    "jasmine-core": "^3.5.0",
+    "jasmine-spec-reporter": "~4.2.1",
+    "ps-list": "^6.2.0",
+    "spectron": "^8.0.0",
+    "standard": "^14.3.1",
+    "testdouble": "^3.12.2"
+  }
+}

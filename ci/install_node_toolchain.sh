@@ -33,6 +33,7 @@ function install_windows() {
 function common() {
   "$HOME/.cargo/bin/rustup" update
   "$HOME/.cargo/bin/rustup" install "$RUST_VERSION"
+  "$HOME/.cargo/bin/rustup" default "$RUST_VERSION"
   "$HOME/.cargo/bin/rustup" component add rustfmt
   "$HOME/.cargo/bin/rustup" component add clippy
   "$HOME/.cargo/bin/cargo" install sccache
