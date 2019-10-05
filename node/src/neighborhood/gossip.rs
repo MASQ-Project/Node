@@ -2,7 +2,7 @@
 use super::node_record::NodeRecord;
 use super::node_record::NodeRecordInner;
 use crate::neighborhood::dot_graph::{
-    render_dot_graph, DotRenderable, EdgeRenderable, NodeRenderable,
+    render_dot_graph, DotRenderable, EdgeRenderable, NodeRenderable, NodeRenderableInner,
 };
 use crate::neighborhood::neighborhood_database::NeighborhoodDatabase;
 use crate::neighborhood::AccessibleGossipRecord;
@@ -10,6 +10,7 @@ use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData, PublicKey};
 use crate::sub_lib::data_version::DataVersion;
 use crate::sub_lib::hopper::MessageType;
 use crate::sub_lib::node_addr::NodeAddr;
+use pretty_hex::PrettyHex;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::convert::{TryFrom, TryInto};
@@ -17,7 +18,7 @@ use std::fmt::Debug;
 use std::fmt::Error;
 use std::fmt::Formatter;
 use std::iter::FromIterator;
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GossipNodeRecord {
@@ -82,7 +83,6 @@ impl From<NodeRecord> for GossipNodeRecord {
 }
 
 impl GossipNodeRecord {
-    // TODO - should we use a json serializer to make this?
     fn to_human_readable(&self) -> String {
         let mut human_readable = String::new();
         human_readable.push_str("\nGossipNodeRecord {");
@@ -104,8 +104,14 @@ impl GossipNodeRecord {
             Err(_e) => human_readable.push_str("\n\tinner: <non-deserializable>"),
         };
         human_readable.push_str(&format!("\n\tnode_addr_opt: {:?},", self.node_addr_opt));
-        human_readable.push_str(&format!("\n\tsigned_data: {:?},", self.signed_data));
-        human_readable.push_str(&format!("\n\tsignature: {:?},", self.signature));
+        human_readable.push_str(&format!(
+            "\n\tsigned_data:\n{:?}",
+            self.signed_data.as_slice().hex_dump()
+        ));
+        human_readable.push_str(&format!(
+            "\n\tsignature:\n{:?}",
+            self.signature.as_slice().hex_dump()
+        ));
         human_readable.push_str("\n}");
         human_readable
     }
@@ -217,6 +223,16 @@ impl From<IpAddr> for DotGossipEndpoint {
         DotGossipEndpoint {
             public_key: PublicKey::new(b""),
             node_addr_opt: Some(NodeAddr::new(&input, &vec![0])),
+        }
+    }
+}
+
+// Produces incomplete representation
+impl From<SocketAddr> for DotGossipEndpoint {
+    fn from(input: SocketAddr) -> Self {
+        DotGossipEndpoint {
+            public_key: PublicKey::new(b""),
+            node_addr_opt: Some(NodeAddr::new(&input.ip(), &vec![input.port()])),
         }
     }
 }
@@ -338,7 +354,11 @@ impl Gossip {
                 })
             });
             node_renderables.push(NodeRenderable {
-                version: Some(nri.version),
+                inner: Some(NodeRenderableInner {
+                    version: nri.version,
+                    accepts_connections: nri.accepts_connections,
+                    routes_data: nri.routes_data,
+                }),
                 public_key: nri.public_key.clone(),
                 node_addr: addr.clone(),
                 known_source: nri.public_key == source.public_key,
@@ -348,7 +368,7 @@ impl Gossip {
         });
         mentioned.difference(&present).for_each(|k| {
             node_renderables.push(NodeRenderable {
-                version: None,
+                inner: None,
                 public_key: k.clone(),
                 node_addr: None,
                 known_source: false,
@@ -399,7 +419,7 @@ impl<'a> GossipBuilder<'a> {
             None => panic!("GossipBuilder cannot add a nonexistent Node"),
             Some(node_record_ref) => {
                 let mut gnr = GossipNodeRecord::from(node_record_ref.clone());
-                if !reveal_node_addr {
+                if !reveal_node_addr || !node_record_ref.accepts_connections() {
                     gnr.node_addr_opt = None
                 }
                 self.gossip.node_records.push(gnr);
@@ -419,6 +439,7 @@ impl<'a> GossipBuilder<'a> {
 mod tests {
     use super::super::gossip::GossipBuilder;
     use super::super::neighborhood_test_utils::make_node_record;
+    use super::super::neighborhood_test_utils::make_node_record_f;
     use super::*;
     use crate::neighborhood::neighborhood_test_utils::db_from_node;
     use crate::test_utils::{assert_string_contains, vec_to_btset};
@@ -463,8 +484,12 @@ mod tests {
 
     #[test]
     fn adding_node_with_no_addr_and_reveal_results_in_node_with_no_addr() {
-        let node = make_node_record(1234, false);
-        let mut db = db_from_node(&node);
+        let node = make_node_record_f(1234, false, false, true);
+        let mut db: NeighborhoodDatabase = db_from_node(&node);
+        db.node_by_key_mut(node.public_key())
+            .unwrap()
+            .inner
+            .accepts_connections = true;
         let gossip_node = &db.add_node(make_node_record(2345, false)).unwrap();
         let builder = GossipBuilder::new(&db);
 
@@ -476,11 +501,31 @@ mod tests {
 
     #[test]
     fn adding_node_with_no_addr_and_no_reveal_results_in_node_with_no_addr() {
-        let node = make_node_record(1234, false);
-        let db = db_from_node(&node);
+        let node = make_node_record_f(1234, false, false, true);
+        let mut db: NeighborhoodDatabase = db_from_node(&node);
+        db.node_by_key_mut(node.public_key())
+            .unwrap()
+            .inner
+            .accepts_connections = true;
         let builder = GossipBuilder::new(&db);
 
         let builder = builder.node(node.public_key(), false);
+
+        let mut gossip = builder.build();
+        assert_eq!(gossip.node_records.remove(0).node_addr_opt, None)
+    }
+
+    #[test]
+    fn adding_node_that_doesnt_accept_with_addr_and_reveal_results_in_node_with_no_addr() {
+        let node: NodeRecord = make_node_record(1234, true);
+        let mut db: NeighborhoodDatabase = db_from_node(&node);
+        db.node_by_key_mut(node.public_key())
+            .unwrap()
+            .inner
+            .accepts_connections = false;
+        let builder = GossipBuilder::new(&db);
+
+        let builder = builder.node(node.public_key(), true);
 
         let mut gossip = builder.build();
         assert_eq!(gossip.node_records.remove(0).node_addr_opt, None)
@@ -564,8 +609,28 @@ mod tests {
             "\nGossipNodeRecord {{{}{}{}{}\n}}",
             "\n\tinner: NodeRecordInner {\n\t\tpublic_key: AQIDBA,\n\t\tnode_addr_opt: Some(1.2.3.4:[1234]),\n\t\tearning_wallet: Wallet { kind: Address(0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0) },\n\t\trate_pack: RatePack { routing_byte_rate: 1235, routing_service_rate: 1236, exit_byte_rate: 1237, exit_service_rate: 1238 },\n\t\tneighbors: [],\n\t\tversion: 2,\n\t},",
             "\n\tnode_addr_opt: Some(1.2.3.4:[1234]),",
-            "\n\tsigned_data: PlainData { data: [166, 108, 100, 97, 116, 97, 95, 118, 101, 114, 115, 105, 111, 110, 131, 0, 0, 0, 106, 112, 117, 98, 108, 105, 99, 95, 107, 101, 121, 68, 1, 2, 3, 4, 110, 101, 97, 114, 110, 105, 110, 103, 95, 119, 97, 108, 108, 101, 116, 161, 103, 97, 100, 100, 114, 101, 115, 115, 148, 24, 84, 24, 105, 0, 24, 219, 24, 141, 24, 110, 9, 24, 55, 24, 73, 24, 113, 24, 51, 24, 209, 24, 174, 24, 111, 24, 223, 24, 95, 24, 75, 24, 117, 24, 188, 24, 208, 105, 114, 97, 116, 101, 95, 112, 97, 99, 107, 164, 113, 114, 111, 117, 116, 105, 110, 103, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 25, 4, 211, 116, 114, 111, 117, 116, 105, 110, 103, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 25, 4, 212, 110, 101, 120, 105, 116, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 25, 4, 213, 113, 101, 120, 105, 116, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 25, 4, 214, 105, 110, 101, 105, 103, 104, 98, 111, 114, 115, 128, 103, 118, 101, 114, 115, 105, 111, 110, 2] },",
-            "\n\tsignature: CryptData { data: [1, 2, 3, 4, 13, 203, 98, 91, 91, 124, 75, 12, 242, 126, 76, 106, 236, 12, 26, 1, 199, 218, 114, 177] },"
+            "\n\tsigned_data:
+Length: 246 (0xf6) bytes
+0000:   a8 6c 64 61  74 61 5f 76  65 72 73 69  6f 6e 83 00   .ldata_version..
+0010:   10 00 6a 70  75 62 6c 69  63 5f 6b 65  79 44 01 02   ..jpublic_keyD..
+0020:   03 04 6e 65  61 72 6e 69  6e 67 5f 77  61 6c 6c 65   ..nearning_walle
+0030:   74 a1 67 61  64 64 72 65  73 73 94 18  54 18 69 00   t.gaddress..T.i.
+0040:   18 db 18 8d  18 6e 09 18  37 18 49 18  71 18 33 18   .....n..7.I.q.3.
+0050:   d1 18 ae 18  6f 18 df 18  5f 18 4b 18  75 18 bc 18   ....o..._.K.u...
+0060:   d0 69 72 61  74 65 5f 70  61 63 6b a4  71 72 6f 75   .irate_pack.qrou
+0070:   74 69 6e 67  5f 62 79 74  65 5f 72 61  74 65 19 04   ting_byte_rate..
+0080:   d3 74 72 6f  75 74 69 6e  67 5f 73 65  72 76 69 63   .trouting_servic
+0090:   65 5f 72 61  74 65 19 04  d4 6e 65 78  69 74 5f 62   e_rate...nexit_b
+00a0:   79 74 65 5f  72 61 74 65  19 04 d5 71  65 78 69 74   yte_rate...qexit
+00b0:   5f 73 65 72  76 69 63 65  5f 72 61 74  65 19 04 d6   _service_rate...
+00c0:   69 6e 65 69  67 68 62 6f  72 73 80 73  61 63 63 65   ineighbors.sacce
+00d0:   70 74 73 5f  63 6f 6e 6e  65 63 74 69  6f 6e 73 f5   pts_connections.
+00e0:   6b 72 6f 75  74 65 73 5f  64 61 74 61  f5 67 76 65   kroutes_data.gve
+00f0:   72 73 69 6f  6e 02                                   rsion.",
+            "\n\tsignature:
+Length: 24 (0x18) bytes
+0000:   01 02 03 04  67 5b 38 53  63 59 ad a8  3d e1 d5 96   ....g[8ScY..=...
+0010:   89 59 88 be  09 86 64 ae                             .Y....d.",
         );
 
         assert_eq!(result, expected);
@@ -585,11 +650,15 @@ mod tests {
             "\nGossipNodeRecord {{{}{}{}{}\n}}",
             "\n\tinner: <non-deserializable>",
             "\n\tnode_addr_opt: None,",
-            "\n\tsigned_data: PlainData { data: [1, 2, 3, 4] },",
-            "\n\tsignature: CryptData { data: [4, 3, 2, 1] },"
+            "\n\tsigned_data:
+Length: 4 (0x4) bytes
+0000:   01 02 03 04                                          ....",
+            "\n\tsignature:
+Length: 4 (0x4) bytes
+0000:   04 03 02 01                                          ....",
         );
 
-        assert_eq!(expected, result);
+        assert_eq!(result, expected);
     }
 
     #[test]
@@ -623,14 +692,14 @@ mod tests {
         let result = gossip.to_dot_graph(&source_node, &target_node);
 
         assert_string_contains(&result, "digraph db { ");
-        assert_string_contains(&result, "\"AwQFBg\" [label=\"v0\\nAwQFBg\"]; ");
+        assert_string_contains(&result, "\"AwQFBg\" [label=\"AR v0\\nAwQFBg\"]; ");
         assert_string_contains(
             &result,
-            "\"QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo\" [label=\"v1\\nQUJDREVG\\n1.2.3.4:1234\"] [style=filled]; ",
+            "\"QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo\" [label=\"AR v1\\nQUJDREVG\\n1.2.3.4:1234\"] [style=filled]; ",
         );
         assert_string_contains(
             &result,
-            "\"WllYV1ZVVFNSUVBPTk1MS0pJSEdGRURDQkE\" [label=\"v0\\nWllYV1ZV\\n2.3.4.5:2345\"] [shape=box]; ",
+            "\"WllYV1ZVVFNSUVBPTk1MS0pJSEdGRURDQkE\" [label=\"AR v0\\nWllYV1ZV\\n2.3.4.5:2345\"] [shape=box]; ",
         );
         assert_string_contains(
             &result,

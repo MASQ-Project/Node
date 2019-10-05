@@ -975,7 +975,6 @@ mod tests {
     use crate::test_utils::{make_meaningless_stream_key, DEFAULT_CHAIN_ID};
     use actix::System;
     use std::cell::RefCell;
-    use std::net::IpAddr;
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::sync::mpsc;
@@ -1338,7 +1337,7 @@ mod tests {
 
         let expired_cores_package: ExpiredCoresPackage<ClientResponsePayload> =
             ExpiredCoresPackage::new(
-                IpAddr::from_str("1.2.3.4").unwrap(),
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("irrelevant")),
                 return_route_with_id(cryptde, 1234),
                 client_response_payload.into(),
@@ -3007,7 +3006,7 @@ mod tests {
             },
         };
         let first_expired_cores_package = ExpiredCoresPackage::new(
-            IpAddr::from_str("1.2.3.4").unwrap(),
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             Some(make_wallet("consuming")),
             remaining_route,
             client_response_payload,
@@ -3077,7 +3076,7 @@ mod tests {
 
         let expired_cores_package: ExpiredCoresPackage<ClientResponsePayload> =
             ExpiredCoresPackage::new(
-                IpAddr::from_str("1.2.3.4").unwrap(),
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("irrelevant")),
                 return_route_with_id(cryptde, 1234),
                 client_response_payload.into(),
@@ -3175,7 +3174,7 @@ mod tests {
         let first_exit_size = first_client_response_payload.sequenced_packet.data.len();
         let first_expired_cores_package: ExpiredCoresPackage<ClientResponsePayload> =
             ExpiredCoresPackage::new(
-                IpAddr::from_str("1.2.3.4").unwrap(),
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("irrelevant")),
                 return_route_with_id(cryptde, 1234),
                 first_client_response_payload.into(),
@@ -3195,7 +3194,7 @@ mod tests {
         let second_exit_size = second_client_response_payload.sequenced_packet.data.len();
         let second_expired_cores_package: ExpiredCoresPackage<ClientResponsePayload> =
             ExpiredCoresPackage::new(
-                IpAddr::from_str("1.2.3.5").unwrap(),
+                SocketAddr::from_str("1.2.3.5:1235").unwrap(),
                 Some(make_wallet("irrelevant")),
                 return_route_with_id(cryptde, 1235),
                 second_client_response_payload.into(),
@@ -3294,7 +3293,7 @@ mod tests {
 
         let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
             ExpiredCoresPackage::new(
-                IpAddr::from_str("1.2.3.4").unwrap(),
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("irrelevant")),
                 return_route_with_id(cryptde, 1234),
                 dns_resolve_failure.into(),
@@ -3386,7 +3385,7 @@ mod tests {
 
         let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
             ExpiredCoresPackage::new(
-                IpAddr::from_str("1.2.3.4").unwrap(),
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("irrelevant")),
                 return_route_with_id(cryptde, 1234),
                 dns_resolve_failure_payload.into(),
@@ -3460,7 +3459,7 @@ mod tests {
 
         let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
             ExpiredCoresPackage::new(
-                IpAddr::from_str("1.2.3.4").unwrap(),
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("irrelevant")),
                 return_route_with_id(cryptde, 1234),
                 dns_resolve_failure.into(),
@@ -3527,7 +3526,7 @@ mod tests {
 
         let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
             ExpiredCoresPackage::new(
-                IpAddr::from_str("1.2.3.4").unwrap(),
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("irrelevant")),
                 return_route_with_id(cryptde, return_route_id),
                 dns_resolve_failure.into(),
@@ -3596,7 +3595,7 @@ mod tests {
 
         let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
             ExpiredCoresPackage::new(
-                IpAddr::from_str("1.2.3.4").unwrap(),
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("irrelevant")),
                 return_route_with_id(cryptde, return_route_id),
                 dns_resolve_failure.into(),
@@ -3670,7 +3669,7 @@ mod tests {
 
         let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
             ExpiredCoresPackage::new(
-                IpAddr::from_str("1.2.3.4").unwrap(),
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("irrelevant")),
                 return_route_with_id(cryptde, 1234),
                 dns_resolve_failure.into(),
@@ -3717,7 +3716,7 @@ mod tests {
             },
         };
         let expired_cores_package = ExpiredCoresPackage::new(
-            IpAddr::from_str("1.2.3.4").unwrap(),
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             Some(make_wallet("consuming")),
             remaining_route,
             client_response_payload,
@@ -3783,7 +3782,7 @@ mod tests {
             },
         };
         let expired_cores_package = ExpiredCoresPackage::new(
-            IpAddr::from_str("1.2.3.4").unwrap(),
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             Some(make_wallet("irrelevant")),
             return_route_with_id(cryptde, 1234),
             client_response_payload,
@@ -3829,7 +3828,7 @@ mod tests {
             },
         };
         let expired_cores_package = ExpiredCoresPackage::new(
-            IpAddr::from_str("1.2.3.4").unwrap(),
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             Some(make_wallet("irrelevant")),
             Route {
                 hops: vec![make_cover_hop(cryptde), CryptData::new(&[0])],
@@ -3897,7 +3896,7 @@ mod tests {
             },
         };
         let expired_cores_package = ExpiredCoresPackage::new(
-            IpAddr::from_str("1.2.3.4").unwrap(),
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             Some(make_wallet("irrelevant")),
             return_route_with_id(cryptde, 1234),
             client_response_payload,

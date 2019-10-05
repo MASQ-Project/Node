@@ -535,7 +535,7 @@ mod tests {
         };
         let cryptde = cryptde();
         let package = ExpiredCoresPackage::new(
-            IpAddr::from_str("1.2.3.4").unwrap(),
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             Some(make_wallet("consuming")),
             route_to_proxy_client(&cryptde.public_key(), cryptde),
             request,
@@ -672,7 +672,7 @@ mod tests {
             originator_public_key: PublicKey::new(&b"originator"[..]),
         };
         let package = ExpiredCoresPackage::new(
-            IpAddr::from_str("1.2.3.4").unwrap(),
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             Some(make_wallet("consuming")),
             make_meaningless_route(),
             request.clone().into(),
@@ -728,7 +728,7 @@ mod tests {
             originator_public_key: PublicKey::new(&b"originator"[..]),
         };
         let package = ExpiredCoresPackage::new(
-            IpAddr::from_str("1.2.3.4").unwrap(),
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             None,
             make_meaningless_route(),
             request,
@@ -783,7 +783,7 @@ mod tests {
             originator_public_key: cryptde.public_key().clone(),
         };
         let package = ExpiredCoresPackage::new(
-            IpAddr::from_str("1.2.3.4").unwrap(),
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             None,
             make_meaningless_route(),
             request.clone().into(),
@@ -1105,7 +1105,7 @@ mod tests {
 
         subject_addr
             .try_send(ExpiredCoresPackage::new(
-                IpAddr::from_str("2.3.4.5").unwrap(),
+                SocketAddr::from_str("2.3.4.5:1235").unwrap(),
                 Some(make_wallet("gnimusnoc")),
                 new_return_route.clone(),
                 payload.clone().into(),

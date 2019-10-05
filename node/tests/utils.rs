@@ -236,6 +236,7 @@ impl SubstratumNode {
     fn standard_args() -> Vec<String> {
         apply_prefix_parameters(CommandConfig::new())
             .pair("--dns-servers", "8.8.8.8")
+            .pair("--neighborhood-mode", "zero-hop")
             .pair(
                 "--consuming-private-key",
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
