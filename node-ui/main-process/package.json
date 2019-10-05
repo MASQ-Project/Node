@@ -32,6 +32,12 @@
       "!README.md",
       "!icons/*"
     ],
+    "extraResources": [
+      {
+        "from": "src",
+        "to": "app/src"
+      }
+    ],
     "mac": {
       "icon": "icons/icon.icns",
       "forceCodeSigning": true,

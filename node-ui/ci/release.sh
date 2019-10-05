@@ -5,7 +5,6 @@ CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 pushd "$CI_DIR/.."
 ci/setup.sh
 ci/build.sh
-ci/copy_binaries.sh
 
 pushd "main-process"
 case "$OSTYPE" in
