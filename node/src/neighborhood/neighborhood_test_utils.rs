@@ -8,14 +8,13 @@ use crate::neighborhood::{AccessibleGossipRecord, Neighborhood};
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, PlainData};
 use crate::sub_lib::cryptde_null::CryptDENull;
-use crate::sub_lib::neighborhood::{NeighborhoodConfig, NodeDescriptor};
+use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, NodeDescriptor};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::*;
 use std::convert::TryFrom;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
-use std::str::FromStr;
 
 impl From<(&NeighborhoodDatabase, &PublicKey, bool)> for AccessibleGossipRecord {
     fn from(
@@ -35,7 +34,25 @@ pub fn make_node_record(n: u16, has_ip: bool) -> NodeRecord {
     let ip_addr = IpAddr::V4(Ipv4Addr::new(a, b, c, d));
     let node_addr = NodeAddr::new(&ip_addr, &vec![n % 10000]);
 
-    NodeRecord::new_for_tests(&key, if has_ip { Some(&node_addr) } else { None }, n as u64)
+    NodeRecord::new_for_tests(
+        &key,
+        if has_ip { Some(&node_addr) } else { None },
+        n as u64,
+        true,
+        true,
+    )
+}
+
+pub fn make_node_record_f(
+    n: u16,
+    has_ip: bool,
+    accepts_connections: bool,
+    routes_data: bool,
+) -> NodeRecord {
+    let mut result = make_node_record(n, has_ip);
+    result.inner.accepts_connections = accepts_connections;
+    result.inner.routes_data = routes_data;
+    result
 }
 
 pub fn make_global_cryptde_node_record(n: u16, has_ip: bool) -> NodeRecord {
@@ -53,12 +70,8 @@ pub fn make_meaningless_db() -> NeighborhoodDatabase {
 pub fn db_from_node(node: &NodeRecord) -> NeighborhoodDatabase {
     NeighborhoodDatabase::new(
         node.public_key(),
-        &node.node_addr_opt().unwrap_or(NodeAddr::new(
-            &IpAddr::from_str("200.200.200.200").unwrap(),
-            &vec![200],
-        )),
+        node.into(),
         node.earning_wallet(),
-        node.rate_pack().clone(),
         &CryptDENull::from(node.public_key(), DEFAULT_CHAIN_ID),
     )
 }
@@ -72,27 +85,42 @@ pub fn neighborhood_from_nodes(
         panic!("Neighborhood must be built on root node with public key from cryptde()");
     }
     let mut config = BootstrapperConfig::new();
-    config.neighborhood_config = NeighborhoodConfig {
-        neighbor_configs: match neighbor_opt {
-            None => vec![],
-            Some(neighbor) => vec![NodeDescriptor {
-                public_key: neighbor.public_key().clone(),
-                node_addr: neighbor
-                    .node_addr_opt()
-                    .expect("Neighbor has to have NodeAddr"),
-            }
-            .to_string(cryptde, DEFAULT_CHAIN_ID)],
+    config.neighborhood_config = match neighbor_opt {
+        Some(neighbor) => NeighborhoodConfig {
+            mode: NeighborhoodMode::Standard(
+                root.node_addr_opt().expect("Test-drive me!"),
+                vec![NodeDescriptor::from(neighbor).to_string(cryptde, DEFAULT_CHAIN_ID)],
+                root.rate_pack().clone(),
+            ),
         },
-        local_ip_addr: root
-            .node_addr_opt()
-            .expect("Root has to have NodeAddr")
-            .ip_addr(),
-        clandestine_port_list: root.node_addr_opt().unwrap().ports(),
-        rate_pack: root.rate_pack().clone(),
+        None => NeighborhoodConfig {
+            mode: NeighborhoodMode::ZeroHop,
+        },
     };
     config.earning_wallet = root.earning_wallet();
     config.consuming_wallet = Some(make_paying_wallet(b"consuming"));
     Neighborhood::new(cryptde, &config)
+}
+
+impl From<&NodeRecord> for NeighborhoodMode {
+    // Note: not a general-purpose function. Doesn't detect ZeroHop and doesn't reconstruct neighbor_configs.
+    fn from(node: &NodeRecord) -> Self {
+        match (
+            node.node_addr_opt(),
+            node.accepts_connections(),
+            node.routes_data(),
+        ) {
+            (Some(node_addr), true, true) => {
+                NeighborhoodMode::Standard(node_addr, vec![], node.rate_pack().clone())
+            }
+            (_, false, true) => NeighborhoodMode::OriginateOnly(vec![], node.rate_pack().clone()),
+            (_, false, false) => NeighborhoodMode::ConsumeOnly(vec![]),
+            (node_addr_opt, accepts_connections, routes_data) => panic!(
+                "Cannot determine NeighborhoodMode from triple: ({:?}, {}, {})",
+                node_addr_opt, accepts_connections, routes_data
+            ),
+        }
+    }
 }
 
 impl NodeRecord {
@@ -119,11 +147,15 @@ impl NodeRecord {
         public_key: &PublicKey,
         node_addr_opt: Option<&NodeAddr>,
         base_rate: u64,
+        accepts_connections: bool,
+        routes_data: bool,
     ) -> NodeRecord {
         let mut node_record = NodeRecord::new(
             public_key,
             NodeRecord::earning_wallet_from_key(public_key),
             rate_pack(base_rate),
+            accepts_connections,
+            routes_data,
             0,
             &CryptDENull::from(public_key, DEFAULT_CHAIN_ID),
         );

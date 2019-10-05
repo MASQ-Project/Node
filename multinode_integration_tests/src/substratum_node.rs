@@ -28,7 +28,7 @@ use std::time::Instant;
 #[derive(PartialEq, Clone, Debug)]
 pub struct NodeReference {
     pub public_key: PublicKey,
-    pub node_addr: NodeAddr,
+    pub node_addr_opt: Option<NodeAddr>,
 }
 
 impl FromStr for NodeReference {
@@ -49,14 +49,19 @@ impl FromStr for NodeReference {
 impl fmt::Display for NodeReference {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let public_key_string = base64::encode_config(&self.public_key.as_slice(), STANDARD_NO_PAD);
-        let ip_addr_string = format!("{}", self.node_addr.ip_addr());
-        let port_list_string = self
-            .node_addr
-            .ports()
-            .iter()
-            .map(|port| port.to_string())
-            .collect::<Vec<String>>()
-            .join(",");
+        let ip_addr_string = match &self.node_addr_opt {
+            Some(node_addr) => format!("{}", node_addr.ip_addr()),
+            None => String::new(),
+        };
+        let port_list_string = match &self.node_addr_opt {
+            Some(node_addr) => node_addr
+                .ports()
+                .iter()
+                .map(|port| port.to_string())
+                .collect::<Vec<String>>()
+                .join(","),
+            None => String::new(),
+        };
         write!(
             f,
             "{}:{}:{}",
@@ -68,10 +73,20 @@ impl fmt::Display for NodeReference {
 }
 
 impl NodeReference {
-    pub fn new(public_key: PublicKey, ip_addr: IpAddr, ports: Vec<u16>) -> NodeReference {
-        NodeReference {
-            public_key,
-            node_addr: NodeAddr::new(&ip_addr, &ports),
+    pub fn new(
+        public_key: PublicKey,
+        ip_addr_opt: Option<IpAddr>,
+        ports: Vec<u16>,
+    ) -> NodeReference {
+        match ip_addr_opt {
+            Some(ip_addr) => NodeReference {
+                public_key,
+                node_addr_opt: Some(NodeAddr::new(&ip_addr, &ports)),
+            },
+            None => NodeReference {
+                public_key,
+                node_addr_opt: None,
+            },
         }
     }
 
@@ -82,14 +97,18 @@ impl NodeReference {
         }
     }
 
-    fn extract_ip_addr(slice: &str) -> Result<IpAddr, String> {
-        match IpAddr::from_str(slice) {
-            Ok(ip_addr) => Ok(ip_addr),
-            Err(_) => {
-                return Err(format!(
-                    "The IP address of a NodeReference must be valid, not '{}'",
-                    slice
-                ));
+    fn extract_ip_addr(slice: &str) -> Result<Option<IpAddr>, String> {
+        if slice.is_empty() {
+            Ok(None)
+        } else {
+            match IpAddr::from_str(slice) {
+                Ok(ip_addr) => Ok(Some(ip_addr)),
+                Err(_) => {
+                    return Err(format!(
+                        "The IP address of a NodeReference must be valid, not '{}'",
+                        slice
+                    ));
+                }
             }
         }
     }
@@ -159,6 +178,8 @@ pub trait SubstratumNode: Any {
     fn rate_pack(&self) -> RatePack;
     // Valid values are "dev, "ropsten" for now. Add "mainnet" when it's time.
     fn chain(&self) -> Option<String>;
+    fn accepts_connections(&self) -> bool;
+    fn routes_data(&self) -> bool;
 }
 
 pub struct SubstratumNodeUtils {}
@@ -319,8 +340,11 @@ mod tests {
 
         assert_eq!(result.public_key, key);
         assert_eq!(
-            result.node_addr,
-            NodeAddr::new(&IpAddr::from_str("12.34.56.78").unwrap(), &vec!(1234, 2345))
+            result.node_addr_opt,
+            Some(NodeAddr::new(
+                &IpAddr::from_str("12.34.56.78").unwrap(),
+                &vec!(1234, 2345)
+            ))
         );
     }
 
@@ -333,8 +357,11 @@ mod tests {
 
         assert_eq!(result.public_key, key);
         assert_eq!(
-            result.node_addr,
-            NodeAddr::new(&IpAddr::from_str("12.34.56.78").unwrap(), &vec!())
+            result.node_addr_opt,
+            Some(NodeAddr::new(
+                &IpAddr::from_str("12.34.56.78").unwrap(),
+                &vec!()
+            ))
         );
     }
 
@@ -342,7 +369,7 @@ mod tests {
     fn node_reference_can_display_itself() {
         let subject = NodeReference::new(
             PublicKey::new(&b"Booga"[..]),
-            IpAddr::from_str("12.34.56.78").unwrap(),
+            Some(IpAddr::from_str("12.34.56.78").unwrap()),
             vec![1234, 5678],
         );
 

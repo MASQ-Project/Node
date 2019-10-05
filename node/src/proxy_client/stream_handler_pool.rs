@@ -634,7 +634,7 @@ mod tests {
         );
 
         let package = ExpiredCoresPackage::new(
-            IpAddr::from_str("1.2.3.4").unwrap(),
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             Some(make_wallet("consuming")),
             make_meaningless_route(),
             client_request_payload.clone().into(),
@@ -690,7 +690,7 @@ mod tests {
                 originator_public_key: originator_key,
             };
             let package = ExpiredCoresPackage::new(
-                IpAddr::from_str("1.2.3.4").unwrap(),
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("consuming")),
                 make_meaningless_route(),
                 client_request_payload.clone().into(),
@@ -760,7 +760,7 @@ mod tests {
                 originator_public_key: PublicKey::new(&b"men's souls"[..]),
             };
             let package = ExpiredCoresPackage::new(
-                IpAddr::from_str("1.2.3.4").unwrap(),
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("consuming")),
                 make_meaningless_route(),
                 client_request_payload.into(),
@@ -870,7 +870,7 @@ mod tests {
                 originator_public_key: PublicKey::new(&b"men's souls"[..]),
             };
             let package = ExpiredCoresPackage::new(
-                IpAddr::from_str("1.2.3.4").unwrap(),
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("consuming")),
                 make_meaningless_route(),
                 client_request_payload.into(),
@@ -978,7 +978,7 @@ mod tests {
                 originator_public_key: originator_key,
             };
             let package = ExpiredCoresPackage::new(
-                IpAddr::from_str("1.2.3.4").unwrap(),
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("consuming")),
                 make_meaningless_route(),
                 client_request_payload.into(),
@@ -1043,7 +1043,7 @@ mod tests {
                 originator_public_key: PublicKey::new(&b"men's souls"[..]),
             };
             let package = ExpiredCoresPackage::new(
-                IpAddr::from_str("1.2.3.4").unwrap(),
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("consuming")),
                 make_meaningless_route(),
                 client_request_payload.into(),
@@ -1152,7 +1152,7 @@ mod tests {
                 originator_public_key: originator_key,
             };
             let package = ExpiredCoresPackage::new(
-                IpAddr::from_str("1.2.3.4").unwrap(),
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("consuming")),
                 make_meaningless_route(),
                 client_request_payload.into(),
@@ -1240,7 +1240,7 @@ mod tests {
             };
 
             let package = ExpiredCoresPackage::new(
-                IpAddr::from_str("1.2.3.4").unwrap(),
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("consuming")),
                 make_meaningless_route(),
                 client_request_payload.into(),
@@ -1349,7 +1349,7 @@ mod tests {
                 originator_public_key: originator_key,
             };
             let package = ExpiredCoresPackage::new(
-                IpAddr::from_str("1.2.3.4").unwrap(),
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("consuming")),
                 make_meaningless_route(),
                 client_request_payload.into(),
@@ -1411,7 +1411,7 @@ mod tests {
             originator_public_key: PublicKey::new(&b"men's souls"[..]),
         };
         let package = ExpiredCoresPackage::new(
-            IpAddr::from_str("1.2.3.4").unwrap(),
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             Some(make_wallet("consuming")),
             make_meaningless_route(),
             client_request_payload.into(),
@@ -1480,7 +1480,7 @@ mod tests {
                 originator_public_key: PublicKey::new(&b"booga"[..]),
             };
             let package = ExpiredCoresPackage::new(
-                IpAddr::from_str("1.2.3.4").unwrap(),
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("consuming")),
                 make_meaningless_route(),
                 client_request_payload.into(),

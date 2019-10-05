@@ -7,8 +7,14 @@ pub trait DotRenderable {
     fn render(&self) -> String;
 }
 
+pub struct NodeRenderableInner {
+    pub version: u32,
+    pub accepts_connections: bool,
+    pub routes_data: bool,
+}
+
 pub struct NodeRenderable {
-    pub version: Option<u32>,
+    pub inner: Option<NodeRenderableInner>,
     pub public_key: PublicKey,
     pub node_addr: Option<NodeAddr>,
     pub known_source: bool,
@@ -36,8 +42,13 @@ impl DotRenderable for NodeRenderable {
 
 impl NodeRenderable {
     fn render_label(&self) -> String {
-        let version_string = match self.version {
-            Some(v) => format!("v{}\\n", v),
+        let inner_string = match &self.inner {
+            Some(inner) => format!(
+                "{}{} v{}\\n",
+                if inner.accepts_connections { "A" } else { "a" },
+                if inner.routes_data { "R" } else { "r" },
+                inner.version,
+            ),
             None => String::new(),
         };
         let public_key_str = format!("{}", self.public_key);
@@ -53,7 +64,7 @@ impl NodeRenderable {
 
         format!(
             " [label=\"{}{}{}\"]",
-            version_string, public_key_trunc, node_addr_string,
+            inner_string, public_key_trunc, node_addr_string,
         )
     }
 }
@@ -91,7 +102,11 @@ mod tests {
         let public_key_64 = format!("{}", public_key);
         let public_key_trunc = String::from(&public_key_64[0..8]);
         let node = NodeRenderable {
-            version: Some(1),
+            inner: Some(NodeRenderableInner {
+                version: 1,
+                accepts_connections: true,
+                routes_data: true,
+            }),
             public_key: public_key.clone(),
             node_addr: None,
             known_source: false,
@@ -104,7 +119,7 @@ mod tests {
         assert_string_contains(
             &result,
             &format!(
-                "\"{}\" [label=\"v1\\n{}\"];",
+                "\"{}\" [label=\"AR v1\\n{}\"];",
                 public_key_64, public_key_trunc
             ),
         );
@@ -115,7 +130,11 @@ mod tests {
         let public_key = PublicKey::new(&b"ABC"[..]);
         let public_key_64 = format!("{}", public_key);
         let node = NodeRenderable {
-            version: Some(1),
+            inner: Some(NodeRenderableInner {
+                version: 1,
+                accepts_connections: false,
+                routes_data: false,
+            }),
             public_key: public_key.clone(),
             node_addr: None,
             known_source: false,
@@ -127,7 +146,10 @@ mod tests {
 
         assert_string_contains(
             &result,
-            &format!("\"{}\" [label=\"v1\\n{}\"];", public_key_64, public_key_64),
+            &format!(
+                "\"{}\" [label=\"ar v1\\n{}\"];",
+                public_key_64, public_key_64
+            ),
         );
     }
 }

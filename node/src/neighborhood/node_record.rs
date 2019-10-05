@@ -5,6 +5,7 @@ use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, Neighborh
 use crate::neighborhood::{regenerate_signed_gossip, AccessibleGossipRecord};
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData, PublicKey};
 use crate::sub_lib::data_version::DataVersion;
+use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::RatePack;
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
@@ -21,12 +22,14 @@ pub struct NodeRecordInner {
     pub earning_wallet: Wallet,
     pub rate_pack: RatePack,
     pub neighbors: BTreeSet<PublicKey>,
+    pub accepts_connections: bool,
+    pub routes_data: bool,
     pub version: u32,
 }
 
 impl NodeRecordInner {
     pub fn data_version() -> DataVersion {
-        DataVersion::new(0, 0).expect("Internal Error")
+        DataVersion::new(1, 0).expect("Internal Error")
     }
 }
 
@@ -67,6 +70,8 @@ impl NodeRecord {
         public_key: &PublicKey,
         earning_wallet: Wallet,
         rate_pack: RatePack,
+        accepts_connections: bool,
+        routes_data: bool,
         version: u32,
         cryptde: &dyn CryptDE, // Must be the new NodeRecord's CryptDE: used for signing
     ) -> NodeRecord {
@@ -77,6 +82,8 @@ impl NodeRecord {
                 public_key: public_key.clone(),
                 earning_wallet,
                 rate_pack,
+                accepts_connections,
+                routes_data,
                 neighbors: BTreeSet::new(),
                 version,
             },
@@ -93,6 +100,10 @@ impl NodeRecord {
 
     pub fn node_addr_opt(&self) -> Option<NodeAddr> {
         self.metadata.node_addr_opt.clone()
+    }
+
+    pub fn node_descriptor(&self, cryptde: &dyn CryptDE, chain_id: u8) -> String {
+        NodeDescriptor::from(self).to_string(cryptde, chain_id)
     }
 
     pub fn set_node_addr(
@@ -188,6 +199,14 @@ impl NodeRecord {
 
     pub fn signature(&self) -> &CryptData {
         &self.signature
+    }
+
+    pub fn accepts_connections(&self) -> bool {
+        self.inner.accepts_connections
+    }
+
+    pub fn routes_data(&self) -> bool {
+        self.inner.routes_data
     }
 
     pub fn version(&self) -> u32 {
@@ -357,6 +376,28 @@ mod tests {
     }
 
     #[test]
+    fn node_descriptor_works_when_node_addr_is_present() {
+        let mut subject = make_node_record(1234, true);
+        subject.metadata.node_addr_opt = Some(NodeAddr::new(
+            &subject.metadata.node_addr_opt.unwrap().ip_addr(),
+            &vec![1234, 2345],
+        ));
+
+        let result = subject.node_descriptor(cryptde(), DEFAULT_CHAIN_ID);
+
+        assert_eq!(result, "AQIDBA:1.2.3.4:1234;2345".to_string());
+    }
+
+    #[test]
+    fn node_descriptor_works_when_node_addr_is_not_present() {
+        let subject: NodeRecord = make_node_record(1234, false);
+
+        let result = subject.node_descriptor(cryptde(), DEFAULT_CHAIN_ID);
+
+        assert_eq!(result, "AQIDBA::".to_string());
+    }
+
+    #[test]
     fn unset_node_addr() {
         let mut subject = make_node_record(1234, true);
 
@@ -516,6 +557,8 @@ mod tests {
             &PublicKey::new(&b"poke"[..]),
             earning_wallet.clone(),
             rate_pack(100),
+            true,
+            true,
             0,
             cryptde(),
         );
@@ -523,6 +566,8 @@ mod tests {
             &PublicKey::new(&b"poke"[..]),
             earning_wallet.clone(),
             rate_pack(100),
+            true,
+            true,
             0,
             cryptde(),
         );
@@ -530,6 +575,8 @@ mod tests {
             &PublicKey::new(&b"poke"[..]),
             earning_wallet.clone(),
             rate_pack(100),
+            true,
+            true,
             0,
             cryptde(),
         );
@@ -537,6 +584,8 @@ mod tests {
             &PublicKey::new(&b"kope"[..]),
             earning_wallet.clone(),
             rate_pack(100),
+            true,
+            true,
             0,
             cryptde(),
         );
@@ -547,6 +596,8 @@ mod tests {
             &PublicKey::new(&b"poke"[..]),
             earning_wallet.clone(),
             rate_pack(100),
+            true,
+            true,
             0,
             cryptde(),
         );
@@ -560,6 +611,8 @@ mod tests {
             &PublicKey::new(&b"poke"[..]),
             make_wallet("booga"),
             rate_pack(100),
+            true,
+            true,
             0,
             cryptde(),
         );
@@ -567,6 +620,26 @@ mod tests {
             &PublicKey::new(&b"poke"[..]),
             earning_wallet.clone(),
             rate_pack(200),
+            true,
+            true,
+            0,
+            cryptde(),
+        );
+        let mod_accepts_connections = NodeRecord::new(
+            &PublicKey::new(&b"poke"[..]),
+            earning_wallet.clone(),
+            rate_pack(100),
+            false,
+            true,
+            0,
+            cryptde(),
+        );
+        let mod_routes_data = NodeRecord::new(
+            &PublicKey::new(&b"poke"[..]),
+            earning_wallet.clone(),
+            rate_pack(100),
+            true,
+            false,
             0,
             cryptde(),
         );
@@ -574,6 +647,8 @@ mod tests {
             &PublicKey::new(&b"poke"[..]),
             earning_wallet.clone(),
             rate_pack(100),
+            true,
+            true,
             0,
             cryptde(),
         );
@@ -582,6 +657,8 @@ mod tests {
             &PublicKey::new(&b"poke"[..]),
             earning_wallet.clone(),
             rate_pack(100),
+            true,
+            true,
             0,
             cryptde(),
         );
@@ -590,6 +667,8 @@ mod tests {
             &PublicKey::new(&b"poke"[..]),
             earning_wallet.clone(),
             rate_pack(100),
+            true,
+            true,
             1,
             cryptde(),
         );
@@ -601,6 +680,8 @@ mod tests {
         assert_ne!(exemplar, mod_node_addr);
         assert_ne!(exemplar, mod_earning_wallet);
         assert_ne!(exemplar, mod_rate_pack);
+        assert_ne!(exemplar, mod_accepts_connections);
+        assert_ne!(exemplar, mod_routes_data);
         assert_ne!(exemplar, mod_signed_gossip);
         assert_ne!(exemplar, mod_signature);
         assert_ne!(exemplar, mod_version);
