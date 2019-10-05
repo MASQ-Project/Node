@@ -12,12 +12,14 @@ if [[ "$OSTYPE" == "msys" ]]; then
   DNS_EXECUTABLE="$DNS_EXECUTABLE.exe"
 fi
 
-rm -rf "$CI_DIR/../src/static/binaries"
-mkdir -p "$CI_DIR/../src/static/binaries"
+BINARIES_DIR="$CI_DIR/../render-process/src/static/binaries/"
 
-cp "$CI_DIR/../../node/target/release/$NODE_EXECUTABLE" "$CI_DIR/../src/static/binaries/"
-cp "$CI_DIR/../../dns_utility/target/release/$DNS_EXECUTABLE" "$CI_DIR/../src/static/binaries/"
+rm -rf "$BINARIES_DIR"
+mkdir -p "$BINARIES_DIR"
+
+cp "$CI_DIR/../../node/target/release/$NODE_EXECUTABLE" "$BINARIES_DIR"
+cp "$CI_DIR/../../dns_utility/target/release/$DNS_EXECUTABLE" "$BINARIES_DIR"
 if [[ "$OSTYPE" == "msys" ]]; then
-  cp "$CI_DIR/../../node/target/release/$NODE_EXECUTABLEW" "$CI_DIR/../src/static/binaries/"
-  cp "$CI_DIR/../../dns_utility/target/release/$DNS_EXECUTABLEW" "$CI_DIR/../src/static/binaries/"
+  cp "$CI_DIR/../../node/target/release/$NODE_EXECUTABLEW" "$BINARIES_DIR"
+  cp "$CI_DIR/../../dns_utility/target/release/$DNS_EXECUTABLEW" "$BINARIES_DIR"
 fi

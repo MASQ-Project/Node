@@ -1,11 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::blockchain_interface::{DEFAULT_CHAIN_NAME, DEFAULT_GAS_PRICE};
+use crate::blockchain::blockchain_interface::DEFAULT_GAS_PRICE;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::node_configurator;
 use crate::node_configurator::{
-    app_head, common_validators, config_file_arg, data_directory_arg, earning_wallet_arg,
-    initialize_database, real_user_arg, wallet_password_arg, NodeConfigurator,
+    app_head, chain_arg, common_validators, config_file_arg, data_directory_arg,
+    earning_wallet_arg, initialize_database, real_user_arg, wallet_password_arg, NodeConfigurator,
 };
 use crate::sub_lib::crash_point::CrashPoint;
 use crate::sub_lib::main_tools::StdStreams;
@@ -38,7 +38,10 @@ pub struct NodeConfiguratorStandardUnprivileged {
 impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileged {
     fn configure(&self, args: &Vec<String>, streams: &mut StdStreams<'_>) -> BootstrapperConfig {
         let app = app();
-        let persistent_config = initialize_database(&self.privileged_config.data_directory);
+        let persistent_config = initialize_database(
+            &self.privileged_config.data_directory,
+            self.privileged_config.blockchain_bridge_config.chain_id,
+        );
         let mut unprivileged_config = BootstrapperConfig::new();
         let multi_config = standard::make_service_mode_multi_config(&app, args);
         standard::unprivileged_parse_args(
@@ -201,17 +204,7 @@ fn app() -> App<'static, 'static> {
             EARNING_WALLET_HELP,
             common_validators::validate_ethereum_address,
         ))
-        .arg(
-            Arg::with_name("chain")
-                .long("chain")
-                .value_name("CHAIN")
-                .min_values(1)
-                .max_values(1)
-                .takes_value(true)
-                .possible_values(&["dev", "mainnet", "ropsten"])
-                .default_value(DEFAULT_CHAIN_NAME) // TODO: SC-501/GH-115: Update
-                .help(CHAIN_HELP),
-        )
+        .arg(chain_arg())
         .arg(
             Arg::with_name("fake-public-key")
                 .long("fake-public-key")
@@ -285,7 +278,7 @@ mod standard {
     use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
     use crate::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig};
     use crate::node_configurator::{
-        determine_config_file_path, real_user_and_data_directory,
+        determine_config_file_path, real_user_data_directory_and_chain_id,
         request_wallet_decryption_password,
     };
     use crate::persistent_configuration::{PersistentConfiguration, HTTP_PORT, TLS_PORT};
@@ -335,12 +328,18 @@ mod standard {
         config: &mut BootstrapperConfig,
         _streams: &mut StdStreams<'_>,
     ) {
+        if let Some(chain_name) = value_m!(multi_config, "chain", String) {
+            config.blockchain_bridge_config.chain_id = chain_id_from_name(chain_name.as_str());
+        }
+
         config.blockchain_bridge_config.blockchain_service_url =
             value_m!(multi_config, "blockchain-service-url", String);
 
-        let (real_user, data_directory) = real_user_and_data_directory(multi_config);
+        let (real_user, data_directory, chain_id) =
+            real_user_data_directory_and_chain_id(multi_config);
         config.real_user = real_user;
         config.data_directory = data_directory;
+        config.blockchain_bridge_config.chain_id = chain_id;
 
         config.dns_servers = values_m!(multi_config, "dns-servers", IpAddr)
             .into_iter()
@@ -360,10 +359,6 @@ mod standard {
 
         config.crash_point =
             value_m!(multi_config, "crash-point", CrashPoint).expect("Internal Error");
-
-        if let Some(chain_name) = value_m!(multi_config, "chain", String) {
-            config.blockchain_bridge_config.chain_id = chain_id_from_name(&chain_name);
-        }
 
         match value_m!(multi_config, "fake-public-key", String) {
             None => (),
@@ -632,7 +627,9 @@ mod tests {
     use super::*;
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::blockchain::bip39::{Bip39, Bip39Error};
-    use crate::blockchain::blockchain_interface::{chain_id_from_name, contract_address};
+    use crate::blockchain::blockchain_interface::{
+        chain_id_from_name, contract_address, DEFAULT_CHAIN_NAME,
+    };
     use crate::bootstrapper::RealUser;
     use crate::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::database::db_initializer;
@@ -861,7 +858,7 @@ mod tests {
         );
         let persistent_config = PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir.clone())
+                .initialize(&home_dir.clone(), DEFAULT_CHAIN_ID)
                 .unwrap(),
         )));
         let consuming_private_key =
@@ -1015,7 +1012,7 @@ mod tests {
         );
         let config_dao: Box<dyn ConfigDao> = Box::new(ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir.clone())
+                .initialize(&home_dir.clone(), DEFAULT_CHAIN_ID)
                 .unwrap(),
         ));
         let consuming_private_key_text =
@@ -1130,13 +1127,14 @@ mod tests {
         #[cfg(target_os = "linux")]
         assert_eq!(
             config.data_directory,
-            PathBuf::from("/home/booga/.local/share/MASQ")
+            PathBuf::from("/home/booga/.local/share/MASQ").join(DEFAULT_CHAIN_NAME)
         );
 
         #[cfg(target_os = "macos")]
         assert_eq!(
             config.data_directory,
             PathBuf::from("/home/booga/Library/Application Support/MASQ")
+                .join(DEFAULT_CHAIN_NAME)
         );
     }
 
@@ -1613,7 +1611,7 @@ mod tests {
         );
 
         let conn = db_initializer::DbInitializerReal::new()
-            .initialize(&data_directory)
+            .initialize(&data_directory, DEFAULT_CHAIN_ID)
             .unwrap();
         let config_dao: Box<dyn ConfigDao> = Box::new(ConfigDaoReal::new(conn));
         config_dao.set_string("seed", "booga booga").unwrap();
@@ -1643,7 +1641,7 @@ mod tests {
         );
 
         let conn = db_initializer::DbInitializerReal::new()
-            .initialize(&data_directory)
+            .initialize(&data_directory, DEFAULT_CHAIN_ID)
             .unwrap();
         let config_dao: Box<dyn ConfigDao> = Box::new(ConfigDaoReal::new(conn));
 

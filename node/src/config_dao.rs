@@ -144,17 +144,22 @@ fn handle_update_execution(result: rusqlite::Result<usize>) -> Result<(), Config
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::blockchain_interface::ROPSTEN_CONTRACT_CREATION_BLOCK;
     use crate::database::db_initializer::{
-        DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION, ROPSTEN_CONTRACT_CREATION_BLOCK,
+        DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION,
     };
-    use crate::test_utils::{assert_contains, ensure_node_home_directory_exists};
+    use crate::test_utils::{assert_contains, ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
     use rusqlite::NO_PARAMS;
 
     #[test]
     fn get_all_returns_multiple_results() {
         let home_dir =
             ensure_node_home_directory_exists("node", "get_all_returns_multiple_results");
-        let subject = ConfigDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+        let subject = ConfigDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
 
         let result = subject.get_all().unwrap();
 
@@ -179,7 +184,11 @@ mod tests {
     fn get_string_complains_about_nonexistent_row() {
         let home_dir =
             ensure_node_home_directory_exists("node", "get_string_complains_about_nonexistent_row");
-        let subject = ConfigDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+        let subject = ConfigDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
 
         let result = subject.get_string("booga");
 
@@ -195,7 +204,11 @@ mod tests {
     fn get_string_does_not_find_null_value() {
         let home_dir =
             ensure_node_home_directory_exists("node", "get_string_does_not_find_null_value");
-        let subject = ConfigDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+        let subject = ConfigDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
 
         let result = subject.get_string("seed");
 
@@ -206,7 +219,11 @@ mod tests {
     fn get_string_passes_along_database_error() {
         let home_dir =
             ensure_node_home_directory_exists("node", "get_string_passes_along_database_error");
-        let subject = ConfigDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+        let subject = ConfigDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
         let mut stmt = subject
             .conn
             .prepare("drop table config")
@@ -227,7 +244,11 @@ mod tests {
     fn get_string_finds_existing_string() {
         let home_dir =
             ensure_node_home_directory_exists("node", "get_string_finds_existing_string");
-        let subject = ConfigDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+        let subject = ConfigDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
 
         let result = subject.get_string("schema_version");
 
@@ -238,7 +259,11 @@ mod tests {
     fn set_string_passes_along_update_database_error() {
         let home_dir =
             ensure_node_home_directory_exists("node", "set_string_passes_along_database_error");
-        let subject = ConfigDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+        let subject = ConfigDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
         let mut stmt = subject
             .conn
             .prepare("drop table config")
@@ -261,7 +286,11 @@ mod tests {
             "node",
             "set_string_complains_about_nonexistent_entry",
         );
-        let subject = ConfigDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+        let subject = ConfigDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
 
         let result = subject.set_string("booga", "whop");
 
@@ -272,7 +301,11 @@ mod tests {
     fn set_string_updates_existing_string() {
         let home_dir =
             ensure_node_home_directory_exists("node", "set_string_updates_existing_string");
-        let subject = ConfigDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+        let subject = ConfigDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
 
         subject.set_string("clandestine_port", "4096").unwrap();
 
@@ -284,7 +317,11 @@ mod tests {
     fn get_u64_complains_about_string_value() {
         let home_dir =
             ensure_node_home_directory_exists("node", "get_u64_complains_about_string_value");
-        let subject = ConfigDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+        let subject = ConfigDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
 
         let result = subject.get_u64("schema_version");
 
@@ -294,7 +331,11 @@ mod tests {
     #[test]
     fn set_u64_and_get_u64_communicate() {
         let home_dir = ensure_node_home_directory_exists("node", "set_u64_and_get_u64_communicate");
-        let subject = ConfigDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+        let subject = ConfigDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
         subject.set_u64("clandestine_port", 4096).unwrap();
 
         let result = subject.get_u64("clandestine_port");
@@ -308,9 +349,15 @@ mod tests {
         let key = "start_block";
         let value = 99u64;
 
-        let subject = ConfigDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+        let subject = ConfigDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
         {
-            let mut db = DbInitializerReal::new().initialize(&home_dir).unwrap();
+            let mut db = DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap();
             let transaction = db.transaction().unwrap();
 
             subject
