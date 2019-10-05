@@ -120,14 +120,16 @@ mod tests {
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
     use crate::test_utils::config_dao_mock::ConfigDaoMock;
-    use crate::test_utils::ensure_node_home_directory_exists;
+    use crate::test_utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
     use std::sync::{Arc, Mutex};
 
     #[test]
     fn test_seed_store_and_read() {
         let home_dir = ensure_node_home_directory_exists("blockchain", "test-seed-store-and-read");
         let config_dao: Box<dyn ConfigDao> = Box::new(ConfigDaoReal::new(
-            DbInitializerReal::new().initialize(&home_dir).unwrap(),
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
         ));
         let persistent_config = PersistentConfigurationReal::from(config_dao);
         let password = "You-Sh0uld-Ch4nge-Me-Now!!";

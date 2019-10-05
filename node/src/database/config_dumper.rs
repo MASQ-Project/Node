@@ -4,7 +4,7 @@ use crate::bootstrapper::RealUser;
 use crate::config_dao::{ConfigDao, ConfigDaoReal};
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
 use crate::multi_config::{CommandLineVcl, EnvironmentVcl, MultiConfig, VirtualCommandLine};
-use crate::node_configurator::{app_head, data_directory_arg, real_user_arg};
+use crate::node_configurator::{app_head, chain_arg, data_directory_arg, real_user_arg};
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::sub_lib::main_tools::StdStreams;
 use clap::Arg;
@@ -17,9 +17,9 @@ const DUMP_CONFIG_HELP: &str =
     "Dump the configuration of SubstratumNode to stdout in JSON. Used chiefly by UIs.";
 
 pub fn dump_config(args: &Vec<String>, streams: &mut StdStreams) -> i32 {
-    let (real_user, data_directory) = distill_args(args);
+    let (real_user, data_directory, chain_id) = distill_args(args);
     PrivilegeDropperReal::new().drop_privileges(&real_user);
-    let config_dao = make_config_dao(&data_directory);
+    let config_dao = make_config_dao(&data_directory, chain_id);
     let configuration = config_dao.get_all().expect("Couldn't fetch configuration");
     let json = configuration_to_json(configuration);
     write_string(streams, json);
@@ -50,9 +50,9 @@ fn configuration_to_json(configuration: Vec<(String, Option<String>)>) -> String
     serde_json::to_string_pretty(&value).expect("Couldn't serialize configuration to JSON")
 }
 
-fn make_config_dao(data_directory: &PathBuf) -> ConfigDaoReal {
+fn make_config_dao(data_directory: &PathBuf, chain_id: u8) -> ConfigDaoReal {
     let conn = DbInitializerReal::new()
-        .initialize(&data_directory)
+        .initialize(&data_directory, chain_id)
         .unwrap_or_else(|e| {
             panic!(
                 "Can't initialize database at {:?}: {:?}",
@@ -63,7 +63,7 @@ fn make_config_dao(data_directory: &PathBuf) -> ConfigDaoReal {
     ConfigDaoReal::new(conn)
 }
 
-fn distill_args(args: &Vec<String>) -> (RealUser, PathBuf) {
+fn distill_args(args: &Vec<String>) -> (RealUser, PathBuf, u8) {
     let app = app_head()
         .arg(
             Arg::with_name("dump-config")
@@ -72,6 +72,7 @@ fn distill_args(args: &Vec<String>) -> (RealUser, PathBuf) {
                 .takes_value(false)
                 .help(DUMP_CONFIG_HELP),
         )
+        .arg(chain_arg())
         .arg(data_directory_arg())
         .arg(real_user_arg());
     let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
@@ -79,30 +80,37 @@ fn distill_args(args: &Vec<String>) -> (RealUser, PathBuf) {
         Box::new(EnvironmentVcl::new(&app)),
     ];
     let multi_config = MultiConfig::new(&app, vcls);
-    crate::node_configurator::real_user_and_data_directory(&multi_config)
+    crate::node_configurator::real_user_data_directory_and_chain_id(&multi_config)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::blockchain_interface::{
+        chain_id_from_name, contract_creation_block_from_chain_id, DEFAULT_CHAIN_NAME,
+    };
     use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
-    use crate::database::db_initializer::ROPSTEN_CONTRACT_CREATION_BLOCK;
     use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
     use crate::sub_lib::cryptde::PlainData;
-    use crate::test_utils::{ensure_node_home_directory_exists, ArgsBuilder, FakeStreamHolder};
+    use crate::test_utils::{
+        ensure_node_home_directory_exists, ArgsBuilder, FakeStreamHolder, DEFAULT_CHAIN_ID,
+    };
 
     #[test]
     fn dump_config_creates_database_if_nonexistent() {
         let data_dir = ensure_node_home_directory_exists(
             "config_dumper",
             "dump_config_creates_database_if_nonexistent",
-        );
+        )
+        .join("Substratum")
+        .join(DEFAULT_CHAIN_NAME);
         let mut holder = FakeStreamHolder::new();
 
         let result = dump_config(
             &ArgsBuilder::new()
                 .param("--data-directory", data_dir.to_str().unwrap())
                 .param("--real-user", "123::")
+                .param("--chain", DEFAULT_CHAIN_NAME)
                 .opt("--dump-config")
                 .into(),
             &mut holder.streams(),
@@ -123,7 +131,7 @@ mod tests {
            "gasPrice": "1",
            "schemaVersion": CURRENT_SCHEMA_VERSION,
            "seed": null,
-           "startBlock": &ROPSTEN_CONTRACT_CREATION_BLOCK.to_string(),
+           "startBlock": &contract_creation_block_from_chain_id(chain_id_from_name(DEFAULT_CHAIN_NAME)).to_string(),
         });
         assert_eq!(actual_value, expected_value);
     }
@@ -133,10 +141,14 @@ mod tests {
         let data_dir = ensure_node_home_directory_exists(
             "config_dumper",
             "dump_config_dumps_existing_database",
-        );
+        )
+        .join("Substratum")
+        .join(DEFAULT_CHAIN_NAME);
         let mut holder = FakeStreamHolder::new();
         {
-            let conn = DbInitializerReal::new().initialize(&data_dir).unwrap();
+            let conn = DbInitializerReal::new()
+                .initialize(&data_dir, DEFAULT_CHAIN_ID)
+                .unwrap();
             let persistent_config = PersistentConfigurationReal::from(conn);
             persistent_config.set_consuming_wallet_public_key(&PlainData::new(&[1, 2, 3, 4]));
             persistent_config
@@ -148,6 +160,7 @@ mod tests {
             &ArgsBuilder::new()
                 .param("--data-directory", data_dir.to_str().unwrap())
                 .param("--real-user", "123::")
+                .param("--chain", DEFAULT_CHAIN_NAME)
                 .opt("--dump-config")
                 .into(),
             &mut holder.streams(),
@@ -164,7 +177,7 @@ mod tests {
            "gasPrice": "1",
            "schemaVersion": CURRENT_SCHEMA_VERSION,
            "seed": null,
-           "startBlock": &ROPSTEN_CONTRACT_CREATION_BLOCK.to_string(),
+           "startBlock": &contract_creation_block_from_chain_id(chain_id_from_name(DEFAULT_CHAIN_NAME)).to_string(),
         });
         assert_eq!(actual_value, expected_value);
     }

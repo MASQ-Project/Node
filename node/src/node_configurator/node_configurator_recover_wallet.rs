@@ -3,11 +3,12 @@
 use crate::blockchain::bip39::Bip39;
 use crate::multi_config::MultiConfig;
 use crate::node_configurator::{
-    app_head, common_validators, consuming_wallet_arg, create_wallet, data_directory_arg,
-    earning_wallet_arg, exit, flushed_write, language_arg, mnemonic_passphrase_arg,
-    prepare_initialization_mode, real_user_arg, request_password_with_confirmation,
-    request_password_with_retry, wallet_password_arg, Either, NodeConfigurator,
-    WalletCreationConfig, WalletCreationConfigMaker, EARNING_WALLET_HELP, WALLET_PASSWORD_HELP,
+    app_head, chain_arg, common_validators, consuming_wallet_arg, create_wallet,
+    data_directory_arg, earning_wallet_arg, exit, flushed_write, language_arg,
+    mnemonic_passphrase_arg, prepare_initialization_mode, real_user_arg,
+    request_password_with_confirmation, request_password_with_retry, wallet_password_arg, Either,
+    NodeConfigurator, WalletCreationConfig, WalletCreationConfigMaker, EARNING_WALLET_HELP,
+    WALLET_PASSWORD_HELP,
 };
 use crate::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::cryptde::PlainData;
@@ -107,6 +108,7 @@ impl NodeConfiguratorRecoverWallet {
                         .requires_all(&["language"])
                         .help(RECOVER_WALLET_HELP),
                 )
+                .arg(chain_arg())
                 .arg(consuming_wallet_arg())
                 .arg(data_directory_arg())
                 .arg(earning_wallet_arg(
@@ -235,6 +237,7 @@ impl Validators {
 mod tests {
     use super::*;
     use crate::blockchain::bip32::Bip32ECKeyPair;
+    use crate::blockchain::blockchain_interface::DEFAULT_CHAIN_NAME;
     use crate::bootstrapper::RealUser;
     use crate::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::database::db_initializer;
@@ -393,6 +396,7 @@ mod tests {
         let earning_path = "m/44'/60'/0'/78/77";
         let args = ArgsBuilder::new()
             .opt("--recover-wallet")
+            .param("--chain", DEFAULT_CHAIN_NAME)
             .param("--data-directory", home_dir.to_str().unwrap())
             .param("--wallet-password", password)
             .param("--consuming-wallet", consuming_path)
@@ -438,6 +442,7 @@ mod tests {
         let phrase = "company replace elder oxygen access into pair squeeze clip occur world crowd";
         let args = ArgsBuilder::new()
             .opt("--recover-wallet")
+            .param("--chain", DEFAULT_CHAIN_NAME)
             .param("--wallet-password", password)
             .param("--mnemonic", phrase)
             .param("--mnemonic-passphrase", "Mortimer");
@@ -480,6 +485,7 @@ mod tests {
     fn mnemonic_argument_fails_with_invalid_words() {
         let args = ArgsBuilder::new()
             .opt("--recover-wallet")
+            .param("--chain", DEFAULT_CHAIN_NAME)
             .param(
                 "--mnemonic",
                 "one two three four five six seven eight nine ten eleven twelve",
@@ -571,12 +577,13 @@ mod tests {
         );
 
         let conn = db_initializer::DbInitializerReal::new()
-            .initialize(&data_directory)
+            .initialize(&data_directory, DEFAULT_CHAIN_ID)
             .unwrap();
         let config_dao = ConfigDaoReal::new(conn);
         config_dao.set_string("seed", "booga booga").unwrap();
         let args = ArgsBuilder::new()
             .opt("--recover-wallet")
+            .param("--chain", DEFAULT_CHAIN_NAME)
             .param("--data-directory", data_directory.to_str().unwrap())
             .param("--wallet-password", "rick-rolled");
         let subject = NodeConfiguratorRecoverWallet::new();

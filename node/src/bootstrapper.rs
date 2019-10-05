@@ -443,7 +443,10 @@ impl Bootstrapper {
             return;
         }
         let conn = DbInitializerReal::new()
-            .initialize(&self.config.data_directory)
+            .initialize(
+                &self.config.data_directory,
+                self.config.blockchain_bridge_config.chain_id,
+            )
             .expect("Cannot initialize database");
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
@@ -1260,6 +1263,7 @@ mod tests {
         .to_string(&cryptde, DEFAULT_CHAIN_ID)];
         config.data_directory = data_dir.clone();
         config.clandestine_port_opt = Some(1234);
+        let chain_id = config.blockchain_bridge_config.chain_id;
         let listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
         let mut subject = BootstrapperBuilder::new()
             .add_listener_handler(Box::new(listener_handler))
@@ -1268,7 +1272,9 @@ mod tests {
 
         subject.establish_clandestine_port();
 
-        let conn = DbInitializerReal::new().initialize(&data_dir).unwrap();
+        let conn = DbInitializerReal::new()
+            .initialize(&data_dir, chain_id)
+            .unwrap();
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
         assert_eq!(1234u16, persistent_config.clandestine_port());
@@ -1313,6 +1319,7 @@ mod tests {
         .to_string(&cryptde, DEFAULT_CHAIN_ID)];
         config.data_directory = data_dir.clone();
         config.clandestine_port_opt = None;
+        let chain_id = config.blockchain_bridge_config.chain_id;
         let listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
         let mut subject = BootstrapperBuilder::new()
             .add_listener_handler(Box::new(listener_handler))
@@ -1321,7 +1328,9 @@ mod tests {
 
         subject.establish_clandestine_port();
 
-        let conn = DbInitializerReal::new().initialize(&data_dir).unwrap();
+        let conn = DbInitializerReal::new()
+            .initialize(&data_dir, chain_id)
+            .unwrap();
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
         let clandestine_port = persistent_config.clandestine_port();

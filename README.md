@@ -195,15 +195,17 @@ for you based on BIP44 derivation paths. It will display this information on the
 You **MUST** record the mnemonic phrase exactly as displayed along with the mnemonic passphrase you provide and 
 keep it in a secure location. When it is displayed, that is your only opportunity to record the words. For security 
 purposes they cannot be displayed again. Record the words on paper, etch them in metal or stone and secure them in a safe
-deposit box or other secure offsite location.
+deposit box or other secure offsite location. Do not run with administrative privileges (`sudo` on Linux and macOS, a command
+window started as Administrator in Windows).
 
 1. __Recover mode -__ If you already have existing earning and consuming wallets that you'd like SubstratumNode to use, you
 can start it in Recover mode and tell it about those wallets. It will store the information you give it and immediately
-terminate.
+terminate. Do not run with administrative privileges (`sudo` on Linux and macOS, a command window started as Administrator in
+Windows).
 
 1. __Service mode -__ When started in Service mode, SubstratumNode will come up, join the Substratum Network, and start
 serving and consuming clandestine data until you stop it. Since Service mode requires listening on low-numbered
-restricted ports, starting SubstratumNode in Service mode requires administrative privilege (`sudo` on Linux or Mac, a
+restricted ports, starting SubstratumNode in Service mode requires administrative privilege (`sudo` on Linux and macOS, a
 command window started as Administrator in Windows).
 
 ##### Generate and Recover Modes
@@ -325,11 +327,13 @@ port is 5333; in most cases, this will not need to be changed.
 
 * `--data-directory <DIRECTORY>`
 This is the directory in which SubstratumNode will keep the state that needs to persist from run to run. If it's not specified, the
-default is `$XDG_DATA_HOME/Substratum` or `$HOME/.local/share/Substratum` on Linux, `%APPDATA%/Substratum` on Windows, and
-`$HOME/Library/Application Support/Substratum` on macOS. If it is specified but doesn't exist, SubstratumNode will try to create 
-the directory and abort if it fails. If persistent state exists in the directory, but it was created by a version of 
-SubstratumNode that is incompatible with the version you're trying to start, SubstratumNode will abort. If this is the 
-case, either remove the existing state and restart SubstratumNode, or specify a different `--data-directory` directory.
+default is `$XDG_DATA_HOME/Substratum/<chain-name>` or `$HOME/.local/share/Substratum/<chain-name>` on Linux, 
+`%APPDATA%\Substratum\<chain-name>` on Windows, and `$HOME/Library/Application Support/Substratum/<chain-name>` on macOS where 
+`chain-name` is either `ropsten` or `mainnet` (see `--chain` parameter for more information). If it is specified but doesn't 
+exist, SubstratumNode will try to create the directory and abort if it fails. If persistent state exists in the directory, 
+but it was created by a version of SubstratumNode that is incompatible with the version you're trying to start, SubstratumNode 
+will abort. If this is the case, either remove the existing state and restart SubstratumNode, or specify a different 
+`--data-directory` directory.
 
 * `--config-file <FILENAME OR PATH>`
 Rather than specifying the same parameter values over and over when you start SubstratumNode in Service mode, you can put parameters that

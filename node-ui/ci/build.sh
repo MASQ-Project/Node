@@ -4,6 +4,10 @@ CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 
 pushd "$CI_DIR/.."
 ci/copy_binaries.sh
+popd
+pushd "$CI_DIR/../render-process"
 yarn build
+popd
+pushd "$CI_DIR/../main-process"
 chmod +x dist/static/**/*
 popd

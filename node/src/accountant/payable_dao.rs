@@ -213,7 +213,7 @@ mod tests {
     use crate::database::dao_utils::from_time_t;
     use crate::database::db_initializer;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::test_utils::{ensure_node_home_directory_exists, make_wallet};
+    use crate::test_utils::{ensure_node_home_directory_exists, make_wallet, DEFAULT_CHAIN_ID};
     use ethereum_types::BigEndianHash;
     use rusqlite::{Connection, OpenFlags, NO_PARAMS};
     use web3::types::U256;
@@ -227,8 +227,11 @@ mod tests {
         let before = dao_utils::to_time_t(SystemTime::now());
         let wallet = make_wallet("booga");
         let status = {
-            let subject =
-                PayableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+            let subject = PayableDaoReal::new(
+                DbInitializerReal::new()
+                    .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                    .unwrap(),
+            );
 
             subject.more_money_payable(&wallet, 1234);
             subject.account_status(&wallet).unwrap()
@@ -260,8 +263,11 @@ mod tests {
         );
         let wallet = make_wallet("booga");
         let subject = {
-            let subject =
-                PayableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+            let subject = PayableDaoReal::new(
+                DbInitializerReal::new()
+                    .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                    .unwrap(),
+            );
             subject.more_money_payable(&wallet, 1234);
             let mut flags = OpenFlags::empty();
             flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
@@ -293,7 +299,11 @@ mod tests {
             "payment_sent_records_a_pending_transaction_for_a_new_address",
         );
         let wallet = make_wallet("booga");
-        let subject = PayableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+        let subject = PayableDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
         let payment = Payment::new(wallet.clone(), 1, H256::from_uint(&U256::from(1)));
 
         let before_account_status = subject.account_status(&payment.to);
@@ -321,7 +331,11 @@ mod tests {
             "payment_sent_records_a_pending_transaction_for_an_existing_address",
         );
         let wallet = make_wallet("booga");
-        let subject = PayableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+        let subject = PayableDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
         let payment = Payment::new(wallet.clone(), 1, H256::from_uint(&U256::from(1)));
 
         let before_account_status = subject.account_status(&payment.to);
@@ -349,7 +363,11 @@ mod tests {
             "payable_account_status_works_when_account_doesnt_exist",
         );
         let wallet = make_wallet("booga");
-        let subject = PayableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+        let subject = PayableDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
 
         let result = subject.account_status(&wallet);
 
@@ -363,7 +381,11 @@ mod tests {
             "non_pending_payables_should_return_an_empty_vec_when_the_database_is_empty",
         );
 
-        let subject = PayableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+        let subject = PayableDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
 
         assert_eq!(subject.non_pending_payables(), vec![]);
     }
@@ -375,7 +397,11 @@ mod tests {
             "non_pending_payables_should_return_payables_with_no_pending_transaction",
         );
 
-        let subject = PayableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+        let subject = PayableDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
 
         let mut flags = OpenFlags::empty();
         flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
@@ -433,7 +459,11 @@ mod tests {
             "accountant",
             "payable_amount_precision_loss_panics_on_insert",
         );
-        let subject = PayableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+        let subject = PayableDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
         subject.more_money_payable(&make_wallet("foobar"), std::u64::MAX);
     }
 
@@ -444,7 +474,11 @@ mod tests {
             "accountant",
             "payable_amount_precision_loss_panics_on_update_balance",
         );
-        let subject = PayableDaoReal::new(DbInitializerReal::new().initialize(&home_dir).unwrap());
+        let subject = PayableDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
         subject.payment_sent(&Payment::new(
             make_wallet("foobar"),
             std::u64::MAX,

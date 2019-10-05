@@ -352,7 +352,7 @@ mod tests {
     use crate::blockchain::test_utils::make_meaningless_seed;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::test_utils::config_dao_mock::ConfigDaoMock;
-    use crate::test_utils::{ensure_node_home_directory_exists, find_free_port};
+    use crate::test_utils::{ensure_node_home_directory_exists, find_free_port, DEFAULT_CHAIN_ID};
     use bip39::{Language, Mnemonic, MnemonicType, Seed};
     use ethsign::keyfile::Crypto;
     use ethsign::Protected;
@@ -651,7 +651,9 @@ mod tests {
             "persistent_configuration",
             "set_start_block_transactionally_success",
         );
-        let mut conn = DbInitializerReal::new().initialize(&home_dir).unwrap();
+        let mut conn = DbInitializerReal::new()
+            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .unwrap();
         let transaction = conn.transaction().unwrap();
 
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
@@ -716,7 +718,9 @@ mod tests {
             "persistent_configuration",
             "set_start_block_transactionally_returns_err_when_transaction_fails",
         );
-        let mut conn = DbInitializerReal::new().initialize(&home_dir).unwrap();
+        let mut conn = DbInitializerReal::new()
+            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .unwrap();
         let transaction = conn.transaction().unwrap();
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
@@ -1285,7 +1289,9 @@ mod tests {
             "persistent_configuration",
             "set_start_block_transactionally_panics_for_not_present_error",
         );
-        let mut conn = DbInitializerReal::new().initialize(&home_dir).unwrap();
+        let mut conn = DbInitializerReal::new()
+            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .unwrap();
         let transaction = conn.transaction().unwrap();
 
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
@@ -1305,7 +1311,9 @@ mod tests {
             "persistent_configuration",
             "set_start_block_transactionally_panics_for_type_error",
         );
-        let mut conn = DbInitializerReal::new().initialize(&home_dir).unwrap();
+        let mut conn = DbInitializerReal::new()
+            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .unwrap();
         let transaction = conn.transaction().unwrap();
 
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));

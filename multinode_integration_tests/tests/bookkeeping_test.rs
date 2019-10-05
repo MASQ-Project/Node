@@ -41,13 +41,13 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
     );
 
     // get all payables from originating node
-    let payables = non_pending_payables(&originating_node);
+    let payables = non_pending_payables(&originating_node, cluster.chain_id);
 
     // get all receivables from all other nodes
     let receivable_balances = non_originating_nodes
         .iter()
         .flat_map(|node| {
-            receivables(node)
+            receivables(node, cluster.chain_id)
                 .into_iter()
                 .map(move |receivable_account| (node.earning_wallet(), receivable_account.balance))
         })
@@ -75,31 +75,33 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
     });
 }
 
-fn non_pending_payables(node: &SubstratumRealNode) -> Vec<PayableAccount> {
+fn non_pending_payables(node: &SubstratumRealNode, chain_id: u8) -> Vec<PayableAccount> {
     let db_initializer = DbInitializerReal::new();
     let payable_dao = PayableDaoReal::new(
         db_initializer
-            .initialize(&std::path::PathBuf::from(
-                SubstratumRealNode::node_home_dir(
+            .initialize(
+                &std::path::PathBuf::from(SubstratumRealNode::node_home_dir(
                     &SubstratumNodeUtils::find_project_root(),
                     &node.name().to_string(),
-                ),
-            ))
+                )),
+                chain_id,
+            )
             .unwrap(),
     );
     payable_dao.non_pending_payables()
 }
 
-fn receivables(node: &SubstratumRealNode) -> Vec<ReceivableAccount> {
+fn receivables(node: &SubstratumRealNode, chain_id: u8) -> Vec<ReceivableAccount> {
     let db_initializer = DbInitializerReal::new();
     let receivable_dao = ReceivableDaoReal::new(
         db_initializer
-            .initialize(&std::path::PathBuf::from(
-                SubstratumRealNode::node_home_dir(
+            .initialize(
+                &std::path::PathBuf::from(SubstratumRealNode::node_home_dir(
                     &SubstratumNodeUtils::find_project_root(),
                     &node.name().to_string(),
-                ),
-            ))
+                )),
+                chain_id,
+            )
             .unwrap(),
     );
     receivable_dao.receivables()

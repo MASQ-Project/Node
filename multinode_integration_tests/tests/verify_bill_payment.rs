@@ -118,7 +118,7 @@ fn verify_bill_payment() {
     let consuming_node_path =
         SubstratumRealNode::node_home_dir(&project_root, &consuming_node_name);
     let consuming_node_connection = DbInitializerReal::new()
-        .initialize(&consuming_node_path.clone().into())
+        .initialize(&consuming_node_path.clone().into(), cluster.chain_id)
         .unwrap();
     let consuming_payable_dao = PayableDaoReal::new(consuming_node_connection);
     open_all_file_permissions(consuming_node_path.clone().into());
@@ -148,7 +148,7 @@ fn verify_bill_payment() {
     let serving_node_1_path =
         SubstratumRealNode::node_home_dir(&project_root, &serving_node_1_name);
     let serving_node_1_connection = DbInitializerReal::new()
-        .initialize(&serving_node_1_path.clone().into())
+        .initialize(&serving_node_1_path.clone().into(), cluster.chain_id)
         .unwrap();
     let serving_node_1_receivable_dao = ReceivableDaoReal::new(serving_node_1_connection);
     serving_node_1_receivable_dao.more_money_receivable(&contract_owner_wallet, amount);
@@ -159,7 +159,7 @@ fn verify_bill_payment() {
     let serving_node_2_path =
         SubstratumRealNode::node_home_dir(&project_root, &serving_node_2_name);
     let serving_node_2_connection = DbInitializerReal::new()
-        .initialize(&serving_node_2_path.clone().into())
+        .initialize(&serving_node_2_path.clone().into(), cluster.chain_id)
         .unwrap();
     let serving_node_2_receivable_dao = ReceivableDaoReal::new(serving_node_2_connection);
     serving_node_2_receivable_dao.more_money_receivable(&contract_owner_wallet, amount);
@@ -170,16 +170,16 @@ fn verify_bill_payment() {
     let serving_node_3_path =
         SubstratumRealNode::node_home_dir(&project_root, &serving_node_3_name);
     let serving_node_3_connection = DbInitializerReal::new()
-        .initialize(&serving_node_3_path.clone().into())
+        .initialize(&serving_node_3_path.clone().into(), cluster.chain_id)
         .unwrap();
     let serving_node_3_receivable_dao = ReceivableDaoReal::new(serving_node_3_connection);
     serving_node_3_receivable_dao.more_money_receivable(&contract_owner_wallet, amount);
     open_all_file_permissions(serving_node_3_path.clone().into());
 
-    expire_payables(consuming_node_path.into());
-    expire_receivables(serving_node_1_path.into());
-    expire_receivables(serving_node_2_path.into());
-    expire_receivables(serving_node_3_path.into());
+    expire_payables(consuming_node_path.into(), cluster.chain_id);
+    expire_receivables(serving_node_1_path.into(), cluster.chain_id);
+    expire_receivables(serving_node_2_path.into(), cluster.chain_id);
+    expire_receivables(serving_node_3_path.into(), cluster.chain_id);
 
     assert_balances(
         &contract_owner_wallet,
@@ -344,8 +344,10 @@ fn make_seed() -> Seed {
     seed
 }
 
-fn expire_payables(path: PathBuf) {
-    let conn = DbInitializerReal::new().initialize(&path).unwrap();
+fn expire_payables(path: PathBuf, chain_id: u8) {
+    let conn = DbInitializerReal::new()
+        .initialize(&path, chain_id)
+        .unwrap();
     let mut statement = conn
         .prepare(
             "update payable set last_paid_timestamp = 0 where pending_payment_transaction is null",
@@ -359,8 +361,10 @@ fn expire_payables(path: PathBuf) {
     config_stmt.execute(NO_PARAMS).unwrap();
 }
 
-fn expire_receivables(path: PathBuf) {
-    let conn = DbInitializerReal::new().initialize(&path).unwrap();
+fn expire_receivables(path: PathBuf, chain_id: u8) {
+    let conn = DbInitializerReal::new()
+        .initialize(&path, chain_id)
+        .unwrap();
     let mut statement = conn
         .prepare("update receivable set last_received_timestamp = 0")
         .unwrap();
