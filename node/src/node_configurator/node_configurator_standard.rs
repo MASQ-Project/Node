@@ -9,7 +9,6 @@ use crate::node_configurator::{
 };
 use crate::sub_lib::crash_point::CrashPoint;
 use crate::sub_lib::main_tools::StdStreams;
-use crate::sub_lib::neighborhood::sentinel_ip_addr;
 use crate::sub_lib::ui_gateway::DEFAULT_UI_PORT;
 use clap::{App, Arg};
 use indoc::indoc;
@@ -66,7 +65,6 @@ impl NodeConfiguratorStandardUnprivileged {
 lazy_static! {
     static ref DEFAULT_UI_PORT_VALUE: String = DEFAULT_UI_PORT.to_string();
     static ref DEFAULT_CRASH_POINT_VALUE: String = format!("{}", CrashPoint::None);
-    static ref DEFAULT_IP_VALUE: String = sentinel_ip_addr().to_string();
     static ref UI_PORT_HELP: String = format!(
         "The port at which user interfaces will connect to the Node. Best to accept the default unless \
         you know what you're doing. Must be between {} and {}.",
@@ -76,7 +74,8 @@ lazy_static! {
         "The port this Node will advertise to other Nodes at which clandestine traffic will be \
          received. If you don't specify a clandestine port, the Node will choose an unused \
          one at random on first startup, then use that one for every subsequent run unless \
-         you change it by specifying a different clandestine port here. \
+         you change it by specifying a different clandestine port here. --clandestine-port is \
+         meaningless except in --neighborhood-mode standard. \
          Must be between {} and {} [default: last used port]",
         LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
     );
@@ -101,7 +100,8 @@ const EARNING_WALLET_HELP: &str =
 const IP_ADDRESS_HELP: &str = "The public IP address of your SubstratumNode: that is, the IPv4 \
      address at which other SubstratumNodes can contact yours. If you're running your Node behind \
      a router, this will be the IP address of the router. If this IP address starts with 192.168 or 10.0, \
-     it's a local address rather than a public address, and other Nodes won't be able to see yours.";
+     it's a local address rather than a public address, and other Nodes won't be able to see yours. \
+     --ip is meaningless except in --neighborhood-mode standard.";
 const LOG_LEVEL_HELP: &str =
     "The minimum severity of the logs that should appear in the Node's logfile. You should probably not specify \
      a level lower than the default unless you're doing testing or forensics: a Node at the 'trace' log level \
@@ -114,7 +114,27 @@ const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes in 
      gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg/EN6zQ@86.75.30.9:5542 (initial '@' for mainnet)\n\n\
      If you have more than one, separate them with commas (but no spaces). There is no default value; \
      if you don't specify a neighbor, your Node will start without being connected to any Substratum \
-     Network, although other Nodes will be able to connect to yours if they know your Node's descriptor.";
+     Network, although other Nodes will be able to connect to yours if they know your Node's descriptor. \
+     --neighbors is meaningless in --neighborhood-mode zero-hop.";
+const NEIGHBORHOOD_MODE_HELP: &str = "This configures the way the Node relates to other Nodes.\n\n\
+     zero-hop means that your Node will operate as its own Substratum Network and will not communicate with any \
+     other Nodes. --ip, --neighbors, and --clandestine-port are incompatible with --neighborhood_mode \
+     zero-hop.\n\n\
+     originate-only means that your Node will not accept connections from any other Node; it \
+     will only originate connections to other Nodes. This will reduce your Node's opportunity to route \
+     data (it will only ever have two neighbors, so the number of routes it can participate in is limited), \
+     it will reduce redundancy in the Substratum Network, and it will prevent your Node from acting as \
+     a connection point for other Nodes to get on the Network; but it will enable your Node to operate in \
+     an environment where your network hookup is preventing you from accepting connections, and it means \
+     that you don't have to forward any incoming ports through your router. --ip and --clandestine_port \
+     are incompatible with --neighborhood_mode originate-only.\n\n\
+     consume-only means that your Node will not accept connections from or route data for any other Node; \
+     it will only consume services from the Substratum Network. This mode is appropriate for devices that \
+     cannot maintain a constant IP address or stay constantly on the Network. --ip and --clandestine_port \
+     are incompatible with --neighborhood_mode consume-only.\n\n\
+     standard means that your Node will operate fully unconstrained, both originating and accepting \
+     connections, both consuming and providing services, and when you operate behind a router, it \
+     requires that you forward your clandestine port through that router to your Node's machine.";
 const WALLET_PASSWORD_HELP: &str =
     "A password or phrase to decrypt your consuming wallet or a keystore file. Can be changed \
      later and still produce the same addresses.";
@@ -224,7 +244,6 @@ fn app() -> App<'static, 'static> {
                 .long("ip")
                 .value_name("IP")
                 .takes_value(true)
-                .default_value(&DEFAULT_IP_VALUE)
                 .validator(validators::validate_ip_address)
                 .help(IP_ADDRESS_HELP),
         )
@@ -239,12 +258,21 @@ fn app() -> App<'static, 'static> {
                 .help(LOG_LEVEL_HELP),
         )
         .arg(
+            Arg::with_name("neighborhood-mode")
+                .long("neighborhood-mode")
+                .value_name("NEIGHBORHOOD-MODE")
+                .takes_value(true)
+                .possible_values(&["zero-hop", "originate-only", "consume-only", "standard"])
+                .default_value("standard")
+                .case_insensitive(true)
+                .help(NEIGHBORHOOD_MODE_HELP),
+        )
+        .arg(
             Arg::with_name("neighbors")
                 .long("neighbors")
                 .value_name("NODE-DESCRIPTORS")
                 .takes_value(true)
                 .use_delimiter(true)
-                .requires("ip")
                 .help(NEIGHBORS_HELP),
         )
         .arg(real_user_arg())
@@ -282,6 +310,8 @@ mod standard {
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
+    use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, DEFAULT_RATE_PACK};
+    use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
     use rustc_hex::{FromHex, ToHex};
@@ -343,13 +373,10 @@ mod standard {
             .map(|ip| SocketAddr::from((ip, 53)))
             .collect();
 
-        config.neighborhood_config.local_ip_addr =
-            value_m!(multi_config, "ip", IpAddr).expect("Internal Error");
-
         config.log_level =
             value_m!(multi_config, "log-level", LevelFilter).expect("Internal Error");
 
-        config.neighborhood_config.neighbor_configs = values_m!(multi_config, "neighbors", String);
+        config.neighborhood_config = make_neighborhood_config(multi_config);
 
         config.ui_gateway_config.ui_port =
             value_m!(multi_config, "ui-port", u16).expect("Internal Error");
@@ -461,6 +488,49 @@ mod standard {
             Some(earning_wallet) => earning_wallet,
             None => DEFAULT_EARNING_WALLET.clone(),
         };
+    }
+
+    pub fn make_neighborhood_config(multi_config: &MultiConfig) -> NeighborhoodConfig {
+        let neighbor_configs = values_m!(multi_config, "neighbors", String);
+        match value_m! (multi_config, "neighborhood-mode", String) {
+            Some (ref s) if s == "standard" => NeighborhoodConfig {
+                mode: NeighborhoodMode::Standard (
+                NodeAddr::new (&value_m! (multi_config, "ip", IpAddr).expect ("Node cannot run as --neighborhood_mode standard without --ip specified"), &vec![]),
+                neighbor_configs,
+                DEFAULT_RATE_PACK,
+            )},
+            Some (ref s) if s == "originate-only" => {
+                if neighbor_configs.is_empty () {
+                    panic! ("Node cannot run as --neighborhood_mode originate-only without --neighbors specified")
+                }
+                NeighborhoodConfig {
+                    mode: NeighborhoodMode::OriginateOnly (
+                    neighbor_configs,
+                    DEFAULT_RATE_PACK,
+                )}
+            },
+            Some (ref s) if s == "consume-only" => {
+                if neighbor_configs.is_empty () {
+                    panic! ("Node cannot run as --neighborhood_mode consume-only without --neighbors specified")
+                }
+                NeighborhoodConfig {
+                    mode: NeighborhoodMode::ConsumeOnly (
+                    neighbor_configs,
+                )}
+            },
+            Some (ref s) if s == "zero-hop" => {
+                if !neighbor_configs.is_empty () {
+                    panic!("Node cannot run as --neighborhood_mode zero-hop if --neighbors is specified")
+                }
+                if value_m! (multi_config, "ip", IpAddr).is_some () {
+                    panic! ("Node cannot run as --neighborhood_mode zero-hop if --ip is specified")
+                }
+                NeighborhoodConfig { mode: NeighborhoodMode::ZeroHop}
+            },
+            // These two cases are untestable
+            Some (ref s) => panic! ("--neighborhood_mode {} has not been properly provided for in the code", s),
+            None => panic! ("--neighborhood_mode is not properly defaulted in clap"),
+        }
     }
 
     fn get_earning_wallet_from_address(
@@ -640,7 +710,8 @@ mod tests {
     use crate::sub_lib::crash_point::CrashPoint;
     use crate::sub_lib::cryptde::{CryptDE, PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::sub_lib::neighborhood::sentinel_ip_addr;
+    use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, DEFAULT_RATE_PACK};
+    use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
@@ -661,7 +732,9 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     fn make_default_cli_params() -> ArgsBuilder {
-        ArgsBuilder::new().param("--dns-servers", "222.222.222.222")
+        ArgsBuilder::new()
+            .param("--dns-servers", "222.222.222.222")
+            .param("--ip", "1.2.3.4")
     }
 
     #[test]
@@ -818,6 +891,213 @@ mod tests {
     }
 
     #[test]
+    fn make_neighborhood_config_standard_happy_path() {
+        let multi_config = MultiConfig::new(
+            &app(),
+            vec![Box::new(CommandLineVcl::new(
+                ArgsBuilder::new()
+                    .param("--neighborhood-mode", "standard")
+                    .param("--ip", "1.2.3.4")
+                    .param(
+                        "--neighbors",
+                        "QmlsbA:1.2.3.4:1234;2345,VGVk:2.3.4.5:3456;4567",
+                    )
+                    .into(),
+            ))],
+        );
+
+        let result = standard::make_neighborhood_config(&multi_config);
+
+        assert_eq!(
+            result,
+            NeighborhoodConfig {
+                mode: NeighborhoodMode::Standard(
+                    NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![]),
+                    vec![
+                        "QmlsbA:1.2.3.4:1234;2345".to_string(),
+                        "VGVk:2.3.4.5:3456;4567".to_string()
+                    ],
+                    DEFAULT_RATE_PACK
+                )
+            }
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Node cannot run as --neighborhood_mode standard without --ip specified"
+    )]
+    fn make_neighborhood_config_standard_missing_ip() {
+        let multi_config = MultiConfig::new(
+            &app(),
+            vec![Box::new(CommandLineVcl::new(
+                ArgsBuilder::new()
+                    .param("--neighborhood-mode", "standard")
+                    .param(
+                        "--neighbors",
+                        "QmlsbA:1.2.3.4:1234;2345,VGVk:2.3.4.5:3456;4567",
+                    )
+                    .into(),
+            ))],
+        );
+
+        standard::make_neighborhood_config(&multi_config);
+    }
+
+    #[test]
+    fn make_neighborhood_config_originate_only_doesnt_need_ip() {
+        let multi_config = MultiConfig::new(
+            &app(),
+            vec![Box::new(CommandLineVcl::new(
+                ArgsBuilder::new()
+                    .param("--neighborhood-mode", "originate-only")
+                    .param(
+                        "--neighbors",
+                        "QmlsbA:1.2.3.4:1234;2345,VGVk:2.3.4.5:3456;4567",
+                    )
+                    .into(),
+            ))],
+        );
+
+        let result = standard::make_neighborhood_config(&multi_config);
+
+        assert_eq!(
+            result,
+            NeighborhoodConfig {
+                mode: NeighborhoodMode::OriginateOnly(
+                    vec![
+                        "QmlsbA:1.2.3.4:1234;2345".to_string(),
+                        "VGVk:2.3.4.5:3456;4567".to_string()
+                    ],
+                    DEFAULT_RATE_PACK
+                )
+            }
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Node cannot run as --neighborhood_mode originate-only without --neighbors specified"
+    )]
+    fn make_neighborhood_config_originate_only_does_need_at_least_one_neighbor() {
+        let multi_config = MultiConfig::new(
+            &app(),
+            vec![Box::new(CommandLineVcl::new(
+                ArgsBuilder::new()
+                    .param("--neighborhood-mode", "originate-only")
+                    .into(),
+            ))],
+        );
+
+        standard::make_neighborhood_config(&multi_config);
+    }
+
+    #[test]
+    fn make_neighborhood_config_consume_only_doesnt_need_ip() {
+        let multi_config = MultiConfig::new(
+            &app(),
+            vec![Box::new(CommandLineVcl::new(
+                ArgsBuilder::new()
+                    .param("--neighborhood-mode", "consume-only")
+                    .param(
+                        "--neighbors",
+                        "QmlsbA:1.2.3.4:1234;2345,VGVk:2.3.4.5:3456;4567",
+                    )
+                    .into(),
+            ))],
+        );
+
+        let result = standard::make_neighborhood_config(&multi_config);
+
+        assert_eq!(
+            result,
+            NeighborhoodConfig {
+                mode: NeighborhoodMode::ConsumeOnly(vec![
+                    "QmlsbA:1.2.3.4:1234;2345".to_string(),
+                    "VGVk:2.3.4.5:3456;4567".to_string()
+                ],)
+            }
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Node cannot run as --neighborhood_mode consume-only without --neighbors specified"
+    )]
+    fn make_neighborhood_config_consume_only_does_need_at_least_one_neighbor() {
+        let multi_config = MultiConfig::new(
+            &app(),
+            vec![Box::new(CommandLineVcl::new(
+                ArgsBuilder::new()
+                    .param("--neighborhood-mode", "consume-only")
+                    .into(),
+            ))],
+        );
+
+        standard::make_neighborhood_config(&multi_config);
+    }
+
+    #[test]
+    fn make_neighborhood_config_zero_hop_doesnt_need_ip_or_neighbors() {
+        let multi_config = MultiConfig::new(
+            &app(),
+            vec![Box::new(CommandLineVcl::new(
+                ArgsBuilder::new()
+                    .param("--neighborhood-mode", "zero-hop")
+                    .into(),
+            ))],
+        );
+
+        let result = standard::make_neighborhood_config(&multi_config);
+
+        assert_eq!(
+            result,
+            NeighborhoodConfig {
+                mode: NeighborhoodMode::ZeroHop
+            }
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Node cannot run as --neighborhood_mode zero-hop if --ip is specified"
+    )]
+    fn make_neighborhood_config_zero_hop_cant_tolerate_ip() {
+        let multi_config = MultiConfig::new(
+            &app(),
+            vec![Box::new(CommandLineVcl::new(
+                ArgsBuilder::new()
+                    .param("--neighborhood-mode", "zero-hop")
+                    .param("--ip", "1.2.3.4")
+                    .into(),
+            ))],
+        );
+
+        standard::make_neighborhood_config(&multi_config);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Node cannot run as --neighborhood_mode zero-hop if --neighbors is specified"
+    )]
+    fn make_neighborhood_config_zero_hop_cant_tolerate_neighbors() {
+        let multi_config = MultiConfig::new(
+            &app(),
+            vec![Box::new(CommandLineVcl::new(
+                ArgsBuilder::new()
+                    .param("--neighborhood-mode", "zero-hop")
+                    .param(
+                        "--neighbors",
+                        "QmlsbA:1.2.3.4:1234;2345,VGVk:2.3.4.5:3456;4567",
+                    )
+                    .into(),
+            ))],
+        );
+
+        standard::make_neighborhood_config(&multi_config);
+    }
+
+    #[test]
     fn can_read_required_parameters_from_config_file() {
         let _guard = EnvironmentGuard::new();
         let home_dir = ensure_node_home_directory_exists(
@@ -827,7 +1107,7 @@ mod tests {
         {
             let mut config_file = File::create(home_dir.join("config.toml")).unwrap();
             config_file
-                .write_all(b"dns-servers = \"1.2.3.4\"\n")
+                .write_all(b"dns-servers = \"1.2.3.4\"\nip = \"1.2.3.4\"\n")
                 .unwrap();
         }
         let subject = NodeConfiguratorStandardPrivileged {};
@@ -870,7 +1150,9 @@ mod tests {
             )
             .unwrap();
         }
-        let args = ArgsBuilder::new().param("--data-directory", home_dir.to_str().unwrap());
+        let args = ArgsBuilder::new()
+            .param("--data-directory", home_dir.to_str().unwrap())
+            .param("--ip", "1.2.3.4");
         let mut bootstrapper_config = BootstrapperConfig::new();
         let multi_config = MultiConfig::new(
             &app(),
@@ -970,20 +1252,30 @@ mod tests {
             ),
         );
         assert_eq!(
-            config.neighborhood_config.neighbor_configs,
-            vec!(
+            config.neighborhood_config.mode.neighbor_configs(),
+            &vec!(
                 "QmlsbA:1.2.3.4:1234;2345".to_string(),
                 "VGVk:2.3.4.5:3456;4567".to_string()
             ),
         );
         assert_eq!(
-            config.neighborhood_config.local_ip_addr,
+            config
+                .neighborhood_config
+                .mode
+                .node_addr_opt()
+                .unwrap()
+                .ip_addr(),
             IpAddr::V4(Ipv4Addr::new(34, 56, 78, 90)),
         );
         assert_eq!(config.ui_gateway_config.ui_port, 5335);
         let expected_port_list: Vec<u16> = vec![];
         assert_eq!(
-            config.neighborhood_config.clandestine_port_list,
+            config
+                .neighborhood_config
+                .mode
+                .node_addr_opt()
+                .unwrap()
+                .ports(),
             expected_port_list,
         );
         assert_eq!(
@@ -1074,7 +1366,9 @@ mod tests {
 
     #[test]
     fn privileged_parse_args_creates_configuration_with_defaults() {
-        let args = ArgsBuilder::new().param("--dns-servers", "12.34.56.78,23.45.67.89");
+        let args = ArgsBuilder::new()
+            .param("--dns-servers", "12.34.56.78,23.45.67.89")
+            .param("--ip", "1.2.3.4");
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
@@ -1097,9 +1391,17 @@ mod tests {
                 SocketAddr::from_str("23.45.67.89:53").unwrap()
             )
         );
-        assert_eq!(CrashPoint::None, config.crash_point);
-        assert_eq!(sentinel_ip_addr(), config.neighborhood_config.local_ip_addr,);
-        assert_eq!(5333, config.ui_gateway_config.ui_port);
+        assert_eq!(config.crash_point, CrashPoint::None);
+        assert_eq!(
+            config
+                .neighborhood_config
+                .mode
+                .node_addr_opt()
+                .unwrap()
+                .ip_addr(),
+            IpAddr::from_str("1.2.3.4").unwrap()
+        );
+        assert_eq!(config.ui_gateway_config.ui_port, 5333);
         assert!(config.cryptde_null_opt.is_none());
         assert_eq!(config.real_user, RealUser::null().populate());
     }
@@ -1109,6 +1411,7 @@ mod tests {
     fn privileged_parse_args_with_real_user_defaults_data_directory_properly() {
         let args = ArgsBuilder::new()
             .param("--dns-servers", "12.34.56.78,23.45.67.89")
+            .param("--ip", "1.2.3.4")
             .param("--real-user", "::/home/booga");
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
@@ -1735,6 +2038,7 @@ mod tests {
         let subject = NodeConfiguratorStandardPrivileged {};
         let args = ArgsBuilder::new()
             .param("--dns-servers", "1.2.3.4")
+            .param("--ip", "1.2.3.4")
             .param("--chain", "dev");
 
         let config = subject.configure(&args.into(), &mut FakeStreamHolder::new().streams());
@@ -1750,6 +2054,7 @@ mod tests {
         let subject = NodeConfiguratorStandardPrivileged {};
         let args = ArgsBuilder::new()
             .param("--dns-servers", "1.2.3.4")
+            .param("--ip", "1.2.3.4")
             .param("--chain", "ropsten");
 
         let config = subject.configure(&args.into(), &mut FakeStreamHolder::new().streams());
@@ -1763,7 +2068,9 @@ mod tests {
     #[test]
     fn privileged_configuration_defaults_network_chain_selection_to_ropsten() {
         let subject = NodeConfiguratorStandardPrivileged {};
-        let args = ArgsBuilder::new().param("--dns-servers", "1.2.3.4");
+        let args = ArgsBuilder::new()
+            .param("--dns-servers", "1.2.3.4")
+            .param("--ip", "1.2.3.4");
 
         let config = subject.configure(&args.into(), &mut FakeStreamHolder::new().streams());
 
@@ -1778,6 +2085,7 @@ mod tests {
         let subject = NodeConfiguratorStandardPrivileged {};
         let args = ArgsBuilder::new()
             .param("--dns-servers", "1.2.3.4")
+            .param("--ip", "1.2.3.4")
             .param("--chain", "mainnet");
 
         let bootstrapper_config =

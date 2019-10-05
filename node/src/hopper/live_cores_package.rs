@@ -10,7 +10,7 @@ use crate::sub_lib::hopper::{ExpiredCoresPackage, MessageType, NoLookupIncipient
 use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteError;
 use serde_derive::{Deserialize, Serialize};
-use std::net::IpAddr;
+use std::net::SocketAddr;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LiveCoresPackage {
@@ -72,7 +72,7 @@ impl LiveCoresPackage {
 
     pub fn to_expired(
         self,
-        immediate_neighbor_ip: IpAddr,
+        immediate_neighbor_addr: SocketAddr,
         cryptde: &dyn CryptDE, // Must be the CryptDE of the Node for which the payload is intended.
     ) -> Result<ExpiredCoresPackage<MessageType>, String> {
         let top_hop = match self.route.next_hop(cryptde) {
@@ -81,7 +81,7 @@ impl LiveCoresPackage {
         };
         decodex::<MessageType>(cryptde, &self.payload).map(|decoded_payload| {
             ExpiredCoresPackage::new(
-                immediate_neighbor_ip,
+                immediate_neighbor_addr,
                 top_hop.payer.map(|p| p.wallet),
                 self.route,
                 decoded_payload,
@@ -107,6 +107,7 @@ mod tests {
         cryptde, make_meaningless_message_type, make_meaningless_route, make_paying_wallet,
         DEFAULT_CHAIN_ID,
     };
+    use std::net::{IpAddr, SocketAddr};
     use std::str::FromStr;
 
     #[test]
@@ -288,7 +289,7 @@ mod tests {
 
     #[test]
     fn expired_cores_package_can_be_constructed_from_live_cores_package() {
-        let immediate_neighbor_ip = IpAddr::from_str("1.2.3.4").unwrap();
+        let immediate_neighbor_ip = SocketAddr::from_str("1.2.3.4:1234").unwrap();
         let payload = make_meaningless_message_type();
         let first_stop_key = PublicKey::new(&[3, 4]);
         let first_stop_cryptde = CryptDENull::from(&first_stop_key, DEFAULT_CHAIN_ID);
@@ -319,7 +320,7 @@ mod tests {
             .to_expired(immediate_neighbor_ip, &first_stop_cryptde)
             .unwrap();
 
-        assert_eq!(result.immediate_neighbor_ip, immediate_neighbor_ip);
+        assert_eq!(result.immediate_neighbor, immediate_neighbor_ip);
         assert_eq!(
             result.paying_wallet,
             Some(paying_wallet.as_address_wallet())
@@ -381,7 +382,7 @@ mod tests {
             CryptData::new(cryptde().private_key().as_slice()),
         );
 
-        let result = subject.to_expired(IpAddr::from_str("1.2.3.4").unwrap(), cryptde());
+        let result = subject.to_expired(SocketAddr::from_str("1.2.3.4:1234").unwrap(), cryptde());
 
         assert_eq!(result, Err(format!("{:?}", RouteError::EmptyRoute)));
     }

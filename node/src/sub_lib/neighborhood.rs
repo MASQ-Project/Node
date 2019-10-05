@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::neighborhood::gossip::Gossip;
+use crate::neighborhood::node_record::NodeRecord;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::ExpiredCoresPackage;
@@ -13,13 +14,11 @@ use crate::sub_lib::utils::node_descriptor_delimiter;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
+use lazy_static::lazy_static;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::net::IpAddr;
-use std::net::Ipv4Addr;
 use std::str::FromStr;
-
-pub const SENTINEL_IP_OCTETS: [u8; 4] = [255, 255, 255, 255];
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 100,
@@ -35,19 +34,119 @@ pub const ZERO_RATE_PACK: RatePack = RatePack {
     exit_service_rate: 0,
 };
 
-pub fn sentinel_ip_addr() -> IpAddr {
-    IpAddr::V4(Ipv4Addr::new(
-        SENTINEL_IP_OCTETS[0],
-        SENTINEL_IP_OCTETS[1],
-        SENTINEL_IP_OCTETS[2],
-        SENTINEL_IP_OCTETS[3],
-    ))
+#[derive(Clone, Debug, PartialEq)]
+pub enum NeighborhoodMode {
+    Standard(NodeAddr, Vec<String>, RatePack),
+    ZeroHop,
+    OriginateOnly(Vec<String>, RatePack),
+    ConsumeOnly(Vec<String>),
+}
+
+impl NeighborhoodMode {
+    pub fn is_decentralized(&self) -> bool {
+        self != &NeighborhoodMode::ZeroHop
+    }
+
+    pub fn neighbor_configs(&self) -> &Vec<String> {
+        match self {
+            NeighborhoodMode::Standard(_, neighbor_configs, _) => neighbor_configs,
+            NeighborhoodMode::ZeroHop => &EMPTY_CONFIGS,
+            NeighborhoodMode::OriginateOnly(neighbor_configs, _) => neighbor_configs,
+            NeighborhoodMode::ConsumeOnly(neighbor_configs) => neighbor_configs,
+        }
+    }
+
+    pub fn node_addr_opt(&self) -> Option<NodeAddr> {
+        match self {
+            NeighborhoodMode::Standard(node_addr, _, _) => Some(node_addr.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn rate_pack(&self) -> &RatePack {
+        match self {
+            NeighborhoodMode::Standard(_, _, rate_pack) => rate_pack,
+            NeighborhoodMode::OriginateOnly(_, rate_pack) => rate_pack,
+            _ => &ZERO_RATE_PACK,
+        }
+    }
+
+    pub fn accepts_connections(&self) -> bool {
+        match self {
+            NeighborhoodMode::Standard(_, _, _) => true,
+            _ => false,
+        }
+    }
+
+    pub fn routes_data(&self) -> bool {
+        match self {
+            NeighborhoodMode::Standard(_, _, _) => true,
+            NeighborhoodMode::OriginateOnly(_, _) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_standard(&self) -> bool {
+        match self {
+            NeighborhoodMode::Standard(_, _, _) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_originate_only(&self) -> bool {
+        match self {
+            NeighborhoodMode::OriginateOnly(_, _) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_consume_only(&self) -> bool {
+        match self {
+            NeighborhoodMode::ConsumeOnly(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_zero_hop(&self) -> bool {
+        match self {
+            NeighborhoodMode::ZeroHop => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NodeDescriptor {
     pub public_key: PublicKey,
-    pub node_addr: NodeAddr,
+    pub node_addr_opt: Option<NodeAddr>,
+}
+
+impl From<(&PublicKey, &NodeAddr)> for NodeDescriptor {
+    fn from(pair: (&PublicKey, &NodeAddr)) -> Self {
+        let (public_key, node_addr) = pair;
+        NodeDescriptor {
+            public_key: public_key.clone(),
+            node_addr_opt: Some(node_addr.clone()),
+        }
+    }
+}
+
+impl From<&PublicKey> for NodeDescriptor {
+    fn from(public_key: &PublicKey) -> Self {
+        NodeDescriptor {
+            public_key: public_key.clone(),
+            node_addr_opt: None,
+        }
+    }
+}
+
+impl From<&NodeRecord> for NodeDescriptor {
+    fn from(node_record: &NodeRecord) -> Self {
+        NodeDescriptor {
+            public_key: node_record.public_key().clone(),
+            node_addr_opt: node_record.node_addr_opt(),
+        }
+    }
 }
 
 impl NodeDescriptor {
@@ -68,20 +167,29 @@ impl NodeDescriptor {
             Ok(hpk) => hpk,
         };
 
-        let node_addr = match NodeAddr::from_str(&pieces[1]) {
-            Err(_) => return Err(String::from(s)),
-            Ok(node_addr) => node_addr,
+        let node_addr_opt = {
+            if pieces[1] == ":" {
+                None
+            } else {
+                match NodeAddr::from_str(&pieces[1]) {
+                    Err(_) => return Err(String::from(s)),
+                    Ok(node_addr) => Some(node_addr),
+                }
+            }
         };
 
         Ok(NodeDescriptor {
             public_key,
-            node_addr,
+            node_addr_opt,
         })
     }
 
     pub fn to_string(&self, cryptde: &dyn CryptDE, chain_id: u8) -> String {
         let contact_public_key_string = cryptde.public_key_to_descriptor_fragment(&self.public_key);
-        let node_addr_string = self.node_addr.to_string();
+        let node_addr_string = match &self.node_addr_opt {
+            Some(node_addr) => node_addr.to_string(),
+            None => ":".to_string(),
+        };
         let delimiter = node_descriptor_delimiter(chain_id);
         format!(
             "{}{}{}",
@@ -92,16 +200,11 @@ impl NodeDescriptor {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NeighborhoodConfig {
-    pub neighbor_configs: Vec<String>,
-    pub local_ip_addr: IpAddr,
-    pub clandestine_port_list: Vec<u16>,
-    pub rate_pack: RatePack,
+    pub mode: NeighborhoodMode,
 }
 
-impl NeighborhoodConfig {
-    pub fn is_decentralized(&self) -> bool {
-        (self.local_ip_addr != sentinel_ip_addr()) && !self.clandestine_port_list.is_empty()
-    }
+lazy_static! {
+    static ref EMPTY_CONFIGS: Vec<String> = vec![];
 }
 
 #[derive(Clone)]
@@ -235,6 +338,7 @@ pub struct RatePack {
 mod tests {
     use super::*;
     use crate::blockchain::blockchain_interface::chain_id_from_name;
+    use crate::sub_lib::utils::localhost;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::{cryptde, DEFAULT_CHAIN_ID};
     use actix::Actor;
@@ -304,7 +408,7 @@ mod tests {
     }
 
     #[test]
-    fn node_descriptor_from_str_handles_the_happy_path() {
+    fn node_descriptor_from_str_handles_the_happy_path_with_node_addr() {
         let result = NodeDescriptor::from_str(
             cryptde(),
             "R29vZEtleQ:1.2.3.4:1234;2345;3456",
@@ -315,10 +419,23 @@ mod tests {
             result.unwrap(),
             NodeDescriptor {
                 public_key: PublicKey::new(b"GoodKey"),
-                node_addr: NodeAddr::new(
+                node_addr_opt: Some(NodeAddr::new(
                     &IpAddr::from_str("1.2.3.4").unwrap(),
                     &vec!(1234, 2345, 3456),
-                )
+                ))
+            },
+        )
+    }
+
+    #[test]
+    fn node_descriptor_from_str_handles_the_happy_path_without_node_addr() {
+        let result = NodeDescriptor::from_str(cryptde(), "R29vZEtleQ::", DEFAULT_CHAIN_ID);
+
+        assert_eq!(
+            result.unwrap(),
+            NodeDescriptor {
+                public_key: PublicKey::new(b"GoodKey"),
+                node_addr_opt: None
             },
         )
     }
@@ -333,12 +450,46 @@ mod tests {
             result.unwrap(),
             NodeDescriptor {
                 public_key: PublicKey::new(b"GoodKey"),
-                node_addr: NodeAddr::new(
+                node_addr_opt: Some(NodeAddr::new(
                     &IpAddr::from_str("1.2.3.4").unwrap(),
                     &vec!(1234, 2345, 3456),
-                )
+                ))
             },
         )
+    }
+
+    #[test]
+    fn node_descriptor_from_key_and_node_addr_works() {
+        let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
+        let node_addr = NodeAddr::new(
+            &IpAddr::from_str("123.45.67.89").unwrap(),
+            &vec![2345, 3456],
+        );
+
+        let result = NodeDescriptor::from((&public_key, &node_addr));
+
+        assert_eq!(
+            result,
+            NodeDescriptor {
+                public_key,
+                node_addr_opt: Some(node_addr),
+            }
+        );
+    }
+
+    #[test]
+    fn node_descriptor_from_key_works() {
+        let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
+
+        let result = NodeDescriptor::from(&public_key);
+
+        assert_eq!(
+            result,
+            NodeDescriptor {
+                public_key,
+                node_addr_opt: None,
+            }
+        );
     }
 
     #[test]
@@ -357,44 +508,84 @@ mod tests {
     }
 
     #[test]
-    fn neighborhood_config_is_not_decentralized_if_the_sentinel_ip_address_is_used() {
-        let subject = NeighborhoodConfig {
-            neighbor_configs: vec!["booga".to_string()],
-            rate_pack: rate_pack(100),
-            local_ip_addr: sentinel_ip_addr(),
-            clandestine_port_list: vec![1234],
-        };
+    fn standard_mode_results() {
+        let subject = NeighborhoodMode::Standard(
+            NodeAddr::new(&localhost(), &vec![1234, 2345]),
+            vec!["one neighbor".to_string(), "another neighbor".to_string()],
+            rate_pack(100),
+        );
 
-        let result = subject.is_decentralized();
-
-        assert_eq!(result, false);
+        assert_eq!(
+            subject.node_addr_opt(),
+            Some(NodeAddr::new(&localhost(), &vec![1234, 2345]))
+        );
+        assert_eq!(
+            subject.neighbor_configs(),
+            &vec!["one neighbor".to_string(), "another neighbor".to_string()]
+        );
+        assert_eq!(subject.rate_pack(), &rate_pack(100));
+        assert!(subject.accepts_connections());
+        assert!(subject.routes_data());
+        assert!(subject.is_standard());
+        assert!(!subject.is_originate_only());
+        assert!(!subject.is_consume_only());
+        assert!(!subject.is_zero_hop());
     }
 
     #[test]
-    fn neighborhood_config_is_not_decentralized_if_there_are_no_clandestine_ports() {
-        let subject = NeighborhoodConfig {
-            neighbor_configs: vec!["booga".to_string()],
-            rate_pack: rate_pack(100),
-            local_ip_addr: IpAddr::from_str("1.2.3.4").unwrap(),
-            clandestine_port_list: vec![],
-        };
+    fn originate_only_mode_results() {
+        let subject = NeighborhoodMode::OriginateOnly(
+            vec!["one neighbor".to_string(), "another neighbor".to_string()],
+            rate_pack(100),
+        );
 
-        let result = subject.is_decentralized();
-
-        assert_eq!(result, false);
+        assert_eq!(subject.node_addr_opt(), None);
+        assert_eq!(
+            subject.neighbor_configs(),
+            &vec!["one neighbor".to_string(), "another neighbor".to_string()]
+        );
+        assert_eq!(subject.rate_pack(), &rate_pack(100));
+        assert!(!subject.accepts_connections());
+        assert!(subject.routes_data());
+        assert!(!subject.is_standard());
+        assert!(subject.is_originate_only());
+        assert!(!subject.is_consume_only());
+        assert!(!subject.is_zero_hop());
     }
 
     #[test]
-    fn neighborhood_config_is_decentralized_if_local_ip_addr_and_clandestine_port() {
-        let subject = NeighborhoodConfig {
-            neighbor_configs: vec![],
-            rate_pack: rate_pack(100),
-            local_ip_addr: IpAddr::from_str("1.2.3.4").unwrap(),
-            clandestine_port_list: vec![1234],
-        };
+    fn consume_only_mode_results() {
+        let subject = NeighborhoodMode::ConsumeOnly(vec![
+            "one neighbor".to_string(),
+            "another neighbor".to_string(),
+        ]);
 
-        let result = subject.is_decentralized();
+        assert_eq!(subject.node_addr_opt(), None);
+        assert_eq!(
+            subject.neighbor_configs(),
+            &vec!["one neighbor".to_string(), "another neighbor".to_string()]
+        );
+        assert_eq!(subject.rate_pack(), &ZERO_RATE_PACK);
+        assert!(!subject.accepts_connections());
+        assert!(!subject.routes_data());
+        assert!(!subject.is_standard());
+        assert!(!subject.is_originate_only());
+        assert!(subject.is_consume_only());
+        assert!(!subject.is_zero_hop());
+    }
 
-        assert_eq!(result, true);
+    #[test]
+    fn zero_hop_mode_results() {
+        let subject = NeighborhoodMode::ZeroHop;
+
+        assert_eq!(subject.node_addr_opt(), None);
+        assert!(subject.neighbor_configs().is_empty());
+        assert_eq!(subject.rate_pack(), &ZERO_RATE_PACK);
+        assert!(!subject.accepts_connections());
+        assert!(!subject.routes_data());
+        assert!(!subject.is_standard());
+        assert!(!subject.is_originate_only());
+        assert!(!subject.is_consume_only());
+        assert!(subject.is_zero_hop());
     }
 }
