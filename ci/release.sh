@@ -29,17 +29,32 @@ cd "$CI_DIR/../dns_utility"
 cargo clean
 "ci/build.sh"
 
+function standard_signtool() {
+  if command -v signtool >/dev/null 2>&1; then
+    for file in "$@"; do
+      signtool sign //tr http://timestamp.digicert.com //td sha256 //fd sha256 //i "DigiCert SHA2 Assured ID Code Signing CA" //n "Substratum Services, Inc." //sm "$file"
+      signtool verify //pa "$file"
+    done
+  fi
+}
+
 function azure_key_vault_sign() {
-	for file in "$@"; do
-		AzureSignTool sign "$file" \
-		--file-digest sha256 \
-		--timestamp-rfc3161 http://timestamp.digicert.com \
-		--timestamp-digest sha256 \
-		--azure-key-vault-url https://substratumnode.vault.azure.net \
-		--azure-key-vault-client-id "77cb9689-ce27-412f-bc16-4cc0a599676b" \
-		--azure-key-vault-client-secret "$AZURE_KEY_VAULT_CLIENT_SECRET" \
-		--azure-key-vault-certificate "SubstratumNodeCodeSinging"
-	done
+  if command -v AzureSignTool >/dev/null 2>&1; then
+    if [[ "$AZURE_KEY_VAULT_CLIENT_SECRET" == "" ]]; then
+      echo "AZURE_KEY_VAULT_CLIENT_SECRET cannot be blank"
+      exit 1
+    fi
+    for file in "$@"; do
+      AzureSignTool sign "$file" \
+      --file-digest sha256 \
+      --timestamp-rfc3161 http://timestamp.digicert.com \
+      --timestamp-digest sha256 \
+      --azure-key-vault-url "$AZURE_KEY_VAULT_URL" \
+      --azure-key-vault-client-id "$AZURE_KEY_VAULT_CLIENT_ID" \
+      --azure-key-vault-client-secret "$AZURE_KEY_VAULT_CLIENT_SECRET" \
+      --azure-key-vault-certificate "$AZURE_KEY_VAULT_CERTIFICATE"
+    done
+  fi
 }
 
 # sign
@@ -62,13 +77,11 @@ case "$OSTYPE" in
       codesign -v -v "target/release/$DNS_EXECUTABLE"
       ;;
    msys)
-      if [[ "$AZURE_KEY_VAULT_CLIENT_SECRET" == "" ]]; then
-        echo "AZURE_KEY_VAULT_CLIENT_SECRET cannot be blank"
-        exit 1
-      fi
       cd "$CI_DIR/../node"
       azure_key_vault_sign "target/release/$NODE_EXECUTABLE"
       azure_key_vault_sign "target/release/$NODE_EXECUTABLEW"
+      standard_signtool "target/release/$NODE_EXECUTABLE"
+      standard_signtool "target/release/$NODE_EXECUTABLEW"
       cd "$CI_DIR/../dns_utility"
       azure_key_vault_sign "target/release/$DNS_EXECUTABLE"
       azure_key_vault_sign "target/release/$DNS_EXECUTABLEW"
@@ -89,28 +102,35 @@ case "$OSTYPE" in
         zip -j SubstratumNode-Linux64-binary.zip \
           dns_utility/target/release/$DNS_EXECUTABLE dns_utility/target/release/$DNS_EXECUTABLE.sig \
           node/target/release/$NODE_EXECUTABLE node/target/release/$NODE_EXECUTABLE.sig
-        zip -j SubstratumNode-Linux64-deb.zip node-ui/electron-builder-out/SubstratumNode*.deb
+        zip -j SubstratumNode-Linux64-deb.zip node-ui/main-process/electron-builder-out/SubstratumNode*.deb
         ;;
    darwin*)
         zip -j SubstratumNode-macOS-binary.zip \
           dns_utility/target/release/$DNS_EXECUTABLE \
           node/target/release/$NODE_EXECUTABLE
-        zip -j SubstratumNode-macOS.dmg.zip node-ui/electron-builder-out/SubstratumNode*.dmg
+        zip -j SubstratumNode-macOS.dmg.zip node-ui/main-process/electron-builder-out/SubstratumNode*.dmg
         ;;
    msys)
-        azure_key_vault_sign "node-ui/electron-builder-out/"SubstratumNode*.exe
-
-        ARCHIVE_PATH="$PWD"
-        pushd dns_utility/target/release
-        7z a "$ARCHIVE_PATH"/SubstratumNode-Windows-binary.zip $DNS_EXECUTABLE
-        7z a "$ARCHIVE_PATH"/SubstratumNode-Windows-binary.zip $DNS_EXECUTABLEW
-        popd
-        pushd node/target/release
-        7z a "$ARCHIVE_PATH"/SubstratumNode-Windows-binary.zip $NODE_EXECUTABLEW
-        popd
-        pushd node-ui/electron-builder-out
-        7z a "$ARCHIVE_PATH"/SubstratumNode-Windows.exe.zip SubstratumNode*.exe
-        popd
+        azure_key_vault_sign "node-ui/main-process/electron-builder-out/"SubstratumNode*.exe
+        standard_signtool "node-ui/main-process/electron-builder-out/"SubstratumNode*.exe
+        if command -v 7z >/dev/null 2>&1; then
+          ARCHIVE_PATH="$PWD"
+          pushd dns_utility/target/release
+          7z a "$ARCHIVE_PATH"/SubstratumNode-Windows-binary.zip $DNS_EXECUTABLE
+          7z a "$ARCHIVE_PATH"/SubstratumNode-Windows-binary.zip $DNS_EXECUTABLEW
+          popd
+          pushd node/target/release
+          7z a "$ARCHIVE_PATH"/SubstratumNode-Windows-binary.zip $NODE_EXECUTABLEW
+          popd
+          pushd node-ui/main-process/electron-builder-out
+          7z a "$ARCHIVE_PATH"/SubstratumNode-Windows.exe.zip SubstratumNode*.exe
+          popd
+        elif command -v zip >/dev/null 2>&1; then
+          zip -j SubstratumNode-Windows-binary.zip \
+            dns_utility/target/release/$DNS_EXECUTABLE dns_utility/target/release/$DNS_EXECUTABLEW \
+            node/target/release/$NODE_EXECUTABLE node/target/release/$NODE_EXECUTABLEW
+          zip -j SubstratumNode-Windows.exe.zip node-ui/main-process/electron-builder-out/SubstratumNode*.exe
+        fi
         ;;
    *)
         echo "unsupported operating system detected."; exit 1

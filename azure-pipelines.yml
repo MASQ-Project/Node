@@ -90,7 +90,7 @@ stages:
               OperationType: 'Start'
               AgentResolution: '1080p'
 
-          - bash: node-ui/ci/build.sh && node-ui/ci/unit_tests.sh && node-ui/ci/ng_tests.sh && node-ui/ci/integration_tests.sh
+          - bash: node-ui/ci/build.sh && node-ui/ci/unit_tests.sh && node-ui/ci/integration_tests.sh
             displayName: "Build NodeUI and run tests"
 
           - task: Windows Application Driver@0
@@ -168,7 +168,10 @@ stages:
           - bash: ci/release.sh '$(Pipeline.Workspace)'
             env:
               PASSPHRASE: $(PASSPHRASE)
+              AZURE_KEY_VAULT_URL: $(AZURE_KEY_VAULT_URL)
+              AZURE_KEY_VAULT_CLIENT_ID: $(AZURE_KEY_VAULT_CLIENT_ID)
               AZURE_KEY_VAULT_CLIENT_SECRET: $(AZURE_KEY_VAULT_CLIENT_SECRET)
+              AZURE_KEY_VAULT_CERTIFICATE: $(AZURE_KEY_VAULT_CERTIFICATE)
             displayName: "Build and generate artifacts"
 
           - task: CopyFiles@2
