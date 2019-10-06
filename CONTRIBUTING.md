@@ -36,7 +36,7 @@ there are [several other choices](https://medium.com/cloud-native-the-gathering/
 
 * A link to the [MASQ Node issues board](https://github.com/orgs/MASQ/projects/1)
 
-* A link to the [MASQ Node Azure Pipelines build site](https://dev.azure.com/clandestdev/Node/_build?definitionId=1)
+* A link to the [MASQ Node Azure Pipelines build site](https://dev.azure.com/clandest/Node/_build?definitionId=1)
 
 * A link to the [MASQ Node build results site](https://masq-results.github.io/MASQ-results/)
 
@@ -235,7 +235,7 @@ to go back to __Merge in `master`__ and assimilate those changes before your pul
 
 #### Watch the Pipelines Build
 As soon as you create your pull request, the
-[Azure Pipelines build site](https://dev.azure.com/clandestdev/Node/_build?definitionId=1) should
+[Azure Pipelines build site](https://dev.azure.com/clandest/Node/_build?definitionId=1) should
 begin building your feature branch on Linux, macOS, and Windows platforms. It will also run the multinode integration
 tests on Linux. Track the builds as they proceed, and watch for failures. If there are any, go back to __Complete the Work__
 and fix the problems. Sometimes, especially for failures in multinode integration tests, the reasons for the failures may
