@@ -43,67 +43,67 @@ stages:
               path: $(Pipeline.Workspace)/toolchains
               cacheHitVar: NODE_TOOLCHAINS_RESTORED
 
-          - task: NodeTool@0
-            inputs:
-              versionSpec: $(node_version)
-
-          - task: Npm@1
-            inputs:
-              command: 'custom'
-              customCommand: 'install -g yarn'
+#          - task: NodeTool@0
+#            inputs:
+#              versionSpec: $(node_version)
+#
+#          - task: Npm@1
+#            inputs:
+#              command: 'custom'
+#              customCommand: 'install -g yarn'
 
           - bash: ci/install_node_toolchain.sh '$(Pipeline.Workspace)' '$(rust_version)'
             condition: ne(variables.NODE_TOOLCHAINS_RESTORED, 'true')
             displayName: "Install Node toolchain"
 
-          - bash: ci/install_ui_test_toolchain.sh '$(Pipeline.Workspace)'
-            displayName: "Install NodeUI test toolchain"
-
-          - bash: |
-              set -xev
-              git config --global user.name "substratum"
-              git config --global user.email "substratum@substratum.net"
-            displayName: "Configure git"
-
-          - script: |
-              netsh advfirewall set allprofiles state off
-              net stop sharedaccess || echo ICS already disabled
-              net stop W3SVC || echo W3SVC service already disabled
-            condition: eq( variables['Agent.OS'], 'Windows_NT' )
-            displayName: "Disable Annoying Windows Services"
-
-          - bash: ci/prepare_node_build.sh '$(Pipeline.Workspace)'
-            displayName: "Prepare Node build"
-          - bash: ci/sccache.sh '$(Pipeline.Workspace)' && node/ci/all.sh '$(Pipeline.Workspace)' && dns_utility/ci/all.sh '$(Pipeline.Workspace)'
-            displayName: "Build Node and run tests"
-
-          - bash: ci/multinode_integration_test.sh '$(Pipeline.Workspace)'
-            displayName: "Run multinode integration tests"
-
-          - bash: ci/prepare_node_ui_build.sh
-            displayName: "Prepare NodeUI build"
-
-          - task: Windows Application Driver@0
-            condition: eq( variables['Agent.OS'], 'Windows_NT' )
-            displayName: "Starting WinAppDriver"
-            inputs:
-              OperationType: 'Start'
-              AgentResolution: '1080p'
-
-          - bash: node-ui/ci/build.sh && node-ui/ci/unit_tests.sh && node-ui/ci/integration_tests.sh
-            displayName: "Build NodeUI and run tests"
-
-          - task: Windows Application Driver@0
-            condition: eq( variables['Agent.OS'], 'Windows_NT' )
-            displayName: "Stopping WinAppDriver"
-            inputs:
-              OperationType: 'Stop'
-
-          - bash: ci/collect_results.sh && ci/publish_results.sh '$(Agent.JobStatus)'
-            env:
-              GITHUB_TOKEN: $(GITHUB_TOKEN)
-            displayName: "Collect and publish results"
-            condition: succeededOrFailed()
+#          - bash: ci/install_ui_test_toolchain.sh '$(Pipeline.Workspace)'
+#            displayName: "Install NodeUI test toolchain"
+#
+#          - bash: |
+#              set -xev
+#              git config --global user.name "substratum"
+#              git config --global user.email "substratum@substratum.net"
+#            displayName: "Configure git"
+#
+#          - script: |
+#              netsh advfirewall set allprofiles state off
+#              net stop sharedaccess || echo ICS already disabled
+#              net stop W3SVC || echo W3SVC service already disabled
+#            condition: eq( variables['Agent.OS'], 'Windows_NT' )
+#            displayName: "Disable Annoying Windows Services"
+#
+#          - bash: ci/prepare_node_build.sh '$(Pipeline.Workspace)'
+#            displayName: "Prepare Node build"
+#          - bash: ci/sccache.sh '$(Pipeline.Workspace)' && node/ci/all.sh '$(Pipeline.Workspace)' && dns_utility/ci/all.sh '$(Pipeline.Workspace)'
+#            displayName: "Build Node and run tests"
+#
+#          - bash: ci/multinode_integration_test.sh '$(Pipeline.Workspace)'
+#            displayName: "Run multinode integration tests"
+#
+#          - bash: ci/prepare_node_ui_build.sh
+#            displayName: "Prepare NodeUI build"
+#
+#          - task: Windows Application Driver@0
+#            condition: eq( variables['Agent.OS'], 'Windows_NT' )
+#            displayName: "Starting WinAppDriver"
+#            inputs:
+#              OperationType: 'Start'
+#              AgentResolution: '1080p'
+#
+#          - bash: node-ui/ci/build.sh && node-ui/ci/unit_tests.sh && node-ui/ci/integration_tests.sh
+#            displayName: "Build NodeUI and run tests"
+#
+#          - task: Windows Application Driver@0
+#            condition: eq( variables['Agent.OS'], 'Windows_NT' )
+#            displayName: "Stopping WinAppDriver"
+#            inputs:
+#              OperationType: 'Stop'
+#
+#          - bash: ci/collect_results.sh && ci/publish_results.sh '$(Agent.JobStatus)'
+#            env:
+#              GITHUB_TOKEN: $(GITHUB_TOKEN)
+#            displayName: "Collect and publish results"
+#            condition: succeededOrFailed()
 
   - stage: Release
     displayName: "Release"
