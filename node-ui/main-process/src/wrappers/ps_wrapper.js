@@ -3,7 +3,7 @@
 const process = require('./process_wrapper')
 
 function binaryName () {
-  return (process.platform === 'win32') ? 'SubstratumNodeW' : 'SubstratumNode'
+  return (process.platform === 'win32') ? 'MASQNodeW' : 'MASQNode'
 }
 
 module.exports = (() => {

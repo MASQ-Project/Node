@@ -8,8 +8,8 @@ const log = require('electron-log')
 const td = require('testdouble')
 const { makeSpawnSyncResult } = require('./test_utilities')
 
-const nodePathUnix = `${path.resolve(__dirname, '.', '../dist/static/binaries/SubstratumNode')}`
-const nodePathWindows = `${path.resolve(__dirname, '.', '../dist/static/binaries/SubstratumNodeW')}`
+const nodePathUnix = `${path.resolve(__dirname, '.', '../dist/static/binaries/MASQNode')}`
+const nodePathWindows = `${path.resolve(__dirname, '.', '../dist/static/binaries/MASQNodeW')}`
 
 const commonArgs = [
   '--consuming-wallet', 'consumingPath',
@@ -177,7 +177,7 @@ describe('CommandHelper', () => {
 
           it('executes the command via sudo prompt', () => {
             td.verify(sudoPrompt.exec(td.matchers.argThat(arg => {
-              return /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d{1,3}\..* .*> \/dev\/null 2>&1/.test(arg)
+              return /[/\\]static[/\\]binaries[/\\]MASQNode" --dns-servers \d{1,3}\..* .*> \/dev\/null 2>&1/.test(arg)
             }), { name: 'Substratum Node' }, 'callback'))
           })
         })
@@ -192,7 +192,7 @@ describe('CommandHelper', () => {
 
           it('executes the command via sudo prompt', () => {
             td.verify(sudoPrompt.exec(td.matchers.argThat(arg => {
-              return /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d{1,3}\..* .*> \/dev\/null 2>&1/.test(arg)
+              return /[/\\]static[/\\]binaries[/\\]MASQNode" --dns-servers \d{1,3}\..* .*> \/dev\/null 2>&1/.test(arg)
             }), { name: 'Substratum Node' }, 'callback'))
           })
         })
@@ -213,7 +213,7 @@ describe('CommandHelper', () => {
           })
           it('executes the command via sudo prompt', () => {
             td.verify(sudoPrompt.exec(td.matchers.argThat(arg => {
-              return /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d{1,3}\..* .*> \/dev\/null 2>&1/.test(arg) &&
+              return /[/\\]static[/\\]binaries[/\\]MASQNode" --dns-servers \d{1,3}\..* .*> \/dev\/null 2>&1/.test(arg) &&
                 !arg.includes('--data-directory')
             }), { name: 'Substratum Node' }, 'callback'))
           })
@@ -229,7 +229,7 @@ describe('CommandHelper', () => {
 
           it('executes the command via sudo prompt', () => {
             td.verify(sudoPrompt.exec(td.matchers.argThat(arg => {
-              return /[/\\]static[/\\]binaries[/\\]SubstratumNode" --dns-servers \d{1,3}\..* .*> \/dev\/null 2>&1/.test(arg) &&
+              return /[/\\]static[/\\]binaries[/\\]MASQNode" --dns-servers \d{1,3}\..* .*> \/dev\/null 2>&1/.test(arg) &&
                 !arg.includes('--data-directory')
             }), { name: 'Substratum Node' }, 'callback'))
           })
@@ -357,7 +357,7 @@ describe('CommandHelper', () => {
     })
 
     describe('starting', () => {
-      const command = /".*[/\\]static[/\\]binaries[/\\]SubstratumNodeW" --dns-servers \d{1,3}\..* .*> NUL 2>&1/
+      const command = /".*[/\\]static[/\\]binaries[/\\]MASQNodeW" --dns-servers \d{1,3}\..* .*> NUL 2>&1/
 
       beforeEach(() => {
         subject.startSubstratumNode({}, 'callback')

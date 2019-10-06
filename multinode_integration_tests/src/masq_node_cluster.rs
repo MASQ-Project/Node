@@ -1,9 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::command::Command;
-use crate::substratum_mock_node::SubstratumMockNode;
-use crate::substratum_node::{SubstratumNode, SubstratumNodeUtils};
-use crate::substratum_real_node::NodeStartupConfig;
-use crate::substratum_real_node::SubstratumRealNode;
+use crate::masq_mock_node::MASQMockNode;
+use crate::masq_node::{MASQNode, MASQNodeUtils};
+use crate::masq_real_node::MASQRealNode;
+use crate::masq_real_node::NodeStartupConfig;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::test_utils::DEFAULT_CHAIN_ID;
 use std::collections::HashMap;
@@ -11,27 +11,27 @@ use std::collections::HashSet;
 use std::env;
 use std::net::{IpAddr, Ipv4Addr};
 
-pub struct SubstratumNodeCluster {
+pub struct MASQNodeCluster {
     startup_configs: HashMap<(String, usize), NodeStartupConfig>,
-    real_nodes: HashMap<String, SubstratumRealNode>,
-    mock_nodes: HashMap<String, SubstratumMockNode>,
+    real_nodes: HashMap<String, MASQRealNode>,
+    mock_nodes: HashMap<String, MASQMockNode>,
     host_node_parent_dir: Option<String>,
     next_index: usize,
     pub chain_id: u8,
 }
 
-impl SubstratumNodeCluster {
-    pub fn start() -> Result<SubstratumNodeCluster, String> {
-        SubstratumNodeCluster::cleanup()?;
-        SubstratumNodeCluster::create_network()?;
+impl MASQNodeCluster {
+    pub fn start() -> Result<MASQNodeCluster, String> {
+        MASQNodeCluster::cleanup()?;
+        MASQNodeCluster::create_network()?;
         let host_node_parent_dir = match env::var("HOST_NODE_PARENT_DIR") {
             Ok(ref hnpd) if !hnpd.is_empty() => Some(hnpd.clone()),
             _ => None,
         };
         if Self::is_in_jenkins() {
-            SubstratumNodeCluster::interconnect_network()?;
+            MASQNodeCluster::interconnect_network()?;
         }
-        Ok(SubstratumNodeCluster {
+        Ok(MASQNodeCluster {
             startup_configs: HashMap::new(),
             real_nodes: HashMap::new(),
             mock_nodes: HashMap::new(),
@@ -55,18 +55,18 @@ impl SubstratumNodeCluster {
 
     pub fn prepare_real_node(&mut self, config: &NodeStartupConfig) -> (String, usize) {
         let index = self.startup_configs.len() + 1;
-        let name = SubstratumRealNode::make_name(index);
+        let name = MASQRealNode::make_name(index);
         self.startup_configs
             .insert((name.clone(), index), config.clone());
-        SubstratumRealNode::prepare(&name);
+        MASQRealNode::prepare(&name);
 
         (name, index)
     }
 
-    pub fn start_real_node(&mut self, config: NodeStartupConfig) -> SubstratumRealNode {
+    pub fn start_real_node(&mut self, config: NodeStartupConfig) -> MASQRealNode {
         let index = self.next_index;
         self.next_index += 1;
-        let node = SubstratumRealNode::start(config, index, self.host_node_parent_dir.clone());
+        let node = MASQRealNode::start(config, index, self.host_node_parent_dir.clone());
         let name = node.name().to_string();
         self.real_nodes.insert(name.clone(), node);
         self.real_nodes.get(&name).unwrap().clone()
@@ -77,11 +77,11 @@ impl SubstratumNodeCluster {
         name: String,
         index: usize,
         config: NodeStartupConfig,
-    ) -> SubstratumRealNode {
-        SubstratumRealNode::start_prepared(name, config, index, self.host_node_parent_dir.clone())
+    ) -> MASQRealNode {
+        MASQRealNode::start_prepared(name, config, index, self.host_node_parent_dir.clone())
     }
 
-    pub fn start_mock_node_with_real_cryptde(&mut self, ports: Vec<u16>) -> SubstratumMockNode {
+    pub fn start_mock_node_with_real_cryptde(&mut self, ports: Vec<u16>) -> MASQMockNode {
         self.start_mock_node(ports, None)
     }
 
@@ -89,7 +89,7 @@ impl SubstratumNodeCluster {
         &mut self,
         ports: Vec<u16>,
         public_key: &PublicKey,
-    ) -> SubstratumMockNode {
+    ) -> MASQMockNode {
         self.start_mock_node(ports, Some(public_key))
     }
 
@@ -97,18 +97,18 @@ impl SubstratumNodeCluster {
         &mut self,
         ports: Vec<u16>,
         public_key_opt: Option<&PublicKey>,
-    ) -> SubstratumMockNode {
+    ) -> MASQMockNode {
         let index = self.next_index;
         self.next_index += 1;
         let node = match public_key_opt {
-            Some(public_key) => SubstratumMockNode::start_with_public_key(
+            Some(public_key) => MASQMockNode::start_with_public_key(
                 ports,
                 index,
                 self.host_node_parent_dir.clone(),
                 public_key,
                 self.chain_id,
             ),
-            None => SubstratumMockNode::start(
+            None => MASQMockNode::start(
                 ports,
                 index,
                 self.host_node_parent_dir.clone(),
@@ -121,7 +121,7 @@ impl SubstratumNodeCluster {
     }
 
     pub fn stop(self) {
-        SubstratumNodeCluster::cleanup().unwrap()
+        MASQNodeCluster::cleanup().unwrap()
     }
 
     pub fn stop_node(&mut self, name: &str) {
@@ -141,14 +141,14 @@ impl SubstratumNodeCluster {
         node_name_refs.into_iter().map(|x| x.clone()).collect()
     }
 
-    pub fn get_real_node_by_name(&self, name: &str) -> Option<SubstratumRealNode> {
+    pub fn get_real_node_by_name(&self, name: &str) -> Option<MASQRealNode> {
         match self.real_nodes.get(name) {
             Some(node_ref) => Some(node_ref.clone()),
             None => None,
         }
     }
 
-    pub fn get_real_node_by_key(&self, key: &PublicKey) -> Option<SubstratumRealNode> {
+    pub fn get_real_node_by_key(&self, key: &PublicKey) -> Option<MASQRealNode> {
         match self
             .real_nodes
             .values()
@@ -160,14 +160,14 @@ impl SubstratumNodeCluster {
         }
     }
 
-    pub fn get_mock_node_by_name(&self, name: &str) -> Option<SubstratumMockNode> {
+    pub fn get_mock_node_by_name(&self, name: &str) -> Option<MASQMockNode> {
         match self.mock_nodes.get(name) {
             Some(node_ref) => Some(node_ref.clone()),
             None => None,
         }
     }
 
-    pub fn get_node_by_name(&self, name: &str) -> Option<Box<dyn SubstratumNode>> {
+    pub fn get_node_by_name(&self, name: &str) -> Option<Box<dyn MASQNode>> {
         match self.real_nodes.get(name) {
             Some(node_ref) => Some(Box::new(node_ref.clone())),
             None => match self.mock_nodes.get(name) {
@@ -178,11 +178,11 @@ impl SubstratumNodeCluster {
     }
 
     pub fn get_real_node_home_dir_path_by_name(&self, name: String) -> String {
-        SubstratumRealNode::node_home_dir(
+        MASQRealNode::node_home_dir(
             &self
                 .host_node_parent_dir
                 .clone()
-                .unwrap_or_else(SubstratumNodeUtils::find_project_root),
+                .unwrap_or_else(MASQNodeUtils::find_project_root),
             &name,
         )
     }
@@ -196,11 +196,11 @@ impl SubstratumNodeCluster {
     }
 
     fn cleanup() -> Result<(), String> {
-        SubstratumNodeCluster::stop_running_nodes()?;
+        MASQNodeCluster::stop_running_nodes()?;
         if Self::is_in_jenkins() {
             Self::disconnect_network()
         }
-        SubstratumNodeCluster::remove_network_if_running()
+        MASQNodeCluster::remove_network_if_running()
     }
 
     fn stop_running_nodes() -> Result<(), String> {

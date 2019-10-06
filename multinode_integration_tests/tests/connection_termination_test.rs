@@ -1,14 +1,12 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use multinode_integration_tests_lib::masq_mock_node::MASQMockNode;
+use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils, PortSelector};
+use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
+use multinode_integration_tests_lib::masq_node_server::MASQNodeServer;
+use multinode_integration_tests_lib::masq_real_node::MASQRealNode;
 use multinode_integration_tests_lib::multinode_gossip::{parse_gossip, GossipType};
 use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
-use multinode_integration_tests_lib::substratum_mock_node::SubstratumMockNode;
-use multinode_integration_tests_lib::substratum_node::{
-    PortSelector, SubstratumNode, SubstratumNodeUtils,
-};
-use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
-use multinode_integration_tests_lib::substratum_node_server::SubstratumNodeServer;
-use multinode_integration_tests_lib::substratum_real_node::SubstratumRealNode;
 use node_lib::blockchain::blockchain_interface::contract_address;
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
@@ -42,7 +40,7 @@ const HTTP_RESPONSE: &[u8] =
 // When: Client (browser?) drops connection to originating Node.
 // Then: Originating Node sends ClientRequestPayload to exit Node with empty SequencedPacket having last_data = true.
 fn actual_client_drop() {
-    let mut cluster = SubstratumNodeCluster::start().unwrap();
+    let mut cluster = MASQNodeCluster::start().unwrap();
     let (real_node, mock_node, exit_key) = create_neighborhood(&mut cluster);
     let exit_cryptde = CryptDENull::from(&exit_key, cluster.chain_id);
     let mut client = real_node.make_client(8080);
@@ -72,7 +70,7 @@ fn actual_client_drop() {
 // Then: Originating Node drops connection to client (browser?).
 // Then: Originating Node does _not_ send CORES package back to exit Node.
 fn reported_server_drop() {
-    let mut cluster = SubstratumNodeCluster::start().unwrap();
+    let mut cluster = MASQNodeCluster::start().unwrap();
     let (real_node, mock_node, exit_key) = create_neighborhood(&mut cluster);
     let exit_cryptde = CryptDENull::from(&exit_key, cluster.chain_id);
     let mut client = real_node.make_client(8080);
@@ -104,7 +102,7 @@ fn reported_server_drop() {
 // When: Server drops connection to exit Node.
 // Then: Exit Node sends ClientRequestPayload to originating Node with empty SequencedPacket having last_data = true.
 fn actual_server_drop() {
-    let mut cluster = SubstratumNodeCluster::start().unwrap();
+    let mut cluster = MASQNodeCluster::start().unwrap();
     let (real_node, mock_node, _) = create_neighborhood(&mut cluster);
     let server_port = find_free_port();
     let mut server = real_node.make_server(server_port);
@@ -163,7 +161,7 @@ fn actual_server_drop() {
 // Then: Exit Node drops connection to server.
 // Then: Exit Node does _not_ send CORES package back to originating Node.
 fn reported_client_drop() {
-    let mut cluster = SubstratumNodeCluster::start().unwrap();
+    let mut cluster = MASQNodeCluster::start().unwrap();
     let (real_node, mock_node, _) = create_neighborhood(&mut cluster);
     let server_port = find_free_port();
     let mut server = real_node.make_server(server_port);
@@ -217,8 +215,8 @@ fn downed_nodes_not_offered_in_passes_or_introductions() {
     db.add_arbitrary_full_neighbor(&desirable_but_down, &undesirable_but_up);
     db.add_arbitrary_full_neighbor(&desirable_but_down, &fictional);
 
-    let mut cluster = SubstratumNodeCluster::start().unwrap();
-    let (_, substratum_real_node, mut node_map) = construct_neighborhood(&mut cluster, db, vec![]);
+    let mut cluster = MASQNodeCluster::start().unwrap();
+    let (_, masq_real_node, mut node_map) = construct_neighborhood(&mut cluster, db, vec![]);
     let desirable_but_down_node = node_map.remove(&desirable_but_down).unwrap();
     let undesirable_but_up_node = node_map.remove(&undesirable_but_up).unwrap();
     let debuter: NodeRecord = make_node_record(5678, true);
@@ -227,7 +225,7 @@ fn downed_nodes_not_offered_in_passes_or_introductions() {
     // Kill desirable neighbor
     desirable_but_down_node.kill();
     // Debut a new Node
-    debuter_node.transmit_debut(&substratum_real_node).unwrap();
+    debuter_node.transmit_debut(&masq_real_node).unwrap();
     // What's the return Gossip?
     let (gossip, ip_addr) = debuter_node
         .wait_for_gossip(Duration::from_secs(2))
@@ -244,9 +242,7 @@ fn downed_nodes_not_offered_in_passes_or_introductions() {
     }
 }
 
-fn create_neighborhood(
-    cluster: &mut SubstratumNodeCluster,
-) -> (SubstratumRealNode, SubstratumMockNode, PublicKey) {
+fn create_neighborhood(cluster: &mut MASQNodeCluster) -> (MASQRealNode, MASQMockNode, PublicKey) {
     let mut real_node: NodeRecord = make_node_record(1234, true);
     let mut mock_node: NodeRecord = make_node_record(2345, true);
     let mut fictional_node_1: NodeRecord = make_node_record(3456, true);
@@ -259,11 +255,11 @@ fn create_neighborhood(
     db.add_node(mock_node.clone()).unwrap();
     db.add_node(fictional_node_1.clone()).unwrap();
     db.add_node(fictional_node_2.clone()).unwrap();
-    let (_, substratum_real_node, mut node_map) = construct_neighborhood(cluster, db, vec![]);
-    let substratum_mock_node = node_map.remove(mock_node.public_key()).unwrap();
+    let (_, masq_real_node, mut node_map) = construct_neighborhood(cluster, db, vec![]);
+    let masq_mock_node = node_map.remove(mock_node.public_key()).unwrap();
     (
-        substratum_real_node,
-        substratum_mock_node,
+        masq_real_node,
+        masq_mock_node,
         fictional_node_2.public_key().clone(),
     )
 }
@@ -295,11 +291,11 @@ fn arbitrary_context() -> (StreamKey, u32) {
 }
 
 fn create_request_icp(
-    originating_node: &SubstratumMockNode,
-    exit_node: &SubstratumRealNode,
+    originating_node: &MASQMockNode,
+    exit_node: &MASQRealNode,
     stream_key: StreamKey,
     return_route_id: u32,
-    server: &SubstratumNodeServer,
+    server: &MASQNodeServer,
     chain_id: u8,
 ) -> IncipientCoresPackage {
     IncipientCoresPackage::new(
@@ -334,8 +330,8 @@ fn create_request_icp(
 }
 
 fn create_meaningless_icp(
-    originating_node: &SubstratumMockNode,
-    exit_node: &SubstratumRealNode,
+    originating_node: &MASQMockNode,
+    exit_node: &MASQRealNode,
 ) -> IncipientCoresPackage {
     let socket_addr = SocketAddr::from_str("3.2.1.0:7654").unwrap();
     let stream_key = StreamKey::new(PublicKey::new(&[9, 8, 7, 6]), socket_addr);
@@ -371,8 +367,8 @@ fn create_meaningless_icp(
 }
 
 fn create_server_drop_report(
-    exit_node: &SubstratumMockNode,
-    originating_node: &SubstratumRealNode,
+    exit_node: &MASQMockNode,
+    originating_node: &MASQRealNode,
     stream_key: StreamKey,
     return_route_id: u32,
 ) -> IncipientCoresPackage {
@@ -410,8 +406,8 @@ fn create_server_drop_report(
 }
 
 fn create_client_drop_report(
-    originating_node: &SubstratumMockNode,
-    exit_node: &SubstratumRealNode,
+    originating_node: &MASQMockNode,
+    exit_node: &MASQRealNode,
     stream_key: StreamKey,
     return_route_id: u32,
 ) -> IncipientCoresPackage {
@@ -449,7 +445,7 @@ fn create_client_drop_report(
     .unwrap()
 }
 
-fn ensure_no_further_traffic(mock_node: &SubstratumMockNode, masquerader: &dyn Masquerader) {
+fn ensure_no_further_traffic(mock_node: &MASQMockNode, masquerader: &dyn Masquerader) {
     match mock_node.wait_for_package(masquerader, Duration::from_secs(1)) {
         Ok((addr1, addr2, lcp)) => panic!(
             "Should not have received package, but: {:?} -> {:?}:\n{:?}",
@@ -460,24 +456,24 @@ fn ensure_no_further_traffic(mock_node: &SubstratumMockNode, masquerader: &dyn M
     }
 }
 
-fn wait_for_client_shutdown(real_node: &SubstratumRealNode) {
+fn wait_for_client_shutdown(real_node: &MASQRealNode) {
     // This is a jury-rigged way to wait for a shutdown, since client.wait_for_shutdown() doesn't
     // work, but it serves the purpose.
-    SubstratumNodeUtils::wrote_log_containing(
+    MASQNodeUtils::wrote_log_containing(
         real_node.name(),
         "Shutting down stream to client at 127.0.0.1",
         Duration::from_secs(1),
     );
 }
 
-fn wait_for_server_shutdown(real_node: &SubstratumRealNode, server_port: u16) {
+fn wait_for_server_shutdown(real_node: &MASQRealNode, server_port: u16) {
     // This is a jury-rigged way to wait for a shutdown, since server.wait_for_shutdown() doesn't
     // work, but it serves the purpose.
-    SubstratumNodeUtils::wrote_log_containing(
+    MASQNodeUtils::wrote_log_containing(
         real_node.name(),
         &format!(
             "Shutting down stream to server at {}:{} in response to client-drop report",
-            SubstratumNodeCluster::host_ip_addr(),
+            MASQNodeCluster::host_ip_addr(),
             server_port
         ),
         Duration::from_secs(1),

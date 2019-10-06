@@ -1,7 +1,7 @@
 # Card Wall Columns and Procedures
 
 ### Card Wall
-Our [Card Wall](https://github.com/orgs/ClandestiNet/projects/1) is the most dynamic public indication of the immediate
+Our [Card Wall](https://github.com/orgs/MASQ/projects/1) is the most dynamic public indication of the immediate
 status of our project, as well as the best source of short-term information about our past accomplishments and future
 plans. Longer-term information is made publicly available every iteration at Show & Tell and more statically in various
 published blogs and other documents. But the Card Wall is a lot like the scoreboard for a football game: a glance at it
@@ -15,7 +15,7 @@ columns.
 * Awaiting columns can contain any number of cards. The cards in an Awaiting column are in no particular order, other
 than perhaps a vague sort of grouping by general subject. As the type name implies, they're waiting for something to
 happen to them that hasn't happened yet, and they'll stay in their column until that something happens. Our
-[Cadence document](https://github.com/ClandestiNet/ClandestiNode/blob/master/CADENCE.md) offers explanations of some
+[Cadence document](https://github.com/MASQ/Node/blob/master/CADENCE.md) offers explanations of some
 of the things that have to happen to cards in particular Awaiting columns to get them to move down the board.
 
 * Prioritized columns are also places where cards wait, but there's an important difference.  Prioritized columns 
@@ -83,7 +83,7 @@ Descriptions are below.
 This is where almost all new cards go. It's an Awaiting column, so it can hold any number of cards.
 
 Cards move out of the "New" column during the first part of a Grooming meeting (see the
-[Cadence document](https://github.com/ClandestiNet/ClandestiNode/blob/master/CADENCE.md)) into either the "Backlog"
+[Cadence document](https://github.com/MASQ/Node/blob/master/CADENCE.md)) into either the "Backlog"
 column or the "Ready for Development" column. The "New" column should be completely emptied by every Grooming meeting.
 
 Occasionally, an urgent new card that cannot wait for the next Grooming meeting may be created in another column, but

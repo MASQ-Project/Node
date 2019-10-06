@@ -1,11 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use itertools::Itertools;
-use multinode_integration_tests_lib::substratum_node::SubstratumNode;
-use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
-use multinode_integration_tests_lib::substratum_real_node::{
-    default_consuming_wallet_info, make_consuming_wallet_info, NodeStartupConfigBuilder,
-    SubstratumRealNode,
+use multinode_integration_tests_lib::masq_node::MASQNode;
+use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
+use multinode_integration_tests_lib::masq_real_node::{
+    default_consuming_wallet_info, make_consuming_wallet_info, MASQRealNode,
+    NodeStartupConfigBuilder,
 };
 use native_tls::HandshakeError;
 use native_tls::TlsConnector;
@@ -22,7 +22,7 @@ use std::time::Duration;
 
 #[test]
 fn http_end_to_end_routing_test() {
-    let mut cluster = SubstratumNodeCluster::start().unwrap();
+    let mut cluster = MASQNodeCluster::start().unwrap();
     let first_node = cluster.start_real_node(NodeStartupConfigBuilder::standard().build());
 
     let nodes = (0..6)
@@ -33,7 +33,7 @@ fn http_end_to_end_routing_test() {
                     .build(),
             )
         })
-        .collect::<Vec<SubstratumRealNode>>();
+        .collect::<Vec<MASQRealNode>>();
 
     thread::sleep(Duration::from_millis(500 * (nodes.len() as u64)));
 
@@ -67,7 +67,7 @@ fn http_end_to_end_routing_test() {
 
 #[test]
 fn http_end_to_end_routing_test_with_consume_and_originate_only_nodes() {
-    let mut cluster = SubstratumNodeCluster::start().unwrap();
+    let mut cluster = MASQNodeCluster::start().unwrap();
     let first_node = cluster.start_real_node(NodeStartupConfigBuilder::standard().build());
     let _second_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
@@ -110,7 +110,7 @@ fn http_end_to_end_routing_test_with_consume_and_originate_only_nodes() {
 
 #[test]
 fn tls_end_to_end_routing_test() {
-    let mut cluster = SubstratumNodeCluster::start().unwrap();
+    let mut cluster = MASQNodeCluster::start().unwrap();
     let first_node = cluster.start_real_node(NodeStartupConfigBuilder::standard().build());
 
     let nodes = (0..7)
@@ -122,7 +122,7 @@ fn tls_end_to_end_routing_test() {
                     .build(),
             )
         })
-        .collect::<Vec<SubstratumRealNode>>();
+        .collect::<Vec<MASQRealNode>>();
 
     thread::sleep(Duration::from_millis(500 * (nodes.len() as u64)));
 
@@ -191,7 +191,7 @@ fn tls_end_to_end_routing_test() {
 
 #[test]
 fn http_routing_failure_produces_internal_error_response() {
-    let mut cluster = SubstratumNodeCluster::start().unwrap();
+    let mut cluster = MASQNodeCluster::start().unwrap();
     let neighbor_node = cluster.start_real_node(NodeStartupConfigBuilder::standard().build());
     let originating_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
@@ -220,7 +220,7 @@ fn http_routing_failure_produces_internal_error_response() {
 
 #[test]
 fn tls_routing_failure_produces_internal_error_response() {
-    let mut cluster = SubstratumNodeCluster::start().unwrap();
+    let mut cluster = MASQNodeCluster::start().unwrap();
     let neighbor = cluster.start_real_node(NodeStartupConfigBuilder::standard().build());
     let originating_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
@@ -269,7 +269,7 @@ fn tls_routing_failure_produces_internal_error_response() {
 
 #[test]
 fn multiple_stream_zero_hop_test() {
-    let mut cluster = SubstratumNodeCluster::start().unwrap();
+    let mut cluster = MASQNodeCluster::start().unwrap();
     let zero_hop_node = cluster.start_real_node(
         NodeStartupConfigBuilder::zero_hop()
             .consuming_wallet_info(default_consuming_wallet_info())

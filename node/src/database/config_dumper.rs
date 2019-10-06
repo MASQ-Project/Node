@@ -14,7 +14,7 @@ use serde_json::{Map, Value};
 use std::path::PathBuf;
 
 const DUMP_CONFIG_HELP: &str =
-    "Dump the configuration of SubstratumNode to stdout in JSON. Used chiefly by UIs.";
+    "Dump the configuration of MASQ Node to stdout in JSON. Used chiefly by UIs.";
 
 pub fn dump_config(args: &Vec<String>, streams: &mut StdStreams) -> i32 {
     let (real_user, data_directory, chain_id) = distill_args(args);

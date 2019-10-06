@@ -318,7 +318,7 @@ describe('NodeConfigurationComponent', () => {
       });
 
       it('calls openExternal', () => {
-        td.verify(mockOpenExternal('https://github.com/SubstratumNetwork/SubstratumNode/blob/master/node/docs/Blockchain-Service.md'));
+        td.verify(mockOpenExternal('https://github.com/MASQ/Node/blob/master/node/docs/Blockchain-Service.md'));
       });
     });
 

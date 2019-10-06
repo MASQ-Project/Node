@@ -1,9 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use multinode_integration_tests_lib::masq_node::MASQNode;
+use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::multinode_gossip::{MultinodeGossip, SingleNode, Standard};
 use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
-use multinode_integration_tests_lib::substratum_node::SubstratumNode;
-use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
 use node_lib::neighborhood::gossip::GossipBuilder;
 use node_lib::neighborhood::neighborhood_test_utils::{db_from_node, make_node_record};
 use node_lib::neighborhood::node_record::NodeRecord;
@@ -15,7 +15,7 @@ use std::time::Duration;
 
 #[test]
 fn debut_target_does_not_introduce_known_neighbors() {
-    let mut cluster = SubstratumNodeCluster::start().unwrap();
+    let mut cluster = MASQNodeCluster::start().unwrap();
     let one_common_neighbor = make_node_record(1234, true);
     let another_common_neighbor = make_node_record(2435, true);
     let dest_db = {
@@ -76,7 +76,7 @@ fn debut_target_does_not_introduce_known_neighbors() {
 
 #[test]
 fn debut_target_does_not_pass_to_known_neighbors() {
-    let mut cluster = SubstratumNodeCluster::start().unwrap();
+    let mut cluster = MASQNodeCluster::start().unwrap();
     let common_neighbors = (0..5)
         .into_iter()
         .map(|index| make_node_record(1111 + index, true))

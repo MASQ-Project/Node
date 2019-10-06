@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::substratum_node::NodeReference;
-use crate::substratum_node_cluster::SubstratumNodeCluster;
+use crate::masq_node::NodeReference;
+use crate::masq_node_cluster::MASQNodeCluster;
 use node_lib::discriminator::Discriminator;
 use node_lib::discriminator::DiscriminatorFactory;
 use node_lib::discriminator::UnmaskedChunk;
@@ -62,7 +62,7 @@ impl DiscriminatorCluster {
     }
 }
 
-pub struct SubstratumCoresServer {
+pub struct MASQCoresServer {
     discriminators: RefCell<DiscriminatorCluster>,
     cryptde: CryptDENull,
     io_receiver: Receiver<io::Result<Vec<u8>>>,
@@ -70,8 +70,8 @@ pub struct SubstratumCoresServer {
     _join_handle: JoinHandle<()>,
 }
 
-impl SubstratumCoresServer {
-    pub fn new(chain_id: u8) -> SubstratumCoresServer {
+impl MASQCoresServer {
+    pub fn new(chain_id: u8) -> MASQCoresServer {
         let ip_address = Self::find_local_integration_net_ip_address();
         let port = find_free_port();
         let local_addr = SocketAddr::new(ip_address, port);
@@ -116,7 +116,7 @@ impl SubstratumCoresServer {
             }
         });
         thread::sleep(Duration::from_millis(100));
-        SubstratumCoresServer {
+        MASQCoresServer {
             discriminators: RefCell::new(DiscriminatorCluster::new(Self::default_factories())),
             cryptde,
             io_receiver: io_rx,
@@ -178,7 +178,7 @@ impl SubstratumCoresServer {
             172,
             18,
             0,
-            if SubstratumNodeCluster::is_in_jenkins() {
+            if MASQNodeCluster::is_in_jenkins() {
                 2
             } else {
                 1

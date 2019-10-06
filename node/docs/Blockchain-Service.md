@@ -2,25 +2,25 @@
 
 ### What is a blockchain service URL?
 
-A blockchain service url is a URL that SubstratumNode uses to interact with the Ropsten testnet or Ethereum mainnet blockchains.  
+A blockchain service url is a URL that MASQ Node uses to interact with the Ropsten testnet or Ethereum mainnet blockchains.  
 
-To be fully functional SubstratumNode needs access to:
+To be fully functional MASQ Node needs access to:
 1. pay HOT/SUB to other nodes for routing, blockchain, and exit services consumed, 
 1. determine if other requesting nodes have enough SUB to pay for services -- also ROP/ETH for gas fees, and 
 1. discover payments from other nodes for routing, blockchain, and exit services provided. This keeps your node from incorrectly banning other nodes for not paying. 
 
-There are two general types of Blockchain Services SubstratumNode currently supports.
+There are two general types of Blockchain Services MASQ Node currently supports.
 
 1. Connect with a remote service that provides a JSON RPC Ethereum client like [Infura.io](https://infura.io/),
 1. Run your own Ethereum miner such as a [Go Ethereum (geth)](https://geth.ethereum.org) or [Parity Ethereum](https://www.parity.io/ethereum/) JSON RPC client locally on the same machine as 
-SubstratumNode or on another machine within your private network.
+MASQ Node or on another machine within your private network.
 
 ### 1. Sign up for a free [Infura.io](https://infura.io/register) account.
 Follow the instructions here [Infura.io/docs](https://infura.io/docs) to create a "Project"
 Choose one of the following options for the Ropsten testnet:
 * Enter your Infura.io url `https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>` in the blockchain service url field of the UI.
     ![Image](images/Blockchain-Service-Url.png)
-* For the command-line interface (CLI) start your SubstratumNode providing the argument 
+* For the command-line interface (CLI) start your MASQ Node providing the argument 
     > `--blockchain-service-url https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>`
 * Edit your config.toml file and include the entry 
 
@@ -35,8 +35,9 @@ Choose one of the following options for the Ropsten testnet:
 Change `<YOUR-PROJECT-ID>` with the PROJECT ID from your Infura.io Project Dashboard. Change the URL to 
 mainnet when ready to spend and earn real SUB. NOTE: the network will initially only be testing on Ropsten. 
 
-Soon SubstratumNode will have the ability to request clandestine blockchain services from other nodes through services like Infura.io. Requests for blockchain services will be routed just as if your 
-browser sent a request to a website through the Substratum Network. In this mode your blockchain service requests will cost HOT or SUB.
+Soon MASQ Node will have the ability to request clandestine blockchain services from other nodes through services like Infura.io. Requests for blockchain services will be routed just as if your 
+browser sent a request to a website through the MASQ Network. In this mode your blockchain service requests will cost HOT or SUB.
+[Note: this is no longer current, and should be updated.]
 
 
 ### 2. Do you feel up to the technical challenge of running a full Ethereum client, keep it running, and synchronized with the blockchain?

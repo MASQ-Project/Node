@@ -124,7 +124,7 @@ impl ResolvConfDnsModifier {
 
     fn revert_contents(&self, contents_before: String) -> Result<String, String> {
         let mut contents_after = contents_before.clone();
-        let (begin, length) = match self.find_substratum_nameserver(&contents_after[..])? {
+        let (begin, length) = match self.find_masq_nameserver(&contents_after[..])? {
             Some(t) => t,
             None => return Ok(contents_before),
         };
@@ -195,18 +195,18 @@ impl ResolvConfDnsModifier {
             .collect()
     }
 
-    pub fn is_substratum_ip(nameserver_entry: &str) -> bool {
+    pub fn is_masq_ip(nameserver_entry: &str) -> bool {
         let syntax_regex = Regex::new(r"nameserver\s+\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\s*(#|$)")
             .expect("Regex syntax error");
         if !syntax_regex.is_match(nameserver_entry) {
             return false;
         }
-        let substratum_regex =
+        let masq_regex =
             Regex::new(r"nameserver\s+127\.0\.0\.1([#\s]|$)").expect("Regex syntax error");
-        substratum_regex.is_match(nameserver_entry)
+        masq_regex.is_match(nameserver_entry)
     }
 
-    fn find_substratum_nameserver(&self, contents: &str) -> Result<Option<(usize, usize)>, String> {
+    fn find_masq_nameserver(&self, contents: &str) -> Result<Option<(usize, usize)>, String> {
         // TODO: Should probably use active_nameservers()
         let regex =
             Regex::new(r"(^|\n)\s*(nameserver\s+127\.0\.0\.1\n?)").expect("Regex syntax error");
@@ -257,13 +257,13 @@ impl ResolvConfDnsModifier {
             .expect("Internal error")
             .0
             .clone();
-        ResolvConfDnsModifier::is_substratum_ip(&first_active_nameserver)
+        ResolvConfDnsModifier::is_masq_ip(&first_active_nameserver)
     }
 
     fn check_for_nonsense(&self, active_nameservers: &[(String, usize)]) -> Result<(), String> {
         if active_nameservers
             .iter()
-            .any(|tuple| ResolvConfDnsModifier::is_substratum_ip(&tuple.0))
+            .any(|tuple| ResolvConfDnsModifier::is_masq_ip(&tuple.0))
         {
             Err(String::from(
                 "This system's DNS settings don't make sense; aborting",
@@ -397,73 +397,73 @@ mod tests {
     }
 
     #[test]
-    fn is_substratum_ip_detects_substratum_dns_with_nothing_following() {
+    fn is_masq_ip_detects_masq_dns_with_nothing_following() {
         let nameserver_entry = "nameserver 127.0.0.1";
 
-        let result = ResolvConfDnsModifier::is_substratum_ip(nameserver_entry);
+        let result = ResolvConfDnsModifier::is_masq_ip(nameserver_entry);
 
         assert_eq!(result, true);
     }
 
     #[test]
-    fn is_substratum_ip_detects_substratum_dns_with_whitespace_following() {
+    fn is_masq_ip_detects_masq_dns_with_whitespace_following() {
         let nameserver_entry = "nameserver 127.0.0.1 #comment";
 
-        let result = ResolvConfDnsModifier::is_substratum_ip(nameserver_entry);
+        let result = ResolvConfDnsModifier::is_masq_ip(nameserver_entry);
 
         assert_eq!(result, true);
     }
 
     #[test]
-    fn is_substratum_ip_detects_substratum_dns_with_hashmark_following() {
+    fn is_masq_ip_detects_masq_dns_with_hashmark_following() {
         let nameserver_entry = "nameserver 127.0.0.1#comment";
 
-        let result = ResolvConfDnsModifier::is_substratum_ip(nameserver_entry);
+        let result = ResolvConfDnsModifier::is_masq_ip(nameserver_entry);
 
         assert_eq!(result, true);
     }
 
     #[test]
-    fn is_substratum_ip_detects_absence_of_substratum_dns_with_valid_ip() {
+    fn is_masq_ip_detects_absence_of_masq_dns_with_valid_ip() {
         let nameserver_entry = "nameserver 127.0.0.12";
 
-        let result = ResolvConfDnsModifier::is_substratum_ip(nameserver_entry);
+        let result = ResolvConfDnsModifier::is_masq_ip(nameserver_entry);
 
         assert_eq!(result, false);
     }
 
     #[test]
-    fn is_substratum_ip_detects_absence_of_substratum_dns_with_valid_ip_and_whitespace() {
+    fn is_masq_ip_detects_absence_of_masq_dns_with_valid_ip_and_whitespace() {
         let nameserver_entry = "nameserver 127.0.0.12 #comment";
 
-        let result = ResolvConfDnsModifier::is_substratum_ip(nameserver_entry);
+        let result = ResolvConfDnsModifier::is_masq_ip(nameserver_entry);
 
         assert_eq!(result, false);
     }
 
     #[test]
-    fn is_substratum_ip_detects_absence_of_substratum_dns_with_valid_ip_and_hashmark() {
+    fn is_masq_ip_detects_absence_of_masq_dns_with_valid_ip_and_hashmark() {
         let nameserver_entry = "nameserver 127.0.0.12#comment";
 
-        let result = ResolvConfDnsModifier::is_substratum_ip(nameserver_entry);
+        let result = ResolvConfDnsModifier::is_masq_ip(nameserver_entry);
 
         assert_eq!(result, false);
     }
 
     #[test]
-    fn is_substratum_ip_detects_absence_of_substratum_dns_with_invalid_ip() {
+    fn is_masq_ip_detects_absence_of_masq_dns_with_invalid_ip() {
         let nameserver_entry = "nameserver 127.0.0.1A";
 
-        let result = ResolvConfDnsModifier::is_substratum_ip(nameserver_entry);
+        let result = ResolvConfDnsModifier::is_masq_ip(nameserver_entry);
 
         assert_eq!(result, false);
     }
 
     #[test]
-    fn is_substratum_ip_detects_absence_of_substratum_dns_with_invalid_comment() {
+    fn is_masq_ip_detects_absence_of_masq_dns_with_invalid_comment() {
         let nameserver_entry = "nameserver 127.0.0.1 A";
 
-        let result = ResolvConfDnsModifier::is_substratum_ip(nameserver_entry);
+        let result = ResolvConfDnsModifier::is_masq_ip(nameserver_entry);
 
         assert_eq!(result, false);
     }
@@ -674,9 +674,8 @@ mod tests {
     }
 
     #[test]
-    fn revert_complains_if_there_is_no_single_substratum_nameserver_directive() {
-        let root =
-            make_root("revert_complains_if_there_is_no_single_substratum_nameserver_directive");
+    fn revert_complains_if_there_is_no_single_masq_nameserver_directive() {
+        let root = make_root("revert_complains_if_there_is_no_single_masq_nameserver_directive");
         make_resolv_conf(
             &root,
             "nameserver 127.0.0.1\n#nameserver 8.8.8.8\nnameserver 127.0.0.1\n",
@@ -693,9 +692,9 @@ mod tests {
     }
 
     #[test]
-    fn revert_complains_if_there_is_no_single_commented_non_substratum_nameserver_directive() {
+    fn revert_complains_if_there_is_no_single_commented_non_masq_nameserver_directive() {
         let root = make_root(
-            "revert_complains_if_there_is_no_single_commented_non_substratum_nameserver_directive",
+            "revert_complains_if_there_is_no_single_commented_non_masq_nameserver_directive",
         );
         make_resolv_conf(&root, "nameserver 127.0.0.1\n## nameserver 8.8.8.8\n");
         let mut subject = ResolvConfDnsModifier::new();

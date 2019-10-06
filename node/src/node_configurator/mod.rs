@@ -77,12 +77,12 @@ pub const REAL_USER_HELP: &str =
      you start the Node using pkexec or some other method that doesn't populate the SUDO_xxx variables. Use a value \
      like <uid>:<gid>:<home directory>.";
 pub const WALLET_PASSWORD_HELP: &str =
-    "A password or phrase to encrypt your consuming wallet in the SubstratumNode database or decrypt a keystore file. Can be changed \
+    "A password or phrase to encrypt your consuming wallet in the MASQ Node database or decrypt a keystore file. Can be changed \
      later and still produce the same addresses. This is a secret; providing it on the command line or in a config file is \
      insecure and unwise. If you don't specify it anywhere, you'll be prompted for it at the console.";
 
 pub fn app_head() -> App<'static, 'static> {
-    App::new("SubstratumNode")
+    App::new("MASQNode")
         .global_settings(if cfg!(test) {
             &[AppSettings::ColorNever]
         } else {
@@ -303,7 +303,7 @@ pub fn real_user_data_directory_and_chain_id(
             let right_local_data_dir =
                 wrong_local_data_dir.replace(&wrong_home_dir, &right_home_dir);
             PathBuf::from(right_local_data_dir)
-                .join("Substratum")
+                .join("MASQ")
                 .join(chain_name.clone())
         }
         _ => panic!("--data-directory improperly defined in clap schema"),
@@ -504,7 +504,7 @@ pub fn possible_reader_from_stream(
 
 pub fn data_directory_default(dirs_wrapper: &dyn DirsWrapper, chain_name: &'static str) -> String {
     match dirs_wrapper.data_dir() {
-        Some(path) => path.join("Substratum").join(chain_name),
+        Some(path) => path.join("MASQ").join(chain_name),
         None => PathBuf::from(""),
     }
     .to_str()
@@ -932,7 +932,7 @@ mod tests {
         let result = data_directory_default(&mock_dirs_wrapper, DEFAULT_CHAIN_NAME);
 
         let expected = PathBuf::from("mocked/path")
-            .join("Substratum")
+            .join("MASQ")
             .join(DEFAULT_CHAIN_NAME);
         assert_eq!(result, expected.as_path().to_str().unwrap().to_string());
     }

@@ -81,24 +81,24 @@ lazy_static! {
     );
     static ref GAS_PRICE_HELP: String = format!(
        "The Gas Price is the amount of Gwei you will pay per unit of gas used in a transaction. \
-       If left unspecified SubstratumNode will use the previously stored value (Default {}). Valid range is 1-99 Gwei.",
+       If left unspecified, MASQ Node will use the previously stored value (Default {}). Valid range is 1-99 Gwei.",
        DEFAULT_GAS_PRICE);
 }
 
 const BLOCKCHAIN_SERVICE_HELP: &str =
     "The Ethereum client you wish to use to provide Blockchain \
-     exit services from your SubstratumNode (e.g. http://localhost:8545, \
+     exit services from your MASQ Node (e.g. http://localhost:8545, \
      https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID).";
 const DNS_SERVERS_HELP: &str =
     "IP addresses of DNS Servers for host name look-up while providing exit \
-     services for other SubstratumNodes (e.g. 1.0.0.1,1.1.1.1,8.8.8.8,9.9.9.9, etc.)";
+     services for other MASQ Nodes (e.g. 1.0.0.1,1.1.1.1,8.8.8.8,9.9.9.9, etc.)";
 const EARNING_WALLET_HELP: &str =
     "An Ethereum wallet address. Addresses must begin with 0x followed by 40 hexadecimal digits \
      (case-insensitive). If you already have a derivation-path earning wallet, don't supply this. \
      If you have supplied an earning wallet address before, either don't supply it again or be \
      careful to supply exactly the same one you supplied before.";
-const IP_ADDRESS_HELP: &str = "The public IP address of your SubstratumNode: that is, the IPv4 \
-     address at which other SubstratumNodes can contact yours. If you're running your Node behind \
+const IP_ADDRESS_HELP: &str = "The public IP address of your MASQ Node: that is, the IPv4 \
+     address at which other Nodes can contact yours. If you're running your Node behind \
      a router, this will be the IP address of the router. If this IP address starts with 192.168 or 10.0, \
      it's a local address rather than a public address, and other Nodes won't be able to see yours. \
      --ip is meaningless except in --neighborhood-mode standard.";
@@ -108,12 +108,12 @@ const LOG_LEVEL_HELP: &str =
      generates a lot of log traffic. This will both consume your disk space and degrade your Node's performance. \
      You should probably not specify a level higher than the default unless you have security concerns about \
      persistent logs being kept on your computer: if your Node crashes, it's good to know why.";
-const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes in the Substratum \
+const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes in the MASQ \
      Network to which you'd like your Node to connect on startup. A Node descriptor looks like \
      this:\n\ngBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg/EN6zQ:86.75.30.9:5542 (initial ':' for testnet) and\n\
      gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg/EN6zQ@86.75.30.9:5542 (initial '@' for mainnet)\n\n\
      If you have more than one, separate them with commas (but no spaces). There is no default value; \
-     if you don't specify a neighbor, your Node will start without being connected to any Substratum \
+     if you don't specify a neighbor, your Node will start without being connected to any MASQ \
      Network, although other Nodes will be able to connect to yours if they know your Node's descriptor. \
      --neighbors is meaningless in --neighborhood-mode zero-hop.";
 const NEIGHBORHOOD_MODE_HELP: &str = "This configures the way the Node relates to other Nodes.\n\n\
@@ -143,17 +143,17 @@ const HELP_TEXT: &str = indoc!(
     r"ADDITIONAL HELP:
     If you want to generate wallets to earn money into and spend money from, try:
 
-        SubstratumNode --help --generate-wallet
+        MASQNode --help --generate-wallet
 
-    If you already have a set of wallets you want SubstratumNode to use, try:
+    If you already have a set of wallets you want Node to use, try:
 
-        SubstratumNode --help --recover-wallet
+        MASQNode --help --recover-wallet
 
-    SubstratumNode listens for connections from other SubstratumNodes using the computer's
+    MASQ Node listens for connections from other Nodes using the computer's
     network interface. Configuring the internet router for port forwarding is a necessary
-    step for SubstratumNode users to permit network communication between SubstratumNodes.
+    step for Node users to permit network communication between Nodes.
 
-    Once started, SubstratumNode prints the node descriptor to the console. The descriptor
+    Once started, Node prints the node descriptor to the console. The descriptor
     indicates the required port needing to be forwarded by the network router. The port is
     the last number in the descriptor, as shown below:
 
@@ -1427,14 +1427,13 @@ mod tests {
         #[cfg(target_os = "linux")]
         assert_eq!(
             config.data_directory,
-            PathBuf::from("/home/booga/.local/share/Substratum").join(DEFAULT_CHAIN_NAME)
+            PathBuf::from("/home/booga/.local/share/MASQ").join(DEFAULT_CHAIN_NAME)
         );
 
         #[cfg(target_os = "macos")]
         assert_eq!(
             config.data_directory,
-            PathBuf::from("/home/booga/Library/Application Support/Substratum")
-                .join(DEFAULT_CHAIN_NAME)
+            PathBuf::from("/home/booga/Library/Application Support/MASQ").join(DEFAULT_CHAIN_NAME)
         );
     }
 

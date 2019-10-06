@@ -1,13 +1,13 @@
-# Engineering Practices for the ClandestiNode Project
+# Engineering Practices for the MASQ Node Project
 In order to maintain and improve the quality of the project, we have certain engineering disciplines that developers
-and QA testers follow when contributing to ClandestiNode and its affiliated codebases.
+and QA testers follow when contributing to MASQ Node and its affiliated codebases.
 
 ## Development
 We look forward to accepting contributions of source code from the community, and we strive to maintain
 high development standards.
 
 ### Test-Driven Development
-The ClandestiNode project is test-driven, which means all or almost all of our production code is driven
+The MASQ project is test-driven, which means all or almost all of our production code is driven
 by automated tests that are written to fail (because the production code to make them pass doesn't exist
 yet), and then made to pass.
 
@@ -26,7 +26,7 @@ fundamentally untestable way. Second, that will leave segments of your code unco
 Third, your code won't pass review, and either you or someone else will need to rewrite it anyway.
 
 #### Tests
-In the ClandestiNode project, we have three sets of tests.
+In the MASQ Node project, we have three sets of tests.
 
 * __Unit Tests:__ This is the most numerous kind of test. These tests have the lowest-level access to the
 production code, and test it in comparatively small units. In Rust, the convention is to write the unit 
@@ -104,7 +104,7 @@ ownership, which is especially important on a volunteer project where devs are e
 and out. It's a bad thing for only one dev to know how a particular piece of code works.
 
 Therefore, some projects decree that no line of code may be merged into the master branch unless it 
-was written by a pair of developers. This is not a bad practice, but the exigencies of ClandestiNode
+was written by a pair of developers. This is not a bad practice, but the exigencies of MASQ
 mean that we probably won't completely achieve that ideal here. However, code that wasn't written
 in a pair will attract more scrutiny from pull-request reviewers, which means that A) it may be more
 likely to be initially rejected, and B) the reviewer may choose to do simpler reviews of paired-on code
@@ -122,7 +122,7 @@ while we develop it, but be sure to run the top-level `ci/all.sh` before we crea
 to make sure all the styling issues are taken care of and won't break the CI build.
 
 ### Version-Control Branching
-When you start work on an issue, you should merge ClandestiNode's `master` branch into your sandbox
+When you start work on an issue, you should merge Node's `master` branch into your sandbox
 to make sure you're starting with the latest version you can.
 
 Then you should create a feature branch named after your issue. For example, if you're working on
@@ -138,13 +138,13 @@ If your card goes on for more than a day or so, wait for a stopping point and th
 branch into your feature branch to avoid getting too far away from `master` and multiplying merge
 problems at the end.
 
-Once you're ready for a run through ClandestiNode's CI, merge in `master` one more time, create a 
+Once you're ready for a run through Node's CI, merge in `master` one more time, create a 
 pull request from your branch, and watch CI run on it. Fix any problems CI points up. Once you have 
 a clean CI build, move your card from Development in Progress to Awaiting Review, where it will
 attract the attention of a reviewer.
 
 ### Reviews and Reviewing
-Certain ClandestiNode developers are also empowered as reviewers. They will review PR submissions for
+Certain MASQ developers are also empowered as reviewers. They will review PR submissions for
 test coverage, design, maintainability, conformance to established conventions and standards, and so on.
 
 Before a review can begin, the pull request under review must have `master` merged into it and pass

@@ -1,14 +1,12 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use multinode_integration_tests_lib::masq_node::MASQNode;
+use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
+use multinode_integration_tests_lib::masq_real_node::{MASQRealNode, NodeStartupConfigBuilder};
 use multinode_integration_tests_lib::multinode_gossip::{
     parse_gossip, GossipType, MultinodeGossip, StandardBuilder,
 };
 use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
-use multinode_integration_tests_lib::substratum_node::SubstratumNode;
-use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
-use multinode_integration_tests_lib::substratum_real_node::{
-    NodeStartupConfigBuilder, SubstratumRealNode,
-};
 use node_lib::neighborhood::gossip_acceptor::MAX_DEGREE;
 use node_lib::neighborhood::neighborhood_test_utils::db_from_node;
 use node_lib::neighborhood::neighborhood_test_utils::make_node_record;
@@ -19,7 +17,7 @@ use std::time::Duration;
 #[test]
 fn graph_connects_but_does_not_over_connect() {
     let neighborhood_size = 5;
-    let mut cluster = SubstratumNodeCluster::start().unwrap();
+    let mut cluster = MASQNodeCluster::start().unwrap();
 
     let first_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
@@ -35,7 +33,7 @@ fn graph_connects_but_does_not_over_connect() {
                     .build(),
             )
         })
-        .collect::<Vec<SubstratumRealNode>>();
+        .collect::<Vec<MASQRealNode>>();
     let last_node = real_nodes.last().unwrap();
     let mock_node =
         cluster.start_mock_node_with_public_key(vec![10000], &PublicKey::new(&[1, 2, 3, 4]));
@@ -50,7 +48,7 @@ fn graph_connects_but_does_not_over_connect() {
         _ => panic!("Received unexpected Gossip when expecting Introduction"),
     }
     let standard_gossip = StandardBuilder::new()
-        .add_substratum_node(&mock_node, 100)
+        .add_masq_node(&mock_node, 100)
         .half_neighbors(mock_node.public_key(), last_node.public_key())
         .build();
     mock_node
@@ -89,7 +87,7 @@ fn lots_of_stalled_nodes_dont_prevent_acceptance_of_new_node() {
     }
     let full_neighbor_key = &db.add_node(make_node_record(2345, true)).unwrap();
     db.add_arbitrary_full_neighbor(root_node.public_key(), full_neighbor_key);
-    let mut cluster = SubstratumNodeCluster::start().unwrap();
+    let mut cluster = MASQNodeCluster::start().unwrap();
     let (_, root_node, _) = construct_neighborhood(&mut cluster, db, vec![]);
     let new_node =
         cluster.start_mock_node_with_public_key(vec![5050], &PublicKey::new(&[3, 4, 5, 6]));

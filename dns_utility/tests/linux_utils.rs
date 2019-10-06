@@ -31,5 +31,5 @@ pub fn is_subverted(entries: &Vec<String>) -> bool {
         None => return false,
         Some(x) => x,
     };
-    ResolvConfDnsModifier::is_substratum_ip(&first_entry)
+    ResolvConfDnsModifier::is_masq_ip(&first_entry)
 }
