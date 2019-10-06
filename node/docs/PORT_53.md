@@ -90,7 +90,7 @@ This solution is too complex to detail here, but in broad strokes it involves ru
 a version of Linux that does _not_ have the __Port 53 Problem__, starting the MASQ Node and a browser in that
 container, and having the browser display its window on the X11 server running on your host machine.  We at MASQ
 have used this solution in the past, and you can see how we've done it by looking in our 
-[source code](https://github.com/MASQ/Node/tree/master/node/docker/linux_node). After installing
+[source code](https://github.com/MASQ-Project/Node/tree/master/node/docker/linux_node). After installing
 Docker on your machine, you may be able to put together a similar solution.
 
 #### Simple But Incompatible: Disable DNS Caching

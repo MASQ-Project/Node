@@ -9,7 +9,7 @@ ProxyServer converts your regular TCP request into a MASQ CORES package and send
 When the response comes back, ProxyServer unwraps it and gives it back to the requesting entity on your host machine.
 
 It probably isn't the most interesting place to begin digging into our code;
-[node](https://github.com/MASQ/Node/tree/master/node)
+[node](https://github.com/MASQ-Project/Node/tree/master/node)
 is a better place to start.
 
 
