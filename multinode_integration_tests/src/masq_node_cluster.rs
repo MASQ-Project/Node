@@ -2,8 +2,8 @@
 use crate::command::Command;
 use crate::masq_mock_node::MASQMockNode;
 use crate::masq_node::{MASQNode, MASQNodeUtils};
-use crate::masq_real_node::NodeStartupConfig;
 use crate::masq_real_node::MASQRealNode;
+use crate::masq_real_node::NodeStartupConfig;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::test_utils::DEFAULT_CHAIN_ID;
 use std::collections::HashMap;

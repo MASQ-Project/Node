@@ -1,14 +1,12 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use multinode_integration_tests_lib::multinode_gossip::{parse_gossip, GossipType};
-use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
 use multinode_integration_tests_lib::masq_mock_node::MASQMockNode;
-use multinode_integration_tests_lib::masq_node::{
-    PortSelector, MASQNode, MASQNodeUtils,
-};
+use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils, PortSelector};
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_node_server::MASQNodeServer;
 use multinode_integration_tests_lib::masq_real_node::MASQRealNode;
+use multinode_integration_tests_lib::multinode_gossip::{parse_gossip, GossipType};
+use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
 use node_lib::blockchain::blockchain_interface::contract_address;
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
@@ -244,9 +242,7 @@ fn downed_nodes_not_offered_in_passes_or_introductions() {
     }
 }
 
-fn create_neighborhood(
-    cluster: &mut MASQNodeCluster,
-) -> (MASQRealNode, MASQMockNode, PublicKey) {
+fn create_neighborhood(cluster: &mut MASQNodeCluster) -> (MASQRealNode, MASQMockNode, PublicKey) {
     let mut real_node: NodeRecord = make_node_record(1234, true);
     let mut mock_node: NodeRecord = make_node_record(2345, true);
     let mut fictional_node_1: NodeRecord = make_node_record(3456, true);

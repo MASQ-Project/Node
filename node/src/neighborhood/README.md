@@ -51,7 +51,7 @@ of another access point with a different public IP address. We have plans to mak
 survivable, but currently none are. If your public IP address changes, your Node traffic will drop to zero and stay
 there; you'll need to kill your Node and restart it to get it back on the Network.
 
-As a matter of fact, the best computer on which to run a SubstratumNode is one whose public IP _never_ changes: one
+As a matter of fact, the best computer on which to run a MASQ Node is one whose public IP _never_ changes: one
 whose ISP has granted a static IP address. Failing that, the best way to run a Node is on a non-portable computer that
 is using a wired Ethernet connection. (Sending data through a wire keeps it far more secure than broadcasting it through
 the air.) Failing _that,_ the best way would be on a WiFi-connected computer that may move around in the territory of a

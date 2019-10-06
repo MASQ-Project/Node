@@ -81,7 +81,7 @@ impl ActorSystemFactoryReal {
         let (dispatcher_subs, pool_bind_sub) = actor_factory.make_and_start_dispatcher();
         let proxy_server_subs = actor_factory.make_and_start_proxy_server(
             cryptde,
-            config.neighborhood_config.is_decentralized(),
+            config.neighborhood_config.mode.is_decentralized(),
             if config.consuming_wallet.is_none() {
                 None
             } else {
@@ -91,14 +91,26 @@ impl ActorSystemFactoryReal {
         let proxy_client_subs = actor_factory.make_and_start_proxy_client(ProxyClientConfig {
             cryptde,
             dns_servers: config.dns_servers.clone(),
-            exit_service_rate: config.neighborhood_config.rate_pack.exit_service_rate,
-            exit_byte_rate: config.neighborhood_config.rate_pack.exit_byte_rate,
+            exit_service_rate: config
+                .neighborhood_config
+                .mode
+                .rate_pack()
+                .exit_service_rate,
+            exit_byte_rate: config.neighborhood_config.mode.rate_pack().exit_byte_rate,
         });
         let hopper_subs = actor_factory.make_and_start_hopper(HopperConfig {
             cryptde,
-            per_routing_service: config.neighborhood_config.rate_pack.routing_service_rate,
-            per_routing_byte: config.neighborhood_config.rate_pack.routing_byte_rate,
-            is_decentralized: config.neighborhood_config.is_decentralized(),
+            per_routing_service: config
+                .neighborhood_config
+                .mode
+                .rate_pack()
+                .routing_service_rate,
+            per_routing_byte: config
+                .neighborhood_config
+                .mode
+                .rate_pack()
+                .routing_byte_rate,
+            is_decentralized: config.neighborhood_config.mode.is_decentralized(),
         });
         let blockchain_bridge_subs =
             actor_factory.make_and_start_blockchain_bridge(&config, &db_initializer);
@@ -393,10 +405,11 @@ mod tests {
     use crate::sub_lib::dispatcher::{InboundClientData, StreamShutdownMsg};
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
-    use crate::sub_lib::neighborhood::RemoveNeighborMessage;
     use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, NodeRecordMetadataMessage};
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, NodeQueryMessage};
     use crate::sub_lib::neighborhood::{NeighborhoodDotGraphRequest, RouteQueryMessage};
+    use crate::sub_lib::neighborhood::{NeighborhoodMode, RemoveNeighborMessage};
+    use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::peer_actors::StartMessage;
     use crate::sub_lib::proxy_client::{
         ClientResponsePayload, DnsResolveFailure, InboundServerData,
@@ -410,10 +423,6 @@ mod tests {
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
     use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage};
     use crate::test_utils::rate_pack;
-    use crate::test_utils::rate_pack_exit;
-    use crate::test_utils::rate_pack_exit_byte;
-    use crate::test_utils::rate_pack_routing;
-    use crate::test_utils::rate_pack_routing_byte;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::{cryptde, make_wallet, DEFAULT_CHAIN_ID};
@@ -912,10 +921,11 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             neighborhood_config: NeighborhoodConfig {
-                neighbor_configs: vec![],
-                local_ip_addr: IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
-                clandestine_port_list: vec![],
-                rate_pack: rate_pack(100),
+                mode: NeighborhoodMode::Standard(
+                    NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), &vec![]),
+                    vec![],
+                    rate_pack(100),
+                ),
             },
             accountant_config: AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
@@ -970,10 +980,7 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             neighborhood_config: NeighborhoodConfig {
-                neighbor_configs: vec![],
-                local_ip_addr: IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
-                clandestine_port_list: vec![],
-                rate_pack: rate_pack(100),
+                mode: NeighborhoodMode::ZeroHop,
             },
             accountant_config: AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
@@ -1019,12 +1026,12 @@ mod tests {
         check_start_message(&recordings.accountant);
         let hopper_config = Parameters::get(parameters.hopper_params);
         check_cryptde(hopper_config.cryptde);
-        assert_eq!(hopper_config.per_routing_service, rate_pack_routing(100));
-        assert_eq!(hopper_config.per_routing_byte, rate_pack_routing_byte(100));
+        assert_eq!(hopper_config.per_routing_service, 0);
+        assert_eq!(hopper_config.per_routing_byte, 0);
         let proxy_client_config = Parameters::get(parameters.proxy_client_params);
         check_cryptde(proxy_client_config.cryptde);
-        assert_eq!(proxy_client_config.exit_service_rate, rate_pack_exit(100),);
-        assert_eq!(proxy_client_config.exit_byte_rate, rate_pack_exit_byte(100),);
+        assert_eq!(proxy_client_config.exit_service_rate, 0);
+        assert_eq!(proxy_client_config.exit_byte_rate, 0);
         assert_eq!(proxy_client_config.dns_servers, config.dns_servers);
         let (actual_cryptde, actual_is_decentralized, consuming_wallet_balance) =
             Parameters::get(parameters.proxy_server_params);
@@ -1071,10 +1078,11 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             neighborhood_config: NeighborhoodConfig {
-                neighbor_configs: vec![],
-                local_ip_addr: IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
-                clandestine_port_list: vec![],
-                rate_pack: rate_pack(100),
+                mode: NeighborhoodMode::Standard(
+                    NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), &vec![]),
+                    vec![],
+                    rate_pack(100),
+                ),
             },
             accountant_config: AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),

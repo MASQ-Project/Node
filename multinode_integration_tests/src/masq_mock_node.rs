@@ -1,11 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::command::Command;
 use crate::main::CONTROL_STREAM_PORT;
-use crate::multinode_gossip::{Introduction, MultinodeGossip, SingleNode};
-use crate::masq_node::NodeReference;
-use crate::masq_node::PortSelector;
 use crate::masq_node::MASQNode;
 use crate::masq_node::MASQNodeUtils;
+use crate::masq_node::NodeReference;
+use crate::masq_node::PortSelector;
+use crate::multinode_gossip::{Introduction, MultinodeGossip, SingleNode};
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::{MasqueradeError, Masquerader};
@@ -65,7 +65,7 @@ impl MASQNode for MASQMockNode {
     fn node_reference(&self) -> NodeReference {
         NodeReference::new(
             self.signing_cryptde().unwrap().public_key().clone(),
-            self.node_addr().ip_addr(),
+            Some(self.node_addr().ip_addr()),
             self.node_addr().ports(),
         )
     }
@@ -118,6 +118,14 @@ impl MASQNode for MASQMockNode {
 
     fn chain(&self) -> Option<String> {
         self.guts.chain.clone()
+    }
+
+    fn accepts_connections(&self) -> bool {
+        true // just a guess
+    }
+
+    fn routes_data(&self) -> bool {
+        true // just a guess
     }
 }
 
@@ -343,7 +351,7 @@ impl MASQMockNode {
         match self.wait_for_package(&masquerader, timeout) {
             Ok((from, _, package)) => {
                 let incoming_cores_package = package
-                    .to_expired(from.ip(), self.signing_cryptde().unwrap())
+                    .to_expired(from, self.signing_cryptde().unwrap())
                     .unwrap();
                 match incoming_cores_package.payload {
                     MessageType::Gossip(g) => Some((g, from.ip())),

@@ -1,11 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use multinode_integration_tests_lib::masq_node::{
-    NodeReference, MASQNode, MASQNodeUtils,
-};
+use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils, NodeReference};
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
-    make_consuming_wallet_info, make_earning_wallet_info, NodeStartupConfigBuilder,
-    MASQRealNode,
+    make_consuming_wallet_info, make_earning_wallet_info, MASQRealNode, NodeStartupConfigBuilder,
 };
 use node_lib::accountant::payable_dao::{PayableAccount, PayableDao, PayableDaoReal};
 use node_lib::accountant::receivable_dao::{ReceivableAccount, ReceivableDao, ReceivableDaoReal};
@@ -117,10 +114,7 @@ pub fn start_lonely_real_node(cluster: &mut MASQNodeCluster) -> MASQRealNode {
     )
 }
 
-pub fn start_real_node(
-    cluster: &mut MASQNodeCluster,
-    neighbor: NodeReference,
-) -> MASQRealNode {
+pub fn start_real_node(cluster: &mut MASQNodeCluster, neighbor: NodeReference) -> MASQRealNode {
     let index = cluster.next_index();
     cluster.start_real_node(
         NodeStartupConfigBuilder::standard()

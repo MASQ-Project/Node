@@ -43,6 +43,13 @@ impl<'a> From<&'a SocketAddr> for NodeAddr {
     }
 }
 
+impl Into<SocketAddr> for NodeAddr {
+    fn into(self) -> SocketAddr {
+        let all: Vec<SocketAddr> = self.into();
+        all[0]
+    }
+}
+
 impl Into<Vec<SocketAddr>> for NodeAddr {
     fn into(self) -> Vec<SocketAddr> {
         self.ports()

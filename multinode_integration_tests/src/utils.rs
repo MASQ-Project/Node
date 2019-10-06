@@ -1,5 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use crate::masq_node::MASQNode;
+use node_lib::neighborhood::node_record::NodeRecordInner;
+use node_lib::neighborhood::AccessibleGossipRecord;
+use node_lib::sub_lib::cryptde::{CryptData, PlainData};
+use std::collections::BTreeSet;
 use std::io::{ErrorKind, Read, Write};
 use std::net::TcpStream;
 use std::time::{Duration, Instant};
@@ -56,5 +61,28 @@ pub fn wait_for_shutdown(stream: &mut TcpStream, timeout: &Duration) -> Result<(
         Err(ref e) if e.kind() == ErrorKind::WouldBlock => Err(io::Error::from(e.kind())),
         Err(ref e) if e.kind() == ErrorKind::ConnectionReset => Ok(()),
         Err(e) => Err(e),
+    }
+}
+
+impl From<&dyn MASQNode> for AccessibleGossipRecord {
+    fn from(masq_node: &dyn MASQNode) -> Self {
+        let cryptde = masq_node.signing_cryptde().unwrap_or_else (|| panic! ("You can only make an AccessibleGossipRecord from a MASQRealNode if it has a CryptDENull, not a CryptDEReal."));
+        let mut agr = AccessibleGossipRecord {
+            inner: NodeRecordInner {
+                data_version: NodeRecordInner::data_version(),
+                public_key: masq_node.public_key().clone(),
+                earning_wallet: masq_node.earning_wallet(),
+                rate_pack: masq_node.rate_pack(),
+                neighbors: BTreeSet::new(),
+                accepts_connections: masq_node.accepts_connections(),
+                routes_data: masq_node.routes_data(),
+                version: 0,
+            },
+            node_addr_opt: Some(masq_node.node_addr()),
+            signed_gossip: PlainData::new(b""),
+            signature: CryptData::new(b""),
+        };
+        agr.regenerate_signed_gossip(cryptde);
+        agr
     }
 }

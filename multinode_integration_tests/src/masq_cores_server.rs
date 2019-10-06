@@ -132,7 +132,10 @@ impl MASQCoresServer {
     pub fn node_reference(&self) -> NodeReference {
         NodeReference {
             public_key: self.cryptde.public_key().clone(),
-            node_addr: NodeAddr::new(&self.socket_addr.ip(), &vec![self.socket_addr.port()]),
+            node_addr_opt: Some(NodeAddr::new(
+                &self.socket_addr.ip(),
+                &vec![self.socket_addr.port()],
+            )),
         }
     }
 
@@ -144,8 +147,8 @@ impl MASQCoresServer {
         self.node_reference().public_key.clone()
     }
 
-    pub fn node_addr(&self) -> NodeAddr {
-        self.node_reference().node_addr.clone()
+    pub fn node_addr_opt(&self) -> Option<NodeAddr> {
+        self.node_reference().node_addr_opt.clone()
     }
 
     pub fn private_key(&self) -> &PrivateKey {

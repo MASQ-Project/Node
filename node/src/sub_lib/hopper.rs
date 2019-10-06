@@ -15,7 +15,7 @@ use actix::Message;
 use actix::Recipient;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::Debug;
-use std::net::IpAddr;
+use std::net::SocketAddr;
 
 /// Special-case hack to avoid extending a Card From Hell. I'm not sure what the right way to do
 /// this is, but this doesn't feel like it. The intent here is to provide a way to send a CORES
@@ -91,7 +91,7 @@ impl IncipientCoresPackage {
 /// CORES package that has traversed the MASQ Network and is arriving at its destination
 #[derive(Clone, Debug, PartialEq, Message)]
 pub struct ExpiredCoresPackage<T> {
-    pub immediate_neighbor_ip: IpAddr,
+    pub immediate_neighbor: SocketAddr,
     pub paying_wallet: Option<Wallet>,
     pub remaining_route: Route, // This is topped by the hop that brought the package here, not the next hop
     pub payload: T,
@@ -100,14 +100,14 @@ pub struct ExpiredCoresPackage<T> {
 
 impl<T> ExpiredCoresPackage<T> {
     pub fn new(
-        immediate_neighbor_ip: IpAddr,
+        immediate_neighbor: SocketAddr,
         paying_wallet: Option<Wallet>,
         remaining_route: Route,
         payload: T,
         payload_len: usize,
     ) -> Self {
         ExpiredCoresPackage {
-            immediate_neighbor_ip,
+            immediate_neighbor,
             paying_wallet,
             remaining_route,
             payload,
@@ -150,6 +150,7 @@ mod tests {
         cryptde, make_meaningless_message_type, make_paying_wallet, DEFAULT_CHAIN_ID,
     };
     use actix::Actor;
+    use std::net::IpAddr;
     use std::str::FromStr;
 
     #[test]
@@ -258,7 +259,7 @@ mod tests {
 
     #[test]
     fn expired_cores_package_is_created_correctly() {
-        let immediate_neighbor_ip = IpAddr::from_str("1.2.3.4").unwrap();
+        let immediate_neighbor = SocketAddr::from_str("1.2.3.4:1234").unwrap();
         let a_key = PublicKey::new(&[65, 65, 65]);
         let b_key = PublicKey::new(&[66, 66, 66]);
         let cryptde = cryptde();
@@ -273,14 +274,14 @@ mod tests {
         let payload = make_meaningless_message_type();
 
         let subject: ExpiredCoresPackage<MessageType> = ExpiredCoresPackage::new(
-            immediate_neighbor_ip,
+            immediate_neighbor,
             Some(paying_wallet),
             route.clone(),
             payload.clone().into(),
             42,
         );
 
-        assert_eq!(subject.immediate_neighbor_ip, immediate_neighbor_ip);
+        assert_eq!(subject.immediate_neighbor, immediate_neighbor);
         assert_eq!(subject.paying_wallet, Some(make_paying_wallet(b"wallet")));
         assert_eq!(subject.remaining_route, route);
         assert_eq!(subject.payload, payload);

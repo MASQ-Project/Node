@@ -1,10 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use itertools::Itertools;
 use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
-    default_consuming_wallet_info, make_consuming_wallet_info, NodeStartupConfigBuilder,
-    MASQRealNode,
+    default_consuming_wallet_info, make_consuming_wallet_info, MASQRealNode,
+    NodeStartupConfigBuilder,
 };
 use native_tls::HandshakeError;
 use native_tls::TlsConnector;
@@ -52,6 +53,49 @@ fn http_end_to_end_routing_test() {
 
     // If this fails (sporadically) check if there are only 6 nodes in the network and find a better way to wait
     // for it to be 7. There have to be 7 to guarantee an exit node exists for every node in the network
+    assert_eq!(
+        index_of(
+            &response,
+            &b"This domain is established to be used for illustrative examples in documents."[..]
+        )
+        .is_some(),
+        true,
+        "Actual response:\n{}",
+        String::from_utf8(response).unwrap()
+    );
+}
+
+#[test]
+fn http_end_to_end_routing_test_with_consume_and_originate_only_nodes() {
+    let mut cluster = MASQNodeCluster::start().unwrap();
+    let first_node = cluster.start_real_node(NodeStartupConfigBuilder::standard().build());
+    let _second_node = cluster.start_real_node(
+        NodeStartupConfigBuilder::standard()
+            .neighbor(first_node.node_reference())
+            .build(),
+    );
+    let originating_node = cluster.start_real_node(
+        NodeStartupConfigBuilder::consume_only()
+            .neighbor(first_node.node_reference())
+            .build(),
+    );
+    let _potential_exit_nodes = vec![0, 1, 2, 3, 4]
+        .into_iter()
+        .map(|_| {
+            cluster.start_real_node(
+                NodeStartupConfigBuilder::originate_only()
+                    .neighbor(first_node.node_reference())
+                    .build(),
+            )
+        })
+        .collect_vec();
+
+    thread::sleep(Duration::from_millis(1000));
+
+    let mut client = originating_node.make_client(8080);
+    client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
+    let response = client.wait_for_chunk();
+
     assert_eq!(
         index_of(
             &response,

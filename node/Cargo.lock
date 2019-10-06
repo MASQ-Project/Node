@@ -1363,6 +1363,7 @@ dependencies = [
  "ethereum-types 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ethsign-crypto 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.29 (registry+https://github.com/rust-lang/crates.io-index)",
+ "itertools 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "native-tls 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "node 1.0.0-rc.3",
  "pretty-hex 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",

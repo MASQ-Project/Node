@@ -1,9 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use multinode_integration_tests_lib::multinode_gossip::{MultinodeGossip, SingleNode, Standard};
-use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
 use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
+use multinode_integration_tests_lib::multinode_gossip::{MultinodeGossip, SingleNode, Standard};
+use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
 use node_lib::neighborhood::gossip::GossipBuilder;
 use node_lib::neighborhood::neighborhood_test_utils::{db_from_node, make_node_record};
 use node_lib::neighborhood::node_record::NodeRecord;

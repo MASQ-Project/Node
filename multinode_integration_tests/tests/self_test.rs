@@ -4,8 +4,8 @@ use multinode_integration_tests_lib::command::Command;
 use multinode_integration_tests_lib::main::CONTROL_STREAM_PORT;
 use multinode_integration_tests_lib::masq_cores_client::MASQCoresClient;
 use multinode_integration_tests_lib::masq_cores_server::MASQCoresServer;
-use multinode_integration_tests_lib::masq_node::PortSelector;
 use multinode_integration_tests_lib::masq_node::MASQNode;
+use multinode_integration_tests_lib::masq_node::PortSelector;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::NodeStartupConfigBuilder;
 use node_lib::blockchain::blockchain_interface::contract_address;
@@ -88,7 +88,10 @@ fn server_relays_cores_package() {
     client.transmit_package(incipient, &masquerader, cryptde.public_key().clone());
     let package = server.wait_for_package(Duration::from_millis(1000));
     let expired = package
-        .to_expired(IpAddr::from_str("1.2.3.4").unwrap(), server.cryptde())
+        .to_expired(
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            server.cryptde(),
+        )
         .unwrap();
 
     route.shift(cryptde).unwrap();
@@ -137,7 +140,7 @@ fn one_mock_node_talks_to_another() {
         .unwrap();
     let expired_cores_package = package
         .to_expired(
-            IpAddr::from_str("1.2.3.4").unwrap(),
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             mock_node_2.signing_cryptde().unwrap(),
         )
         .unwrap();

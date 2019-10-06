@@ -1,14 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::masq_node::MASQNode;
 use node_lib::neighborhood::gossip::{Gossip, GossipNodeRecord};
-use node_lib::neighborhood::node_record::NodeRecordInner;
 use node_lib::neighborhood::AccessibleGossipRecord;
-use node_lib::sub_lib::cryptde::CryptData;
-use node_lib::sub_lib::cryptde::PlainData;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::test_utils::{vec_to_set, DEFAULT_CHAIN_ID};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::HashSet;
 use std::convert::{TryFrom, TryInto};
 use std::net::IpAddr;
 
@@ -323,11 +320,7 @@ impl StandardBuilder {
         }
     }
 
-    pub fn add_masq_node(
-        self,
-        masq_node: &dyn MASQNode,
-        version: u32,
-    ) -> StandardBuilder {
+    pub fn add_masq_node(self, masq_node: &dyn MASQNode, version: u32) -> StandardBuilder {
         let mut agr = AccessibleGossipRecord::from(masq_node);
         agr.inner.version = version;
         self.add_agr(&agr)
@@ -382,25 +375,4 @@ fn nodes_of_degree(nodes: &Vec<AccessibleGossipRecord>, degree: usize) -> Vec<Pu
         .filter(|node| node.inner.neighbors.len() == degree)
         .map(|node| node.inner.public_key.clone())
         .collect::<Vec<PublicKey>>()
-}
-
-impl From<&dyn MASQNode> for AccessibleGossipRecord {
-    fn from(masq_node: &dyn MASQNode) -> Self {
-        let cryptde = masq_node.signing_cryptde().unwrap_or_else (|| panic! ("You can only make an AccessibleGossipRecord from a MASQRealNode if it has a CryptDENull, not a CryptDEReal."));
-        let mut agr = AccessibleGossipRecord {
-            inner: NodeRecordInner {
-                data_version: NodeRecordInner::data_version(),
-                public_key: masq_node.public_key().clone(),
-                earning_wallet: masq_node.earning_wallet(),
-                rate_pack: masq_node.rate_pack(),
-                neighbors: BTreeSet::new(),
-                version: 0,
-            },
-            node_addr_opt: Some(masq_node.node_addr()),
-            signed_gossip: PlainData::new(b""),
-            signature: CryptData::new(b""),
-        };
-        agr.regenerate_signed_gossip(cryptde);
-        agr
-    }
 }

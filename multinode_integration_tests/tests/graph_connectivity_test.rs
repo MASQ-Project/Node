@@ -1,14 +1,12 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use multinode_integration_tests_lib::masq_node::MASQNode;
+use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
+use multinode_integration_tests_lib::masq_real_node::{MASQRealNode, NodeStartupConfigBuilder};
 use multinode_integration_tests_lib::multinode_gossip::{
     parse_gossip, GossipType, MultinodeGossip, StandardBuilder,
 };
 use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
-use multinode_integration_tests_lib::masq_node::MASQNode;
-use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
-use multinode_integration_tests_lib::masq_real_node::{
-    NodeStartupConfigBuilder, MASQRealNode,
-};
 use node_lib::neighborhood::gossip_acceptor::MAX_DEGREE;
 use node_lib::neighborhood::neighborhood_test_utils::db_from_node;
 use node_lib::neighborhood::neighborhood_test_utils::make_node_record;
