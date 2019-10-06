@@ -1,3 +1,36 @@
+ClandestiNode is licensed under the GNU GPL, version 3
+
+This package/repository contains code from the ClandesiNet project and contributors as well as
+some open-source works. You can find the source code of their open source projects along with license information below. We acknowledge and are grateful to these developers for their contributions to open source.
+
+File Copyrights
+===============
+
+All files not explicitly mentioned below
+    What: ClandestiNet
+    Source URL: https://github.com/ClandestiNet
+    Copyright: pending
+    License: GNU GPLv3
+    License text: See below
+
+SubstratumNode Open Source - Codebase
+    What: Code forked from SubstratumNode Repo
+    Source URL: https://github.com/SubstratumNetwork/SubstratumNode
+    Copyright: Substratum LLC 2017-2019, (https://substratum.net)
+    License: GNU GPLv3 - https://github.com/SubstratumNetwork/SubstratumNode/blob/master/LICENSE
+    License text: See below
+    
+Trademarks
+==========
+
+Eventually, a more detailed trademark policy will be developed. For now,
+if in doubt, just ask us first. We are likely to be reasonable. :)
+
+We intend our trademark policy to be similar to that of Mozilla's Firefox or
+Google's Android.    
+    
+=================================================================================
+                    
                     GNU GENERAL PUBLIC LICENSE
                        Version 3, 29 June 2007
 
