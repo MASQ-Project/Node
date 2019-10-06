@@ -7,7 +7,7 @@ either inside the current MASQ Node (i.e. to the ProxyServer or the ProxyClient)
 or on to the next Node in its Route.
 
 It probably isn't the most interesting place to begin digging into our code;
-[node](https://github.com/MASQ/Node/tree/master/node)
+[node](https://github.com/MASQ-Project/Node/tree/master/node)
 is a better place to start.
 
 

@@ -6,7 +6,7 @@ The purpose of `ui_gateway` is to provide a WebSockets server to which user-inte
 a sink for commands and source for status data from and to such elements.
 
 It probably isn't the most interesting place to begin digging into our code;
-[node](https://github.com/MASQ/Node/tree/master/node)
+[node](https://github.com/MASQ-Project/Node/tree/master/node)
 is a better place to start.
 
 

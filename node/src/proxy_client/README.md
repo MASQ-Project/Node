@@ -10,7 +10,7 @@ ProxyClient converts your CORES package back into a regular request, gets the re
 CORES package. That CORES package goes back onto the MASQ Network to continue on the Route back to you.
 
 It probably isn't the most interesting place to begin digging into our code;
-[node](https://github.com/MASQ/Node/tree/master/node)
+[node](https://github.com/MASQ-Project/Node/tree/master/node)
 is a better place to start.
 
 

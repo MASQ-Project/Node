@@ -135,13 +135,13 @@ describe('HeaderComponent', () => {
       it('opens the beta survey link in an external browser', () => {
         compiled.querySelector('#send-feedback').click();
 
-        expect(stubElectronService.shell.openExternal).toHaveBeenCalledWith('https://github.com/MASQ/Node/issues');
+        expect(stubElectronService.shell.openExternal).toHaveBeenCalledWith('https://github.com/MASQ-Project/Node/issues');
       });
 
       it('opens the documentation link in an external browser', () => {
         compiled.querySelector('#documentation').click();
 
-        expect(stubElectronService.shell.openExternal).toHaveBeenCalledWith('https://github.com/MASQ/Node');
+        expect(stubElectronService.shell.openExternal).toHaveBeenCalledWith('https://github.com/MASQ-Project/Node');
       });
 
       it('opens the T&C link in an external browser', () => {

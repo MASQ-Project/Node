@@ -7,7 +7,7 @@ Node by other Nodes, and to interact with the future Blockchain Bridge to pay ac
 receivable, and also to detect and report financially-related deadbeat or suspicious behavior by other Nodes.
 
 It probably isn't the most interesting place to begin digging into our code;
-[node](https://github.com/MASQ/Node/tree/master/node)
+[node](https://github.com/MASQ-Project/Node/tree/master/node)
 is a better place to start.
 
 Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
