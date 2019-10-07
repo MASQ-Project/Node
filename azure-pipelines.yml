@@ -41,7 +41,8 @@ stages:
               key: |
                 "$(rust_version)" | $(Agent.OS) | "v3.8"
               path: $(Pipeline.Workspace)/toolchains
-              cacheHitVar: NODE_TOOLCHAINS_RESTORED
+            continueOnError: true
+            cacheHitVar: NODE_TOOLCHAINS_RESTORED
 
           - task: NodeTool@0
             inputs:
