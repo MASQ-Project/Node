@@ -2,9 +2,9 @@
 # test push to master
 
 trigger:
-  branches:
-    include:
-      - master
+#  branches:
+#    include:
+#      - master
   tags:
     include:
       - v*
@@ -18,8 +18,8 @@ variables:
   AZP_CACHING_TAR: true # requires minimum agent version of 2.157.0 (rolling out Palindrome Week)
 
 stages:
-  - stage: Testing
-    displayName: "Testing"
+  - stage: BuildAndTest
+    displayName: "Build and Test"
     condition: ne(variables.BUILD_RELEASE_ARTIFACTS, 'true')
     jobs:
       - job: Tests
@@ -105,81 +105,81 @@ stages:
 #            displayName: "Collect and publish results"
 #            condition: succeededOrFailed()
 
-  - stage: Release
-    displayName: "Release"
-    condition: eq(variables.BUILD_RELEASE_ARTIFACTS, 'true')
-
-    jobs:
-      - job: BuildArtifact
-        strategy:
-          matrix:
-            linux:
-              imageName: "ubuntu-latest"
-            mac:
-              imageName: "macOS-latest"
-            windows:
-              imageName: "windows-latest"
-
-        pool:
-          vmImage: $(imageName)
-
-        steps:
-          - task: CacheBeta@0
-            inputs:
-              key: |
-                "$(rust_version)" | $(Agent.OS) | "v3.7"
-              path: $(Pipeline.Workspace)/toolchains
-              cacheHitVar: NODE_TOOLCHAINS_RESTORED
-
-          - task: NodeTool@0
-            inputs:
-              versionSpec: $(node_version)
-
-          - task: Npm@1
-            inputs:
-              command: 'custom'
-              customCommand: 'install -g yarn'
-
-          - task: DownloadSecureFile@1
-            name: linuxDigitalSignature
-            condition: eq( variables['Agent.OS'], 'Linux' )
-            displayName: "Download digital signature for Linux"
-            inputs:
-              secureFile: 'linux_codesign_key.asc'
-
-          - task: InstallAppleCertificate@2
-            condition: eq( variables['Agent.OS'], 'Darwin' )
-            inputs:
-              certSecureFile: 'macOs-SubstratumServicesCertificates.p12'
-              certPwd: $(PASSPHRASE)
-              keychainPassword: $(PASSPHRASE)
-
-          - bash: gpg --import '$(linuxDigitalSignature.secureFilePath)'
-            condition: eq( variables['Agent.OS'], 'Linux' )
-            displayName: "Install digital signature for Linux"
-
-          - bash: ci/install_node_toolchain.sh '$(Pipeline.Workspace)' '$(rust_version)'
-            condition: ne(variables.NODE_TOOLCHAINS_RESTORED, 'true')
-            displayName: "Install Node toolchain"
-
-          - bash: ci/install_release_toolchain.sh '$(Pipeline.Workspace)'
-            displayName: "Install release toolchain"
-
-          - bash: ci/release.sh '$(Pipeline.Workspace)'
-            env:
-              PASSPHRASE: $(PASSPHRASE)
-              AZURE_KEY_VAULT_URL: $(AZURE_KEY_VAULT_URL)
-              AZURE_KEY_VAULT_CLIENT_ID: $(AZURE_KEY_VAULT_CLIENT_ID)
-              AZURE_KEY_VAULT_CLIENT_SECRET: $(AZURE_KEY_VAULT_CLIENT_SECRET)
-              AZURE_KEY_VAULT_CERTIFICATE: $(AZURE_KEY_VAULT_CERTIFICATE)
-            displayName: "Build and generate artifacts"
-
-          - task: CopyFiles@2
-            inputs:
-              contents: 'SubstratumNode-*.zip'
-              targetFolder: $(Build.ArtifactStagingDirectory)
-
-          - task: PublishBuildArtifacts@1
-            inputs:
-              artifactName: 'SubstratumNode-Build-$(Build.BuildNumber)'
-              pathToPublish: $(Build.ArtifactStagingDirectory)
+#  - stage: Release
+#    displayName: "Release"
+#    condition: eq(variables.BUILD_RELEASE_ARTIFACTS, 'true')
+#
+#    jobs:
+#      - job: BuildArtifact
+#        strategy:
+#          matrix:
+#            linux:
+#              imageName: "ubuntu-latest"
+#            mac:
+#              imageName: "macOS-latest"
+#            windows:
+#              imageName: "windows-latest"
+#
+#        pool:
+#          vmImage: $(imageName)
+#
+#        steps:
+#          - task: CacheBeta@0
+#            inputs:
+#              key: |
+#                "$(rust_version)" | $(Agent.OS) | "v3.7"
+#              path: $(Pipeline.Workspace)/toolchains
+#              cacheHitVar: NODE_TOOLCHAINS_RESTORED
+#
+#          - task: NodeTool@0
+#            inputs:
+#              versionSpec: $(node_version)
+#
+#          - task: Npm@1
+#            inputs:
+#              command: 'custom'
+#              customCommand: 'install -g yarn'
+#
+#          - task: DownloadSecureFile@1
+#            name: linuxDigitalSignature
+#            condition: eq( variables['Agent.OS'], 'Linux' )
+#            displayName: "Download digital signature for Linux"
+#            inputs:
+#              secureFile: 'linux_codesign_key.asc'
+#
+#          - task: InstallAppleCertificate@2
+#            condition: eq( variables['Agent.OS'], 'Darwin' )
+#            inputs:
+#              certSecureFile: 'macOs-SubstratumServicesCertificates.p12'
+#              certPwd: $(PASSPHRASE)
+#              keychainPassword: $(PASSPHRASE)
+#
+#          - bash: gpg --import '$(linuxDigitalSignature.secureFilePath)'
+#            condition: eq( variables['Agent.OS'], 'Linux' )
+#            displayName: "Install digital signature for Linux"
+#
+#          - bash: ci/install_node_toolchain.sh '$(Pipeline.Workspace)' '$(rust_version)'
+#            condition: ne(variables.NODE_TOOLCHAINS_RESTORED, 'true')
+#            displayName: "Install Node toolchain"
+#
+#          - bash: ci/install_release_toolchain.sh '$(Pipeline.Workspace)'
+#            displayName: "Install release toolchain"
+#
+#          - bash: ci/release.sh '$(Pipeline.Workspace)'
+#            env:
+#              PASSPHRASE: $(PASSPHRASE)
+#              AZURE_KEY_VAULT_URL: $(AZURE_KEY_VAULT_URL)
+#              AZURE_KEY_VAULT_CLIENT_ID: $(AZURE_KEY_VAULT_CLIENT_ID)
+#              AZURE_KEY_VAULT_CLIENT_SECRET: $(AZURE_KEY_VAULT_CLIENT_SECRET)
+#              AZURE_KEY_VAULT_CERTIFICATE: $(AZURE_KEY_VAULT_CERTIFICATE)
+#            displayName: "Build and generate artifacts"
+#
+#          - task: CopyFiles@2
+#            inputs:
+#              contents: 'SubstratumNode-*.zip'
+#              targetFolder: $(Build.ArtifactStagingDirectory)
+#
+#          - task: PublishBuildArtifacts@1
+#            inputs:
+#              artifactName: 'SubstratumNode-Build-$(Build.BuildNumber)'
+#              pathToPublish: $(Build.ArtifactStagingDirectory)
