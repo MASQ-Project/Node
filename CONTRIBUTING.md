@@ -36,7 +36,7 @@ there are [several other choices](https://medium.com/cloud-native-the-gathering/
 
 * A link to the [MASQ Node issues board](https://github.com/orgs/MASQ/projects/1)
 
-* A link to the [MASQ Node Azure Pipelines build site](https://dev.azure.com/clandest/Node/_build?definitionId=1)
+* A link to the [MASQ Node Azure Pipelines build site](https://dev.azure.com/masqpipelines/MASQ%20Node/_build)
 
 * A link to the [MASQ Node build results site](https://masq-results.github.io/MASQ-results/)
 
@@ -71,7 +71,7 @@ already, as submitting pull requests will be much easier if you do.
 
 #### Fork the MASQ Node Repository
 1. Log in to GitHub as yourself. 
-1. Navigate to the [MASQ Node repository](https://github.com/MASQ/Node).
+1. Navigate to the [MASQ Node repository](https://github.com/MASQ-Project/Node).
 1. Click the __Fork__ button in the upper right corner.
 1. After a short delay, you should have a repository in your GitHub account called __Node.__
 
@@ -143,7 +143,7 @@ correctly.
 
 #### Select the Issue
 The MASQ team's priorities are reflected in the __To Do__ column of the
-[issues board](https://github.com/orgs/MASQ/projects/1). The top issue in that column is the one that is
+[issues board](https://github.com/orgs/MASQ-Project/projects/1). The top issue in that column is the one that is
 currently most urgently needed, and if you choose that issue to work on you'll get the most attention and support
 (although if you spend too much time on it, you may be bypassed by someone who needs it done faster).
 
@@ -235,7 +235,7 @@ to go back to __Merge in `master`__ and assimilate those changes before your pul
 
 #### Watch the Pipelines Build
 As soon as you create your pull request, the
-[Azure Pipelines build site](https://dev.azure.com/clandest/Node/_build?definitionId=1) should
+[Azure Pipelines build site](https://dev.azure.com/masqpipelines/MASQ%20Node/_build) should
 begin building your feature branch on Linux, macOS, and Windows platforms. It will also run the multinode integration
 tests on Linux. Track the builds as they proceed, and watch for failures. If there are any, go back to __Complete the Work__
 and fix the problems. Sometimes, especially for failures in multinode integration tests, the reasons for the failures may
@@ -263,7 +263,7 @@ repository.
 ##### Things You'll Need
 
 * An account on [Azure DevOps](https://dev.azure.com).
-* Fork of the [MASQ Node repository](https://github.com/MASQ/Node).
+* Fork of the [MASQ Node repository](https://github.com/MASQ-Project/Node).
 * Fork of the [MASQ-results repository](https://masq-results.github.io/MASQ-results).
 * The Windows Application Driver extension for Azure Pipelines (this is required to run UI integration tests on Windows).
 * GitHub Personal Access Token. Please see
