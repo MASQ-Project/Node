@@ -61,8 +61,8 @@ stages:
 
           - bash: |
               set -xev
-              git config --global user.name "substratum"
-              git config --global user.email "substratum@substratum.net"
+              git config --global user.name "MASQ Node"
+              git config --global user.email "MASQAdmin@protonmail.com"
             displayName: "Configure git"
 
           - script: |
