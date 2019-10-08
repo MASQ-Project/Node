@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::blockchain::blockchain_interface::contract_address;
 use crate::sub_lib::cryptde;
-use crate::sub_lib::cryptde::CryptDE;
+use crate::sub_lib::cryptde::{CryptDE, SymmetricKey};
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::CryptdecError;
 use crate::sub_lib::cryptde::PlainData;
@@ -24,6 +24,18 @@ impl CryptDE for CryptDENull {
 
     fn decode(&self, data: &CryptData) -> Result<PlainData, CryptdecError> {
         Self::decode_with_key_data(self.private_key.as_slice(), data)
+    }
+
+    fn encode_sym(&self, data: &PlainData, key: &SymmetricKey) -> Result<CryptData, CryptdecError> {
+        unimplemented!()
+    }
+
+    fn decode_sym(&self, data: &CryptData, key: &SymmetricKey) -> Result<PlainData, CryptdecError> {
+        unimplemented!()
+    }
+
+    fn gen_key_sym(&self) -> SymmetricKey {
+        unimplemented!()
     }
 
     fn random(&self, dest: &mut [u8]) {
