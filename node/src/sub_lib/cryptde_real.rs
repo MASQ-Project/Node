@@ -1,7 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::blockchain::blockchain_interface::contract_address;
 use crate::sub_lib::cryptde;
-use crate::sub_lib::cryptde::{CryptDE, CryptData, CryptdecError, PlainData, PrivateKey, PublicKey, SymmetricKey};
+use crate::sub_lib::cryptde::{
+    CryptDE, CryptData, CryptdecError, PlainData, PrivateKey, PublicKey,
+};
 use lazy_static::lazy_static;
 use sodiumoxide::crypto::box_::curve25519xsalsa20poly1305 as cxsp;
 use sodiumoxide::crypto::sealedbox::curve25519blake2bxsalsa20poly1305::SEALBYTES;
@@ -47,18 +49,6 @@ impl CryptDE for CryptDEReal {
             Ok(data) => Ok(PlainData::from(data)),
             Err(()) => Err(CryptdecError::OpeningFailed),
         }
-    }
-
-    fn encode_sym(&self, data: &PlainData, key: &SymmetricKey) -> Result<CryptData, CryptdecError> {
-        unimplemented!()
-    }
-
-    fn decode_sym(&self, data: &CryptData, key: &SymmetricKey) -> Result<PlainData, CryptdecError> {
-        unimplemented!()
-    }
-
-    fn gen_key_sym(&self) -> SymmetricKey {
-        unimplemented!()
     }
 
     fn random(&self, dest: &mut [u8]) {

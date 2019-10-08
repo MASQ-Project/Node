@@ -96,7 +96,7 @@ impl<'de> Deserialize<'de> for PublicKey {
     where
         D: Deserializer<'de>,
     {
-        deserializer.deserialize_bytes(PublicKeyVisitor)
+        deserializer.deserialize_bytes(KeyVisitor)
     }
 }
 
@@ -164,9 +164,9 @@ impl PublicKey {
     }
 }
 
-struct PublicKeyVisitor;
+struct KeyVisitor;
 
-impl<'a> Visitor<'a> for PublicKeyVisitor {
+impl<'a> Visitor<'a> for KeyVisitor {
     type Value = PublicKey;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -174,114 +174,10 @@ impl<'a> Visitor<'a> for PublicKeyVisitor {
     }
 
     fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
-        where
-            E: serde::de::Error,
+    where
+        E: serde::de::Error,
     {
-        Ok(Self::Value::from (v))
-    }
-}
-
-#[derive(Clone, PartialEq, Hash)]
-pub struct SymmetricKey {
-    data: Vec<u8>,
-}
-
-impl Serialize for SymmetricKey {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
-    {
-        serializer.serialize_bytes(&self.data[..])
-    }
-}
-
-impl<'de> Deserialize<'de> for SymmetricKey {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
-    {
-        deserializer.deserialize_bytes(SymmetricKeyVisitor)
-    }
-}
-
-impl fmt::Display for SymmetricKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "{}",
-            base64::encode_config(&self.data, base64::STANDARD_NO_PAD)
-        )
-    }
-}
-
-impl fmt::Debug for SymmetricKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "{}",
-            base64::encode_config(&self.data, base64::STANDARD_NO_PAD)
-        )
-    }
-}
-
-impl From<&[u8]> for SymmetricKey {
-    fn from(slice: &[u8]) -> Self {
-        SymmetricKey::new(slice)
-    }
-}
-
-impl From<Vec<u8>> for SymmetricKey {
-    fn from(data: Vec<u8>) -> Self {
-        SymmetricKey { data }
-    }
-}
-
-impl Into<Vec<u8>> for SymmetricKey {
-    fn into(self) -> Vec<u8> {
-        self.data
-    }
-}
-
-impl AsRef<[u8]> for SymmetricKey {
-    fn as_ref(&self) -> &[u8] {
-        self.as_slice()
-    }
-}
-
-impl SymmetricKey {
-    pub fn new(data: &[u8]) -> SymmetricKey {
-        SymmetricKey {
-            data: Vec::from(data),
-        }
-    }
-
-    pub fn as_slice(&self) -> &[u8] {
-        self.data.as_slice()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.data.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.data.len()
-    }
-}
-
-struct SymmetricKeyVisitor;
-
-impl<'a> Visitor<'a> for SymmetricKeyVisitor {
-    type Value = SymmetricKey;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("a SymmetricKey struct")
-    }
-
-    fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
-        where
-            E: serde::de::Error,
-    {
-        Ok(Self::Value::from (v))
+        Ok(PublicKey::new(v))
     }
 }
 
@@ -515,9 +411,6 @@ pub enum CryptdecError {
 pub trait CryptDE: Send + Sync {
     fn encode(&self, public_key: &PublicKey, data: &PlainData) -> Result<CryptData, CryptdecError>;
     fn decode(&self, data: &CryptData) -> Result<PlainData, CryptdecError>;
-    fn encode_sym(&self, data: &PlainData, key: &SymmetricKey) -> Result<CryptData, CryptdecError>;
-    fn decode_sym(&self, data: &CryptData, key: &SymmetricKey) -> Result<PlainData, CryptdecError>;
-    fn gen_key_sym(&self) -> SymmetricKey;
     fn random(&self, dest: &mut [u8]);
     fn private_key(&self) -> &PrivateKey;
     fn public_key(&self) -> &PublicKey;
@@ -702,64 +595,6 @@ mod tests {
     }
 
     #[test]
-    fn symmetric_key_constructor_works_as_expected() {
-        let subject = SymmetricKey::new(&[1, 2, 3, 4]);
-
-        assert_eq!(subject.data, vec!(1, 2, 3, 4));
-    }
-
-    #[test]
-    fn symmetric_key_from_slice() {
-        let data: &[u8] = &[1, 2, 3, 4];
-        let subject = SymmetricKey::from(data);
-
-        assert_eq!(subject.data, vec!(1, 2, 3, 4));
-    }
-
-    #[test]
-    fn symmetric_key_from_vec() {
-        let subject = SymmetricKey::from(vec![1, 2, 3, 4]);
-
-        assert_eq!(subject.data, vec!(1, 2, 3, 4));
-    }
-
-    #[test]
-    fn symmetric_key_to_vec() {
-        let subject = SymmetricKey::new(&[1, 2, 3, 4]);
-
-        let result: Vec<u8> = subject.into();
-
-        assert_eq!(result, vec!(1, 2, 3, 4));
-    }
-
-    #[test]
-    fn symmetric_key_as_slice() {
-        let subject = SymmetricKey::new(&[1, 2, 3, 4]);
-
-        let result = subject.as_slice();
-
-        assert_eq!(result, &[1, 2, 3, 4]);
-    }
-
-    #[test]
-    fn symmetric_key_len() {
-        let subject = SymmetricKey::new(&[1, 2, 3, 4]);
-
-        let result = subject.len();
-
-        assert_eq!(result, 4);
-    }
-
-    #[test]
-    fn symmetric_key_is_empty() {
-        let a = SymmetricKey::new(&[1, 2, 3, 4]);
-        let b = SymmetricKey::new(&[]);
-
-        assert_eq!(a.is_empty(), false);
-        assert_eq!(b.is_empty(), true);
-    }
-
-    #[test]
     fn crypt_data_constructor_works_as_expected() {
         let subject = CryptData::new(&[1, 2, 3, 4]);
 
@@ -933,16 +768,6 @@ mod tests {
 
         let data = serde_cbor::ser::to_vec(&input).unwrap();
         let output = serde_cbor::de::from_slice::<PublicKey>(&data[..]).unwrap();
-
-        assert_eq!(output, input);
-    }
-
-    #[test]
-    fn symmetric_key_serializer_and_deserializer_talk_to_each_other() {
-        let input = SymmetricKey::new(b"The quick brown fox jumps over the lazy dog");
-
-        let data = serde_cbor::ser::to_vec(&input).unwrap();
-        let output = serde_cbor::de::from_slice::<SymmetricKey>(&data[..]).unwrap();
 
         assert_eq!(output, input);
     }
