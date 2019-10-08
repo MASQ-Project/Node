@@ -59,6 +59,7 @@ export class WalletService {
   }
 
   recoverConsumingWallet(
+    chainName: string,
     mnemonicPhrase: string,
     mnemonicPassphrase: string,
     consumingDerivationPath: string,
@@ -66,11 +67,12 @@ export class WalletService {
     password: string,
     earningDerivationPath?: string
   ) {
-    this.electronService.ipcRenderer.send('recover-consuming-wallet',
+    this.electronService.ipcRenderer.send('recover-consuming-wallet', chainName,
       mnemonicPhrase, mnemonicPassphrase, consumingDerivationPath, wordlist, password, earningDerivationPath);
   }
 
   generateConsumingWallet(
+    chainName: string,
     mnemonicPassphrase: string,
     derivationPath: string,
     wordlist: string,
@@ -78,7 +80,7 @@ export class WalletService {
     wordcount: number,
     earningDerivationPath?: string
   ) {
-    this.electronService.ipcRenderer.send('generate-consuming-wallet',
+    this.electronService.ipcRenderer.send('generate-consuming-wallet', chainName,
       mnemonicPassphrase, derivationPath, wordlist, password, wordcount, earningDerivationPath);
   }
 

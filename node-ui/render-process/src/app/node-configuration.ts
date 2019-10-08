@@ -10,3 +10,8 @@ export class NodeConfiguration {
   networkSettings?: NetworkSettings;
   walletAddress?: string;
 }
+
+export class NodeConfigurations {
+  mainnet?: NodeConfiguration;
+  ropsten?: NodeConfiguration;
+}

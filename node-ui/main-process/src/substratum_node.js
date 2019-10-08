@@ -13,14 +13,14 @@ module.exports = (() => {
     })
   }
 
-  function recoverWallet (mnemonicPhrase, mnemonicPassphrase, consumingDerivationPath, wordlist, password, earningDerivationPath) {
-    const result = commandHelper.recoverWallet(mnemonicPhrase, mnemonicPassphrase, consumingDerivationPath, wordlist, password, earningDerivationPath)
+  function recoverWallet (chainName, mnemonicPhrase, mnemonicPassphrase, consumingDerivationPath, wordlist, password, earningDerivationPath) {
+    const result = commandHelper.recoverWallet(chainName, mnemonicPhrase, mnemonicPassphrase, consumingDerivationPath, wordlist, password, earningDerivationPath)
 
     return handle(result)
   }
 
-  function generateWallet (mnemonicPassphrase, derivationPath, wordlist, password, wordcount, sameWallet) {
-    const result = commandHelper.generateWallet(mnemonicPassphrase, derivationPath, wordlist, password, wordcount, sameWallet)
+  function generateWallet (chainName, mnemonicPassphrase, derivationPath, wordlist, password, wordcount, sameWallet) {
+    const result = commandHelper.generateWallet(chainName, mnemonicPassphrase, derivationPath, wordlist, password, wordcount, sameWallet)
 
     return handle(result)
   }

@@ -57,8 +57,9 @@ module.exports = (() => {
     return path.resolveQuoted(__dirname, binaryBasePath + binaryFilename)
   }
 
-  function getWalletArgs (consumingDerivationPath, wordlist, mnemonicPassphrase, walletPassword) {
+  function getWalletArgs (chainName, consumingDerivationPath, wordlist, mnemonicPassphrase, walletPassword) {
     return [
+      '--chain', chainName,
       '--consuming-wallet', consumingDerivationPath,
       '--language', wordlist,
       '--mnemonic-passphrase', mnemonicPassphrase,
@@ -66,9 +67,9 @@ module.exports = (() => {
     ]
   }
 
-  function getRecoverModeArgs (mnemonicPhrase, mnemonicPassphrase, consumingDerivationPath, wordlist, walletPassword, earningDerivationPath) {
+  function getRecoverModeArgs (chainName, mnemonicPhrase, mnemonicPassphrase, consumingDerivationPath, wordlist, walletPassword, earningDerivationPath) {
     const args = [
-      ...getWalletArgs(consumingDerivationPath, wordlist, mnemonicPassphrase, walletPassword),
+      ...getWalletArgs(chainName, consumingDerivationPath, wordlist, mnemonicPassphrase, walletPassword),
       '--recover-wallet',
       '--mnemonic', mnemonicPhrase,
       '--earning-wallet'
@@ -88,9 +89,9 @@ module.exports = (() => {
     return args
   }
 
-  function getGenerateModeArgs (mnemonicPassphrase, consumingDerivationPath, wordlist, walletPassword, wordcount, earningDerivationPath) {
+  function getGenerateModeArgs (chainName, mnemonicPassphrase, consumingDerivationPath, wordlist, walletPassword, wordcount, earningDerivationPath) {
     const args = [
-      ...getWalletArgs(consumingDerivationPath, wordlist, mnemonicPassphrase, walletPassword),
+      ...getWalletArgs(chainName, consumingDerivationPath, wordlist, mnemonicPassphrase, walletPassword),
       '--generate-wallet',
       '--json',
       '--word-count', wordcount,
@@ -145,10 +146,11 @@ module.exports = (() => {
     return command
   }
 
-  function recoverWallet (mnemonicPhrase, mnemonicPassphrase, consumingDerivationPath, wordlist, walletPassword, earningDerivationPath) {
+  function recoverWallet (chainName, mnemonicPhrase, mnemonicPassphrase, consumingDerivationPath, wordlist, walletPassword, earningDerivationPath) {
     consoleWrapper.log('command_helper: invoking recoverWallet')
 
     const args = getRecoverModeArgs(
+      chainName,
       mnemonicPhrase,
       mnemonicPassphrase,
       consumingDerivationPath,
@@ -161,10 +163,11 @@ module.exports = (() => {
       { timeout: recoverTimeout })
   }
 
-  function generateWallet (mnemonicPassphrase, consumingDerivationPath, wordlist, walletPassword, wordcount, earningDerivationPath) {
+  function generateWallet (chainName, mnemonicPassphrase, consumingDerivationPath, wordlist, walletPassword, wordcount, earningDerivationPath) {
     consoleWrapper.log('command_helper: invoking generateWallet')
 
     const args = getGenerateModeArgs(
+      chainName,
       mnemonicPassphrase,
       consumingDerivationPath,
       wordlist,
@@ -177,8 +180,8 @@ module.exports = (() => {
       { timeout: recoverTimeout })
   }
 
-  function getNodeConfiguration () {
-    const args = ['--dump-config']
+  function getNodeConfiguration (chainName) {
+    const args = ['--dump-config', '--chain', chainName]
     const process = childProcess.spawnSync(
       path.resolveUnquoted(__dirname, binaryBasePath + binaryFilename),
       args,

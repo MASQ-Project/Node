@@ -24,7 +24,7 @@ describe('GenerateWalletComponent', () => {
     generateResponseSubject = new Subject<object|string>();
     walletService = {
       generateConsumingWalletResponse: generateResponseSubject.asObservable(),
-      generateConsumingWallet: td.func()
+      generateConsumingWallet: td.func('generateConsumingWallet')
     };
     configService = {
       setEarningWallet: td.func()
@@ -145,7 +145,7 @@ describe('GenerateWalletComponent', () => {
           });
 
           it('calls generateWallet', () => {
-            expect(walletService.generateConsumingWallet).toHaveBeenCalledWith(
+            expect(walletService.generateConsumingWallet).toHaveBeenCalledWith('ropsten',
               'foobar', 'm/44\'/60\'/0\'/0/0', 'Español', 'foobar', 12, 'm/44\'/60\'/0\'/0/0');
           });
         });
@@ -171,7 +171,7 @@ describe('GenerateWalletComponent', () => {
           });
 
           it('calls generateWallet', () => {
-            expect(walletService.generateConsumingWallet).toHaveBeenCalledWith(
+            expect(walletService.generateConsumingWallet).toHaveBeenCalledWith('ropsten',
               'foobar', 'm/44\'/60\'/0\'/0/7', 'Español', 'foobar', 12, 'm/44\'/60\'/0\'/0/8');
           });
         });
@@ -217,7 +217,7 @@ describe('GenerateWalletComponent', () => {
         });
 
         it('sets the earning wallet in the Config Service', () => {
-          expect(configService.setEarningWallet).toHaveBeenCalledWith('0x5360997dd9c42c51bf90ac256598de0882151aba');
+          expect(configService.setEarningWallet).toHaveBeenCalledWith('ropsten', '0x5360997dd9c42c51bf90ac256598de0882151aba');
         });
       });
 

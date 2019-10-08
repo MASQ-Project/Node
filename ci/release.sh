@@ -7,8 +7,7 @@ DNS_EXECUTABLE="dns_utility"
 GPG_EXECUTABLE="gpg"
 
 if [[ "$PASSPHRASE" == "" ]]; then
-  echo "PASSPHRASE cannot be blank"
-  exit 1
+  echo "Warning: PASSPHRASE is blank. Signing may fail."
 fi
 
 if [[ "$OSTYPE" == "msys" ]]; then
@@ -68,7 +67,7 @@ case "$OSTYPE" in
       "${GPG_EXECUTABLE}" --verify target/release/$DNS_EXECUTABLE.sig target/release/$DNS_EXECUTABLE
       ;;
    darwin*)
-      security unlock-keychain -p "$PASSPHRASE"
+      [[ -n "$PASSPHRASE" ]] && security unlock-keychain -p "$PASSPHRASE"
       cd "$CI_DIR/../node"
       codesign -s 'Developer ID Application: Substratum Services, Inc. (TKDGR66924)' -i 'net.substratum.substratumnode' -fv "target/release/$NODE_EXECUTABLE"
       codesign -v -v "target/release/$NODE_EXECUTABLE"

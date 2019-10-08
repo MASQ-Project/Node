@@ -4,7 +4,7 @@ import {async, ComponentFixture, TestBed} from '@angular/core/testing';
 import {FooterComponent} from '../footer/footer.component';
 import * as td from 'testdouble';
 import {MainService} from '../main.service';
-import {BehaviorSubject, of, Subject} from 'rxjs';
+import {BehaviorSubject, of} from 'rxjs';
 import {NodeStatus} from '../node-status.enum';
 import {FormsModule, ReactiveFormsModule} from '@angular/forms';
 import {ConfigService} from '../config.service';
@@ -62,6 +62,7 @@ describe('StatusComponent', () => {
   let mockStatus: BehaviorSubject<NodeStatus>;
   let mockNodeDescriptor: BehaviorSubject<string>;
   let mockSetWalletPasswordResponse: BehaviorSubject<boolean>;
+  let mockWalletUnlocked: BehaviorSubject<boolean>;
   let offButton;
   let servingButton;
   let consumingButton;
@@ -71,7 +72,8 @@ describe('StatusComponent', () => {
   let mockPipe;
   let mockNavigate;
   let mockRoutingService;
-  let mockConfigMode: Subject<ConfigurationMode>;
+  let mockConfigMode: BehaviorSubject<ConfigurationMode>;
+  let mockChainName: BehaviorSubject<string>;
   let storedConfig: BehaviorSubject<NodeConfiguration>;
   let navigateSpy;
   let storedLookupIp: BehaviorSubject<string>;
@@ -113,8 +115,10 @@ describe('StatusComponent', () => {
     mockMode = new BehaviorSubject(ConfigurationMode.Hidden);
     mockNodeDescriptor = new BehaviorSubject('');
     mockSetWalletPasswordResponse = new BehaviorSubject(false);
+    mockChainName = new BehaviorSubject('');
     storedConfig = new BehaviorSubject(new NodeConfiguration());
     storedLookupIp = new BehaviorSubject('192.168.1.1');
+    mockWalletUnlocked = new BehaviorSubject(false);
     mockMainService = {
       resizeLarge: () => {
       },
@@ -131,11 +135,14 @@ describe('StatusComponent', () => {
       nodeDescriptor: mockNodeDescriptor.asObservable(),
       setConsumingWalletPasswordResponse: mockSetWalletPasswordResponse.asObservable(),
       lookupIp: td.func('lookupIp'),
+      chainName: mockChainName.asObservable(),
+      walletUnlockedListener: mockWalletUnlocked,
+      walletUnlocked: mockWalletUnlocked.asObservable(),
     };
     spyOn(mockMainService, 'copyToClipboard');
     spyOn(mockMainService, 'setConsumingWalletPassword');
     mockConfigService = {
-      getConfig: td.func('getConfig'),
+      getConfigs: td.func('getConfigs'),
       isValidServing: td.func('isValidServing'),
       isValidConsuming: td.func('isValidConsuming'),
       mode: mockMode,
@@ -172,12 +179,14 @@ describe('StatusComponent', () => {
           {provide: ConfigService, useValue: mockConfigService},
           {provide: ElectronService, useValue: mockElectronService},
           {provide: ConsumingWalletPasswordPromptComponent, useClass: ConsumingWalletPasswordPromptComponent},
+          {provide: RoutingService, useValue: mockRoutingService},
         ]
       })
       .overrideComponent(StatusComponent, {
         set: {
           providers: [
-            {provide: RoutingService, useValue: mockRoutingService}
+            {provide: RoutingService, useValue: mockRoutingService},
+            {provide: ConfigService, useValue: mockConfigService},
           ]
         }
       })
@@ -207,19 +216,9 @@ describe('StatusComponent', () => {
     td.when(mockMainService.serve()).thenDo(() => mockStatus.next(NodeStatus.Serving));
     td.when(mockMainService.consume()).thenDo(() => mockStatus.next(NodeStatus.Consuming));
     td.when(mockMainService.turnOff()).thenDo(() => mockStatus.next(NodeStatus.Off));
+    mockChainName.next('ropsten');
 
     fixture.detectChanges();
-  });
-
-  describe('when node dies', () => {
-    beforeEach(() => {
-      component.unlocked = true;
-      mockStatus.next(NodeStatus.Off);
-    });
-
-    it('marks the wallet as locked', () => {
-      expect(component.unlocked).toBe(false);
-    });
   });
 
   it('should have a "Node Status:" label', () => {
@@ -247,7 +246,7 @@ describe('StatusComponent', () => {
 
     describe('when serving is selected with configuration shown', () => {
       beforeEach(() => {
-        td.when(mockConfigService.isValidServing()).thenReturn(false);
+        td.when(mockConfigService.isValidServing('ropsten')).thenReturn(false);
         component.status = NodeStatus.Off;
         servingButton.click();
         fixture.detectChanges();
@@ -316,7 +315,7 @@ describe('StatusComponent', () => {
 
     describe('when not configured', () => {
       beforeEach(() => {
-        td.when(mockConfigService.isValidServing()).thenReturn(false);
+        td.when(mockConfigService.isValidServing('ropsten')).thenReturn(false);
         servingButton.click();
         fixture.detectChanges();
       });
@@ -368,7 +367,7 @@ describe('StatusComponent', () => {
 
         describe('switching to consuming while configuration is valid', () => {
           beforeEach(() => {
-            td.when(mockConfigService.isValidConsuming()).thenReturn(true);
+            td.when(mockConfigService.isValidConsuming('ropsten')).thenReturn(true);
             consumingButton.click();
             fixture.detectChanges();
           });
@@ -390,13 +389,15 @@ describe('StatusComponent', () => {
 
     describe('when already configured', () => {
       beforeEach(() => {
-        td.when(mockConfigService.isValidServing()).thenReturn(true);
-        servingButton.click();
+        td.when(mockConfigService.isValidServing('ropsten')).thenReturn(true);
+        mockStatus.next(NodeStatus.Serving);
         fixture.detectChanges();
       });
 
       it('does not show the configuration', () => {
         component.servingConfigurationShown.subscribe(configShown => expect(configShown).toBeFalsy());
+        servingButton.click();
+        fixture.detectChanges();
       });
 
       it('starts the node', () => {
@@ -406,8 +407,7 @@ describe('StatusComponent', () => {
 
     describe('switching to consuming', () => {
       beforeEach(() => {
-        td.when(mockConfigService.isValidConsuming()).thenReturn(false);
-        // mockConfigMode.next(ConfigurationMode.Consuming);
+        td.when(mockConfigService.isValidConsuming('ropsten')).thenReturn(false);
         consumingButton.click();
         fixture.detectChanges();
       });
@@ -464,7 +464,7 @@ describe('StatusComponent', () => {
   describe('clicking consuming', () => {
     describe('when not configured', () => {
       beforeEach(() => {
-        td.when(mockConfigService.isValidConsuming()).thenReturn(false);
+        td.when(mockConfigService.isValidConsuming('ropsten')).thenReturn(false);
         consumingButton.click();
         fixture.detectChanges();
       });
@@ -487,6 +487,8 @@ describe('StatusComponent', () => {
 
       describe('then clicking save', () => {
         beforeEach(() => {
+          mockMainService.walletUnlockedListener.next(false);
+          fixture.detectChanges();
           mockConfigMode.next(ConfigurationMode.Hidden);
           mockStatus.next(NodeStatus.Consuming);
           fixture.detectChanges();
@@ -557,7 +559,7 @@ describe('StatusComponent', () => {
 
           describe('switching to serving', () => {
             beforeEach(() => {
-              td.when(mockConfigService.isValidServing()).thenReturn(true);
+              td.when(mockConfigService.isValidServing('ropsten')).thenReturn(true);
               servingButton.click();
               fixture.detectChanges();
             });
@@ -576,7 +578,7 @@ describe('StatusComponent', () => {
 
             describe('and then back to consuming', () => {
               beforeEach(() => {
-                td.when(mockConfigService.isValidConsuming()).thenReturn(true);
+                td.when(mockConfigService.isValidConsuming('ropsten')).thenReturn(true);
                 consumingButton.click();
                 fixture.detectChanges();
               });
@@ -589,9 +591,10 @@ describe('StatusComponent', () => {
 
           describe('switching to off and then back to consuming', () => {
             beforeEach(() => {
+              mockMainService.walletUnlockedListener.next(false);
               offButton.click();
               fixture.detectChanges();
-              td.when(mockConfigService.isValidConsuming()).thenReturn(true);
+              td.when(mockConfigService.isValidConsuming('ropsten')).thenReturn(true);
               consumingButton.click();
               fixture.detectChanges();
             });
@@ -616,6 +619,8 @@ describe('StatusComponent', () => {
 
         describe('then clicking unlock with the incorrect password', () => {
           beforeEach(() => {
+            mockMainService.walletUnlockedListener.next(false);
+            fixture.detectChanges();
             compiled.querySelector('#password').value = 'booga';
             compiled.querySelector('#password').dispatchEvent(new Event('input'));
             mockSetWalletPasswordResponse.next(false);
@@ -645,7 +650,8 @@ describe('StatusComponent', () => {
 
           describe('switching to serving', () => {
             beforeEach(() => {
-              td.when(mockConfigService.isValidServing()).thenReturn(true);
+              mockChainName.next('ropsten');
+              td.when(mockConfigService.isValidServing('ropsten')).thenReturn(true);
               servingButton.click();
               fixture.detectChanges();
             });
@@ -676,7 +682,8 @@ describe('StatusComponent', () => {
 
           describe('switching to serving', () => {
             beforeEach(() => {
-              td.when(mockConfigService.isValidServing()).thenReturn(true);
+              mockChainName.next('ropsten');
+              td.when(mockConfigService.isValidServing('ropsten')).thenReturn(true);
               td.when(mockMainService.serve()).thenDo(() => {
                 mockStatus.next(NodeStatus.Serving);
               });
@@ -719,7 +726,7 @@ describe('StatusComponent', () => {
 
     describe('when already configured', () => {
       beforeEach(() => {
-        td.when(mockConfigService.isValidConsuming()).thenReturn(true);
+        td.when(mockConfigService.isValidConsuming('ropsten')).thenReturn(true);
         consumingButton.click();
         fixture.detectChanges();
       });

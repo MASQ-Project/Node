@@ -1,12 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-
 import {ComponentFixture, TestBed} from '@angular/core/testing';
 import {NodeConfigurationComponent} from './node-configuration.component';
 import * as td from 'testdouble';
 import {ConfigService} from '../config.service';
 import {FormsModule, ReactiveFormsModule} from '@angular/forms';
 import {BehaviorSubject} from 'rxjs';
-import {NodeConfiguration} from '../node-configuration';
+import {NodeConfiguration, NodeConfigurations} from '../node-configuration';
 import {NodeConfigurationPage} from './node-configuration-page';
 import {MainService} from '../main.service';
 import {ConfigurationMode} from '../configuration-mode.enum';
@@ -15,10 +14,10 @@ import {LocalStorageService} from '../local-storage.service';
 import {ElectronService} from '../electron.service';
 import {LocalServiceKey} from '../local-service-key.enum';
 import {Component} from '@angular/core';
-import {RouterTestingModule} from '@angular/router/testing';
 import {Router} from '@angular/router';
 import {RoutingService} from '../status/routing.service';
 import {HistoryService} from '../history.service';
+import {RouterTestingModule} from '@angular/router/testing';
 import createSpyObj = jasmine.createSpyObj;
 
 @Component({selector: 'app-header', template: ''})
@@ -32,10 +31,12 @@ describe('NodeConfigurationComponent', () => {
   let page: NodeConfigurationPage;
   let mockNodeStatus;
   let mockOpenExternal;
-  let storedConfig: BehaviorSubject<NodeConfiguration>;
-  let mockConfigMode;
+  let storedConfigs: BehaviorSubject<NodeConfigurations>;
   let mockHistoryService;
   let mockMainService;
+  let mockChainNameListener: BehaviorSubject<string>;
+  let mockWalletUnlockedListener: BehaviorSubject<boolean>;
+  let mockConfigMode;
   let mockLocalStorageService;
   let stubElectronService;
 
@@ -45,7 +46,7 @@ describe('NodeConfigurationComponent', () => {
       history: td.func('history'),
     };
     td.when(mockHistoryService.history()).thenReturn([]);
-    storedConfig = new BehaviorSubject({chainName: 'ropsten'});
+    storedConfigs = new BehaviorSubject({});
     mockConfigMode = new BehaviorSubject(ConfigurationMode.Hidden);
     mockOpenExternal = td.function('openExternal');
 
@@ -55,6 +56,8 @@ describe('NodeConfigurationComponent', () => {
         openExternal: mockOpenExternal
       },
     };
+    mockChainNameListener = new BehaviorSubject<string>('ropsten');
+    mockWalletUnlockedListener = new BehaviorSubject<boolean>(false);
     mockMainService = {
       ...createSpyObj('MainService',
         [
@@ -63,19 +66,24 @@ describe('NodeConfigurationComponent', () => {
           'resizeLarge',
           'resizeSmall',
         ]),
-      nodeStatus: mockNodeStatus.asObservable()
+      nodeStatus: mockNodeStatus.asObservable(),
+      chainNameListener: mockChainNameListener,
+      chainName: mockChainNameListener.asObservable(),
+      walletUnlockedListener: mockWalletUnlockedListener,
+      walletUnlocked: mockWalletUnlockedListener.asObservable(),
     };
 
     mockConfigService = {
       patchValue: td.func('patchValue'),
-      load: td.func('load'),
+      load: () => storedConfigs.asObservable(),
+      getConfigs: () => storedConfigs.getValue(),
       mode: mockConfigMode,
     };
     spyOn(mockConfigService, 'patchValue');
     mockLocalStorageService = {
       getItem: td.func('getItem'),
-      setItem: td.func(),
-      removeItem: td.func()
+      setItem: td.func('setItem'),
+      removeItem: td.func('removeItem')
     };
     spyOn(mockLocalStorageService, 'setItem');
     spyOn(mockLocalStorageService, 'removeItem');
@@ -109,10 +117,10 @@ describe('NodeConfigurationComponent', () => {
       .compileComponents();
     const router = TestBed.get(Router);
     spyOn(router, 'navigateByUrl');
-    td.when(mockConfigService.load()).thenReturn(storedConfig.asObservable());
+    td.when(mockLocalStorageService.getItem(LocalServiceKey.ChainName)).thenReturn('ropsten');
     fixture = TestBed.createComponent(NodeConfigurationComponent);
-    page = new NodeConfigurationPage(fixture);
     component = fixture.componentInstance;
+    page = new NodeConfigurationPage(fixture);
   });
 
   afterEach(() => {
@@ -121,13 +129,14 @@ describe('NodeConfigurationComponent', () => {
 
   describe('Configuration', () => {
     beforeEach(() => {
-      const newValue: NodeConfiguration = {
-        ...storedConfig.value, ...{
+      const nextConfigs: NodeConfigurations = storedConfigs.value;
+      nextConfigs.ropsten = {...nextConfigs.ropsten, ...{
           chainName: 'ropsten',
-          ip: '192.168.1.2'
-        } as NodeConfiguration
-      };
-      storedConfig.next(newValue);
+          ip: '192.168.1.2',
+          walletAddress: 'earning wallet address'
+        } as NodeConfiguration};
+      storedConfigs.next(nextConfigs);
+      mockChainNameListener.next('ropsten');
       fixture.detectChanges();
     });
 
@@ -135,29 +144,76 @@ describe('NodeConfigurationComponent', () => {
       expect(mockMainService.resizeLarge).toHaveBeenCalled();
     });
 
-    describe('ip is filled out if it was provided', () => {
+    describe('chainName is selected and ip is filled out if they were provided', () => {
+      it('should have ropsten as the selected chainName', () => {
+        expect(page.chainName.value).toBe('ropsten');
+      });
+
       it('ip address is filled out', () => {
-        expect(page.ipTxt.value).toBe('192.168.1.2');
+        expect(page.ip.value).toBe('192.168.1.2', 'failed ip address is filled out from page');
       });
     });
 
     describe('wallet address is provided in config', () => {
       beforeEach(() => {
-        storedConfig.next({walletAddress: 'earning wallet address'});
+        td.when(mockLocalStorageService.getItem(
+          `ropsten.${LocalServiceKey.ChainName}`)).thenReturn(null);
+        td.when(mockLocalStorageService.getItem(
+          `ropsten.${LocalServiceKey.NeighborNodeDescriptor}`)).thenReturn(null);
+        td.when(mockLocalStorageService.getItem(
+          `ropsten.${LocalServiceKey.BlockchainServiceUrl}`)).thenReturn(null);
+        td.when(mockLocalStorageService.getItem(
+          `ropsten.${LocalServiceKey.PersistNeighborPreference}`)).thenReturn('false');
+
+        td.when(mockLocalStorageService.getItem(
+          `mainnet.${LocalServiceKey.ChainName}`)).thenReturn(null);
+        td.when(mockLocalStorageService.getItem(
+          `mainnet.${LocalServiceKey.NeighborNodeDescriptor}`)).thenReturn(null);
+        td.when(mockLocalStorageService.getItem(
+          `mainnet.${LocalServiceKey.BlockchainServiceUrl}`)).thenReturn(null);
+        td.when(mockLocalStorageService.getItem(
+          `mainnet.${LocalServiceKey.PersistNeighborPreference}`)).thenReturn('false');
+
+        mockChainNameListener.next('mainnet');
+        fixture.detectChanges();
+        const nextConfigs: NodeConfigurations = {
+          ropsten: {
+            chainName: 'ropsten', walletAddress: 'earning wallet address'
+          } as NodeConfiguration
+        } as NodeConfigurations;
+        nextConfigs.ropsten = {...nextConfigs.ropsten, ...{
+            chainName: 'ropsten',
+            walletAddress: 'earning wallet address'
+          } as NodeConfiguration};
+        storedConfigs.next(nextConfigs);
+        mockChainNameListener.next('ropsten');
         fixture.detectChanges();
       });
 
-      it('earning wallet address is filled out and readonly', () => {
+      it('should have ropsten as the selected chainName', () => {
+        expect(page.chainName.value).toBe('ropsten');
+      });
+
+      it('earning wallet address is filled out', () => {
         expect(page.walletAddressTxt.value).toBe('earning wallet address');
+      });
+
+      it('earning wallet address is readonly', () => {
         expect(page.walletAddressTxt.readOnly).toBeTruthy();
       });
     });
 
     describe('blank earning wallet address', () => {
       beforeEach(() => {
-        const newValue = storedConfig.value;
-        newValue.walletAddress = null;
-        storedConfig.next(newValue);
+        mockChainNameListener.next('mainnet');
+        fixture.detectChanges();
+        const nextConfigs: NodeConfigurations = storedConfigs.getValue();
+        nextConfigs.ropsten = {...nextConfigs.ropsten, ...{
+            chainName: 'ropsten',
+            walletAddress: '',
+        } as NodeConfiguration};
+        storedConfigs.next(nextConfigs);
+        mockChainNameListener.next('ropsten');
         fixture.detectChanges();
       });
 
@@ -169,12 +225,19 @@ describe('NodeConfigurationComponent', () => {
 
     describe('the ip field', () => {
       beforeEach(() => {
-        storedConfig.next({ip: undefined});
+        page.setIp('');
+        fixture.detectChanges();
+        const nextConfigs: NodeConfigurations = storedConfigs.getValue();
+        nextConfigs.ropsten = {...nextConfigs.ropsten, ...{
+            chainName: 'ropsten',
+            ip: undefined
+          } as NodeConfiguration};
+        storedConfigs.next(nextConfigs);
         fixture.detectChanges();
       });
 
       it('ip address starts blank', () => {
-        expect(page.ipTxt.value).toBe('');
+        expect(page.ip.value).toBe('');
       });
     });
 
@@ -182,12 +245,14 @@ describe('NodeConfigurationComponent', () => {
       describe('with a filled out form', () => {
         describe('when submitted', () => {
           const expected = {
-            chainName: 'ropsten',
-            ip: '127.0.0.1',
-            neighbor: '5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999',
-            walletAddress: '0x0123456789012345678901234567890123456789',
-            blockchainServiceUrl: 'https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>',
-          };
+              ropsten: {
+                blockchainServiceUrl: 'https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>',
+                chainName: 'ropsten',
+                ip: '127.0.0.1',
+                neighbor: '5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999',
+                walletAddress: '0x0123456789012345678901234567890123456789',
+              }
+            };
 
           beforeEach(() => {
             page.setChainName('ropsten');
@@ -210,47 +275,76 @@ describe('NodeConfigurationComponent', () => {
     });
 
     describe('when it already exists and there is no node descriptor in local storage', () => {
-      const expected: NodeConfiguration = {
-        chainName: 'ropsten',
-        ip: '127.0.0.1',
-        neighbor: 'neighbornodedescriptor',
-        walletAddress: 'address',
+      const expected: NodeConfigurations = {
+        ropsten: {
+          chainName: 'ropsten',
+          ip: '127.0.0.1',
+          neighbor: 'neighbornodedescriptor',
+          walletAddress: 'address',
+        }
       };
 
       beforeEach(() => {
-        td.when(mockLocalStorageService.getItem(LocalServiceKey.ChainName)).thenReturn(null);
-        td.when(mockLocalStorageService.getItem(LocalServiceKey.NeighborNodeDescriptor)).thenReturn(null);
-        td.when(mockLocalStorageService.getItem(LocalServiceKey.PersistNeighborPreference)).thenReturn('false');
+        td.when(mockLocalStorageService.getItem(
+          `${expected.ropsten.chainName}.${LocalServiceKey.ChainName}`)).thenReturn(null);
+        td.when(mockLocalStorageService.getItem(
+          `${expected.ropsten.chainName}.${LocalServiceKey.NeighborNodeDescriptor}`)).thenReturn(null);
+        td.when(mockLocalStorageService.getItem(
+          `${expected.ropsten.chainName}.${LocalServiceKey.BlockchainServiceUrl}`)).thenReturn(null);
+        td.when(mockLocalStorageService.getItem(
+          `${expected.ropsten.chainName}.${LocalServiceKey.PersistNeighborPreference}`)).thenReturn('false');
 
-        storedConfig.next(expected);
+        storedConfigs.next(expected);
+        mockChainNameListener.next('ropsten');
+        fixture.detectChanges();
       });
 
-      it('is prepopulated with that data', () => {
+      it('should have selected ropsten for the chainName', () => {
         expect(page.chainName.value).toBe('ropsten');
-        expect(page.ipTxt.value).toBe('127.0.0.1');
+      });
+
+      it('should have ip value', () => {
+        expect(page.ip.value).toBe('127.0.0.1');
+      });
+
+      it('should have a neighbor node descriptor', () => {
         expect(page.neighborTxt.value).toBe('neighbornodedescriptor');
+      });
+
+      it('should have wallet address', () => {
         expect(page.walletAddressTxt.value).toBe('address');
+      });
+
+      it('should not have the persist neighbor checkbox checked', () => {
         expect(component.persistNeighbor).toBeFalsy();
       });
     });
 
     describe('when it already exists and a node descriptor is in local storage', () => {
-      const expected: NodeConfiguration = {
-        chainName: 'ropsten',
-        ip: '127.0.0.1',
-        neighbor: 'neighbornodedescriptor',
-        walletAddress: 'address',
+      const expected: NodeConfigurations = {
+        ropsten: {
+          chainName: 'ropsten',
+          ip: '127.0.0.1',
+          walletAddress: 'address',
+        }
       };
 
       beforeEach(() => {
-        td.when(mockLocalStorageService.getItem(LocalServiceKey.PersistNeighborPreference)).thenReturn('true');
-
-        storedConfig.next(expected);
+        mockChainNameListener.next('ropsten');
+        fixture.detectChanges();
+        storedConfigs.next(expected);
+        td.when(mockLocalStorageService.getItem(
+          `ropsten.${LocalServiceKey.PersistNeighborPreference}`)).thenReturn('true');
+        td.when(mockLocalStorageService.getItem(
+          `ropsten.${LocalServiceKey.NeighborNodeDescriptor}`)).thenReturn('a stored neighbor node descriptor');
+        mockChainNameListener.next('ropsten');
+        fixture.detectChanges();
       });
 
       it('is prepopulated with that data', () => {
-        expect(page.ipTxt.value).toBe('127.0.0.1');
-        expect(page.neighborTxt.value).toBe('neighbornodedescriptor');
+        expect(page.chainName.value).toBe('ropsten');
+        expect(page.ip.value).toBe('127.0.0.1');
+        expect(page.neighborTxt.value).toBe('a stored neighbor node descriptor');
         expect(page.walletAddressTxt.value).toBe('address');
         expect(component.persistNeighbor).toBeTruthy();
       });
@@ -476,6 +570,7 @@ describe('NodeConfigurationComponent', () => {
 
       describe('valid filled out form', () => {
         beforeEach(() => {
+          page.setChainName('ropsten');
           page.setIp('192.168.1.1');
           page.setNeighbor('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:255.255.255.255:12345;4321');
           page.setWalletAddress('0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
@@ -541,25 +636,23 @@ describe('NodeConfigurationComponent', () => {
       describe('when clicked', () => {
         describe('with a filled out form', () => {
           const expected = {
+            ropsten: {
             chainName: 'ropsten',
             ip: '127.0.0.1',
             neighbor: '5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999',
-            walletAddress: '',
+            walletAddress: '0x0123456789012345678901234567890123456789',
             blockchainServiceUrl: 'https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>',
-          };
+          }};
 
           beforeEach(() => {
             page.setChainName('ropsten');
             page.setIp('127.0.0.1');
             page.setNeighbor('5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999');
-            page.setWalletAddress('');
+            page.setWalletAddress('0x0123456789012345678901234567890123456789');
             page.setBlockchainServiceUrl('https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>');
             fixture.detectChanges();
             td.when(mockHistoryService.history())
-              .thenReturn(
-                [
-                  `/index/status/${ConfigurationMode.Serving}/config`
-                ]);
+              .thenReturn([`/index/status/${ConfigurationMode.Serving}/config`]);
             page.saveConfigBtn.click();
 
             fixture.detectChanges();
@@ -581,9 +674,10 @@ describe('NodeConfigurationComponent', () => {
         describe('saving the neighbor node descriptor', () => {
           describe('when the checkbox is NOT checked', () => {
             beforeEach(() => {
+              page.setChainName('ropsten');
               page.setIp('127.0.0.1');
               page.setNeighbor('5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999');
-              page.setWalletAddress('');
+              page.setWalletAddress('0x0123456789012345678901234567890123456789');
               page.setBlockchainServiceUrl('https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>');
               fixture.detectChanges();
               page.saveConfigBtn.click();
@@ -591,16 +685,19 @@ describe('NodeConfigurationComponent', () => {
             });
 
             it('removes the node descriptor from local storage', () => {
-              expect(mockLocalStorageService.removeItem).toHaveBeenCalledWith(LocalServiceKey.NeighborNodeDescriptor);
+              expect(mockLocalStorageService.removeItem).toHaveBeenCalledWith(
+                `${page.chainName.value}.${LocalServiceKey.NeighborNodeDescriptor}`);
             });
 
             it('saves the checkbox state to local storage', () => {
-              expect(mockLocalStorageService.setItem).toHaveBeenCalledWith(LocalServiceKey.PersistNeighborPreference, false);
+              expect(mockLocalStorageService.setItem).toHaveBeenCalledWith(
+                `${page.chainName.value}.${LocalServiceKey.PersistNeighborPreference}`, false);
             });
           });
 
           describe('when the checkbox is checked', () => {
             beforeEach(() => {
+              page.setChainName('ropsten');
               page.setIp('127.0.0.1');
               page.setNeighbor('5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999');
               page.changeRememberNeighbor(true);
@@ -613,19 +710,25 @@ describe('NodeConfigurationComponent', () => {
 
             it('stores the node descriptor in local storage', () => {
               expect(mockLocalStorageService.setItem).toHaveBeenCalledWith(
-                LocalServiceKey.NeighborNodeDescriptor,
+                `ropsten.${LocalServiceKey.NeighborNodeDescriptor}`,
                 '5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999'
               );
             });
 
+            it('should have ropsten as the selected chainName', () => {
+              expect(page.chainName.value).toBe('ropsten');
+            });
+
             it('saves the checkbox state to local storage', () => {
-              expect(mockLocalStorageService.setItem).toHaveBeenCalledWith(LocalServiceKey.PersistNeighborPreference, true);
+              expect(mockLocalStorageService.setItem).toHaveBeenCalledWith(
+                `${page.chainName.value}.${LocalServiceKey.PersistNeighborPreference}`, true);
             });
           });
         });
 
         describe('saving the blockchain service url', () => {
           beforeEach(() => {
+            page.setChainName('ropsten');
             page.setIp('127.0.0.1');
             page.setNeighbor('5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999');
             page.setWalletAddress('');
@@ -635,8 +738,13 @@ describe('NodeConfigurationComponent', () => {
             fixture.detectChanges();
           });
 
+          it('should have ropsten as the selected chainName',  () => {
+            expect(page.chainName.value).toBe('ropsten');
+          });
+
           it('saves the blockchain service url', () => {
-            expect(mockLocalStorageService.setItem).toHaveBeenCalledWith(LocalServiceKey.BlockchainServiceUrl, 'https://ropsten.infura.io');
+            expect(mockLocalStorageService.setItem).toHaveBeenCalledWith(
+              `${page.chainName.value}.${LocalServiceKey.BlockchainServiceUrl}`, 'https://ropsten.infura.io');
           });
         });
       });

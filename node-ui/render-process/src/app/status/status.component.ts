@@ -18,9 +18,9 @@ import {RoutingService} from './routing.service';
 })
 export class StatusComponent implements OnInit {
 
+  chainName: string;
   status: NodeStatus = NodeStatus.Off;
   @Output() unlockFailed: boolean;
-  unlocked: boolean;
   servingConfigurationShown: Observable<boolean>;
   consumingConfigurationShown: Observable<boolean>;
 
@@ -36,10 +36,10 @@ export class StatusComponent implements OnInit {
 
   ngOnInit() {
     this.mainService.resizeSmall();
-    this.servingConfigurationShown = this.routingService.configMode()
-      .pipe(
-        map(mode => mode === ConfigurationMode.Serving)
-      );
+    this.mainService.chainName.subscribe(chainName => this.chainName = chainName);
+
+    this.servingConfigurationShown = this.routingService.configMode().pipe(
+      map(mode => mode === ConfigurationMode.Serving));
 
     this.consumingConfigurationShown = this.routingService.configMode().pipe(
       map(mode => mode === ConfigurationMode.Consuming));
@@ -48,12 +48,8 @@ export class StatusComponent implements OnInit {
       this.ngZone.run(() => {
         this.status = newStatus;
 
-        if (newStatus === NodeStatus.Consuming && !this.unlocked) {
+        if (newStatus === NodeStatus.Consuming && !this.mainService.walletUnlockedListener.getValue()) {
           this.mainService.resizeMedium();
-        }
-
-        if (newStatus === NodeStatus.Off) {
-          this.unlocked = false;
         }
       });
     });
@@ -61,7 +57,7 @@ export class StatusComponent implements OnInit {
     this.mainService.setConsumingWalletPasswordResponse.subscribe(success => {
       this.ngZone.run(() => {
         if (success) {
-          this.unlocked = true;
+          this.mainService.walletUnlockedListener.next(true);
           this.mainService.resizeSmall();
         }
         this.unlockFailed = !success;
@@ -79,7 +75,7 @@ export class StatusComponent implements OnInit {
 
   async serve() {
     if (!this.isServing()) {
-      if (this.configService.isValidServing()) {
+      if (this.configService.isValidServing(this.chainName)) {
         this.mainService.serve();
         this.mainService.resizeSmall();
       } else {
@@ -92,7 +88,7 @@ export class StatusComponent implements OnInit {
 
   async consume() {
     if (!this.isConsuming()) {
-      if (this.configService.isValidConsuming()) {
+      if (this.configService.isValidConsuming(this.chainName)) {
         this.mainService.consume();
       } else {
         await this.openConsumingSettings();
@@ -151,14 +147,18 @@ export class StatusComponent implements OnInit {
   }
 
   passwordPromptShown(): boolean {
-    return this.isConsuming() && !this.unlocked;
+    return this.isConsuming() && !this.mainService.walletUnlockedListener.getValue();
   }
 
   isMyDescriptorHidden() {
-    return combineLatest([this.consumingConfigurationShown, this.servingConfigurationShown, this.mainService.nodeStatus]).pipe(
-      map(([consumingShown, servingShown, status]) => {
-        return consumingShown || servingShown || (status === NodeStatus.Consuming && !this.unlocked);
-      })
-    );
+    return combineLatest([
+      this.consumingConfigurationShown,
+      this.servingConfigurationShown,
+      this.mainService.nodeStatus,
+      this.mainService.walletUnlocked,
+    ]).pipe(
+      map(([consumingShown, servingShown, status, unlocked]) => {
+        return consumingShown || servingShown || (status === NodeStatus.Consuming && !unlocked);
+      }));
   }
 }

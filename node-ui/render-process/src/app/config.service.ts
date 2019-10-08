@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 import {Injectable} from '@angular/core';
-import {NodeConfiguration} from './node-configuration';
+import {NodeConfiguration, NodeConfigurations} from './node-configuration';
 import {BehaviorSubject, Observable} from 'rxjs';
 import {
   blockchainServicePattern,
@@ -13,32 +13,35 @@ import {
   providedIn: 'root'
 })
 export class ConfigService {
-
-  private configSubject: BehaviorSubject<NodeConfiguration> = new BehaviorSubject({networkSettings: {gasPrice: 1}});
-  readonly config = this.configSubject.asObservable();
+  private configsSubject: BehaviorSubject<NodeConfigurations> = new BehaviorSubject({
+    mainnet: {networkSettings: {gasPrice: 1}},
+    ropsten: {networkSettings: {gasPrice: 1}},
+  });
+  readonly configs = this.configsSubject.asObservable();
 
   static testRegEx(input: string, pattern: string | RegExp): boolean {
     const expression: RegExp = typeof pattern === 'string' ? new RegExp(pattern) : pattern as RegExp;
     return expression.test(input);
   }
 
-  patchValue(value: NodeConfiguration) {
-    this.configSubject.next({...this.getConfig(), ...value});
+  patchValue(value: NodeConfigurations) {
+    this.configsSubject.next({...this.getConfigs(), ...value});
   }
 
-  load(): Observable<NodeConfiguration> {
-    return this.config;
+  load(): Observable<NodeConfigurations> {
+    return this.configs;
   }
 
-  getConfig(): NodeConfiguration {
-    return this.configSubject.getValue();
+  getConfigs(): NodeConfigurations {
+    return this.configsSubject.getValue();
   }
 
-  isValidServing(): boolean {
-    const currentConfig = this.getConfig();
+  isValidServing(chainName): boolean {
+    const configs = this.getConfigs();
+    const currentConfig = configs[chainName];
     const ipValid = ConfigService.testRegEx(currentConfig.ip, ipPattern);
     const walletValid = (currentConfig.walletAddress === '' || ConfigService.testRegEx(currentConfig.walletAddress, walletPattern));
-    let neighborExpression = neighborExpressions[currentConfig.chainName];
+    let neighborExpression = neighborExpressions[chainName];
     if (neighborExpression === undefined) {
       neighborExpression = neighborExpressions.ropsten;
     }
@@ -51,11 +54,13 @@ export class ConfigService {
       blockchainServiceUrlValid;
   }
 
-  setEarningWallet(address: string) {
-    this.patchValue({walletAddress: address});
+  setEarningWallet(chainName: string, address: string) {
+    const configs = this.getConfigs();
+    configs[chainName].walletAddress = address;
+    this.patchValue(configs);
   }
 
-  isValidConsuming(): boolean {
-    return this.isValidServing();
+  isValidConsuming(chainName: string): boolean {
+    return this.isValidServing(chainName);
   }
 }

@@ -1,11 +1,12 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-import {TestBed} from '@angular/core/testing';
+import {inject, TestBed} from '@angular/core/testing';
 import {MainService} from './main.service';
 import {ElectronService} from './electron.service';
 import * as td from 'testdouble';
-import {NodeConfiguration} from './node-configuration';
+import {NodeConfigurations} from './node-configuration';
 import {ConfigService} from './config.service';
+import {LocalStorageService} from './local-storage.service';
 
 describe('MainService', () => {
   let stubElectronService;
@@ -13,7 +14,8 @@ describe('MainService', () => {
   let mockSendSync;
   let service: MainService;
   let mockConfigService;
-  let mockGetConfig;
+  let mockLocalStorageService;
+  let mockGetConfigs;
   let mockOn;
   let nodeStatusListener;
   let nodeDescriptorListener;
@@ -21,7 +23,7 @@ describe('MainService', () => {
 
   beforeEach(() => {
     mockSendSync = td.func('sendSync');
-    mockGetConfig = td.func('getConfig');
+    mockGetConfigs = td.func('getConfigs');
     mockOn = td.func('on');
     nodeStatusListener = td.matchers.captor();
     nodeDescriptorListener = td.matchers.captor();
@@ -40,34 +42,69 @@ describe('MainService', () => {
     };
     spyOn(stubElectronService.ipcRenderer, 'send');
     mockConfigService = {
-      getConfig: mockGetConfig,
+      getConfigs: mockGetConfigs,
       patchValue: td.func()
     };
+    mockLocalStorageService = {
+      getItem: td.func('getItem'),
+    };
+    td.when(mockLocalStorageService.getItem('chainName')).thenReturn('mainnet');
     spyOn(mockConfigService, 'patchValue');
     TestBed.configureTestingModule({
       providers: [
         MainService,
         {provide: ElectronService, useValue: stubElectronService},
-        {provide: ConfigService, useValue: mockConfigService}
+        {provide: ConfigService, useValue: mockConfigService},
+        {provide: LocalStorageService, useValue: mockLocalStorageService},
       ]
     });
-    td.when(mockSendSync('get-node-configuration')).thenReturn({
+
+    td.when(mockSendSync('get-node-configuration', td.matchers.anything())).thenReturn({
       earningWalletAddress: 'foobar',
       gasPrice: 42,
     });
+
     service = TestBed.get(MainService);
+    expect(service).toBeDefined('service is undefined');
+  });
+
+  it('injecting', () => {
+    inject([MainService], (injectedMainService: MainService) => {
+      expect(injectedMainService).toBe(service);
+    });
   });
 
   afterEach(() => {
     td.reset();
   });
 
-  it('loads the config', () => {
-    expect(mockConfigService.patchValue).toHaveBeenCalledWith({
-      walletAddress: 'foobar',
-      networkSettings: {
-        gasPrice: 42
-      }
+  describe('loading config', () => {
+    describe('dumps both mainnet and ropsten configs', () => {
+      it('mainnet is patched when it is dumped', () => {
+        const mainnetExpectation = {
+          mainnet: {
+            chainName: 'mainnet',
+            walletAddress: 'foobar',
+            networkSettings: {
+              gasPrice: 42
+            }
+          }
+        };
+        expect(mockConfigService.patchValue).toHaveBeenCalledWith(mainnetExpectation);
+      });
+
+      it('ropsten is patched when it is dumped', () => {
+        const ropstenExpectation = {
+          ropsten: {
+            chainName: 'ropsten',
+            walletAddress: 'foobar',
+            networkSettings: {
+              gasPrice: 42
+            }
+          }
+        };
+        expect(mockConfigService.patchValue).toHaveBeenCalledWith(ropstenExpectation);
+      });
     });
   });
 
@@ -79,7 +116,7 @@ describe('MainService', () => {
     let status = null;
     let descriptor = null;
     let success = null;
-
+    expect(service).toBeDefined('service undefined in creates listeners');
     service.nodeStatus.subscribe(_status => {
       status = _status;
     });
@@ -101,38 +138,52 @@ describe('MainService', () => {
 
   describe('user actions', () => {
     beforeEach(() => {
-      td.when(mockConfigService.getConfig()).thenReturn(new NodeConfiguration());
       td.when(mockSendSync('ip-lookup')).thenReturn('4.3.2.1');
-      td.when(mockSendSync('get-node-configuration')).thenReturn({earningWalletAddress: 'earning wallet address'});
+      td.when(mockSendSync('get-node-configuration', td.matchers.anything()))
+        .thenReturn(
+          {mainnet: {chainName: 'mainnet', earningWalletAddress: 'earning wallet address'}},
+          {ropsten: {chainName: 'ropsten', earningWalletAddress: 'earning wallet address'}});
     });
 
     describe('when telling the main to switch off', () => {
       beforeEach(() => {
+        service.walletUnlockedListener.next(true);
         service.turnOff();
       });
 
       it('directs the main process to turn off the node', () => {
         expect(stubElectronService.ipcRenderer.send).toHaveBeenCalledWith('change-node-state', 'turn-off', undefined);
       });
+
+      it('should lock the wallet', () => {
+        expect(service.walletUnlockedListener.getValue()).toBe(false);
+      });
     });
 
     describe('when telling the main to switch to serving', () => {
+      const nodeConfigs: NodeConfigurations = {ropsten: {ip: 'fake', walletAddress: 'earning wallet address'}};
+
       beforeEach(() => {
+        td.when(mockGetConfigs()).thenReturn(nodeConfigs);
+        service.chainNameListener.next('ropsten');
         service.serve();
       });
 
       it('directs the main process to start serving', () => {
-        expect(stubElectronService.ipcRenderer.send).toHaveBeenCalledWith('change-node-state', 'serve', jasmine.anything());
+        expect(stubElectronService.ipcRenderer.send).toHaveBeenCalledWith('change-node-state', 'serve', nodeConfigs.ropsten);
       });
     });
 
     describe('tells the main to switch to consuming', () => {
+      const nodeConfigs: NodeConfigurations = {ropsten: {ip: 'fake', walletAddress: 'earning wallet address'}};
       beforeEach(() => {
+        td.when(mockGetConfigs()).thenReturn(nodeConfigs);
+        service.chainNameListener.next('ropsten');
         service.consume();
       });
 
       it('directs the main process to start consuming', () => {
-        expect(stubElectronService.ipcRenderer.send).toHaveBeenCalledWith('change-node-state', 'consume', jasmine.anything());
+        expect(stubElectronService.ipcRenderer.send).toHaveBeenCalledWith('change-node-state', 'consume', nodeConfigs.ropsten);
       });
     });
 
@@ -142,19 +193,20 @@ describe('MainService', () => {
   });
 
   describe('when configuration exists', () => {
-    const nodeConfig: NodeConfiguration = {ip: 'fake', walletAddress: 'earning wallet address'};
+    const nodeConfigs: NodeConfigurations = {ropsten: {ip: 'fake', walletAddress: 'earning wallet address'}};
     beforeEach(() => {
-      td.when(mockGetConfig()).thenReturn(nodeConfig);
+      service.chainNameListener.next('ropsten');
+      td.when(mockGetConfigs()).thenReturn(nodeConfigs);
       service.serve();
       service.consume();
     });
 
     it('is included in serving', () => {
-      expect(stubElectronService.ipcRenderer.send).toHaveBeenCalledWith('change-node-state', 'serve', nodeConfig);
+      expect(stubElectronService.ipcRenderer.send).toHaveBeenCalledWith('change-node-state', 'serve', nodeConfigs.ropsten);
     });
 
     it('is included in consuming', () => {
-      expect(stubElectronService.ipcRenderer.send).toHaveBeenCalledWith('change-node-state', 'consume', nodeConfig);
+      expect(stubElectronService.ipcRenderer.send).toHaveBeenCalledWith('change-node-state', 'consume', nodeConfigs.ropsten);
     });
 
     describe('when lookupIp is called', () => {

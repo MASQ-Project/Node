@@ -69,7 +69,7 @@ describe('FinancialService', () => {
 
     financialStatsResponseListener.value('', `{'error': 'an error'}`);
 
-    expect(statsResponse).toBeFalsy();
+    expect(statsResponse).toEqual({pendingCredit: '', pendingDebt: ''});
     expect(statsResponseError).toBe(`{'error': 'an error'}`);
   });
 
