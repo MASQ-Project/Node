@@ -89,7 +89,8 @@ pub fn app_head() -> App<'static, 'static> {
             &[AppSettings::ColorAuto, AppSettings::ColoredHelp]
         })
         .version(crate_version!())
-        //        .author(crate_authors!("\n"))
+        //        .author(crate_authors!("\n")) // TODO: Put this back in when clap is compatible with Rust 1.38.0
+        .author("Substratum, MASQ")
         .about(crate_description!())
 }
 
