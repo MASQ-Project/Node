@@ -40,7 +40,7 @@ stages:
             continueOnError: true
             inputs:
               key: |
-                "$(rust_version)" | $(Agent.OS) | "v3.8"
+                "$(rust_version)" | $(Agent.OS) | "v3.9"
               path: $(Pipeline.Workspace)/toolchains
               cacheHitVar: NODE_TOOLCHAINS_RESTORED
 

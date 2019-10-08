@@ -104,13 +104,14 @@ impl ByteArrayWriter {
 impl Write for ByteArrayWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let next_error_opt = self.next_error.take();
-        if next_error_opt.is_none() {
-            for byte in buf {
-                self.byte_array.push(*byte)
+        match next_error_opt {
+            None => {
+                for byte in buf {
+                    self.byte_array.push(*byte)
+                }
+                Ok(buf.len())
             }
-            Ok(buf.len())
-        } else {
-            Err(next_error_opt.unwrap())
+            Some(next_error) => Err(next_error),
         }
     }
 
