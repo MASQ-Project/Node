@@ -14,11 +14,12 @@ pub struct CryptDENull {
     private_key: PrivateKey,
     public_key: PublicKey,
     digest: [u8; 32],
+    next_symmetric_key_seed: u64,
 }
 
 impl CryptDE for CryptDENull {
     fn encode(&self, public_key: &PublicKey, data: &PlainData) -> Result<CryptData, CryptdecError> {
-        Self::encode_with_key_data(public_key.as_slice(), data)
+        Self::encode_with_key_data(&Self::other_key_data(public_key.as_slice()), data)
     }
 
     fn decode(&self, data: &CryptData) -> Result<PlainData, CryptdecError> {
@@ -45,13 +46,14 @@ impl CryptDE for CryptDENull {
             private_key: self.private_key.clone(),
             public_key: self.public_key.clone(),
             digest: self.digest,
+            next_symmetric_key_seed: self.next_symmetric_key_seed,
         })
     }
 
     fn sign(&self, data: &PlainData) -> Result<CryptData, CryptdecError> {
         let hash = self.hash(data);
         Self::encode_with_key_data(
-            self.private_key().as_slice(),
+            &Self::other_key_data(self.private_key().as_slice()),
             &PlainData::new(hash.as_slice()),
         )
     }
@@ -118,6 +120,7 @@ impl CryptDENull {
             private_key,
             public_key,
             digest,
+            next_symmetric_key_seed: 0x01234567890ABCDEF,
         }
     }
     pub fn from(public_key: &PublicKey, chain_id: u8) -> CryptDENull {
@@ -150,9 +153,8 @@ impl CryptDENull {
         } else if data.is_empty() {
             Err(CryptdecError::EmptyData)
         } else {
-            let other_key = Self::other_key_data(key_data);
             Ok(CryptData::new(
-                &[&other_key.as_slice(), data.as_slice()].concat()[..],
+                &[key_data, data.as_slice()].concat()[..],
             ))
         }
     }
@@ -185,6 +187,10 @@ impl CryptDENull {
             "Could not decrypt with {:?} data beginning with {:?}",
             key_data, vec
         )
+    }
+    
+    fn set_next_symmetric_key_seed(&mut self, seed: u64) {
+        unimplemented!()
     }
 }
 
@@ -269,6 +275,86 @@ mod tests {
         subject.private_key = PrivateKey::new(b"invalidkey");
 
         let result = subject.decode(&CryptData::new(b"keydata"));
+
+        assert_eq!(CryptdecError::InvalidKey (String::from ("Could not decrypt with [105, 110, 118, 97, 108, 105, 100, 107, 101, 121] data beginning with [107, 101, 121, 100, 97, 116, 97]")), result.err().unwrap());
+    }
+
+    #[test]
+    fn encode_sym_with_empty_key() {
+        let subject = cryptde();
+        let key = subject.
+
+        let result = subject.encode_sym(&PublicKey::new(b""), &PlainData::new(b"data"));
+
+        assert_eq!(CryptdecError::EmptyKey, result.err().unwrap());
+    }
+
+    #[test]
+    fn encode_sym_with_empty_data() {
+        let subject = cryptde();
+
+        let result = subject.encode_sym(&PublicKey::new(b"key"), &PlainData::new(b""));
+
+        assert_eq!(CryptdecError::EmptyData, result.err().unwrap());
+    }
+
+    #[test]
+    fn encode_sym_with_key_and_data() {
+        let subject = cryptde();
+
+        let result = subject.encode_sym(&PublicKey::new(b"key"), &PlainData::new(b"data"));
+
+        let mut data: Vec<u8> = CryptDENull::private_from_public(&PublicKey::new(b"key")).into();
+        data.extend(b"data".iter());
+        assert_eq!(CryptData::new(&data[..]), result.ok().unwrap());
+    }
+
+    #[test]
+    fn decode_sym_with_empty_key() {
+        let mut subject = cryptde().clone();
+        subject.private_key = PrivateKey::new(b"");
+
+        let result = subject.decode_sym(&CryptData::new(b"keydata"));
+
+        assert_eq!(CryptdecError::EmptyKey, result.err().unwrap());
+    }
+
+    #[test]
+    fn decode_sym_with_empty_data() {
+        let mut subject = cryptde().clone();
+        subject.private_key = PrivateKey::new(b"key");
+
+        let result = subject.decode_sym(&CryptData::new(b""));
+
+        assert_eq!(CryptdecError::EmptyData, result.err().unwrap());
+    }
+
+    #[test]
+    fn decode_sym_with_key_and_data() {
+        let mut subject = cryptde().clone();
+        subject.private_key = PrivateKey::new(b"key");
+
+        let result = subject.decode_sym(&CryptData::new(b"keydata"));
+
+        assert_eq!(PlainData::new(b"data"), result.ok().unwrap());
+    }
+
+    #[test]
+    fn decode_sym_with_invalid_key_and_data() {
+        let mut subject = cryptde().clone();
+        subject.private_key = PrivateKey::new(b"badKey");
+
+        let result = subject.decode_sym(&CryptData::new(b"keydataxyz"));
+
+        assert_eq!(CryptdecError::InvalidKey (String::from ("Could not decrypt with [98, 97, 100, 75, 101, 121] data beginning with [107, 101, 121, 100, 97, 116]")), result.err().unwrap());
+    }
+
+    #[test]
+    fn decode_sym_with_key_exceeding_data_length() {
+        let mut subject = cryptde().clone();
+        subject.private_key = PrivateKey::new(b"invalidkey");
+
+        let result = subject.decode_sym(&CryptData::new(b"keydata"));
 
         assert_eq!(CryptdecError::InvalidKey (String::from ("Could not decrypt with [105, 110, 118, 97, 108, 105, 100, 107, 101, 121] data beginning with [107, 101, 121, 100, 97, 116, 97]")), result.err().unwrap());
     }
