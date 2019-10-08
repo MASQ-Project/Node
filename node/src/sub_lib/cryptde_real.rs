@@ -49,11 +49,11 @@ impl CryptDE for CryptDEReal {
         }
     }
 
-    fn encode_sym(&self, data: &PlainData, key: &SymmetricKey) -> Result<CryptData, CryptdecError> {
+    fn encode_sym(&self, key: &SymmetricKey, data: &PlainData) -> Result<CryptData, CryptdecError> {
         unimplemented!()
     }
 
-    fn decode_sym(&self, data: &CryptData, key: &SymmetricKey) -> Result<PlainData, CryptdecError> {
+    fn decode_sym(&self, key: &SymmetricKey, data: &CryptData) -> Result<PlainData, CryptdecError> {
         unimplemented!()
     }
 

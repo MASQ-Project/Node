@@ -515,8 +515,8 @@ pub enum CryptdecError {
 pub trait CryptDE: Send + Sync {
     fn encode(&self, public_key: &PublicKey, data: &PlainData) -> Result<CryptData, CryptdecError>;
     fn decode(&self, data: &CryptData) -> Result<PlainData, CryptdecError>;
-    fn encode_sym(&self, data: &PlainData, key: &SymmetricKey) -> Result<CryptData, CryptdecError>;
-    fn decode_sym(&self, data: &CryptData, key: &SymmetricKey) -> Result<PlainData, CryptdecError>;
+    fn encode_sym(&self, key: &SymmetricKey, data: &PlainData) -> Result<CryptData, CryptdecError>;
+    fn decode_sym(&self, key: &SymmetricKey, data: &CryptData) -> Result<PlainData, CryptdecError>;
     fn gen_key_sym(&self) -> SymmetricKey;
     fn random(&self, dest: &mut [u8]);
     fn private_key(&self) -> &PrivateKey;
