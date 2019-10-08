@@ -10,7 +10,7 @@ use std::convert::TryInto;
 use std::time::Duration;
 
 #[test]
-#[ignore] // Should be removed by SC-811
+#[ignore] // Should be removed by SC-811/GH-158
 fn neighborhood_notified_of_newly_missing_node() {
     // Set up three-Node network, and add a mock witness Node.
     let mut cluster = SubstratumNodeCluster::start().unwrap();
