@@ -174,10 +174,10 @@ impl<'a> Visitor<'a> for PublicKeyVisitor {
     }
 
     fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
-        where
-            E: serde::de::Error,
+    where
+        E: serde::de::Error,
     {
-        Ok(Self::Value::from (v))
+        Ok(Self::Value::from(v))
     }
 }
 
@@ -188,8 +188,8 @@ pub struct SymmetricKey {
 
 impl Serialize for SymmetricKey {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
+    where
+        S: Serializer,
     {
         serializer.serialize_bytes(&self.data[..])
     }
@@ -197,8 +197,8 @@ impl Serialize for SymmetricKey {
 
 impl<'de> Deserialize<'de> for SymmetricKey {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         deserializer.deserialize_bytes(SymmetricKeyVisitor)
     }
@@ -278,10 +278,10 @@ impl<'a> Visitor<'a> for SymmetricKeyVisitor {
     }
 
     fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
-        where
-            E: serde::de::Error,
+    where
+        E: serde::de::Error,
     {
-        Ok(Self::Value::from (v))
+        Ok(Self::Value::from(v))
     }
 }
 

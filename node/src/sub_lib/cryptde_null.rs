@@ -1,15 +1,15 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::blockchain::blockchain_interface::contract_address;
 use crate::sub_lib::cryptde;
-use crate::sub_lib::cryptde::{CryptDE, SymmetricKey};
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::CryptdecError;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::cryptde::PrivateKey;
 use crate::sub_lib::cryptde::PublicKey;
+use crate::sub_lib::cryptde::{CryptDE, SymmetricKey};
 use rand::prelude::*;
-use std::sync::{Mutex, Arc};
-use std::ops::{DerefMut, Deref};
+use std::ops::{Deref, DerefMut};
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]
 pub struct CryptDENull {
@@ -39,8 +39,8 @@ impl CryptDE for CryptDENull {
     fn gen_key_sym(&self) -> SymmetricKey {
         let mut seed = {
             let mut seed = self.next_symmetric_key_seed.lock().unwrap();
-            let value: u64 = seed.deref() + 0;
-            *seed.deref_mut() = value.wrapping_add (1);
+            let value: u64 = *seed.deref();
+            *seed.deref_mut() = value.wrapping_add(1);
             value
         };
         let mut key_data = [0u8; 8];
@@ -48,7 +48,7 @@ impl CryptDE for CryptDENull {
             key_data[i] = (seed & 0xFF) as u8;
             seed >>= 8;
         }
-        SymmetricKey::new (&key_data)
+        SymmetricKey::new(&key_data)
     }
 
     fn random(&self, dest: &mut [u8]) {
@@ -145,7 +145,7 @@ impl CryptDENull {
             private_key,
             public_key,
             digest,
-            next_symmetric_key_seed: Arc::new (Mutex::new (0x01234567890ABCDEF)),
+            next_symmetric_key_seed: Arc::new(Mutex::new(0x0123_4567_89AB_CDEF)),
         }
     }
 
@@ -179,9 +179,7 @@ impl CryptDENull {
         } else if data.is_empty() {
             Err(CryptdecError::EmptyData)
         } else {
-            Ok(CryptData::new(
-                &[key_data, data.as_slice()].concat()[..],
-            ))
+            Ok(CryptData::new(&[key_data, data.as_slice()].concat()[..]))
         }
     }
 
@@ -214,7 +212,8 @@ impl CryptDENull {
             key_data, vec
         )
     }
-    
+
+    #[allow(dead_code)]
     fn set_next_symmetric_key_seed(&mut self, seed: u64) {
         let mut guarded_seed = self.next_symmetric_key_seed.lock().unwrap();
         *guarded_seed.deref_mut() = seed;
@@ -314,9 +313,9 @@ mod tests {
         let another_key = subject.gen_key_sym();
         let third_key = subject.gen_key_sym();
 
-        assert_ne! (one_key, another_key);
-        assert_ne! (another_key, third_key);
-        assert_ne! (third_key, one_key);
+        assert_ne!(one_key, another_key);
+        assert_ne!(another_key, third_key);
+        assert_ne!(third_key, one_key);
     }
 
     #[test]
@@ -327,8 +326,14 @@ mod tests {
         let key1 = subject.gen_key_sym();
         let key2 = subject.gen_key_sym();
 
-        assert_eq! (key1.as_slice(), &[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
-        assert_eq! (key2.as_slice(), &[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+        assert_eq!(
+            key1.as_slice(),
+            &[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
+        );
+        assert_eq!(
+            key2.as_slice(),
+            &[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+        );
     }
 
     #[test]
@@ -354,7 +359,7 @@ mod tests {
     #[test]
     fn encode_sym_with_key_and_data() {
         let subject = cryptde();
-        let key = SymmetricKey::new (b"key");
+        let key = SymmetricKey::new(b"key");
 
         let result = subject.encode_sym(&key, &PlainData::new(b"data"));
 
@@ -456,9 +461,7 @@ mod tests {
 
         let key = subject.gen_key_sym();
         let expected_data = PlainData::new(&b"These are the times that try men's souls"[..]);
-        let encrypted_data = subject
-            .encode_sym(&key, &expected_data)
-            .unwrap();
+        let encrypted_data = subject.encode_sym(&key, &expected_data).unwrap();
         let decrypted_data = subject.decode_sym(&key, &encrypted_data).unwrap();
         assert_eq!(expected_data, decrypted_data);
     }
@@ -470,11 +473,16 @@ mod tests {
         let key1 = subject.gen_key_sym();
         let key2 = subject.gen_key_sym();
         let expected_data = PlainData::new(&b"These are the times that try men's souls"[..]);
-        let encrypted_data = subject
-            .encode_sym(&key1, &expected_data)
-            .unwrap();
+        let encrypted_data = subject.encode_sym(&key1, &expected_data).unwrap();
         let result = subject.decode_sym(&key2, &encrypted_data);
-        assert_eq! (result, Err (CryptdecError::InvalidKey(format!("Could not decrypt with {:?} data beginning with {:?}", key2.as_slice(), key1.as_slice()))));
+        assert_eq!(
+            result,
+            Err(CryptdecError::InvalidKey(format!(
+                "Could not decrypt with {:?} data beginning with {:?}",
+                key2.as_slice(),
+                key1.as_slice()
+            )))
+        );
     }
 
     #[test]
