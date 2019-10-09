@@ -34,7 +34,7 @@ build scripts to build the code, you'll need to [install this plugin in your Rus
 
 Some Linux distributions (notably Ubuntu ≥16.04 Desktop) have an incompatibility with MASQ Node. If you think
 you might be affected, see 
-[The Port 53 Problem](https://github.com/MASQ/Node/tree/master/node/docs/PORT_53.md) 
+[The Port 53 Problem](https://github.com/MASQ-Project/Node/blob/master/node/docs/PORT_53.md) 
 for more information.
 
 If you're using Windows, you'll need to run the build scripts using `git-bash`. If you've cloned this repository, you
@@ -84,14 +84,14 @@ whatever it was before when you're done with MASQ Node and you want to get back 
 
 
 The MASQ Node software includes a 
-[multi-platform DNS utility](https://github.com/MASQ/Node/tree/master/dns_utility) that you can use
+[multi-platform DNS utility](https://github.com/MASQ-Project/Node/tree/master/dns_utility) that you can use
 to subvert your DNS settings to `127.0.0.1`, like this:
 ```
 $ cd <path to workspace>
 $ sudo Node/dns_utility/target/release/dns_utility subvert
 ```
 If you have trouble with `dns_utility` or you'd rather make your DNS configuration changes manually, look for 
-[instructions for your platform](https://github.com/MASQ/Node/tree/master/node/docs).
+[instructions for your platform](https://github.com/MASQ-Project/Node/tree/master/node/docs).
 
 Once your DNS is successfully subverted, you can start the MASQ Node itself.  Currently, there are two major ways
 the MASQ Node can run: zero-hop and decentralized.
@@ -179,7 +179,7 @@ In the above example, we're using Cloudflare's DNS, `1.1.1.1`, but you can use y
 If you can't choose just one favorite DNS, you can also specify multiple ones, separated by a comma but no space (`,`).
 
 _Why do we specify `--dns-servers`? MASQ Nodes still need to talk to the greater Internet.
-See [the ProxyClient README](https://github.com/MASQ/Node/tree/master/node/src/proxy_client)
+See [the ProxyClient README](https://github.com/MASQ-Project/Node/tree/master/node/src/proxy_client)
 for more information._
 
 #### Running a Decentralized MASQ Node locally
@@ -404,7 +404,7 @@ the network interface. There are many guides that you can find on the Internet b
 "How to Port Forwarding". Here is an example: [PortForward.com](https://portforward.com)
 
 More information on the operation, care, and feeding of the Neighborhood is available
-[in the neighborhood_subproject](https://github.com/MASQ/Node/tree/master/node/src/neighborhood).
+[in the neighborhood_subproject](https://github.com/MASQ-Project/Node/tree/master/node/src/neighborhood).
 
 
 ### Terminating a MASQ Node (Zero-Hop or Decentralized)

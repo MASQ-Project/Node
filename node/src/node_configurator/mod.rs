@@ -16,7 +16,7 @@ use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::wallet::Wallet;
 use crate::sub_lib::wallet::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
 use bip39::Language;
-use clap::{crate_authors, crate_description, crate_version, value_t, App, AppSettings, Arg};
+use clap::{crate_description, crate_version, value_t, App, AppSettings, Arg};
 use dirs::{data_local_dir, home_dir};
 use lazy_static::lazy_static;
 use rpassword;
@@ -89,7 +89,8 @@ pub fn app_head() -> App<'static, 'static> {
             &[AppSettings::ColorAuto, AppSettings::ColoredHelp]
         })
         .version(crate_version!())
-        .author(crate_authors!("\n"))
+        //        .author(crate_authors!("\n")) // TODO: Put this back in when clap is compatible with Rust 1.38.0
+        .author("Substratum, MASQ")
         .about(crate_description!())
 }
 
