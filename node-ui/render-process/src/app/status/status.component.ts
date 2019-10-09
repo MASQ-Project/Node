@@ -146,8 +146,12 @@ export class StatusComponent implements OnInit {
     this.mainService.resizeSmall();
   }
 
-  passwordPromptShown(): boolean {
-    return this.isConsuming() && !this.mainService.walletUnlockedListener.getValue();
+  passwordPromptShown(): Observable<boolean> {
+    return combineLatest([this.mainService.nodeStatus, this.mainService.walletUnlocked])
+      .pipe(map(([nodeStatus, unlocked]) => {
+          return nodeStatus === NodeStatus.Consuming && !unlocked;
+        })
+      );
   }
 
   isMyDescriptorHidden() {

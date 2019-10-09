@@ -27,7 +27,7 @@ import {ConsumingWalletPasswordPromptPage} from './consuming-wallet-password-pro
 class StubIndexComponent {
 }
 
-@Component({selector: 'app-node-configuration', template: '<div id="node-config"><script>alert("ok");</script></div>'})
+@Component({selector: 'app-node-configuration', template: '<div id="node-config"></div>'})
 class StubNodeConfigurationComponent {
   @Input() mode: ConfigurationMode;
   @Input() status: NodeStatus;
@@ -507,7 +507,9 @@ describe('StatusComponent', () => {
         });
 
         it('shows the password prompt', () => {
-          expect(component.passwordPromptShown()).toBe(true);
+          component.passwordPromptShown().subscribe((value) => {
+            expect(value).toBe(true);
+          });
         });
 
         it('hides the node descriptor', () => {
@@ -525,7 +527,9 @@ describe('StatusComponent', () => {
           });
 
           it('hides the password prompt', () => {
-            expect(component.passwordPromptShown()).toBe(false);
+            component.passwordPromptShown().subscribe((value) => {
+              expect(value).toBe(false);
+            });
           });
         });
 
@@ -542,7 +546,9 @@ describe('StatusComponent', () => {
           });
 
           it('hides the password prompt', () => {
-            expect(component.passwordPromptShown()).toBe(false);
+            component.passwordPromptShown().subscribe((value) => {
+                expect(value).toBe(false);
+              });
           });
 
           describe('clicking consuming again', () => {
@@ -553,7 +559,9 @@ describe('StatusComponent', () => {
             });
 
             it('does nothing', () => {
-              expect(component.passwordPromptShown()).toBe(false);
+              component.passwordPromptShown().subscribe((value) => {
+                  expect(value).toBe(false);
+                });
             });
           });
 
@@ -584,7 +592,9 @@ describe('StatusComponent', () => {
               });
 
               it('does not show the password prompt again', () => {
-                expect(component.passwordPromptShown()).toBe(false);
+                component.passwordPromptShown().subscribe((value) => {
+                    expect(value).toBe(false);
+                  });
               });
             });
           });
@@ -612,7 +622,9 @@ describe('StatusComponent', () => {
             });
 
             it('shows the password prompt again', () => {
-              expect(component.passwordPromptShown()).toBeTruthy();
+              component.passwordPromptShown().subscribe((value) => {
+                expect(value).toBe(true);
+              });
             });
           });
         });
@@ -633,7 +645,9 @@ describe('StatusComponent', () => {
           });
 
           it('does not hide the password prompt', () => {
-            expect(component.passwordPromptShown()).toBeTruthy();
+            component.passwordPromptShown().subscribe((value) => {
+              expect(value).toBe(true);
+            });
           });
 
           it('shows the bad password message', () => {
@@ -676,7 +690,9 @@ describe('StatusComponent', () => {
             });
 
             it('hides the password prompt', () => {
-              expect(component.passwordPromptShown()).toBe(false);
+              component.passwordPromptShown().subscribe((value) => {
+                  expect(value).toBe(false);
+                });
             });
           });
 
@@ -694,7 +710,9 @@ describe('StatusComponent', () => {
             });
 
             it('hides the password prompt', () => {
-              expect(component.passwordPromptShown()).toBe(false);
+              component.passwordPromptShown().subscribe((value) => {
+                  expect(value).toBe(false);
+                });
             });
 
             it('should not show the consuming configuration', () => {
@@ -717,7 +735,9 @@ describe('StatusComponent', () => {
             });
 
             it('hides the password prompt', () => {
-              expect(component.passwordPromptShown()).toBe(false);
+              component.passwordPromptShown().subscribe((value) => {
+                  expect(value).toBe(false);
+                });
             });
           });
         });
