@@ -6,7 +6,7 @@ import {ConfigurationMode} from '../configuration-mode.enum';
 import {MainService} from '../main.service';
 import {ConfigService} from '../config.service';
 import {ActivatedRoute, Router} from '@angular/router';
-import {first, map} from 'rxjs/operators';
+import {distinctUntilChanged, first, map} from 'rxjs/operators';
 import {combineLatest, Observable} from 'rxjs';
 import {RoutingService} from './routing.service';
 
@@ -47,7 +47,6 @@ export class StatusComponent implements OnInit {
     this.mainService.nodeStatus.subscribe((newStatus) => {
       this.ngZone.run(() => {
         this.status = newStatus;
-
         if (newStatus === NodeStatus.Consuming && !this.mainService.walletUnlockedListener.getValue()) {
           this.mainService.resizeMedium();
         }
@@ -148,7 +147,9 @@ export class StatusComponent implements OnInit {
 
   passwordPromptShown(): Observable<boolean> {
     return combineLatest([this.mainService.nodeStatus, this.mainService.walletUnlocked])
-      .pipe(map(([nodeStatus, unlocked]) => {
+      .pipe(
+        distinctUntilChanged(),
+        map(([nodeStatus, unlocked]) => {
           return nodeStatus === NodeStatus.Consuming && !unlocked;
         })
       );
