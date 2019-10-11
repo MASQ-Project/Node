@@ -12,6 +12,7 @@ const nodePathUnix = `${path.resolve(__dirname, '.', '../dist/static/binaries/MA
 const nodePathWindows = `${path.resolve(__dirname, '.', '../dist/static/binaries/MASQNodeW')}`
 
 const commonArgs = [
+  '--chain', 'chainName',
   '--consuming-wallet', 'consumingPath',
   '--language', 'wordlist',
   '--mnemonic-passphrase', 'passphrase',
@@ -77,8 +78,8 @@ describe('CommandHelper', () => {
           td.when(childProcess.spawnSync(nodePathUnix, recoverSameArgs, recoverOptions))
             .thenReturn(makeSpawnSyncResult('success!'))
 
-          result = subject.recoverWallet(
-            'phrase', 'passphrase', 'consumingPath', 'wordlist', 'password'
+          result = subject.recoverWallet('chainName', 'phrase', 'passphrase',
+            'consumingPath', 'wordlist', 'password'
           )
         })
 
@@ -90,7 +91,7 @@ describe('CommandHelper', () => {
           expect(logSpy).toHaveBeenCalledWith(
             'command_helper: invoking recoverWallet')
           expect(logSpy).toHaveBeenCalledWith(
-            'getRecoverModeArgs(): --consuming-wallet,consumingPath,--language,wordlist,--mnemonic-passphrase,********,--wallet-password,********,--recover-wallet,--mnemonic,********,--earning-wallet,consumingPath'
+            'getRecoverModeArgs(): --chain,chainName,--consuming-wallet,consumingPath,--language,wordlist,--mnemonic-passphrase,********,--wallet-password,********,--recover-wallet,--mnemonic,********,--earning-wallet,consumingPath'
           )
         })
       })
@@ -101,8 +102,8 @@ describe('CommandHelper', () => {
           td.when(childProcess.spawnSync(nodePathUnix, recoverDifferentArgs, recoverOptions))
             .thenReturn(makeSpawnSyncResult('success!'))
 
-          result = subject.recoverWallet(
-            'phrase', 'passphrase', 'consumingPath', 'wordlist', 'password', 'earningPath'
+          result = subject.recoverWallet('chainName', 'phrase', 'passphrase',
+            'consumingPath', 'wordlist', 'password', 'earningPath'
           )
         })
 
@@ -119,8 +120,8 @@ describe('CommandHelper', () => {
           td.when(childProcess.spawnSync(nodePathUnix, generateSameArgs, generateOptions))
             .thenReturn(makeSpawnSyncResult('success!'))
 
-          result = subject.generateWallet(
-            'passphrase', 'consumingPath', 'wordlist', 'password', 12
+          result = subject.generateWallet('chainName', 'passphrase',
+            'consumingPath', 'wordlist', 'password', 12
           )
         })
 
@@ -132,7 +133,7 @@ describe('CommandHelper', () => {
           expect(logSpy).toHaveBeenCalledWith(
             'command_helper: invoking generateWallet')
           expect(logSpy).toHaveBeenCalledWith(
-            'getGenerateModeArgs(): --consuming-wallet,consumingPath,--language,wordlist,--mnemonic-passphrase,********,--wallet-password,********,--generate-wallet,--json,--word-count,12,--earning-wallet,consumingPath'
+            'getGenerateModeArgs(): --chain,chainName,--consuming-wallet,consumingPath,--language,wordlist,--mnemonic-passphrase,********,--wallet-password,********,--generate-wallet,--json,--word-count,12,--earning-wallet,consumingPath'
           )
         })
       })
@@ -143,8 +144,8 @@ describe('CommandHelper', () => {
           td.when(childProcess.spawnSync(nodePathUnix, generateDifferentArgs, generateOptions))
             .thenReturn(makeSpawnSyncResult('success!'))
 
-          result = subject.generateWallet(
-            'passphrase', 'consumingPath', 'wordlist', 'password', 12, 'earningPath'
+          result = subject.generateWallet('chainName', 'passphrase', 'consumingPath',
+            'wordlist', 'password', 12, 'earningPath'
           )
         })
 
@@ -156,7 +157,7 @@ describe('CommandHelper', () => {
           expect(logSpy).toHaveBeenCalledWith(
             'command_helper: invoking generateWallet')
           expect(logSpy).toHaveBeenCalledWith(
-            'getGenerateModeArgs(): --consuming-wallet,consumingPath,--language,wordlist,--mnemonic-passphrase,********,--wallet-password,********,--generate-wallet,--json,--word-count,12,--earning-wallet,earningPath'
+            'getGenerateModeArgs(): --chain,chainName,--consuming-wallet,consumingPath,--language,wordlist,--mnemonic-passphrase,********,--wallet-password,********,--generate-wallet,--json,--word-count,12,--earning-wallet,earningPath'
           )
         })
       })
@@ -335,7 +336,7 @@ describe('CommandHelper', () => {
         td.when(childProcess.spawnSync(nodePathWindows, recoverSameArgs, recoverOptions))
           .thenReturn(makeSpawnSyncResult('success!'))
 
-        result = subject.recoverWallet('phrase', 'passphrase', 'consumingPath', 'wordlist', 'password')
+        result = subject.recoverWallet('chainName', 'phrase', 'passphrase', 'consumingPath', 'wordlist', 'password')
       })
 
       it('executes the command via node cmd', () => {
@@ -348,7 +349,7 @@ describe('CommandHelper', () => {
         td.when(childProcess.spawnSync(nodePathWindows, generateSameArgs, generateOptions))
           .thenReturn(makeSpawnSyncResult('success!'))
 
-        result = subject.generateWallet('passphrase', 'consumingPath', 'wordlist', 'password', 12)
+        result = subject.generateWallet('chainName', 'passphrase', 'consumingPath', 'wordlist', 'password', 12)
       })
 
       it('executes the command via node cmd', () => {

@@ -135,8 +135,8 @@ ipcMain.on('set-gas-price', (event, price) => {
   })
 })
 
-ipcMain.on('get-node-configuration', event => {
-  event.returnValue = commandHelper.getNodeConfiguration()
+ipcMain.on('get-node-configuration', (event, chainName) => {
+  event.returnValue = commandHelper.getNodeConfiguration(chainName)
 })
 
 ipcMain.on('change-node-state', (event, command, args) => {
@@ -180,8 +180,8 @@ ipcMain.on('calculate-wallet-addresses', (event, phrase, consumingPath, mnemonic
   }
 })
 
-ipcMain.on('recover-consuming-wallet', (event, phrase, mnemonicPassphrase, consumingDerivationPath, wordlist, walletPassword, earningDerivationPath) => {
-  nodeActuator.recoverWallet(phrase, mnemonicPassphrase, consumingDerivationPath, wordlist, walletPassword, earningDerivationPath)
+ipcMain.on('recover-consuming-wallet', (event, chainName, phrase, mnemonicPassphrase, consumingDerivationPath, wordlist, walletPassword, earningDerivationPath) => {
+  nodeActuator.recoverWallet(chainName, phrase, mnemonicPassphrase, consumingDerivationPath, wordlist, walletPassword, earningDerivationPath)
     .then((result) => {
       if (result.success) {
         mainWindow.webContents.send('recovered-consuming-wallet', true)
@@ -191,8 +191,8 @@ ipcMain.on('recover-consuming-wallet', (event, phrase, mnemonicPassphrase, consu
     })
 })
 
-ipcMain.on('generate-consuming-wallet', (event, mnemonicPassphrase, consumingDerivationPath, wordlist, walletPassword, wordcount, earningDerivationPath) => {
-  nodeActuator.generateWallet(mnemonicPassphrase, consumingDerivationPath, wordlist, walletPassword, wordcount, earningDerivationPath)
+ipcMain.on('generate-consuming-wallet', (event, chainName, mnemonicPassphrase, consumingDerivationPath, wordlist, walletPassword, wordcount, earningDerivationPath) => {
+  nodeActuator.generateWallet(chainName, mnemonicPassphrase, consumingDerivationPath, wordlist, walletPassword, wordcount, earningDerivationPath)
     .then((result) => {
       if (result.success) {
         mainWindow.webContents.send('generated-consuming-wallet', result.result)

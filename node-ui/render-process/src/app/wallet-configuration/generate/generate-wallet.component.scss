@@ -2,6 +2,12 @@
 @import '../../../styles/form';
 @import '../../../styles/mixins';
 
+:host {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+}
+
 $input-font-size: rem(17px);
 
 @mixin vertical-center($x: 1) {
@@ -11,9 +17,23 @@ $input-font-size: rem(17px);
   display: flex;
 }
 
+h3 {
+  margin-block-start: 0.5em;
+  margin-block-end: 0.5em;
+}
+
+.wallet-config-form-fields {
+  display: flex;
+  flex-direction: column;
+  align-content: space-evenly;
+  flex: 1;
+}
+
 .generate-wallet {
   @include select-box;
-  display: block;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 100%;
   margin-left: 4%;
   margin-right: 4%;
 
@@ -106,8 +126,10 @@ $input-font-size: rem(17px);
   }
 
   #passphrase-container {
+    align-items: center;
     display: flex;
-    flex: 2;
+    flex-direction: row;
+    flex: 1;
     margin: 10px 0;
 
     label {
@@ -115,13 +137,15 @@ $input-font-size: rem(17px);
     }
 
     #mnemonic-passphrase {
-      flex: 2;
+      flex: 1;
     }
   }
 
   #consuming-derivation-path-container {
+    align-items: center;
     display: flex;
-    flex: 2;
+    flex-direction: row;
+    flex: 1;
 
     label {
       @include vertical-center();
@@ -133,8 +157,10 @@ $input-font-size: rem(17px);
   }
 
   #earning-derivation-path-container {
+    align-items: center;
     display: flex;
-    flex: 2;
+    flex-direction: row;
+    flex: 1;
 
     label {
       @include vertical-center();
@@ -146,7 +172,9 @@ $input-font-size: rem(17px);
   }
 
   #password-container {
+    align-items: center;
     display: flex;
+    flex-direction: row;
     margin: 10px 0;
 
     label {
@@ -154,7 +182,7 @@ $input-font-size: rem(17px);
     }
 
     #wallet-password {
-      flex: 3;
+      flex: 1;
     }
   }
 
@@ -169,11 +197,12 @@ $input-font-size: rem(17px);
 
     div {
       display: flex;
+      flex-direction: row;
       margin: 10px 0;
     }
 
     input {
-      flex: 3;
+      flex: 1;
     }
 
     label {
@@ -191,6 +220,7 @@ $input-font-size: rem(17px);
   #generate-container {
     display: flex;
     margin: 15px 0 10px 0;
+    flex: 0 1;
   }
 
   #done-form {

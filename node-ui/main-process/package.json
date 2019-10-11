@@ -1,7 +1,7 @@
 {
   "name": "SubstratumNode",
   "description": "SubstratumNode user interface",
-  "version": "1.0.0-rc.3",
+  "version": "1.0.0-rc.4",
   "homepage": "https://substratum.net",
   "repository": "https://github.com/MASQ-Project/Node",
   "author": "Substratum LLC <support@substratum.net>",
@@ -31,6 +31,12 @@
       "!coverage/*",
       "!README.md",
       "!icons/*"
+    ],
+    "extraResources": [
+      {
+        "from": "src",
+        "to": "app/src"
+      }
     ],
     "mac": {
       "icon": "icons/icon.icns",

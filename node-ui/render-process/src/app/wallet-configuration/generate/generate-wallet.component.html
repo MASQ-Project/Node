@@ -4,66 +4,81 @@
     <h3 class="title">Generate a new consuming wallet</h3>
 
     <form [formGroup]="walletConfig">
-      <div id="lang-pass-container">
-        <div id="language-container">
-          <label for="wordlist">Language</label>
-          <select id="wordlist" formControlName="wordlist">
-            <option *ngFor="let wordlist of wordlists" [value]="wordlist.value">
-              {{wordlist.viewValue}}
-            </option>
+      <div class="wallet-config-form-fields">
+        <div class="chain-container">
+          <label for="chain-name">Blockchain Network</label>
+          <select id="chain-name" formControlName="chainName">
+            <option *ngFor="let item of this.chainNames" [value]="item.value"
+                    [disabled]="item.disabled">{{item.viewValue}}</option>
           </select>
         </div>
-        <div id="wordcount-container">
-          <label for="wordcount">Word Count</label>
-          <select id="wordcount" formControlName="wordcount">
-            <option *ngFor="let wordcount of wordcounts" [value]="wordcount">
-              {{wordcount}}
-            </option>
-          </select>
+
+        <div id="lang-pass-container">
+          <div id="language-container">
+            <label for="wordlist">Language</label>
+            <select id="wordlist" formControlName="wordlist">
+              <option *ngFor="let wordlist of wordlists" [value]="wordlist.value">
+                {{wordlist.viewValue}}
+              </option>
+            </select>
+          </div>
+          <div id="wordcount-container">
+            <label for="wordcount">Word Count</label>
+            <select id="wordcount" formControlName="wordcount">
+              <option *ngFor="let wordcount of wordcounts" [value]="wordcount">
+                {{wordcount}}
+              </option>
+            </select>
+          </div>
         </div>
-      </div>
 
-      <div id="passphrase-container">
-        <label for="mnemonic-passphrase">Passphrase</label>
-        <input type="password" id="mnemonic-passphrase" formControlName="mnemonicPassphrase"
-               [class.input-invalid]="walletConfig.controls['mnemonicPassphrase'].errors">
-      </div>
+        <div id="passphrase-container">
+          <label for="mnemonic-passphrase">Passphrase</label>
+          <input type="password" id="mnemonic-passphrase" formControlName="mnemonicPassphrase"
+                 [class.input-invalid]="walletConfig.controls['mnemonicPassphrase'].errors">
+        </div>
 
-      <div id="consuming-derivation-path-container">
-        <label for="consuming-derivation-path">Consuming Derivation Path</label>
-        <input type="text" id="consuming-derivation-path" formControlName="consumingDerivationPath"
-               [class.input-invalid]="walletConfig.controls['consumingDerivationPath'].errors">
-      </div>
+        <div id="consuming-derivation-path-container">
+          <label for="consuming-derivation-path">Consuming Derivation Path</label>
+          <input type="text" id="consuming-derivation-path" formControlName="consumingDerivationPath"
+                 [class.input-invalid]="walletConfig.controls['consumingDerivationPath'].errors">
+        </div>
 
-      <div id="derivation-checkbox-container" class="generate-wallet__ancillary">
-        <input id="same-wallet" type="checkbox" class="checkbox" name="same-wallet"
-               [(ngModel)]="this.sameWallet" [ngModelOptions]="{standalone: true}">
-        <label for="same-wallet">Use same address for earning and consuming </label>
-      </div>
+        <div id="derivation-checkbox-container" class="generate-wallet__ancillary">
+          <input id="same-wallet" type="checkbox" class="checkbox" name="same-wallet"
+                 [(ngModel)]="this.sameWallet" [ngModelOptions]="{standalone: true}">
+          <label for="same-wallet">Use same address for earning and consuming </label>
+        </div>
 
-      <div *ngIf="!this.sameWallet" id="earning-derivation-path-container">
-        <label for="earning-derivation-path">Earning Derivation Path</label>
-        <input type="text" id="earning-derivation-path" formControlName="earningDerivationPath"
-               [class.input-invalid]="walletConfig.controls['earningDerivationPath'].errors">
-      </div>
+        <div *ngIf="!this.sameWallet" id="earning-derivation-path-container">
+          <label for="earning-derivation-path">Earning Derivation Path</label>
+          <input type="text" id="earning-derivation-path" formControlName="earningDerivationPath"
+                 [class.input-invalid]="walletConfig.controls['earningDerivationPath'].errors">
+        </div>
 
-      <div id="password-container">
-        <label for="wallet-password">Wallet Password</label>
-        <input id="wallet-password" type="password" formControlName="walletPassword"
-               [class.input-invalid]="walletConfig.controls['walletPassword'].errors">
-      </div>
+        <div id="password-container">
+          <label for="wallet-password">Wallet Password</label>
+          <input id="wallet-password" type="password" formControlName="walletPassword"
+                 [class.input-invalid]="walletConfig.controls['walletPassword'].errors">
+        </div>
 
-      <ul id="generate-wallet-validation">
-        <li class="validation-error" *ngIf="walletConfig.controls['consumingDerivationPath'].hasError('pattern')">Consuming Derivation Path format is invalid</li>
-        <li class="validation-error" *ngIf="walletConfig.controls['earningDerivationPath'].hasError('pattern')">Earning Derivation Path format is invalid</li>
-        <li *ngIf="errorText" class="validation-error">{{errorText}}</li>
-      </ul>
+        <ul id="generate-wallet-validation">
+          <li class="validation-error" *ngIf="walletConfig.controls['consumingDerivationPath'].hasError('pattern')">
+            Consuming Derivation Path format is invalid
+          </li>
+          <li class="validation-error" *ngIf="walletConfig.controls['earningDerivationPath'].hasError('pattern')">
+            Earning Derivation Path format is invalid
+          </li>
+          <li *ngIf="errorText" class="validation-error">{{errorText}}</li>
+        </ul>
+      </div>
 
       <div id="generate-container">
         <button type="button" routerLink="/index" class="cancel-button">Cancel</button>
         <div class="generate-wallet__empty-flex"></div>
         <button type="button" id="generate-wallet" class="generate-wallet__to-action"
-                [disabled]="(!walletConfig.valid) || (errorText !== null)" (click)="generateWallet()">Generate</button>
+                [disabled]="(!walletConfig.valid) || (errorText !== null)" (click)="generateWallet()">Generate
+        </button>
       </div>
     </form>
   </div>

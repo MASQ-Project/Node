@@ -81,16 +81,18 @@ describe('After application launch: ', function () {
     // this.app.client.log('driver').then((msg) => { console.log(msg) })
     printConsoleForDebugging(this.app.client, false)
     if (this.app && this.app.isRunning()) {
-      const imageFile = this.app.env.ELECTRON_USER_DATA + '/Screenshot.png'
-      this.app.browserWindow.capturePage().then((imageBuffer) => {
-        try {
-          fs.writeFileSync(imageFile, imageBuffer)
-        } catch (error) {
-          throw new Error(error)
-        }
-      }).catch((error) => {
-        console.log(`Failed to save screenshot to ${imageFile} because ${error.message}`)
-      })
+      if (process.env.SUPPRESS_SCREENSHOTS !== 'true') {
+        const imageFile = this.app.env.ELECTRON_USER_DATA + '/Screenshot.png'
+        this.app.browserWindow.capturePage().then((imageBuffer) => {
+          try {
+            fs.writeFileSync(imageFile, imageBuffer)
+          } catch (error) {
+            throw new Error(error)
+          }
+        }).catch((error) => {
+          console.log(`Failed to save screenshot to ${imageFile} because ${error.message}`)
+        })
+      }
       const result = this.app.stop()
       assert.strictEqual(await uiInterface.verifyNodeDown(10000), true,
         'node did not go down after app.stop()')
@@ -286,7 +288,9 @@ describe('After application launch: ', function () {
 })
 
 function printConsoleForDebugging (client, debug) {
-  if (!debug) { return }
+  if (!debug) {
+    return
+  }
   client.getMainProcessLogs().then(function (logs) {
     logs.forEach(function (log) {
       consoleWrapper.log(log)

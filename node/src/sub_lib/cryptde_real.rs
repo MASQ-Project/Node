@@ -26,6 +26,7 @@ pub struct CryptDEReal {
     encryption_secret_key: encryption::SecretKey,
     signing_secret_key: signing::SecretKey,
     digest: [u8; 32],
+    pre_shared_data: [u8; 20],
 }
 
 impl CryptDE for CryptDEReal {
@@ -70,12 +71,14 @@ impl CryptDE for CryptDEReal {
             encryption_secret_key: encryption::SecretKey(self.encryption_secret_key.0),
             signing_secret_key: signing::SecretKey(self.signing_secret_key.0),
             digest: self.digest,
+            pre_shared_data: self.pre_shared_data,
         })
     }
 
     fn sign(&self, data: &PlainData) -> Result<CryptData, CryptdecError> {
+        let data_to_sign = [data.as_slice(), &self.pre_shared_data[..]].concat();
         Ok(CryptData::new(
-            &signing::sign_detached(data.as_slice(), &self.signing_secret_key).0,
+            &signing::sign_detached(data_to_sign.as_slice(), &self.signing_secret_key).0,
         ))
     }
 
@@ -90,9 +93,10 @@ impl CryptDE for CryptDEReal {
         }
         let mut signature_data = [0u8; signing::SIGNATUREBYTES];
         signature_data.copy_from_slice(signature.as_slice());
+        let data_to_verify = [data.as_slice(), &self.pre_shared_data[..]].concat();
         signing::verify_detached(
             &signing::Signature(signature_data),
-            data.as_slice(),
+            data_to_verify.as_slice(),
             &Self::signing_public_key_from(public_key),
         )
     }
@@ -144,12 +148,14 @@ impl CryptDEReal {
         let (s_public, s_secret) = signing::gen_keypair();
         let public_key = Self::local_public_key_from(&e_public, &s_public);
         let digest = cryptde::create_digest(&public_key, &contract_address(chain_id));
+        let pre_shared_data = contract_address(chain_id).0;
 
         Self {
             public_key,
             encryption_secret_key: e_secret,
             signing_secret_key: s_secret,
             digest,
+            pre_shared_data,
         }
     }
 

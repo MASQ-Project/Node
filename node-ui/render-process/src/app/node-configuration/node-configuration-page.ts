@@ -21,7 +21,7 @@ export class NodeConfigurationPage extends Page<NodeConfigurationComponent> {
     return this.query('#ip-validation__required');
   }
 
-  get ipTxt(): HTMLInputElement {
+  get ip(): HTMLInputElement {
     return this.query('#ip');
   }
 
@@ -86,7 +86,7 @@ export class NodeConfigurationPage extends Page<NodeConfigurationComponent> {
   }
 
   setIp(value: string) {
-    this.setInputText(this.ipTxt, value);
+    this.setInputText(this.ip, value);
   }
 
   setNeighbor(value: string) {

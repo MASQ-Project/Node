@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-import {Component, NgZone, OnChanges, OnInit, SimpleChanges} from '@angular/core';
+import {Component, NgZone, OnInit} from '@angular/core';
 import {NodeStatus} from '../node-status.enum';
 import {FinancialService} from '../financial.service';
 import {PendingAmounts} from '../pending-amounts';
@@ -8,25 +8,34 @@ import {MainService} from '../main.service';
 import {distinctUntilChanged, map, skipWhile} from 'rxjs/operators';
 import {Observable} from 'rxjs';
 
+export const tokenSymbols = {ropsten: 'HOT', mainnet: 'SUB'};
+
 @Component({
   selector: 'app-financial-statistics',
   templateUrl: './financial-statistics.component.html',
   styleUrls: ['./financial-statistics.component.scss']
 })
-export class FinancialStatisticsComponent implements OnChanges, OnInit {
+export class FinancialStatisticsComponent implements OnInit {
   constructor(private financialService: FinancialService, private mainService: MainService, private ngZone: NgZone) {
   }
 
-  tokenSymbol = 'HOT';
+  tokenSymbol: Observable<string>;
   financialStatisticsData: PendingAmounts = {pendingCredit: '0', pendingDebt: '0'};
   financialStatsDataError: any;
 
   private static gwubToSub(gwub: string | number): string {
-    return (Number(gwub) / 1_000_000_000).toFixed(9);
+    const result = (Number(gwub) / 1_000_000_000);
+    return isNaN(result) ? '-.---------' : result.toFixed(9);
   }
 
   ngOnInit(): void {
     this.mainService.resizeSmall();
+
+    this.tokenSymbol = this.mainService.chainName.pipe(
+      map((chainName) => tokenSymbols[chainName]),
+      map((tokenSymbol) => tokenSymbol ? tokenSymbol : 'HOT'),
+    );
+
     this.turnedOff().subscribe((turnedOff) => {
       if (!turnedOff) {
         this.financialService.startFinancialStatistics();
@@ -41,7 +50,9 @@ export class FinancialStatisticsComponent implements OnChanges, OnInit {
         this.financialStatisticsData = result;
       });
     }, error => {
-      this.financialStatsDataError = error;
+      this.ngZone.run(() => {
+        this.financialStatsDataError = error;
+      });
     });
   }
 
@@ -53,13 +64,6 @@ export class FinancialStatisticsComponent implements OnChanges, OnInit {
       skipWhile(s => s),
       distinctUntilChanged()
     );
-  }
-
-  ngOnChanges(changes: SimpleChanges): void {
-    const tokenSymbol = changes['tokenSymbol'];
-    if (tokenSymbol) {
-      this.tokenSymbol = tokenSymbol.currentValue as string;
-    }
   }
 
   pendingCredit(): string {

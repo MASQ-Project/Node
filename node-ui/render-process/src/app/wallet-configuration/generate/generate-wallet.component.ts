@@ -7,6 +7,7 @@ import {WalletService} from '../../wallet.service';
 import {Router} from '@angular/router';
 import {wordlists} from '../wordlists';
 import {ConfigService} from '../../config.service';
+import {chainNames, defaultChainName} from '../../node-configuration/blockchains';
 
 @Component({
   selector: 'app-generate-wallet',
@@ -19,7 +20,10 @@ export class GenerateWalletComponent implements OnInit {
 
   wordlists = wordlists;
 
+  chainNames = chainNames;
+
   walletConfig = new FormGroup({
+    chainName: new FormControl(defaultChainName),
     wordlist: new FormControl('en', [Validators.required]),
     wordcount: new FormControl(12, [Validators.required]),
     mnemonicPassphrase: new FormControl('', [Validators.required]),
@@ -44,7 +48,8 @@ export class GenerateWalletComponent implements OnInit {
       this.ngZone.run(() => {
         if (response['success']) {
           this.generatedWalletInfo = response['result'];
-          this.configService.setEarningWallet(this.generatedWalletInfo['earningWallet'].address);
+          const chainName = this.walletConfig.get('chainName').value;
+          this.configService.setEarningWallet(chainName, this.generatedWalletInfo['earningWallet'].address);
         } else {
           this.errorText = response['result'];
         }
@@ -56,6 +61,7 @@ export class GenerateWalletComponent implements OnInit {
     const walletConfig = this.walletConfig.value;
     const wordList = wordlists.find(wl => wl.value === walletConfig.wordlist).viewValue;
     this.walletService.generateConsumingWallet(
+      walletConfig.chainName,
       walletConfig.mnemonicPassphrase,
       walletConfig.consumingDerivationPath,
       wordList,

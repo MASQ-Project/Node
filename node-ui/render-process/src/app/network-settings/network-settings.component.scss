@@ -1,8 +1,20 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+@import '../../styles/variables';
+@import '../../styles/colors';
+@import '../../styles/mixins';
 @import '../../styles/form';
 
 .network-settings {
-  @include node-form();
+  @include node-form;
+  @include select-box;
+
+  .chain-container {
+    margin: 10px;
+  }
+
+  #chain-name {
+    margin: 10px;
+  }
 
   input[type=range] {
     -webkit-appearance: none;

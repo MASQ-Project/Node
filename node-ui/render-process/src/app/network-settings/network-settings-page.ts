@@ -1,11 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-import {ComponentFixture} from '@angular/core/testing';
 import {NetworkSettingsComponent} from './network-settings.component';
+import {Page} from '../page';
 
-export class NetworkSettingsPage {
-  constructor(private fixture: ComponentFixture<NetworkSettingsComponent>) {
-  }
-
+export class NetworkSettingsPage extends Page<NetworkSettingsComponent> {
   get errorMessage(): HTMLLIElement {
     return this.query('.validation-error');
   }
@@ -22,17 +19,17 @@ export class NetworkSettingsPage {
     return this.query('#gas-price');
   }
 
-  private static setInputText(element: HTMLInputElement, value: string) {
-    element.value = value;
-    element.dispatchEvent(new Event('input'));
+  get chainName(): HTMLSelectElement {
+    return this.query('#chain-name');
   }
 
   setGasPrice(value: string) {
     this.fixture.componentInstance.networkSettings.controls['gasPrice'].setValue(value);
-    NetworkSettingsPage.setInputText(this.gasPriceTxt, value);
+    this.setInputText(this.gasPriceTxt, value);
   }
 
-  private query<T>(selector: String): T {
-    return this.fixture.nativeElement.querySelector(selector);
+  setChainName(chainName: string) {
+    this.setSelection(this.chainName, chainName);
+    this.fixture.componentInstance.networkSettings.controls['chainName'].setValue(chainName);
   }
 }

@@ -4,12 +4,39 @@
 
 $input-font-size: rem(17px);
 
+:host {
+  flex: 1 0 100%;
+  display: flex;
+  flex-direction: column;
+}
+.pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 100%;
+  justify-content: flex-start;
+}
+
+h3 {
+  margin-block-start: 0.5em;
+  margin-block-end: 0.5em;
+}
+
 .recover-wallet-configuration {
   @include select-box;
-  display: block;
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 100%;
   text-align: left;
   margin-left: 4%;
   margin-right: 4%;
+
+  form {
+    padding-top: 2px;
+  }
+
+  .form-container {
+    flex: 1 1 100%;
+  }
 
   &__actions {
     margin-top: 10px;
@@ -25,8 +52,9 @@ $input-font-size: rem(17px);
 
   &__inset {
     display: flex;
-    flex: 3;
+    flex: 0 1;
     text-align: center;
+    margin-block-end: 10px;
 
     button {
       flex: 1;
@@ -151,17 +179,20 @@ $input-font-size: rem(17px);
     }
   }
 
-  #consuming-address-container {
+  #consuming-address-container,
+  #earning-address-container {
     display: flex;
 
-    #consuming-address-label {
+    #consuming-address-label,
+    #earning-address-label {
       flex: 1;
       display: flex;
       justify-content: center;
       flex-direction: column;
     }
 
-    #consuming-address {
+    #consuming-address,
+    #earning-address {
       flex: 2;
     }
   }

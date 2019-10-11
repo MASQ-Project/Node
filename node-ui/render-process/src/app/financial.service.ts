@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-import {Observable, Subject} from 'rxjs';
+import {BehaviorSubject, Observable, Subject} from 'rxjs';
 import {ElectronService} from './electron.service';
 import {Injectable} from '@angular/core';
 import {PendingAmounts} from './pending-amounts';
@@ -23,7 +23,7 @@ export class IntervalWrapper {
 export class FinancialService {
   private financialStatsInterval;
 
-  private financialStatsResponseListener: Subject<PendingAmounts> = new Subject();
+  private financialStatsResponseListener: BehaviorSubject<PendingAmounts> = new BehaviorSubject({pendingCredit: '', pendingDebt: ''});
   financialStatisticsResponse: Observable<PendingAmounts> = this.financialStatsResponseListener.asObservable();
 
   constructor(private electronService: ElectronService, private intervalWrapper: IntervalWrapper) {

@@ -3,7 +3,7 @@
 /* global describe expect beforeEach afterEach it */
 
 const fs = require('fs')
-const generatedBasePath = 'main-process/generated/command_helper_spec'
+const generatedBasePath = 'generated/command_helper_spec'
 const commandHelper = require('../src/command_helper')
 
 function ensureCleanDirectoryExists (basePath, namespace) {
@@ -41,7 +41,7 @@ describe('When the Node configuration is retrieved', () => {
     const dataDir = ensureCleanDirectoryExists(generatedBasePath, 'node_configuration_retrieved')
     oldDataDirectory = process.env.SUB_DATA_DIRECTORY
     process.env.SUB_DATA_DIRECTORY = dataDir
-    configuration = commandHelper.getNodeConfiguration()
+    configuration = commandHelper.getNodeConfiguration('ropsten')
   })
 
   afterEach(() => {

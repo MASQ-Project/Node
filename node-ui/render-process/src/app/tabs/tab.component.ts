@@ -7,7 +7,8 @@ import {Component, Input} from '@angular/core';
     <div [hidden]="!active" class="pane">
       <ng-content></ng-content>
     </div>
-  `
+  `,
+  styleUrls: ['./tabs.component.scss']
 })
 export class TabComponent {
   @Input() tabTitle: string;
