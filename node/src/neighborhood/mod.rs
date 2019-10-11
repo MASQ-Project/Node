@@ -377,7 +377,9 @@ impl Neighborhood {
         if neighborhood_config.mode.is_zero_hop()
             && !neighborhood_config.mode.neighbor_configs().is_empty()
         {
-            panic!("A zero-hop SubstratumNode is not decentralized and cannot have a --neighbors setting")
+            panic!(
+                "A zero-hop MASQ Node is not decentralized and cannot have a --neighbors setting"
+            )
         }
         let gossip_acceptor: Box<dyn GossipAcceptor> = Box::new(GossipAcceptorReal::new(cryptde));
         let gossip_producer = Box::new(GossipProducerReal::new());

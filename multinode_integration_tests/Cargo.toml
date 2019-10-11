@@ -1,7 +1,7 @@
 [package]
 name = "multinode_integration_tests"
 version = "1.0.0-rc.4"
-authors = ["Substratum Developer <substratum@substratum.net>"]
+authors = ["Substratum Developer <substratum@substratum.net>", "MASQ"]
 license = "GPL-3.0-only"
 copyright = "Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved."
 description = ""

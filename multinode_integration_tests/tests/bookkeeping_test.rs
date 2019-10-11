@@ -1,11 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use multinode_integration_tests_lib::substratum_node::{
-    NodeReference, SubstratumNode, SubstratumNodeUtils,
-};
-use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
-use multinode_integration_tests_lib::substratum_real_node::{
-    make_consuming_wallet_info, make_earning_wallet_info, NodeStartupConfigBuilder,
-    SubstratumRealNode,
+use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils, NodeReference};
+use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
+use multinode_integration_tests_lib::masq_real_node::{
+    make_consuming_wallet_info, make_earning_wallet_info, MASQRealNode, NodeStartupConfigBuilder,
 };
 use node_lib::accountant::payable_dao::{PayableAccount, PayableDao, PayableDaoReal};
 use node_lib::accountant::receivable_dao::{ReceivableAccount, ReceivableDao, ReceivableDaoReal};
@@ -17,13 +14,13 @@ use std::time::Duration;
 
 #[test]
 fn provided_and_consumed_services_are_recorded_in_databases() {
-    let mut cluster = SubstratumNodeCluster::start().unwrap();
+    let mut cluster = MASQNodeCluster::start().unwrap();
 
     let originating_node = start_lonely_real_node(&mut cluster);
     let non_originating_nodes = (0..6)
         .into_iter()
         .map(|_| start_real_node(&mut cluster, originating_node.node_reference()))
-        .collect::<Vec<SubstratumRealNode>>();
+        .collect::<Vec<MASQRealNode>>();
 
     thread::sleep(Duration::from_millis(2000));
 
@@ -75,13 +72,13 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
     });
 }
 
-fn non_pending_payables(node: &SubstratumRealNode, chain_id: u8) -> Vec<PayableAccount> {
+fn non_pending_payables(node: &MASQRealNode, chain_id: u8) -> Vec<PayableAccount> {
     let db_initializer = DbInitializerReal::new();
     let payable_dao = PayableDaoReal::new(
         db_initializer
             .initialize(
-                &std::path::PathBuf::from(SubstratumRealNode::node_home_dir(
-                    &SubstratumNodeUtils::find_project_root(),
+                &std::path::PathBuf::from(MASQRealNode::node_home_dir(
+                    &MASQNodeUtils::find_project_root(),
                     &node.name().to_string(),
                 )),
                 chain_id,
@@ -91,13 +88,13 @@ fn non_pending_payables(node: &SubstratumRealNode, chain_id: u8) -> Vec<PayableA
     payable_dao.non_pending_payables()
 }
 
-fn receivables(node: &SubstratumRealNode, chain_id: u8) -> Vec<ReceivableAccount> {
+fn receivables(node: &MASQRealNode, chain_id: u8) -> Vec<ReceivableAccount> {
     let db_initializer = DbInitializerReal::new();
     let receivable_dao = ReceivableDaoReal::new(
         db_initializer
             .initialize(
-                &std::path::PathBuf::from(SubstratumRealNode::node_home_dir(
-                    &SubstratumNodeUtils::find_project_root(),
+                &std::path::PathBuf::from(MASQRealNode::node_home_dir(
+                    &MASQNodeUtils::find_project_root(),
                     &node.name().to_string(),
                 )),
                 chain_id,
@@ -107,7 +104,7 @@ fn receivables(node: &SubstratumRealNode, chain_id: u8) -> Vec<ReceivableAccount
     receivable_dao.receivables()
 }
 
-pub fn start_lonely_real_node(cluster: &mut SubstratumNodeCluster) -> SubstratumRealNode {
+pub fn start_lonely_real_node(cluster: &mut MASQNodeCluster) -> MASQRealNode {
     let index = cluster.next_index();
     cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
@@ -117,10 +114,7 @@ pub fn start_lonely_real_node(cluster: &mut SubstratumNodeCluster) -> Substratum
     )
 }
 
-pub fn start_real_node(
-    cluster: &mut SubstratumNodeCluster,
-    neighbor: NodeReference,
-) -> SubstratumRealNode {
+pub fn start_real_node(cluster: &mut MASQNodeCluster, neighbor: NodeReference) -> MASQRealNode {
     let index = cluster.next_index();
     cluster.start_real_node(
         NodeStartupConfigBuilder::standard()

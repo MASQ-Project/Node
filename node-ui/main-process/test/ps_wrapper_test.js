@@ -25,8 +25,8 @@ describe('ps_wrapper', () => {
     it('should not call treeKill with wrong path', async () => {
       mockProcess.platform = 'linux'
       td.when(mockPs()).thenResolve([{
-        name: 'SubstratumNode',
-        cmd: 'users/SubstratumNode --dns-servers 8.8.8.8',
+        name: 'MASQNode',
+        cmd: 'users/MASQNode --dns-servers 8.8.8.8',
         pid: '1234'
       }])
       mockPath.sep = '/'
@@ -37,8 +37,8 @@ describe('ps_wrapper', () => {
     it('kills with *nix path', async () => {
       mockProcess.platform = 'linux'
       td.when(mockPs()).thenResolve([{
-        name: 'SubstratumNode',
-        cmd: 'users/static/binaries/SubstratumNode --dns-servers 8.8.8.8',
+        name: 'MASQNode',
+        cmd: 'users/static/binaries/MASQNode --dns-servers 8.8.8.8',
         pid: '1234'
       }])
       mockPath.sep = '/'
@@ -49,8 +49,8 @@ describe('ps_wrapper', () => {
     it('kills with Windows path', async () => {
       mockProcess.platform = 'win32'
       td.when(mockPs()).thenResolve([{
-        name: 'SubstratumNodeW',
-        cmd: 'users\\static\\binaries\\SubstratumNodeW --dns-servers 8.8.8.8',
+        name: 'MASQNodeW',
+        cmd: 'users\\static\\binaries\\MASQNodeW --dns-servers 8.8.8.8',
         pid: '1234'
       }])
       mockPath.sep = '\\'
@@ -63,8 +63,8 @@ describe('ps_wrapper', () => {
     it('should not find with *nix path', async () => {
       mockProcess.platform = 'linux'
       td.when(mockPs()).thenResolve([{
-        name: 'SubstratumNode',
-        cmd: 'users/SubstratumNode --dns-servers 8.8.8.8'
+        name: 'MASQNode',
+        cmd: 'users/MASQNode --dns-servers 8.8.8.8'
       }])
       mockPath.sep = '/'
       const result = await subject.findNodeProcess()
@@ -74,25 +74,25 @@ describe('ps_wrapper', () => {
     it('should find with *nix path', async () => {
       mockProcess.platform = 'linux'
       td.when(mockPs()).thenResolve([{
-        name: 'SubstratumNode',
-        cmd: 'users/static/binaries/SubstratumNode --dns-servers 8.8.8.8'
+        name: 'MASQNode',
+        cmd: 'users/static/binaries/MASQNode --dns-servers 8.8.8.8'
       }])
       mockPath.sep = '/'
       const result = await subject.findNodeProcess()
       assert.strictEqual(result.length, 1)
-      assert.strictEqual(result[0].name, 'SubstratumNode')
+      assert.strictEqual(result[0].name, 'MASQNode')
     })
 
     it('should find with Windows path', async () => {
       mockProcess.platform = 'win32'
       td.when(mockPs()).thenResolve([{
-        name: 'SubstratumNodeW',
-        cmd: 'users\\static\\binaries\\SubstratumNodeW --dns-servers 8.8.8.8'
+        name: 'MASQNodeW',
+        cmd: 'users\\static\\binaries\\MASQNodeW --dns-servers 8.8.8.8'
       }])
       mockPath.sep = '\\'
       const result = await subject.findNodeProcess()
       assert.strictEqual(result.length, 1)
-      assert.strictEqual(result[0].name, 'SubstratumNodeW')
+      assert.strictEqual(result[0].name, 'MASQNodeW')
     })
   })
 })

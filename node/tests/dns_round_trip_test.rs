@@ -10,7 +10,7 @@ use trust_dns::rr::{DNSClass, RecordType};
 #[test]
 #[serial(port53)]
 fn handles_two_consecutive_ipv4_dns_requests_integration() {
-    let _node = utils::SubstratumNode::start_standard(None);
+    let _node = utils::MASQNode::start_standard(None);
 
     perform_ipv4_query();
     perform_ipv4_query();
@@ -19,7 +19,7 @@ fn handles_two_consecutive_ipv4_dns_requests_integration() {
 #[test]
 #[serial(port53)]
 fn handles_consecutive_heterogeneous_dns_requests_integration() {
-    let _node = utils::SubstratumNode::start_standard(None);
+    let _node = utils::MASQNode::start_standard(None);
 
     perform_ipv4_query();
     perform_ipv6_query();

@@ -54,7 +54,7 @@ impl NoLookupIncipientCoresPackage {
     }
 }
 
-/// New CORES package about to be sent to the Hopper and thence put on the Substratum Network
+/// New CORES package about to be sent to the Hopper and thence put on the MASQ Network
 #[derive(Clone, Debug, PartialEq, Message)]
 pub struct IncipientCoresPackage {
     pub route: Route,
@@ -88,7 +88,7 @@ impl IncipientCoresPackage {
     }
 }
 
-/// CORES package that has traversed the Substratum Network and is arriving at its destination
+/// CORES package that has traversed the MASQ Network and is arriving at its destination
 #[derive(Clone, Debug, PartialEq, Message)]
 pub struct ExpiredCoresPackage<T> {
     pub immediate_neighbor: SocketAddr,

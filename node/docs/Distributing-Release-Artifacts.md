@@ -43,7 +43,7 @@ The following are items to check when setting up the release pipeline:
 * Deploy stage contains S3 Upload task and is setup with the following items:
     * AWS credentials
     * AWS Region = ``us-east-2``
-    * Bucket Name = ``substratum-website-downloads``
+    * Bucket Name = ``masq-website-downloads``
     * Source Folder = ``s3-dist``
     * Target Folder = ``$(TAG_NAME)``
     * ACL = ``public read``

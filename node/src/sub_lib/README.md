@@ -1,12 +1,12 @@
 # sub_lib
-Common code for Substratum Rust projects
+Common code for MASQ Rust projects
 
 ## Purpose
-The purpose of `sub_lib` is to hold all the shared components we use in the projects that make up SubstratumNode.
+The purpose of `sub_lib` is to hold all the shared components we use in the projects that make up MASQ Node.
 
 It is built as a library, and is not intended as a standalone program.
 It probably isn't the most interesting place to begin digging into our code;
-[node](https://github.com/SubstratumNetwork/SubstratumNode/tree/master/node)
+[node](https://github.com/MASQ-Project/Node/tree/master/node)
 is a better place to start.
 
 

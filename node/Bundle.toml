@@ -1,9 +1,9 @@
-name = "SubstratumNode"
-identifier = "net.substratum.node"
-icon = ["substratum.png"]
+name = "MASQNode"
+identifier = "net.masq.node"
+icon = ["masq.png"]
 version = "1.0.0"
-copyright = "Copyright (c) Substratum Services 2017. All rights reserved."
-short_description = "SubstratumNode for the decentralized web"
+copyright = "Copyright (c) MASQ 2019. All rights reserved."
+short_description = "MASQ Node"
 long_description = """
-SubstratumNode allows members to make money while they sleep.
+MASQ Node allows Node runners to make money while they sleep.
 """

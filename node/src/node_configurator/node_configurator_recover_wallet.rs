@@ -50,12 +50,12 @@ const HELP_TEXT: &str = indoc!(
     r"ADDITIONAL HELP:
     If you want to generate wallets to earn money into and spend money from, try:
 
-        SubstratumNode --help --generate-wallet
+        MASQNode --help --generate-wallet
 
     If the Node is already configured with your wallets, and you want to start the Node so that it
     stays running:
 
-        SubstratumNode --help"
+        MASQNode --help"
 );
 
 impl WalletCreationConfigMaker for NodeConfiguratorRecoverWallet {
@@ -257,8 +257,7 @@ mod tests {
     #[test]
     fn validate_mnemonic_words_if_provided_in_chinese_simplified() {
         assert!(Validators::validate_mnemonic_words(
-            "昨 据 肠 介 甘 橡 峰 冬 点 显 假 覆 归 了 曰 露 胀 偷 盆 缸 操 举 除 喜"
-                .to_string(),
+            "昨 据 肠 介 甘 橡 峰 冬 点 显 假 覆 归 了 曰 露 胀 偷 盆 缸 操 举 除 喜".to_string(),
             Language::ChineseSimplified,
         )
         .is_ok());
@@ -267,8 +266,7 @@ mod tests {
     #[test]
     fn validate_mnemonic_words_if_provided_in_chinese_traditional() {
         assert!(Validators::validate_mnemonic_words(
-            "昨 據 腸 介 甘 橡 峰 冬 點 顯 假 覆 歸 了 曰 露 脹 偷 盆 缸 操 舉 除 喜"
-                .to_string(),
+            "昨 據 腸 介 甘 橡 峰 冬 點 顯 假 覆 歸 了 曰 露 脹 偷 盆 缸 操 舉 除 喜".to_string(),
             Language::ChineseTraditional,
         )
         .is_ok());

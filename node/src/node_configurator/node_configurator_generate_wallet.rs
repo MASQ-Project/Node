@@ -59,14 +59,14 @@ const WORD_COUNT_HELP: &str =
 
 const HELP_TEXT: &str = indoc!(
     r"ADDITIONAL HELP:
-    If you already have a set of wallets you want SubstratumNode to use, try:
+    If you already have a set of wallets you want MASQ Node to use, try:
 
-        SubstratumNode --help --recover-wallet
+        MASQNode --help --recover-wallet
 
     If the Node is already configured with your wallets, and you want to start the Node so that it
     stays running:
 
-        SubstratumNode --help"
+        MASQNode --help"
 );
 
 impl WalletCreationConfigMaker for NodeConfiguratorGenerateWallet {

@@ -1,7 +1,7 @@
 # Port 53 Problems?
 
 ## Identification
-When you try to start your SubstratumNode, do you see a message that looks something like one of these?
+When you try to start your MASQ Node, do you see a message that looks something like one of these?
 
 ```
 thread 'main' panicked at 'Cannot bind socket to V4(0.0.0.0:53): Os { code: 10048, kind: AddrInUse, message: "Only one usage of each socket address (protocol/network address/port) is normally permitted." }'
@@ -49,12 +49,12 @@ Port 53 for requests if it expects to receive any.
 Unfortunately, only one server can listen on Port 53 (or any port) at one time.
 
 ## The Problem
-SubstratumNode also includes a small DNS server that allows applications on your computer to send and receive data on
-the Substratum Network. Since this is a DNS server, it must also listen on Port 53. This means that a DNS-subverting
-SubstratumNode and preexisting port 53 software are irredeemably inimical to one another and cannot ever operate
+MASQ Node also includes a small DNS server that allows applications on your computer to send and receive data on
+the MASQ Network. Since this is a DNS server, it must also listen on Port 53. This means that a DNS-subverting
+MASQ Node and preexisting port 53 software are irredeemably inimical to one another and cannot ever operate
 simultaneously on the same computer.
 
-Eventually, SubstratumNode will be able to operate in regimes other than DNS subversion, which means that under some
+Eventually, MASQ Node will be able to operate in regimes other than DNS subversion, which means that under some
 circumstances, and in the presence of certain sacrifices, it will be compatible with other port 53 software;
 but that's in the future, not the present.
 
@@ -63,12 +63,12 @@ but that's in the future, not the present.
 ### Windows
 Internet Connection Sharing can be an annoyance. We had problems with it starting spontaneously after we stopped it,
 and reenabling itself and starting after we disabled it, and coming back into action over a reboot, in all cases
-monopolizing port 53 and preventing SubstratumNode from starting.  However, the solution turned out to be simple:
+monopolizing port 53 and preventing MASQ Node from starting.  However, the solution turned out to be simple:
 we just installed all pending updates (in our case, they ended at version 1809), and the problem went away. We disabled
 ICS, and it stayed disabled.
 
 ICS can be enabled and disabled for individual network interfaces, but you'll need to disable it across your entire
-system to free up port 53 for SubstratumNode.
+system to free up port 53 for MASQ Node.
 
 To do so, press your Windows button and type Services. Scroll down to where you see "Internet Connection Sharing (ICS)"
 in the left-hand column. Does the second column show it to be Running? If not, ICS isn't your problem, and you'll need
@@ -87,10 +87,10 @@ to use intelligible names for the devices on your LAN.
 
 #### Complicated And Annoying: Docker
 This solution is too complex to detail here, but in broad strokes it involves running a Docker container that contains
-a version of Linux that does _not_ have the __Port 53 Problem__, starting the SubstratumNode and a browser in that
-container, and having the browser display its window on the X11 server running on your host machine.  We at Substratum
+a version of Linux that does _not_ have the __Port 53 Problem__, starting the MASQ Node and a browser in that
+container, and having the browser display its window on the X11 server running on your host machine.  We at MASQ
 have used this solution in the past, and you can see how we've done it by looking in our 
-[source code](https://github.com/SubstratumNetwork/SubstratumNode/tree/master/node/docker/linux_node). After installing
+[source code](https://github.com/MASQ-Project/Node/tree/master/node/docker/linux_node). After installing
 Docker on your machine, you may be able to put together a similar solution.
 
 #### Simple But Incompatible: Disable DNS Caching
@@ -156,9 +156,9 @@ dns=default
 Then save the file and exit.
 
 Now, if you know how, restart your network manager. If you don't, reboot your machine--that'll do it. While you will no 
-longer be able to refer to your LAN-connected devices by their names, you should now be able to start a SubstratumNode.
+longer be able to refer to your LAN-connected devices by their names, you should now be able to start a MASQ Node.
 
-If you decide you'd rather run `dnsmasq` than SubstratumNode, or if you want to try the __Complicated And Annoying__
+If you decide you'd rather run `dnsmasq` than MASQ Node, or if you want to try the __Complicated And Annoying__
 solution instead, just bring up that same file in your text editor again (don't forget the `sudo`), move the hash mark
 from the `dns=dnsmasq` line to the `dns=default` line, so that it looks like this:
 

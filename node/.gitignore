@@ -103,6 +103,7 @@ fabric.properties
 
 docker/node
 SubstratumNode*.log
+MASQNode*.log
 node.log
 lnk*.tmp
 node-data.db
