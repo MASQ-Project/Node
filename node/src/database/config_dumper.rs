@@ -87,13 +87,14 @@ fn distill_args(args: &Vec<String>) -> (RealUser, PathBuf, u8) {
 mod tests {
     use super::*;
     use crate::blockchain::blockchain_interface::{
-        chain_id_from_name, contract_creation_block_from_chain_id, DEFAULT_CHAIN_NAME,
+        chain_id_from_name, contract_creation_block_from_chain_id,
     };
     use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
     use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
     use crate::sub_lib::cryptde::PlainData;
     use crate::test_utils::{
         ensure_node_home_directory_exists, ArgsBuilder, FakeStreamHolder, DEFAULT_CHAIN_ID,
+        TEST_DEFAULT_CHAIN_NAME,
     };
 
     #[test]
@@ -103,14 +104,14 @@ mod tests {
             "dump_config_creates_database_if_nonexistent",
         )
         .join("Substratum")
-        .join(DEFAULT_CHAIN_NAME);
+        .join(TEST_DEFAULT_CHAIN_NAME);
         let mut holder = FakeStreamHolder::new();
 
         let result = dump_config(
             &ArgsBuilder::new()
                 .param("--data-directory", data_dir.to_str().unwrap())
                 .param("--real-user", "123::")
-                .param("--chain", DEFAULT_CHAIN_NAME)
+                .param("--chain", TEST_DEFAULT_CHAIN_NAME)
                 .opt("--dump-config")
                 .into(),
             &mut holder.streams(),
@@ -131,7 +132,7 @@ mod tests {
            "gasPrice": "1",
            "schemaVersion": CURRENT_SCHEMA_VERSION,
            "seed": null,
-           "startBlock": &contract_creation_block_from_chain_id(chain_id_from_name(DEFAULT_CHAIN_NAME)).to_string(),
+           "startBlock": &contract_creation_block_from_chain_id(chain_id_from_name(TEST_DEFAULT_CHAIN_NAME)).to_string(),
         });
         assert_eq!(actual_value, expected_value);
     }
@@ -143,7 +144,7 @@ mod tests {
             "dump_config_dumps_existing_database",
         )
         .join("Substratum")
-        .join(DEFAULT_CHAIN_NAME);
+        .join(TEST_DEFAULT_CHAIN_NAME);
         let mut holder = FakeStreamHolder::new();
         {
             let conn = DbInitializerReal::new()
@@ -160,7 +161,7 @@ mod tests {
             &ArgsBuilder::new()
                 .param("--data-directory", data_dir.to_str().unwrap())
                 .param("--real-user", "123::")
-                .param("--chain", DEFAULT_CHAIN_NAME)
+                .param("--chain", TEST_DEFAULT_CHAIN_NAME)
                 .opt("--dump-config")
                 .into(),
             &mut holder.streams(),
@@ -177,7 +178,7 @@ mod tests {
            "gasPrice": "1",
            "schemaVersion": CURRENT_SCHEMA_VERSION,
            "seed": null,
-           "startBlock": &contract_creation_block_from_chain_id(chain_id_from_name(DEFAULT_CHAIN_NAME)).to_string(),
+           "startBlock": &contract_creation_block_from_chain_id(chain_id_from_name(TEST_DEFAULT_CHAIN_NAME)).to_string(),
         });
         assert_eq!(actual_value, expected_value);
     }

@@ -319,7 +319,6 @@ impl NodeConfiguratorGenerateWallet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::DEFAULT_CHAIN_NAME;
     use crate::bootstrapper::RealUser;
     use crate::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::database::db_initializer;
@@ -434,7 +433,7 @@ mod tests {
         let password = "secret-wallet-password";
         let args = ArgsBuilder::new()
             .opt("--generate-wallet")
-            .param("--chain", DEFAULT_CHAIN_NAME)
+            .param("--chain", TEST_DEFAULT_CHAIN_NAME)
             .param("--data-directory", home_dir.to_str().unwrap())
             .param("--wallet-password", password)
             .param("--consuming-wallet", "m/44'/60'/0'/77/78")
@@ -487,7 +486,7 @@ mod tests {
     fn parse_args_creates_configuration_with_defaults() {
         let args = ArgsBuilder::new()
             .opt("--generate-wallet")
-            .param("--chain", DEFAULT_CHAIN_NAME)
+            .param("--chain", TEST_DEFAULT_CHAIN_NAME)
             .param("--wallet-password", "password123")
             .param("--mnemonic-passphrase", "Mortimer");
         let mut subject = NodeConfiguratorGenerateWallet::new();
@@ -620,7 +619,7 @@ mod tests {
         config_dao.set_string("seed", "booga booga").unwrap();
         let args = ArgsBuilder::new()
             .opt("--generate-wallet")
-            .param("--chain", DEFAULT_CHAIN_NAME)
+            .param("--chain", TEST_DEFAULT_CHAIN_NAME)
             .param("--data-directory", data_directory.to_str().unwrap())
             .param("--wallet-password", "rick-rolled");
         let subject = NodeConfiguratorGenerateWallet::new();

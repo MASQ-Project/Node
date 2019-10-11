@@ -404,10 +404,10 @@ pub mod test_utils {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::{chain_id_from_name, DEFAULT_CHAIN_NAME};
+    use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::test_utils::{
         ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
-        DEFAULT_CHAIN_ID,
+        DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
     };
     use rusqlite::types::Type::Null;
     use rusqlite::OpenFlags;
@@ -536,7 +536,7 @@ mod tests {
             "start_block",
             Some(&format!(
                 "{}",
-                contract_creation_block_from_chain_id(chain_id_from_name(DEFAULT_CHAIN_NAME))
+                contract_creation_block_from_chain_id(chain_id_from_name(TEST_DEFAULT_CHAIN_NAME))
             )),
         );
         assert_eq!(config_vec, vec![]);

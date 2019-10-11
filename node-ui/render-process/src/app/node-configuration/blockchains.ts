@@ -3,4 +3,4 @@
 export const chainNames =  [{viewValue: 'Ethereum Mainnet', value: 'mainnet', disabled: false},
   {viewValue: 'Ropsten Testnet', value: 'ropsten', disabled: false}];
 
-export const defaultChainName = 'ropsten';
+export const defaultChainName = 'mainnet';

@@ -155,8 +155,9 @@ describe('IndexComponent', () => {
     describe('successful ip address lookup', () => {
       describe('ip is filled out if it can be looked up', () => {
         beforeEach(()  => {
-          storedConfigs.next({ropsten: {ip: '192.168.1.1'}});
+          td.when(mockLocalStorageService.getItem(`${LocalServiceKey.ChainName}`)).thenReturn('ropsten');
           mockChainName.next('ropsten');
+          storedConfigs.next({ropsten: {ip: '192.168.1.1'}});
           fixture.detectChanges();
         });
 
@@ -168,6 +169,7 @@ describe('IndexComponent', () => {
 
     describe('unsuccessful ip address lookup', () => {
       beforeEach(() => {
+        td.when(mockLocalStorageService.getItem(`${LocalServiceKey.ChainName}`)).thenReturn('ropsten');
         storedConfigs.next({ropsten: {ip: ''}});
         storedLookupIp.next('');
         fixture.detectChanges();
@@ -185,6 +187,7 @@ describe('IndexComponent', () => {
     describe('and values are not in the configuration but are in local storage', () => {
       beforeEach(() => {
         mockChainName.next('ropsten');
+        td.when(mockLocalStorageService.getItem(`${LocalServiceKey.ChainName}`)).thenReturn('ropsten');
         td.when(mockLocalStorageService.getItem(`ropsten.${LocalServiceKey.NeighborNodeDescriptor}`))
           .thenReturn('5sqcWoSuwaJaSnKHZbfKOmkojs0IgDez5IeVsDk9wno:2.2.2.2:1999');
         td.when(mockLocalStorageService.getItem(`ropsten.${LocalServiceKey.BlockchainServiceUrl}`)).thenReturn('https://ropsten.infura.io');
@@ -211,6 +214,7 @@ describe('IndexComponent', () => {
 
     describe('and values are in the configuration but not in local storage', () => {
       beforeEach(() => {
+        td.when(mockLocalStorageService.getItem(`${LocalServiceKey.ChainName}`)).thenReturn('ropsten');
         td.when(mockLocalStorageService.getItem(`ropsten.${LocalServiceKey.NeighborNodeDescriptor}`)).thenReturn('');
         td.when(mockLocalStorageService.getItem(`ropsten.${LocalServiceKey.BlockchainServiceUrl}`)).thenReturn('');
         storedConfigs.next({ropsten: {

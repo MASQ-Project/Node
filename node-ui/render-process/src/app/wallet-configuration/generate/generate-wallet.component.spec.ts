@@ -67,6 +67,8 @@ describe('GenerateWalletComponent', () => {
 
   describe('clicking done', () => {
     beforeEach(() => {
+      page.setChainName('ropsten');
+      fixture.detectChanges();
       component.generatedWalletInfo = {
         mnemonicPhrase: 'this is a very very good mnemonic phrase that is very good',
         consumingWallet: {
@@ -124,6 +126,7 @@ describe('GenerateWalletComponent', () => {
 
     describe('when all required fields are entered', () => {
       beforeEach(() => {
+        page.setChainName('ropsten');
         page.setWordlist('es');
         page.setMnemonicPassphrase('foobar');
         page.setWalletPassword('foobar');
@@ -181,6 +184,7 @@ describe('GenerateWalletComponent', () => {
     describe('generateConsumingWallet response', () => {
       describe('when successful', () => {
         beforeEach(() => {
+          page.setChainName('ropsten');
           generateResponseSubject.next({ success: true, result: {
               mnemonicPhrase: 'this is a very very good mnemonic phrase that is very good',
               consumingWallet: {
