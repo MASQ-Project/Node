@@ -1,12 +1,12 @@
 # node-ui
-SubstratumNode Graphical User Interface
+MASQ Node Graphical User Interface
 
 ## Purpose
-The purpose of `node-ui` is to provide a simple, graphical way to interact with the SubstratumNode software.
+The purpose of `node-ui` is to provide a simple, graphical way to interact with the MASQ Node software.
 It provides an alternative to command-line use.
 
 ## Tools / Environment Setup
-The GUI for SubstratumNode is an Electron app, which is written in JavaScript using Angular.
+The GUI for MASQ Node is an Electron app, which is written in JavaScript using Angular.
 To set up your environment, you will need to install [yarn](https://yarnpkg.com/en/docs/install)
 and [node.js](https://nodejs.org/en/).
 Once you have installed yarn and node.js, you can run `yarn install` from the `node-ui` directory
@@ -24,20 +24,19 @@ Our local development machines have been configured this way:
 >`/etc/sudoers.d/your_username`
 
 2. Add entries:
-> `%your_username ALL=(ALL) NOPASSWD:SETENV: /${project_path}/node-ui/static/scripts/substratum_node.sh`<br/>
-> `%your_username ALL=(ALL) NOPASSWD:SETENV: /${project_path}/node-ui/src/static/binaries/SubstratumNode`<br/>
+> `%your_username ALL=(ALL) NOPASSWD:SETENV: /${project_path}/node-ui/src/static/binaries/MASQNode`<br/>
 > `%your_username ALL=(ALL) NOPASSWD:SETENV: /${project_path}/node-ui/src/static/binaries/dns_utility`<br/>
-> `%your_username ALL=(ALL) NOPASSWD:SETENV: /${project_path}/node-ui/dist/static/binaries/SubstratumNode`<br/>
+> `%your_username ALL=(ALL) NOPASSWD:SETENV: /${project_path}/node-ui/dist/static/binaries/MASQNode`<br/>
 > `%your_username ALL=(ALL) NOPASSWD:SETENV: /${project_path}/node-ui/dist/static/binaries/dns_utility`<br/>
 
-## Running SubstratumNode GUI
+## Running MASQ Node GUI
 `node-ui` depends on the binaries produced from the `node` and `dns_utility` builds.
-You should run the top-level `ci/all.sh` script for the SubstratumNode project before running `node-ui`.
+You should run the top-level `ci/all.sh` script for the MASQ Node project before running `node-ui`.
 Once the `ci/all.sh` script has succeeded, you can run ` yarn start ` from the `node-ui` directory 
-to start the SubstratumNode GUI.
+to start the MASQ Node GUI.
 
 It probably isn't the most interesting place to begin digging into our code;
-[node](https://github.com/SubstratumNetwork/SubstratumNode/tree/master/node)
+[node](https://github.com/MASQ-Project/Node/tree/master/node)
 is a better place to start.
 
 

@@ -153,15 +153,15 @@ pub enum PortSelector {
     Index(usize),
 }
 
-pub trait SubstratumNode: Any {
+pub trait MASQNode: Any {
     fn name(&self) -> &str;
     // This is the NodeReference stated by the Node in the console. Its IP address won't be accurate if it's a zero-hop Node.
     fn node_reference(&self) -> NodeReference;
-    // If this SubstratumNode has a CryptDENull instead of a CryptDEReal, you can get it here.
+    // If this MASQNode has a CryptDENull instead of a CryptDEReal, you can get it here.
     fn cryptde_null(&self) -> Option<&CryptDENull>;
-    // The CryptDE that can be used for signing for this Node, if any. (None if it's a SubstratumRealNode with a CryptDEReal.)
+    // The CryptDE that can be used for signing for this Node, if any. (None if it's a MASQRealNode with a CryptDEReal.)
     fn signing_cryptde(&self) -> Option<&dyn CryptDE>;
-    // A reference to this SubstratumNode's public key.
+    // A reference to this MASQNode's public key.
     fn public_key(&self) -> &PublicKey;
     // This is the IP address of the container in which the Node is running.
     fn ip_address(&self) -> IpAddr;
@@ -182,9 +182,9 @@ pub trait SubstratumNode: Any {
     fn routes_data(&self) -> bool;
 }
 
-pub struct SubstratumNodeUtils {}
+pub struct MASQNodeUtils {}
 
-impl SubstratumNodeUtils {
+impl MASQNodeUtils {
     pub fn clean_up_existing_container(name: &str) {
         let mut command = Command::new("docker", Command::strings(vec!["rm", name]));
         command.wait_for_exit(); // success, failure, don't care
@@ -221,7 +221,7 @@ impl SubstratumNodeUtils {
         let time_limit = Instant::now() + timeout;
         let mut entire_log = String::new();
         while Instant::now() < time_limit {
-            entire_log = SubstratumNodeUtils::retrieve_logs(name);
+            entire_log = MASQNodeUtils::retrieve_logs(name);
             let regex = Regex::new(pattern).unwrap();
             if regex.is_match(&entire_log) {
                 return;
@@ -243,7 +243,7 @@ impl SubstratumNodeUtils {
                 "-t",
                 name,
                 "cat",
-                "/node_root/home/SubstratumNode_rCURRENT.log",
+                "/node_root/home/MASQNode_rCURRENT.log",
             ]),
         );
         command.stdout_and_stderr()

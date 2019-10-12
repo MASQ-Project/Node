@@ -8,7 +8,7 @@ use crate::utils::CommandConfig;
 #[test]
 fn node_exits_from_future_error_integration() {
     let panic_config = CommandConfig::new().pair("--crash-point", "error");
-    let mut node = utils::SubstratumNode::start_standard(Some(panic_config));
+    let mut node = utils::MASQNode::start_standard(Some(panic_config));
 
     let exit_code = node.wait_for_exit().unwrap().status.code();
     assert_ne!(Some(0), exit_code);
@@ -18,7 +18,7 @@ fn node_exits_from_future_error_integration() {
 #[test]
 fn node_exits_from_future_error_integration() {
     let panic_config = CommandConfig::new().pair("--crash-point", "error");
-    let mut node = utils::SubstratumNode::start_standard(Some(panic_config));
+    let mut node = utils::MASQNode::start_standard(Some(panic_config));
 
     let exit_code = node.wait_for_exit().unwrap().status.code();
     // Sometimes 1, sometimes 101

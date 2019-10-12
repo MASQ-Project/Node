@@ -1,8 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use multinode_integration_tests_lib::substratum_node::SubstratumNode;
-use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
-use multinode_integration_tests_lib::substratum_real_node::NodeStartupConfigBuilder;
+use multinode_integration_tests_lib::masq_node::MASQNode;
+use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
+use multinode_integration_tests_lib::masq_real_node::NodeStartupConfigBuilder;
 use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::test_utils::find_free_port;
@@ -13,7 +13,7 @@ use std::time::Duration;
 #[ignore] // Should be removed by SC-811/GH-158
 fn neighborhood_notified_of_newly_missing_node() {
     // Set up three-Node network, and add a mock witness Node.
-    let mut cluster = SubstratumNodeCluster::start().unwrap();
+    let mut cluster = MASQNodeCluster::start().unwrap();
     let neighbor = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .fake_public_key(&PublicKey::new(&[1, 2, 3, 4]))

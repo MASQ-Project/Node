@@ -1,13 +1,13 @@
 # HOT Faucet Instructions
-## How do I fund my SubstratumNode for testing with testnet Ether?
+## How do I fund my MASQ Node for testing with testnet Ether?
 
 ##### 1 ROP = 5000 HOT
 
 ### Request Testnet Ether (ROP)
 
 1. Submit a request for Ropsten Ethereum from https://faucet.ropsten.be/
-    1. Paste your SubstratumNode consuming wallet testnet address -- This is the address you noted when recording your mnemonic phrase words when generating
-      your wallet. If you didn't record it you can scan SubstratumNode_rCURRENT.log in the temporary directory.
+    1. Paste your MASQ Node consuming wallet testnet address -- This is the address you noted when recording your mnemonic phrase words when generating
+      your wallet. If you didn't record it you can scan MASQNode_rCURRENT.log in the temporary directory.
       
     1. Click the "Send me test Ether" button -- Note you are rate limited as to how frequently you can request test Ether.
 
@@ -44,7 +44,7 @@ and paste it in the "ABI / JSON Interface" field.
 
     ![Image 3](images/HOTFaucet-03.png "Image 3")
 
-1. Use the MEW Wallet Access form to access your testnet consuming wallet address. Find the address where you requested the testnet Ether (ROP) to be sent. Note you may have to choose the correct "Select HD derivation path" radio button as Ropsten may default to `m/44'/1'/0'/0`. We recommend using the mainnet path `m/44'/60'/0'/0` even though we're using Ropsten for testing. SubstratumNode will default to a mainnet path. All Ethereum addresses are compatible with mainnet and testnets.
+1. Use the MEW Wallet Access form to access your testnet consuming wallet address. Find the address where you requested the testnet Ether (ROP) to be sent. Note you may have to choose the correct "Select HD derivation path" radio button as Ropsten may default to `m/44'/1'/0'/0`. We recommend using the mainnet path `m/44'/60'/0'/0` even though we're using Ropsten for testing. MASQNode will default to a mainnet path. All Ethereum addresses are compatible with mainnet and testnets.
 1. Click the Write button.
 
     ![Image 4](images/HOTFaucet-04.png "Image 4")
@@ -75,7 +75,7 @@ and paste it in the "ABI / JSON Interface" field.
 ### Method 2: Using etherscan.io to invoke `buyTokens()` via Metamask
 
 #### Pre-requisites: 
-1. You must have generated a 12-word mnemonic recovery phrase with SubstratumNode to be able to use Metamask. You can still do so if you didn't the first time. It may mean you need to move some testnet Ether (ROP) to an address unlocked by the 12-word mnemonic if you already requested Ether from a faucet following earlier instructions. 
+1. You must have generated a 12-word mnemonic recovery phrase with MASQ Node to be able to use Metamask. You can still do so if you didn't the first time. It may mean you need to move some testnet Ether (ROP) to an address unlocked by the 12-word mnemonic if you already requested Ether from a faucet following earlier instructions. 
 1. You must install the MetaMask browser extension. See https://metamask.io/.
 1. You may need to restart your browser if you don't see the "Connect with Metamask" link on the **Write Contract** tab.
 

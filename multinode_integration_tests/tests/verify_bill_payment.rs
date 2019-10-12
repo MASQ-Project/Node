@@ -3,10 +3,10 @@ use bip39::{Language, Mnemonic, Seed};
 use futures::Future;
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
 use multinode_integration_tests_lib::command::Command;
-use multinode_integration_tests_lib::substratum_node::SubstratumNodeUtils;
-use multinode_integration_tests_lib::substratum_node_cluster::SubstratumNodeCluster;
-use multinode_integration_tests_lib::substratum_real_node::{
-    ConsumingWalletInfo, EarningWalletInfo, NodeStartupConfigBuilder, SubstratumRealNode,
+use multinode_integration_tests_lib::masq_node::MASQNodeUtils;
+use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
+use multinode_integration_tests_lib::masq_real_node::{
+    ConsumingWalletInfo, EarningWalletInfo, MASQRealNode, NodeStartupConfigBuilder,
 };
 use node_lib::accountant::payable_dao::{PayableDao, PayableDaoReal};
 use node_lib::accountant::receivable_dao::{ReceivableDao, ReceivableDaoReal};
@@ -31,7 +31,7 @@ use web3::Web3;
 
 #[test]
 fn verify_bill_payment() {
-    let mut cluster = match SubstratumNodeCluster::start() {
+    let mut cluster = match MASQNodeCluster::start() {
         Ok(cluster) => cluster,
         Err(_) => panic!(""),
     };
@@ -113,10 +113,9 @@ fn verify_bill_payment() {
     let amount = 10u64
         * u64::try_from(node_lib::accountant::PAYMENT_CURVES.permanent_debt_allowed_gwub).unwrap();
 
-    let project_root = SubstratumNodeUtils::find_project_root();
+    let project_root = MASQNodeUtils::find_project_root();
     let (consuming_node_name, consuming_node_index) = cluster.prepare_real_node(&consuming_config);
-    let consuming_node_path =
-        SubstratumRealNode::node_home_dir(&project_root, &consuming_node_name);
+    let consuming_node_path = MASQRealNode::node_home_dir(&project_root, &consuming_node_name);
     let consuming_node_connection = DbInitializerReal::new()
         .initialize(&consuming_node_path.clone().into(), cluster.chain_id)
         .unwrap();
@@ -145,8 +144,7 @@ fn verify_bill_payment() {
 
     let (serving_node_1_name, serving_node_1_index) =
         cluster.prepare_real_node(&serving_node_1_config);
-    let serving_node_1_path =
-        SubstratumRealNode::node_home_dir(&project_root, &serving_node_1_name);
+    let serving_node_1_path = MASQRealNode::node_home_dir(&project_root, &serving_node_1_name);
     let serving_node_1_connection = DbInitializerReal::new()
         .initialize(&serving_node_1_path.clone().into(), cluster.chain_id)
         .unwrap();
@@ -156,8 +154,7 @@ fn verify_bill_payment() {
 
     let (serving_node_2_name, serving_node_2_index) =
         cluster.prepare_real_node(&serving_node_2_config);
-    let serving_node_2_path =
-        SubstratumRealNode::node_home_dir(&project_root, &serving_node_2_name);
+    let serving_node_2_path = MASQRealNode::node_home_dir(&project_root, &serving_node_2_name);
     let serving_node_2_connection = DbInitializerReal::new()
         .initialize(&serving_node_2_path.clone().into(), cluster.chain_id)
         .unwrap();
@@ -167,8 +164,7 @@ fn verify_bill_payment() {
 
     let (serving_node_3_name, serving_node_3_index) =
         cluster.prepare_real_node(&serving_node_3_config);
-    let serving_node_3_path =
-        SubstratumRealNode::node_home_dir(&project_root, &serving_node_3_name);
+    let serving_node_3_path = MASQRealNode::node_home_dir(&project_root, &serving_node_3_name);
     let serving_node_3_connection = DbInitializerReal::new()
         .initialize(&serving_node_3_path.clone().into(), cluster.chain_id)
         .unwrap();

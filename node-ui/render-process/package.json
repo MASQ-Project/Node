@@ -3,7 +3,7 @@
   "description": "SubstratumNode user interface render process",
   "version": "1.0.0-rc.4",
   "homepage": "https://substratum.net",
-  "repository": "https://github.com/SubstratumNetwork/SubstratumNode",
+  "repository": "https://github.com/MASQ-Project/Node",
   "author": "Substratum LLC <support@substratum.net>",
   "copyright": "Copyright (c) 2017-2019 Substratum LLC (${homepage}) and/or its affiliates. All rights reserved.",
   "license": "GPL-3.0",

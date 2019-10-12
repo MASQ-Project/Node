@@ -16,7 +16,7 @@ use node_lib::test_utils::{assert_string_contains, DEFAULT_CHAIN_ID};
 use regex::Regex;
 use std::str::FromStr;
 use utils::CommandConfig;
-use utils::SubstratumNode;
+use utils::MASQNode;
 
 const PHRASE: &str =
     "snake gorilla marine couch wheel decline stamp glass aunt antenna transfer exit";
@@ -29,7 +29,7 @@ const CONSUMING_PATH: &str = "m/44'/60'/1'/2/3";
 fn persistent_config(chain_id: u8) -> PersistentConfigurationReal {
     PersistentConfigurationReal::from(
         DbInitializerReal::new()
-            .initialize(&SubstratumNode::data_dir().to_path_buf(), chain_id)
+            .initialize(&MASQNode::data_dir().to_path_buf(), chain_id)
             .unwrap(),
     )
 }
@@ -65,7 +65,7 @@ fn phrase_from_console_log(console_log: &str) -> String {
 #[test]
 fn dump_configuration_integration() {
     let _eg = EnvironmentGuard::new();
-    let console_log = SubstratumNode::run_dump_config();
+    let console_log = MASQNode::run_dump_config();
 
     assert_string_contains(
         &console_log,
@@ -76,7 +76,7 @@ fn dump_configuration_integration() {
 #[test]
 fn create_database_recovering_both_derivation_paths_integration() {
     let _eg = EnvironmentGuard::new();
-    let _console_log = SubstratumNode::run_recover(
+    let _console_log = MASQNode::run_recover(
         CommandConfig::new()
             .pair("--mnemonic", PHRASE)
             .pair("--mnemonic-passphrase", PASSPHRASE)
@@ -106,7 +106,7 @@ fn create_database_recovering_both_derivation_paths_integration() {
 #[test]
 fn create_database_recovering_neither_derivation_path_integration() {
     let _eg = EnvironmentGuard::new();
-    let _console_log = SubstratumNode::run_recover(
+    let _console_log = MASQNode::run_recover(
         CommandConfig::new()
             .pair("--mnemonic", PHRASE)
             .pair("--mnemonic-passphrase", PASSPHRASE)
@@ -128,7 +128,7 @@ fn create_database_recovering_neither_derivation_path_integration() {
 #[test]
 fn create_database_recovering_only_earning_derivation_path_integration() {
     let _eg = EnvironmentGuard::new();
-    let _console_log = SubstratumNode::run_recover(
+    let _console_log = MASQNode::run_recover(
         CommandConfig::new()
             .pair("--mnemonic", PHRASE)
             .pair("--mnemonic-passphrase", PASSPHRASE)
@@ -157,7 +157,7 @@ fn create_database_recovering_only_earning_derivation_path_integration() {
 #[test]
 fn create_database_recovering_only_earning_address_integration() {
     let _eg = EnvironmentGuard::new();
-    let _console_log = SubstratumNode::run_recover(
+    let _console_log = MASQNode::run_recover(
         CommandConfig::new()
             .pair("--mnemonic", PHRASE)
             .pair("--mnemonic-passphrase", PASSPHRASE)
@@ -186,7 +186,7 @@ fn create_database_recovering_only_earning_address_integration() {
 #[test]
 fn create_database_recovering_only_consuming_derivation_path_integration() {
     let _eg = EnvironmentGuard::new();
-    let _console_log = SubstratumNode::run_recover(
+    let _console_log = MASQNode::run_recover(
         CommandConfig::new()
             .pair("--mnemonic", PHRASE)
             .pair("--mnemonic-passphrase", PASSPHRASE)
@@ -216,7 +216,7 @@ fn create_database_recovering_only_consuming_derivation_path_integration() {
 fn create_database_generating_both_derivation_paths_integration() {
     let _eg = EnvironmentGuard::new();
 
-    let console_log = SubstratumNode::run_generate(
+    let console_log = MASQNode::run_generate(
         CommandConfig::new()
             .pair("--mnemonic-passphrase", PASSPHRASE)
             .pair("--wallet-password", PASSWORD)
@@ -241,7 +241,7 @@ fn create_database_generating_both_derivation_paths_integration() {
 fn create_database_generating_neither_derivation_path_integration() {
     let _eg = EnvironmentGuard::new();
 
-    let console_log = SubstratumNode::run_generate(
+    let console_log = MASQNode::run_generate(
         CommandConfig::new()
             .pair("--mnemonic-passphrase", PASSPHRASE)
             .pair("--wallet-password", PASSWORD),
@@ -266,7 +266,7 @@ fn create_database_generating_neither_derivation_path_integration() {
 #[test]
 fn create_database_generating_only_earning_derivation_path_integration() {
     let _eg = EnvironmentGuard::new();
-    let console_log = SubstratumNode::run_generate(
+    let console_log = MASQNode::run_generate(
         CommandConfig::new()
             .pair("--mnemonic-passphrase", PASSPHRASE)
             .pair("--wallet-password", PASSWORD)
@@ -289,7 +289,7 @@ fn create_database_generating_only_earning_derivation_path_integration() {
 #[test]
 fn create_database_generating_only_earning_address_integration() {
     let _eg = EnvironmentGuard::new();
-    let _console_log = SubstratumNode::run_generate(
+    let _console_log = MASQNode::run_generate(
         CommandConfig::new()
             .pair("--mnemonic-passphrase", PASSPHRASE)
             .pair("--wallet-password", PASSWORD)
@@ -311,7 +311,7 @@ fn create_database_generating_only_earning_address_integration() {
 #[test]
 fn create_database_generating_only_consuming_derivation_path_integration() {
     let _eg = EnvironmentGuard::new();
-    let console_log = SubstratumNode::run_generate(
+    let console_log = MASQNode::run_generate(
         CommandConfig::new()
             .pair("--mnemonic-passphrase", PASSPHRASE)
             .pair("--wallet-password", PASSWORD)

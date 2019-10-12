@@ -2,9 +2,9 @@
 # test push to master
 
 trigger:
-  branches:
-    include:
-      - master
+#  branches:
+#    include:
+#      - master
   tags:
     include:
       - v*
@@ -13,13 +13,13 @@ pr:
   - master
 
 variables:
-  rust_version: "1.37.0"
+  rust_version: "1.38.0"
   node_version: "10.16.3"
   AZP_CACHING_TAR: true # requires minimum agent version of 2.157.0 (rolling out Palindrome Week)
 
 stages:
-  - stage: Testing
-    displayName: "Testing"
+  - stage: BuildAndTest
+    displayName: "Build and Test"
     condition: ne(variables.BUILD_RELEASE_ARTIFACTS, 'true')
     jobs:
       - job: Tests
@@ -37,17 +37,20 @@ stages:
 
         steps:
           - task: CacheBeta@0
+            continueOnError: true
             inputs:
               key: |
-                "$(rust_version)" | $(Agent.OS) | "v3.7"
+                "$(rust_version)" | $(Agent.OS) | "v3.10"
               path: $(Pipeline.Workspace)/toolchains
               cacheHitVar: NODE_TOOLCHAINS_RESTORED
 
           - task: NodeTool@0
+            condition: ne(variables.CACHE_ONLY, 'true')
             inputs:
               versionSpec: $(node_version)
 
           - task: Npm@1
+            condition: ne(variables.CACHE_ONLY, 'true')
             inputs:
               command: 'custom'
               customCommand: 'install -g yarn'
@@ -57,44 +60,51 @@ stages:
             displayName: "Install Node toolchain"
 
           - bash: ci/install_ui_test_toolchain.sh '$(Pipeline.Workspace)'
+            condition: ne(variables.CACHE_ONLY, 'true')
             displayName: "Install NodeUI test toolchain"
 
           - bash: |
               set -xev
-              git config --global user.name "substratum"
-              git config --global user.email "substratum@substratum.net"
+              git config --global user.name "MASQ Node"
+              git config --global user.email "MASQAdmin@protonmail.com"
             displayName: "Configure git"
 
           - script: |
               netsh advfirewall set allprofiles state off
               net stop sharedaccess || echo ICS already disabled
               net stop W3SVC || echo W3SVC service already disabled
-            condition: eq( variables['Agent.OS'], 'Windows_NT' )
+            condition: and (eq( variables['Agent.OS'], 'Windows_NT' ), ne(variables.CACHE_ONLY, 'true'))
             displayName: "Disable Annoying Windows Services"
 
           - bash: ci/prepare_node_build.sh '$(Pipeline.Workspace)'
+            condition: ne(variables.CACHE_ONLY, 'true')
             displayName: "Prepare Node build"
+
           - bash: ci/sccache.sh '$(Pipeline.Workspace)' && node/ci/all.sh '$(Pipeline.Workspace)' && dns_utility/ci/all.sh '$(Pipeline.Workspace)'
+            condition: ne(variables.CACHE_ONLY, 'true')
             displayName: "Build Node and run tests"
 
           - bash: ci/multinode_integration_test.sh '$(Pipeline.Workspace)'
+            condition: ne(variables.CACHE_ONLY, 'true')
             displayName: "Run multinode integration tests"
 
           - bash: ci/prepare_node_ui_build.sh
+            condition: ne(variables.CACHE_ONLY, 'true')
             displayName: "Prepare NodeUI build"
 
           - task: Windows Application Driver@0
-            condition: eq( variables['Agent.OS'], 'Windows_NT' )
+            condition: and (eq( variables['Agent.OS'], 'Windows_NT' ), ne(variables.CACHE_ONLY, 'true'))
             displayName: "Starting WinAppDriver"
             inputs:
               OperationType: 'Start'
               AgentResolution: '1080p'
 
           - bash: node-ui/ci/build.sh && node-ui/ci/unit_tests.sh && node-ui/ci/integration_tests.sh
+            condition: ne(variables.CACHE_ONLY, 'true')
             displayName: "Build NodeUI and run tests"
 
           - task: Windows Application Driver@0
-            condition: eq( variables['Agent.OS'], 'Windows_NT' )
+            condition: and (eq( variables['Agent.OS'], 'Windows_NT' ), ne(variables.CACHE_ONLY, 'true'))
             displayName: "Stopping WinAppDriver"
             inputs:
               OperationType: 'Stop'
@@ -103,83 +113,83 @@ stages:
             env:
               GITHUB_TOKEN: $(GITHUB_TOKEN)
             displayName: "Collect and publish results"
-            condition: succeededOrFailed()
+            condition: and (succeededOrFailed(), ne(variables.CACHE_ONLY, 'true'))
 
-  - stage: Release
-    displayName: "Release"
-    condition: eq(variables.BUILD_RELEASE_ARTIFACTS, 'true')
-
-    jobs:
-      - job: BuildArtifact
-        strategy:
-          matrix:
-            linux:
-              imageName: "ubuntu-latest"
-            mac:
-              imageName: "macOS-latest"
-            windows:
-              imageName: "windows-latest"
-
-        pool:
-          vmImage: $(imageName)
-
-        steps:
-          - task: CacheBeta@0
-            inputs:
-              key: |
-                "$(rust_version)" | $(Agent.OS) | "v3.7"
-              path: $(Pipeline.Workspace)/toolchains
-              cacheHitVar: NODE_TOOLCHAINS_RESTORED
-
-          - task: NodeTool@0
-            inputs:
-              versionSpec: $(node_version)
-
-          - task: Npm@1
-            inputs:
-              command: 'custom'
-              customCommand: 'install -g yarn'
-
-          - task: DownloadSecureFile@1
-            name: linuxDigitalSignature
-            condition: eq( variables['Agent.OS'], 'Linux' )
-            displayName: "Download digital signature for Linux"
-            inputs:
-              secureFile: 'linux_codesign_key.asc'
-
-          - task: InstallAppleCertificate@2
-            condition: eq( variables['Agent.OS'], 'Darwin' )
-            inputs:
-              certSecureFile: 'macOs-SubstratumServicesCertificates.p12'
-              certPwd: $(PASSPHRASE)
-              keychainPassword: $(PASSPHRASE)
-
-          - bash: gpg --import '$(linuxDigitalSignature.secureFilePath)'
-            condition: eq( variables['Agent.OS'], 'Linux' )
-            displayName: "Install digital signature for Linux"
-
-          - bash: ci/install_node_toolchain.sh '$(Pipeline.Workspace)' '$(rust_version)'
-            condition: ne(variables.NODE_TOOLCHAINS_RESTORED, 'true')
-            displayName: "Install Node toolchain"
-
-          - bash: ci/install_release_toolchain.sh '$(Pipeline.Workspace)'
-            displayName: "Install release toolchain"
-
-          - bash: ci/release.sh '$(Pipeline.Workspace)'
-            env:
-              PASSPHRASE: $(PASSPHRASE)
-              AZURE_KEY_VAULT_URL: $(AZURE_KEY_VAULT_URL)
-              AZURE_KEY_VAULT_CLIENT_ID: $(AZURE_KEY_VAULT_CLIENT_ID)
-              AZURE_KEY_VAULT_CLIENT_SECRET: $(AZURE_KEY_VAULT_CLIENT_SECRET)
-              AZURE_KEY_VAULT_CERTIFICATE: $(AZURE_KEY_VAULT_CERTIFICATE)
-            displayName: "Build and generate artifacts"
-
-          - task: CopyFiles@2
-            inputs:
-              contents: 'SubstratumNode-*.zip'
-              targetFolder: $(Build.ArtifactStagingDirectory)
-
-          - task: PublishBuildArtifacts@1
-            inputs:
-              artifactName: 'SubstratumNode-Build-$(Build.BuildNumber)'
-              pathToPublish: $(Build.ArtifactStagingDirectory)
+#  - stage: Release
+#    displayName: "Release"
+#    condition: eq(variables.BUILD_RELEASE_ARTIFACTS, 'true')
+#
+#    jobs:
+#      - job: BuildArtifact
+#        strategy:
+#          matrix:
+#            linux:
+#              imageName: "ubuntu-latest"
+#            mac:
+#              imageName: "macOS-latest"
+#            windows:
+#              imageName: "windows-latest"
+#
+#        pool:
+#          vmImage: $(imageName)
+#
+#        steps:
+#          - task: CacheBeta@0
+#            inputs:
+#              key: |
+#                "$(rust_version)" | $(Agent.OS) | "v3.7"
+#              path: $(Pipeline.Workspace)/toolchains
+#              cacheHitVar: NODE_TOOLCHAINS_RESTORED
+#
+#          - task: NodeTool@0
+#            inputs:
+#              versionSpec: $(node_version)
+#
+#          - task: Npm@1
+#            inputs:
+#              command: 'custom'
+#              customCommand: 'install -g yarn'
+#
+#          - task: DownloadSecureFile@1
+#            name: linuxDigitalSignature
+#            condition: eq( variables['Agent.OS'], 'Linux' )
+#            displayName: "Download digital signature for Linux"
+#            inputs:
+#              secureFile: 'linux_codesign_key.asc'
+#
+#          - task: InstallAppleCertificate@2
+#            condition: eq( variables['Agent.OS'], 'Darwin' )
+#            inputs:
+#              certSecureFile: 'macOs-SubstratumServicesCertificates.p12'
+#              certPwd: $(PASSPHRASE)
+#              keychainPassword: $(PASSPHRASE)
+#
+#          - bash: gpg --import '$(linuxDigitalSignature.secureFilePath)'
+#            condition: eq( variables['Agent.OS'], 'Linux' )
+#            displayName: "Install digital signature for Linux"
+#
+#          - bash: ci/install_node_toolchain.sh '$(Pipeline.Workspace)' '$(rust_version)'
+#            condition: ne(variables.NODE_TOOLCHAINS_RESTORED, 'true')
+#            displayName: "Install Node toolchain"
+#
+#          - bash: ci/install_release_toolchain.sh '$(Pipeline.Workspace)'
+#            displayName: "Install release toolchain"
+#
+#          - bash: ci/release.sh '$(Pipeline.Workspace)'
+#            env:
+#              PASSPHRASE: $(PASSPHRASE)
+#              AZURE_KEY_VAULT_URL: $(AZURE_KEY_VAULT_URL)
+#              AZURE_KEY_VAULT_CLIENT_ID: $(AZURE_KEY_VAULT_CLIENT_ID)
+#              AZURE_KEY_VAULT_CLIENT_SECRET: $(AZURE_KEY_VAULT_CLIENT_SECRET)
+#              AZURE_KEY_VAULT_CERTIFICATE: $(AZURE_KEY_VAULT_CERTIFICATE)
+#            displayName: "Build and generate artifacts"
+#
+#          - task: CopyFiles@2
+#            inputs:
+#              contents: 'SubstratumNode-*.zip'
+#              targetFolder: $(Build.ArtifactStagingDirectory)
+#
+#          - task: PublishBuildArtifacts@1
+#            inputs:
+#              artifactName: 'SubstratumNode-Build-$(Build.BuildNumber)'
+#              pathToPublish: $(Build.ArtifactStagingDirectory)

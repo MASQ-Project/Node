@@ -11,7 +11,7 @@ impl ServerImpersonator for ServerImpersonatorHttp {
             "Routing Problem",
             format!("Can't find a route to {}", server_name).as_str(),
             format!(
-                "Substratum can't find a route through the Network yet to a Node that knows \
+                "MASQ can't find a route through the Network yet to a Node that knows \
                  where to find {}. Maybe later enough will be known about the Network to \
                  find that Node, but we can't guarantee it. We're sorry.",
                 server_name
@@ -169,7 +169,7 @@ mod tests {
             503,
             "Routing Problem",
             "Can't find a route to server.com",
-            "Substratum can't find a route through the Network yet to a Node that knows \
+            "MASQ can't find a route through the Network yet to a Node that knows \
              where to find server.com. Maybe later enough will be known about the Network to \
              find that Node, but we can't guarantee it. We're sorry.",
         );

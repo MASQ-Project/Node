@@ -14,5 +14,7 @@ cargo clippy -- -D warnings -Anon-snake-case \
     -A clippy::wrong_self_convention \
     -A clippy::clone_double_ref \
     -A clippy::derive_hash_xor_eq \
-    -A clippy::cognitive_complexity
+    -A clippy::cognitive_complexity \
+    -A clippy::inherent_to_string \
+    -A clippy::type_repetition_in_bounds
 popd

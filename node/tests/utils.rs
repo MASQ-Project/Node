@@ -10,7 +10,7 @@ use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 
-pub struct SubstratumNode {
+pub struct MASQNode {
     pub logfile_contents: String,
     child: Option<process::Child>,
     output: Option<Output>,
@@ -38,13 +38,13 @@ impl CommandConfig {
     }
 }
 
-impl Drop for SubstratumNode {
+impl Drop for MASQNode {
     fn drop(&mut self) {
         let _ = self.kill();
     }
 }
 
-impl SubstratumNode {
+impl MASQNode {
     pub fn data_dir() -> Box<Path> {
         let cur_dir = env::current_dir().unwrap();
         let generated_dir = cur_dir.join(Path::new("generated"));
@@ -53,7 +53,7 @@ impl SubstratumNode {
 
     pub fn path_to_logfile() -> Box<Path> {
         Self::data_dir()
-            .join("SubstratumNode_rCURRENT.log")
+            .join("MASQNode_rCURRENT.log")
             .into_boxed_path()
     }
 
@@ -67,12 +67,12 @@ impl SubstratumNode {
     }
 
     #[allow(dead_code)]
-    pub fn start_standard(config: Option<CommandConfig>) -> SubstratumNode {
-        let mut command = SubstratumNode::make_node_command(config);
+    pub fn start_standard(config: Option<CommandConfig>) -> MASQNode {
+        let mut command = MASQNode::make_node_command(config);
         eprintln!("{:?}", command);
         let child = command.spawn().unwrap();
         thread::sleep(Duration::from_millis(500)); // needs time to open logfile and sockets
-        SubstratumNode {
+        MASQNode {
             logfile_contents: String::new(),
             child: Some(child),
             output: None,
@@ -81,7 +81,7 @@ impl SubstratumNode {
 
     #[allow(dead_code)]
     pub fn run_dump_config() -> String {
-        let mut command = SubstratumNode::make_dump_config_command();
+        let mut command = MASQNode::make_dump_config_command();
         let output = command.output().unwrap();
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -90,7 +90,7 @@ impl SubstratumNode {
 
     #[allow(dead_code)]
     pub fn run_generate(config: CommandConfig) -> String {
-        let mut command = SubstratumNode::make_generate_command(config);
+        let mut command = MASQNode::make_generate_command(config);
         let output = command.output().unwrap();
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -99,7 +99,7 @@ impl SubstratumNode {
 
     #[allow(dead_code)]
     pub fn run_recover(config: CommandConfig) -> String {
-        let mut command = SubstratumNode::make_recover_command(config);
+        let mut command = MASQNode::make_recover_command(config);
         let output = command.output().unwrap();
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -117,7 +117,7 @@ impl SubstratumNode {
                 break;
             }
             assert_eq!(
-                SubstratumNode::millis_since(started_at) < real_limit_ms,
+                MASQNode::millis_since(started_at) < real_limit_ms,
                 true,
                 "Timeout: waited for more than {}ms",
                 real_limit_ms
@@ -139,8 +139,8 @@ impl SubstratumNode {
                 Ok(output) => Some(output),
                 Err(e) => panic!("{:?}", e),
             },
-            (Some(_), Some(_)) => panic!("Internal error: Inconsistent SubstratumNode state"),
-            (None, None) => panic!("Internal error: SubstratumNode is already empty"),
+            (Some(_), Some(_)) => panic!("Internal error: Inconsistent MASQ Node state"),
+            (None, None) => panic!("Internal error: MASQ Node is already empty"),
         }
     }
 
@@ -164,7 +164,7 @@ impl SubstratumNode {
                 self.output = Some(output);
                 result
             }
-            (Some(_), Some(_)) => panic!("Internal error: Inconsistent SubstratumNode state"),
+            (Some(_), Some(_)) => panic!("Internal error: Inconsistent MASQ Node state"),
             (None, None) => return Err(io::Error::from(io::ErrorKind::InvalidData)),
         })
     }
@@ -172,8 +172,8 @@ impl SubstratumNode {
     #[cfg(target_os = "windows")]
     pub fn kill(&mut self) {
         let mut command = process::Command::new("taskkill");
-        command.args(&vec!["/IM", "SubstratumNode.exe", "/F"]);
-        let _ = command.output().expect("Couldn't kill SubstratumNode.exe");
+        command.args(&vec!["/IM", "MASQNode.exe", "/F"]);
+        let _ = command.output().expect("Couldn't kill MASQNode.exe");
         self.child.take();
         // Be nice if we could figure out how to populate self.output here
     }
@@ -268,7 +268,7 @@ impl SubstratumNode {
         let mut args = config_opt.unwrap_or(CommandConfig::new()).args;
         if !args.contains(&"--data-directory".to_string()) {
             args.push("--data-directory".to_string());
-            args.push(SubstratumNode::data_dir().to_string_lossy().to_string());
+            args.push(MASQNode::data_dir().to_string_lossy().to_string());
         }
         args
     }
@@ -289,7 +289,7 @@ fn command_to_start() -> process::Command {
         .next()
         .unwrap();
     let bin_dir = &format!("target/{}", debug_or_release);
-    let command_to_start = &format!("{}/SubstratumNode", bin_dir);
+    let command_to_start = &format!("{}/MASQNode", bin_dir);
     process::Command::new(command_to_start)
 }
 
@@ -314,5 +314,5 @@ fn node_command() -> String {
         .next()
         .unwrap();
     let bin_dir = &format!("target\\{}", debug_or_release);
-    format!("{}\\SubstratumNode.exe", bin_dir)
+    format!("{}\\MASQNode.exe", bin_dir)
 }

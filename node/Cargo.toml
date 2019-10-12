@@ -2,9 +2,9 @@
 name = "node"
 version = "1.0.0-rc.4"
 license = "GPL-3.0-only"
-authors = ["Substratum Services"]
+authors = ["Substratum Services", "MASQ"]
 copyright = "Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved."
-description = "SubstratumNode is the foundation of SubstratumNetwork, an open-source network that allows anyone to allocate spare computing resources to make the internet a free and fair place for the entire world."
+description = "MASQ Node is the foundation of  MASQ Network, an open-source network that allows anyone to allocate spare computing resources to make the internet a free and fair place for the entire world."
 edition = "2018"
 
 [workspace]
@@ -72,11 +72,11 @@ openssl = {version = "0.10.24", features = ["vendored"]}
 [target.'cfg(target_os = "windows")'.dependencies]
 
 [[bin]]
-name = "SubstratumNode"
+name = "MASQNode"
 path = "src/main.rs"
 
 [[bin]]
-name = "SubstratumNodeW"
+name = "MASQNodeW"
 path = "src/main_win.rs"
 
 [lib]

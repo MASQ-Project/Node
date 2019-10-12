@@ -11,7 +11,7 @@ module.exports = (() => {
   const cmd = require('node-cmd')
   const sudoPrompt = require('sudo-prompt')
   const treeKill = require('tree-kill')
-  const binaryFilename = (process.platform === 'win32') ? 'SubstratumNodeW' : 'SubstratumNode'
+  const binaryFilename = (process.platform === 'win32') ? 'MASQNodeW' : 'MASQNode'
 
   const windowsRuntimeArgs = ['--dns-servers', '1.0.0.1,1.1.1.1,9.9.9.9,8.8.8.8']
   const unixRuntimeArgs = [...windowsRuntimeArgs, '--real-user', `${realUser()}`]

@@ -16,7 +16,7 @@ use websocket::OwnedMessage;
 #[test]
 fn ui_gateway_message_integration() {
     fdlimit::raise_fd_limit();
-    let mut node = utils::SubstratumNode::start_standard(None);
+    let mut node = utils::MASQNode::start_standard(None);
     node.wait_for_log("UIGateway bound", Some(5000));
     let converter = UiTrafficConverterReal::new();
     let msg = converter
@@ -26,7 +26,7 @@ fn ui_gateway_message_integration() {
     let descriptor_client =
         ClientBuilder::new(format!("ws://{}:{}", localhost(), DEFAULT_UI_PORT).as_str())
             .expect("Couldn't create first ClientBuilder")
-            .add_protocol("SubstratumNode-UI")
+            .add_protocol("MASQNode-UI")
             .async_connect_insecure()
             .and_then(|(s, _)| s.send(OwnedMessage::Text(msg)))
             .and_then(|s| s.into_future().map_err(|e| e.0))
@@ -44,7 +44,7 @@ fn ui_gateway_message_integration() {
     let shutdown_client =
         ClientBuilder::new(format!("ws://{}:{}", localhost(), DEFAULT_UI_PORT).as_str())
             .expect("Couldn't create second ClientBuilder")
-            .add_protocol("SubstratumNode-UI")
+            .add_protocol("MASQNode-UI")
             .async_connect_insecure()
             .and_then(|(s, _)| s.send(OwnedMessage::Text(shutdown_msg)));
 
@@ -63,7 +63,7 @@ fn ui_gateway_message_integration() {
 #[test]
 fn ui_gateway_dot_graph_message_integration() {
     fdlimit::raise_fd_limit();
-    let mut node = utils::SubstratumNode::start_standard(None);
+    let mut node = utils::MASQNode::start_standard(None);
     node.wait_for_log("UIGateway bound", Some(5000));
 
     let converter = UiTrafficConverterReal::new();
@@ -74,7 +74,7 @@ fn ui_gateway_dot_graph_message_integration() {
     let digraph_client =
         ClientBuilder::new(format!("ws://{}:{}", localhost(), DEFAULT_UI_PORT).as_str())
             .unwrap()
-            .add_protocol("SubstratumNode-UI")
+            .add_protocol("MASQNode-UI")
             .async_connect_insecure()
             .and_then(|(s, _)| s.send(OwnedMessage::Text(msg)))
             .and_then(|s| s.into_future().map_err(|e| e.0))
@@ -93,7 +93,7 @@ fn ui_gateway_dot_graph_message_integration() {
     let shutdown_client =
         ClientBuilder::new(format!("ws://{}:{}", localhost(), DEFAULT_UI_PORT).as_str())
             .unwrap()
-            .add_protocol("SubstratumNode-UI")
+            .add_protocol("MASQNode-UI")
             .async_connect_insecure()
             .and_then(|(s, _)| s.send(OwnedMessage::Text(shutdown_msg)));
 
