@@ -237,7 +237,6 @@ impl Validators {
 mod tests {
     use super::*;
     use crate::blockchain::bip32::Bip32ECKeyPair;
-    use crate::blockchain::blockchain_interface::DEFAULT_CHAIN_NAME;
     use crate::bootstrapper::RealUser;
     use crate::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::database::db_initializer;
@@ -394,7 +393,7 @@ mod tests {
         let earning_path = "m/44'/60'/0'/78/77";
         let args = ArgsBuilder::new()
             .opt("--recover-wallet")
-            .param("--chain", DEFAULT_CHAIN_NAME)
+            .param("--chain", TEST_DEFAULT_CHAIN_NAME)
             .param("--data-directory", home_dir.to_str().unwrap())
             .param("--wallet-password", password)
             .param("--consuming-wallet", consuming_path)
@@ -440,7 +439,7 @@ mod tests {
         let phrase = "company replace elder oxygen access into pair squeeze clip occur world crowd";
         let args = ArgsBuilder::new()
             .opt("--recover-wallet")
-            .param("--chain", DEFAULT_CHAIN_NAME)
+            .param("--chain", TEST_DEFAULT_CHAIN_NAME)
             .param("--wallet-password", password)
             .param("--mnemonic", phrase)
             .param("--mnemonic-passphrase", "Mortimer");
@@ -483,7 +482,7 @@ mod tests {
     fn mnemonic_argument_fails_with_invalid_words() {
         let args = ArgsBuilder::new()
             .opt("--recover-wallet")
-            .param("--chain", DEFAULT_CHAIN_NAME)
+            .param("--chain", TEST_DEFAULT_CHAIN_NAME)
             .param(
                 "--mnemonic",
                 "one two three four five six seven eight nine ten eleven twelve",
@@ -581,7 +580,7 @@ mod tests {
         config_dao.set_string("seed", "booga booga").unwrap();
         let args = ArgsBuilder::new()
             .opt("--recover-wallet")
-            .param("--chain", DEFAULT_CHAIN_NAME)
+            .param("--chain", TEST_DEFAULT_CHAIN_NAME)
             .param("--data-directory", data_directory.to_str().unwrap())
             .param("--wallet-password", "rick-rolled");
         let subject = NodeConfiguratorRecoverWallet::new();

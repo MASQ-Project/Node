@@ -69,6 +69,7 @@ use std::time::Instant;
 use std::{fs, io};
 
 pub const DEFAULT_CHAIN_ID: u8 = 3u8; //For testing only
+pub const TEST_DEFAULT_CHAIN_NAME: &str = "ropsten"; //For testing only
 
 lazy_static! {
     static ref CRYPT_DE_NULL: CryptDENull = CryptDENull::new(DEFAULT_CHAIN_ID);

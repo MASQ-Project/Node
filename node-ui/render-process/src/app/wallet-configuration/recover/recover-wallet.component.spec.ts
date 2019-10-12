@@ -171,6 +171,7 @@ describe('RecoverWalletComponent', () => {
         )).thenDo(() => {
           addressResponseSubject.next({consuming: 'theCorrectConsumingAddress', earning: 'theCorrectEarningAddress'});
         });
+        page.setChainName('ropsten');
         page.setMnemonicPhrase(validMnemonicPhrase);
         page.setWalletPassword('password');
         page.changeSameWallet(false);
