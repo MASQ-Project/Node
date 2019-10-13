@@ -394,6 +394,7 @@ mod standard {
                 let cryptde_null =
                     CryptDENull::from(&public_key, config.blockchain_bridge_config.chain_id);
                 config.main_cryptde_null_opt = Some(cryptde_null);
+                config.alias_cryptde_null_opt = Some(CryptDENull::new(config.blockchain_bridge_config.chain_id));
             }
         }
     }

@@ -1050,6 +1050,7 @@ mod tests {
             Parameters::get(parameters.proxy_server_params);
         check_cryptde(actual_main_cryptde);
         check_cryptde(actual_alias_cryptde);
+        assert_ne!(actual_main_cryptde.public_key(), actual_alias_cryptde.public_key());
         assert_eq!(actual_is_decentralized, false);
         assert_eq!(consuming_wallet_balance, Some(0));
         let (cryptde, neighborhood_config) = Parameters::get(parameters.neighborhood_params);
