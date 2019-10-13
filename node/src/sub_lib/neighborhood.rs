@@ -340,7 +340,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::sub_lib::utils::localhost;
     use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::{cryptde, DEFAULT_CHAIN_ID};
+    use crate::test_utils::{main_cryptde, DEFAULT_CHAIN_ID};
     use actix::Actor;
     use std::str::FromStr;
 
@@ -376,7 +376,7 @@ mod tests {
 
     #[test]
     fn node_descriptor_from_str_requires_two_pieces_to_a_configuration() {
-        let result = NodeDescriptor::from_str(cryptde(), "only_one_piece", DEFAULT_CHAIN_ID);
+        let result = NodeDescriptor::from_str(main_cryptde(), "only_one_piece", DEFAULT_CHAIN_ID);
 
         assert_eq!(result, Err(String::from("only_one_piece")));
     }
@@ -384,7 +384,7 @@ mod tests {
     #[test]
     fn node_descriptor_from_str_complains_about_bad_base_64() {
         let result =
-            NodeDescriptor::from_str(cryptde(), "bad_key:1.2.3.4:1234;2345", DEFAULT_CHAIN_ID);
+            NodeDescriptor::from_str(main_cryptde(), "bad_key:1.2.3.4:1234;2345", DEFAULT_CHAIN_ID);
 
         assert_eq!(
             result,
@@ -394,7 +394,7 @@ mod tests {
 
     #[test]
     fn node_descriptor_from_str_complains_about_blank_public_key() {
-        let result = NodeDescriptor::from_str(cryptde(), ":1.2.3.4:1234;2345", DEFAULT_CHAIN_ID);
+        let result = NodeDescriptor::from_str(main_cryptde(), ":1.2.3.4:1234;2345", DEFAULT_CHAIN_ID);
 
         assert_eq!(result, Err(String::from("Public key cannot be empty")));
     }
@@ -402,7 +402,7 @@ mod tests {
     #[test]
     fn node_descriptor_from_str_complains_about_bad_node_addr() {
         let result =
-            NodeDescriptor::from_str(cryptde(), "R29vZEtleQ==:BadNodeAddr", DEFAULT_CHAIN_ID);
+            NodeDescriptor::from_str(main_cryptde(), "R29vZEtleQ==:BadNodeAddr", DEFAULT_CHAIN_ID);
 
         assert_eq!(result, Err(String::from("R29vZEtleQ==:BadNodeAddr")));
     }
@@ -410,7 +410,7 @@ mod tests {
     #[test]
     fn node_descriptor_from_str_handles_the_happy_path_with_node_addr() {
         let result = NodeDescriptor::from_str(
-            cryptde(),
+            main_cryptde(),
             "R29vZEtleQ:1.2.3.4:1234;2345;3456",
             DEFAULT_CHAIN_ID,
         );
@@ -429,7 +429,7 @@ mod tests {
 
     #[test]
     fn node_descriptor_from_str_handles_the_happy_path_without_node_addr() {
-        let result = NodeDescriptor::from_str(cryptde(), "R29vZEtleQ::", DEFAULT_CHAIN_ID);
+        let result = NodeDescriptor::from_str(main_cryptde(), "R29vZEtleQ::", DEFAULT_CHAIN_ID);
 
         assert_eq!(
             result.unwrap(),
@@ -444,7 +444,7 @@ mod tests {
     fn node_descriptor_from_str_accepts_mainnet_delimiter() {
         let chain_id = chain_id_from_name("mainnet");
         let result =
-            NodeDescriptor::from_str(cryptde(), "R29vZEtleQ@1.2.3.4:1234;2345;3456", chain_id);
+            NodeDescriptor::from_str(main_cryptde(), "R29vZEtleQ@1.2.3.4:1234;2345;3456", chain_id);
 
         assert_eq!(
             result.unwrap(),

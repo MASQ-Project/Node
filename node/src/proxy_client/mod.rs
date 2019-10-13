@@ -452,7 +452,7 @@ mod tests {
     )]
     fn at_least_one_dns_server_must_be_provided() {
         ProxyClient::new(ProxyClientConfig {
-            cryptde: cryptde(),
+            cryptde: main_cryptde(),
             dns_servers: vec![],
             exit_service_rate: 100,
             exit_byte_rate: 200,
@@ -476,7 +476,7 @@ mod tests {
             .make_result(Box::new(pool));
         let peer_actors = peer_actors_builder().build();
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde: cryptde(),
+            cryptde: main_cryptde(),
             dns_servers: vec![
                 SocketAddr::from_str("4.3.2.1:4321").unwrap(),
                 SocketAddr::from_str("5.4.3.2:5432").unwrap(),
@@ -533,7 +533,7 @@ mod tests {
             protocol: ProxyProtocol::HTTP,
             originator_public_key: PublicKey::new(&b"originator_public_key"[..]),
         };
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let package = ExpiredCoresPackage::new(
             SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             Some(make_wallet("consuming")),
@@ -559,7 +559,7 @@ mod tests {
     #[test]
     fn logs_nonexistent_stream_key_during_dns_resolution_failure() {
         init_test_logging();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let stream_key = make_meaningless_stream_key();
         let stream_key_inner = stream_key.clone();
         thread::spawn(move || {
@@ -592,7 +592,7 @@ mod tests {
     #[test]
     fn forwards_dns_resolve_failed_to_hopper() {
         init_test_logging();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
         let stream_key = make_meaningless_stream_key();
         let return_route = make_meaningless_route();
@@ -657,7 +657,7 @@ mod tests {
 
     #[test]
     fn data_from_hopper_is_relayed_to_stream_handler_pool() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let request = ClientRequestPayload {
             version: ClientRequestPayload::version(),
             stream_key: make_meaningless_stream_key(),
@@ -713,7 +713,7 @@ mod tests {
     #[test]
     fn refuse_to_provide_exit_services_with_no_paying_wallet() {
         init_test_logging();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let request = ClientRequestPayload {
             version: ClientRequestPayload::version(),
             stream_key: make_meaningless_stream_key(),
@@ -768,7 +768,7 @@ mod tests {
 
     #[test]
     fn does_provide_zero_hop_exit_services_with_no_paying_wallet() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let request = ClientRequestPayload {
             version: ClientRequestPayload::version(),
             stream_key: make_meaningless_stream_key(),
@@ -830,7 +830,7 @@ mod tests {
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
         let system = System::new("inbound_server_data_is_translated_to_cores_packages");
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde: cryptde(),
+            cryptde: main_cryptde(),
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
             exit_service_rate: 100,
             exit_byte_rate: 200,
@@ -894,7 +894,7 @@ mod tests {
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(0),
             &IncipientCoresPackage::new(
-                cryptde(),
+                main_cryptde(),
                 make_meaningless_route(),
                 MessageType::ClientResponse(ClientResponsePayload {
                     version: ClientResponsePayload::version(),
@@ -912,7 +912,7 @@ mod tests {
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(1),
             &IncipientCoresPackage::new(
-                cryptde(),
+                main_cryptde(),
                 make_meaningless_route(),
                 MessageType::ClientResponse(ClientResponsePayload {
                     version: ClientResponsePayload::version(),
@@ -962,7 +962,7 @@ mod tests {
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
         let system = System::new("inbound_server_data_is_translated_to_cores_packages");
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde: cryptde(),
+            cryptde: main_cryptde(),
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
             exit_service_rate: 100,
             exit_byte_rate: 200,
@@ -1012,7 +1012,7 @@ mod tests {
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
         let system = System::new("inbound_server_data_is_translated_to_cores_packages");
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde: cryptde(),
+            cryptde: main_cryptde(),
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
             exit_service_rate: 100,
             exit_byte_rate: 200,
@@ -1053,7 +1053,7 @@ mod tests {
 
     #[test]
     fn new_return_route_overwrites_existing_return_route() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let stream_key = make_meaningless_stream_key();

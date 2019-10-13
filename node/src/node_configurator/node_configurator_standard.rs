@@ -393,7 +393,7 @@ mod standard {
                 };
                 let cryptde_null =
                     CryptDENull::from(&public_key, config.blockchain_bridge_config.chain_id);
-                config.cryptde_null_opt = Some(cryptde_null);
+                config.main_cryptde_null_opt = Some(cryptde_null);
             }
         }
     }
@@ -1286,7 +1286,7 @@ mod tests {
         );
         assert_eq!(config.data_directory, home_dir);
         assert_eq!(
-            config.cryptde_null_opt.unwrap().public_key(),
+            config.main_cryptde_null_opt.unwrap().public_key(),
             &PublicKey::new(&[1, 2, 3, 4]),
         );
         assert_eq!(
@@ -1404,7 +1404,7 @@ mod tests {
             IpAddr::from_str("1.2.3.4").unwrap()
         );
         assert_eq!(config.ui_gateway_config.ui_port, 5333);
-        assert!(config.cryptde_null_opt.is_none());
+        assert!(config.main_cryptde_null_opt.is_none());
         assert_eq!(config.real_user, RealUser::null().populate());
     }
 

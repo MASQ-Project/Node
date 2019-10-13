@@ -60,7 +60,7 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
         config: BootstrapperConfig,
         actor_factory: Box<dyn ActorFactory>,
     ) -> StreamHandlerPoolSubs {
-        let cryptde = bootstrapper::cryptde_ref();
+        let cryptde = bootstrapper::main_cryptde_ref();
         let (tx, rx) = mpsc::channel();
 
         ActorSystemFactoryReal::prepare_initial_messages(cryptde, config, actor_factory, tx);
@@ -422,10 +422,10 @@ mod tests {
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
     use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage};
-    use crate::test_utils::rate_pack;
+    use crate::test_utils::{rate_pack, alias_cryptde};
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
-    use crate::test_utils::{cryptde, make_wallet, DEFAULT_CHAIN_ID};
+    use crate::test_utils::{main_cryptde, make_wallet, DEFAULT_CHAIN_ID};
     use actix::System;
     use log::LevelFilter;
     use std::cell::RefCell;
@@ -946,10 +946,14 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
-            cryptde_null_opt: None,
+            main_cryptde_null_opt: None,
+            alias_cryptde_null_opt: None,
             real_user: RealUser::null(),
         };
-        Bootstrapper::pub_initialize_cryptde_for_testing(&Some(cryptde().clone()));
+        Bootstrapper::pub_initialize_cryptdes_for_testing(
+            &Some(main_cryptde().clone()),
+            &Some(alias_cryptde().clone())
+        );
         let subject = ActorSystemFactoryReal {};
 
         let system = System::new("test");
@@ -1001,14 +1005,15 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
-            cryptde_null_opt: None,
+            main_cryptde_null_opt: None,
+            alias_cryptde_null_opt: None,
             real_user: RealUser::null(),
         };
         let (tx, rx) = mpsc::channel();
         let system = System::new("MASQNode");
 
         ActorSystemFactoryReal::prepare_initial_messages(
-            cryptde(),
+            main_cryptde(),
             config.clone(),
             Box::new(actor_factory),
             tx,
@@ -1103,14 +1108,15 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet: None,
             data_directory: PathBuf::new(),
-            cryptde_null_opt: None,
+            main_cryptde_null_opt: None,
+            alias_cryptde_null_opt: None,
             real_user: RealUser::null(),
         };
         let (tx, _) = mpsc::channel();
         let system = System::new("MASQNode");
 
         ActorSystemFactoryReal::prepare_initial_messages(
-            cryptde(),
+            main_cryptde(),
             config.clone(),
             Box::new(actor_factory),
             tx,
@@ -1167,7 +1173,7 @@ mod tests {
         let crypt_data = candidate
             .encode(&candidate.public_key(), &plain_data)
             .unwrap();
-        let result = cryptde().decode(&crypt_data).unwrap();
+        let result = main_cryptde().decode(&crypt_data).unwrap();
         assert_eq!(result, plain_data);
     }
 }

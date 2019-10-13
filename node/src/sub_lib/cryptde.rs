@@ -578,7 +578,7 @@ pub fn create_digest(msg: &dyn AsRef<[u8]>, address: &dyn AsRef<[u8]>) -> [u8; 3
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{cryptde, DEFAULT_CHAIN_ID};
+    use crate::test_utils::{main_cryptde, DEFAULT_CHAIN_ID};
     use rustc_hex::{FromHex, FromHexError};
     use serde::de;
     use serde::ser;
@@ -926,7 +926,7 @@ mod tests {
 
     #[test]
     fn encodex_and_decodex_communicate() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let start = TestStruct::make();
 
         let intermediate = encodex(cryptde, &cryptde.public_key(), &start).unwrap();
@@ -937,7 +937,7 @@ mod tests {
 
     #[test]
     fn encodex_produces_expected_data() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let start = TestStruct::make();
 
         let intermediate = super::encodex(cryptde, &cryptde.public_key(), &start).unwrap();
@@ -950,7 +950,7 @@ mod tests {
 
     #[test]
     fn decodex_produces_expected_structure() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let serialized = serde_cbor::ser::to_vec(&TestStruct::make()).unwrap();
         let encrypted = cryptde
             .encode(&cryptde.public_key(), &PlainData::from(serialized))
@@ -963,7 +963,7 @@ mod tests {
 
     #[test]
     fn encodex_handles_encryption_error() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let item = TestStruct::make();
 
         let result = encodex(cryptde, &PublicKey::new(&[]), &item);
@@ -973,7 +973,7 @@ mod tests {
 
     #[test]
     fn decodex_handles_decryption_error() {
-        let mut cryptde = cryptde().clone();
+        let mut cryptde = main_cryptde().clone();
         cryptde.set_key_pair(&PublicKey::new(&[]), DEFAULT_CHAIN_ID);
         let data = CryptData::new(&b"booga"[..]);
 
@@ -1005,7 +1005,7 @@ mod tests {
 
     #[test]
     fn encodex_handles_serialization_error() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let item = BadSerStruct { flag: true };
 
         let result = encodex(cryptde, &cryptde.public_key(), &item);
@@ -1020,7 +1020,7 @@ mod tests {
 
     #[test]
     fn decodex_handles_deserialization_error() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let data = cryptde
             .encode(&cryptde.public_key(), &PlainData::new(b"whompem"))
             .unwrap();

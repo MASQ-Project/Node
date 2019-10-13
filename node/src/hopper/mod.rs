@@ -134,7 +134,7 @@ mod tests {
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
     use crate::test_utils::{
-        cryptde, make_meaningless_message_type, make_paying_wallet, route_to_proxy_client,
+        main_cryptde, make_meaningless_message_type, make_paying_wallet, route_to_proxy_client,
         DEFAULT_CHAIN_ID,
     };
     use actix::Actor;
@@ -145,7 +145,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Hopper unbound: no RoutingService")]
     fn panics_if_routing_service_is_unbound() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let route = route_to_proxy_client(&cryptde.public_key(), cryptde);
         let serialized_payload = serde_cbor::ser::to_vec(&make_meaningless_message_type()).unwrap();
@@ -188,7 +188,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Hopper unbound: no ConsumingService")]
     fn panics_if_consuming_service_is_unbound() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let next_key = PublicKey::new(&[65, 65, 65]);
         let route = Route::one_way(

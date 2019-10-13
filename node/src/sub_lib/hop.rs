@@ -51,7 +51,7 @@ impl LiveHop {
 mod tests {
     use super::*;
     use crate::blockchain::blockchain_interface::contract_address;
-    use crate::test_utils::{cryptde, make_paying_wallet, DEFAULT_CHAIN_ID};
+    use crate::test_utils::{main_cryptde, make_paying_wallet, DEFAULT_CHAIN_ID};
 
     #[test]
     fn can_construct_hop() {
@@ -70,7 +70,7 @@ mod tests {
 
     #[test]
     fn decode_can_handle_errors() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let encrypted = CryptData::new(&[0]);
 
         let result = LiveHop::decode(cryptde, &encrypted);
@@ -86,7 +86,7 @@ mod tests {
 
     #[test]
     fn encode_decode() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let encode_key = cryptde.public_key();
         let contract_address = &contract_address(DEFAULT_CHAIN_ID);

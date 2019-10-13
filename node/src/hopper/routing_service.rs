@@ -399,7 +399,7 @@ mod tests {
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use crate::test_utils::{
-        cryptde, make_meaningless_message_type, make_meaningless_stream_key, make_paying_wallet,
+        main_cryptde, make_meaningless_message_type, make_meaningless_stream_key, make_paying_wallet,
         make_request_payload, make_response_payload, rate_pack_routing, rate_pack_routing_byte,
         route_from_proxy_client, route_to_proxy_client, route_to_proxy_server, DEFAULT_CHAIN_ID,
     };
@@ -410,7 +410,7 @@ mod tests {
     #[test]
     fn dns_resolution_failures_are_reported_to_the_proxy_server() {
         init_test_logging();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let route = route_to_proxy_server(&cryptde.public_key(), cryptde);
         let stream_key = make_meaningless_stream_key();
         let dns_resolve_failure = DnsResolveFailure::new(stream_key);
@@ -465,7 +465,7 @@ mod tests {
     #[test]
     fn logs_and_ignores_message_that_cannot_be_decoded() {
         init_test_logging();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let route = route_from_proxy_client(&cryptde.public_key(), cryptde);
         let lcp = LiveCoresPackage::new(
             route,
@@ -505,7 +505,7 @@ mod tests {
     #[test]
     fn logs_and_ignores_message_that_had_invalid_destination() {
         init_test_logging();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let route = route_from_proxy_client(&cryptde.public_key(), cryptde);
         let payload = GossipBuilder::empty();
         let lcp = LiveCoresPackage::new(
@@ -550,7 +550,7 @@ mod tests {
     fn converts_live_message_to_expired_for_proxy_client() {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let (component, _, component_recording_arc) = make_recorder();
         let route = route_to_proxy_client(&cryptde.public_key(), cryptde);
         let payload = make_request_payload(0, cryptde);
@@ -608,7 +608,7 @@ mod tests {
     fn converts_live_message_to_expired_for_proxy_server() {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let (component, _, component_recording_arc) = make_recorder();
         let route = route_to_proxy_server(&cryptde.public_key(), cryptde);
         let payload = make_response_payload(0, cryptde);
@@ -667,7 +667,7 @@ mod tests {
     fn converts_live_message_to_expired_for_neighborhood() {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let (component, _, component_recording_arc) = make_recorder();
         let mut route = Route::one_way(
             RouteSegment::new(
@@ -734,7 +734,7 @@ mod tests {
     fn passes_on_inbound_client_data_not_meant_for_this_node() {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let address_paying_wallet = Wallet::from(paying_wallet.address());
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
@@ -822,7 +822,7 @@ mod tests {
     fn reprocesses_inbound_client_data_meant_for_this_node_and_destined_for_hopper() {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let route = Route::one_way(
@@ -897,7 +897,7 @@ mod tests {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
         init_test_logging();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let origin_key = PublicKey::new(&[1, 2]);
         let origin_cryptde = CryptDENull::from(&origin_key, DEFAULT_CHAIN_ID);
         let destination_key = PublicKey::new(&[3, 4]);
@@ -975,7 +975,7 @@ mod tests {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
         init_test_logging();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let public_key = cryptde.public_key();
         let payload = ClientRequest(make_request_payload(0, cryptde));
         let paying_wallet = Some(make_paying_wallet(b"paying wallet"));
@@ -1069,7 +1069,7 @@ mod tests {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
         init_test_logging();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let current_key = cryptde.public_key();
         let origin_key = PublicKey::new(&[1, 2]);
         let destination_key = PublicKey::new(&[5, 6]);
@@ -1161,7 +1161,7 @@ mod tests {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
         init_test_logging();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let contract_address = contract_address(DEFAULT_CHAIN_ID);
         BAN_CACHE.insert(paying_wallet.clone());
@@ -1226,7 +1226,7 @@ mod tests {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
         init_test_logging();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         BAN_CACHE.insert(paying_wallet.clone());
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
@@ -1311,7 +1311,7 @@ mod tests {
             .dispatcher(dispatcher)
             .build();
         let subject = RoutingService::new(
-            cryptde(),
+            main_cryptde(),
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -1341,7 +1341,7 @@ mod tests {
     #[test]
     fn route_logs_and_ignores_invalid_live_cores_package() {
         init_test_logging();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let lcp = LiveCoresPackage::new(Route { hops: vec![] }, CryptData::new(&[]));
         let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
         let data_enc = cryptde.encode(&cryptde.public_key(), &data_ser).unwrap();
@@ -1397,7 +1397,7 @@ mod tests {
         init_test_logging();
         let peer_actors = peer_actors_builder().build();
         let subject = RoutingService::new(
-            cryptde(),
+            main_cryptde(),
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
