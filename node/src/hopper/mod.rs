@@ -21,6 +21,7 @@ use routing_service::RoutingService;
 
 pub struct Hopper {
     main_cryptde: &'static dyn CryptDE,
+    alias_cryptde: &'static dyn CryptDE,
     consuming_service: Option<ConsumingService>,
     routing_service: Option<RoutingService>,
     per_routing_service: u64,
@@ -44,6 +45,7 @@ impl Handler<BindMessage> for Hopper {
         ));
         self.routing_service = Some(RoutingService::new(
             self.main_cryptde,
+            self.alias_cryptde,
             RoutingServiceSubs {
                 proxy_client_subs: msg.peer_actors.proxy_client,
                 proxy_server_subs: msg.peer_actors.proxy_server,
@@ -104,6 +106,7 @@ impl Hopper {
     pub fn new(config: HopperConfig) -> Hopper {
         Hopper {
             main_cryptde: config.main_cryptde,
+            alias_cryptde: config.alias_cryptde,
             consuming_service: None,
             routing_service: None,
             per_routing_service: config.per_routing_service,

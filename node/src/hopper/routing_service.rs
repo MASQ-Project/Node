@@ -25,7 +25,8 @@ pub struct RoutingServiceSubs {
 }
 
 pub struct RoutingService {
-    cryptde: &'static dyn CryptDE,
+    main_cryptde: &'static dyn CryptDE,
+    alias_cryptde: &'static dyn CryptDE,
     routing_service_subs: RoutingServiceSubs,
     per_routing_service: u64,
     per_routing_byte: u64,
@@ -35,14 +36,16 @@ pub struct RoutingService {
 
 impl RoutingService {
     pub fn new(
-        cryptde: &'static dyn CryptDE,
+        main_cryptde: &'static dyn CryptDE,
+        alias_cryptde: &'static dyn CryptDE,
         routing_service_subs: RoutingServiceSubs,
         per_routing_service: u64,
         per_routing_byte: u64,
         is_decentralized: bool,
     ) -> RoutingService {
         RoutingService {
-            cryptde,
+            main_cryptde,
+            alias_cryptde,
             routing_service_subs,
             per_routing_service,
             per_routing_byte,
@@ -64,7 +67,7 @@ impl RoutingService {
         let ibcd_but_data = ibcd.clone_but_data();
 
         let live_package =
-            match decodex::<LiveCoresPackage>(self.cryptde, &CryptData::new(&ibcd.data[..])) {
+            match decodex::<LiveCoresPackage>(self.main_cryptde, &CryptData::new(&ibcd.data[..])) {
                 Ok(lcp) => lcp,
                 Err(e) => {
                     error!(
@@ -78,7 +81,7 @@ impl RoutingService {
                 }
             };
 
-        let next_hop = match live_package.route.next_hop(self.cryptde.borrow()) {
+        let next_hop = match live_package.route.next_hop(self.main_cryptde.borrow()) {
             Ok(hop) => hop,
             Err(e) => {
                 error!(
@@ -120,7 +123,7 @@ impl RoutingService {
     }
 
     fn is_destined_for_here(&self, next_hop: &LiveHop) -> bool {
-        &next_hop.public_key == self.cryptde.public_key()
+        &next_hop.public_key == self.main_cryptde.public_key()
     }
 
     fn route_data_internally(
@@ -152,7 +155,7 @@ impl RoutingService {
                 next_hop.component,
                 immediate_neighbor_addr,
                 live_package,
-                next_hop.payer_owns_secret_key(&self.cryptde.digest()),
+                next_hop.payer_owns_secret_key(&self.main_cryptde.digest()),
             )
         }
     }
@@ -162,14 +165,14 @@ impl RoutingService {
         live_package: LiveCoresPackage,
         ibcd_but_data: &InboundClientData,
     ) {
-        let (_, next_lcp) = match live_package.to_next_live(self.cryptde) {
+        let (_, next_lcp) = match live_package.to_next_live(self.main_cryptde) {
             Ok(x) => x,
             Err(e) => {
                 error!(self.logger, "bad zero-hop route: {:?}", e);
                 return;
             }
         };
-        let payload = encodex(self.cryptde, &self.cryptde.public_key(), &next_lcp)
+        let payload = encodex(self.main_cryptde, &self.main_cryptde.public_key(), &next_lcp)
             .expect("Encryption of LiveCoresPackage failed");
         let inbound_client_data = InboundClientData {
             peer_addr: ibcd_but_data.peer_addr,
@@ -195,7 +198,7 @@ impl RoutingService {
     ) {
         let data_len = live_package.payload.len();
         let expired_package =
-            match live_package.to_expired(immediate_neighbor_addr, self.cryptde.borrow()) {
+            match live_package.to_expired(immediate_neighbor_addr, self.main_cryptde.borrow()) {
                 Ok(pkg) => pkg,
                 Err(e) => {
                     error!(
@@ -289,7 +292,7 @@ impl RoutingService {
         let payload_size = live_package.payload.len();
         match payer {
             Some(payer) => {
-                if !payer.owns_secret_key(&self.cryptde.digest()) {
+                if !payer.owns_secret_key(&self.main_cryptde.digest()) {
                     warning!(self.logger,
                         "Refusing to route Live CORES package with {}-byte payload without proof of {} paying wallet ownership.",
                         payload_size, payer.wallet
@@ -352,7 +355,7 @@ impl RoutingService {
         live_package: LiveCoresPackage,
         last_data: bool,
     ) -> Result<TransmitDataMsg, CryptdecError> {
-        let (next_hop, next_live_package) = match live_package.to_next_live(self.cryptde.borrow()) {
+        let (next_hop, next_live_package) = match live_package.to_next_live(self.main_cryptde.borrow()) {
             Err(e) => {
                 let msg = format!(
                     "Couldn't get next hop and outgoing LCP from incoming LCP: {:?}",
@@ -364,7 +367,7 @@ impl RoutingService {
             Ok(p) => p,
         };
         let next_live_package_enc =
-            match encodex(self.cryptde, &next_hop.public_key, &next_live_package) {
+            match encodex(self.main_cryptde, &next_hop.public_key, &next_live_package) {
                 Ok(nlpe) => nlpe,
                 Err(e) => {
                     let msg = format!("Couldn't serialize or encrypt outgoing LCP: {}", e);
@@ -398,11 +401,7 @@ mod tests {
     use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
-    use crate::test_utils::{
-        main_cryptde, make_meaningless_message_type, make_meaningless_stream_key, make_paying_wallet,
-        make_request_payload, make_response_payload, rate_pack_routing, rate_pack_routing_byte,
-        route_from_proxy_client, route_to_proxy_client, route_to_proxy_server, DEFAULT_CHAIN_ID,
-    };
+    use crate::test_utils::{main_cryptde, make_meaningless_message_type, make_meaningless_stream_key, make_paying_wallet, make_request_payload, make_response_payload, rate_pack_routing, rate_pack_routing_byte, route_from_proxy_client, route_to_proxy_client, route_to_proxy_server, DEFAULT_CHAIN_ID, alias_cryptde};
     use actix::System;
     use std::net::SocketAddr;
     use std::str::FromStr;
@@ -410,20 +409,21 @@ mod tests {
     #[test]
     fn dns_resolution_failures_are_reported_to_the_proxy_server() {
         init_test_logging();
-        let cryptde = main_cryptde();
-        let route = route_to_proxy_server(&cryptde.public_key(), cryptde);
+        let main_cryptde = main_cryptde();
+        let alias_cryptde = alias_cryptde();
+        let route = route_to_proxy_server(&main_cryptde.public_key(), main_cryptde);
         let stream_key = make_meaningless_stream_key();
         let dns_resolve_failure = DnsResolveFailure::new(stream_key);
         let lcp = LiveCoresPackage::new(
             route,
             encodex(
-                cryptde,
-                &cryptde.public_key(),
+                main_cryptde,
+                &main_cryptde.public_key(),
                 &MessageType::DnsResolveFailed(dns_resolve_failure.clone()),
             )
             .unwrap(),
         );
-        let data_enc = encodex(cryptde, &cryptde.public_key(), &lcp).unwrap();
+        let data_enc = encodex(main_cryptde, &main_cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
@@ -437,7 +437,8 @@ mod tests {
         let system = System::new("dns_resolution_failures_are_reported_to_the_proxy_server");
         let peer_actors = peer_actors_builder().proxy_server(proxy_server).build();
         let subject = RoutingService::new(
-            cryptde,
+            main_cryptde,
+            alias_cryptde,
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -465,13 +466,14 @@ mod tests {
     #[test]
     fn logs_and_ignores_message_that_cannot_be_decoded() {
         init_test_logging();
-        let cryptde = main_cryptde();
-        let route = route_from_proxy_client(&cryptde.public_key(), cryptde);
+        let main_cryptde = main_cryptde();
+        let alias_cryptde = alias_cryptde();
+        let route = route_from_proxy_client(&main_cryptde.public_key(), main_cryptde);
         let lcp = LiveCoresPackage::new(
             route,
-            encodex(cryptde, &cryptde.public_key(), &[42u8]).unwrap(),
+            encodex(main_cryptde, &main_cryptde.public_key(), &[42u8]).unwrap(),
         );
-        let data_enc = encodex(cryptde, &cryptde.public_key(), &lcp).unwrap();
+        let data_enc = encodex(main_cryptde, &main_cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
@@ -482,7 +484,8 @@ mod tests {
         };
         let peer_actors = peer_actors_builder().build();
         let subject = RoutingService::new(
-            cryptde,
+            main_cryptde,
+            alias_cryptde,
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -505,19 +508,20 @@ mod tests {
     #[test]
     fn logs_and_ignores_message_that_had_invalid_destination() {
         init_test_logging();
-        let cryptde = main_cryptde();
-        let route = route_from_proxy_client(&cryptde.public_key(), cryptde);
+        let main_cryptde = main_cryptde();
+        let alias_cryptde = alias_cryptde();
+        let route = route_from_proxy_client(&main_cryptde.public_key(), main_cryptde);
         let payload = GossipBuilder::empty();
         let lcp = LiveCoresPackage::new(
             route,
             encodex(
-                cryptde,
-                &cryptde.public_key(),
+                main_cryptde,
+                &main_cryptde.public_key(),
                 &MessageType::Gossip(payload),
             )
             .unwrap(),
         );
-        let data_enc = encodex(cryptde, &cryptde.public_key(), &lcp).unwrap();
+        let data_enc = encodex(main_cryptde, &main_cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
@@ -528,7 +532,8 @@ mod tests {
         };
         let peer_actors = peer_actors_builder().build();
         let subject = RoutingService::new(
-            cryptde,
+            main_cryptde,
+            alias_cryptde,
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -550,18 +555,19 @@ mod tests {
     fn converts_live_message_to_expired_for_proxy_client() {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
-        let cryptde = main_cryptde();
+        let main_cryptde = main_cryptde();
+        let alias_cryptde = alias_cryptde();
         let (component, _, component_recording_arc) = make_recorder();
-        let route = route_to_proxy_client(&cryptde.public_key(), cryptde);
-        let payload = make_request_payload(0, cryptde);
+        let route = route_to_proxy_client(&main_cryptde.public_key(), main_cryptde);
+        let payload = make_request_payload(0, main_cryptde);
         let lcp = LiveCoresPackage::new(
             route,
-            encodex::<MessageType>(cryptde, &cryptde.public_key(), &payload.clone().into())
+            encodex::<MessageType>(main_cryptde, &main_cryptde.public_key(), &payload.clone().into())
                 .unwrap(),
         );
         let lcp_a = lcp.clone();
         let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
-        let data_enc = cryptde.encode(&cryptde.public_key(), &data_ser).unwrap();
+        let data_enc = main_cryptde.encode(&main_cryptde.public_key(), &data_ser).unwrap();
         let inbound_client_data = InboundClientData {
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
@@ -574,7 +580,8 @@ mod tests {
         let system = System::new("converts_live_message_to_expired_for_proxy_client");
         let peer_actors = peer_actors_builder().proxy_client(component).build();
         let subject = RoutingService::new(
-            cryptde,
+            main_cryptde,
+            alias_cryptde,
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -595,7 +602,7 @@ mod tests {
         let component_recording = component_recording_arc.lock().unwrap();
         let record = component_recording.get_record::<ExpiredCoresPackage<ClientRequestPayload>>(0);
         let expected_ecp = lcp_a
-            .to_expired(SocketAddr::from_str("1.2.3.4:5678").unwrap(), cryptde)
+            .to_expired(SocketAddr::from_str("1.2.3.4:5678").unwrap(), main_cryptde)
             .unwrap();
         assert_eq!(record.immediate_neighbor, expected_ecp.immediate_neighbor);
         assert_eq!(record.paying_wallet, expected_ecp.paying_wallet);
@@ -608,18 +615,19 @@ mod tests {
     fn converts_live_message_to_expired_for_proxy_server() {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
-        let cryptde = main_cryptde();
+        let main_cryptde = main_cryptde();
+        let alias_cryptde = alias_cryptde();
         let (component, _, component_recording_arc) = make_recorder();
-        let route = route_to_proxy_server(&cryptde.public_key(), cryptde);
-        let payload = make_response_payload(0, cryptde);
+        let route = route_to_proxy_server(&main_cryptde.public_key(), main_cryptde);
+        let payload = make_response_payload(0, main_cryptde);
         let lcp = LiveCoresPackage::new(
             route,
-            encodex::<MessageType>(cryptde, &cryptde.public_key(), &payload.clone().into())
+            encodex::<MessageType>(main_cryptde, &main_cryptde.public_key(), &payload.clone().into())
                 .unwrap(),
         );
         let lcp_a = lcp.clone();
         let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
-        let data_enc = cryptde.encode(&cryptde.public_key(), &data_ser).unwrap();
+        let data_enc = main_cryptde.encode(&main_cryptde.public_key(), &data_ser).unwrap();
         let inbound_client_data = InboundClientData {
             peer_addr: SocketAddr::from_str("1.3.2.4:5678").unwrap(),
             reception_port: None,
@@ -632,7 +640,8 @@ mod tests {
         let system = System::new("converts_live_message_to_expired_for_proxy_server");
         let peer_actors = peer_actors_builder().proxy_server(component).build();
         let subject = RoutingService::new(
-            cryptde,
+            main_cryptde,
+            alias_cryptde,
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -654,7 +663,7 @@ mod tests {
         let record =
             component_recording.get_record::<ExpiredCoresPackage<ClientResponsePayload>>(0);
         let expected_ecp = lcp_a
-            .to_expired(SocketAddr::from_str("1.3.2.4:5678").unwrap(), cryptde)
+            .to_expired(SocketAddr::from_str("1.3.2.4:5678").unwrap(), main_cryptde)
             .unwrap();
         assert_eq!(record.immediate_neighbor, expected_ecp.immediate_neighbor);
         assert_eq!(record.paying_wallet, expected_ecp.paying_wallet);
@@ -667,27 +676,28 @@ mod tests {
     fn converts_live_message_to_expired_for_neighborhood() {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
-        let cryptde = main_cryptde();
+        let main_cryptde = main_cryptde();
+        let alias_cryptde = alias_cryptde();
         let (component, _, component_recording_arc) = make_recorder();
         let mut route = Route::one_way(
             RouteSegment::new(
-                vec![&cryptde.public_key(), &cryptde.public_key()],
+                vec![&main_cryptde.public_key(), &main_cryptde.public_key()],
                 Component::Neighborhood,
             ),
-            cryptde,
+            main_cryptde,
             None,
             None,
         )
         .unwrap();
-        route.shift(cryptde).unwrap();
+        route.shift(main_cryptde).unwrap();
         let payload = GossipBuilder::empty();
         let lcp = LiveCoresPackage::new(
             route,
-            encodex::<MessageType>(cryptde, &cryptde.public_key(), &payload.clone().into())
+            encodex::<MessageType>(main_cryptde, &main_cryptde.public_key(), &payload.clone().into())
                 .unwrap(),
         );
         let lcp_a = lcp.clone();
-        let data_enc = encodex(cryptde, &cryptde.public_key(), &lcp).unwrap();
+        let data_enc = encodex(main_cryptde, &main_cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
             peer_addr: SocketAddr::from_str("1.3.2.4:5678").unwrap(),
             reception_port: None,
@@ -700,7 +710,8 @@ mod tests {
         let system = System::new("converts_live_message_to_expired_for_neighborhood");
         let peer_actors = peer_actors_builder().neighborhood(component).build();
         let subject = RoutingService::new(
-            cryptde,
+            main_cryptde,
+            alias_cryptde,
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -721,7 +732,7 @@ mod tests {
         let component_recording = component_recording_arc.lock().unwrap();
         let record = component_recording.get_record::<ExpiredCoresPackage<Gossip>>(0);
         let expected_ecp = lcp_a
-            .to_expired(SocketAddr::from_str("1.3.2.4:5678").unwrap(), cryptde)
+            .to_expired(SocketAddr::from_str("1.3.2.4:5678").unwrap(), main_cryptde)
             .unwrap();
         assert_eq!(record.immediate_neighbor, expected_ecp.immediate_neighbor);
         assert_eq!(record.paying_wallet, expected_ecp.paying_wallet);
@@ -734,7 +745,8 @@ mod tests {
     fn passes_on_inbound_client_data_not_meant_for_this_node() {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
-        let cryptde = main_cryptde();
+        let main_cryptde = main_cryptde();
+        let alias_cryptde = alias_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let address_paying_wallet = Wallet::from(paying_wallet.address());
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
@@ -743,19 +755,19 @@ mod tests {
         let contract_address = contract_address(DEFAULT_CHAIN_ID);
         let route = Route::one_way(
             RouteSegment::new(
-                vec![&cryptde.public_key(), &next_key],
+                vec![&main_cryptde.public_key(), &next_key],
                 Component::Neighborhood,
             ),
-            cryptde,
+            main_cryptde,
             Some(paying_wallet.clone()),
             Some(contract_address.clone()),
         )
         .unwrap();
         let payload = PlainData::new(&b"abcd"[..]);
-        let lcp = LiveCoresPackage::new(route, cryptde.encode(&next_key, &payload).unwrap());
+        let lcp = LiveCoresPackage::new(route, main_cryptde.encode(&next_key, &payload).unwrap());
         let lcp_a = lcp.clone();
         let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
-        let data_enc = cryptde.encode(&cryptde.public_key(), &data_ser).unwrap();
+        let data_enc = main_cryptde.encode(&main_cryptde.public_key(), &data_ser).unwrap();
         let inbound_client_data = InboundClientData {
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
@@ -771,7 +783,8 @@ mod tests {
             .accountant(accountant)
             .build();
         let subject = RoutingService::new(
-            cryptde,
+            main_cryptde,
+            alias_cryptde,
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -792,9 +805,9 @@ mod tests {
 
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
         let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
-        let expected_lcp = lcp_a.to_next_live(cryptde).unwrap().1;
+        let expected_lcp = lcp_a.to_next_live(main_cryptde).unwrap().1;
         let expected_lcp_ser = PlainData::new(&serde_cbor::ser::to_vec(&expected_lcp).unwrap());
-        let expected_lcp_enc = cryptde.encode(&next_key, &expected_lcp_ser).unwrap();
+        let expected_lcp_enc = main_cryptde.encode(&next_key, &expected_lcp_ser).unwrap();
         assert_eq!(
             *record,
             TransmitDataMsg {
@@ -822,15 +835,16 @@ mod tests {
     fn reprocesses_inbound_client_data_meant_for_this_node_and_destined_for_hopper() {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
-        let cryptde = main_cryptde();
+        let main_cryptde = main_cryptde();
+        let alias_cryptde = alias_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let route = Route::one_way(
             RouteSegment::new(
-                vec![&cryptde.public_key(), &cryptde.public_key()],
+                vec![&main_cryptde.public_key(), &main_cryptde.public_key()],
                 Component::Neighborhood,
             ),
-            cryptde,
+            main_cryptde,
             Some(paying_wallet.clone()),
             Some(contract_address(DEFAULT_CHAIN_ID)),
         )
@@ -838,10 +852,10 @@ mod tests {
         let payload = PlainData::new(&b"abcd"[..]);
         let lcp = LiveCoresPackage::new(
             route,
-            cryptde.encode(&cryptde.public_key(), &payload).unwrap(),
+            main_cryptde.encode(&main_cryptde.public_key(), &payload).unwrap(),
         );
         let lcp_a = lcp.clone();
-        let data_enc = encodex(cryptde, &cryptde.public_key(), &lcp).unwrap();
+        let data_enc = encodex(main_cryptde, &main_cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
@@ -856,7 +870,8 @@ mod tests {
         );
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let subject = RoutingService::new(
-            cryptde,
+            main_cryptde,
+            alias_cryptde,
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -877,8 +892,8 @@ mod tests {
 
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let record = hopper_recording.get_record::<InboundClientData>(0);
-        let expected_lcp = lcp_a.to_next_live(cryptde).unwrap().1;
-        let expected_lcp_enc = encodex(cryptde, &cryptde.public_key(), &expected_lcp).unwrap();
+        let expected_lcp = lcp_a.to_next_live(main_cryptde).unwrap().1;
+        let expected_lcp_enc = encodex(main_cryptde, &main_cryptde.public_key(), &expected_lcp).unwrap();
         assert_eq!(
             *record,
             InboundClientData {
@@ -897,14 +912,15 @@ mod tests {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
         init_test_logging();
-        let cryptde = main_cryptde();
+        let main_cryptde = main_cryptde();
+        let alias_cryptde = alias_cryptde();
         let origin_key = PublicKey::new(&[1, 2]);
         let origin_cryptde = CryptDENull::from(&origin_key, DEFAULT_CHAIN_ID);
         let destination_key = PublicKey::new(&[3, 4]);
         let payload = make_meaningless_message_type();
         let route = Route::one_way(
             RouteSegment::new(
-                vec![&origin_key, &cryptde.public_key(), &destination_key],
+                vec![&origin_key, &main_cryptde.public_key(), &destination_key],
                 Component::ProxyClient,
             ),
             &origin_cryptde,
@@ -916,7 +932,7 @@ mod tests {
             IncipientCoresPackage::new(&origin_cryptde, route, payload, &destination_key).unwrap();
         let (lcp, _) = LiveCoresPackage::from_incipient(icp, &origin_cryptde).unwrap();
         let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
-        let data_enc = cryptde.encode(&cryptde.public_key(), &data_ser).unwrap();
+        let data_enc = main_cryptde.encode(&main_cryptde.public_key(), &data_ser).unwrap();
         let inbound_client_data = InboundClientData {
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
@@ -941,7 +957,8 @@ mod tests {
             .accountant(accountant)
             .build();
         let subject = RoutingService::new(
-            cryptde,
+            main_cryptde,
+            alias_cryptde,
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -975,9 +992,10 @@ mod tests {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
         init_test_logging();
-        let cryptde = main_cryptde();
-        let public_key = cryptde.public_key();
-        let payload = ClientRequest(make_request_payload(0, cryptde));
+        let main_cryptde = main_cryptde();
+        let alias_cryptde = alias_cryptde();
+        let public_key = main_cryptde.public_key();
+        let payload = ClientRequest(make_request_payload(0, main_cryptde));
         let paying_wallet = Some(make_paying_wallet(b"paying wallet"));
         let contract_address = contract_address(DEFAULT_CHAIN_ID);
         let live_hops: Vec<LiveHop> = vec![
@@ -999,7 +1017,7 @@ mod tests {
 
         let hops = live_hops
             .iter()
-            .map(|hop| match hop.encode(&hop.public_key, cryptde) {
+            .map(|hop| match hop.encode(&hop.public_key, main_cryptde) {
                 Ok(cryptdata) => cryptdata,
                 Err(e) => panic!("Couldn't encode hop: {}", e),
             })
@@ -1007,10 +1025,10 @@ mod tests {
 
         let route = Route { hops };
 
-        let icp = IncipientCoresPackage::new(cryptde, route, payload, &public_key).unwrap();
-        let (lcp, _) = LiveCoresPackage::from_incipient(icp, cryptde).unwrap();
+        let icp = IncipientCoresPackage::new(main_cryptde, route, payload, &public_key).unwrap();
+        let (lcp, _) = LiveCoresPackage::from_incipient(icp, main_cryptde).unwrap();
         let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
-        let data_enc = cryptde.encode(&cryptde.public_key(), &data_ser).unwrap();
+        let data_enc = main_cryptde.encode(&main_cryptde.public_key(), &data_ser).unwrap();
         let inbound_client_data = InboundClientData {
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
@@ -1035,7 +1053,8 @@ mod tests {
             .accountant(accountant)
             .build();
         let subject = RoutingService::new(
-            cryptde,
+            main_cryptde,
+            alias_cryptde,
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -1069,8 +1088,9 @@ mod tests {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
         init_test_logging();
-        let cryptde = main_cryptde();
-        let current_key = cryptde.public_key();
+        let main_cryptde = main_cryptde();
+        let alias_cryptde = alias_cryptde();
+        let current_key = main_cryptde.public_key();
         let origin_key = PublicKey::new(&[1, 2]);
         let destination_key = PublicKey::new(&[5, 6]);
         let destination_cryptde = CryptDENull::from(&destination_key, DEFAULT_CHAIN_ID);
@@ -1097,7 +1117,7 @@ mod tests {
 
         let hops = live_hops
             .iter()
-            .map(|hop| match hop.encode(&hop.public_key, cryptde) {
+            .map(|hop| match hop.encode(&hop.public_key, main_cryptde) {
                 Ok(cryptdata) => cryptdata,
                 Err(e) => panic!("Couldn't encode hop: {}", e),
             })
@@ -1106,7 +1126,7 @@ mod tests {
         let route = Route { hops };
 
         let lcp =
-            LiveCoresPackage::new(route, encodex(cryptde, &destination_key, &payload).unwrap());
+            LiveCoresPackage::new(route, encodex(main_cryptde, &destination_key, &payload).unwrap());
 
         let system = System::new(
             "route_logs_and_ignores_cores_package_that_demands_hopper_routing_with_paying_wallet_that_cant_pay",
@@ -1124,7 +1144,8 @@ mod tests {
             .accountant(accountant)
             .build();
         let subject = RoutingService::new(
-            cryptde,
+            main_cryptde,
+            alias_cryptde,
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -1161,7 +1182,8 @@ mod tests {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
         init_test_logging();
-        let cryptde = main_cryptde();
+        let main_cryptde = main_cryptde();
+        let alias_cryptde = alias_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let contract_address = contract_address(DEFAULT_CHAIN_ID);
         BAN_CACHE.insert(paying_wallet.clone());
@@ -1170,17 +1192,17 @@ mod tests {
         let next_key = PublicKey::new(&[65, 65, 65]);
         let route = Route::one_way(
             RouteSegment::new(
-                vec![&cryptde.public_key(), &next_key],
+                vec![&main_cryptde.public_key(), &next_key],
                 Component::Neighborhood,
             ),
-            cryptde,
+            main_cryptde,
             Some(paying_wallet.clone()),
             Some(contract_address.clone()),
         )
         .unwrap();
         let payload = PlainData::new(&b"abcd"[..]);
-        let lcp = LiveCoresPackage::new(route, cryptde.encode(&next_key, &payload).unwrap());
-        let data_enc = encodex(cryptde, &cryptde.public_key(), &lcp).unwrap();
+        let lcp = LiveCoresPackage::new(route, main_cryptde.encode(&next_key, &payload).unwrap());
+        let data_enc = encodex(main_cryptde, &main_cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
@@ -1195,7 +1217,8 @@ mod tests {
             .accountant(accountant)
             .build();
         let subject = RoutingService::new(
-            cryptde,
+            main_cryptde,
+            alias_cryptde,
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -1226,28 +1249,29 @@ mod tests {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
         init_test_logging();
-        let cryptde = main_cryptde();
+        let main_cryptde = main_cryptde();
+        let alias_cryptde = alias_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         BAN_CACHE.insert(paying_wallet.clone());
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let mut route = Route::one_way(
             RouteSegment::new(
-                vec![&cryptde.public_key(), &cryptde.public_key()],
+                vec![&main_cryptde.public_key(), &main_cryptde.public_key()],
                 Component::ProxyServer,
             ),
-            cryptde,
+            main_cryptde,
             Some(paying_wallet.clone()),
             Some(contract_address(DEFAULT_CHAIN_ID)),
         )
         .unwrap();
-        route.shift(cryptde).unwrap();
+        route.shift(main_cryptde).unwrap();
         let payload = PlainData::new(&b"abcd"[..]);
         let lcp = LiveCoresPackage::new(
             route,
-            cryptde.encode(&cryptde.public_key(), &payload).unwrap(),
+            main_cryptde.encode(&main_cryptde.public_key(), &payload).unwrap(),
         );
-        let data_enc = encodex(cryptde, &cryptde.public_key(), &lcp).unwrap();
+        let data_enc = encodex(main_cryptde, &main_cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
@@ -1262,7 +1286,8 @@ mod tests {
             .accountant(accountant)
             .build();
         let subject = RoutingService::new(
-            cryptde,
+            main_cryptde,
+            alias_cryptde,
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -1312,6 +1337,7 @@ mod tests {
             .build();
         let subject = RoutingService::new(
             main_cryptde(),
+            alias_cryptde(),
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -1341,10 +1367,11 @@ mod tests {
     #[test]
     fn route_logs_and_ignores_invalid_live_cores_package() {
         init_test_logging();
-        let cryptde = main_cryptde();
+        let main_cryptde = main_cryptde();
+        let alias_cryptde = alias_cryptde();
         let lcp = LiveCoresPackage::new(Route { hops: vec![] }, CryptData::new(&[]));
         let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
-        let data_enc = cryptde.encode(&cryptde.public_key(), &data_ser).unwrap();
+        let data_enc = main_cryptde.encode(&main_cryptde.public_key(), &data_ser).unwrap();
         let inbound_client_data = InboundClientData {
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
@@ -1365,7 +1392,8 @@ mod tests {
             .dispatcher(dispatcher)
             .build();
         let subject = RoutingService::new(
-            cryptde,
+            main_cryptde,
+            alias_cryptde,
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -1398,6 +1426,7 @@ mod tests {
         let peer_actors = peer_actors_builder().build();
         let subject = RoutingService::new(
             main_cryptde(),
+            alias_cryptde(),
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
