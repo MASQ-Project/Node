@@ -72,7 +72,7 @@ impl RoutingService {
                 Err(e) => {
                     error!(
                         self.logger,
-                        "Couldn't decode CORES package in {}-byte buffer from {}: {}",
+                        "Couldn't decode CORES package in {}-byte buffer from {}: {:?}",
                         ibcd.data.len(),
                         ibcd.peer_addr,
                         e
@@ -370,7 +370,7 @@ impl RoutingService {
             match encodex(self.main_cryptde, &next_hop.public_key, &next_live_package) {
                 Ok(nlpe) => nlpe,
                 Err(e) => {
-                    let msg = format!("Couldn't serialize or encrypt outgoing LCP: {}", e);
+                    let msg = format!("Couldn't serialize or encrypt outgoing LCP: {:?}", e);
                     error!(self.logger, "{}", &msg);
                     return Err(CryptdecError::OtherError(msg));
                 }
@@ -1019,7 +1019,7 @@ mod tests {
             .iter()
             .map(|hop| match hop.encode(&hop.public_key, main_cryptde) {
                 Ok(cryptdata) => cryptdata,
-                Err(e) => panic!("Couldn't encode hop: {}", e),
+                Err(e) => panic!("Couldn't encode hop: {:?}", e),
             })
             .collect();
 
@@ -1119,7 +1119,7 @@ mod tests {
             .iter()
             .map(|hop| match hop.encode(&hop.public_key, main_cryptde) {
                 Ok(cryptdata) => cryptdata,
-                Err(e) => panic!("Couldn't encode hop: {}", e),
+                Err(e) => panic!("Couldn't encode hop: {:?}", e),
             })
             .collect();
 
@@ -1356,7 +1356,7 @@ mod tests {
         System::current().stop_with_code(0);
         system.run();
         TestLogHandler::new().exists_log_containing(
-            "ERROR: RoutingService: Couldn't decode CORES package in 0-byte buffer from 1.2.3.4:5678: Decryption error: EmptyData",
+            "ERROR: RoutingService: Couldn't decode CORES package in 0-byte buffer from 1.2.3.4:5678: DecryptionError(EmptyData)",
         );
         assert_eq!(proxy_client_recording_arc.lock().unwrap().len(), 0);
         assert_eq!(proxy_server_recording_arc.lock().unwrap().len(), 0);

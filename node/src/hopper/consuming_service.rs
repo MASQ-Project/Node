@@ -47,7 +47,7 @@ impl ConsumingService {
                     Err(e) => {
                         error!(
                             self.logger,
-                            "Could not accept CORES package for transmission: {}", e
+                            "Could not accept CORES package for transmission: {:?}", e
                         );
                         return;
                     }
@@ -77,7 +77,7 @@ impl ConsumingService {
                     match encodex(self.cryptde, &next_hop.public_key, &live_package) {
                         Ok(p) => p,
                         Err(e) => {
-                            error!(self.logger, "Couldn't encode package: {}", e);
+                            error!(self.logger, "Couldn't encode package: {:?}", e);
                             return;
                         }
                     };
@@ -209,7 +209,7 @@ mod tests {
 
         System::current().stop();
         system.run();
-        TestLogHandler::new ().exists_log_containing ("ERROR: ConsumingService: Could not accept CORES package for transmission: \"Couldn\\'t encode hop: Encryption error: EmptyKey\"");
+        TestLogHandler::new ().exists_log_containing ("ERROR: ConsumingService: Could not accept CORES package for transmission: \"Couldn\\'t encode hop: EncryptionError(EmptyKey)");
     }
 
     #[test]

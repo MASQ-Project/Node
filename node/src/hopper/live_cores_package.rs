@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::sub_lib::cryptde::CryptData;
+use crate::sub_lib::cryptde::{CryptData};
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{decodex, CryptDE};
 use crate::sub_lib::data_version::DataVersion;
@@ -79,7 +79,7 @@ impl LiveCoresPackage {
             Err(e) => return Err(format!("{:?}", e)),
             Ok(hop) => hop,
         };
-        decodex::<MessageType>(cryptde, &self.payload).map(|decoded_payload| {
+        match decodex::<MessageType>(cryptde, &self.payload).map(|decoded_payload| {
             ExpiredCoresPackage::new(
                 immediate_neighbor_addr,
                 top_hop.payer.map(|p| p.wallet),
@@ -87,7 +87,10 @@ impl LiveCoresPackage {
                 decoded_payload,
                 self.payload.len(),
             )
-        })
+        }) {
+            Ok (ecp) => Ok (ecp),
+            Err (e) => Err (format! ("{:?}", e)),
+        }
     }
 }
 
@@ -228,7 +231,7 @@ mod tests {
 
         assert_eq!(
             Err(String::from(
-                "Could not encrypt payload: \"Encryption error: EmptyKey\""
+                "Could not encrypt payload: EncryptionError(EmptyKey)"
             )),
             result
         )

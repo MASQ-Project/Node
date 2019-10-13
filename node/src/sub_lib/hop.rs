@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::blockchain::payer::Payer;
-use crate::sub_lib::cryptde::decodex;
+use crate::sub_lib::cryptde::{decodex, CodexError};
 use crate::sub_lib::cryptde::encodex;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
@@ -27,7 +27,7 @@ impl LiveHop {
         }
     }
 
-    pub fn decode(cryptde: &dyn CryptDE, crypt_data: &CryptData) -> Result<Self, String> {
+    pub fn decode(cryptde: &dyn CryptDE, crypt_data: &CryptData) -> Result<Self, CodexError> {
         decodex::<LiveHop>(cryptde, crypt_data)
     }
 
@@ -35,7 +35,7 @@ impl LiveHop {
         &self,
         public_key: &PublicKey,
         cryptde: &dyn CryptDE,
-    ) -> Result<CryptData, String> {
+    ) -> Result<CryptData, CodexError> {
         encodex(cryptde, public_key, &self)
     }
 
@@ -75,13 +75,7 @@ mod tests {
 
         let result = LiveHop::decode(cryptde, &encrypted);
 
-        assert_eq!(
-            result
-                .err()
-                .unwrap()
-                .contains("Decryption error: InvalidKey"),
-            true
-        );
+        assert_eq!(format! ("{:?}", result).contains("DecryptionError(InvalidKey("), true, "{:?}", result);
     }
 
     #[test]

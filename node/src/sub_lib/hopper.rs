@@ -204,7 +204,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "Could not encrypt payload: \"Encryption error: EmptyKey\""
+                "Could not encrypt payload: EncryptionError(EmptyKey)"
             ))
         );
     }
@@ -253,7 +253,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "Could not encrypt payload: \"Encryption error: EmptyKey\""
+                "Could not encrypt payload: EncryptionError(EmptyKey)"
             ))
         );
     }

@@ -539,35 +539,65 @@ pub trait CryptDE: Send + Sync {
     fn digest(&self) -> [u8; 32];
 }
 
+pub struct SerdeCborError {
+    pub delegate: serde_cbor::error::Error,
+}
+
+impl fmt::Debug for SerdeCborError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        self.delegate.fmt (f)
+    }
+}
+
+impl PartialEq for SerdeCborError {
+    fn eq(&self, other: &Self) -> bool {
+        format!("{:?}", self.delegate) == format! ("{:?}", other.delegate)
+    }
+}
+
+impl SerdeCborError {
+    fn new (delegate: serde_cbor::error::Error) -> SerdeCborError {
+        SerdeCborError {delegate}
+    }
+}
+
+#[derive (PartialEq, Debug)]
+pub enum CodexError {
+    SerializationError (SerdeCborError),
+    DeserializationError (SerdeCborError),
+    EncryptionError (CryptdecError),
+    DecryptionError (CryptdecError),
+}
+
 pub fn encodex<T>(
     cryptde: &dyn CryptDE,
     public_key: &PublicKey,
     item: &T,
-) -> Result<CryptData, String>
+) -> Result<CryptData, CodexError>
 where
     T: Serialize,
 {
     let serialized = match serde_cbor::ser::to_vec(item) {
         Ok(s) => s,
-        Err(e) => return Err(format!("Serialization error: {:?}", e)),
+        Err(e) => return Err(CodexError::SerializationError(SerdeCborError::new (e))),
     };
     match cryptde.encode(public_key, &PlainData::from(serialized)) {
         Ok(c) => Ok(c),
-        Err(e) => Err(format!("Encryption error: {:?}", e)),
+        Err(e) => Err(CodexError::EncryptionError(e)),
     }
 }
 
-pub fn decodex<T>(cryptde: &dyn CryptDE, data: &CryptData) -> Result<T, String>
+pub fn decodex<T>(cryptde: &dyn CryptDE, data: &CryptData) -> Result<T, CodexError>
 where
     for<'de> T: Deserialize<'de>,
 {
     let decrypted = match cryptde.decode(data) {
         Ok(d) => d,
-        Err(e) => return Err(format!("Decryption error: {:?}", e)),
+        Err(e) => return Err(CodexError::DecryptionError(e)),
     };
     match serde_cbor::de::from_slice(decrypted.as_slice()) {
         Ok(t) => Ok(t),
-        Err(e) => Err(format!("Deserialization error: {:?}", e)),
+        Err(e) => Err(CodexError::DeserializationError(SerdeCborError::new (e))),
     }
 }
 
@@ -968,7 +998,7 @@ mod tests {
 
         let result = encodex(cryptde, &PublicKey::new(&[]), &item);
 
-        assert_eq!(result, Err(String::from("Encryption error: EmptyKey")));
+        assert_eq!(format!("{:?}", result), "Err(EncryptionError(EmptyKey))".to_string());
     }
 
     #[test]
@@ -979,7 +1009,7 @@ mod tests {
 
         let result = decodex::<TestStruct>(&cryptde, &data);
 
-        assert_eq!(result, Err(String::from("Decryption error: EmptyKey")));
+        assert_eq!(format!("{:?}", result), "Err(DecryptionError(EmptyKey))".to_string());
     }
 
     #[derive(PartialEq, Debug)]
@@ -1010,12 +1040,7 @@ mod tests {
 
         let result = encodex(cryptde, &cryptde.public_key(), &item);
 
-        assert_eq!(
-            result,
-            Err(String::from(
-                "Serialization error: ErrorImpl { code: Message(\"booga\"), offset: 0 }"
-            ))
-        );
+        assert_eq!(format! ("{:?}", result), "Err(SerializationError(ErrorImpl { code: Message(\"booga\"), offset: 0 }))".to_string());
     }
 
     #[test]
@@ -1027,11 +1052,6 @@ mod tests {
 
         let result = decodex::<BadSerStruct>(cryptde, &data);
 
-        assert_eq!(
-            result,
-            Err(String::from(
-                "Deserialization error: ErrorImpl { code: Message(\"booga\"), offset: 0 }"
-            ))
-        );
+        assert_eq!(format! ("{:?}", result), "Err(DeserializationError(ErrorImpl { code: Message(\"booga\"), offset: 0 }))".to_string());
     }
 }

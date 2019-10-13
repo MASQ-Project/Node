@@ -72,7 +72,10 @@ impl Route {
 
     pub fn id(&self, cryptde: &dyn CryptDE) -> Result<u32, String> {
         if let Some(first) = self.hops.first() {
-            decodex(cryptde, first)
+            match decodex(cryptde, first) {
+                Ok (n) => Ok (n),
+                Err (e) => Err (format! ("{:?}", e)),
+            }
         } else {
             Err("Response route did not contain a return route ID".to_string())
         }
@@ -115,7 +118,7 @@ impl Route {
             let cryptde = most_cryptdes[index];
             let live_hop_str = match decodex::<LiveHop>(cryptde, hop_enc) {
                 Ok(live_hop) => format!("Encrypted with {}: {:?}", cryptde.public_key(), live_hop),
-                Err(e) => format!("Error: {}", e),
+                Err(e) => format!("Error: {:?}", e),
             };
             format!("{}\n{}", sofar, live_hop_str)
         });
@@ -133,7 +136,7 @@ impl Route {
                     last_cryptde.public_key(),
                     return_route_id
                 ),
-                Err(inside) => format!("{}\nError: {:?} / {}", most_strings, outside, inside),
+                Err(inside) => format!("{}\nError: {:?} / {:?}", most_strings, outside, inside),
             },
         }
     }
@@ -289,7 +292,7 @@ impl Route {
 
     fn decode_hop(cryptde: &dyn CryptDE, hop_enc: &CryptData) -> Result<LiveHop, RouteError> {
         match LiveHop::decode(cryptde, hop_enc) {
-            Err(e) => Err(RouteError::HopDecodeProblem(e)),
+            Err(e) => Err(RouteError::HopDecodeProblem(format! ("{:?}", e))),
             Ok(h) => Ok(h),
         }
     }
@@ -307,7 +310,7 @@ impl Route {
             // crashpoint - should not be possible, can this be restructured to remove Option?
             hops_enc.push(match data_hop.encode(hop_key, cryptde) {
                 Ok(crypt_data) => crypt_data,
-                Err(e) => return Err(format!("Couldn't encode hop: {}", e)),
+                Err(e) => return Err(format!("Couldn't encode hop: {:?}", e)),
             });
             hop_key = &data_hop.public_key;
         }
@@ -387,7 +390,7 @@ mod tests {
             hops: vec![Route::encrypt_return_route_id(42, &cryptde1)],
         };
 
-        assert_eq!(subject.id(&cryptde2), Err("Decryption error: InvalidKey(\"Could not decrypt with [235, 229, 249, 160, 226] data beginning with [235, 229, 249, 160, 225]\")".to_string()));
+        assert_eq!(subject.id(&cryptde2), Err("DecryptionError(InvalidKey(\"Could not decrypt with [235, 229, 249, 160, 226] data beginning with [235, 229, 249, 160, 225]\"))".to_string()));
     }
 
     #[test]
