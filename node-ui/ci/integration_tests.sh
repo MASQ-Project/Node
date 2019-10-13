@@ -22,6 +22,7 @@ function run_on_windows() {
 }
 
 pushd "$CI_DIR/.."
+mkdir -p ./main-process/generated
 case "$OSTYPE" in
   msys)
     run_on_windows

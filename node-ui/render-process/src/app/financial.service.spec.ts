@@ -3,14 +3,15 @@
 import {TestBed} from '@angular/core/testing';
 import {ElectronService} from './electron.service';
 import * as td from 'testdouble';
-import {FinancialService, IntervalWrapper} from './financial.service';
+import {FinancialService} from './financial.service';
+import {asyncScheduler} from 'rxjs';
+import {AsyncScheduler} from 'rxjs/internal/scheduler/AsyncScheduler';
 
 describe('FinancialService', () => {
   let financialStatsResponseListener;
   let mockOn;
   let stubElectronService;
   let service: FinancialService;
-  let stubInterval;
 
   beforeEach(() => {
     financialStatsResponseListener = td.matchers.captor();
@@ -22,22 +23,18 @@ describe('FinancialService', () => {
       },
     };
     spyOn(stubElectronService.ipcRenderer, 'send');
-    stubInterval = {
-      startInterval: td.func('startInterval'),
-      stopInterval: td.func(),
-    };
-    spyOn(stubInterval, 'stopInterval');
     TestBed.configureTestingModule({
       providers: [
         FinancialService,
         {provide: ElectronService, useValue: stubElectronService},
-        {provide: IntervalWrapper, useValue: stubInterval},
+        {provide: AsyncScheduler, useValue: asyncScheduler},
       ]
     });
     service = TestBed.get(FinancialService);
   });
 
   afterEach(() => {
+    service.stopFinancialStatistics();
     td.reset();
   });
 
@@ -69,28 +66,31 @@ describe('FinancialService', () => {
 
     financialStatsResponseListener.value('', `{'error': 'an error'}`);
 
-    expect(statsResponse).toBeFalsy();
+    expect(statsResponse).toEqual({pendingCredit: '', pendingDebt: ''});
     expect(statsResponseError).toBe(`{'error': 'an error'}`);
   });
 
   describe('Start Financial Statistics', () => {
     beforeEach( () => {
-      td.when(stubInterval.startInterval(td.callback(), 5000)).thenCallback();
+      service = TestBed.get(FinancialService);
       service.startFinancialStatistics();
     });
 
     it('calls send', () => {
-      expect(stubElectronService.ipcRenderer.send).toHaveBeenCalledWith('get-financial-statistics');
+      service.financialStatisticsResponse.subscribe((amounts) => {
+        expect(amounts).toEqual({pendingCredit: '', pendingDebt: ''});
+      });
     });
   });
 
   describe('Stop Financial Statistics', () => {
     beforeEach( () => {
+      service = TestBed.get(FinancialService);
       service.stopFinancialStatistics();
     });
 
-    it('clears the interval', () => {
-      expect(stubInterval.stopInterval).toHaveBeenCalled();
+    it('does not call send', () => {
+      expect(stubElectronService.ipcRenderer.send).toHaveBeenCalledTimes(0);
     });
   });
 });

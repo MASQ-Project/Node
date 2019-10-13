@@ -103,7 +103,7 @@ const TRANSACTION_LITERAL: H256 = H256 {
 const TRANSFER_METHOD_ID: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
 
 pub const DEFAULT_GAS_PRICE: &str = "1";
-pub const DEFAULT_CHAIN_NAME: &str = "ropsten"; //TODO: SC-501/GH-115: Change this to "mainnet" when it's time
+pub const DEFAULT_CHAIN_NAME: &str = "mainnet";
 
 #[derive(Clone, Debug, Eq, Message, PartialEq)]
 pub struct Transaction {

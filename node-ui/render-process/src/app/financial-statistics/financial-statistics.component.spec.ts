@@ -7,7 +7,6 @@ import {NodeStatus} from '../node-status.enum';
 import {FinancialService} from '../financial.service';
 import {BehaviorSubject} from 'rxjs';
 import {PendingAmounts} from '../pending-amounts';
-import {ElectronService} from '../electron.service';
 import {MainService} from '../main.service';
 
 describe('FinancialStatisticsComponent', () => {
@@ -16,13 +15,14 @@ describe('FinancialStatisticsComponent', () => {
   let mockFinancialStatisticsResponse: BehaviorSubject<PendingAmounts>;
   let mockFinancialService;
   let mockMainService;
+  let mockChainName: BehaviorSubject<string>;
   let compiled;
-  let stubElectronService;
   let mockNodeStatus;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     mockFinancialStatisticsResponse = new BehaviorSubject({pendingCredit: '', pendingDebt: ''});
     mockNodeStatus = new BehaviorSubject(NodeStatus.Off);
+    mockChainName = new BehaviorSubject('');
     mockFinancialService = {
       startFinancialStatistics: td.func(),
       stopFinancialStatistics: td.func(),
@@ -32,28 +32,26 @@ describe('FinancialStatisticsComponent', () => {
       resizeLarge: () => {},
       resizeMedium: () => {},
       resizeSmall: () => {},
-      nodeStatus: mockNodeStatus.asObservable()
+      nodeStatus: mockNodeStatus.asObservable(),
+      chainName: mockChainName.asObservable(),
     };
     spyOn(mockFinancialService, 'startFinancialStatistics');
     spyOn(mockFinancialService, 'stopFinancialStatistics');
-    stubElectronService = {
-      ipcRenderer: {
-        on: td.func('on'),
-        sendSync: td.func('sendSync'),
-      },
-    };
 
     TestBed.configureTestingModule({
       declarations: [FinancialStatisticsComponent],
       providers: [
         {provide: FinancialService, useValue: mockFinancialService},
-        {provide: ElectronService, useValue: stubElectronService},
         {provide: MainService, useValue: mockMainService}
       ]
     }).compileComponents();
+  });
+
+  beforeEach(() => {
     fixture = TestBed.createComponent(FinancialStatisticsComponent);
     component = fixture.componentInstance;
     compiled = fixture.debugElement.nativeElement;
+    mockChainName.next('ropsten');
   });
 
   afterEach(() => {
@@ -85,6 +83,7 @@ describe('FinancialStatisticsComponent', () => {
 
     describe('when status is changed to Invalid', () => {
       beforeEach(() => {
+        mockChainName.next('ropsten');
         mockNodeStatus.next(NodeStatus.Off);
         fixture.detectChanges();
         mockNodeStatus.next(NodeStatus.Invalid);
@@ -179,6 +178,27 @@ describe('FinancialStatisticsComponent', () => {
       });
     });
 
+    describe('when financial statistics data is undefined', () => {
+      const response: PendingAmounts = new PendingAmounts();
+      beforeEach(() => {
+        mockNodeStatus.next(NodeStatus.Serving);
+        mockFinancialStatisticsResponse.next(response);
+        fixture.detectChanges();
+      });
+
+      it('sets the data', () => {
+        expect(component.financialStatisticsData).toEqual(response);
+      });
+
+      it('renders the pending credit data', () => {
+        expect(compiled.querySelector('#pending-credit').textContent).toBe('-.---------');
+      });
+
+      it('renders the pending debt data', () => {
+        expect(compiled.querySelector('#pending-debt').textContent).toBe('-.---------');
+      });
+    });
+
     describe('when error is returned', () => {
       beforeEach(() => {
         mockFinancialStatisticsResponse.error(`{'error': 'an error'}`);
@@ -191,7 +211,7 @@ describe('FinancialStatisticsComponent', () => {
 
       it('renders the error', () => {
         expect(compiled.querySelector('#financial-stats-error').textContent.trim())
-          .toBe('Unable to talk to the Substratum Node, consider restarting it.');
+          .toBe('Unable to communicate with SubstratumNode, consider restarting it.');
       });
     });
 

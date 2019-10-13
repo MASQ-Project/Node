@@ -3,6 +3,11 @@
 @import '../../styles/colors';
 @import '../../styles/mixins';
 
+:host,
+.pane {
+  flex: 1 1 100%;
+}
+
 .tabs {
   display: flex;
   flex-wrap: wrap;

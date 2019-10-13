@@ -1,6 +1,14 @@
 <!--Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.-->
 <div class="network-settings">
   <form [formGroup]="networkSettings" (ngSubmit)="onSubmit()">
+    <div class="chain-container">
+      <label for="chain-name">Blockchain Network</label>
+      <select id="chain-name" formControlName="chainName">
+        <option *ngFor="let item of this.chainNames" [value]="item.value"
+                [disabled]="item.disabled">{{item.viewValue}}</option>
+      </select>
+    </div>
+
     <div class="network-settings__display">
       <label for="gas-price" class="network-settings__display-label">Gas Price: {{gasPrice.value}} Gwei</label>
     </div>

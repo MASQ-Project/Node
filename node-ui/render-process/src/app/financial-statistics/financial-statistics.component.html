@@ -5,13 +5,13 @@
     No data available because SubstratumNode is not actively running.
   </div>
   <div *ngIf="this.financialStatsDataError" id="financial-stats-error">
-    Unable to talk to the Substratum Node, consider restarting it.
+    Unable to communicate with SubstratumNode, consider restarting it.
   </div>
   <div id="financial-data-container" *ngIf="(status() | async) !== 'Off' && !this.financialStatsDataError">
     <div id="serving-data" class="financial-data-pane">
       <h3>Serving</h3>
       <h4>Pending Credit</h4>
-      {{this.tokenSymbol}} <span id="pending-credit"
+      {{this.tokenSymbol | async}} <span id="pending-credit"
                                  *ngIf="this.financialStatisticsData">{{pendingCredit()}}</span>
     </div>
     <div class="vr-outer">
@@ -20,7 +20,7 @@
     <div id="consuming-data" class="financial-data-pane">
       <h3>Consuming</h3>
       <h4>Pending Debt</h4>
-      {{this.tokenSymbol}} <span id="pending-debt" *ngIf="this.financialStatisticsData">{{pendingDebt()}}</span>
+      {{this.tokenSymbol | async}} <span id="pending-debt" *ngIf="this.financialStatisticsData">{{pendingDebt()}}</span>
     </div>
   </div>
 </div>

@@ -32,7 +32,7 @@ impl Future for StreamWriterUnsorted {
                     }
                 }
                 Some(packet) => {
-                    // TODO in SC-646: handle packet.last_data = true here
+                    // TODO in SC-646 "Graceful Shutdown from GUI" (marked obsolete): handle packet.last_data = true here
                     debug!(
                         self.logger,
                         "Transmitting {} bytes of clandestine data",

@@ -378,7 +378,7 @@ impl StreamHandlerPool {
             panic!("Neighborhood has returned a NodeDescriptor with no ports. This indicates an unrecoverable error.")
         }
 
-        // TODO: Picking the first port is a temporary hack. See SC-795
+        // TODO: Picking the first port is a temporary hack. This problem should go away with clandestine ports.
         let peer_addr = SocketAddr::new(node_addr.ip_addr(), node_addr.ports()[0]);
 
         let sw_key = StreamWriterKey::from(peer_addr);

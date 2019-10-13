@@ -2,19 +2,18 @@
 
 import {Injectable} from '@angular/core';
 import {ElectronService} from './electron.service';
-import {Observable, of, Subject} from 'rxjs';
+import {Observable, of, Subject, Subscription, timer} from 'rxjs';
 
 @Injectable({
   providedIn: 'root'
 })
 export class UiGatewayService {
-  private neighborhoodDotGraphInterval: NodeJS.Timeout;
+  private neighborhoodDotGraphSubscription: Subscription;
+  private neighborhoodDotGraphResponseListener: Subject<object> = new Subject();
+  neighborhoodDotGraphResponse: Observable<object> = this.neighborhoodDotGraphResponseListener.asObservable();
 
   constructor(private electronService: ElectronService) {
   }
-
-  private neighborhoodDotGraphResponseListener: Subject<object> = new Subject();
-  neighborhoodDotGraphResponse: Observable<object> = this.neighborhoodDotGraphResponseListener.asObservable();
 
   setGasPrice(number: number): Observable<boolean> {
     const response = this.electronService.ipcRenderer.sendSync('set-gas-price', number);
@@ -27,12 +26,15 @@ export class UiGatewayService {
   }
 
   startNeighborhoodDotGraph() {
-    this.neighborhoodDotGraphInterval = setInterval(() => {
-      this.neighborhoodDotGraph();
-    }, 10000);
+    if (!this.neighborhoodDotGraphSubscription) {
+      this.neighborhoodDotGraphSubscription = timer(1000, 10000).subscribe(() => this.neighborhoodDotGraph());
+    }
   }
 
   stopNeighborhoodDotGraph() {
-    clearInterval(this.neighborhoodDotGraphInterval);
+    if (this.neighborhoodDotGraphSubscription) {
+      this.neighborhoodDotGraphSubscription.unsubscribe();
+      this.neighborhoodDotGraphSubscription = null;
+    }
   }
 }

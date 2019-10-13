@@ -5,6 +5,10 @@ import {Page} from '../../page';
 
 export class RecoverWalletPage extends Page<RecoverWalletComponent> {
 
+  get chainName(): HTMLSelectElement {
+    return this.query('#chain-name');
+  }
+
   get mnemonicPhrase(): HTMLInputElement {
     return this.query('#mnemonic-phrase');
   }
@@ -43,6 +47,11 @@ export class RecoverWalletPage extends Page<RecoverWalletComponent> {
 
   get wordlist(): HTMLSelectElement {
     return this.query('#wordlist');
+  }
+
+  setChainName(value: string) {
+    this.fixture.componentInstance.walletConfig.controls['chainName'].setValue(value);
+    this.setSelection(this.chainName, value);
   }
 
   setConsumingDerivationPath(value: string) {

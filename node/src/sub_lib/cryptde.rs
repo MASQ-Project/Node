@@ -96,7 +96,7 @@ impl<'de> Deserialize<'de> for PublicKey {
     where
         D: Deserializer<'de>,
     {
-        deserializer.deserialize_bytes(PublicKeyVisitor)
+        deserializer.deserialize_bytes(KeyVisitor)
     }
 }
 
@@ -164,9 +164,9 @@ impl PublicKey {
     }
 }
 
-struct PublicKeyVisitor;
+struct KeyVisitor;
 
-impl<'a> Visitor<'a> for PublicKeyVisitor {
+impl<'a> Visitor<'a> for KeyVisitor {
     type Value = PublicKey;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -702,64 +702,6 @@ mod tests {
     }
 
     #[test]
-    fn symmetric_key_constructor_works_as_expected() {
-        let subject = SymmetricKey::new(&[1, 2, 3, 4]);
-
-        assert_eq!(subject.data, vec!(1, 2, 3, 4));
-    }
-
-    #[test]
-    fn symmetric_key_from_slice() {
-        let data: &[u8] = &[1, 2, 3, 4];
-        let subject = SymmetricKey::from(data);
-
-        assert_eq!(subject.data, vec!(1, 2, 3, 4));
-    }
-
-    #[test]
-    fn symmetric_key_from_vec() {
-        let subject = SymmetricKey::from(vec![1, 2, 3, 4]);
-
-        assert_eq!(subject.data, vec!(1, 2, 3, 4));
-    }
-
-    #[test]
-    fn symmetric_key_to_vec() {
-        let subject = SymmetricKey::new(&[1, 2, 3, 4]);
-
-        let result: Vec<u8> = subject.into();
-
-        assert_eq!(result, vec!(1, 2, 3, 4));
-    }
-
-    #[test]
-    fn symmetric_key_as_slice() {
-        let subject = SymmetricKey::new(&[1, 2, 3, 4]);
-
-        let result = subject.as_slice();
-
-        assert_eq!(result, &[1, 2, 3, 4]);
-    }
-
-    #[test]
-    fn symmetric_key_len() {
-        let subject = SymmetricKey::new(&[1, 2, 3, 4]);
-
-        let result = subject.len();
-
-        assert_eq!(result, 4);
-    }
-
-    #[test]
-    fn symmetric_key_is_empty() {
-        let a = SymmetricKey::new(&[1, 2, 3, 4]);
-        let b = SymmetricKey::new(&[]);
-
-        assert_eq!(a.is_empty(), false);
-        assert_eq!(b.is_empty(), true);
-    }
-
-    #[test]
     fn crypt_data_constructor_works_as_expected() {
         let subject = CryptData::new(&[1, 2, 3, 4]);
 
@@ -933,16 +875,6 @@ mod tests {
 
         let data = serde_cbor::ser::to_vec(&input).unwrap();
         let output = serde_cbor::de::from_slice::<PublicKey>(&data[..]).unwrap();
-
-        assert_eq!(output, input);
-    }
-
-    #[test]
-    fn symmetric_key_serializer_and_deserializer_talk_to_each_other() {
-        let input = SymmetricKey::new(b"The quick brown fox jumps over the lazy dog");
-
-        let data = serde_cbor::ser::to_vec(&input).unwrap();
-        let output = serde_cbor::de::from_slice::<SymmetricKey>(&data[..]).unwrap();
 
         assert_eq!(output, input);
     }

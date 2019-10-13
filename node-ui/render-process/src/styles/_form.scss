@@ -41,7 +41,8 @@ $input-font-size: rem(17px);
 form {
   display: flex;
   flex-direction: column;
-  padding: 24px 18px 0 18px;
+  padding: 18px 18px 0 18px;
+  flex: 1 0;
 }
 
 @mixin node-textbox() {
@@ -73,6 +74,11 @@ form {
     option {
       padding: 0 4px;
     }
+  }
+
+  select:disabled {
+    color: color('text', 'medium');
+    cursor: not-allowed;
   }
 }
 
@@ -116,8 +122,8 @@ form {
   }
 
   &__inset {
-    flex: 4;
-    margin-top: 20px;
+    flex: 4 0;
+    margin-top: 10px;
   }
 
   &__empty-flex {

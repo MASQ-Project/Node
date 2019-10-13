@@ -7,6 +7,7 @@ import {FormControl, FormGroup, Validators} from '@angular/forms';
 import {hardenedPathValidator, mnemonicValidator, mnemonicWordLengthValidator} from '../wallet.validator';
 import {ConfigService} from '../../config.service';
 import {wordlists} from '../wordlists';
+import {chainNames, defaultChainName} from '../../node-configuration/blockchains';
 
 @Component({
   selector: 'app-recover-wallet',
@@ -21,6 +22,7 @@ export class RecoverWalletComponent implements OnInit {
               private ngZone: NgZone) {
   }
 
+  chainNames = chainNames;
   consumingAddress = '';
   earningAddress = '';
   errorText = '';
@@ -28,6 +30,7 @@ export class RecoverWalletComponent implements OnInit {
   sameWallet = true;
 
   walletConfig = new FormGroup({
+      chainName: new FormControl(defaultChainName),
       consumingDerivationPath: new FormControl('m/44\'/60\'/0\'/0/0', [Validators.required, hardenedPathValidator]),
       earningDerivationPath: new FormControl('m/44\'/60\'/0\'/0/1', [Validators.required, hardenedPathValidator]),
       mnemonicPhrase: new FormControl('', [Validators.required, mnemonicWordLengthValidator]),
@@ -57,7 +60,8 @@ export class RecoverWalletComponent implements OnInit {
     this.walletService.recoverConsumingWalletResponse.subscribe((response: string) => {
       this.ngZone.run(() => {
           if (response === 'success') {
-            this.configService.setEarningWallet(this.earningAddress);
+            const chainName = this.walletConfig.get('chainName').value;
+            this.configService.setEarningWallet(chainName, this.earningAddress);
             this.router.navigate(['/index']);
           } else {
             this.errorText = response;
@@ -85,6 +89,7 @@ export class RecoverWalletComponent implements OnInit {
     const walletConfig = this.walletConfig.value;
     const wordList = wordlists.find(wl => wl.value === walletConfig.wordlist).viewValue;
     this.walletService.recoverConsumingWallet(
+      walletConfig.chainName,
       walletConfig.mnemonicPhrase,
       walletConfig.mnemonicPassphrase,
       walletConfig.consumingDerivationPath,

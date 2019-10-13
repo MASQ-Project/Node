@@ -89,7 +89,8 @@ pub fn app_head() -> App<'static, 'static> {
             &[AppSettings::ColorAuto, AppSettings::ColoredHelp]
         })
         .version(crate_version!())
-        //        .author(crate_authors!("\n"))
+        //        .author(crate_authors!("\n")) // TODO: Put this back in when clap is compatible with Rust 1.38.0
+        .author("Substratum, MASQ")
         .about(crate_description!())
 }
 
@@ -133,7 +134,7 @@ pub fn chain_arg<'a>() -> Arg<'a, 'a> {
         .max_values(1)
         .takes_value(true)
         .possible_values(&["dev", "mainnet", "ropsten"])
-        .default_value(DEFAULT_CHAIN_NAME) // TODO: SC-501/GH-115: Update
+        .default_value(DEFAULT_CHAIN_NAME)
         .help(CHAIN_HELP)
 }
 
@@ -723,13 +724,13 @@ fn exit(code: i32, message: &str) {
 mod tests {
     use super::*;
     use crate::blockchain::bip32::Bip32ECKeyPair;
-    use crate::blockchain::blockchain_interface::DEFAULT_CHAIN_NAME;
     use crate::node_test_utils::MockDirsWrapper;
     use crate::sub_lib::wallet::{Wallet, DEFAULT_EARNING_DERIVATION_PATH};
     use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::{
         ensure_node_home_directory_exists, ArgsBuilder, ByteArrayWriter, DEFAULT_CHAIN_ID,
+        TEST_DEFAULT_CHAIN_NAME,
     };
     use bip39::{Mnemonic, MnemonicType, Seed};
     use std::io::Cursor;
@@ -920,7 +921,7 @@ mod tests {
             String::from(""),
             data_directory_default(
                 &MockDirsWrapper::new().data_dir_result(None),
-                DEFAULT_CHAIN_NAME
+                TEST_DEFAULT_CHAIN_NAME
             )
         );
     }
@@ -945,7 +946,7 @@ mod tests {
             "prepare_initialization_mode_fails_if_mnemonic_seed_already_exists",
         )
         .join("Substratum")
-        .join(DEFAULT_CHAIN_NAME);
+        .join(TEST_DEFAULT_CHAIN_NAME);
         {
             let conn = DbInitializerReal::new()
                 .initialize(&data_dir, DEFAULT_CHAIN_ID)
@@ -958,7 +959,7 @@ mod tests {
             .arg(chain_arg());
         let args = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
-            .param("--chain", DEFAULT_CHAIN_NAME);
+            .param("--chain", TEST_DEFAULT_CHAIN_NAME);
 
         prepare_initialization_mode(&app, &args.into());
     }

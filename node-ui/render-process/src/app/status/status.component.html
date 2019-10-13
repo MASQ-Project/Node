@@ -25,7 +25,7 @@
   </div>
 </div>
 
-<app-consuming-wallet-password-prompt id="password-prompt" *ngIf="passwordPromptShown()"
+<app-consuming-wallet-password-prompt id="password-prompt" *ngIf="passwordPromptShown() | async"
                                       (unlock)="this.onConsumingWalletPasswordUnlock($event)"
                                       [unlockFailed]="this.unlockFailed"></app-consuming-wallet-password-prompt>
 

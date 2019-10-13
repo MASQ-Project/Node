@@ -158,6 +158,7 @@ describe('RecoverWalletComponent', () => {
           td.matchers.anything(),
           td.matchers.anything(),
           td.matchers.anything(),
+          td.matchers.anything(),
         )).thenDo(() => {
           recoverResponseSubject.next('success');
         });
@@ -170,6 +171,7 @@ describe('RecoverWalletComponent', () => {
         )).thenDo(() => {
           addressResponseSubject.next({consuming: 'theCorrectConsumingAddress', earning: 'theCorrectEarningAddress'});
         });
+        page.setChainName('ropsten');
         page.setMnemonicPhrase(validMnemonicPhrase);
         page.setWalletPassword('password');
         page.changeSameWallet(false);
@@ -186,7 +188,7 @@ describe('RecoverWalletComponent', () => {
       });
 
       it('saves the earning wallet address', () => {
-        expect(configService.setEarningWallet).toHaveBeenCalledWith(component.earningAddress);
+        expect(configService.setEarningWallet).toHaveBeenCalledWith('ropsten', component.earningAddress);
       });
     });
   });
@@ -195,6 +197,7 @@ describe('RecoverWalletComponent', () => {
     beforeEach(() => {
       td.when(walletService.validateMnemonic(td.matchers.anything(), td.matchers.anything())).thenReturn(of(true));
       td.when(walletService.recoverConsumingWallet(
+        td.matchers.anything(),
         td.matchers.anything(),
         td.matchers.anything(),
         td.matchers.anything(),

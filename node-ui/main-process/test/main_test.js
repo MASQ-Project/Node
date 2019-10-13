@@ -169,7 +169,7 @@ describe('main', () => {
 
     beforeEach(() => {
       event = {}
-      td.when(mockCommandHelper.getNodeConfiguration()).thenReturn(expectedConfiguration)
+      td.when(mockCommandHelper.getNodeConfiguration(td.matchers.anything())).thenReturn(expectedConfiguration)
     })
 
     describe('successful', () => {
@@ -405,9 +405,9 @@ describe('main', () => {
 
     describe('successfully', () => {
       beforeEach(async () => {
-        td.when(MockNodeActuator.prototype.recoverWallet('phrase', 'passphrase', 'consumingPath', 'wordlist', 'password', 'earningPath')).thenResolve({ success: true })
+        td.when(MockNodeActuator.prototype.recoverWallet('chainName', 'phrase', 'passphrase', 'consumingPath', 'wordlist', 'password', 'earningPath')).thenResolve({ success: true })
 
-        await ipcMainOnRecoverConsumingWallet.value({}, 'phrase', 'passphrase', 'consumingPath', 'wordlist', 'password', 'earningPath')
+        await ipcMainOnRecoverConsumingWallet.value({}, 'chainName', 'phrase', 'passphrase', 'consumingPath', 'wordlist', 'password', 'earningPath')
       })
 
       it('sends a success messages to the render process', () => {
@@ -417,10 +417,10 @@ describe('main', () => {
 
     describe('unsuccessfully', () => {
       beforeEach(async () => {
-        td.when(MockNodeActuator.prototype.recoverWallet('phrase', 'passphrase', 'consumingPath', 'wordlist', 'password', 'earningPath'))
+        td.when(MockNodeActuator.prototype.recoverWallet('chainName', 'phrase', 'passphrase', 'consumingPath', 'wordlist', 'password', 'earningPath'))
           .thenResolve({ success: false, message: 'whoops' })
 
-        await ipcMainOnRecoverConsumingWallet.value({}, 'phrase', 'passphrase', 'consumingPath', 'wordlist', 'password', 'earningPath')
+        await ipcMainOnRecoverConsumingWallet.value({}, 'chainName', 'phrase', 'passphrase', 'consumingPath', 'wordlist', 'password', 'earningPath')
       })
 
       it('sends a success messages to the render process', () => {
@@ -436,9 +436,9 @@ describe('main', () => {
 
     describe('successfully', () => {
       beforeEach(async () => {
-        td.when(MockNodeActuator.prototype.generateWallet('passphrase', 'consumingPath', 'wordlist', 'password', 12, 'earningPath')).thenResolve({ success: true, result: 'some mnemonic phrase that just happens to be the correct length yo' })
+        td.when(MockNodeActuator.prototype.generateWallet('chainName', 'passphrase', 'consumingPath', 'wordlist', 'password', 12, 'earningPath')).thenResolve({ success: true, result: 'some mnemonic phrase that just happens to be the correct length yo' })
 
-        await ipcMainOnGenerateConsumingWallet.value({}, 'passphrase', 'consumingPath', 'wordlist', 'password', 12, 'earningPath')
+        await ipcMainOnGenerateConsumingWallet.value({}, 'chainName', 'passphrase', 'consumingPath', 'wordlist', 'password', 12, 'earningPath')
       })
 
       it('sends a success messages to the render process', () => {
@@ -448,10 +448,10 @@ describe('main', () => {
 
     describe('unsuccessfully', () => {
       beforeEach(async () => {
-        td.when(MockNodeActuator.prototype.generateWallet('passphrase', 'consumingPath', 'wordlist', 'password', 12, 'earningPath'))
+        td.when(MockNodeActuator.prototype.generateWallet('chainName', 'passphrase', 'consumingPath', 'wordlist', 'password', 12, 'earningPath'))
           .thenResolve({ success: false, message: 'whoops' })
 
-        await ipcMainOnGenerateConsumingWallet.value({}, 'passphrase', 'consumingPath', 'wordlist', 'password', 12, 'earningPath')
+        await ipcMainOnGenerateConsumingWallet.value({}, 'chainName', 'passphrase', 'consumingPath', 'wordlist', 'password', 12, 'earningPath')
       })
 
       it('sends a success messages to the render process', () => {

@@ -81,16 +81,18 @@ describe('After application launch: ', function () {
     // this.app.client.log('driver').then((msg) => { console.log(msg) })
     printConsoleForDebugging(this.app.client, false)
     if (this.app && this.app.isRunning()) {
-      const imageFile = this.app.env.ELECTRON_USER_DATA + '/Screenshot.png'
-      this.app.browserWindow.capturePage().then((imageBuffer) => {
-        try {
-          fs.writeFileSync(imageFile, imageBuffer)
-        } catch (error) {
-          throw new Error(error)
-        }
-      }).catch((error) => {
-        console.log(`Failed to save screenshot to ${imageFile} because ${error.message}`)
-      })
+      if (process.env.SUPPRESS_SCREENSHOTS !== 'true') {
+        const imageFile = this.app.env.ELECTRON_USER_DATA + '/Screenshot.png'
+        this.app.browserWindow.capturePage().then((imageBuffer) => {
+          try {
+            fs.writeFileSync(imageFile, imageBuffer)
+          } catch (error) {
+            throw new Error(error)
+          }
+        }).catch((error) => {
+          console.log(`Failed to save screenshot to ${imageFile} because ${error.message}`)
+        })
+      }
       const result = this.app.stop()
       assert.strictEqual(await uiInterface.verifyNodeDown(10000), true,
         'node did not go down after app.stop()')
@@ -151,6 +153,7 @@ describe('After application launch: ', function () {
 
     await client.waitUntilWindowLoaded()
     await indexPage.serving.click()
+    await configComponent.chainName.selectByValue('ropsten')
     await configComponent.ipInput.setValue('1.2.3.4')
     await configComponent.neighborInput.setValue('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:1.1.1.1:12345;4321')
     await configComponent.blockchainServiceUrl.setValue('https://127.0.0.1')
@@ -183,6 +186,7 @@ describe('After application launch: ', function () {
 
     await client.waitUntilWindowLoaded()
     await indexPage.serving.click()
+    await configComponent.chainName.selectByValue('ropsten')
     await configComponent.ipInput.setValue('1.2.3.4')
     await configComponent.neighborInput.setValue('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:1.1.1.1:12345;4321')
     await configComponent.blockchainServiceUrl.setValue('http://127.0.0.1')
@@ -217,6 +221,7 @@ describe('After application launch: ', function () {
 
     await client.waitUntilWindowLoaded()
     await indexPage.serving.click()
+    await configComponent.chainName.selectByValue('ropsten')
     await configComponent.ipInput.setValue('1.2.3.4')
     await configComponent.neighborInput.setValue('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:1.1.1.1:12345;4321')
     await configComponent.blockchainServiceUrl.setValue('https://127.0.0.1')
@@ -254,6 +259,7 @@ describe('After application launch: ', function () {
 
     await client.waitUntilWindowLoaded()
     await indexPage.serving.click()
+    await configComponent.chainName.selectByValue('ropsten')
     await configComponent.ipInput.setValue('1.2.3.4')
     await configComponent.neighborInput.setValue('wsijSuWax0tMAiwYPr5dgV4iuKDVIm5/l+E9BYJjbSI:1.1.1.1:12345;4321')
     await configComponent.blockchainServiceUrl.setValue('https://127.0.0.1')
@@ -286,7 +292,9 @@ describe('After application launch: ', function () {
 })
 
 function printConsoleForDebugging (client, debug) {
-  if (!debug) { return }
+  if (!debug) {
+    return
+  }
   client.getMainProcessLogs().then(function (logs) {
     logs.forEach(function (log) {
       consoleWrapper.log(log)
@@ -343,10 +351,6 @@ class ConfigComponent {
 
   get neighborInput () {
     return this.client.element('#neighbor')
-  }
-
-  get walletAddress () {
-    return this.client.element('#wallet-address')
   }
 
   get blockchainServiceUrl () {

@@ -715,7 +715,9 @@ mod tests {
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::{ensure_node_home_directory_exists, ArgsBuilder};
+    use crate::test_utils::{
+        ensure_node_home_directory_exists, ArgsBuilder, TEST_DEFAULT_CHAIN_NAME,
+    };
     use crate::test_utils::{make_default_persistent_configuration, DEFAULT_CHAIN_ID};
     use crate::test_utils::{ByteArrayWriter, FakeStreamHolder};
     use ethsign::keyfile::Crypto;
@@ -2065,7 +2067,7 @@ mod tests {
     }
 
     #[test]
-    fn privileged_configuration_defaults_network_chain_selection_to_ropsten() {
+    fn privileged_configuration_defaults_network_chain_selection_to_mainnet() {
         let subject = NodeConfiguratorStandardPrivileged {};
         let args = ArgsBuilder::new()
             .param("--dns-servers", "1.2.3.4")
@@ -2080,18 +2082,18 @@ mod tests {
     }
 
     #[test]
-    fn privileged_configuration_rejects_mainnet_network_chain_selection() {
+    fn privileged_configuration_accepts_ropsten_network_chain_selection() {
         let subject = NodeConfiguratorStandardPrivileged {};
         let args = ArgsBuilder::new()
             .param("--dns-servers", "1.2.3.4")
             .param("--ip", "1.2.3.4")
-            .param("--chain", "mainnet");
+            .param("--chain", TEST_DEFAULT_CHAIN_NAME);
 
         let bootstrapper_config =
             subject.configure(&args.into(), &mut FakeStreamHolder::new().streams());
         assert_eq!(
             bootstrapper_config.blockchain_bridge_config.chain_id,
-            chain_id_from_name("mainnet")
+            chain_id_from_name(TEST_DEFAULT_CHAIN_NAME)
         );
     }
 

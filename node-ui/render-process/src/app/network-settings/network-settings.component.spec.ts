@@ -6,37 +6,47 @@ import {FormsModule, ReactiveFormsModule} from '@angular/forms';
 import * as td from 'testdouble';
 import {Router} from '@angular/router';
 import {NetworkSettings} from '../network-settings';
-import {BehaviorSubject, of, Subject} from 'rxjs';
+import {BehaviorSubject, Observable, of, Subject} from 'rxjs';
 import {NodeStatus} from '../node-status.enum';
 import {UiGatewayService} from '../ui-gateway.service';
 import {ConfigService} from '../config.service';
-import {NodeConfiguration} from '../node-configuration';
+import {NodeConfiguration, NodeConfigurations} from '../node-configuration';
+import {MainService} from '../main.service';
 
 describe('NetworkSettingsComponent', () => {
   let component: NetworkSettingsComponent;
   let fixture: ComponentFixture<NetworkSettingsComponent>;
   let page: NetworkSettingsPage;
   let mockRouter;
-  let uiGatewayService;
+  let mockUiGatewayService;
   let mockConfigService;
-  let storedConfig: Subject<NodeConfiguration>;
-  let nodeStatusSubject: Subject<NodeStatus>;
+  let mockMainService;
+  let mockChainNameListener;
+  let storedConfigs: BehaviorSubject<NodeConfigurations>;
+  let nodeStatusSubject: BehaviorSubject<NodeStatus>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     nodeStatusSubject = new BehaviorSubject(NodeStatus.Off);
-    uiGatewayService = {
+    mockUiGatewayService = {
       setGasPrice: td.func('setGasPrice')
     };
-    storedConfig = new BehaviorSubject({networkSettings: '1'} as NodeConfiguration);
+    storedConfigs = new BehaviorSubject({ropsten: {networkSettings: {gasPrice: 1}} as NodeConfiguration} as NodeConfigurations);
     mockConfigService = {
-      patchValue: td.func(),
-      load: td.func('load')
+      patchValue: td.func('patchValue'),
+      load: td.func('load'),
+      getConfigs: () => storedConfigs.getValue(),
     };
     spyOn(mockConfigService, 'patchValue');
     mockRouter = {
-      navigate: td.func()
+      navigate: td.func('navigate')
     };
     spyOnAllFunctions(mockRouter);
+    mockChainNameListener = new BehaviorSubject('ropsten');
+    mockMainService = {
+      chainNameListener: mockChainNameListener,
+      chainName: mockChainNameListener.asObservable(),
+      nodeStatus: nodeStatusSubject.asObservable(),
+    };
     TestBed.configureTestingModule({
       declarations: [NetworkSettingsComponent],
       imports: [
@@ -44,12 +54,23 @@ describe('NetworkSettingsComponent', () => {
         ReactiveFormsModule,
       ],
       providers: [
-        {provide: ConfigService, useValue: mockConfigService},
-        {provide: UiGatewayService, useValue: uiGatewayService},
-        {provide: Router, useValue: mockRouter}
       ]
-    }).compileComponents();
-    td.when(mockConfigService.load()).thenReturn(storedConfig.asObservable());
+    })
+      .overrideComponent(NetworkSettingsComponent, {
+        set: {
+          providers: [
+            {provide: ConfigService, useValue: mockConfigService},
+            {provide: UiGatewayService, useValue: mockUiGatewayService},
+            {provide: MainService, useValue: mockMainService},
+            {provide: Router, useValue: mockRouter},
+          ]
+        }
+      })
+      .compileComponents();
+  });
+
+  beforeEach(() => {
+    td.when(mockConfigService.load()).thenReturn(storedConfigs.asObservable());
     fixture = TestBed.createComponent(NetworkSettingsComponent);
     component = fixture.componentInstance;
     page = new NetworkSettingsPage(fixture);
@@ -65,7 +86,7 @@ describe('NetworkSettingsComponent', () => {
     };
 
     beforeEach(() => {
-      storedConfig.next({networkSettings: expected});
+      storedConfigs.next({ropsten: {networkSettings: expected} as NodeConfiguration} as NodeConfigurations);
       fixture.detectChanges();
     });
 
@@ -76,7 +97,6 @@ describe('NetworkSettingsComponent', () => {
     it('is enabled while Node is not running', () => {
       expect(component.networkSettings.disabled).toBeFalsy();
     });
-
   });
 
   describe('Navigation', () => {
@@ -86,35 +106,39 @@ describe('NetworkSettingsComponent', () => {
       });
 
       it('returns to index screen', () => {
-        expect(mockRouter.navigate).toHaveBeenCalledWith(['index']);
+        expect(mockRouter.navigate).toHaveBeenCalledWith(['index', 'status', '']);
       });
     });
 
     describe('Save', () => {
       beforeEach(() => {
-        page.setGasPrice('99');
+        td.when(mockUiGatewayService.setGasPrice(td.matchers.anything())).thenReturn(new BehaviorSubject(true));
+        storedConfigs.next(new NodeConfigurations());
         fixture.detectChanges();
       });
 
       describe('when successful', () => {
         beforeEach(() => {
-          td.when(uiGatewayService.setGasPrice(td.matchers.anything())).thenReturn(of(true));
+          page.setChainName('ropsten');
+          page.setGasPrice('99');
           page.save.click();
           fixture.detectChanges();
         });
 
         it('returns to index screen', () => {
-          expect(mockRouter.navigate).toHaveBeenCalledWith(['index']);
+          expect(mockRouter.navigate).toHaveBeenCalledWith(['index', 'status', '']);
         });
 
         it('saves the form to the ui configuration', () => {
-          expect(mockConfigService.patchValue).toHaveBeenCalledWith({networkSettings: {gasPrice: '99'}});
+          const expected: NodeConfigurations = new NodeConfigurations();
+          expected.ropsten = {networkSettings: {gasPrice: 99}, chainName: 'ropsten'};
+          expect(mockConfigService.patchValue).toHaveBeenCalledWith(expected);
         });
       });
 
       describe('when failed', () => {
         beforeEach(() => {
-          td.when(uiGatewayService.setGasPrice(td.matchers.anything())).thenReturn(of(false));
+          td.when(mockUiGatewayService.setGasPrice(td.matchers.anything())).thenReturn(of(false));
           page.save.click();
           fixture.detectChanges();
         });

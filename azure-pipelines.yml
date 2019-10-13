@@ -40,7 +40,7 @@ stages:
             continueOnError: true
             inputs:
               key: |
-                "$(rust_version)" | $(Agent.OS) | "v3.9"
+                "$(rust_version)" | $(Agent.OS) | "v3.10"
               path: $(Pipeline.Workspace)/toolchains
               cacheHitVar: NODE_TOOLCHAINS_RESTORED
 
@@ -73,7 +73,7 @@ stages:
               netsh advfirewall set allprofiles state off
               net stop sharedaccess || echo ICS already disabled
               net stop W3SVC || echo W3SVC service already disabled
-            condition: eq( variables['Agent.OS'], 'Windows_NT' )
+            condition: and (eq( variables['Agent.OS'], 'Windows_NT' ), ne(variables.CACHE_ONLY, 'true'))
             displayName: "Disable Annoying Windows Services"
 
           - bash: ci/prepare_node_build.sh '$(Pipeline.Workspace)'
@@ -93,7 +93,7 @@ stages:
             displayName: "Prepare NodeUI build"
 
           - task: Windows Application Driver@0
-            condition: eq( variables['Agent.OS'], 'Windows_NT' )
+            condition: and (eq( variables['Agent.OS'], 'Windows_NT' ), ne(variables.CACHE_ONLY, 'true'))
             displayName: "Starting WinAppDriver"
             inputs:
               OperationType: 'Start'
@@ -104,7 +104,7 @@ stages:
             displayName: "Build NodeUI and run tests"
 
           - task: Windows Application Driver@0
-            condition: eq( variables['Agent.OS'], 'Windows_NT' )
+            condition: and (eq( variables['Agent.OS'], 'Windows_NT' ), ne(variables.CACHE_ONLY, 'true'))
             displayName: "Stopping WinAppDriver"
             inputs:
               OperationType: 'Stop'
@@ -113,7 +113,7 @@ stages:
             env:
               GITHUB_TOKEN: $(GITHUB_TOKEN)
             displayName: "Collect and publish results"
-            condition: succeededOrFailed()
+            condition: and (succeededOrFailed(), ne(variables.CACHE_ONLY, 'true'))
 
 #  - stage: Release
 #    displayName: "Release"
